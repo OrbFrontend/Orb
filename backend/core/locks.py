@@ -78,6 +78,31 @@ async def workflow_config_lock():
         yield
 
 
+_world_apply_locks: dict[tuple[asyncio.AbstractEventLoop, str], asyncio.Lock] = {}
+
+
+@asynccontextmanager
+async def world_apply_lock(world_id: str):
+    """Serialize Dynamic Worlds mutations for one World across the process.
+
+    Applying a changeset is read-revision → write-entries → bump-revision. The
+    SQLite ``BEGIN IMMEDIATE`` in ``apply_changeset`` is what makes that atomic
+    against another *process*; this lock is what stops two request tasks in
+    *this* process from queueing on the write lock and turning a lost-update
+    into a serialized double-apply. The revision check is still the authority --
+    the loser gets a conflict either way -- so the lock is about avoiding
+    needless conflicts, not about correctness.
+
+    Keyed by running event loop as well as World id, for the same reason as
+    ``workflow_config_lock``: a ``Lock`` binds to the loop of its first acquire,
+    and pytest-asyncio hands each test a fresh loop while temp DBs reuse ids.
+    """
+    loop = asyncio.get_running_loop()
+    lock = _world_apply_locks.setdefault((loop, world_id), asyncio.Lock())
+    async with lock:
+        yield
+
+
 _maintenance_locks: dict[asyncio.AbstractEventLoop, asyncio.Lock] = {}
 
 

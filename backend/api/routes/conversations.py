@@ -41,6 +41,7 @@ from ...database import (
     get_user_persona,
     insert_alternate_greeting_swipes,
     list_conversations,
+    mark_orphaned_changesets_stale,
     resolve_char_context,
     set_active_leaf,
     set_workflow_message_state,
@@ -150,6 +151,10 @@ async def api_create_conversation(data: ConversationCreate):
 async def api_delete_conversation(cid: str):
     if not await delete_conversation(cid):
         raise HTTPException(status_code=404, detail="Conversation not found")
+    # The cascade NULLed the source pointers of every changeset raised in this
+    # chat. Unreviewed proposals lose the evidence they were derived from and go
+    # stale; applied ones stay canon, carrying their denormalised labels.
+    await mark_orphaned_changesets_stale()
     return {"ok": True}
 
 

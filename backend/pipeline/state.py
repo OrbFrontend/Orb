@@ -107,6 +107,7 @@ _RESULT_FIELDS = (
     "staged_attachments",
     "staged_message_state",
     "macro_choices",
+    "world_proposal",
 )
 
 
@@ -176,6 +177,14 @@ class TurnState:
     staged_attachments: list[dict] = field(default_factory=list)
     staged_message_state: dict = field(default_factory=dict)
 
+    # --- Dynamic Worlds (set by the proposal stage, staged by persistence) ---
+    # The validated, not-yet-persisted proposal: ``{world_id, base_revision,
+    # summary, operations, source_*}``. None when the feature is off for this
+    # turn, or when the model proposed nothing. Persistence turns it into a
+    # pending ``world_changesets`` row once the assistant message has an id --
+    # the changeset must name its source message, and no earlier point knows it.
+    world_proposal: dict | None = None
+
     def as_result_event_data(self) -> dict:
         """Return the result-subset dict for the ``_result`` SSE envelope.
 
@@ -243,3 +252,28 @@ class LorebookTurn:
             director_selected=director_selected,
             macros=macros,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class WorldProposalTurn:
+    """Identity of the World a completed turn may propose changes to.
+
+    Deliberately carries no entries and no revision: the proposal step re-reads
+    both immediately before it runs, so a proposal is always based on the World
+    as it stands *after* the turn's own latency rather than as it stood when the
+    turn began.
+
+    The target is resolved only from the conversation's linked character card
+    (``character_cards.world_id``) -- never from the set of globally enabled
+    Worlds, which is a display concern and would let an unrelated World absorb
+    another character's events. ``user_message`` is the *semantic* user message:
+    on the steered paths it is the original message, not Orb's OOC steering
+    prompt. The two labels are denormalised into the changeset so applied
+    history stays readable after the chat is deleted.
+    """
+
+    world_id: str
+    conversation_id: str
+    user_message: str
+    character_label: str = ""
+    conversation_label: str = ""

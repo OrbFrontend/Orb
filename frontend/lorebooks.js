@@ -3,6 +3,7 @@ import { createChipInput } from "./chips.js";
 import { closeModal, showConfirmModal, showModal } from "./modal.js";
 import { charactersView } from "./state.js";
 import { $, boolFlag, downloadBlob, esc, toast } from "./utils.js";
+import { changesetRowHtml, isOpen, operationEditHtml, readOperationEdit } from "./world_proposals.js";
 
 // ── Module state
 let _worlds = [];
@@ -123,11 +124,13 @@ function _worldItemHtml(w) {
   const active = _lorebookOpen && _focusWorldId === w.id;
   const toggleId = `world-toggle-${w.id}`;
   const clickHandler = active ? "closeLorebook()" : `openLorebook('${w.id}')`;
+  const pending = _pendingCount(w.id);
   return `
   <div class="world-item${active ? " active" : ""}">
     <div class="world-item-main" onclick="${clickHandler}">
       <div class="world-avatar">${esc(initials)}</div>
       <span class="world-name">${esc(w.name)}</span>
+      ${pending ? `<span class="world-pending" title="World changes awaiting review">${pending}</span>` : ""}
     </div>
     <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
       <label class="tog" for="${toggleId}">
@@ -357,9 +360,10 @@ export async function openLorebook(worldId) {
   _entrySearch = "";
   _dirty = false;
   _draft = _emptyDraft();
+  _drawerTab = "entries";
   renderWorldsSidebar();
   try {
-    await _loadEntries(worldId);
+    await Promise.all([_loadEntries(worldId), _loadChangesets(worldId)]);
   } catch (_e) {
     toast("Failed to load entries", true);
   }
@@ -397,12 +401,18 @@ function renderLorebookDrawer() {
   }
 
   const allEntries = _entries[_focusWorldId] || [];
-  const activeCount = allEntries.filter((e) => boolFlag(e.enabled)).length;
+  // Archived overlay rows are history, not lore: they stay out of the entry list
+  // and are reachable through the History tab's undo instead.
+  const liveEntries = allEntries.filter((e) => !boolFlag(e.archived));
+  const activeCount = liveEntries.filter((e) => boolFlag(e.enabled)).length;
+  const dynamicOn = boolFlag(world.dynamic_enabled);
+  const dynamicCount = liveEntries.filter((e) => e.entry_layer === "dynamic").length;
+  const pendingCount = _pendingCount(_focusWorldId);
 
   const q = _entrySearch.trim().toLowerCase();
   const entries = q
-    ? allEntries.filter((e) => (e.name || "").toLowerCase().includes(q) || (e.content || "").toLowerCase().includes(q))
-    : allEntries;
+    ? liveEntries.filter((e) => (e.name || "").toLowerCase().includes(q) || (e.content || "").toLowerCase().includes(q))
+    : liveEntries;
 
   const entryListHtml = entries.length
     ? entries
@@ -411,10 +421,17 @@ function renderLorebookDrawer() {
           const sel = _selectedEntryId === e.id;
           const toggleId = `lb-entry-toggle-${e.id}`;
           const dirtyDot = _dirty && _selectedEntryId === e.id ? `<span class="lb-dirty-dot"></span>` : "";
+          // The layer is the one thing a user must never have to guess: an entry
+          // the Agent wrote reads differently from one they wrote themselves.
+          const layerTag =
+            e.entry_layer === "dynamic"
+              ? `<span class="lb-layer lb-layer-dynamic" title="Agent-managed">Dynamic</span>`
+              : "";
           return `
       <div class="lb-entry-item${sel ? " active" : ""}${!enabled ? " lb-disabled" : ""}" onclick="lbSelectEntry(${e.id})">
         ${dirtyDot}
         <span class="lb-entry-name">${esc(e.name || e.keywords?.[0] || "")}</span>
+        ${layerTag}
         <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
           <label class="tog" for="${toggleId}">
             <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
@@ -431,6 +448,18 @@ function renderLorebookDrawer() {
     ? _buildEditorHtml()
     : `<div class="lb-empty-state">Select an entry to edit</div>`;
 
+  const tab = (id, label, badge = 0) =>
+    `<button type="button" class="lb-tab${_drawerTab === id ? " active" : ""}" data-lb-tab="${id}">${esc(label)}${
+      badge ? `<span class="lb-tab-badge">${badge}</span>` : ""
+    }</button>`;
+
+  const rightPane =
+    _drawerTab === "pending"
+      ? `<div class="wc-list">${_changesetListHtml(_focusWorldId, ["pending", "stale"], "No proposals waiting for review")}</div>`
+      : _drawerTab === "history"
+        ? `<div class="wc-list">${_changesetListHtml(_focusWorldId, ["applied", "rejected", "reverted"], "No decided changes yet")}</div>`
+        : editorHtml;
+
   const prevScrollTop = drawer.querySelector(".lb-entries-scroll")?.scrollTop ?? 0;
 
   drawer.innerHTML = `
@@ -445,6 +474,14 @@ function renderLorebookDrawer() {
           <button class="btn btn-sm lb-rename-btn" onclick="showRenameWorldModal('${_focusWorldId}')" title="Rename lorebook">✎</button>
           <span class="lb-active-count">${activeCount} active</span>
         </div>
+        <div class="lb-dynamic-row">
+          <label class="tog" for="lb-dynamic-toggle" title="Let the Agent propose world changes from what happens in play">
+            <input type="checkbox" id="lb-dynamic-toggle" ${dynamicOn ? "checked" : ""}>
+            <span class="tog-slider"></span>
+          </label>
+          <span class="lb-dynamic-label">Dynamic World${dynamicCount ? ` · ${dynamicCount} agent ${dynamicCount === 1 ? "entry" : "entries"}` : ""}</span>
+          ${dynamicCount ? `<button type="button" class="btn btn-sm lb-reset-btn" title="Retire every Agent-managed entry">Reset</button>` : ""}
+        </div>
         <div class="lb-entry-search">
           <input id="lb-entry-search-inp" class="lb-entry-search-inp" type="text"
                  placeholder="Search entries…" value="${esc(_entrySearch)}"
@@ -456,13 +493,18 @@ function renderLorebookDrawer() {
         <div class="lb-entry-list-footer">
           <button class="btn btn-sm btn-block" onclick="lbAddEntry()">+ New Entry</button>
           <div style="display:flex;gap:4px;margin-top:4px">
-            <button class="btn btn-sm lb-export-btn" style="flex:1;justify-content:center" title="Export lorebook as JSON">⬇ Export JSON</button>
+            <button class="btn btn-sm lb-export-btn" style="flex:1;justify-content:center" title="Export your authored entries as JSON">⬇ Export JSON</button>
             <button class="btn btn-sm" style="flex:1;justify-content:center;color:var(--red)" onclick="deleteWorld('${_focusWorldId}')">Delete Lorebook</button>
           </div>
         </div>
       </div>
       <div class="lb-editor" id="lb-editor" data-has-selection="${!!_selectedEntryId}">
-        ${editorHtml}
+        <div class="lb-tabs">
+          ${tab("entries", "Entry")}
+          ${tab("pending", "Pending", pendingCount)}
+          ${tab("history", "History")}
+        </div>
+        ${rightPane}
       </div>
     </div>`;
 
@@ -471,7 +513,14 @@ function renderLorebookDrawer() {
 
   // Bound in JS rather than inline on*= — the frontend layer check ratchets those.
   const exportBtn = drawer.querySelector(".lb-export-btn");
-  if (exportBtn) exportBtn.onclick = lbExportJson;
+  if (exportBtn) exportBtn.onclick = () => lbExportJson("authored");
+  const dynamicToggle = $("lb-dynamic-toggle");
+  if (dynamicToggle) dynamicToggle.onchange = (e) => toggleWorldDynamic(_focusWorldId, e.target.checked);
+  const resetBtn = drawer.querySelector(".lb-reset-btn");
+  if (resetBtn) resetBtn.onclick = () => resetWorldToAuthored(_focusWorldId);
+  for (const el of drawer.querySelectorAll("[data-lb-tab]")) {
+    el.onclick = () => lbSelectTab(el.dataset.lbTab);
+  }
   const regexCb = $("lb-use-regex");
   if (regexCb) regexCb.onchange = (e) => lbDraftChange("use_regex", e.target.checked);
   const selectiveCb = $("lb-selective");
@@ -479,7 +528,7 @@ function renderLorebookDrawer() {
   const atDepthCb = $("lb-at-depth");
   if (atDepthCb) atDepthCb.onchange = (e) => lbDraftChange("at_depth", e.target.checked);
 
-  if (_selectedEntryId) {
+  if (_selectedEntryId && _drawerTab === "entries") {
     const kwWrap = $("lb-chip-wrap");
     if (kwWrap && !_draft.constant) kwWrap.onclick = () => $("lb-chip-text")?.focus();
     _keywordChips.render();
@@ -494,8 +543,18 @@ function renderLorebookDrawer() {
 function _buildEditorHtml() {
   const unsavedBadge = _dirty ? `<span class="lb-unsaved-badge">Unsaved changes</span>` : "";
   const discardBtn = _dirty ? `<button class="btn btn-sm" onclick="lbDiscardChanges()">Discard</button>` : "";
+  // Editing an Agent-managed entry is allowed, but it should never be mistaken
+  // for editing lore the user wrote.
+  const entry = _getEntry(_selectedEntryId);
+  const layerBanner =
+    entry?.entry_layer === "dynamic"
+      ? `<div class="lb-layer-banner">Agent-managed entry${
+          entry.supersedes_entry_id ? ` — replaces an entry you wrote` : ""
+        }. Reset to Authored World retires it.</div>`
+      : "";
   return `
     <div class="lb-editor-inner">
+      ${layerBanner}
       <div class="lb-editor-header">
         <input id="lb-entry-name" class="lb-entry-name-input" value="${esc(_draft.name)}"
                oninput="lbDraftChange('name', this.value)">
@@ -786,10 +845,262 @@ export async function lbAddEntry() {
 }
 
 // ── Export the focused lorebook as a standalone JSON file
-function lbExportJson() {
+// Authored by default: a lorebook file is the user's own lore, and an export
+// that silently baked in Agent-managed state would round-trip as authored.
+function lbExportJson(view = "authored") {
   const world = _worlds.find((w) => w.id === _focusWorldId);
   if (!world) return;
-  downloadBlob(`${world.name}.json`, `/api/worlds/${world.id}/export`);
+  const suffix = view === "authored" ? "" : ` (${view})`;
+  downloadBlob(`${world.name}${suffix}.json`, `/api/worlds/${world.id}/export?view=${view}`);
+}
+
+// ══ Dynamic Worlds ═══════════════════════════════════════════════════════════
+//
+// Every world mutation lives in this module, so the proposal card under a chat
+// reply and the drawer's Pending / History lists share one set of actions and
+// one cache-refresh path. The card only *renders* (world_proposals.js); this is
+// what happens when it is clicked.
+
+const _changesets = {}; // worldId -> changeset[]
+let _drawerTab = "entries"; // entries | pending | history
+
+async function _loadChangesets(worldId) {
+  _changesets[worldId] = await api.get(`/worlds/${worldId}/changesets`);
+}
+
+function _pendingCount(worldId) {
+  const world = _worlds.find((w) => w.id === worldId);
+  const cached = _changesets[worldId];
+  // The cached list is authoritative once loaded (it reflects decisions made
+  // this session); the world row's count covers the not-yet-opened drawer.
+  return cached ? cached.filter(isOpen).length : world?.pending_changesets || 0;
+}
+
+/** Reload every surface a world mutation can invalidate: the drawer and the chat. */
+async function _refreshAfterWorldChange(worldId) {
+  try {
+    await Promise.all([_loadEntries(worldId), _loadChangesets(worldId)]);
+    _worlds = await api.get("/worlds");
+  } catch (e) {
+    console.error("Failed to refresh world after change:", e);
+  }
+  renderWorldsSidebar();
+  if (_focusWorldId === worldId) renderLorebookDrawer();
+  // The chat paints proposal cards from the message rows, so it needs the
+  // server's new view of them — not this module's.
+  await _refreshChatProposals();
+}
+
+// Set by app.js at boot rather than imported: lorebooks.js sits below the chat
+// feature modules, and reaching up into them would invert the layering.
+let _chatRefresh = null;
+
+export function setWorldProposalRefresh(fn) {
+  _chatRefresh = fn;
+}
+
+async function _refreshChatProposals() {
+  if (!_chatRefresh) return;
+  try {
+    await _chatRefresh();
+  } catch (e) {
+    console.error("Failed to refresh chat proposals:", e);
+  }
+}
+
+function _findChangeset(worldId, id) {
+  return (_changesets[worldId] || []).find((c) => String(c.id) === String(id)) || null;
+}
+
+/** Ensure a changeset the chat card knows about is in this module's cache. */
+async function _requireChangeset(worldId, id) {
+  if (!_changesets[worldId]) await _loadChangesets(worldId);
+  return _findChangeset(worldId, id);
+}
+
+export async function toggleWorldDynamic(worldId, enabled) {
+  try {
+    const updated = await api.put(`/worlds/${worldId}/dynamic`, { enabled });
+    const idx = _worlds.findIndex((w) => w.id === worldId);
+    if (idx !== -1) _worlds[idx] = { ..._worlds[idx], ...updated };
+    renderLorebookDrawer();
+  } catch (_e) {
+    toast("Failed to update Dynamic Worlds", true);
+  }
+}
+
+async function _applyChangeset(worldId, id, body = {}) {
+  try {
+    await api.post(`/worlds/${worldId}/changesets/${id}/apply`, body);
+    toast("World updated");
+  } catch (e) {
+    // 409 is the revision conflict: the proposal is now stale and the server
+    // has said so, so surfacing the message and refreshing is the whole
+    // remedy — there is no force-apply to offer.
+    toast(e.message, true);
+  }
+  await _refreshAfterWorldChange(worldId);
+}
+
+async function _rejectChangeset(worldId, id) {
+  try {
+    await api.post(`/worlds/${worldId}/changesets/${id}/reject`, {});
+  } catch (e) {
+    toast(e.message, true);
+  }
+  await _refreshAfterWorldChange(worldId);
+}
+
+async function _reevaluateChangeset(worldId, id) {
+  toast("Re-evaluating against the current world…");
+  try {
+    const result = await api.post(`/worlds/${worldId}/changesets/${id}/re-evaluate`, {});
+    toast(result.changeset ? "New proposal ready for review" : "Nothing left to propose");
+  } catch (e) {
+    toast(e.message, true);
+  }
+  await _refreshAfterWorldChange(worldId);
+}
+
+async function _undoChangeset(worldId, id) {
+  try {
+    await api.post(`/worlds/${worldId}/changesets/${id}/undo`, {});
+    toast("Change undone");
+  } catch (e) {
+    toast(e.message, true);
+  }
+  await _refreshAfterWorldChange(worldId);
+}
+
+export function resetWorldToAuthored(worldId) {
+  showConfirmModal(
+    {
+      title: "Reset to Authored World",
+      message:
+        "Retire every Agent-managed entry, restoring this lorebook to the entries you wrote. " +
+        "Your own entries are never touched, and this reset can itself be undone from History.",
+      confirmText: "Reset",
+      confirmClass: "btn-danger",
+    },
+    async () => {
+      try {
+        const result = await api.post(`/worlds/${worldId}/reset`, {});
+        toast(result.reset ? "Reset to your authored world" : "Nothing to reset");
+      } catch (e) {
+        toast(e.message, true);
+      }
+      await _refreshAfterWorldChange(worldId);
+    },
+  );
+}
+
+// ── Edit-before-apply
+//
+// The whole edited batch commits together, so the modal collects every
+// operation's final wording first and posts once.
+function _openChangesetEditor(worldId, id) {
+  const changeset = _findChangeset(worldId, id);
+  if (!changeset) return;
+  const ops = changeset.operations || [];
+  showModal(`
+    <h2>Review world change</h2>
+    <div class="field">
+      <label>Summary</label>
+      <input id="wc-edit-summary" value="${esc(changeset.summary || "")}">
+    </div>
+    <div class="wc-edit-ops">${ops.map((op, i) => operationEditHtml(op, i)).join("")}</div>
+    <div class="modal-actions">
+      <button class="btn" id="wc-edit-cancel">Cancel</button>
+      <button class="btn" id="wc-edit-save">Save</button>
+      <button class="btn btn-accent" id="wc-edit-apply">Save &amp; Apply</button>
+    </div>`);
+
+  const collect = () => {
+    const edited = [];
+    for (const [i, op] of ops.entries()) {
+      const row = document.querySelector(`.wc-edit-op[data-wc-index="${i}"]`);
+      if (!row) continue;
+      const read = (field) => row.querySelector(`[data-wc-field="${field}"]`);
+      const values = {
+        include: read("include")?.checked ?? true,
+        name: read("name")?.value,
+        content: read("content")?.value,
+        activation: read("activation")?.value,
+        keywords: read("keywords")?.value,
+      };
+      const kept = readOperationEdit(op, values);
+      if (kept) edited.push(kept);
+    }
+    return { summary: $("wc-edit-summary")?.value ?? changeset.summary, operations: edited };
+  };
+
+  const bind = (elId, fn) => {
+    const el = $(elId);
+    if (el) el.onclick = fn;
+  };
+  bind("wc-edit-cancel", closeModal);
+  bind("wc-edit-save", async () => {
+    const body = collect();
+    closeModal();
+    try {
+      await api.put(`/worlds/${worldId}/changesets/${id}`, body);
+      toast("Proposal updated");
+    } catch (e) {
+      toast(e.message, true);
+    }
+    await _refreshAfterWorldChange(worldId);
+  });
+  bind("wc-edit-apply", async () => {
+    const body = collect();
+    closeModal();
+    if (!body.operations.length) {
+      toast("Nothing left to apply — reject it instead", true);
+      return;
+    }
+    await _applyChangeset(worldId, id, body);
+  });
+}
+
+// ── One delegated listener for every proposal button, anywhere in the app.
+// Delegation rather than inline `on*=` handlers: the frontend layer check
+// ratchets those down, and the cards are re-rendered constantly.
+const _WC_ACTIONS = {
+  apply: (world, id) => _applyChangeset(world, id),
+  reject: (world, id) => _rejectChangeset(world, id),
+  "re-evaluate": (world, id) => _reevaluateChangeset(world, id),
+  undo: (world, id) => _undoChangeset(world, id),
+  edit: async (world, id) => {
+    await _requireChangeset(world, id);
+    _openChangesetEditor(world, id);
+  },
+};
+
+export function initWorldProposalActions() {
+  document.addEventListener("click", (e) => {
+    const btn = e.target?.closest?.("[data-wc-action]");
+    if (!btn) return;
+    const host = btn.closest("[data-wc-id][data-wc-world]");
+    if (!host) return;
+    const handler = _WC_ACTIONS[btn.dataset.wcAction];
+    if (!handler) return;
+    e.preventDefault();
+    e.stopPropagation();
+    btn.disabled = true;
+    Promise.resolve(handler(host.dataset.wcWorld, host.dataset.wcId)).finally(() => {
+      btn.disabled = false;
+    });
+  });
+}
+
+export function lbSelectTab(tab) {
+  _drawerTab = tab;
+  renderLorebookDrawer();
+}
+
+function _changesetListHtml(worldId, statuses, emptyText) {
+  const rows = (_changesets[worldId] || []).filter((c) => statuses.includes(c.status));
+  if (!rows.length) return `<div class="lb-empty-state">${esc(emptyText)}</div>`;
+  return rows.map(changesetRowHtml).join("");
 }
 
 // ── Import lorebook from JSON file (always creates a new world)

@@ -441,6 +441,69 @@ def build_direction_note_prompt(
     return "\n\n".join(parts) + "]"
 
 
+WORLD_CHANGE_PREAMBLE = (
+    "[OOC: Pause the roleplay and step out of character. You are the World's record-keeper. Read the "
+    "exchange above and decide whether it established anything that is now durably true of the shared "
+    "world -- something a different character, in a different conversation, would have to know. "
+    "Nothing you propose takes effect until the user reviews it, so propose only what is worth their "
+    "attention, and leave the operations list empty when this turn changed nothing."
+)
+
+# The exclusions carry most of the weight: without them a model records every
+# gesture and intention as world state, and the review queue becomes noise.
+WORLD_CHANGE_RULES = (
+    "Record only durable shared state:\n"
+    "- Not transient action, movement, or dialogue -- those are already in the chat history.\n"
+    "- Not plans, intentions, hypotheticals, dreams, flashbacks, or anything a character merely "
+    "considered doing.\n"
+    "- Not out-of-character instructions or narration style.\n"
+    "- Not prose flourish: state the fact plainly, do not re-write the scene.\n"
+    "- Not something an existing entry already says. Revise that entry instead, or propose nothing.\n"
+    "- Not your own inference. If the exchange did not establish it, it did not happen.\n"
+    "- Keep uncertainty uncertain: if something was rumoured, doubted or claimed by one character, "
+    "record it as a rumour or a claim, not as fact."
+)
+
+WORLD_CHANGE_CATALOG_HEADER = (
+    "**Current World entries** -- ids are stable; name an id exactly when replacing, suppressing, updating or archiving."
+)
+
+
+def build_world_change_prompt(
+    catalog: str,
+    *,
+    original_user_message: str = "",
+    reasoning_on: bool = False,
+    tool_schema: dict | None = None,
+) -> str:
+    """Build the request message for the post-turn Dynamic Worlds proposal step.
+
+    The exchange itself is not quoted here: the step replays the writer's user
+    message and the *final* reply (post-editor, post-hook) as the two messages
+    immediately above this request, so it both reads the prose that will actually
+    be persisted and extends the warm writer/editor prefix.
+
+    *original_user_message* is passed only on the steered paths
+    (super-regenerate, magic rewrite), where the replayed user turn is Orb's own
+    OOC steering instruction rather than anything the user said in the fiction.
+    A steer directs the writer; it is not an event in the world, so the step is
+    told to judge the original message instead.
+    """
+    preamble = WORLD_CHANGE_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
+    parts = [preamble, WORLD_CHANGE_RULES]
+    if original_user_message:
+        parts.append(
+            "The user turn above is an internal instruction to the writer, not something said in the "
+            f'story. Judge this as the user\'s message instead:\n"""{original_user_message}"""'
+        )
+    if catalog:
+        parts.append(f"{WORLD_CHANGE_CATALOG_HEADER}\n{catalog}")
+    if tool_schema is not None:
+        parts.append(_tool_call_instruction("propose_world_changes", tool_schema))
+    # Close the [OOC: aside opened in WORLD_CHANGE_PREAMBLE; the whole request is the aside.
+    return "\n\n".join(parts) + "]"
+
+
 def build_editor_prompt(
     has_audit_issues: bool,
     report_text: str,

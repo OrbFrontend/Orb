@@ -1,9 +1,10 @@
 """
 predicates.py — Dependency-free turn predicates.
 
-Three pure functions that answer "what mode is this turn in?":
-``agent_enabled``, ``is_dual_model``, and ``resolve_persona_id``. They read
-settings/conversation mappings and return a flag or id.
+Pure functions that answer "what mode is this turn in?" -- ``agent_enabled``,
+``is_dual_model``, the direction-note and Dynamic Worlds gates, and
+``resolve_persona_id``. They read settings/conversation mappings and return a
+flag or id.
 
 Sits below ``config`` (which imports the pass modules) so any module in the
 package can call these without pulling in the heavier pass dependencies.
@@ -73,6 +74,20 @@ def direction_note_to_director(settings: Mapping[str, Any]) -> bool:
 def direction_note_to_writer(settings: Mapping[str, Any]) -> bool:
     """True when the stored notes should ride the writer's Scene Direction block."""
     return (settings.get("direction_notes_inject", "off") or "off") in ("writer", "both")
+
+
+def world_proposal_active(world: Mapping[str, Any] | None, *, agent_on: bool) -> bool:
+    """Return True when a turn may propose changes to its linked World.
+
+    Requires the global Agent (the proposal is an Agent pass) and that World's
+    own ``dynamic_enabled`` opt-in. *world* is the conversation's linked
+    character card's World and nothing else — ``None`` (no card, or a card with
+    no World) reads as off.
+
+    Deliberately independent of Agentic Lorebook: the two features share a table,
+    not a purpose, and each is useful without the other.
+    """
+    return agent_on and bool(world and world.get("dynamic_enabled"))
 
 
 def resolve_persona_id(

@@ -9,7 +9,7 @@ import os
 import tempfile
 import uuid
 import zipfile
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
@@ -34,6 +34,7 @@ from ...database import (
     sync_conversations_for_card,
     update_character_card,
 )
+from ...features import lorebook
 from ...features.cards import downloader as card_downloader
 from ...features.cards import expressions as card_expressions
 from ...features.cards import parsing as tavern_cards
@@ -206,8 +207,14 @@ async def api_get_avatar(card_id: str, request: Request):
 
 
 @router.get("/api/characters/{card_id}/export")
-async def api_export_character(card_id: str):
-    """Export a character card as a V2-compatible card PNG."""
+async def api_export_character(card_id: str, world_view: Literal["authored", "effective"] = "authored"):
+    """Export a character card as a V2-compatible card PNG.
+
+    The embedded ``character_book`` is the *authored* lorebook by default, so a
+    card shared with someone else carries the lore its author wrote rather than
+    whatever a particular playthrough's Agent proposed and its owner accepted.
+    ``world_view=effective`` opts into exporting the projection instead.
+    """
     card = await get_character_card(card_id, include_avatar=True)
     if not card:
         raise HTTPException(status_code=404, detail="Character not found")
@@ -233,6 +240,11 @@ async def api_export_character(card_id: str):
     if world_id and not export_card.get("character_book"):
         world = await get_world(world_id)
         entries = await get_lorebook_entries(world_id)
+        entries = (
+            lorebook.select_effective_entries(entries)
+            if world_view == "effective"
+            else [e for e in entries if e.get("entry_layer") != "dynamic"]
+        )
         export_card["character_book"] = lorebook_to_book(world["name"] if world else "", entries)
 
     png_bytes = tavern_cards.to_png(export_card, avatar_bytes)

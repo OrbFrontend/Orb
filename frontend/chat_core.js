@@ -27,6 +27,7 @@ import {
 } from "./utils.js";
 import { segmentBody } from "./workflow_segmentation.js";
 import { markClickable } from "./workflow_text_interaction.js";
+import { messageProposalsHtml } from "./world_proposals.js";
 
 export function canStartGeneration() {
   if (S.isStreaming) return false;
@@ -401,9 +402,13 @@ export function renderMessages(forceBottom = false) {
               const attachmentsHtml = renderUserAttachments(m.user_attachments);
               const workflowArtifactsHtml = _renderWorkflowArtifacts(m);
               const rejectionHtml = _renderWorkflowRejection(m);
+              // Only the undecided ones: a pending proposal is never treated as
+              // active lore, and a decided one belongs in the world drawer's
+              // History rather than permanently under the reply.
+              const proposalsHtml = messageProposalsHtml(m);
               return `<div class="message ${m.role}" data-msg-id="${m.id}">
         <div class="msg-role">${m.role === "user" ? "You" : esc(getCharName())} ${branchHtml}</div>
-        ${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${toolbar}
+        ${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${proposalsHtml}${toolbar}
       </div>`;
             })
             .join("");

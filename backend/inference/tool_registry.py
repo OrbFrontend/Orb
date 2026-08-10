@@ -107,6 +107,96 @@ SELECT_LOREBOOK_TOOL = {
 SELECT_LOREBOOK_CHOICE = {"type": "function", "function": {"name": "select_lorebook"}}
 
 
+_PROPOSE_WORLD_CHANGES_DESCRIPTION = (
+    "Propose durable updates to the shared World from what just happened. Nothing is written "
+    "until the user reviews and accepts the proposal, so propose only changes that are worth "
+    "their attention. Leave the operations list empty when the exchange established nothing new."
+)
+
+# The Dynamic Worlds proposal tool. Like `select_lorebook`, a fixed schema
+# registered statically and enabled per-turn by a feature gate, never by the
+# user's tool toggles. It chooses only between `constant` and `keywords`
+# activation -- every other lorebook field keeps a safe default the user can
+# edit afterwards through the normal reviewed path, which keeps this schema (and
+# therefore the shared per-turn tool blob) small and stable.
+PROPOSE_WORLD_CHANGES_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "propose_world_changes",
+        "description": _PROPOSE_WORLD_CHANGES_DESCRIPTION,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "summary": {
+                    "type": "string",
+                    "description": "One short sentence describing the whole proposal, for the review card.",
+                },
+                "operations": {
+                    "type": "array",
+                    "description": "One entry per proposed change. Empty when nothing durable happened.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "op": {
+                                "type": "string",
+                                "enum": ["create", "replace", "suppress", "update", "archive"],
+                                "description": (
+                                    "create: add new world state. replace: the named existing entry is now wrong, "
+                                    "supply what replaces it. suppress: the named existing entry no longer holds "
+                                    "and nothing takes its place. update: revise world state you added earlier. "
+                                    "archive: retire world state you added earlier."
+                                ),
+                            },
+                            "target_entry_id": {
+                                "type": "integer",
+                                "description": (
+                                    "The id of the entry being replaced, suppressed, updated or archived, "
+                                    "exactly as listed in the catalog. Omit for create."
+                                ),
+                            },
+                            "name": {
+                                "type": "string",
+                                "description": "Short title for the entry, e.g. the person, place or fact it covers.",
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "The world state itself, stated plainly in one or two sentences.",
+                            },
+                            "activation": {
+                                "type": "string",
+                                "enum": ["constant", "keywords"],
+                                "description": (
+                                    "constant: a truth that must be known on every turn. "
+                                    "keywords: state about one entity or place, shown when it comes up."
+                                ),
+                            },
+                            "keywords": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Words that should bring this entry back. Required for keywords activation.",
+                            },
+                            "rationale": {
+                                "type": "string",
+                                "description": "Why this change is durable shared state and not a passing moment.",
+                            },
+                            "evidence": {
+                                "type": "string",
+                                "enum": ["user", "reply"],
+                                "description": "Which message established it: the user's message, or the reply.",
+                            },
+                        },
+                        "required": ["op", "rationale", "evidence"],
+                    },
+                },
+            },
+            "required": [],
+        },
+    },
+}
+
+PROPOSE_WORLD_CHANGES_CHOICE = {"type": "function", "function": {"name": "propose_world_changes"}}
+
+
 _GIVE_FEEDBACK_DESCRIPTION = (
     "Step out of character and give the user an out-of-character note about the reply that was "
     "just written. This note is shown to the user, not used to write the story."
@@ -290,6 +380,14 @@ TOOLS: dict[str, dict] = {
         "choice": SELECT_LOREBOOK_CHOICE,
         "schema": SELECT_LOREBOOK_TOOL,
     },
+    # Internal, flag-gated (never user-toggleable). Enabled for the turn when the
+    # conversation's linked World has Dynamic Worlds on (see _build_writer_tools_blob);
+    # its fixed schema rides the shared blob so the post-turn proposal step reuses
+    # the cached base. The catalog of existing entries rides that step's OOC trailing.
+    "propose_world_changes": {
+        "choice": PROPOSE_WORLD_CHANGES_CHOICE,
+        "schema": PROPOSE_WORLD_CHANGES_TOOL,
+    },
 }
 
 # Built-in tool names declared as a literal and asserted equal to TOOLS keys at
@@ -301,6 +399,7 @@ BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
         "editor_apply_patch",
         "editor_rewrite",
         "give_feedback",
+        "propose_world_changes",
         "record_direction_note",
         "select_lorebook",
     }
@@ -313,10 +412,18 @@ assert BUILTIN_TOOL_NAMES == frozenset(TOOLS.keys()), "BUILTIN_TOOL_NAMES drift 
 # the internal forced-step tools that ride the shared per-turn blob (Invariant 3)
 # but must NOT be offered to or triggered by the director loop — give_feedback
 # (post-writer feedback step), record_direction_note (its own step, pre- or
-# post-writer), and select_lorebook (the pre-writer agentic-lorebook select step).
+# post-writer), select_lorebook (the pre-writer agentic-lorebook select step), and
+# propose_world_changes (the post-turn Dynamic Worlds proposal step).
 # So "POST" here means "not a director-loop tool," not a literal pipeline phase.
 PRE_WRITER_TOOLS = {"direct_scene"}
-POST_WRITER_TOOLS = {"editor_apply_patch", "editor_rewrite", "give_feedback", "record_direction_note", "select_lorebook"}
+POST_WRITER_TOOLS = {
+    "editor_apply_patch",
+    "editor_rewrite",
+    "give_feedback",
+    "propose_world_changes",
+    "record_direction_note",
+    "select_lorebook",
+}
 
 assert PRE_WRITER_TOOLS.isdisjoint(POST_WRITER_TOOLS), "phase sets overlap"
 assert PRE_WRITER_TOOLS | POST_WRITER_TOOLS == BUILTIN_TOOL_NAMES, "phase sets must partition built-ins"

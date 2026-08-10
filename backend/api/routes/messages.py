@@ -3,17 +3,23 @@ SSE-streaming regenerate / rewrite endpoints."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ...core.macros import Macros, resolve_inline
 from ...database import (
     delete_message_with_descendants,
+    get_changesets_for_messages,
     get_character_card,
     get_message_by_id,
     get_messages,
     get_messages_with_branch_info,
     get_settings,
     get_user_persona,
+    mark_changesets_stale_for_messages,
+    mark_orphaned_changesets_stale,
     reroll_unfrozen_greetings,
     set_workflow_message_state,
     switch_to_branch,
@@ -46,6 +52,30 @@ from ..schemas import (
 router = APIRouter()
 
 
+async def _attach_world_changesets(messages: Sequence[Mapping[str, Any]]) -> list[dict]:
+    """Hang each assistant message's world changesets off its row.
+
+    One batched query for the whole active path rather than a lookup per
+    message: painting a long conversation must not turn into N round trips. Each
+    message gains a ``world_changesets`` list (newest first, absent when the
+    message has none), which is what the proposal card under a reply is painted
+    from. Returns new dicts rather than mutating the rows in place, so the
+    row contracts the query layer returns stay what they say they are.
+    """
+    ids = [int(m["id"]) for m in messages if m.get("id") is not None and m.get("role") == "assistant"]
+    rows = await get_changesets_for_messages(ids)
+    if not rows:
+        return [dict(m) for m in messages]
+    by_message: dict[int, list[dict]] = {}
+    for row in rows:
+        by_message.setdefault(int(row["source_assistant_message_id"] or 0), []).append(dict(row))
+    out: list[dict] = []
+    for m in messages:
+        found = by_message.get(int(m["id"])) if m.get("id") is not None else None
+        out.append({**m, "world_changesets": found} if found else dict(m))
+    return out
+
+
 @router.get("/api/conversations/{cid}/messages")
 async def api_get_messages(cid: str, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     # Greetings with inline macros re-roll freely on every fetch until the
@@ -57,7 +87,7 @@ async def api_get_messages(cid: str, _conv: ConversationRow = Depends(require_co
     async with stream_idle_lock(cid) as idle:
         if idle:
             await reroll_unfrozen_greetings(cid)
-        return await get_messages_with_branch_info(cid)
+        return await _attach_world_changesets(await get_messages_with_branch_info(cid))
 
 
 @router.post("/api/conversations/{cid}/messages/{msg_id}/edit")
@@ -83,6 +113,10 @@ async def api_edit_message(
         # the next fetch would re-roll from it and clobber the manual edit.
         if original["role"] == "assistant" and original["parent_id"] is None:
             await set_workflow_message_state(msg_id, "macros", None)
+        # An unreviewed world-change proposal was derived from this exact text.
+        # Editing either source message invalidates that evidence, so the
+        # proposal goes stale and must be re-evaluated rather than applied.
+        await mark_changesets_stale_for_messages([msg_id])
         return {"ok": True}
 
 
@@ -108,7 +142,12 @@ async def api_delete_message(cid: str, msg_id: int, _conv: ConversationRow = Dep
     async with _conversation_stream_lock(cid):
         if not await delete_message_with_descendants(cid, msg_id):
             raise HTTPException(status_code=404, detail="Message not found")
-        return await get_messages_with_branch_info(cid)
+        # The cascade has already NULLed every changeset pointer into the deleted
+        # subtree, so orphanhood is what identifies the affected proposals — an
+        # id list read before the delete would match nothing after it. Applied
+        # history survives the same cascade with its denormalised labels intact.
+        await mark_orphaned_changesets_stale()
+        return await _attach_world_changesets(await get_messages_with_branch_info(cid))
 
 
 @router.post("/api/conversations/{cid}/messages/{msg_id}/switch-branch")
@@ -121,7 +160,10 @@ async def api_switch_branch(cid: str, msg_id: int, _conv: ConversationRow = Depe
         success = await switch_to_branch(cid, msg_id)
         if not success:
             raise HTTPException(status_code=404, detail="Message not found")
-        return await get_messages_with_branch_info(cid)
+        # Switching branches alters nothing about a proposal: a World has one
+        # canonical timeline, and an accepted change stays canon even if its
+        # source branch is later abandoned.
+        return await _attach_world_changesets(await get_messages_with_branch_info(cid))
 
 
 @router.post("/api/conversations/{cid}/messages/{msg_id}/regenerate")

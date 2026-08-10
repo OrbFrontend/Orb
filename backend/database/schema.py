@@ -238,6 +238,8 @@ CREATE TABLE IF NOT EXISTS worlds (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     enabled BOOLEAN NOT NULL DEFAULT 1,
+    dynamic_enabled INTEGER NOT NULL DEFAULT 0,
+    content_revision INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -257,9 +259,44 @@ CREATE TABLE IF NOT EXISTS lorebook_entries (
     priority INTEGER NOT NULL DEFAULT 100,
     enabled BOOLEAN NOT NULL DEFAULT 1,
     sort_order INTEGER NOT NULL DEFAULT 0,
+    entry_layer TEXT NOT NULL DEFAULT 'authored' CHECK (entry_layer IN ('authored', 'dynamic')),
+    entry_revision INTEGER NOT NULL DEFAULT 0,
+    overlay_action TEXT NOT NULL DEFAULT '' CHECK (overlay_action IN ('', 'add', 'replace', 'suppress')),
+    supersedes_entry_id INTEGER DEFAULT NULL REFERENCES lorebook_entries(id) ON DELETE CASCADE,
+    archived INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_lorebook_overlay ON lorebook_entries(world_id, entry_layer, archived);
+
+CREATE TABLE IF NOT EXISTS world_changesets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'applied', 'rejected', 'stale', 'reverted')),
+    base_revision INTEGER NOT NULL DEFAULT 0,
+    applied_revision INTEGER DEFAULT NULL,
+    source_user_message_id INTEGER DEFAULT NULL REFERENCES messages(id) ON DELETE SET NULL,
+    source_assistant_message_id INTEGER DEFAULT NULL REFERENCES messages(id) ON DELETE SET NULL,
+    source_conversation_id TEXT DEFAULT NULL REFERENCES conversations(id) ON DELETE SET NULL,
+    source_character_label TEXT NOT NULL DEFAULT '',
+    source_conversation_label TEXT NOT NULL DEFAULT '',
+    origin TEXT NOT NULL DEFAULT 'agent'
+        CHECK (origin IN ('agent', 'undo', 'reset', 're_evaluate')),
+    summary TEXT NOT NULL DEFAULT '',
+    operations TEXT NOT NULL DEFAULT '[]',
+    before_entries TEXT NOT NULL DEFAULT '[]',
+    after_entries TEXT NOT NULL DEFAULT '[]',
+    reverts_changeset_id INTEGER DEFAULT NULL REFERENCES world_changesets(id) ON DELETE SET NULL,
+    supersedes_changeset_id INTEGER DEFAULT NULL REFERENCES world_changesets(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    decided_at TEXT DEFAULT NULL,
+    applied_at TEXT DEFAULT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_changeset_world_status ON world_changesets(world_id, status);
+CREATE INDEX IF NOT EXISTS idx_changeset_source_asst ON world_changesets(source_assistant_message_id);
 
 CREATE TABLE IF NOT EXISTS direction_notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

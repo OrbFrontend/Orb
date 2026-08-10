@@ -15,6 +15,17 @@ The trailing block carries only the per-turn sources: substring mode uses
 modes funnel through :func:`select_active_entries` → :func:`render_lorebook_block`,
 so the two named entry points below (:func:`compute_lorebook_injection_block`,
 :func:`compute_agentic_lorebook_block`) are thin wrappers over one core.
+
+**Two layers, one effective view.** A World's rows are the user's *authored*
+lore plus the Agent-managed *dynamic* overlay (see
+``database/queries/worlds.py``). Nothing downstream of this module should ever
+see the raw pool: :func:`select_effective_entries` resolves it — an active
+replacement or suppression hides its authored target, a suppression itself
+injects nothing, archived rows are gone. Every activation and rendering entry
+point here applies it *for itself* (:func:`select_active_entries`,
+:func:`build_lorebook_catalog`, the two constant builders), so a caller cannot
+forget to project and no two callers can disagree — which is also what keeps the
+pipeline's prefix bytes and the workflow toolkit's off-turn prefix identical.
 """
 
 from __future__ import annotations
@@ -29,6 +40,46 @@ LOREBOOK_SCAN_DEPTH = 6
 # The agentic fallback scan only looks at the current turn (previous assistant
 # message + current user message), since the Director already saw the history.
 AGENTIC_LOREBOOK_SCAN_DEPTH = 2
+
+# The heading Agent-managed lore renders under, in every block. Kept distinct
+# from the authored heading so the model (and the user reading a prompt dump)
+# can always tell established lore from state the roleplay itself produced.
+DYNAMIC_SECTION_TITLE = "Dynamic World State"
+
+
+# ── Layer projection ──────────────────────────────────────────────────────────
+
+
+def is_dynamic(entry: Mapping[str, Any]) -> bool:
+    """True when *entry* is an Agent-managed overlay row rather than authored lore."""
+    return entry.get("entry_layer") == "dynamic"
+
+
+def select_effective_entries(entries: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Resolve the authored + dynamic pool into the lore actually in effect.
+
+    Three rules, applied in order:
+
+    1. An archived overlay row is inert — dropping it is exactly what re-exposes
+       the authored entry it was hiding, which is why "Reset to Authored World"
+       needs no snapshot.
+    2. An authored entry named by a live ``replace`` or ``suppress`` is hidden.
+    3. A ``suppress`` marker injects nothing; it exists only to hide its target.
+
+    Returns entries in input order (authored and dynamic interleaved as they
+    came); ordering into sections is :func:`render_lorebook_block`'s job. Rows
+    without the overlay columns — a hand-built dict in a test, a pre-migration
+    row — read as authored, so this is a no-op on a World that has never used
+    the feature.
+    """
+    live = [e for e in entries if not e.get("archived")]
+    hidden: set[int] = set()
+    for e in live:
+        if is_dynamic(e) and e.get("overlay_action") in ("replace", "suppress"):
+            target = e.get("supersedes_entry_id")
+            if target is not None:
+                hidden.add(int(target))
+    return [e for e in live if not (is_dynamic(e) and e.get("overlay_action") == "suppress") and e.get("id") not in hidden]
 
 
 # ── Activation gating ─────────────────────────────────────────────────────────
@@ -69,8 +120,12 @@ def build_lorebook_catalog(entries: Sequence[Mapping[str, Any]]) -> str:
     keyword equal to the entry name), grouped by
     world. Constant entries are always injected and excluded here. Returns
     ``""`` when there are no non-constant candidates.
+
+    Projected first, so the Director is offered the lore that is actually in
+    effect: a replaced authored entry never appears alongside the dynamic entry
+    that supersedes it, and a suppressed one is not offered at all.
     """
-    candidates = [e for e in entries if not e.get("constant")]
+    candidates = [e for e in select_effective_entries(entries) if not e.get("constant")]
     if not candidates:
         return ""
 
@@ -180,13 +235,14 @@ def select_active_entries(
 
     An entry is active when a keyword matched within the ``scan_depth`` most
     recent messages, OR its ``name`` is in *director_selected* (case-insensitive,
-    trimmed). Constant entries are excluded up front — they ride the cached
-    system prefix, and filtering here (rather than per caller) also keeps a
-    director pick that names a constant entry from duplicating it into the
-    trailing block. Returns entries in input order — the union underlying both
-    the substring (``director_selected=()``) and agentic paths.
+    trimmed). The pool is projected to the effective layer first, then constant
+    entries are excluded — they ride the cached system prefix, and filtering
+    here (rather than per caller) also keeps a director pick that names a
+    constant entry from duplicating it into the trailing block. Returns entries
+    in input order — the union underlying both the substring
+    (``director_selected=()``) and agentic paths.
     """
-    entries = [e for e in entries if not e.get("constant")]
+    entries = [e for e in select_effective_entries(entries) if not e.get("constant")]
     director_named = {(n or "").strip().casefold() for n in director_selected}
     keyword_hit = {id(e) for e in select_keyword_entries(messages or [], entries, scan_depth)}
 
@@ -200,25 +256,11 @@ def select_active_entries(
 # ── Rendering ─────────────────────────────────────────────────────────────────
 
 
-def render_lorebook_block(
-    entries: Sequence[Mapping[str, Any]],
-    macros: Macros | None = None,
-    *,
-    header: str = "**Lorebook**",
-) -> str:
-    """Render already-selected lorebook entries into a *header*-titled block.
-
-    The single rendering point for every activation path. Entries are sorted by
-    priority DESC, then sort_order ASC, id ASC (the canonical lorebook order, so
-    the block bytes are stable across turns regardless of input order — KV cache);
-    names and content are macro-resolved. Returns ``""`` when *entries* is empty.
-    """
+def _render_section(entries: Sequence[Mapping[str, Any]], resolve, header: str) -> list[str]:
+    """Render one layer's entries under *header*, or nothing when it is empty."""
     if not entries:
-        return ""
-
+        return []
     matched = sorted(entries, key=lambda e: (-e.get("priority", 100), e.get("sort_order", 0), e.get("id", 0)))
-
-    resolve = macros.resolve_message if macros else (lambda t: t)
     parts = [header]
     for entry in matched:
         name = resolve(entry.get("name", ""))
@@ -227,7 +269,33 @@ def render_lorebook_block(
             parts.append(f"{name}: {content}")
         elif content:
             parts.append(content)
+    # A section whose every entry rendered blank contributes no header either.
+    return parts if len(parts) > 1 else []
 
+
+def render_lorebook_block(
+    entries: Sequence[Mapping[str, Any]],
+    macros: Macros | None = None,
+    *,
+    header: str = "**Lorebook**",
+    dynamic_header: str = f"**{DYNAMIC_SECTION_TITLE}**",
+) -> str:
+    """Render already-selected lorebook entries into a *header*-titled block.
+
+    The single rendering point for every activation path. Authored entries come
+    first under *header*; Agent-managed ones follow under *dynamic_header*, so
+    the model reads established lore before the state the roleplay has since
+    produced. Within each section entries are sorted by priority DESC, then
+    sort_order ASC, id ASC (the canonical lorebook order, so the block bytes are
+    stable across turns regardless of input order — KV cache); names and content
+    are macro-resolved. Returns ``""`` when *entries* is empty.
+    """
+    if not entries:
+        return ""
+
+    resolve = macros.resolve_message if macros else (lambda t: t)
+    parts = _render_section([e for e in entries if not is_dynamic(e)], resolve, header)
+    parts += _render_section([e for e in entries if is_dynamic(e)], resolve, dynamic_header)
     return "\n\n".join(parts)
 
 
@@ -308,9 +376,15 @@ def compute_constant_lorebook_block(
     per resolution and would silently change prefix bytes (that is what
     ``at_depth`` is for; see :func:`compute_depth_lorebook_block`). Returns
     ``""`` when there are no prefix-bound constant entries.
+
+    Projects the overlay first, so a dynamic entry the user accepted as
+    ``constant`` joins the prefix under its own ``## Dynamic World State``
+    section. Both consumers of this function — the pipeline's prefix builder and
+    the workflow toolkit's off-turn one — call it with the same raw pool, so
+    their constant-lore bytes stay identical by construction.
     """
-    prefix_bound = [e for e in entries if e.get("constant") and not e.get("at_depth")]
-    return render_lorebook_block(prefix_bound, macros, header="## Lorebook")
+    prefix_bound = [e for e in select_effective_entries(entries) if e.get("constant") and not e.get("at_depth")]
+    return render_lorebook_block(prefix_bound, macros, header="## Lorebook", dynamic_header=f"## {DYNAMIC_SECTION_TITLE}")
 
 
 def compute_depth_lorebook_block(
@@ -331,6 +405,8 @@ def compute_depth_lorebook_block(
     Costs no KV cache: the tail is rebuilt every turn regardless. Returns ``""``
     when no constant entry is depth-bound.
     """
-    depth_bound = [e for e in entries if e.get("constant") and e.get("at_depth")]
+    depth_bound = [e for e in select_effective_entries(entries) if e.get("constant") and e.get("at_depth")]
     fresh = macros._replace(seed="") if macros else None
-    return render_lorebook_block(depth_bound, fresh, header="**Lorebook (Depth)**")
+    return render_lorebook_block(
+        depth_bound, fresh, header="**Lorebook (Depth)**", dynamic_header=f"**{DYNAMIC_SECTION_TITLE} (Depth)**"
+    )

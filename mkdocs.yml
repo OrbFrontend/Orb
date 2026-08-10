@@ -70,6 +70,7 @@ nav:
       - KV Cache Reuse: architecture/kv-cache.md
       - SSE Turn Stream: architecture/sse-stream.md
       - Secondary Workflows: architecture/secondary-workflow.md
+      - Dynamic Worlds: architecture/dynamic-worlds.md
   - Features:
       - Overview: features/index.md
       - Direction:

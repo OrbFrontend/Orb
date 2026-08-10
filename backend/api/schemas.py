@@ -271,6 +271,55 @@ class WorldCreate(BaseModel):
 class WorldUpdate(BaseModel):
     name: str | None = None
     enabled: bool | None = None
+    dynamic_enabled: bool | None = None
+
+
+class WorldDynamicToggle(BaseModel):
+    """Body of the dedicated Dynamic Worlds enable/disable route."""
+
+    enabled: bool
+
+
+class ChangesetOperation(BaseModel):
+    """One reviewed operation in a changeset edit.
+
+    Deliberately permissive: the route re-validates every field against the live
+    World (``features.lorebook.validate_proposal``) before anything is applied,
+    so this shape is a transport contract, not the authority on what is legal.
+    """
+
+    op: Literal["create", "replace", "suppress", "update", "archive"]
+    target_entry_id: int | None = None
+    # Round-tripped from the proposal so an edit-then-apply does not drop the
+    # before/after the card was reviewed against; re-derived on validation
+    # anyway, so a client that omits or fakes them changes nothing.
+    target_name: str = ""
+    target_content: str = ""
+    name: str = ""
+    content: str = ""
+    activation: Literal["constant", "keywords"] = "keywords"
+    keywords: list[str] = []
+    rationale: str = ""
+    evidence: Literal["user", "reply"] = "reply"
+
+
+class ChangesetEdit(BaseModel):
+    """Edit a pending proposal before deciding on it.
+
+    Omitting a field leaves it as proposed; sending ``operations`` replaces the
+    whole list, which is how removing an individual operation is expressed.
+    """
+
+    summary: str | None = None
+    operations: list[ChangesetOperation] | None = None
+
+
+class ChangesetApply(ChangesetEdit):
+    """Apply a pending proposal, optionally editing it in the same request.
+
+    One request so the edit and the apply share a transaction boundary: what the
+    user reviewed is exactly what commits.
+    """
 
 
 class LorebookEntryCreate(BaseModel):

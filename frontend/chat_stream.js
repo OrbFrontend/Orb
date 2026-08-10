@@ -333,9 +333,12 @@ export async function afterStream() {
     S.pendingRefineDiff.msgId = lastAssistant?.id ?? null;
   }
 
-  // Finalize the streaming div in-place — no DOM destruction, no flash
+  // Finalize the streaming div in-place — no DOM destruction, no flash. A
+  // proposal card belongs under the finished reply, and the in-place path only
+  // rewrites the bubble's body, so a turn that raised one repaints in full.
   const lastMsg = S.messages[S.messages.length - 1];
-  const finalized = finalizeStreamingDiv(lastMsg);
+  const finalized = !S.worldProposalArrived && finalizeStreamingDiv(lastMsg);
+  S.worldProposalArrived = false;
   S.streamingBodyEl = null;
 
   if (finalized) {
@@ -686,6 +689,14 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
         notifyError(w.headline || "A workflow step failed.", { sentence: w.sentence });
       }
       break;
+    case "world_change_proposed": {
+      // The Agent has staged a pending world change against this reply. Nothing
+      // is applied and nothing is lore yet; the card is painted from the message
+      // rows afterStream refetches, so all this does is force the full repaint
+      // (the in-place finalize fast path would leave the card unpainted).
+      S.worldProposalArrived = true;
+      break;
+    }
     case "workflow_attachments_rejected": {
       // Stash for the post-stream renderMessages paint. Do NOT call
       // renderMessages here -- S.messages doesn't yet contain the new

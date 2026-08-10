@@ -102,6 +102,7 @@ class TestEnabledSchemasBaseline:
             "give_feedback",
             "record_direction_note",
             "select_lorebook",
+            "propose_world_changes",
         ]
 
     def test_dict_filter_returns_insertion_order_subset(self):
@@ -158,4 +159,5 @@ class TestRegisterTool:
             "give_feedback",
             "record_direction_note",
             "select_lorebook",
+            "propose_world_changes",
         ]

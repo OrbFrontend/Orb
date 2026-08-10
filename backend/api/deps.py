@@ -30,6 +30,7 @@ from ..database import (
     get_lorebook_entry,
     get_workflow_attachment_by_id,
     get_world,
+    get_world_changeset,
 )
 from ..database.models import ConversationRow
 from ..inference import AbortToken
@@ -413,6 +414,18 @@ async def require_lorebook_entry(entry_id: int, world: dict = Depends(require_wo
     if not entry or entry.get("world_id") != world["id"]:
         raise HTTPException(status_code=404, detail="Entry not found")
     return entry
+
+
+async def require_changeset(changeset_id: int, world: dict = Depends(require_world)) -> Mapping[str, Any]:  # noqa: B008
+    """Load a world changeset, scoped to the World in the path.
+
+    Scoped rather than looked up by bare id so a changeset id from one World can
+    never be decided through another World's route.
+    """
+    changeset = await get_world_changeset(changeset_id)
+    if not changeset or changeset.get("world_id") != world["id"]:
+        raise HTTPException(status_code=404, detail="Changeset not found")
+    return changeset
 
 
 # A V3 entry may open with decorator lines (`@@depth 4`, `@@@fallback`, …).

@@ -1,0 +1,232 @@
+// Dynamic Worlds — the review surface, as pure functions.
+//
+// A world changeset is the Agent asking permission: it never touches the World
+// until the user acts on it. Everything in this module is string-in/string-out
+// so the same helpers paint the card under a reply, the drawer's Pending and
+// History lists, and the edit modal — and so they stay testable without a DOM.
+//
+// Actions live in lorebooks.js (which owns every world mutation). Buttons here
+// carry `data-wc-action` + `data-wc-id` + `data-wc-world` and are dispatched by
+// one delegated listener, so this module adds no inline handlers.
+import { esc, escAttr } from "./utils.js";
+
+// Every status the backend can put on a changeset, with the word the user sees.
+// `stale` is deliberately not called "failed": nothing went wrong, the world
+// simply moved on and the proposal has to be re-judged against it.
+export const STATUS_LABELS = {
+  pending: "Proposed world change",
+  stale: "Needs re-evaluation",
+  applied: "Applied to the world",
+  rejected: "Rejected",
+  reverted: "Undone",
+};
+
+const OP_VERBS = {
+  create: "Add",
+  replace: "Replace",
+  suppress: "Remove",
+  update: "Revise",
+  archive: "Retire",
+};
+
+// A pending proposal is decidable; a stale one must be re-evaluated first. Both
+// are "open", which is what the drawer's Pending section and the card's
+// actions-vs-status split key on.
+export const isOpen = (cs) => cs?.status === "pending" || cs?.status === "stale";
+export const isStale = (cs) => cs?.status === "stale";
+export const canUndo = (cs) => cs?.status === "applied";
+
+/** Count of open proposals across a list of changesets. */
+export function openCount(changesets) {
+  return (changesets || []).filter(isOpen).length;
+}
+
+/** The open changesets attached to a message, newest first. */
+export function openProposals(msg) {
+  return (msg?.world_changesets || []).filter(isOpen);
+}
+
+/** How an operation's entry activates, phrased for a reader rather than a schema. */
+export function activationLabel(op) {
+  if (op?.op === "suppress" || op?.op === "archive") return "";
+  if (op?.activation === "constant") return "Always in context";
+  const kws = (op?.keywords || []).filter(Boolean);
+  return kws.length ? `On: ${kws.join(", ")}` : "Keyword-activated";
+}
+
+/** Which message the Agent says established this change. */
+export function evidenceLabel(op) {
+  return op?.evidence === "user" ? "From your message" : "From the reply";
+}
+
+/** One line naming what an operation does and to what. */
+export function operationTitle(op) {
+  const verb = OP_VERBS[op?.op] || op?.op || "Change";
+  const subject = op?.op === "create" ? op?.name : op?.target_name || op?.name;
+  return subject ? `${verb} “${subject}”` : verb;
+}
+
+/**
+ * The before/after pair a reviewer needs.
+ *
+ * `before` is the target's text as it read when the proposal was made (snapshotted
+ * on the operation, so the card needs no second query and applied history still
+ * reads correctly later). `after` is empty for the two operations that remove
+ * rather than rewrite — which is the point of showing them side by side.
+ */
+export function operationDiff(op) {
+  const before = op?.op === "create" ? "" : op?.target_content || "";
+  const after = op?.op === "suppress" || op?.op === "archive" ? "" : op?.content || "";
+  return { before, after };
+}
+
+function _diffHtml(op) {
+  const { before, after } = operationDiff(op);
+  const rows = [];
+  if (before) rows.push(`<div class="wc-before">${esc(before)}</div>`);
+  if (after) rows.push(`<div class="wc-after">${esc(after)}</div>`);
+  if (!rows.length) rows.push(`<div class="wc-before wc-empty">(nothing)</div>`);
+  return `<div class="wc-diff">${rows.join("")}</div>`;
+}
+
+/** One operation, rendered for review. */
+export function operationHtml(op) {
+  const meta = [activationLabel(op), evidenceLabel(op)].filter(Boolean);
+  return `
+    <li class="wc-op wc-op-${escAttr(op?.op || "")}">
+      <div class="wc-op-title">${esc(operationTitle(op))}</div>
+      ${_diffHtml(op)}
+      <div class="wc-op-meta">${meta.map((m) => `<span>${esc(m)}</span>`).join("")}</div>
+      ${op?.rationale ? `<div class="wc-op-why">${esc(op.rationale)}</div>` : ""}
+    </li>`;
+}
+
+function _button(action, label, cls = "") {
+  return `<button type="button" class="btn btn-sm ${cls}" data-wc-action="${escAttr(action)}">${esc(label)}</button>`;
+}
+
+/**
+ * The actions a changeset offers in its current state.
+ *
+ * A stale proposal offers Re-evaluate, never Apply: v1 does not force-apply and
+ * does not silently rebase, because two changes that look unrelated can still
+ * contradict each other in meaning.
+ */
+export function actionsHtml(cs) {
+  if (cs?.status === "pending") {
+    return [
+      _button("apply", "Apply", "btn-accent"),
+      _button("edit", "Edit"),
+      _button("reject", "Reject", "wc-danger"),
+    ].join("");
+  }
+  if (cs?.status === "stale") {
+    return [_button("re-evaluate", "Re-evaluate", "btn-accent"), _button("reject", "Dismiss", "wc-danger")].join("");
+  }
+  if (cs?.status === "applied") return _button("undo", "Undo");
+  return "";
+}
+
+/** The compact proposal card shown beneath the assistant reply that produced it. */
+export function proposalCardHtml(cs) {
+  if (!cs) return "";
+  const ops = cs.operations || [];
+  const status = cs.status || "pending";
+  const note = isStale(cs)
+    ? `<div class="wc-note">The world changed since this was proposed. Re-evaluate it against the world as it stands now.</div>`
+    : "";
+  const actions = actionsHtml(cs);
+  return `
+    <div class="wc-card wc-${escAttr(status)}" data-wc-id="${escAttr(cs.id)}" data-wc-world="${escAttr(cs.world_id)}">
+      <div class="wc-head">
+        <span class="wc-badge">${esc(STATUS_LABELS[status] || status)}</span>
+        ${cs.summary ? `<span class="wc-summary">${esc(cs.summary)}</span>` : ""}
+      </div>
+      ${note}
+      <ul class="wc-ops">${ops.map(operationHtml).join("")}</ul>
+      ${actions ? `<div class="wc-actions">${actions}</div>` : ""}
+    </div>`;
+}
+
+/** Every open proposal attached to a message, stacked under it. */
+export function messageProposalsHtml(msg) {
+  const open = openProposals(msg);
+  return open.length ? open.map(proposalCardHtml).join("") : "";
+}
+
+/** A one-line summary of a changeset for the drawer's Pending / History lists. */
+export function changesetRowHtml(cs) {
+  const ops = cs.operations || [];
+  const count = `${ops.length} change${ops.length === 1 ? "" : "s"}`;
+  const source = cs.source_character_label || cs.source_conversation_label || "";
+  const when = (cs.applied_at || cs.decided_at || cs.created_at || "").slice(0, 10);
+  const meta = [count, source, when].filter(Boolean).join(" · ");
+  return `
+    <div class="wc-row wc-${escAttr(cs.status)}" data-wc-id="${escAttr(cs.id)}" data-wc-world="${escAttr(cs.world_id)}">
+      <div class="wc-row-main">
+        <span class="wc-row-summary">${esc(cs.summary || operationTitle(ops[0]) || "World change")}</span>
+        <span class="wc-row-meta">${esc(meta)}</span>
+      </div>
+      <div class="wc-row-actions">${actionsHtml(cs)}</div>
+    </div>`;
+}
+
+/**
+ * The edit form for one operation.
+ *
+ * Removing an operation is expressed as unchecking Include, not as a delete
+ * button: the whole edited batch commits together, so "which of these do I
+ * still want" is one decision made across the list rather than a sequence of
+ * destructive clicks.
+ */
+export function operationEditHtml(op, index) {
+  const isBodyless = op?.op === "suppress" || op?.op === "archive";
+  const keywords = (op?.keywords || []).join(", ");
+  return `
+    <div class="wc-edit-op" data-wc-index="${escAttr(index)}">
+      <label class="wc-edit-include">
+        <input type="checkbox" data-wc-field="include" checked>
+        <span>${esc(operationTitle(op))}</span>
+      </label>
+      ${
+        isBodyless
+          ? ""
+          : `
+      <input class="wc-edit-name" type="text" data-wc-field="name" value="${escAttr(op?.name || "")}" placeholder="Entry name">
+      <textarea class="wc-edit-content" data-wc-field="content" rows="3" placeholder="What is now true">${esc(op?.content || "")}</textarea>
+      <div class="wc-edit-activation">
+        <select data-wc-field="activation">
+          <option value="constant"${op?.activation === "constant" ? " selected" : ""}>Always in context</option>
+          <option value="keywords"${op?.activation === "constant" ? "" : " selected"}>Keyword-activated</option>
+        </select>
+        <input type="text" data-wc-field="keywords" value="${escAttr(keywords)}" placeholder="Keywords, comma separated">
+      </div>`
+      }
+    </div>`;
+}
+
+/**
+ * Read one edit form back into an operation, or `null` when it was excluded.
+ *
+ * Field-by-field over the original rather than a fresh object, so anything the
+ * form does not expose (the target id, the rationale, the evidence source)
+ * survives the round trip untouched.
+ */
+export function readOperationEdit(op, values) {
+  if (!values.include) return null;
+  if (op.op === "suppress" || op.op === "archive") return { ...op };
+  const activation = values.activation === "constant" ? "constant" : "keywords";
+  return {
+    ...op,
+    name: (values.name ?? op.name ?? "").trim(),
+    content: (values.content ?? op.content ?? "").trim(),
+    activation,
+    keywords:
+      activation === "constant"
+        ? []
+        : String(values.keywords ?? "")
+            .split(",")
+            .map((k) => k.trim())
+            .filter(Boolean),
+  };
+}

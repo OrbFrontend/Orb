@@ -22,6 +22,7 @@ import {
   loadConversations,
   loadWorkflowManifest,
   newConvForChar,
+  refreshConversationMessages,
   regenerate,
   renderMessages,
   saveEdit,
@@ -123,6 +124,7 @@ import {
   createWorld,
   deleteWorld,
   expandWorlds,
+  initWorldProposalActions,
   lbAddEntry,
   lbBackToList,
   lbDeleteEntry,
@@ -138,6 +140,7 @@ import {
   onWorldSearch,
   openLorebook,
   renameWorld,
+  setWorldProposalRefresh,
   showCreateWorldModal,
   showRenameWorldModal,
   toggleWorldEnabled,
@@ -510,6 +513,10 @@ async function initAll() {
     console.error("Failed to load characters:", e);
   }
 
+  // The proposal card lives under a chat reply but every world mutation is
+  // lorebooks.js's; hand it the chat's refetch rather than have it import up.
+  setWorldProposalRefresh(refreshConversationMessages);
+  initWorldProposalActions();
   try {
     await loadWorlds();
   } catch (e) {

@@ -1,0 +1,904 @@
+"""End-to-end coverage for Dynamic Worlds: proposal → review → World.
+
+Two halves, matching the two halves of the feature.
+
+**Pipeline** -- every main-pipeline entry point that finishes a reply gets one
+forced ``propose_world_changes`` call, gated on the linked World's opt-in, judged
+on the final post-editor prose, and staged as a *pending* changeset at the same
+persistence boundary as the reply itself.
+
+**Lifecycle** -- what the review queue then does: a pending change is invisible
+to everyone, accepting it makes it visible to every character sharing the World,
+and the revision stamp is what makes exactly one of two concurrent accepts win.
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+import backend.database as dbmod
+from backend.pipeline import (
+    handle_fork_edit,
+    handle_magic_rewrite,
+    handle_regenerate,
+    handle_super_regenerate,
+    handle_turn,
+)
+
+_ENTRY = {
+    "name": "The Bridge",
+    "content": "The stone bridge spans the gorge.",
+    "keywords": ["bridge"],
+}
+
+
+def _propose(
+    summary: str = "The bridge fell.", operations: list[dict] | None = None
+) -> list[dict]:
+    """A ``propose_world_changes`` tool call in the OpenAI wire shape."""
+    if operations is None:
+        operations = [
+            {
+                "op": "create",
+                "name": "Collapsed Bridge",
+                "content": "The stone bridge has collapsed into the gorge.",
+                "activation": "keywords",
+                "keywords": ["bridge"],
+                "rationale": "The bridge fell during the crossing.",
+                "evidence": "reply",
+            }
+        ]
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "propose_world_changes",
+                "arguments": {"summary": summary, "operations": operations},
+            },
+        }
+    ]
+
+
+async def _drain(agen) -> list[dict]:
+    return [ev async for ev in agen]
+
+
+def _world_calls(llm_mock) -> list[dict]:
+    """Every captured call that forced ``propose_world_changes``."""
+    out = []
+    for call in llm_mock.captured:
+        choice = call.get("tool_choice")
+        if (
+            isinstance(choice, dict)
+            and choice.get("function", {}).get("name") == "propose_world_changes"
+        ):
+            out.append(call)
+    return out
+
+
+async def _world_with_character(
+    client, *, dynamic: bool = True, name: str = "Gorge"
+) -> tuple[str, str]:
+    """A World (optionally Dynamic-enabled) linked to one character card."""
+    world = (await client.post("/api/worlds", json={"name": name})).json()
+    await client.post(f"/api/worlds/{world['id']}/entries", json=_ENTRY)
+    if dynamic:
+        await client.put(f"/api/worlds/{world['id']}/dynamic", json={"enabled": True})
+    card = (await client.post("/api/characters", json={"name": f"{name} Guide"})).json()
+    await client.put(f"/api/characters/{card['id']}", json={"world_id": world["id"]})
+    return world["id"], card["id"]
+
+
+async def _conversation(cid: str, card_id: str, name: str = "Guide") -> None:
+    await dbmod.create_conversation(
+        cid, "chat", name, "a scenario", character_card_id=card_id
+    )
+
+
+async def _pending(client, world_id: str) -> list[dict]:
+    return (
+        await client.get(
+            f"/api/worlds/{world_id}/changesets", params={"status": "pending"}
+        )
+    ).json()
+
+
+async def _effective_names(client, world_id: str) -> list[str]:
+    rows = (
+        await client.get(
+            f"/api/worlds/{world_id}/entries", params={"view": "effective"}
+        )
+    ).json()
+    return [r["name"] for r in rows]
+
+
+# ── pipeline: the proposal pass ───────────────────────────────────────────────
+
+
+async def test_a_completed_turn_stages_a_pending_proposal(client, db, llm_mock):
+    world_id, card_id = await _world_with_character(client)
+    await _conversation("conv-dw-1", card_id)
+
+    llm_mock.enqueue_writer("The bridge groans and gives way beneath you.")
+    llm_mock.enqueue_world_change(_propose())
+
+    events = await _drain(handle_turn("conv-dw-1", "I step onto the bridge"))
+
+    proposed = [e for e in events if e.get("event") == "world_change_proposed"]
+    assert len(proposed) == 1
+    changeset = proposed[0]["data"]["changeset"]
+    assert changeset["status"] == "pending"
+    assert changeset["summary"] == "The bridge fell."
+    assert [o["op"] for o in changeset["operations"]] == ["create"]
+
+    # The event is ordered before `done` so one repaint finalises both.
+    names = [e["event"] for e in events]
+    assert names.index("world_change_proposed") < names.index("done")
+
+    # Sourced to the exchange that produced it, with denormalised labels.
+    assert changeset["source_assistant_message_id"] == proposed[0]["data"]["message_id"]
+    assert changeset["source_conversation_id"] == "conv-dw-1"
+    assert changeset["source_character_label"]
+
+
+async def test_a_pending_proposal_is_not_lore_yet(client, llm_mock):
+    """Invisible everywhere until reviewed -- to the projection, and to any other
+    character sharing the World."""
+    world_id, card_id = await _world_with_character(client)
+    await _conversation("conv-dw-2", card_id)
+    llm_mock.enqueue_writer("It falls.")
+    llm_mock.enqueue_world_change(_propose())
+    await _drain(handle_turn("conv-dw-2", "I cross"))
+
+    assert await _effective_names(client, world_id) == ["The Bridge"]
+    active = (await client.get("/api/lorebook-entries/active")).json()
+    assert [e["name"] for e in active] == ["The Bridge"]
+
+
+async def test_no_proposal_when_the_world_has_not_opted_in(client, llm_mock):
+    world_id, card_id = await _world_with_character(client, dynamic=False)
+    await _conversation("conv-dw-3", card_id)
+    llm_mock.enqueue_writer("It falls.")
+
+    events = await _drain(handle_turn("conv-dw-3", "I cross"))
+
+    assert not [e for e in events if e.get("event") == "world_change_proposed"]
+    assert await _pending(client, world_id) == []
+    assert "world_change" not in [c[0] for c in llm_mock.calls]
+
+
+async def test_no_proposal_without_a_linked_world(client, llm_mock):
+    card = (await client.post("/api/characters", json={"name": "Loner"})).json()
+    await _conversation("conv-dw-4", card["id"])
+    llm_mock.enqueue_writer("Nothing here.")
+
+    events = await _drain(handle_turn("conv-dw-4", "hello"))
+    assert not [e for e in events if e.get("event") == "world_change_proposed"]
+
+
+async def test_no_proposal_when_the_agent_is_off(client, llm_mock):
+    world_id, card_id = await _world_with_character(client)
+    await _conversation("conv-dw-5", card_id)
+    await client.put("/api/settings", json={"enable_agent": False})
+    llm_mock.enqueue_writer("It falls.")
+
+    await _drain(handle_turn("conv-dw-5", "I cross"))
+    assert await _pending(client, world_id) == []
+
+
+async def test_no_proposal_when_the_reply_is_empty(client, llm_mock):
+    """An empty draft persists no message, so there is nothing to anchor a
+    changeset to and no evidence to derive one from."""
+    world_id, card_id = await _world_with_character(client)
+    await _conversation("conv-dw-6", card_id)
+    llm_mock.enqueue_writer("")
+
+    await _drain(handle_turn("conv-dw-6", "I cross"))
+    assert await _pending(client, world_id) == []
+
+
+async def test_the_proposal_judges_the_post_editor_text(client, llm_mock):
+    """The step must see the prose that will be persisted, not the writer's draft."""
+    world_id, card_id = await _world_with_character(client)
+    await _conversation("conv-dw-7", card_id)
+    await client.put(
+        "/api/settings",
+        json={"length_guard_enabled": True, "length_guard_max_words": 1},
+    )
+
+    llm_mock.enqueue_writer(
+        "The writer's first draft, which the editor will replace entirely."
+    )
+    llm_mock.enqueue_editor(
+        {
+            "tool_calls": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "editor_rewrite",
+                        "arguments": {"rewritten_text": "FINAL PROSE."},
+                    },
+                }
+            ]
+        }
+    )
+    llm_mock.enqueue_editor(None)
+    llm_mock.enqueue_world_change(_propose())
+
+    await _drain(handle_turn("conv-dw-7", "I cross"))
+
+    world_calls = _world_calls(llm_mock)
+    assert world_calls, "the proposal step never ran"
+    replayed = [
+        m["content"] for m in world_calls[-1]["messages"] if m["role"] == "assistant"
+    ]
+    assert "FINAL PROSE." in replayed
+    assert not any("first draft" in c for c in replayed)
+
+
+async def test_a_steered_regenerate_judges_the_original_user_message(client, llm_mock):
+    """Orb's OOC steering prompt directs the writer; it is not a world event."""
+    world_id, card_id = await _world_with_character(client)
+    await _conversation("conv-dw-8", card_id)
+    llm_mock.enqueue_writer("First reply.")
+    await _drain(handle_turn("conv-dw-8", "I step onto the bridge"))
+    target = [
+        m for m in await dbmod.get_messages("conv-dw-8") if m["role"] == "assistant"
+    ][-1]
+
+    llm_mock.enqueue_writer("Second reply.")
+    llm_mock.enqueue_world_change(_propose())
+    await _drain(handle_super_regenerate("conv-dw-8", target["id"]))
+
+    request = _world_calls(llm_mock)[-1]["messages"][-1]["content"]
+    assert "I step onto the bridge" in request
+    assert "internal instruction to the writer" in request
+
+
+async def test_a_failed_proposal_call_never_costs_the_reply(client, llm_mock):
+    """Nothing is enqueued for the world_change pass, so the mock raises."""
+    world_id, card_id = await _world_with_character(client)
+    await _conversation("conv-dw-9", card_id)
+    llm_mock.enqueue_writer("The bridge holds.")
+
+    events = await _drain(handle_turn("conv-dw-9", "I cross"))
+
+    assert "error" not in [e["event"] for e in events]
+    assert [
+        m["content"]
+        for m in await dbmod.get_messages("conv-dw-9")
+        if m["role"] == "assistant"
+    ] == ["The bridge holds."]
+    assert await _pending(client, world_id) == []
+
+
+async def test_a_proposal_that_validates_to_nothing_stages_nothing(client, llm_mock):
+    world_id, card_id = await _world_with_character(client)
+    await _conversation("conv-dw-10", card_id)
+    llm_mock.enqueue_writer("The bridge holds.")
+    # keywords activation with no keywords: rejected by validation.
+    llm_mock.enqueue_world_change(
+        _propose(
+            operations=[
+                {
+                    "op": "create",
+                    "name": "X",
+                    "content": "y",
+                    "activation": "keywords",
+                    "keywords": [],
+                    "rationale": "r",
+                    "evidence": "reply",
+                }
+            ]
+        )
+    )
+
+    events = await _drain(handle_turn("conv-dw-10", "I cross"))
+    assert not [e for e in events if e.get("event") == "world_change_proposed"]
+    assert await _pending(client, world_id) == []
+
+
+async def test_every_entry_point_proposes(client, llm_mock):
+    """send, continue, fork-edit, regenerate, super-regenerate and magic rewrite."""
+    world_id, card_id = await _world_with_character(client)
+    await _conversation("conv-dw-11", card_id)
+
+    def _stage(summary: str) -> None:
+        llm_mock.enqueue_writer(f"reply for {summary}")
+        llm_mock.enqueue_world_change(
+            _propose(
+                summary,
+                [
+                    {
+                        "op": "create",
+                        "name": summary,
+                        "content": "body",
+                        "activation": "constant",
+                        "rationale": "r",
+                        "evidence": "reply",
+                    }
+                ],
+            )
+        )
+
+    _stage("send")
+    await _drain(handle_turn("conv-dw-11", "one"))
+    user_msg = [
+        m for m in await dbmod.get_messages("conv-dw-11") if m["role"] == "user"
+    ][-1]
+    asst = [
+        m for m in await dbmod.get_messages("conv-dw-11") if m["role"] == "assistant"
+    ][-1]
+
+    _stage("fork")
+    await _drain(handle_fork_edit("conv-dw-11", user_msg["id"], "one, edited"))
+    _stage("regen")
+    await _drain(handle_regenerate("conv-dw-11", asst["id"]))
+    _stage("super")
+    await _drain(handle_super_regenerate("conv-dw-11", asst["id"]))
+    _stage("magic")
+    await _drain(handle_magic_rewrite("conv-dw-11", asst["id"], "make it darker"))
+
+    summaries = {c["summary"] for c in await _pending(client, world_id)}
+    assert summaries == {"send", "fork", "regen", "super", "magic"}
+
+    # /continue reuses handle_turn with the user row already persisted.
+    await dbmod.add_message("conv-dw-11", "user", "two", 99, parent_id=asst["id"])
+    _stage("continue")
+    await _drain(handle_turn("conv-dw-11", "two", skip_user_persist=True))
+    assert "continue" in {c["summary"] for c in await _pending(client, world_id)}
+
+
+async def test_the_proposal_call_lands_in_the_inspector_audit(client, db, llm_mock):
+    world_id, card_id = await _world_with_character(client)
+    await _conversation("conv-dw-12", card_id)
+    llm_mock.enqueue_writer("It falls.")
+    llm_mock.enqueue_world_change(_propose())
+
+    await _drain(handle_turn("conv-dw-12", "I cross"))
+
+    asst = [
+        m for m in await dbmod.get_messages("conv-dw-12") if m["role"] == "assistant"
+    ][-1]
+    log = await dbmod.get_director_log_for_message(asst["id"])
+    assert any(
+        c.get("name") == "propose_world_changes"
+        for c in (log or {}).get("tool_calls", [])
+    )
+
+
+async def test_the_message_projection_carries_its_changeset(client, llm_mock):
+    world_id, card_id = await _world_with_character(client)
+    await _conversation("conv-dw-13", card_id)
+    llm_mock.enqueue_writer("It falls.")
+    llm_mock.enqueue_world_change(_propose())
+    await _drain(handle_turn("conv-dw-13", "I cross"))
+
+    messages = (await client.get("/api/conversations/conv-dw-13/messages")).json()
+    assistant = [m for m in messages if m["role"] == "assistant"][-1]
+    assert [c["summary"] for c in assistant["world_changesets"]] == ["The bridge fell."]
+    assert "world_changesets" not in [m for m in messages if m["role"] == "user"][-1]
+
+
+# ── lifecycle: review, apply, undo, reset ─────────────────────────────────────
+
+
+async def _staged_proposal(
+    client, llm_mock, cid: str, *, operations: list[dict] | None = None
+) -> tuple[str, dict]:
+    world_id, card_id = await _world_with_character(client, name=f"World-{cid}")
+    await _conversation(cid, card_id)
+    llm_mock.enqueue_writer("It falls.")
+    llm_mock.enqueue_world_change(_propose(operations=operations))
+    await _drain(handle_turn(cid, "I cross"))
+    (changeset,) = await _pending(client, world_id)
+    return world_id, changeset
+
+
+async def test_applying_makes_it_visible_to_every_character_sharing_the_world(
+    client, llm_mock
+):
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-20")
+    other = (await client.post("/api/characters", json={"name": "Second"})).json()
+    await client.put(f"/api/characters/{other['id']}", json={"world_id": world_id})
+    await _conversation("conv-dw-20b", other["id"], name="Second")
+
+    resp = await client.post(
+        f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "applied"
+
+    assert sorted(await _effective_names(client, world_id)) == [
+        "Collapsed Bridge",
+        "The Bridge",
+    ]
+
+    # And the other character's next turn actually sees it in its prompt.
+    llm_mock.enqueue_writer("I know of the collapse.")
+    await _drain(handle_turn("conv-dw-20b", "tell me about the bridge"))
+    writer_call = [
+        c for c in llm_mock.captured if c.get("tool_choice") in (None, "none")
+    ][-1]
+    assert "collapsed into the gorge" in str(writer_call["messages"])
+
+
+async def test_a_replacement_hides_its_target_in_the_prompt(client, llm_mock):
+    world_id, card_id = await _world_with_character(client, name="Replace")
+    await _conversation("conv-dw-21", card_id)
+    entry = (await client.get(f"/api/worlds/{world_id}/entries")).json()[0]
+    llm_mock.enqueue_writer("It falls.")
+    llm_mock.enqueue_world_change(
+        _propose(
+            operations=[
+                {
+                    "op": "replace",
+                    "target_entry_id": entry["id"],
+                    "name": "The Bridge",
+                    "content": "Only splintered pilings remain.",
+                    "activation": "keywords",
+                    "keywords": ["bridge"],
+                    "rationale": "it collapsed",
+                    "evidence": "reply",
+                }
+            ]
+        )
+    )
+    await _drain(handle_turn("conv-dw-21", "I cross"))
+    (changeset,) = await _pending(client, world_id)
+    await client.post(
+        f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={}
+    )
+
+    rows = (
+        await client.get(
+            f"/api/worlds/{world_id}/entries", params={"view": "effective"}
+        )
+    ).json()
+    assert [r["content"] for r in rows] == ["Only splintered pilings remain."]
+    # The authored row itself is untouched and still there, just hidden.
+    authored = (
+        await client.get(f"/api/worlds/{world_id}/entries", params={"view": "authored"})
+    ).json()
+    assert [r["content"] for r in authored] == [_ENTRY["content"]]
+
+
+async def test_rejecting_changes_nothing(client, llm_mock):
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-22")
+    before = (await client.get(f"/api/worlds/{world_id}")).json() if False else None  # noqa: F841 — see revision check below
+    revision = (await client.get(f"/api/worlds/{world_id}/entries")).json()
+
+    resp = await client.post(
+        f"/api/worlds/{world_id}/changesets/{changeset['id']}/reject"
+    )
+    assert resp.status_code == 200 and resp.json()["status"] == "rejected"
+    assert (await client.get(f"/api/worlds/{world_id}/entries")).json() == revision
+    assert await _pending(client, world_id) == []
+
+
+async def test_a_decided_changeset_cannot_be_decided_twice(client, llm_mock):
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-23")
+    await client.post(f"/api/worlds/{world_id}/changesets/{changeset['id']}/reject")
+    again = await client.post(
+        f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={}
+    )
+    assert again.status_code == 409
+
+
+async def test_apply_and_reject_cannot_both_win(client, llm_mock):
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-23-race")
+
+    apply, reject = await asyncio.gather(
+        client.post(
+            f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={}
+        ),
+        client.post(f"/api/worlds/{world_id}/changesets/{changeset['id']}/reject"),
+    )
+
+    assert sorted((apply.status_code, reject.status_code)) == [200, 409]
+    current = (await client.get(f"/api/worlds/{world_id}/changesets")).json()[0]
+    if current["status"] == "applied":
+        assert "Collapsed Bridge" in await _effective_names(client, world_id)
+    else:
+        assert current["status"] == "rejected"
+        assert "Collapsed Bridge" not in await _effective_names(client, world_id)
+
+
+async def test_editing_a_proposal_before_applying_commits_what_was_reviewed(
+    client, llm_mock
+):
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-24")
+    edited = [
+        {
+            "op": "create",
+            "name": "Rewritten By Hand",
+            "content": "The user's own wording.",
+            "activation": "constant",
+            "keywords": [],
+            "rationale": "r",
+            "evidence": "reply",
+        }
+    ]
+    resp = await client.post(
+        f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply",
+        json={"summary": "hand-edited", "operations": edited},
+    )
+    assert resp.status_code == 200
+    assert "Rewritten By Hand" in await _effective_names(client, world_id)
+    assert "Collapsed Bridge" not in await _effective_names(client, world_id)
+
+
+async def test_authored_crud_makes_an_older_proposal_stale(client, llm_mock):
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-25")
+    await client.post(
+        f"/api/worlds/{world_id}/entries",
+        json={"name": "Late addition", "content": "x"},
+    )
+
+    resp = await client.post(
+        f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={}
+    )
+    assert resp.status_code == 409
+    assert "Re-evaluate" in resp.json()["detail"]
+    assert "Collapsed Bridge" not in await _effective_names(client, world_id)
+    assert [c["status"] for c in await _pending(client, world_id)] == ["stale"]
+
+
+async def test_toggling_a_world_does_not_invalidate_a_proposal(client, llm_mock):
+    """The character-switch flow toggles `enabled`; that must not cost a proposal."""
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-26")
+    await client.put(f"/api/worlds/{world_id}", json={"enabled": False})
+    await client.put(
+        f"/api/worlds/{world_id}", json={"enabled": True, "name": "Renamed"}
+    )
+    await client.put(f"/api/worlds/{world_id}/dynamic", json={"enabled": False})
+
+    resp = await client.post(
+        f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={}
+    )
+    assert resp.status_code == 200
+
+
+async def test_a_bulk_import_bumps_the_revision_exactly_once(client, llm_mock):
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-27")
+    before = (await client.get("/api/worlds")).json()
+    revision = next(w["content_revision"] for w in before if w["id"] == world_id)
+
+    await client.post(
+        f"/api/worlds/{world_id}/import",
+        json={
+            "entries": [
+                {"name": f"E{i}", "content": "x", "keys": ["k"]} for i in range(5)
+            ]
+        },
+    )
+
+    after = (await client.get("/api/worlds")).json()
+    assert (
+        next(w["content_revision"] for w in after if w["id"] == world_id)
+        == revision + 1
+    )
+
+
+async def test_exactly_one_of_two_concurrent_accepts_wins(client, llm_mock):
+    world_id, card_id = await _world_with_character(client, name="Race")
+    await _conversation("conv-dw-28", card_id)
+    for i in range(2):
+        llm_mock.enqueue_writer(f"reply {i}")
+        llm_mock.enqueue_world_change(
+            _propose(
+                f"proposal {i}",
+                [
+                    {
+                        "op": "create",
+                        "name": f"Fact {i}",
+                        "content": "body",
+                        "activation": "constant",
+                        "rationale": "r",
+                        "evidence": "reply",
+                    }
+                ],
+            )
+        )
+        await _drain(handle_turn("conv-dw-28", f"turn {i}"))
+
+    pending = await _pending(client, world_id)
+    assert len(pending) == 2
+    # Both were proposed against the same World, so both hold the same base.
+    assert len({c["base_revision"] for c in pending}) == 1
+
+    results = await asyncio.gather(
+        *(
+            client.post(f"/api/worlds/{world_id}/changesets/{c['id']}/apply", json={})
+            for c in pending
+        )
+    )
+    codes = sorted(r.status_code for r in results)
+    assert codes == [200, 409]
+    assert (
+        len(
+            [
+                n
+                for n in await _effective_names(client, world_id)
+                if n.startswith("Fact")
+            ]
+        )
+        == 1
+    )
+
+
+async def test_undo_restores_the_previous_projection(client, llm_mock):
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-29")
+    applied = (
+        await client.post(
+            f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={}
+        )
+    ).json()
+    assert "Collapsed Bridge" in await _effective_names(client, world_id)
+
+    resp = await client.post(f"/api/worlds/{world_id}/changesets/{applied['id']}/undo")
+    assert resp.status_code == 200
+    assert await _effective_names(client, world_id) == ["The Bridge"]
+
+    history = (
+        await client.get(
+            f"/api/worlds/{world_id}/changesets", params={"status": "history"}
+        )
+    ).json()
+    statuses = {c["id"]: c["status"] for c in history}
+    assert statuses[applied["id"]] == "reverted"
+    assert resp.json()["origin"] == "undo"
+
+
+async def test_undo_refuses_when_the_entry_moved_on(client, llm_mock):
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-30")
+    applied = (
+        await client.post(
+            f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={}
+        )
+    ).json()
+    created = applied["after_entries"][0]["id"]
+    await client.put(
+        f"/api/worlds/{world_id}/entries/{created}",
+        json={"content": "hand-edited since"},
+    )
+
+    resp = await client.post(f"/api/worlds/{world_id}/changesets/{applied['id']}/undo")
+    assert resp.status_code == 409
+    assert "Collapsed Bridge" in await _effective_names(client, world_id)
+    changesets = (await client.get(f"/api/worlds/{world_id}/changesets")).json()
+    assert not [c for c in changesets if c["origin"] == "undo"]
+
+
+async def test_undo_refuses_after_a_non_content_overlay_edit(client, llm_mock):
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-30-fields")
+    applied = (
+        await client.post(
+            f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={}
+        )
+    ).json()
+    created = applied["after_entries"][0]
+
+    edited = (
+        await client.put(
+            f"/api/worlds/{world_id}/entries/{created['id']}",
+            json={"at_depth": True},
+        )
+    ).json()
+    assert edited["entry_revision"] == created["entry_revision"] + 1
+
+    resp = await client.post(f"/api/worlds/{world_id}/changesets/{applied['id']}/undo")
+    assert resp.status_code == 409
+    changesets = (await client.get(f"/api/worlds/{world_id}/changesets")).json()
+    assert not [c for c in changesets if c["origin"] == "undo"]
+
+
+async def test_reset_restores_the_authored_world_and_is_itself_undoable(
+    client, llm_mock
+):
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-31")
+    await client.post(
+        f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={}
+    )
+    assert len(await _effective_names(client, world_id)) == 2
+
+    resp = await client.post(f"/api/worlds/{world_id}/reset")
+    assert resp.status_code == 200 and resp.json()["reset"] is True
+    assert await _effective_names(client, world_id) == ["The Bridge"]
+
+    reset_changeset = resp.json()["changeset"]
+    undo = await client.post(
+        f"/api/worlds/{world_id}/changesets/{reset_changeset['id']}/undo"
+    )
+    assert undo.status_code == 200
+    assert sorted(await _effective_names(client, world_id)) == [
+        "Collapsed Bridge",
+        "The Bridge",
+    ]
+
+
+async def test_reset_on_a_world_with_no_overlay_is_a_no_op(client):
+    world = (await client.post("/api/worlds", json={"name": "Untouched"})).json()
+    resp = await client.post(f"/api/worlds/{world['id']}/reset")
+    assert resp.status_code == 200 and resp.json()["reset"] is False
+
+
+async def test_editing_a_source_message_makes_the_proposal_stale(client, llm_mock):
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-32")
+    await client.post(
+        f"/api/conversations/conv-dw-32/messages/{changeset['source_assistant_message_id']}/edit",
+        json={"content": "Actually the bridge held.", "regenerate": False},
+    )
+    assert [c["status"] for c in await _pending(client, world_id)] == ["stale"]
+    apply = await client.post(
+        f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={}
+    )
+    assert apply.status_code == 409
+    assert "Re-evaluate" in apply.json()["detail"]
+    assert "Collapsed Bridge" not in await _effective_names(client, world_id)
+
+
+async def test_deleting_the_source_keeps_applied_history_but_stales_the_pending(
+    client, llm_mock
+):
+    world_id, card_id = await _world_with_character(client, name="Deleted")
+    await _conversation("conv-dw-33", card_id)
+    for i in range(2):
+        llm_mock.enqueue_writer(f"reply {i}")
+        llm_mock.enqueue_world_change(
+            _propose(
+                f"proposal {i}",
+                [
+                    {
+                        "op": "create",
+                        "name": f"Fact {i}",
+                        "content": "b",
+                        "activation": "constant",
+                        "rationale": "r",
+                        "evidence": "reply",
+                    }
+                ],
+            )
+        )
+        await _drain(handle_turn("conv-dw-33", f"turn {i}"))
+    first, second = sorted(await _pending(client, world_id), key=lambda c: c["id"])
+    await client.post(f"/api/worlds/{world_id}/changesets/{first['id']}/apply", json={})
+
+    root = (await dbmod.get_messages("conv-dw-33"))[0]
+    await client.delete(f"/api/conversations/conv-dw-33/messages/{root['id']}")
+
+    history = (
+        await client.get(
+            f"/api/worlds/{world_id}/changesets", params={"status": "history"}
+        )
+    ).json()
+    kept = next(c for c in history if c["id"] == first["id"])
+    assert kept["status"] == "applied"
+    assert kept["source_assistant_message_id"] is None
+    assert kept["source_character_label"]  # the denormalised label survives
+    assert "Fact 0" in await _effective_names(client, world_id)
+    assert [
+        c["status"] for c in await _pending(client, world_id) if c["id"] == second["id"]
+    ] == ["stale"]
+
+
+async def test_re_evaluation_derives_a_fresh_proposal_from_the_current_world(
+    client, llm_mock
+):
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-34")
+    await client.post(
+        f"/api/worlds/{world_id}/entries",
+        json={"name": "Late addition", "content": "authored since"},
+    )
+    assert (
+        await client.post(
+            f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={}
+        )
+    ).status_code == 409
+
+    llm_mock.enqueue_world_change(
+        _propose(
+            "re-derived",
+            [
+                {
+                    "op": "create",
+                    "name": "Second Look",
+                    "content": "b",
+                    "activation": "constant",
+                    "rationale": "r",
+                    "evidence": "reply",
+                }
+            ],
+        )
+    )
+    resp = await client.post(
+        f"/api/worlds/{world_id}/changesets/{changeset['id']}/re-evaluate"
+    )
+    assert resp.status_code == 200
+    replacement = resp.json()["changeset"]
+    assert replacement["summary"] == "re-derived"
+    assert replacement["supersedes_changeset_id"] == changeset["id"]
+    # Based on the world as it now stands, so it applies cleanly.
+    assert (
+        await client.post(
+            f"/api/worlds/{world_id}/changesets/{replacement['id']}/apply", json={}
+        )
+    ).status_code == 200
+
+    # The step saw the entry that was added after the original proposal.
+    assert "Late addition" in _world_calls(llm_mock)[-1]["messages"][-1]["content"]
+
+
+# ── export ────────────────────────────────────────────────────────────────────
+
+
+async def test_export_defaults_to_authored_and_effective_is_opt_in(client, llm_mock):
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-35")
+    await client.post(
+        f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={}
+    )
+
+    default = (await client.get(f"/api/worlds/{world_id}/export")).json()
+    assert [e["name"] for e in default["entries"]] == ["The Bridge"]
+
+    effective = (
+        await client.get(f"/api/worlds/{world_id}/export", params={"view": "effective"})
+    ).json()
+    assert sorted(e["name"] for e in effective["entries"]) == [
+        "Collapsed Bridge",
+        "The Bridge",
+    ]
+
+
+async def test_card_export_embeds_the_authored_book_by_default(client, llm_mock):
+    """A card shared with someone else carries the lore its author wrote, not
+    whatever this playthrough's Agent proposed and its owner accepted."""
+    world_id, card_id = await _world_with_character(client, name="Shared")
+    await _conversation("conv-dw-37", card_id)
+    llm_mock.enqueue_writer("It falls.")
+    llm_mock.enqueue_world_change(_propose())
+    await _drain(handle_turn("conv-dw-37", "I cross"))
+    (changeset,) = await _pending(client, world_id)
+    await client.post(
+        f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={}
+    )
+
+    def _names(png_bytes: bytes) -> list[str]:
+        import base64
+        import json
+        import re
+
+        chunk = re.search(rb"chara\x00([A-Za-z0-9+/=]+)", png_bytes)
+        assert chunk, "no chara chunk in the exported card"
+        card = json.loads(base64.b64decode(chunk.group(1)))
+        return sorted(e["name"] for e in card["data"]["character_book"]["entries"])
+
+    default = await client.get(f"/api/characters/{card_id}/export")
+    assert _names(default.content) == ["The Bridge"]
+
+    effective = await client.get(
+        f"/api/characters/{card_id}/export", params={"world_view": "effective"}
+    )
+    assert _names(effective.content) == ["Collapsed Bridge", "The Bridge"]
+
+
+async def test_the_world_list_carries_the_awaiting_review_count(client, llm_mock):
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-36")
+    worlds = (await client.get("/api/worlds")).json()
+    assert next(w["pending_changesets"] for w in worlds if w["id"] == world_id) == 1
+    assert all(w["pending_changesets"] == 0 for w in worlds if w["id"] != world_id)
+
+    # A stale proposal still needs a decision, so it stays in the badge; a
+    # rejected one does not.
+    await client.post(
+        f"/api/worlds/{world_id}/entries", json={"name": "Late", "content": "x"}
+    )
+    await client.post(
+        f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={}
+    )
+    worlds = (await client.get("/api/worlds")).json()
+    assert next(w["pending_changesets"] for w in worlds if w["id"] == world_id) == 1
+
+    await client.post(f"/api/worlds/{world_id}/changesets/{changeset['id']}/reject")
+    worlds = (await client.get("/api/worlds")).json()
+    assert next(w["pending_changesets"] for w in worlds if w["id"] == world_id) == 0

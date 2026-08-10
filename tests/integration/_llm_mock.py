@@ -28,6 +28,7 @@ _EDITOR_FUNCTION_NAMES = {"editor_apply_patch", "editor_rewrite"}
 _DIRECTOR_FUNCTION_NAMES = {"direct_scene"}
 _FEEDBACK_FUNCTION_NAMES = {"give_feedback"}
 _DIRECTION_NOTE_FUNCTION_NAMES = {"record_direction_note"}
+_WORLD_CHANGE_FUNCTION_NAMES = {"propose_world_changes"}
 
 
 def _validate_tool_calls(tool_calls: Any) -> None:
@@ -90,6 +91,8 @@ def _pass_from_tool_choice(tool_choice: Any) -> str:
             return "feedback"
         if name in _DIRECTION_NOTE_FUNCTION_NAMES:
             return "direction_note"
+        if name in _WORLD_CHANGE_FUNCTION_NAMES:
+            return "world_change"
         # Any other forced function name belongs to a workflow tool: the
         # toolkit's forced_tool_call helper passes the same dict shape via
         # TOOLS[<wid_registered_name>]["choice"], but the name is not one of
@@ -127,6 +130,7 @@ class FakeLLMClient:
             "editor": [],
             "feedback": [],
             "direction_note": [],
+            "world_change": [],
             "workflow": [],
         }
         # Raw text-completion queue (complete_raw, document text mode) — separate
@@ -144,6 +148,7 @@ class FakeLLMClient:
             "editor": [],
             "feedback": [],
             "direction_note": [],
+            "world_change": [],
             "workflow": [],
         }
         # Mirror LLMClient: the turn's clients share one abort token, so an
@@ -199,6 +204,11 @@ class FakeLLMClient:
         """Queue a director-notes response (the ``record_direction_note`` forced call)."""
         _validate_tool_calls(tool_calls)
         self._queues["direction_note"].append({"tool_calls": tool_calls})
+
+    def enqueue_world_change(self, tool_calls: list[dict]) -> None:
+        """Queue a Dynamic Worlds response (the ``propose_world_changes`` forced call)."""
+        _validate_tool_calls(tool_calls)
+        self._queues["world_change"].append({"tool_calls": tool_calls})
 
     def enqueue_workflow(self, message: dict) -> None:
         self._queues["workflow"].append({"message": message})
@@ -304,8 +314,8 @@ class FakeLLMClient:
             }
             return
 
-        if pass_name == "direction_note":
-            payload = self._queues["direction_note"].pop(0) if self._queues["direction_note"] else {"tool_calls": []}
+        if pass_name in ("direction_note", "world_change"):
+            payload = self._queues[pass_name].pop(0) if self._queues[pass_name] else {"tool_calls": []}
             yield {
                 "type": "done",
                 "message": {
