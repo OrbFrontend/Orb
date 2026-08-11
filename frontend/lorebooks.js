@@ -219,6 +219,16 @@ export async function activateAndPrioritizeWorld(worldId) {
   renderWorldsSidebar();
 }
 
+// A linked lorebook is on loan to the character in play — selectConversation
+// turns it on, switching away turns it off. A page load has nobody in play, so
+// anything left enabled by the last session would inject that character's lore
+// into whatever chat is opened next. Called once at boot, before loadWorlds()
+// so the sidebar paints the swept state; floating lorebooks are global and are
+// left exactly as the user left them.
+export async function deactivateLinkedWorlds() {
+  await api.post("/worlds/deactivate-linked", {});
+}
+
 export async function deactivateWorld(worldId) {
   const world = _worlds.find((w) => w.id === worldId);
   if (!world) return;

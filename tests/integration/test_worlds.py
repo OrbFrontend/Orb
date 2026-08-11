@@ -152,3 +152,52 @@ async def test_character_book_extensions_round_trip(client, db):
 async def test_lorebook_export_missing_world_404(client, db):
     resp = await client.get("/api/worlds/no-such-world/export")
     assert resp.status_code == 404
+
+
+async def test_deactivate_linked_worlds_spares_floating_ones(client, db):
+    """A page load retires character-linked lorebooks; floating ones survive it.
+
+    A linked World is enabled by the client only while its character is in play,
+    and nothing is in play on a fresh page — so a reload must not carry one over.
+    A floating World is the user's own global lore and has no character to scope
+    it, so it keeps whatever state it was left in.
+    """
+    linked = (await client.post("/api/worlds", json={"name": "Elsinore"})).json()
+    linked_off = (await client.post("/api/worlds", json={"name": "Verona"})).json()
+    floating_on = (await client.post("/api/worlds", json={"name": "House Rules"})).json()
+    floating_off = (await client.post("/api/worlds", json={"name": "Retired Lore"})).json()
+
+    await client.post("/api/characters", json={"name": "Hamlet", "world_id": linked["id"]})
+    await client.post("/api/characters", json={"name": "Juliet", "world_id": linked_off["id"]})
+    await client.put(f"/api/worlds/{linked_off['id']}", json={"enabled": False})
+    await client.put(f"/api/worlds/{floating_off['id']}", json={"enabled": False})
+
+    resp = await client.post("/api/worlds/deactivate-linked")
+    assert resp.status_code == 200
+    assert resp.json()["disabled"] == [linked["id"]]  # already-off linked worlds aren't re-reported
+
+    by_id = {w["id"]: w for w in (await client.get("/api/worlds")).json()}
+    assert not by_id[linked["id"]]["enabled"]
+    assert not by_id[linked_off["id"]]["enabled"]
+    assert by_id[floating_on["id"]]["enabled"]
+    assert not by_id[floating_off["id"]]["enabled"]
+
+    # Idempotent: a second reload has nothing left to turn off.
+    assert (await client.post("/api/worlds/deactivate-linked")).json()["disabled"] == []
+
+
+async def test_deactivate_linked_worlds_keeps_sidebar_recency(client, db):
+    """The sweep is not user activity: it must not stamp `updated_at`.
+
+    The worlds sidebar orders by recency, so a boot sweep that touched every
+    linked World's timestamp would reshuffle the list on every page load.
+    """
+    world = (await client.post("/api/worlds", json={"name": "Elsinore"})).json()
+    await client.post("/api/characters", json={"name": "Hamlet", "world_id": world["id"]})
+
+    before = (await client.get("/api/worlds")).json()[0]
+    await client.post("/api/worlds/deactivate-linked")
+    after = (await client.get("/api/worlds")).json()[0]
+
+    assert after["updated_at"] == before["updated_at"]
+    assert after["content_revision"] == before["content_revision"]

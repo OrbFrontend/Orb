@@ -16,6 +16,7 @@ from ...database import (
     create_world,
     delete_lorebook_entry,
     delete_world,
+    disable_character_linked_worlds,
     get_active_lorebook_entries,
     get_lorebook_entries,
     get_world,
@@ -67,6 +68,18 @@ async def api_list_worlds():
 @router.post("/api/worlds")
 async def api_create_world(data: WorldCreate):
     return await create_world(data.model_dump())
+
+
+@router.post("/api/worlds/deactivate-linked")
+async def api_deactivate_linked_worlds():
+    """Turn off every enabled World a character card links to. The client's boot sweep.
+
+    A linked World is on loan to the character in play; a fresh page has nobody
+    in play, so carrying one over from the last session would leak that
+    character's lore into whatever chat is opened next. Floating Worlds are
+    global lore and keep whatever state the user left them in.
+    """
+    return {"disabled": await disable_character_linked_worlds()}
 
 
 @router.put("/api/worlds/{world_id}")

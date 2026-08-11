@@ -154,6 +154,38 @@ async def update_world(world_id: str, data: dict) -> WorldRow | None:
         return await get_world(world_id)
 
 
+async def disable_character_linked_worlds() -> list[str]:
+    """Turn off every enabled World some character card links to; return the ids turned off.
+
+    A linked World belongs to the character that owns it — the client enables it
+    when that character comes into play and disables it on the way out. A page
+    load has nobody in play, so a linked World left enabled by the last session
+    would keep injecting its lore into whatever is opened next, including a chat
+    with a different character. Floating Worlds (no card points at them) are the
+    user's own global lore and are left exactly as they were.
+
+    Neither ``updated_at`` nor ``content_revision`` is stamped: an ``enabled``
+    toggle is not a lore-content mutation (see the module docstring), and a boot
+    sweep is not user activity — flattening every linked World's ``updated_at``
+    to one instant would scramble the sidebar's recency order.
+    """
+    async with get_db() as db:
+        rows = list(
+            await db.execute_fetchall(
+                "SELECT id FROM worlds WHERE enabled = 1"
+                " AND id IN (SELECT world_id FROM character_cards WHERE world_id IS NOT NULL)"
+            )
+        )
+        ids = [str(r[0]) for r in rows]
+        if ids:
+            await db.execute(
+                f"UPDATE worlds SET enabled = 0 WHERE id IN ({', '.join('?' * len(ids))})",  # nosec B608 — placeholders only, values parameterised
+                ids,
+            )
+            await db.commit()
+        return ids
+
+
 async def delete_world(world_id: str) -> bool:
     async with get_db() as db:
         cur = await db.execute("DELETE FROM worlds WHERE id = ?", (world_id,))
