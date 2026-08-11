@@ -542,6 +542,22 @@ class TestCatalog:
         assert "- [9] Bridge" in catalog
         assert "suppresses [1]" in catalog
 
+    def test_a_marker_whose_target_was_deleted_is_not_listed(self):
+        """Deleting the authored row SET-NULLs the pointer, leaving nothing to retire.
+
+        The marker is listed only so the Agent can archive one when its target
+        becomes true again. An orphan hides nothing, and its line cannot even say
+        what it suppresses, so listing it would be tokens spent on noise.
+        """
+        catalog = build_world_change_catalog([_dynamic(9, "Bridge", "suppress", None, content="")])
+        assert catalog == ""
+
+    def test_an_orphaned_replacement_is_still_listed_as_ordinary_lore(self):
+        catalog = build_world_change_catalog([_dynamic(9, "Bridge", "replace", None, content="pilings remain")])
+        assert "- [9] Bridge" in catalog
+        assert "pilings remain" in catalog
+        assert "replaces" not in catalog
+
     def test_an_empty_world_yields_an_empty_catalog(self):
         assert build_world_change_catalog([]) == ""
 

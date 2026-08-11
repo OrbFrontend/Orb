@@ -1,10 +1,10 @@
-"""Upgrade paths for Dynamic Worlds (migrations 0053 and 0054).
+"""Upgrade paths for Dynamic Worlds (migrations 0053, 0054 and 0055).
 
 Fresh installs are stamped past the migration chain, so
-``test_fresh_install_stamping`` already proves ``schema.py`` and the migration
+``test_fresh_install_stamping`` already proves ``schema.py`` and the migrations
 agree. What it cannot prove is what happens to a database that *already has
-rows*: this drives 0053 against a pre-feature schema carrying real worlds and
-lorebook entries and asserts the two things an upgrade must get right --
+rows*: this drives the chain against a pre-feature schema carrying real worlds
+and lorebook entries and asserts the two things an upgrade must get right --
 every existing entry backfills as ``authored`` (so the projection sees exactly
 what it saw before), and the FK shape the preset engine derives its mechanics
 from matches a fresh install's.
@@ -26,6 +26,7 @@ from backend.features.presets import engine as presets
 
 _MIGRATION = importlib.import_module("backend.database.migrations.0053_dynamic_worlds")
 _STATUS_MIGRATION = importlib.import_module("backend.database.migrations.0054_world_changeset_superseded")
+_OVERLAY_FK_MIGRATION = importlib.import_module("backend.database.migrations.0055_overlay_target_set_null")
 
 # The worlds/lorebook_entries shape immediately before 0053, plus the two tables
 # world_changesets points at. Written out rather than derived, so the test still
@@ -115,6 +116,10 @@ def _upgraded(tmp_path: Path) -> sqlite3.Connection:
         )
     conn.commit()
     _MIGRATION.migrate(conn)
+    conn.commit()
+    # 0053 declared supersedes_entry_id ON DELETE CASCADE; 0055 rebuilds it to
+    # SET NULL. Both run on any real upgrade, so the fixture is the whole chain.
+    _OVERLAY_FK_MIGRATION.migrate(conn)
     conn.commit()
     return conn
 
@@ -223,6 +228,88 @@ async def test_existing_database_migrates_before_latest_schema_indexes_run(tmp_p
         assert "entry_layer" in columns
         assert "idx_lorebook_overlay" in indexes
         assert conn.execute("SELECT COUNT(*) FROM schema_migrations WHERE id = '0053_dynamic_worlds'").fetchone() == (1,)
+    finally:
+        conn.close()
+
+
+def _overlay_on_delete(conn: sqlite3.Connection) -> str | None:
+    """The declared ON DELETE action of the ``supersedes_entry_id`` edge."""
+    # PRAGMA foreign_key_list row: (id, seq, table, from, to, on_update, on_delete, match)
+    for row in conn.execute("PRAGMA foreign_key_list(lorebook_entries)").fetchall():
+        if row[3] == "supersedes_entry_id":
+            return str(row[6]).upper()
+    return None
+
+
+def _with_accepted_overlay(tmp_path: Path) -> sqlite3.Connection:
+    """A 0053-era database (CASCADE) holding an authored row and its replacement."""
+    conn = sqlite3.connect(str(tmp_path / "old-0053-overlay.db"))
+    conn.executescript(_PRE_0053_SQL)
+    ts = "2024-01-01"
+    conn.execute("INSERT INTO worlds (id, name, created_at, updated_at) VALUES ('w1', 'W', ?, ?)", (ts, ts))
+    conn.execute(
+        "INSERT INTO lorebook_entries (world_id, name, content, created_at, updated_at) VALUES ('w1', 'Bridge', 'stands', ?, ?)",
+        (ts, ts),
+    )
+    conn.commit()
+    _MIGRATION.migrate(conn)
+    conn.execute(
+        "INSERT INTO lorebook_entries (world_id, name, content, entry_layer, overlay_action, supersedes_entry_id,"
+        " created_at, updated_at) VALUES ('w1', 'Bridge', 'collapsed', 'dynamic', 'replace', 1, ?, ?)",
+        (ts, ts),
+    )
+    conn.commit()
+    return conn
+
+
+def test_0055_rebuilds_the_overlay_pointer_to_set_null(tmp_path):
+    """The whole point: an authored delete must no longer take the overlay with it."""
+    conn = _with_accepted_overlay(tmp_path)
+    try:
+        assert _overlay_on_delete(conn) == "CASCADE"
+
+        _OVERLAY_FK_MIGRATION.migrate(conn)
+
+        assert _overlay_on_delete(conn) == "SET NULL"
+        # The rebuild copies rows verbatim, overlay pointer included.
+        assert conn.execute(
+            "SELECT name, content, entry_layer, overlay_action, supersedes_entry_id FROM lorebook_entries ORDER BY id"
+        ).fetchall() == [
+            ("Bridge", "stands", "authored", "", None),
+            ("Bridge", "collapsed", "dynamic", "replace", 1),
+        ]
+        assert "idx_lorebook_overlay" in {row[1] for row in conn.execute("PRAGMA index_list(lorebook_entries)")}
+    finally:
+        conn.close()
+
+
+def test_deleting_the_authored_target_keeps_the_overlay_after_0055(tmp_path):
+    """Accepted Agent lore survives the cleanup that used to silently erase it."""
+    conn = _with_accepted_overlay(tmp_path)
+    try:
+        _OVERLAY_FK_MIGRATION.migrate(conn)
+        conn.execute("PRAGMA foreign_keys=ON")
+
+        conn.execute("DELETE FROM lorebook_entries WHERE id = 1")
+        conn.commit()
+
+        assert conn.execute("SELECT id, content, overlay_action, supersedes_entry_id FROM lorebook_entries").fetchall() == [
+            (2, "collapsed", "replace", None)
+        ]
+    finally:
+        conn.close()
+
+
+def test_0055_is_a_no_op_once_the_edge_already_sets_null(tmp_path):
+    conn = _with_accepted_overlay(tmp_path)
+    try:
+        _OVERLAY_FK_MIGRATION.migrate(conn)
+        before = conn.execute("SELECT COUNT(*) FROM lorebook_entries").fetchone()[0]
+
+        _OVERLAY_FK_MIGRATION.migrate(conn)
+
+        assert _overlay_on_delete(conn) == "SET NULL"
+        assert conn.execute("SELECT COUNT(*) FROM lorebook_entries").fetchone()[0] == before
     finally:
         conn.close()
 

@@ -120,6 +120,25 @@ def _elide_middle(text: str, head_chars: int, tail_chars: int) -> str:
     return f"{head} {marker} {tail}" if omitted > len(marker) else text
 
 
+def _is_live_suppressor(entry: Mapping[str, Any]) -> bool:
+    """True for a live ``suppress`` marker that is still hiding something.
+
+    These are the one management-only row the catalog shows: they inject no lore,
+    but the Agent has to be able to name one to archive it when later events make
+    its authored target true again. A marker whose target has since been deleted
+    has nothing left to hide (the delete SET-NULLs the pointer), so it is neither
+    lore nor an actionable target -- listing it would only spend tokens on a row
+    that cannot even say what it suppresses.
+    """
+    return (
+        is_dynamic(entry)
+        and entry.get("overlay_action") == "suppress"
+        and entry.get("supersedes_entry_id") is not None
+        and bool(entry.get("enabled", 1))
+        and not entry.get("archived")
+    )
+
+
 def _entry_line(entry: Mapping[str, Any], *, full: bool) -> str:
     """One catalog line: id, name, activation, and body (full, elided or compacted)."""
     bits = []
@@ -208,12 +227,7 @@ def build_world_change_catalog(
     """
     effective = select_effective_entries(entries)
     effective_objects = {id(e) for e in effective}
-    catalog_entries = [
-        e
-        for e in entries
-        if id(e) in effective_objects
-        or (is_dynamic(e) and e.get("overlay_action") == "suppress" and bool(e.get("enabled", 1)) and not e.get("archived"))
-    ]
+    catalog_entries = [e for e in entries if id(e) in effective_objects or _is_live_suppressor(e)]
     if not catalog_entries and not worlds:
         return ""
 

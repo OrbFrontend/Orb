@@ -34,6 +34,16 @@ An overlay row carries an `overlay_action`:
 `archived = 1` retires an overlay row without deleting it, which re-exposes
 whatever it was hiding. Archiving is therefore both "undo" and "reset".
 
+**Deleting an authored entry never deletes the overlay on top of it.**
+`supersedes_entry_id` is `ON DELETE SET NULL`, so a hard delete of the authored
+row drops only the pointer: a `replace` that no longer hides anything becomes a
+standalone `add`, and a `suppress` with nothing to suppress goes inert (the
+projection already drops every marker, and the proposal catalog stops listing an
+orphaned one). Accepting a `replace` is exactly what makes the authored row look
+redundant, so this is the *likely* cleanup, not a corner case — and it must not
+silently discard lore the user reviewed and accepted. Undo tolerates this one
+transition specifically (see §4); every other field still guards.
+
 > "Original" here means *the user-owned authored layer before Agent overlay*,
 > not an eternal snapshot of the first imported file. Authored entries stay
 > freely editable; preserving every historical user edit would be a separate
@@ -187,7 +197,11 @@ Everything else is expressed through the same path:
   server re-validates rather than trusting the client.
 - **Undo** builds a compensating changeset and applies it, but only while every
   affected dynamic entry still matches the recorded after-state; otherwise
-  `409`. It never clobbers a later edit.
+  `409`. It never clobbers a later edit. The single tolerated difference is a
+  `supersedes_entry_id` that has gone `NULL`: that is the user's own delete of
+  the authored target showing through the pointer, not an edit to the overlay
+  row, and refusing on it would strand the changeset with an Undo button that
+  could never succeed.
 - **Reset** is itself an undoable changeset.
 
 Source changes:

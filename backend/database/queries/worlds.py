@@ -747,6 +747,27 @@ def entry_snapshot(entry: Mapping[str, Any] | None) -> dict | None:
     }
 
 
+def _after_state_matches(live: Mapping[str, Any] | None, expected: Mapping[str, Any]) -> bool:
+    """Whether *live* is still the row an undo recorded, tolerating a lost target.
+
+    Snapshot equality, with exactly one carve-out. Deleting an authored entry
+    SET-NULLs the ``supersedes_entry_id`` of every overlay row that hid it (see
+    schema.py), which turns a ``replace`` into a standalone ``add`` and neuters a
+    ``suppress``. That is the user's own delete showing through the pointer, not
+    a later edit to the overlay row the undo would clobber -- and refusing on it
+    would strand an applied changeset with an Undo button that can never
+    succeed. Every other field, ``entry_revision`` included, must still match.
+    """
+    snapshot = entry_snapshot(live)
+    if snapshot is None:
+        return False
+    expected = dict(expected)
+    if snapshot == expected:
+        return True
+    lost_target = snapshot.get("supersedes_entry_id") is None and expected.get("supersedes_entry_id") is not None
+    return lost_target and {**snapshot, "supersedes_entry_id": expected["supersedes_entry_id"]} == expected
+
+
 async def _apply_one(db, world_id: str, op: Mapping[str, Any], now: str) -> tuple[dict | None, dict | None]:
     """Execute one validated operation. Returns ``(before, after)`` snapshots.
 
@@ -852,8 +873,13 @@ async def _apply_changeset_tx(
             if expected_state is None:
                 continue
             live = await _fetch_entry(db, int(op.get("target_entry_id") or 0))
-            if entry_snapshot(live) != dict(expected_state):
-                raise OverlayStateConflict(f"entry {op.get('target_entry_id')} changed since this changeset was applied")
+            if not _after_state_matches(live, expected_state):
+                gone = live is None
+                raise OverlayStateConflict(
+                    f"entry {op.get('target_entry_id')} was deleted since this changeset was applied"
+                    if gone
+                    else f"entry {op.get('target_entry_id')} changed since this changeset was applied"
+                )
 
     now = _now()
     befores: list[dict | None] = []

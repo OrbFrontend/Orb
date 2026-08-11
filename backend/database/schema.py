@@ -262,7 +262,7 @@ CREATE TABLE IF NOT EXISTS lorebook_entries (
     entry_layer TEXT NOT NULL DEFAULT 'authored' CHECK (entry_layer IN ('authored', 'dynamic')),
     entry_revision INTEGER NOT NULL DEFAULT 0,
     overlay_action TEXT NOT NULL DEFAULT '' CHECK (overlay_action IN ('', 'add', 'replace', 'suppress')),
-    supersedes_entry_id INTEGER DEFAULT NULL REFERENCES lorebook_entries(id) ON DELETE CASCADE,
+    supersedes_entry_id INTEGER DEFAULT NULL REFERENCES lorebook_entries(id) ON DELETE SET NULL,
     archived INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL

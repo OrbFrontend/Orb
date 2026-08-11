@@ -678,6 +678,95 @@ async def test_undo_refuses_after_a_non_content_overlay_edit(client, llm_mock):
     assert not [c for c in changesets if c["origin"] == "undo"]
 
 
+async def _applied_overlay_on(client, llm_mock, cid: str, op: dict) -> tuple[str, int, dict]:
+    """Apply one operation aimed at the World's single authored entry.
+
+    Returns ``(world_id, authored_entry_id, applied_changeset)``.
+    """
+    world_id, card_id = await _world_with_character(client, name=f"World-{cid}")
+    await _conversation(cid, card_id)
+    authored = (await client.get(f"/api/worlds/{world_id}/entries")).json()[0]
+    llm_mock.enqueue_writer("It falls.")
+    llm_mock.enqueue_world_change(_propose(operations=[{**op, "target_entry_id": authored["id"]}]))
+    await _drain(handle_turn(cid, "I cross"))
+    (changeset,) = await _pending(client, world_id)
+    applied = (await client.post(f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={})).json()
+    assert applied["status"] == "applied"
+    return world_id, authored["id"], applied
+
+
+_REPLACE_OP = {
+    "op": "replace",
+    "name": "The Bridge",
+    "content": "Only splintered pilings remain.",
+    "activation": "keywords",
+    "keywords": ["bridge"],
+    "rationale": "it collapsed",
+}
+
+
+async def test_deleting_a_superseded_authored_entry_keeps_the_accepted_replacement(client, llm_mock):
+    """Tidying away the entry a replacement supersedes must not erase the replacement.
+
+    Accepting a ``replace`` makes the authored row redundant, so deleting it is
+    the natural next step -- and it used to cascade the overlay away with it,
+    silently discarding lore the user had reviewed and accepted.
+    """
+    world_id, authored_id, _ = await _applied_overlay_on(client, llm_mock, "conv-dw-cascade-1", _REPLACE_OP)
+    assert await _effective_names(client, world_id) == ["The Bridge"]
+
+    resp = await client.delete(f"/api/worlds/{world_id}/entries/{authored_id}")
+    assert resp.status_code == 200
+
+    rows = (await client.get(f"/api/worlds/{world_id}/entries", params={"view": "effective"})).json()
+    assert [(r["name"], r["content"]) for r in rows] == [("The Bridge", "Only splintered pilings remain.")]
+    # The replacement now stands on its own: it hides nothing, so it reads as an add.
+    assert rows[0]["entry_layer"] == "dynamic"
+    assert rows[0]["supersedes_entry_id"] is None
+
+
+async def test_undo_survives_its_replacements_authored_target_being_deleted(client, llm_mock):
+    """A lost pointer is the user's own delete, not a later edit the undo would clobber."""
+    world_id, authored_id, applied = await _applied_overlay_on(client, llm_mock, "conv-dw-cascade-2", _REPLACE_OP)
+    await client.delete(f"/api/worlds/{world_id}/entries/{authored_id}")
+
+    resp = await client.post(f"/api/worlds/{world_id}/changesets/{applied['id']}/undo")
+    assert resp.status_code == 200, resp.text
+    # Undo retires what the changeset created; the authored row the user deleted
+    # is not resurrected, so the World is simply empty.
+    assert await _effective_names(client, world_id) == []
+    history = {c["id"]: c["status"] for c in (await client.get(f"/api/worlds/{world_id}/changesets")).json()}
+    assert history[applied["id"]] == "reverted"
+
+
+async def test_undo_still_refuses_when_the_overlay_row_itself_was_edited(client, llm_mock):
+    """The carve-out is the lost pointer alone -- every other field still guards."""
+    world_id, authored_id, applied = await _applied_overlay_on(client, llm_mock, "conv-dw-cascade-3", _REPLACE_OP)
+    created = applied["after_entries"][0]["id"]
+    await client.delete(f"/api/worlds/{world_id}/entries/{authored_id}")
+    await client.put(f"/api/worlds/{world_id}/entries/{created}", json={"content": "hand-edited since"})
+
+    resp = await client.post(f"/api/worlds/{world_id}/changesets/{applied['id']}/undo")
+    assert resp.status_code == 409
+    assert await _effective_names(client, world_id) == ["The Bridge"]
+
+
+async def test_deleting_a_suppressed_authored_entry_leaves_an_inert_marker(client, llm_mock):
+    world_id, authored_id, _ = await _applied_overlay_on(
+        client,
+        llm_mock,
+        "conv-dw-cascade-4",
+        {"op": "suppress", "rationale": "it is gone"},
+    )
+    assert await _effective_names(client, world_id) == []
+
+    await client.delete(f"/api/worlds/{world_id}/entries/{authored_id}")
+
+    rows = (await client.get(f"/api/worlds/{world_id}/entries")).json()
+    assert [(r["overlay_action"], r["supersedes_entry_id"]) for r in rows] == [("suppress", None)]
+    assert await _effective_names(client, world_id) == []
+
+
 async def test_reset_restores_the_authored_world_and_is_itself_undoable(client, llm_mock):
     world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-31")
     await client.post(f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={})
