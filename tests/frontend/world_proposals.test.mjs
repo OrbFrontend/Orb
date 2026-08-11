@@ -193,6 +193,12 @@ test("a card never claims a pending change is in the world", () => {
   assert.ok(!/applied/i.test(html));
 });
 
+test("a card names its lorebook, since one turn can propose to several", () => {
+  assert.match(proposalCardHtml(changeset({ world_name: "Gorge" })), /Gorge/);
+  // Absent rather than blank when the backend projected no name.
+  assert.ok(!/class="wc-world"/.test(proposalCardHtml(changeset())));
+});
+
 test("only open proposals are painted under a message", () => {
   const msg = {
     world_changesets: [changeset(), changeset({ id: 8, status: "applied", summary: "Already done" })],

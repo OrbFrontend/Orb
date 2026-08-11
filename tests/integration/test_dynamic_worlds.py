@@ -167,13 +167,112 @@ async def test_no_proposal_when_the_world_has_not_opted_in(client, llm_mock):
     assert "world_change" not in [c[0] for c in llm_mock.calls]
 
 
-async def test_no_proposal_without_a_linked_world(client, llm_mock):
+async def test_no_proposal_when_no_world_has_opted_in(client, llm_mock):
     card = (await client.post("/api/characters", json={"name": "Loner"})).json()
     await _conversation("conv-dw-4", card["id"])
     llm_mock.enqueue_writer("Nothing here.")
 
     events = await _drain(handle_turn("conv-dw-4", "hello"))
     assert not [e for e in events if e.get("event") == "world_change_proposed"]
+
+
+async def test_an_opted_in_world_proposes_without_a_character_linking_it(
+    client, llm_mock
+):
+    """The target set is what the prompt was played against, not what a card names.
+
+    A World that is enabled is feeding this turn's lore, so the exchange is
+    evidence about it whether or not the speaking character's card points at it.
+    """
+    world = (await client.post("/api/worlds", json={"name": "Shared"})).json()
+    await client.post(f"/api/worlds/{world['id']}/entries", json=_ENTRY)
+    await client.put(f"/api/worlds/{world['id']}/dynamic", json={"enabled": True})
+    card = (await client.post("/api/characters", json={"name": "Loner"})).json()
+    await _conversation("conv-dw-4b", card["id"])
+
+    llm_mock.enqueue_writer("It falls.")
+    llm_mock.enqueue_world_change(_propose())
+    await _drain(handle_turn("conv-dw-4b", "I cross"))
+
+    assert [c["summary"] for c in await _pending(client, world["id"])] == [
+        "The bridge fell."
+    ]
+
+
+async def test_a_disabled_world_is_never_a_target(client, llm_mock):
+    """It fed nothing into the prompt, so nothing in the reply is about it."""
+    world_id, card_id = await _world_with_character(client)
+    await client.put(f"/api/worlds/{world_id}", json={"enabled": False})
+    await _conversation("conv-dw-4c", card_id)
+    llm_mock.enqueue_writer("It falls.")
+
+    await _drain(handle_turn("conv-dw-4c", "I cross"))
+
+    assert await _pending(client, world_id) == []
+    assert not _world_calls(llm_mock)
+
+
+async def test_one_call_proposes_to_every_opted_in_world(client, llm_mock):
+    """Several Worlds, one judgement -- split into one changeset each."""
+    gorge_id, card_id = await _world_with_character(client, name="Gorge")
+    guild = (await client.post("/api/worlds", json={"name": "Guild"})).json()
+    await client.put(f"/api/worlds/{guild['id']}/dynamic", json={"enabled": True})
+    await _conversation("conv-dw-4d", card_id)
+
+    llm_mock.enqueue_writer("The bridge falls; the guild records the loss.")
+    llm_mock.enqueue_world_change(
+        _propose(
+            operations=[
+                {
+                    "op": "create",
+                    "target_world": "Gorge",
+                    "name": "Collapsed Bridge",
+                    "content": "The bridge is gone.",
+                    "activation": "constant",
+                    "rationale": "r",
+                    "evidence": "reply",
+                },
+                {
+                    "op": "create",
+                    "target_world": "Guild",
+                    "name": "Bridge Levy",
+                    "content": "The guild is owed for the bridge.",
+                    "activation": "constant",
+                    "rationale": "r",
+                    "evidence": "reply",
+                },
+            ]
+        )
+    )
+
+    events = await _drain(handle_turn("conv-dw-4d", "I cross"))
+
+    # One call, N changesets: the cost is per turn, not per lorebook.
+    assert len(_world_calls(llm_mock)) == 1
+    assert len([e for e in events if e.get("event") == "world_change_proposed"]) == 2
+    (gorge_cs,) = await _pending(client, gorge_id)
+    (guild_cs,) = await _pending(client, guild["id"])
+    assert [o["name"] for o in gorge_cs["operations"]] == ["Collapsed Bridge"]
+    assert [o["name"] for o in guild_cs["operations"]] == ["Bridge Levy"]
+    # The World stamp is a routing detail of the call, not part of the changeset.
+    assert "world_id" not in gorge_cs["operations"][0]
+    # Each names its own World's revision to race against.
+    assert gorge_cs["base_revision"] == 1 and guild_cs["base_revision"] == 0
+
+
+async def test_the_catalog_names_every_world_in_play(client, llm_mock):
+    _, card_id = await _world_with_character(client, name="Gorge")
+    guild = (await client.post("/api/worlds", json={"name": "Guild"})).json()
+    await client.put(f"/api/worlds/{guild['id']}/dynamic", json={"enabled": True})
+    await _conversation("conv-dw-4e", card_id)
+
+    llm_mock.enqueue_writer("It falls.")
+    llm_mock.enqueue_world_change(_propose(operations=[]))
+    await _drain(handle_turn("conv-dw-4e", "I cross"))
+
+    (call,) = _world_calls(llm_mock)
+    request = call["messages"][-1]["content"]
+    assert "## Gorge" in request and "## Guild" in request
 
 
 async def test_no_proposal_when_the_agent_is_off(client, llm_mock):

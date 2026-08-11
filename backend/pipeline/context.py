@@ -19,7 +19,7 @@ patching ``backend.inference.client.LLMClient``.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
@@ -87,11 +87,10 @@ class PipelineContext:
     active_persona: UserPersonaRow | None
     agent_client: LLMClient | None
     agent_system_prompt: str | None
-    # The conversation's linked-character World row, or None when the
-    # conversation has no card or the card links no World. This is the *only*
-    # Dynamic Worlds target -- the globally enabled Worlds that feed lorebook
-    # activation are a display concern and never a mutation target.
-    character_world: WorldRow | None = None
+    # Every World row, unfiltered. Read by the Dynamic Worlds stage, which
+    # narrows it to its mutation targets through ``world_proposal_active`` --
+    # the enabled Worlds that opted in, i.e. the ones whose lore fed this turn.
+    worlds: list[WorldRow] = field(default_factory=list)
 
 
 async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
@@ -127,10 +126,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     interactive_fragments += [f for f in card_interactive if f["id"] not in {g["id"] for g in interactive_fragments}]
     phrase_bank = await db.get_phrase_bank()
     lorebook_entries = await db.get_active_lorebook_entries()
-    # Resolved from the card, not from the enabled-World set: a mutation target
-    # must be the World this character is actually playing in.
-    linked_world_id = card.get("world_id") if card else None
-    character_world = await db.get_world(linked_world_id) if linked_world_id else None
+    worlds = await db.get_worlds()
     client = client_from_settings(settings, abort_token=abort_token)
 
     system_prompt, char_persona, mes_example = await db.resolve_char_context(conv, settings, card=card)
@@ -159,7 +155,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         active_persona=active_persona,
         agent_client=agent_client,
         agent_system_prompt=agent_system_prompt,
-        character_world=character_world,
+        worlds=worlds,
     )
 
 
@@ -279,8 +275,8 @@ class _TurnSetup:
     turn_scratch: dict
     kv_tracker: _KVCacheTracker
     schema_overrides: Mapping[str, dict]
-    # Identity of the World this turn may propose changes to; None when Dynamic
-    # Worlds is off for the linked World, or there is no linked World at all.
+    # Identity of the Worlds this turn may propose changes to; None when no
+    # enabled World has opted in to Dynamic Worlds.
     world_proposal: WorldProposalTurn | None = None
 
 
@@ -343,15 +339,16 @@ async def _prepare_turn(
     # Resolved before the tools blob is built: enabling propose_world_changes is
     # what emits its schema into the shared per-turn blob, so the decision has to
     # be made once, up front, and hold for every cached call in the turn.
+    proposal_world_ids = tuple(str(w["id"]) for w in ctx.worlds if world_proposal_active(w, agent_on=agent_enabled(settings)))
     world_proposal = (
         WorldProposalTurn(
-            world_id=ctx.character_world["id"],
+            world_ids=proposal_world_ids,
             conversation_id=conversation_id,
             user_message=last_user_message,
             character_label=(ctx.card or {}).get("name", "") or ctx.conv.get("character_name", ""),
             conversation_label=ctx.conv.get("title", "") or "",
         )
-        if ctx.character_world is not None and world_proposal_active(ctx.character_world, agent_on=agent_enabled(settings))
+        if proposal_world_ids
         else None
     )
 

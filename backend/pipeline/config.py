@@ -149,8 +149,8 @@ def _build_writer_tools_blob(
     Mutates *enabled_tools* in place to enable ``give_feedback`` when the feedback
     step is active, ``record_direction_note`` when the direction-note step is,
     ``select_lorebook`` when agentic lorebook is active, and
-    ``propose_world_changes`` when the conversation's linked World has Dynamic
-    Worlds on. Returns a ``schema_overrides`` dict (``direct_scene`` and
+    ``propose_world_changes`` when at least one enabled World has Dynamic Worlds
+    on. Returns a ``schema_overrides`` dict (``direct_scene`` and
     optionally ``give_feedback``/``record_direction_note``) held byte-stable
     across every cached call in a turn so the LLM's KV cache is not busted.
     (``select_lorebook`` and ``propose_world_changes`` need no override -- their

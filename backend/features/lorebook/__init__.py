@@ -57,6 +57,7 @@ from .proposals import (
     build_world_change_catalog,
     describe_operation,
     parse_proposal_call,
+    split_by_world,
     validate_proposal,
 )
 
@@ -88,6 +89,7 @@ __all__ = [
     "build_world_change_catalog",
     "describe_operation",
     "parse_proposal_call",
+    "split_by_world",
     "validate_proposal",
     # Dynamic Worlds — changeset lifecycle
     "accept_changeset",

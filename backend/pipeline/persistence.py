@@ -55,36 +55,41 @@ def _conversation_log_writer(conversation_id: str, log_turn_index: int):
     return _on_result
 
 
-async def _stage_world_proposal(res: TurnState, user_msg_id: int | None, asst_id: int) -> dict | None:
-    """Persist the turn's validated proposal as a pending changeset.
+async def _stage_world_proposals(res: TurnState, user_msg_id: int | None, asst_id: int) -> list[dict]:
+    """Persist the turn's validated proposals as pending changesets, one per World.
 
     Runs at the same boundary as the assistant message and immediately after it,
     because a changeset names its source messages and only now is the assistant
-    row's id known. Returns the compact payload for the ``world_change_proposed``
-    event, or ``None`` when there was nothing to stage.
+    row's id known. Returns one compact payload per staged changeset for the
+    ``world_change_proposed`` event, in World order.
 
-    Failures are swallowed: the reply is already committed, and a bookkeeping
-    write must not turn a finished turn into a failed one.
+    Failures are swallowed *per World*: the reply is already committed, a
+    bookkeeping write must not turn a finished turn into a failed one, and one
+    World failing is no reason to drop another's proposal.
     """
-    proposal = res.world_proposal
-    if not proposal:
-        return None
-    try:
-        changeset = await lorebook.stage_proposal(
-            world_id=proposal["world_id"],
-            base_revision=int(proposal["base_revision"]),
-            summary=proposal.get("summary", ""),
-            operations=proposal.get("operations", []),
-            source_user_message_id=user_msg_id,
-            source_assistant_message_id=asst_id,
-            source_conversation_id=proposal.get("source_conversation_id"),
-            source_character_label=proposal.get("source_character_label", ""),
-            source_conversation_label=proposal.get("source_conversation_label", ""),
-        )
-    except Exception:
-        logger.exception("Failed to stage world change proposal for assistant message %s", asst_id)
-        return None
-    return {"message_id": asst_id, "changeset": changeset}
+    payloads: list[dict] = []
+    for proposal in res.world_proposals:
+        try:
+            changeset = await lorebook.stage_proposal(
+                world_id=proposal["world_id"],
+                base_revision=int(proposal["base_revision"]),
+                summary=proposal.get("summary", ""),
+                operations=proposal.get("operations", []),
+                source_user_message_id=user_msg_id,
+                source_assistant_message_id=asst_id,
+                source_conversation_id=proposal.get("source_conversation_id"),
+                source_character_label=proposal.get("source_character_label", ""),
+                source_conversation_label=proposal.get("source_conversation_label", ""),
+            )
+        except Exception:
+            logger.exception(
+                "Failed to stage world change proposal for world %s on assistant message %s",
+                proposal.get("world_id"),
+                asst_id,
+            )
+            continue
+        payloads.append({"message_id": asst_id, "changeset": changeset})
+    return payloads
 
 
 async def _persist_result(
@@ -93,17 +98,17 @@ async def _persist_result(
     settings: Mapping[str, Any],
     user_msg_id: int | None,
     turn_index: int,
-) -> tuple[int | None, list[dict], dict | None]:
+) -> tuple[int | None, list[dict], list[dict]]:
     """Save the assistant message and all turn side-effects after ``_result`` fires.
 
     Updates director state, saves the assistant message with any workflow
     attachments, writes per-message workflow state, advances the active leaf,
     and increments the lifetime character counter.
 
-    Returns ``(asst_id, rejected_workflow_atts, world_proposal)``.
+    Returns ``(asst_id, rejected_workflow_atts, world_proposals)``.
     ``rejected_workflow_atts`` is non-empty when the attachment cache dropped
     entries that lacked the metadata needed for re-synthesis;
-    ``world_proposal`` is the staged Dynamic Worlds changeset, or None.
+    ``world_proposals`` holds one staged Dynamic Worlds changeset per World.
     """
     if agent_enabled(settings):
         await db.update_director_state(
@@ -157,15 +162,18 @@ async def _persist_result(
                 await db.create_direction_notes(conversation_id, asst_id, res.direction_notes)
             except Exception:
                 logger.exception("Failed to persist direction notes for assistant message %s; row already committed", asst_id)
-        proposal = await _stage_world_proposal(res, user_msg_id, asst_id)
-        return asst_id, rejected, proposal
+        proposals = await _stage_world_proposals(res, user_msg_id, asst_id)
+        return asst_id, rejected, proposals
     else:
         logger.info("Skipping assistant message persistence: resp_text is empty (reasoning‑only output)")
         if res.direction_notes:
             logger.info("Dropping %d direction note(s): turn produced no assistant message", len(res.direction_notes))
-        if res.world_proposal:
-            logger.info("Dropping world change proposal: turn produced no assistant message to anchor it to")
-        return None, [], None
+        if res.world_proposals:
+            logger.info(
+                "Dropping %d world change proposal(s): turn produced no assistant message to anchor them to",
+                len(res.world_proposals),
+            )
+        return None, [], []
 
 
 async def _fallback_persist(
@@ -300,11 +308,12 @@ async def _consume_pipeline(
                 yield event
             elif etype == "_result":
                 res = TurnState(**event["data"])
-                asst_id, rejected, proposal = await _persist_result(conversation_id, res, settings, user_msg_id, turn_index)
+                asst_id, rejected, proposals = await _persist_result(conversation_id, res, settings, user_msg_id, turn_index)
                 persisted = True
-                if proposal is not None:
+                for proposal in proposals:
                     # Ordered before `done` on purpose: the frontend paints the
-                    # proposal card from the same repaint that finalises the reply.
+                    # proposal cards from the same repaint that finalises the reply.
+                    # One event per World -- the payload names a single changeset.
                     yield {"event": "world_change_proposed", "data": proposal}
                 if rejected and asst_id is not None:
                     # originating_attachment_id is None (first-write rejection, no DB row).

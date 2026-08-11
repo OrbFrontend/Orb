@@ -52,9 +52,10 @@ logger = logging.getLogger(__name__)
 class WorldChangeResult:
     """Typed result of the proposal step, yielded as the ``done`` payload.
 
-    ``operations`` are validated and ready to stage; an empty list is the normal
-    "nothing durable happened" outcome and stages nothing. ``calls`` is the
-    parsed tool call, appended to the turn's tool calls so the proposal stays
+    ``operations`` are validated and ready to stage, each stamped with the World
+    it belongs to when the step was given more than one; an empty list is the
+    normal "nothing durable happened" outcome and stages nothing. ``calls`` is
+    the parsed tool call, appended to the turn's tool calls so the proposal stays
     visible in the inspector audit -- while the durable changeset lives in its
     own table, independent of reclaimable conversation logs.
     """
@@ -74,6 +75,7 @@ async def world_change_step(
     *,
     settings: Mapping[str, Any],
     entries: Sequence[Mapping[str, Any]],
+    worlds: Sequence[Mapping[str, Any]] = (),
     reply_text: str,
     writer_user_msg: str | list[ContentPart] | None = None,
     original_user_message: str = "",
@@ -84,15 +86,19 @@ async def world_change_step(
 ) -> AsyncIterator[dict]:
     """Yield reasoning chunks during the call, then a single done dict.
 
-    One forced ``propose_world_changes`` call. *entries* is the target World's
-    full row set, read immediately before this runs so the catalog and the
-    validation both reflect the latest content revision.
+    One forced ``propose_world_changes`` call, however many Worlds are in play:
+    a turn's opted-in Worlds share one catalog and one judgement, and the
+    validated operations are split back out per World afterwards. *entries* is
+    the pooled row set of every World in *worlds*, read immediately before this
+    runs so the catalog and the validation both reflect the latest content
+    revisions. Each operation comes back stamped with the World it belongs to
+    (see ``features/lorebook/proposals.split_by_world``).
 
     Yields:
         ``{"type": "reasoning", "delta": str}``
         ``{"type": "done", "result": WorldChangeResult}``
     """
-    catalog = build_world_change_catalog(entries, exchange_text=exchange_text)
+    catalog = build_world_change_catalog(entries, worlds=worlds, exchange_text=exchange_text)
     request = build_world_change_prompt(
         catalog,
         original_user_message=original_user_message,
@@ -126,7 +132,7 @@ async def world_change_step(
 
     logger.info("World-change step output:\n%s", json.dumps(resp, default=str))
     calls = parse_tool_calls(resp)
-    checked = validate_proposal(parse_proposal_call(calls), entries)
+    checked = validate_proposal(parse_proposal_call(calls), entries, worlds=worlds)
     if checked.rejected:
         logger.info("World-change proposal dropped %d operation(s): %s", len(checked.rejected), checked.rejected)
 

@@ -127,7 +127,13 @@ export function actionsHtml(cs) {
   return "";
 }
 
-/** The compact proposal card shown beneath the assistant reply that produced it. */
+/**
+ * The compact proposal card shown beneath the assistant reply that produced it.
+ *
+ * One turn can propose to several lorebooks at once, so the card names its own
+ * when the backend projected a `world_name` onto the row — two stacked cards
+ * would otherwise be indistinguishable.
+ */
 export function proposalCardHtml(cs) {
   if (!cs) return "";
   const ops = cs.operations || [];
@@ -140,6 +146,7 @@ export function proposalCardHtml(cs) {
     <div class="wc-card wc-${escAttr(status)}" data-wc-id="${escAttr(cs.id)}" data-wc-world="${escAttr(cs.world_id)}">
       <div class="wc-head">
         <span class="wc-badge">${esc(STATUS_LABELS[status] || status)}</span>
+        ${cs.world_name ? `<span class="wc-world">${esc(cs.world_name)}</span>` : ""}
         ${cs.summary ? `<span class="wc-summary">${esc(cs.summary)}</span>` : ""}
       </div>
       ${note}

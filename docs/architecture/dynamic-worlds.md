@@ -84,31 +84,53 @@ must never invalidate a pending proposal.
 after the draft-rewriting post-pipeline hooks — so the prose it judges is the
 prose that will be persisted.
 
-It is skipped when: the Agent is off, there is no character or linked World, the
-linked World has `dynamic_enabled = 0`, or the reply is empty, aborted or failed.
+It is skipped when: the Agent is off, no enabled World has `dynamic_enabled = 1`,
+or the reply is empty, aborted or failed.
 
 Other properties worth not breaking:
 
-- **The target is the conversation's linked character card's World, and nothing
-  else.** Never the set of globally enabled Worlds — that is a display concern,
-  and inferring from it would let one character's events land in another
-  World's lore.
-- **The World is re-read immediately before the call**, so the proposal names the
-  revision as it stands *after* the turn's own latency.
+- **The targets are every *enabled* World that opted in** (`predicates.world_proposal_active`),
+  not the conversation's linked character card's World. Both halves of that gate
+  matter: `dynamic_enabled` is the user handing the Agent a pen, and `enabled` is
+  what makes the exchange evidence at all — an enabled World's lore is what fed
+  this turn's prompt, while a disabled one contributed nothing to the scene and
+  so learns nothing from it. A card's `world_id` is a *linking* concern; the lore
+  actually in play is the enabled set, and several Worlds are routinely in play
+  at once.
+- **One call, one changeset per World.** The Worlds in play share a single forced
+  call — the judgement is about the exchange, not about a book, and asking once
+  per World would cost N generations to answer the same question — and its
+  catalog groups entries under a `## <World name>` heading each. Operations that
+  name a target row take that row's World (entry ids are globally unique, so
+  that cannot be misdirected); a `create` names one in `target_world`, required
+  only when the catalog lists more than one. `proposals.split_by_world` then
+  files the validated operations into one pending changeset per World, because
+  that is the unit both the revision race and the review queue work in.
+- **Every World is re-read immediately before the call**, so each proposal names
+  the revision as it stands *after* the turn's own latency, and a World whose
+  opt-in (or `enabled`) was toggled off mid-turn drops out without disturbing the
+  others.
 - **A steered regeneration judges the original user message.** Orb's OOC steering
   prompt directs the writer; it is not an event in the world.
 - **A failed or malformed proposal call costs nothing.** The reply is already the
   user's; every failure path leaves `TurnState.world_proposal` as `None` and is
   logged.
-- The proposal is staged as a pending changeset at the same persistence boundary
-  as the assistant message (it names that message), and
-  `world_change_proposed` is emitted before `done`.
+- The proposals are staged as pending changesets at the same persistence boundary
+  as the assistant message (they name that message), and one
+  `world_change_proposed` event per changeset is emitted before `done`. One
+  World failing to stage never drops another's.
 
 The `propose_world_changes` schema chooses only between `constant` and
 `keywords` activation; the other lorebook fields keep safe defaults the user can
 edit afterwards through the normal reviewed path. Keeping the schema small keeps
 the shared per-turn tool blob small and stable (see
-[kv-cache.md](kv-cache.md)).
+[kv-cache.md](kv-cache.md)) — which is also why `target_world` is a fixed field
+of that schema rather than one narrowed to the Worlds of the moment.
+
+**Re-evaluate stays single-World.** A changeset belongs to one World, so
+re-deriving it re-runs the step against that World alone: the user is re-judging
+*this* proposal, and opening a second World's queue from that click would be a
+surprise.
 
 The model never executes CRUD. `features/lorebook/proposals.validate_proposal`
 turns its call into normalised operations or rejects them, checking every claim

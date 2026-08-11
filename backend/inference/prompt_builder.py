@@ -465,7 +465,9 @@ WORLD_CHANGE_RULES = (
 )
 
 WORLD_CHANGE_CATALOG_HEADER = (
-    "**Current World entries** -- ids are stable; name an id exactly when replacing, suppressing, updating or archiving."
+    "**Current World entries** -- ids are stable; name an id exactly when replacing, suppressing, updating or "
+    "archiving. Entries are grouped under the lorebook (`## heading`) they belong to; a new entry must name one "
+    "in `target_world` when more than one is listed."
 )
 
 

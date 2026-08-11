@@ -11,10 +11,19 @@ The catalog (:func:`build_world_change_catalog`) is the other half of the
 contract: it is what makes ``target_entry_id`` meaningful. Ids are the stable
 ``lorebook_entries`` row ids — no parallel UUID scheme — so a proposal points at
 exactly the row the drawer edits.
+
+**One call, several Worlds.** A turn may have more than one opted-in World in
+play, so both halves take an optional *worlds* argument: the catalog groups its
+entries under a heading per World, and validation resolves each operation to the
+World it belongs in — from the target row for anything that names one (row ids
+are globally unique, so that can never be guessed wrong), from ``target_world``
+for a ``create``. Passing no *worlds* keeps the single-World shape, which is what
+re-validating an already-scoped changeset on accept wants.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -60,6 +69,11 @@ class ValidatedProposal:
 # ── Catalog ───────────────────────────────────────────────────────────────────
 
 
+def _world_key(world_id: Any) -> str:
+    """A row's World as a comparable key. A row without one buckets under ``""``."""
+    return str(world_id) if world_id is not None else ""
+
+
 def _compact(text: str) -> str:
     flat = " ".join((text or "").split())
     return flat if len(flat) <= _COMPACT_CONTENT_CHARS else flat[: _COMPACT_CONTENT_CHARS - 1] + "…"
@@ -83,12 +97,41 @@ def _entry_line(entry: Mapping[str, Any], *, full: bool) -> str:
     return f"{head}\n  {body}" if full else f"{head}\n  {_compact(body)}"
 
 
+def _world_section(
+    entries: Sequence[Mapping[str, Any]],
+    relevant_ids: set[int],
+    *,
+    title: str = "",
+) -> list[str]:
+    """One World's catalog lines, split into its authored and dynamic sections.
+
+    A titled section is always emitted, even with nothing in it: an empty World
+    is still a legal ``target_world`` for a ``create``, so the step has to be
+    told it exists. An untitled one (the single-World shape) renders nothing when
+    it has no entries.
+    """
+    authored = [e for e in entries if not is_dynamic(e)]
+    dynamic = [e for e in entries if is_dynamic(e)]
+
+    parts: list[str] = [f"## {title}"] if title else []
+    if authored:
+        parts.append("### Authored")
+        parts.extend(_entry_line(e, full=e.get("id") in relevant_ids) for e in authored)
+    if dynamic:
+        parts.append(f"### {DYNAMIC_SECTION_TITLE}")
+        parts.extend(_entry_line(e, full=True) for e in dynamic)
+    if title and len(parts) == 1:
+        parts.append("(no entries yet)")
+    return parts
+
+
 def build_world_change_catalog(
     entries: Sequence[Mapping[str, Any]],
     *,
+    worlds: Sequence[Mapping[str, Any]] = (),
     exchange_text: str = "",
 ) -> str:
-    """Render the World for the proposal step: every entry, ids attached.
+    """Render the World(s) for the proposal step: every entry, ids attached.
 
     Dynamic entries always carry their full content — they are the rows the step
     may revise, so it must see exactly what they currently say. Authored entries
@@ -97,18 +140,21 @@ def build_world_change_catalog(
     book from crowding out the exchange itself while still giving the step the
     full text of anything it might contradict.
 
+    *entries* is the pooled row set of every World in *worlds*; each is rendered
+    under its own ``## <name>`` heading, in the order given, so the step can name
+    one in ``target_world``. With no *worlds* the pool is rendered flat, which is
+    the single-World shape a re-evaluation wants.
+
     Suppressed authored entries and archived overlay rows are absent: the step
     reasons about the World as it currently reads, and re-proposing against lore
     that is not in effect is exactly the confusion the projection exists to
-    prevent. Returns ``""`` for an empty World.
+    prevent. Returns ``""`` when there is nothing at all to show.
     """
     effective = select_effective_entries(entries)
-    if not effective:
+    if not effective and not worlds:
         return ""
 
     authored = [e for e in effective if not is_dynamic(e)]
-    dynamic = [e for e in effective if is_dynamic(e)]
-
     relevant_ids: set[int] = {e["id"] for e in authored if e.get("constant") and e.get("id") is not None}
     if exchange_text:
         scan = [{"role": "user", "content": exchange_text}]
@@ -116,13 +162,18 @@ def build_world_change_catalog(
             if e.get("id") is not None:
                 relevant_ids.add(int(e["id"]))
 
+    if not worlds:
+        return "\n".join(_world_section(effective, relevant_ids))
+
+    grouped: dict[str, list[Mapping[str, Any]]] = {}
+    for e in effective:
+        grouped.setdefault(_world_key(e.get("world_id")), []).append(e)
+
     parts: list[str] = []
-    if authored:
-        parts.append("### Authored")
-        parts.extend(_entry_line(e, full=e.get("id") in relevant_ids) for e in authored)
-    if dynamic:
-        parts.append(f"### {DYNAMIC_SECTION_TITLE}")
-        parts.extend(_entry_line(e, full=True) for e in dynamic)
+    for world in worlds:
+        world_id = _world_key(world.get("id"))
+        title = _clean_str(world.get("name")) or world_id
+        parts.extend(_world_section(grouped.get(world_id, []), relevant_ids, title=title))
     return "\n".join(parts)
 
 
@@ -155,30 +206,83 @@ def _target_id(raw: Mapping[str, Any]) -> int | None:
     return None
 
 
+class _WorldScope:
+    """Which Worlds an operation may land in, and how a ``create`` names one.
+
+    Built once per proposal. With *worlds* given, a ``create`` must resolve to
+    one of them (by name, or by id) and every accepted operation is stamped with
+    its World for :func:`split_by_world`. With none given the scope is whatever
+    single World *entries* came from, nothing is stamped, and ``target_world`` is
+    ignored — the caller already knows which World it is re-validating.
+    """
+
+    __slots__ = ("_by_name", "ids", "stamped")
+
+    def __init__(self, worlds: Sequence[Mapping[str, Any]], entries: Sequence[Mapping[str, Any]]):
+        self.stamped = bool(worlds)
+        if worlds:
+            self.ids = [_world_key(w.get("id")) for w in worlds]
+        else:
+            seen = {_world_key(e.get("world_id")) for e in entries}
+            self.ids = [seen.pop()] if len(seen) == 1 else [""]
+        # A name shared by two Worlds names neither: resolving it would silently
+        # write to whichever happened to sort first.
+        counts = Counter(_clean_str(w.get("name")).casefold() for w in worlds)
+        self._by_name = {
+            _clean_str(w.get("name")).casefold(): _world_key(w.get("id"))
+            for w in worlds
+            if _clean_str(w.get("name")) and counts[_clean_str(w.get("name")).casefold()] == 1
+        }
+
+    def resolve_create(self, raw: Mapping[str, Any]) -> tuple[str | None, str]:
+        """``(world_id, reason)`` for a ``create``; *reason* is set only on failure."""
+        named = _clean_str(raw.get("target_world"))
+        if not self.stamped or not named:
+            if named or len(self.ids) == 1:
+                # An unstamped scope has exactly one World by construction, so a
+                # named one there is unverifiable rather than wrong: ignore it.
+                return self.ids[0], ""
+            return None, "create must name a target_world when more than one lorebook is listed"
+        if named in self.ids:
+            return named, ""
+        resolved = self._by_name.get(named.casefold())
+        if resolved is None:
+            return None, f"unknown target_world {named!r}"
+        return resolved, ""
+
+
 def validate_proposal(
     arguments: Mapping[str, Any] | None,
     entries: Sequence[Mapping[str, Any]],
+    *,
+    worlds: Sequence[Mapping[str, Any]] = (),
 ) -> ValidatedProposal:
-    """Vet a raw ``propose_world_changes`` argument dict against the live World.
+    """Vet a raw ``propose_world_changes`` argument dict against the live World(s).
 
     Every operation must survive all of:
 
     * a known ``op``;
-    * a ``target_entry_id`` naming a row of the right layer, in this World, and
-      currently in effect — ``replace``/``suppress`` target an *authored* entry,
-      ``update``/``archive` target a *dynamic* one (the Agent may never modify or
-      delete an authored row, so there is no operation that could);
+    * a ``target_entry_id`` naming a row of the right layer, in one of these
+      Worlds, and currently in effect — ``replace``/``suppress`` target an
+      *authored* entry, ``update``/``archive` target a *dynamic* one (the Agent
+      may never modify or delete an authored row, so there is no operation that
+      could);
     * one target per operation, and one operation per target — two operations
       aimed at the same entry are ambiguous, so the later one is dropped rather
       than guessed at;
+    * a resolvable World: taken from the target row for anything that names one,
+      and from ``target_world`` for a ``create`` when *worlds* lists more than
+      one candidate;
     * non-empty name and content for anything that creates or rewrites an entry;
     * at least one keyword under ``keywords`` activation, since an entry that can
       never trigger is not lore, it is dead weight in the table;
     * a name that does not collide (case-insensitively) with another live dynamic
-      entry in this World, or with an earlier create in the same proposal.
+      entry in the *same* World, or with an earlier create in it in this proposal.
 
-    Anything else is dropped with a reason. A proposal whose operations are all
-    dropped is simply an empty proposal.
+    *entries* is the pooled row set of every World in *worlds*; when *worlds* is
+    empty the pool is one World's and operations come back unstamped (see
+    :class:`_WorldScope`). Anything else is dropped with a reason. A proposal
+    whose operations are all dropped is simply an empty proposal.
     """
     result = ValidatedProposal()
     if not isinstance(arguments, Mapping):
@@ -189,6 +293,7 @@ def validate_proposal(
     if not isinstance(raw_ops, list):
         return result
 
+    scope = _WorldScope(worlds, entries)
     effective = select_effective_entries(entries)
     # Two lookups, because the two families of target mean different things.
     # `replace`/`suppress` act on lore that is *currently in effect*, so an
@@ -198,9 +303,14 @@ def validate_proposal(
     # against every live row instead.
     by_id = {int(e["id"]): e for e in effective if e.get("id") is not None}
     live_by_id = {int(e["id"]): e for e in entries if e.get("id") is not None and not e.get("archived")}
-    # Names that would collide. Only *live* dynamic entries count: an authored
-    # entry may legitimately share a name with the dynamic row replacing it.
-    taken_names = {_clean_str(e.get("name")).casefold() for e in effective if is_dynamic(e) and _clean_str(e.get("name"))}
+    # Names that would collide, bucketed per World — two Worlds may each hold an
+    # entry of the same name without ambiguity. Only *live* dynamic entries
+    # count: an authored entry may legitimately share a name with the dynamic
+    # row replacing it.
+    taken_names: dict[str, set[str]] = {}
+    for e in effective:
+        if is_dynamic(e) and _clean_str(e.get("name")):
+            taken_names.setdefault(_world_key(e.get("world_id")), set()).add(_clean_str(e.get("name")).casefold())
     claimed_targets: set[int] = set()
 
     for index, raw in enumerate(raw_ops):
@@ -218,6 +328,12 @@ def validate_proposal(
             if target is not None:
                 result.rejected.append((index, "create must not name a target entry"))
                 continue
+            # The only operation whose World is not implied by a row, so the only
+            # one that has to be told which lorebook it is writing to.
+            world_id, reason = scope.resolve_create(raw)
+            if world_id is None:
+                result.rejected.append((index, reason))
+                continue
         else:
             if target is None:
                 result.rejected.append((index, f"{op} needs a target_entry_id"))
@@ -225,8 +341,8 @@ def validate_proposal(
             wants_dynamic = op in _TARGETS_DYNAMIC
             entry = (live_by_id if wants_dynamic else by_id).get(target)
             if entry is None:
-                scope = "live overlay" if wants_dynamic else "effective lore"
-                result.rejected.append((index, f"target entry {target} is not in this world's {scope}"))
+                pool = "live overlay" if wants_dynamic else "effective lore"
+                result.rejected.append((index, f"target entry {target} is not in the {pool}"))
                 continue
             if is_dynamic(entry) is not wants_dynamic:
                 layer = "dynamic" if wants_dynamic else "authored"
@@ -235,6 +351,9 @@ def validate_proposal(
             if target in claimed_targets:
                 result.rejected.append((index, f"entry {target} is already targeted by an earlier operation"))
                 continue
+            # A targeted operation lands wherever its row already lives: entry
+            # ids are globally unique, so this cannot be misdirected.
+            world_id = _world_key(entry.get("world_id"))
 
         item: dict[str, Any] = {
             "op": op,
@@ -245,6 +364,8 @@ def validate_proposal(
                 else "reply"
             ),
         }
+        if scope.stamped:
+            item["world_id"] = world_id
         if target is not None and entry is not None:
             item["target_entry_id"] = target
             # Snapshot what the target says *now*, so the review card can show a
@@ -296,12 +417,13 @@ def validate_proposal(
         current = live_by_id.get(int(item["target_entry_id"])) if op == "update" else None
         # An update keeping (or restoring) its own name is not a collision with itself.
         own_name = _clean_str(current.get("name")).casefold() if current else None
-        if folded in taken_names and folded != own_name:
+        taken = taken_names.setdefault(world_id, set())
+        if folded in taken and folded != own_name:
             result.rejected.append((index, f"a dynamic entry named {name!r} already exists in this world"))
             continue
         if own_name:
-            taken_names.discard(own_name)
-        taken_names.add(folded)
+            taken.discard(own_name)
+        taken.add(folded)
 
         item.update({"name": name, "content": content, "activation": activation, "keywords": keywords})
         result.operations.append(item)
@@ -309,6 +431,27 @@ def validate_proposal(
             claimed_targets.add(target)
 
     return result
+
+
+def split_by_world(operations: Sequence[Mapping[str, Any]]) -> dict[str, list[dict]]:
+    """Group stamped operations by World, dropping the stamp.
+
+    One ``propose_world_changes`` call may touch several Worlds, but a changeset
+    belongs to exactly one — each has its own ``content_revision`` to race
+    against and its own review queue. This is the split, and it is also where the
+    transient ``world_id`` key :func:`validate_proposal` stamps comes off, so
+    what reaches the database is the same operation shape as ever.
+
+    Worlds come back in first-touched order; an unstamped operation is dropped,
+    since there is no World it could be filed under.
+    """
+    grouped: dict[str, list[dict]] = {}
+    for op in operations:
+        item = dict(op)
+        world_id = _clean_str(item.pop("world_id", ""))
+        if world_id:
+            grouped.setdefault(world_id, []).append(item)
+    return grouped
 
 
 def parse_proposal_call(tool_calls: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None:

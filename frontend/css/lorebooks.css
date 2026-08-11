@@ -634,6 +634,13 @@
   flex-shrink: 0;
 }
 .wc-stale .wc-badge { color: var(--text-muted); }
+/* Which lorebook this card is about — only rendered when a turn could have
+   proposed to more than one, so it reads as a label rather than a heading. */
+.wc-world {
+  font-size: 10px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
 .wc-summary { color: var(--text-primary); }
 .wc-note {
   color: var(--text-secondary);

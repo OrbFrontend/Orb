@@ -20,6 +20,7 @@ from backend.features.lorebook import (
     describe_operation,
     invert_operations,
     parse_proposal_call,
+    split_by_world,
     validate_proposal,
 )
 from backend.inference.lorebook import (
@@ -74,7 +75,7 @@ async def test_proposal_stage_honours_a_world_disabled_during_the_turn(monkeypat
     import backend.pipeline.world_proposal as proposal_module
 
     async def disabled_world(_world_id):
-        return {"id": "w1", "dynamic_enabled": 0, "content_revision": 7}
+        return {"id": "w1", "enabled": 1, "dynamic_enabled": 0, "content_revision": 7}
 
     async def entries_must_not_be_read(_world_id):
         raise AssertionError("a disabled world must stop before loading its entries")
@@ -84,7 +85,9 @@ async def test_proposal_stage_honours_a_world_disabled_during_the_turn(monkeypat
         proposal_module.db, "get_lorebook_entries", entries_must_not_be_read
     )
     state = TurnState(user_message="hello", resp_text="reply")
-    turn = WorldProposalTurn(world_id="w1", conversation_id="c1", user_message="hello")
+    turn = WorldProposalTurn(
+        world_ids=("w1",), conversation_id="c1", user_message="hello"
+    )
 
     events = [
         event
@@ -92,7 +95,35 @@ async def test_proposal_stage_honours_a_world_disabled_during_the_turn(monkeypat
     ]
 
     assert events == []
-    assert state.world_proposal is None
+    assert state.world_proposals == []
+
+
+async def test_proposal_stage_drops_only_the_world_that_opted_out(monkeypatch):
+    """One World withdrawing mid-turn must not silence the others."""
+    import backend.pipeline.world_proposal as proposal_module
+
+    worlds = {
+        "w1": {"id": "w1", "enabled": 1, "dynamic_enabled": 0, "content_revision": 1},
+        "w2": {"id": "w2", "enabled": 0, "dynamic_enabled": 1, "content_revision": 2},
+        "w3": {"id": "w3", "enabled": 1, "dynamic_enabled": 1, "content_revision": 3},
+    }
+    read: list[str] = []
+
+    async def get_world(world_id):
+        return worlds.get(world_id)
+
+    async def get_entries(world_id):
+        read.append(world_id)
+        return [_authored(1, "A", world_id=world_id)]
+
+    monkeypatch.setattr(proposal_module.db, "get_world", get_world)
+    monkeypatch.setattr(proposal_module.db, "get_lorebook_entries", get_entries)
+
+    loaded, entries = await proposal_module._load_targets(("w1", "w2", "w3"))
+
+    assert [w["id"] for w in loaded] == ["w3"]
+    assert read == ["w3"]
+    assert [e["world_id"] for e in entries] == ["w3"]
 
 
 # ── projection ────────────────────────────────────────────────────────────────
@@ -482,6 +513,141 @@ class TestCatalog:
 
     def test_an_empty_world_yields_an_empty_catalog(self):
         assert build_world_change_catalog([]) == ""
+
+
+# ── several worlds in one call ────────────────────────────────────────────────
+
+
+def _world(world_id: str, name: str) -> dict:
+    return {"id": world_id, "name": name, "enabled": 1, "dynamic_enabled": 1}
+
+
+class TestMultiWorldCatalog:
+    def test_each_world_is_named_so_a_create_can_address_it(self):
+        entries = [
+            _authored(1, "Bridge", world_id="w1"),
+            _authored(2, "Ledger", world_id="w2"),
+        ]
+        catalog = build_world_change_catalog(
+            entries, worlds=[_world("w1", "Gorge"), _world("w2", "Guild")]
+        )
+        assert "## Gorge" in catalog and "## Guild" in catalog
+        assert catalog.index("## Gorge") < catalog.index("- [1] Bridge")
+        assert catalog.index("## Guild") < catalog.index("- [2] Ledger")
+
+    def test_a_world_with_nothing_in_it_is_still_listed(self):
+        """It is a legal `target_world` for a create, so it has to be visible."""
+        catalog = build_world_change_catalog(
+            [_authored(1, "Bridge", world_id="w1")],
+            worlds=[_world("w1", "Gorge"), _world("w2", "Guild")],
+        )
+        assert "## Guild" in catalog and "(no entries yet)" in catalog
+
+    def test_naming_no_worlds_keeps_the_flat_single_world_shape(self):
+        catalog = build_world_change_catalog([_authored(1, "Bridge", world_id="w1")])
+        assert "##" not in catalog.replace("###", "")
+
+
+class TestMultiWorldValidation:
+    _WORLDS = [_world("w1", "Gorge"), _world("w2", "Guild")]
+
+    def test_a_create_lands_in_the_world_it_names(self):
+        (op,) = validate_proposal(
+            {"operations": [_op(target_world="Guild")]}, [], worlds=self._WORLDS
+        ).operations
+        assert op["world_id"] == "w2"
+
+    def test_a_world_may_be_named_case_insensitively_or_by_id(self):
+        for named in ("gorge", "GORGE", "w1"):
+            (op,) = validate_proposal(
+                {"operations": [_op(target_world=named)]}, [], worlds=self._WORLDS
+            ).operations
+            assert op["world_id"] == "w1"
+
+    def test_a_create_naming_no_world_is_dropped_when_there_is_a_choice(self):
+        result = validate_proposal({"operations": [_op()]}, [], worlds=self._WORLDS)
+        assert result.is_empty and "target_world" in result.rejected[0][1]
+
+    def test_a_create_naming_an_unknown_world_is_dropped(self):
+        result = validate_proposal(
+            {"operations": [_op(target_world="Atlantis")]}, [], worlds=self._WORLDS
+        )
+        assert result.is_empty and "unknown target_world" in result.rejected[0][1]
+
+    def test_two_worlds_sharing_a_name_address_neither(self):
+        """Resolving it would write to whichever happened to sort first."""
+        result = validate_proposal(
+            {"operations": [_op(target_world="Twin")]},
+            [],
+            worlds=[_world("w1", "Twin"), _world("w2", "Twin")],
+        )
+        assert result.is_empty
+
+    def test_the_only_world_needs_no_naming(self):
+        (op,) = validate_proposal(
+            {"operations": [_op()]}, [], worlds=[_world("w1", "Gorge")]
+        ).operations
+        assert op["world_id"] == "w1"
+
+    def test_a_targeted_operation_takes_the_world_of_the_row_it_names(self):
+        """Entry ids are globally unique, so this cannot be misdirected."""
+        entries = [
+            _authored(1, "Bridge", world_id="w1"),
+            _authored(2, "Ledger", world_id="w2"),
+        ]
+        (op,) = validate_proposal(
+            # The wrong world named outright: the row still decides.
+            {
+                "operations": [
+                    _op(op="replace", target_entry_id=2, target_world="Gorge")
+                ]
+            },
+            entries,
+            worlds=self._WORLDS,
+        ).operations
+        assert op["world_id"] == "w2"
+
+    def test_the_same_name_may_exist_in_two_worlds(self):
+        entries = [_dynamic(9, "Ledger", "add", world_id="w1")]
+        ops = validate_proposal(
+            {
+                "operations": [
+                    _op(name="Ledger", target_world="Guild"),
+                    _op(name="Ledger", target_world="Gorge"),
+                ]
+            },
+            entries,
+            worlds=self._WORLDS,
+        )
+        # The first lands in the world that has no Ledger; the second collides.
+        assert [o["world_id"] for o in ops.operations] == ["w2"]
+        assert "already exists" in ops.rejected[0][1]
+
+    def test_re_validating_one_world_leaves_operations_unstamped(self):
+        """The accept path already knows its World; a stamp would only be noise."""
+        (op,) = validate_proposal(
+            {"operations": [_op()]}, [_authored(1, "A", world_id="w1")]
+        ).operations
+        assert "world_id" not in op
+
+
+class TestSplitByWorld:
+    def test_operations_are_grouped_and_the_stamp_comes_off(self):
+        grouped = split_by_world(
+            [
+                {"op": "create", "world_id": "w2", "name": "B"},
+                {"op": "create", "world_id": "w1", "name": "A"},
+                {"op": "create", "world_id": "w2", "name": "C"},
+            ]
+        )
+        assert list(grouped) == ["w2", "w1"]
+        assert grouped["w2"] == [
+            {"op": "create", "name": "B"},
+            {"op": "create", "name": "C"},
+        ]
+
+    def test_an_unstamped_operation_has_no_world_to_be_filed_under(self):
+        assert split_by_world([{"op": "create", "name": "A"}]) == {}
 
 
 # ── inverse operations ────────────────────────────────────────────────────────

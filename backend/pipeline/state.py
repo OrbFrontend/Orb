@@ -107,7 +107,7 @@ _RESULT_FIELDS = (
     "staged_attachments",
     "staged_message_state",
     "macro_choices",
-    "world_proposal",
+    "world_proposals",
 )
 
 
@@ -178,12 +178,14 @@ class TurnState:
     staged_message_state: dict = field(default_factory=dict)
 
     # --- Dynamic Worlds (set by the proposal stage, staged by persistence) ---
-    # The validated, not-yet-persisted proposal: ``{world_id, base_revision,
-    # summary, operations, source_*}``. None when the feature is off for this
-    # turn, or when the model proposed nothing. Persistence turns it into a
-    # pending ``world_changesets`` row once the assistant message has an id --
-    # the changeset must name its source message, and no earlier point knows it.
-    world_proposal: dict | None = None
+    # The validated, not-yet-persisted proposals, one per World the turn touched:
+    # ``{world_id, base_revision, summary, operations, source_*}``. Empty when the
+    # feature is off for this turn, or when the model proposed nothing. Persistence
+    # turns each into a pending ``world_changesets`` row once the assistant message
+    # has an id -- a changeset must name its source message, and no earlier point
+    # knows it. One per World rather than one per turn because each World has its
+    # own ``content_revision`` to race against and its own review queue.
+    world_proposals: list[dict] = field(default_factory=list)
 
     def as_result_event_data(self) -> dict:
         """Return the result-subset dict for the ``_result`` SSE envelope.
@@ -256,23 +258,25 @@ class LorebookTurn:
 
 @dataclass(frozen=True, slots=True)
 class WorldProposalTurn:
-    """Identity of the World a completed turn may propose changes to.
+    """Identity of the Worlds a completed turn may propose changes to.
 
-    Deliberately carries no entries and no revision: the proposal step re-reads
-    both immediately before it runs, so a proposal is always based on the World
+    Deliberately carries no entries and no revisions: the proposal step re-reads
+    both immediately before it runs, so a proposal is always based on each World
     as it stands *after* the turn's own latency rather than as it stood when the
     turn began.
 
-    The target is resolved only from the conversation's linked character card
-    (``character_cards.world_id``) -- never from the set of globally enabled
-    Worlds, which is a display concern and would let an unrelated World absorb
-    another character's events. ``user_message`` is the *semantic* user message:
-    on the steered paths it is the original message, not Orb's OOC steering
-    prompt. The two labels are denormalised into the changeset so applied
-    history stays readable after the chat is deleted.
+    The targets are every World that is *enabled* -- feeding this turn's prompt,
+    so its lore is what the exchange was played against -- and has its own
+    ``dynamic_enabled`` opt-in (``predicates.world_proposal_active``). A World the
+    user has not opted in is never a target, and a disabled one is not either: it
+    contributed nothing to the scene, so nothing in the scene is evidence about
+    it. ``user_message`` is the *semantic* user message: on the steered paths it
+    is the original message, not Orb's OOC steering prompt. The two labels are
+    denormalised into each changeset so applied history stays readable after the
+    chat is deleted.
     """
 
-    world_id: str
+    world_ids: tuple[str, ...]
     conversation_id: str
     user_message: str
     character_label: str = ""

@@ -18,6 +18,7 @@ from ...database import (
     get_messages_with_branch_info,
     get_settings,
     get_user_persona,
+    get_worlds,
     mark_changesets_stale_for_messages,
     mark_orphaned_changesets_stale,
     reroll_unfrozen_greetings,
@@ -61,14 +62,20 @@ async def _attach_world_changesets(messages: Sequence[Mapping[str, Any]]) -> lis
     message has none), which is what the proposal card under a reply is painted
     from. Returns new dicts rather than mutating the rows in place, so the
     row contracts the query layer returns stay what they say they are.
+
+    Each changeset carries a read-side ``world_name`` (a projection, not a
+    column): one turn can propose to several Worlds, so stacked cards have to
+    say which book each one is about.
     """
     ids = [int(m["id"]) for m in messages if m.get("id") is not None and m.get("role") == "assistant"]
     rows = await get_changesets_for_messages(ids)
     if not rows:
         return [dict(m) for m in messages]
+    world_names = {w["id"]: w.get("name", "") for w in await get_worlds()}
     by_message: dict[int, list[dict]] = {}
     for row in rows:
-        by_message.setdefault(int(row["source_assistant_message_id"] or 0), []).append(dict(row))
+        changeset = {**row, "world_name": world_names.get(row["world_id"], "")}
+        by_message.setdefault(int(row["source_assistant_message_id"] or 0), []).append(changeset)
     out: list[dict] = []
     for m in messages:
         found = by_message.get(int(m["id"])) if m.get("id") is not None else None

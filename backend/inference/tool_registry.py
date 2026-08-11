@@ -154,6 +154,14 @@ PROPOSE_WORLD_CHANGES_TOOL = {
                                     "exactly as listed in the catalog. Omit for create."
                                 ),
                             },
+                            "target_world": {
+                                "type": "string",
+                                "description": (
+                                    "For create only: the lorebook the new entry belongs in, named exactly as "
+                                    "its heading in the catalog. Required when the catalog lists more than one. "
+                                    "Omit for every other op -- those go wherever the entry they name already is."
+                                ),
+                            },
                             "name": {
                                 "type": "string",
                                 "description": "Short title for the entry, e.g. the person, place or fact it covers.",
