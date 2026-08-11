@@ -30,13 +30,9 @@ def _already_current(conn: sqlite3.Connection) -> bool:
 
 def _rebuild(conn: sqlite3.Connection) -> None:
     block = schema.table_create_sql(_TABLE)
-    new_ddl = block.replace(
-        f"CREATE TABLE IF NOT EXISTS {_TABLE}", f"CREATE TABLE {_TABLE}_new", 1
-    )
+    new_ddl = block.replace(f"CREATE TABLE IF NOT EXISTS {_TABLE}", f"CREATE TABLE {_TABLE}_new", 1)
     conn.execute(new_ddl)
-    columns = [
-        row[1] for row in conn.execute(f"PRAGMA table_info({_TABLE})").fetchall()
-    ]
+    columns = [row[1] for row in conn.execute(f"PRAGMA table_info({_TABLE})").fetchall()]
     names = ", ".join(columns)
     conn.execute(
         f"INSERT INTO {_TABLE}_new ({names}) SELECT {names} FROM {_TABLE}"  # nosec B608 — table/columns come from canonical schema

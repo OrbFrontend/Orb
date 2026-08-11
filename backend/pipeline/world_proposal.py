@@ -234,9 +234,7 @@ async def reevaluate_changeset(changeset: Mapping[str, Any]):
             result = ev["result"]
 
     if result is None or result.failed:
-        raise db.OverlayStateConflict(
-            "re-evaluation did not produce a valid decision; the original proposal remains open"
-        )
+        raise db.OverlayStateConflict("re-evaluation did not produce a valid decision; the original proposal remains open")
     if result.is_empty:
         await retire()
         return None

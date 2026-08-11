@@ -852,19 +852,11 @@ async def test_effective_view_matches_prompt_when_a_replacement_is_disabled(
         },
     )
 
-    effective = (
-        await client.get(
-            f"/api/worlds/{world['id']}/entries", params={"view": "effective"}
-        )
-    ).json()
+    effective = (await client.get(f"/api/worlds/{world['id']}/entries", params={"view": "effective"})).json()
     active = (await client.get("/api/lorebook-entries/active")).json()
 
-    assert [(e["id"], e["content"]) for e in effective] == [
-        (authored["id"], "The bridge stands.")
-    ]
-    assert [(e["id"], e["content"]) for e in active] == [
-        (authored["id"], "The bridge stands.")
-    ]
+    assert [(e["id"], e["content"]) for e in effective] == [(authored["id"], "The bridge stands.")]
+    assert [(e["id"], e["content"]) for e in active] == [(authored["id"], "The bridge stands.")]
 
 
 async def test_export_defaults_to_authored_and_effective_is_opt_in(client, llm_mock):

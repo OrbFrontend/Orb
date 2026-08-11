@@ -25,9 +25,7 @@ from backend.database.schema import CREATE_TABLES_SQL
 from backend.features.presets import engine as presets
 
 _MIGRATION = importlib.import_module("backend.database.migrations.0053_dynamic_worlds")
-_STATUS_MIGRATION = importlib.import_module(
-    "backend.database.migrations.0054_world_changeset_superseded"
-)
+_STATUS_MIGRATION = importlib.import_module("backend.database.migrations.0054_world_changeset_superseded")
 
 # The worlds/lorebook_entries shape immediately before 0053, plus the two tables
 # world_changesets points at. Written out rather than derived, so the test still
@@ -162,27 +160,18 @@ def test_a_database_that_already_ran_0053_gains_the_superseded_status(tmp_path):
     try:
         conn.executescript(_PRE_0053_SQL)
         conn.executescript(_OLD_CHANGESETS_SQL)
+        conn.execute("INSERT INTO worlds (id, name, created_at, updated_at) VALUES ('w1', 'Old World', 't', 't')")
         conn.execute(
-            "INSERT INTO worlds (id, name, created_at, updated_at) VALUES ('w1', 'Old World', 't', 't')"
-        )
-        conn.execute(
-            "INSERT INTO world_changesets (world_id, status, summary, created_at)"
-            " VALUES ('w1', 'stale', 'keep me', 't')"
+            "INSERT INTO world_changesets (world_id, status, summary, created_at) VALUES ('w1', 'stale', 'keep me', 't')"
         )
         conn.commit()
 
         _STATUS_MIGRATION.migrate(conn)
-        conn.execute(
-            "UPDATE world_changesets SET status = 'superseded' WHERE id = 1"
-        )
+        conn.execute("UPDATE world_changesets SET status = 'superseded' WHERE id = 1")
         conn.commit()
 
-        assert conn.execute(
-            "SELECT status, summary FROM world_changesets WHERE id = 1"
-        ).fetchone() == ("superseded", "keep me")
-        indexes = {
-            row[1] for row in conn.execute("PRAGMA index_list(world_changesets)")
-        }
+        assert conn.execute("SELECT status, summary FROM world_changesets WHERE id = 1").fetchone() == ("superseded", "keep me")
+        indexes = {row[1] for row in conn.execute("PRAGMA index_list(world_changesets)")}
         assert {
             "idx_changeset_world_status",
             "idx_changeset_source_asst",

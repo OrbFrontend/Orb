@@ -33,21 +33,15 @@ async def init_db():
 
         ep_row = list(await db.execute_fetchall("SELECT COUNT(*) as c FROM endpoints"))
         if ep_row[0]["c"] == 0:
-            s_rows = list(
-                await db.execute_fetchall("SELECT * FROM settings WHERE id = 1")
-            )
+            s_rows = list(await db.execute_fetchall("SELECT * FROM settings WHERE id = 1"))
             if s_rows:
                 await _seed_endpoint_from(db, dict(s_rows[0]))
 
-        row = list(
-            await db.execute_fetchall("SELECT COUNT(*) as c FROM mood_fragments")
-        )
+        row = list(await db.execute_fetchall("SELECT COUNT(*) as c FROM mood_fragments"))
         if row[0]["c"] == 0:
             await _seed_mood_fragments(db)
 
-        row = list(
-            await db.execute_fetchall("SELECT COUNT(*) as c FROM interactive_fragments")
-        )
+        row = list(await db.execute_fetchall("SELECT COUNT(*) as c FROM interactive_fragments"))
         if row[0]["c"] == 0:
             await _seed_interactive_fragments(db)
 
@@ -138,9 +132,7 @@ async def _seed_default_persona(db) -> None:
         "INSERT INTO user_personas (name, description, avatar_color, created_at, updated_at) VALUES ('User', '', '#3b82f6', ?, ?)",
         (now, now),
     )
-    await db.execute(
-        "UPDATE settings SET active_persona_id = ? WHERE id = 1", (cur.lastrowid,)
-    )
+    await db.execute("UPDATE settings SET active_persona_id = ? WHERE id = 1", (cur.lastrowid,))
 
 
 async def _seed_endpoint_from(db, s: dict) -> None:
