@@ -18,6 +18,7 @@ export const STATUS_LABELS = {
   stale: "Needs re-evaluation",
   applied: "Applied to the world",
   rejected: "Rejected",
+  superseded: "Superseded by re-evaluation",
   reverted: "Undone",
 };
 

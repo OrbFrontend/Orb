@@ -50,6 +50,7 @@ from .changesets import (
     reject_changeset,
     reset_world_to_authored,
     stage_proposal,
+    supersede_proposal,
     undo_changeset,
 )
 from .proposals import (
@@ -98,5 +99,6 @@ __all__ = [
     "reject_changeset",
     "reset_world_to_authored",
     "stage_proposal",
+    "supersede_proposal",
     "undo_changeset",
 ]

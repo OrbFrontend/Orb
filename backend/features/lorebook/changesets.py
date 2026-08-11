@@ -81,6 +81,19 @@ async def stage_proposal(
     )
 
 
+async def supersede_proposal(
+    changeset_id: int,
+    replacement: Mapping[str, Any] | None,
+) -> WorldChangesetRow | None:
+    """Retire an open proposal and optionally stage its re-evaluated replacement.
+
+    The query layer performs both writes in one ``BEGIN IMMEDIATE`` transaction,
+    so two re-evaluations cannot create sibling replacements and a concurrent
+    apply/reject cannot leave a replacement behind after winning the old row.
+    """
+    return await db.supersede_world_changeset(changeset_id, replacement)
+
+
 async def accept_changeset(
     changeset: Mapping[str, Any],
     *,
@@ -101,10 +114,14 @@ async def accept_changeset(
     """
     world_id = changeset["world_id"]
     async with world_apply_lock(world_id):
+        revision = await db.get_content_revision(world_id)
+        if revision is None:
+            raise db.OverlayStateConflict(f"world {world_id} not found")
+        expected_revision = int(changeset["base_revision"])
+        if revision != expected_revision:
+            raise db.RevisionConflict(expected_revision, revision)
         entries = await db.get_lorebook_entries(world_id)
-        proposed = list(
-            operations if operations is not None else changeset["operations"]
-        )
+        proposed = list(operations if operations is not None else changeset["operations"])
         checked = validate_proposal(
             {"summary": summary or changeset["summary"], "operations": proposed},
             entries,
@@ -117,13 +134,11 @@ async def accept_changeset(
                 checked.rejected,
             )
         if not checked.operations:
-            raise db.OverlayStateConflict(
-                "no operation in this changeset still applies to the world"
-            )
+            raise db.OverlayStateConflict("no operation in this changeset still applies to the world")
         return await db.apply_changeset(
             int(changeset["id"]),
             checked.operations,
-            expected_revision=int(changeset["base_revision"]),
+            expected_revision=expected_revision,
             summary=checked.summary or None,
         )
 
@@ -158,9 +173,7 @@ def invert_operations(
     """
     inverse: list[dict] = []
     required: list[dict | None] = []
-    for op, before, after in reversed(
-        list(zip(operations, before_entries, after_entries, strict=False))
-    ):
+    for op, before, after in reversed(list(zip(operations, before_entries, after_entries, strict=False))):
         if after is None:
             continue
         entry_id = after.get("id")
@@ -168,15 +181,11 @@ def invert_operations(
             continue
         kind = op.get("op")
         if kind in _CREATING_OPS:
-            inverse.append(
-                {"op": "archive", "target_entry_id": entry_id, "archived": True}
-            )
+            inverse.append({"op": "archive", "target_entry_id": entry_id, "archived": True})
         elif kind == "update" and before is not None:
             restored: dict[str, Any] = {"op": "update", "target_entry_id": entry_id}
             restored.update({f: before[f] for f in _RESTORED_FIELDS if f in before})
-            restored["activation"] = (
-                "constant" if before.get("constant") else "keywords"
-            )
+            restored["activation"] = "constant" if before.get("constant") else "keywords"
             inverse.append(restored)
         elif kind == "archive" and before is not None:
             inverse.append(
@@ -207,9 +216,7 @@ async def undo_changeset(changeset: Mapping[str, Any]) -> WorldChangesetRow:
             changeset["after_entries"],
         )
         if not inverse:
-            raise db.OverlayStateConflict(
-                "this changeset made no reversible entry changes"
-            )
+            raise db.OverlayStateConflict("this changeset made no reversible entry changes")
         revision = await db.get_content_revision(world_id)
         if revision is None:
             raise db.OverlayStateConflict(f"world {world_id} not found")
@@ -219,20 +226,14 @@ async def undo_changeset(changeset: Mapping[str, Any]) -> WorldChangesetRow:
                 "status": "pending",
                 "base_revision": revision,
                 "origin": "undo",
-                "summary": f"Undo: {changeset['summary']}"
-                if changeset["summary"]
-                else "Undo",
+                "summary": f"Undo: {changeset['summary']}" if changeset["summary"] else "Undo",
                 "operations": inverse,
                 "reverts_changeset_id": int(changeset["id"]),
                 "source_user_message_id": changeset.get("source_user_message_id"),
-                "source_assistant_message_id": changeset.get(
-                    "source_assistant_message_id"
-                ),
+                "source_assistant_message_id": changeset.get("source_assistant_message_id"),
                 "source_conversation_id": changeset.get("source_conversation_id"),
                 "source_character_label": changeset.get("source_character_label", ""),
-                "source_conversation_label": changeset.get(
-                    "source_conversation_label", ""
-                ),
+                "source_conversation_label": changeset.get("source_conversation_label", ""),
             },
             inverse,
             expected_revision=revision,
@@ -256,10 +257,7 @@ async def reset_world_to_authored(world_id: str) -> WorldChangesetRow | None:
         revision = await db.get_content_revision(world_id)
         if revision is None:
             raise db.OverlayStateConflict(f"world {world_id} not found")
-        operations = [
-            {"op": "archive", "target_entry_id": e["id"], "archived": True}
-            for e in active
-        ]
+        operations = [{"op": "archive", "target_entry_id": e["id"], "archived": True} for e in active]
         return await db.create_and_apply_changeset(
             {
                 "world_id": world_id,

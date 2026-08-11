@@ -43,7 +43,7 @@ whatever it was hiding. Archiving is therefore both "undo" and "reset".
 
 `inference/lorebook.select_effective_entries` resolves the pool:
 
-1. drop archived rows;
+1. drop disabled or archived rows;
 2. drop authored entries hidden by a live `replace` or `suppress`;
 3. drop `suppress` markers themselves.
 
@@ -100,10 +100,13 @@ Other properties worth not breaking:
 - **One call, one changeset per World.** The Worlds in play share a single forced
   call — the judgement is about the exchange, not about a book, and asking once
   per World would cost N generations to answer the same question — and its
-  catalog groups entries under a `## <World name>` heading each. Operations that
+  catalog groups entries under a `## <World name> [world_id: <id>]` heading each.
+  Operations that
   name a target row take that row's World (entry ids are globally unique, so
-  that cannot be misdirected); a `create` names one in `target_world`, required
-  only when the catalog lists more than one. `proposals.split_by_world` then
+  that cannot be misdirected); a `create` puts the stable id shown in the heading
+  into `target_world`, required only when the catalog lists more than one. This
+  stays unambiguous even when two Worlds share a display name.
+  `proposals.split_by_world` then
   files the validated operations into one pending changeset per World, because
   that is the unit both the revision race and the review queue work in.
 - **Every World is re-read immediately before the call**, so each proposal names
@@ -113,7 +116,7 @@ Other properties worth not breaking:
 - **A steered regeneration judges the original user message.** Orb's OOC steering
   prompt directs the writer; it is not an event in the world.
 - **A failed or malformed proposal call costs nothing.** The reply is already the
-  user's; every failure path leaves `TurnState.world_proposal` as `None` and is
+  user's; every failure path leaves `TurnState.world_proposals` empty and is
   logged.
 - The proposals are staged as pending changesets at the same persistence boundary
   as the assistant message (they name that message), and one
@@ -138,6 +141,10 @@ against the live World — layer, scope, one target per operation, non-empty bod
 at least one keyword under keyword activation, no ambiguous duplicate dynamic
 names.
 
+The proposal catalog is the one projection-adjacent management view: it also
+lists live `suppress` markers (which inject no lore) so the Agent can name and
+archive one if later events make its authored target true again.
+
 ---
 
 ## 4. Deciding
@@ -153,6 +160,12 @@ returns `409`.
 different entries can still contradict each other in meaning, so the remedy is
 **Re-evaluate**: re-derive a fresh proposal from the stored source messages
 against the World as it now stands.
+
+Re-evaluation atomically moves the original to terminal `superseded` and, when
+the new judgement still has operations, inserts its replacement in the same
+transaction. If a concurrent apply, reject, or second re-evaluation wins first,
+the losing attempt inserts nothing. An evaluation that finds nothing also
+supersedes the original, so the resolved item leaves the review queue.
 
 Everything else is expressed through the same path:
 

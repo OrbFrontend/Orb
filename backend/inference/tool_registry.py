@@ -157,8 +157,8 @@ PROPOSE_WORLD_CHANGES_TOOL = {
                             "target_world": {
                                 "type": "string",
                                 "description": (
-                                    "For create only: the lorebook the new entry belongs in, named exactly as "
-                                    "its heading in the catalog. Required when the catalog lists more than one. "
+                                    "For create only: the stable world_id shown in the destination lorebook's "
+                                    "catalog heading. Required when the catalog lists more than one lorebook. "
                                     "Omit for every other op -- those go wherever the entry they name already is."
                                 ),
                             },

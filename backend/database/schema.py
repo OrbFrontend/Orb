@@ -274,7 +274,7 @@ CREATE TABLE IF NOT EXISTS world_changesets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
     status TEXT NOT NULL DEFAULT 'pending'
-        CHECK (status IN ('pending', 'applied', 'rejected', 'stale', 'reverted')),
+        CHECK (status IN ('pending', 'applied', 'rejected', 'stale', 'superseded', 'reverted')),
     base_revision INTEGER NOT NULL DEFAULT 0,
     applied_revision INTEGER DEFAULT NULL,
     source_user_message_id INTEGER DEFAULT NULL REFERENCES messages(id) ON DELETE SET NULL,

@@ -63,6 +63,7 @@ class WorldChangeResult:
     summary: str = ""
     operations: list[dict] = field(default_factory=list)
     calls: list[dict] = field(default_factory=list)
+    failed: bool = False
 
     @property
     def is_empty(self) -> bool:
@@ -127,16 +128,22 @@ async def world_change_step(
             yield event
     except Exception:
         logger.exception("World-change proposal call failed; proposing nothing")
-        yield {"type": "done", "result": WorldChangeResult()}
+        yield {"type": "done", "result": WorldChangeResult(failed=True)}
         return
 
     logger.info("World-change step output:\n%s", json.dumps(resp, default=str))
     calls = parse_tool_calls(resp)
-    checked = validate_proposal(parse_proposal_call(calls), entries, worlds=worlds)
+    proposal_call = parse_proposal_call(calls)
+    checked = validate_proposal(proposal_call, entries, worlds=worlds)
     if checked.rejected:
         logger.info("World-change proposal dropped %d operation(s): %s", len(checked.rejected), checked.rejected)
 
     yield {
         "type": "done",
-        "result": WorldChangeResult(summary=checked.summary, operations=checked.operations, calls=calls),
+        "result": WorldChangeResult(
+            summary=checked.summary,
+            operations=checked.operations,
+            calls=calls,
+            failed=proposal_call is None or (bool(checked.rejected) and checked.is_empty),
+        ),
     }

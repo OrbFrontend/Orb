@@ -90,6 +90,8 @@ def _entry_line(entry: Mapping[str, Any], *, full: bool) -> str:
     action = entry.get("overlay_action")
     if action == "replace" and entry.get("supersedes_entry_id") is not None:
         bits.append(f"replaces [{entry['supersedes_entry_id']}]")
+    elif action == "suppress" and entry.get("supersedes_entry_id") is not None:
+        bits.append(f"suppresses [{entry['supersedes_entry_id']}]")
     head = f"- [{entry.get('id')}] {entry.get('name', '')} ({'; '.join(bits)})"
     body = (entry.get("content") or "").strip()
     if not body:
@@ -145,16 +147,25 @@ def build_world_change_catalog(
     one in ``target_world``. With no *worlds* the pool is rendered flat, which is
     the single-World shape a re-evaluation wants.
 
-    Suppressed authored entries and archived overlay rows are absent: the step
-    reasons about the World as it currently reads, and re-proposing against lore
-    that is not in effect is exactly the confusion the projection exists to
-    prevent. Returns ``""`` when there is nothing at all to show.
+    Suppressed authored entries, disabled rows, and archived overlay rows are
+    absent: the step reasons about the World as it currently reads. Live
+    suppression markers are the one management-only exception. They inject no
+    lore, but remain listed with their own id so the Agent can archive one when
+    later events make its authored target true again. Returns ``""`` when there
+    is nothing at all to show.
     """
     effective = select_effective_entries(entries)
-    if not effective and not worlds:
+    effective_objects = {id(e) for e in effective}
+    catalog_entries = [
+        e
+        for e in entries
+        if id(e) in effective_objects
+        or (is_dynamic(e) and e.get("overlay_action") == "suppress" and bool(e.get("enabled", 1)) and not e.get("archived"))
+    ]
+    if not catalog_entries and not worlds:
         return ""
 
-    authored = [e for e in effective if not is_dynamic(e)]
+    authored = [e for e in catalog_entries if not is_dynamic(e)]
     relevant_ids: set[int] = {e["id"] for e in authored if e.get("constant") and e.get("id") is not None}
     if exchange_text:
         scan = [{"role": "user", "content": exchange_text}]
@@ -163,16 +174,17 @@ def build_world_change_catalog(
                 relevant_ids.add(int(e["id"]))
 
     if not worlds:
-        return "\n".join(_world_section(effective, relevant_ids))
+        return "\n".join(_world_section(catalog_entries, relevant_ids))
 
     grouped: dict[str, list[Mapping[str, Any]]] = {}
-    for e in effective:
+    for e in catalog_entries:
         grouped.setdefault(_world_key(e.get("world_id")), []).append(e)
 
     parts: list[str] = []
     for world in worlds:
         world_id = _world_key(world.get("id"))
-        title = _clean_str(world.get("name")) or world_id
+        name = " ".join(_clean_str(world.get("name")).split()) or "Unnamed lorebook"
+        title = f"{name} [world_id: {world_id}]"
         parts.extend(_world_section(grouped.get(world_id, []), relevant_ids, title=title))
     return "\n".join(parts)
 
@@ -298,11 +310,13 @@ def validate_proposal(
     # Two lookups, because the two families of target mean different things.
     # `replace`/`suppress` act on lore that is *currently in effect*, so an
     # already-hidden authored entry is not a legal target. `update`/`archive`
-    # act on an overlay row, including a suppression marker — retiring one is
-    # how the Agent brings a suppressed authored entry back — so those resolve
-    # against every live row instead.
+    # act on an enabled overlay row, including a suppression marker — retiring
+    # one is how the Agent brings a suppressed authored entry back — so those
+    # resolve against every live, model-visible overlay row instead.
     by_id = {int(e["id"]): e for e in effective if e.get("id") is not None}
-    live_by_id = {int(e["id"]): e for e in entries if e.get("id") is not None and not e.get("archived")}
+    live_by_id = {
+        int(e["id"]): e for e in entries if e.get("id") is not None and bool(e.get("enabled", 1)) and not e.get("archived")
+    }
     # Names that would collide, bucketed per World — two Worlds may each hold an
     # entry of the same name without ambiguity. Only *live* dynamic entries
     # count: an authored entry may legitimately share a name with the dynamic
@@ -403,10 +417,17 @@ def validate_proposal(
             result.rejected.append((index, f"{op} needs both a name and content"))
             continue
 
-        activation = _clean_str(raw.get("activation")).lower()
-        if activation not in ACTIVATIONS:
-            activation = "keywords"
-        keywords = _clean_keywords(raw.get("keywords"))
+        if op == "update":
+            existing = live_by_id[int(item["target_entry_id"])]
+            activation = _clean_str(raw.get("activation")).lower()
+            if activation not in ACTIVATIONS:
+                activation = "constant" if existing.get("constant") else "keywords"
+            keywords = _clean_keywords(raw.get("keywords")) if "keywords" in raw else _clean_keywords(existing.get("keywords"))
+        else:
+            activation = _clean_str(raw.get("activation")).lower()
+            if activation not in ACTIVATIONS:
+                activation = "keywords"
+            keywords = _clean_keywords(raw.get("keywords"))
         if activation == "keywords" and not keywords:
             result.rejected.append((index, "keywords activation needs at least one keyword"))
             continue

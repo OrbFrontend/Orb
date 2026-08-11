@@ -38,7 +38,14 @@ from ..models import (
 # funnels values through them.
 ENTRY_LAYERS = ("authored", "dynamic")
 OVERLAY_ACTIONS = ("add", "replace", "suppress")
-CHANGESET_STATUSES = ("pending", "applied", "rejected", "stale", "reverted")
+CHANGESET_STATUSES = (
+    "pending",
+    "applied",
+    "rejected",
+    "stale",
+    "superseded",
+    "reverted",
+)
 CHANGESET_ORIGINS = ("agent", "undo", "reset", "re_evaluate")
 
 # Columns an entry INSERT names, in order. Shared by the authored and dynamic
@@ -88,27 +95,19 @@ def _now() -> str:
 
 async def get_worlds() -> list[WorldRow]:
     async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall("SELECT * FROM worlds ORDER BY created_at ASC")
-        )
+        rows = list(await db.execute_fetchall("SELECT * FROM worlds ORDER BY created_at ASC"))
         return [cast(WorldRow, dict(r)) for r in rows]
 
 
 async def get_world(world_id: str) -> WorldRow | None:
     async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall("SELECT * FROM worlds WHERE id = ?", (world_id,))
-        )
+        rows = list(await db.execute_fetchall("SELECT * FROM worlds WHERE id = ?", (world_id,)))
         return cast(WorldRow, dict(rows[0])) if rows else None
 
 
 async def get_world_by_name(name: str) -> WorldRow | None:
     async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT * FROM worlds WHERE name = ? LIMIT 1", (name,)
-            )
-        )
+        rows = list(await db.execute_fetchall("SELECT * FROM worlds WHERE name = ? LIMIT 1", (name,)))
         return cast(WorldRow, dict(rows[0])) if rows else None
 
 
@@ -172,21 +171,13 @@ async def _bump_revision(db, world_id: str) -> int:
         "UPDATE worlds SET content_revision = content_revision + 1, updated_at = ? WHERE id = ?",
         (_now(), world_id),
     )
-    rows = list(
-        await db.execute_fetchall(
-            "SELECT content_revision FROM worlds WHERE id = ?", (world_id,)
-        )
-    )
+    rows = list(await db.execute_fetchall("SELECT content_revision FROM worlds WHERE id = ?", (world_id,)))
     return int(rows[0][0]) if rows else 0
 
 
 async def get_content_revision(world_id: str) -> int | None:
     async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT content_revision FROM worlds WHERE id = ?", (world_id,)
-            )
-        )
+        rows = list(await db.execute_fetchall("SELECT content_revision FROM worlds WHERE id = ?", (world_id,)))
         return int(rows[0][0]) if rows else None
 
 
@@ -251,11 +242,7 @@ async def _insert_entry(db, world_id: str, data: Mapping[str, Any], now: str) ->
 
 
 async def _fetch_entry(db, entry_id: int) -> LorebookEntryRow | None:
-    rows = list(
-        await db.execute_fetchall(
-            "SELECT * FROM lorebook_entries WHERE id = ?", (entry_id,)
-        )
-    )
+    rows = list(await db.execute_fetchall("SELECT * FROM lorebook_entries WHERE id = ?", (entry_id,)))
     return _parse_lorebook_entry(rows[0]) if rows else None
 
 
@@ -293,9 +280,7 @@ async def create_lorebook_entry(world_id: str, data: dict) -> LorebookEntryRow:
         return result
 
 
-async def import_lorebook_entries(
-    world_id: str, items: Sequence[Mapping[str, Any]]
-) -> list[LorebookEntryRow]:
+async def import_lorebook_entries(world_id: str, items: Sequence[Mapping[str, Any]]) -> list[LorebookEntryRow]:
     """Insert a whole imported book in one transaction, bumping the revision once.
 
     A per-entry commit would publish a half-imported World to any concurrent
@@ -331,9 +316,7 @@ async def update_lorebook_entry(entry_id: int, data: dict) -> LorebookEntryRow |
             "enabled",
             "sort_order",
         ]
-        sets, vals = _build_set_clause(
-            allowed, data, json_fields={"keywords", "secondary_keys"}
-        )
+        sets, vals = _build_set_clause(allowed, data, json_fields={"keywords", "secondary_keys"})
         if sets:
             # Drawer edits of an Agent-managed row are later mutations too. The
             # undo guard compares this monotonic stamp, so even an edit to a
@@ -402,11 +385,7 @@ def _parse_changeset(row) -> WorldChangesetRow:
 
 
 async def _fetch_changeset(db, changeset_id: int) -> WorldChangesetRow | None:
-    rows = list(
-        await db.execute_fetchall(
-            "SELECT * FROM world_changesets WHERE id = ?", (changeset_id,)
-        )
-    )
+    rows = list(await db.execute_fetchall("SELECT * FROM world_changesets WHERE id = ?", (changeset_id,)))
     return _parse_changeset(rows[0]) if rows else None
 
 
@@ -470,14 +449,64 @@ async def create_world_changeset(data: Mapping[str, Any]) -> WorldChangesetRow:
         return result
 
 
+async def supersede_world_changeset(
+    changeset_id: int,
+    replacement: Mapping[str, Any] | None,
+) -> WorldChangesetRow | None:
+    """Atomically retire an open changeset and optionally insert its replacement.
+
+    Re-evaluation spends an LLM call before it knows whether there is still a
+    useful proposal. The old row must remain open during that call, but the
+    eventual status transition and replacement INSERT are one database decision:
+    a concurrent apply/reject/re-evaluate either wins first, or this transaction
+    wins without leaking a second pending replacement.
+
+    ``None`` means the re-evaluation found nothing left to propose; the original
+    still becomes terminal ``superseded`` so it leaves the review queue.
+    """
+    async with get_db() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            original = await _fetch_changeset(db, changeset_id)
+            if original is None or original["status"] not in ("pending", "stale"):
+                state = original["status"] if original else "missing"
+                raise OverlayStateConflict(f"changeset {changeset_id} is {state}, not open for re-evaluation")
+
+            now = _now()
+            cur = await db.execute(
+                "UPDATE world_changesets SET status = 'superseded', decided_at = ?"
+                " WHERE id = ? AND status IN ('pending', 'stale')",
+                (now, changeset_id),
+            )
+            if cur.rowcount != 1:
+                raise OverlayStateConflict(f"changeset {changeset_id} changed state while it was being re-evaluated")
+
+            result = None
+            if replacement is not None:
+                if replacement.get("world_id") != original["world_id"]:
+                    raise OverlayStateConflict("a re-evaluated changeset must belong to the same world as its original")
+                data = {
+                    **replacement,
+                    "status": "pending",
+                    "supersedes_changeset_id": changeset_id,
+                }
+                replacement_id = await _insert_changeset(db, data)
+                result = await _fetch_changeset(db, replacement_id)
+                assert result is not None
+
+            await db.commit()
+            return result
+        except BaseException:
+            await db.execute("ROLLBACK")
+            raise
+
+
 async def get_world_changeset(changeset_id: int) -> WorldChangesetRow | None:
     async with get_db() as db:
         return await _fetch_changeset(db, changeset_id)
 
 
-async def get_world_changesets(
-    world_id: str, *, statuses: Sequence[str] | None = None
-) -> list[WorldChangesetRow]:
+async def get_world_changesets(world_id: str, *, statuses: Sequence[str] | None = None) -> list[WorldChangesetRow]:
     """Changesets for a World, newest first, optionally narrowed to *statuses*."""
     sql = "SELECT * FROM world_changesets WHERE world_id = ?"
     params: list[Any] = [world_id]
@@ -588,9 +617,7 @@ async def update_world_changeset(
                 await db.rollback()
                 current = await _fetch_changeset(db, changeset_id)
                 state = current["status"] if current else "missing"
-                raise OverlayStateConflict(
-                    f"changeset {changeset_id} is {state}, not open for this action"
-                )
+                raise OverlayStateConflict(f"changeset {changeset_id} is {state}, not open for this action")
             await db.commit()
         return await _fetch_changeset(db, changeset_id)
 
@@ -647,9 +674,7 @@ class RevisionConflict(RuntimeError):
     """The World moved on since the changeset was proposed; nothing was applied."""
 
     def __init__(self, expected: int, actual: int):
-        super().__init__(
-            f"world content_revision is {actual}, changeset expects {expected}"
-        )
+        super().__init__(f"world content_revision is {actual}, changeset expects {expected}")
         self.expected = expected
         self.actual = actual
 
@@ -690,9 +715,7 @@ def entry_snapshot(entry: Mapping[str, Any] | None) -> dict | None:
     }
 
 
-async def _apply_one(
-    db, world_id: str, op: Mapping[str, Any], now: str
-) -> tuple[dict | None, dict | None]:
+async def _apply_one(db, world_id: str, op: Mapping[str, Any], now: str) -> tuple[dict | None, dict | None]:
     """Execute one validated operation. Returns ``(before, after)`` snapshots.
 
     Every branch is expressed as an insert or an update of a *dynamic* row. No
@@ -706,13 +729,9 @@ async def _apply_one(
         if kind != "create":
             target = await _fetch_entry(db, int(target_id or 0))
             if target is None or target["world_id"] != world_id:
-                raise OverlayStateConflict(
-                    f"{kind} target entry {target_id} is not in this world"
-                )
+                raise OverlayStateConflict(f"{kind} target entry {target_id} is not in this world")
             if target["entry_layer"] != "authored":
-                raise OverlayStateConflict(
-                    f"{kind} may only target an authored entry (got {target['entry_layer']})"
-                )
+                raise OverlayStateConflict(f"{kind} may only target an authored entry (got {target['entry_layer']})")
         row = {
             "name": op.get("name", ""),
             # A suppression injects nothing; it exists only to hide its target,
@@ -732,13 +751,9 @@ async def _apply_one(
     entry_id = int(op.get("target_entry_id") or 0)
     existing = await _fetch_entry(db, entry_id)
     if existing is None or existing["world_id"] != world_id:
-        raise OverlayStateConflict(
-            f"{kind} target entry {entry_id} is not in this world"
-        )
+        raise OverlayStateConflict(f"{kind} target entry {entry_id} is not in this world")
     if existing["entry_layer"] != "dynamic":
-        raise OverlayStateConflict(
-            f"{kind} may only target a dynamic entry (got {existing['entry_layer']})"
-        )
+        raise OverlayStateConflict(f"{kind} may only target a dynamic entry (got {existing['entry_layer']})")
     before = entry_snapshot(existing)
 
     if kind == "update":
@@ -786,20 +801,14 @@ async def _apply_changeset_tx(
     if changeset is None:
         raise OverlayStateConflict(f"changeset {changeset_id} not found")
     if changeset["status"] != "pending":
-        raise OverlayStateConflict(
-            f"changeset {changeset_id} is {changeset['status']}; only pending changes can be applied"
-        )
+        raise OverlayStateConflict(f"changeset {changeset_id} is {changeset['status']}; only pending changes can be applied")
     if int(changeset["base_revision"]) != expected_revision:
         raise OverlayStateConflict(
             f"changeset {changeset_id} expects revision {changeset['base_revision']}, not {expected_revision}"
         )
     world_id = changeset["world_id"]
 
-    rows = list(
-        await db.execute_fetchall(
-            "SELECT content_revision FROM worlds WHERE id = ?", (world_id,)
-        )
-    )
+    rows = list(await db.execute_fetchall("SELECT content_revision FROM worlds WHERE id = ?", (world_id,)))
     if not rows:
         raise OverlayStateConflict(f"world {world_id} not found")
     actual = int(rows[0][0])
@@ -812,9 +821,7 @@ async def _apply_changeset_tx(
                 continue
             live = await _fetch_entry(db, int(op.get("target_entry_id") or 0))
             if entry_snapshot(live) != dict(expected_state):
-                raise OverlayStateConflict(
-                    f"entry {op.get('target_entry_id')} changed since this changeset was applied"
-                )
+                raise OverlayStateConflict(f"entry {op.get('target_entry_id')} changed since this changeset was applied")
 
     now = _now()
     befores: list[dict | None] = []
@@ -841,9 +848,7 @@ async def _apply_changeset_tx(
         ),
     )
     if cur.rowcount != 1:
-        raise OverlayStateConflict(
-            f"changeset {changeset_id} changed state while it was being applied"
-        )
+        raise OverlayStateConflict(f"changeset {changeset_id} changed state while it was being applied")
     result = await _fetch_changeset(db, changeset_id)
     assert result is not None
     return result
@@ -916,9 +921,7 @@ async def create_and_apply_changeset(
                         f"changeset {revert_changeset_id} is {state}; only applied changes can be undone"
                     )
                 if original["world_id"] != data["world_id"]:
-                    raise OverlayStateConflict(
-                        "an undo changeset must belong to the same world as its original"
-                    )
+                    raise OverlayStateConflict("an undo changeset must belong to the same world as its original")
 
             changeset_id = await _insert_changeset(db, data)
             result = await _apply_changeset_tx(
@@ -934,9 +937,7 @@ async def create_and_apply_changeset(
                     (revert_changeset_id,),
                 )
                 if cur.rowcount != 1:
-                    raise OverlayStateConflict(
-                        f"changeset {revert_changeset_id} changed state while it was being undone"
-                    )
+                    raise OverlayStateConflict(f"changeset {revert_changeset_id} changed state while it was being undone")
             await db.commit()
         except BaseException:
             await db.execute("ROLLBACK")

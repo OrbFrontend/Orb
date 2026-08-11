@@ -31,7 +31,9 @@ Dependency order (top to bottom — each layer may only import layers below it):
 5. `database/`
 6. `core/`
 
-`database/` may also import `core/`. `features/lorebook/` imports only `core/`.
+`database/` may also import `core/`. Feature slices follow the ordinary downward
+rule: pure logic may reuse lower-layer inference/analysis utilities, while an
+integration module may persist through `database/`; slices never import peers.
 
 | Layer | Purpose |
 |-------|---------|

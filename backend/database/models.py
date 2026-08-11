@@ -402,6 +402,8 @@ class WorldChangesetRow(TypedDict):
     history record, with ``operations`` / ``before_entries`` / ``after_entries``
     JSON-*decoded* (``_parse_changeset`` runs on every read).
 
+    ``status='superseded'`` is the terminal state of an original proposal after
+    re-evaluation, whether or not that evaluation produced a replacement row.
     Durable independently of the conversation that produced it: the three
     ``source_*`` id columns are ``ON DELETE SET NULL`` cross-domain pointers, and
     the denormalised ``source_character_label`` / ``source_conversation_label``

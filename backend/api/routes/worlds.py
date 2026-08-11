@@ -141,9 +141,7 @@ async def api_update_lorebook_entry(
     data: LorebookEntryUpdate,
     entry: dict = Depends(require_lorebook_entry),  # noqa: B008
 ):
-    result = await update_lorebook_entry(
-        entry["id"], data.model_dump(exclude_unset=True)
-    )
+    result = await update_lorebook_entry(entry["id"], data.model_dump(exclude_unset=True))
     if not result:
         raise HTTPException(status_code=404, detail="Entry not found")
     return result
@@ -173,13 +171,9 @@ async def api_import_lorebook(world_id: str, payload: LorebookImportPayload):
         # Tavern V2 character_book: [...]
         items = raw_entries
     else:
-        raise HTTPException(
-            status_code=422, detail="entries must be an object or array"
-        )
+        raise HTTPException(status_code=422, detail="entries must be an object or array")
 
-    normalised = [
-        _normalise_lorebook_entry(item) for item in items if isinstance(item, dict)
-    ]
+    normalised = [_normalise_lorebook_entry(item) for item in items if isinstance(item, dict)]
     # One transaction, one revision bump: a half-imported World must never be
     # visible, and one user action must not invalidate pending proposals N times.
     created = await import_lorebook_entries(world_id, normalised)
@@ -188,9 +182,7 @@ async def api_import_lorebook(world_id: str, payload: LorebookImportPayload):
 
 
 @router.get("/api/worlds/{world_id}/export")
-async def api_export_lorebook(
-    world_id: str, view: Literal["authored", "effective"] = "authored"
-):
+async def api_export_lorebook(world_id: str, view: Literal["authored", "effective"] = "authored"):
     """Export a lorebook as a standalone Tavern V2 ``character_book`` JSON file.
 
     ``authored`` is the default and the backward-compatible behaviour: the file
@@ -209,17 +201,12 @@ async def api_export_lorebook(
     else:
         exported = [e for e in entries if e.get("entry_layer") != "dynamic"]
     book = lorebook_to_book(world["name"], exported)
-    safe_name = (
-        "".join(c for c in world["name"] if c.isalnum() or c in " _-").strip()
-        or "lorebook"
-    )
+    safe_name = "".join(c for c in world["name"] if c.isalnum() or c in " _-").strip() or "lorebook"
     suffix = "" if view == "authored" else f" ({view})"
     return Response(
         content=json.dumps(book, ensure_ascii=False, indent=2),
         media_type="application/json",
-        headers={
-            "Content-Disposition": f'attachment; filename="{safe_name}{suffix}.json"'
-        },
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}{suffix}.json"'},
     )
 
 
@@ -245,20 +232,16 @@ async def api_list_changesets(
     if status == "pending":
         statuses: tuple[str, ...] | None = ("pending", "stale")
     elif status == "history":
-        statuses = ("applied", "rejected", "reverted")
+        statuses = ("applied", "rejected", "superseded", "reverted")
     else:
         statuses = None
-    return await get_world_changesets(
-        world["id"], statuses=list(statuses) if statuses else None
-    )
+    return await get_world_changesets(world["id"], statuses=list(statuses) if statuses else None)
 
 
 def _open_guard(changeset: dict) -> None:
     """Allow actions shared by pending and stale review items."""
     if changeset["status"] not in ("pending", "stale"):
-        raise HTTPException(
-            status_code=409, detail=f"This proposal is already {changeset['status']}."
-        )
+        raise HTTPException(status_code=409, detail=f"This proposal is already {changeset['status']}.")
 
 
 def _pending_guard(changeset: dict) -> None:
@@ -287,9 +270,7 @@ async def api_edit_changeset(
     if not patch:
         return changeset
     try:
-        return await update_world_changeset(
-            int(changeset["id"]), patch, expected_statuses=("pending",)
-        )
+        return await update_world_changeset(int(changeset["id"]), patch, expected_statuses=("pending",))
     except OverlayStateConflict as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
 
@@ -306,15 +287,9 @@ async def api_apply_changeset(
     than offered a force-apply. Nothing is applied on that path.
     """
     _pending_guard(changeset)
-    operations = (
-        [op.model_dump() for op in data.operations]
-        if data.operations is not None
-        else None
-    )
+    operations = [op.model_dump() for op in data.operations] if data.operations is not None else None
     try:
-        return await lorebook.accept_changeset(
-            changeset, operations=operations, summary=data.summary
-        )
+        return await lorebook.accept_changeset(changeset, operations=operations, summary=data.summary)
     except RevisionConflict as e:
         # The revision check and this bookkeeping update are deliberately
         # separate: the failed apply rolled back without changing the World.
@@ -358,9 +333,8 @@ async def api_reevaluate_changeset(
     nothing left to propose — which is a legitimate answer, not a failure.
     """
     _open_guard(changeset)
-    replacement = await reevaluate_changeset(changeset)
     try:
-        await lorebook.mark_stale(int(changeset["id"]))
+        replacement = await reevaluate_changeset(changeset)
     except OverlayStateConflict as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     return {"changeset": replacement}
@@ -372,9 +346,7 @@ async def api_undo_changeset(
 ):
     """Reverse an applied changeset by applying its compensating changeset."""
     if changeset["status"] != "applied":
-        raise HTTPException(
-            status_code=409, detail="Only an applied change can be undone."
-        )
+        raise HTTPException(status_code=409, detail="Only an applied change can be undone.")
     try:
         return await lorebook.undo_changeset(changeset)
     except RevisionConflict as e:

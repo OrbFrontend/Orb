@@ -72,7 +72,7 @@ const changeset = (over = {}) => ({
 test("pending and stale are the open states; decided ones are not", () => {
   assert.equal(isOpen(changeset()), true);
   assert.equal(isOpen(changeset({ status: "stale" })), true);
-  for (const status of ["applied", "rejected", "reverted"]) {
+  for (const status of ["applied", "rejected", "superseded", "reverted"]) {
     assert.equal(isOpen(changeset({ status })), false);
   }
   assert.equal(isOpen(null), false);

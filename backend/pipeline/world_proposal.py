@@ -23,7 +23,11 @@ from typing import Any
 
 from .. import database as db
 from ..database.models import WorldRow
-from ..features.lorebook import dynamic_enabled, split_by_world, stage_proposal
+from ..features.lorebook import (
+    dynamic_enabled,
+    split_by_world,
+    supersede_proposal,
+)
 from ..inference import (
     CachedBase,
     agent_lane_from_settings,
@@ -160,49 +164,47 @@ async def reevaluate_changeset(changeset: Mapping[str, Any]):
     others in play: the user is re-judging *this* proposal, and a re-evaluation
     that silently opened a second World's queue would be a surprise.
 
-    Returns the new changeset, or ``None`` when re-evaluation is not possible
-    (the source messages are gone, the World is gone, or the model proposed
-    nothing this time). The stale original is left as-is either way — the caller
-    decides what to tell the user.
+    Returns the new changeset, or ``None`` when the model validly proposed no
+    operations this time. Either result atomically moves the original to
+    terminal ``superseded``; a concurrent decision wins instead without leaking
+    a replacement row. Missing source context and failed/malformed model calls
+    raise while leaving the original open for retry or dismissal.
     """
+    changeset_id = int(changeset["id"])
+
+    async def retire() -> None:
+        await supersede_proposal(changeset_id, None)
+
     asst_id = changeset.get("source_assistant_message_id")
     user_id = changeset.get("source_user_message_id")
     if asst_id is None:
-        return None
+        raise db.OverlayStateConflict("cannot re-evaluate: the source assistant message is gone")
     assistant_msg = await db.get_message_by_id(int(asst_id))
     user_msg = await db.get_message_by_id(int(user_id)) if user_id is not None else None
     if assistant_msg is None or user_msg is None:
-        return None
+        raise db.OverlayStateConflict("cannot re-evaluate: the source exchange is gone")
 
     world_id = changeset["world_id"]
     world = await db.get_world(world_id)
     if world is None:
-        return None
+        raise db.OverlayStateConflict(f"cannot re-evaluate: world {world_id} is gone")
     entries = await db.get_lorebook_entries(world_id)
 
     settings = await db.get_settings()
     conversation_id = assistant_msg["conversation_id"]
     conv = await db.get_conversation(conversation_id)
     if conv is None:
-        return None
+        raise db.OverlayStateConflict("cannot re-evaluate: the source conversation is gone")
     # History up to (but not including) the source exchange: the exchange itself
     # is the step's trailing, exactly as it is during a live turn.
     parent_id = user_msg.get("parent_id")
-    history = (
-        await db.get_path_to_leaf(conversation_id, parent_id)
-        if parent_id is not None
-        else []
-    )
-    prefix = await build_offturn_prefix(
-        conversation_id, history, settings, lane="agent"
-    )
+    history = await db.get_path_to_leaf(conversation_id, parent_id) if parent_id is not None else []
+    prefix = await build_offturn_prefix(conversation_id, history, settings, lane="agent")
     if not prefix:
-        return None
+        raise db.OverlayStateConflict("cannot re-evaluate: the Agent context is unavailable")
 
     _, persona = await resolve_card_and_persona(conv, settings)
-    macros, _ = persona_macros(
-        settings, conv["character_name"], persona, seed=conversation_macro_seed(conv)
-    )
+    macros, _ = persona_macros(settings, conv["character_name"], persona, seed=conversation_macro_seed(conv))
     client = client_from_settings(settings)
     agent_client, model = agent_lane_from_settings(settings, writer_client=client)
     base = CachedBase(
@@ -210,18 +212,12 @@ async def reevaluate_changeset(changeset: Mapping[str, Any]):
         # The same enabled blob a live turn on this conversation would send, so
         # the re-evaluation extends that conversation's warm cached bottom
         # instead of paying for a fresh prefix.
-        tools=tuple(
-            enabled_schemas(
-                {**(settings.get("enabled_tools") or {}), "propose_world_changes": True}
-            )
-        ),
+        tools=tuple(enabled_schemas({**(settings.get("enabled_tools") or {}), "propose_world_changes": True})),
         model=model,
         resolve=macros.resolve_prompt_messages,
     )
 
-    reasoning_on = bool(
-        (settings.get("reasoning_enabled_passes") or {}).get("editor", False)
-    )
+    reasoning_on = bool((settings.get("reasoning_enabled_passes") or {}).get("editor", False))
     result = None
     async for ev in world_change_step(
         agent_client,
@@ -237,21 +233,29 @@ async def reevaluate_changeset(changeset: Mapping[str, Any]):
         if ev["type"] == "done":
             result = ev["result"]
 
-    if result is None or result.is_empty:
+    if result is None or result.failed:
+        raise db.OverlayStateConflict(
+            "re-evaluation did not produce a valid decision; the original proposal remains open"
+        )
+    if result.is_empty:
+        await retire()
         return None
     operations = split_by_world(result.operations).get(str(world_id), [])
     if not operations:
+        await retire()
         return None
-    return await stage_proposal(
-        world_id=world_id,
-        base_revision=int(world["content_revision"]),
-        summary=result.summary,
-        operations=operations,
-        source_user_message_id=int(user_msg["id"]),
-        source_assistant_message_id=int(assistant_msg["id"]),
-        source_conversation_id=conversation_id,
-        source_character_label=changeset.get("source_character_label", ""),
-        source_conversation_label=changeset.get("source_conversation_label", ""),
-        supersedes_changeset_id=int(changeset["id"]),
-        origin="re_evaluate",
+    return await supersede_proposal(
+        changeset_id,
+        {
+            "world_id": world_id,
+            "base_revision": int(world["content_revision"]),
+            "summary": result.summary,
+            "operations": operations,
+            "source_user_message_id": int(user_msg["id"]),
+            "source_assistant_message_id": int(assistant_msg["id"]),
+            "source_conversation_id": conversation_id,
+            "source_character_label": changeset.get("source_character_label", ""),
+            "source_conversation_label": changeset.get("source_conversation_label", ""),
+            "origin": "re_evaluate",
+        },
     )

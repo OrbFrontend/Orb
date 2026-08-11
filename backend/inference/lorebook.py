@@ -60,9 +60,8 @@ def select_effective_entries(entries: Sequence[Mapping[str, Any]]) -> list[Mappi
 
     Three rules, applied in order:
 
-    1. An archived overlay row is inert — dropping it is exactly what re-exposes
-       the authored entry it was hiding, which is why "Reset to Authored World"
-       needs no snapshot.
+    1. A disabled or archived row is inert. In particular, disabling an overlay
+       re-exposes the authored entry it was hiding.
     2. An authored entry named by a live ``replace`` or ``suppress`` is hidden.
     3. A ``suppress`` marker injects nothing; it exists only to hide its target.
 
@@ -72,7 +71,7 @@ def select_effective_entries(entries: Sequence[Mapping[str, Any]]) -> list[Mappi
     row — read as authored, so this is a no-op on a World that has never used
     the feature.
     """
-    live = [e for e in entries if not e.get("archived")]
+    live = [e for e in entries if bool(e.get("enabled", 1)) and not e.get("archived")]
     hidden: set[int] = set()
     for e in live:
         if is_dynamic(e) and e.get("overlay_action") in ("replace", "suppress"):
