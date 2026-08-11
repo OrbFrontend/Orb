@@ -183,9 +183,9 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 ./scripts/tests.sh all       # Full test suite
 ```
 
-## Context Management
+## Multi-user and tab management
 
-Full active message path sent every turn — no automatic truncation. Manual compress: `POST /summarize` → review → `POST /compress` → new conversation with summary + last N messages.
+We do NOT support multi users nor multiple open tabs at the same time. tabLock.js stops this from happening.
 
 ## Golden Rules for Codebase health
 1. Symmetry
