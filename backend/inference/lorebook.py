@@ -58,14 +58,8 @@ def is_dynamic(entry: Mapping[str, Any]) -> bool:
 def select_effective_entries(entries: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     """Resolve the authored + dynamic pool into the lore actually in effect.
 
-    Three rules, applied in order:
-
-    1. A disabled or archived row is inert. In particular, disabling an overlay
-       re-exposes the authored entry it was hiding.
-    2. An authored entry named by a live ``replace`` or ``suppress`` is hidden.
-    3. A ``suppress`` marker injects nothing; it exists only to hide its target.
-
-    Returns entries in input order (authored and dynamic interleaved as they
+    A disabled or archived row is inert, so disabling an overlay re-exposes the
+    authored entry it was hiding. Returns entries in input order (authored and dynamic interleaved as they
     came); ordering into sections is :func:`render_lorebook_block`'s job. Rows
     without the overlay columns — a hand-built dict in a test, a pre-migration
     row — read as authored, so this is a no-op on a World that has never used
@@ -377,10 +371,7 @@ def compute_constant_lorebook_block(
     ``""`` when there are no prefix-bound constant entries.
 
     Projects the overlay first, so a dynamic entry the user accepted as
-    ``constant`` joins the prefix under its own ``## Dynamic World State``
-    section. Both consumers of this function — the pipeline's prefix builder and
-    the workflow toolkit's off-turn one — call it with the same raw pool, so
-    their constant-lore bytes stay identical by construction.
+    ``constant`` joins the prefix under its own ``## Dynamic World State``.
     """
     prefix_bound = [e for e in select_effective_entries(entries) if e.get("constant") and not e.get("at_depth")]
     return render_lorebook_block(prefix_bound, macros, header="## Lorebook", dynamic_header=f"## {DYNAMIC_SECTION_TITLE}")

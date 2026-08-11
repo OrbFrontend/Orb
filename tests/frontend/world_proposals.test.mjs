@@ -32,9 +32,7 @@ import {
   changesetRowHtml,
   isOpen,
   isStale,
-  canUndo,
   messageProposalsHtml,
-  openCount,
   openProposals,
   operationDiff,
   operationEditHtml,
@@ -76,22 +74,18 @@ test("pending and stale are the open states; decided ones are not", () => {
   assert.equal(isOpen(null), false);
 });
 
-test("isStale and canUndo name exactly one state each", () => {
+test("isStale names exactly one state", () => {
   assert.equal(isStale(changeset({ status: "stale" })), true);
   assert.equal(isStale(changeset()), false);
-  assert.equal(canUndo(changeset({ status: "applied" })), true);
-  assert.equal(canUndo(changeset()), false);
 });
 
-test("openCount and openProposals ignore decided changesets", () => {
+test("openProposals ignores decided changesets", () => {
   const list = [changeset(), changeset({ id: 8, status: "applied" }), changeset({ id: 9, status: "stale" })];
-  assert.equal(openCount(list), 2);
   assert.deepEqual(
     openProposals({ world_changesets: list }).map((c) => c.id),
     [7, 9],
   );
   assert.deepEqual(openProposals({}), []);
-  assert.equal(openCount(undefined), 0);
 });
 
 // ── operation rendering

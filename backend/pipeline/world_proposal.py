@@ -5,14 +5,10 @@ Sits between the orchestrator and ``passes/world_change.py``: decides whether
 the stage runs at all, re-reads the target Worlds, drives the forced tool call,
 and parks the validated results on :class:`TurnState` for persistence to stage.
 
-A turn may have several opted-in Worlds in play. They share **one** call — the
-judgement is about the exchange, not about a book, and asking N times would cost
-N generations to answer the same question — and the validated operations are
-split back out into one pending changeset per World afterwards, because that is
-the unit the revision check and the review queue both work in.
-
-Nothing here writes to the World. The stage produces *pending* proposals;
-applying one is always a separate, reviewed action (``features/lorebook``).
+Several opted-in Worlds share **one** call — the judgement is about the exchange,
+not about a book, and asking N times would cost N generations to answer the same
+question — then split into one pending changeset each, because that is the unit
+the revision check and the review queue both work in.
 """
 
 from __future__ import annotations
@@ -79,10 +75,9 @@ async def world_proposal_stage(
     appends the parsed tool call to ``state.calls`` so the inspector shows it
     alongside the rest of the turn.
 
-    Every failure path is contained: no readable target World, a model that calls
-    nothing, a call that validates to zero operations, and an outright transport
-    error all leave ``state.world_proposals`` empty. This runs immediately before
-    the turn's ``_result``, so it must never be able to cost the user their reply.
+    Every failure path leaves ``state.world_proposals`` empty rather than
+    raising. This runs immediately before the turn's ``_result``, so it must
+    never be able to cost the user their reply.
     """
     try:
         worlds, entries = await _load_targets(turn.world_ids)
@@ -165,16 +160,11 @@ async def reevaluate_changeset(changeset: Mapping[str, Any]):
     that silently opened a second World's queue would be a surprise.
 
     Returns the new changeset, or ``None`` when the model validly proposed no
-    operations this time. Either result atomically moves the original to
-    terminal ``superseded``; a concurrent decision wins instead without leaking
-    a replacement row. Missing source context and failed/malformed model calls
-    raise while leaving the original open for retry or dismissal.
+    operations this time. Either result retires the original (see
+    ``db.supersede_world_changeset``). Missing source context and
+    failed/malformed model calls raise, leaving it open for retry or dismissal.
     """
     changeset_id = int(changeset["id"])
-
-    async def retire() -> None:
-        await supersede_proposal(changeset_id, None)
-
     asst_id = changeset.get("source_assistant_message_id")
     user_id = changeset.get("source_user_message_id")
     if asst_id is None:
@@ -235,13 +225,11 @@ async def reevaluate_changeset(changeset: Mapping[str, Any]):
 
     if result is None or result.failed:
         raise db.OverlayStateConflict("re-evaluation did not produce a valid decision; the original proposal remains open")
-    if result.is_empty:
-        await retire()
-        return None
-    operations = split_by_world(result.operations).get(str(world_id), [])
+    operations = split_by_world(result.operations).get(str(world_id), []) if not result.is_empty else []
     if not operations:
-        await retire()
-        return None
+        # Nothing left to propose against the World as it now stands: a valid
+        # answer, so the original still retires rather than staying in the queue.
+        return await supersede_proposal(changeset_id, None)
     return await supersede_proposal(
         changeset_id,
         {

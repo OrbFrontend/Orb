@@ -79,15 +79,11 @@ def direction_note_to_writer(settings: Mapping[str, Any]) -> bool:
 def world_proposal_active(world: Mapping[str, Any] | None, *, agent_on: bool) -> bool:
     """Return True when a turn may propose changes to *world*.
 
-    The per-World gate, applied to each World in turn — three conditions, all
-    required: the global Agent (the proposal is an Agent pass), the World's own
-    ``dynamic_enabled`` opt-in, and ``enabled``. That last one is what keeps the
-    target set honest: an enabled World is one whose lore fed this turn's prompt,
-    so the exchange is evidence about it. A disabled World contributed nothing to
-    the scene and so learns nothing from it.
-
-    Deliberately independent of Agentic Lorebook: the two features share a table,
-    not a purpose, and each is useful without the other.
+    ``enabled`` is in the gate because it is what keeps the target set honest: an
+    enabled World fed this turn's prompt, so the exchange is evidence about it,
+    while a disabled one contributed nothing to the scene and so learns nothing
+    from it. Deliberately independent of Agentic Lorebook — the two features
+    share a table, not a purpose, and each is useful without the other.
     """
     return agent_on and bool(world and world.get("enabled") and world.get("dynamic_enabled"))
 

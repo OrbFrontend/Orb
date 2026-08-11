@@ -24,7 +24,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from ..connection import _build_set_clause, get_db
+from ..connection import _build_set_clause, get_db, immediate_tx
 from ..models import (
     ActiveLorebookEntryRow,
     LorebookEntryRow,
@@ -387,10 +387,8 @@ async def get_active_lorebook_entries() -> list[ActiveLorebookEntryRow]:
 
     This is the raw overlay pool, not the effective lore: an authored entry
     hidden by a replacement is still in here, and so is the suppression marker
-    that hides it. Resolving that is
-    ``inference.lorebook.select_effective_entries``, which every activation and
-    rendering entry point applies for itself -- the projection lives in the lore
-    layer, which ``database/`` sits below and may not import.
+    that hides it. Resolving that is ``inference.lorebook`` -- the projection
+    lives in the lore layer, which ``database/`` sits below and may not import.
     """
     async with get_db() as db:
         rows = list(
@@ -496,41 +494,29 @@ async def supersede_world_changeset(
     ``None`` means the re-evaluation found nothing left to propose; the original
     still becomes terminal ``superseded`` so it leaves the review queue.
     """
-    async with get_db() as db:
-        await db.execute("BEGIN IMMEDIATE")
-        try:
-            original = await _fetch_changeset(db, changeset_id)
-            if original is None or original["status"] not in ("pending", "stale"):
-                state = original["status"] if original else "missing"
-                raise OverlayStateConflict(f"changeset {changeset_id} is {state}, not open for re-evaluation")
+    async with immediate_tx() as db:
+        original = await _fetch_changeset(db, changeset_id)
+        if original is None or original["status"] not in ("pending", "stale"):
+            state = original["status"] if original else "missing"
+            raise OverlayStateConflict(f"changeset {changeset_id} is {state}, not open for re-evaluation")
 
-            now = _now()
-            cur = await db.execute(
-                "UPDATE world_changesets SET status = 'superseded', decided_at = ?"
-                " WHERE id = ? AND status IN ('pending', 'stale')",
-                (now, changeset_id),
-            )
-            if cur.rowcount != 1:
-                raise OverlayStateConflict(f"changeset {changeset_id} changed state while it was being re-evaluated")
+        cur = await db.execute(
+            "UPDATE world_changesets SET status = 'superseded', decided_at = ? WHERE id = ? AND status IN ('pending', 'stale')",
+            (_now(), changeset_id),
+        )
+        if cur.rowcount != 1:
+            raise OverlayStateConflict(f"changeset {changeset_id} changed state while it was being re-evaluated")
 
-            result = None
-            if replacement is not None:
-                if replacement.get("world_id") != original["world_id"]:
-                    raise OverlayStateConflict("a re-evaluated changeset must belong to the same world as its original")
-                data = {
-                    **replacement,
-                    "status": "pending",
-                    "supersedes_changeset_id": changeset_id,
-                }
-                replacement_id = await _insert_changeset(db, data)
-                result = await _fetch_changeset(db, replacement_id)
-                assert result is not None
-
-            await db.commit()
-            return result
-        except BaseException:
-            await db.execute("ROLLBACK")
-            raise
+        if replacement is None:
+            return None
+        if replacement.get("world_id") != original["world_id"]:
+            raise OverlayStateConflict("a re-evaluated changeset must belong to the same world as its original")
+        replacement_id = await _insert_changeset(
+            db, {**replacement, "status": "pending", "supersedes_changeset_id": changeset_id}
+        )
+        result = await _fetch_changeset(db, replacement_id)
+        assert result is not None
+        return result
 
 
 async def get_world_changeset(changeset_id: int) -> WorldChangesetRow | None:
@@ -683,8 +669,8 @@ async def mark_changesets_stale_for_messages(message_ids: Sequence[int]) -> int:
 
     Called when a source message is edited or deleted: the evidence the proposal
     was derived from no longer exists as the model saw it, so the proposal must
-    be re-evaluated rather than applied. Applied history is untouched -- an
-    accepted change is shared canon regardless of what happens to its source.
+    be re-evaluated rather than applied. Applied history is untouched, for the
+    reason :func:`mark_orphaned_changesets_stale` gives.
     """
     if not message_ids:
         return 0
@@ -810,18 +796,14 @@ async def _apply_one(db, world_id: str, op: Mapping[str, Any], now: str) -> tupl
     before = entry_snapshot(existing)
 
     if kind == "update":
-        patch: dict[str, Any] = {}
-        for col in DYNAMIC_UPDATE_COLUMNS:
-            if col in op:
-                patch[col] = op[col]
+        patch: dict[str, Any] = {col: op[col] for col in DYNAMIC_UPDATE_COLUMNS if col in op}
         if "activation" in op:
-            patch["constant"] = 1 if op["activation"] == "constant" else 0
-            if op["activation"] == "constant":
+            patch["constant"] = op["activation"] == "constant"
+            if patch["constant"]:
                 patch["keywords"] = []
-        if "constant" in patch:
-            patch["constant"] = 1 if patch["constant"] else 0
-        if "enabled" in patch:
-            patch["enabled"] = 1 if patch["enabled"] else 0
+        for flag in ("constant", "enabled"):
+            if flag in patch:
+                patch[flag] = 1 if patch[flag] else 0
         sets, vals = _build_set_clause(list(patch), patch, json_fields={"keywords"})
         sets.extend(["entry_revision = entry_revision + 1", "updated_at = ?"])
         vals.extend([now, entry_id])
@@ -922,33 +904,25 @@ async def apply_changeset(
 ) -> WorldChangesetRow:
     """Apply *operations* atomically, or raise and leave the World untouched.
 
-    Takes ``BEGIN IMMEDIATE`` so two concurrent accepts serialise at the SQLite
-    write lock rather than interleaving, then re-reads ``content_revision``
-    inside that transaction and refuses unless it still equals
-    *expected_revision* -- exactly one accept can win a race, the loser gets a
-    :class:`RevisionConflict` and is marked stale by the caller.
+    Re-reads ``content_revision`` inside the write transaction and refuses
+    unless it still equals *expected_revision* -- exactly one accept can win a
+    race, the loser gets a :class:`RevisionConflict` and is marked stale by the
+    caller.
 
     *require_after_state* is the undo guard: a list positionally matching
     *operations*, each entry the snapshot the compensating op expects to find
     live. A mismatch raises :class:`OverlayStateConflict` and applies nothing,
     so an undo can never silently clobber a later edit.
     """
-    async with get_db() as db:
-        await db.execute("BEGIN IMMEDIATE")
-        try:
-            result = await _apply_changeset_tx(
-                db,
-                changeset_id,
-                operations,
-                expected_revision=expected_revision,
-                summary=summary,
-                require_after_state=require_after_state,
-            )
-            await db.commit()
-        except BaseException:
-            await db.execute("ROLLBACK")
-            raise
-        return result
+    async with immediate_tx() as db:
+        return await _apply_changeset_tx(
+            db,
+            changeset_id,
+            operations,
+            expected_revision=expected_revision,
+            summary=summary,
+            require_after_state=require_after_state,
+        )
 
 
 async def create_and_apply_changeset(
@@ -968,38 +942,30 @@ async def create_and_apply_changeset(
     """
     if data.get("status", "pending") != "pending":
         raise ValueError("create_and_apply_changeset requires a pending changeset")
-    async with get_db() as db:
-        await db.execute("BEGIN IMMEDIATE")
-        try:
-            if revert_changeset_id is not None:
-                original = await _fetch_changeset(db, revert_changeset_id)
-                if original is None or original["status"] != "applied":
-                    state = original["status"] if original else "missing"
-                    raise OverlayStateConflict(
-                        f"changeset {revert_changeset_id} is {state}; only applied changes can be undone"
-                    )
-                if original["world_id"] != data["world_id"]:
-                    raise OverlayStateConflict("an undo changeset must belong to the same world as its original")
+    async with immediate_tx() as db:
+        if revert_changeset_id is not None:
+            original = await _fetch_changeset(db, revert_changeset_id)
+            if original is None or original["status"] != "applied":
+                state = original["status"] if original else "missing"
+                raise OverlayStateConflict(f"changeset {revert_changeset_id} is {state}; only applied changes can be undone")
+            if original["world_id"] != data["world_id"]:
+                raise OverlayStateConflict("an undo changeset must belong to the same world as its original")
 
-            changeset_id = await _insert_changeset(db, data)
-            result = await _apply_changeset_tx(
-                db,
-                changeset_id,
-                operations,
-                expected_revision=expected_revision,
-                require_after_state=require_after_state,
+        changeset_id = await _insert_changeset(db, data)
+        result = await _apply_changeset_tx(
+            db,
+            changeset_id,
+            operations,
+            expected_revision=expected_revision,
+            require_after_state=require_after_state,
+        )
+        if revert_changeset_id is not None:
+            cur = await db.execute(
+                "UPDATE world_changesets SET status = 'reverted' WHERE id = ? AND status = 'applied'",
+                (revert_changeset_id,),
             )
-            if revert_changeset_id is not None:
-                cur = await db.execute(
-                    "UPDATE world_changesets SET status = 'reverted' WHERE id = ? AND status = 'applied'",
-                    (revert_changeset_id,),
-                )
-                if cur.rowcount != 1:
-                    raise OverlayStateConflict(f"changeset {revert_changeset_id} changed state while it was being undone")
-            await db.commit()
-        except BaseException:
-            await db.execute("ROLLBACK")
-            raise
+            if cur.rowcount != 1:
+                raise OverlayStateConflict(f"changeset {revert_changeset_id} changed state while it was being undone")
         return result
 
 

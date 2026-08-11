@@ -94,8 +94,7 @@ async def world_apply_lock(world_id: str):
     needless conflicts, not about correctness.
 
     Keyed by running event loop as well as World id, for the same reason as
-    ``workflow_config_lock``: a ``Lock`` binds to the loop of its first acquire,
-    and pytest-asyncio hands each test a fresh loop while temp DBs reuse ids.
+    ``workflow_config_lock``.
     """
     loop = asyncio.get_running_loop()
     lock = _world_apply_locks.setdefault((loop, world_id), asyncio.Lock())

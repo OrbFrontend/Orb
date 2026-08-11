@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from backend.features.lorebook import (
     build_world_change_catalog,
-    describe_operation,
     invert_operations,
     parse_proposal_call,
     split_by_world,
@@ -732,9 +731,3 @@ class TestInvertOperations:
 
     def test_an_operation_that_produced_no_row_is_skipped(self):
         assert invert_operations([{"op": "create"}], [None], [None]) == ([], [])
-
-
-def test_describe_operation_names_its_target():
-    by_id = {1: {"name": "Bridge"}}
-    assert describe_operation({"op": "suppress", "target_entry_id": 1}, by_id) == "Suppress Bridge [1]"
-    assert describe_operation({"op": "create", "name": "Scar"}, by_id) == "Add “Scar”"

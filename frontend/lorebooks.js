@@ -463,12 +463,8 @@ function renderLorebookDrawer() {
       badge ? `<span class="lb-tab-badge">${badge}</span>` : ""
     }</button>`;
 
-  const rightPane =
-    _drawerTab === "pending"
-      ? `<div class="wc-list">${_changesetListHtml(_focusWorldId, ["pending", "stale"], "No proposals waiting for review")}</div>`
-      : _drawerTab === "history"
-        ? `<div class="wc-list">${_changesetListHtml(_focusWorldId, ["applied", "rejected", "reverted"], "No decided changes yet")}</div>`
-        : editorHtml;
+  const list = _CHANGESET_TABS[_drawerTab];
+  const rightPane = list ? `<div class="wc-list">${_changesetListHtml(_focusWorldId, ...list)}</div>` : editorHtml;
 
   const prevScrollTop = drawer.querySelector(".lb-entries-scroll")?.scrollTop ?? 0;
 
@@ -874,6 +870,14 @@ function lbExportJson(view = "authored") {
 const _changesets = {}; // worldId -> changeset[]
 let _drawerTab = "entries"; // entries | pending | history
 
+// The two drawer tabs that list changesets instead of the entry editor, as
+// `[statuses, emptyText]`. A stale proposal lists under Pending, not History:
+// it is still a decision the user owes, not one they have made.
+const _CHANGESET_TABS = {
+  pending: [["pending", "stale"], "No proposals waiting for review"],
+  history: [["applied", "rejected", "reverted"], "No decided changes yet"],
+};
+
 async function _loadChangesets(worldId) {
   _changesets[worldId] = await api.get(`/worlds/${worldId}/changesets`);
 }
@@ -886,7 +890,22 @@ function _pendingCount(worldId) {
   return cached ? cached.filter(isOpen).length : world?.pending_changesets || 0;
 }
 
-/** Reload every surface a world mutation can invalidate: the drawer and the chat. */
+// Set by app.js at boot rather than imported: lorebooks.js sits below the chat
+// feature modules, and reaching up into them would invert the layering.
+let _chatRefresh = null;
+
+export function setWorldProposalRefresh(fn) {
+  _chatRefresh = fn;
+}
+
+/**
+ * Reload every surface a world mutation can invalidate: the drawer and the chat.
+ *
+ * The repaint happens whether or not the refetch did, so a failed reload leaves
+ * a consistent view of what this module last knew rather than a half-updated
+ * one. The chat is refetched through *_chatRefresh* because it paints proposal
+ * cards from the message rows — it needs the server's view of them, not ours.
+ */
 async function _refreshAfterWorldChange(worldId) {
   try {
     await Promise.all([_loadEntries(worldId), _loadChangesets(worldId)]);
@@ -896,23 +915,8 @@ async function _refreshAfterWorldChange(worldId) {
   }
   renderWorldsSidebar();
   if (_focusWorldId === worldId) renderLorebookDrawer();
-  // The chat paints proposal cards from the message rows, so it needs the
-  // server's new view of them — not this module's.
-  await _refreshChatProposals();
-}
-
-// Set by app.js at boot rather than imported: lorebooks.js sits below the chat
-// feature modules, and reaching up into them would invert the layering.
-let _chatRefresh = null;
-
-export function setWorldProposalRefresh(fn) {
-  _chatRefresh = fn;
-}
-
-async function _refreshChatProposals() {
-  if (!_chatRefresh) return;
   try {
-    await _chatRefresh();
+    await _chatRefresh?.();
   } catch (e) {
     console.error("Failed to refresh chat proposals:", e);
   }
@@ -939,48 +943,29 @@ export async function toggleWorldDynamic(worldId, enabled) {
   }
 }
 
-async function _applyChangeset(worldId, id, body = {}) {
+/**
+ * Run one world mutation: say what happened, then reload every stale surface.
+ *
+ * Every mutation here has the same shape, failure included. A 409 is the
+ * revision conflict, and the server's own sentence is the whole remedy — there
+ * is no force-apply to offer — so an error is surfaced verbatim, and the
+ * refresh runs either way because a losing action still means this client's
+ * view is behind. *said* turns the response into the success toast, and is
+ * omitted where landing silently reads better.
+ */
+async function _worldMutation(worldId, request, said) {
   try {
-    await api.post(`/worlds/${worldId}/changesets/${id}/apply`, body);
-    toast("World updated");
-  } catch (e) {
-    // 409 is the revision conflict: the proposal is now stale and the server
-    // has said so, so surfacing the message and refreshing is the whole
-    // remedy — there is no force-apply to offer.
-    toast(e.message, true);
-  }
-  await _refreshAfterWorldChange(worldId);
-}
-
-async function _rejectChangeset(worldId, id) {
-  try {
-    await api.post(`/worlds/${worldId}/changesets/${id}/reject`, {});
+    const result = await request();
+    if (said) toast(said(result));
   } catch (e) {
     toast(e.message, true);
   }
   await _refreshAfterWorldChange(worldId);
 }
 
-async function _reevaluateChangeset(worldId, id) {
-  toast("Re-evaluating against the current world…");
-  try {
-    const result = await api.post(`/worlds/${worldId}/changesets/${id}/re-evaluate`, {});
-    toast(result.changeset ? "New proposal ready for review" : "Nothing left to propose");
-  } catch (e) {
-    toast(e.message, true);
-  }
-  await _refreshAfterWorldChange(worldId);
-}
-
-async function _undoChangeset(worldId, id) {
-  try {
-    await api.post(`/worlds/${worldId}/changesets/${id}/undo`, {});
-    toast("Change undone");
-  } catch (e) {
-    toast(e.message, true);
-  }
-  await _refreshAfterWorldChange(worldId);
-}
+/** One of the decisions the review card offers on a changeset. */
+const _decideChangeset = (worldId, id, action, said, body = {}) =>
+  _worldMutation(worldId, () => api.post(`/worlds/${worldId}/changesets/${id}/${action}`, body), said);
 
 export function resetWorldToAuthored(worldId) {
   showConfirmModal(
@@ -992,15 +977,12 @@ export function resetWorldToAuthored(worldId) {
       confirmText: "Reset",
       confirmClass: "btn-danger",
     },
-    async () => {
-      try {
-        const result = await api.post(`/worlds/${worldId}/reset`, {});
-        toast(result.reset ? "Reset to your authored world" : "Nothing to reset");
-      } catch (e) {
-        toast(e.message, true);
-      }
-      await _refreshAfterWorldChange(worldId);
-    },
+    () =>
+      _worldMutation(
+        worldId,
+        () => api.post(`/worlds/${worldId}/reset`, {}),
+        (r) => (r.reset ? "Reset to your authored world" : "Nothing to reset"),
+      ),
   );
 }
 
@@ -1049,25 +1031,23 @@ function _openChangesetEditor(worldId, id) {
     if (el) el.onclick = fn;
   };
   bind("wc-edit-cancel", closeModal);
-  bind("wc-edit-save", async () => {
+  bind("wc-edit-save", () => {
     const body = collect();
     closeModal();
-    try {
-      await api.put(`/worlds/${worldId}/changesets/${id}`, body);
-      toast("Proposal updated");
-    } catch (e) {
-      toast(e.message, true);
-    }
-    await _refreshAfterWorldChange(worldId);
+    return _worldMutation(
+      worldId,
+      () => api.put(`/worlds/${worldId}/changesets/${id}`, body),
+      () => "Proposal updated",
+    );
   });
-  bind("wc-edit-apply", async () => {
+  bind("wc-edit-apply", () => {
     const body = collect();
     closeModal();
     if (!body.operations.length) {
       toast("Nothing left to apply — reject it instead", true);
-      return;
+      return undefined;
     }
-    await _applyChangeset(worldId, id, body);
+    return _decideChangeset(worldId, id, "apply", () => "World updated", body);
   });
 }
 
@@ -1075,10 +1055,15 @@ function _openChangesetEditor(worldId, id) {
 // Delegation rather than inline `on*=` handlers: the frontend layer check
 // ratchets those down, and the cards are re-rendered constantly.
 const _WC_ACTIONS = {
-  apply: (world, id) => _applyChangeset(world, id),
-  reject: (world, id) => _rejectChangeset(world, id),
-  "re-evaluate": (world, id) => _reevaluateChangeset(world, id),
-  undo: (world, id) => _undoChangeset(world, id),
+  apply: (world, id) => _decideChangeset(world, id, "apply", () => "World updated"),
+  reject: (world, id) => _decideChangeset(world, id, "reject"),
+  "re-evaluate": (world, id) => {
+    toast("Re-evaluating against the current world…");
+    return _decideChangeset(world, id, "re-evaluate", (r) =>
+      r.changeset ? "New proposal ready for review" : "Nothing left to propose",
+    );
+  },
+  undo: (world, id) => _decideChangeset(world, id, "undo", () => "Change undone"),
   edit: async (world, id) => {
     await _requireChangeset(world, id);
     _openChangesetEditor(world, id);

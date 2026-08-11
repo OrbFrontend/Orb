@@ -12,13 +12,8 @@ contract: it is what makes ``target_entry_id`` meaningful. Ids are the stable
 ``lorebook_entries`` row ids — no parallel UUID scheme — so a proposal points at
 exactly the row the drawer edits.
 
-**One call, several Worlds.** A turn may have more than one opted-in World in
-play, so both halves take an optional *worlds* argument: the catalog groups its
-entries under a heading per World, and validation resolves each operation to the
-World it belongs in — from the target row for anything that names one (row ids
-are globally unique, so that can never be guessed wrong), from ``target_world``
-for a ``create``. Passing no *worlds* keeps the single-World shape, which is what
-re-validating an already-scoped changeset on accept wants.
+Both halves take an optional *worlds*, since one turn may propose to several;
+:class:`_WorldScope` is where an operation resolves to the one it belongs in.
 """
 
 from __future__ import annotations
@@ -44,11 +39,9 @@ ACTIVATIONS = ("constant", "keywords")
 # What the model is asked for (see ``PROPOSE_WORLD_CHANGES_TOOL``): three verbs,
 # where `revise` and `retract` each cover two stored operations. Which one an
 # operation becomes is decided by the layer of the row it targets, so the model
-# is never asked to tell authored lore from the overlay -- a distinction it can
-# only get from reading catalog headings, and one whose every wrong guess used
-# to cost the whole operation. The stored names are accepted as synonyms: a
-# changeset re-validated on accept comes back in the table's vocabulary, and a
-# model that names one is not wrong, only more specific than it had to be.
+# is never asked to tell authored lore from the overlay. Stored names are
+# accepted as synonyms too, since a changeset re-validated on accept comes back
+# in the table's vocabulary.
 _REVISE_OPS = ("revise", "replace", "update")
 _RETRACT_OPS = ("retract", "suppress", "archive")
 _TARGETING_OPS = frozenset(_REVISE_OPS + _RETRACT_OPS)
@@ -59,9 +52,7 @@ _COMPACT_CONTENT_CHARS = 90
 # How much of an authored body the *full* rendering keeps, at each end, before
 # dropping what is between them. Imported lore runs to thousands of characters
 # and every constant entry is rendered full on every turn, so the middles of a
-# few long entries are most of what a large World costs this step. The two ends
-# are the parts it reads for: the opening says what the entry is, and the close
-# is where an entry that has been added to over time carries its latest state.
+# few long entries are most of what a large World costs this step.
 _FULL_HEAD_CHARS = 400
 _FULL_TAIL_CHARS = 200
 
@@ -208,22 +199,17 @@ def build_world_change_catalog(
     are listed compactly unless they are *relevant to this exchange* (constant,
     or a keyword hit in the user message + reply), which keeps a large authored
     book from crowding out the exchange itself while still giving the step the
-    text of anything it might contradict. A relevant authored body that is very
-    long is shown from both ends with its middle elided
-    (:func:`_elide_middle`): imported lore can run to thousands of characters
-    per entry, and this step pays for every constant one of them on every turn.
+    text of anything it might contradict; a long relevant one loses its middle
+    (:func:`_elide_middle`).
 
-    *entries* is the pooled row set of every World in *worlds*; each is rendered
+    *entries* is the pooled row set of every World in *worlds*, each rendered
     under its own ``## <name>`` heading, in the order given, so the step can name
-    one in ``target_world``. With no *worlds* the pool is rendered flat, which is
-    the single-World shape a re-evaluation wants.
+    one in ``target_world``. With no *worlds* the pool is rendered flat.
 
-    Suppressed authored entries, disabled rows, and archived overlay rows are
-    absent: the step reasons about the World as it currently reads. Live
-    suppression markers are the one management-only exception. They inject no
-    lore, but remain listed with their own id so the Agent can archive one when
-    later events make its authored target true again. Returns ``""`` when there
-    is nothing at all to show.
+    The step reasons about the World as it currently reads, so suppressed
+    authored entries, disabled rows and archived overlay rows are absent — bar
+    live suppression markers (:func:`_is_live_suppressor`). Returns ``""`` when
+    there is nothing at all to show.
     """
     effective = select_effective_entries(entries)
     effective_objects = {id(e) for e in effective}
@@ -346,30 +332,15 @@ def validate_proposal(
     layer comes from the row, never from the call, so the returned ``op`` is
     always one of :data:`OPERATIONS` whichever synonym came in.
 
-    Every operation must survive all of:
-
-    * a known ``op``;
-    * a ``target_entry_id`` naming a live row in one of these Worlds, and — for
-      an authored one — a row still in effect, since an entry already hidden by
-      an overlay has nothing left to revise or retract;
-    * one target per operation, and one operation per target — two operations
-      aimed at the same entry are ambiguous, so the later one is dropped rather
-      than guessed at;
-    * a resolvable World: taken from the target row for anything that names one,
-      and from ``target_world`` for a ``create`` when *worlds* lists more than
-      one candidate;
-    * non-empty name and content for anything that creates or rewrites an entry;
-    * a name that does not collide (case-insensitively) with another live dynamic
-      entry in the *same* World, or with an earlier create in it in this proposal.
-
-    Keyword activation with no keywords is repaired rather than rejected — the
-    entry's own name becomes its key — because an operation the user would have
+    Each check below carries the reason it rejects on. Only one is a *repair*
+    rather than a rejection: keyword activation with no keywords takes the
+    entry's own name as its key, because an operation the user would have
     accepted should not be lost to a field the model can restate from another.
 
     *entries* is the pooled row set of every World in *worlds*; when *worlds* is
     empty the pool is one World's and operations come back unstamped (see
-    :class:`_WorldScope`). Anything else is dropped with a reason. A proposal
-    whose operations are all dropped is simply an empty proposal.
+    :class:`_WorldScope`). A proposal whose operations are all dropped is simply
+    an empty proposal.
     """
     result = ValidatedProposal()
     if not isinstance(arguments, Mapping):
@@ -476,57 +447,49 @@ def validate_proposal(
                 # The marker inherits its target's name so the drawer and the
                 # review card can say *what* was suppressed without a join.
                 item["name"] = _clean_str(raw.get("name")) or _clean_str(target_row.get("name"))
-            result.operations.append(item)
-            if target is not None:
-                claimed_targets.add(target)
-            continue
-
-        name = _clean_str(raw.get("name"))
-        content = _clean_str(raw.get("content"))
-        if op == "update":
-            # An update may revise either field; whatever it omits keeps its
-            # current value, so only a wholly empty update is meaningless.
-            if not name and not content and "activation" not in raw and "keywords" not in raw:
-                result.rejected.append((index, "update changes nothing"))
-                continue
-            name = name or _clean_str(target_row.get("name"))
-            content = content or _clean_str(target_row.get("content"))
-        if not name or not content:
-            result.rejected.append((index, f"{op} needs both a name and content"))
-            continue
-
-        if op == "update":
-            activation = _clean_str(raw.get("activation")).lower()
-            if activation not in ACTIVATIONS:
-                activation = "constant" if target_row.get("constant") else "keywords"
-            keywords = (
-                _clean_keywords(raw.get("keywords")) if "keywords" in raw else _clean_keywords(target_row.get("keywords"))
-            )
         else:
+            name = _clean_str(raw.get("name"))
+            content = _clean_str(raw.get("content"))
+            if op == "update":
+                # An update may revise either field; whatever it omits keeps its
+                # current value, so only a wholly empty update is meaningless.
+                if not name and not content and "activation" not in raw and "keywords" not in raw:
+                    result.rejected.append((index, "update changes nothing"))
+                    continue
+                name = name or _clean_str(target_row.get("name"))
+                content = content or _clean_str(target_row.get("content"))
+            if not name or not content:
+                result.rejected.append((index, f"{op} needs both a name and content"))
+                continue
+
+            # An update inherits from its target whatever it does not restate;
+            # every other op starts from nothing, so its fallback is the default.
+            fallback: Mapping[str, Any] = target_row if op == "update" else {}
             activation = _clean_str(raw.get("activation")).lower()
             if activation not in ACTIVATIONS:
-                activation = "keywords"
-            keywords = _clean_keywords(raw.get("keywords"))
-        if activation == "keywords" and not keywords:
-            # An entry that can never trigger is dead weight -- but the name is
-            # almost always the thing the entry is *about*, so it is a usable key
-            # and a better answer than dropping a reviewed proposal on the floor.
-            keywords = [name]
-        if activation == "constant":
-            keywords = []
+                activation = "constant" if fallback.get("constant") else "keywords"
+            keywords = _clean_keywords(raw["keywords"] if "keywords" in raw else fallback.get("keywords"))
+            if activation == "keywords" and not keywords:
+                # An entry that can never trigger is dead weight -- but the name
+                # is almost always the thing the entry is *about*, so it is a
+                # usable key and a better answer than dropping a reviewed
+                # proposal on the floor.
+                keywords = [name]
+            if activation == "constant":
+                keywords = []
 
-        folded = name.casefold()
-        # An update keeping (or restoring) its own name is not a collision with itself.
-        own_name = _clean_str(target_row.get("name")).casefold() if op == "update" else None
-        taken = taken_names.setdefault(world_id, set())
-        if folded in taken and folded != own_name:
-            result.rejected.append((index, f"a dynamic entry named {name!r} already exists in this world"))
-            continue
-        if own_name:
-            taken.discard(own_name)
-        taken.add(folded)
+            folded = name.casefold()
+            # An update keeping (or restoring) its own name is not a collision with itself.
+            own_name = _clean_str(target_row.get("name")).casefold() if op == "update" else None
+            taken = taken_names.setdefault(world_id, set())
+            if folded in taken and folded != own_name:
+                result.rejected.append((index, f"a dynamic entry named {name!r} already exists in this world"))
+                continue
+            if own_name:
+                taken.discard(own_name)
+            taken.add(folded)
+            item.update({"name": name, "content": content, "activation": activation, "keywords": keywords})
 
-        item.update({"name": name, "content": content, "activation": activation, "keywords": keywords})
         result.operations.append(item)
         if target is not None:
             claimed_targets.add(target)
@@ -568,23 +531,3 @@ def parse_proposal_call(tool_calls: Sequence[Mapping[str, Any]]) -> Mapping[str,
             if isinstance(args, Mapping):
                 found = args
     return found
-
-
-def describe_operation(op: Mapping[str, Any], entries_by_id: Mapping[int, Mapping[str, Any]] | None = None) -> str:
-    """One human sentence for an operation, for logs and the review card fallback."""
-    by_id = entries_by_id or {}
-    target = op.get("target_entry_id")
-    target_name = _clean_str(by_id.get(int(target), {}).get("name")) if target is not None else ""
-    label = f"{target_name} [{target}]" if target_name else (f"[{target}]" if target is not None else "")
-    kind = op.get("op")
-    if kind == "create":
-        return f"Add “{op.get('name', '')}”"
-    if kind == "replace":
-        return f"Replace {label} with “{op.get('name', '')}”"
-    if kind == "suppress":
-        return f"Suppress {label}"
-    if kind == "update":
-        return f"Update {label}"
-    if kind == "archive":
-        return f"Archive {label}"
-    return str(kind)

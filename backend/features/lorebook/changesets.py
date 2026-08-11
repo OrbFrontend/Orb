@@ -87,9 +87,7 @@ async def supersede_proposal(
 ) -> WorldChangesetRow | None:
     """Retire an open proposal and optionally stage its re-evaluated replacement.
 
-    The query layer performs both writes in one ``BEGIN IMMEDIATE`` transaction,
-    so two re-evaluations cannot create sibling replacements and a concurrent
-    apply/reject cannot leave a replacement behind after winning the old row.
+    Both writes land in one transaction; see ``db.supersede_world_changeset``.
     """
     return await db.supersede_world_changeset(changeset_id, replacement)
 
@@ -164,12 +162,8 @@ def invert_operations(
     match for the undo to be safe.
 
     The inverses are read straight off the recorded snapshots, in reverse order
-    so a proposal that created an entry and then updated it unwinds cleanly:
-
-    * an operation that *created* an overlay row (create/replace/suppress) is
-      undone by archiving that row, which re-exposes any authored entry it hid;
-    * an ``update`` is undone by restoring the recorded before-values;
-    * an ``archive`` is undone by restoring the recorded before-``archived`` flag.
+    so a proposal that created an entry and then updated it unwinds cleanly.
+    Archiving an overlay row is what re-exposes any authored entry it hid.
     """
     inverse: list[dict] = []
     required: list[dict | None] = []
@@ -204,9 +198,8 @@ def invert_operations(
 async def undo_changeset(changeset: Mapping[str, Any]) -> WorldChangesetRow:
     """Reverse an applied changeset by applying its compensating changeset.
 
-    Only reverses what is still there: each inverse operation carries the
-    after-state it expects, so an entry a later change has moved on makes the
-    whole undo conflict (``409``) rather than clobbering that later change.
+    Raises :class:`db.OverlayStateConflict` when a later change moved one of the
+    targets — the whole undo refuses rather than clobbering it.
     """
     world_id = changeset["world_id"]
     async with world_apply_lock(world_id):
@@ -246,9 +239,7 @@ async def reset_world_to_authored(world_id: str) -> WorldChangesetRow | None:
     """Archive every live overlay row, restoring the authored view exactly.
 
     Deterministic because the overlay never wrote an authored row: retiring all
-    of it *is* the original. Recorded as an ordinary applied changeset, so the
-    reset itself shows up in history and can be undone. Returns ``None`` when
-    there was no overlay to retire.
+    of it *is* the original. Returns ``None`` when there was no overlay.
     """
     async with world_apply_lock(world_id):
         active = await db.get_active_dynamic_entries(world_id)

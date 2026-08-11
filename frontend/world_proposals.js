@@ -35,12 +35,6 @@ const OP_VERBS = {
 // actions-vs-status split key on.
 export const isOpen = (cs) => cs?.status === "pending" || cs?.status === "stale";
 export const isStale = (cs) => cs?.status === "stale";
-export const canUndo = (cs) => cs?.status === "applied";
-
-/** Count of open proposals across a list of changesets. */
-export function openCount(changesets) {
-  return (changesets || []).filter(isOpen).length;
-}
 
 /** The open changesets attached to a message, newest first. */
 export function openProposals(msg) {
@@ -63,12 +57,9 @@ export function operationTitle(op) {
 }
 
 /**
- * The before/after pair a reviewer needs.
- *
- * `before` is the target's text as it read when the proposal was made (snapshotted
- * on the operation, so the card needs no second query and applied history still
- * reads correctly later). `after` is empty for the two operations that remove
- * rather than rewrite — which is the point of showing them side by side.
+ * The before/after pair a reviewer needs. `before` is the target's text as it
+ * read when the proposal was made, snapshotted on the operation itself; `after`
+ * is empty for the two operations that remove rather than rewrite.
  */
 export function operationDiff(op) {
   const before = op?.op === "create" ? "" : op?.target_content || "";
@@ -101,13 +92,8 @@ function _button(action, label, cls = "") {
   return `<button type="button" class="btn btn-sm ${cls}" data-wc-action="${escAttr(action)}">${esc(label)}</button>`;
 }
 
-/**
- * The actions a changeset offers in its current state.
- *
- * A stale proposal offers Re-evaluate, never Apply: v1 does not force-apply and
- * does not silently rebase, because two changes that look unrelated can still
- * contradict each other in meaning.
- */
+/** The actions a changeset offers in its current state. A stale one offers
+ * Re-evaluate and never Apply — nothing is force-applied or silently rebased. */
 export function actionsHtml(cs) {
   if (cs?.status === "pending") {
     return [
@@ -123,13 +109,9 @@ export function actionsHtml(cs) {
   return "";
 }
 
-/**
- * The compact proposal card shown beneath the assistant reply that produced it.
- *
- * One turn can propose to several lorebooks at once, so the card names its own
- * when the backend projected a `world_name` onto the row — two stacked cards
- * would otherwise be indistinguishable.
- */
+/** The compact proposal card shown beneath the assistant reply that produced it.
+ * It names its own lorebook when the row carries a `world_name`, since stacked
+ * cards from one turn would otherwise be indistinguishable. */
 export function proposalCardHtml(cs) {
   if (!cs) return "";
   const ops = cs.operations || [];
@@ -174,14 +156,9 @@ export function changesetRowHtml(cs) {
     </div>`;
 }
 
-/**
- * The edit form for one operation.
- *
- * Removing an operation is expressed as unchecking Include, not as a delete
- * button: the whole edited batch commits together, so "which of these do I
- * still want" is one decision made across the list rather than a sequence of
- * destructive clicks.
- */
+/** The edit form for one operation. Dropping one is unchecking Include rather
+ * than a delete button: the whole batch commits together, so "which of these do
+ * I still want" is one decision across the list, not a run of destructive clicks. */
 export function operationEditHtml(op, index) {
   const isBodyless = op?.op === "suppress" || op?.op === "archive";
   const keywords = (op?.keywords || []).join(", ");
@@ -208,13 +185,9 @@ export function operationEditHtml(op, index) {
     </div>`;
 }
 
-/**
- * Read one edit form back into an operation, or `null` when it was excluded.
- *
- * Field-by-field over the original rather than a fresh object, so anything the
- * form does not expose (the target id, the rationale) survives the round trip
- * untouched.
- */
+/** Read one edit form back into an operation, or `null` when it was excluded.
+ * Spread over the original rather than built fresh, so what the form does not
+ * expose (the target id, the rationale) survives the round trip. */
 export function readOperationEdit(op, values) {
   if (!values.include) return null;
   if (op.op === "suppress" || op.op === "archive") return { ...op };

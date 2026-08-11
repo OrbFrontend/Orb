@@ -1,21 +1,15 @@
 """Lorebook feature slice — activation/rendering facade plus Dynamic Worlds.
 
-Two halves.
-
-**Activation and rendering** live in ``backend/inference/lorebook.py``: the
-constant-entry prefix section (:func:`compute_constant_lorebook_block`), its
-``at_depth`` counterpart in the per-turn tail
-(:func:`compute_depth_lorebook_block`), and the authored/dynamic layer
-projection every one of them applies (:func:`select_effective_entries`). All of
-that is part of prompt assembly, and the workflow toolkit's off-turn prefix
-builder (``workflows/toolkit.py``) must render it byte-identically to the
-pipeline's — ``workflows`` sits below ``features``, so the logic sits at the
-``inference`` layer both consumers may import. This facade keeps the established
-import path for the layers above (``pipeline.context``, ``pipeline.state``,
+**Activation and rendering** live in ``backend/inference/lorebook.py``. All of it
+is prompt assembly, and the workflow toolkit's off-turn prefix builder
+(``workflows/toolkit.py``) must render it byte-identically to the pipeline's —
+``workflows`` sits below ``features``, so the logic sits at the ``inference``
+layer both consumers may import. This facade keeps the established import path
+for the layers above (``pipeline.context``, ``pipeline.state``,
 ``api.routes.conversations``).
 
-**Dynamic Worlds** is local: :mod:`.proposals` is the pure catalog +
-validation half (what the Agent may propose, checked against the live World) and
+**Dynamic Worlds** is local: :mod:`.proposals` is the pure catalog + validation
+half (what the Agent may propose, checked against the live World) and
 :mod:`.changesets` is the lifecycle half (accept, reject, undo, reset), which
 persists through ``database/`` rather than owning SQL of its own.
 
@@ -56,7 +50,6 @@ from .changesets import (
 from .proposals import (
     ValidatedProposal,
     build_world_change_catalog,
-    describe_operation,
     parse_proposal_call,
     split_by_world,
     validate_proposal,
@@ -88,7 +81,6 @@ __all__ = [
     # Dynamic Worlds — proposal validation
     "ValidatedProposal",
     "build_world_change_catalog",
-    "describe_operation",
     "parse_proposal_call",
     "split_by_world",
     "validate_proposal",

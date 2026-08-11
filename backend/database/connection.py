@@ -22,6 +22,26 @@ async def get_db():
         await db.close()
 
 
+@asynccontextmanager
+async def immediate_tx():
+    """A connection with SQLite's write lock already held, committed or rolled back.
+
+    ``BEGIN IMMEDIATE`` up front, so two writers serialise here instead of
+    interleaving reads and only discovering the conflict at commit time. The
+    body commits on a clean exit and rolls back on any exception --
+    ``BaseException``, so a cancelled request cannot leave a half-applied
+    transaction behind either.
+    """
+    async with get_db() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            yield db
+            await db.commit()
+        except BaseException:
+            await db.execute("ROLLBACK")
+            raise
+
+
 def _build_set_clause(
     allowed: list[str], data: dict, json_fields: frozenset[str] | set[str] = frozenset()
 ) -> tuple[list[str], list]:

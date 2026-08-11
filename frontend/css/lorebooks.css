@@ -579,15 +579,9 @@
   color: var(--text-primary);
   border-bottom-color: var(--accent);
 }
-.lb-tab-badge {
-  background: var(--accent);
-  color: var(--bg-deep);
-  border-radius: 8px;
-  font-size: 10px;
-  padding: 0 5px;
-  line-height: 15px;
-}
-
+/* The awaiting-review count, on the drawer tab and on the sidebar row. One rule:
+   the same number in two places must not read as two different things. */
+.lb-tab-badge,
 .world-pending {
   background: var(--accent);
   color: var(--bg-deep);
@@ -595,6 +589,8 @@
   font-size: 10px;
   padding: 0 5px;
   line-height: 15px;
+}
+.world-pending {
   margin-left: auto;
   flex-shrink: 0;
 }

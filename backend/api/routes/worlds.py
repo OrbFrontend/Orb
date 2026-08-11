@@ -114,24 +114,26 @@ async def api_delete_world(world_id: str):
 # Lorebook Entries ──
 
 
+def _project(entries: list, view: str) -> list[Any]:
+    """One of the three views a caller may ask a World's rows for.
+
+    ``all`` is both layers raw, archived overlay rows included, so the drawer can
+    label them and show history. ``effective`` is the projection the prompt
+    actually sees. ``authored`` is the user-owned layer alone — defined here once
+    so the list route and the export route cannot drift on what "authored" means.
+    """
+    if view == "authored":
+        return [e for e in entries if e.get("entry_layer") != "dynamic"]
+    return list(lorebook.select_effective_entries(entries)) if view == "effective" else list(entries)
+
+
 @router.get("/api/worlds/{world_id}/entries")
 async def api_list_lorebook_entries(
     view: Literal["all", "authored", "effective"] = "all",
     world: dict = Depends(require_world),  # noqa: B008
 ):
-    """List a World's entries.
-
-    ``all`` (the default, and what the drawer uses) returns both layers
-    including archived overlay rows, so the UI can label them and show history.
-    ``effective`` is the projection the prompt actually sees; ``authored`` is the
-    user-owned layer alone.
-    """
-    entries = await get_lorebook_entries(world["id"])
-    if view == "authored":
-        return [e for e in entries if e.get("entry_layer") != "dynamic"]
-    if view == "effective":
-        return lorebook.select_effective_entries(entries)
-    return entries
+    """List a World's entries in one of the three views (see :func:`_project`)."""
+    return _project(await get_lorebook_entries(world["id"]), view)
 
 
 @router.post("/api/worlds/{world_id}/entries")
@@ -208,11 +210,7 @@ async def api_export_lorebook(world_id: str, view: Literal["authored", "effectiv
     if not world:
         raise HTTPException(status_code=404, detail="World not found")
 
-    entries = await get_lorebook_entries(world_id)
-    if view == "effective":
-        exported: list[Any] = list(lorebook.select_effective_entries(entries))
-    else:
-        exported = [e for e in entries if e.get("entry_layer") != "dynamic"]
+    exported = _project(await get_lorebook_entries(world_id), view)
     book = lorebook_to_book(world["name"], exported)
     safe_name = "".join(c for c in world["name"] if c.isalnum() or c in " _-").strip() or "lorebook"
     suffix = "" if view == "authored" else f" ({view})"

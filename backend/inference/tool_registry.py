@@ -121,15 +121,10 @@ _PROPOSE_WORLD_CHANGES_DESCRIPTION = (
 # therefore the shared per-turn tool blob) small and stable.
 #
 # Every field is one more thing a model can get wrong, so this asks only for
-# what the model alone knows. Two consequences worth not undoing:
-#
-# * `op` offers three verbs, not the five the table stores. Whether a
-#   revise/retract lands as replace/suppress (authored target) or update/archive
-#   (dynamic target) follows from `target_entry_id`, so `validate_proposal`
-#   derives it from the row rather than making the model classify the layer and
-#   dropping the operation when it guesses wrong.
-# * `rationale` comes first, so a model emitting properties in schema order
-#   writes the justification before the change it justifies rather than after.
+# what the model alone knows: `op` offers three verbs rather than the five the
+# table stores (`validate_proposal` derives the stored one from the target row),
+# and `rationale` comes first so a model emitting properties in schema order
+# writes the justification before the change it justifies rather than after.
 PROPOSE_WORLD_CHANGES_TOOL = {
     "type": "function",
     "function": {
