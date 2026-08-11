@@ -270,7 +270,6 @@ def _op(**kw) -> dict:
         "content": "C",
         "activation": "constant",
         "rationale": "r",
-        "evidence": "reply",
     }
     base.update(kw)
     return base
@@ -281,14 +280,13 @@ class TestValidateProposal:
         for arguments in (None, {}, {"operations": "not a list"}, {"operations": []}):
             assert validate_proposal(arguments, []).is_empty
 
-    def test_a_clean_create_survives_with_its_rationale_and_evidence(self):
-        result = validate_proposal({"summary": "s", "operations": [_op(evidence="user")]}, [])
+    def test_a_clean_create_survives_with_its_rationale(self):
+        result = validate_proposal({"summary": "s", "operations": [_op()]}, [])
         assert result.summary == "s"
         assert result.operations == [
             {
                 "op": "create",
                 "rationale": "r",
-                "evidence": "user",
                 "name": "N",
                 "content": "C",
                 "activation": "constant",
@@ -296,14 +294,13 @@ class TestValidateProposal:
             }
         ]
 
-    def test_unknown_evidence_falls_back_to_the_reply(self):
-        (op,) = validate_proposal({"operations": [_op(evidence="a dream")]}, []).operations
-        assert op["evidence"] == "reply"
-
-    def test_keyword_activation_requires_a_keyword(self):
-        result = validate_proposal({"operations": [_op(activation="keywords", keywords=[])]}, [])
-        assert result.is_empty
-        assert "keyword" in result.rejected[0][1]
+    def test_keyword_activation_without_keywords_falls_back_to_the_name(self):
+        """A repair, not a rejection: the name is what the entry is about."""
+        (op,) = validate_proposal(
+            {"operations": [_op(name="The Bridge", activation="keywords", keywords=[])]},
+            [],
+        ).operations
+        assert op["activation"] == "keywords" and op["keywords"] == ["The Bridge"]
 
     def test_constant_activation_discards_keywords(self):
         (op,) = validate_proposal({"operations": [_op(activation="constant", keywords=["x"])]}, []).operations
@@ -313,30 +310,50 @@ class TestValidateProposal:
         result = validate_proposal({"operations": [_op(target_entry_id=1)]}, [_authored(1, "A")])
         assert result.is_empty
 
-    def test_replace_must_target_an_authored_entry(self):
+    def test_the_targets_layer_decides_which_operation_a_revise_becomes(self):
+        """The model names the intent; the row it points at names the operation."""
         entries = [_authored(1, "A"), _dynamic(9, "D", "add")]
-        ok = validate_proposal({"operations": [_op(op="replace", target_entry_id=1)]}, entries)
-        assert len(ok.operations) == 1
-        bad = validate_proposal({"operations": [_op(op="replace", target_entry_id=9)]}, entries)
-        assert bad.is_empty and "authored" in bad.rejected[0][1]
+        (authored,) = validate_proposal({"operations": [_op(op="revise", target_entry_id=1)]}, entries).operations
+        (dynamic,) = validate_proposal({"operations": [_op(op="revise", target_entry_id=9)]}, entries).operations
+        assert authored["op"] == "replace" and dynamic["op"] == "update"
 
-    def test_update_and_archive_must_target_a_dynamic_entry(self):
+    def test_the_targets_layer_decides_which_operation_a_retract_becomes(self):
         entries = [_authored(1, "A"), _dynamic(9, "D", "add")]
-        assert validate_proposal({"operations": [_op(op="update", target_entry_id=1)]}, entries).is_empty
-        assert validate_proposal({"operations": [_op(op="archive", target_entry_id=1)]}, entries).is_empty
-        assert len(validate_proposal({"operations": [_op(op="archive", target_entry_id=9)]}, entries).operations) == 1
+        (authored,) = validate_proposal({"operations": [_op(op="retract", target_entry_id=1)]}, entries).operations
+        (dynamic,) = validate_proposal({"operations": [_op(op="retract", target_entry_id=9)]}, entries).operations
+        assert authored["op"] == "suppress" and dynamic["op"] == "archive"
+
+    def test_a_stored_operation_name_is_read_as_its_intent_not_its_layer(self):
+        """Accepting a changeset re-validates ops already in the table's vocabulary,
+        and a model naming one is being specific, not wrong: the row still decides."""
+        entries = [_authored(1, "A"), _dynamic(9, "D", "add")]
+        for named, target, stored in (
+            ("replace", 1, "replace"),
+            ("replace", 9, "update"),
+            ("update", 9, "update"),
+            ("update", 1, "replace"),
+            ("suppress", 1, "suppress"),
+            ("archive", 9, "archive"),
+            ("archive", 1, "suppress"),
+        ):
+            (op,) = validate_proposal({"operations": [_op(op=named, target_entry_id=target)]}, entries).operations
+            assert op["op"] == stored, f"{named} on {target}"
+
+    def test_an_unknown_op_is_still_rejected(self):
+        result = validate_proposal({"operations": [_op(op="obliterate", target_entry_id=1)]}, [_authored(1, "A")])
+        assert result.is_empty and "unknown op" in result.rejected[0][1]
 
     def test_the_agent_can_retire_a_suppression_to_bring_lore_back(self):
         """A suppression marker is invisible to the prompt but still targetable."""
         entries = [_authored(1, "A"), _dynamic(9, "A", "suppress", 1, content="")]
-        result = validate_proposal({"operations": [_op(op="archive", target_entry_id=9)]}, entries)
-        assert len(result.operations) == 1
+        (op,) = validate_proposal({"operations": [_op(op="retract", target_entry_id=9)]}, entries).operations
+        assert op["op"] == "archive"
 
     def test_an_unknown_or_already_hidden_target_is_rejected(self):
         entries = [_authored(1, "A"), _dynamic(9, "A", "suppress", 1, content="")]
-        assert validate_proposal({"operations": [_op(op="replace", target_entry_id=404)]}, entries).is_empty
-        # 1 is hidden by the suppression, so it is no longer replaceable.
-        assert validate_proposal({"operations": [_op(op="replace", target_entry_id=1)]}, entries).is_empty
+        assert validate_proposal({"operations": [_op(op="revise", target_entry_id=404)]}, entries).is_empty
+        # 1 is hidden by the suppression, so there is nothing left to revise.
+        assert validate_proposal({"operations": [_op(op="revise", target_entry_id=1)]}, entries).is_empty
 
     def test_two_operations_on_one_target_drop_the_second(self):
         entries = [_authored(1, "A"), _authored(2, "B")]
@@ -395,7 +412,6 @@ class TestValidateProposal:
                         "target_entry_id": 9,
                         "content": "collapsed",
                         "rationale": "r",
-                        "evidence": "reply",
                     }
                 ]
             },
@@ -422,7 +438,6 @@ class TestValidateProposal:
                         "target_entry_id": 9,
                         "content": "collapsed",
                         "rationale": "r",
-                        "evidence": "reply",
                     }
                 ]
             },
@@ -445,7 +460,6 @@ class TestValidateProposal:
                         "op": "suppress",
                         "target_entry_id": 1,
                         "rationale": "gone",
-                        "evidence": "reply",
                     }
                 ]
             },
@@ -598,6 +612,16 @@ class TestMultiWorldValidation:
 
     def test_the_only_world_needs_no_naming(self):
         (op,) = validate_proposal({"operations": [_op()]}, [], worlds=[_world("w1", "Gorge")]).operations
+        assert op["world_id"] == "w1"
+
+    def test_the_only_world_absorbs_a_create_that_names_the_wrong_one(self):
+        """With one destination `target_world` says nothing, so it cannot be wrong --
+        only unverifiable. Reading it anyway would drop a create with nowhere else to go."""
+        (op,) = validate_proposal(
+            {"operations": [_op(target_world="Atlantis")]},
+            [],
+            worlds=[_world("w1", "Gorge")],
+        ).operations
         assert op["world_id"] == "w1"
 
     def test_a_targeted_operation_takes_the_world_of_the_row_it_names(self):

@@ -300,7 +300,6 @@ class ChangesetOperation(BaseModel):
     activation: Literal["constant", "keywords"] = "keywords"
     keywords: list[str] = []
     rationale: str = ""
-    evidence: Literal["user", "reply"] = "reply"
 
 
 class ChangesetEdit(BaseModel):

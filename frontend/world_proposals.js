@@ -55,11 +55,6 @@ export function activationLabel(op) {
   return kws.length ? `On: ${kws.join(", ")}` : "Keyword-activated";
 }
 
-/** Which message the Agent says established this change. */
-export function evidenceLabel(op) {
-  return op?.evidence === "user" ? "From your message" : "From the reply";
-}
-
 /** One line naming what an operation does and to what. */
 export function operationTitle(op) {
   const verb = OP_VERBS[op?.op] || op?.op || "Change";
@@ -92,7 +87,7 @@ function _diffHtml(op) {
 
 /** One operation, rendered for review. */
 export function operationHtml(op) {
-  const meta = [activationLabel(op), evidenceLabel(op)].filter(Boolean);
+  const meta = [activationLabel(op)].filter(Boolean);
   return `
     <li class="wc-op wc-op-${escAttr(op?.op || "")}">
       <div class="wc-op-title">${esc(operationTitle(op))}</div>
@@ -217,8 +212,8 @@ export function operationEditHtml(op, index) {
  * Read one edit form back into an operation, or `null` when it was excluded.
  *
  * Field-by-field over the original rather than a fresh object, so anything the
- * form does not expose (the target id, the rationale, the evidence source)
- * survives the round trip untouched.
+ * form does not expose (the target id, the rationale) survives the round trip
+ * untouched.
  */
 export function readOperationEdit(op, values) {
   if (!values.include) return null;

@@ -43,7 +43,6 @@ def _propose(summary: str = "The bridge fell.", operations: list[dict] | None = 
                 "activation": "keywords",
                 "keywords": ["bridge"],
                 "rationale": "The bridge fell during the crossing.",
-                "evidence": "reply",
             }
         ]
     return [
@@ -209,7 +208,6 @@ async def test_one_call_proposes_to_every_opted_in_world(client, llm_mock):
                     "content": "The bridge is gone.",
                     "activation": "constant",
                     "rationale": "r",
-                    "evidence": "reply",
                 },
                 {
                     "op": "create",
@@ -218,7 +216,6 @@ async def test_one_call_proposes_to_every_opted_in_world(client, llm_mock):
                     "content": "The guild is owed for the bridge.",
                     "activation": "constant",
                     "rationale": "r",
-                    "evidence": "reply",
                 },
             ]
         )
@@ -344,18 +341,16 @@ async def test_a_proposal_that_validates_to_nothing_stages_nothing(client, llm_m
     world_id, card_id = await _world_with_character(client)
     await _conversation("conv-dw-10", card_id)
     llm_mock.enqueue_writer("The bridge holds.")
-    # keywords activation with no keywords: rejected by validation.
+    # A create with no content says nothing durable: rejected by validation.
     llm_mock.enqueue_world_change(
         _propose(
             operations=[
                 {
                     "op": "create",
                     "name": "X",
-                    "content": "y",
-                    "activation": "keywords",
-                    "keywords": [],
+                    "content": "",
+                    "activation": "constant",
                     "rationale": "r",
-                    "evidence": "reply",
                 }
             ]
         )
@@ -383,7 +378,6 @@ async def test_every_entry_point_proposes(client, llm_mock):
                         "content": "body",
                         "activation": "constant",
                         "rationale": "r",
-                        "evidence": "reply",
                     }
                 ],
             )
@@ -490,7 +484,6 @@ async def test_a_replacement_hides_its_target_in_the_prompt(client, llm_mock):
                     "activation": "keywords",
                     "keywords": ["bridge"],
                     "rationale": "it collapsed",
-                    "evidence": "reply",
                 }
             ]
         )
@@ -551,7 +544,6 @@ async def test_editing_a_proposal_before_applying_commits_what_was_reviewed(clie
             "activation": "constant",
             "keywords": [],
             "rationale": "r",
-            "evidence": "reply",
         }
     ]
     resp = await client.post(
@@ -617,7 +609,6 @@ async def test_exactly_one_of_two_concurrent_accepts_wins(client, llm_mock):
                         "content": "body",
                         "activation": "constant",
                         "rationale": "r",
-                        "evidence": "reply",
                     }
                 ],
             )
@@ -739,7 +730,6 @@ async def test_deleting_the_source_keeps_applied_history_but_stales_the_pending(
                         "content": "b",
                         "activation": "constant",
                         "rationale": "r",
-                        "evidence": "reply",
                     }
                 ],
             )
@@ -778,7 +768,6 @@ async def test_re_evaluation_derives_a_fresh_proposal_from_the_current_world(cli
                     "content": "b",
                     "activation": "constant",
                     "rationale": "r",
-                    "evidence": "reply",
                 }
             ],
         )

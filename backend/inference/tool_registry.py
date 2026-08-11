@@ -119,6 +119,17 @@ _PROPOSE_WORLD_CHANGES_DESCRIPTION = (
 # activation -- every other lorebook field keeps a safe default the user can
 # edit afterwards through the normal reviewed path, which keeps this schema (and
 # therefore the shared per-turn tool blob) small and stable.
+#
+# Every field is one more thing a model can get wrong, so this asks only for
+# what the model alone knows. Two consequences worth not undoing:
+#
+# * `op` offers three verbs, not the five the table stores. Whether a
+#   revise/retract lands as replace/suppress (authored target) or update/archive
+#   (dynamic target) follows from `target_entry_id`, so `validate_proposal`
+#   derives it from the row rather than making the model classify the layer and
+#   dropping the operation when it guesses wrong.
+# * `rationale` comes first, so a model emitting properties in schema order
+#   writes the justification before the change it justifies rather than after.
 PROPOSE_WORLD_CHANGES_TOOL = {
     "type": "function",
     "function": {
@@ -137,21 +148,24 @@ PROPOSE_WORLD_CHANGES_TOOL = {
                     "items": {
                         "type": "object",
                         "properties": {
+                            "rationale": {
+                                "type": "string",
+                                "description": "Why this change is durable shared state and not a passing moment.",
+                            },
                             "op": {
                                 "type": "string",
-                                "enum": ["create", "replace", "suppress", "update", "archive"],
+                                "enum": ["create", "revise", "retract"],
                                 "description": (
-                                    "create: add new world state. replace: the named existing entry is now wrong, "
-                                    "supply what replaces it. suppress: the named existing entry no longer holds "
-                                    "and nothing takes its place. update: revise world state you added earlier. "
-                                    "archive: retire world state you added earlier."
+                                    "create: world state there was no entry for. revise: the entry named below is "
+                                    "now wrong, supply what it should say instead. retract: the entry named below "
+                                    "no longer holds and nothing takes its place."
                                 ),
                             },
                             "target_entry_id": {
                                 "type": "integer",
                                 "description": (
-                                    "The id of the entry being replaced, suppressed, updated or archived, "
-                                    "exactly as listed in the catalog. Omit for create."
+                                    "The id of the entry being revised or retracted, exactly as listed in the "
+                                    "catalog. Omit for create."
                                 ),
                             },
                             "target_world": {
@@ -164,11 +178,15 @@ PROPOSE_WORLD_CHANGES_TOOL = {
                             },
                             "name": {
                                 "type": "string",
-                                "description": "Short title for the entry, e.g. the person, place or fact it covers.",
+                                "description": (
+                                    "Short title for the entry, e.g. the person, place or fact it covers. Omit for retract."
+                                ),
                             },
                             "content": {
                                 "type": "string",
-                                "description": "The world state itself, stated plainly in one or two sentences.",
+                                "description": (
+                                    "The world state itself, stated plainly in one or two sentences. Omit for retract."
+                                ),
                             },
                             "activation": {
                                 "type": "string",
@@ -183,17 +201,8 @@ PROPOSE_WORLD_CHANGES_TOOL = {
                                 "items": {"type": "string"},
                                 "description": "Words that should bring this entry back. Required for keywords activation.",
                             },
-                            "rationale": {
-                                "type": "string",
-                                "description": "Why this change is durable shared state and not a passing moment.",
-                            },
-                            "evidence": {
-                                "type": "string",
-                                "enum": ["user", "reply"],
-                                "description": "Which message established it: the user's message, or the reply.",
-                            },
                         },
-                        "required": ["op", "rationale", "evidence"],
+                        "required": ["rationale", "op"],
                     },
                 },
             },

@@ -130,6 +130,18 @@ the shared per-turn tool blob small and stable (see
 [kv-cache.md](kv-cache.md)) — which is also why `target_world` is a fixed field
 of that schema rather than one narrowed to the Worlds of the moment.
 
+**The model's vocabulary is not the table's.** The schema offers three verbs —
+`create`, `revise`, `retract` — while the table stores five. Whether a revise or
+retract lands as `replace`/`suppress` (authored target) or `update`/`archive`
+(dynamic target) follows entirely from `target_entry_id`, so `validate_proposal`
+reads it off the row. Asking the model instead would mean asking it to classify
+a target's layer from catalog headings, and paying for every wrong guess with a
+dropped operation. The stored names stay valid input — accepting a changeset
+re-validates operations that are already in the table's vocabulary. Every field
+the schema keeps is one the model alone can supply; anything derivable from the
+World is derived, because a field that can disagree with the World is a field
+that can lose a proposal the user would have accepted.
+
 **Re-evaluate stays single-World.** A changeset belongs to one World, so
 re-deriving it re-runs the step against that World alone: the user is re-judging
 *this* proposal, and opening a second World's queue from that click would be a
@@ -137,9 +149,10 @@ surprise.
 
 The model never executes CRUD. `features/lorebook/proposals.validate_proposal`
 turns its call into normalised operations or rejects them, checking every claim
-against the live World — layer, scope, one target per operation, non-empty body,
-at least one keyword under keyword activation, no ambiguous duplicate dynamic
-names.
+against the live World — the target is live (and, when authored, still in
+effect), scope, one target per operation, non-empty body, no ambiguous duplicate
+dynamic names. Keyword activation with no keywords is repaired, not rejected:
+the entry's own name becomes its key.
 
 The proposal catalog is the one projection-adjacent management view: it also
 lists live `suppress` markers (which inject no lore) so the Agent can name and

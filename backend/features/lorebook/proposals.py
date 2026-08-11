@@ -35,13 +35,23 @@ from ...inference.lorebook import (
     select_keyword_entries,
 )
 
+# What a *stored* operation may say. The applier and the undo builder dispatch
+# on these, so this is the vocabulary of the table, not the one the model is
+# asked for.
 OPERATIONS = ("create", "replace", "suppress", "update", "archive")
 ACTIVATIONS = ("constant", "keywords")
-EVIDENCE_SOURCES = ("user", "reply")
 
-# The two operations that revise an existing overlay row; every other
-# operation with a target names an authored one.
-_TARGETS_DYNAMIC = ("update", "archive")
+# What the model is asked for (see ``PROPOSE_WORLD_CHANGES_TOOL``): three verbs,
+# where `revise` and `retract` each cover two stored operations. Which one an
+# operation becomes is decided by the layer of the row it targets, so the model
+# is never asked to tell authored lore from the overlay -- a distinction it can
+# only get from reading catalog headings, and one whose every wrong guess used
+# to cost the whole operation. The stored names are accepted as synonyms: a
+# changeset re-validated on accept comes back in the table's vocabulary, and a
+# model that names one is not wrong, only more specific than it had to be.
+_REVISE_OPS = ("revise", "replace", "update")
+_RETRACT_OPS = ("retract", "suppress", "archive")
+_TARGETING_OPS = frozenset(_REVISE_OPS + _RETRACT_OPS)
 
 # How much of an entry's body the compact catalog line shows before eliding.
 _COMPACT_CONTENT_CHARS = 90
@@ -290,12 +300,14 @@ class _WorldScope:
 
     def resolve_create(self, raw: Mapping[str, Any]) -> tuple[str | None, str]:
         """``(world_id, reason)`` for a ``create``; *reason* is set only on failure."""
+        if len(self.ids) == 1:
+            # One possible destination, so `target_world` carries no information
+            # and cannot be wrong -- only unverifiable. Reading it anyway would
+            # let a hallucinated name drop a create that had nowhere else to go.
+            # (An unstamped scope is always this case, by construction.)
+            return self.ids[0], ""
         named = _clean_str(raw.get("target_world"))
-        if not self.stamped or not named:
-            if named or len(self.ids) == 1:
-                # An unstamped scope has exactly one World by construction, so a
-                # named one there is unverifiable rather than wrong: ignore it.
-                return self.ids[0], ""
+        if not named:
             return None, "create must name a target_world when more than one lorebook is listed"
         if named in self.ids:
             return named, ""
@@ -313,14 +325,19 @@ def validate_proposal(
 ) -> ValidatedProposal:
     """Vet a raw ``propose_world_changes`` argument dict against the live World(s).
 
+    Also where the model's three verbs become the table's five operations: a
+    ``revise``/``retract`` resolves to replace/suppress against an authored
+    target and to update/archive against a dynamic one (the Agent may never
+    modify or delete an authored row, so there is no operation that could). The
+    layer comes from the row, never from the call, so the returned ``op`` is
+    always one of :data:`OPERATIONS` whichever synonym came in.
+
     Every operation must survive all of:
 
     * a known ``op``;
-    * a ``target_entry_id`` naming a row of the right layer, in one of these
-      Worlds, and currently in effect — ``replace``/``suppress`` target an
-      *authored* entry, ``update``/``archive` target a *dynamic* one (the Agent
-      may never modify or delete an authored row, so there is no operation that
-      could);
+    * a ``target_entry_id`` naming a live row in one of these Worlds, and — for
+      an authored one — a row still in effect, since an entry already hidden by
+      an overlay has nothing left to revise or retract;
     * one target per operation, and one operation per target — two operations
       aimed at the same entry are ambiguous, so the later one is dropped rather
       than guessed at;
@@ -328,10 +345,12 @@ def validate_proposal(
       and from ``target_world`` for a ``create`` when *worlds* lists more than
       one candidate;
     * non-empty name and content for anything that creates or rewrites an entry;
-    * at least one keyword under ``keywords`` activation, since an entry that can
-      never trigger is not lore, it is dead weight in the table;
     * a name that does not collide (case-insensitively) with another live dynamic
       entry in the *same* World, or with an earlier create in it in this proposal.
+
+    Keyword activation with no keywords is repaired rather than rejected — the
+    entry's own name becomes its key — because an operation the user would have
+    accepted should not be lost to a field the model can restate from another.
 
     *entries* is the pooled row set of every World in *worlds*; when *worlds* is
     empty the pool is one World's and operations come back unstamped (see
@@ -349,12 +368,12 @@ def validate_proposal(
 
     scope = _WorldScope(worlds, entries)
     effective = select_effective_entries(entries)
-    # Two lookups, because the two families of target mean different things.
-    # `replace`/`suppress` act on lore that is *currently in effect*, so an
-    # already-hidden authored entry is not a legal target. `update`/`archive`
-    # act on an enabled overlay row, including a suppression marker — retiring
-    # one is how the Agent brings a suppressed authored entry back — so those
-    # resolve against every live, model-visible overlay row instead.
+    # Two lookups, because the two layers of target mean different things.
+    # `live_by_id` resolves the row an operation names — every enabled,
+    # unarchived row, including suppression markers, since retiring one is how
+    # the Agent brings a suppressed authored entry back. `by_id` is the narrower
+    # test an *authored* target then has to pass: lore already hidden by an
+    # overlay is not something a further operation can act on.
     by_id = {int(e["id"]): e for e in effective if e.get("id") is not None}
     live_by_id = {
         int(e["id"]): e for e in entries if e.get("id") is not None and bool(e.get("enabled", 1)) and not e.get("archived")
@@ -374,12 +393,13 @@ def validate_proposal(
             result.rejected.append((index, "operation is not an object"))
             continue
         op = _clean_str(raw.get("op")).lower()
-        if op not in OPERATIONS:
+        if op != "create" and op not in _TARGETING_OPS:
             result.rejected.append((index, f"unknown op {op!r}"))
             continue
 
         target = _target_id(raw)
-        entry: Mapping[str, Any] | None = None
+        # The row a targeted operation names, once resolved; empty for a create.
+        target_row: Mapping[str, Any] = {}
         if op == "create":
             if target is not None:
                 result.rejected.append((index, "create must not name a target entry"))
@@ -394,51 +414,54 @@ def validate_proposal(
             if target is None:
                 result.rejected.append((index, f"{op} needs a target_entry_id"))
                 continue
-            wants_dynamic = op in _TARGETS_DYNAMIC
-            entry = (live_by_id if wants_dynamic else by_id).get(target)
-            if entry is None:
-                pool = "live overlay" if wants_dynamic else "effective lore"
-                result.rejected.append((index, f"target entry {target} is not in the {pool}"))
+            row = live_by_id.get(target)
+            if row is None:
+                result.rejected.append((index, f"target entry {target} is not a live entry of any world here"))
                 continue
-            if is_dynamic(entry) is not wants_dynamic:
-                layer = "dynamic" if wants_dynamic else "authored"
-                result.rejected.append((index, f"{op} must target a {layer} entry; {target} is not"))
+            # The layer of the row decides which stored operation this becomes,
+            # so a proposal never has to name the layer and can never name it
+            # wrongly. An authored target must additionally still be *in effect*:
+            # one already hidden by a live replace or suppress has nothing left
+            # to revise or retract. (A dynamic row is legal while it is live,
+            # including a suppression marker, which is not in effect by design.)
+            dynamic_target = is_dynamic(row)
+            if not dynamic_target and target not in by_id:
+                result.rejected.append((index, f"target entry {target} is already hidden by an overlay row"))
                 continue
             if target in claimed_targets:
                 result.rejected.append((index, f"entry {target} is already targeted by an earlier operation"))
                 continue
+            if op in _REVISE_OPS:
+                op = "update" if dynamic_target else "replace"
+            else:
+                op = "archive" if dynamic_target else "suppress"
+            target_row = row
             # A targeted operation lands wherever its row already lives: entry
             # ids are globally unique, so this cannot be misdirected.
-            world_id = _world_key(entry.get("world_id"))
+            world_id = _world_key(row.get("world_id"))
 
-        item: dict[str, Any] = {
-            "op": op,
-            "rationale": _clean_str(raw.get("rationale")),
-            "evidence": (
-                _clean_str(raw.get("evidence")).lower()
-                if _clean_str(raw.get("evidence")).lower() in EVIDENCE_SOURCES
-                else "reply"
-            ),
-        }
+        item: dict[str, Any] = {"op": op, "rationale": _clean_str(raw.get("rationale"))}
         if scope.stamped:
             item["world_id"] = world_id
-        if target is not None and entry is not None:
+        if target is not None:
             item["target_entry_id"] = target
             # Snapshot what the target says *now*, so the review card can show a
             # before/after without a second query — and so applied history still
             # reads correctly once the live row has moved on. A proposal whose
             # World changed underneath it goes stale before it can be applied, so
             # the snapshot can never silently misrepresent what will happen.
-            item["target_name"] = _clean_str(entry.get("name"))
-            item["target_content"] = _clean_str(entry.get("content"))
+            item["target_name"] = _clean_str(target_row.get("name"))
+            item["target_content"] = _clean_str(target_row.get("content"))
 
         # `suppress` and `archive` carry no body: one hides an authored entry and
         # injects nothing, the other retires an overlay row it does not rewrite.
+        # Both read their target's name off the row, which is why the schema
+        # tells the model to omit `name` and `content` for a retract.
         if op in ("suppress", "archive"):
-            if op == "suppress" and target is not None:
+            if op == "suppress":
                 # The marker inherits its target's name so the drawer and the
                 # review card can say *what* was suppressed without a join.
-                item["name"] = _clean_str(raw.get("name")) or _clean_str(by_id[target].get("name"))
+                item["name"] = _clean_str(raw.get("name")) or _clean_str(target_row.get("name"))
             result.operations.append(item)
             if target is not None:
                 claimed_targets.add(target)
@@ -449,37 +472,38 @@ def validate_proposal(
         if op == "update":
             # An update may revise either field; whatever it omits keeps its
             # current value, so only a wholly empty update is meaningless.
-            existing = live_by_id[int(item["target_entry_id"])]
             if not name and not content and "activation" not in raw and "keywords" not in raw:
                 result.rejected.append((index, "update changes nothing"))
                 continue
-            name = name or _clean_str(existing.get("name"))
-            content = content or _clean_str(existing.get("content"))
+            name = name or _clean_str(target_row.get("name"))
+            content = content or _clean_str(target_row.get("content"))
         if not name or not content:
             result.rejected.append((index, f"{op} needs both a name and content"))
             continue
 
         if op == "update":
-            existing = live_by_id[int(item["target_entry_id"])]
             activation = _clean_str(raw.get("activation")).lower()
             if activation not in ACTIVATIONS:
-                activation = "constant" if existing.get("constant") else "keywords"
-            keywords = _clean_keywords(raw.get("keywords")) if "keywords" in raw else _clean_keywords(existing.get("keywords"))
+                activation = "constant" if target_row.get("constant") else "keywords"
+            keywords = (
+                _clean_keywords(raw.get("keywords")) if "keywords" in raw else _clean_keywords(target_row.get("keywords"))
+            )
         else:
             activation = _clean_str(raw.get("activation")).lower()
             if activation not in ACTIVATIONS:
                 activation = "keywords"
             keywords = _clean_keywords(raw.get("keywords"))
         if activation == "keywords" and not keywords:
-            result.rejected.append((index, "keywords activation needs at least one keyword"))
-            continue
+            # An entry that can never trigger is dead weight -- but the name is
+            # almost always the thing the entry is *about*, so it is a usable key
+            # and a better answer than dropping a reviewed proposal on the floor.
+            keywords = [name]
         if activation == "constant":
             keywords = []
 
         folded = name.casefold()
-        current = live_by_id.get(int(item["target_entry_id"])) if op == "update" else None
         # An update keeping (or restoring) its own name is not a collision with itself.
-        own_name = _clean_str(current.get("name")).casefold() if current else None
+        own_name = _clean_str(target_row.get("name")).casefold() if op == "update" else None
         taken = taken_names.setdefault(world_id, set())
         if folded in taken and folded != own_name:
             result.rejected.append((index, f"a dynamic entry named {name!r} already exists in this world"))

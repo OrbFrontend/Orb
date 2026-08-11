@@ -30,7 +30,6 @@ import {
   actionsHtml,
   activationLabel,
   changesetRowHtml,
-  evidenceLabel,
   isOpen,
   isStale,
   canUndo,
@@ -53,7 +52,6 @@ const op = (over = {}) => ({
   activation: "keywords",
   keywords: ["bridge"],
   rationale: "It fell during the crossing.",
-  evidence: "reply",
   ...over,
 });
 
@@ -109,12 +107,6 @@ test("the two removing operations have no activation to show", () => {
   assert.equal(activationLabel(op({ op: "archive" })), "");
 });
 
-test("evidence names which message established the change", () => {
-  assert.equal(evidenceLabel(op({ evidence: "user" })), "From your message");
-  assert.equal(evidenceLabel(op({ evidence: "reply" })), "From the reply");
-  assert.equal(evidenceLabel({}), "From the reply");
-});
-
 test("an operation's title names the entry it acts on", () => {
   assert.equal(operationTitle(op()), "Add “Collapsed Bridge”");
   assert.equal(operationTitle(op({ op: "replace", target_name: "The Bridge" })), "Replace “The Bridge”");
@@ -137,13 +129,12 @@ test("create has no before; suppress and archive have no after", () => {
   });
 });
 
-test("operation html carries the title, both sides, the rationale and the source", () => {
+test("operation html carries the title, both sides and the rationale", () => {
   const html = operationHtml(op({ op: "replace", target_content: "It stands." }));
   assert.match(html, /Replace/);
   assert.match(html, /wc-before[^>]*>It stands\./);
   assert.match(html, /wc-after[^>]*>The bridge has fallen\./);
   assert.match(html, /It fell during the crossing\./);
-  assert.match(html, /From the reply/);
 });
 
 test("rendered operation text is escaped", () => {
