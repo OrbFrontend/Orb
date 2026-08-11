@@ -486,7 +486,8 @@ class TestCatalog:
         assert "- [1] A" in catalog and "- [9] B" in catalog
 
     def test_dynamic_entries_always_carry_full_content(self):
-        long_body = "x" * 300
+        """However long: `update` rewrites content whole, so an unseen middle would be lost."""
+        long_body = " ".join(f"word{i}" for i in range(400))
         catalog = build_world_change_catalog([_dynamic(9, "B", "add", content=long_body)])
         assert long_body in catalog
 
@@ -495,6 +496,27 @@ class TestCatalog:
         entry = _authored(1, "Bridge", long_body, keywords=["bridge"])
         assert long_body not in build_world_change_catalog([entry], exchange_text="unrelated chatter")
         assert long_body in build_world_change_catalog([entry], exchange_text="we crossed the bridge")
+
+    def test_a_long_relevant_authored_body_keeps_its_ends_and_marks_the_gap(self):
+        body = f"The bridge was built by hand. {'filler ' * 500}Its last span fell in winter."
+        entry = _authored(1, "Bridge", body, constant=True)
+        catalog = build_world_change_catalog([entry])
+        assert "The bridge was built by hand." in catalog
+        assert "Its last span fell in winter." in catalog
+        assert "characters omitted" in catalog
+        assert len(catalog) < len(body) / 4
+
+    def test_an_authored_body_that_barely_overruns_is_left_whole(self):
+        """Eliding a handful of characters costs more in marker than it saves."""
+        body = "fact " * 121  # a little past head+tail, nowhere near a marker's worth
+        catalog = build_world_change_catalog([_authored(1, "Bridge", body, constant=True)])
+        assert body.strip() in catalog
+
+    def test_elision_does_not_cut_a_word_in_half(self):
+        body = " ".join(f"word{i:04d}" for i in range(400))
+        catalog = build_world_change_catalog([_authored(1, "Bridge", body, constant=True)])
+        kept = [w for w in catalog.split() if w.startswith("word")]
+        assert kept and all(len(w) == 8 for w in kept)
 
     def test_suppressed_lore_is_hidden_but_its_marker_remains_targetable(self):
         entries = [

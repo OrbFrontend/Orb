@@ -46,6 +46,15 @@ _TARGETS_DYNAMIC = ("update", "archive")
 # How much of an entry's body the compact catalog line shows before eliding.
 _COMPACT_CONTENT_CHARS = 90
 
+# How much of an authored body the *full* rendering keeps, at each end, before
+# dropping what is between them. Imported lore runs to thousands of characters
+# and every constant entry is rendered full on every turn, so the middles of a
+# few long entries are most of what a large World costs this step. The two ends
+# are the parts it reads for: the opening says what the entry is, and the close
+# is where an entry that has been added to over time carries its latest state.
+_FULL_HEAD_CHARS = 400
+_FULL_TAIL_CHARS = 200
+
 
 @dataclass(slots=True)
 class ValidatedProposal:
@@ -79,8 +88,30 @@ def _compact(text: str) -> str:
     return flat if len(flat) <= _COMPACT_CONTENT_CHARS else flat[: _COMPACT_CONTENT_CHARS - 1] + "…"
 
 
+def _elide_middle(text: str, head_chars: int, tail_chars: int) -> str:
+    """*text* with its middle dropped once it runs past ``head + tail`` characters.
+
+    The gap is marked with the number of characters it stands for, because an
+    unmarked cut reads as the whole entry: the step would take lore the entry
+    already carries further down as missing, and propose a ``create`` for it.
+    Cuts fall on whitespace so neither end stops mid-word, and *text* comes back
+    untouched when the gap would not pay for its own marker.
+    """
+    if len(text) <= head_chars + tail_chars:
+        return text
+    # `rsplit`/`split` drop the partial word at each cut — and give it back
+    # unshortened when the slice holds no whitespace to cut on at all.
+    head_parts = text[:head_chars].rsplit(maxsplit=1)
+    tail_parts = text[-tail_chars:].split(maxsplit=1)
+    head = head_parts[0] if len(head_parts) == 2 else text[:head_chars].rstrip()
+    tail = tail_parts[1] if len(tail_parts) == 2 else text[-tail_chars:].lstrip()
+    omitted = len(text) - len(head) - len(tail)
+    marker = f"…[{omitted} characters omitted]…"
+    return f"{head} {marker} {tail}" if omitted > len(marker) else text
+
+
 def _entry_line(entry: Mapping[str, Any], *, full: bool) -> str:
-    """One catalog line: id, name, activation, and body (full or elided)."""
+    """One catalog line: id, name, activation, and body (full, elided or compacted)."""
     bits = []
     if entry.get("constant"):
         bits.append("constant")
@@ -96,7 +127,15 @@ def _entry_line(entry: Mapping[str, Any], *, full: bool) -> str:
     body = (entry.get("content") or "").strip()
     if not body:
         return head
-    return f"{head}\n  {body}" if full else f"{head}\n  {_compact(body)}"
+    if not full:
+        body = _compact(body)
+    elif not is_dynamic(entry):
+        # An authored body is only ever read here — no operation rewrites one —
+        # so a long one can afford to lose its middle. A dynamic body cannot:
+        # `update` rewrites content whole, and a middle the step never saw would
+        # be written out of the World.
+        body = _elide_middle(body, _FULL_HEAD_CHARS, _FULL_TAIL_CHARS)
+    return f"{head}\n  {body}"
 
 
 def _world_section(
@@ -140,7 +179,10 @@ def build_world_change_catalog(
     are listed compactly unless they are *relevant to this exchange* (constant,
     or a keyword hit in the user message + reply), which keeps a large authored
     book from crowding out the exchange itself while still giving the step the
-    full text of anything it might contradict.
+    text of anything it might contradict. A relevant authored body that is very
+    long is shown from both ends with its middle elided
+    (:func:`_elide_middle`): imported lore can run to thousands of characters
+    per entry, and this step pays for every constant one of them on every turn.
 
     *entries* is the pooled row set of every World in *worlds*; each is rendered
     under its own ``## <name>`` heading, in the order given, so the step can name
