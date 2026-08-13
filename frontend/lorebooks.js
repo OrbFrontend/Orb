@@ -926,9 +926,18 @@ function _findChangeset(worldId, id) {
   return (_changesets[worldId] || []).find((c) => String(c.id) === String(id)) || null;
 }
 
-/** Ensure a changeset the chat card knows about is in this module's cache. */
+/**
+ * Fetch a changeset the chat card knows about but this module may not.
+ *
+ * A miss refetches rather than trusting the cache: the list is loaded when a
+ * world's drawer opens, so a world opened before the turn that proposed against
+ * it holds a list that is merely *older* than the proposal — and an empty list
+ * is truthy, so "already loaded" never means "already complete".
+ */
 async function _requireChangeset(worldId, id) {
-  if (!_changesets[worldId]) await _loadChangesets(worldId);
+  const cached = _findChangeset(worldId, id);
+  if (cached) return cached;
+  await _loadChangesets(worldId);
   return _findChangeset(worldId, id);
 }
 
@@ -990,9 +999,7 @@ export function resetWorldToAuthored(worldId) {
 //
 // The whole edited batch commits together, so the modal collects every
 // operation's final wording first and posts once.
-function _openChangesetEditor(worldId, id) {
-  const changeset = _findChangeset(worldId, id);
-  if (!changeset) return;
+function _openChangesetEditor(worldId, id, changeset) {
   const ops = changeset.operations || [];
   showModal(`
     <h2>Review world change</h2>
@@ -1064,9 +1071,22 @@ const _WC_ACTIONS = {
     );
   },
   undo: (world, id) => _decideChangeset(world, id, "undo", () => "Change undone"),
+  // The only action that needs the proposal itself rather than just its id, so
+  // it is also the only one that can come up empty. It says so: a silent button
+  // is indistinguishable from a broken one.
   edit: async (world, id) => {
-    await _requireChangeset(world, id);
-    _openChangesetEditor(world, id);
+    let changeset;
+    try {
+      changeset = await _requireChangeset(world, id);
+    } catch (e) {
+      toast(e.message, true);
+      return;
+    }
+    if (!changeset) {
+      toast("That proposal is no longer there — reload to see the world as it stands", true);
+      return;
+    }
+    _openChangesetEditor(world, id, changeset);
   },
 };
 
