@@ -442,32 +442,39 @@ def build_direction_note_prompt(
 
 
 WORLD_CHANGE_PREAMBLE = (
-    "[OOC: Pause the roleplay and step out of character. You are the World's record-keeper. Read the "
-    "exchange above and decide whether it established anything that is now durably true of the shared "
-    "world -- something a different character, in a different conversation, would have to know. "
-    "Nothing you propose takes effect until the user reviews it, so propose only what is worth their "
-    "attention, and leave the operations list empty when this turn changed nothing."
+    "[OOC: Pause the roleplay and step out of character. You look after the lorebooks below. Read the "
+    "exchange above and decide whether it established anything that belongs in one of them -- each "
+    "lorebook's name says what it is for. leave the operations list empty when the turn gave you nothing to file."
 )
 
-# The exclusions carry most of the weight: without them a model records every
-# gesture and intention as world state, and the review queue becomes noise.
+# A lorebook is whatever its owner named it -- a setting, a cast, a file of facts
+# about the user -- so these say what an *entry* is, never what a world is. The
+# exclusions still carry the weight: without them a model files every gesture and
+# intention, and the review queue becomes noise.
+#
+# Two of them answer observed failures rather than theory. The reply is the
+# step's own prose, and a model reads its own prior turn as settled fact: left
+# unsaid, it files a suggestion the user has not answered yet -- and, on an
+# assistant-style book, cannot have answered, since the confirming turn is the
+# one after this step runs. And an entry is worth more the less it churns, so
+# "already covered" has to resolve to silence, not to a reworded revision.
 WORLD_CHANGE_RULES = (
-    "Record only durable shared state:\n"
-    "- Not transient action, movement, or dialogue -- those are already in the chat history.\n"
-    "- Not plans, intentions, hypotheticals, dreams, flashbacks, or anything a character merely "
-    "considered doing.\n"
-    "- Not out-of-character instructions or narration style.\n"
-    "- Not prose flourish: state the fact plainly, do not re-write the scene.\n"
-    "- Not something an existing entry already says. Revise that entry instead, or propose nothing.\n"
-    "- Not your own inference. If the exchange did not establish it, it did not happen.\n"
-    "- Keep uncertainty uncertain: if something was rumoured, doubted or claimed by one character, "
-    "record it as a rumour or a claim, not as fact."
+    "An entry is something that stays true once the moment has passed -- what would still need to be "
+    "known by someone who never saw this exchange. The chat history already keeps the rest, and most "
+    "turns establish nothing: proposing nothing is the ordinary answer, not a failure.\n"
+    "- Record it only if the exchange established it -- not a plan, a guess, or something merely "
+    "considered. The reply above is your own: what you offered, suggested or supposed in it is not "
+    "established until the user takes it up.\n"
+    "- Keep a claim a claim: what was rumoured, doubted or asserted by one character is filed as that.\n"
+    "- State it plainly in a sentence or two. This is a note, not prose.\n"
+    "- Revise an entry only when it has become wrong. Never to reword it, to top it up with detail, or "
+    "to restate what it already covers -- leave it alone and propose nothing."
 )
 
 WORLD_CHANGE_CATALOG_HEADER = (
-    "**Current World entries** -- ids are stable; name an id exactly when replacing, suppressing, updating or "
-    "archiving. Entries are grouped under the lorebook (`## heading`) they belong to; each heading shows a stable "
-    "`world_id`, and a new entry must put that id in `target_world` when more than one lorebook is listed."
+    "**The lorebooks** -- each `## heading` is one lorebook, and shows the stable `world_id` a new entry "
+    "puts in `target_world` when more than one is listed. Entry ids are stable too: name one exactly when "
+    "revising or retracting it."
 )
 
 
@@ -495,8 +502,8 @@ def build_world_change_prompt(
     parts = [preamble, WORLD_CHANGE_RULES]
     if original_user_message:
         parts.append(
-            "The user turn above is an internal instruction to the writer, not something said in the "
-            f'story. Judge this as the user\'s message instead:\n"""{original_user_message}"""'
+            "The user turn above is Orb's own instruction to the writer, not something the user said. "
+            f'Judge this as the user\'s message instead:\n"""{original_user_message}"""'
         )
     if catalog:
         parts.append(f"{WORLD_CHANGE_CATALOG_HEADER}\n{catalog}")

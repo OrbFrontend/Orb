@@ -108,9 +108,9 @@ SELECT_LOREBOOK_CHOICE = {"type": "function", "function": {"name": "select_loreb
 
 
 _PROPOSE_WORLD_CHANGES_DESCRIPTION = (
-    "Propose durable updates to the shared World from what just happened. Nothing is written "
-    "until the user reviews and accepts the proposal, so propose only changes that are worth "
-    "their attention. Leave the operations list empty when the exchange established nothing new."
+    "Propose entries to add or change in the lorebooks, from what just happened. Nothing is "
+    "written until the user reviews and accepts the proposal, so propose only what is worth "
+    "their attention. Leave the operations list empty when there is nothing to record."
 )
 
 # The Dynamic Worlds proposal tool. Like `select_lorebook`, a fixed schema
@@ -125,6 +125,13 @@ _PROPOSE_WORLD_CHANGES_DESCRIPTION = (
 # table stores (`validate_proposal` derives the stored one from the target row),
 # and `rationale` comes first so a model emitting properties in schema order
 # writes the justification before the change it justifies rather than after.
+#
+# Property order is load-bearing the other way round at the top level:
+# `operations` precedes `summary`. The call is forced, so a model that writes a
+# summary first has already declared a proposal exists, and an empty operations
+# list then contradicts the sentence it just wrote -- it fills one in. Enumerate
+# first, describe second, and proposing nothing stays available all the way
+# through the call.
 PROPOSE_WORLD_CHANGES_TOOL = {
     "type": "function",
     "function": {
@@ -133,10 +140,6 @@ PROPOSE_WORLD_CHANGES_TOOL = {
         "parameters": {
             "type": "object",
             "properties": {
-                "summary": {
-                    "type": "string",
-                    "description": "One short sentence describing the whole proposal, for the review card.",
-                },
                 "operations": {
                     "type": "array",
                     "description": "One entry per proposed change. Empty when nothing durable happened.",
@@ -145,13 +148,13 @@ PROPOSE_WORLD_CHANGES_TOOL = {
                         "properties": {
                             "rationale": {
                                 "type": "string",
-                                "description": "Why this change is durable shared state and not a passing moment.",
+                                "description": "Why this belongs in the lorebook rather than only in the chat history.",
                             },
                             "op": {
                                 "type": "string",
                                 "enum": ["create", "revise", "retract"],
                                 "description": (
-                                    "create: world state there was no entry for. revise: the entry named below is "
+                                    "create: something no entry covers yet. revise: the entry named below is "
                                     "now wrong, supply what it should say instead. retract: the entry named below "
                                     "no longer holds and nothing takes its place."
                                 ),
@@ -179,16 +182,14 @@ PROPOSE_WORLD_CHANGES_TOOL = {
                             },
                             "content": {
                                 "type": "string",
-                                "description": (
-                                    "The world state itself, stated plainly in one or two sentences. Omit for retract."
-                                ),
+                                "description": "The note itself, stated plainly in one or two sentences. Omit for retract.",
                             },
                             "activation": {
                                 "type": "string",
                                 "enum": ["constant", "keywords"],
                                 "description": (
-                                    "constant: a truth that must be known on every turn. "
-                                    "keywords: state about one entity or place, shown when it comes up."
+                                    "constant: something that must be known on every turn. "
+                                    "keywords: about one person, place or thing, shown when it comes up."
                                 ),
                             },
                             "keywords": {
@@ -199,6 +200,10 @@ PROPOSE_WORLD_CHANGES_TOOL = {
                         },
                         "required": ["rationale", "op"],
                     },
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "One short sentence describing the operations listed above, for the review card.",
                 },
             },
             "required": [],

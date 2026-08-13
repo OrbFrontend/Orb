@@ -321,7 +321,7 @@ async def test_a_steered_regenerate_judges_the_original_user_message(client, llm
 
     request = _world_calls(llm_mock)[-1]["messages"][-1]["content"]
     assert "I step onto the bridge" in request
-    assert "internal instruction to the writer" in request
+    assert "instruction to the writer" in request
 
 
 async def test_a_failed_proposal_call_never_costs_the_reply(client, llm_mock):
