@@ -964,12 +964,18 @@ async def test_card_export_embeds_the_authored_book_by_default(client, llm_mock)
 
     def _names(png_bytes: bytes) -> list[str]:
         import base64
+        import io
         import json
-        import re
 
-        chunk = re.search(rb"chara\x00([A-Za-z0-9+/=]+)", png_bytes)
+        from PIL import Image
+
+        # Read the tEXt chunk through Pillow rather than scanning the bytes: a
+        # regex for the base64 alphabet runs straight past the payload into the
+        # chunk's CRC whenever those bytes happen to be alphabet characters,
+        # which then decodes as garbage or raises on the padding.
+        chunk = Image.open(io.BytesIO(png_bytes)).info.get("chara")
         assert chunk, "no chara chunk in the exported card"
-        card = json.loads(base64.b64decode(chunk.group(1)))
+        card = json.loads(base64.b64decode(chunk))
         return sorted(e["name"] for e in card["data"]["character_book"]["entries"])
 
     default = await client.get(f"/api/characters/{card_id}/export")
