@@ -283,7 +283,7 @@ CREATE TABLE IF NOT EXISTS world_changesets (
     source_character_label TEXT NOT NULL DEFAULT '',
     source_conversation_label TEXT NOT NULL DEFAULT '',
     origin TEXT NOT NULL DEFAULT 'agent'
-        CHECK (origin IN ('agent', 'undo', 'reset', 're_evaluate')),
+        CHECK (origin IN ('agent', 'undo', 'reset', 're_evaluate', 'manual')),
     summary TEXT NOT NULL DEFAULT '',
     operations TEXT NOT NULL DEFAULT '[]',
     before_entries TEXT NOT NULL DEFAULT '[]',

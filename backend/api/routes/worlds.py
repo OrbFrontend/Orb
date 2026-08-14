@@ -14,7 +14,6 @@ from ...database import (
     count_pending_changesets,
     create_lorebook_entry,
     create_world,
-    delete_lorebook_entry,
     delete_world,
     disable_character_linked_worlds,
     get_active_lorebook_entries,
@@ -164,9 +163,11 @@ async def api_update_lorebook_entry(
 
 @router.delete("/api/worlds/{world_id}/entries/{entry_id}")
 async def api_delete_lorebook_entry(
+    world: dict = Depends(require_world),  # noqa: B008
     entry: dict = Depends(require_lorebook_entry),  # noqa: B008
 ):
-    if not await delete_lorebook_entry(entry["id"]):
+    """Delete one entry. On a Dynamic World the deletion is recorded in History."""
+    if not await lorebook.delete_entry(world, entry):
         raise HTTPException(status_code=404, detail="Entry not found")
     return {"ok": True}
 

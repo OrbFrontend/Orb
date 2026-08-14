@@ -105,7 +105,7 @@ features/<name>/
 | `conversation_logs` | Per-turn Director audit trail |
 | `direction_notes` | Persistent notes across a branch (Director or user-authored) |
 | `worlds` / `lorebook_entries` | Lorebook containers + keyword-triggered context entries. `worlds.content_revision` stamps *lore-content* mutations only (never an `enabled` toggle); `lorebook_entries.entry_layer` splits authored rows from the Agent-managed overlay |
-| `world_changesets` | Dynamic Worlds proposals + applied history; `source_*` message/conversation ids are nullable cross-domain pointers, with denormalised labels so history survives their deletion |
+| `world_changesets` | Dynamic Worlds proposals + applied history, including the `manual` record a hand delete of an entry leaves; `source_*` message/conversation ids are nullable cross-domain pointers, with denormalised labels so history survives their deletion |
 | `documents` | Free-form writing mode documents |
 | `user_attachments` | User-uploaded images on messages |
 | `workflow_attachments` | LRU-3 byte-budget artifact cache for secondary workflows |

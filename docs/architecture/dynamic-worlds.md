@@ -42,7 +42,9 @@ projection already drops every marker, and the proposal catalog stops listing an
 orphaned one). Accepting a `replace` is exactly what makes the authored row look
 redundant, so this is the *likely* cleanup, not a corner case — and it must not
 silently discard lore the user reviewed and accepted. Undo tolerates this one
-transition specifically (see §4); every other field still guards.
+transition specifically (see §4); every other field still guards. The delete
+itself lands in History as a `manual` changeset, so the pointer going `NULL` has
+a recorded cause rather than looking like the overlay drifting on its own.
 
 > "Original" here means *the user-owned authored layer before Agent overlay*,
 > not an eternal snapshot of the first imported file. Authored entries stay
@@ -203,6 +205,18 @@ Everything else is expressed through the same path:
   row, and refusing on it would strand the changeset with an Undo button that
   could never succeed.
 - **Reset** is itself an undoable changeset.
+- **Deleting an entry by hand is recorded**, on a Dynamic World, as an
+  already-applied changeset of `origin = 'manual'` carrying one `delete`
+  operation and the row's before-snapshot — written on the same transaction as
+  the `DELETE`, so history claiming a delete that did not happen is unreachable.
+  It is the one drawer mutation that leaves nothing behind (the row is gone, and
+  every applied changeset that touched it stops being undoable), so without a
+  record History would show the Agent's removals and silently omit the user's.
+  A `delete` is the only stored operation with no inverse — the applier never
+  dispatches on it, `invert_operations` finds nothing to compensate with, and
+  the review surface offers no Undo button rather than one the server can only
+  refuse. A World that never opted in records nothing: it has no history for the
+  row to join.
 
 Source changes:
 

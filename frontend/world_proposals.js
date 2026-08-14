@@ -28,13 +28,24 @@ const OP_VERBS = {
   suppress: "Remove",
   update: "Revise",
   archive: "Retire",
+  // Never proposed — a hard delete from the drawer, recorded so History says
+  // what happened to the lorebook rather than only what the Agent did to it.
+  delete: "Delete",
 };
+
+// Operations with no inverse. Everything the applier writes is an overlay row
+// it can archive or roll back; a deleted row is simply gone, so a changeset
+// made only of deletions is history to read, not a change to take back.
+const IRREVERSIBLE_OPS = new Set(["delete"]);
 
 // A pending proposal is decidable; a stale one must be re-evaluated first. Both
 // are "open", which is what the drawer's Pending section and the card's
 // actions-vs-status split key on.
 export const isOpen = (cs) => cs?.status === "pending" || cs?.status === "stale";
 export const isStale = (cs) => cs?.status === "stale";
+
+/** Whether an applied changeset has anything an undo could compensate for. */
+export const isUndoable = (cs) => (cs?.operations || []).some((op) => !IRREVERSIBLE_OPS.has(op?.op));
 
 /** The open changesets attached to a message, newest first. */
 export function openProposals(msg) {
@@ -105,7 +116,8 @@ export function actionsHtml(cs) {
   if (cs?.status === "stale") {
     return [_button("re-evaluate", "Re-evaluate", "btn-accent"), _button("reject", "Dismiss", "wc-danger")].join("");
   }
-  if (cs?.status === "applied") return _button("undo", "Undo");
+  // An Undo the server can only refuse is worse than no button at all.
+  if (cs?.status === "applied") return isUndoable(cs) ? _button("undo", "Undo") : "";
   return "";
 }
 

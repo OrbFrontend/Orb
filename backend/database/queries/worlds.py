@@ -46,7 +46,7 @@ CHANGESET_STATUSES = (
     "superseded",
     "reverted",
 )
-CHANGESET_ORIGINS = ("agent", "undo", "reset", "re_evaluate")
+CHANGESET_ORIGINS = ("agent", "undo", "reset", "re_evaluate", "manual")
 
 # Columns an entry INSERT names, in order. Shared by the authored and dynamic
 # writers so a new column can never land on one path and not the other.
@@ -368,14 +368,46 @@ async def update_lorebook_entry(entry_id: int, data: dict) -> LorebookEntryRow |
         return await _fetch_entry(db, entry_id)
 
 
-async def delete_lorebook_entry(entry_id: int) -> bool:
-    async with get_db() as db:
+async def delete_lorebook_entry(entry_id: int, *, record_as: Mapping[str, Any] | None = None) -> bool:
+    """Delete one entry, optionally filing the deletion as applied history.
+
+    *record_as* is the changeset metadata the caller wants it recorded under
+    (origin, summary, operations). Everything the record has to agree with the
+    delete about -- the before-snapshot, the revision it moved the World from
+    and to, the timestamps -- is filled in here, on the same transaction as the
+    DELETE, so a history row claiming a delete that did not happen (or a delete
+    with no history) is not a state this can reach.
+
+    The record is terminal ``applied``: the row is gone, so there is nothing for
+    a compensating operation to restore, and :func:`invert_operations` finds no
+    inverse for an operation whose after-state is ``None``.
+    """
+    async with immediate_tx() as db:
         existing = await _fetch_entry(db, entry_id)
         cur = await db.execute("DELETE FROM lorebook_entries WHERE id = ?", (entry_id,))
-        if cur.rowcount > 0 and existing is not None:
-            await _bump_revision(db, existing["world_id"])
-        await db.commit()
-        return cur.rowcount > 0
+        if cur.rowcount == 0 or existing is None:
+            return cur.rowcount > 0
+        revision = await _bump_revision(db, existing["world_id"])
+        if record_as is not None:
+            now = _now()
+            await _insert_changeset(
+                db,
+                {
+                    **record_as,
+                    "world_id": existing["world_id"],
+                    "status": "applied",
+                    # The bump above is this transaction's own +1, so the World
+                    # the delete acted on is exactly one revision behind.
+                    "base_revision": revision - 1,
+                    "applied_revision": revision,
+                    "before_entries": [entry_snapshot(existing)],
+                    "after_entries": [None],
+                    "created_at": now,
+                    "decided_at": now,
+                    "applied_at": now,
+                },
+            )
+        return True
 
 
 async def get_active_lorebook_entries() -> list[ActiveLorebookEntryRow]:

@@ -10,8 +10,9 @@ for the layers above (``pipeline.context``, ``pipeline.state``,
 
 **Dynamic Worlds** is local: :mod:`.proposals` is the pure catalog + validation
 half (what the Agent may propose, checked against the live World) and
-:mod:`.changesets` is the lifecycle half (accept, reject, undo, reset), which
-persists through ``database/`` rather than owning SQL of its own.
+:mod:`.changesets` is the lifecycle half (accept, reject, undo, reset, and the
+recorded hand delete), which persists through ``database/`` rather than owning
+SQL of its own.
 
 The per-turn threading bundle ``LorebookTurn`` is **not** here — it is a pipeline
 concern and lives with the other per-turn contracts in ``pipeline/state.py``.
@@ -38,6 +39,7 @@ from ...inference.lorebook import (
 )
 from .changesets import (
     accept_changeset,
+    delete_entry,
     dynamic_enabled,
     invert_operations,
     mark_stale,
@@ -86,6 +88,7 @@ __all__ = [
     "validate_proposal",
     # Dynamic Worlds — changeset lifecycle
     "accept_changeset",
+    "delete_entry",
     "invert_operations",
     "mark_stale",
     "reject_changeset",

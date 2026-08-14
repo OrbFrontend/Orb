@@ -14,7 +14,9 @@ contradict each other in meaning.
 **Every mutation is itself a changeset.** Undo and reset are not special-cased
 side doors — they build compensating operations, persist them as a changeset,
 and apply them through the same path, so they land in history and can themselves
-be undone.
+be undone. Deleting an entry by hand is recorded the same way, as an
+already-applied changeset — history is the account of what happened to the
+lorebook, not only of what the Agent did to it.
 
 **Undo never guesses.** A compensating operation carries the after-state its
 target must still be in; if a later change moved it, the undo conflicts instead
@@ -43,9 +45,55 @@ _CREATING_OPS = ("create", "replace", "suppress")
 _RESTORED_FIELDS = ("name", "content", "keywords", "priority", "enabled")
 
 
+# Recorded, never proposed. The Agent has no operation that deletes a row -- it
+# archives -- so this op kind only ever reaches the table through the drawer's
+# Delete button, and no applier branch dispatches on it.
+DELETE_OP = "delete"
+
+
 def dynamic_enabled(world: Mapping[str, Any] | None) -> bool:
     """Whether *world* opts in to Agent-managed changes. ``None`` reads as off."""
     return bool(world and world.get("dynamic_enabled"))
+
+
+async def delete_entry(world: Mapping[str, Any], entry: Mapping[str, Any]) -> bool:
+    """Delete one lorebook entry, recording it in a Dynamic World's history.
+
+    A hard delete is the one drawer mutation that leaves nothing behind: the row
+    is gone, and every applied changeset that touched it can no longer be
+    undone. On a World with a history, that is a hole in the account of how the
+    lorebook got to where it is -- so the deletion is filed as an
+    already-applied changeset of its own and lists under History beside the
+    Agent's retractions, whichever hand did it.
+
+    Not recorded on a World that never opted in: it has no history for the row
+    to join, and writing one would be the feature leaking into a plain lorebook.
+    """
+    entry_id = int(entry["id"])
+    if not dynamic_enabled(world):
+        return await db.delete_lorebook_entry(entry_id)
+    name = str(entry.get("name") or "").strip()
+    # Whose lore it was is the first thing a reader of the history wants to
+    # know, and the row is about to stop existing to be asked.
+    kind = "Agent-managed entry" if entry.get("entry_layer") == "dynamic" else "entry"
+    return await db.delete_lorebook_entry(
+        entry_id,
+        record_as={
+            "origin": "manual",
+            "summary": f'Deleted {kind} "{name}"' if name else f"Deleted an unnamed {kind}",
+            "operations": [
+                {
+                    "op": DELETE_OP,
+                    "target_entry_id": entry_id,
+                    # The review surface reads a target's wording off the
+                    # operation, which is what keeps history legible once the
+                    # row it names is unreadable.
+                    "target_name": name,
+                    "target_content": str(entry.get("content") or ""),
+                }
+            ],
+        },
+    )
 
 
 async def stage_proposal(

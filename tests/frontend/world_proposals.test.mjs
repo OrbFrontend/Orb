@@ -32,6 +32,7 @@ import {
   changesetRowHtml,
   isOpen,
   isStale,
+  isUndoable,
   messageProposalsHtml,
   openProposals,
   operationDiff,
@@ -156,6 +157,36 @@ test("an applied change offers undo; a rejected one offers nothing", () => {
   assert.match(actionsHtml(changeset({ status: "applied" })), /data-wc-action="undo"/);
   assert.equal(actionsHtml(changeset({ status: "rejected" })), "");
   assert.equal(actionsHtml(changeset({ status: "reverted" })), "");
+});
+
+// A recorded hand delete: history to read, not a change to take back. The row
+// is gone, so an Undo button here could only ever come back 409.
+const deletion = (over = {}) =>
+  changeset({
+    status: "applied",
+    origin: "manual",
+    summary: 'Deleted entry "The Bridge"',
+    operations: [
+      { op: "delete", target_entry_id: 3, target_name: "The Bridge", target_content: "It spans the gorge." },
+    ],
+    ...over,
+  });
+
+test("a recorded deletion offers no undo", () => {
+  assert.equal(isUndoable(deletion()), false);
+  assert.equal(actionsHtml(deletion()), "");
+  // Everything the applier writes still can be taken back.
+  assert.equal(isUndoable(changeset({ status: "applied" })), true);
+});
+
+test("a recorded deletion still says what was deleted, from the operation alone", () => {
+  const html = changesetRowHtml(deletion());
+  assert.match(html, /Deleted entry/);
+  assert.match(operationHtml(deletion().operations[0]), /Delete “The Bridge”/);
+  // The row it names no longer exists, so the snapshot on the operation is the
+  // only place its text can come from.
+  assert.match(operationHtml(deletion().operations[0]), /It spans the gorge\./);
+  assert.deepEqual(operationDiff(deletion().operations[0]), { before: "It spans the gorge.", after: "" });
 });
 
 // ── cards

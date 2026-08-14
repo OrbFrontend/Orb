@@ -767,6 +767,102 @@ async def test_deleting_a_suppressed_authored_entry_leaves_an_inert_marker(clien
     assert await _effective_names(client, world_id) == []
 
 
+# ── history: a deletion, by whichever hand ────────────────────────────────────
+
+
+async def _history(client, world_id: str) -> list[dict]:
+    return (await client.get(f"/api/worlds/{world_id}/changesets", params={"status": "history"})).json()
+
+
+async def test_deleting_an_authored_entry_by_hand_lands_in_history(client):
+    """A hand delete is the one drawer mutation that would otherwise vanish."""
+    world = (await client.post("/api/worlds", json={"name": "Recorded"})).json()
+    entry = (await client.post(f"/api/worlds/{world['id']}/entries", json=_ENTRY)).json()
+    await client.put(f"/api/worlds/{world['id']}/dynamic", json={"enabled": True})
+
+    assert (await client.delete(f"/api/worlds/{world['id']}/entries/{entry['id']}")).status_code == 200
+
+    (record,) = await _history(client, world["id"])
+    assert (record["status"], record["origin"]) == ("applied", "manual")
+    assert record["summary"] == 'Deleted entry "The Bridge"'
+    # The record has to still read correctly with the row it names gone, so it
+    # carries the wording as well as the id.
+    (op,) = record["operations"]
+    assert (op["op"], op["target_entry_id"]) == ("delete", entry["id"])
+    assert op["target_content"] == _ENTRY["content"]
+    assert record["before_entries"][0]["name"] == "The Bridge"
+    assert record["after_entries"] == [None]
+    # It happened; it is not something the user still owes a decision on.
+    assert await _pending(client, world["id"]) == []
+
+
+async def test_deleting_an_agent_managed_entry_by_hand_says_whose_lore_it_was(client, llm_mock):
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-del-1")
+    applied = (await client.post(f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={})).json()
+    created = applied["after_entries"][0]["id"]
+
+    await client.delete(f"/api/worlds/{world_id}/entries/{created}")
+
+    summaries = [c["summary"] for c in await _history(client, world_id) if c["origin"] == "manual"]
+    assert summaries == ['Deleted Agent-managed entry "Collapsed Bridge"']
+    assert await _effective_names(client, world_id) == ["The Bridge"]
+
+
+async def test_an_agent_retraction_lands_in_the_same_history(client, llm_mock):
+    """Both hands' removals read off one list — that is what makes it an account."""
+    world_id, _, applied = await _applied_overlay_on(
+        client,
+        llm_mock,
+        "conv-dw-del-2",
+        {"op": "suppress", "rationale": "the bridge is gone"},
+    )
+    assert await _effective_names(client, world_id) == []
+
+    (record,) = await _history(client, world_id)
+    assert (record["id"], record["origin"], record["status"]) == (applied["id"], "agent", "applied")
+    assert [op["op"] for op in record["operations"]] == ["suppress"]
+
+
+async def test_a_recorded_deletion_cannot_be_undone(client):
+    """The row is gone: there is nothing a compensating operation could restore."""
+    world = (await client.post("/api/worlds", json={"name": "No Take-backs"})).json()
+    entry = (await client.post(f"/api/worlds/{world['id']}/entries", json=_ENTRY)).json()
+    await client.put(f"/api/worlds/{world['id']}/dynamic", json={"enabled": True})
+    await client.delete(f"/api/worlds/{world['id']}/entries/{entry['id']}")
+    (record,) = await _history(client, world["id"])
+
+    resp = await client.post(f"/api/worlds/{world['id']}/changesets/{record['id']}/undo")
+    assert resp.status_code == 409
+    assert [c["id"] for c in await _history(client, world["id"])] == [record["id"]]
+
+
+async def test_a_deletion_makes_an_older_proposal_stale_and_is_recorded_once(client, llm_mock):
+    """One user action, one revision bump — the record must not cost a second."""
+    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-del-3")
+    authored = [e for e in (await client.get(f"/api/worlds/{world_id}/entries")).json() if e["name"] == "The Bridge"][0]
+
+    await client.delete(f"/api/worlds/{world_id}/entries/{authored['id']}")
+
+    (record,) = [c for c in await _history(client, world_id) if c["origin"] == "manual"]
+    assert record["applied_revision"] == record["base_revision"] + 1
+    # The delete moved the World off exactly the revision the proposal named,
+    # which is what the older proposal then loses its race against.
+    assert record["base_revision"] == changeset["base_revision"]
+    resp = await client.post(f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={})
+    assert resp.status_code == 409
+    assert [c["status"] for c in await _pending(client, world_id)] == ["stale"]
+
+
+async def test_a_world_that_never_opted_in_records_nothing(client):
+    """A plain lorebook has no history for a deletion to join."""
+    world = (await client.post("/api/worlds", json={"name": "Plain"})).json()
+    entry = (await client.post(f"/api/worlds/{world['id']}/entries", json=_ENTRY)).json()
+
+    assert (await client.delete(f"/api/worlds/{world['id']}/entries/{entry['id']}")).status_code == 200
+    assert (await client.get(f"/api/worlds/{world['id']}/changesets")).json() == []
+    assert (await client.delete(f"/api/worlds/{world['id']}/entries/{entry['id']}")).status_code == 404
+
+
 async def test_reset_restores_the_authored_world_and_is_itself_undoable(client, llm_mock):
     world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-31")
     await client.post(f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={})

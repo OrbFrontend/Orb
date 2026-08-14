@@ -861,7 +861,9 @@ export function lbDeleteEntry() {
         _entries[worldId] = (_entries[worldId] || []).filter((e) => e.id !== _selectedEntryId);
         _selectedEntryId = null;
         _dirty = false;
-        renderLorebookDrawer();
+        // A Dynamic World records the deletion as history, so this is not just
+        // one row leaving the list — the History tab has a new row too.
+        await _refreshAfterWorldChange(worldId);
         toast("Entry deleted");
       } catch (_e) {
         toast("Failed to delete entry", true);
