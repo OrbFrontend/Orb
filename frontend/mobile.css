@@ -294,7 +294,7 @@ body {
   }
 
   /* ── Lorebook drawer: single-pane master/detail ──
-     The desktop drawer is a two-pane layout (260px entry list + editor side by
+     The desktop drawer is a two-pane layout (300px entry list + editor side by
      side). That doesn't fit a phone, so collapse it to one full-width pane at a
      time: the entry list by default, swapping to the editor (with a back button)
      once an entry is selected. The swap is driven by CSS :has() — no JS class

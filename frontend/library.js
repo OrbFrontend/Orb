@@ -145,7 +145,7 @@ export function renderCharacters() {
       const meta = esc(c.creator_notes || (c.tags || []).slice(0, 2).join(", ") || c.source_format || "");
       const isActive = S.activeCharId === c.id;
       return `<div class="char-item${isActive ? " active" : ""}" onclick="selectChar('${c.id}', 'recent')">
-      <div class="char-avatar-sm${c.has_expressions ? " has-expr-halo" : ""}">${av}</div>
+      <div class="char-avatar-sm${c.has_expressions ? " avatar-halo" : ""}">${av}</div>
       <div class="char-item-info">
         <div class="char-item-name">${esc(c.name)}</div>
         <div class="char-item-meta">${meta}</div>

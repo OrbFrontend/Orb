@@ -16,6 +16,17 @@ document.addEventListener("keydown", (e) => {
   if ($("modal-root")?.innerHTML) closeModal();
 });
 
+/**
+ * Is any modal layer on screen? Crop, sub-modal, or the main one.
+ *
+ * The same three roots the Escape handler above walks. Anything that also binds
+ * Escape has to yield while one of these is up, or a single keypress is handled
+ * twice: once by the modal, once by the surface underneath it.
+ */
+export function isModalOpen() {
+  return !!($("modal-crop-root")?.innerHTML || $("modal-sub-root")?.innerHTML || $("modal-root")?.innerHTML);
+}
+
 export function showModal(html) {
   // A guard belongs to the modal that set it, and this call replaces that modal.
   _modalCloseGuard = null;

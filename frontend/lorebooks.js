@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 import { createChipInput } from "./chips.js";
-import { closeModal, showConfirmModal, showModal } from "./modal.js";
+import { closeModal, isModalOpen, showConfirmModal, showModal } from "./modal.js";
 import { charactersView } from "./state.js";
 import { $, boolFlag, downloadBlob, esc, toast } from "./utils.js";
 import { changesetRowHtml, isOpen, operationEditHtml, readOperationEdit } from "./world_proposals.js";
@@ -13,7 +13,11 @@ const RECENT_LIMIT = 5; // worlds shown by default before the user needs to sear
 let _lorebookOpen = false;
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && _lorebookOpen) closeLorebook();
+  // Yield while a modal is up. modal.js binds Escape on this same node and its
+  // handler runs on this same event, so without the check one keypress was
+  // handled twice — dismissing a confirm dialog *and* closing the drawer under
+  // it, which is never what the second half of that gesture meant.
+  if (e.key === "Escape" && _lorebookOpen && !isModalOpen()) closeLorebook();
 });
 let _focusWorldId = null;
 const _entries = {}; // worldId -> entry[]
@@ -125,10 +129,15 @@ function _worldItemHtml(w) {
   const toggleId = `world-toggle-${w.id}`;
   const clickHandler = active ? "closeLorebook()" : `openLorebook('${w.id}')`;
   const pending = _pendingCount(w.id);
+  // A Dynamic World wears the same halo as a character with an expression pack:
+  // both carry a capability of their own, and both say so before being opened.
+  const dynamic = boolFlag(w.dynamic_enabled);
+  const haloClass = dynamic ? " avatar-halo" : "";
+  const haloTitle = dynamic ? ' title="Dynamic World — the Agent may propose new lore from what happens in play"' : "";
   return `
   <div class="world-item${active ? " active" : ""}">
     <div class="world-item-main" onclick="${clickHandler}">
-      <div class="world-avatar">${esc(initials)}</div>
+      <div class="world-avatar${haloClass}"${haloTitle}>${esc(initials)}</div>
       <span class="world-name">${esc(w.name)}</span>
       ${pending ? `<span class="world-pending" title="World changes awaiting review">${pending}</span>` : ""}
     </div>
@@ -310,7 +319,7 @@ export async function createWorld() {
     _worlds.push(w);
     closeModal();
     renderWorldsSidebar();
-    openLorebook(w.id);
+    _openDrawer(w.id);
   } catch (_e) {
     toast("Failed to create world", true);
   }
@@ -321,10 +330,13 @@ export async function toggleWorldEnabled(worldId, enabled) {
     const updated = await api.put(`/worlds/${worldId}`, { enabled });
     const idx = _worlds.findIndex((w) => w.id === worldId);
     if (idx !== -1) _worlds[idx] = { ..._worlds[idx], ...updated };
-    renderWorldsSidebar();
   } catch (_e) {
     toast("Failed to update world", true);
   }
+  // Repaint from `_worlds`, not from the click, and on failure too: a rejected
+  // write has to put the switch back rather than leave the row claiming a state
+  // the server never accepted.
+  renderWorldsSidebar();
 }
 
 export async function deleteWorld(worldId) {
@@ -353,7 +365,7 @@ export async function deleteWorld(worldId) {
         for (const c of charactersView()) {
           if (c.world_id === worldId) c.world_id = null;
         }
-        if (_focusWorldId === worldId) closeLorebook();
+        if (_focusWorldId === worldId) _closeDrawer();
         renderWorldsSidebar();
       } catch (_e) {
         toast("Failed to delete lorebook", true);
@@ -363,7 +375,31 @@ export async function deleteWorld(worldId) {
 }
 
 // ── Lorebook drawer
+//
+// Every way out of the open editor funnels through _guardDirty. The guard used
+// to sit on only two of them — picking another entry, and Back — so the exits a
+// user reaches fastest (Escape, ✕, clicking a different World in the sidebar,
+// which the drawer does not cover) were exactly the ones that dropped an
+// unsaved draft without a word.
+function _guardDirty(proceed, message, confirmText) {
+  if (!_dirty) {
+    proceed();
+    return;
+  }
+  showConfirmModal({ title: "Unsaved changes", message, confirmText, confirmClass: "btn-danger" }, proceed);
+}
+
 export async function openLorebook(worldId) {
+  _guardDirty(
+    () => _openDrawer(worldId),
+    "Discard changes to this entry and open another lorebook?",
+    "Discard & switch",
+  );
+}
+
+// The unguarded open, for callers that just created the World they are opening:
+// there is no draft to lose, and they keep a promise that resolves once loaded.
+async function _openDrawer(worldId) {
   _focusWorldId = worldId;
   _lorebookOpen = true;
   _selectedEntryId = null;
@@ -382,6 +418,12 @@ export async function openLorebook(worldId) {
 }
 
 export function closeLorebook() {
+  _guardDirty(_closeDrawer, "Discard changes to this entry and close the lorebook?", "Discard & close");
+}
+
+// The unconditional close, for when there is nothing left to save: the World was
+// deleted, or it vanished from under the drawer.
+function _closeDrawer() {
   _lorebookOpen = false;
   _dirty = false;
   $("lorebook-drawer")?.classList.add("hidden");
@@ -406,7 +448,7 @@ function renderLorebookDrawer() {
 
   const world = _getWorld(_focusWorldId);
   if (!world) {
-    closeLorebook();
+    _closeDrawer();
     return;
   }
 
@@ -476,17 +518,17 @@ function renderLorebookDrawer() {
     <div class="lb-body">
       <div class="lb-entry-list">
         <div class="lb-world-header">
-          <span class="lb-world-name">${esc(world.name)}</span>
-          <button class="btn btn-sm lb-rename-btn" onclick="showRenameWorldModal('${_focusWorldId}')" title="Rename lorebook">✎</button>
+          <span class="lb-world-name" title="${esc(world.name)}">${esc(world.name)}</span>
+          <button class="btn btn-sm lb-rename-btn" onclick="showRenameWorldModal('${_focusWorldId}')" title="Rename lorebook">✏</button>
           <span class="lb-active-count">${activeCount} active</span>
         </div>
         <div class="lb-dynamic-row">
+          <span class="lb-dynamic-label" title="Let the Agent propose world changes from what happens in play">Dynamic World</span>
+          ${dynamicCount ? `<button type="button" class="btn btn-sm lb-reset-btn" title="Retire every Agent-managed entry">Reset</button>` : ""}
           <label class="tog" for="lb-dynamic-toggle" title="Let the Agent propose world changes from what happens in play">
             <input type="checkbox" id="lb-dynamic-toggle" ${dynamicOn ? "checked" : ""}>
             <span class="tog-slider"></span>
           </label>
-          <span class="lb-dynamic-label">Dynamic World${dynamicCount ? ` · ${dynamicCount} agent ${dynamicCount === 1 ? "entry" : "entries"}` : ""}</span>
-          ${dynamicCount ? `<button type="button" class="btn btn-sm lb-reset-btn" title="Retire every Agent-managed entry">Reset</button>` : ""}
         </div>
         <div class="lb-entry-search">
           <input id="lb-entry-search-inp" class="lb-entry-search-inp" type="text"
@@ -706,41 +748,20 @@ export function lbEntrySearch(value) {
 // ── Entry selection with dirty guard
 export function lbSelectEntry(entryId) {
   if (_selectedEntryId === entryId) return;
-  if (_dirty) {
-    showConfirmModal(
-      {
-        title: "Unsaved changes",
-        message: "Discard changes to this entry and continue?",
-        confirmText: "Discard & continue",
-        confirmClass: "btn-danger",
-      },
-      () => _doSelectEntry(entryId),
-    );
-    return;
-  }
-  _doSelectEntry(entryId);
+  _guardDirty(() => _doSelectEntry(entryId), "Discard changes to this entry and continue?", "Discard & continue");
 }
 
 // ── Deselect the current entry, returning to the entry list
 export function lbBackToList() {
-  if (_dirty) {
-    showConfirmModal(
-      {
-        title: "Unsaved changes",
-        message: "Discard changes to this entry and go back?",
-        confirmText: "Discard & go back",
-        confirmClass: "btn-danger",
-      },
-      () => {
-        _selectedEntryId = null;
-        _dirty = false;
-        renderLorebookDrawer();
-      },
-    );
-    return;
-  }
-  _selectedEntryId = null;
-  renderLorebookDrawer();
+  _guardDirty(
+    () => {
+      _selectedEntryId = null;
+      _dirty = false;
+      renderLorebookDrawer();
+    },
+    "Discard changes to this entry and go back?",
+    "Discard & go back",
+  );
 }
 
 function _doSelectEntry(entryId) {
@@ -759,12 +780,32 @@ export async function lbToggleEntry(entryId, enabled) {
     const idx = (_entries[worldId] || []).findIndex((e) => e.id === entryId);
     if (idx !== -1) _entries[worldId][idx] = { ..._entries[worldId][idx], ...updated };
     if (_selectedEntryId === entryId) _draft.enabled = enabled;
-    const activeCount = (_entries[worldId] || []).filter((e) => boolFlag(e.enabled)).length;
-    const countEl = document.querySelector(".lb-active-count");
-    if (countEl) countEl.textContent = `${activeCount} active`;
   } catch (_e) {
     toast("Failed to update entry", true);
   }
+  _syncEntryRow(worldId, entryId);
+}
+
+/**
+ * Repaint one entry row from what is *stored*, never from what was clicked.
+ *
+ * A row patch rather than a drawer re-render: the editor next door may hold an
+ * unsaved draft with a live caret in it, and flipping a switch in the list is no
+ * reason to rebuild that. A failed write lands here too — the switch has to go
+ * back rather than keep claiming the state the server rejected — and a
+ * successful one finally moves the row's own dimming, which never followed it.
+ */
+function _syncEntryRow(worldId, entryId) {
+  const entries = _entries[worldId] || [];
+  const entry = entries.find((e) => e.id === entryId);
+  const box = $(`lb-entry-toggle-${entryId}`);
+  if (entry && box) {
+    const on = boolFlag(entry.enabled);
+    box.checked = on;
+    box.closest(".lb-entry-item")?.classList.toggle("lb-disabled", !on);
+  }
+  const countEl = document.querySelector(".lb-active-count");
+  if (countEl) countEl.textContent = `${entries.filter((e) => boolFlag(e.enabled)).length} active`;
 }
 
 // ── Save
@@ -946,10 +987,14 @@ export async function toggleWorldDynamic(worldId, enabled) {
     const updated = await api.put(`/worlds/${worldId}/dynamic`, { enabled });
     const idx = _worlds.findIndex((w) => w.id === worldId);
     if (idx !== -1) _worlds[idx] = { ..._worlds[idx], ...updated };
-    renderLorebookDrawer();
   } catch (_e) {
     toast("Failed to update Dynamic Worlds", true);
   }
+  // Two surfaces render this flag — the drawer's switch and the sidebar row's
+  // halo — and both repaint from `_worlds` on failure too, so a rejected write
+  // puts the switch back instead of leaving either surface claiming it landed.
+  renderLorebookDrawer();
+  renderWorldsSidebar();
 }
 
 /**
@@ -1150,7 +1195,7 @@ export function lbImportJson() {
       const result = await api.post(`/worlds/${world.id}/import`, payload);
       _entries[world.id] = result.entries;
       renderWorldsSidebar();
-      openLorebook(world.id);
+      _openDrawer(world.id);
       toast(`Imported ${result.imported} ${result.imported === 1 ? "entry" : "entries"}`);
     } catch (_e) {
       toast("Import failed", true);

@@ -142,8 +142,8 @@
 
 /* ── Entry list panel */
 .lb-entry-list {
-  width: 260px;
-  min-width: 260px;
+  width: 300px;
+  min-width: 300px;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -163,11 +163,19 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
+/* The world header's tally. Never shrinks: a counter cut to "…" is worse than
+   no counter, and the name beside it is the thing that should give way. */
 .lb-active-count {
   font-size: 10px;
   color: var(--text-muted);
+  flex-shrink: 0;
   margin-left: auto;
 }
 
@@ -513,7 +521,10 @@
    drawer's Pending / History lists. Both render the same operation rows, so a
    change reads identically wherever it is reviewed. */
 
-/* ── Drawer: the per-world Dynamic switch + reset */
+/* ── Drawer: the per-world Dynamic switch + reset.
+   Label at the column's text margin, switch on its right rail — the same shape
+   as every entry row below and the world header above. Leading with the switch
+   pushed this one label 40px in from every other line in the column. */
 .lb-dynamic-row {
   display: flex;
   align-items: center;

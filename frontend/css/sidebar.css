@@ -200,8 +200,14 @@
 
 .char-avatar-sm img { width: 100%; height: 100%; object-fit: cover; }
 
-/* Halo marking characters that have an expression pack (shared: sidebar + chat header) */
-.has-expr-halo {
+/* Halo marking an entity that carries a capability of its own, readable before
+   it is ever opened: a character with an expression pack (sidebar list + chat
+   header), or a Dynamic World the Agent may extend (worlds list). One rule for
+   every surface — the same promise must not read as three different marks.
+   `.world-avatar` is named a second time on purpose: lorebooks.css loads after
+   this file, so its `border` shorthand would otherwise win the specificity tie. */
+.avatar-halo,
+.world-avatar.avatar-halo {
   border-color: transparent;
   box-shadow:
     0 0 0 1px var(--accent, #6c8),
