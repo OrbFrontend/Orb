@@ -39,14 +39,12 @@ from ...inference.lorebook import (
 )
 from .changesets import (
     accept_changeset,
+    close_changeset,
     delete_entry,
     dynamic_enabled,
     invert_operations,
-    mark_stale,
-    reject_changeset,
     reset_world_to_authored,
     stage_proposal,
-    supersede_proposal,
     undo_changeset,
 )
 from .proposals import (
@@ -88,12 +86,10 @@ __all__ = [
     "validate_proposal",
     # Dynamic Worlds — changeset lifecycle
     "accept_changeset",
+    "close_changeset",
     "delete_entry",
     "invert_operations",
-    "mark_stale",
-    "reject_changeset",
     "reset_world_to_authored",
     "stage_proposal",
-    "supersede_proposal",
     "undo_changeset",
 ]

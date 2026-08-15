@@ -34,11 +34,10 @@ from ...database import (
     sync_conversations_for_card,
     update_character_card,
 )
-from ...features import lorebook
 from ...features.cards import downloader as card_downloader
 from ...features.cards import expressions as card_expressions
 from ...features.cards import parsing as tavern_cards
-from ..deps import _normalise_lorebook_entry, lorebook_to_book
+from ..deps import _normalise_lorebook_entry, lorebook_to_book, project_lorebook_view
 from ..schemas import CharacterCardCreate, CharacterCardUpdate, ImportUrlRequest
 
 logger = logging.getLogger(__name__)
@@ -239,12 +238,7 @@ async def api_export_character(card_id: str, world_view: Literal["authored", "ef
     world_id = export_card.get("world_id")
     if world_id and not export_card.get("character_book"):
         world = await get_world(world_id)
-        entries = await get_lorebook_entries(world_id)
-        entries = (
-            lorebook.select_effective_entries(entries)
-            if world_view == "effective"
-            else [e for e in entries if e.get("entry_layer") != "dynamic"]
-        )
+        entries = project_lorebook_view(await get_lorebook_entries(world_id), world_view)
         export_card["character_book"] = lorebook_to_book(world["name"] if world else "", entries)
 
     png_bytes = tavern_cards.to_png(export_card, avatar_bytes)

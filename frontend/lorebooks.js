@@ -209,21 +209,23 @@ export function collapseWorlds() {
 
 // ── Activate and prioritize a world (called when loading a character with a linked lorebook)
 export async function activateAndPrioritizeWorld(worldId) {
-  const idx = _worlds.findIndex((w) => w.id === worldId);
-  if (idx === -1) return;
-  const world = _worlds[idx];
-  const enabled = boolFlag(world.enabled);
-  if (!enabled) {
+  const world = _getWorld(worldId);
+  if (!world) return;
+  if (!boolFlag(world.enabled)) {
     try {
-      const updated = await api.put(`/worlds/${worldId}`, { enabled: true });
-      _worlds[idx] = { ...world, ...updated };
+      _mergeWorld(worldId, await api.put(`/worlds/${worldId}`, { enabled: true }));
     } catch (e) {
       console.error("Failed to enable world:", e);
       return;
     }
   }
-  // Move to top of list
-  const [w] = _worlds.splice(idx, 1);
+  // Move to top of list. Re-found by id rather than reusing the row above:
+  // _mergeWorld swaps in a new object, so the old reference is no longer in the
+  // array and an identity lookup would splice out the wrong world.
+  const [w] = _worlds.splice(
+    _worlds.findIndex((x) => x.id === worldId),
+    1,
+  );
   _worlds.unshift(w);
   renderWorldsSidebar();
 }
@@ -239,14 +241,12 @@ export async function deactivateLinkedWorlds() {
 }
 
 export async function deactivateWorld(worldId) {
-  const world = _worlds.find((w) => w.id === worldId);
+  const world = _getWorld(worldId);
   if (!world) return;
   const enabled = boolFlag(world.enabled);
   if (!enabled) return;
   try {
-    const updated = await api.put(`/worlds/${worldId}`, { enabled: false });
-    const idx = _worlds.findIndex((w) => w.id === worldId);
-    if (idx !== -1) _worlds[idx] = { ..._worlds[idx], ...updated };
+    _mergeWorld(worldId, await api.put(`/worlds/${worldId}`, { enabled: false }));
     renderWorldsSidebar();
   } catch (e) {
     console.error("Failed to deactivate world:", e);
@@ -283,9 +283,7 @@ export async function renameWorld(worldId) {
     return;
   }
   try {
-    const updated = await api.put(`/worlds/${worldId}`, { name });
-    const idx = _worlds.findIndex((w) => w.id === worldId);
-    if (idx !== -1) _worlds[idx] = { ..._worlds[idx], ...updated };
+    _mergeWorld(worldId, await api.put(`/worlds/${worldId}`, { name }));
     closeModal();
     renderWorldsSidebar();
     if (_focusWorldId === worldId) renderLorebookDrawer();
@@ -327,9 +325,7 @@ export async function createWorld() {
 
 export async function toggleWorldEnabled(worldId, enabled) {
   try {
-    const updated = await api.put(`/worlds/${worldId}`, { enabled });
-    const idx = _worlds.findIndex((w) => w.id === worldId);
-    if (idx !== -1) _worlds[idx] = { ..._worlds[idx], ...updated };
+    _mergeWorld(worldId, await api.put(`/worlds/${worldId}`, { enabled }));
   } catch (_e) {
     toast("Failed to update world", true);
   }
@@ -376,11 +372,10 @@ export async function deleteWorld(worldId) {
 
 // ── Lorebook drawer
 //
-// Every way out of the open editor funnels through _guardDirty. The guard used
-// to sit on only two of them — picking another entry, and Back — so the exits a
-// user reaches fastest (Escape, ✕, clicking a different World in the sidebar,
-// which the drawer does not cover) were exactly the ones that dropped an
-// unsaved draft without a word.
+// Every way out of the open editor funnels through _guardDirty — including the
+// ones the drawer does not itself cover: Escape, ✕, and clicking a different
+// World in the sidebar. Those are the exits a user reaches fastest, so a new one
+// that skips the guard drops an unsaved draft without a word.
 function _guardDirty(proceed, message, confirmText) {
   if (!_dirty) {
     proceed();
@@ -432,6 +427,14 @@ function _closeDrawer() {
 
 function _getWorld(worldId) {
   return _worlds.find((w) => w.id === worldId);
+}
+
+// Fold a server response back into the cached row. Merged rather than replaced:
+// `/worlds` decorates each row with `pending_changesets`, which the mutation
+// routes do not return, so overwriting would blank the sidebar's badge.
+function _mergeWorld(worldId, updated) {
+  const idx = _worlds.findIndex((w) => w.id === worldId);
+  if (idx !== -1) _worlds[idx] = { ..._worlds[idx], ...updated };
 }
 
 function _getEntry(entryId) {
@@ -791,9 +794,9 @@ export async function lbToggleEntry(entryId, enabled) {
  *
  * A row patch rather than a drawer re-render: the editor next door may hold an
  * unsaved draft with a live caret in it, and flipping a switch in the list is no
- * reason to rebuild that. A failed write lands here too — the switch has to go
- * back rather than keep claiming the state the server rejected — and a
- * successful one finally moves the row's own dimming, which never followed it.
+ * reason to rebuild that. Both outcomes land here — a failed write puts the
+ * switch back rather than let it claim a state the server rejected, and a
+ * successful one carries the row's dimming along with it.
  */
 function _syncEntryRow(worldId, entryId) {
   const entries = _entries[worldId] || [];
@@ -897,7 +900,7 @@ export async function lbAddEntry() {
 // Authored by default: a lorebook file is the user's own lore, and an export
 // that silently baked in Agent-managed state would round-trip as authored.
 function lbExportJson(view = "authored") {
-  const world = _worlds.find((w) => w.id === _focusWorldId);
+  const world = _getWorld(_focusWorldId);
   if (!world) return;
   const suffix = view === "authored" ? "" : ` (${view})`;
   downloadBlob(`${world.name}${suffix}.json`, `/api/worlds/${world.id}/export?view=${view}`);
@@ -926,7 +929,7 @@ async function _loadChangesets(worldId) {
 }
 
 function _pendingCount(worldId) {
-  const world = _worlds.find((w) => w.id === worldId);
+  const world = _getWorld(worldId);
   const cached = _changesets[worldId];
   // The cached list is authoritative once loaded (it reflects decisions made
   // this session); the world row's count covers the not-yet-opened drawer.
@@ -986,9 +989,7 @@ async function _requireChangeset(worldId, id) {
 
 export async function toggleWorldDynamic(worldId, enabled) {
   try {
-    const updated = await api.put(`/worlds/${worldId}/dynamic`, { enabled });
-    const idx = _worlds.findIndex((w) => w.id === worldId);
-    if (idx !== -1) _worlds[idx] = { ..._worlds[idx], ...updated };
+    _mergeWorld(worldId, await api.put(`/worlds/${worldId}/dynamic`, { enabled }));
   } catch (_e) {
     toast("Failed to update Dynamic Worlds", true);
   }

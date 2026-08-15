@@ -19,11 +19,7 @@ from typing import Any
 
 from .. import database as db
 from ..database.models import WorldRow
-from ..features.lorebook import (
-    dynamic_enabled,
-    split_by_world,
-    supersede_proposal,
-)
+from ..features.lorebook import dynamic_enabled, split_by_world
 from ..inference import (
     CachedBase,
     agent_lane_from_settings,
@@ -226,13 +222,12 @@ async def reevaluate_changeset(changeset: Mapping[str, Any]):
     if result is None or result.failed:
         raise db.OverlayStateConflict("re-evaluation did not produce a valid decision; the original proposal remains open")
     operations = split_by_world(result.operations).get(str(world_id), []) if not result.is_empty else []
-    if not operations:
-        # Nothing left to propose against the World as it now stands: a valid
-        # answer, so the original still retires rather than staying in the queue.
-        return await supersede_proposal(changeset_id, None)
-    return await supersede_proposal(
-        changeset_id,
-        {
+    # No operations means nothing left to propose against the World as it now
+    # stands: a valid answer, and a `None` replacement still retires the original
+    # rather than leaving it in the queue. Both writes land in one transaction.
+    replacement: dict[str, Any] | None = None
+    if operations:
+        replacement = {
             "world_id": world_id,
             "base_revision": int(world["content_revision"]),
             "summary": result.summary,
@@ -243,5 +238,5 @@ async def reevaluate_changeset(changeset: Mapping[str, Any]):
             "source_character_label": changeset.get("source_character_label", ""),
             "source_conversation_label": changeset.get("source_conversation_label", ""),
             "origin": "re_evaluate",
-        },
-    )
+        }
+    return await db.supersede_world_changeset(changeset_id, replacement)

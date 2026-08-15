@@ -31,6 +31,7 @@ from ...pipeline.world_proposal import reevaluate_changeset
 from ..deps import (
     _normalise_lorebook_entry,
     lorebook_to_book,
+    project_lorebook_view,
     require_changeset,
     require_lorebook_entry,
     require_world,
@@ -113,26 +114,13 @@ async def api_delete_world(world_id: str):
 # Lorebook Entries ──
 
 
-def _project(entries: list, view: str) -> list[Any]:
-    """One of the three views a caller may ask a World's rows for.
-
-    ``all`` is both layers raw, archived overlay rows included, so the drawer can
-    label them and show history. ``effective`` is the projection the prompt
-    actually sees. ``authored`` is the user-owned layer alone — defined here once
-    so the list route and the export route cannot drift on what "authored" means.
-    """
-    if view == "authored":
-        return [e for e in entries if e.get("entry_layer") != "dynamic"]
-    return list(lorebook.select_effective_entries(entries)) if view == "effective" else list(entries)
-
-
 @router.get("/api/worlds/{world_id}/entries")
 async def api_list_lorebook_entries(
     view: Literal["all", "authored", "effective"] = "all",
     world: dict = Depends(require_world),  # noqa: B008
 ):
-    """List a World's entries in one of the three views (see :func:`_project`)."""
-    return _project(await get_lorebook_entries(world["id"]), view)
+    """List a World's entries in one of the three views (see :func:`project_lorebook_view`)."""
+    return project_lorebook_view(await get_lorebook_entries(world["id"]), view)
 
 
 @router.post("/api/worlds/{world_id}/entries")
@@ -211,7 +199,7 @@ async def api_export_lorebook(world_id: str, view: Literal["authored", "effectiv
     if not world:
         raise HTTPException(status_code=404, detail="World not found")
 
-    exported = _project(await get_lorebook_entries(world_id), view)
+    exported = project_lorebook_view(await get_lorebook_entries(world_id), view)
     book = lorebook_to_book(world["name"], exported)
     safe_name = "".join(c for c in world["name"] if c.isalnum() or c in " _-").strip() or "lorebook"
     suffix = "" if view == "authored" else f" ({view})"
@@ -309,7 +297,7 @@ async def api_apply_changeset(
         # still a clean conflict response, not a reason to turn this request
         # into a 500 while trying to overwrite the winning decision.
         try:
-            await lorebook.mark_stale(int(changeset["id"]))
+            await lorebook.close_changeset(int(changeset["id"]), "stale")
         except OverlayStateConflict:
             pass
         raise HTTPException(
@@ -329,7 +317,7 @@ async def api_reject_changeset(
 ):
     _open_guard(changeset)
     try:
-        return await lorebook.reject_changeset(changeset)
+        return await lorebook.close_changeset(int(changeset["id"]), "rejected")
     except OverlayStateConflict as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
 

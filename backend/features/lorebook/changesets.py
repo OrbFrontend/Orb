@@ -97,47 +97,28 @@ async def delete_entry(world: Mapping[str, Any], entry: Mapping[str, Any]) -> bo
 
 
 async def stage_proposal(
+    proposal: Mapping[str, Any],
     *,
-    world_id: str,
-    base_revision: int,
-    summary: str,
-    operations: Sequence[Mapping[str, Any]],
     source_user_message_id: int | None,
     source_assistant_message_id: int | None,
-    source_conversation_id: str | None,
-    source_character_label: str = "",
-    source_conversation_label: str = "",
-    supersedes_changeset_id: int | None = None,
-    origin: str = "agent",
 ) -> WorldChangesetRow:
-    """Persist a validated proposal as a pending changeset. Applies nothing."""
+    """Persist a validated proposal as a pending changeset. Applies nothing.
+
+    *proposal* is the payload the turn stage parked on ``TurnState`` -- world id,
+    base revision, summary, operations, and the denormalised source labels. The
+    two message ids stay separate arguments because only the persistence
+    boundary knows them: a changeset names the assistant row it was derived
+    from, and that row has no id until the reply is committed.
+    """
     return await db.create_world_changeset(
         {
-            "world_id": world_id,
             "status": "pending",
-            "base_revision": base_revision,
-            "origin": origin,
-            "summary": summary,
-            "operations": list(operations),
+            "origin": "agent",
+            **proposal,
             "source_user_message_id": source_user_message_id,
             "source_assistant_message_id": source_assistant_message_id,
-            "source_conversation_id": source_conversation_id,
-            "source_character_label": source_character_label,
-            "source_conversation_label": source_conversation_label,
-            "supersedes_changeset_id": supersedes_changeset_id,
         }
     )
-
-
-async def supersede_proposal(
-    changeset_id: int,
-    replacement: Mapping[str, Any] | None,
-) -> WorldChangesetRow | None:
-    """Retire an open proposal and optionally stage its re-evaluated replacement.
-
-    Both writes land in one transaction; see ``db.supersede_world_changeset``.
-    """
-    return await db.supersede_world_changeset(changeset_id, replacement)
 
 
 async def accept_changeset(
@@ -189,11 +170,17 @@ async def accept_changeset(
         )
 
 
-async def reject_changeset(changeset: Mapping[str, Any]) -> WorldChangesetRow | None:
-    """Reject an open changeset with an atomic status compare-and-swap."""
+async def close_changeset(changeset_id: int, status: str) -> WorldChangesetRow | None:
+    """Retire an open changeset with an atomic status compare-and-swap.
+
+    ``rejected`` is the user's decision; ``stale`` is the World having moved on
+    under a proposal that can no longer be applied, or its source evidence
+    having gone. Both leave the review queue, and both must lose to a concurrent
+    decision rather than overwrite it, so both are the same guarded transition.
+    """
     return await db.update_world_changeset(
-        int(changeset["id"]),
-        {"status": "rejected", "decided_at": datetime.now(UTC).isoformat()},
+        changeset_id,
+        {"status": status, "decided_at": datetime.now(UTC).isoformat()},
         expected_statuses=("pending", "stale"),
     )
 
@@ -310,12 +297,3 @@ async def reset_world_to_authored(world_id: str) -> WorldChangesetRow | None:
             operations,
             expected_revision=revision,
         )
-
-
-async def mark_stale(changeset_id: int) -> WorldChangesetRow | None:
-    """Retire a pending proposal whose evidence or base World no longer holds."""
-    return await db.update_world_changeset(
-        changeset_id,
-        {"status": "stale", "decided_at": datetime.now(UTC).isoformat()},
-        expected_statuses=("pending", "stale"),
-    )

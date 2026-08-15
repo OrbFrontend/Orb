@@ -71,15 +71,9 @@ async def _stage_world_proposals(res: TurnState, user_msg_id: int | None, asst_i
     for proposal in res.world_proposals:
         try:
             changeset = await lorebook.stage_proposal(
-                world_id=proposal["world_id"],
-                base_revision=int(proposal["base_revision"]),
-                summary=proposal.get("summary", ""),
-                operations=proposal.get("operations", []),
+                proposal,
                 source_user_message_id=user_msg_id,
                 source_assistant_message_id=asst_id,
-                source_conversation_id=proposal.get("source_conversation_id"),
-                source_character_label=proposal.get("source_character_label", ""),
-                source_conversation_label=proposal.get("source_conversation_label", ""),
             )
         except Exception:
             logger.exception(
