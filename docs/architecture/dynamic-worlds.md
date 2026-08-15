@@ -6,6 +6,9 @@ the user reviews, and only their acceptance touches the lore.
 
 V1 is review-only. Automatic application is deliberately deferred.
 
+The user-facing side of this is
+[Dynamic Worlds](../features/dynamic-worlds.md).
+
 ---
 
 ## 1. Two layers, one table
