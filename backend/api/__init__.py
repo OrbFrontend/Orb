@@ -40,9 +40,17 @@ async def lifespan(app: FastAPI):
     # guarded no-op migrations on first boot. Checked before init_db, which
     # creates the file. (Zero-size covers a file touched but never written.)
     fresh = not os.path.exists(DB_PATH) or os.path.getsize(DB_PATH) == 0
-    await init_db()
+    migrated = False
     if fresh:
+        await init_db()
         stamp_all(DB_PATH)
+    else:
+        # Existing tables still have their old column shape. Run migrations
+        # before feeding them the latest CREATE TABLES script: CREATE TABLE IF
+        # NOT EXISTS does not add columns, and a latest-schema index may name a
+        # column only the pending migration knows how to add.
+        migrated = bool(run_pending(DB_PATH))
+        await init_db()
     # A rebuild-style migration (0027's drop/rename, 0028's DROP COLUMN /
     # DROP TABLE) leaves the old table's pages on the freelist, and the live
     # DB runs auto_vacuum=NONE, so nothing returns them: the file stays
@@ -57,7 +65,7 @@ async def lifespan(app: FastAPI):
     # stranded until a migration happens to come along. Both arms are gated so
     # an ordinary boot never rewrites the whole file. Safe here: we're before
     # `yield`, so no request connection is open to contend with the VACUUM.
-    elif run_pending(DB_PATH) or free_bytes(DB_PATH) > VACUUM_FREE_BYTES:
+    if not fresh and (migrated or free_bytes(DB_PATH) > VACUUM_FREE_BYTES):
         vac = sqlite3.connect(DB_PATH, isolation_level=None)
         try:
             vac.execute("VACUUM")

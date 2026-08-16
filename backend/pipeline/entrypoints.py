@@ -190,6 +190,7 @@ async def _generate_reply(
         kv_tracker=setup.kv_tracker,
         schema_overrides=setup.schema_overrides,
         history=history,
+        world_proposal=setup.world_proposal,
     )
     async for event in _consume_pipeline(
         pipeline,

@@ -76,6 +76,10 @@ The freezing is not a limitation, it is the point: a re-rolling system prompt wo
 
 Keywords are blunt — a scene can circle a topic without ever naming it. Turn on [Agentic Lorebook](agentic-lorebook.md) and the Director picks entries by reading the scene. The keyword scan keeps running alongside it, so the Director can only *add* entries, never suppress a keyword hit.
 
+## Letting the Agent write entries
+
+Flip **Dynamic World** on a World and the Agent proposes new and revised entries from what happens in play — you review each one before it lands, and it can never touch an entry you wrote. See [Dynamic Worlds](dynamic-worlds.md).
+
 ## Import and export
 
 Orb reads and writes the standard V2 `character_book` JSON: **Worlds → Import / Export**, and books embedded in a character PNG are imported into a new World on card import.

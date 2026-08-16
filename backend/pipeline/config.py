@@ -142,16 +142,20 @@ def _build_writer_tools_blob(
     enabled_tools: dict,
     *,
     agentic_lorebook: bool = False,
+    dynamic_world: bool = False,
 ) -> dict:
     """Build the dynamic tool-schema overrides shared across all cached calls.
 
     Mutates *enabled_tools* in place to enable ``give_feedback`` when the feedback
-    step is active, ``record_direction_note`` when the direction-note step is, and
-    ``select_lorebook`` when agentic lorebook is active. Returns a ``schema_overrides``
-    dict (``direct_scene`` and optionally ``give_feedback``/``record_direction_note``)
-    held byte-stable across every cached call in a turn so the LLM's KV cache is not
-    busted. (``select_lorebook`` needs no override -- its schema is fixed, so enabling
-    it lets ``enabled_schemas`` emit the registry schema into the shared blob.)
+    step is active, ``record_direction_note`` when the direction-note step is,
+    ``select_lorebook`` when agentic lorebook is active, and
+    ``propose_world_changes`` when at least one enabled World has Dynamic Worlds
+    on. Returns a ``schema_overrides`` dict (``direct_scene`` and
+    optionally ``give_feedback``/``record_direction_note``) held byte-stable
+    across every cached call in a turn so the LLM's KV cache is not busted.
+    (``select_lorebook`` and ``propose_world_changes`` need no override -- their
+    schemas are fixed, so enabling them lets ``enabled_schemas`` emit the
+    registry schema into the shared blob.)
 
     Called by ``_prepare_turn``.
     """
@@ -166,6 +170,8 @@ def _build_writer_tools_blob(
     overrides: dict = {"direct_scene": direct_scene}
     if agentic_lorebook:
         enabled_tools["select_lorebook"] = True
+    if dynamic_world:
+        enabled_tools["propose_world_changes"] = True
     if _feedback_active(settings, feedback_fragments, agent_on=agent_enabled(settings)):
         overrides["give_feedback"] = build_feedback_override(feedback_fragments)
         enabled_tools["give_feedback"] = True

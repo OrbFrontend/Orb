@@ -142,8 +142,8 @@
 
 /* ── Entry list panel */
 .lb-entry-list {
-  width: 260px;
-  min-width: 260px;
+  width: 300px;
+  min-width: 300px;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -163,11 +163,19 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
+/* The world header's tally. Never shrinks: a counter cut to "…" is worse than
+   no counter, and the name beside it is the thing that should give way. */
 .lb-active-count {
   font-size: 10px;
   color: var(--text-muted);
+  flex-shrink: 0;
   margin-left: auto;
 }
 
@@ -507,3 +515,248 @@
   flex-shrink: 0;
 }
 
+
+/* ══ Dynamic Worlds ═══════════════════════════════════════════════════════════
+   Two surfaces share these rules: the proposal card under a chat reply, and the
+   drawer's Pending / History lists. Both render the same operation rows, so a
+   change reads identically wherever it is reviewed. */
+
+/* ── Drawer: the per-world Dynamic switch + reset.
+   Label at the column's text margin, switch on its right rail — the same shape
+   as every entry row below and the world header above. Leading with the switch
+   pushed this one label 40px in from every other line in the column. */
+.lb-dynamic-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.lb-dynamic-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lb-reset-btn { flex-shrink: 0; }
+
+/* ── Layer marks. An Agent-managed entry must never read as one the user wrote. */
+.lb-layer {
+  font-size: 9px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.lb-layer-dynamic {
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+}
+.lb-layer-banner {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--accent-glow);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 16px;
+}
+
+/* ── Drawer tabs (Entry / Pending / History) */
+.lb-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 10px 0;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.lb-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 5px 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.lb-tab:hover { color: var(--text-secondary); }
+.lb-tab.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+/* The awaiting-review count, on the drawer tab and on the sidebar row. One rule:
+   the same number in two places must not read as two different things. */
+.lb-tab-badge,
+.world-pending {
+  background: var(--accent);
+  color: var(--bg-deep);
+  border-radius: 8px;
+  font-size: 10px;
+  padding: 0 5px;
+  line-height: 15px;
+}
+.world-pending {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* ── Proposal card + changeset rows */
+.wc-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+  min-height: 0;
+}
+
+.wc-card {
+  border: 1px solid var(--accent-dim);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+/* A stale proposal is not an error: it just needs judging again, so it steps
+   back to a neutral edge rather than shouting in red. */
+.wc-card.wc-stale { border-color: var(--border); }
+
+.wc-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.wc-badge {
+  font-size: 9px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.wc-stale .wc-badge { color: var(--text-muted); }
+/* Which lorebook this card is about — only rendered when a turn could have
+   proposed to more than one, so it reads as a label rather than a heading. */
+.wc-world {
+  font-size: 10px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.wc-summary { color: var(--text-primary); }
+.wc-note {
+  color: var(--text-secondary);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.wc-ops {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wc-op {
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+}
+.wc-op-title { color: var(--text-primary); }
+.wc-diff {
+  margin: 3px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.wc-before,
+.wc-after {
+  padding: 1px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.wc-before { color: var(--text-muted); text-decoration: line-through; }
+.wc-before::before { content: "− "; }
+.wc-after { color: var(--text-primary); }
+.wc-after::before { content: "+ "; }
+.wc-empty { text-decoration: none; font-style: italic; }
+
+.wc-op-meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.wc-op-why {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.wc-actions,
+.wc-row-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.wc-danger { color: var(--red); }
+
+.wc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.wc-row-main { flex: 1; min-width: 0; }
+.wc-row-summary {
+  display: block;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wc-row-meta {
+  display: block;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.wc-row-actions { margin-top: 0; }
+
+/* ── Edit-before-apply modal */
+.wc-edit-ops {
+  max-height: 50vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wc-edit-op {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wc-edit-include {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+.wc-edit-activation {
+  display: flex;
+  gap: 6px;
+}
+.wc-edit-activation select { flex-shrink: 0; }
+.wc-edit-activation input { flex: 1; min-width: 0; }

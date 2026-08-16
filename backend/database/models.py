@@ -341,11 +341,20 @@ class ModelConfigRow(TypedDict):
 
 
 class WorldRow(TypedDict):
-    """A row from the ``worlds`` table (``SELECT *``)."""
+    """A row from the ``worlds`` table (``SELECT *``).
+
+    ``dynamic_enabled`` is the per-World opt-in for Agent-managed overlay rows;
+    ``content_revision`` is the optimistic-concurrency stamp bumped once per
+    *lore-content* mutation (authored CRUD, import, changeset apply/undo/reset)
+    and deliberately NOT by ``enabled``/``dynamic_enabled`` toggles or renames,
+    so the character-switch flow cannot invalidate pending proposals.
+    """
 
     id: str
     name: str
     enabled: int
+    dynamic_enabled: int
+    content_revision: int
     created_at: str
     updated_at: str
 
@@ -353,7 +362,17 @@ class WorldRow(TypedDict):
 class LorebookEntryRow(TypedDict):
     """A row from ``lorebook_entries``. ``keywords`` and ``secondary_keys`` are
     the JSON-*decoded* lists (every reader runs the row through
-    _parse_lorebook_entry / an inline decode)."""
+    _parse_lorebook_entry / an inline decode).
+
+    The overlay columns describe an entry's *layer*, not its content:
+    ``entry_layer`` is ``authored`` (user-owned; the Agent may never modify or
+    delete one) or ``dynamic`` (Agent-owned). ``overlay_action`` is empty for
+    authored rows and one of ``add`` / ``replace`` / ``suppress`` for dynamic
+    ones; a ``replace``/``suppress`` names its authored target in
+    ``supersedes_entry_id``. ``archived`` retires a dynamic row without deleting
+    it, which re-exposes the authored entry it was hiding. ``entry_revision``
+    counts the mutations a dynamic row has taken.
+    """
 
     id: int
     world_id: str
@@ -369,8 +388,48 @@ class LorebookEntryRow(TypedDict):
     priority: int
     enabled: int
     sort_order: int
+    entry_layer: str
+    entry_revision: int
+    overlay_action: str
+    supersedes_entry_id: int | None
+    archived: int
     created_at: str
     updated_at: str
+
+
+class WorldChangesetRow(TypedDict):
+    """A row from ``world_changesets`` -- one Agent proposal or one applied
+    history record, with ``operations`` / ``before_entries`` / ``after_entries``
+    JSON-*decoded* (``_parse_changeset`` runs on every read).
+
+    ``status='superseded'`` is the terminal state of an original proposal after
+    re-evaluation, whether or not that evaluation produced a replacement row.
+    Durable independently of the conversation that produced it: the three
+    ``source_*`` id columns are ``ON DELETE SET NULL`` cross-domain pointers, and
+    the denormalised ``source_character_label`` / ``source_conversation_label``
+    keep applied history readable after the chat is gone.
+    """
+
+    id: int
+    world_id: str
+    status: str
+    base_revision: int
+    applied_revision: int | None
+    source_user_message_id: int | None
+    source_assistant_message_id: int | None
+    source_conversation_id: str | None
+    source_character_label: str
+    source_conversation_label: str
+    origin: str
+    summary: str
+    operations: list
+    before_entries: list
+    after_entries: list
+    reverts_changeset_id: int | None
+    supersedes_changeset_id: int | None
+    created_at: str
+    decided_at: str | None
+    applied_at: str | None
 
 
 class ActiveLorebookEntryRow(LorebookEntryRow):

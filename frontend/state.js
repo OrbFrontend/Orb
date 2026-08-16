@@ -100,6 +100,11 @@ export const S = {
   // so switching conversations can't leave a stale failure hanging under someone
   // else's chat. Cleared on the next stream start and on dismiss.
   turnError: null, // {convId, at, headline, sentence, status, host, model, body, kind, stage}
+  // Set when a turn staged a Dynamic Worlds proposal, cleared by afterStream.
+  // The card itself is painted from the refetched message rows; this only says
+  // "a full repaint is required", because the in-place stream finalize would
+  // otherwise leave the new card unpainted.
+  worldProposalArrived: false,
 
   // ── Reasoning rail & Inspector · owner: chat_inspector.js
   directorState: null,

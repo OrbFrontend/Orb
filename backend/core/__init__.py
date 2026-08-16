@@ -22,6 +22,7 @@ from .locks import (
     workflow_character_state_lock,
     workflow_config_lock,
     workflow_state_lock,
+    world_apply_lock,
 )
 from .macros import Macros, has_inline_macros, resolve_inline, resolve_stored_random
 from .text_segmentation import (
@@ -48,6 +49,7 @@ __all__ = [
     "workflow_character_state_lock",
     "workflow_config_lock",
     "workflow_state_lock",
+    "world_apply_lock",
     # macros — string/message transforms
     "Macros",
     "has_inline_macros",

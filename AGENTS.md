@@ -13,6 +13,7 @@ Orb is an **agentic AI roleplay/writing frontend**: Python/FastAPI backend, vani
 Pipeline passes: **Director** (optional, pre-writer) → **Writer** (streams output) → **Editor** (optional, post-writer auditor/rewriter).
 
 - **Cross-pass KV caching:** All passes share one byte-identical prefix (same system prompt, history, tool schemas). Read [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md) before touching prompt assembly, pass ordering, or tool schemas.
+- **Dynamic Worlds:** the Agent may propose durable World changes from a finished turn, to **every enabled World that opted in** (`dynamic_enabled`) — one forced call, split into one pending changeset per World. It only ever writes an *overlay* — `lorebook_entries.entry_layer` splits user-`authored` rows from Agent-`dynamic` ones, and no code path lets the Agent touch an authored row. Every consumer sees the resolved view through `inference/lorebook.select_effective_entries`. Read [docs/architecture/dynamic-worlds.md](docs/architecture/dynamic-worlds.md) before touching lorebook projection, the changeset lifecycle, or `worlds.content_revision`.
 - **Editor patching:** `editor_apply_patch` anchors on a numbered finding id, not a `search` string — `analysis/targets.py` resolves the audit into addressable offsets. Every replacement is healed before it lands (`analysis/healing.py`): any run of words the model copied from the draft *outside* its target span is trimmed off either end, so a mis-aimed patch can't print the same text twice.
 - **Secondary workflows:** Pluggable hooks (pre/post pipeline, on-demand). Full reference: [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md).
 - **SSE wire contract:** [docs/architecture/sse-stream.md](docs/architecture/sse-stream.md).
@@ -30,7 +31,9 @@ Dependency order (top to bottom — each layer may only import layers below it):
 5. `database/`
 6. `core/`
 
-`database/` may also import `core/`. `features/lorebook/` imports only `core/`.
+`database/` may also import `core/`. Feature slices follow the ordinary downward
+rule: pure logic may reuse lower-layer inference/analysis utilities, while an
+integration module may persist through `database/`; slices never import peers.
 
 | Layer | Purpose |
 |-------|---------|
@@ -65,6 +68,10 @@ features/<name>/
 | `backend/pipeline/orchestrator.py` | `_run_pipeline()`: director→writer→editor coordination |
 | `backend/pipeline/state.py` | `TurnState`, `ModelLane`, `_PipelineConfig`, `LorebookTurn` |
 | `backend/pipeline/failures.py` | `describe_failure(exc)` → the `error` event's payload; the only place a failure is classified (status class, never provider vocabulary) |
+| `backend/pipeline/world_proposal.py` | The Dynamic Worlds turn stage + `reevaluate_changeset`; re-reads every target World immediately before proposing so a proposal always names the latest `content_revision` |
+| `backend/inference/lorebook.py` | Lorebook activation **and** the authored/dynamic projection. Every selection and rendering entry point applies `select_effective_entries` itself, so no caller can forget to project |
+| `backend/features/lorebook/proposals.py` | Pure: the Agent-facing World catalog + strict validation of a `propose_world_changes` call against the live World(s), and `split_by_world` (one call → one changeset per World). The model never executes CRUD |
+| `backend/features/lorebook/changesets.py` | Changeset lifecycle: accept / reject / undo / reset, each through one `BEGIN IMMEDIATE` + revision check |
 | `backend/inference/tool_registry.py` | All tool schemas + `TOOLS`/`PRE_WRITER_TOOLS`/`POST_WRITER_TOOLS` |
 | `backend/inference/errors.py` | `LLMCallError(httpx.HTTPStatusError)` + `provider_sentence`/`redact` — keeps the provider's own words instead of `raise_for_status()`'s canned line. **Must** stay an `HTTPStatusError` or `RetryPolicy` silently stops retrying |
 | `backend/core/text_segmentation.py` | Canonical non-workflow backend sentence/quote policy; sentences never contain line breaks |
@@ -97,7 +104,8 @@ features/<name>/
 | `phrase_bank` | Banned phrase variants for editor audit |
 | `conversation_logs` | Per-turn Director audit trail |
 | `direction_notes` | Persistent notes across a branch (Director or user-authored) |
-| `worlds` / `lorebook_entries` | Lorebook containers + keyword-triggered context entries |
+| `worlds` / `lorebook_entries` | Lorebook containers + keyword-triggered context entries. `worlds.content_revision` stamps *lore-content* mutations only (never an `enabled` toggle); `lorebook_entries.entry_layer` splits authored rows from the Agent-managed overlay |
+| `world_changesets` | Dynamic Worlds proposals + applied history, including the `manual` record a hand delete of an entry leaves; `source_*` message/conversation ids are nullable cross-domain pointers, with denormalised labels so history survives their deletion |
 | `documents` | Free-form writing mode documents |
 | `user_attachments` | User-uploaded images on messages |
 | `workflow_attachments` | LRU-3 byte-budget artifact cache for secondary workflows |
@@ -144,7 +152,8 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 - **Messages:** `/send` (SSE), `/continue`, `/edit`, `/fork-edit`, `/regenerate`, `/super_regenerate`, `/magic_rewrite`, `/switch-branch`, DELETE
 - **Characters:** CRUD + `/import` (PNG), `/import-url`, `/browse`, `/export`, `/expressions`
 - **Fragments/Moods:** `/api/fragments`, `/api/interactive-fragments`
-- **Worlds/Lorebook:** CRUD under `/api/worlds/{id}/entries` + `/import` + `/export` (standalone `character_book` JSON — V2 shape plus the additive V3 `use_regex`/`selective`/`secondary_keys` keys)
+- **Worlds/Lorebook:** CRUD under `/api/worlds/{id}/entries` (`?view=all|authored|effective`) + `/import` + `/export` (standalone `character_book` JSON — V2 shape plus the additive V3 `use_regex`/`selective`/`secondary_keys` keys; `?view=authored` is the default and `effective` is opt-in, as it is for `/api/characters/{id}/export?world_view=`). `POST /api/worlds/deactivate-linked` is the client's boot sweep: a World a character card links to is on loan to whoever is in play, so a fresh page (nobody in play) turns every linked World off before the sidebar paints; floating Worlds are global lore and survive a reload untouched. It stamps neither `updated_at` nor `content_revision`
+- **Dynamic Worlds:** `PUT /api/worlds/{id}/dynamic`, `POST /api/worlds/{id}/reset`, and `/api/worlds/{id}/changesets` + `/{cid}/apply|reject|re-evaluate|undo`. Apply takes a per-World lock and a `BEGIN IMMEDIATE` transaction and refuses on a `content_revision` mismatch (`409`) — there is no force-apply and no automatic rebase
 - **Phrase bank, Personas, Presets, Documents:** standard CRUD
 - **Workflows:** `/api/workflows`, trigger/regenerate/reroll/rehydrate/activate/delete on attachments. `reroll` and `rehydrate` share one `reroll_gen` hook and differ by one declared bit, `RerollGenCtx.replay`: rehydrate reproduces the stored render target, reroll re-renders the same subject on today's configuration. Only regenerate recomposes prompts
 - **Image generation:** backend-agnostic readiness/styles/connection/model discovery via the conversation-less workflow QUERY route (`POST /api/workflows/image_gen/query`, `action` = status\|styles\|test\|models\|node_types). Generation uses the conversation-scoped workflow trigger
@@ -174,9 +183,9 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 ./scripts/tests.sh all       # Full test suite
 ```
 
-## Context Management
+## Multi-user and tab management
 
-Full active message path sent every turn — no automatic truncation. Manual compress: `POST /summarize` → review → `POST /compress` → new conversation with summary + last N messages.
+We do NOT support multi users nor multiple open tabs at the same time. tabLock.js stops this from happening.
 
 ## Golden Rules for Codebase health
 1. Symmetry

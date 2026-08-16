@@ -441,6 +441,78 @@ def build_direction_note_prompt(
     return "\n\n".join(parts) + "]"
 
 
+WORLD_CHANGE_PREAMBLE = (
+    "[OOC: Pause the roleplay and step out of character. You look after the lorebooks below. Read the "
+    "exchange above and decide whether it established anything that belongs in one of them -- each "
+    "lorebook's name says what it is for. leave the operations list empty when the turn gave you nothing to file."
+)
+
+# A lorebook is whatever its owner named it -- a setting, a cast, a file of facts
+# about the user -- so these say what an *entry* is, never what a world is. The
+# exclusions still carry the weight: without them a model files every gesture and
+# intention, and the review queue becomes noise.
+#
+# Two of them answer observed failures rather than theory. The reply is the
+# step's own prose, and a model reads its own prior turn as settled fact: left
+# unsaid, it files a suggestion the user has not answered yet -- and, on an
+# assistant-style book, cannot have answered, since the confirming turn is the
+# one after this step runs. And an entry is worth more the less it churns, so
+# "already covered" has to resolve to silence, not to a reworded revision.
+WORLD_CHANGE_RULES = (
+    "An entry is something that stays true once the moment has passed -- what would still need to be "
+    "known by someone who never saw this exchange. The chat history already keeps the rest, and most "
+    "turns establish nothing: proposing nothing is the ordinary answer, not a failure.\n"
+    "- Record it only if the exchange established it -- not a plan, a guess, or something merely "
+    "considered. The reply above is your own: what you offered, suggested or supposed in it is not "
+    "established until the user takes it up.\n"
+    "- Keep a claim a claim: what was rumoured, doubted or asserted by one character is filed as that.\n"
+    "- State it plainly in a sentence or two. This is a note, not prose.\n"
+    "- Revise an entry only when it has become wrong. Never to reword it, to top it up with detail, or "
+    "to restate what it already covers -- leave it alone and propose nothing."
+)
+
+WORLD_CHANGE_CATALOG_HEADER = (
+    "**The lorebooks** -- each `## heading` is one lorebook, and shows the stable `world_id` a new entry "
+    "puts in `target_world` when more than one is listed. Entry ids are stable too: name one exactly when "
+    "revising or retracting it."
+)
+
+
+def build_world_change_prompt(
+    catalog: str,
+    *,
+    original_user_message: str = "",
+    reasoning_on: bool = False,
+    tool_schema: dict | None = None,
+) -> str:
+    """Build the request message for the post-turn Dynamic Worlds proposal step.
+
+    The exchange itself is not quoted here: the step replays the writer's user
+    message and the *final* reply (post-editor, post-hook) as the two messages
+    immediately above this request, so it both reads the prose that will actually
+    be persisted and extends the warm writer/editor prefix.
+
+    *original_user_message* is passed only on the steered paths
+    (super-regenerate, magic rewrite), where the replayed user turn is Orb's own
+    OOC steering instruction rather than anything the user said in the fiction.
+    A steer directs the writer; it is not an event in the world, so the step is
+    told to judge the original message instead.
+    """
+    preamble = WORLD_CHANGE_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
+    parts = [preamble, WORLD_CHANGE_RULES]
+    if original_user_message:
+        parts.append(
+            "The user turn above is Orb's own instruction to the writer, not something the user said. "
+            f'Judge this as the user\'s message instead:\n"""{original_user_message}"""'
+        )
+    if catalog:
+        parts.append(f"{WORLD_CHANGE_CATALOG_HEADER}\n{catalog}")
+    if tool_schema is not None:
+        parts.append(_tool_call_instruction("propose_world_changes", tool_schema))
+    # Close the [OOC: aside opened in WORLD_CHANGE_PREAMBLE; the whole request is the aside.
+    return "\n\n".join(parts) + "]"
+
+
 def build_editor_prompt(
     has_audit_issues: bool,
     report_text: str,

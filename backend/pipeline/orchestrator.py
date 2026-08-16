@@ -31,8 +31,9 @@ from .passes.director import direction_note_step, director_stage
 from .passes.editor import editor_stage
 from .passes.writer import writer_stage
 from .predicates import direction_note_recording_active
-from .state import LorebookTurn, TurnState
+from .state import LorebookTurn, TurnState, WorldProposalTurn
 from .workflow_bridge import _PostPipelineResult, _run_post_pipeline
+from .world_proposal import world_proposal_stage
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,7 @@ async def _run_pipeline(
     schema_overrides: Mapping[str, dict],
     history: Sequence[Mapping[str, Any]] | None = None,
     lorebook: LorebookTurn | None = None,
+    world_proposal: WorldProposalTurn | None = None,
 ) -> AsyncIterator[dict]:
     """Run the director → writer → editor passes for one turn.
 
@@ -312,6 +314,24 @@ async def _run_pipeline(
                 ),
                 state,
                 "editor",
+            ),
+        ):
+            yield ev
+
+    # --- Dynamic Worlds proposal step ---
+    # Last, deliberately: it judges the prose that will actually be persisted, so
+    # it has to sit after the editor and after any draft-rewriting post-pipeline
+    # hook. Same skip conditions as the post-turn notes step -- an empty draft has
+    # nothing to derive world state from, and a stop must not start a fresh call.
+    if world_proposal is not None and state.resp_text.strip() and not client.is_aborted:
+        async for ev in _staged(
+            STAGE_EDITOR,
+            world_proposal_stage(
+                cfg,
+                state,
+                settings=settings,
+                turn=world_proposal,
+                kv_tracker=kv_tracker,
             ),
         ):
             yield ev

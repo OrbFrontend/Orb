@@ -19,7 +19,7 @@ patching ``backend.inference.client.LLMClient``.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
@@ -34,6 +34,7 @@ from ..database.models import (
     PhraseGroup,
     SettingsRow,
     UserPersonaRow,
+    WorldRow,
 )
 from ..features.lorebook import (
     agentic_lorebook_active,
@@ -52,8 +53,8 @@ from ..inference import (
     separate_agent_lane_configured,
 )
 from .config import _build_writer_tools_blob
-from .predicates import agent_enabled, resolve_persona_id
-from .state import LorebookTurn
+from .predicates import agent_enabled, resolve_persona_id, world_proposal_active
+from .state import LorebookTurn, WorldProposalTurn
 from .workflow_bridge import _iterate_pre_pipeline_hooks
 
 
@@ -86,6 +87,10 @@ class PipelineContext:
     active_persona: UserPersonaRow | None
     agent_client: LLMClient | None
     agent_system_prompt: str | None
+    # Every World row, unfiltered. Read by the Dynamic Worlds stage, which
+    # narrows it to its mutation targets through ``world_proposal_active`` --
+    # the enabled Worlds that opted in, i.e. the ones whose lore fed this turn.
+    worlds: list[WorldRow] = field(default_factory=list)
 
 
 async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
@@ -121,6 +126,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     interactive_fragments += [f for f in card_interactive if f["id"] not in {g["id"] for g in interactive_fragments}]
     phrase_bank = await db.get_phrase_bank()
     lorebook_entries = await db.get_active_lorebook_entries()
+    worlds = await db.get_worlds()
     client = client_from_settings(settings, abort_token=abort_token)
 
     system_prompt, char_persona, mes_example = await db.resolve_char_context(conv, settings, card=card)
@@ -149,6 +155,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         active_persona=active_persona,
         agent_client=agent_client,
         agent_system_prompt=agent_system_prompt,
+        worlds=worlds,
     )
 
 
@@ -268,6 +275,9 @@ class _TurnSetup:
     turn_scratch: dict
     kv_tracker: _KVCacheTracker
     schema_overrides: Mapping[str, dict]
+    # Identity of the Worlds this turn may propose changes to; None when no
+    # enabled World has opted in to Dynamic Worlds.
+    world_proposal: WorldProposalTurn | None = None
 
 
 async def _prepare_turn(
@@ -326,10 +336,30 @@ async def _prepare_turn(
         depth_block=compute_depth_lorebook_block(ctx.lorebook_entries, macros),
     )
 
+    # Resolved before the tools blob is built: enabling propose_world_changes is
+    # what emits its schema into the shared per-turn blob, so the decision has to
+    # be made once, up front, and hold for every cached call in the turn.
+    proposal_world_ids = tuple(str(w["id"]) for w in ctx.worlds if world_proposal_active(w, agent_on=agent_enabled(settings)))
+    world_proposal = (
+        WorldProposalTurn(
+            world_ids=proposal_world_ids,
+            conversation_id=conversation_id,
+            user_message=last_user_message,
+            character_label=(ctx.card or {}).get("name", "") or ctx.conv.get("character_name", ""),
+            conversation_label=ctx.conv.get("title", "") or "",
+        )
+        if proposal_world_ids
+        else None
+    )
+
     # Builds direct_scene + optionally give_feedback; must be called once so all
     # passes get byte-identical tool blobs (KV cache Invariants 3 & 5).
     overrides = _build_writer_tools_blob(
-        settings, ctx.interactive_fragments, enabled_tools_pre_merge, agentic_lorebook=agentic_active
+        settings,
+        ctx.interactive_fragments,
+        enabled_tools_pre_merge,
+        agentic_lorebook=agentic_active,
+        dynamic_world=world_proposal is not None,
     )
     schema_overrides = MappingProxyType(overrides)
     accumulators = {
@@ -370,4 +400,5 @@ async def _prepare_turn(
         turn_scratch=turn_scratch,
         kv_tracker=kv_tracker,
         schema_overrides=schema_overrides,
+        world_proposal=world_proposal,
     )

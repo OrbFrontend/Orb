@@ -107,6 +107,113 @@ SELECT_LOREBOOK_TOOL = {
 SELECT_LOREBOOK_CHOICE = {"type": "function", "function": {"name": "select_lorebook"}}
 
 
+_PROPOSE_WORLD_CHANGES_DESCRIPTION = (
+    "Propose entries to add or change in the lorebooks, from what just happened. Nothing is "
+    "written until the user reviews and accepts the proposal, so propose only what is worth "
+    "their attention. Leave the operations list empty when there is nothing to record."
+)
+
+# The Dynamic Worlds proposal tool. Like `select_lorebook`, a fixed schema
+# registered statically and enabled per-turn by a feature gate, never by the
+# user's tool toggles. It chooses only between `constant` and `keywords`
+# activation -- every other lorebook field keeps a safe default the user can
+# edit afterwards through the normal reviewed path, which keeps this schema (and
+# therefore the shared per-turn tool blob) small and stable.
+#
+# Every field is one more thing a model can get wrong, so this asks only for
+# what the model alone knows: `op` offers three verbs rather than the five the
+# table stores (`validate_proposal` derives the stored one from the target row),
+# and `rationale` comes first so a model emitting properties in schema order
+# writes the justification before the change it justifies rather than after.
+#
+# Property order is load-bearing the other way round at the top level:
+# `operations` precedes `summary`. The call is forced, so a model that writes a
+# summary first has already declared a proposal exists, and an empty operations
+# list then contradicts the sentence it just wrote -- it fills one in. Enumerate
+# first, describe second, and proposing nothing stays available all the way
+# through the call.
+PROPOSE_WORLD_CHANGES_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "propose_world_changes",
+        "description": _PROPOSE_WORLD_CHANGES_DESCRIPTION,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operations": {
+                    "type": "array",
+                    "description": "One entry per proposed change. Empty when nothing durable happened.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "rationale": {
+                                "type": "string",
+                                "description": "Why this belongs in the lorebook rather than only in the chat history.",
+                            },
+                            "op": {
+                                "type": "string",
+                                "enum": ["create", "revise", "retract"],
+                                "description": (
+                                    "create: something no entry covers yet. revise: the entry named below is "
+                                    "now wrong, supply what it should say instead. retract: the entry named below "
+                                    "no longer holds and nothing takes its place."
+                                ),
+                            },
+                            "target_entry_id": {
+                                "type": "integer",
+                                "description": (
+                                    "The id of the entry being revised or retracted, exactly as listed in the "
+                                    "catalog. Omit for create."
+                                ),
+                            },
+                            "target_world": {
+                                "type": "string",
+                                "description": (
+                                    "For create only: the stable world_id shown in the destination lorebook's "
+                                    "catalog heading. Required when the catalog lists more than one lorebook. "
+                                    "Omit for every other op -- those go wherever the entry they name already is."
+                                ),
+                            },
+                            "name": {
+                                "type": "string",
+                                "description": (
+                                    "Short title for the entry, e.g. the person, place or fact it covers. Omit for retract."
+                                ),
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "The note itself, stated plainly in one or two sentences. Omit for retract.",
+                            },
+                            "activation": {
+                                "type": "string",
+                                "enum": ["constant", "keywords"],
+                                "description": (
+                                    "constant: something that must be known on every turn. "
+                                    "keywords: about one person, place or thing, shown when it comes up."
+                                ),
+                            },
+                            "keywords": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Words that should bring this entry back. Required for keywords activation.",
+                            },
+                        },
+                        "required": ["rationale", "op"],
+                    },
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "One short sentence describing the operations listed above, for the review card.",
+                },
+            },
+            "required": [],
+        },
+    },
+}
+
+PROPOSE_WORLD_CHANGES_CHOICE = {"type": "function", "function": {"name": "propose_world_changes"}}
+
+
 _GIVE_FEEDBACK_DESCRIPTION = (
     "Step out of character and give the user an out-of-character note about the reply that was "
     "just written. This note is shown to the user, not used to write the story."
@@ -290,6 +397,14 @@ TOOLS: dict[str, dict] = {
         "choice": SELECT_LOREBOOK_CHOICE,
         "schema": SELECT_LOREBOOK_TOOL,
     },
+    # Internal, flag-gated (never user-toggleable). Enabled for the turn when the
+    # conversation's linked World has Dynamic Worlds on (see _build_writer_tools_blob);
+    # its fixed schema rides the shared blob so the post-turn proposal step reuses
+    # the cached base. The catalog of existing entries rides that step's OOC trailing.
+    "propose_world_changes": {
+        "choice": PROPOSE_WORLD_CHANGES_CHOICE,
+        "schema": PROPOSE_WORLD_CHANGES_TOOL,
+    },
 }
 
 # Built-in tool names declared as a literal and asserted equal to TOOLS keys at
@@ -301,6 +416,7 @@ BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
         "editor_apply_patch",
         "editor_rewrite",
         "give_feedback",
+        "propose_world_changes",
         "record_direction_note",
         "select_lorebook",
     }
@@ -313,10 +429,18 @@ assert BUILTIN_TOOL_NAMES == frozenset(TOOLS.keys()), "BUILTIN_TOOL_NAMES drift 
 # the internal forced-step tools that ride the shared per-turn blob (Invariant 3)
 # but must NOT be offered to or triggered by the director loop — give_feedback
 # (post-writer feedback step), record_direction_note (its own step, pre- or
-# post-writer), and select_lorebook (the pre-writer agentic-lorebook select step).
+# post-writer), select_lorebook (the pre-writer agentic-lorebook select step), and
+# propose_world_changes (the post-turn Dynamic Worlds proposal step).
 # So "POST" here means "not a director-loop tool," not a literal pipeline phase.
 PRE_WRITER_TOOLS = {"direct_scene"}
-POST_WRITER_TOOLS = {"editor_apply_patch", "editor_rewrite", "give_feedback", "record_direction_note", "select_lorebook"}
+POST_WRITER_TOOLS = {
+    "editor_apply_patch",
+    "editor_rewrite",
+    "give_feedback",
+    "propose_world_changes",
+    "record_direction_note",
+    "select_lorebook",
+}
 
 assert PRE_WRITER_TOOLS.isdisjoint(POST_WRITER_TOOLS), "phase sets overlap"
 assert PRE_WRITER_TOOLS | POST_WRITER_TOOLS == BUILTIN_TOOL_NAMES, "phase sets must partition built-ins"

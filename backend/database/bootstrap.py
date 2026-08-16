@@ -18,9 +18,10 @@ async def init_db():
     """Create the latest schema for fresh installs and seed empty tables.
 
     Schema *evolution* (column adds, table renames, backfills) lives in
-    ``backend/database/migrations/`` and is applied separately by
-    ``run_pending`` after this function returns. Keep this file focused on
-    fresh-install shape + seed data only.
+    ``backend/database/migrations/``. Startup applies that chain *before* this
+    function on an existing database, because the latest schema script may
+    create an index that names a newly-migrated column. Keep this file focused
+    on fresh-install shape + seed data only.
     """
     async with get_db() as db:
         await db.executescript(CREATE_TABLES_SQL)

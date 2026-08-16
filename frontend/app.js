@@ -22,6 +22,7 @@ import {
   loadConversations,
   loadWorkflowManifest,
   newConvForChar,
+  refreshConversationMessages,
   regenerate,
   renderMessages,
   saveEdit,
@@ -121,8 +122,10 @@ import {
   closeLorebook,
   collapseWorlds,
   createWorld,
+  deactivateLinkedWorlds,
   deleteWorld,
   expandWorlds,
+  initWorldProposalActions,
   lbAddEntry,
   lbBackToList,
   lbDeleteEntry,
@@ -138,6 +141,7 @@ import {
   onWorldSearch,
   openLorebook,
   renameWorld,
+  setWorldProposalRefresh,
   showCreateWorldModal,
   showRenameWorldModal,
   toggleWorldEnabled,
@@ -510,6 +514,18 @@ async function initAll() {
     console.error("Failed to load characters:", e);
   }
 
+  // The proposal card lives under a chat reply but every world mutation is
+  // lorebooks.js's; hand it the chat's refetch rather than have it import up.
+  setWorldProposalRefresh(refreshConversationMessages);
+  initWorldProposalActions();
+  // Character-linked lorebooks are scoped to whoever is in play, and a fresh
+  // page has nobody in play yet — retire them before the sidebar paints. A
+  // floating lorebook is global lore and survives the reload untouched.
+  try {
+    await deactivateLinkedWorlds();
+  } catch (e) {
+    console.error("Failed to deactivate linked worlds:", e);
+  }
   try {
     await loadWorlds();
   } catch (e) {

@@ -30,8 +30,10 @@ from ..database import (
     get_lorebook_entry,
     get_workflow_attachment_by_id,
     get_world,
+    get_world_changeset,
 )
 from ..database.models import ConversationRow
+from ..features import lorebook
 from ..inference import AbortToken
 from ..workflows import WorkflowEventStream, public_event_error
 
@@ -413,6 +415,35 @@ async def require_lorebook_entry(entry_id: int, world: dict = Depends(require_wo
     if not entry or entry.get("world_id") != world["id"]:
         raise HTTPException(status_code=404, detail="Entry not found")
     return entry
+
+
+async def require_changeset(changeset_id: int, world: dict = Depends(require_world)) -> Mapping[str, Any]:  # noqa: B008
+    """Load a world changeset, scoped to the World in the path.
+
+    Scoped rather than looked up by bare id so a changeset id from one World can
+    never be decided through another World's route.
+    """
+    changeset = await get_world_changeset(changeset_id)
+    if not changeset or changeset.get("world_id") != world["id"]:
+        raise HTTPException(status_code=404, detail="Changeset not found")
+    return changeset
+
+
+def project_lorebook_view(entries: Sequence[Mapping[str, Any]], view: str) -> list[Mapping[str, Any]]:
+    """One of the views a caller may ask a World's rows for.
+
+    ``all`` is both layers raw, archived overlay rows included, so the drawer can
+    label them and show history. ``effective`` is the projection the prompt
+    actually sees. ``authored`` is the user-owned layer alone.
+
+    Defined here, beside the other route-facing lorebook helpers, because three
+    routes ask the same question -- the entry list, the standalone lorebook
+    export, and the ``character_book`` embedded in a card export -- and a fourth
+    reading of what "authored" means is exactly the drift this prevents.
+    """
+    if view == "authored":
+        return [e for e in entries if e.get("entry_layer") != "dynamic"]
+    return list(lorebook.select_effective_entries(entries)) if view == "effective" else list(entries)
 
 
 # A V3 entry may open with decorator lines (`@@depth 4`, `@@@fallback`, …).

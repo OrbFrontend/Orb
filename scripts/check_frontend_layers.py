@@ -44,6 +44,9 @@ LAYERS = {
     "workflow_registry.js": 1,
     "utils.js": 1,
     "notify.js": 1,
+    # Pure render/state helpers for the Dynamic Worlds review surface; imports
+    # only utils.js, so it sits alongside it rather than with the features.
+    "world_proposals.js": 1,
     # L2 services.
     "tabLock.js": 2,
     "audio_schedule.js": 2,

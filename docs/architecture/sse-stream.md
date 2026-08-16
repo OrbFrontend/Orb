@@ -64,10 +64,11 @@ A typical `/send` turn with reasoning on (Director + Writer), an Editor pass, an
 | 8 | `editor_done` | BE→FE | `{ "tool_calls": [...] }` | Merges editor tool calls into the inspector. |
 | 9 | `feedback` | BE→FE | `{ "values": {...} }` | *Optional.* User-facing notes; display-only, re-renders the inspector. |
 | 10 | `direction_notes` | BE→FE | `{ "notes": [...] }` | *Optional.* The Director's persistent notes recorded this turn; display-only, re-renders the inspector's Direction Notes block. |
-| 11 | `phase_status`, `tts_autoplay`, … | BE→FE | varies | Secondary-workflow passthrough (see §6). |
-| 12 | `warning` | BE→FE | `{ "headline": "…", "sentence": "…", "kind": "workflow", "workflow_id": "…" }` | *Optional, non-terminal.* A secondary-workflow hook raised a `WorkflowUserFacingError`; the turn continues. FE shows a sticky error toast. |
-| 13 | `error` | BE→FE | a JSON object (see §7), or a bare string from a legacy emitter | **Terminal.** FE stores it in `S.turnError` and paints the failure card. |
-| 14 | `done` | BE→FE | *(none)* | Terminal. Stream closes; FE runs `afterStream()`. |
+| 11 | `world_change_proposed` | BE→FE | `{ "message_id": 412, "changeset": {...} }` | *Optional, repeatable.* The Agent staged a **pending** Dynamic Worlds proposal against this reply. One event per changeset — the payload names a single World, and one turn may propose to several. Nothing is applied and nothing is lore yet; FE flags a full repaint so the review cards paint under the finished bubble. Emitted after the assistant row is persisted and before `done`. |
+| 12 | `phase_status`, `tts_autoplay`, … | BE→FE | varies | Secondary-workflow passthrough (see §6). |
+| 13 | `warning` | BE→FE | `{ "headline": "…", "sentence": "…", "kind": "workflow", "workflow_id": "…" }` | *Optional, non-terminal.* A secondary-workflow hook raised a `WorkflowUserFacingError`; the turn continues. FE shows a sticky error toast. |
+| 14 | `error` | BE→FE | a JSON object (see §7), or a bare string from a legacy emitter | **Terminal.** FE stores it in `S.turnError` and paints the failure card. |
+| 15 | `done` | BE→FE | *(none)* | Terminal. Stream closes; FE runs `afterStream()`. |
 
 The only event whose `data` is **not** JSON is `token` — it's a raw text delta, with newlines escaped to `\n` and un-escaped on arrival. (`error` is the one dual-shape channel: JSON from the pipeline handlers, a bare string from the pre-pipeline guards listed in §7.)
 
@@ -122,4 +123,4 @@ To prevent collisions, the orchestrator drops any hook attempt to emit a reserve
 
 `handle_turn` is the entry point for `/send` and `/continue`, but regenerate, fork-edit, super-regenerate, and magic-rewrite all stream through the **same** `_sse_stream` wrapper and emit the **same** event vocabulary. That's why the frontend dispatcher is written once: learn the events here and you've learned every chat route.
 
-The whole contract, in one sentence: **one `POST` opens an SSE stream; the backend pushes control (`user_message_created`, `done`, `error`), meta (`director_*`, `writer_done`, `writer_rewrite`, `editor_done`, `feedback`, `reasoning`, workflow events), and `token` events; the frontend routes each by name in one switch; underscore-prefixed events stay server-side.**
+The whole contract, in one sentence: **one `POST` opens an SSE stream; the backend pushes control (`user_message_created`, `done`, `error`), meta (`director_*`, `writer_done`, `writer_rewrite`, `editor_done`, `feedback`, `reasoning`, `world_change_proposed`, workflow events), and `token` events; the frontend routes each by name in one switch; underscore-prefixed events stay server-side.**
