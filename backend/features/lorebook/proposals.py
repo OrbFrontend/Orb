@@ -30,18 +30,15 @@ from ...inference.lorebook import (
     select_keyword_entries,
 )
 
-# What a *stored* operation may say. The applier and the undo builder dispatch
-# on these, so this is the vocabulary of the table, not the one the model is
-# asked for.
-OPERATIONS = ("create", "replace", "suppress", "update", "archive")
 ACTIVATIONS = ("constant", "keywords")
 
 # What the model is asked for (see ``PROPOSE_WORLD_CHANGES_TOOL``): three verbs,
-# where `revise` and `retract` each cover two stored operations. Which one an
-# operation becomes is decided by the layer of the row it targets, so the model
-# is never asked to tell authored lore from the overlay. Stored names are
-# accepted as synonyms too, since a changeset re-validated on accept comes back
-# in the table's vocabulary.
+# where `revise` and `retract` each cover two of the five operations the table
+# stores (create/replace/suppress/update/archive — the vocabulary the applier and
+# the undo builder dispatch on). Which one an operation becomes is decided by the
+# layer of the row it targets, so the model is never asked to tell authored lore
+# from the overlay. Stored names are accepted as synonyms too, since a changeset
+# re-validated on accept comes back in the table's vocabulary.
 _REVISE_OPS = ("revise", "replace", "update")
 _RETRACT_OPS = ("retract", "suppress", "archive")
 _TARGETING_OPS = frozenset(_REVISE_OPS + _RETRACT_OPS)
@@ -330,7 +327,7 @@ def validate_proposal(
     target and to update/archive against a dynamic one (the Agent may never
     modify or delete an authored row, so there is no operation that could). The
     layer comes from the row, never from the call, so the returned ``op`` is
-    always one of :data:`OPERATIONS` whichever synonym came in.
+    always one of the five stored operations whichever synonym came in.
 
     Each check below carries the reason it rejects on. Only one is a *repair*
     rather than a rejection: keyword activation with no keywords takes the
@@ -417,6 +414,15 @@ def validate_proposal(
                 result.rejected.append((index, f"entry {target} is already targeted by an earlier operation"))
                 continue
             if op in _REVISE_OPS:
+                # A suppression marker injects nothing *by construction* -- the
+                # projection drops it whatever it says -- so rewriting one would
+                # bump the revision, retire nothing and publish nothing, while
+                # leaving its authored target hidden. The catalog lists live
+                # markers so the Agent can *retract* one, which is what brings
+                # the authored entry back; a revise of one is always a no-op.
+                if row.get("overlay_action") == "suppress":
+                    result.rejected.append((index, f"entry {target} is a suppression marker; it can only be retracted"))
+                    continue
                 op = "update" if dynamic_target else "replace"
             else:
                 op = "archive" if dynamic_target else "suppress"
@@ -462,9 +468,16 @@ def validate_proposal(
                 result.rejected.append((index, f"{op} needs both a name and content"))
                 continue
 
-            # An update inherits from its target whatever it does not restate;
-            # every other op starts from nothing, so its fallback is the default.
-            fallback: Mapping[str, Any] = target_row if op == "update" else {}
+            # A revise inherits from the row it targets whatever it does not
+            # restate -- `update` against a dynamic row, `replace` against an
+            # authored one. Both are the model's single `revise` verb, and *when*
+            # an entry shows is a property of the lore being revised rather than
+            # of the layer it happens to sit in: a replacement that quietly
+            # dropped its target's `constant` would take a fact the World knew
+            # every turn and make it conditional, and one that dropped its
+            # keywords would stop answering to the words that used to summon it.
+            # A `create` stands on its own, so its fallback is the default.
+            fallback: Mapping[str, Any] = target_row if op in ("update", "replace") else {}
             activation = _clean_str(raw.get("activation")).lower()
             if activation not in ACTIVATIONS:
                 activation = "constant" if fallback.get("constant") else "keywords"

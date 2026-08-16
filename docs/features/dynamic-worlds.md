@@ -33,7 +33,7 @@ It can answer three ways per entry:
 | **Revise** | An existing entry is now wrong; here's what it should say |
 | **Retract** | An existing entry no longer holds, and nothing replaces it |
 
-Each proposed entry says how it should activate — **Always in context** (constant) or **Keyword-activated** — and carries a one-line rationale for why it belongs in the World instead of just in the chat history.
+Each proposed entry says how it should activate — **Always in context** (constant) or **Keyword-activated** — and carries a one-line rationale for why it belongs in the World instead of just in the chat history. A revise that doesn't say inherits how the entry it revises already activated, so correcting what an entry says never quietly changes when it shows.
 
 The instructions it works under are deliberately narrow: an entry is something that stays true once the moment has passed, stated plainly in a sentence or two. Plans, guesses, and things merely considered don't count. Neither does rewording an entry that's already right. **Most turns propose nothing, and that's the expected answer** — a failed or empty proposal costs you nothing and never touches the reply.
 
@@ -69,7 +69,7 @@ There is no force-apply and no automatic merge. Two changes can touch different 
 
 ## History and undo
 
-The **History** tab lists everything decided — applied, rejected, undone — with the character and date it came from.
+The **History** tab lists everything decided — applied, rejected, undone, and proposals replaced by a re-evaluation — each row leading with the state it ended in, plus the character and date it came from.
 
 An applied change keeps an **Undo** button while every entry it wrote still matches what it wrote. Edit one of those entries by hand and the undo is refused rather than clobbering your edit.
 

@@ -151,13 +151,19 @@ export function messageProposalsHtml(msg) {
   return open.length ? open.map(proposalCardHtml).join("") : "";
 }
 
-/** A one-line summary of a changeset for the drawer's Pending / History lists. */
+/** A one-line summary of a changeset for the drawer's Pending / History lists.
+ *
+ * The status leads the meta line because it is the one thing the row cannot be
+ * read without: History stacks applied, rejected, undone and superseded items
+ * together, and every other field of an accepted change reads identically to a
+ * discarded one. The buttons are not that signal — most decided states offer
+ * none at all. */
 export function changesetRowHtml(cs) {
   const ops = cs.operations || [];
   const count = `${ops.length} change${ops.length === 1 ? "" : "s"}`;
   const source = cs.source_character_label || cs.source_conversation_label || "";
   const when = (cs.applied_at || cs.decided_at || cs.created_at || "").slice(0, 10);
-  const meta = [count, source, when].filter(Boolean).join(" · ");
+  const meta = [STATUS_LABELS[cs.status] || cs.status || "", count, source, when].filter(Boolean).join(" · ");
   return `
     <div class="wc-row wc-${escAttr(cs.status)}" data-wc-id="${escAttr(cs.id)}" data-wc-world="${escAttr(cs.world_id)}">
       <div class="wc-row-main">

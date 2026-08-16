@@ -195,9 +195,16 @@ async def reevaluate_changeset(changeset: Mapping[str, Any]):
     agent_client, model = agent_lane_from_settings(settings, writer_client=client)
     base = CachedBase(
         prefix=tuple(prefix),
-        # The same enabled blob a live turn on this conversation would send, so
-        # the re-evaluation extends that conversation's warm cached bottom
-        # instead of paying for a fresh prefix.
+        # The stored toggles plus this step's own tool. Deliberately *not* a
+        # reconstruction of the turn's shared blob: that one carries per-turn
+        # schema overrides (`direct_scene` widened by the interactive fragments,
+        # `give_feedback`) and transiently-enabled tools, so reproducing it means
+        # duplicating `_prepare_turn`'s assembly with nothing pinning the copy —
+        # and a copy that is almost right buys exactly as little as this does.
+        # So a re-evaluation re-ingests the prefix rather than riding the
+        # conversation's warm cache. It is a rare, explicitly requested action
+        # that already spends a generation; the *turn* stage is the one that had
+        # to be free, and it is (it reuses the blob it was built into).
         tools=tuple(enabled_schemas({**(settings.get("enabled_tools") or {}), "propose_world_changes": True})),
         model=model,
         resolve=macros.resolve_prompt_messages,

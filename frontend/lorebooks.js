@@ -918,10 +918,14 @@ let _drawerTab = "entries"; // entries | pending | history
 
 // The two drawer tabs that list changesets instead of the entry editor, as
 // `[statuses, emptyText]`. A stale proposal lists under Pending, not History:
-// it is still a decision the user owes, not one they have made.
+// it is still a decision the user owes, not one they have made. `superseded` is
+// history like the rest — a re-evaluation that answered "nothing left to
+// propose" resolves the original without applying or rejecting it, and leaving
+// that state out of both tabs is the one way a proposal can vanish from the app
+// entirely. Mirrors the server's own `?status=history` grouping.
 const _CHANGESET_TABS = {
   pending: [["pending", "stale"], "No proposals waiting for review"],
-  history: [["applied", "rejected", "reverted"], "No decided changes yet"],
+  history: [["applied", "rejected", "reverted", "superseded"], "No decided changes yet"],
 };
 
 async function _loadChangesets(worldId) {

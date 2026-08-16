@@ -157,6 +157,15 @@ the schema keeps is one the model alone can supply; anything derivable from the
 World is derived, because a field that can disagree with the World is a field
 that can lose a proposal the user would have accepted.
 
+That derivation is why **a revise inherits its target's activation and keywords
+when it does not restate them**, on `replace` exactly as on `update`. The two
+are one verb to the model, which is never told which layer it is aiming at, so
+they cannot answer the same silence differently: a replacement that dropped its
+target's `constant` would take a fact the World knew every turn and quietly make
+it conditional, and one that dropped its keywords would stop answering to the
+words that used to summon the entry. Only `create` starts from the defaults —
+there is no target to read.
+
 **Re-evaluate stays single-World.** A changeset belongs to one World, so
 re-deriving it re-runs the step against that World alone: the user is re-judging
 *this* proposal, and opening a second World's queue from that click would be a
@@ -171,7 +180,11 @@ the entry's own name becomes its key.
 
 The proposal catalog is the one projection-adjacent management view: it also
 lists live `suppress` markers (which inject no lore) so the Agent can name and
-archive one if later events make its authored target true again.
+archive one if later events make its authored target true again. Retracting one
+is therefore the *only* thing it may do to a marker — a revise of one is
+rejected, because the projection drops a `suppress` row whatever it says, so
+rewriting one would bump the revision, publish nothing and leave the authored
+target hidden: an accept the user could never see the effect of.
 
 ---
 

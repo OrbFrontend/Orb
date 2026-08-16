@@ -161,7 +161,15 @@ async def accept_changeset(
                 checked.rejected,
             )
         if not checked.operations:
-            raise db.OverlayStateConflict("no operation in this changeset still applies to the world")
+            # *operations* may be a batch the user just edited, so "nothing
+            # applies" is as often a field they blanked as a World that moved on.
+            # The first rejection names which -- and the bare sentence would send
+            # them hunting through the World for a conflict they did not cause.
+            raise db.OverlayStateConflict(
+                f"no operation in this changeset can be applied: {checked.rejected[0][1]}"
+                if checked.rejected
+                else "no operation in this changeset still applies to the world"
+            )
         return await db.apply_changeset(
             int(changeset["id"]),
             checked.operations,

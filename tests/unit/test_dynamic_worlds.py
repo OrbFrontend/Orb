@@ -348,6 +348,18 @@ class TestValidateProposal:
         (op,) = validate_proposal({"operations": [_op(op="retract", target_entry_id=9)]}, entries).operations
         assert op["op"] == "archive"
 
+    def test_a_suppression_marker_may_only_be_retracted_never_revised(self):
+        """Rewriting a marker would apply cleanly and publish nothing.
+
+        The projection drops a `suppress` row whatever it says, so an accepted
+        revise of one would bump the revision, leave the authored target hidden
+        and show the user no change at all.
+        """
+        entries = [_authored(1, "A"), _dynamic(9, "A", "suppress", 1, content="")]
+        result = validate_proposal({"operations": [_op(op="revise", target_entry_id=9)]}, entries)
+        assert result.is_empty
+        assert "suppression marker" in result.rejected[0][1]
+
     def test_an_unknown_or_already_hidden_target_is_rejected(self):
         entries = [_authored(1, "A"), _dynamic(9, "A", "suppress", 1, content="")]
         assert validate_proposal({"operations": [_op(op="revise", target_entry_id=404)]}, entries).is_empty
@@ -449,6 +461,51 @@ class TestValidateProposal:
         entries = [_dynamic(9, "Mara", "add")]
         result = validate_proposal({"operations": [{"op": "update", "target_entry_id": 9}]}, entries)
         assert result.is_empty
+
+    def test_a_replace_inherits_its_authored_targets_activation_and_keywords(self):
+        """One `revise` verb, one answer to silence, whichever layer it lands in.
+
+        A replacement stands in for the entry it hides, so correcting what that
+        entry *says* must not quietly change *when* it shows: a constant fact
+        would become conditional, and a keyworded one would stop answering to
+        the words that used to summon it.
+        """
+        entries = [
+            _authored(1, "Bridge", "stands", constant=True),
+            _authored(2, "Gorge", "deep", keywords=["gorge", "chasm"]),
+        ]
+        constant_op, keyword_op = validate_proposal(
+            {
+                "operations": [
+                    {"op": "revise", "target_entry_id": 1, "name": "Bridge", "content": "collapsed", "rationale": "r"},
+                    {"op": "revise", "target_entry_id": 2, "name": "Gorge", "content": "flooded", "rationale": "r"},
+                ]
+            },
+            entries,
+        ).operations
+        assert constant_op["op"] == "replace"
+        assert constant_op["activation"] == "constant" and constant_op["keywords"] == []
+        assert keyword_op["activation"] == "keywords" and keyword_op["keywords"] == ["gorge", "chasm"]
+
+    def test_a_replace_that_states_its_activation_still_wins(self):
+        entries = [_authored(1, "Bridge", "stands", constant=True)]
+        (op,) = validate_proposal(
+            {
+                "operations": [
+                    {
+                        "op": "revise",
+                        "target_entry_id": 1,
+                        "name": "Bridge",
+                        "content": "collapsed",
+                        "activation": "keywords",
+                        "keywords": ["span"],
+                        "rationale": "r",
+                    }
+                ]
+            },
+            entries,
+        ).operations
+        assert op["activation"] == "keywords" and op["keywords"] == ["span"]
 
     def test_suppress_inherits_its_targets_name(self):
         entries = [_authored(1, "Bridge")]

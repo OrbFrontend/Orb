@@ -5,26 +5,30 @@
 // which actions, what a before/after actually shows for each operation, and
 // that a pending proposal never leaks into anything that reads as applied lore.
 import assert from "node:assert/strict";
-import { before, test } from "node:test";
+import { test } from "node:test";
 
 // `esc` escapes through a detached DOM node, so node needs the same minimal
 // stand-in the utils escaping test installs. Escaping *behaviour* is that
 // test's subject; here it only has to not throw.
-before(() => {
-  globalThis.document = {
-    createElement() {
-      return {
-        innerHTML: "",
-        set textContent(value) {
-          this.innerHTML = String(value)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;");
-        },
-      };
-    },
-  };
-});
+//
+// Installed as a plain module-scope statement rather than a top-level `before()`
+// hook: whether such a hook runs ahead of top-level tests is a node-version
+// detail (it does not on 19.x, where every escaping test in this file then dies
+// on `document is not defined`). Module evaluation always precedes them, and
+// nothing below calls `esc` at import time.
+globalThis.document = {
+  createElement() {
+    return {
+      innerHTML: "",
+      set textContent(value) {
+        this.innerHTML = String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      },
+    };
+  },
+};
 
 import {
   actionsHtml,
@@ -235,6 +239,15 @@ test("a drawer row summarises the change, its source and its date", () => {
   assert.match(html, /Guide/);
   assert.match(html, /2026-08-10/);
   assert.match(html, /data-wc-action="undo"/);
+});
+
+// History stacks four terminal states together and most of them offer no
+// button, so the row has to say which one it is or an accepted change reads
+// exactly like a discarded one.
+test("a drawer row leads with the state it ended in", () => {
+  for (const status of ["applied", "rejected", "reverted", "superseded", "stale", "pending"]) {
+    assert.match(changesetRowHtml(changeset({ status })), new RegExp(STATUS_LABELS[status]));
+  }
 });
 
 test("a drawer row falls back to the first operation when there is no summary", () => {
