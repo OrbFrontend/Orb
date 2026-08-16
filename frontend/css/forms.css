@@ -60,11 +60,16 @@ button {
 .btn-row { display: flex; gap: 4px; }
 
 /* Toggle switch */
+/* The switch is a control, not a field caption, so it opts out of the bare
+   `label` rule's margin-bottom below. Left in, that margin rides along in the
+   flex-item margin box and `align-items: center` centres the switch 2px high in
+   every row that holds one. */
 .tog {
   position: relative;
   display: inline-block;
   width: 32px;
   height: 18px;
+  margin: 0;
   flex-shrink: 0;
 }
 
