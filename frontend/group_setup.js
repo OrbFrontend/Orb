@@ -54,7 +54,9 @@ function modeOptions(selected) {
 // the disclosure below carries the explanation for all three at once.
 function contextModeOptions(selected) {
   return Object.entries(CONTEXT_MODES)
-    .map(([value, mode]) => `<option value="${value}"${value === selected ? " selected" : ""}>${esc(mode.label)}</option>`)
+    .map(
+      ([value, mode]) => `<option value="${value}"${value === selected ? " selected" : ""}>${esc(mode.label)}</option>`,
+    )
     .join("");
 }
 
@@ -421,6 +423,8 @@ function renderChatActionMenus() {
   for (const item of document.querySelectorAll("[data-chat-action]")) {
     item.hidden = !visible[item.dataset.chatAction];
   }
+  // The header's ••• only has group actions to offer, so a solo scene hides it.
+  $("chat-overflow-btn").hidden = !grouped;
 }
 
 export function renderGroupCast() {

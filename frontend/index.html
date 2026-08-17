@@ -106,15 +106,14 @@
         <button class="btn btn-sm" id="user-profile-btn" onclick="showUserModal()" title="User profile" aria-label="User profile">👤</button>
         <button class="btn btn-sm" id="tools-panel-btn" onclick="toggleToolsPanel()" title="Agentic Tools & Workflows">✨ Workflow</button>
         <button class="btn btn-sm hidden" id="direction-notes-panel-btn" onclick="toggleDirectionNotesPanel()" title="Direction Notes">📝 Notes</button>
+        <button class="btn btn-sm" id="inspector-toggle" data-chat-action="inspector" title="Inspector" aria-label="Inspector">🔍 Inspector</button>
         <!-- Secondary scene actions. Wired via addEventListener in app.js (no new
              inline handlers); each item's data-chat-action is the whole contract.
              The group/solo items are shown by renderChatActionMenus(). -->
-        <button class="btn btn-sm" id="chat-overflow-btn" title="More actions" aria-label="More actions" aria-haspopup="true" aria-expanded="false">•••</button>
+        <button class="btn btn-sm" id="chat-overflow-btn" hidden title="More actions" aria-label="More actions" aria-haspopup="true" aria-expanded="false">•••</button>
         <div id="chat-overflow-menu">
           <div class="burger-menu-item" data-chat-action="group-settings" hidden><span class="burger-icon">⚙️</span>Group settings</div>
           <div class="burger-menu-item" data-chat-action="manage-cast" hidden><span class="burger-icon">👥</span>Manage cast</div>
-          <div class="burger-menu-item" data-chat-action="convert-to-group" hidden><span class="burger-icon">👥</span>Convert to group</div>
-          <div class="burger-menu-item" id="inspector-toggle" data-chat-action="inspector"><span class="burger-icon">🔍</span>Inspector</div>
         </div>
         <button id="mobile-chat-actions-toggle" onclick="toggleMobileHeaderActions()" title="Quick actions">⋯</button>
         <div id="mobile-chat-actions-menu">
@@ -122,7 +121,6 @@
           <div class="burger-menu-item" onclick="closeMobileHeaderActions();toggleToolsPanel()">✨ Workflow</div>
           <div class="burger-menu-item" data-chat-action="group-settings" hidden>⚙️ Group settings</div>
           <div class="burger-menu-item" data-chat-action="manage-cast" hidden>👥 Manage cast</div>
-          <div class="burger-menu-item" data-chat-action="convert-to-group" hidden>👥 Convert to group</div>
           <div class="burger-menu-item" data-chat-action="inspector">🔍 Inspector</div>
           <div class="burger-menu-item hidden" id="mobile-direction-notes-btn" onclick="closeMobileHeaderActions();toggleDirectionNotesPanel()">📝 Notes</div>
         </div>
@@ -142,6 +140,7 @@
     <div id="chat-input-area">
       <div id="burger-dropdown">
         <div class="burger-menu-item" onclick="closeBurger();newConvForChar(S.activeCharId)"><span class="burger-icon">✚</span>New conversation</div>
+        <div class="burger-menu-item" data-chat-action="convert-to-group" hidden><span class="burger-icon">👥</span>Convert to group</div>
         <div class="burger-menu-item" onclick="closeBurger();showConvHistoryModal()"><span class="burger-icon">📋</span>Conversations</div>
         <div class="burger-menu-item" onclick="closeBurger();showCompressModal()"><span class="burger-icon">📦</span>Compress History</div>
         <div class="burger-menu-item" onclick="closeBurger();createCheckpoint()"><span class="burger-icon">🔖</span>Create Checkpoint</div>

@@ -256,6 +256,7 @@ $("chat-overflow-btn")?.addEventListener("click", () => {
 document.addEventListener("click", (e) => {
   const item = e.target.closest("[data-chat-action]");
   if (item) {
+    closeBurger();
     closeChatOverflow();
     closeMobileHeaderActions();
     if (item.dataset.chatAction === "inspector") toggleInspector();

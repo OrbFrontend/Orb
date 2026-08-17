@@ -168,6 +168,7 @@ body {
      desktop ••• overflow's items. */
   #user-profile-btn,
   #tools-panel-btn,
+  #inspector-toggle,
   #chat-overflow-btn,
   #direction-notes-panel-btn {
     display: none;
