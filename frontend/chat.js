@@ -23,6 +23,7 @@ export {
   generateCompressionSummary,
   handleTitleEditKey,
   loadConversations,
+  newConversationHere,
   newConvForChar,
   resetChatUI,
   saveTitleEdit,

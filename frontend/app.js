@@ -21,6 +21,7 @@ import {
   initWorkflowMutationListener,
   loadConversations,
   loadWorkflowManifest,
+  newConversationHere,
   newConvForChar,
   refreshConversationMessages,
   regenerate,
@@ -396,6 +397,7 @@ Object.assign(window, {
   closeCropModal,
   // conversations
   newConvForChar,
+  newConversationHere,
   selectConversation,
   deleteConversationFromModal,
   showConvHistoryModal,

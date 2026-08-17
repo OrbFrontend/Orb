@@ -61,6 +61,48 @@ export function overrideIsOneShot() {
   return S.groupCast?.turn_mode !== "manual";
 }
 
+// ── Group families ──────────────────────────────────────────────────────────
+// A group is one *family* of conversations, not one conversation: Checkpoint and
+// Compress History both fork the scene, and every fork carries the root's id in
+// `group_root_id`. A root stores null and keys on itself, so these three are the
+// only place that fallback is written — everything downstream keys on the value
+// `groupRootId` returns.
+
+export function groupRootId(conv) {
+  return conv?.group_root_id || conv?.id || null;
+}
+
+// Every conversation in *rootId*'s family, keeping the caller's order. The
+// conversation list arrives sorted by last activity, so the first entry is the
+// one to reopen and the last is the family's quietest.
+export function groupFamily(conversations, rootId) {
+  return (conversations || []).filter((conv) => conv.kind === "group" && groupRootId(conv) === rootId);
+}
+
+// One entry per group, newest-active first, each carrying its family. The root
+// names the group — a checkpoint renaming itself "… (checkpoint)" must not
+// rename the group — while the most recently active member supplies the cast
+// line and is what a click opens, since rosters may have diverged since the fork.
+export function groupFamilies(conversations) {
+  const order = [];
+  const byRoot = new Map();
+  for (const conv of conversations || []) {
+    if (conv.kind !== "group") continue;
+    const rootId = groupRootId(conv);
+    if (!byRoot.has(rootId)) {
+      byRoot.set(rootId, []);
+      order.push(rootId);
+    }
+    byRoot.get(rootId).push(conv);
+  }
+  return order.map((rootId) => {
+    const members = byRoot.get(rootId);
+    // A family whose root was deleted mid-session still renders: the newest
+    // member stands in until the next list refresh reports the promotion.
+    return { rootId, newest: members[0], root: members.find((conv) => conv.id === rootId) || members[0], members };
+  });
+}
+
 export function memberFor(msg) {
   return msg?.speaker_member_id ? memberById(msg.speaker_member_id) : null;
 }

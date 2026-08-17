@@ -176,6 +176,13 @@
 
 .group-chat-item:hover { background: var(--bg-hover); }
 
+/* A row stands for the whole group, so it lights up for any conversation in the
+   family — the checkpoint you are reading is still this group. */
+.group-chat-item.active {
+  background: var(--accent-glow);
+  border: 1px solid var(--accent-dim);
+}
+
 .group-chat-select {
   display: flex;
   width: 100%;
@@ -239,6 +246,21 @@
   color: var(--text-muted);
   font-size: 10px;
   margin-top: 2px;
+}
+
+/* How many conversations the group holds. Only painted past one, so it reads as
+   "this scene has branched" rather than as a permanent decoration. */
+.group-chat-count {
+  align-self: center;
+  flex: 0 0 auto;
+  min-width: 17px;
+  padding: 1px 5px;
+  border-radius: 9px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-align: center;
 }
 
 .group-chat-delete {

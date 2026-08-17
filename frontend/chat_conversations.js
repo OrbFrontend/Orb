@@ -9,6 +9,7 @@ import { clearInspectedMessage, inspectMessage } from "./chat_messages.js";
 import { stopConversation } from "./chat_stream.js";
 import { resetWorkflowViewportState } from "./chat_workflow.js";
 import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
+import { groupFamily, groupRootId } from "./group_cast.js";
 import { loadGroupCast, renderGroupCast, renderGroupList } from "./group_setup.js";
 import { refreshCharacters, renderCharacters } from "./library.js";
 // Imported from library_fragments.js directly (like settings.js does): going
@@ -48,7 +49,7 @@ document.addEventListener("group-created", async (event) => {
   await selectConversation(event.detail);
 });
 document.addEventListener("group-selected", (event) => selectConversation(event.detail));
-document.addEventListener("group-delete-request", (event) => _deleteConversation(event.detail));
+document.addEventListener("group-delete-request", (event) => _deleteGroupFamily(event.detail));
 
 // Stash (or clear, with null) the active character's card-embedded fragments
 // for the sidepanel/inspector. Mirrors the backend merge rule: enabled only,
@@ -146,6 +147,33 @@ export async function newConvForChar(id) {
   }
 }
 
+// "New conversation" means the same thing in both scenes — start fresh with the
+// same cast — but a group has no `activeCharId` to start from, so the composer's
+// menu routes through here rather than assuming a character.
+export async function newConversationHere() {
+  const conv = S.conversations.find((c) => c.id === S.activeConvId);
+  if (conv?.kind !== "group") {
+    if (!S.activeCharId) {
+      toast("Select a character first", true);
+      return;
+    }
+    await newConvForChar(S.activeCharId);
+    return;
+  }
+  if (S.isStreaming) {
+    toast("Stop generation before starting a new conversation", true);
+    return;
+  }
+  try {
+    // Same roster and scene configuration, no history, same group.
+    const fresh = await api.post(convUrl(conv.id, "group-conversation"));
+    await loadConversations();
+    await selectConversation(fresh.id);
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
 export async function selectConversation(id) {
   if (S.isStreaming) {
     toast("Stop generation before switching conversations", true);
@@ -166,6 +194,9 @@ export async function selectConversation(id) {
     S.activeCharId = conv.character_card_id;
     renderCharacters();
   }
+  // A group row highlights for any conversation in its family, so switching
+  // between a scene and its checkpoint has to repaint the sidebar too.
+  renderGroupList();
   // The user button shows the persona in force here (pin → default); opening a
   // pinned conversation never mutates the global default.
   updateUserBtn();
@@ -273,33 +304,75 @@ function confirmDeleteConversation(id, msgCount, afterDelete) {
   );
 }
 
-async function _deleteConversation(id) {
-  const conv = S.conversations.find((c) => c.id === id);
-  confirmDeleteConversation(
-    id,
-    conv?.message_count ?? (S.activeConvId === id ? S.messages.length : null),
-    loadConversations,
+// The sidebar's × on a group. The row stands for the whole family now, and
+// unlike a character card — which outlives its chats as a reusable asset — a
+// group *is* its conversations, so there is nothing to keep behind after them.
+// The count is stated in the confirm because a branched group takes more with it
+// than the one scene the user is looking at.
+async function _deleteGroupFamily(rootId) {
+  const family = groupFamily(S.conversations, rootId);
+  if (!family.length) return;
+  const root = family.find((conv) => conv.id === rootId) || family[0];
+  const messages = family.reduce((total, conv) => total + (conv.message_count ?? 0), 0);
+  const scale =
+    family.length > 1
+      ? `${family.length} conversations · ${messages} message${messages !== 1 ? "s" : ""}`
+      : `${messages} message${messages !== 1 ? "s" : ""} in this conversation`;
+  showConfirmModal(
+    {
+      title: "Delete Group",
+      message: `Delete "${root.title}" and everything in it?`,
+      confirmText: "Delete",
+      extraHtml: `<p style="color:var(--text-muted);font-size:0.88em;margin-top:8px">${esc(scale)}</p>`,
+    },
+    async () => {
+      try {
+        await api.del(convUrl(root.id, "group"));
+        if (family.some((conv) => conv.id === S.activeConvId)) resetChatUI();
+        await loadConversations();
+      } catch (e) {
+        toast(e.message, true);
+      }
+    },
   );
 }
 
-export async function deleteConversationFromModal(id) {
+export async function deleteConversationFromModal(id, rootId = "") {
   const conv = S.conversations.find((c) => c.id === id);
-  confirmDeleteConversation(id, conv?.message_count ?? null, showConvHistoryModal);
+  // Re-open the list in the scope it was deleted from: a group's family survives
+  // losing the conversation the modal happened to be opened from.
+  confirmDeleteConversation(id, conv?.message_count ?? null, () =>
+    showConvHistoryModal(rootId ? { groupRootId: rootId } : null),
+  );
 }
 
-export async function showConvHistoryModal() {
-  if (!S.activeCharId) {
+// What the Conversations list is scoped to. A group scopes to its family, a solo
+// chat to its character's conversations. Captured when the modal opens so a
+// refresh after a delete keeps looking at the same set.
+function convHistoryScope() {
+  const conv = S.conversations.find((c) => c.id === S.activeConvId);
+  if (conv?.kind === "group") return { groupRootId: groupRootId(conv) };
+  return S.activeCharId ? { charId: S.activeCharId } : null;
+}
+
+export async function showConvHistoryModal(scope = null) {
+  const target = scope || convHistoryScope();
+  if (!target) {
     toast("Select a character first", true);
     return;
   }
   await loadConversations();
-  const convs = S.conversations.filter((c) => c.character_card_id === S.activeCharId);
+  const convs = target.groupRootId
+    ? groupFamily(S.conversations, target.groupRootId)
+    : S.conversations.filter((c) => c.character_card_id === target.charId);
   if (!convs.length) {
     toast("No conversations yet", true);
     return;
   }
-  const char = S.characters.find((c) => c.id === S.activeCharId);
-  const charName = char ? char.name : "Character";
+  const scopeName = target.groupRootId
+    ? convs.find((c) => c.id === target.groupRootId)?.title || convs[0].title || "Group"
+    : S.characters.find((c) => c.id === target.charId)?.name || "Character";
+  const rootAttr = target.groupRootId || "";
   const items = convs
     .map((c) => {
       const isActive = c.id === S.activeConvId;
@@ -316,7 +389,7 @@ export async function showConvHistoryModal() {
       <div class="conv-history-meta">
         <span class="conv-history-title">${title}</span>
         <span class="conv-history-date">${formatRelativeDate(ts)}</span>
-        <button class="conv-history-delete" title="Delete conversation" onclick="event.stopPropagation();deleteConversationFromModal('${c.id}')">&#x2715;</button>
+        <button class="conv-history-delete" title="Delete conversation" onclick="event.stopPropagation();deleteConversationFromModal('${c.id}','${rootAttr}')">&#x2715;</button>
       </div>
       ${
         preview
@@ -328,7 +401,7 @@ export async function showConvHistoryModal() {
     })
     .join("");
   showModal(`
-    <h2>Conversations — ${esc(charName)}</h2>
+    <h2>Conversations — ${esc(scopeName)}</h2>
     <div class="modal-list">${items}</div>
     <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>`);
 }
@@ -337,6 +410,9 @@ export async function showConvHistoryModal() {
 // conversation. User uploads, director state, and inspector logs are carried;
 // alternate branches and workflow-generated artifacts are not. The user stays in
 // the current chat (the copy is a snapshot to branch from later).
+//
+// A group checkpoint joins the group's family rather than founding a second
+// group, so the sidebar keeps one row and the copy shows up in the list below.
 export async function createCheckpoint() {
   if (!S.activeConvId) {
     toast("No active conversation", true);

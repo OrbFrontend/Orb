@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import cast
 
-from ..connection import _build_set_clause, get_db
+from ..connection import _build_set_clause, get_db, immediate_tx
 from ..models import ConversationListRow, ConversationRow
 
 
@@ -55,6 +55,16 @@ async def list_conversations() -> list[ConversationListRow]:
             item["group_member_names"] = json.loads(item.get("group_member_names") or "[]")
             out.append(cast(ConversationListRow, item))
         return out
+
+
+def group_root_of(conv: ConversationRow) -> str:
+    """The id of the group family *conv* belongs to.
+
+    A root stores NULL and is its own family key, so every read of the column
+    goes through here rather than repeating the fallback. Meaningless for solo
+    conversations, which have no family; callers gate on ``kind`` first.
+    """
+    return str(conv.get("group_root_id") or conv["id"])
 
 
 async def get_conversation(cid: str) -> ConversationRow | None:
@@ -120,6 +130,10 @@ async def fork_conversation(source: ConversationRow, new_title: str) -> str:
     Messages, branches, director state and logs are *not* copied -- the caller
     appends whatever slice of the source it intends to carry.
 
+    A group fork joins ``source``'s family rather than founding one: a
+    checkpoint is a branch of the group, not a second group, and the sidebar
+    reads that lineage to keep showing one entry per group.
+
     The copy pins ``macro_seed`` to the source's effective seed so seeded
     {{random}} picks in per-turn-rebuilt prompt fields (persona, scenario)
     stay byte-identical to the history being carried, instead of re-rolling
@@ -152,6 +166,7 @@ async def fork_conversation(source: ConversationRow, new_title: str) -> str:
             context_mode=source.get("group_context_mode", "private"),
             persona_lock_id=source.get("persona_lock_id"),
             macro_seed=source.get("macro_seed") or source["id"],
+            group_root_id=group_root_of(source),
         )
     else:
         await create_conversation(
@@ -168,10 +183,66 @@ async def fork_conversation(source: ConversationRow, new_title: str) -> str:
 
 
 async def delete_conversation(cid: str) -> bool:
-    async with get_db() as db:
+    """Delete one conversation, keeping the rest of its group family together.
+
+    Deleting the root of a family would otherwise strand its forks: the FK
+    clears their ``group_root_id`` and each one surfaces as a separate group --
+    exactly the duplication the lineage exists to prevent. So the oldest
+    survivor is promoted to root and the others re-pointed at it first, in one
+    transaction with the delete.
+    """
+    async with immediate_tx() as db:
+        rows = list(
+            await db.execute_fetchall(
+                "SELECT id, kind, group_root_id FROM conversations WHERE id = ?",
+                (cid,),
+            )
+        )
+        if not rows:
+            return False
+        conv = dict(rows[0])
+        # Only a root has children to rehome; a fork's siblings point elsewhere.
+        if conv["kind"] == "group" and not conv["group_root_id"]:
+            children = list(
+                await db.execute_fetchall(
+                    "SELECT id FROM conversations WHERE group_root_id = ? ORDER BY created_at, id",
+                    (cid,),
+                )
+            )
+            if children:
+                heir = children[0]["id"]
+                await db.execute("UPDATE conversations SET group_root_id = NULL WHERE id = ?", (heir,))
+                await db.execute(
+                    "UPDATE conversations SET group_root_id = ? WHERE group_root_id = ? AND id != ?",
+                    (heir, cid, heir),
+                )
         cur = await db.execute("DELETE FROM conversations WHERE id = ?", (cid,))
-        await db.commit()
         return cur.rowcount > 0
+
+
+async def delete_group_family(root_cid: str) -> int:
+    """Delete a whole group family -- the root and every fork taken from it.
+
+    What the sidebar's × means once one row stands for the whole group. Unlike a
+    character card, a group has no existence apart from its conversations, so
+    there is nothing to keep behind after they go.
+    """
+    async with immediate_tx() as db:
+        cur = await db.execute(
+            "DELETE FROM conversations WHERE id = ? OR group_root_id = ?",
+            (root_cid, root_cid),
+        )
+        return cur.rowcount
+
+
+async def group_family_ids(root_cid: str) -> list[str]:
+    """Every conversation in a family, oldest first, root included."""
+    async with get_db() as db:
+        rows = await db.execute_fetchall(
+            "SELECT id FROM conversations WHERE id = ? OR group_root_id = ? ORDER BY created_at, id",
+            (root_cid, root_cid),
+        )
+    return [str(row["id"]) for row in rows]
 
 
 async def touch_conversation(cid: str) -> bool:

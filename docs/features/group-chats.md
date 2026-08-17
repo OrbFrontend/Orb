@@ -7,6 +7,34 @@ the ordered `group_members` roster. Assistant messages store a member identity
 through the member only when current card data, an avatar, or a workflow profile
 is needed.
 
+## Group families
+
+A group is one *family* of conversations, not one conversation.
+`conversations.group_root_id` names the conversation a family descends from;
+NULL means the row **is** that root, so a plain group needs no write there and
+only forks carry a value. `group_root_of()` (backend) and `groupRootId()`
+(`group_cast.js`) are the only places that fallback is expressed.
+
+Checkpoint and Compress History both fork a group, so without lineage each one
+produced a second entry under **Groups** and the roster looked like a property of
+the conversation rather than of the group. Every fork now joins the source's
+family instead, and the family is **flat**: a checkpoint of a checkpoint points
+at the root, never at its parent, so the grouping stays a single key rather than
+a chain to walk. Rosters are still per-conversation and are copied at fork time
+with new member UUIDs — a checkpoint is a snapshot of the cast as well as of the
+history, and editing one scene's cast never reaches back into its siblings.
+
+Deleting a conversation keeps its family together: `delete_conversation`
+promotes the oldest survivor to root and re-points the others first, because the
+FK's `ON DELETE SET NULL` would otherwise scatter the forks back into one sidebar
+entry each. `DELETE …/group` is the other direction — the whole family at once,
+which is what the sidebar's × means now that one row stands for the group.
+Unlike a character card, which outlives its chats as a reusable asset, a group
+has no existence apart from its conversations.
+
+Solo conversations never carry a family; a solo fork leaves the column NULL, and
+converting a solo chat to a group founds a family of one.
+
 ## Character context modes
 
 `conversations.group_context_mode` decides which character information every
@@ -113,6 +141,8 @@ group routes are:
 
 - `GET|PUT /api/conversations/{cid}/members`
 - `POST /api/conversations/{cid}/convert-to-group`
+- `POST /api/conversations/{cid}/group-conversation`
+- `DELETE /api/conversations/{cid}/group`
 - `POST /api/conversations/{cid}/speak`
 - `POST /api/conversations/{cid}/activate`
 - `PUT /api/characters/{card_id}/public-profile`
@@ -161,8 +191,23 @@ planned or streaming; a single speaker is announced by its cast chip, and a rest
 (`[]`) is reported as a toast. `Convert to group` is a solo-conversation action
 and never renders inside a group.
 
+The sidebar paints **one row per group**, not per conversation. The row takes its
+name from the family's root — a checkpoint renaming itself must not rename the
+group — while the avatars, cast line and the conversation a click opens all come
+from the family's most recently active member, whose roster is the one currently
+in play. A count appears only once a group has branched, since every group starts
+at one. The row highlights for any conversation in the family, so a checkpoint
+still reads as "this group".
+
+The composer's `•••` is conversation-scoped and asks the *scene* what it is:
+`New conversation` starts an empty scene with the same cast in the same family
+(`POST …/group-conversation`), and `Conversations` lists the family rather than a
+character's chats. Both fall back to the character scope in a solo chat; a group
+has no `activeCharId` to key on.
+
 Checkpoint and compression copy the full active/historical roster with new
-member UUIDs and remap copied message identities. Compression summaries have no
+member UUIDs, remap copied message identities, and keep the copy in the source's
+group family. Compression summaries have no
 speaker member and render as `Summary`; the summary prompt itself receives
 speaker-labelled history. Both forks carry `group_context_mode`, exactly as they
 carry the turn mode and speaker cap.

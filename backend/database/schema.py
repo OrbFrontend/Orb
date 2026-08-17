@@ -81,8 +81,16 @@ CREATE TABLE IF NOT EXISTS conversations (
     kind TEXT NOT NULL DEFAULT 'solo' CHECK (kind IN ('solo', 'group')),
     group_turn_mode TEXT NOT NULL DEFAULT 'director' CHECK (group_turn_mode IN ('manual', 'round_robin', 'director')),
     group_max_speakers INTEGER NOT NULL DEFAULT 3 CHECK (group_max_speakers BETWEEN 1 AND 8),
-    group_context_mode TEXT NOT NULL DEFAULT 'private' CHECK (group_context_mode IN ('private', 'shared', 'swap'))
+    group_context_mode TEXT NOT NULL DEFAULT 'private' CHECK (group_context_mode IN ('private', 'shared', 'swap')),
+    -- Which group this conversation belongs to: the id of the conversation the
+    -- family descends from. NULL means "I am that root", so a plain group needs
+    -- no write here and only forks carry a value. ON DELETE SET NULL is the
+    -- floor, not the plan -- delete_conversation() promotes a surviving child
+    -- to root first, so a family outlives the conversation it started as.
+    group_root_id TEXT DEFAULT NULL REFERENCES conversations(id) ON DELETE SET NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_conversations_group_root ON conversations(group_root_id);
 
 CREATE TABLE IF NOT EXISTS character_cards (
     id TEXT PRIMARY KEY,

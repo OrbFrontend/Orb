@@ -5,6 +5,8 @@ import {
   castRailHtml,
   contextMode,
   eligibleMembers,
+  groupFamilies,
+  groupRootId,
   memberAvatar,
   overrideIsOneShot,
   speakingPlanHtml,
@@ -163,9 +165,17 @@ function showGroupCreate() {
 function showGroupSettings() {
   if (!S.groupCast || !S.activeConvId) return;
   const conv = S.conversations.find((item) => item.id === S.activeConvId);
+  const rootId = groupRootId(conv);
+  // Every setting here is per-scene, the title included — but the sidebar names
+  // the group after the scene it started as, so a fork has to say where its own
+  // name will and won't show up rather than letting the rename look broken.
+  const root = rootId === conv?.id ? null : S.conversations.find((item) => item.id === rootId);
+  const lineage = root
+    ? `<p class="modal-hint">This scene is part of <b>${esc(root.title)}</b>, which keeps that name in the sidebar. Renaming here renames this scene only.</p>`
+    : "";
   showModal(`<h2>Group settings</h2>
     <div class="field"><label for="group-settings-title">Scene title</label>
-      <input id="group-settings-title" value="${escAttr(conv?.title || "")}"></div>
+      <input id="group-settings-title" value="${escAttr(conv?.title || "")}">${lineage}</div>
     <h3 class="modal-section">Character context</h3>
     <div class="field"><label for="group-settings-context">${esc(CONTEXT_LABEL)}</label>
       <select id="group-settings-context">${contextModeOptions(S.groupCast.context_mode)}</select></div>
@@ -187,7 +197,9 @@ function showGroupSettings() {
   $("group-settings-cancel")?.addEventListener("click", closeModal);
   $("group-settings-delete")?.addEventListener("click", () => {
     closeModal();
-    document.dispatchEvent(new CustomEvent("group-delete-request", { detail: S.activeConvId }));
+    // The whole group, not just the scene in front of us — so the request
+    // carries the family's root, exactly as the sidebar's × does.
+    document.dispatchEvent(new CustomEvent("group-delete-request", { detail: rootId }));
   });
   $("group-settings-save")?.addEventListener("click", async () => {
     if (S.castSetupBusy) return;
@@ -486,15 +498,19 @@ export function consumeSpeakerOverride() {
   renderGroupCast();
 }
 
+// One row per group, not per conversation. A checkpoint is a branch of the
+// scene, so it belongs *inside* its group's row — reachable through the
+// conversations modal — rather than beside it as a second group.
 export function renderGroupList() {
   const list = $("group-chat-list");
   if (!list) return;
-  list.innerHTML = S.conversations
-    .filter((conv) => conv.kind === "group")
-    .map((conv) => {
-      const members = (conv.group_member_names || []).filter(Boolean);
-      const memberLine = members.length ? members.join(" · ") : "No active cast members";
-      const cardIds = conv.group_card_ids || [];
+  list.innerHTML = groupFamilies(S.conversations)
+    .map(({ rootId, root, newest, members }) => {
+      // Title from the root (the group's stable name), cast from the newest
+      // conversation (the one the click opens, whose roster may have moved on).
+      const names = (newest.group_member_names || []).filter(Boolean);
+      const memberLine = names.length ? names.join(" · ") : "No active cast members";
+      const cardIds = newest.group_card_ids || [];
       const shownCardIds = cardIds.slice(0, 3);
       const avatars = shownCardIds
         .map(
@@ -507,12 +523,21 @@ export function renderGroupList() {
         .join("");
       const remaining = cardIds.length - shownCardIds.length;
       const avatarStack = avatars || `<span class="group-chat-avatar group-chat-narrator">✒️</span>`;
-      return `<div class="group-chat-item">
-          <button type="button" class="group-chat-select" data-group-conversation-id="${escAttr(conv.id)}" title="Cast: ${escAttr(memberLine)}">
+      const open = members.some((conv) => conv.id === S.activeConvId);
+      // Silent at one conversation: the count is only news once the group has
+      // branched, and every group starts with exactly one.
+      const countBadge =
+        members.length > 1
+          ? `<span class="group-chat-count" title="${escAttr(`${members.length} conversations in this group`)}">${members.length}</span>`
+          : "";
+      const title = `Cast: ${memberLine}${members.length > 1 ? `\n${members.length} conversations — open the group, then ••• › Conversations` : ""}`;
+      return `<div class="group-chat-item${open ? " active" : ""}">
+          <button type="button" class="group-chat-select" data-group-conversation-id="${escAttr(newest.id)}" title="${escAttr(title)}">
             <span class="group-chat-avatar-stack" aria-hidden="true">${avatarStack}${remaining ? `<span class="group-chat-avatar group-chat-overflow">+${remaining}</span>` : ""}</span>
-            <span class="group-chat-details"><span class="group-chat-title">${esc(conv.title)}</span><span class="group-chat-members">${esc(memberLine)}</span></span>
+            <span class="group-chat-details"><span class="group-chat-title">${esc(root.title)}</span><span class="group-chat-members">${esc(memberLine)}</span></span>
+            ${countBadge}
           </button>
-          <button type="button" class="btn-icon group-chat-delete" data-group-delete-conversation-id="${escAttr(conv.id)}" title="Delete group" aria-label="Delete group ${escAttr(conv.title)}">${SIDEBAR_CLOSE_ICON}</button>
+          <button type="button" class="btn-icon group-chat-delete" data-group-delete-root-id="${escAttr(rootId)}" title="Delete group" aria-label="Delete group ${escAttr(root.title)}">${SIDEBAR_CLOSE_ICON}</button>
         </div>`;
     })
     .join("");
@@ -582,10 +607,10 @@ export function initGroupSetup() {
   });
   $("new-group-btn")?.addEventListener("click", showGroupCreate);
   $("group-chat-list")?.addEventListener("click", (event) => {
-    const deleteButton = event.target.closest("[data-group-delete-conversation-id]");
+    const deleteButton = event.target.closest("[data-group-delete-root-id]");
     if (deleteButton) {
       document.dispatchEvent(
-        new CustomEvent("group-delete-request", { detail: deleteButton.dataset.groupDeleteConversationId }),
+        new CustomEvent("group-delete-request", { detail: deleteButton.dataset.groupDeleteRootId }),
       );
       return;
     }

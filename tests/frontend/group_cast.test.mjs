@@ -32,6 +32,9 @@ import {
   castRailHtml,
   contextMode,
   eligibleMembers,
+  groupFamilies,
+  groupFamily,
+  groupRootId,
   joinNames,
   overrideIsOneShot,
   sceneEmptyStateHtml,
@@ -208,4 +211,65 @@ test("a display name cannot inject markup into the rail or the empty state", () 
   scene({ members: [{ id: "m9", display_name: '<img src=x onerror="boom()">' }] });
   assert.doesNotMatch(castRailHtml(), /<img src=x/);
   assert.doesNotMatch(sceneEmptyStateHtml(), /<img src=x/);
+});
+
+// ── Group families ──────────────────────────────────────────────────────────
+// A checkpoint of a group is a branch of that group. These cover the grouping
+// the sidebar reads: what a fork belongs to, and which conversation in a family
+// supplies the name and the click target.
+
+// Conversations arrive newest-active first, which is the order the sidebar and
+// the reopen-the-group click both depend on.
+const ROOT = { id: "g1", kind: "group", title: "Campfire", group_root_id: null };
+const FORK = { id: "g2", kind: "group", title: "Campfire (checkpoint)", group_root_id: "g1" };
+const OTHER = { id: "g3", kind: "group", title: "Elsewhere", group_root_id: null };
+const SOLO = { id: "s1", kind: "solo", title: "Ada", character_card_id: "c1" };
+
+test("a root keys on itself and a fork keys on the group it branched from", () => {
+  assert.equal(groupRootId(ROOT), "g1");
+  assert.equal(groupRootId(FORK), "g1");
+  assert.equal(groupRootId(null), null);
+});
+
+test("a family gathers every conversation of one group and nothing else", () => {
+  const all = [FORK, OTHER, ROOT, SOLO];
+  assert.deepEqual(
+    groupFamily(all, "g1").map((c) => c.id),
+    ["g2", "g1"],
+  );
+  assert.deepEqual(
+    groupFamily(all, "g3").map((c) => c.id),
+    ["g3"],
+  );
+});
+
+test("solo conversations never join a family", () => {
+  assert.deepEqual(groupFamily([SOLO], "s1"), []);
+  assert.deepEqual(groupFamilies([SOLO]), []);
+});
+
+test("each group collapses to one entry, ordered by its most recent conversation", () => {
+  const families = groupFamilies([FORK, OTHER, ROOT, SOLO]);
+  assert.deepEqual(
+    families.map((f) => f.rootId),
+    ["g1", "g3"],
+  );
+  assert.equal(families[0].members.length, 2);
+  // The root names the group; the newest conversation is what a click opens.
+  assert.equal(families[0].root.title, "Campfire");
+  assert.equal(families[0].newest.id, "g2");
+});
+
+test("a checkpoint taken from a checkpoint stays in the one family", () => {
+  const deep = { id: "g4", kind: "group", title: "Campfire (checkpoint)", group_root_id: "g1" };
+  const families = groupFamilies([deep, FORK, ROOT]);
+  assert.equal(families.length, 1);
+  assert.equal(families[0].members.length, 3);
+});
+
+test("a family whose root is missing still renders, led by its newest member", () => {
+  const families = groupFamilies([FORK]);
+  assert.equal(families.length, 1);
+  assert.equal(families[0].root.id, "g2");
+  assert.equal(families[0].newest.id, "g2");
 });

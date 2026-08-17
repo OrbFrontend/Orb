@@ -209,6 +209,10 @@ class ConversationRow(TypedDict):
     # Which character information every group generation carries; see
     # ``core.domain_types.GroupContextMode``. Stored but ignored when solo.
     group_context_mode: str
+    # The group family this conversation belongs to: the id of the conversation
+    # it descends from, or None when it *is* that root. Read it through
+    # ``group_root_of()`` rather than directly -- None is a value, not a gap.
+    group_root_id: str | None
 
 
 class GroupMemberRow(TypedDict):

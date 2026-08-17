@@ -57,8 +57,13 @@ async def create_group_conversation(
     greeting: str = "",
     greeting_speaker_key: str | None = None,
     macro_seed: str = "",
+    group_root_id: str | None = None,
 ) -> ConversationRow:
-    """Create the conversation, director state, roster, and greeting atomically."""
+    """Create the conversation, director state, roster, and greeting atomically.
+
+    ``group_root_id`` joins the new scene to an existing group family (see
+    ``fork_conversation``); the default founds a family of its own.
+    """
     active_cards = [
         str(spec["character_card_id"]) for spec in members if spec.get("character_card_id") and spec.get("active", True)
     ]
@@ -72,8 +77,8 @@ async def create_group_conversation(
             """INSERT INTO conversations
                (id, title, character_card_id, character_name, character_scenario,
                 post_history_instructions, persona_lock_id, macro_seed, created_at, updated_at,
-                kind, group_turn_mode, group_max_speakers, group_context_mode)
-               VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'group', ?, ?, ?)""",
+                kind, group_turn_mode, group_max_speakers, group_context_mode, group_root_id)
+               VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'group', ?, ?, ?, ?)""",
             (
                 cid,
                 title,
@@ -87,6 +92,7 @@ async def create_group_conversation(
                 turn_mode,
                 max_speakers,
                 context_mode,
+                group_root_id,
             ),
         )
         await db.execute(

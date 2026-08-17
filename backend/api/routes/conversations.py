@@ -25,6 +25,7 @@ from ...database import (
     create_group_conversation,
     delete_conversation,
     delete_direction_note,
+    delete_group_family,
     direction_note_projection,
     disable_character_linked_worlds,
     fork_conversation,
@@ -44,6 +45,7 @@ from ...database import (
     get_mood_fragments,
     get_settings,
     get_user_persona,
+    group_root_of,
     insert_alternate_greeting_swipes,
     list_conversations,
     mark_orphaned_changesets_stale,
@@ -232,6 +234,34 @@ async def api_convert_to_group(cid: str, _conv: ConversationRow = Depends(requir
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"conversation": await get_conversation(cid), "member": member}
+
+
+@router.post("/api/conversations/{cid}/group-conversation")
+async def api_new_group_conversation(cid: str, conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
+    """Start a fresh, empty conversation with the same cast, in the same family.
+
+    The group counterpart of "New conversation" on a character: same roster and
+    scene configuration, no history, and one more entry under the group the
+    sidebar already shows -- not a second group.
+    """
+    if conv.get("kind", "solo") != "group":
+        raise HTTPException(status_code=409, detail="Conversation is not a group")
+    new_cid = await fork_conversation(conv, conv.get("title") or "New scene")
+    return await get_conversation(new_cid)
+
+
+@router.delete("/api/conversations/{cid}/group")
+async def api_delete_group(cid: str, conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
+    """Delete a whole group -- every conversation in the family, root included.
+
+    ``cid`` may name any member; the family is resolved from its lineage, so the
+    sidebar can pass whichever conversation it currently has open.
+    """
+    if conv.get("kind", "solo") != "group":
+        raise HTTPException(status_code=409, detail="Conversation is not a group")
+    deleted = await delete_group_family(group_root_of(conv))
+    await mark_orphaned_changesets_stale()
+    return {"ok": True, "deleted": deleted}
 
 
 @router.post("/api/conversations/{cid}/activate")
