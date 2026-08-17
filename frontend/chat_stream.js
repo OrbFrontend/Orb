@@ -37,7 +37,7 @@ import {
   optimisticDropDirectionNotesFrom,
   renderDirectionNotesPanel,
 } from "./direction_notes_panel.js";
-import { renderGroupCast } from "./group_setup.js";
+import { consumeSpeakerOverride, renderGroupCast } from "./group_setup.js";
 import { refreshCharacters } from "./library.js";
 import { isUtilityPanelOpen } from "./panels.js";
 // Imported directly rather than via settings.js to avoid an import cycle
@@ -390,6 +390,12 @@ export async function afterStream() {
   }
   S.currentBeatId = null;
   S.currentSpeaker = null;
+  // A plan describes one beat. Keeping it past the beat would leave a stale
+  // strip above a finished scene, so it dies with the turn that produced it.
+  S.speakingPlan = null;
+  // The override named the speaker for a beat that has now produced replies;
+  // anything else (an aborted or failed turn) leaves it in place to retry with.
+  if (wasGroupBeat && S.completedBeatMessageIds.length) consumeSpeakerOverride();
   S.completedBeatMessageIds = [];
   renderGroupCast();
   clearInspectedMessage();
@@ -450,6 +456,9 @@ export async function processSSEStream(resp, container, holder, signal) {
         const parsed = JSON.parse(data);
         S.currentBeatId = parsed.beat_id;
         S.speakingPlan = Array.isArray(parsed.plan) ? parsed.plan : [];
+        // A rest produces no speaker and no bubble; without this the turn would
+        // simply end in silence, and the plan rail is gone by then.
+        if (!S.speakingPlan.length) toast("The scene rests — nobody replies to that.");
         renderGroupCast();
       } catch (_) {}
       continue;
@@ -919,12 +928,19 @@ export async function continueFromUser() {
   await runStreamRequest(convUrl(S.activeConvId, "continue"), agentPayload());
 }
 
-export async function speakAsPinned() {
-  if (!S.activeConvId || !S.pinnedSpeakerId || !canStartGeneration()) return;
-  await runStreamRequest(convUrl(S.activeConvId, "speak"), { speaker_member_id: S.pinnedSpeakerId });
+// Give a named member the floor now, with no user message in front of it. The
+// member is explicit rather than read from state: the empty-scene starter opens
+// with the first eligible member, which is not (and must not become) an override.
+export async function speakAsMember(memberId) {
+  if (!S.activeConvId || !memberId || !canStartGeneration(true)) return;
+  await runStreamRequest(convUrl(S.activeConvId, "speak"), { speaker_member_id: memberId });
 }
 
-document.addEventListener("group-speak-request", () => speakAsPinned());
+export async function speakAsPinned() {
+  await speakAsMember(S.pinnedSpeakerId);
+}
+
+document.addEventListener("group-speak-request", (event) => speakAsMember(event.detail || S.pinnedSpeakerId));
 
 // ── Send Message
 export async function sendMessage() {

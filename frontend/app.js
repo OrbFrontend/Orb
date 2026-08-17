@@ -234,6 +234,37 @@ document.addEventListener("click", (e) => {
   if (!e.target.closest("#burger-btn") && !e.target.closest("#burger-dropdown")) closeBurger();
 });
 
+// ── Chat header overflow (•••)
+// Secondary scene actions that must stay reachable without competing with the
+// primary ones. Items declare a data-chat-action and nothing else; the group
+// actions are handed to group_setup.js as events so the shell stays free of
+// feature imports. group_setup.js decides which items apply to this scene.
+function closeChatOverflow() {
+  const menu = $("chat-overflow-menu");
+  if (!menu) return;
+  menu.classList.remove("open");
+  $("chat-overflow-btn")?.setAttribute("aria-expanded", "false");
+}
+
+$("chat-overflow-btn")?.addEventListener("click", () => {
+  const menu = $("chat-overflow-menu");
+  const open = menu.classList.toggle("open");
+  $("chat-overflow-btn").setAttribute("aria-expanded", String(open));
+  closeBurger();
+});
+
+document.addEventListener("click", (e) => {
+  const item = e.target.closest("[data-chat-action]");
+  if (item) {
+    closeChatOverflow();
+    closeMobileHeaderActions();
+    if (item.dataset.chatAction === "inspector") toggleInspector();
+    else document.dispatchEvent(new CustomEvent(`${item.dataset.chatAction}-request`));
+    return;
+  }
+  if (!e.target.closest("#chat-overflow-btn")) closeChatOverflow();
+});
+
 // ── Image lightbox: click a generated image to pop it out full-screen; click
 // anywhere or press Escape to dismiss. Built as DOM nodes (not innerHTML) so the
 // data: src and alt need no escaping.

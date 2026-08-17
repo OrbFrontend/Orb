@@ -10,7 +10,7 @@ import {
   _renderWorkflowArtifacts,
   _renderWorkflowRejection,
 } from "./chat_workflow.js";
-import { speakerLabel } from "./group_cast.js";
+import { sceneEmptyStateHtml, speakerLabel } from "./group_cast.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, S, subscribe } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
@@ -30,9 +30,12 @@ import { segmentBody } from "./workflow_segmentation.js";
 import { markClickable } from "./workflow_text_interaction.js";
 import { messageProposalsHtml } from "./world_proposals.js";
 
-export function canStartGeneration() {
+// `speakerNamed` is for the paths that carry their own speaker (the reply-bar's
+// "let X speak now", the empty-scene starter): `Choose` mode blocks a turn that
+// has nobody to answer it, which those turns do not.
+export function canStartGeneration(speakerNamed = false) {
   if (S.isStreaming) return false;
-  if (S.groupCast?.turn_mode === "manual" && !S.pinnedSpeakerId) return false;
+  if (!speakerNamed && S.groupCast?.turn_mode === "manual" && !S.pinnedSpeakerId) return false;
   return requestSendPermission();
 }
 
@@ -342,8 +345,9 @@ export function renderMessages(forceBottom = false) {
             '<div class="empty-state"><div class="icon" id="home-greeting-icon">📜</div><div id="home-greeting">Select a character to begin</div><div class="stats-grid" id="home-stats-grid"></div></div>';
           renderHomeStats();
         } else if (!S.messages.length) {
-          ct.innerHTML =
-            '<div class="empty-state"><div class="icon">📜</div><div>Start writing to begin the scene</div></div>';
+          ct.innerHTML = S.groupCast
+            ? sceneEmptyStateHtml()
+            : '<div class="empty-state"><div class="icon">📜</div><div>Start writing to begin the scene</div></div>';
         } else {
           let msgs = S.messages;
           if (S.isStreaming && S.streamCutoffIndex != null) {

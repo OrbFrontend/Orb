@@ -1,0 +1,426 @@
+/* ═══════════════════════════════════════════
+   Group chats — cast rail, speaking plan, reply bar,
+   cast manager rows, and the creation picker.
+   ═══════════════════════════════════════════ */
+
+/* ── Cast rail ── */
+#group-cast-rail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.cast-member {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 3px 10px 3px 3px;
+  white-space: nowrap;
+  transition: border-color .15s, background .15s;
+}
+
+.cast-member:hover:not(:disabled) {
+  border-color: var(--accent-dim);
+}
+
+.cast-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.cast-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* The member picked to answer next — the same accent the reply bar names them in. */
+.cast-member.next {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
+}
+
+.cast-member.speaking {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-secondary));
+}
+
+.cast-member.muted {
+  opacity: .45;
+}
+
+.cast-manage {
+  border: 1px dashed var(--border);
+  background: none;
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.cast-manage:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-dim);
+}
+
+/* ── Speaking plan (multi-speaker beats only) ── */
+.group-speaking-plan {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 20px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.plan-pill {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  white-space: nowrap;
+}
+
+.plan-pill.active {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.plan-pill.done {
+  opacity: .55;
+}
+
+/* ── Reply bar ── */
+.group-reply-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.reply-label {
+  color: var(--text-muted);
+}
+
+.reply-strategy {
+  background: none;
+  border: none;
+  border-bottom: 1px dotted var(--border);
+  color: var(--text-secondary);
+  padding: 0 0 1px;
+  font-size: 12px;
+}
+
+.reply-strategy:hover {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent-dim);
+}
+
+/* The temporary override reads as a removable token, not a mode. */
+.reply-override {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+}
+
+.reply-clear {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  line-height: 1;
+  padding: 0 3px;
+  font-size: 14px;
+}
+
+.reply-clear:hover {
+  color: var(--text-primary);
+}
+
+.reply-hint {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Empty scene ── */
+.scene-starters {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.scene-starter {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  padding: 5px 14px;
+  font-family: var(--font-prose);
+  font-size: 13px;
+}
+
+.scene-starter:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-dim);
+}
+
+/* ── Header overflow menu ── */
+#chat-overflow-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 190px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .4);
+  overflow: hidden;
+  z-index: 50;
+  display: none;
+}
+
+#chat-overflow-menu.open {
+  display: block;
+}
+
+/* ── Cast manager ── */
+.cast-list {
+  display: grid;
+  gap: 6px;
+  max-height: 45vh;
+  overflow: auto;
+}
+
+.cast-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto auto 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.cast-row.dragging {
+  opacity: .5;
+}
+
+.cast-drag {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: grab;
+  padding: 2px 4px;
+  line-height: 1;
+}
+
+.cast-drag:active {
+  cursor: grabbing;
+}
+
+/* A control, not a field caption: it opts out of the bare `label` rule's caps,
+   tracking, and bottom margin — the last of which offsets it inside the row's
+   `align-items: center`. */
+.cast-reply-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 0;
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.cast-row-more {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 2px 4px;
+  line-height: 1;
+}
+
+.cast-row-more:hover {
+  color: var(--text-primary);
+}
+
+.cast-row-menu {
+  position: absolute;
+  top: 34px;
+  right: 6px;
+  min-width: 170px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .4);
+  overflow: hidden;
+  z-index: 5;
+  display: none;
+}
+
+.cast-row-menu.open {
+  display: block;
+}
+
+.cast-row-menu .burger-menu-item {
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+}
+
+.cast-row-custom {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.cast-row-custom > summary {
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.cast-row-custom textarea {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 6px;
+}
+
+.cast-add {
+  width: 100%;
+  margin-top: 10px;
+}
+
+/* ── Creation picker ── */
+.cast-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+  max-height: 40vh;
+  overflow: auto;
+  margin-bottom: 14px;
+}
+
+/* Stands in for the grid, so it keeps the grid's spacing rather than the
+   trailing-note spacing `.modal-hint` gives. */
+.modal .cast-picker-empty {
+  margin: 0 0 14px;
+}
+
+.cast-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.cast-pick:hover {
+  border-color: var(--accent-dim);
+}
+
+.cast-pick.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
+  color: var(--text);
+}
+
+.cast-pick-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.cast-pick-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cast-pick-name {
+  font-size: 12px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* ── Modal disclosures ── */
+/* Top-margin only, so a disclosure sits on the same rhythm as the `.field` rows
+   above it and never doubles up with the next block's own leading margin. */
+.group-advanced,
+.group-help {
+  margin: 10px 0 0;
+}
+
+.group-advanced > summary,
+.group-help > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 4px 0;
+}
+
+/* `.group-help`'s body is a `.modal-hint`, which brings its own leading. */
+.group-advanced[open] > summary {
+  margin-bottom: 6px;
+}
+
+.group-advanced > .field:last-child {
+  margin-bottom: 0;
+}
+
+.group-advanced > summary:hover,
+.group-help > summary:hover {
+  color: var(--text-primary);
+}
+
+.modal-section {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin: 14px 0 8px;
+}

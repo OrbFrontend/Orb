@@ -53,6 +53,56 @@ async def test_group_creation_allocates_durable_members(client, db):
     assert len({m["id"] for m in members}) == 2
 
 
+async def test_group_list_includes_active_cast_names_in_roster_order(client, db):
+    aria = await _card(client, "Aria")
+    kael = await _card(client, "Kael")
+    conv = (
+        await client.post(
+            "/api/conversations",
+            json={
+                "kind": "group",
+                "title": "Campfire",
+                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
+            },
+        )
+    ).json()
+
+    listed = (await client.get("/api/conversations")).json()
+    row = next(item for item in listed if item["id"] == conv["id"])
+    assert row["group_member_names"] == ["Aria", "Kael"]
+
+
+async def test_group_settings_update_round_trips_every_scene_field(client):
+    """Group settings edits the whole durable scene config, including the shared
+    style instructions — which were previously write-once at creation."""
+    aria = await _card(client, "Aria")
+    conv = (
+        await client.post(
+            "/api/conversations",
+            json={"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}]},
+        )
+    ).json()
+    response = await client.put(
+        f"/api/conversations/{conv['id']}",
+        json={
+            "title": "The Long Watch",
+            "group_turn_mode": "round_robin",
+            "group_max_speakers": 5,
+            "character_scenario": "A cold night on the wall.",
+            "post_history_instructions": "Keep the prose terse.",
+        },
+    )
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated["title"] == "The Long Watch"
+    assert updated["group_turn_mode"] == "round_robin"
+    assert updated["group_max_speakers"] == 5
+    assert updated["character_scenario"] == "A cold night on the wall."
+    assert updated["post_history_instructions"] == "Keep the prose terse."
+    reloaded = next(c for c in (await client.get("/api/conversations")).json() if c["id"] == conv["id"])
+    assert reloaded["post_history_instructions"] == "Keep the prose terse."
+
+
 async def test_conversion_stamps_existing_assistant_identity(client, db):
     card_id = await _card(client, "Solo")
     conv = (await client.post("/api/conversations", json={"character_card_id": card_id})).json()

@@ -163,6 +163,96 @@
 .conv-item:hover .delete-btn { opacity: 1; }
 .conv-item .delete-btn:hover { color: var(--red); }
 
+/* Group scenes need both their name and a glanceable cast. Keeping the delete
+   control outside the select button makes both actions usable by keyboard and
+   avoids an accidental scene switch while asking for confirmation. */
+.group-chat-item {
+  display: flex;
+  align-items: stretch;
+  border-radius: var(--radius);
+  margin-bottom: 2px;
+  transition: background .1s;
+}
+
+.group-chat-item:hover { background: var(--bg-hover); }
+
+.group-chat-select {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 8px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: left;
+}
+
+.group-chat-avatar-stack {
+  display: flex;
+  flex: 0 0 auto;
+  isolation: isolate;
+  padding-left: 5px;
+}
+
+.group-chat-avatar {
+  width: 30px;
+  height: 30px;
+  margin-left: -12px;
+  border: 2px solid var(--bg-elevated);
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+.group-chat-avatar:first-child { margin-left: 0; }
+.group-chat-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.group-chat-overflow {
+  background: var(--accent-dim);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.group-chat-details { min-width: 0; }
+
+.group-chat-title,
+.group-chat-members {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-chat-title { font-weight: 500; }
+
+.group-chat-members {
+  color: var(--text-muted);
+  font-size: 10px;
+  margin-top: 2px;
+}
+
+.group-chat-delete {
+  align-self: center;
+  color: var(--text-muted);
+  font-size: 18px;
+  opacity: 0;
+  transition: opacity .15s, color .15s;
+}
+
+.group-chat-item:hover .group-chat-delete,
+.group-chat-delete:focus-visible { opacity: 1; }
+.group-chat-delete:hover { color: var(--red); }
+
 /* Character list items */
 .char-item {
   display: flex;
@@ -238,6 +328,7 @@
 
 .char-item-actions {
   display: flex;
+  align-items: center;
   gap: 2px;
   opacity: 0;
   transition: opacity .15s;
@@ -245,14 +336,26 @@
 
 .char-item:hover .char-item-actions { opacity: 1; }
 
-.char-item-actions button {
-  font-size: 18px;
-  padding: 2px 6px;
+.char-item-actions button,
+.btn-icon.group-chat-delete {
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
   color: var(--text-muted);
+  flex: 0 0 auto;
 }
 
 .char-item-actions button:hover { color: var(--text-primary); }
-.char-item-actions .del-btn:hover { color: var(--red); }
+.char-item-actions .char-action-delete:hover { color: var(--red); }
+
+.sidebar-action-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
 
 .char-tags {
   display: flex;
@@ -439,4 +542,3 @@
   position: relative;
   z-index: 1;
 }
-

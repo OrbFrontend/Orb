@@ -9,7 +9,7 @@ import { clearInspectedMessage, inspectMessage } from "./chat_messages.js";
 import { stopConversation } from "./chat_stream.js";
 import { resetWorkflowViewportState } from "./chat_workflow.js";
 import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
-import { loadGroupCast, renderGroupList } from "./group_setup.js";
+import { loadGroupCast, renderGroupCast, renderGroupList } from "./group_setup.js";
 import { refreshCharacters, renderCharacters } from "./library.js";
 // Imported from library_fragments.js directly (like settings.js does): going
 // through library.js would widen the library.js → chat.js import cycle.
@@ -48,6 +48,7 @@ document.addEventListener("group-created", async (event) => {
   await selectConversation(event.detail);
 });
 document.addEventListener("group-selected", (event) => selectConversation(event.detail));
+document.addEventListener("group-delete-request", (event) => _deleteConversation(event.detail));
 
 // Stash (or clear, with null) the active character's card-embedded fragments
 // for the sidepanel/inspector. Mirrors the backend merge rule: enabled only,
@@ -80,6 +81,9 @@ export function resetChatUI() {
   $("chat-avatar").textContent = CHAT_AVATAR_ICON;
   $("chat-input").disabled = true;
   $("send-btn").disabled = true;
+  // Drops the cast rail, the reply bar and the group entries in the header menu
+  // along with the conversation they belonged to.
+  renderGroupCast();
   renderMessages();
   renderInspector();
   updateUserBtn(); // no active character → drop any locked-to-character icon
@@ -213,6 +217,9 @@ export async function selectConversation(id) {
   setChatFollowing(true);
   renderMessages(true);
   scrollToBottom();
+  // An empty group opens ready to be written into: the cast is already on
+  // screen, so the only thing left to do is set the scene.
+  if (conv?.kind === "group" && !S.messages.length) $("chat-input").focus();
   // Fetch the director-log for the inspector after first paint — it's a separate
   // round-trip and must not gate the visible switch.
   const lastAsst = [...S.messages].reverse().find((m) => m.role === "assistant" && m.id);
@@ -242,10 +249,18 @@ function confirmDeleteConversation(id, msgCount, afterDelete) {
       try {
         await api.del(`/conversations/${id}`);
         if (S.activeConvId === id) {
+          const wasGroup = S.conversations.find((item) => item.id === id)?.kind === "group";
           S.activeConvId = null;
           S.messages = [];
           $("chat-input").disabled = true;
           $("send-btn").disabled = true;
+          if (wasGroup) {
+            S.groupCast = null;
+            S.pinnedSpeakerId = null;
+            $("chat-title-text").textContent = "Select a character";
+            $("chat-avatar").textContent = CHAT_AVATAR_ICON;
+            renderGroupCast();
+          }
           renderMessages();
         }
         await afterDelete();

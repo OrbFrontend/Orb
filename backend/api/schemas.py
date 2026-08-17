@@ -393,6 +393,7 @@ class ConversationUpdate(BaseModel):
     group_turn_mode: Literal["manual", "round_robin", "director"] | None = None
     group_max_speakers: int | None = Field(default=None, ge=1, le=8)
     character_scenario: str | None = None
+    post_history_instructions: str | None = None
 
 
 class GroupRosterUpdate(BaseModel):

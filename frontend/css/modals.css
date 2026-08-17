@@ -24,6 +24,12 @@
   flex-direction: column;
 }
 
+/* The modal is the scroll container; its children keep their own height. A child
+   that sets `overflow` has an automatic minimum size of zero, so without this a
+   tall sibling (an opened disclosure) squeezes it to nothing instead of making
+   the modal scroll — which is what happened to the cast picker under Advanced. */
+.modal > * { flex-shrink: 0; }
+
 .modal h2 {
   font-family: var(--font-ui);
   font-size: 18px;
@@ -47,6 +53,16 @@
   color: var(--text-muted);
   margin-bottom: 16px;
   line-height: 1.4;
+}
+
+/* Small print that trails a control or fills a disclosure — the standing context
+   sentence on the group surfaces, the public-profile note in the card editor.
+   Out-specifies `.modal p`, whose 16px bottom margin is wrong for a trailing note. */
+.modal .modal-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 12px 0 0;
 }
 
 .modal-actions {

@@ -39,6 +39,7 @@ LAYERS = {
     "validate.js": 0,
     "scroll_follow.js": 0,
     "text_segmentation.js": 0,
+    "sidebar_icons.js": 0,
     # L1 state + shared pure helpers.
     "state.js": 1,
     "workflow_registry.js": 1,
@@ -107,7 +108,7 @@ ALLOWED_UPWARD: set[tuple[str, str]] = {
 }
 
 # ── 2. Ratchets (may only decrease) ──────────────────────────────────────────
-MAX_INLINE_ON = 265  # inline on*= handlers across frontend/ (js + index.html)
+MAX_INLINE_ON = 263  # inline on*= handlers across frontend/ (js + index.html)
 MAX_UNDERSCORE_IMPORTS = 10  # underscore-prefixed names imported cross-module
 
 # ── 4. Frozen ABI ────────────────────────────────────────────────────────────

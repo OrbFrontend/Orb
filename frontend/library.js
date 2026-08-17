@@ -16,6 +16,7 @@ import {
 } from "./library_fragments.js";
 import { loadWorlds } from "./lorebooks.js";
 import { closeModal, showConfirmModal, showCropModal, showModal, switchTab } from "./modal.js";
+import { SIDEBAR_CLOSE_ICON, SIDEBAR_EDIT_ICON } from "./sidebar_icons.js";
 import { charactersView, S } from "./state.js";
 import {
   $,
@@ -25,6 +26,7 @@ import {
   convActivity,
   downloadBlob,
   esc,
+  escAttr,
   NO_AVATAR_ICON,
   toast,
 } from "./utils.js";
@@ -150,8 +152,8 @@ export function renderCharacters() {
         <div class="char-item-meta">${meta}</div>
       </div>
       <div class="char-item-actions">
-        <button onclick="event.stopPropagation();showCharEditModal('${c.id}')" title="Edit character">✏</button>
-        <button class="del-btn" onclick="event.stopPropagation();deleteCharacter('${c.id}')">✕</button>
+        <button class="char-action-edit" onclick="event.stopPropagation();showCharEditModal('${c.id}')" title="Edit character" aria-label="Edit ${escAttr(c.name)}">${SIDEBAR_EDIT_ICON}</button>
+        <button class="char-action-delete" onclick="event.stopPropagation();deleteCharacter('${c.id}')" title="Delete character" aria-label="Delete ${escAttr(c.name)}">${SIDEBAR_CLOSE_ICON}</button>
       </div>
     </div>`;
     })

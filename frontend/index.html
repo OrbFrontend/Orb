@@ -103,22 +103,35 @@
         <button class="chat-title-edit" id="chat-title-edit-btn" onclick="startEditTitle()" title="Edit title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
       </div>
       <div class="chat-actions">
-        <button class="btn btn-sm" id="user-profile-btn" onclick="showUserModal()" title="User profile">👤 User</button>
+        <button class="btn btn-sm" id="user-profile-btn" onclick="showUserModal()" title="User profile" aria-label="User profile">👤</button>
         <button class="btn btn-sm" id="tools-panel-btn" onclick="toggleToolsPanel()" title="Agentic Tools & Workflows">✨ Workflow</button>
-        <button class="btn btn-sm" id="inspector-toggle" onclick="toggleInspector()">🔍 Inspector</button>
         <button class="btn btn-sm hidden" id="direction-notes-panel-btn" onclick="toggleDirectionNotesPanel()" title="Direction Notes">📝 Notes</button>
+        <!-- Secondary scene actions. Wired via addEventListener in app.js (no new
+             inline handlers); each item's data-chat-action is the whole contract.
+             The group/solo items are shown by renderChatActionMenus(). -->
+        <button class="btn btn-sm" id="chat-overflow-btn" title="More actions" aria-label="More actions" aria-haspopup="true" aria-expanded="false">•••</button>
+        <div id="chat-overflow-menu">
+          <div class="burger-menu-item" data-chat-action="group-settings" hidden><span class="burger-icon">⚙️</span>Group settings</div>
+          <div class="burger-menu-item" data-chat-action="manage-cast" hidden><span class="burger-icon">👥</span>Manage cast</div>
+          <div class="burger-menu-item" data-chat-action="convert-to-group" hidden><span class="burger-icon">👥</span>Convert to group</div>
+          <div class="burger-menu-item" id="inspector-toggle" data-chat-action="inspector"><span class="burger-icon">🔍</span>Inspector</div>
+        </div>
         <button id="mobile-chat-actions-toggle" onclick="toggleMobileHeaderActions()" title="Quick actions">⋯</button>
         <div id="mobile-chat-actions-menu">
           <div class="burger-menu-item" id="mobile-user-profile-btn" onclick="closeMobileHeaderActions();showUserModal()">👤 User</div>
           <div class="burger-menu-item" onclick="closeMobileHeaderActions();toggleToolsPanel()">✨ Workflow</div>
-          <div class="burger-menu-item" onclick="closeMobileHeaderActions();toggleInspector()">🔍 Inspector</div>
+          <div class="burger-menu-item" data-chat-action="group-settings" hidden>⚙️ Group settings</div>
+          <div class="burger-menu-item" data-chat-action="manage-cast" hidden>👥 Manage cast</div>
+          <div class="burger-menu-item" data-chat-action="convert-to-group" hidden>👥 Convert to group</div>
+          <div class="burger-menu-item" data-chat-action="inspector">🔍 Inspector</div>
           <div class="burger-menu-item hidden" id="mobile-direction-notes-btn" onclick="closeMobileHeaderActions();toggleDirectionNotesPanel()">📝 Notes</div>
         </div>
       </div>
     </div>
     <div id="group-cast-rail" class="group-cast-rail" hidden></div>
+    <!-- Only painted while a multi-speaker beat is planned or streaming; an
+         empty plan never renders a bordered strip. -->
     <div id="group-speaking-plan" class="group-speaking-plan" hidden></div>
-    <button type="button" class="btn btn-sm group-convert-btn" id="convert-to-group-btn" hidden>Convert to group</button>
         <div id="chat-messages"><div class="empty-state"><div class="icon">📜</div><div>Select a character to begin</div></div></div>
     <div id="generation-status" class="gen-status hidden">
       <div class="gen-bar"></div>
@@ -136,12 +149,9 @@
       </div>
       <input type="file" id="attach-image-input" accept="image/*" multiple style="display:none">
       <div id="attachment-preview" class="attachment-preview"></div>
-      <div id="group-controls" class="group-controls" hidden>
-        <label>Turns <select id="group-turn-mode"><option value="manual">Manual</option><option value="round_robin">Round robin</option><option value="director">Director</option></select></label>
-        <button type="button" class="btn btn-sm" id="group-speak-btn" disabled>Speak</button>
-        <button type="button" class="btn btn-sm" id="group-edit-btn">Edit cast</button>
-        <span>Card-linked Worlds and embedded fragments are shared with the whole scene.</span>
-      </div>
+      <!-- "Next reply: …" — the persistent strategy, plus the one-shot speaker
+           override when one is set. Painted by renderGroupCast(). -->
+      <div id="group-reply-bar" class="group-reply-bar" hidden></div>
       <button id="chat-ghost-chip" type="button" aria-label="Insert suggestion" hidden></button>
       <div id="chat-input-wrap">
         <button id="burger-btn" onclick="toggleBurger()" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>

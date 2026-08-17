@@ -29,6 +29,16 @@ locks and card system-prompt overrides do not compete.
   scene, while a missing or malformed plan falls back to round-robin.
 - A user pin overrides the plan and selects exactly that member.
 
+The stored mode names are internal. The UI calls them `Auto — Director
+chooses`, `Rotate — Cast replies in order` and `Choose — Select every reply`
+(`group_cast.js:TURN_MODES` is the only place that wording lives).
+
+A pin is a *temporary override*, not a mode: outside `manual` the client clears
+it once the beat it named has produced a reply, so the configured strategy
+resumes by itself rather than being silently suppressed. In `manual` the pick is
+the strategy, so it survives until it is used or cleared. An aborted or failed
+beat keeps the override to retry with.
+
 The Director and pre-pipeline setup run once. Each planned speaker then runs the
 Writer, Editor, feedback, and post-workflow path with the shared Director state.
 Rows form `user -> speaker 1 -> speaker 2 -> …`, share one beat ID, and receive
@@ -60,6 +70,20 @@ Every group request emits one `speaking_plan`, then a
 request-level `done`. The frontend creates and finalizes a bubble per speaker,
 stops the previous audio channel at every `speaker_start`, and performs a full
 message refetch/render after the beat.
+
+## Chat surface
+
+The group screen shows four things: scene identity, cast, conversation and
+composer. Everything else is contextual or lives in Group settings (`•••` in the
+chat header), which owns the durable configuration — title, reply behavior, max
+replies per turn, scene premise, style instructions — through
+`PUT /api/conversations/{cid}`. Cast membership, order, reply eligibility and
+public-profile overrides are edited in Manage cast (`PUT …/members`).
+
+The speaking-plan rail is painted only while a beat with two or more speakers is
+planned or streaming; a single speaker is announced by its cast chip, and a rest
+(`[]`) is reported as a toast. `Convert to group` is a solo-conversation action
+and never renders inside a group.
 
 Checkpoint and compression copy the full active/historical roster with new
 member UUIDs and remap copied message identities. Compression summaries have no

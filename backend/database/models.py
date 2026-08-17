@@ -223,7 +223,7 @@ class GroupMemberRow(TypedDict):
 
 
 class ConversationListRow(ConversationRow, total=False):
-    """A ``ConversationRow`` plus the two aggregate columns list_conversations()
+    """A ``ConversationRow`` plus the aggregate columns list_conversations()
     selects for the sidebar. ``total=False`` because they exist only on that
     query's rows, not on the base table.
     """
@@ -231,6 +231,7 @@ class ConversationListRow(ConversationRow, total=False):
     last_message_preview: str | None
     message_count: int
     group_card_ids: list[str]
+    group_member_names: list[str]
 
 
 class MessageRow(TypedDict):

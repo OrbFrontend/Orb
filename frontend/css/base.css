@@ -20,6 +20,12 @@ body {
 
 .hidden { display: none !important; }
 
+/* `[hidden] { display: none }` lives in the UA sheet, so *any* author `display`
+   rule outranks it — `label{display:block}`, `.burger-menu-item{display:flex}`,
+   `#group-cast-rail{display:flex}` all silently kept their element on screen.
+   Every `el.hidden = …` in the app leans on this line. */
+[hidden] { display: none !important; }
+
 /* ═══════════════════════════════════════════
    1. Layout Shell
    ═══════════════════════════════════════════ */

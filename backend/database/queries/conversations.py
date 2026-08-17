@@ -34,6 +34,13 @@ async def list_conversations() -> list[ConversationListRow]:
                              FROM group_members gm
                              WHERE gm.conversation_id = c.id AND gm.active = 1
                                AND gm.character_card_id IS NOT NULL), '[]') AS group_card_ids,
+                   COALESCE((SELECT json_group_array(display_name)
+                             FROM (
+                                 SELECT gm.display_name
+                                 FROM group_members gm
+                                 WHERE gm.conversation_id = c.id AND gm.active = 1
+                                 ORDER BY gm.sort_order, gm.id
+                             )), '[]') AS group_member_names,
                    COALESCE(ac.cnt, 0) AS message_count
             FROM conversations c
             LEFT JOIN active_counts ac ON ac.conv_id = c.id
@@ -45,6 +52,7 @@ async def list_conversations() -> list[ConversationListRow]:
         for row in rows:
             item = dict(row)
             item["group_card_ids"] = json.loads(item.get("group_card_ids") or "[]")
+            item["group_member_names"] = json.loads(item.get("group_member_names") or "[]")
             out.append(cast(ConversationListRow, item))
         return out
 
@@ -177,7 +185,14 @@ async def touch_conversation(cid: str) -> bool:
 
 async def update_conversation(cid: str, data: dict) -> ConversationRow | None:
     async with get_db() as db:
-        allowed = ["title", "persona_lock_id", "group_turn_mode", "group_max_speakers", "character_scenario"]
+        allowed = [
+            "title",
+            "persona_lock_id",
+            "group_turn_mode",
+            "group_max_speakers",
+            "character_scenario",
+            "post_history_instructions",
+        ]
         sets, vals = _build_set_clause(allowed, data)
         if sets:
             # updated_at is the conversation's "last activity" date (shown in the
