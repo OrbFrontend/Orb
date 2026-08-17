@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 
 def build_direct_scene_override(
     writer_fragments: Sequence[Mapping[str, Any]],
+    cast: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict:
     """Build the ``direct_scene`` tool schema from *writer_fragments*.
 
@@ -56,7 +57,18 @@ def build_direct_scene_override(
     reaches the schema through the director module rather than importing the
     schema builder directly — symmetric to ``build_feedback_override``.
     """
-    return build_direct_scene_tool(writer_fragments)
+    schema = build_direct_scene_tool(writer_fragments)
+    if cast is not None:
+        keys = ", ".join(str(m["speaker_key"]) for m in cast if not m.get("muted"))
+        schema["function"]["parameters"]["properties"]["speaking_plan"] = {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "Ordered speakers and beats, formatted `<speaker_key> — <one-line beat>`. "
+                f"Valid unmuted keys: {keys}. Return [] when nobody should answer."
+            ),
+        }
+    return schema
 
 
 def _step_schema(tool_schema: dict, keep: str) -> dict | None:
@@ -116,7 +128,7 @@ def apply_tool_calls(
         args = tc.get("arguments", {})
         if tc["name"] == "direct_scene":
             moods = args.get("moods", [])
-            extra_fields = {k: v for k, v in args.items() if k != "moods" and v not in (None, "", [])}
+            extra_fields = {k: v for k, v in args.items() if k != "moods" and (k == "speaking_plan" or v not in (None, "", []))}
 
     return (moods, extra_fields)
 
@@ -186,7 +198,14 @@ async def director_pass(
         if client.is_aborted:
             break
         tool_schema = next((s for s in tool_schemas if s["function"]["name"] == name), None)
-        if name == "direct_scene" and per_fragment_on and interactive_fragments:
+        if (
+            name == "direct_scene"
+            and per_fragment_on
+            and (
+                interactive_fragments
+                or (tool_schema and "speaking_plan" in tool_schema["function"]["parameters"]["properties"])
+            )
+        ):
             reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
             hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
 
@@ -195,7 +214,17 @@ async def director_pass(
             # resolved last, in a call of their own, so they are picked to fit the
             # scene already directed (the moods step is shown the decided fields).
             decided: list[tuple[str, Any]] = []
-            for stage in [*interactive_fragments, None]:
+            plan_stage = (
+                {
+                    "id": "speaking_plan",
+                    "injection_label": "Speaking plan",
+                    "description": "Choose the ordered speakers and their one-line beats.",
+                }
+                if tool_schema and "speaking_plan" in tool_schema["function"]["parameters"]["properties"]
+                else None
+            )
+            stages = [*interactive_fragments, *([plan_stage] if plan_stage else []), None]
+            for stage in stages:
                 if client.is_aborted:
                     break
                 target = stage["id"] if stage else "moods"

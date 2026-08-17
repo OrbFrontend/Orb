@@ -361,6 +361,16 @@ class LorebookImportPayload(BaseModel):
     entries: Any
 
 
+class GroupMemberSpec(BaseModel):
+    id: str | None = None
+    speaker_key: str | None = None
+    character_card_id: str | None = None
+    display_name: str = ""
+    public_profile_override: str | None = None
+    member_kind: Literal["character", "narrator"] = "character"
+    muted: bool = False
+
+
 class ConversationCreate(BaseModel):
     title: str = "New Conversation"
     character_card_id: str | None = None
@@ -368,6 +378,11 @@ class ConversationCreate(BaseModel):
     character_scenario: str = ""
     first_mes: str = ""
     post_history_instructions: str = ""
+    kind: Literal["solo", "group"] = "solo"
+    members: list[GroupMemberSpec] = []
+    group_turn_mode: Literal["manual", "round_robin", "director"] = "director"
+    group_max_speakers: int = Field(default=3, ge=1, le=8)
+    opening_speaker_key: str | None = None
 
 
 class ConversationUpdate(BaseModel):
@@ -375,6 +390,22 @@ class ConversationUpdate(BaseModel):
     # Persona lock for this conversation; an explicit null clears it (the route
     # uses model_dump(exclude_unset=True), so absence leaves it untouched).
     persona_lock_id: int | None = None
+    group_turn_mode: Literal["manual", "round_robin", "director"] | None = None
+    group_max_speakers: int | None = Field(default=None, ge=1, le=8)
+    character_scenario: str | None = None
+
+
+class GroupRosterUpdate(BaseModel):
+    members: list[GroupMemberSpec]
+
+
+class SpeakRequest(BaseModel):
+    speaker_member_id: str
+
+
+class PublicProfilePayload(BaseModel):
+    appearance: str = ""
+    role: str = ""
 
 
 class SummarizeRequest(BaseModel):
@@ -580,20 +611,24 @@ class SendMessage(BaseModel):
     enable_agent: bool = True
     turn_index: int | None = None
     attachments: list[AttachmentIn] = []
+    speaker_member_id: str | None = None
 
 
 class EditMessage(BaseModel):
     content: str
     enable_agent: bool = True
     attachments: list[AttachmentIn] = []
+    speaker_member_id: str | None = None
 
 
 class RegenerateMsg(BaseModel):
     enable_agent: bool = True
+    speaker_member_id: str | None = None
 
 
 class MagicRewriteMsg(BaseModel):
     direction: str
+    speaker_member_id: str | None = None
 
 
 class AutocompleteInput(BaseModel):

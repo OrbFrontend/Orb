@@ -7,18 +7,20 @@ Re-exports the layer's public API so call sites import one name from
 from __future__ import annotations
 
 from .bootstrap import init_db, reset_to_defaults
-from .connection import DB_PATH, get_db
+from .connection import DB_PATH, get_db, immediate_tx
 from .queries.character_cards import (
     card_embedded_fragments,
     create_character_card,
     delete_character_card,
     get_character_avatar,
     get_character_card,
+    get_character_usage,
     get_workflow_character_state,
     insert_alternate_greeting_swipes,
     list_character_cards,
     reroll_unfrozen_greetings,
     resolve_char_context,
+    set_public_profile,
     set_workflow_character_state,
     sync_conversations_for_card,
     update_character_card,
@@ -75,6 +77,14 @@ from .queries.endpoints import (
     update_endpoint,
     update_model_config,
 )
+from .queries.group_members import (
+    allocate_speaker_key,
+    convert_to_group,
+    create_group_conversation,
+    get_group_member,
+    get_group_members,
+    sync_group_members,
+)
 from .queries.interactive_fragments import (
     create_interactive_fragment,
     delete_interactive_fragment,
@@ -87,6 +97,7 @@ from .queries.messages import (
     delete_message_with_descendants,
     get_deepest_descendant,
     get_message_by_id,
+    get_message_delete_preview,
     get_messages,
     get_messages_before,
     get_messages_with_branch_info,
@@ -137,6 +148,7 @@ from .queries.workflow_attachments import (
 from .queries.worlds import (
     OverlayStateConflict,
     RevisionConflict,
+    activate_character_linked_worlds,
     apply_changeset,
     count_pending_changesets,
     create_and_apply_changeset,
@@ -175,6 +187,7 @@ from .seeds import (
 )
 
 __all__ = [
+    "activate_character_linked_worlds",
     "DB_PATH",
     "DEFAULT_ENABLED_TOOLS",
     "DEFAULT_SETTINGS",
@@ -187,12 +200,14 @@ __all__ = [
     "add_generated_chars",
     "add_message",
     "add_phrase_group",
+    "allocate_speaker_key",
     "apply_changeset",
     "card_embedded_fragments",
     "count_pending_changesets",
     "create_and_apply_changeset",
     "create_character_card",
     "create_conversation",
+    "create_group_conversation",
     "create_direction_notes",
     "create_document",
     "create_endpoint",
@@ -217,6 +232,7 @@ __all__ = [
     "delete_phrase_group",
     "delete_user_persona",
     "delete_world",
+    "convert_to_group",
     "direction_note_projection",
     "disable_character_linked_worlds",
     "entry_snapshot",
@@ -226,6 +242,7 @@ __all__ = [
     "get_changesets_for_messages",
     "get_character_avatar",
     "get_character_card",
+    "get_character_usage",
     "get_character_expression",
     "get_content_revision",
     "get_conversation",
@@ -242,11 +259,14 @@ __all__ = [
     "get_endpoints",
     "get_generated_chars",
     "get_global_stats",
+    "get_group_member",
+    "get_group_members",
     "get_interactive_fragment",
     "get_interactive_fragments",
     "get_lorebook_entries",
     "get_lorebook_entry",
     "get_message_by_id",
+    "get_message_delete_preview",
     "get_messages",
     "get_messages_before",
     "get_messages_with_branch_info",
@@ -273,6 +293,7 @@ __all__ = [
     "get_world_changesets",
     "get_worlds",
     "import_lorebook_entries",
+    "immediate_tx",
     "init_db",
     "insert_alternate_greeting_swipes",
     "insert_workflow_attachment_row",
@@ -287,6 +308,7 @@ __all__ = [
     "resolve_char_context",
     "set_active_leaf",
     "set_character_expressions",
+    "set_public_profile",
     "set_local_ml_enabled",
     "set_workflow_character_state",
     "set_workflow_config",
@@ -296,6 +318,7 @@ __all__ = [
     "supersede_world_changeset",
     "switch_to_branch",
     "sync_conversations_for_card",
+    "sync_group_members",
     "touch_conversation",
     "update_character_card",
     "update_conversation",

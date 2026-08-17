@@ -10,8 +10,9 @@ import {
   _renderWorkflowArtifacts,
   _renderWorkflowRejection,
 } from "./chat_workflow.js";
+import { speakerLabel } from "./group_cast.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
-import { effectiveWorkflowEnabled, S } from "./state.js";
+import { effectiveWorkflowEnabled, S, subscribe } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
 import {
   $,
@@ -31,8 +32,11 @@ import { messageProposalsHtml } from "./world_proposals.js";
 
 export function canStartGeneration() {
   if (S.isStreaming) return false;
+  if (S.groupCast?.turn_mode === "manual" && !S.pinnedSpeakerId) return false;
   return requestSendPermission();
 }
+
+subscribe("cast", () => renderMessages());
 
 function normalizeMessages(msgs) {
   if (!Array.isArray(msgs)) return msgs;
@@ -407,7 +411,7 @@ export function renderMessages(forceBottom = false) {
               // History rather than permanently under the reply.
               const proposalsHtml = messageProposalsHtml(m);
               return `<div class="message ${m.role}" data-msg-id="${m.id}">
-        <div class="msg-role">${m.role === "user" ? "You" : esc(getCharName())} ${branchHtml}</div>
+        <div class="msg-role">${esc(speakerLabel(m))} ${branchHtml}</div>
         ${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${proposalsHtml}${toolbar}
       </div>`;
             })

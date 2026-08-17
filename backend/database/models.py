@@ -203,6 +203,23 @@ class ConversationRow(TypedDict):
     # {{random}} seed override; '' = use the conversation's own id. Set by
     # checkpoint/compress so seeded picks match the copied history.
     macro_seed: str
+    kind: str
+    group_turn_mode: str
+    group_max_speakers: int
+
+
+class GroupMemberRow(TypedDict):
+    id: str
+    conversation_id: str
+    speaker_key: str
+    character_card_id: str | None
+    display_name: str
+    public_profile_override: str | None
+    member_kind: str
+    sort_order: int
+    muted: int
+    active: int
+    workflow_state: str | None
 
 
 class ConversationListRow(ConversationRow, total=False):
@@ -213,6 +230,7 @@ class ConversationListRow(ConversationRow, total=False):
 
     last_message_preview: str | None
     message_count: int
+    group_card_ids: list[str]
 
 
 class MessageRow(TypedDict):
@@ -233,6 +251,8 @@ class MessageRow(TypedDict):
     progressive_fields: dict
     created_at: str
     workflow_state: str | None
+    speaker_member_id: str | None
+    beat_id: str | None
 
 
 class UserAttachmentRow(TypedDict, total=False):

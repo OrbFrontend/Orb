@@ -186,6 +186,29 @@ async def disable_character_linked_worlds() -> list[str]:
         return ids
 
 
+async def activate_character_linked_worlds(character_ids: Sequence[str]) -> list[str]:
+    """Enable Worlds linked to *character_ids* without recency/revision stamps."""
+    if not character_ids:
+        return []
+    placeholders = ", ".join("?" * len(character_ids))
+    async with get_db() as db:
+        rows = list(
+            await db.execute_fetchall(
+                f"SELECT DISTINCT world_id FROM character_cards "  # nosec B608 -- placeholders only
+                f"WHERE id IN ({placeholders}) AND world_id IS NOT NULL ORDER BY world_id",
+                list(character_ids),
+            )
+        )
+        ids = [str(row[0]) for row in rows]
+        if ids:
+            await db.execute(
+                f"UPDATE worlds SET enabled = 1 WHERE id IN ({', '.join('?' * len(ids))})",  # nosec B608
+                ids,
+            )
+            await db.commit()
+    return ids
+
+
 async def delete_world(world_id: str) -> bool:
     async with get_db() as db:
         cur = await db.execute("DELETE FROM worlds WHERE id = ?", (world_id,))

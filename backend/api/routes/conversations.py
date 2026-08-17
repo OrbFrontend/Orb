@@ -15,14 +15,18 @@ from ...core import (
     scrub_log,
 )
 from ...database import (
+    activate_character_linked_worlds,
     add_conversation_log,
     add_message,
     card_embedded_fragments,
+    convert_to_group,
     create_conversation,
     create_direction_notes,
+    create_group_conversation,
     delete_conversation,
     delete_direction_note,
     direction_note_projection,
+    disable_character_linked_worlds,
     fork_conversation,
     get_active_lorebook_entries,
     get_character_card,
@@ -32,6 +36,7 @@ from ...database import (
     get_direction_notes_for_path,
     get_director_log_for_message,
     get_director_state,
+    get_group_members,
     get_interactive_fragments,
     get_message_by_id,
     get_messages,
@@ -45,6 +50,7 @@ from ...database import (
     resolve_char_context,
     set_active_leaf,
     set_workflow_message_state,
+    sync_group_members,
     touch_conversation,
     update_conversation,
     update_direction_note,
@@ -61,6 +67,7 @@ from ...pipeline import (
     persona_macros,
     resolve_card_and_persona,
 )
+from ...pipeline.cast import resolve_cast
 from ..deps import (
     _active_aborts,
     _CleanupStreamingResponse,
@@ -74,6 +81,7 @@ from ..schemas import (
     ConversationUpdate,
     DirectionNoteCreate,
     DirectionNoteUpdate,
+    GroupRosterUpdate,
     SummarizeRequest,
 )
 
@@ -95,6 +103,34 @@ async def api_list_conversations():
 @router.post("/api/conversations")
 async def api_create_conversation(data: ConversationCreate):
     cid = str(uuid.uuid4())
+
+    if data.kind == "group":
+        if not data.members:
+            raise HTTPException(status_code=400, detail="A group needs at least one member")
+        member_specs = []
+        for spec in data.members:
+            payload = spec.model_dump()
+            if spec.character_card_id:
+                card = await get_character_card(spec.character_card_id)
+                if not card:
+                    raise HTTPException(status_code=404, detail=f"Character card not found: {spec.character_card_id}")
+                if not payload.get("display_name"):
+                    payload["display_name"] = card.get("name", "")
+            member_specs.append(payload)
+        try:
+            return await create_group_conversation(
+                cid,
+                data.title,
+                member_specs,
+                scenario=data.character_scenario,
+                post_history_instructions=data.post_history_instructions,
+                turn_mode=data.group_turn_mode,
+                max_speakers=data.group_max_speakers,
+                greeting=resolve_inline(data.first_mes),
+                greeting_speaker_key=data.opening_speaker_key,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     char_name = data.character_name
     char_scenario = data.character_scenario
@@ -145,6 +181,69 @@ async def api_create_conversation(data: ConversationCreate):
                     logger.info(f"Created {count} alternate greeting swipes for conversation {cid}")
 
     return conv
+
+
+@router.get("/api/conversations/{cid}/members")
+async def api_get_group_members(
+    cid: str,
+    include_inactive: bool = False,
+    conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
+    if conv.get("kind", "solo") != "group":
+        raise HTTPException(status_code=409, detail="Conversation is not a group")
+    return await get_group_members(cid, include_inactive=include_inactive)
+
+
+@router.put("/api/conversations/{cid}/members")
+async def api_sync_group_members(
+    cid: str,
+    data: GroupRosterUpdate,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
+    if not data.members:
+        raise HTTPException(status_code=400, detail="A group needs at least one active member")
+    existing = {member["id"]: member for member in await get_group_members(cid, include_inactive=True)}
+    member_specs: list[dict] = []
+    for spec in data.members:
+        payload = spec.model_dump()
+        if spec.character_card_id:
+            card = await get_character_card(spec.character_card_id)
+            old = existing.get(spec.id or "")
+            # A deleted card's stable dangling id is retained on its existing
+            # member so re-import can relink it. New/reassigned missing ids are
+            # invalid roster input.
+            missing_allowed = old is not None and old.get("character_card_id") == spec.character_card_id
+            if card is None and not missing_allowed:
+                raise HTTPException(status_code=404, detail=f"Character card not found: {spec.character_card_id}")
+            if card and not payload.get("display_name"):
+                payload["display_name"] = card.get("name", "")
+        member_specs.append(payload)
+    try:
+        return await sync_group_members(cid, member_specs)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/api/conversations/{cid}/convert-to-group")
+async def api_convert_to_group(cid: str, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
+    try:
+        member = await convert_to_group(cid)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"conversation": await get_conversation(cid), "member": member}
+
+
+@router.post("/api/conversations/{cid}/activate")
+async def api_activate_conversation(cid: str, conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
+    """Activate every linked World in the selected cast while preserving floating Worlds."""
+    await disable_character_linked_worlds()
+    card_ids: list[str] = []
+    if conv.get("kind", "solo") == "group":
+        card_ids = [str(card_id) for m in await get_group_members(cid) if (card_id := m.get("character_card_id"))]
+    elif card_id := conv.get("character_card_id"):
+        card_ids = [card_id]
+    enabled = await activate_character_linked_worlds(card_ids)
+    return {"ok": True, "world_ids": enabled}
 
 
 @router.delete("/api/conversations/{cid}")
@@ -204,6 +303,11 @@ async def api_summarize_conversation(
     card, active_persona = await resolve_card_and_persona(conv, settings)
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
     macros, user_description = persona_macros(settings, char_name, active_persona, seed=conversation_macro_seed(conv))
+    summary_cast = await resolve_cast(conv)
+    speaker_names: dict[str, str] = {}
+    if summary_cast.grouped:
+        macros = macros._replace(cast=", ".join(member.name for member in summary_cast.members))
+        speaker_names = {member["id"]: member["display_name"] for member in await get_group_members(cid, include_inactive=True)}
 
     abort_token = AbortToken()
     client = client_from_settings(settings, abort_token=abort_token)
@@ -218,6 +322,8 @@ async def api_summarize_conversation(
         macros,
         user_description,
         custom_instructions=data.custom_instructions,
+        cast=summary_cast,
+        speaker_names=speaker_names,
     )
 
     async def _gen():
@@ -254,6 +360,15 @@ async def api_compress_conversation(
     new_title = f"{old_title} (continued)" if old_title else "Continued"
     new_cid = await fork_conversation(conv, new_title)
 
+    member_map: dict[str, str] = {}
+    if conv.get("kind", "solo") == "group":
+        old_members, new_members = (
+            await get_group_members(cid, include_inactive=True),
+            await get_group_members(new_cid, include_inactive=True),
+        )
+        new_by_key = {m["speaker_key"]: m["id"] for m in new_members}
+        member_map = {m["id"]: new_by_key[m["speaker_key"]] for m in old_members if m["speaker_key"] in new_by_key}
+
     prev_id, _ = await add_message(new_cid, "assistant", data.summary.strip(), 0)
     await set_active_leaf(new_cid, prev_id)
 
@@ -266,6 +381,8 @@ async def api_compress_conversation(
             i + 1,
             parent_id=prev_id,
             attachments=user_attachment_payloads(msg),
+            speaker_member_id=member_map.get(str(msg.get("speaker_member_id"))) if msg.get("speaker_member_id") else None,
+            beat_id=msg.get("beat_id"),
         )
         await set_active_leaf(new_cid, prev_id)
 
@@ -298,6 +415,14 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
     messages = await get_messages(source_cid)
 
     new_cid = await fork_conversation(conv, new_title)
+    member_map: dict[str, str] = {}
+    if conv.get("kind", "solo") == "group":
+        old_members, new_members = (
+            await get_group_members(source_cid, include_inactive=True),
+            await get_group_members(new_cid, include_inactive=True),
+        )
+        new_by_key = {m["speaker_key"]: m["id"] for m in new_members}
+        member_map = {m["id"]: new_by_key[m["speaker_key"]] for m in old_members if m["speaker_key"] in new_by_key}
 
     # Re-insert the path linearly, remapping parent_id and recording old→new
     # message ids so the conversation_logs below can be re-pointed onto the copy.
@@ -312,6 +437,8 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
             parent_id=prev_id,
             attachments=user_attachment_payloads(msg),
             progressive_fields=msg.get("progressive_fields") or {},
+            speaker_member_id=member_map.get(str(msg.get("speaker_member_id"))) if msg.get("speaker_member_id") else None,
+            beat_id=msg.get("beat_id"),
         )
         id_map[msg["id"]] = new_id
         prev_id = new_id
@@ -396,14 +523,36 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     # character lock overrides the global active persona) so the size
     # breakdown matches the prompt that is actually sent.
     card, active_persona = await resolve_card_and_persona(conv, settings)
+    turn_cast = await resolve_cast(conv)
     # Same card-fragment merge as _load_pipeline_context (globals win on id collision).
     card_moods, card_interactive = card_embedded_fragments(card)
+    if turn_cast.grouped:
+        seen_cards: set[str] = set()
+        for member in turn_cast.members:
+            if not member.card_id or member.card_id in seen_cards:
+                continue
+            seen_cards.add(member.card_id)
+            member_card = await get_character_card(member.card_id)
+            moods, interactive = card_embedded_fragments(member_card)
+            card_moods.extend(moods)
+            card_interactive.extend(interactive)
     director_frags = [f for f in await get_interactive_fragments() if f.get("enabled", True)]
-    director_frags += [f for f in card_interactive if f["id"] not in {g["id"] for g in director_frags}]
+    director_ids = {fragment["id"] for fragment in director_frags}
+    for fragment in card_interactive:
+        if fragment["id"] not in director_ids:
+            director_frags.append(fragment)
+            director_ids.add(fragment["id"])
     mood_frags = [f for f in await get_mood_fragments() if f.get("enabled", True)]
-    mood_frags += [f for f in card_moods if f["id"] not in {g["id"] for g in mood_frags}]
+    mood_ids = {fragment["id"] for fragment in mood_frags}
+    for fragment in card_moods:
+        if fragment["id"] not in mood_ids:
+            mood_frags.append(fragment)
+            mood_ids.add(fragment["id"])
     lorebook_entries = await get_active_lorebook_entries()
-    macros, user_desc = persona_macros(settings, conv["character_name"], active_persona, seed=conversation_macro_seed(conv))
+    macro_char = conv.get("title", "") if turn_cast.grouped else conv["character_name"]
+    macros, user_desc = persona_macros(settings, macro_char, active_persona, seed=conversation_macro_seed(conv))
+    if turn_cast.grouped:
+        macros = macros._replace(cast=", ".join(member.name for member in turn_cast.members))
 
     # Resolve character context
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
@@ -416,9 +565,33 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     post_text = macros.resolve_message(
         "" if settings.get("prevent_prompt_overrides") else (conv.get("post_history_instructions", "") or "")
     )
+    cast_public_text = ""
+    largest_speaker_tail = ""
+    if turn_cast.grouped:
+        persona_text = ""
+        mes_text = ""
+        post_text = ""
+        cast_public_text = "## Cast\n" + "\n".join(
+            f"### {member.name}\n{member.public_profile}" for member in turn_cast.members
+        )
+        speaker_tails = []
+        for member in turn_cast.members:
+            fields = [member.private_sheet, member.mes_example]
+            if not settings.get("prevent_prompt_overrides"):
+                fields.append(member.post_history)
+            speaker_tails.append("\n\n".join(macros.resolve_message(field) for field in fields if field))
+        largest_speaker_tail = max(speaker_tails, key=len, default="")
     resolved_user_desc = macros.resolve_message(user_desc)
     user_persona_text = f"## User: {macros.user}\n{resolved_user_desc}" if resolved_user_desc.strip() else ""
     msg_chars = sum(len(m.get("content", "") or "") for m in messages)
+    if turn_cast.grouped:
+        names = {member["id"]: member["display_name"] for member in await get_group_members(cid, include_inactive=True)}
+        for message in messages:
+            if message.get("role") != "assistant":
+                continue
+            speaker_id = message.get("speaker_member_id")
+            label = names.get(speaker_id, "Unknown") if speaker_id is not None else "Summary"
+            msg_chars += len(f"{label}: ")
 
     # Director injection — fragment {{random}} resolves against a throwaway
     # copy of the stored choice map so the estimate matches the prompt bytes a
@@ -442,8 +615,7 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     constant_lorebook_block = lorebook.compute_constant_lorebook_block(lorebook_entries, macros)
     depth_lorebook_block = lorebook.compute_depth_lorebook_block(lorebook_entries, macros)
 
-    breakdown = {}
-    for label, chars in [
+    components = [
         ("system_prompt", len(sys_text)),
         ("char_persona", len(persona_text)),
         ("scenario", len(scenario_text)),
@@ -455,7 +627,14 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
         ("lorebook", len(lorebook_block)),
         ("lorebook_constant", len(constant_lorebook_block)),
         ("lorebook_depth", len(depth_lorebook_block)),
-    ]:
+    ]
+    if turn_cast.grouped:
+        components[2:2] = [
+            ("cast_public", len(cast_public_text)),
+            ("largest_speaker_tail", len(largest_speaker_tail)),
+        ]
+    breakdown = {}
+    for label, chars in components:
         breakdown[label] = {"chars": chars, "tokens_est": estimate_tokens(chars)}
 
     total_chars = sum(v["chars"] for v in breakdown.values())
@@ -464,6 +643,7 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
         "total_tokens_est": estimate_tokens(total_chars),
         "breakdown": breakdown,
         "message_count": len(messages),
+        "estimate_kind": "maximum" if turn_cast.grouped else "single_call",
     }
 
 

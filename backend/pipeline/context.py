@@ -24,7 +24,7 @@ from types import MappingProxyType
 from typing import Any
 
 from .. import database as db
-from ..core import ChatMessage, Macros
+from ..core import ChatMessage, Macros, TurnCast
 from ..database.models import (
     ActiveLorebookEntryRow,
     CharacterCardRow,
@@ -52,6 +52,7 @@ from ..inference import (
     client_from_settings,
     separate_agent_lane_configured,
 )
+from .cast import resolve_cast
 from .config import _build_writer_tools_blob
 from .predicates import agent_enabled, resolve_persona_id, world_proposal_active
 from .state import LorebookTurn, WorldProposalTurn
@@ -91,6 +92,9 @@ class PipelineContext:
     # narrows it to its mutation targets through ``world_proposal_active`` --
     # the enabled Worlds that opted in, i.e. the ones whose lore fed this turn.
     worlds: list[WorldRow] = field(default_factory=list)
+    cast: TurnCast = field(default_factory=lambda: TurnCast(False, ()))
+    speaker_names: Mapping[str, str] = field(default_factory=dict)
+    group_members: tuple[Mapping[str, Any], ...] = ()
 
 
 async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
@@ -111,19 +115,40 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
 
     director: dict[str, Any] = dict(await db.get_director_state(conversation_id))
     card, active_persona = await resolve_card_and_persona(conv, settings)
+    cast = await resolve_cast(conv)
+    all_group_members = await db.get_group_members(conversation_id, include_inactive=True) if cast.grouped else []
+    speaker_names = {m["id"]: m["display_name"] for m in all_group_members}
     # Card-embedded fragments merge into the global lists for this turn only
     # (the context is rebuilt per turn); on id collision the global wins.
     card_moods, card_interactive = db.card_embedded_fragments(card)
+    if cast.grouped:
+        seen_cards: set[str] = set()
+        for member in cast.members:
+            if not member.card_id or member.card_id in seen_cards:
+                continue
+            seen_cards.add(member.card_id)
+            member_card = await db.get_character_card(member.card_id)
+            moods, interactive = db.card_embedded_fragments(member_card)
+            card_moods.extend(moods)
+            card_interactive.extend(interactive)
     mood_fragments = await db.get_mood_fragments()
     mood_fragments = [f for f in mood_fragments if f.get("enabled", True)]
-    mood_fragments += [f for f in card_moods if f["id"] not in {g["id"] for g in mood_fragments}]
+    mood_ids = {fragment["id"] for fragment in mood_fragments}
+    for fragment in card_moods:
+        if fragment["id"] not in mood_ids:
+            mood_fragments.append(fragment)
+            mood_ids.add(fragment["id"])
     # Prune active moods that reference disabled fragments.
     if director and director.get("active_moods"):
         enabled_ids = {f["id"] for f in mood_fragments}
         director["active_moods"] = [mood for mood in director["active_moods"] if mood in enabled_ids]
     interactive_fragments = await db.get_interactive_fragments()
     interactive_fragments = [df for df in interactive_fragments if df.get("enabled", True)]
-    interactive_fragments += [f for f in card_interactive if f["id"] not in {g["id"] for g in interactive_fragments}]
+    interactive_ids = {fragment["id"] for fragment in interactive_fragments}
+    for fragment in card_interactive:
+        if fragment["id"] not in interactive_ids:
+            interactive_fragments.append(fragment)
+            interactive_ids.add(fragment["id"])
     phrase_bank = await db.get_phrase_bank()
     lorebook_entries = await db.get_active_lorebook_entries()
     worlds = await db.get_worlds()
@@ -156,6 +181,9 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         agent_client=agent_client,
         agent_system_prompt=agent_system_prompt,
         worlds=worlds,
+        cast=cast,
+        speaker_names=speaker_names,
+        group_members=tuple(m for m in all_group_members if m.get("active")),
     )
 
 
@@ -213,9 +241,10 @@ def _build_prefix_from_ctx(
     except the ``at_depth`` ones, which ride ``LorebookTurn.depth_block``.
     """
     conv = ctx.conv
-    macros, user_description = persona_macros(
-        ctx.settings, conv["character_name"], ctx.active_persona, seed=conversation_macro_seed(conv)
-    )
+    group_title = conv.get("title", "") if ctx.cast.grouped else conv["character_name"]
+    macros, user_description = persona_macros(ctx.settings, group_title, ctx.active_persona, seed=conversation_macro_seed(conv))
+    if ctx.cast.grouped:
+        macros = macros._replace(cast=", ".join(m.name for m in ctx.cast.members))
 
     return build_prefix(
         system_prompt if system_prompt is not None else ctx.system_prompt,
@@ -228,6 +257,8 @@ def _build_prefix_from_ctx(
         user_description,
         constant_lorebook_block=compute_constant_lorebook_block(ctx.lorebook_entries, macros),
         extra_system_blocks=extra_system_blocks,
+        cast=ctx.cast,
+        speaker_names=ctx.speaker_names,
     )
 
 
@@ -275,6 +306,7 @@ class _TurnSetup:
     turn_scratch: dict
     kv_tracker: _KVCacheTracker
     schema_overrides: Mapping[str, dict]
+    extra_system_blocks: tuple[str, ...]
     # Identity of the Worlds this turn may propose changes to; None when no
     # enabled World has opted in to Dynamic Worlds.
     world_proposal: WorldProposalTurn | None = None
@@ -305,8 +337,13 @@ async def _prepare_turn(
                 yield ev
         assert setup is not None
     """
+    macro_char = ctx.conv.get("title", "") if ctx.cast.grouped else ctx.conv["character_name"]
     macros = Macros.from_settings(
-        ctx.settings, ctx.conv["character_name"], ctx.active_persona, seed=conversation_macro_seed(ctx.conv)
+        ctx.settings,
+        macro_char,
+        ctx.active_persona,
+        seed=conversation_macro_seed(ctx.conv),
+        cast=", ".join(m.name for m in ctx.cast.members) if ctx.cast.grouped else "",
     )
 
     prefix_base, agent_prefix_base = _build_prefixes(ctx, history)
@@ -345,7 +382,11 @@ async def _prepare_turn(
             world_ids=proposal_world_ids,
             conversation_id=conversation_id,
             user_message=last_user_message,
-            character_label=(ctx.card or {}).get("name", "") or ctx.conv.get("character_name", ""),
+            character_label=(
+                ctx.conv.get("title", "")
+                if ctx.cast.grouped
+                else ((ctx.card or {}).get("name", "") or ctx.conv.get("character_name", ""))
+            ),
             conversation_label=ctx.conv.get("title", "") or "",
         )
         if proposal_world_ids
@@ -360,6 +401,7 @@ async def _prepare_turn(
         enabled_tools_pre_merge,
         agentic_lorebook=agentic_active,
         dynamic_world=world_proposal is not None,
+        cast=(list(ctx.group_members) if ctx.cast.grouped else None),
     )
     schema_overrides = MappingProxyType(overrides)
     accumulators = {
@@ -400,5 +442,6 @@ async def _prepare_turn(
         turn_scratch=turn_scratch,
         kv_tracker=kv_tracker,
         schema_overrides=schema_overrides,
+        extra_system_blocks=tuple(extras),
         world_proposal=world_proposal,
     )

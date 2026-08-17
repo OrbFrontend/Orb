@@ -25,6 +25,7 @@ import {
   _syncGenerationStatusVisibility,
   appendReasoningDelta,
   clearWorkflowPhase,
+  hideAvatarPopup,
   REASONING_PASSES,
   renderInspector,
   setWorkflowPhase,
@@ -36,6 +37,7 @@ import {
   optimisticDropDirectionNotesFrom,
   renderDirectionNotesPanel,
 } from "./direction_notes_panel.js";
+import { renderGroupCast } from "./group_setup.js";
 import { refreshCharacters } from "./library.js";
 import { isUtilityPanelOpen } from "./panels.js";
 // Imported directly rather than via settings.js to avoid an import cycle
@@ -184,7 +186,8 @@ export function setStreaming(active) {
   $("stop-btn").style.display = active ? "flex" : "none";
   const cm = $("chat-messages");
   if (cm) cm.classList.toggle("streaming", active);
-  if (active) onTurnStart();
+  if (active && !S.groupCast) onTurnStart();
+  renderGroupCast();
 }
 
 export function stopGeneration() {
@@ -194,10 +197,10 @@ export function stopGeneration() {
   }
 }
 
-export function createStreamingDiv() {
+export function createStreamingDiv(name = null) {
   const div = document.createElement("div");
   div.className = "message assistant";
-  div.innerHTML = `<div class="msg-role">${esc(getCharName())}</div>
+  div.innerHTML = `<div class="msg-role">${esc(name || getCharName())}</div>
     <div class="msg-body" id="streaming-body">
       <span class="typing-indicator"><span></span><span></span><span></span></span>
     </div>
@@ -229,6 +232,9 @@ function patchPendingUserMessage(pendingMsg) {
 }
 
 export async function afterStream() {
+  const wasGroupBeat = S.currentBeatId != null;
+  const groupBeatId = S.currentBeatId;
+  const inFlightSpeaker = S.currentSpeaker;
   const preservedContent = S.streamingContent;
   const pendingUserMsg = S.pendingUserMsg || null;
   const wasAborted = S.wasAborted;
@@ -308,7 +314,29 @@ export async function afterStream() {
   }
   S.queuedEdits = {};
 
-  if (preservedContent?.trim()) {
+  if (wasGroupBeat && inFlightSpeaker && preservedContent?.trim()) {
+    const persisted = S.messages.some(
+      (message) =>
+        message.role === "assistant" &&
+        message.beat_id === groupBeatId &&
+        message.speaker_member_id === inFlightSpeaker.member_id,
+    );
+    if (!persisted) {
+      const parent = S.messages[S.messages.length - 1];
+      S.messages.push({
+        role: "assistant",
+        content: preservedContent,
+        id: null,
+        parent_id: parent?.id || null,
+        speaker_member_id: inFlightSpeaker.member_id,
+        beat_id: groupBeatId,
+        branch_count: 1,
+        branch_index: 0,
+        prev_branch_id: null,
+        next_branch_id: null,
+      });
+    }
+  } else if (!wasGroupBeat && preservedContent?.trim()) {
     const lastMsg = S.messages[S.messages.length - 1];
     if (!lastMsg || lastMsg.role !== "assistant") {
       S.messages.push({
@@ -324,7 +352,7 @@ export async function afterStream() {
   }
 
   setStreaming(false);
-  $("send-btn").disabled = false;
+  $("send-btn").disabled = Boolean(S.groupCast?.turn_mode === "manual" && !S.pinnedSpeakerId);
 
   // Anchor the pending diff to the specific message ID it was generated for,
   // so branch navigation doesn't show stale diffs on the wrong message.
@@ -337,7 +365,7 @@ export async function afterStream() {
   // proposal card belongs under the finished reply, and the in-place path only
   // rewrites the bubble's body, so a turn that raised one repaints in full.
   const lastMsg = S.messages[S.messages.length - 1];
-  const finalized = !S.worldProposalArrived && finalizeStreamingDiv(lastMsg);
+  const finalized = !wasGroupBeat && !S.worldProposalArrived && finalizeStreamingDiv(lastMsg);
   S.worldProposalArrived = false;
   S.streamingBodyEl = null;
 
@@ -360,6 +388,10 @@ export async function afterStream() {
   } else {
     renderMessages();
   }
+  S.currentBeatId = null;
+  S.currentSpeaker = null;
+  S.completedBeatMessageIds = [];
+  renderGroupCast();
   clearInspectedMessage();
   // The active branch moved (new reply or a regenerated sibling), so the notes
   // panel's path-scoped set is stale; refetch it if the user has it open. Clear the
@@ -370,7 +402,7 @@ export async function afterStream() {
   refreshCharacters();
 }
 
-export async function processSSEStream(resp, container, msgDiv, signal) {
+export async function processSSEStream(resp, container, holder, signal) {
   let fullResponse = "",
     rewrittenResponse = null,
     firstToken = true,
@@ -391,14 +423,68 @@ export async function processSSEStream(resp, container, msgDiv, signal) {
   S.reasoningPassSelected = 0; // tracks what the user is viewing
   S.reasoningUserOverride = false; // true when user has manually clicked a dot
 
+  const resetSpeakerTurnState = () => {
+    fullResponse = "";
+    rewrittenResponse = null;
+    firstToken = true;
+    S.streamingContent = null;
+    S.pendingRefineDiff = null;
+    S.editorDraftBaseline = null;
+    S.reasoningDirector = "";
+    S.reasoningWriter = "";
+    S.reasoningEditor = "";
+    S.lastFeedback = null;
+    S.lastDirectionNotes = null;
+    S.reasoningByPass = {};
+    S.reasoningPassActive = 0;
+    S.reasoningPassSelected = 0;
+    S.reasoningUserOverride = false;
+  };
+
   // sse.js owns the transport (frames, keepalives, chunk-boundary splits); this
   // loop owns the chat event vocabulary. The token/rewrite callbacks close over
   // the current frame's `data`, so they are minted per event.
   for await (const { event, data } of sseEvents(resp.body, { signal })) {
+    if (event === "speaking_plan") {
+      try {
+        const parsed = JSON.parse(data);
+        S.currentBeatId = parsed.beat_id;
+        S.speakingPlan = Array.isArray(parsed.plan) ? parsed.plan : [];
+        renderGroupCast();
+      } catch (_) {}
+      continue;
+    }
+    if (event === "speaker_start") {
+      try {
+        const parsed = JSON.parse(data);
+        S.currentBeatId = parsed.beat_id;
+        S.currentSpeaker = parsed;
+        hideAvatarPopup();
+        resetSpeakerTurnState();
+        holder.el = createStreamingDiv(parsed.name);
+        if (!S.hideUntilBaked) container.appendChild(holder.el);
+        onTurnStart();
+        renderGroupCast();
+        scrollToBottom();
+      } catch (_) {}
+      continue;
+    }
+    if (event === "speaker_done") {
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed.message_id) S.completedBeatMessageIds.push(parsed.message_id);
+        finalizeStreamingDiv({ ...parsed, id: parsed.message_id, role: "assistant" });
+        S.streamingBodyEl = null;
+        holder.el = null;
+        S.currentSpeaker = null;
+        renderGroupCast();
+      } catch (_) {}
+      continue;
+    }
     const onToken = () => {
       if (firstToken) {
         firstToken = false;
-        if (!msgDiv.isConnected && !S.hideUntilBaked) container.appendChild(msgDiv);
+        if (holder.el && !holder.el.isConnected && !S.hideUntilBaked) container.appendChild(holder.el);
         if (S.streamingBodyEl) S.streamingBodyEl.innerHTML = "";
       }
       fullResponse += unescapeSSE(data);
@@ -421,7 +507,7 @@ export async function processSSEStream(resp, container, msgDiv, signal) {
     // but unread, leaving the backend generating headless. Contain it, log the
     // culprit event + stack, and keep reading.
     try {
-      handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite);
+      handleSSEEvent(event, data, container, holder.el, onToken, onRewrite);
     } catch (e) {
       console.error(`SSE handler for "${event}" threw:`, e);
       if (!dispatchErrorToasted) {
@@ -735,7 +821,7 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
 }
 
 export function agentPayload() {
-  return { enable_agent: S.agentEnabled };
+  return { enable_agent: S.agentEnabled, speaker_member_id: S.pinnedSpeakerId || null };
 }
 
 // The ONE chat generation lifecycle. Every send/continue/regenerate/super-
@@ -770,10 +856,16 @@ export async function runStreamRequest(
 
   renderMessages();
   const ct = $("chat-messages");
-  const msgDiv = createStreamingDiv();
-  if (!S.hideUntilBaked) ct.appendChild(msgDiv);
-  if (cutoffMsgId != null || anchorStream) pinStreamingMessage(msgDiv);
-  else scrollToBottom();
+  const holder = { el: null };
+  if (S.groupCast) {
+    S.currentBeatId = "pending";
+    S.completedBeatMessageIds = [];
+  } else {
+    holder.el = createStreamingDiv();
+    if (!S.hideUntilBaked) ct.appendChild(holder.el);
+    if (cutoffMsgId != null || anchorStream) pinStreamingMessage(holder.el);
+    else scrollToBottom();
+  }
   S.abortController = new AbortController();
   try {
     const resp = await streamPost(path, body, S.abortController.signal);
@@ -792,7 +884,7 @@ export async function runStreamRequest(
       };
       if (!S.turnError.headline) S.turnError.headline = `Orb returned HTTP ${resp.status}.`;
     } else {
-      await processSSEStream(resp, ct, msgDiv, S.abortController.signal);
+      await processSSEStream(resp, ct, holder, S.abortController.signal);
     }
   } catch (e) {
     if (e.name === "AbortError") {
@@ -826,6 +918,13 @@ export async function continueFromUser() {
   }
   await runStreamRequest(convUrl(S.activeConvId, "continue"), agentPayload());
 }
+
+export async function speakAsPinned() {
+  if (!S.activeConvId || !S.pinnedSpeakerId || !canStartGeneration()) return;
+  await runStreamRequest(convUrl(S.activeConvId, "speak"), { speaker_member_id: S.pinnedSpeakerId });
+}
+
+document.addEventListener("group-speak-request", () => speakAsPinned());
 
 // ── Send Message
 export async function sendMessage() {
@@ -950,7 +1049,7 @@ export async function submitMagicRewrite(msgId) {
   optimisticDropDirectionNotesFrom(msgId);
   await runStreamRequest(
     convUrl(S.activeConvId, "messages", msgId, "magic_rewrite"),
-    { direction },
+    { direction, ...agentPayload() },
     {
       cutoffMsgId: msgId,
     },

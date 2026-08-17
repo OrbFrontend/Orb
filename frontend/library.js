@@ -86,12 +86,11 @@ function filterRecentCharacters(characters, conversations, limit = 5) {
   // Map each character_card_id to its most recent conversation timestamp
   const recentMap = new Map();
   for (const conv of conversations) {
-    const cardId = conv.character_card_id;
-    if (!cardId) continue;
     const ts = convActivity(conv);
-    const existing = recentMap.get(cardId);
-    if (!existing || ts > existing) {
-      recentMap.set(cardId, ts);
+    const cardIds = conv.character_card_id ? [conv.character_card_id] : conv.group_card_ids || [];
+    for (const cardId of cardIds) {
+      const existing = recentMap.get(cardId);
+      if (!existing || ts > existing) recentMap.set(cardId, ts);
     }
   }
 
@@ -178,12 +177,16 @@ export async function handleImportFile(inp) {
 
 export async function deleteCharacter(id) {
   const charName = charactersView().find((c) => c.id === id)?.name;
+  const usage = await api.get(`/characters/${id}/usage`).catch(() => null);
+  const usageText = usage
+    ? `<p class="modal-hint">Used by ${usage.solo} solo conversation(s), ${usage.active_groups} active group(s), and ${usage.historical_groups} group history roster(s).</p>`
+    : "";
   showConfirmModal(
     {
       title: "Delete Character",
       message: `Are you sure you want to delete ${charName ? `"${charName}"` : "this character card"}?`,
       confirmText: "Delete",
-      extraHtml: `
+      extraHtml: `${usageText}
       <div class="field">
         <label class="modal-checkbox-label">
           <input type="checkbox" id="delete-conversations-checkbox">
@@ -272,6 +275,7 @@ export async function clearExpressions(id) {
 
 // ── Shared tab template for create / edit modals
 function charFormTabs(prefix, d, isEdit, worlds = []) {
+  const publicProfile = d.extensions?.orb?.public_profile || {};
   const agHtml = (d.alternate_greetings || [])
     .map(
       (g) => `
@@ -323,6 +327,9 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       </div>
     </div>
     <div id="${prefix}-ta" class="tab-content">
+      <div class="field"><label>Public cast appearance</label><textarea id="${prefix}-public-appearance" rows="2">${esc(publicProfile.appearance || "")}</textarea></div>
+      <div class="field"><label>Public cast role</label><textarea id="${prefix}-public-role" rows="2">${esc(publicProfile.role || "")}</textarea></div>
+      ${d.id ? `<button type="button" class="btn btn-sm" id="${prefix}-generate-public-profile">Generate editable draft</button><div class="modal-hint">Only these confirmed public fields enter a group's shared cast prompt.</div>` : ""}
       <div class="field">
         <label>Tags</label>
         <div class="lb-chip-wrap" id="${prefix}-tag-wrap" onclick="document.getElementById('${prefix}-tag-text')?.focus()"></div>
@@ -419,6 +426,14 @@ function _readCharEditForm() {
     ext.orb = { ...(ext.orb || {}), fragments: frags };
   } else if (ext.orb) {
     delete ext.orb.fragments;
+    if (!Object.keys(ext.orb).length) delete ext.orb;
+  }
+  const appearance = $("ce-public-appearance")?.value.trim() || "";
+  const role = $("ce-public-role")?.value.trim() || "";
+  if (appearance || role) {
+    ext.orb = { ...(ext.orb || {}), public_profile: { appearance, role } };
+  } else if (ext.orb) {
+    delete ext.orb.public_profile;
     if (!Object.keys(ext.orb).length) delete ext.orb;
   }
   return {
@@ -543,6 +558,16 @@ export async function showCharEditModal(idOrData) {
   $("ce-tab-frag")?.addEventListener("click", (e) => switchTab(e.currentTarget, "ce-tf"));
   $("ce-card-frag-add-mood")?.addEventListener("click", () => showCardMoodFragmentModal());
   $("ce-card-frag-add-interactive")?.addEventListener("click", () => showCardInteractiveFragmentModal());
+  $("ce-generate-public-profile")?.addEventListener("click", async () => {
+    try {
+      const draft = await api.post(`/characters/${c.id}/public-profile/generate`);
+      $("ce-public-appearance").value = draft.appearance || "";
+      $("ce-public-role").value = draft.role || "";
+      toast("Draft ready — review it, then save the card");
+    } catch (error) {
+      toast(error.message, true);
+    }
+  });
   if (c.id) {
     api
       .get(`/characters/${c.id}/expressions`)

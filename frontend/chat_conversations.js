@@ -9,18 +9,19 @@ import { clearInspectedMessage, inspectMessage } from "./chat_messages.js";
 import { stopConversation } from "./chat_stream.js";
 import { resetWorkflowViewportState } from "./chat_workflow.js";
 import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
+import { loadGroupCast, renderGroupList } from "./group_setup.js";
 import { refreshCharacters, renderCharacters } from "./library.js";
 // Imported from library_fragments.js directly (like settings.js does): going
 // through library.js would widen the library.js → chat.js import cycle.
 import { renderInteractiveFragments, renderMoodFragments } from "./library_fragments.js";
-import { activateAndPrioritizeWorld, deactivateWorld } from "./lorebooks.js";
+import { reflectConversationWorldActivation } from "./lorebooks.js";
 import { closeModal, showConfirmModal, showModal } from "./modal.js";
 import { isUtilityPanelOpen } from "./panels.js";
 // Imported from settings_personas.js directly: going through settings.js would
 // close an import cycle (settings.js → chat.js → this module).
 import { updateUserBtn } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
-import { charactersView, S } from "./state.js";
+import { S } from "./state.js";
 import {
   $,
   avatarCell,
@@ -39,7 +40,14 @@ import { clearTextEffect } from "./workflow_text_effects.js";
 // ── Conversations
 export async function loadConversations() {
   S.conversations = await api.get("/conversations");
+  renderGroupList();
 }
+
+document.addEventListener("group-created", async (event) => {
+  await loadConversations();
+  await selectConversation(event.detail);
+});
+document.addEventListener("group-selected", (event) => selectConversation(event.detail));
 
 // Stash (or clear, with null) the active character's card-embedded fragments
 // for the sidepanel/inspector. Mirrors the backend merge rule: enabled only,
@@ -60,6 +68,8 @@ export function resetChatUI() {
   stopAllAudio();
   S.activeCharId = null;
   S.activeConvId = null;
+  S.groupCast = null;
+  S.pinnedSpeakerId = null;
   stashCardFragments(null);
   S.messages = [];
   S.lastDirectorData = null;
@@ -83,13 +93,8 @@ export async function selectChar(id, source = "recent") {
   if (S.activeCharId === id || S._selectCharLock) return;
   S._selectCharLock = true;
   try {
-    const oldWorldId = charactersView().find((c) => c.id === S.activeCharId)?.world_id || null;
-    const newWorldId = charactersView().find((c) => c.id === id)?.world_id || null;
     S.activeCharId = id;
     renderCharacters();
-    if (oldWorldId && oldWorldId !== newWorldId) {
-      await deactivateWorld(oldWorldId);
-    }
     const existing = S.conversations.find((c) => c.character_card_id === id);
     if (existing) {
       // If selecting from library modal, bump the conversation's access time so
@@ -126,15 +131,10 @@ export async function newConvForChar(id) {
     return;
   }
   try {
-    const oldWorldId = charactersView().find((c) => c.id === S.activeCharId)?.world_id || null;
-    const newWorldId = charactersView().find((c) => c.id === id)?.world_id || null;
     const conv = await api.post("/conversations", { character_card_id: id });
     await loadConversations();
     S.activeCharId = id;
     renderCharacters();
-    if (oldWorldId && oldWorldId !== newWorldId) {
-      await deactivateWorld(oldWorldId);
-    }
     await selectConversation(conv.id);
   } catch (e) {
     toast(e.message, true);
@@ -146,7 +146,6 @@ export async function selectConversation(id) {
     toast("Stop generation before switching conversations", true);
     return;
   }
-  const oldWorldId = charactersView().find((c) => c.id === S.activeCharId)?.world_id || null;
   S.activeConvId = id;
   S.lastDirectorData = null;
   S.reasoningDirector = "";
@@ -156,6 +155,8 @@ export async function selectConversation(id) {
   S.reasoningPassActive = 0;
   S.reasoningPassSelected = 0;
   const conv = S.conversations.find((c) => c.id === id);
+  await loadGroupCast(conv);
+  if (conv?.kind === "group") S.activeCharId = null;
   if (conv?.character_card_id && S.activeCharId !== conv.character_card_id) {
     S.activeCharId = conv.character_card_id;
     renderCharacters();
@@ -165,7 +166,9 @@ export async function selectConversation(id) {
   updateUserBtn();
   $("chat-title-text").textContent = conv ? conv.title || conv.character_name : "";
   const av = $("chat-avatar");
-  if (conv?.character_card_id) {
+  if (conv?.kind === "group") {
+    av.textContent = "👥";
+  } else if (conv?.character_card_id) {
     av.innerHTML = avatarCell(`${avatarUrl(conv.character_card_id)}?t=${Date.now()}`, {
       icon: CHAT_AVATAR_ICON,
       attrs: 'onclick="showAvatarPopup()" style="cursor:pointer"',
@@ -179,16 +182,9 @@ export async function selectConversation(id) {
   $("send-btn").disabled = false;
 
   // If the character has a linked lorebook, activate it and move it to the top
-  if (conv?.character_card_id) {
-    const char = charactersView().find((c) => c.id === conv.character_card_id);
-    if (char?.world_id) {
-      await activateAndPrioritizeWorld(char.world_id);
-    }
-  }
-
-  const newWorldId = charactersView().find((c) => c.id === S.activeCharId)?.world_id || null;
-  if (oldWorldId && oldWorldId !== newWorldId) {
-    await deactivateWorld(oldWorldId);
+  if (conv) {
+    const activation = await api.post(convUrl(id, "activate"));
+    reflectConversationWorldActivation(activation.world_ids);
   }
 
   // Fetch messages, director state, and the full card (for its embedded

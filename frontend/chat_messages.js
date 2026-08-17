@@ -121,7 +121,17 @@ function focusEditTextarea(ta, onEscape) {
 export async function deleteMessage(msgId) {
   if (S.isStreaming) return;
   if (!requestSendPermission()) return;
-  confirmDelete("Message", "Delete this message, all its siblings, and all their children?", async () => {
+  let detail = "Delete this message, all its siblings, and all their children?";
+  if (S.activeConversation?.kind === "group") {
+    try {
+      const preview = await api.get(convUrl(S.activeConvId, "messages", msgId, "delete-preview"));
+      const count = preview.assistant_count || 0;
+      detail = `Delete this message, all its siblings, and all their children? This removes ${count} group ${count === 1 ? "reply" : "replies"}.`;
+    } catch (_e) {
+      // Keep deletion available if an older backend does not expose previews.
+    }
+  }
+  confirmDelete("Message", detail, async () => {
     try {
       setMessages(await api.del(convUrl(S.activeConvId, "messages", msgId)));
       S.lastDirectorData = null;

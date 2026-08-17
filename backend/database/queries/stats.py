@@ -55,14 +55,30 @@ async def add_generated_chars(chars: int) -> None:
 # -- they're drafts/trash, not part of the visible story. Exposes conv_id, id and
 # created_at so callers can group by conversation and apply recency filters.
 _ACTIVE_PATH_CTE = """
-    WITH RECURSIVE active_path(conv_id, id, parent_id, created_at) AS (
-        SELECT c.id, m.id, m.parent_id, m.created_at
+    WITH RECURSIVE active_path(conv_id, id, parent_id, created_at, role, speaker_member_id) AS (
+        SELECT c.id, m.id, m.parent_id, m.created_at, m.role, m.speaker_member_id
         FROM conversations c
         JOIN messages m ON m.id = c.active_leaf_id
         UNION ALL
-        SELECT ap.conv_id, m.id, m.parent_id, m.created_at
+        SELECT ap.conv_id, m.id, m.parent_id, m.created_at, m.role, m.speaker_member_id
         FROM active_path ap
         JOIN messages m ON m.id = ap.parent_id
+    )
+"""
+
+_CHARACTER_USAGE_CTE = """
+    , character_usage AS (
+        SELECT c.character_name AS character_name, c.character_card_id AS card_id,
+               c.id AS conv_id, ap.created_at AS created_at
+        FROM active_path ap
+        JOIN conversations c ON c.id = ap.conv_id
+        WHERE c.kind = 'solo' AND c.character_name != ''
+        UNION ALL
+        SELECT gm.display_name, gm.character_card_id, c.id, ap.created_at
+        FROM active_path ap
+        JOIN conversations c ON c.id = ap.conv_id
+        JOIN group_members gm ON gm.id = ap.speaker_member_id
+        WHERE c.kind = 'group' AND ap.role = 'assistant' AND gm.display_name != ''
     )
 """
 
@@ -95,15 +111,13 @@ async def get_global_stats() -> dict:
         # skipping unnamed conversations.
         fav_row = list(
             await db.execute_fetchall(
-                f"""{_ACTIVE_PATH_CTE}
-                   SELECT c.character_name,
+                f"""{_ACTIVE_PATH_CTE}{_CHARACTER_USAGE_CTE}
+                   SELECT character_name,
                           COUNT(*) AS msg_count,
-                          COUNT(DISTINCT c.id) AS conv_count,
-                          MAX(c.character_card_id) AS card_id
-                   FROM active_path ap
-                   JOIN conversations c ON c.id = ap.conv_id
-                   WHERE c.character_name != ''
-                   GROUP BY c.character_name
+                          COUNT(DISTINCT conv_id) AS conv_count,
+                          MAX(card_id) AS card_id
+                   FROM character_usage
+                   GROUP BY character_name
                    ORDER BY msg_count DESC
                    LIMIT 1"""
             )
@@ -130,16 +144,15 @@ async def get_global_stats() -> dict:
         recent_cutoff = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
         missed_row = list(
             await db.execute_fetchall(
-                f"""{_ACTIVE_PATH_CTE}
-                   SELECT c.character_name,
+                f"""{_ACTIVE_PATH_CTE}{_CHARACTER_USAGE_CTE}
+                   SELECT character_name,
                           COUNT(*) AS msg_count,
-                          COUNT(DISTINCT c.id) AS conv_count,
-                          MAX(c.character_card_id) AS card_id
-                   FROM active_path ap
-                   JOIN conversations c ON c.id = ap.conv_id
-                   WHERE c.character_name != '' AND c.character_name != ?
-                   GROUP BY c.character_name
-                   HAVING COUNT(*) > 100 AND MAX(ap.created_at) < ?
+                          COUNT(DISTINCT conv_id) AS conv_count,
+                          MAX(card_id) AS card_id
+                   FROM character_usage
+                   WHERE character_name != ?
+                   GROUP BY character_name
+                   HAVING COUNT(*) > 100 AND MAX(created_at) < ?
                    ORDER BY RANDOM()
                    LIMIT 1""",
                 (fav_name, recent_cutoff),

@@ -14,6 +14,7 @@ from ...database import (
     get_changesets_for_messages,
     get_character_card,
     get_message_by_id,
+    get_message_delete_preview,
     get_messages,
     get_messages_with_branch_info,
     get_settings,
@@ -32,6 +33,7 @@ from ...pipeline import (
     handle_fork_edit,
     handle_magic_rewrite,
     handle_regenerate,
+    handle_speak,
     handle_super_regenerate,
     handle_turn,
 )
@@ -48,6 +50,7 @@ from ..schemas import (
     MagicRewriteMsg,
     RegenerateMsg,
     SendMessage,
+    SpeakRequest,
 )
 
 router = APIRouter()
@@ -97,6 +100,18 @@ async def api_get_messages(cid: str, _conv: ConversationRow = Depends(require_co
         return await _attach_world_changesets(await get_messages_with_branch_info(cid))
 
 
+@router.get("/api/conversations/{cid}/messages/{msg_id}/delete-preview")
+async def api_message_delete_preview(
+    cid: str,
+    msg_id: int,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
+    preview = await get_message_delete_preview(cid, msg_id)
+    if preview is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+    return preview
+
+
 @router.post("/api/conversations/{cid}/messages/{msg_id}/edit")
 async def api_edit_message(
     cid: str,
@@ -136,7 +151,17 @@ async def api_fork_edit_message(
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
     """Fork at a user message: persist an edited sibling and stream a fresh reply."""
-    return _pipeline_sse_response(lambda tok: handle_fork_edit(cid, msg_id, data.content, abort_token=tok), request, cid)
+    return _pipeline_sse_response(
+        lambda tok: handle_fork_edit(
+            cid,
+            msg_id,
+            data.content,
+            abort_token=tok,
+            speaker_member_id=data.speaker_member_id,
+        ),
+        request,
+        cid,
+    )
 
 
 @router.delete("/api/conversations/{cid}/messages/{msg_id}")
@@ -218,8 +243,28 @@ async def api_send_message(
 ):
     attachments = [a.model_dump() for a in data.attachments]
     return _pipeline_sse_response(
-        lambda tok: handle_turn(cid, data.content, attachments=attachments, abort_token=tok), request, cid
+        lambda tok: handle_turn(
+            cid,
+            data.content,
+            attachments=attachments,
+            abort_token=tok,
+            speaker_member_id=data.speaker_member_id,
+        ),
+        request,
+        cid,
     )
+
+
+@router.post("/api/conversations/{cid}/speak")
+async def api_group_speak(
+    cid: str,
+    data: SpeakRequest,
+    request: Request,
+    conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
+    if conv.get("kind", "solo") != "group":
+        raise HTTPException(status_code=409, detail="Conversation is not a group")
+    return _pipeline_sse_response(lambda tok: handle_speak(cid, data.speaker_member_id, abort_token=tok), request, cid)
 
 
 @router.post("/api/conversations/{cid}/continue")
@@ -235,7 +280,15 @@ async def api_continue_from_user(
         raise HTTPException(status_code=400, detail="Last message is not a user message")
     user_content = messages[-1]["content"]
     return _pipeline_sse_response(
-        lambda tok: handle_turn(cid, user_content, skip_user_persist=True, abort_token=tok), request, cid
+        lambda tok: handle_turn(
+            cid,
+            user_content,
+            skip_user_persist=True,
+            abort_token=tok,
+            speaker_member_id=data.speaker_member_id if data else None,
+        ),
+        request,
+        cid,
     )
 
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping, MutableMapping, Sequence
 from typing import Any
 
-from ..core import ChatMessage, ContentPart, Macros, resolve_stored_random
+from ..core import ChatMessage, ContentPart, Macros, TurnCast, resolve_stored_random
 from .tool_registry import TOOLS
 
 
@@ -70,6 +70,8 @@ def build_prefix(
     *,
     constant_lorebook_block: str = "",
     extra_system_blocks: list[str] | None = None,
+    cast: TurnCast | None = None,
+    speaker_names: Mapping[str, str] | None = None,
 ) -> list[ChatMessage]:
     resolve = macros.resolve_message if macros else (lambda t: t)
     resolved = {
@@ -84,9 +86,16 @@ def build_prefix(
     }
 
     parts = [system_prompt]
-    if macros and macros.char:
+    if cast and cast.grouped:
+        parts.append("\n\n## Cast")
+        for member in cast.members:
+            parts.append(f"\n### {member.name}")
+            if member.public_profile:
+                profile = member.public_profile.replace("{{cast}}", ", ".join(m.name for m in cast.members))
+                parts.append(f"\n{resolve(profile)}")
+    elif macros and macros.char:
         parts.append(f"\n\n## Character: {macros.char}")
-    if resolved["persona"]:
+    if resolved["persona"] and not (cast and cast.grouped):
         parts.append(f"\n{resolved['persona']}")
     # Opaque, pre-rendered (header + macros already resolved by the caller) —
     # not passed through resolve, to avoid double macro expansion.
@@ -94,14 +103,14 @@ def build_prefix(
         parts.append(f"\n\n{constant_lorebook_block}")
     if resolved["scenario"]:
         parts.append(f"\n\n## Scenario\n{resolved['scenario']}")
-    if resolved["mes_example"]:
+    if resolved["mes_example"] and not (cast and cast.grouped):
         mes = resolved["mes_example"]
         if "<START>" in mes:
             processed_example = mes.replace("<START>", "## Example Dialogue")
             parts.append(f"\n\n{processed_example}")
         else:
             parts.append(f"\n\n## Example Dialogue\n{mes}")
-    if resolved["post_history"]:
+    if resolved["post_history"] and not (cast and cast.grouped):
         parts.append(f"\n\n## Additional Instructions\n{resolved['post_history']}")
     if resolved["user_desc"].strip():
         user_label = macros.user if macros else "User"
@@ -112,6 +121,32 @@ def build_prefix(
             parts.append(f"\n\n{block}")
 
     processed_messages = [format_message_with_attachments(m, macros) for m in (messages or [])]
+    if cast and cast.grouped:
+        labelled: list[ChatMessage] = []
+        names = dict(speaker_names or {})
+        names.update({m.member_id: m.name for m in cast.members})
+        for original, rendered in zip(messages or [], processed_messages, strict=True):
+            if rendered["role"] != "assistant":
+                labelled.append(rendered)
+                continue
+            speaker_id = original.get("speaker_member_id")
+            label = names.get(str(speaker_id), "Unknown speaker") if speaker_id else "Summary"
+            content = rendered["content"]
+            if isinstance(content, str):
+                text = f"{label}: {content}"
+                if labelled and labelled[-1]["role"] == "assistant" and isinstance(labelled[-1]["content"], str):
+                    labelled[-1] = {"role": "assistant", "content": str(labelled[-1]["content"]) + "\n\n" + text}
+                else:
+                    labelled.append({"role": "assistant", "content": text})
+            else:
+                parts_content = list(content)
+                if parts_content and parts_content[0]["type"] == "text":
+                    first = parts_content[0]
+                    parts_content = [{"type": "text", "text": f"{label}: {first['text']}"}, *parts_content[1:]]
+                else:
+                    parts_content.insert(0, {"type": "text", "text": f"{label}:"})
+                labelled.append({"role": "assistant", "content": parts_content})
+        processed_messages = labelled
 
     system_message: ChatMessage = {"role": "system", "content": "".join(parts)}
     return [system_message] + processed_messages

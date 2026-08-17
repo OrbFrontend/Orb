@@ -72,6 +72,22 @@ A typical `/send` turn with reasoning on (Director + Writer), an Editor pass, an
 
 The only event whose `data` is **not** JSON is `token` — it's a raw text delta, with newlines escaped to `\n` and un-escaped on arrival. (`error` is the one dual-shape channel: JSON from the pipeline handlers, a bare string from the pre-pipeline guards listed in §7.)
 
+### Group-beat envelope
+
+A group request wraps the ordinary per-reply events in three group-only JSON
+events:
+
+| Event | Data | Meaning |
+|---|---|---|
+| `speaking_plan` | `{beat_id, plan: [{member_id, card_id, name, beat}]}` | Emitted once for every group beat, including pins, round-robin, and an intentional empty plan. |
+| `speaker_start` | `{beat_id, member_id, card_id, name, index, total, beat}` | Makes this speaker the target of following token/editor/workflow events and mints the streaming bubble. |
+| `speaker_done` | `{beat_id, message_id, parent_id, turn_index, member_id, card_id, name, content}` | Confirms persistence and finalizes that bubble before another speaker may start. |
+
+There is still exactly one request-level `done`. A later-speaker failure does
+not roll back earlier `speaker_done` rows. `afterStream()` refetches and fully
+renders a group beat; `completedBeatMessageIds` plus the in-flight speaker/beat
+identify partial failure recovery.
+
 ---
 
 ## 4. Two events that never reach the browser
@@ -91,7 +107,7 @@ The pipeline's last event is `_result`, carrying the fully assembled reply (fina
 The frontend renders **optimistically** during the stream (it shows tokens as they arrive, before anything is confirmed). Once the stream closes, `afterStream()` reconciles that optimistic UI against the server's truth:
 
 - **Refetches** the message list and director state (`GET …/messages`, `GET …/director`).
-- **Finalizes** the streaming bubble in place — stamping the real assistant `id` onto the DOM node, with no destroy/re-render flash.
+- **Finalizes** the streaming bubble in place for solo turns. Group beats use a full render because one request may have persisted several chained bubbles.
 - **Flushes queued edits.** A `/edit` issued mid-stream blocks on the per-conversation stream lock for the whole turn; `afterStream()` runs once the lock frees and persists them.
 - **Clears** the phase chip and any lingering workflow pills.
 

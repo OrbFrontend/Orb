@@ -80,6 +80,7 @@ import {
   setDocProbs,
   toggleDocumentMode,
 } from "./document.js";
+import { initGroupSetup } from "./group_setup.js";
 import {
   addAltGreeting,
   clearExpressions,
@@ -469,6 +470,7 @@ initWorkflowTextInteraction();
 initAudioPlayer();
 initTabLock();
 initWorkflowMutationListener();
+initGroupSetup();
 
 // On a fresh load with no conversation selected, render the JS empty state so
 // the homepage stats grid appears (index.html ships a static empty state).

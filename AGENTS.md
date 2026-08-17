@@ -64,7 +64,8 @@ features/<name>/
 | `backend/main.py` | Thin entry: `build_app()` + uvicorn guard |
 | `backend/api/__init__.py` | `build_app()`: lifespan, middleware, auto-include routers |
 | `backend/api/routes/__init__.py` | `ROUTERS` list — add a file here to register a router |
-| `backend/pipeline/entrypoints.py` | 5 public `handle_*` functions — top of the turn lifecycle |
+| `backend/pipeline/entrypoints.py` | Public `handle_*` functions plus the group beat driver — top of the turn lifecycle |
+| `backend/pipeline/cast.py` | Active/tombstoned cast resolution, public/private projection, speaking-plan validation, round-robin policy |
 | `backend/pipeline/orchestrator.py` | `_run_pipeline()`: director→writer→editor coordination |
 | `backend/pipeline/state.py` | `TurnState`, `ModelLane`, `_PipelineConfig`, `LorebookTurn` |
 | `backend/pipeline/failures.py` | `describe_failure(exc)` → the `error` event's payload; the only place a failure is classified (status class, never provider vocabulary) |
@@ -85,6 +86,7 @@ features/<name>/
 | `frontend/sse.js` | THE SSE parser (`sseEvents`, `streamPost`) — only one in the app |
 | `frontend/text_segmentation.js` | Canonical non-workflow frontend sentence policy; line breaks are standalone stream units |
 | `frontend/workflow_api.js` | Plugin facade ABI v2 — the only import for `frontend/workflows/**` |
+| `frontend/group_cast.js` / `group_setup.js` | Pure group identity rendering (L1) / creation, roster editing, conversion and controls (L5) |
 
 ## Database Schema (summary)
 
@@ -93,8 +95,9 @@ features/<name>/
 | `settings` | Global singleton (id=1): endpoint refs, enabled_tools (JSON), feature flags, workflow_config |
 | `endpoints` | LLM API endpoints; `completion_mode` = `chat`\|`text` |
 | `model_configs` | Per-endpoint model params (temp, top_p, max_tokens, system_prompt, …) |
-| `conversations` | Chat sessions; `active_leaf_id` selects branch leaf; `macro_seed` pins {{random}} on checkpoint/compress copies |
-| `messages` | Message tree (`parent_id`); `role`, `content`, `progressive_fields`, `workflow_state` |
+| `conversations` | Chat sessions; `kind=solo|group`, group turn policy, `active_leaf_id` branch leaf; `macro_seed` pins {{random}} on copies |
+| `group_members` | Durable ordered group roster; immutable speaker keys, local names/profile overrides, mute/tombstone state |
+| `messages` | Message tree (`parent_id`); group replies carry `speaker_member_id` and request-scoped `beat_id` |
 | `character_cards` | V3-spec characters (`ccv3` chunk preferred, `chara` V2 fallback); `avatar_b64`, `world_id`, `persona_lock_id`, `extensions` (card extensions JSON; card-embedded fragments at `orb.fragments`, V3-only card fields parked at `orb.v3`, merged ephemerally in `_load_pipeline_context`) |
 | `character_expressions` | Per-character go-emotions expression images |
 | `user_personas` | User profiles injected into system prompt |
@@ -148,9 +151,9 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 ## API Endpoints (quick reference)
 
 - **Settings/endpoints/models:** CRUD under `/api/settings`, `/api/endpoints`, `/api/models`
-- **Conversations:** CRUD + `/summarize`, `/compress`, `/stop`, `/context-size`
-- **Messages:** `/send` (SSE), `/continue`, `/edit`, `/fork-edit`, `/regenerate`, `/super_regenerate`, `/magic_rewrite`, `/switch-branch`, DELETE
-- **Characters:** CRUD + `/import` (PNG), `/import-url`, `/browse`, `/export`, `/expressions`
+- **Conversations:** CRUD + `/members`, `/convert-to-group`, `/activate`, `/summarize`, `/compress`, `/stop`, `/context-size`
+- **Messages:** `/send` (SSE), `/speak`, `/continue`, `/edit`, `/fork-edit`, `/regenerate`, `/super_regenerate`, `/magic_rewrite`, `/switch-branch`, DELETE
+- **Characters:** CRUD + `/import` (PNG), `/import-url`, `/browse`, `/export`, `/expressions`, `/public-profile`
 - **Fragments/Moods:** `/api/fragments`, `/api/interactive-fragments`
 - **Worlds/Lorebook:** CRUD under `/api/worlds/{id}/entries` (`?view=all|authored|effective`) + `/import` + `/export` (standalone `character_book` JSON — V2 shape plus the additive V3 `use_regex`/`selective`/`secondary_keys` keys; `?view=authored` is the default and `effective` is opt-in, as it is for `/api/characters/{id}/export?world_view=`). `POST /api/worlds/deactivate-linked` is the client's boot sweep: a World a character card links to is on loan to whoever is in play, so a fresh page (nobody in play) turns every linked World off before the sidebar paints; floating Worlds are global lore and survive a reload untouched. It stamps neither `updated_at` nor `content_revision`
 - **Dynamic Worlds:** `PUT /api/worlds/{id}/dynamic`, `POST /api/worlds/{id}/reset`, and `/api/worlds/{id}/changesets` + `/{cid}/apply|reject|re-evaluate|undo`. Apply takes a per-World lock and a `BEGIN IMMEDIATE` transaction and refuses on a `content_revision` mismatch (`409`) — there is no force-apply and no automatic rebase

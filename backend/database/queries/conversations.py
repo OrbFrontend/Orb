@@ -30,6 +30,10 @@ async def list_conversations() -> list[ConversationListRow]:
                    (SELECT m.content FROM messages m
                     WHERE m.conversation_id = c.id
                     ORDER BY m.id DESC LIMIT 1) AS last_message_preview,
+                   COALESCE((SELECT json_group_array(gm.character_card_id)
+                             FROM group_members gm
+                             WHERE gm.conversation_id = c.id AND gm.active = 1
+                               AND gm.character_card_id IS NOT NULL), '[]') AS group_card_ids,
                    COALESCE(ac.cnt, 0) AS message_count
             FROM conversations c
             LEFT JOIN active_counts ac ON ac.conv_id = c.id
@@ -37,7 +41,12 @@ async def list_conversations() -> list[ConversationListRow]:
         """
             )
         )
-        return [cast(ConversationListRow, dict(r)) for r in rows]
+        out: list[ConversationListRow] = []
+        for row in rows:
+            item = dict(row)
+            item["group_card_ids"] = json.loads(item.get("group_card_ids") or "[]")
+            out.append(cast(ConversationListRow, item))
+        return out
 
 
 async def get_conversation(cid: str) -> ConversationRow | None:
@@ -55,14 +64,18 @@ async def create_conversation(
     character_card_id: str | None = None,
     persona_lock_id: int | None = None,
     macro_seed: str = "",
+    kind: str = "solo",
+    group_turn_mode: str = "director",
+    group_max_speakers: int = 3,
 ) -> ConversationRow:
     async with get_db() as db:
         now = datetime.now(UTC).isoformat()
         await db.execute(
             """INSERT INTO conversations
                (id, title, character_card_id, character_name, character_scenario,
-                post_history_instructions, persona_lock_id, macro_seed, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                post_history_instructions, persona_lock_id, macro_seed, created_at, updated_at,
+                kind, group_turn_mode, group_max_speakers)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 cid,
                 title,
@@ -74,6 +87,9 @@ async def create_conversation(
                 macro_seed,
                 now,
                 now,
+                kind,
+                group_turn_mode,
+                group_max_speakers,
             ),
         )
         await db.execute(
@@ -102,16 +118,43 @@ async def fork_conversation(source: ConversationRow, new_title: str) -> str:
     under the new conversation id.
     """
     new_cid = str(uuid.uuid4())
-    await create_conversation(
-        cid=new_cid,
-        title=new_title,
-        char_name=source.get("character_name", "") or "",
-        char_scenario=source.get("character_scenario", "") or "",
-        post_history_instructions=source.get("post_history_instructions", "") or "",
-        character_card_id=source.get("character_card_id"),
-        persona_lock_id=source.get("persona_lock_id"),
-        macro_seed=source.get("macro_seed") or source["id"],
-    )
+    if source.get("kind", "solo") == "group":
+        from .group_members import create_group_conversation, get_group_members
+
+        members = await get_group_members(source["id"], include_inactive=True)
+        await create_group_conversation(
+            new_cid,
+            new_title,
+            [
+                {
+                    "speaker_key": m["speaker_key"],
+                    "character_card_id": m.get("character_card_id"),
+                    "display_name": m["display_name"],
+                    "public_profile_override": m.get("public_profile_override"),
+                    "member_kind": m["member_kind"],
+                    "muted": bool(m["muted"]),
+                    "active": bool(m["active"]),
+                }
+                for m in members
+            ],
+            scenario=source.get("character_scenario", "") or "",
+            post_history_instructions=source.get("post_history_instructions", "") or "",
+            turn_mode=source.get("group_turn_mode", "director"),
+            max_speakers=source.get("group_max_speakers", 3),
+            persona_lock_id=source.get("persona_lock_id"),
+            macro_seed=source.get("macro_seed") or source["id"],
+        )
+    else:
+        await create_conversation(
+            cid=new_cid,
+            title=new_title,
+            char_name=source.get("character_name", "") or "",
+            char_scenario=source.get("character_scenario", "") or "",
+            post_history_instructions=source.get("post_history_instructions", "") or "",
+            character_card_id=source.get("character_card_id"),
+            persona_lock_id=source.get("persona_lock_id"),
+            macro_seed=source.get("macro_seed") or source["id"],
+        )
     return new_cid
 
 
@@ -134,7 +177,7 @@ async def touch_conversation(cid: str) -> bool:
 
 async def update_conversation(cid: str, data: dict) -> ConversationRow | None:
     async with get_db() as db:
-        allowed = ["title", "persona_lock_id"]
+        allowed = ["title", "persona_lock_id", "group_turn_mode", "group_max_speakers", "character_scenario"]
         sets, vals = _build_set_clause(allowed, data)
         if sets:
             # updated_at is the conversation's "last activity" date (shown in the

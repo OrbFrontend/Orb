@@ -440,6 +440,7 @@ SIGNATURE_TABLES = frozenset(
         "character_expressions",
         "user_personas",
         "conversations",
+        "group_members",
         "messages",
         "director_state",
         "worlds",
@@ -497,6 +498,10 @@ def _signature(path: str) -> dict:
             "conversations": q("SELECT id, title FROM conversations"),
             "conv_persona": q(
                 "SELECT c.id, up.name FROM conversations c LEFT JOIN user_personas up ON c.persona_lock_id = up.id"
+            ),
+            "group_members": q(
+                "SELECT conversation_id, speaker_key, character_card_id, display_name, public_profile_override, "
+                "member_kind, sort_order, muted, active FROM group_members"
             ),
             "messages": q("SELECT conversation_id, turn_index, role, content FROM messages"),
             "active_leaf": q("SELECT c.id, m.content FROM conversations c LEFT JOIN messages m ON c.active_leaf_id = m.id"),

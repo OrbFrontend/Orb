@@ -145,7 +145,7 @@ async def test_existing_database_migrates_before_latest_schema_indexes_run(tmp_p
         conn.execute("CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))")
         conn.executemany(
             "INSERT INTO schema_migrations (id) VALUES (?)",
-            [(name,) for name in MIGRATIONS if name != "0053_dynamic_worlds"],
+            [(name,) for name in MIGRATIONS if name < "0053_dynamic_worlds"],
         )
         conn.commit()
     finally:

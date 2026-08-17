@@ -1,0 +1,79 @@
+from __future__ import annotations
+
+from backend.core import CastMember, Macros, TurnCast
+from backend.inference.prompt_builder import build_prefix
+from backend.pipeline.cast import parse_speaking_plan, round_robin_member
+from backend.pipeline.passes.director import build_direct_scene_override
+from backend.pipeline.passes.writer import build_writer_content, strip_speaker_label
+
+
+def _member(mid: str, name: str, public: str, private: str) -> CastMember:
+    return CastMember(mid, name.casefold(), mid, name, "character", public, private, "", "")
+
+
+def test_group_base_contains_only_public_profiles_and_labelled_history():
+    aria = _member("a", "Aria", "Role: scout", "ARIA PRIVATE")
+    kael = _member("k", "Kael", "Role: mage", "KAEL PRIVATE")
+    cast = TurnCast(True, (aria, kael))
+    prefix = build_prefix(
+        "system",
+        "legacy private",
+        "At {{char}}'s camp with {{cast}}.",
+        messages=[
+            {"role": "assistant", "content": "First", "speaker_member_id": "a"},
+            {"role": "assistant", "content": "Second", "speaker_member_id": "k"},
+        ],
+        macros=Macros("User", "Campfire", cast="Aria, Kael"),
+        cast=cast,
+    )
+    system = prefix[0]["content"]
+    assert "## Cast" in system and "Role: scout" in system and "Role: mage" in system
+    assert "ARIA PRIVATE" not in system and "KAEL PRIVATE" not in system and "legacy private" not in system
+    assert "At Campfire's camp with Aria, Kael." in system
+    assert prefix[1] == {"role": "assistant", "content": "Aria: First\n\nKael: Second"}
+
+
+def test_speaker_private_sheet_is_only_in_speaker_tail_and_empty_message_has_no_separator():
+    aria = _member("a", "Aria", "Role: scout", "ARIA PRIVATE {{char}} {{cast}}")
+    content = build_writer_content(
+        "",
+        "",
+        False,
+        "",
+        [],
+        None,
+        speaker=aria,
+        speaker_beat="Take watch",
+        user_name="User",
+        cast_names="Aria, Kael",
+    )
+    assert isinstance(content, str)
+    assert "ARIA PRIVATE Aria Aria, Kael" in content
+    assert "## Your beat\nTake watch" in content
+    assert "Write the next reply as Aria only" in content
+    assert "___\n\n\n\n" not in content
+
+
+def test_speaker_label_stripper_uses_the_complete_escaped_name():
+    name = "A Very Long [Speaker] Name That Exceeds Forty Eight Characters Exactly"
+    body = "The lamps flicker awake."
+    assert strip_speaker_label(f"**{name}:**\n{body}", name) == body
+    assert strip_speaker_label(f"### {name}\n{body}", name) == body
+    assert strip_speaker_label(f"{name}: {body}", name) == body
+    assert strip_speaker_label(f"Another: {body}", name) == f"Another: {body}"
+
+
+def test_group_director_schema_and_plan_policy_distinguish_rest_from_malformed():
+    members = [
+        {"id": "a", "speaker_key": "aria", "display_name": "Aria", "active": 1, "muted": 0},
+        {"id": "k", "speaker_key": "kael", "display_name": "Kael", "active": 1, "muted": 0},
+        {"id": "m", "speaker_key": "mira", "display_name": "Mira", "active": 1, "muted": 1},
+    ]
+    schema = build_direct_scene_override([], cast=members)
+    prop = schema["function"]["parameters"]["properties"]["speaking_plan"]
+    assert "aria, kael" in prop["description"] and "mira" not in prop["description"]
+    assert parse_speaking_plan([], members, 3) == []
+    assert parse_speaking_plan(["unknown — wait"], members, 3) is None
+    parsed = parse_speaking_plan(["aria — first", "Aria: again", "kael - next", "mira — muted"], members, 3)
+    assert [(member["id"], beat) for member, beat in parsed] == [("a", "first"), ("k", "next")]
+    assert round_robin_member(members, [{"speaker_member_id": "a"}])["id"] == "k"

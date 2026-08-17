@@ -6,11 +6,13 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from ...core import (
+    CastMember,
     ChatMessage,
     ContentPart,
     build_multimodal_content,
@@ -25,6 +27,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def strip_speaker_label(text: str, speaker_name: str) -> str:
+    """Remove a leading plain/Markdown label for the complete speaker name."""
+    if not text or not speaker_name.strip():
+        return text
+    name = re.escape(speaker_name.strip())
+    label = re.compile(
+        rf"\A[ \t]*(?:"
+        rf"(?:\*\*|__)\s*{name}\s*:?[ \t]*(?:\*\*|__)\s*:?[ \t]*"
+        rf"|\[\s*{name}\s*\]\s*:[ \t]*"
+        rf"|\#{{1,6}}[ \t]+{name}\s*:?[ \t]*(?:\r?\n)?"
+        rf"|{name}\s*:[ \t]*"
+        rf")[ \t]*(?:\r?\n)?",
+        re.IGNORECASE,
+    )
+    return label.sub("", text, count=1)
+
+
 def build_writer_content(
     lorebook_block: str,
     inj_block: str,
@@ -33,6 +52,11 @@ def build_writer_content(
     attachments: Sequence[Mapping[str, Any]] | None,
     length_guard: LengthGuard | None,
     depth_block: str = "",
+    speaker: CastMember | None = None,
+    speaker_beat: str = "",
+    user_name: str = "User",
+    prevent_prompt_overrides: bool = False,
+    cast_names: str = "",
 ) -> str | list[ContentPart]:
     """Build the writer's user-message content (string or multimodal list).
 
@@ -51,6 +75,21 @@ def build_writer_content(
     flag: the directives sit at the generation boundary.
     """
     tail = ""
+    if speaker is not None:
+        from ...core.macros import Macros
+
+        speaker_macros = Macros(user_name, speaker.name, cast=cast_names)
+        tail += f"## You are writing as {speaker.name}\n"
+        if speaker.private_sheet:
+            tail += speaker_macros.resolve_message(speaker.private_sheet) + "\n\n"
+        if speaker.mes_example:
+            example = speaker_macros.resolve_message(speaker.mes_example)
+            tail += (
+                example.replace("<START>", "## Example Dialogue") if "<START>" in example else f"## Example Dialogue\n{example}"
+            )
+            tail += "\n\n"
+        if speaker.post_history and not prevent_prompt_overrides:
+            tail += f"## Additional Instructions\n{speaker_macros.resolve_message(speaker.post_history)}\n\n"
     if lorebook_block:
         tail += "___\n\n" + lorebook_block + "\n\n"
     if inj_block:
@@ -58,9 +97,14 @@ def build_writer_content(
     if tools_sent:
         tail += "**Do not use tool or function calls this turn.**\n\n"
     tail += writer_nudge(length_guard)
-    tail += "___\n\n" + effective_msg + "\n\n"
+    if speaker_beat:
+        tail += f"## Your beat\n{speaker_beat}\n\n"
+    if effective_msg:
+        tail += "___\n\n" + effective_msg + "\n\n"
     if depth_block:
         tail += "___\n\n" + depth_block + "\n\n"
+    if speaker is not None:
+        tail += f"Write the next reply as {speaker.name} only. Do not write dialogue or actions for another cast member."
 
     return build_multimodal_content(tail, attachments)
 
@@ -114,6 +158,10 @@ async def writer_stage(
     attachments: Sequence[Mapping[str, Any]],
     kv_tracker: _KVCacheTracker,
     depth_block: str = "",
+    speaker: CastMember | None = None,
+    speaker_beat: str = "",
+    user_name: str = "User",
+    cast_names: str = "",
 ) -> AsyncIterator[dict]:
     """Input-prep + writer pass + event translation.
 
@@ -140,8 +188,19 @@ async def writer_stage(
         attachments,
         cfg.length_guard,
         depth_block=depth_block,
+        speaker=speaker,
+        speaker_beat=speaker_beat,
+        user_name=user_name,
+        prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides")),
+        cast_names=cast_names,
     )
     writer_t0 = time.monotonic()
+    label_buffer = ""
+    label_pending = speaker is not None
+    # Long names are intentionally supported. Markdown wrappers, a heading,
+    # punctuation and a newline fit inside this name-derived gate.
+    label_buffer_bound = len(speaker.name) + 32 if speaker is not None else 0
+
     async for item in writer_pass(
         cfg.writer_lane.client,
         cfg.writer_lane.base,
@@ -158,8 +217,24 @@ async def writer_stage(
                 "data": {"pass": "writer", "delta": item["delta"]},
             }
         else:
-            state.resp_text += item["delta"]
-            yield {"event": "token", "data": item["delta"]}
+            delta = item["delta"]
+            if label_pending and speaker is not None:
+                label_buffer += delta
+                stripped = strip_speaker_label(label_buffer, speaker.name)
+                if stripped != label_buffer or "\n" in label_buffer or len(label_buffer) >= label_buffer_bound:
+                    label_pending = False
+                    label_buffer = ""
+                    if stripped:
+                        state.resp_text += stripped
+                        yield {"event": "token", "data": stripped}
+                continue
+            state.resp_text += delta
+            yield {"event": "token", "data": delta}
+    if label_pending and speaker is not None:
+        stripped = strip_speaker_label(label_buffer, speaker.name)
+        if stripped:
+            state.resp_text += stripped
+            yield {"event": "token", "data": stripped}
     # agent_latency_ms is the whole turn's wall time; accumulate the writer's
     # span here (director + editor add their own).
     state.latency += int((time.monotonic() - writer_t0) * 1000)

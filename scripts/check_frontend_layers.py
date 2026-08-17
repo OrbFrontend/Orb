@@ -47,6 +47,7 @@ LAYERS = {
     # Pure render/state helpers for the Dynamic Worlds review surface; imports
     # only utils.js, so it sits alongside it rather than with the features.
     "world_proposals.js": 1,
+    "group_cast.js": 1,
     # L2 services.
     "tabLock.js": 2,
     "audio_schedule.js": 2,
@@ -88,6 +89,7 @@ LAYERS = {
     "presets.js": 5,
     "direction_notes_panel.js": 5,
     "mobile.js": 5,
+    "group_setup.js": 5,
     # L6 shell / plugin facade.
     "app.js": 6,
     "workflow_api.js": 6,

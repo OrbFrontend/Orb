@@ -106,6 +106,15 @@ export const S = {
   // otherwise leave the new card unpainted.
   worldProposalArrived: false,
 
+  // ── Group chats · owner: group_cast.js
+  groupCast: null,
+  pinnedSpeakerId: null,
+  speakingPlan: null,
+  currentSpeaker: null,
+  currentBeatId: null,
+  completedBeatMessageIds: [],
+  castSetupBusy: false,
+
   // ── Reasoning rail & Inspector · owner: chat_inspector.js
   directorState: null,
   lastDirectorData: null,
@@ -213,6 +222,18 @@ export function charactersView() {
   return S.allCharacters.length ? S.allCharacters : S.characters;
 }
 
+let _memberIndexSource = null;
+let _memberIndex = new Map();
+
+export function memberById(id) {
+  const members = S.groupCast?.members || [];
+  if (_memberIndexSource !== members) {
+    _memberIndexSource = members;
+    _memberIndex = new Map(members.map((member) => [member.id, member]));
+  }
+  return _memberIndex.get(id) || null;
+}
+
 // Global fragments plus the active character's card-embedded ones — the merged
 // view consumers (inspector label lookups) should read instead of S.moodFragments
 // / S.interactiveFragments directly.
@@ -252,6 +273,7 @@ const TOPICS = new Set([
   "documents",
   "attachments",
   "tabs",
+  "cast",
 ]);
 
 const _subscribers = new Map(); // topic -> Set<fn>

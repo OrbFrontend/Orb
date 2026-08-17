@@ -94,6 +94,16 @@ Constant lorebook entries are the deliberate mirror image of Invariant 4: they a
 
 The chat history is built once per turn. Each pass receives the same list. Attachments (images) are encoded with the same bytes on every reference.
 
+In group mode the shared system body contains only the ordered public cast.
+Assistant history is member-labelled, with consecutive text-only assistant rows
+merged into one chat message. The Director runs against the pre-beat base once.
+Speaker 1 reuses that base; speaker 2 and later rebuild a base over the now-grown
+history, so they share stable system/tool bytes but deliberately diverge after
+the earlier reply is appended. A speaker's private card fields live only in the
+trailing Writer message and therefore cannot contaminate the shared cast prefix.
+Pre-pipeline workflow system blocks are captured once and reapplied to every
+later-speaker rebuild.
+
 ### Invariant 3 — One tool list, shared by every pass
 
 Inference servers serialise the tool schema list into the cached prefix (where in the chat template depends on the server, but it's always *inside* the cached region). So the tool list has to be byte-identical across passes — including passes that won't call any tool. Every pass sends the same schemas; passes that aren't allowed to call them set `tool_choice="none"`.

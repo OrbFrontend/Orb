@@ -48,6 +48,13 @@
           <div id="char-list"></div>
         </div>
       </div>
+      <div class="sidebar-section chat-only">
+        <div class="sidebar-section-header" id="groups-section-toggle">Groups <span class="arrow">▼</span></div>
+        <div class="sidebar-section-body" id="groups-section">
+          <button type="button" class="btn btn-block btn-sm" id="new-group-btn" style="margin-bottom:8px">+ New group</button>
+          <div id="group-chat-list"></div>
+        </div>
+      </div>
       <div class="sidebar-section doc-only">
         <div class="sidebar-section-header" onclick="toggleSection(this)">Documents <span class="arrow collapsed">▼</span></div>
         <div class="sidebar-section-body collapsed" id="documents-section">
@@ -109,6 +116,9 @@
         </div>
       </div>
     </div>
+    <div id="group-cast-rail" class="group-cast-rail" hidden></div>
+    <div id="group-speaking-plan" class="group-speaking-plan" hidden></div>
+    <button type="button" class="btn btn-sm group-convert-btn" id="convert-to-group-btn" hidden>Convert to group</button>
         <div id="chat-messages"><div class="empty-state"><div class="icon">📜</div><div>Select a character to begin</div></div></div>
     <div id="generation-status" class="gen-status hidden">
       <div class="gen-bar"></div>
@@ -126,6 +136,12 @@
       </div>
       <input type="file" id="attach-image-input" accept="image/*" multiple style="display:none">
       <div id="attachment-preview" class="attachment-preview"></div>
+      <div id="group-controls" class="group-controls" hidden>
+        <label>Turns <select id="group-turn-mode"><option value="manual">Manual</option><option value="round_robin">Round robin</option><option value="director">Director</option></select></label>
+        <button type="button" class="btn btn-sm" id="group-speak-btn" disabled>Speak</button>
+        <button type="button" class="btn btn-sm" id="group-edit-btn">Edit cast</button>
+        <span>Card-linked Worlds and embedded fragments are shared with the whole scene.</span>
+      </div>
       <button id="chat-ghost-chip" type="button" aria-label="Insert suggestion" hidden></button>
       <div id="chat-input-wrap">
         <button id="burger-btn" onclick="toggleBurger()" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>

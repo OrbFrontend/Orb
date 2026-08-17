@@ -24,21 +24,35 @@ from ...database import (
     get_character_avatar,
     get_character_card,
     get_character_expression,
+    get_character_usage,
     get_lorebook_entries,
+    get_settings,
     get_user_persona,
     get_world,
     get_world_by_name,
     list_character_cards,
     list_expression_labels,
     set_character_expressions,
+    set_public_profile,
     sync_conversations_for_card,
     update_character_card,
 )
 from ...features.cards import downloader as card_downloader
 from ...features.cards import expressions as card_expressions
 from ...features.cards import parsing as tavern_cards
+from ...inference import (
+    agent_client_from_settings,
+    client_from_settings,
+    parse_tool_calls,
+    separate_agent_lane_configured,
+)
 from ..deps import _normalise_lorebook_entry, lorebook_to_book, project_lorebook_view
-from ..schemas import CharacterCardCreate, CharacterCardUpdate, ImportUrlRequest
+from ..schemas import (
+    CharacterCardCreate,
+    CharacterCardUpdate,
+    ImportUrlRequest,
+    PublicProfilePayload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +171,76 @@ async def api_get_character(card_id: str):
     return card
 
 
+@router.post("/api/characters/{card_id}/public-profile/generate")
+async def api_generate_public_profile(card_id: str):
+    """Return an editable draft; generation never overwrites the card."""
+    card = await get_character_card(card_id)
+    if not card:
+        raise HTTPException(status_code=404, detail="Character card not found")
+    settings = await get_settings()
+    client = (
+        agent_client_from_settings(settings) if separate_agent_lane_configured(settings) else client_from_settings(settings)
+    )
+    model = settings.get("agent_model_name") if separate_agent_lane_configured(settings) else settings.get("model_name")
+    schema = {
+        "type": "function",
+        "function": {
+            "name": "draft_public_profile",
+            "description": "Draft the scene-safe public profile for one roleplay cast member.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "appearance": {"type": "string", "description": "Visible appearance only; concise."},
+                    "role": {"type": "string", "description": "Public role or archetype in the scene; concise."},
+                },
+                "required": ["appearance", "role"],
+            },
+        },
+    }
+    raw = "\n\n".join(
+        str(card.get(key) or "").strip()
+        for key in ("name", "description", "personality", "mes_example", "post_history_instructions")
+        if str(card.get(key) or "").strip()
+    )
+    response: dict = {}
+    try:
+        async for event in client.complete(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Create a minimal public cast profile. Do not include secrets, private instructions, "
+                        "example dialogue, or internal motivations. Call the requested tool."
+                    ),
+                },
+                {"role": "user", "content": raw or "Sparse narrator card"},
+            ],
+            model=model or "",
+            tools=[schema],
+            tool_choice={"type": "function", "function": {"name": "draft_public_profile"}},
+            temperature=0.2,
+            max_tokens=512,
+        ):
+            if event.get("type") == "done":
+                response = event.get("message") or {}
+        calls = parse_tool_calls(response)
+        args = next((call.get("arguments", {}) for call in calls if call.get("name") == "draft_public_profile"), {})
+        if isinstance(args.get("appearance"), str) and isinstance(args.get("role"), str):
+            return {"appearance": args["appearance"].strip(), "role": args["role"].strip()}
+    except Exception:
+        logger.exception("Public-profile generation failed for card %s", card_id)
+    description = str(card.get("description") or "").strip()
+    return {"appearance": description.split("\n", 1)[0][:500] if description else "", "role": ""}
+
+
+@router.put("/api/characters/{card_id}/public-profile")
+async def api_save_public_profile(card_id: str, data: PublicProfilePayload):
+    card = await set_public_profile(card_id, data.appearance, data.role)
+    if not card:
+        raise HTTPException(status_code=404, detail="Character card not found")
+    return (card.get("extensions") or {}).get("orb", {}).get("public_profile", {})
+
+
 @router.put("/api/characters/{card_id}")
 async def api_update_character(card_id: str, data: CharacterCardUpdate):
     old_card = await get_character_card(card_id)
@@ -184,6 +268,13 @@ async def api_delete_character(card_id: str, delete_conversations: bool = False)
     if not await delete_character_card(card_id, delete_conversations):
         raise HTTPException(status_code=404, detail="Character card not found")
     return {"ok": True}
+
+
+@router.get("/api/characters/{card_id}/usage")
+async def api_character_usage(card_id: str):
+    if not await get_character_card(card_id):
+        raise HTTPException(status_code=404, detail="Character card not found")
+    return await get_character_usage(card_id)
 
 
 @router.get("/api/characters/{card_id}/avatar")

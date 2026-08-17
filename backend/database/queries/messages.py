@@ -215,6 +215,9 @@ async def add_message(
     parent_id: int | None = None,
     attachments: Sequence[Mapping[str, Any]] | None = None,
     progressive_fields: dict | None = None,
+    speaker_member_id: str | None = None,
+    beat_id: str | None = None,
+    advance_leaf: bool = False,
 ) -> tuple[int, list[dict]]:
     """Add a message. Returns ``(message_id, rejected_workflow_atts)``.
 
@@ -262,7 +265,7 @@ async def add_message(
         now = datetime.now(UTC).isoformat()
         try:
             cur = await db.execute(
-                "INSERT INTO messages (conversation_id, role, content, turn_index, parent_id, progressive_fields, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO messages (conversation_id, role, content, turn_index, parent_id, progressive_fields, created_at, speaker_member_id, beat_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     cid,
                     role,
@@ -271,6 +274,8 @@ async def add_message(
                     parent_id,
                     json.dumps(progressive_fields or {}),
                     now,
+                    speaker_member_id,
+                    beat_id,
                 ),
             )
         except sqlite3.IntegrityError as e:
@@ -300,7 +305,13 @@ async def add_message(
                     "registered -- import backend.workflows before producing them"
                 )
             _, rejected_workflow_atts = await _workflow_attachment_persister(message_id, workflow_atts, db=db)
-        await db.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (now, cid))
+        if advance_leaf:
+            await db.execute(
+                "UPDATE conversations SET updated_at = ?, active_leaf_id = ? WHERE id = ?",
+                (now, message_id, cid),
+            )
+        else:
+            await db.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (now, cid))
         await db.commit()
 
     return message_id, rejected_workflow_atts
@@ -533,3 +544,43 @@ async def delete_message_with_descendants(cid: str, msg_id: int) -> bool:
 
         await db.commit()
         return True
+
+
+async def get_message_delete_preview(cid: str, msg_id: int) -> dict[str, int] | None:
+    """Count the sibling subtrees removed by ``delete_message_with_descendants``."""
+    async with get_db() as db:
+        rows = list(
+            await db.execute_fetchall(
+                "SELECT parent_id FROM messages WHERE id = ? AND conversation_id = ?",
+                (msg_id, cid),
+            )
+        )
+        if not rows:
+            return None
+        parent_id = rows[0]["parent_id"]
+        if parent_id is None:
+            root_clause = "m.parent_id IS NULL"
+            params: tuple[Any, ...] = (cid, cid)
+        else:
+            root_clause = "m.parent_id = ?"
+            params = (cid, parent_id, cid)
+        counts = list(
+            await db.execute_fetchall(
+                f"""
+                WITH RECURSIVE subtree(id, role) AS (
+                    SELECT m.id, m.role FROM messages m
+                    WHERE m.conversation_id = ? AND {root_clause}
+                    UNION ALL
+                    SELECT child.id, child.role FROM messages child
+                    JOIN subtree parent ON child.parent_id = parent.id
+                    WHERE child.conversation_id = ?
+                )
+                SELECT COUNT(*) AS message_count,
+                       SUM(CASE WHEN role = 'assistant' THEN 1 ELSE 0 END) AS assistant_count
+                FROM subtree
+                """,
+                params,
+            )
+        )
+        row = counts[0]
+        return {"message_count": int(row["message_count"]), "assistant_count": int(row["assistant_count"] or 0)}

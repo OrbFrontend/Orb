@@ -313,6 +313,18 @@ async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | 
         return await get_character_card(card_id)
 
 
+async def set_public_profile(card_id: str, appearance: str, role: str) -> CharacterCardRow | None:
+    """Merge only ``extensions.orb.public_profile`` and preserve every sibling key."""
+    card = await get_character_card(card_id)
+    if not card:
+        return None
+    extensions = dict(card.get("extensions") or {})
+    orb = dict(extensions.get("orb") or {}) if isinstance(extensions.get("orb"), dict) else {}
+    orb["public_profile"] = {"appearance": appearance, "role": role}
+    extensions["orb"] = orb
+    return await update_character_card(card_id, {"extensions": extensions})
+
+
 async def sync_conversations_for_card(card_id: str, card: Mapping[str, Any], old_name: str | None = None) -> None:
     """Propagate mutable card fields to all conversations linked to this card.
 
@@ -351,7 +363,12 @@ async def sync_conversations_for_card(card_id: str, card: Mapping[str, Any], old
 async def delete_character_card(card_id: str, delete_conversations: bool = False) -> bool:
     async with get_db() as db:
         if delete_conversations:
-            await db.execute("DELETE FROM conversations WHERE character_card_id = ?", (card_id,))
+            await db.execute(
+                """DELETE FROM conversations
+                   WHERE character_card_id = ?
+                      OR id IN (SELECT conversation_id FROM group_members WHERE character_card_id = ?)""",
+                (card_id, card_id),
+            )
         # When keeping conversations, character_card_id is intentionally left as-is.
         # The dangling reference acts as a pending-relink marker: re-importing the
         # same card (which produces the same stable ID) restores the association
@@ -359,6 +376,24 @@ async def delete_character_card(card_id: str, delete_conversations: bool = False
         cur = await db.execute("DELETE FROM character_cards WHERE id = ?", (card_id,))
         await db.commit()
         return cur.rowcount > 0
+
+
+async def get_character_usage(card_id: str) -> dict[str, int]:
+    """Return solo and active/historical group conversation usage counts."""
+    async with get_db() as db:
+        rows = list(
+            await db.execute_fetchall(
+                """SELECT
+                     (SELECT COUNT(*) FROM conversations WHERE character_card_id = ?) AS solo,
+                     (SELECT COUNT(DISTINCT conversation_id) FROM group_members
+                      WHERE character_card_id = ? AND active = 1) AS active_groups,
+                     (SELECT COUNT(DISTINCT conversation_id) FROM group_members
+                      WHERE character_card_id = ? AND active = 0) AS historical_groups""",
+                (card_id, card_id, card_id),
+            )
+        )
+    row = rows[0]
+    return {"solo": int(row[0]), "active_groups": int(row[1]), "historical_groups": int(row[2])}
 
 
 async def resolve_char_context(

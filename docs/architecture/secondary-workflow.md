@@ -210,6 +210,14 @@ All Ctx are `@dataclass(frozen=True)`. Mutable fields routed through `_readonly(
 | `character_id` | str \| None | |
 | `character` | MappingProxyType \| None | Read-only character card view. |
 
+For a group speaker pass, `character_id`/`character` are that member's current
+card, not `conversations.character_card_id` (which is null for groups). POST
+hooks therefore run once per speaker with the correct TTS/image/profile scope.
+Conversation-scoped ON_DEMAND resolves an explicit message/member target, then
+the latest assistant speaker; attachment REGENERATE resolves from its anchor
+message. A group with no resolvable speaker legitimately supplies `None` only
+when no message/member identifies one.
+
 ### 4.2 PostCtx -- paired with POST_PIPELINE
 
 Same shape with these substitutions:

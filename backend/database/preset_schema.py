@@ -123,6 +123,7 @@ SECRET_JSON_PATHS: dict[tuple[str, str], tuple[tuple[str, ...], ...]] = {
     ("character_cards", "workflow_state"): (("tts", "api_key"),),
     ("conversations", "workflow_state"): (),
     ("messages", "workflow_state"): (),
+    ("group_members", "workflow_state"): (),
 }
 
 # Touch when: exporting one domain only makes sense alongside another (a product
@@ -157,6 +158,10 @@ PRESERVED_COLUMNS: dict[str, tuple[str, ...]] = {
 # ``top_k`` are not.
 SENSITIVE_SUFFIXES: tuple[str, ...] = ("_key", "password", "token")
 SENSITIVE_SUBSTRINGS: tuple[str, ...] = ("secret",)
+
+# Immutable identity keys are not credentials. Keep this explicit so the
+# secret-name tripwire can stay broad without blanking group attribution.
+NON_SECRET_KEY_COLUMNS: frozenset[tuple[str, str]] = frozenset({("group_members", "speaker_key")})
 
 
 def is_sensitive_column(name: str) -> bool:

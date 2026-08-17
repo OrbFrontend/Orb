@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any
 
@@ -22,6 +22,7 @@ from ...database import (
     get_character_card,
     get_conversation,
     get_db,
+    get_group_member,
     get_message_by_id,
     get_messages,
     get_messages_before,
@@ -70,6 +71,33 @@ from ..schemas import WorkflowConfigUpdate, WorkflowEnabledUpdate
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def _resolve_workflow_character(
+    conv: Mapping[str, Any],
+    messages: Sequence[Mapping[str, Any]],
+    *,
+    target_message: Mapping[str, Any] | None = None,
+    speaker_member_id: str | None = None,
+) -> tuple[str | None, Mapping[str, Any] | None]:
+    """Resolve the solo card or a group message/member's current card."""
+    card_id = conv.get("character_card_id")
+    if conv.get("kind", "solo") == "group":
+        member_id = speaker_member_id
+        if member_id is None and target_message is not None:
+            member_id = target_message.get("speaker_member_id")
+        if member_id is None:
+            member_id = next(
+                (message.get("speaker_member_id") for message in reversed(messages) if message.get("speaker_member_id")),
+                None,
+            )
+        if member_id:
+            member = await get_group_member(str(member_id), conversation_id=str(conv["id"]))
+            card_id = member.get("character_card_id") if member else None
+        else:
+            card_id = None
+    card = await get_character_card(card_id) if card_id else None
+    return card_id, card
 
 
 def _gate_workflow_sub(
@@ -234,13 +262,22 @@ async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(def
         conv = await get_conversation(cid)
         if conv is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
-        card_id = conv.get("character_card_id")
-        card = await get_character_card(card_id) if card_id else None
         msgs = await get_messages(cid)
+        explicit_message = None
+        if type(body.get("message_id")) is int:
+            candidate = await get_message_by_id(body["message_id"])
+            if candidate is not None and candidate.get("conversation_id") == cid:
+                explicit_message = candidate
+        card_id, card = await _resolve_workflow_character(
+            conv,
+            msgs,
+            target_message=explicit_message,
+            speaker_member_id=body.get("speaker_member_id") if isinstance(body.get("speaker_member_id"), str) else None,
+        )
         last_user = next((m["content"] for m in reversed(msgs) if m["role"] == "user"), "")
         client = client_from_settings(settings_snapshot)
         agent_client, agent_model_name = agent_lane_from_settings(settings_snapshot, writer_client=client)
-        async with workflow_character_state_lock(conv.get("character_card_id") or "", workflow_id):
+        async with workflow_character_state_lock(card_id or "", workflow_id):
             with _hook_failures("on_demand hook", workflow_id, defect="On-demand handler raised; see server logs"):
                 od_ctx = OnDemandCtx(
                     conversation_id=cid,
@@ -250,7 +287,7 @@ async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(def
                     client=client,
                     agent_client=agent_client,
                     agent_model_name=agent_model_name,
-                    character_id=conv.get("character_card_id"),
+                    character_id=card_id,
                     character=_readonly(card),
                 )
                 result = await sub.callable(od_ctx, body)
@@ -300,8 +337,7 @@ async def api_regenerate_attachment(
         client = client_from_settings(settings_snapshot)
         agent_client, agent_model_name = agent_lane_from_settings(settings_snapshot, writer_client=client)
 
-        card_id = conv.get("character_card_id")
-        card = await get_character_card(card_id) if card_id else None
+        card_id, card = await _resolve_workflow_character(conv, list(msgs), target_message=anchor)
         with _hook_failures("regenerate hook", wid, aid, defect="Regenerate handler raised; see server logs"):
             regen_ctx = RegenCtx(
                 conversation_id=cid,
@@ -314,7 +350,7 @@ async def api_regenerate_attachment(
                 client=client,
                 agent_client=agent_client,
                 agent_model_name=agent_model_name,
-                character_id=conv.get("character_card_id"),
+                character_id=card_id,
                 character=_readonly(card),
             )
             new_dicts = await sub.callable(regen_ctx, body)
