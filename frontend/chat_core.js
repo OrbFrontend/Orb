@@ -30,9 +30,9 @@ import { segmentBody } from "./workflow_segmentation.js";
 import { markClickable } from "./workflow_text_interaction.js";
 import { messageProposalsHtml } from "./world_proposals.js";
 
-// `speakerNamed` is for the paths that carry their own speaker (the reply-bar's
-// "let X speak now", the empty-scene starter): `Choose` mode blocks a turn that
-// has nobody to answer it, which those turns do not.
+// `speakerNamed` is for the paths that carry their own speaker (a cast chip
+// clicked on a resting scene, the empty-scene starter): `Choose` mode blocks a
+// turn that has nobody to answer it, which those turns do not.
 export function canStartGeneration(speakerNamed = false) {
   if (S.isStreaming) return false;
   if (!speakerNamed && S.groupCast?.turn_mode === "manual" && !S.pinnedSpeakerId) return false;

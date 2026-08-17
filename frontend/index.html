@@ -126,7 +126,6 @@
         </div>
       </div>
     </div>
-    <div id="group-cast-rail" class="group-cast-rail" hidden></div>
     <!-- Only painted while a multi-speaker beat is planned or streaming; an
          empty plan never renders a bordered strip. -->
     <div id="group-speaking-plan" class="group-speaking-plan" hidden></div>
@@ -148,9 +147,10 @@
       </div>
       <input type="file" id="attach-image-input" accept="image/*" multiple style="display:none">
       <div id="attachment-preview" class="attachment-preview"></div>
-      <!-- "Next reply: …" — the persistent strategy, plus the one-shot speaker
-           override when one is set. Painted by renderGroupCast(). -->
-      <div id="group-reply-bar" class="group-reply-bar" hidden></div>
+      <!-- The cast, sitting on the composer: a chip hands its member the floor
+           on a resting scene and queues them otherwise. Painted by
+           renderGroupCast(); hidden outside a group. -->
+      <div id="group-cast-rail" class="group-cast-rail" hidden></div>
       <button id="chat-ghost-chip" type="button" aria-label="Insert suggestion" hidden></button>
       <div id="chat-input-wrap">
         <button id="burger-btn" onclick="toggleBurger()" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>

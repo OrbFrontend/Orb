@@ -87,7 +87,10 @@ A pin is a *temporary override*, not a mode: outside `manual` the client clears
 it once the beat it named has produced a reply, so the configured strategy
 resumes by itself rather than being silently suppressed. In `manual` the pick is
 the strategy, so it survives until it is used or cleared. An aborted or failed
-beat keeps the override to retry with.
+beat keeps the override to retry with. Only the pin the finished beat actually
+ran on is cleared — the client latches it at request time (`consumedSpeakerId`),
+so a chip clicked *while* the beat streams queues that member for the next turn
+and survives the cleanup.
 
 The Director and pre-pipeline setup run once. Each planned speaker then runs the
 Writer, Editor, feedback, and post-workflow path with the shared Director state.
@@ -123,7 +126,7 @@ message refetch/render after the beat.
 
 ## Chat surface
 
-The group screen shows four things: scene identity, cast, conversation and
+The group screen shows four things: scene identity, conversation, cast and
 composer. Everything else is contextual or lives in Group settings (`•••` in the
 chat header), which owns the durable configuration — title, character context,
 reply behavior, max replies per turn, scene premise, style instructions —
@@ -132,6 +135,22 @@ eligibility and public-profile overrides are edited in Manage cast
 (`PUT …/members`). The override box is one string with one meaning in every
 mode; only its label changes, and under Classic card swap it is disabled with a
 one-line reason rather than accepting text that would never ship.
+
+The cast rail sits on top of the composer and is the only reply control there is
+— there is no separate strategy line. One click on a chip does one of two
+things, and the scene decides which (`group_cast.js:castClickSpeaksNow` is the
+only definition):
+
+- **Resting scene** — nothing streaming, nothing drafted or attached: the member
+  takes the floor immediately via `POST …/speak`. There is no toggle here; the
+  click resolves the pick by using it, and the one-shot cleanup drops the pin
+  afterwards outside `Choose`.
+- **Busy or drafted**: the click only queues that member as the next speaker.
+  Clicking whoever is already queued takes the pick back.
+
+Muted members render disabled. In `Choose` mode the send button stays disabled
+until a member is picked and says so in its tooltip, since nothing else on
+screen explains the block.
 
 Creation and convert-to-group do not offer the context control: a new scene has
 no cast history to reason about, so both start on Private perspective and the

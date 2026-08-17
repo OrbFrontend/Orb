@@ -3,8 +3,8 @@ import { avatarCell, avatarUrl, esc, escAttr } from "./utils.js";
 
 // The three durable reply strategies in user language. The stored values stay
 // `director` / `round_robin` / `manual` — only the labels are product-facing, so
-// this table is the single place the wording lives (rail, reply bar, creation,
-// group settings all read it).
+// this table is the single place the wording lives (creation and group settings
+// both read it).
 export const TURN_MODES = {
   director: { label: "Auto", hint: "Director chooses" },
   round_robin: { label: "Rotate", hint: "Cast replies in order" },
@@ -76,10 +76,6 @@ export function eligibleMembers() {
   return (S.groupCast?.members || []).filter((member) => !member.muted);
 }
 
-export function overrideMember() {
-  return S.pinnedSpeakerId ? memberById(S.pinnedSpeakerId) : null;
-}
-
 // "Artus", "Artus and Assistant", "Artus, Assistant, and Vela".
 export function joinNames(names) {
   if (!names.length) return "";
@@ -99,43 +95,42 @@ export function memberAvatar(member) {
   return `<span class="cast-avatar">${inner}</span>`;
 }
 
-// Cast chips + the manage affordance. A chip's title states what clicking it
-// does, because the selected state means "this member replies next", not
-// "this member is selected" in any general sense.
-export function castRailHtml() {
+// A click on a cast chip means one of two things, and the scene decides which:
+// on a resting scene it hands that member the floor immediately, and while a
+// beat is streaming — or while an unsent draft is waiting for someone to answer
+// it — it only *queues* them as the next speaker. This is the single definition
+// of that rule; the rail's tooltips and group_setup's click handler both read it
+// rather than re-deriving it.
+//
+// The draft is the caller's to report: this module stays DOM-free.
+export function castClickSpeaksNow(hasDraft = false) {
+  return !S.isStreaming && !hasDraft;
+}
+
+// Cast chips + the manage affordance, sitting directly above the composer. A
+// chip's title states what clicking it does, because the pressed state means
+// "this member replies next", not "this member is selected" in any general
+// sense — and because the same click speaks or queues depending on the scene.
+// Only a queueing click can be taken back by clicking again; a resting scene has
+// no toggle, because there the click resolves the queue by using it.
+export function castRailHtml({ hasDraft = false } = {}) {
   if (!S.groupCast) return "";
+  const speaksNow = castClickSpeaksNow(hasDraft);
   const chips = S.groupCast.members
     .map((member) => {
       const isNext = member.id === S.pinnedSpeakerId;
       const speaking = member.id === S.currentSpeaker?.member_id ? " speaking" : "";
       const title = member.muted
         ? `${member.display_name} — not replying in this scene`
-        : isNext
-          ? `${member.display_name} replies next — click to clear`
-          : `Have ${member.display_name} reply next`;
+        : speaksNow
+          ? `Give ${member.display_name} the floor now`
+          : isNext
+            ? `${member.display_name} is up next — click to clear`
+            : `Queue ${member.display_name} to reply next`;
       return `<button type="button" class="cast-member${isNext ? " next" : ""}${speaking}${member.muted ? " muted" : ""}" data-cast-member-id="${escAttr(member.id)}" aria-pressed="${isNext}" ${member.muted ? "disabled" : ""} title="${escAttr(title)}">${memberAvatar(member)}<span>${esc(member.display_name)}</span></button>`;
     })
     .join("");
   return `${chips}<button type="button" class="cast-manage" data-cast-manage title="Add, reorder, or mute cast members">+ Manage cast</button>`;
-}
-
-// The composer's one line of group state: how replies are normally chosen, and —
-// only when one is set — who replies next instead.
-export function replyBarHtml() {
-  if (!S.groupCast) return "";
-  const member = overrideMember();
-  if (member) {
-    const name = esc(member.display_name);
-    return `<span class="reply-label">Next reply:</span>
-      <span class="reply-override">${name}<button type="button" class="reply-clear" data-clear-override title="Clear the next-reply override" aria-label="Clear the next-reply override">×</button></span>
-      <button type="button" class="btn btn-sm" data-speak-now ${S.isStreaming ? "disabled" : ""}>Let ${name} speak now</button>
-      ${overrideIsOneShot() ? '<span class="reply-hint">Applies to the next reply only.</span>' : ""}`;
-  }
-  const mode = turnMode(S.groupCast.turn_mode);
-  const needsPick = S.groupCast.turn_mode === "manual";
-  return `<span class="reply-label">Next reply:</span>
-    <button type="button" class="reply-strategy" data-group-settings title="Change how replies are chosen">${esc(mode.label)} · ${esc(mode.hint)}</button>
-    ${needsPick ? '<span class="reply-hint">Pick who replies from the cast above.</span>' : ""}`;
 }
 
 // Only a genuinely multi-speaker beat earns the rail: a single planned speaker

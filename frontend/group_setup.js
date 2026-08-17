@@ -1,11 +1,12 @@
 import { api } from "./api.js";
 import {
   CONTEXT_MODES,
+  castClickSpeaksNow,
   castRailHtml,
   contextMode,
   eligibleMembers,
   memberAvatar,
-  replyBarHtml,
+  overrideIsOneShot,
   speakingPlanHtml,
   TURN_MODES,
 } from "./group_cast.js";
@@ -427,16 +428,33 @@ function renderChatActionMenus() {
   $("chat-overflow-btn").hidden = !grouped;
 }
 
+// Whether the composer is holding something that wants an answer. A drafted
+// message is the difference between "queue X" and "X, speak now", so the rail
+// has to know — but group_cast.js stays DOM-free, hence the read lives here.
+function composerHasDraft() {
+  return Boolean($("chat-input")?.value.trim()) || (S.attachments?.length || 0) > 0;
+}
+
+// Last draft state the rail was painted for, so a keystroke only repaints when
+// it flips the chips' meaning rather than on every character typed.
+let railDrafted = false;
+
+// Called by the composer on every input and whenever attachments change; cheap
+// enough to run per keystroke because it exits before touching the DOM.
+export function refreshCastRailIntent() {
+  if (!S.groupCast) return;
+  if (composerHasDraft() === railDrafted) return;
+  renderGroupCast();
+}
+
 export function renderGroupCast() {
   const rail = $("group-cast-rail");
   const plan = $("group-speaking-plan");
-  const bar = $("group-reply-bar");
-  if (!rail || !plan || !bar) return;
+  if (!rail || !plan) return;
   const grouped = Boolean(S.groupCast);
+  railDrafted = composerHasDraft();
   rail.hidden = !grouped;
-  bar.hidden = !grouped;
-  rail.innerHTML = castRailHtml();
-  bar.innerHTML = replyBarHtml();
+  rail.innerHTML = castRailHtml({ hasDraft: railDrafted });
   const planHtml = speakingPlanHtml();
   plan.innerHTML = planHtml;
   plan.hidden = !planHtml;
@@ -445,17 +463,25 @@ export function renderGroupCast() {
   if (input) input.placeholder = grouped ? "Write what happens next…" : "Write your message...";
   // `Choose` needs a speaker before anything can be sent, so the composer must
   // reflect a mode change or a cleared override immediately — not only after the
-  // next stream settles.
-  if (grouped && !S.isStreaming && S.activeConvId) {
-    $("send-btn").disabled = S.groupCast.turn_mode === "manual" && !S.pinnedSpeakerId;
+  // next stream settles. Nothing on screen explains a dead send button now that
+  // the reply bar is gone, so the button says why itself — and the reset above
+  // it matters: leaving that reason behind would mislabel the next solo chat.
+  const send = $("send-btn");
+  if (send) send.title = "Send";
+  if (grouped && send && !S.isStreaming && S.activeConvId) {
+    const blocked = S.groupCast.turn_mode === "manual" && !S.pinnedSpeakerId;
+    send.disabled = blocked;
+    if (blocked) send.title = "Choose mode: click a cast member to pick who replies";
   }
 }
 
 // A speaker override is a one-shot instruction outside `manual` mode: it names
 // who replies next, then gets out of the way so the configured strategy resumes.
+// Only the pick this beat actually consumed is cleared — a chip clicked *during*
+// the beat queued someone for the next one and must survive it.
 export function consumeSpeakerOverride() {
-  if (!S.groupCast || S.groupCast.turn_mode === "manual") return;
-  if (!S.pinnedSpeakerId) return;
+  if (!S.groupCast || !overrideIsOneShot()) return;
+  if (!S.pinnedSpeakerId || S.pinnedSpeakerId !== S.consumedSpeakerId) return;
   S.pinnedSpeakerId = null;
   renderGroupCast();
 }
@@ -496,6 +522,7 @@ export async function loadGroupCast(conv) {
   if (!conv || conv.kind !== "group") {
     S.groupCast = null;
     S.pinnedSpeakerId = null;
+    S.consumedSpeakerId = null;
     renderGroupCast();
     notify("cast", null);
     return;
@@ -529,7 +556,21 @@ async function convertToGroup() {
   }
 }
 
-function setSpeakerOverride(memberId) {
+// A cast chip is the whole reply control now that the strategy line is gone.
+// On a resting scene the click hands the member the floor immediately; while a
+// beat runs or a draft waits to be sent it only names them as the next speaker,
+// and clicking whoever is already named there takes the pick back.
+//
+// The pin is set on the speak path too, not just the queue path: it is what the
+// chip lights up, and afterStream's one-shot cleanup then clears it for us
+// outside `Choose` mode, where the pick is the strategy and should persist.
+function onCastChipClick(memberId) {
+  if (castClickSpeaksNow(composerHasDraft())) {
+    S.pinnedSpeakerId = memberId;
+    renderGroupCast();
+    document.dispatchEvent(new CustomEvent("group-speak-request", { detail: memberId }));
+    return;
+  }
   S.pinnedSpeakerId = S.pinnedSpeakerId === memberId ? null : memberId;
   renderGroupCast();
 }
@@ -557,14 +598,11 @@ export function initGroupSetup() {
       showCastManager();
       return;
     }
+    // Mid-stream clicks are allowed now — they queue rather than speak, which is
+    // the one thing a user watching a beat run actually wants to do.
     const button = event.target.closest("[data-cast-member-id]");
-    if (!button || button.disabled || S.isStreaming) return;
-    setSpeakerOverride(button.dataset.castMemberId);
-  });
-  $("group-reply-bar")?.addEventListener("click", (event) => {
-    if (event.target.closest("[data-group-settings]")) showGroupSettings();
-    else if (event.target.closest("[data-clear-override]")) setSpeakerOverride(S.pinnedSpeakerId);
-    else if (event.target.closest("[data-speak-now]")) document.dispatchEvent(new CustomEvent("group-speak-request"));
+    if (!button || button.disabled) return;
+    onCastChipClick(button.dataset.castMemberId);
   });
   // Empty-scene starters. "Describe the opening" hands the user the composer;
   // "Let a character begin" opens the scene with the first eligible member.

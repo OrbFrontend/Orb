@@ -1,27 +1,47 @@
 /* ═══════════════════════════════════════════
-   Group chats — cast rail, speaking plan, reply bar,
+   Group chats — cast rail, speaking plan,
    cast manager rows, and the creation picker.
    ═══════════════════════════════════════════ */
 
-/* ── Cast rail ── */
+/* ── Cast rail ──
+   A chip is a reply control, so it belongs beside the box the reply answers,
+   not up under the header. Living at the top of #chat-input-area means the
+   horizontal inset comes from the composer; only the gap down to the textarea
+   is this rule's to set, and there is no divider — the composer's own top
+   border already separates the pair from the conversation. That gap matches
+   #chat-input-area's own 12px padding, so the rail sits evenly between the
+   composer's top edge and the textarea instead of riding high in the band. */
 #group-cast-rail {
+  /* One height for every chip in the row, avatar or not, name or not. Derived
+     from the avatar (--cast-avatar + the member chip's 3px padding and 1px
+     border on each side) so resizing the portrait resizes the row with it. */
+  --cast-avatar: 24px;
+  --cast-chip-h: calc(var(--cast-avatar) + 8px);
   display: flex;
-  align-items: center;
+  /* stretch, not center: the manage chip carries no avatar and would otherwise
+     sit short of the member chips, which are pinned to --cast-chip-h. */
+  align-items: stretch;
   gap: 8px;
-  padding: 8px 20px;
-  border-bottom: 1px solid var(--border);
+  padding: 0 0 12px;
   overflow-x: auto;
 }
 
+/* The height is pinned rather than left to the content: `line-height: normal`
+   makes a name's line box depend on the glyphs in it, so a cast of "Assistant"
+   and "Spooky Gigachad" — one without descenders, one with — can render chips
+   of different heights side by side on fonts where the text out-measures the
+   avatar. line-height: 1 keeps the label out of that calculation entirely. */
 .cast-member {
   display: flex;
   align-items: center;
   gap: 6px;
+  height: var(--cast-chip-h);
   border: 1px solid var(--border);
   background: var(--bg-secondary);
   color: var(--text);
   border-radius: 999px;
   padding: 3px 10px 3px 3px;
+  line-height: 1;
   white-space: nowrap;
   transition: border-color .15s, background .15s;
 }
@@ -31,8 +51,8 @@
 }
 
 .cast-avatar {
-  width: 24px;
-  height: 24px;
+  width: var(--cast-avatar, 24px);
+  height: var(--cast-avatar, 24px);
   border-radius: 50%;
   overflow: hidden;
   background: var(--bg-elevated);
@@ -49,7 +69,8 @@
   object-fit: cover;
 }
 
-/* The member picked to answer next — the same accent the reply bar names them in. */
+/* Queued to answer next — the click that set it is the one the chip's title
+   describes, so the accent has to be legible without a caption anywhere. */
 .cast-member.next {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
@@ -63,12 +84,16 @@
   opacity: .45;
 }
 
+/* Height comes from the row (see #group-cast-rail), so this only has to centre
+   its own label inside whatever it is given. */
 .cast-manage {
+  display: flex;
+  align-items: center;
   border: 1px dashed var(--border);
   background: none;
   color: var(--text-muted);
   border-radius: 999px;
-  padding: 4px 10px;
+  padding: 0 12px;
   font-size: 12px;
   white-space: nowrap;
   flex-shrink: 0;
@@ -104,67 +129,6 @@
 
 .plan-pill.done {
   opacity: .55;
-}
-
-/* ── Reply bar ── */
-.group-reply-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 0 0 8px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.reply-label {
-  color: var(--text-muted);
-}
-
-.reply-strategy {
-  background: none;
-  border: none;
-  border-bottom: 1px dotted var(--border);
-  color: var(--text-secondary);
-  padding: 0 0 1px;
-  font-size: 12px;
-}
-
-.reply-strategy:hover {
-  color: var(--text-primary);
-  border-bottom-color: var(--accent-dim);
-}
-
-/* The temporary override reads as a removable token, not a mode. */
-.reply-override {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 4px 2px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--text);
-}
-
-.reply-clear {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  line-height: 1;
-  padding: 0 3px;
-  font-size: 14px;
-}
-
-.reply-clear:hover {
-  color: var(--text-primary);
-}
-
-.reply-hint {
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* ── Empty scene ── */

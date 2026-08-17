@@ -9,6 +9,7 @@
 // updateAttachmentPreview to clear the chips after a send.
 
 import { sendMessage } from "./chat_stream.js";
+import { refreshCastRailIntent } from "./group_setup.js";
 import { S } from "./state.js";
 import { $, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
@@ -87,6 +88,8 @@ export function updateAttachmentPreview() {
     item.appendChild(removeBtn);
     container.appendChild(item);
   });
+  // An attachment with no text is still a draft waiting for an answer.
+  refreshCastRailIntent();
 }
 
 // ── Composer textarea
@@ -214,6 +217,8 @@ function onComposerInput() {
   _scheduleResize();
   clearGhost();
   scheduleGhost();
+  // A drafted message changes what a group's cast chips do — see the rail.
+  refreshCastRailIntent();
 }
 
 function onComposerKeydown(e) {

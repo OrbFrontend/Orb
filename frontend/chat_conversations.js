@@ -71,6 +71,7 @@ export function resetChatUI() {
   S.activeConvId = null;
   S.groupCast = null;
   S.pinnedSpeakerId = null;
+  S.consumedSpeakerId = null;
   stashCardFragments(null);
   S.messages = [];
   S.lastDirectorData = null;
@@ -81,8 +82,8 @@ export function resetChatUI() {
   $("chat-avatar").textContent = CHAT_AVATAR_ICON;
   $("chat-input").disabled = true;
   $("send-btn").disabled = true;
-  // Drops the cast rail, the reply bar and the group entries in the header menu
-  // along with the conversation they belonged to.
+  // Drops the cast rail and the group entries in the header menu along with the
+  // conversation they belonged to.
   renderGroupCast();
   renderMessages();
   renderInspector();
@@ -257,6 +258,7 @@ function confirmDeleteConversation(id, msgCount, afterDelete) {
           if (wasGroup) {
             S.groupCast = null;
             S.pinnedSpeakerId = null;
+            S.consumedSpeakerId = null;
             $("chat-title-text").textContent = "Select a character";
             $("chat-avatar").textContent = CHAT_AVATAR_ICON;
             renderGroupCast();

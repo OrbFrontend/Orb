@@ -2,9 +2,10 @@
 // `S` (it imports only state.js and utils.js, both DOM-free beyond `esc`), so it
 // loads under node --test.
 //
-// What matters here is what the scene *tells* the user: which strategy is in
-// force, who is about to answer and whether that choice survives the turn, and
-// that the speaking-plan rail never paints a row with nothing in it.
+// What matters here is what the scene *tells* the user: who is about to answer
+// and whether that choice survives the turn, what a click on a cast chip will
+// actually do, and that the speaking-plan rail never paints a row with nothing
+// in it.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -27,12 +28,12 @@ globalThis.document = {
 
 import {
   CONTEXT_MODES,
+  castClickSpeaksNow,
   castRailHtml,
   contextMode,
   eligibleMembers,
   joinNames,
   overrideIsOneShot,
-  replyBarHtml,
   sceneEmptyStateHtml,
   speakingPlanHtml,
   turnMode,
@@ -62,7 +63,7 @@ test("the three stored turn modes carry user-language names", () => {
   assert.equal(turnMode("director").label, "Auto");
   assert.equal(turnMode("round_robin").label, "Rotate");
   assert.equal(turnMode("manual").label, "Choose");
-  // An unknown value must not blank the reply bar.
+  // An unknown value must not blank the settings dropdown.
   assert.equal(turnMode("nonsense").label, "Auto");
 });
 
@@ -101,44 +102,37 @@ test("an override is one-shot except in Choose mode, where picking is the strate
   assert.equal(overrideIsOneShot(), false);
 });
 
-test("with no override the reply bar states the strategy and offers no speak action", () => {
+test("a chip speaks only on a resting scene — a live beat or a draft makes it queue", () => {
   scene({ mode: "director" });
-  const html = replyBarHtml();
-  assert.match(html, /Auto · Director chooses/);
-  assert.doesNotMatch(html, /data-speak-now/);
-  assert.doesNotMatch(html, /data-clear-override/);
-});
-
-test("Choose mode with nobody picked says so, since the composer is blocked until then", () => {
-  scene({ mode: "manual" });
-  assert.match(replyBarHtml(), /Pick who replies from the cast/);
-});
-
-test("an override names the member, offers to run it now, and says it is one-shot", () => {
-  scene({ mode: "director", pinned: "m2" });
-  const html = replyBarHtml();
-  assert.match(html, /Assistant/);
-  assert.match(html, /data-clear-override/);
-  assert.match(html, /Let Assistant speak now/);
-  assert.match(html, /next reply only/);
-});
-
-test("a Choose-mode pick is not advertised as one-shot", () => {
-  scene({ mode: "manual", pinned: "m1" });
-  const html = replyBarHtml();
-  assert.match(html, /Let Artus speak now/);
-  assert.doesNotMatch(html, /next reply only/);
-});
-
-test("the speak action is unavailable mid-stream", () => {
-  scene({ mode: "director", pinned: "m1" });
+  assert.equal(castClickSpeaksNow(false), true, "nothing running, nothing typed");
+  assert.equal(castClickSpeaksNow(true), false, "an unsent draft is waiting for an answer");
   S.isStreaming = true;
-  assert.match(replyBarHtml(), /data-speak-now disabled/);
+  assert.equal(castClickSpeaksNow(false), false, "a beat is already running");
+  assert.equal(castClickSpeaksNow(true), false);
 });
 
-test("a solo conversation renders no rail and no reply bar", () => {
+test("a chip's title states which of the two things this click will do", () => {
+  scene({ mode: "director" });
+  assert.match(castRailHtml(), /Give Artus the floor now/);
+  assert.match(castRailHtml({ hasDraft: true }), /Queue Artus to reply next/);
+  S.isStreaming = true;
+  assert.match(castRailHtml(), /Queue Artus to reply next/);
+});
+
+test("only a queueing click can be taken back — a resting scene has no toggle", () => {
+  scene({ mode: "director", pinned: "m2" });
+  // Drafted: the pick is still pending, so the pressed chip offers to undo it
+  // and the rest offer to take the queue over.
+  const queueing = castRailHtml({ hasDraft: true });
+  assert.match(queueing, /Assistant is up next — click to clear/);
+  assert.match(queueing, /Queue Artus to reply next/);
+  // Resting: the same click resolves the pick by using it, for every chip.
+  assert.match(castRailHtml(), /Give Assistant the floor now/);
+  assert.match(castRailHtml(), /Give Artus the floor now/);
+});
+
+test("a solo conversation renders no rail", () => {
   solo();
-  assert.equal(replyBarHtml(), "");
   assert.equal(castRailHtml(), "");
   assert.equal(speakingPlanHtml(), "");
 });
@@ -170,10 +164,12 @@ test("the plan marks the speaker in flight and the ones already done", () => {
 
 test("the cast rail marks the next speaker, disables muted members, and offers manage", () => {
   scene({ members: [ARTUS, { ...ASSISTANT, muted: true }], pinned: "m1" });
-  const html = castRailHtml();
+  const html = castRailHtml({ hasDraft: true });
   assert.match(html, /data-cast-member-id="m1" aria-pressed="true"/);
   assert.match(html, /data-cast-member-id="m2" aria-pressed="false" disabled/);
-  assert.match(html, /Have Artus reply next|Artus replies next/);
+  assert.match(html, /Artus is up next/);
+  // A muted member says why it is inert rather than advertising a click.
+  assert.match(html, /Assistant — not replying in this scene/);
   assert.match(html, /data-cast-manage/);
 });
 

@@ -111,6 +111,10 @@ export const S = {
   // the three durable scene settings mirrored from the conversation row.
   groupCast: null,
   pinnedSpeakerId: null,
+  // The pick the in-flight beat was started with, latched at request time. A
+  // chip clicked mid-beat moves `pinnedSpeakerId` on to the *next* turn, so the
+  // one-shot cleanup after the beat has to know which pick it is allowed to eat.
+  consumedSpeakerId: null,
   speakingPlan: null,
   currentSpeaker: null,
   currentBeatId: null,

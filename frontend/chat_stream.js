@@ -850,6 +850,10 @@ export async function runStreamRequest(
   body,
   { cutoffMsgId = null, beforeRender = null, anchorStream = false, afterDone = null } = {},
 ) {
+  // Latch the pick this beat runs on before the first await: the cast rail is
+  // live during a stream, and a chip clicked while it runs queues someone for
+  // the *next* turn — afterStream must not mistake that for a spent override.
+  S.consumedSpeakerId = S.pinnedSpeakerId;
   setStreaming(true);
   setGenerationPhase("pending");
   $("send-btn").disabled = true;
@@ -934,10 +938,6 @@ export async function continueFromUser() {
 export async function speakAsMember(memberId) {
   if (!S.activeConvId || !memberId || !canStartGeneration(true)) return;
   await runStreamRequest(convUrl(S.activeConvId, "speak"), { speaker_member_id: memberId });
-}
-
-export async function speakAsPinned() {
-  await speakAsMember(S.pinnedSpeakerId);
 }
 
 document.addEventListener("group-speak-request", (event) => speakAsMember(event.detail || S.pinnedSpeakerId));
