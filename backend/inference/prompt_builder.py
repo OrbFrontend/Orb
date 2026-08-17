@@ -9,6 +9,7 @@ from collections.abc import Collection, Mapping, MutableMapping, Sequence
 from typing import Any
 
 from ..core import ChatMessage, ContentPart, Macros, TurnCast, resolve_stored_random
+from .group_context import render_cast_section
 from .tool_registry import TOOLS
 
 
@@ -87,12 +88,10 @@ def build_prefix(
 
     parts = [system_prompt]
     if cast and cast.grouped:
-        parts.append("\n\n## Cast")
-        for member in cast.members:
-            parts.append(f"\n### {member.name}")
-            if member.public_profile:
-                profile = member.public_profile.replace("{{cast}}", ", ".join(m.name for m in cast.members))
-                parts.append(f"\n{resolve(profile)}")
+        # Which character fields land here is the context mode's call alone —
+        # public cast, shared dossiers, or the active card. See
+        # ``inference/group_context.py``; no pass decides this for itself.
+        parts.append(render_cast_section(cast, macros))
     elif macros and macros.char:
         parts.append(f"\n\n## Character: {macros.char}")
     if resolved["persona"] and not (cast and cast.grouped):

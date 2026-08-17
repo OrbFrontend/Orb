@@ -24,7 +24,7 @@ from typing import Any
 
 from .. import database as db
 from ..core import resolve_inline
-from ..inference import AbortToken
+from ..inference import AbortToken, prefix_is_speaker_scoped
 from .cast import parse_speaking_plan, round_robin_member
 from .config import _resolve_pipeline_config, _split_interactive_fragments
 from .context import (
@@ -335,6 +335,11 @@ async def _generate_group_beat(
             }
         )
 
+    # Under Classic card swap the shared setup base is the *neutral* one — the
+    # Director ran before a speaker was known — so even the first speaker has to
+    # rebuild its prefix around its own card. Reusing the setup base there is a
+    # correctness bug in that mode, not merely a cache miss.
+    speaker_scoped = prefix_is_speaker_scoped(ctx.cast.context_mode)
     current_parent = parent_message_id
     for index, (row, speaker_beat) in enumerate(plan_rows):
         if ctx.client.is_aborted:
@@ -356,19 +361,22 @@ async def _generate_group_beat(
             },
         }
         if index == 0:
-            prefix, agent_prefix = setup.prefix, setup.agent_prefix
             effective_message = user_message
             pass_attachments = attachments
             pipeline_history = history
         else:
-            prefix, agent_prefix = _build_prefixes(
-                ctx,
-                grown_history,
-                extra_system_blocks=list(setup.extra_system_blocks),
-            )
             effective_message = ""
             pass_attachments = []
             pipeline_history = grown_history
+        if index == 0 and not speaker_scoped:
+            prefix, agent_prefix = setup.prefix, setup.agent_prefix
+        else:
+            prefix, agent_prefix = _build_prefixes(
+                ctx,
+                pipeline_history,
+                extra_system_blocks=list(setup.extra_system_blocks),
+                speaker=speaker,
+            )
         card = await db.get_character_card(speaker.card_id) if speaker.card_id else None
         pipeline = _run_pipeline(
             ctx.client,
@@ -395,6 +403,7 @@ async def _generate_group_beat(
             world_proposal=setup.world_proposal if index == len(plan_rows) - 1 else None,
             speaker=speaker,
             speaker_beat=speaker_beat,
+            context_mode=ctx.cast.context_mode,
             run_director=False,
             director_seed=shared,
             run_beat_final=index == len(plan_rows) - 1,

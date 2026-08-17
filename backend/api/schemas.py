@@ -382,6 +382,9 @@ class ConversationCreate(BaseModel):
     members: list[GroupMemberSpec] = []
     group_turn_mode: Literal["manual", "round_robin", "director"] = "director"
     group_max_speakers: int = Field(default=3, ge=1, le=8)
+    # A new scene has no cast history to reason about, so creation always takes
+    # the behaviour-preserving default; the control lives in Group settings.
+    group_context_mode: Literal["private", "shared", "swap"] = "private"
     opening_speaker_key: str | None = None
 
 
@@ -392,6 +395,7 @@ class ConversationUpdate(BaseModel):
     persona_lock_id: int | None = None
     group_turn_mode: Literal["manual", "round_robin", "director"] | None = None
     group_max_speakers: int | None = Field(default=None, ge=1, le=8)
+    group_context_mode: Literal["private", "shared", "swap"] | None = None
     character_scenario: str | None = None
     post_history_instructions: str | None = None
 

@@ -26,6 +26,14 @@ from .endpoint_profiles import (
     profile_for,
 )
 from .errors import LLMCallError, provider_sentence, redact
+from .group_context import (
+    context_size_components,
+    member_macros,
+    prefix_is_speaker_scoped,
+    render_cast_section,
+    roster_names,
+    tail_carries_identity,
+)
 from .kv_tracker import _KVCacheTracker
 from .lorebook import (
     DYNAMIC_SECTION_TITLE,
@@ -94,6 +102,13 @@ __all__ = [
     # cached_call / kv_tracker
     "CachedBase",
     "_KVCacheTracker",
+    # group_context — the one owner of per-mode character-field visibility
+    "context_size_components",
+    "member_macros",
+    "prefix_is_speaker_scoped",
+    "render_cast_section",
+    "roster_names",
+    "tail_carries_identity",
     # text_completion
     "has_image_parts",
     # lorebook — full surface via .lorebook / features.lorebook facade

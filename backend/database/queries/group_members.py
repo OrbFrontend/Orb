@@ -52,6 +52,7 @@ async def create_group_conversation(
     post_history_instructions: str = "",
     turn_mode: str = "director",
     max_speakers: int = 3,
+    context_mode: str = "private",
     persona_lock_id: int | None = None,
     greeting: str = "",
     greeting_speaker_key: str | None = None,
@@ -71,8 +72,8 @@ async def create_group_conversation(
             """INSERT INTO conversations
                (id, title, character_card_id, character_name, character_scenario,
                 post_history_instructions, persona_lock_id, macro_seed, created_at, updated_at,
-                kind, group_turn_mode, group_max_speakers)
-               VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'group', ?, ?)""",
+                kind, group_turn_mode, group_max_speakers, group_context_mode)
+               VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'group', ?, ?, ?)""",
             (
                 cid,
                 title,
@@ -85,6 +86,7 @@ async def create_group_conversation(
                 now,
                 turn_mode,
                 max_speakers,
+                context_mode,
             ),
         )
         await db.execute(

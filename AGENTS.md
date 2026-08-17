@@ -12,7 +12,7 @@ Orb is an **agentic AI roleplay/writing frontend**: Python/FastAPI backend, vani
 
 Pipeline passes: **Director** (optional, pre-writer) → **Writer** (streams output) → **Editor** (optional, post-writer auditor/rewriter).
 
-- **Cross-pass KV caching:** All passes share one byte-identical prefix (same system prompt, history, tool schemas). Read [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md) before touching prompt assembly, pass ordering, or tool schemas.
+- **Cross-pass KV caching:** All passes share one byte-identical prefix (same system prompt, history, tool schemas). Read [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md) before touching prompt assembly, pass ordering, or tool schemas. Group chats are the one place a prefix may legitimately vary *within* a beat: under `group_context_mode = 'swap'` the active card sits before history, so each speaker gets its own frozen base and the Director keeps a neutral one.
 - **Dynamic Worlds:** the Agent may propose durable World changes from a finished turn, to **every enabled World that opted in** (`dynamic_enabled`) — one forced call, split into one pending changeset per World. It only ever writes an *overlay* — `lorebook_entries.entry_layer` splits user-`authored` rows from Agent-`dynamic` ones, and no code path lets the Agent touch an authored row. Every consumer sees the resolved view through `inference/lorebook.select_effective_entries`. Read [docs/architecture/dynamic-worlds.md](docs/architecture/dynamic-worlds.md) before touching lorebook projection, the changeset lifecycle, or `worlds.content_revision`.
 - **Editor patching:** `editor_apply_patch` anchors on a numbered finding id, not a `search` string — `analysis/targets.py` resolves the audit into addressable offsets. Every replacement is healed before it lands (`analysis/healing.py`): any run of words the model copied from the draft *outside* its target span is trimmed off either end, so a mis-aimed patch can't print the same text twice.
 - **Secondary workflows:** Pluggable hooks (pre/post pipeline, on-demand). Full reference: [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md).
@@ -66,6 +66,7 @@ features/<name>/
 | `backend/api/routes/__init__.py` | `ROUTERS` list — add a file here to register a router |
 | `backend/pipeline/entrypoints.py` | Public `handle_*` functions plus the group beat driver — top of the turn lifecycle |
 | `backend/pipeline/cast.py` | Active/tombstoned cast resolution, public/private projection, speaking-plan validation, round-robin policy |
+| `backend/inference/group_context.py` | The group character-context projection — the **only** owner of which card fields each mode puts in the shared cached body vs. the speaker's trailing message, plus per-member `{{char}}` scoping. `build_prefix`, `build_writer_content` and the context-size estimator all read it; no pass decides visibility itself |
 | `backend/pipeline/orchestrator.py` | `_run_pipeline()`: director→writer→editor coordination |
 | `backend/pipeline/state.py` | `TurnState`, `ModelLane`, `_PipelineConfig`, `LorebookTurn` |
 | `backend/pipeline/failures.py` | `describe_failure(exc)` → the `error` event's payload; the only place a failure is classified (status class, never provider vocabulary) |
@@ -95,7 +96,7 @@ features/<name>/
 | `settings` | Global singleton (id=1): endpoint refs, enabled_tools (JSON), feature flags, workflow_config |
 | `endpoints` | LLM API endpoints; `completion_mode` = `chat`\|`text` |
 | `model_configs` | Per-endpoint model params (temp, top_p, max_tokens, system_prompt, …) |
-| `conversations` | Chat sessions; `kind=solo|group`, group turn policy, `active_leaf_id` branch leaf; `macro_seed` pins {{random}} on copies |
+| `conversations` | Chat sessions; `kind=solo|group`, group turn policy, `group_context_mode` (`private`\|`shared`\|`swap`), `active_leaf_id` branch leaf; `macro_seed` pins {{random}} on copies |
 | `group_members` | Durable ordered group roster; immutable speaker keys, local names/profile overrides, mute/tombstone state |
 | `messages` | Message tree (`parent_id`); group replies carry `speaker_member_id` and request-scoped `beat_id` |
 | `character_cards` | V3-spec characters (`ccv3` chunk preferred, `chara` V2 fallback); `avatar_b64`, `world_id`, `persona_lock_id`, `extensions` (card extensions JSON; card-embedded fragments at `orb.fragments`, V3-only card fields parked at `orb.v3`, merged ephemerally in `_load_pipeline_context`) |

@@ -15,6 +15,45 @@ export function turnMode(mode) {
   return TURN_MODES[mode] || TURN_MODES.director;
 }
 
+// What each speaker is *told* — distinct from TURN_MODES, which decides who
+// replies. Stored values stay `private` / `shared` / `swap`; this table is the
+// single place the wording lives, including the privacy and prompt-cache
+// consequences each mode carries. `billing` is explanatory copy, never a token
+// estimate: cached-input discounts, cache retention and tool rendering are all
+// endpoint-specific.
+//
+// No `hint` twin to TURN_MODES': a turn mode's consequence fits in an option
+// label, a context mode's does not. The dropdown shows `label` alone and the
+// "How character context works" disclosure carries `detail` + `billing` for
+// all three at once, so the user compares rather than reads one at a time.
+export const CONTEXT_MODES = {
+  private: {
+    label: "Private perspective",
+    detail:
+      "Each speaker receives its full card. Every other member contributes only their public profile, so a card's description, personality, examples and instructions never reach another character's turn.",
+    billing:
+      "Efficient when speakers change: one long shared history stays cached, and only the speaking card is re-sent each turn.",
+  },
+  shared: {
+    label: "Shared dossier",
+    detail:
+      "Every speaker receives a labelled identity dossier for the whole cast — description, personality and examples for every active member. Members can therefore read one another's card details; nothing is held back between them.",
+    billing:
+      "Every call carries the whole cast, so the first one is the most expensive. After that it is often the cheapest mode where the provider discounts cached input.",
+  },
+  swap: {
+    label: "Classic card swap",
+    detail:
+      "Only the active speaker's card is sent, in the conventional single-character layout. Other members appear as names alone — no profiles, no card details.",
+    billing:
+      "Changing speakers can reduce prompt-cache reuse: the swap sits before the history, so a new speaker re-reads the whole conversation unless the provider keeps a warm branch per character.",
+  },
+};
+
+export function contextMode(mode) {
+  return CONTEXT_MODES[mode] || CONTEXT_MODES.private;
+}
+
 // A speaker override is one-shot everywhere except `manual`, where picking the
 // speaker *is* the strategy and the choice therefore stays until it is used or
 // cleared. Consumers must not re-derive this rule.

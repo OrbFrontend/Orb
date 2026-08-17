@@ -60,7 +60,7 @@ from ...database import (
 from ...database.models import ConversationRow
 from ...features import lorebook
 from ...features.summarization import ConversationSummarizer
-from ...inference import AbortToken, client_from_settings, prompt_builder
+from ...inference import AbortToken, client_from_settings, group_context, prompt_builder
 from ...pipeline import (
     agent_enabled,
     conversation_macro_seed,
@@ -126,6 +126,7 @@ async def api_create_conversation(data: ConversationCreate):
                 post_history_instructions=data.post_history_instructions,
                 turn_mode=data.group_turn_mode,
                 max_speakers=data.group_max_speakers,
+                context_mode=data.group_context_mode,
                 greeting=resolve_inline(data.first_mes),
                 greeting_speaker_key=data.opening_speaker_key,
             )
@@ -303,7 +304,12 @@ async def api_summarize_conversation(
     card, active_persona = await resolve_card_and_persona(conv, settings)
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
     macros, user_description = persona_macros(settings, char_name, active_persona, seed=conversation_macro_seed(conv))
-    summary_cast = await resolve_cast(conv)
+    # The one place the group context mode deliberately does *not* apply.
+    # Compression is scene-wide narration, so it always reads the public-cast
+    # projection: paying for every dossier — or swapping in one arbitrary card
+    # the summary is not written from — buys nothing and inflates the single
+    # longest call in the app.
+    summary_cast = (await resolve_cast(conv))._replace(context_mode="private")
     speaker_names: dict[str, str] = {}
     if summary_cast.grouped:
         macros = macros._replace(cast=", ".join(member.name for member in summary_cast.members))
@@ -565,22 +571,20 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     post_text = macros.resolve_message(
         "" if settings.get("prevent_prompt_overrides") else (conv.get("post_history_instructions", "") or "")
     )
-    cast_public_text = ""
-    largest_speaker_tail = ""
+    # The group breakdown is a *maximum* call, not a sum, and its shape follows
+    # the context mode: the shared body once, plus the largest single speaker's
+    # share of it. Rendered through the same projection the prompt uses, so the
+    # estimate cannot drift from what is actually sent.
+    group_components: list[tuple[str, str]] = []
     if turn_cast.grouped:
         persona_text = ""
         mes_text = ""
         post_text = ""
-        cast_public_text = "## Cast\n" + "\n".join(
-            f"### {member.name}\n{member.public_profile}" for member in turn_cast.members
+        group_components = group_context.context_size_components(
+            turn_cast,
+            macros,
+            prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides")),
         )
-        speaker_tails = []
-        for member in turn_cast.members:
-            fields = [member.private_sheet, member.mes_example]
-            if not settings.get("prevent_prompt_overrides"):
-                fields.append(member.post_history)
-            speaker_tails.append("\n\n".join(macros.resolve_message(field) for field in fields if field))
-        largest_speaker_tail = max(speaker_tails, key=len, default="")
     resolved_user_desc = macros.resolve_message(user_desc)
     user_persona_text = f"## User: {macros.user}\n{resolved_user_desc}" if resolved_user_desc.strip() else ""
     msg_chars = sum(len(m.get("content", "") or "") for m in messages)
@@ -629,10 +633,7 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
         ("lorebook_depth", len(depth_lorebook_block)),
     ]
     if turn_cast.grouped:
-        components[2:2] = [
-            ("cast_public", len(cast_public_text)),
-            ("largest_speaker_tail", len(largest_speaker_tail)),
-        ]
+        components[2:2] = [(key, len(text)) for key, text in group_components]
     breakdown = {}
     for label, chars in components:
         breakdown[label] = {"chars": chars, "tokens_est": estimate_tokens(chars)}

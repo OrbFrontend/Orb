@@ -15,10 +15,17 @@ from ...core import (
     CastMember,
     ChatMessage,
     ContentPart,
+    GroupContextMode,
     build_multimodal_content,
     extract_hyperparams,
 )
-from ...inference import CachedBase, LLMClient, _KVCacheTracker, reasoning_cfg
+from ...inference import (
+    CachedBase,
+    LLMClient,
+    _KVCacheTracker,
+    reasoning_cfg,
+    tail_carries_identity,
+)
 from .editor.length_guard import LengthGuard, writer_nudge
 
 if TYPE_CHECKING:
@@ -57,6 +64,8 @@ def build_writer_content(
     user_name: str = "User",
     prevent_prompt_overrides: bool = False,
     cast_names: str = "",
+    macro_seed: str = "",
+    context_mode: GroupContextMode = "private",
 ) -> str | list[ContentPart]:
     """Build the writer's user-message content (string or multimodal list).
 
@@ -64,6 +73,18 @@ def build_writer_content(
     replays it verbatim to extend the writer's KV-cached prefix. The length-guard
     nudge (preventive arm) fires only in enforce mode; a non-None *length_guard*
     already means the feature is enabled.
+
+    *context_mode* decides whether the speaker's identity fields belong here at
+    all: Shared dossier and Classic card swap have already put them in the
+    shared system body, so repeating them after history would bill the same
+    text twice. Its post-history instructions are active-only in every mode and
+    stay here regardless.
+
+    *macro_seed* is the conversation's ``macro_seed``, and it has to be the same
+    one the shared prefix resolves under: without it a ``{{roll}}`` in a card
+    would re-roll every turn, busting this tail's bytes, and the same card text
+    would resolve differently depending on whether the mode routed it here or
+    into the cached body (``inference/group_context.py``).
 
     *tools_sent* gates the no-tools nudge. It is the strongest provider-neutral
     signal Orb owns: a server may still narrow the supplied array based on
@@ -78,16 +99,19 @@ def build_writer_content(
     if speaker is not None:
         from ...core.macros import Macros
 
-        speaker_macros = Macros(user_name, speaker.name, cast=cast_names)
+        speaker_macros = Macros(user_name, speaker.name, seed=macro_seed, cast=cast_names)
         tail += f"## You are writing as {speaker.name}\n"
-        if speaker.private_sheet:
-            tail += speaker_macros.resolve_message(speaker.private_sheet) + "\n\n"
-        if speaker.mes_example:
-            example = speaker_macros.resolve_message(speaker.mes_example)
-            tail += (
-                example.replace("<START>", "## Example Dialogue") if "<START>" in example else f"## Example Dialogue\n{example}"
-            )
-            tail += "\n\n"
+        if tail_carries_identity(context_mode):
+            if speaker.private_sheet:
+                tail += speaker_macros.resolve_message(speaker.private_sheet) + "\n\n"
+            if speaker.mes_example:
+                example = speaker_macros.resolve_message(speaker.mes_example)
+                tail += (
+                    example.replace("<START>", "## Example Dialogue")
+                    if "<START>" in example
+                    else f"## Example Dialogue\n{example}"
+                )
+                tail += "\n\n"
         if speaker.post_history and not prevent_prompt_overrides:
             tail += f"## Additional Instructions\n{speaker_macros.resolve_message(speaker.post_history)}\n\n"
     if lorebook_block:
@@ -162,6 +186,8 @@ async def writer_stage(
     speaker_beat: str = "",
     user_name: str = "User",
     cast_names: str = "",
+    macro_seed: str = "",
+    context_mode: GroupContextMode = "private",
 ) -> AsyncIterator[dict]:
     """Input-prep + writer pass + event translation.
 
@@ -193,6 +219,8 @@ async def writer_stage(
         user_name=user_name,
         prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides")),
         cast_names=cast_names,
+        macro_seed=macro_seed,
+        context_mode=context_mode,
     )
     writer_t0 = time.monotonic()
     label_buffer = ""

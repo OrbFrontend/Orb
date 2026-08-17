@@ -149,6 +149,7 @@ async def fork_conversation(source: ConversationRow, new_title: str) -> str:
             post_history_instructions=source.get("post_history_instructions", "") or "",
             turn_mode=source.get("group_turn_mode", "director"),
             max_speakers=source.get("group_max_speakers", 3),
+            context_mode=source.get("group_context_mode", "private"),
             persona_lock_id=source.get("persona_lock_id"),
             macro_seed=source.get("macro_seed") or source["id"],
         )
@@ -190,6 +191,7 @@ async def update_conversation(cid: str, data: dict) -> ConversationRow | None:
             "persona_lock_id",
             "group_turn_mode",
             "group_max_speakers",
+            "group_context_mode",
             "character_scenario",
             "post_history_instructions",
         ]

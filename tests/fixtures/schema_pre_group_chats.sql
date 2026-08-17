@@ -1,8 +1,9 @@
-from __future__ import annotations
-
-import re
-
-CREATE_TABLES_SQL = """
+-- Frozen snapshot of backend/database/schema.py's CREATE_TABLES_SQL as of the
+-- commit before group chats landed. This is a historical fixture for
+-- test_migration_chain_reaches_current_schema: DO NOT regenerate it to match a
+-- newer schema.py. Its whole value is being *older* than the current schema, so
+-- that every column added to schema.py afterwards must be reachable by running
+-- the migration chain over it -- which is exactly what an upgrading install does.
 CREATE TABLE IF NOT EXISTS settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     endpoint_url TEXT NOT NULL,
@@ -77,11 +78,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     active_leaf_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
     workflow_state TEXT DEFAULT NULL,
     persona_lock_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL,
-    macro_seed TEXT NOT NULL DEFAULT '',
-    kind TEXT NOT NULL DEFAULT 'solo' CHECK (kind IN ('solo', 'group')),
-    group_turn_mode TEXT NOT NULL DEFAULT 'director' CHECK (group_turn_mode IN ('manual', 'round_robin', 'director')),
-    group_max_speakers INTEGER NOT NULL DEFAULT 3 CHECK (group_max_speakers BETWEEN 1 AND 8),
-    group_context_mode TEXT NOT NULL DEFAULT 'private' CHECK (group_context_mode IN ('private', 'shared', 'swap'))
+    macro_seed TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS character_cards (
@@ -118,25 +115,6 @@ CREATE TABLE IF NOT EXISTS character_expressions (
     PRIMARY KEY (character_card_id, label)
 );
 
-CREATE TABLE IF NOT EXISTS group_members (
-    id TEXT PRIMARY KEY,
-    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-    speaker_key TEXT NOT NULL,
-    character_card_id TEXT DEFAULT NULL,
-    display_name TEXT NOT NULL,
-    public_profile_override TEXT DEFAULT NULL,
-    member_kind TEXT NOT NULL DEFAULT 'character' CHECK (member_kind IN ('character', 'narrator')),
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    muted INTEGER NOT NULL DEFAULT 0 CHECK (muted IN (0, 1)),
-    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
-    workflow_state TEXT DEFAULT NULL,
-    UNIQUE(conversation_id, speaker_key)
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_group_member_active_card
-ON group_members(conversation_id, character_card_id)
-WHERE active = 1 AND character_card_id IS NOT NULL;
-
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -146,13 +124,8 @@ CREATE TABLE IF NOT EXISTS messages (
     parent_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
     progressive_fields TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
-    workflow_state TEXT DEFAULT NULL,
-    speaker_member_id TEXT DEFAULT NULL REFERENCES group_members(id) ON DELETE SET NULL,
-    beat_id TEXT DEFAULT NULL
+    workflow_state TEXT DEFAULT NULL
 );
-
-CREATE INDEX IF NOT EXISTS idx_messages_beat ON messages(conversation_id, beat_id);
-CREATE INDEX IF NOT EXISTS idx_messages_speaker ON messages(speaker_member_id);
 
 CREATE TABLE IF NOT EXISTS director_state (
     conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
@@ -348,30 +321,3 @@ CREATE TABLE IF NOT EXISTS documents (
     updated_at TEXT NOT NULL
 );
 
-"""
-
-
-def table_create_sql(table: str) -> str:
-    """Return the ``CREATE TABLE IF NOT EXISTS <table> ( ... )`` block for *table*,
-    sliced out of ``CREATE_TABLES_SQL``.
-
-    This is the single source of truth for a table's canonical fresh-install shape.
-    Rebuild migrations (e.g. 0027) and the schema-equivalence gate both derive the
-    canonical DDL from here rather than pasting a copy, so a rebuild can never drift
-    from the shape the equivalence check enforces. Parentheses are balanced (column
-    ``REFERENCES`` and ``CHECK`` clauses nest), so the block ends at the matching
-    close paren, not the first one.
-    """
-    m = re.search(rf"CREATE TABLE IF NOT EXISTS {re.escape(table)}\s*\(", CREATE_TABLES_SQL)
-    if not m:
-        raise KeyError(f"no CREATE TABLE block for {table!r} in CREATE_TABLES_SQL")
-    depth = 0
-    for i in range(m.end() - 1, len(CREATE_TABLES_SQL)):
-        ch = CREATE_TABLES_SQL[i]
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-            if depth == 0:
-                return CREATE_TABLES_SQL[m.start() : i + 1]
-    raise ValueError(f"unbalanced parentheses extracting {table!r} from CREATE_TABLES_SQL")

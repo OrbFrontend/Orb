@@ -107,6 +107,8 @@ export const S = {
   worldProposalArrived: false,
 
   // ── Group chats · owner: group_cast.js
+  // null when solo, else {members, turn_mode, max_speakers, context_mode} —
+  // the three durable scene settings mirrored from the conversation row.
   groupCast: null,
   pinnedSpeakerId: null,
   speakingPlan: null,

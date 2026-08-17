@@ -16,7 +16,7 @@ import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any, TypeVar
 
-from ..core import CastMember, ChatMessage, Macros
+from ..core import CastMember, ChatMessage, GroupContextMode, Macros
 from ..database.models import PhraseGroup
 from ..inference import LLMClient, _KVCacheTracker
 from .config import _resolve_pipeline_config, _split_interactive_fragments
@@ -121,6 +121,7 @@ async def _run_pipeline(
     world_proposal: WorldProposalTurn | None = None,
     speaker: CastMember | None = None,
     speaker_beat: str = "",
+    context_mode: GroupContextMode = "private",
     run_director: bool = True,
     director_seed: TurnState | None = None,
     run_beat_final: bool = True,
@@ -259,6 +260,8 @@ async def _run_pipeline(
             speaker_beat=speaker_beat,
             user_name=macros.user,
             cast_names=macros.cast,
+            macro_seed=macros.seed,
+            context_mode=context_mode,
         ),
     ):
         yield ev

@@ -206,6 +206,9 @@ class ConversationRow(TypedDict):
     kind: str
     group_turn_mode: str
     group_max_speakers: int
+    # Which character information every group generation carries; see
+    # ``core.domain_types.GroupContextMode``. Stored but ignored when solo.
+    group_context_mode: str
 
 
 class GroupMemberRow(TypedDict):

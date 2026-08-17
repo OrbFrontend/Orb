@@ -20,6 +20,10 @@ def migrate(conn: sqlite3.Connection) -> None:
             "TEXT NOT NULL DEFAULT 'director' CHECK (group_turn_mode IN ('manual', 'round_robin', 'director'))",
         ),
         ("group_max_speakers", "INTEGER NOT NULL DEFAULT 3 CHECK (group_max_speakers BETWEEN 1 AND 8)"),
+        (
+            "group_context_mode",
+            "TEXT NOT NULL DEFAULT 'private' CHECK (group_context_mode IN ('private', 'shared', 'swap'))",
+        ),
     )
     for name, ddl in additions:
         if name not in conv:

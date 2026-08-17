@@ -1,6 +1,8 @@
 import { api } from "./api.js";
 import {
+  CONTEXT_MODES,
   castRailHtml,
+  contextMode,
   eligibleMembers,
   memberAvatar,
   replyBarHtml,
@@ -12,14 +14,31 @@ import { SIDEBAR_CLOSE_ICON } from "./sidebar_icons.js";
 import { charactersView, notify, S } from "./state.js";
 import { $, avatarCell, avatarUrl, convUrl, esc, escAttr, toast } from "./utils.js";
 
-// One sentence every group surface can afford to show permanently. The full
-// privacy contract (raw card fields, per-member lore, ignored system prompts)
-// lives behind the disclosure below it.
-const CONTEXT_LINE = "Characters share their public profiles and linked World context in this scene.";
+// What every mode shares, so no per-mode blurb has to repeat it. Kept separate
+// from the mode wording in group_cast.js: that table describes the differences,
+// this sentence describes the floor under all three.
+const CONTEXT_COMMON =
+  "In every mode the scene premise, the user persona, the Worlds the cast's cards link to, and the cast's names are shared with the whole scene. A card's own system-prompt override is always ignored, and its post-history instructions are sent only on that member's own turn. Per-member private lore is not supported yet.";
 
-const CONTEXT_HELP = `<details class="group-help"><summary>How group context works</summary>
-  <p class="modal-hint">Every member's public profile, the scene premise, and the Worlds their cards link to are shared with the whole scene. A member's raw card fields — description, personality, examples, post-history instructions — are sent only on that member's own speaking turn, and their card's system-prompt override is ignored. Per-member private lore is not supported yet.</p>
+// One sentence a group surface can afford to show permanently, stating *that
+// mode's* contract — under Shared dossier the old blanket privacy claim would
+// simply be false. For Manage cast, which shows the mode without offering it;
+// a surface that owns the dropdown points at `contextHelp` instead.
+function contextLine(mode) {
+  return `${contextMode(mode).label}: ${contextMode(mode).detail}`;
+}
+
+// The full comparison, always all three modes — this is the only place either
+// modal explains them, so it carries every mode's consequence and cost.
+function contextHelp() {
+  const modes = Object.values(CONTEXT_MODES)
+    .map((item) => `<p class="modal-hint"><b>${esc(item.label)}</b> — ${esc(item.detail)} ${esc(item.billing)}</p>`)
+    .join("");
+  return `<details class="group-help"><summary>How character context works</summary>
+  ${modes}
+  <p class="modal-hint">${esc(CONTEXT_COMMON)}</p>
 </details>`;
+}
 
 function modeOptions(selected) {
   return Object.entries(TURN_MODES)
@@ -29,6 +48,19 @@ function modeOptions(selected) {
     )
     .join("");
 }
+
+// Label only — unlike TURN_MODES, whose one-line hint fits in an option. A
+// context mode's consequence takes a sentence, so the option stays short and
+// the disclosure below carries the explanation for all three at once.
+function contextModeOptions(selected) {
+  return Object.entries(CONTEXT_MODES)
+    .map(([value, mode]) => `<option value="${value}"${value === selected ? " selected" : ""}>${esc(mode.label)}</option>`)
+    .join("");
+}
+
+// The dropdown's own label. It points at the disclosure rather than explaining
+// the modes, which is what keeps the control to one line in both modals.
+const CONTEXT_LABEL = "Character context (See “How character context works” below)";
 
 // Max replies is a Director-only bound: the other two strategies schedule exactly
 // one speaker per turn, so the field is meaningless there.
@@ -69,6 +101,8 @@ function showGroupCreate() {
     <details class="group-advanced"><summary>Advanced</summary>
       <div class="field"><label for="group-create-title">Group title</label>
         <input id="group-create-title" placeholder="Named after the cast"></div>
+      <div class="field"><label for="group-create-context">${esc(CONTEXT_LABEL)}</label>
+        <select id="group-create-context">${contextModeOptions("private")}</select></div>
       <div class="field"><label for="group-create-mode">Reply behavior</label>
         <select id="group-create-mode">${modeOptions("director")}</select></div>
       <div class="field" id="group-create-max-row"><label for="group-create-max">Maximum character replies per turn</label>
@@ -76,8 +110,7 @@ function showGroupCreate() {
       <div class="field"><label for="group-create-instructions">Style &amp; behavior instructions</label>
         <textarea id="group-create-instructions" rows="2" placeholder="How should this scene be written?"></textarea></div>
     </details>
-    <p class="modal-hint">${CONTEXT_LINE}</p>
-    ${CONTEXT_HELP}
+    ${contextHelp()}
     <div class="modal-actions"><button type="button" class="btn" id="group-create-cancel">Cancel</button><button type="button" class="btn btn-accent" id="group-create-save">Start scene</button></div>`);
   syncMaxRepliesRow("group-create-mode", "group-create-max-row");
   $("group-create-mode")?.addEventListener("change", () =>
@@ -106,6 +139,7 @@ function showGroupCreate() {
         title: $("group-create-title").value.trim() || titleFromNames(names),
         group_turn_mode: $("group-create-mode").value,
         group_max_speakers: Number($("group-create-max").value) || 3,
+        group_context_mode: $("group-create-context").value,
         character_scenario: $("group-create-scenario").value.trim(),
         post_history_instructions: $("group-create-instructions").value.trim(),
         members: chosenIds.map((id) => ({ character_card_id: id })),
@@ -129,6 +163,9 @@ function showGroupSettings() {
   showModal(`<h2>Group settings</h2>
     <div class="field"><label for="group-settings-title">Scene title</label>
       <input id="group-settings-title" value="${escAttr(conv?.title || "")}"></div>
+    <h3 class="modal-section">Character context</h3>
+    <div class="field"><label for="group-settings-context">${esc(CONTEXT_LABEL)}</label>
+      <select id="group-settings-context">${contextModeOptions(S.groupCast.context_mode)}</select></div>
     <h3 class="modal-section">Reply behavior</h3>
     <div class="field"><label for="group-settings-mode">How replies are chosen</label>
       <select id="group-settings-mode">${modeOptions(S.groupCast.turn_mode)}</select></div>
@@ -138,8 +175,7 @@ function showGroupSettings() {
       <textarea id="group-settings-scenario" rows="3" placeholder="Where and when does this open?">${esc(conv?.character_scenario || "")}</textarea></div>
     <div class="field"><label for="group-settings-instructions">Style &amp; behavior instructions</label>
       <textarea id="group-settings-instructions" rows="2" placeholder="How should this scene be written?">${esc(conv?.post_history_instructions || "")}</textarea></div>
-    <p class="modal-hint">${CONTEXT_LINE}</p>
-    ${CONTEXT_HELP}
+    ${contextHelp()}
     <div class="modal-actions"><button type="button" class="btn btn-danger" id="group-settings-delete">Delete group</button><div style="flex:1"></div><button type="button" class="btn" id="group-settings-cancel">Cancel</button><button type="button" class="btn btn-accent" id="group-settings-save">Save</button></div>`);
   syncMaxRepliesRow("group-settings-mode", "group-settings-max-row");
   $("group-settings-mode")?.addEventListener("change", () =>
@@ -158,6 +194,7 @@ function showGroupSettings() {
         title: $("group-settings-title").value.trim() || conv?.title || "New Group",
         group_turn_mode: $("group-settings-mode").value,
         group_max_speakers: Math.max(1, Math.min(8, Number($("group-settings-max").value) || 3)),
+        group_context_mode: $("group-settings-context").value,
         character_scenario: $("group-settings-scenario").value.trim(),
         post_history_instructions: $("group-settings-instructions").value.trim(),
       });
@@ -165,6 +202,7 @@ function showGroupSettings() {
       if (local) Object.assign(local, updated);
       S.groupCast.turn_mode = updated.group_turn_mode;
       S.groupCast.max_speakers = updated.group_max_speakers;
+      S.groupCast.context_mode = updated.group_context_mode;
       // The header title is a plain div except while it is being renamed inline.
       const titleEl = $("chat-title-text");
       if (titleEl) titleEl.textContent = updated.title;
@@ -182,8 +220,23 @@ function showGroupSettings() {
 // ── Manage cast ─────────────────────────────────────────────────────────────
 // One compact row per member; everything else is progressive disclosure.
 
+// One string, one meaning — the override is always the same stored field, so
+// the box never repoints at a different slot. Only what the scene *does* with it
+// changes, and Swap sends it nowhere, so there the box says so instead of
+// silently accepting text that never ships.
+const OVERRIDE_COPY = {
+  private: { placeholder: "Public profile override — how the rest of the cast sees them", disabled: false },
+  shared: { placeholder: "Scene profile — a labelled line inside this member's dossier", disabled: false },
+  swap: { placeholder: "Not sent under Classic card swap — other members see names only", disabled: true },
+};
+
+function overrideCopy() {
+  return OVERRIDE_COPY[S.groupCast?.context_mode] || OVERRIDE_COPY.private;
+}
+
 function castRow(member) {
   const name = member.display_name || "Narrator";
+  const override = overrideCopy();
   return `<div class="cast-row" data-roster-member-id="${escAttr(member.id || "")}" data-roster-card-id="${escAttr(member.character_card_id || "")}" data-roster-kind="${escAttr(member.member_kind || "character")}">
     <button type="button" class="cast-drag" data-roster-drag title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(name)}">⠿</button>
     ${memberAvatar(member)}
@@ -192,7 +245,7 @@ function castRow(member) {
     <button type="button" class="cast-row-more" data-roster-more title="More actions" aria-label="More actions for ${escAttr(name)}">•••</button>
     <div class="cast-row-menu"><button type="button" class="burger-menu-item" data-roster-remove>Remove from scene</button></div>
     <details class="cast-row-custom"><summary>Customize for this scene</summary>
-      <textarea data-roster-profile placeholder="Public profile override — how the rest of the cast sees them">${esc(member.public_profile_override || "")}</textarea>
+      <textarea data-roster-profile${override.disabled ? " disabled" : ""} placeholder="${escAttr(override.placeholder)}">${esc(member.public_profile_override || "")}</textarea>
     </details>
   </div>`;
 }
@@ -227,7 +280,7 @@ function showCastManager() {
     <p class="modal-subtitle">${rotating ? "Drag to set the reply order." : "Drag to reorder the cast."}</p>
     <div id="group-roster-list" class="cast-list">${S.groupCast.members.map(castRow).join("")}</div>
     <select id="group-roster-add" class="cast-add" aria-label="Add cast member">${addOptions()}</select>
-    <p class="modal-hint">${CONTEXT_LINE}</p>
+    <p class="modal-hint">${esc(contextLine(S.groupCast.context_mode))}</p>
     <div class="modal-actions"><button type="button" class="btn" id="group-roster-cancel">Cancel</button><button type="button" class="btn btn-accent" id="group-roster-save">Save cast</button></div>`);
   const list = $("group-roster-list");
   if (!list) return;
@@ -444,7 +497,12 @@ export async function loadGroupCast(conv) {
     return;
   }
   const members = await api.get(convUrl(conv.id, "members"));
-  S.groupCast = { members, turn_mode: conv.group_turn_mode, max_speakers: conv.group_max_speakers };
+  S.groupCast = {
+    members,
+    turn_mode: conv.group_turn_mode,
+    max_speakers: conv.group_max_speakers,
+    context_mode: conv.group_context_mode,
+  };
   if (!members.some((m) => m.id === S.pinnedSpeakerId && !m.muted)) S.pinnedSpeakerId = null;
   renderGroupCast();
   notify("cast", S.groupCast);

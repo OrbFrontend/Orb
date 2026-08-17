@@ -26,7 +26,9 @@ globalThis.document = {
 };
 
 import {
+  CONTEXT_MODES,
   castRailHtml,
+  contextMode,
   eligibleMembers,
   joinNames,
   overrideIsOneShot,
@@ -62,6 +64,32 @@ test("the three stored turn modes carry user-language names", () => {
   assert.equal(turnMode("manual").label, "Choose");
   // An unknown value must not blank the reply bar.
   assert.equal(turnMode("nonsense").label, "Auto");
+});
+
+test("the three stored context modes carry user-language names", () => {
+  assert.equal(contextMode("private").label, "Private perspective");
+  assert.equal(contextMode("shared").label, "Shared dossier");
+  assert.equal(contextMode("swap").label, "Classic card swap");
+  // Reached with an undefined mode by any surface whose conversation row
+  // predates the setting; it must fall back to the behaviour-preserving
+  // default rather than blanking the modal's explanation.
+  assert.equal(contextMode(undefined).label, "Private perspective");
+  assert.equal(contextMode("everyone_sees_everything").label, "Private perspective");
+});
+
+test("every context mode carries the copy both modals render", () => {
+  // The dropdown shows `label`; the "How character context works" disclosure
+  // shows `detail` + `billing` for all three. A mode missing one renders an
+  // empty paragraph where the privacy or cost consequence should be.
+  for (const [value, mode] of Object.entries(CONTEXT_MODES)) {
+    for (const field of ["label", "detail", "billing"]) {
+      assert.ok(mode[field]?.trim(), `${value}.${field} is empty`);
+    }
+  }
+  // The two modes that widen what a speaker can see have to say so outright —
+  // this is the only place the user is told before flipping the setting.
+  assert.match(CONTEXT_MODES.shared.detail, /read one another's card details/);
+  assert.match(CONTEXT_MODES.swap.detail, /names alone/);
 });
 
 test("an override is one-shot except in Choose mode, where picking is the strategy", () => {

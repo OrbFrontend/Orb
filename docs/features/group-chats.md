@@ -7,19 +7,69 @@ the ordered `group_members` roster. Assistant messages store a member identity
 through the member only when current card data, an avatar, or a workflow profile
 is needed.
 
-## Privacy boundary
+## Character context modes
 
-The shared cached prompt contains the group title, scenario, user persona, and
-each active member's confirmed public profile. It never contains another
-member's raw `description`, `personality`, examples, or post-history
-instructions. Those fields are appended only to that member's Writer request.
-Card-linked Worlds and card-embedded fragments are scene-wide in v1, so this is
-raw-card-field isolation rather than private per-character lore.
+`conversations.group_context_mode` decides which character information every
+generation in the scene carries. It is separate from reply behaviour, which
+decides *who* speaks. The UI calls it **Character context** and lives in Group
+settings; the stored values are internal. `group_cast.js:CONTEXT_MODES` owns the
+per-mode wording — label, one-line hint, description and cache/billing note —
+and is the only place that differs per mode. `group_setup.js` owns the two
+mode-independent strings beside it: `CONTEXT_COMMON` (the floor all three modes
+share) and `OVERRIDE_COPY` (how Manage cast labels the override box per mode).
 
-`{{char}}` means the group title in shared fields and `{{cast}}` means the
-roster names. A private speaker tail resolves `{{char}}` to that speaker.
-Group chats use the conversation persona pin or the global persona; card persona
-locks and card system-prompt overrides do not compete.
+| Stored | UI label | What the shared cached body carries | What the speaker's trailing message carries |
+|---|---|---|---|
+| `private` (default) | Private perspective | Every member's confirmed public profile | That speaker's `description`/`personality`, examples, and post-history instructions |
+| `shared` | Shared dossier | A labelled dossier per member: `description`/`personality`, that member's curated profile, and examples | That speaker's post-history instructions only |
+| `swap` | Classic card swap | A names-only cast list plus the active speaker's `description`/`personality` and examples | That speaker's post-history instructions only |
+
+`backend/inference/group_context.py` is the single owner of that table. Every
+consumer — `build_prefix`, `build_writer_content`, and the context-size
+estimator — reads the projection from there, so no pass decides card visibility
+on its own.
+
+Three rules hold in **every** mode:
+
+- A card's `system_prompt` override is ignored and its `scenario` is never read.
+  A group has exactly one premise (`conversations.character_scenario`); merging
+  N card scenarios would create N competing ones. Swap is therefore
+  identity-field substitution, not control-instruction substitution — a
+  deliberate divergence from SillyTavern.
+- `post_history_instructions` stays active-only, in the speaker's own trailing
+  message, and still honours `prevent_prompt_overrides`. Concatenating several
+  members' directives produces contradictory control instructions.
+- Member names stay available through `{{cast}}`, the cast section, and the
+  speaker labels on history. Card-linked Worlds and card-embedded fragments are
+  scene-wide in all three modes, so no mode provides private per-character lore.
+
+Only `private` is a privacy boundary. Under `shared` every active member reads
+every other member's card details by design, and under `swap` no cross-member
+identity text exists at all.
+
+The dossier/cast set is the **active** roster in canonical `sort_order, id`
+order — muted members included (a muted member is in scene but never speaks),
+tombstoned members excluded. A narrator or cardless member with nothing to say
+about itself contributes no dossier; its name still rides the cast list.
+
+A dossier carries the member's curated profile as well as its card text, so
+switching to `shared` never *loses* authored framing — it would otherwise erase
+a member whose card is all public profile and no description. The line is
+labelled by provenance: `Scene profile:` for a Manage-cast override, `Public
+profile:` for the card's own `extensions.orb.public_profile`.
+
+Compression is the one place the mode deliberately does not apply: summary
+prompts always use the public-cast projection, whatever the scene is set to.
+Scene-wide narration gains nothing from every dossier, or from one arbitrary
+swapped-in card, on the longest call in the app.
+
+`{{cast}}` always means the roster names. `{{char}}` is **mode-dependent**: it
+means the group title everywhere outside a member's own card text, and that
+member's name inside a dossier (`shared`), a swapped active card (`swap`), or a
+private speaker tail (`private`). Without that scoping a card reading
+"{{char}} never lies" would silently start describing the scene title. Group
+chats use the conversation persona pin or the global persona; card persona locks
+and card system-prompt overrides do not compete.
 
 ## Turn policy and message tree
 
@@ -75,10 +125,17 @@ message refetch/render after the beat.
 
 The group screen shows four things: scene identity, cast, conversation and
 composer. Everything else is contextual or lives in Group settings (`•••` in the
-chat header), which owns the durable configuration — title, reply behavior, max
-replies per turn, scene premise, style instructions — through
-`PUT /api/conversations/{cid}`. Cast membership, order, reply eligibility and
-public-profile overrides are edited in Manage cast (`PUT …/members`).
+chat header), which owns the durable configuration — title, character context,
+reply behavior, max replies per turn, scene premise, style instructions —
+through `PUT /api/conversations/{cid}`. Cast membership, order, reply
+eligibility and public-profile overrides are edited in Manage cast
+(`PUT …/members`). The override box is one string with one meaning in every
+mode; only its label changes, and under Classic card swap it is disabled with a
+one-line reason rather than accepting text that would never ship.
+
+Creation and convert-to-group do not offer the context control: a new scene has
+no cast history to reason about, so both start on Private perspective and the
+setting is one click away afterwards.
 
 The speaking-plan rail is painted only while a beat with two or more speakers is
 planned or streaming; a single speaker is announced by its cast chip, and a rest
@@ -88,6 +145,16 @@ and never renders inside a group.
 Checkpoint and compression copy the full active/historical roster with new
 member UUIDs and remap copied message identities. Compression summaries have no
 speaker member and render as `Summary`; the summary prompt itself receives
-speaker-labelled history. Context-size reporting is the maximum group call:
-shared cast/history plus the largest active private speaker tail, not a sum of
-all private sheets.
+speaker-labelled history. Both forks carry `group_context_mode`, exactly as they
+carry the turn mode and speaker cap.
+
+Context-size reporting is the maximum group call, never a sum, and its component
+keys follow the mode: `cast_public` + `largest_speaker_tail` under Private,
+`cast_dossiers` + `largest_speaker_tail` under Shared, and `cast_names` +
+`largest_active_card` + `largest_speaker_tail` under Swap. `renderContextSize`
+title-cases whatever keys it is handed, so the split needs no frontend work.
+
+The two `largest_*` components measure only members that can actually take the
+turn: the shared body covers the whole roster, but a muted member is never
+scheduled, so counting its card would overstate the call. An all-muted scene
+generates nothing and measures zero there.

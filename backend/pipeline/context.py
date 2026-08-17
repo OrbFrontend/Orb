@@ -24,7 +24,7 @@ from types import MappingProxyType
 from typing import Any
 
 from .. import database as db
-from ..core import ChatMessage, Macros, TurnCast
+from ..core import CastMember, ChatMessage, Macros, TurnCast
 from ..database.models import (
     ActiveLorebookEntryRow,
     CharacterCardRow,
@@ -230,6 +230,7 @@ def _build_prefix_from_ctx(
     *,
     system_prompt: str | None = None,
     extra_system_blocks: list[str] | None = None,
+    speaker: CastMember | None = None,
 ) -> list[ChatMessage]:
     """Build the LLM message prefix (system prompt + chat history) from *ctx*.
 
@@ -239,12 +240,20 @@ def _build_prefix_from_ctx(
     entries are rendered here into the system body (they are byte-identical
     every turn, so they belong in the cached prefix, not the trailing block) —
     except the ``at_depth`` ones, which ride ``LorebookTurn.depth_block``.
+
+    *speaker* only reaches the system body under Classic card swap, which is
+    the one mode whose prefix depends on who is speaking. Omitting it there
+    yields the neutral base the Director and the pre-pipeline hooks run
+    against — both execute before a speaking plan exists — and every speaker's
+    base shares its bytes up to the active card.
     """
     conv = ctx.conv
     group_title = conv.get("title", "") if ctx.cast.grouped else conv["character_name"]
     macros, user_description = persona_macros(ctx.settings, group_title, ctx.active_persona, seed=conversation_macro_seed(conv))
-    if ctx.cast.grouped:
-        macros = macros._replace(cast=", ".join(m.name for m in ctx.cast.members))
+    cast = ctx.cast
+    if cast.grouped:
+        macros = macros._replace(cast=", ".join(m.name for m in cast.members))
+        cast = cast._replace(speaker=speaker)
 
     return build_prefix(
         system_prompt if system_prompt is not None else ctx.system_prompt,
@@ -257,7 +266,7 @@ def _build_prefix_from_ctx(
         user_description,
         constant_lorebook_block=compute_constant_lorebook_block(ctx.lorebook_entries, macros),
         extra_system_blocks=extra_system_blocks,
-        cast=ctx.cast,
+        cast=cast,
         speaker_names=ctx.speaker_names,
     )
 
@@ -267,14 +276,17 @@ def _build_prefixes(
     history: Sequence[Mapping[str, Any]],
     *,
     extra_system_blocks: list[str] | None = None,
+    speaker: CastMember | None = None,
 ) -> tuple[list[ChatMessage], list[ChatMessage] | None]:
     """Build the writer prefix and optional agent prefix for a turn.
 
     Returns ``(prefix, agent_prefix)``. ``agent_prefix`` is ``None`` in
     single-model mode. *extra_system_blocks* from pre-pipeline hooks are applied
-    to both so the system body stays identical across all passes.
+    to both so the system body stays identical across all passes — and so is
+    *speaker*, or the Editor's agent lane would see a different cast than the
+    Writer it is auditing.
     """
-    prefix = _build_prefix_from_ctx(ctx, history, extra_system_blocks=extra_system_blocks)
+    prefix = _build_prefix_from_ctx(ctx, history, extra_system_blocks=extra_system_blocks, speaker=speaker)
     agent_sp = ctx.agent_system_prompt
     agent_prefix = (
         _build_prefix_from_ctx(
@@ -282,6 +294,7 @@ def _build_prefixes(
             history,
             system_prompt=agent_sp,
             extra_system_blocks=extra_system_blocks,
+            speaker=speaker,
         )
         if agent_sp is not None
         else None

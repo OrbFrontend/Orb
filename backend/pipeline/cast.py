@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import cast as typed_cast
 
 from .. import database as db
-from ..core import CastMember, TurnCast
+from ..core import CastMember, GroupContextMode, TurnCast
 
 
 def _public_profile(card: Mapping | None, override: str | None) -> str:
@@ -31,6 +32,17 @@ def _private_sheet(card: Mapping | None) -> str:
     if str(card.get("personality") or "").strip():
         parts.append("Personality: " + str(card["personality"]).strip())
     return "\n\n".join(parts)
+
+
+def _context_mode(conv: Mapping) -> GroupContextMode:
+    """The conversation's character-context mode, defaulting on an unknown value.
+
+    The column carries a CHECK constraint, so an out-of-domain value can only
+    arrive from a hand-edited database; falling back to the behaviour-preserving
+    default beats raising inside prompt assembly.
+    """
+    mode = str(conv.get("group_context_mode") or "private")
+    return typed_cast(GroupContextMode, mode) if mode in ("private", "shared", "swap") else "private"
 
 
 async def resolve_cast(conv: Mapping, *, speaker_member_id: str | None = None) -> TurnCast:
@@ -68,10 +80,12 @@ async def resolve_cast(conv: Mapping, *, speaker_member_id: str | None = None) -
                 private_sheet=_private_sheet(card),
                 mes_example=str((card or {}).get("mes_example") or ""),
                 post_history=str((card or {}).get("post_history_instructions") or ""),
+                scene_profile=str(member.get("public_profile_override") or ""),
+                muted=bool(member.get("muted")),
             )
         )
     speaker = next((m for m in resolved if m.member_id == speaker_member_id), None)
-    return TurnCast(True, tuple(resolved), speaker)
+    return TurnCast(True, tuple(resolved), speaker, _context_mode(conv))
 
 
 async def historical_speaker_names(conversation_id: str, messages: Sequence[Mapping]) -> dict[str, str]:

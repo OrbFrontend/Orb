@@ -94,15 +94,38 @@ Constant lorebook entries are the deliberate mirror image of Invariant 4: they a
 
 The chat history is built once per turn. Each pass receives the same list. Attachments (images) are encoded with the same bytes on every reference.
 
-In group mode the shared system body contains only the ordered public cast.
-Assistant history is member-labelled, with consecutive text-only assistant rows
-merged into one chat message. The Director runs against the pre-beat base once.
-Speaker 1 reuses that base; speaker 2 and later rebuild a base over the now-grown
-history, so they share stable system/tool bytes but deliberately diverge after
-the earlier reply is appended. A speaker's private card fields live only in the
-trailing Writer message and therefore cannot contaminate the shared cast prefix.
-Pre-pipeline workflow system blocks are captured once and reapplied to every
-later-speaker rebuild.
+In group mode the assistant history is member-labelled, with consecutive
+text-only assistant rows merged into one chat message. The Director runs against
+the pre-beat base once, speaker 2 and later rebuild a base over the now-grown
+history, and pre-pipeline workflow system blocks are captured once and reapplied
+to every later-speaker rebuild.
+
+*What* the system body says about the cast is the scene's **character context
+mode** ([group-chats.md](../features/group-chats.md)), and the three modes have
+three different cache topologies:
+
+| Mode | Director prefix | Writer/Editor prefix | Cache consequence |
+|---|---|---|---|
+| Private perspective | shared public-cast prefix | the same prefix | One common trunk. The speaking card is fresh *after* history, so it is a bounded tail miss — this is why an alternating cast still reuses the long conversation body. |
+| Shared dossier | shared-dossier prefix | the same prefix | Best prefix sharing across speakers, but every call carries every dossier's tokens. Its cold prompt is the sum of the cast. |
+| Classic card swap | neutral names-only prefix | names-only prefix + the active card | One cache lane per speaker, and the Director cannot prewarm a selected speaker's Writer prefix. |
+
+Two consequences of Swap are easy to get wrong. The swap sits *before* history,
+so changing speaker invalidates the history KV too, not just the card region —
+a one-prefix local server loses most of its history hit whenever the cast
+alternates, while a provider that retains several prefix branches may keep one
+warm lineage per character. And because the Director runs before a speaking plan
+exists, it must use the neutral base: `_generate_group_beat`'s `index == 0`
+shortcut, which hands speaker 1 the setup base verbatim, is a *correctness* bug
+under Swap rather than a cache miss, so that mode rebuilds for the first speaker
+too (`prefix_is_speaker_scoped`).
+
+In Private and Shared a speaker's identity fields live only in the trailing
+Writer message or only in the shared body respectively — never both, so no mode
+bills the same card text twice. Both model lanes are built under the same mode
+and the same speaker, or the Editor's agent lane would audit a draft written
+against a different cast. A mode change is intentionally a cache miss on the
+next request.
 
 ### Invariant 3 — One tool list, shared by every pass
 
