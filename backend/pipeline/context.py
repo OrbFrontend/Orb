@@ -52,7 +52,6 @@ from ..inference import (
     client_from_settings,
     separate_agent_lane_configured,
 )
-from .cast import resolve_cast
 from .config import _build_writer_tools_blob
 from .predicates import agent_enabled, resolve_persona_id, world_proposal_active
 from .state import LorebookTurn, WorldProposalTurn
@@ -115,7 +114,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
 
     director: dict[str, Any] = dict(await db.get_director_state(conversation_id))
     card, active_persona = await resolve_card_and_persona(conv, settings)
-    cast = await resolve_cast(conv)
+    cast = await db.resolve_cast(conv)
     all_group_members = await db.get_group_members(conversation_id, include_inactive=True) if cast.grouped else []
     speaker_names = {m["id"]: m["display_name"] for m in all_group_members}
     # Card-embedded fragments merge into the global lists for this turn only

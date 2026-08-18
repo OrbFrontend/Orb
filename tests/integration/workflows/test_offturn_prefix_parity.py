@@ -109,3 +109,49 @@ async def test_offturn_prefix_is_byte_identical_to_pipeline_prefix(client):
     assert _serialize(offturn_agent_prefix) == _serialize(dual_agent_prefix)
     assert _serialize(offturn_agent_prefix) != _serialize(dual_writer_prefix)
     assert offturn_agent_prefix[0]["content"].startswith("Agent-only system prompt.")
+
+
+@pytest.mark.parametrize("context_mode", ["private", "shared", "swap"])
+@pytest.mark.asyncio
+async def test_offturn_prefix_matches_a_group_turn_prefix(client, context_mode):
+    """A group's prefix is a different document: the cast section stands in for
+    the card, {{char}} is the scene title, {{cast}} is the roster, and every
+    assistant line is attributed to the member who wrote it. An off-turn builder
+    that rebuilt the solo shape would evict the conversation's KV on every
+    workflow call — and hand image_gen a transcript with nobody's name on it.
+
+    The neutral base (no active speaker) is the comparison in all three modes:
+    it is the base the Director runs on, and under Classic card swap it is the
+    only one an off-turn call can name without picking a speaker for itself.
+    """
+    aria = await client.post("/api/characters", json={"name": "Aria", "description": "A tired ranger."})
+    kael = await client.post("/api/characters", json={"name": "Kael", "description": "A blunt smith."})
+    conv = await client.post(
+        "/api/conversations",
+        json={
+            "kind": "group",
+            "title": "The Long Watch",
+            "group_context_mode": context_mode,
+            "members": [{"character_card_id": aria.json()["id"]}, {"character_card_id": kael.json()["id"]}],
+        },
+    )
+    conv_id = conv.json()["id"]
+    members = (await client.get(f"/api/conversations/{conv_id}/members")).json()
+    mid, _ = await add_message(conv_id, "user", "What was that noise?", 0)
+    mid, _ = await add_message(conv_id, "assistant", "Aria lifts the lantern.", 1, parent_id=mid, speaker_member_id=members[0]["id"])
+    await set_active_leaf(conv_id, mid)
+
+    settings = await get_settings()
+    history = await get_messages(conv_id)
+    ctx = await _load_pipeline_context(conv_id)
+    assert ctx is not None
+    pipeline_prefix, _ = _build_prefixes(ctx, history)
+
+    # Guard against a vacuous pass: the fixture must exercise the group shape.
+    body = pipeline_prefix[0]["content"]
+    assert "## Cast" in body
+    assert "## Character: The Long Watch" not in body
+    assert {"role": "assistant", "content": "Aria: Aria lifts the lantern."} in pipeline_prefix
+
+    assert _serialize(await build_offturn_prefix(conv_id, history, settings)) == _serialize(pipeline_prefix)
+    assert _serialize(await build_offturn_prefix(conv_id, history, settings, lane="agent")) == _serialize(pipeline_prefix)

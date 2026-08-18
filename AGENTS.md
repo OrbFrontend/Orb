@@ -65,7 +65,8 @@ features/<name>/
 | `backend/api/__init__.py` | `build_app()`: lifespan, middleware, auto-include routers |
 | `backend/api/routes/__init__.py` | `ROUTERS` list — add a file here to register a router |
 | `backend/pipeline/entrypoints.py` | Public `handle_*` functions plus the group beat driver — top of the turn lifecycle. The driver owns what a group runs **once per beat** rather than once per speaker: the Director and the pre-writer direction-note step |
-| `backend/pipeline/cast.py` | Active/tombstoned cast resolution, public/private projection, speaking-plan validation, round-robin policy |
+| `backend/pipeline/cast.py` | Who speaks: speaking-plan validation and round-robin policy |
+| `backend/database/queries/group_members.py` | The durable roster **and** `resolve_cast` — active/tombstoned resolution plus the public/private card projection every prefix builder reads. In the query layer on purpose: `workflows/toolkit.build_offturn_prefix` needs the same answer the turn used and may not import `pipeline/`, and two resolvers would mean two prefixes |
 | `backend/inference/group_context.py` | The group character-context projection — the **only** owner of which card fields each mode puts in the shared cached body vs. the speaker's trailing message, plus per-member `{{char}}` scoping. `build_prefix`, `build_writer_content` and the context-size estimator all read it; no pass decides visibility itself |
 | `backend/pipeline/orchestrator.py` | `_run_pipeline()`: director→writer→editor coordination |
 | `backend/pipeline/state.py` | `TurnState`, `ModelLane`, `_PipelineConfig`, `LorebookTurn` |

@@ -253,6 +253,7 @@ async def _generate_group_beat(
     pinned_speaker_id: str | None,
     append_user_to_history: bool = True,
     source_user_message_id: int | None = None,
+    editor_audit_msgs: list[str] | None = None,
 ) -> AsyncIterator[dict]:
     """Run one shared Director setup followed by zero or more speaker pipelines."""
     settings = ctx.settings
@@ -438,6 +439,7 @@ async def _generate_group_beat(
             attachments=pass_attachments,
             phrase_bank=ctx.phrase_bank,
             lorebook=setup.lorebook,
+            editor_audit_msgs=editor_audit_msgs,
             agent_client=ctx.agent_client,
             agent_prefix=agent_prefix,
             macros=setup.macros,
@@ -575,10 +577,8 @@ async def handle_turn(
                 parent_id=user_parent_id,
                 attachments=db_attachments,
                 beat_id=beat_id,
-                advance_leaf=ctx.cast.grouped,
+                advance_leaf=True,
             )
-            if not ctx.cast.grouped:
-                await db.set_active_leaf(conversation_id, user_msg_id)
             # content carries the macro-resolved text so the frontend can sync
             # the optimistic bubble with what was actually persisted.
             yield {"event": "user_message_created", "data": {"id": user_msg_id, "content": user_message}}
@@ -712,10 +712,8 @@ async def handle_fork_edit(
             parent_id=parent_id,
             attachments=carried_atts,
             beat_id=beat_id,
-            advance_leaf=ctx.cast.grouped,
+            advance_leaf=True,
         )
-        if not ctx.cast.grouped:
-            await db.set_active_leaf(conversation_id, new_user_id)
         yield {"event": "user_message_created", "data": {"id": new_user_id, "content": new_content}}
 
         if ctx.cast.grouped:
@@ -888,6 +886,7 @@ async def _regenerate_with_steering(
                 pinned_speaker_id=str(speaker_id),
                 append_user_to_history=False,
                 source_user_message_id=source_user_id,
+                editor_audit_msgs=editor_audit_msgs,
             ):
                 yield event
             return

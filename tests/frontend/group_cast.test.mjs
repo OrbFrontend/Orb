@@ -39,7 +39,7 @@ import {
   overrideIsOneShot,
   sceneEmptyStateHtml,
   speakingPlanHtml,
-  turnMode,
+  TURN_MODES,
 } from "../../frontend/group_cast.js";
 import { S } from "../../frontend/state.js";
 
@@ -63,11 +63,12 @@ function solo() {
 }
 
 test("the three stored turn modes carry user-language names", () => {
-  assert.equal(turnMode("director").label, "Auto");
-  assert.equal(turnMode("round_robin").label, "Rotate");
-  assert.equal(turnMode("manual").label, "Choose");
-  // An unknown value must not blank the settings dropdown.
-  assert.equal(turnMode("nonsense").label, "Auto");
+  // The dropdown renders the table directly, so the table is what is pinned.
+  assert.deepEqual(Object.keys(TURN_MODES), ["director", "round_robin", "manual"]);
+  assert.deepEqual(
+    Object.values(TURN_MODES).map((mode) => mode.label),
+    ["Auto", "Rotate", "Choose"],
+  );
 });
 
 test("the three stored context modes carry user-language names", () => {

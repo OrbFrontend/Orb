@@ -337,6 +337,15 @@ Director/Editor endpoint, model, and agent system prefix in dual-model mode. The
 off-turn prefix builder must therefore reproduce the corresponding pipeline
 prefix byte-for-byte; parity for both model topologies is regression-tested.
 
+That includes a group, whose prefix is a different document altogether: the
+cast section stands in for the card, `{{char}}` is the scene title, `{{cast}}`
+is the roster, and every assistant line carries its speaker's name. Both
+builders resolve it through the one `resolve_cast` in `database/queries/
+group_members.py` — which is *why* it lives in the query layer rather than
+beside the pipeline's cast policy, since `workflows/` sits below `pipeline/`
+and may not import it. An off-turn call names no speaker, so it reproduces the
+neutral base: the same one the Director runs on in all three context modes.
+
 The prompter has its own `prompter_reasoning` switch rather than inheriting a
 pipeline pass. Both calls always use the same switch value and the same
 order-stable two-tool schema blob, so they stay in one reasoning lane and reuse

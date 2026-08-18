@@ -235,16 +235,6 @@ async def delete_group_family(root_cid: str) -> int:
         return cur.rowcount
 
 
-async def group_family_ids(root_cid: str) -> list[str]:
-    """Every conversation in a family, oldest first, root included."""
-    async with get_db() as db:
-        rows = await db.execute_fetchall(
-            "SELECT id FROM conversations WHERE id = ? OR group_root_id = ? ORDER BY created_at, id",
-            (root_cid, root_cid),
-        )
-    return [str(row["id"]) for row in rows]
-
-
 async def touch_conversation(cid: str) -> bool:
     """Mark a conversation accessed (opened/selected) — bumps last_accessed_at,
     not updated_at. updated_at means content changed; opening isn't an edit."""

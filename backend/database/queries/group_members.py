@@ -5,9 +5,12 @@ import uuid
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, cast
+from typing import cast as typed_cast
 
+from ...core import CastMember, GroupContextMode, TurnCast
 from ..connection import get_db, immediate_tx
 from ..models import ConversationRow, GroupMemberRow
+from .character_cards import get_character_card
 
 
 def allocate_speaker_key(name: str, used: set[str]) -> str:
@@ -41,6 +44,94 @@ async def get_group_member(member_id: str, *, conversation_id: str | None = None
     async with get_db() as db:
         rows = list(await db.execute_fetchall(sql, args))
     return cast(GroupMemberRow, dict(rows[0])) if rows else None
+
+
+def _public_profile(card: Mapping | None, override: str | None) -> str:
+    if override is not None:
+        return override
+    extensions = (card or {}).get("extensions")
+    orb = extensions.get("orb") if isinstance(extensions, dict) else None
+    profile = orb.get("public_profile") if isinstance(orb, dict) else None
+    if not isinstance(profile, dict):
+        return ""
+    lines = []
+    for label, key in (("Appearance", "appearance"), ("Role", "role")):
+        value = profile.get(key)
+        if isinstance(value, str) and value.strip():
+            lines.append(f"{label}: {value.strip()}")
+    return "\n".join(lines)
+
+
+def _private_sheet(card: Mapping | None) -> str:
+    if not card:
+        return ""
+    parts = []
+    if str(card.get("description") or "").strip():
+        parts.append(str(card["description"]).strip())
+    if str(card.get("personality") or "").strip():
+        parts.append("Personality: " + str(card["personality"]).strip())
+    return "\n\n".join(parts)
+
+
+def _context_mode(conv: Mapping) -> GroupContextMode:
+    """The conversation's character-context mode, defaulting on an unknown value.
+
+    The column carries a CHECK constraint, so an out-of-domain value can only
+    arrive from a hand-edited database; falling back to the behaviour-preserving
+    default beats raising inside prompt assembly.
+    """
+    mode = str(conv.get("group_context_mode") or "private")
+    return typed_cast(GroupContextMode, mode) if mode in ("private", "shared", "swap") else "private"
+
+
+async def resolve_cast(conv: Mapping, *, speaker_member_id: str | None = None) -> TurnCast:
+    """Resolve the active roster; synthesize the legacy member for solo chats.
+
+    Lives in the query layer rather than beside the pipeline's cast policy
+    because every prefix builder needs it, and the off-turn one
+    (``workflows/toolkit.build_offturn_prefix``) sits below ``pipeline/``. A
+    prefix that resolved the cast differently from the turn's would evict the
+    conversation's KV on every workflow call, so there is exactly one resolver.
+    """
+    if conv.get("kind", "solo") != "group":
+        card_id = conv.get("character_card_id")
+        card = await get_character_card(card_id) if card_id else None
+        name = str((card or {}).get("name") or conv.get("character_name") or "Character")
+        member = CastMember(
+            member_id="",
+            speaker_key="",
+            card_id=card_id,
+            name=name,
+            kind="character",
+            public_profile="",
+            private_sheet=_private_sheet(card),
+            mes_example=str((card or {}).get("mes_example") or ""),
+            post_history=str((card or {}).get("post_history_instructions") or conv.get("post_history_instructions") or ""),
+        )
+        return TurnCast(False, (member,), member)
+
+    members = await get_group_members(str(conv["id"]))
+    resolved: list[CastMember] = []
+    for member in members:
+        card_id = member.get("character_card_id")
+        card = await get_character_card(card_id) if card_id else None
+        resolved.append(
+            CastMember(
+                member_id=member["id"],
+                speaker_key=member["speaker_key"],
+                card_id=card_id,
+                name=member["display_name"],
+                kind=member["member_kind"],
+                public_profile=_public_profile(card, member.get("public_profile_override")),
+                private_sheet=_private_sheet(card),
+                mes_example=str((card or {}).get("mes_example") or ""),
+                post_history=str((card or {}).get("post_history_instructions") or ""),
+                scene_profile=str(member.get("public_profile_override") or ""),
+                muted=bool(member.get("muted")),
+            )
+        )
+    speaker = next((m for m in resolved if m.member_id == speaker_member_id), None)
+    return TurnCast(True, tuple(resolved), speaker, _context_mode(conv))
 
 
 async def create_group_conversation(

@@ -73,6 +73,7 @@ nav:
       - Dynamic Worlds: architecture/dynamic-worlds.md
   - Features:
       - Overview: features/index.md
+      - Group Chats: features/group-chats.md
       - Direction:
           - Scene Direction: features/director.md
           - Lorebooks: features/lorebooks.md

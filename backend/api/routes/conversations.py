@@ -49,6 +49,7 @@ from ...database import (
     insert_alternate_greeting_swipes,
     list_conversations,
     mark_orphaned_changesets_stale,
+    resolve_cast,
     resolve_char_context,
     set_active_leaf,
     set_workflow_message_state,
@@ -69,7 +70,6 @@ from ...pipeline import (
     persona_macros,
     resolve_card_and_persona,
 )
-from ...pipeline.cast import resolve_cast
 from ..deps import (
     _active_aborts,
     _CleanupStreamingResponse,
@@ -626,8 +626,7 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
         for message in messages:
             if message.get("role") != "assistant":
                 continue
-            speaker_id = message.get("speaker_member_id")
-            label = names.get(speaker_id, "Unknown") if speaker_id is not None else "Summary"
+            label = prompt_builder.group_speaker_label(names, message.get("speaker_member_id"))
             msg_chars += len(f"{label}: ")
 
     # Director injection — fragment {{random}} resolves against a throwaway

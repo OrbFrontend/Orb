@@ -4,7 +4,14 @@ import json
 
 import pytest
 
-from backend.database import add_message, get_messages, set_active_leaf
+from backend.database import (
+    add_message,
+    add_phrase_group,
+    get_interactive_fragments,
+    get_messages,
+    set_active_leaf,
+    update_settings,
+)
 
 
 async def _card(client, name: str, **extra) -> str:
@@ -834,3 +841,110 @@ async def test_group_fork_edit_runs_a_fresh_beat_from_the_new_user_sibling(clien
     assert new_user["id"] != user_id and new_user["beat_id"] != "old"
     assert new_reply["speaker_member_id"] == member["id"]
     assert new_reply["beat_id"] == new_user["beat_id"]
+
+
+async def _enqueue_per_fragment_director(llm_mock, **arguments) -> None:
+    """Queue one director response per step of the per-fragment loop.
+
+    That mode runs one forced call per interactive fragment, then one for the
+    speaking plan, then one for moods — and each step keeps only its own target
+    field, so handing every step the same arguments is safe and saves the test
+    from counting the seeded fragments.
+    """
+    fragments = [f for f in await get_interactive_fragments() if f.get("enabled", True)]
+    for _ in range(len(fragments) + 2):
+        llm_mock.enqueue_director(_direct_scene(**arguments))
+
+
+async def test_per_fragment_director_still_plans_a_group_beat(client, llm_mock):
+    """`director_individual_fragments` runs each direct_scene field in its own
+    forced call. The speaking plan is one of those fields, so it has to survive
+    that loop — it used to take the whole group turn down with it."""
+    await update_settings({"director_individual_fragments": 1})
+    conv, members = await _two_card_group(client)
+    await _enqueue_per_fragment_director(llm_mock, speaking_plan=["kael — Answer first"])
+    llm_mock.enqueue_writer("The ward is broken.")
+
+    response = await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})
+    assert response.status_code == 200
+    events = _sse_events(response.text)
+    assert not [data for name, data in events if name == "error"]
+    plan = next(data for name, data in events if name == "speaking_plan")
+    assert [item["member_id"] for item in plan["plan"]] == [members[1]["id"]]
+
+
+async def test_an_intentional_rest_survives_both_director_shapes(client, llm_mock):
+    """`[]` is the Director saying nobody answers this beat. The per-fragment loop
+    drops empty values by design, so it has to make an exception for the plan or a
+    rest silently becomes a round-robin reply."""
+    for individual in (0, 1):
+        await update_settings({"director_individual_fragments": individual})
+        conv, _ = await _two_card_group(client)
+        if individual:
+            await _enqueue_per_fragment_director(llm_mock, speaking_plan=[])
+        else:
+            llm_mock.enqueue_director(_direct_scene(speaking_plan=[]))
+
+        response = await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "Nobody move."})
+        assert response.status_code == 200
+        plan = next(data for name, data in _sse_events(response.text) if name == "speaking_plan")
+        assert plan["plan"] == [], f"director_individual_fragments={individual} overrode the rest"
+        assert [m["role"] for m in await get_messages(conv["id"])] == ["user"]
+
+
+async def test_a_missing_plan_falls_back_rather_than_resting(client, llm_mock):
+    """The rest exception is for an explicit `[]` only — a Director that never
+    filled the field at all must still get the configured strategy."""
+    await update_settings({"director_individual_fragments": 1})
+    conv, members = await _two_card_group(client)
+    await _enqueue_per_fragment_director(llm_mock, moods=[])
+    llm_mock.enqueue_writer("I found tracks.")
+
+    response = await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})
+    assert response.status_code == 200
+    plan = next(data for name, data in _sse_events(response.text) if name == "speaking_plan")
+    assert [item["member_id"] for item in plan["plan"]] == [members[0]["id"]]
+
+
+async def test_group_steering_excludes_the_reply_it_replaces_from_the_audit(client, llm_mock):
+    """The steered paths hand the editor an explicit baseline window so the new
+    draft is not penalised for resembling the reply being replaced. A group beat
+    has to receive the same list, or the target rides the prefix into the window
+    and the anti-echo audit scores the draft against itself.
+
+    Driven through the structural-repetition scanner: an identical draft is a
+    finding when its twin is in the window and silence when it is not, so the
+    editor firing at all is the observable.
+    """
+    # The editor only runs with the Agent on, its patch tool enabled and a phrase
+    # bank present; without all three `audit_enabled` is False and nothing is scanned.
+    await update_settings({"enable_agent": 1, "enabled_tools": {"direct_scene": True, "editor_apply_patch": True}})
+    await add_phrase_group(["a sharp intake of breath"])
+    twin = "She crossed the yard, counted the lamps, and stopped at the gate."
+
+    async def _steer(*, older: str, replaced: str) -> list[dict]:
+        conv, members = await _two_card_group(client)
+        first_user, _ = await add_message(conv["id"], "user", "Then?", 0, beat_id="b0")
+        older_id, _ = await add_message(
+            conv["id"], "assistant", older, 1, parent_id=first_user, speaker_member_id=members[0]["id"], beat_id="b0"
+        )
+        user_id, _ = await add_message(conv["id"], "user", "And after?", 2, parent_id=older_id, beat_id="b1")
+        target, _ = await add_message(
+            conv["id"], "assistant", replaced, 3, parent_id=user_id, speaker_member_id=members[0]["id"], beat_id="b1"
+        )
+        await set_active_leaf(conv["id"], target)
+        llm_mock.captured.clear()
+        llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — Try again"]))
+        llm_mock.enqueue_writer(twin)
+        response = await client.post(f"/api/conversations/{conv['id']}/messages/{target}/super_regenerate", json={})
+        assert response.status_code == 200
+        return [call for call in llm_mock.captured if call["pass"] == "editor"]
+
+    # Positive control: an older reply on the branch stays in the window, so an
+    # identical draft is caught. Without this the assertion below proves nothing.
+    assert await _steer(older=twin, replaced="Kael shrugged and said nothing at all."), (
+        "the structural scanner never fired, so the exclusion below is untested"
+    )
+    assert not await _steer(older="Kael shrugged and said nothing at all.", replaced=twin), (
+        "the reply being replaced was audited against its own replacement"
+    )

@@ -48,6 +48,7 @@ from ..database import (
     get_character_card,
     get_conversation,
     get_director_state,
+    get_group_members,
     get_interactive_fragments,
     get_message_by_id,
     get_messages,
@@ -58,6 +59,7 @@ from ..database import (
     get_user_persona,
     get_user_personas,
     get_workflow_attachment_by_id,
+    resolve_cast,
     resolve_char_context,
 )
 from ..inference import (
@@ -170,6 +172,12 @@ async def build_offturn_prefix(
         return []
     card_id = conv.get("character_card_id")
     card = await get_character_card(card_id) if card_id else None
+    # A group names no single character: the scene's title is {{char}}, the cast
+    # section stands in for the card, and each replayed reply is attributed to
+    # the member who wrote it. Resolved through the same reader the turn uses,
+    # against the *neutral* base (no speaker) — which is the base the Director
+    # runs on in every mode, Classic card swap included.
+    turn_cast = await resolve_cast(conv)
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
     dual_agent = lane == "agent" and separate_agent_lane_configured(settings)
     if dual_agent:
@@ -185,9 +193,17 @@ async def build_offturn_prefix(
     persona = await get_user_persona(persona_id) if persona_id else None
     macros = Macros.from_settings(
         settings,
-        conv.get("character_name", ""),
+        conv.get("title", "") if turn_cast.grouped else conv.get("character_name", ""),
         persona,
         seed=conv.get("macro_seed") or conv.get("id", ""),
+        cast=", ".join(member.name for member in turn_cast.members) if turn_cast.grouped else "",
+    )
+    # Inactive members included: a reply by a since-removed member still has to
+    # be attributed, exactly as the turn prefix attributes it.
+    speaker_names = (
+        {m["id"]: m["display_name"] for m in await get_group_members(conversation_id, include_inactive=True)}
+        if turn_cast.grouped
+        else {}
     )
     user_description = persona.get("description", "") if persona else settings.get("user_description", "")
     return build_prefix(
@@ -200,4 +216,6 @@ async def build_offturn_prefix(
         macros,
         user_description,
         constant_lorebook_block=compute_constant_lorebook_block(await get_active_lorebook_entries(), macros),
+        cast=turn_cast,
+        speaker_names=speaker_names,
     )

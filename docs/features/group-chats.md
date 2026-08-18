@@ -156,6 +156,10 @@ cover all of them, and which one applies is never the feature's own choice:
   from the reply it acts on. Editor passes (anti-slop, anti-repetition, length
   guard), feedback fragments, regenerate / super-regenerate / magic rewrite,
   image generation and TTS all run against the speaker of their own message.
+  Their off-turn LLM calls still build the *scene's* prefix — the cast section
+  and speaker-labelled history, resolved through the same `resolve_cast` the
+  turn used — so the image prompter reads a transcript that says who did what,
+  and rides the conversation's warm cache instead of evicting it.
 
 Where a per-member setting has no message to resolve from — the image-generation
 appearance profile, the TTS voice — the panel names the member instead: both open

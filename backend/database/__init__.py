@@ -46,7 +46,6 @@ from .queries.conversations import (
     fork_conversation,
     get_conversation,
     get_workflow_state,
-    group_family_ids,
     group_root_of,
     list_conversations,
     set_workflow_state,
@@ -86,6 +85,7 @@ from .queries.group_members import (
     create_group_conversation,
     get_group_member,
     get_group_members,
+    resolve_cast,
     sync_group_members,
 )
 from .queries.interactive_fragments import (
@@ -296,7 +296,6 @@ __all__ = [
     "get_world_changeset",
     "get_world_changesets",
     "get_worlds",
-    "group_family_ids",
     "group_root_of",
     "import_lorebook_entries",
     "immediate_tx",
@@ -311,6 +310,7 @@ __all__ = [
     "mark_orphaned_changesets_stale",
     "reroll_unfrozen_greetings",
     "reset_to_defaults",
+    "resolve_cast",
     "resolve_char_context",
     "set_active_leaf",
     "set_character_expressions",

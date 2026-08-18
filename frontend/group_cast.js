@@ -11,10 +11,6 @@ export const TURN_MODES = {
   manual: { label: "Choose", hint: "Select every reply" },
 };
 
-export function turnMode(mode) {
-  return TURN_MODES[mode] || TURN_MODES.director;
-}
-
 // What each speaker is *told* — distinct from TURN_MODES, which decides who
 // replies. Stored values stay `private` / `shared` / `swap`; this table is the
 // single place the wording lives, including the privacy and prompt-cache
@@ -103,7 +99,7 @@ export function groupFamilies(conversations) {
   });
 }
 
-export function memberFor(msg) {
+function memberFor(msg) {
   return msg?.speaker_member_id ? memberById(msg.speaker_member_id) : null;
 }
 

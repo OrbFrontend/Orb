@@ -56,6 +56,19 @@ def format_message_with_attachments(message: Mapping[str, Any], macros: Macros |
     return {"role": role, "content": parts}
 
 
+def group_speaker_label(speaker_names: Mapping[str, str], speaker_member_id: object) -> str:
+    """The name a group prefix attributes one assistant row to.
+
+    An assistant row with no speaker is a summary the compressor wrote, not a
+    member's line; a speaker whose member row is gone entirely is still named
+    rather than silently merged into the reply above it. The context-size
+    estimator bills the same string, so the two read it from here.
+    """
+    if not speaker_member_id:
+        return "Summary"
+    return speaker_names.get(str(speaker_member_id), "Unknown speaker")
+
+
 # ── System-prompt prefix
 
 
@@ -128,8 +141,7 @@ def build_prefix(
             if rendered["role"] != "assistant":
                 labelled.append(rendered)
                 continue
-            speaker_id = original.get("speaker_member_id")
-            label = names.get(str(speaker_id), "Unknown speaker") if speaker_id else "Summary"
+            label = group_speaker_label(names, original.get("speaker_member_id"))
             content = rendered["content"]
             if isinstance(content, str):
                 text = f"{label}: {content}"
