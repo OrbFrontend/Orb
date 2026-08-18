@@ -22,7 +22,7 @@ import { $, avatarCell, avatarUrl, convUrl, esc, escAttr, toast } from "./utils.
 // from the mode wording in group_cast.js: that table describes the differences,
 // this sentence describes the floor under all three.
 const CONTEXT_COMMON =
-  "In every mode the scene premise, the user persona, the Worlds the cast's cards link to, and the cast's names are shared with the whole scene. A card's own system-prompt override is always ignored, and its post-history instructions are sent only on that member's own turn. Per-member private lore is not supported yet.";
+  "In every mode, the scene premise, user persona, cast names, and the cast's linked Worlds are shared with the whole scene. A card's system-prompt override is always ignored, and its post-history instructions are sent only on that member's turn. Per-member private lore isn't supported yet.";
 
 // One sentence a group surface can afford to show permanently, stating *that
 // mode's* contract — under Shared dossier the old blanket privacy claim would
@@ -64,9 +64,11 @@ function contextModeOptions(selected) {
     .join("");
 }
 
-// The dropdown's own label. It points at the disclosure rather than explaining
-// the modes, which is what keeps the control to one line in both modals.
-const CONTEXT_LABEL = "Character context (See “How character context works” below)";
+// Creation's dropdown label — sparse on purpose; the disclosure sitting right
+// below it carries the explanation, so the label itself doesn't have to. Group
+// settings doesn't reuse this: a "Character context" h3 already sits above
+// that select, so it labels the control itself with just "Mode" instead.
+const CONTEXT_LABEL = "Character context";
 
 // Max replies is a Director-only bound: the other two strategies schedule exactly
 // one speaker per turn, so the field is meaningless there.
@@ -102,18 +104,18 @@ function showGroupCreate() {
   showModal(`<h2>New group chat</h2>
     <p class="modal-subtitle">Choose who is in the scene.</p>
     ${picker}
-    <div class="field"><label for="group-create-scenario">Scene premise</label>
+    <div class="field"><label for="group-create-scenario">Premise</label>
       <textarea id="group-create-scenario" rows="3" placeholder="Where and when does this open? (optional)"></textarea></div>
     <details class="group-advanced"><summary>Advanced</summary>
-      <div class="field"><label for="group-create-title">Group title</label>
+      <div class="field"><label for="group-create-title">Title</label>
         <input id="group-create-title" placeholder="Named after the cast"></div>
       <div class="field"><label for="group-create-context">${esc(CONTEXT_LABEL)}</label>
         <select id="group-create-context">${contextModeOptions("private")}</select></div>
       <div class="field"><label for="group-create-mode">Reply behavior</label>
         <select id="group-create-mode">${modeOptions("director")}</select></div>
-      <div class="field" id="group-create-max-row"><label for="group-create-max">Maximum character replies per turn</label>
+      <div class="field" id="group-create-max-row"><label for="group-create-max">Max replies per turn</label>
         <input id="group-create-max" type="number" min="1" max="8" value="3"></div>
-      <div class="field"><label for="group-create-instructions">Style &amp; behavior instructions</label>
+      <div class="field"><label for="group-create-instructions">Style &amp; instructions</label>
         <textarea id="group-create-instructions" rows="2" placeholder="How should this scene be written?"></textarea></div>
     </details>
     ${contextHelp()}
@@ -172,22 +174,22 @@ function showGroupSettings() {
   // name will and won't show up rather than letting the rename look broken.
   const root = rootId === conv?.id ? null : S.conversations.find((item) => item.id === rootId);
   const lineage = root
-    ? `<p class="modal-hint">This scene is part of <b>${esc(root.title)}</b>, which keeps that name in the sidebar. Renaming here renames this scene only.</p>`
+    ? `<p class="modal-hint">This scene is part of <b>${esc(root.title)}</b>, which keeps that name in the sidebar — renaming here changes only this scene's title.</p>`
     : "";
   showModal(`<h2>Group settings</h2>
-    <div class="field"><label for="group-settings-title">Scene title</label>
+    <div class="field"><label for="group-settings-title">Title</label>
       <input id="group-settings-title" value="${escAttr(conv?.title || "")}">${lineage}</div>
     <h3 class="modal-section">Character context</h3>
-    <div class="field"><label for="group-settings-context">${esc(CONTEXT_LABEL)}</label>
+    <div class="field"><label for="group-settings-context">Mode</label>
       <select id="group-settings-context">${contextModeOptions(S.groupCast.context_mode)}</select></div>
     <h3 class="modal-section">Reply behavior</h3>
-    <div class="field"><label for="group-settings-mode">How replies are chosen</label>
+    <div class="field"><label for="group-settings-mode">Mode</label>
       <select id="group-settings-mode">${modeOptions(S.groupCast.turn_mode)}</select></div>
-    <div class="field" id="group-settings-max-row"><label for="group-settings-max">Maximum character replies per turn</label>
+    <div class="field" id="group-settings-max-row"><label for="group-settings-max">Max replies per turn</label>
       <input id="group-settings-max" type="number" min="1" max="8" value="${Number(S.groupCast.max_speakers) || 3}"></div>
-    <div class="field"><label for="group-settings-scenario">Scene premise</label>
+    <div class="field"><label for="group-settings-scenario">Premise</label>
       <textarea id="group-settings-scenario" rows="3" placeholder="Where and when does this open?">${esc(conv?.character_scenario || "")}</textarea></div>
-    <div class="field"><label for="group-settings-instructions">Style &amp; behavior instructions</label>
+    <div class="field"><label for="group-settings-instructions">Style &amp; instructions</label>
       <textarea id="group-settings-instructions" rows="2" placeholder="How should this scene be written?">${esc(conv?.post_history_instructions || "")}</textarea></div>
     ${contextHelp()}
     <div class="modal-actions"><button type="button" class="btn btn-danger" id="group-settings-delete">Delete group</button><div style="flex:1"></div><button type="button" class="btn" id="group-settings-cancel">Cancel</button><button type="button" class="btn btn-accent" id="group-settings-save">Save</button></div>`);
@@ -257,7 +259,7 @@ function castRow(member) {
     <button type="button" class="cast-drag" data-roster-drag title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(name)}">⠿</button>
     ${memberAvatar(member)}
     <input data-roster-name value="${escAttr(name)}" aria-label="Display name">
-    <label class="cast-reply-toggle" title="A muted member stays in scene context but never takes a turn"><input type="checkbox" data-roster-reply ${member.muted ? "" : "checked"}> Can reply</label>
+    <label class="cast-reply-toggle" title="Muted members stay in the scene but never take a turn"><input type="checkbox" data-roster-reply ${member.muted ? "" : "checked"}> Can reply</label>
     <button type="button" class="cast-row-more" data-roster-more title="More actions" aria-label="More actions for ${escAttr(name)}">•••</button>
     <div class="cast-row-menu"><button type="button" class="burger-menu-item" data-roster-remove>Remove from scene</button></div>
     <details class="cast-row-custom"><summary>Customize for this scene</summary>

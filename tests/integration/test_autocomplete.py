@@ -73,9 +73,7 @@ async def test_autocomplete_in_a_group_names_the_speaker_and_the_cast(client, mo
         )
     ).json()
     members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
-    mid, _ = await dbmod.add_message(
-        conv["id"], "assistant", "The fire gutters.", 0, speaker_member_id=members[1]["id"]
-    )
+    mid, _ = await dbmod.add_message(conv["id"], "assistant", "The fire gutters.", 0, speaker_member_id=members[1]["id"])
     await dbmod.set_active_leaf(conv["id"], mid)
 
     resp = await client.post(f"/api/conversations/{conv['id']}/autocomplete", json={"draft": "I step"})
@@ -100,9 +98,7 @@ async def test_autocomplete_leaves_the_cast_macro_alone_in_a_solo_chat(client, m
     monkeypatch.setattr("backend.inference.local_ml.complete", fake_complete)
     await dbmod.create_conversation("conv-ac-solo-cast", "Chat", "Nova", "")
 
-    resp = await client.post(
-        "/api/conversations/conv-ac-solo-cast/autocomplete", json={"draft": "I ask {{cast}} about"}
-    )
+    resp = await client.post("/api/conversations/conv-ac-solo-cast/autocomplete", json={"draft": "I ask {{cast}} about"})
     assert resp.status_code == 200
     assert captured["prompt"].endswith("I ask {{cast}} about")
 

@@ -138,7 +138,9 @@ async def test_offturn_prefix_matches_a_group_turn_prefix(client, context_mode):
     conv_id = conv.json()["id"]
     members = (await client.get(f"/api/conversations/{conv_id}/members")).json()
     mid, _ = await add_message(conv_id, "user", "What was that noise?", 0)
-    mid, _ = await add_message(conv_id, "assistant", "Aria lifts the lantern.", 1, parent_id=mid, speaker_member_id=members[0]["id"])
+    mid, _ = await add_message(
+        conv_id, "assistant", "Aria lifts the lantern.", 1, parent_id=mid, speaker_member_id=members[0]["id"]
+    )
     await set_active_leaf(conv_id, mid)
 
     settings = await get_settings()

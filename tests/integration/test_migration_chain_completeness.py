@@ -32,9 +32,7 @@ def _columns(path: Path) -> dict[str, set[str]]:
     """``{table: {column, ...}}`` for every non-internal table."""
     conn = sqlite3.connect(path)
     try:
-        tables = [
-            r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-        ]
+        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
         return {t: {c[1] for c in conn.execute(f"PRAGMA table_info({t})")} for t in tables}  # nosec B608 -- from sqlite_master
     finally:
         conn.close()
