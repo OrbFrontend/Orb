@@ -449,6 +449,17 @@ tags are separate.
 This section also holds the character's reference image. See
 [Set the character reference image](#set-the-character-reference-image).
 
+### In a group chat
+
+A [group](../features/group-chats.md) has a cast, so **This Character Only**
+starts with a **Cast member** selector; the prompts and reference image below it
+belong to whichever member is selected. Switch member and the fields reload for
+that character — anything you typed and did not save is discarded, and Orb asks
+first. Narrators have no card, so they are not listed.
+
+Rendering an image for a reply always uses the appearance of the member who
+wrote it, whichever member the settings panel happens to be showing.
+
 ## Change a style
 
 Orb ships **Realistic** and **Anime** styles out of the box. A style contains these items:

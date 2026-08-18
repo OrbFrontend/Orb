@@ -25,7 +25,6 @@ import {
   _syncGenerationStatusVisibility,
   appendReasoningDelta,
   clearWorkflowPhase,
-  hideAvatarPopup,
   REASONING_PASSES,
   renderInspector,
   setWorkflowPhase,
@@ -468,7 +467,8 @@ export async function processSSEStream(resp, container, holder, signal) {
         const parsed = JSON.parse(data);
         S.currentBeatId = parsed.beat_id;
         S.currentSpeaker = parsed;
-        hideAvatarPopup();
+        // The popup is not closed on a handover: it reads S.currentSpeaker on
+        // its next tick and follows the floor to this member's own face.
         resetSpeakerTurnState();
         holder.el = createStreamingDiv(parsed.name);
         if (!S.hideUntilBaked) container.appendChild(holder.el);

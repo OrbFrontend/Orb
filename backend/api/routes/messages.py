@@ -13,6 +13,7 @@ from ...database import (
     delete_message_with_descendants,
     get_changesets_for_messages,
     get_character_card,
+    get_group_members,
     get_message_by_id,
     get_message_delete_preview,
     get_messages,
@@ -317,12 +318,41 @@ async def api_autocomplete(
     persona_id = resolve_persona_id(conv, card, settings)
     persona = await get_user_persona(persona_id) if persona_id else None
     user_name = (persona or {}).get("name") or settings.get("user_name") or "User"
-    char_name = conv.get("character_name") or (card or {}).get("name") or "Character"
 
-    macros = Macros(user=user_name, char=char_name)
+    # A group is a scene, not a character: {{char}} is its title, the "who am I
+    # talking to" summary is the roster, and each replayed line is labelled with
+    # the member who actually said it — the same three substitutions the pipeline
+    # makes. Without them the typeahead completes against one nameless character.
+    #
+    # Read straight off the roster rather than through `resolve_cast`: this route
+    # fires on a typing debounce, and all it needs are names — not the card behind
+    # each one. `{{cast}}` stays empty in a solo chat, exactly as `_prepare_turn`
+    # leaves it, so a draft resolves here the way it will in the turn itself.
+    speaker_names: dict[str, str] = {}
+    cast_names = ""
+    if conv.get("kind", "solo") == "group":
+        roster = await get_group_members(cid, include_inactive=True)
+        char_name = conv.get("title") or conv.get("character_name") or "Character"
+        # Names from the active roster (what the scene is), labels from all of it
+        # (so a reply by a since-removed member is still attributed).
+        cast_names = ", ".join(m["display_name"] for m in roster if m.get("active"))
+        summary_source = f"Scene cast: {cast_names}"
+        speaker_names = {m["id"]: m["display_name"] for m in roster}
+    else:
+        char_name = conv.get("character_name") or (card or {}).get("name") or "Character"
+        summary_source = (card or {}).get("description") or ""
+
+    macros = Macros(user=user_name, char=char_name, cast=cast_names)
     messages = await get_messages(cid)
-    recent = [{"role": m["role"], "content": macros.resolve_prompt(m["content"] or "")} for m in messages[-4:]]
-    summary = macros.resolve_prompt((card or {}).get("description") or "")
+    recent = [
+        {
+            "role": m["role"],
+            "content": macros.resolve_prompt(m["content"] or ""),
+            "name": speaker_names.get(str(m.get("speaker_member_id")), "") if m.get("speaker_member_id") else "",
+        }
+        for m in messages[-4:]
+    ]
+    summary = macros.resolve_prompt(summary_source)
     prompt = local_ml.build_prompt(char_name, user_name, summary, recent, macros.resolve_prompt(data.draft))
 
     completion = await local_ml.complete(prompt)

@@ -112,7 +112,7 @@ MAX_INLINE_ON = 263  # inline on*= handlers across frontend/ (js + index.html)
 MAX_UNDERSCORE_IMPORTS = 10  # underscore-prefixed names imported cross-module
 
 # ── 4. Frozen ABI ────────────────────────────────────────────────────────────
-# workflow_api.js's complete export surface (ABI v2, additive-only). A rename or
+# workflow_api.js's complete export surface (ABI v3, additive-only). A rename or
 # removal fails; a genuinely new export is added here in the same commit.
 FROZEN_ABI = {
     "WORKFLOW_API_VERSION",
@@ -166,6 +166,7 @@ FROZEN_ABI = {
     # state accessors
     "requestRepaint",
     "getActiveConvId",
+    "getGroupCast",
     "getMessages",
     "getManifestEntry",
     "canMutate",

@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { showAvatarPopup } from "./chat_inspector.js";
 import {
   CONTEXT_MODES,
   castClickSpeaksNow,
@@ -413,6 +414,9 @@ function showCastManager() {
       renderGroupCast();
       renderGroupList();
       notify("cast", S.groupCast);
+      // The cast owns the scene's card-embedded fragments; whoever holds them
+      // re-reads on this rather than watching the roster.
+      document.dispatchEvent(new CustomEvent("group-cast-updated", { detail: S.activeConvId }));
     } catch (error) {
       toast(error.message, true);
     } finally {
@@ -601,6 +605,12 @@ function onCastChipClick(memberId) {
 }
 
 export function initGroupSetup() {
+  // The header avatar. A solo chat carries its own handler on the portrait
+  // inside; a group's frame holds only the scene glyph, so the listener lives
+  // here — and stays inert in a solo chat, where the inner one already fired.
+  $("chat-avatar")?.addEventListener("click", (event) => {
+    if (S.groupCast && event.target === event.currentTarget) showAvatarPopup();
+  });
   $("groups-section-toggle")?.addEventListener("click", (event) => {
     event.currentTarget.querySelector(".arrow")?.classList.toggle("collapsed");
     event.currentTarget.nextElementSibling?.classList.toggle("collapsed");

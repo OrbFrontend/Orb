@@ -347,6 +347,43 @@ async def test_a_reference_image_the_normalizer_drops_is_reported_not_swallowed(
 
 
 @pytest.mark.asyncio
+async def test_a_group_addresses_one_cast_member_s_appearance_at_a_time(client):
+    """A group names no character, so the panel says which member it is editing.
+    Without that the route falls back to whoever spoke last -- a reading of the
+    history rather than a choice, and unaddressable before anyone has spoken."""
+    aria = (await client.post("/api/characters", json={"name": "Aria"})).json()["id"]
+    kael = (await client.post("/api/characters", json={"name": "Kael"})).json()["id"]
+    conv = (
+        await client.post(
+            "/api/conversations",
+            json={
+                "kind": "group",
+                "title": "Campfire",
+                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
+            },
+        )
+    ).json()
+    members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
+
+    async def profile(action: str, member: dict, **body) -> dict:
+        response = await client.post(
+            f"/api/conversations/{conv['id']}/workflows/image_gen/trigger",
+            json={"action": action, "speaker_member_id": member["id"], **body},
+        )
+        assert response.status_code == 200
+        return response.json()
+
+    await profile("set_profile", members[0], profile={"appearance_prompt": "silver hair"})
+    await profile("set_profile", members[1], profile={"appearance_prompt": "scarred jaw"})
+
+    # Each member keeps its own appearance, and each is reachable by name rather
+    # than by being the last one to speak.
+    assert (await profile("get_profile", members[0]))["profile"]["appearance_prompt"] == "silver hair"
+    assert (await profile("get_profile", members[1]))["profile"]["appearance_prompt"] == "scarred jaw"
+    assert (await profile("get_profile", members[0]))["character_id"] == aria
+
+
+@pytest.mark.asyncio
 async def test_a_cloud_reference_that_resolves_to_nothing_renders_anyway_and_says_so(client, monkeypatch):
     """A ComfyUI graph built around a `LoadImage` cannot render without one. A cloud
     provider can -- the same model has a plain generations endpoint one field away --

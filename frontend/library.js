@@ -5,7 +5,7 @@
 // re-exports the two sub-modules so "./library.js" stays the stable import path
 // for app.js and chat modules.
 import { api } from "./api.js";
-import { loadConversations, resetChatUI, stashCardFragments } from "./chat.js";
+import { loadConversations, refreshSceneCardFragments, resetChatUI, stashCardFragments } from "./chat.js";
 import { createChipInput } from "./chips.js";
 import {
   initCardFragments,
@@ -598,8 +598,13 @@ export async function saveCharEdit(id, exportAfter = false) {
   _pendingAvatar = null;
   try {
     const updated = await api.put(`/characters/${id}`, d);
-    // Refresh the sidepanel's ephemeral card fragments if this character is active.
+    // Refresh the sidepanel's ephemeral card fragments if this character is in
+    // play. A group has no active character, so the question there is whether
+    // the edited card is in the cast — and the merge needs its castmates too.
     if (S.activeCharId === id) stashCardFragments(updated);
+    else if ((S.groupCast?.members || []).some((member) => member.character_card_id === id)) {
+      await refreshSceneCardFragments();
+    }
     if (avatarChanged) {
       _avatarBust.set(id, Date.now());
       if (S.activeCharId === id) {

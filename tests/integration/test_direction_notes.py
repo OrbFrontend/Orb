@@ -635,3 +635,103 @@ async def test_per_fragment_call_can_record_nothing(client, db, llm_mock):
 
     assert [p for p, _ in llm_mock.calls].count("direction_note") == 2
     assert len(await _notes_on_active_path(cid)) == 1
+
+
+async def test_group_beat_records_pre_writer_notes_once_on_its_first_reply(client, db, llm_mock):
+    """A group's Director runs once for the whole beat, so the step that reflects
+    on its scene direction runs once too — beside it, not inside each speaker's
+    pipeline. The notes anchor to the beat's first reply and are not re-recorded
+    by the speakers after it."""
+    aria = (await client.post("/api/characters", json={"name": "Aria"})).json()["id"]
+    kael = (await client.post("/api/characters", json={"name": "Kael"})).json()["id"]
+    conv = (
+        await client.post(
+            "/api/conversations",
+            json={
+                "kind": "group",
+                "title": "Campfire",
+                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
+            },
+        )
+    ).json()
+    await _make_fragment(timing="pre_writer")
+    await client.put(
+        "/api/settings",
+        json={"enable_agent": True, "direction_notes_record": True, "enabled_tools": {"direct_scene": True}},
+    )
+
+    llm_mock.enqueue_director(
+        [
+            {
+                "type": "function",
+                "function": {
+                    "name": "direct_scene",
+                    "arguments": {"moods": [], "speaking_plan": ["aria — Notice", "kael — Answer"]},
+                },
+            }
+        ]
+    )
+    llm_mock.enqueue_direction_note(_record_call(trajectory=_NOTE))
+    llm_mock.enqueue_writer("Aria speaks.")
+    llm_mock.enqueue_writer("Kael answers.")
+
+    await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})
+
+    order = [p for p, _ in llm_mock.calls]
+    assert order.count("direction_note") == 1, "the beat's Director step ran per speaker"
+    assert order.index("direction_note") < order.index("writer")
+    assert await _notes_on_active_path(conv["id"]) == [_NOTE]
+    replies = [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"]
+    assert len(await dbmod.get_direction_notes_for_message(replies[0]["id"])) == 1
+    assert await dbmod.get_direction_notes_for_message(replies[1]["id"]) == []
+
+
+async def test_group_beat_keeps_the_two_placements_on_their_own_replies(client, db, llm_mock):
+    """Both placements run once per beat, and each lands where it was recorded:
+    the before-writer note on the first reply, the end-of-turn note on the last.
+    The beat carries the first one to its reply and then stops carrying it, so the
+    later speaker neither re-persists it nor absorbs it into its own recording."""
+    aria = (await client.post("/api/characters", json={"name": "Aria"})).json()["id"]
+    kael = (await client.post("/api/characters", json={"name": "Kael"})).json()["id"]
+    conv = (
+        await client.post(
+            "/api/conversations",
+            json={
+                "kind": "group",
+                "title": "Campfire",
+                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
+            },
+        )
+    ).json()
+    await _make_fragment("early", "Early heading", timing="pre_writer")
+    await _make_fragment("late", "Late heading", timing="post_turn")
+    await client.put(
+        "/api/settings",
+        json={"enable_agent": True, "direction_notes_record": True, "enabled_tools": {"direct_scene": True}},
+    )
+
+    llm_mock.enqueue_director(
+        [
+            {
+                "type": "function",
+                "function": {
+                    "name": "direct_scene",
+                    "arguments": {"moods": [], "speaking_plan": ["aria — Notice", "kael — Answer"]},
+                },
+            }
+        ]
+    )
+    llm_mock.enqueue_direction_note(_record_call(early="before-note"))
+    llm_mock.enqueue_writer("Aria speaks.")
+    llm_mock.enqueue_writer("Kael answers.")
+    llm_mock.enqueue_direction_note(_record_call(late="after-note"))
+
+    await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})
+
+    assert [p for p, _ in llm_mock.calls].count("direction_note") == 2
+    replies = [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"]
+    first = [r["content"] for r in await dbmod.get_direction_notes_for_message(replies[0]["id"])]
+    last = [r["content"] for r in await dbmod.get_direction_notes_for_message(replies[1]["id"])]
+    assert first == ["before-note"]
+    assert last == ["after-note"]
+    assert sorted(await _notes_on_active_path(conv["id"])) == ["after-note", "before-note"]

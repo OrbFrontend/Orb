@@ -176,6 +176,24 @@ test("the inert shipped provider row is not a connection the user made", () => {
   assert.deepEqual(list.map((c) => c.id), [COMFY_CONNECTION]);
 });
 
+test("a just-added, still-empty connection is listed while it is pending", () => {
+  // The panel tracks those ids in a Set, so asking it the membership question in
+  // list form threw instead of answering — and took the settings modal with it,
+  // on the shipped defaults, which carry exactly the empty entry this filters.
+  const args = [config({ cloud: { providers: { xai: { api_key: "", base_url: "" } } } }), PROVIDERS];
+  for (const pending of [["xai"], new Set(["xai"])]) {
+    assert.deepEqual(
+      connectionList(...args, pending).map((c) => c.id),
+      [COMFY_CONNECTION, "xai"],
+    );
+  }
+  // And an unrelated pending id leaves the empty entry filtered out as before.
+  assert.deepEqual(
+    connectionList(...args, new Set(["openai"])).map((c) => c.id),
+    [COMFY_CONNECTION],
+  );
+});
+
 test("an entry holding anything, or linked by a style, is a connection", () => {
   const withKey = connectionList(config({ cloud: { providers: { xai: { api_key: "k" } } } }), PROVIDERS);
   assert.deepEqual(withKey.map((c) => c.id), [COMFY_CONNECTION, "xai"]);

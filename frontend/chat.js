@@ -25,6 +25,7 @@ export {
   loadConversations,
   newConversationHere,
   newConvForChar,
+  refreshSceneCardFragments,
   resetChatUI,
   saveTitleEdit,
   selectChar,

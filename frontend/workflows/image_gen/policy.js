@@ -86,7 +86,13 @@ function stylesOn(config = {}, id) {
   return styles.filter((style) => styleConnectionId(style, config) === id);
 }
 
+// *pending* is any iterable of connection ids the user has added but not yet
+// filled in — the panel holds a Set, and asking a Set for `includes` throws
+// rather than answering false, which took the whole settings modal down as soon
+// as a configured-but-empty provider entry existed. Membership is this
+// function's question, so it owns the shape it is asked in.
 export function connectionList(config = {}, providers = [], pending = []) {
+  const pendingIds = new Set(pending);
   const entries = config.cloud?.providers || {};
   const list = [
     {
@@ -101,7 +107,7 @@ export function connectionList(config = {}, providers = [], pending = []) {
   ];
   for (const [id, entry] of Object.entries(entries)) {
     const linked = stylesOn(config, id);
-    if (!hasContent(entry) && !linked.length && !pending.includes(id)) continue;
+    if (!hasContent(entry) && !linked.length && !pendingIds.has(id)) continue;
     list.push({
       id,
       source: "cloud",

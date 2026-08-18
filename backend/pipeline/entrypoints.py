@@ -35,13 +35,32 @@ from .context import (
     _TurnSetup,
 )
 from .failures import describe_failure
-from .orchestrator import _run_pipeline
-from .passes.director import director_stage, progressive
+from .orchestrator import _consume_direction_note_step, _run_pipeline
+from .passes.director import direction_note_step, director_stage, progressive
 from .passes.editor.editor import AUDIT_BASELINE_WINDOW
 from .persistence import _consume_pipeline, _conversation_log_writer
+from .predicates import direction_note_recording_active
 from .state import TurnState
 
 logger = logging.getLogger(__name__)
+
+
+def _history_attachments(attachments: Sequence[Mapping[str, Any]]) -> list[dict]:
+    """Re-key uploads into the shape history rows carry.
+
+    The wire format (``mime``/``b64``) reaches a turn straight from the browser,
+    while ``format_message_with_attachments`` reads history rows through the DB
+    names. A later speaker in a beat sees the user's image only as part of the
+    replayed history — not as its own trailing attachment — so the two spellings
+    have to meet here or the picture silently stops at the first speaker.
+    """
+    out: list[dict] = []
+    for att in attachments:
+        b64 = att.get("data_b64") or att.get("b64") or ""
+        if not b64:
+            continue
+        out.append({"mime_type": att.get("mime_type") or att.get("mime") or "image/jpeg", "data_b64": b64})
+    return out
 
 
 def _group_pin_error(ctx: PipelineContext, pinned_speaker_id: str | None) -> str | None:
@@ -270,7 +289,7 @@ async def _generate_group_beat(
         phrase_bank=ctx.phrase_bank,
         schema_overrides=setup.schema_overrides,
     )
-    writer_fragments, _, _ = _split_interactive_fragments(ctx.interactive_fragments)
+    writer_fragments, _, direction_note_fragments = _split_interactive_fragments(ctx.interactive_fragments)
     shared = TurnState(
         user_message=setup.macros.resolve_message(user_message),
         effective_msg=setup.macros.resolve_message(user_message),
@@ -293,6 +312,33 @@ async def _generate_group_beat(
     if ctx.client.is_aborted:
         yield {"event": "done"}
         return
+
+    # The pre-writer note step reflects on the scene direction the Director just
+    # set, and in a group that direction is set once for the whole beat — so the
+    # step belongs here beside it, not inside a speaker's pipeline (which runs
+    # with the Director already done and would repeat it per reply). Its notes
+    # ride the beat's first reply, the row `_consume_pipeline` anchors them to.
+    pre_writer_notes = [df for df in direction_note_fragments if df.get("direction_note_timing") == "pre_writer"]
+    if direction_note_recording_active(settings, pre_writer_notes, agent_on=cfg.agent_on) and cfg.enabled_tools.get(
+        "direct_scene"
+    ):
+        async for ev in _consume_direction_note_step(
+            direction_note_step(
+                cfg.agent_lane.client,
+                cfg.agent_lane.base,
+                settings=settings,
+                direction_note_fragments=pre_writer_notes,
+                active_notes=ctx.director.get("direction_notes") or [],
+                placement="pre_writer",
+                inj_block=shared.scene_direction,
+                kv_tracker=setup.kv_tracker,
+                reasoning_on=cfg.director_reasoning_on,
+                reasoning_prefill=cfg.director_reasoning_prefill,
+            ),
+            shared,
+            "director",
+        ):
+            yield ev
 
     plan_rows: list[tuple[Mapping[str, Any], str]]
     if pinned_speaker_id:
@@ -332,6 +378,10 @@ async def _generate_group_beat(
                 "parent_id": history[-1]["id"] if history else None,
                 "speaker_member_id": None,
                 "beat_id": beat_id,
+                # Only the first speaker receives the uploads as its own trailing
+                # attachments; every later one has to read them off this row, or
+                # a beat would answer an image only one member ever saw.
+                "user_attachments": _history_attachments(attachments),
             }
         )
 
@@ -430,6 +480,10 @@ async def _generate_group_beat(
             yield event
         if persisted_id is None:
             break
+        # The beat's pre-writer notes have now landed on its first reply. They are
+        # one recording, not one per speaker, so the seed stops carrying them
+        # before the next speaker copies (and re-persists) the same rows.
+        shared.direction_notes = []
         grown_history.append(
             {
                 "id": persisted_id,

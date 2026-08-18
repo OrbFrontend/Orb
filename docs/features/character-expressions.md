@@ -44,4 +44,8 @@ Anywhere you see a character's avatar — the library list or the chat header �
 
 Click the character's avatar in the chat header to open the popup. While it's open and the character has expressions uploaded, the portrait keeps re-checking the latest message roughly once per second and updates live, including while a reply is still streaming in.
 
+## In a group chat
+
+Click the scene's 👥 avatar in the header. The popup then **follows whoever has the floor**: the member currently streaming a reply, or the one who spoke last when the scene is resting. Hand the floor to someone else and the portrait switches with it, mid-beat included — so a multi-speaker beat plays out as one face after another, each reacting to its own words. The header's halo appears when *any* member of the cast has a pack, and a member without one shows their plain avatar.
+
 ![Screenshot placeholder: expressions popup open in chat](../assets/screenshots/expressions-popup.png)

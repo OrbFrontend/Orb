@@ -191,6 +191,10 @@ async def _run_pipeline(
             "writer_lorebook_block",
             "reasoning_director",
             "macro_choices",
+            # Recorded once for the beat, before any speaker ran (the group driver
+            # owns the pre-writer step for the same reason it owns the Director).
+            # It clears them from the seed once the first reply has anchored them.
+            "direction_notes",
         ):
             setattr(state, name, getattr(director_seed, name))
 

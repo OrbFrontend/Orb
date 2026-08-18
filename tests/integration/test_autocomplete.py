@@ -49,6 +49,64 @@ async def test_autocomplete_blank_draft_skips_model(client, monkeypatch):
     assert resp.json()["completion"] == ""
 
 
+async def test_autocomplete_in_a_group_names_the_speaker_and_the_cast(client, monkeypatch):
+    """A group has no card to describe and no single voice to attribute replies
+    to, so the typeahead reads the roster and labels each line by its member."""
+    monkeypatch.setattr("backend.inference.local_ml.available", lambda: (True, ""))
+    captured: dict[str, str] = {}
+
+    async def fake_complete(prompt, *a, **k):
+        captured["prompt"] = prompt
+        return " toward the fire."
+
+    monkeypatch.setattr("backend.inference.local_ml.complete", fake_complete)
+    aria = (await client.post("/api/characters", json={"name": "Aria"})).json()["id"]
+    kael = (await client.post("/api/characters", json={"name": "Kael"})).json()["id"]
+    conv = (
+        await client.post(
+            "/api/conversations",
+            json={
+                "kind": "group",
+                "title": "Campfire",
+                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
+            },
+        )
+    ).json()
+    members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
+    mid, _ = await dbmod.add_message(
+        conv["id"], "assistant", "The fire gutters.", 0, speaker_member_id=members[1]["id"]
+    )
+    await dbmod.set_active_leaf(conv["id"], mid)
+
+    resp = await client.post(f"/api/conversations/{conv['id']}/autocomplete", json={"draft": "I step"})
+    assert resp.status_code == 200
+    prompt = captured["prompt"]
+    assert "Scene cast: Aria, Kael" in prompt
+    assert "Kael: The fire gutters." in prompt
+    assert "Campfire: The fire gutters." not in prompt
+    assert prompt.endswith("I step")
+
+
+async def test_autocomplete_leaves_the_cast_macro_alone_in_a_solo_chat(client, monkeypatch):
+    """`{{cast}}` is a group macro: the turn itself fills it only in a group, so
+    filling it here would have a draft preview one thing and send another."""
+    monkeypatch.setattr("backend.inference.local_ml.available", lambda: (True, ""))
+    captured: dict[str, str] = {}
+
+    async def fake_complete(prompt, *a, **k):
+        captured["prompt"] = prompt
+        return " ..."
+
+    monkeypatch.setattr("backend.inference.local_ml.complete", fake_complete)
+    await dbmod.create_conversation("conv-ac-solo-cast", "Chat", "Nova", "")
+
+    resp = await client.post(
+        "/api/conversations/conv-ac-solo-cast/autocomplete", json={"draft": "I ask {{cast}} about"}
+    )
+    assert resp.status_code == 200
+    assert captured["prompt"].endswith("I ask {{cast}} about")
+
+
 async def test_autocomplete_unknown_conversation_404(client):
     resp = await client.post("/api/conversations/nope/autocomplete", json={"draft": "hi"})
     assert resp.status_code == 404

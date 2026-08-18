@@ -328,18 +328,21 @@ async def api_summarize_conversation(
         raise HTTPException(status_code=400, detail="Not enough messages to summarize")
 
     settings = await get_settings()
-    char_name = conv.get("character_name", "Character") or "Character"
-    # Resolve the same effective persona the chat would use (conversation/character
-    # lock overrides the global active persona) so a summary stays consistent.
-    card, active_persona = await resolve_card_and_persona(conv, settings)
-    system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
-    macros, user_description = persona_macros(settings, char_name, active_persona, seed=conversation_macro_seed(conv))
     # The one place the group context mode deliberately does *not* apply.
     # Compression is scene-wide narration, so it always reads the public-cast
     # projection: paying for every dossier — or swapping in one arbitrary card
     # the summary is not written from — buys nothing and inflates the single
     # longest call in the app.
     summary_cast = (await resolve_cast(conv))._replace(context_mode="private")
+    # `{{char}}` is the scene's title in a group, as it is in the prompt the chat
+    # builds — read live, since `character_name` keeps the name the group was
+    # founded under and a rename must not leave the summary calling it that.
+    char_name = (conv.get("title") if summary_cast.grouped else conv.get("character_name")) or "Character"
+    # Resolve the same effective persona the chat would use (conversation/character
+    # lock overrides the global active persona) so a summary stays consistent.
+    card, active_persona = await resolve_card_and_persona(conv, settings)
+    system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
+    macros, user_description = persona_macros(settings, char_name, active_persona, seed=conversation_macro_seed(conv))
     speaker_names: dict[str, str] = {}
     if summary_cast.grouped:
         macros = macros._replace(cast=", ".join(member.name for member in summary_cast.members))

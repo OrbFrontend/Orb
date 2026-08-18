@@ -50,20 +50,57 @@ document.addEventListener("group-created", async (event) => {
 });
 document.addEventListener("group-selected", (event) => selectConversation(event.detail));
 document.addEventListener("group-delete-request", (event) => _deleteGroupFamily(event.detail));
+// The roster decides which cards contribute fragments, so an edited cast has to
+// re-read them — a member added mid-scene ships its fragments to the very next
+// turn, and the panels would otherwise keep showing the previous cast's.
+document.addEventListener("group-cast-updated", () => refreshSceneCardFragments());
 
-// Stash (or clear, with null) the active character's card-embedded fragments
-// for the sidepanel/inspector. Mirrors the backend merge rule: enabled only,
-// and a card fragment whose id collides with a global one is skipped.
-export function stashCardFragments(card) {
-  const frags = card?.extensions?.orb?.fragments;
-  const keep = (list, globals) =>
-    (Array.isArray(list) ? list : []).filter(
-      (f) => f?.id && f.enabled !== false && !globals.some((g) => g.id === f.id),
-    );
-  S.cardMoodFragments = keep(frags?.mood, S.moodFragments);
-  S.cardInteractiveFragments = keep(frags?.interactive, S.interactiveFragments);
+// Stash (or clear, with null) the card-embedded fragments in play for the open
+// conversation. Mirrors the backend merge rule (`_load_pipeline_context`):
+// enabled only, a global id always wins, and the first card to claim an id keeps
+// it. Takes one card or a list, because a group's fragments come from the whole
+// cast — the scene itself has no card, so reading one would show the user none
+// of the fragments the turn actually loads.
+export function stashCardFragments(cards) {
+  const list = (Array.isArray(cards) ? cards : [cards]).filter(Boolean);
+  const merge = (pick, globals) => {
+    const claimed = new Set(globals.map((g) => g.id));
+    const out = [];
+    for (const card of list) {
+      const frags = pick(card?.extensions?.orb?.fragments);
+      for (const f of Array.isArray(frags) ? frags : []) {
+        if (!f?.id || f.enabled === false || claimed.has(f.id)) continue;
+        claimed.add(f.id);
+        out.push(f);
+      }
+    }
+    return out;
+  };
+  S.cardMoodFragments = merge((frags) => frags?.mood, S.moodFragments);
+  S.cardInteractiveFragments = merge((frags) => frags?.interactive, S.interactiveFragments);
   renderMoodFragments();
   renderInteractiveFragments();
+}
+
+// The cards whose embedded fragments this conversation loads: the cast's, for a
+// group; the conversation's own otherwise. Deduplicated because a roster may
+// legitimately carry two members without cards (narrators) and, after a card
+// swap, two slots pointing at one.
+function sceneCardIds(conv) {
+  if (conv?.kind === "group") {
+    return [...new Set((S.groupCast?.members || []).map((member) => member.character_card_id).filter(Boolean))];
+  }
+  return conv?.character_card_id ? [conv.character_card_id] : [];
+}
+
+// Re-read the open conversation's card fragments. The full card carries the
+// extensions the list projection drops, so this is a fetch per scene card.
+export async function refreshSceneCardFragments() {
+  const conv = S.conversations.find((c) => c.id === S.activeConvId);
+  const cards = await Promise.all(
+    sceneCardIds(conv).map((cardId) => api.get(`/characters/${cardId}`).catch(() => null)),
+  );
+  stashCardFragments(cards);
 }
 
 export function resetChatUI() {
@@ -81,6 +118,7 @@ export function resetChatUI() {
   S.inspectedDirectorData = null;
   $("chat-title-text").textContent = "Select a character";
   $("chat-avatar").textContent = CHAT_AVATAR_ICON;
+  $("chat-avatar").style.cursor = "";
   $("chat-input").disabled = true;
   $("send-btn").disabled = true;
   // Drops the cast rail and the group entries in the header menu along with the
@@ -202,6 +240,10 @@ export async function selectConversation(id) {
   updateUserBtn();
   $("chat-title-text").textContent = conv ? conv.title || conv.character_name : "";
   const av = $("chat-avatar");
+  // A group's avatar is the scene's, not a member's — but it still opens the
+  // popup (wired in initGroupSetup), which follows whoever holds the floor. Only
+  // that case makes the frame itself clickable, so the cursor is reset per paint.
+  av.style.cursor = conv?.kind === "group" ? "pointer" : "";
   if (conv?.kind === "group") {
     av.textContent = "👥";
   } else if (conv?.character_card_id) {
@@ -212,8 +254,11 @@ export async function selectConversation(id) {
   } else {
     av.textContent = CHAT_AVATAR_ICON;
   }
-  const hasExpr = (S.characters || []).find((c) => c.id === conv?.character_card_id)?.has_expressions;
-  av.classList.toggle("avatar-halo", !!hasExpr);
+  // The halo means "there are expressions to watch here": one card in a solo
+  // chat, any member of the cast in a group.
+  const expressive = (cardId) => Boolean((S.characters || []).find((c) => c.id === cardId)?.has_expressions);
+  const hasExpr = conv?.kind === "group" ? sceneCardIds(conv).some(expressive) : expressive(conv?.character_card_id);
+  av.classList.toggle("avatar-halo", hasExpr);
   $("chat-input").disabled = false;
   $("send-btn").disabled = false;
 
@@ -223,16 +268,17 @@ export async function selectConversation(id) {
     reflectConversationWorldActivation(activation.world_ids);
   }
 
-  // Fetch messages, director state, and the full card (for its embedded
-  // fragments — the list projection omits extensions) in parallel.
-  const [msgs, directorState, card] = await Promise.all([
+  // Fetch messages, director state, and every scene card in full (for their
+  // embedded fragments — the list projection omits extensions) in parallel.
+  const cardIds = sceneCardIds(conv);
+  const [msgs, directorState, ...cards] = await Promise.all([
     api.get(convUrl(id, "messages")),
     api.get(convUrl(id, "director")),
-    conv?.character_card_id ? api.get(`/characters/${conv.character_card_id}`).catch(() => null) : null,
+    ...cardIds.map((cardId) => api.get(`/characters/${cardId}`).catch(() => null)),
   ]);
   setMessages(msgs);
   S.directorState = directorState;
-  stashCardFragments(card);
+  stashCardFragments(cards);
   // Render only the trailing window first; older messages backfill on scroll-up
   // and during idle time, so switch latency no longer scales with history length.
   resetRenderWindow();

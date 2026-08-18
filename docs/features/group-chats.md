@@ -134,6 +134,44 @@ user sibling and runs a fresh group beat. Removed roster members are tombstoned
 so old messages keep their names; re-adding the same card creates a new member
 identity.
 
+## The rest of Orb in a group
+
+A group is a conversation, so every feature that reads a conversation keeps
+working; the ones that read *a character* have to be told which. Three answers
+cover all of them, and which one applies is never the feature's own choice:
+
+- **Scene-wide** — the feature belongs to the conversation, and the cast changes
+  only what it reads. Lorebooks and Dynamic Worlds (every member's linked World
+  is activated), the persona pin, macros, compression and checkpoints, the
+  context-size counter, and card-embedded fragments, which merge across the whole
+  cast (a global fragment still wins an id clash, and between two cards the first
+  member in the roster keeps it).
+- **Per beat** — the feature belongs to the request, which is one Director
+  decision and N replies. The Director, agentic lore selection, both
+  direction-note placements and the Dynamic Worlds proposal run once per beat
+  rather than once per speaker (the two that read the finished prose — the
+  end-of-turn note and the proposal — after the last one); a user's image upload
+  is answered by every speaker in the beat, not only the first.
+- **Per speaker** — the feature belongs to a member, and the member is resolved
+  from the reply it acts on. Editor passes (anti-slop, anti-repetition, length
+  guard), feedback fragments, regenerate / super-regenerate / magic rewrite,
+  image generation and TTS all run against the speaker of their own message.
+
+Where a per-member setting has no message to resolve from — the image-generation
+appearance profile, the TTS voice — the panel names the member instead: both open
+on a **Cast member** selector, defaulting to the first member with a card, and
+switching member reloads the form rather than writing to whoever spoke last.
+`getGroupCast()` (workflow ABI v3) is how a workflow plugin reads the roster, and
+`speaker_member_id` on the trigger route is how it addresses one member.
+
+Character expressions follow the floor: the header's 👥 avatar opens the popup on
+the member currently streaming, or the last one to have spoken, and switches face
+mid-beat as the floor moves.
+
+The composer's local-model typeahead reads the scene the same way the turn does:
+`{{char}}` is the title, its one-line summary is the roster, and each replayed
+line is labelled with the member who said it rather than with the group.
+
 ## HTTP and SSE
 
 Roster creation, conversion, and synchronization are transactional. The main

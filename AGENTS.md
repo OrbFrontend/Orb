@@ -64,7 +64,7 @@ features/<name>/
 | `backend/main.py` | Thin entry: `build_app()` + uvicorn guard |
 | `backend/api/__init__.py` | `build_app()`: lifespan, middleware, auto-include routers |
 | `backend/api/routes/__init__.py` | `ROUTERS` list — add a file here to register a router |
-| `backend/pipeline/entrypoints.py` | Public `handle_*` functions plus the group beat driver — top of the turn lifecycle |
+| `backend/pipeline/entrypoints.py` | Public `handle_*` functions plus the group beat driver — top of the turn lifecycle. The driver owns what a group runs **once per beat** rather than once per speaker: the Director and the pre-writer direction-note step |
 | `backend/pipeline/cast.py` | Active/tombstoned cast resolution, public/private projection, speaking-plan validation, round-robin policy |
 | `backend/inference/group_context.py` | The group character-context projection — the **only** owner of which card fields each mode puts in the shared cached body vs. the speaker's trailing message, plus per-member `{{char}}` scoping. `build_prefix`, `build_writer_content` and the context-size estimator all read it; no pass decides visibility itself |
 | `backend/pipeline/orchestrator.py` | `_run_pipeline()`: director→writer→editor coordination |
@@ -86,7 +86,7 @@ features/<name>/
 | `frontend/notify.js` | The toast stack — one element and one timer per entry; errors are sticky. `utils.js` re-exports `toast` from here |
 | `frontend/sse.js` | THE SSE parser (`sseEvents`, `streamPost`) — only one in the app |
 | `frontend/text_segmentation.js` | Canonical non-workflow frontend sentence policy; line breaks are standalone stream units |
-| `frontend/workflow_api.js` | Plugin facade ABI v2 — the only import for `frontend/workflows/**` |
+| `frontend/workflow_api.js` | Plugin facade ABI v3 — the only import for `frontend/workflows/**` |
 | `frontend/group_cast.js` / `group_setup.js` | Pure group identity rendering — cast rail, speaking plan, empty scene, `TURN_MODES` wording (L1) / creation, cast manager, group settings, conversion (L5) |
 
 ## Database Schema (summary)

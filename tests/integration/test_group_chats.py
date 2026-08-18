@@ -212,6 +212,41 @@ async def test_director_group_beat_streams_and_persists_an_ordered_message_chain
     assert "KAEL PRIVATE" in json.dumps(writers[1]["messages"])
 
 
+async def test_every_speaker_in_a_beat_sees_the_user_s_image(client, llm_mock):
+    """An upload answers the whole cast, not just whoever speaks first.
+
+    The first speaker receives it as its own trailing attachment; every later one
+    only ever sees it through the replayed user row, so the row has to carry it.
+    """
+    aria = await _card(client, "Aria")
+    kael = await _card(client, "Kael")
+    conv = (
+        await client.post(
+            "/api/conversations",
+            json={
+                "kind": "group",
+                "title": "Campfire",
+                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
+            },
+        )
+    ).json()
+    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — Look", "kael — Look too"]))
+    llm_mock.enqueue_writer("Aria speaks.")
+    llm_mock.enqueue_writer("Kael speaks.")
+
+    pixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNiAAAABgADNjd8qAAAAABJRU5ErkJggg=="
+    response = await client.post(
+        f"/api/conversations/{conv['id']}/send",
+        json={"content": "What is this?", "attachments": [{"b64": pixel, "mime": "image/png", "filename": "map.png"}]},
+    )
+    assert response.status_code == 200
+
+    writers = [call for call in llm_mock.captured if call["pass"] == "writer"]
+    assert len(writers) == 2
+    for writer in writers:
+        assert pixel in json.dumps(writer["messages"]), "a speaker was asked about an image it never saw"
+
+
 async def test_manual_group_requires_pin_before_calling_llm(client, llm_mock):
     aria = await _card(client, "Aria")
     conv = (
@@ -322,6 +357,34 @@ async def test_group_summarize_labels_history_and_context_size_is_a_maximum(clie
     context = (await client.get(f"/api/conversations/{conv['id']}/context-size")).json()
     assert context["estimate_kind"] == "maximum"
     assert context["breakdown"]["largest_speaker_tail"]["chars"] >= len(("KAEL LARGEST PRIVATE SHEET " * 10).strip())
+
+
+async def test_summarizing_a_renamed_group_calls_it_by_its_current_name(client, llm_mock):
+    """`{{char}}` is the scene's title in a group. The title is editable and
+    `character_name` keeps the founding name, so reading the wrong one has the
+    summary narrating a scene under a name the user has already replaced."""
+    aria = await _card(client, "Aria")
+    conv = (
+        await client.post(
+            "/api/conversations",
+            json={"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}]},
+        )
+    ).json()
+    await client.put(
+        f"/api/conversations/{conv['id']}",
+        json={"title": "The Long Watch", "character_scenario": "{{char}} opens at dusk."},
+    )
+    parent = None
+    for index, (role, content) in enumerate([("user", "One"), ("assistant", "Two"), ("user", "Three"), ("assistant", "Four")]):
+        parent, _ = await add_message(conv["id"], role, content, index, parent_id=parent)
+    await set_active_leaf(conv["id"], parent)
+    llm_mock.enqueue_writer("A summary.")
+
+    response = await client.post(f"/api/conversations/{conv['id']}/summarize", json={"keep_count": 2})
+    assert response.status_code == 200
+    prompt = json.dumps(llm_mock.captured[-1]["messages"])
+    assert "The Long Watch opens at dusk." in prompt
+    assert "Campfire" not in prompt
 
 
 # ── Character context modes ─────────────────────────────────────────────────

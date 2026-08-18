@@ -11,6 +11,7 @@ import {
   convUrl,
   esc,
   getActiveConvId,
+  getGroupCast,
   playAudio,
   registerAction,
   requestRepaint,
@@ -64,10 +65,54 @@ export function initConfigPanel(sharedConfig) {
   registerAction(WORKFLOW_ID, "voiceReload", () => loadVoices());
   registerAction(WORKFLOW_ID, "profileSave", () => saveProfile());
   registerAction(WORKFLOW_ID, "preview", () => preview());
+  registerAction(WORKFLOW_ID, "profileMember", (el) => selectMember(el));
 }
+
+// Whose voice the form is editing. Null in a solo chat, where the conversation
+// names the character; in a group each member speaks in its own voice, so the
+// form has to be pointed at one rather than at whoever spoke last.
+let memberId = null;
+// The profile as loaded, so switching members can tell edits from a fresh form.
+let loadedProfile = null;
 
 function triggerUrl() {
   return convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger");
+}
+
+// Cast members a voice can belong to: a narrator has no card and so nowhere to
+// store one.
+function castWithCards() {
+  return (getGroupCast() || []).filter((member) => member.card_id);
+}
+
+function profileTarget() {
+  return memberId ? { speaker_member_id: memberId } : {};
+}
+
+// The voice form saves on its own button, so a member switch would drop
+// unsaved edits — it asks first, exactly as the image-gen appearance panel does.
+function selectMember(select) {
+  const next = select.value;
+  if (next === memberId) return;
+  const dirty = loadedProfile && JSON.stringify(readForm()) !== JSON.stringify(loadedProfile);
+  if (dirty && !window.confirm("Discard your unsaved changes to this voice?")) {
+    select.value = memberId;
+    return;
+  }
+  memberId = next;
+  populateProfile();
+}
+
+function memberPickerHtml(cast) {
+  const options = cast
+    .map(
+      (member) =>
+        `<option value="${esc(member.id)}"${member.id === memberId ? " selected" : ""}>${esc(member.name)}</option>`,
+    )
+    .join("");
+  return `<label class="tts-config-row">Cast member
+      <select id="tts-pf-member" data-wf-action="tts:profileMember" data-wf-on="change">${options}</select>
+    </label>`;
 }
 
 // Conversation-less config/discovery: backend list, voice/model enumeration,
@@ -159,10 +204,24 @@ async function populateProfile() {
     el.innerHTML = `<div class="tts-config-note">Open a conversation to set its character's voice.</div>`;
     return;
   }
+  const cast = getGroupCast() ? castWithCards() : null;
+  if (cast) {
+    if (!cast.length) {
+      el.innerHTML = `<div class="tts-config-note">This scene has no character cards to give a voice.</div>`;
+      return;
+    }
+    // A first open, or a roster that no longer holds the previous pick.
+    if (!cast.some((member) => member.id === memberId)) memberId = cast[0].id;
+  } else {
+    memberId = null;
+  }
   let profile;
   let backends;
   try {
-    const [pr, bk] = await Promise.all([api.post(triggerUrl(), { action: "get_profile" }), query("list_backends")]);
+    const [pr, bk] = await Promise.all([
+      api.post(triggerUrl(), { action: "get_profile", ...profileTarget() }),
+      query("list_backends"),
+    ]);
     profile = pr?.profile;
     backends = bk?.backends || [];
   } catch (e) {
@@ -177,8 +236,9 @@ async function populateProfile() {
     el.innerHTML = `<div class="tts-config-note">This conversation has no character.</div>`;
     return;
   }
-  el.innerHTML = profileFormHtml(profile, backends);
+  el.innerHTML = profileFormHtml(profile, backends, cast);
   applyFieldVisibility(profile.backend);
+  loadedProfile = readForm();
   loadVoices(profile.voice_id);
   if (BACKEND_FIELDS[profile.backend]?.includes("model")) loadModels(profile.model);
 }
@@ -191,11 +251,12 @@ function field(name, inner) {
   return `<div class="tts-pf-field" data-field="${name}">${inner}</div>`;
 }
 
-function profileFormHtml(p, backends) {
+function profileFormHtml(p, backends, cast = null) {
   const backendOpts = backends.map((b) => opt(b.id, b.name || b.id, b.id === p.backend)).join("");
   const langOpts = LANGUAGES.map(([code, label]) => opt(code, label, p.language?.startsWith(code))).join("");
   return `
     <div class="tts-config-heading">Voice (this character)</div>
+    ${cast ? memberPickerHtml(cast) : ""}
     <label class="tts-config-row"><input type="checkbox" id="tts-pf-enabled"${p.enabled ? " checked" : ""}> Auto-generate speech for this character's replies</label>
     <label class="tts-config-row">Backend
       <select id="tts-pf-backend" data-wf-action="tts:backendChange" data-wf-on="change">${backendOpts}</select>
@@ -295,7 +356,9 @@ async function saveProfile() {
   if (!getActiveConvId()) return;
   const status = document.getElementById("tts-pf-status");
   try {
-    const res = await api.post(triggerUrl(), { action: "set_profile", profile: readForm() });
+    const saved = readForm();
+    const res = await api.post(triggerUrl(), { action: "set_profile", profile: saved, ...profileTarget() });
+    if (!res?.error) loadedProfile = saved;
     if (status) status.textContent = res?.error ? res.error : "Saved";
   } catch (e) {
     console.error("tts: profile save failed", e);

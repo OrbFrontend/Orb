@@ -618,9 +618,63 @@ const _EXPR_MIN_GROWTH_CHARS = 40; // don't classify a fragment like "She"
 let _exprTimer = null;
 let _exprLastCallAt = 0;
 
-async function _expressionTick(charId) {
+// Whose face the popup is showing. A solo chat has exactly one answer for the
+// whole conversation; a group has one per beat, so the popup follows the floor —
+// the member now streaming, else whoever spoke last. Both are the owner of the
+// text the classifier reads, which is what keeps the mood and the portrait the
+// same character's.
+export function expressionCharId() {
+  if (!S.groupCast) return S.activeCharId;
+  if (S.currentSpeaker?.card_id) return S.currentSpeaker.card_id;
+  const lastSpoken = [...S.messages].reverse().find((m) => m.role === "assistant" && m.speaker_member_id);
+  const member = lastSpoken && S.groupCast.members.find((item) => item.id === lastSpoken.speaker_member_id);
+  // Before anyone has spoken there is no floor to follow, so the scene opens on
+  // the first member that has a face at all rather than on nothing.
+  return (
+    member?.character_card_id || S.groupCast.members.find((item) => item.character_card_id)?.character_card_id || null
+  );
+}
+
+// Load the pack's labels for *charId*, or [] when it has none. The popup shows
+// the plain avatar in that case, exactly as a solo character without a pack does.
+async function _expressionLabels(charId) {
+  if (!(S.characters || []).find((c) => c.id === charId)?.has_expressions) return [];
+  try {
+    return (await api.get(`/characters/${charId}/expressions`)).labels || [];
+  } catch {
+    return [];
+  }
+}
+
+// Re-point the popup at *charId*: its labels, its neutral face, and a cleared
+// classification cache so the next tick reads the new speaker's text fresh.
+async function _bindExpressionChar(img, charId) {
+  img._exprCharId = charId;
+  img._exprSrc = null;
+  img._exprText = null;
+  img._exprFullLen = 0;
+  _exprLastCallAt = 0;
+  const labels = await _expressionLabels(charId);
+  // The popup may have closed, or the floor moved on again, while that resolved.
+  if (img._exprCharId !== charId || document.getElementById("avatar-popup")?.classList.contains("hidden")) return;
+  img._exprLabels = labels;
+  const neutral = labels.includes("neutral") ? `/api/characters/${charId}/expressions/neutral` : null;
+  img._exprSrc = neutral;
+  img.src = neutral || `/api/characters/${charId}/avatar?t=${Date.now()}`;
+}
+
+async function _expressionTick() {
   const img = document.getElementById("avatar-popup-image");
   if (!img) return;
+  const charId = expressionCharId();
+  if (!charId) return;
+  // The floor changed (a group beat handed off, or a new one started): swap the
+  // portrait before classifying, so a mood is never painted on the wrong face.
+  if (charId !== img._exprCharId) {
+    await _bindExpressionChar(img, charId);
+    return;
+  }
+  if (!img._exprLabels?.length) return;
   const full = S.isStreaming
     ? S.streamingContent
     : [...S.messages].reverse().find((m) => m.role === "assistant" && m.id)?.content;
@@ -669,54 +723,37 @@ async function _expressionTick(charId) {
 }
 
 export async function showAvatarPopup() {
-  if (!S.activeCharId) return;
+  const charId = expressionCharId();
+  if (!charId) return;
   const popup = document.getElementById("avatar-popup");
   if (!popup) return;
   if (!popup.classList.contains("hidden")) {
     hideAvatarPopup();
     return;
   }
-  const charId = S.activeCharId;
   const img = document.getElementById("avatar-popup-image");
+  if (!img) return;
   const hasExpr = (S.characters || []).find((c) => c.id === charId)?.has_expressions;
-  if (img) {
-    // With a pack, hold off on the plain avatar (its dimensions usually differ
-    // from the pack's, resizing the frame ~1s later) and show neutral instead
-    // once labels arrive below.
-    if (!hasExpr) img.src = `/api/characters/${charId}/avatar?t=${Date.now()}`;
-    img._exprSrc = null;
-    img._exprText = null;
-    img._exprFullLen = 0;
-  }
-  _exprLastCallAt = 0; // fresh popup: first tick classifies immediately
+  // With a pack, hold off on the plain avatar (its dimensions usually differ
+  // from the pack's, resizing the frame ~1s later) and show neutral instead
+  // once _bindExpressionChar's labels arrive.
+  if (!hasExpr) img.src = `/api/characters/${charId}/avatar?t=${Date.now()}`;
   popup.classList.remove("hidden");
-
-  let labels = [];
-  if (hasExpr) {
-    try {
-      ({ labels } = await api.get(`/characters/${charId}/expressions`));
-    } catch {
-      labels = [];
-    }
-  }
-  if (img && hasExpr && !popup.classList.contains("hidden")) {
-    if (labels.includes("neutral")) {
-      img._exprSrc = `/api/characters/${charId}/expressions/neutral`;
-      img.src = img._exprSrc;
-    } else {
-      img.src = `/api/characters/${charId}/avatar?t=${Date.now()}`;
-    }
-  }
-  // Popup may have been closed while the fetch was in flight.
-  if (popup.classList.contains("hidden") || !labels.length || !img) return;
-  img._exprLabels = labels;
-  _expressionTick(charId);
-  _exprTimer = setInterval(() => _expressionTick(charId), 1000);
+  // The tick owns the portrait from here, including any later handover of the
+  // floor; binding through it is what makes "open the popup" and "the speaker
+  // changed" the same code path.
+  img._exprCharId = null;
+  await _bindExpressionChar(img, charId);
+  if (popup.classList.contains("hidden")) return;
+  _expressionTick();
+  _exprTimer = setInterval(_expressionTick, 1000);
 }
 
 export function hideAvatarPopup() {
   const popup = document.getElementById("avatar-popup");
   if (popup) popup.classList.add("hidden");
+  const img = document.getElementById("avatar-popup-image");
+  if (img) img._exprCharId = null;
   clearInterval(_exprTimer);
   _exprTimer = null;
 }

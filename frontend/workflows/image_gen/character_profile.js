@@ -1,4 +1,13 @@
-import { api, convUrl, esc, escAttr, getActiveConvId, registerAction, toast } from "/static/workflow_api.js";
+import {
+  api,
+  convUrl,
+  esc,
+  escAttr,
+  getActiveConvId,
+  getGroupCast,
+  registerAction,
+  toast,
+} from "/static/workflow_api.js";
 
 const WORKFLOW_ID = "image_gen";
 
@@ -10,17 +19,35 @@ let referenceImage = { reference_image_b64: "", reference_mime: "" };
 // guard can speak for this section too -- it saves on the same button as the config
 // but through a different route, and is invisible to a diff of the config alone.
 let loadedProfile = null;
+// Which cast member's appearance is on screen. Null in a solo chat, where the
+// conversation names the character; in a group it is the user's pick, because
+// the appearance belongs to a member and the scene has several.
+let memberId = null;
 
 export function initCharacterProfile() {
   registerAction(WORKFLOW_ID, "referenceFile", (el) => pickReferenceImage(el));
   registerAction(WORKFLOW_ID, "referenceClear", () =>
     setReferenceImage({ reference_image_b64: "", reference_mime: "" }),
   );
+  registerAction(WORKFLOW_ID, "profileMember", (el) => selectMember(el));
 }
 
 export function resetCharacterProfile() {
   referenceImage = { reference_image_b64: "", reference_mime: "" };
   loadedProfile = null;
+  memberId = null;
+}
+
+// The cast entries an appearance can belong to. A narrator has no card and so no
+// avatar, reference image or appearance prompt to store one against.
+function castWithCards() {
+  return (getGroupCast() || []).filter((member) => member.card_id);
+}
+
+// What every profile call has to say to reach the right character. Solo chats
+// send nothing and the backend reads the conversation's own card.
+function profileTarget() {
+  return memberId ? { speaker_member_id: memberId } : {};
 }
 
 function currentProfile() {
@@ -34,6 +61,34 @@ function currentProfile() {
 export function profileIsDirty() {
   if (!loadedProfile || !document.getElementById("ig-appearance")) return false;
   return JSON.stringify(currentProfile()) !== JSON.stringify(loadedProfile);
+}
+
+// Switching members throws away whatever is typed, so it asks first -- the same
+// bargain the modal's own close guard makes, for the same reason: these fields
+// save on a button, not on edit.
+function selectMember(select) {
+  const next = select.value;
+  if (next === memberId) return;
+  if (profileIsDirty() && !window.confirm("Discard your unsaved changes for this character?")) {
+    select.value = memberId;
+    return;
+  }
+  memberId = next;
+  populateProfile();
+}
+
+function memberPickerHtml(cast) {
+  if (!cast.length) return "";
+  const options = cast
+    .map(
+      (member) =>
+        `<option value="${escAttr(member.id)}"${member.id === memberId ? " selected" : ""}>${esc(member.name)}</option>`,
+    )
+    .join("");
+  return `<label class="ig-profile-member">Cast member
+      <select id="ig-profile-member" data-wf-action="image_gen:profileMember" data-wf-on="change">${options}</select>
+    </label>
+    <span class="image-gen-note">Each member of the scene keeps its own appearance, negative prompt and reference image.</span>`;
 }
 
 function referenceImageHtml() {
@@ -84,9 +139,21 @@ async function pickReferenceImage(input) {
 export async function populateProfile() {
   const el = document.getElementById("ig-profile");
   if (!el || !getActiveConvId()) return;
+  const cast = getGroupCast() ? castWithCards() : null;
+  if (cast) {
+    if (!cast.length) {
+      el.textContent = "This scene has no character cards to describe.";
+      return;
+    }
+    // A first open, or a roster that no longer holds the previous pick.
+    if (!cast.some((member) => member.id === memberId)) memberId = cast[0].id;
+  } else {
+    memberId = null;
+  }
   try {
     const res = await api.post(convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger"), {
       action: "get_profile",
+      ...profileTarget(),
     });
     if (!res?.profile) {
       el.textContent = "This conversation has no character.";
@@ -98,6 +165,7 @@ export async function populateProfile() {
       reference_mime: res.profile.reference_mime || "",
     };
     el.innerHTML = `<div class="ig-profile-fields">
+        ${cast ? memberPickerHtml(cast) : ""}
         <label>Positive prompt<textarea id="ig-appearance" placeholder="Permanent tags, fill with permanent traits (e.g. Hatsune Miku, black and white)">${esc(res.profile.appearance_prompt || "")}</textarea></label>
         <label>Negative prompt<textarea id="ig-profile-negative" placeholder="Things to never render (e.g. 3D, colored, color). Quality and scene negatives are already handled.">${esc(res.profile.negative_prompt || "")}</textarea></label>
         <div class="ig-profile-reference">
@@ -118,6 +186,7 @@ export async function saveProfile() {
   const res = await api.post(convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger"), {
     action: "set_profile",
     profile: currentProfile(),
+    ...profileTarget(),
   });
   if (res?.warning) {
     toast(res.warning, "error");
