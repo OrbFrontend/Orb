@@ -33,7 +33,9 @@ python scripts/check_frontend_layers.py
 
 echo ""
 echo "Running frontend unit tests (node --test)..."
-# A directory, not a quoted glob: node expands the glob itself and fails to on
-# Windows. Both forms select the same files, since the runner only picks up
-# *.test.* under the path it is given.
-node --test tests/frontend/
+# Let bash expand the glob so node receives explicit file paths. Node's own
+# handling of positionals is not portable across versions: patterns need v22+,
+# and v25 no longer expands a directory argument -- it loads the directory
+# itself as a test file and fails. Explicit paths work on every version, and
+# under Git Bash on Windows too, since bash does the expansion, not node.
+node --test tests/frontend/*.test.mjs
