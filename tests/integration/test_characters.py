@@ -283,6 +283,38 @@ async def test_list_characters_omits_heavy_text_fields(client, db):
     assert "tags" in card
 
 
+async def test_list_characters_reports_card_weight_without_the_bodies(client, db):
+    # New Group Chat's context-mode recommendation weighs the chosen cast, and
+    # the library list is the only card payload creation holds. `def_chars` is
+    # how it gets the measure without reopening the decision above.
+    await client.post(
+        "/api/characters",
+        json={
+            "name": "Weighed",
+            "description": "d" * 400,
+            "personality": "p" * 200,
+            "mes_example": "e" * 300,
+            # Excluded on purpose: every context mode keeps post-history in the
+            # speaker's trailing message, so it cannot discriminate between them.
+            "post_history_instructions": "h" * 500,
+            # Not card identity text either — neither mode puts these anywhere
+            # the other doesn't.
+            "scenario": "s" * 500,
+            "first_mes": "f" * 500,
+        },
+    )
+    resp = await client.get("/api/characters")
+    card = next(c for c in resp.json() if c["name"] == "Weighed")
+    assert card["def_chars"] == 900
+    assert "description" not in card
+
+    # A card with no text at all weighs nothing rather than going missing — the
+    # client reads 0 as "nothing here worth caching".
+    await client.post("/api/characters", json={"name": "Bare"})
+    resp = await client.get("/api/characters")
+    assert next(c for c in resp.json() if c["name"] == "Bare")["def_chars"] == 0
+
+
 async def test_post_history_instructions_synced_on_update(client, db):
     card_resp = await client.post(
         "/api/characters",

@@ -50,6 +50,119 @@ export function contextMode(mode) {
   return CONTEXT_MODES[mode] || CONTEXT_MODES.private;
 }
 
+// ── Context-mode recommendation ─────────────────────────────────────────────
+// New Group Chat can answer "which context mode for *this* cast?" before a
+// scene exists, because the answer turns on two things it already knows: how
+// many characters are in it and how heavy their cards are.
+//
+// The two modes fail in opposite directions, and that is the whole rule:
+//
+//   Private perspective keeps the shared body tiny (one public profile per
+//   member) but puts the speaking card in the trailing message, *after* the
+//   history — the one place a prefix cache can never reach. So the speaker's
+//   card is re-read on every writer and editor call, forever. Its cost tracks
+//   CARD SIZE and barely moves with cast size.
+//
+//   Classic card swap parks the speaking card in the cached body *before* the
+//   history, so a character's card is read once and then reused across turns —
+//   but each character is then its own cache lineage, and the server holds only
+//   so many. Its cost tracks CAST SIZE and barely moves with card size.
+//
+// Simulated over 30-beat, three-pass sessions (director → writer → editor)
+// against these same renderers: swap wins iff the cast is narrow enough to keep
+// a branch per character warm and the cards are heavy enough to be worth
+// caching. The boundary lands on `mean >= 500 * (cast - 1)`, and the cast cap
+// is where a server with several cache lanes starts thrashing — swap needs
+// roughly 2.5 lanes per member (measured: 5 lanes at 2 members, 8 at 3, 10 at
+// 4), so a fourth member is where the branches stop fitting and swap's cost
+// jumps 4-6x rather than drifting.
+//
+// The rule is therefore deliberately asymmetric. Every case it gets wrong, it
+// gets wrong toward Private: recommending swap on a cast too wide for the cache
+// costs multiples, while recommending private where swap was marginally better
+// costs at most ~1.3x. Private is also the safer default on meaning — it is the
+// only mode with a privacy boundary, and the only one where characters know
+// anything about each other beyond names.
+
+// Mirrors CHARS_PER_TOKEN in backend/core/utils.py. Both are the same rough
+// estimate; this one only ever has to be right enough to pick a side of a
+// boundary that is itself a heuristic.
+const CHARS_PER_TOKEN = 4;
+
+// Beyond this many members, swap needs more warm cache branches than a server
+// keeps and its cost stops being competitive at any card size.
+const SWAP_MAX_CAST = 3;
+
+// Mean card weight, per member past the first, at which parking one card in the
+// cache beats re-sending it after the history every call.
+const SWAP_TOKENS_PER_MEMBER = 500;
+
+// A recommendation is about a *cast*, and one character is not one. Two reasons
+// to stay quiet below this, and the second is the load-bearing one:
+//
+//   The threshold is `500 * (cast - 1)`, which at one member is zero — so every
+//   card, down to an eight-token stub, cleared it and got told it was "heavy
+//   enough to cache". The rule has nothing to say about a scene with no second
+//   character to weigh against.
+//
+//   And the panel recomputes on every pick. Advising at one member means
+//   answering for a cast the user is still assembling, flipping as they click.
+//   The first card is never the whole answer, so it is not worth an answer.
+//
+// A genuine one-member group does leave measured savings on the table (swap
+// caches that single card instead of re-sending it). It is also a solo chat
+// with extra steps, and Orb has those.
+const MIN_CAST_FOR_ADVICE = 2;
+
+// A card's weight in the only fields the two modes disagree about. `def_chars`
+// is summed server-side (description + personality + mes_example) precisely so
+// the library list can stay free of card bodies; a card list fetched before
+// that field existed reads as 0, which lands on Private — the default, and the
+// right answer for a cast with no card text to cache.
+export function cardDefTokens(card) {
+  const chars = Number(card?.def_chars);
+  return Number.isFinite(chars) && chars > 0 ? Math.round(chars / CHARS_PER_TOKEN) : 0;
+}
+
+// The recommendation for a chosen cast, or null when nothing is chosen yet.
+// Pure: takes the card rows the picker is holding, returns the mode plus the
+// two figures and the sentences the UI renders. Callers never re-derive the
+// rule — `mode` is the answer and `why`/`cost` are how it is explained.
+export function recommendContextMode(cards) {
+  const chosen = (cards || []).filter(Boolean);
+  const cast = chosen.length;
+  if (cast < MIN_CAST_FOR_ADVICE) return null;
+  const weights = chosen.map(cardDefTokens);
+  const meanTokens = Math.round(weights.reduce((sum, value) => sum + value, 0) / cast);
+  // At two members and up this is never below SWAP_TOKENS_PER_MEMBER, so a cast
+  // of empty or near-empty cards falls to Private on the comparison alone and
+  // needs no separate floor.
+  const threshold = SWAP_TOKENS_PER_MEMBER * (cast - 1);
+  const swapFits = cast <= SWAP_MAX_CAST;
+  const weight = `${cast} characters averaging about ${meanTokens.toLocaleString()} tokens of card text.`;
+
+  if (swapFits && meanTokens >= threshold) {
+    return {
+      mode: "swap",
+      cast,
+      meanTokens,
+      threshold,
+      why: `${weight} Cards this heavy are worth caching: Classic card swap puts the speaking card ahead of the history, where it is read once per character instead of re-sent on every reply.`,
+      cost: "The trade: characters see only each other's names, never a profile.",
+    };
+  }
+  return {
+    mode: "private",
+    cast,
+    meanTokens,
+    threshold,
+    why: swapFits
+      ? `${weight} Cards this light cost less re-sent each reply than they would holding a separate cached branch per character.`
+      : `${cast} characters is a wide cast. Classic card swap would need a warm cache branch for each of them; Private perspective keeps every speaker on one shared branch, and its cost does not grow with the cast.`,
+    cost: "Every member still sees the others' public profiles, and no card details leak between them.",
+  };
+}
+
 // A speaker override is one-shot everywhere except `manual`, where picking the
 // speaker *is* the strategy and the choice therefore stays until it is used or
 // cleared. Consumers must not re-derive this rule.

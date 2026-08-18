@@ -578,6 +578,10 @@ class CharacterCardRow(TypedDict, total=False):
     ``tags`` and ``alternate_greetings`` are the JSON-*decoded* lists;
     ``extensions`` is the JSON-*decoded* V2 card extensions dict (present only
     on ``get_character_card``); ``has_avatar`` is a derived bool, not a column.
+    ``def_chars`` is derived and list-only for the same reason inverted: it is
+    the *measure* of the omitted bodies (description + personality +
+    mes_example, the fields the group context modes disagree about) so a list
+    consumer can weigh a card without being sent one.
     """
 
     id: str
@@ -605,6 +609,7 @@ class CharacterCardRow(TypedDict, total=False):
     extensions: dict
     has_avatar: bool
     has_expressions: bool
+    def_chars: int
 
 
 class CharacterExpressionRow(TypedDict):

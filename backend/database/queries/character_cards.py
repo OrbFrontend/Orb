@@ -22,10 +22,20 @@ async def list_character_cards() -> list[CharacterCardRow]:
     # payload that the client must transfer, JSON-parse, and hold resident on
     # every refresh. The edit modal lazy-loads the full card via
     # get_character_card() when needed.
+    #
+    # `def_chars` is how the list path answers "how heavy is this card" without
+    # reopening that decision: the *measure* of the bodies instead of the bodies,
+    # one integer per row. It sums exactly the fields the group context modes
+    # disagree about — description + personality (`_private_sheet`) and
+    # mes_example. `post_history_instructions` is excluded on purpose: every mode
+    # keeps it in the speaker's trailing message, so it cannot discriminate
+    # between them. New Group Chat's context-mode recommendation is the consumer
+    # (`group_cast.js:recommendContextMode`).
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
                 "SELECT c.id, c.name, c.creator_notes, c.tags, c.creator, c.source_format, c.created_at, c.updated_at, c.avatar_mime, c.world_id, c.persona_lock_id, "
+                "LENGTH(COALESCE(c.description, '')) + LENGTH(COALESCE(c.personality, '')) + LENGTH(COALESCE(c.mes_example, '')) AS def_chars, "
                 "EXISTS(SELECT 1 FROM character_expressions e WHERE e.character_card_id = c.id) AS has_expressions "
                 "FROM character_cards c ORDER BY c.updated_at DESC"
             )

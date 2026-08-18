@@ -28,6 +28,7 @@ globalThis.document = {
 
 import {
   CONTEXT_MODES,
+  cardDefTokens,
   castClickSpeaksNow,
   castRailHtml,
   contextMode,
@@ -37,6 +38,7 @@ import {
   groupRootId,
   joinNames,
   overrideIsOneShot,
+  recommendContextMode,
   sceneEmptyStateHtml,
   speakingPlanHtml,
   TURN_MODES,
@@ -95,6 +97,112 @@ test("every context mode carries the copy both modals render", () => {
   // this is the only place the user is told before flipping the setting.
   assert.match(CONTEXT_MODES.shared.detail, /read one another's card details/);
   assert.match(CONTEXT_MODES.swap.detail, /names alone/);
+});
+
+// ── Context-mode recommendation ─────────────────────────────────────────────
+// The rule was fitted against simulated 30-beat, three-pass group sessions
+// rendered through the shipped prompt builders, on a server holding several
+// prefix-cache lanes. These pin the boundary it landed on and, more
+// importantly, the direction it is allowed to be wrong in.
+
+// `def_chars` arrives from the library list, which is the only card payload
+// creation ever holds.
+const card = (defChars) => ({ id: `c${defChars}`, name: "x", def_chars: defChars });
+// tokens → the `def_chars` a card of that weight would report (CHARS_PER_TOKEN=4).
+const ofTokens = (tokens) => card(tokens * 4);
+
+test("a card's weight counts only the fields the two modes disagree about", () => {
+  assert.equal(cardDefTokens(card(4000)), 1000);
+  assert.equal(cardDefTokens(card(0)), 0);
+  // A card list fetched before `def_chars` existed, and a missing row from a
+  // picker whose selection outran the character cache. Neither may throw, and
+  // both have to read as weightless so the cast lands on the default.
+  assert.equal(cardDefTokens({}), 0);
+  assert.equal(cardDefTokens(undefined), 0);
+  assert.equal(cardDefTokens({ def_chars: "not a number" }), 0);
+});
+
+test("no cast, no recommendation", () => {
+  assert.equal(recommendContextMode([]), null);
+  assert.equal(recommendContextMode(undefined), null);
+  // A picker holding an id the character list no longer has resolves to
+  // undefined; a cast of nothing but holes is still no cast.
+  assert.equal(recommendContextMode([undefined, undefined]), null);
+});
+
+test("one character is not a cast, at any card weight", () => {
+  // The threshold is 500 * (cast - 1), which at one member is zero — so every
+  // card cleared it and an eight-token stub was told it was heavy enough to
+  // cache. There is also nothing to weigh it against yet: the panel recomputes
+  // per pick, so answering here means answering for a half-chosen cast.
+  for (const tokens of [2, 8, 500, 2000]) {
+    assert.equal(recommendContextMode([ofTokens(tokens)]), null, `1 x ${tokens} should stay silent`);
+  }
+  // The second pick is where advice starts.
+  assert.ok(recommendContextMode([ofTokens(8), ofTokens(8)]));
+});
+
+test("the boundary is mean card weight against 500 tokens per member past the first", () => {
+  // Measured crossovers: 2 members at ~500 tokens, 3 at ~1000.
+  assert.equal(recommendContextMode([ofTokens(400), ofTokens(400)]).mode, "private");
+  assert.equal(recommendContextMode([ofTokens(500), ofTokens(500)]).mode, "swap");
+  assert.equal(recommendContextMode([ofTokens(800), ofTokens(800), ofTokens(800)]).mode, "private");
+  assert.equal(recommendContextMode([ofTokens(1000), ofTokens(1000), ofTokens(1000)]).mode, "swap");
+});
+
+test("a wide cast is private at every card size — swap runs out of cache lanes, not tokens", () => {
+  // Swap needs roughly 2.5 warm branches per member, so a fourth member is
+  // where they stop fitting and its cost jumps 4-6x rather than drifting. No
+  // card weight buys that back, so the cap is not a threshold.
+  for (const tokens of [500, 1000, 1500, 2000, 8000]) {
+    const wide = Array.from({ length: 4 }, () => ofTokens(tokens));
+    assert.equal(recommendContextMode(wide).mode, "private", `4 x ${tokens} should stay private`);
+    assert.equal(recommendContextMode([...wide, ofTokens(tokens)]).mode, "private");
+  }
+});
+
+test("the mean is the statistic, because both modes bill per speaking turn", () => {
+  // One heavy card and two light ones costs what three middling ones cost:
+  // private re-sends whoever speaks, swap caches whoever speaks. Simulation put
+  // these two casts within a token of each other.
+  const lopsided = recommendContextMode([ofTokens(2000), ofTokens(500), ofTokens(500)]);
+  const even = recommendContextMode([ofTokens(1000), ofTokens(1000), ofTokens(1000)]);
+  assert.equal(lopsided.mode, even.mode);
+  assert.equal(lopsided.meanTokens, even.meanTokens);
+});
+
+test("a cast with no card text lands on the default rather than on the cheaper mode", () => {
+  // Narrator-shaped members have nothing worth caching. From two members up the
+  // threshold is never below 500, so they fall to Private on the comparison
+  // itself — no separate floor to keep in step with the boundary.
+  assert.equal(recommendContextMode([card(0), card(0)]).mode, "private");
+  assert.equal(recommendContextMode([{}, {}]).mode, "private");
+  assert.equal(recommendContextMode([card(0), card(0), card(0)]).mode, "private");
+  // One real card beside a cardless narrator is still weighed on the mean.
+  assert.equal(recommendContextMode([ofTokens(2000), card(0)]).mode, "swap");
+});
+
+test("a recommendation carries the figures it was made from, and both sides of the trade", () => {
+  // The panel states the reasoning; a mode with no `why` renders as an
+  // unexplained instruction to change a setting the user did not ask about.
+  const casts = [
+    [ofTokens(2000), ofTokens(2000)],
+    [ofTokens(300), ofTokens(300), ofTokens(300)],
+    Array.from({ length: 5 }, () => ofTokens(1800)),
+  ];
+  for (const cast of casts) {
+    const rec = recommendContextMode(cast);
+    assert.ok(CONTEXT_MODES[rec.mode], "recommends a real stored mode");
+    assert.equal(rec.cast, cast.length);
+    assert.ok(rec.why?.trim() && rec.cost?.trim());
+    // Each branch has to show the figure it actually turned on. A cast wide
+    // enough to exhaust the cache is decided on its size at any card weight, so
+    // quoting the weight there would name a number that changed nothing.
+    const deciding = rec.cast > 3 ? rec.cast : rec.meanTokens;
+    assert.match(rec.why, new RegExp(deciding.toLocaleString()));
+  }
+  // Swap is the recommendation that costs the user something; it says so.
+  assert.match(recommendContextMode([ofTokens(2000), ofTokens(2000)]).cost, /only each other's names/);
 });
 
 test("an override is one-shot except in Choose mode, where picking is the strategy", () => {

@@ -267,9 +267,56 @@ Muted members render disabled. In `Choose` mode the send button stays disabled
 until a member is picked and says so in its tooltip, since nothing else on
 screen explains the block.
 
-Creation and convert-to-group do not offer the context control: a new scene has
-no cast history to reason about, so both start on Private perspective and the
-setting is one click away afterwards.
+Convert-to-group does not offer the context control: it starts on Private
+perspective and the setting is one click away afterwards. New group chat keeps
+the control under **Advanced**, still defaulted to Private, and adds a
+**recommendation** under the cast picker.
+
+`group_cast.js:recommendContextMode` is the only place that rule lives. It is a
+choice between two modes — Shared dossier is never recommended, being a
+deliberate privacy decision rather than a cost one — and it turns on the two
+things creation already knows: how many characters are picked, and how heavy
+their cards are. The two modes fail in opposite directions:
+
+- **Private perspective** keeps the shared body tiny (one public profile per
+  member) but puts the speaking card in the trailing message, *after* history —
+  the one place a prefix cache can never reach, so that card is re-read on every
+  writer and editor call. Its cost tracks **card size** and is flat in cast size.
+- **Classic card swap** parks the speaking card *before* history where it caches,
+  but makes each character its own cache lineage. Its cost tracks **cast size**
+  and is nearly flat in card size.
+
+So swap wins only when the cast is narrow enough to keep a branch per character
+warm *and* the cards are heavy enough to be worth caching: `mean card tokens >=
+500 x (cast - 1)`, capped at three members, where a server holding several
+prefix lanes starts thrashing (swap needs roughly 2.5 lanes per member — 5 at
+two, 8 at three, 10 at four — so a fourth member is a 4-6x jump, not a drift).
+The mean is the right statistic because both modes bill per speaking turn: one
+2000-token card beside two 500s costs what three 1000s cost, to within a token.
+
+Nothing is recommended below **two** members. The threshold is zero at one
+member, so every card cleared it and an eight-token stub was told it was heavy
+enough to cache; there is also no second card to weigh it against. And the panel
+recomputes on every pick, so advising at one member means answering for a cast
+the user is still assembling. A genuine one-member group does leave measured
+savings unclaimed — it is also a solo chat with extra steps. From two members up
+the threshold is never below 500, so a cast of empty or narrator-shaped cards
+falls to Private on the comparison itself and needs no separate floor.
+
+The rule is deliberately asymmetric, and every case it gets wrong it gets wrong
+toward Private — recommending swap on a cast too wide for the cache costs
+multiples, while recommending private where swap was marginally better costs at
+most ~1.3x. Private is also the safer default on meaning: the only mode with a
+privacy boundary, and the only one where characters know anything about each
+other beyond names. The panel therefore states the trade as well as the
+recommendation, and only ever offers — the user applies it, and applying it
+opens Advanced so the control is never seen to disagree with itself.
+
+The weight comes from `def_chars` on the library list: `description +
+personality + mes_example` summed server-side, one integer per card, so the list
+path can answer "how heavy is this card" without shipping the bodies it
+deliberately omits. `post_history_instructions` is excluded because every mode
+keeps it in the speaker's trailing message and it therefore cannot discriminate.
 
 The speaking-plan rail is painted only while a beat with two or more speakers is
 planned or streaming; a single speaker is announced by its cast chip, and a rest

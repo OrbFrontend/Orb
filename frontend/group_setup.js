@@ -10,6 +10,7 @@ import {
   groupRootId,
   memberAvatar,
   overrideIsOneShot,
+  recommendContextMode,
   speakingPlanHtml,
   TURN_MODES,
 } from "./group_cast.js";
@@ -70,6 +71,44 @@ function contextModeOptions(selected) {
 // that select, so it labels the control itself with just "Mode" instead.
 const CONTEXT_LABEL = "Character context";
 
+// ── Context-mode recommendation ─────────────────────────────────────────────
+// The panel sits under the cast picker rather than beside the select it sets,
+// because the picker is what the advice depends on: the cast is chosen in the
+// open, while the control lives under a collapsed Advanced. Advice nobody
+// expands to read is not advice, so the recommendation comes to the cast.
+//
+// It only ever offers — `recommendContextMode` decides, the user applies. When
+// the recommendation already matches the current selection (the common case,
+// since both default to Private) there is nothing to apply and the panel says
+// so instead of growing a button that would do nothing.
+
+function recommendHtml(rec, current) {
+  if (!rec) return "";
+  const label = contextMode(rec.mode).label;
+  const action =
+    rec.mode === current
+      ? `<span class="ctx-rec-state">Selected</span>`
+      : `<button type="button" class="btn btn-sm" data-ctx-apply="${escAttr(rec.mode)}">Use this</button>`;
+  return `<p class="ctx-rec-head"><span class="ctx-rec-tag">Recommended</span><b>${esc(label)}</b>${action}</p>
+    <p class="modal-hint">${esc(rec.why)}</p>
+    <p class="modal-hint ctx-rec-trade">${esc(rec.cost)}</p>`;
+}
+
+// Recomputed on every event that can change the answer: a pick toggling, and
+// the select being driven by hand (which only changes whether "Use this" is
+// still on offer).
+function syncContextRecommendation() {
+  const host = $("group-create-recommend");
+  if (!host) return;
+  const cards = charactersView();
+  const chosen = [...document.querySelectorAll("#group-create-picker .cast-pick.selected")].map((pick) =>
+    cards.find((card) => card.id === pick.dataset.groupCardId),
+  );
+  const rec = recommendContextMode(chosen);
+  host.hidden = !rec;
+  host.innerHTML = recommendHtml(rec, $("group-create-context")?.value);
+}
+
 // Max replies is a Director-only bound: the other two strategies schedule exactly
 // one speaker per turn, so the field is meaningless there.
 function syncMaxRepliesRow(selectId, rowId) {
@@ -104,6 +143,7 @@ function showGroupCreate() {
   showModal(`<h2>New group chat</h2>
     <p class="modal-subtitle">Choose who is in the scene.</p>
     ${picker}
+    <div class="ctx-recommend" id="group-create-recommend" aria-live="polite" hidden></div>
     <div class="field"><label for="group-create-scenario">Premise</label>
       <textarea id="group-create-scenario" rows="3" placeholder="Where and when does this open? (optional)"></textarea></div>
     <details class="group-advanced"><summary>Advanced</summary>
@@ -129,6 +169,21 @@ function showGroupCreate() {
     if (!pick) return;
     const selected = pick.classList.toggle("selected");
     pick.setAttribute("aria-pressed", String(selected));
+    syncContextRecommendation();
+  });
+  $("group-create-context")?.addEventListener("change", syncContextRecommendation);
+  $("group-create-recommend")?.addEventListener("click", (event) => {
+    const apply = event.target.closest("[data-ctx-apply]");
+    if (!apply) return;
+    const select = $("group-create-context");
+    if (!select) return;
+    select.value = apply.dataset.ctxApply;
+    // Open Advanced on the way through: the setting has just been changed on
+    // the user's behalf, and a control they cannot see saying something they
+    // did not type is how a form loses their trust.
+    const advanced = select.closest("details");
+    if (advanced) advanced.open = true;
+    syncContextRecommendation();
   });
   $("group-create-cancel")?.addEventListener("click", closeModal);
   $("group-create-save")?.addEventListener("click", async () => {

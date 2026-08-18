@@ -367,6 +367,66 @@
   max-width: 100%;
 }
 
+/* ── Context-mode recommendation ── */
+/* Sits between the cast picker and Premise, carrying the picker's own 14px
+   bottom rhythm so the form spacing does not change when it appears. Tinted
+   like `.cast-pick.selected` — it belongs to the selection above it, not to the
+   fields below. */
+.ctx-recommend {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius);
+  background: var(--accent-glow);
+}
+
+/* The panel is toggled by `hidden`, and it carries padding and a border that a
+   UA `display: none` would otherwise still have to win against. */
+.ctx-recommend[hidden] {
+  display: none;
+}
+
+.ctx-rec-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.ctx-rec-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
+/* Whichever of the two closes the row, it closes it the same way, so the head
+   keeps one shape whether or not there is anything left to apply. */
+.ctx-rec-head > .btn,
+.ctx-rec-state {
+  margin-left: auto;
+}
+
+.ctx-rec-state {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* `.modal-hint`'s 12px top margin is sized to trail a control; inside the panel
+   the lines are body copy and set their own tighter rhythm. */
+.modal .ctx-recommend .modal-hint {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+}
+
+.modal .ctx-recommend .ctx-rec-trade {
+  margin-top: 4px;
+  color: var(--text-muted);
+}
+
 /* ── Modal disclosures ── */
 /* Top-margin only, so a disclosure sits on the same rhythm as the `.field` rows
    above it and never doubles up with the next block's own leading margin. */

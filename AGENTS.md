@@ -89,7 +89,7 @@ features/<name>/
 | `frontend/sse.js` | THE SSE parser (`sseEvents`, `streamPost`) — only one in the app |
 | `frontend/text_segmentation.js` | Canonical non-workflow frontend sentence policy; line breaks are standalone stream units |
 | `frontend/workflow_api.js` | Plugin facade ABI v3 — the only import for `frontend/workflows/**` |
-| `frontend/group_cast.js` / `group_setup.js` | Pure group identity rendering — cast rail, speaking plan, empty scene, `TURN_MODES` wording (L1) / creation, cast manager, group settings, conversion (L5) |
+| `frontend/group_cast.js` / `group_setup.js` | Pure group identity rendering — cast rail, speaking plan, empty scene, `TURN_MODES` wording, and `recommendContextMode` (the only definition of which context mode a chosen cast should use, keyed on cast size and card weight) (L1) / creation, cast manager, group settings, conversion (L5) |
 
 ## Database Schema (summary)
 
