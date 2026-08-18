@@ -49,6 +49,7 @@ from ...database import (
     insert_alternate_greeting_swipes,
     list_conversations,
     mark_orphaned_changesets_stale,
+    render_public_profile,
     resolve_cast,
     resolve_char_context,
     set_active_leaf,
@@ -62,8 +63,15 @@ from ...database import (
 )
 from ...database.models import ConversationRow
 from ...features import lorebook
+from ...features.cards import draft_scene_profile
 from ...features.summarization import ConversationSummarizer
-from ...inference import AbortToken, client_from_settings, group_context, prompt_builder
+from ...inference import (
+    AbortToken,
+    agent_lane_from_settings,
+    client_from_settings,
+    group_context,
+    prompt_builder,
+)
 from ...pipeline import (
     agent_enabled,
     conversation_macro_seed,
@@ -74,6 +82,7 @@ from ..deps import (
     _active_aborts,
     _CleanupStreamingResponse,
     _sse_stream,
+    profile_draft_failures,
     require_conversation,
 )
 from ..schemas import (
@@ -84,6 +93,8 @@ from ..schemas import (
     DirectionNoteCreate,
     DirectionNoteUpdate,
     GroupRosterUpdate,
+    SceneProfileDraft,
+    SceneProfileGenerateRequest,
     SummarizeRequest,
 )
 
@@ -93,6 +104,13 @@ logger = logging.getLogger(__name__)
 # record_direction_note step only ever emits real fragment ids, so this never collides with
 # one. The frontend keys its distinct styling on the same value -- keep the two in sync.
 _USER_NOTE_FRAGMENT_ID = "human"
+
+# How many cast names one scene-profile drafting prompt carries, and how long a
+# single name may be. The roster has no size ceiling, so this is a prompt-size
+# guard rather than a roster limit -- and the drafter is told how many names it
+# did not get instead of being left to assume the list is the whole cast.
+SCENE_PROFILE_CAST_LIMIT = 16
+_SCENE_PROFILE_NAME_CHARS = 64
 
 router = APIRouter()
 
@@ -225,6 +243,82 @@ async def api_sync_group_members(
         return await sync_group_members(cid, member_specs)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+async def _scene_cast_names(cid: str, data: SceneProfileGenerateRequest) -> tuple[list[str], int]:
+    """The other members' names for one drafting prompt, and how many were left out.
+
+    Client-supplied names are untrusted display text: stripped and capped per
+    name, but neither sorted nor deduplicated — the canonical UI order is what
+    the user sees, and two members may legitimately share one display name.
+
+    An omitted ``cast_names`` falls back to the stored roster minus the target's
+    own row. Active character cards are unique per roster, so matching on the
+    card id is exact; an unrostered target (a row added in the modal and not yet
+    saved) simply has every durable row as an other member.
+    """
+    if "cast_names" in data.model_fields_set:
+        supplied = data.cast_names
+    else:
+        supplied = [
+            str(member["display_name"])
+            for member in await get_group_members(cid)
+            if member.get("character_card_id") != data.character_card_id
+        ]
+    names = [clean[:_SCENE_PROFILE_NAME_CHARS] for name in supplied if (clean := name.strip())]
+    return names[:SCENE_PROFILE_CAST_LIMIT], max(0, len(names) - SCENE_PROFILE_CAST_LIMIT)
+
+
+@router.post("/api/conversations/{cid}/members/scene-profile/generate")
+async def api_generate_scene_profile(
+    cid: str,
+    data: SceneProfileGenerateRequest,
+    conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+) -> SceneProfileDraft:
+    """Draft one member's scene-local public profile. Persists nothing.
+
+    Named ``scene-profile`` rather than ``public-profile``: this is the
+    conversation-local ``group_members.public_profile_override``, not the
+    card-level profile, and the two return different shapes — identical last
+    segments would be a trap.
+
+    One member per call, never batched: the only card in the context is the
+    target's, and the rest of the cast arrives as names. See
+    ``features/cards/public_profile`` for why.
+
+    Deliberately **not** gated on ``group_context_mode``. ``PUT …/members``
+    accepts an override under every mode, and a generate route that refused
+    would leave the two halves of one field disagreeing about whether the mode
+    is a server rule. It is a UI concern.
+    """
+    if conv.get("kind", "solo") != "group":
+        raise HTTPException(status_code=409, detail="Conversation is not a group")
+    if not data.character_card_id:
+        raise HTTPException(status_code=400, detail="A narrator has no card to draft a scene profile from")
+    card = await get_character_card(data.character_card_id)
+    if not card:
+        raise HTTPException(status_code=404, detail="Character card not found")
+    cast_names, omitted = await _scene_cast_names(cid, data)
+    orb = (card.get("extensions") or {}).get("orb")
+    settings = await get_settings()
+    client = client_from_settings(settings)
+    agent_client, model = agent_lane_from_settings(settings, writer_client=client)
+    with profile_draft_failures(f"Scene-profile generation in conversation {scrub_log(cid)!r}"):
+        draft = await draft_scene_profile(
+            agent_client,
+            model or "",
+            card,
+            display_name=data.display_name,
+            cast_names=cast_names,
+            # The premise is the server's, never the client's -- it is durable
+            # scene configuration, not modal state.
+            premise=str(conv.get("character_scenario") or ""),
+            card_profile=render_public_profile(orb.get("public_profile") if isinstance(orb, dict) else None),
+            omitted_cast=omitted,
+        )
+    # Rendered through the same join a card-derived profile takes, so a drafted
+    # override and a non-overridden member read identically in the prompt.
+    return SceneProfileDraft(profile=render_public_profile(draft))
 
 
 @router.post("/api/conversations/{cid}/convert-to-group")

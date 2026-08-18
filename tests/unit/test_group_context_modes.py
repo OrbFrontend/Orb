@@ -26,14 +26,14 @@ def _member(mid: str, name: str, **fields) -> CastMember:
         mid,
         name,
         fields.get("kind", "character"),
-        # Mirrors pipeline.cast._public_profile: a scene override *replaces* the
-        # card's profile rather than sitting beside it, so a hand-built member
-        # can't disagree with one resolve_cast would produce.
+        # Mirrors database.queries.group_members._public_profile: a scene
+        # override *replaces* the card's profile rather than sitting beside it,
+        # so a hand-built member can't disagree with one resolve_cast would
+        # produce.
         scene or fields.get("public", ""),
         fields.get("private", ""),
         fields.get("example", ""),
         fields.get("post_history", ""),
-        scene,
         fields.get("muted", False),
     )
 
@@ -96,6 +96,17 @@ def test_private_prefix_ignores_the_speaker_entirely():
     assert _system("private", ARIA) == _system("private", KAEL) == _system("private", None)
 
 
+def test_private_is_the_one_mode_that_still_carries_the_scene_override():
+    """Private perspective is the scene's only privacy boundary, so it is the
+    only mode where a curated view of a member does any work — and the override
+    replaces the card profile rather than sitting beside it."""
+    system = _system("private", ARIA)
+    assert "### Aria\nARIA SCENE OVERRIDE" in system
+    assert "### Kael\nRole: mage" in system
+    for mode in ("shared", "swap"):
+        assert "ARIA SCENE OVERRIDE" not in _system(mode, ARIA)
+
+
 # ── Shared dossier ──────────────────────────────────────────────────────────
 
 
@@ -105,9 +116,8 @@ def test_shared_publishes_one_dossier_per_member_and_never_repeats_it_in_the_tai
     assert system.count("## Character dossier: Kael") == 1
     for shared_fact in ("ARIA SHEET", "KAEL SHEET", "ARIA EXAMPLE", "KAEL EXAMPLE"):
         assert shared_fact in system
-    # A user-authored scene override is framing, not a redaction: it rides
-    # inside its own member's dossier rather than being dropped.
-    assert "Scene profile: ARIA SCENE OVERRIDE" in system
+    # Card text only. The override is a Private-perspective instrument.
+    assert "ARIA SCENE OVERRIDE" not in system
 
     tail = _tail("shared", ARIA)
     assert "## You are writing as Aria" in tail
@@ -115,24 +125,27 @@ def test_shared_publishes_one_dossier_per_member_and_never_repeats_it_in_the_tai
     assert "Write the next reply as Aria only" in tail
 
 
-def test_shared_ships_the_curated_profile_labelled_by_where_it_came_from():
-    """Nothing is hidden in this mode, so authored framing must not be dropped —
-    and the reader has to be able to tell scene-local framing from card text."""
+def test_shared_never_layers_a_curated_profile_over_the_cards_it_already_shares():
+    """Every member reads every other member's card here, so a curated profile
+    would be a second view of the same member — and it rendered as a label on
+    labels (`Public profile: Appearance: …`). Neither provenance survives."""
     system = _system("shared", ARIA)
-    assert "Scene profile: ARIA SCENE OVERRIDE" in system  # Manage cast override
-    assert "Public profile: Role: mage" in system  # the card's own profile
+    assert "ARIA SCENE OVERRIDE" not in system  # the Manage cast override
+    assert "Role: mage" not in system  # the card's own public profile
+    assert "Scene profile:" not in system and "Public profile:" not in system
 
 
-def test_shared_still_publishes_a_member_whose_card_is_all_profile():
-    """A card carrying a public profile but no description would otherwise
-    render an empty dossier and survive as a bare name — switching to the mode
-    that shares *more* would show less about it than Private did."""
+def test_shared_gives_a_member_whose_card_is_all_profile_no_dossier_at_all():
+    """The accepted consequence of dropping the curated layer: a card with a
+    public profile but no description contributes no dossier and rides the cast
+    list as a name — the same floor a bare narrator already gets."""
     facade = _member("f", "Facade", public="Role: the innkeeper")
     system = str(
         build_prefix("system", "", "", macros=MACROS, cast=TurnCast(True, (ARIA, facade), ARIA, "shared"))[0]["content"]
     )
-    assert "## Character dossier: Facade" in system
-    assert "Public profile: Role: the innkeeper" in system
+    assert "## Character dossier: Facade" not in system
+    assert "Role: the innkeeper" not in system
+    assert "## Cast\nAria, Facade" in system
 
 
 def test_shared_keeps_post_history_directives_active_only():

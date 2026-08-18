@@ -948,3 +948,218 @@ async def test_group_steering_excludes_the_reply_it_replaces_from_the_audit(clie
     assert not await _steer(older="Kael shrugged and said nothing at all.", replaced=twin), (
         "the reply being replaced was audited against its own replacement"
     )
+
+
+# ── Scene-profile drafting ──────────────────────────────────────────────────
+# The generator behind Manage cast's Draft / Redraft buttons. One LLM call per
+# member, never batched -- the leak that batching would open is pinned below.
+
+
+def _profile_call(**arguments) -> dict:
+    """The forced ``draft_public_profile`` response.
+
+    ``_pass_from_tool_choice`` routes any forced tool name it does not recognise
+    as a core pass tool to the ``workflow`` queue, and this schema is
+    deliberately absent from ``inference.tool_registry.TOOLS``.
+    """
+    return {"tool_calls": [{"type": "function", "function": {"name": "draft_public_profile", "arguments": arguments}}]}
+
+
+def _drafting_message(llm_mock) -> str:
+    return str(llm_mock.captured[-1]["messages"][-1]["content"])
+
+
+async def _draft(client, cid: str, **body):
+    return await client.post(f"/api/conversations/{cid}/members/scene-profile/generate", json=body)
+
+
+async def test_scene_profile_draft_renders_the_two_liner(client, llm_mock):
+    """The same shape `_public_profile()` renders from a card, so an overridden
+    member and a non-overridden one read identically in the assembled prompt.
+    Nothing is persisted — Save cast is still what writes it."""
+    conv, members = await _two_card_group(client)
+    llm_mock.enqueue_workflow(_profile_call(appearance="Tall, in road-worn green.", role="Scout of the watch."))
+
+    response = await _draft(client, conv["id"], character_card_id=members[0]["character_card_id"], display_name="Aria")
+    assert response.status_code == 200
+    assert response.json() == {"profile": "Appearance: Tall, in road-worn green.\nRole: Scout of the watch."}
+
+    reloaded = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
+    assert reloaded[0]["public_profile_override"] is None
+
+
+async def test_scene_profile_draft_sends_only_the_target_card_and_other_names(client, llm_mock):
+    """The executable form of the no-batching decision.
+
+    Kael's card must never enter Aria's drafting context: the result is a string
+    every member reads under Private perspective, so a leak here writes his
+    secret into the one place that mode promises it cannot appear. A future
+    "batch the whole cast for speed" optimisation has to break loudly here.
+    """
+    conv, members = await _two_card_group(client, kael_extra={"description": "KAEL SECRET", "personality": "KAEL INNER"})
+    llm_mock.enqueue_workflow(_profile_call(appearance="Tall.", role="Scout."))
+
+    response = await _draft(
+        client,
+        conv["id"],
+        character_card_id=members[0]["character_card_id"],
+        display_name="Aria",
+        cast_names=["Kael"],
+    )
+    assert response.status_code == 200
+    sent = _drafting_message(llm_mock)
+    assert "KAEL SECRET" not in sent and "KAEL INNER" not in sent and "KAEL EXAMPLE" not in sent
+    assert "Kael" in sent  # the name, and only the name
+    assert "ARIA PRIVATE" in sent  # the target's own card is the whole material
+
+
+async def test_scene_profile_draft_carries_the_scene_premise(client, llm_mock):
+    """The premise comes from the server, not the modal — it is durable scene
+    configuration, and the client never gets to say what the scene is."""
+    conv, members = await _two_card_group(client)
+    await client.put(f"/api/conversations/{conv['id']}", json={"character_scenario": "A cold night on the wall."})
+    llm_mock.enqueue_workflow(_profile_call(appearance="Tall.", role="Scout."))
+
+    await _draft(client, conv["id"], character_card_id=members[0]["character_card_id"])
+    assert "A cold night on the wall." in _drafting_message(llm_mock)
+
+
+async def test_scene_profile_draft_seeds_the_card_level_profile_as_the_default(client, llm_mock):
+    """A card-level profile is what this scene's override replaces, so the model
+    is asked to adjust it rather than to invent a second one from scratch."""
+    conv, members = await _two_card_group(client)
+    card_id = members[0]["character_card_id"]
+    saved = await client.put(
+        f"/api/characters/{card_id}/public-profile",
+        json={"appearance": "Green cloak, longbow.", "role": "Ranger."},
+    )
+    assert saved.status_code == 200
+    llm_mock.enqueue_workflow(_profile_call(appearance="Tall.", role="Scout."))
+
+    await _draft(client, conv["id"], character_card_id=card_id)
+    sent = _drafting_message(llm_mock)
+    assert "Appearance: Green cloak, longbow.\nRole: Ranger." in sent
+    assert "the default this scene's profile replaces" in sent
+    assert "Adjust that default" in sent
+
+
+async def test_scene_profile_draft_for_a_cardless_member_is_a_sentence_not_a_422(client, llm_mock):
+    conv, _ = await _two_card_group(client)
+    response = await _draft(client, conv["id"], display_name="Narrator")
+    assert response.status_code == 400
+    assert response.json()["detail"] == "A narrator has no card to draft a scene profile from"
+
+
+async def test_scene_profile_draft_on_a_solo_conversation_is_409(client, llm_mock):
+    card_id = await _card(client, "Solo")
+    conv = (await client.post("/api/conversations", json={"character_card_id": card_id})).json()
+    response = await _draft(client, conv["id"], character_card_id=card_id)
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Conversation is not a group"
+
+
+async def test_scene_profile_draft_on_a_missing_card_is_404(client, llm_mock):
+    conv, _ = await _two_card_group(client)
+    response = await _draft(client, conv["id"], character_card_id="no-such-card")
+    assert response.status_code == 404
+
+
+async def test_scene_profile_draft_works_for_a_row_not_yet_on_the_roster(client, llm_mock):
+    """Manage cast is client-side until Save, so a member added seconds ago
+    exists only in the DOM. Drafting for it must not require a roster row."""
+    conv, members = await _two_card_group(client)
+    newcomer = await _card(client, "Mira", description="MIRA PRIVATE")
+    llm_mock.enqueue_workflow(_profile_call(appearance="Small, quick.", role="Thief."))
+
+    response = await _draft(client, conv["id"], character_card_id=newcomer, display_name="Mira", cast_names=["Aria", "Kael"])
+    assert response.status_code == 200
+    assert response.json()["profile"] == "Appearance: Small, quick.\nRole: Thief."
+    assert "MIRA PRIVATE" in _drafting_message(llm_mock)
+    assert members  # the roster is untouched by a draft
+
+
+async def test_omitted_cast_names_fall_back_to_the_stored_roster_without_the_target(client, llm_mock):
+    conv, members = await _two_card_group(client)
+    llm_mock.enqueue_workflow(_profile_call(appearance="Tall.", role="Scout."))
+
+    await _draft(client, conv["id"], character_card_id=members[0]["character_card_id"])
+    sent = _drafting_message(llm_mock)
+    assert "Kael" in sent
+    # Aria is the target; she is named as the subject, never as an other member.
+    assert "names only)" in sent
+    others = sent.split("names only):")[1].split('"""')[1]
+    assert "Aria" not in others
+
+
+async def test_client_supplied_names_keep_ui_order_and_duplicates(client, llm_mock):
+    """Untrusted display text — stripped and capped, but never sorted or
+    deduplicated: canonical order is what the user sees, and two members may
+    legitimately share one display name."""
+    conv, members = await _two_card_group(client)
+    llm_mock.enqueue_workflow(_profile_call(appearance="Tall.", role="Scout."))
+
+    await _draft(
+        client,
+        conv["id"],
+        character_card_id=members[0]["character_card_id"],
+        cast_names=["  Zed  ", "Kael", "Zed", "   ", "K" * 100],
+    )
+    sent = _drafting_message(llm_mock)
+    assert f"Zed, Kael, Zed, {'K' * 64}" in sent
+
+
+async def test_a_large_cast_is_bounded_and_says_how_many_it_left_out(client, llm_mock):
+    """A prompt-size guard, not a roster limit. The roster has no ceiling, so the
+    prompt must not claim the list it carries is the whole cast."""
+    conv, members = await _two_card_group(client)
+    llm_mock.enqueue_workflow(_profile_call(appearance="Tall.", role="Scout."))
+
+    await _draft(
+        client,
+        conv["id"],
+        character_card_id=members[0]["character_card_id"],
+        cast_names=[f"Extra{i}" for i in range(17)],
+    )
+    sent = _drafting_message(llm_mock)
+    assert "Extra15" in sent and "Extra16" not in sent
+    assert "Other cast members omitted from this draft: 1" in sent
+
+
+async def test_scene_profile_draft_is_mode_blind(client, llm_mock):
+    """`PUT …/members` accepts an override under every mode, so a generate route
+    that refused would leave the two halves of one field disagreeing about
+    whether the mode is a server rule. Gating is the UI's job."""
+    for mode in ("private", "shared", "swap"):
+        conv, members = await _two_card_group(client, context_mode=mode)
+        llm_mock.enqueue_workflow(_profile_call(appearance="Tall.", role="Scout."))
+        response = await _draft(client, conv["id"], character_card_id=members[0]["character_card_id"])
+        assert response.status_code == 200, mode
+
+
+async def test_scene_profile_draft_without_a_tool_call_is_502(client, llm_mock):
+    """A loop that writes N overrides the user saves in one click cannot degrade
+    silently — a fabricated draft is indistinguishable from a real one."""
+    conv, members = await _two_card_group(client)
+    llm_mock.enqueue_workflow({"role": "assistant", "content": "I'm not sure who that is."})
+
+    response = await _draft(client, conv["id"], character_card_id=members[0]["character_card_id"])
+    assert response.status_code == 502
+    assert response.json()["detail"] == "The model did not return a usable profile."
+
+
+@pytest.mark.parametrize(
+    ("arguments", "why"),
+    [
+        ({"appearance": "As tall as {{user}}.", "role": "Scout."}, "macro"),
+        ({"appearance": "", "role": "Scout."}, "empty"),
+        ({"appearance": " ".join(f"w{i}" for i in range(31)), "role": "Scout."}, "longer than 30 words"),
+    ],
+)
+async def test_a_draft_that_fails_the_output_contract_is_502_with_no_payload(client, llm_mock, arguments, why):
+    conv, members = await _two_card_group(client)
+    llm_mock.enqueue_workflow(_profile_call(**arguments))
+
+    response = await _draft(client, conv["id"], character_card_id=members[0]["character_card_id"])
+    assert response.status_code == 502
+    assert why in response.json()["detail"]
+    assert "profile" not in response.json()

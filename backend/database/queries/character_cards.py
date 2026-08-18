@@ -313,6 +313,36 @@ async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | 
         return await get_character_card(card_id)
 
 
+# The stored profile's fields, in render order. One tuple so the writer below and
+# every reader agree on the key set: a field added here without a matching writer
+# key would render nothing, and a writer key missing here would be stored and
+# never shown.
+_PROFILE_FIELDS = (("Appearance", "appearance"), ("Role", "role"))
+
+
+def render_public_profile(profile: Mapping[str, Any] | None) -> str:
+    """The stored ``extensions.orb.public_profile`` dict as prompt lines.
+
+    ``Appearance: …\nRole: …``, each field omitted when blank and an entirely
+    blank profile rendering ``""``. Lives beside :func:`set_public_profile`, its
+    only writer, because the invariant being protected is that the two agree on
+    the key set — ``core/`` would be the wrong home for it, having no vocabulary
+    for card extensions at all.
+
+    Shared by the group cast projection (``queries/group_members._public_profile``)
+    and the scene-profile drafter, so a generated override and a card-derived
+    profile read identically once assembled into a prompt.
+    """
+    if not isinstance(profile, Mapping):
+        return ""
+    lines = []
+    for label, key in _PROFILE_FIELDS:
+        value = profile.get(key)
+        if isinstance(value, str) and value.strip():
+            lines.append(f"{label}: {value.strip()}")
+    return "\n".join(lines)
+
+
 async def set_public_profile(card_id: str, appearance: str, role: str) -> CharacterCardRow | None:
     """Merge only ``extensions.orb.public_profile`` and preserve every sibling key."""
     card = await get_character_card(card_id)

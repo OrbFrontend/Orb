@@ -10,7 +10,7 @@ from typing import cast as typed_cast
 from ...core import CastMember, GroupContextMode, TurnCast
 from ..connection import get_db, immediate_tx
 from ..models import ConversationRow, GroupMemberRow
-from .character_cards import get_character_card
+from .character_cards import get_character_card, render_public_profile
 
 
 def allocate_speaker_key(name: str, used: set[str]) -> str:
@@ -47,19 +47,21 @@ async def get_group_member(member_id: str, *, conversation_id: str | None = None
 
 
 def _public_profile(card: Mapping | None, override: str | None) -> str:
+    """The member's effective public projection: the scene override, else the card's.
+
+    ``override is not None`` and not ``if override`` on purpose — an empty-string
+    override is the user deliberately blanking the card profile for this scene,
+    not an absent one. (The client coerces a whitespace-only box to ``null`` at
+    save, so a stored ``""`` only ever arrives from an explicit blanking.)
+
+    The card walk is local; the ``Appearance``/``Role`` join belongs to
+    ``character_cards.render_public_profile``, beside the writer that stores it.
+    """
     if override is not None:
         return override
     extensions = (card or {}).get("extensions")
     orb = extensions.get("orb") if isinstance(extensions, dict) else None
-    profile = orb.get("public_profile") if isinstance(orb, dict) else None
-    if not isinstance(profile, dict):
-        return ""
-    lines = []
-    for label, key in (("Appearance", "appearance"), ("Role", "role")):
-        value = profile.get(key)
-        if isinstance(value, str) and value.strip():
-            lines.append(f"{label}: {value.strip()}")
-    return "\n".join(lines)
+    return render_public_profile(orb.get("public_profile") if isinstance(orb, dict) else None)
 
 
 def _private_sheet(card: Mapping | None) -> str:
@@ -126,7 +128,6 @@ async def resolve_cast(conv: Mapping, *, speaker_member_id: str | None = None) -
                 private_sheet=_private_sheet(card),
                 mes_example=str((card or {}).get("mes_example") or ""),
                 post_history=str((card or {}).get("post_history_instructions") or ""),
-                scene_profile=str(member.get("public_profile_override") or ""),
                 muted=bool(member.get("muted")),
             )
         )

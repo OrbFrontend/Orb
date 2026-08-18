@@ -66,7 +66,8 @@ features/<name>/
 | `backend/api/routes/__init__.py` | `ROUTERS` list — add a file here to register a router |
 | `backend/pipeline/entrypoints.py` | Public `handle_*` functions plus the group beat driver — top of the turn lifecycle. The driver owns what a group runs **once per beat** rather than once per speaker: the Director and the pre-writer direction-note step |
 | `backend/pipeline/cast.py` | Who speaks: speaking-plan validation and round-robin policy |
-| `backend/database/queries/group_members.py` | The durable roster **and** `resolve_cast` — active/tombstoned resolution plus the public/private card projection every prefix builder reads. In the query layer on purpose: `workflows/toolkit.build_offturn_prefix` needs the same answer the turn used and may not import `pipeline/`, and two resolvers would mean two prefixes |
+| `backend/database/queries/group_members.py` | The durable roster **and** `resolve_cast` — active/tombstoned resolution plus the public/private card projection every prefix builder reads. In the query layer on purpose: `workflows/toolkit.build_offturn_prefix` needs the same answer the turn used and may not import `pipeline/`, and two resolvers would mean two prefixes. `_public_profile` keeps the `extensions.orb` walk but delegates the `Appearance:`/`Role:` join to `character_cards.render_public_profile`, beside the writer that stores it |
+| `backend/features/cards/public_profile.py` | The one public-profile drafter, card- and scene-scoped. Owns the tool schema (kept out of `tool_registry.TOOLS` — a profile has no turn phase), the no-secrets floor both prompts quote verbatim, the forced-call drain, and the deterministic output contract (one line per field, no braces, ≤30 words). A scene draft is **one call per member, never batched**: it carries that member's card and the other members' *names only* |
 | `backend/inference/group_context.py` | The group character-context projection — the **only** owner of which card fields each mode puts in the shared cached body vs. the speaker's trailing message, plus per-member `{{char}}` scoping. `build_prefix`, `build_writer_content` and the context-size estimator all read it; no pass decides visibility itself |
 | `backend/pipeline/orchestrator.py` | `_run_pipeline()`: director→writer→editor coordination |
 | `backend/pipeline/state.py` | `TurnState`, `ModelLane`, `_PipelineConfig`, `LorebookTurn` |
@@ -153,7 +154,7 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 ## API Endpoints (quick reference)
 
 - **Settings/endpoints/models:** CRUD under `/api/settings`, `/api/endpoints`, `/api/models`
-- **Conversations:** CRUD + `/members`, `/convert-to-group`, `/activate`, `/summarize`, `/compress`, `/stop`, `/context-size`
+- **Conversations:** CRUD + `/members`, `/members/scene-profile/generate`, `/convert-to-group`, `/activate`, `/summarize`, `/compress`, `/stop`, `/context-size`
 - **Messages:** `/send` (SSE), `/speak`, `/continue`, `/edit`, `/fork-edit`, `/regenerate`, `/super_regenerate`, `/magic_rewrite`, `/switch-branch`, DELETE
 - **Characters:** CRUD + `/import` (PNG), `/import-url`, `/browse`, `/export`, `/expressions`, `/public-profile`
 - **Fragments/Moods:** `/api/fragments`, `/api/interactive-fragments`

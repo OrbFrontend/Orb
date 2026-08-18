@@ -413,6 +413,31 @@ class PublicProfilePayload(BaseModel):
     role: str = ""
 
 
+class SceneProfileGenerateRequest(BaseModel):
+    """One member's scene-profile drafting request.
+
+    ``character_card_id`` is optional on purpose: Manage cast can draft for any
+    row, and a narrator row has no card. A narrator deserves a sentence saying
+    why, not a Pydantic 422 the UI has to translate.
+
+    ``cast_names`` comes from the client because the modal is client-side until
+    Save — a member added seconds ago exists only in the DOM. Names only, ever:
+    accepting another member's profile or description text here would put member
+    B's card into member A's draft, which is the one thing Private perspective
+    promises does not happen. Omit the field to fall back to the stored roster.
+    """
+
+    character_card_id: str | None = None
+    display_name: str = ""
+    cast_names: list[str] = []
+
+
+class SceneProfileDraft(BaseModel):
+    """The rendered two-liner, ready to drop into the override box."""
+
+    profile: str
+
+
 class SummarizeRequest(BaseModel):
     keep_count: int  # must be one of 2, 4, 6, 8
     custom_instructions: str | None = None

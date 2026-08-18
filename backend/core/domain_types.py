@@ -26,11 +26,6 @@ class CastMember(NamedTuple):
     private_sheet: str
     mes_example: str
     post_history: str
-    # The user-authored ``group_members.public_profile_override`` alone. Kept
-    # apart from ``public_profile`` (which already resolves to it when set) so
-    # a consumer can label the projection by provenance: a scene override is
-    # local to this conversation, a card profile travels with the card.
-    scene_profile: str = ""
     # In scene but never scheduled to speak. Muted members still contribute
     # their identity to the shared body — the cast has to know they are there —
     # but they can never be the *active* speaker, so they are excluded from

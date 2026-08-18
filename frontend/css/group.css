@@ -275,10 +275,25 @@
   padding: 2px 0;
 }
 
+/* The override box and its Draft button share one line: the button is an
+   action *on* that box, not a sibling control below it. */
+.cast-row-profile {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+}
+
 .cast-row-custom textarea {
   width: 100%;
   min-height: 52px;
-  margin-top: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.cast-row-profile [data-roster-draft] {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .cast-add {

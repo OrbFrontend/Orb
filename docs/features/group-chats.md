@@ -49,7 +49,7 @@ share) and `OVERRIDE_COPY` (how Manage cast labels the override box per mode).
 | Stored | UI label | What the shared cached body carries | What the speaker's trailing message carries |
 |---|---|---|---|
 | `private` (default) | Private perspective | Every member's confirmed public profile | That speaker's `description`/`personality`, examples, and post-history instructions |
-| `shared` | Shared dossier | A labelled dossier per member: `description`/`personality`, that member's curated profile, and examples | That speaker's post-history instructions only |
+| `shared` | Shared dossier | A labelled dossier per member: `description`/`personality` and examples | That speaker's post-history instructions only |
 | `swap` | Classic card swap | A names-only cast list plus the active speaker's `description`/`personality` and examples | That speaker's post-history instructions only |
 
 `backend/inference/group_context.py` is the single owner of that table. Every
@@ -80,11 +80,21 @@ order — muted members included (a muted member is in scene but never speaks),
 tombstoned members excluded. A narrator or cardless member with nothing to say
 about itself contributes no dossier; its name still rides the cast list.
 
-A dossier carries the member's curated profile as well as its card text, so
-switching to `shared` never *loses* authored framing — it would otherwise erase
-a member whose card is all public profile and no description. The line is
-labelled by provenance: `Scene profile:` for a Manage-cast override, `Public
-profile:` for the card's own `extensions.orb.public_profile`.
+A dossier is card text and nothing else. Under `shared` every member already
+reads every other member's card, so a curated profile layered on top would be a
+second view of the same member — and it rendered as a label on labels
+(`Public profile: Appearance: …`). The accepted consequence: a member with no
+card text contributes no dossier and rides the cast list as a name, the same
+floor a bare narrator already gets.
+
+The public-profile override is therefore a **Private perspective** field. That
+is the scene's only privacy boundary, and so the only mode where a curated view
+of a member does any work; Manage cast disables the box, and both Draft buttons,
+under the other two. One reader still sees it in every mode: compression forces
+`context_mode="private"` (`api/routes/conversations.py`), so an override typed
+before a mode switch still reaches the *summary* prompt. The disabled copy talks
+about the turn for that reason — the string is not sent on a turn, rather than
+never read.
 
 Compression is the one place the mode deliberately does not apply: summary
 prompts always use the public-cast projection, whatever the scene is set to.
@@ -187,6 +197,7 @@ group routes are:
 - `DELETE /api/conversations/{cid}/group`
 - `POST /api/conversations/{cid}/speak`
 - `POST /api/conversations/{cid}/activate`
+- `POST /api/conversations/{cid}/members/scene-profile/generate`
 - `PUT /api/characters/{card_id}/public-profile`
 - `POST /api/characters/{card_id}/public-profile/generate`
 
@@ -205,8 +216,40 @@ reply behavior, max replies per turn, scene premise, style instructions —
 through `PUT /api/conversations/{cid}`. Cast membership, order, reply
 eligibility and public-profile overrides are edited in Manage cast
 (`PUT …/members`). The override box is one string with one meaning in every
-mode; only its label changes, and under Classic card swap it is disabled with a
-one-line reason rather than accepting text that would never ship.
+mode; only its label changes, and under Shared dossier and Classic card swap it
+is disabled with a one-line reason rather than accepting text that would never
+ship on a turn.
+
+Manage cast can also **generate** an override rather than have it hand-typed:
+per row (`Draft` / `Redraft`) and cast-wide (`Draft scene profiles`, which fills
+every empty one in sequence, opening each row as it lands and counting up so a
+second click can stop it). Both go through
+`POST /api/conversations/{cid}/members/scene-profile/generate`.
+
+**One LLM call per member, never batched.** The context carries that member's
+own card, its card-level `extensions.orb.public_profile` as the default to
+adjust, the scene premise, and the other members' **names only** — bounded to
+the first 16 in roster order, with `Other cast members omitted from this draft:
+N` appended when there are more (a prompt-size guard, not a roster limit).
+Putting member B's card into member A's draft would write B's secret into a
+string every member reads under Private perspective, which is the one thing that
+mode promises cannot happen;
+`test_scene_profile_draft_sends_only_the_target_card_and_other_names` is the
+executable form of the rule. Names arrive from the client because the modal is
+client-side until Save — a member added seconds ago exists only in the DOM — and
+are treated as untrusted display text: stripped and capped, never sorted or
+deduplicated.
+
+The output is the same `Appearance: …` / `Role: …` two-liner
+`database.queries.character_cards.render_public_profile` renders from a card, so
+an overridden member and a non-overridden one read identically in the assembled
+prompt. The endpoint is deliberately **mode-blind** — `PUT …/members` accepts an
+override under every mode, so a generate route that refused would leave the two
+halves of one field disagreeing about whether the mode is a server rule; the
+gating is the UI's. Nothing is persisted: Save cast is still what writes it.
+Failures raise (502/500) rather than degrading to a plausible-looking draft,
+because a loop that writes N overrides the user saves in one click cannot afford
+a fabricated one.
 
 The cast rail sits on top of the composer and is the only reply control there is
 — there is no separate strategy line. One click on a chip does one of two

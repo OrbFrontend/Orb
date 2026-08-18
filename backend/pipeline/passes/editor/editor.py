@@ -569,7 +569,12 @@ async def _run_edit_loop(
             # ── Handle editor_rewrite
             rewrite_call = next((tc for tc in parsed if tc["name"] == "editor_rewrite"), None)
             if rewrite_call:
-                rewritten = rewrite_call.get("arguments", {}).get("rewritten_text", "").strip()
+                # An explicit ``"rewritten_text": null`` is the model declining the
+                # forced call, and reads the same as the empty string the break
+                # below already handles -- the default only covers an absent key,
+                # so coerce before .strip() rather than after.
+                raw_rewrite = rewrite_call.get("arguments", {}).get("rewritten_text")
+                rewritten = raw_rewrite.strip() if isinstance(raw_rewrite, str) else ""
                 if not rewritten:
                     logger.info("Editor iteration %d: empty rewrite, stopping", iteration + 1)
                     break

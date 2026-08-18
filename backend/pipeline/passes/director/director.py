@@ -159,7 +159,13 @@ def apply_tool_calls(
     for tc in tool_calls:
         args = tc.get("arguments", {})
         if tc["name"] == "direct_scene":
-            moods = args.get("moods", [])
+            # A model declines moods by emitting ``"moods": null`` about as often
+            # as it omits the key, and both mean the same thing as the empty call:
+            # no moods this turn. Non-string items are dropped rather than carried
+            # -- they cannot match a fragment id, and an unhashable one would blow
+            # up the set() union in ``director_stage``.
+            raw_moods = args.get("moods")
+            moods = [m for m in raw_moods if isinstance(m, str)] if isinstance(raw_moods, list) else []
             extra_fields = {k: v for k, v in args.items() if k != "moods" and keeps_director_value(k, v)}
 
     return (moods, extra_fields)

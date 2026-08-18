@@ -240,11 +240,14 @@ function showGroupSettings() {
 
 // One string, one meaning — the override is always the same stored field, so
 // the box never repoints at a different slot. Only what the scene *does* with it
-// changes, and Swap sends it nowhere, so there the box says so instead of
-// silently accepting text that never ships.
+// changes, and Private perspective is the one mode that sends it: it is the
+// scene's only privacy boundary, so it is the only place a curated view of a
+// member is doing work. The other two say so instead of silently accepting text
+// that never ships. Each entry's `placeholder` doubles as the one-line reason a
+// disabled control shows, so there is one sentence per mode and not two.
 const OVERRIDE_COPY = {
   private: { placeholder: "Public profile override — how the rest of the cast sees them", disabled: false },
-  shared: { placeholder: "Scene profile — a labelled line inside this member's dossier", disabled: false },
+  shared: { placeholder: "Not sent under Shared dossier — every member already reads every card", disabled: true },
   swap: { placeholder: "Not sent under Classic card swap — other members see names only", disabled: true },
 };
 
@@ -252,9 +255,26 @@ function overrideCopy() {
   return OVERRIDE_COPY[S.groupCast?.context_mode] || OVERRIDE_COPY.private;
 }
 
+// One definition of "this row can be drafted", read by the row button, the
+// cast-wide filter and the per-row guard alike — three places that would
+// otherwise each re-derive the rule and eventually disagree. A member with no
+// card has nothing to draft *from*; a mode that never sends the override has
+// nothing to draft *for*.
+function canDraftProfile(member) {
+  return !overrideCopy().disabled && Boolean(member.character_card_id);
+}
+
+// Why a Draft button is off, in one line — the same sentence the disabled
+// textarea shows, so a row never gives two different reasons.
+function draftBlockedReason(member) {
+  if (overrideCopy().disabled) return overrideCopy().placeholder;
+  return member.character_card_id ? "" : "This member has no character card to draft from";
+}
+
 function castRow(member) {
   const name = member.display_name || "Narrator";
   const override = overrideCopy();
+  const draftable = canDraftProfile(member);
   return `<div class="cast-row" data-roster-member-id="${escAttr(member.id || "")}" data-roster-card-id="${escAttr(member.character_card_id || "")}" data-roster-kind="${escAttr(member.member_kind || "character")}">
     <button type="button" class="cast-drag" data-roster-drag title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(name)}">⠿</button>
     ${memberAvatar(member)}
@@ -263,7 +283,10 @@ function castRow(member) {
     <button type="button" class="cast-row-more" data-roster-more title="More actions" aria-label="More actions for ${escAttr(name)}">•••</button>
     <div class="cast-row-menu"><button type="button" class="burger-menu-item" data-roster-remove>Remove from scene</button></div>
     <details class="cast-row-custom"><summary>Customize for this scene</summary>
-      <textarea data-roster-profile${override.disabled ? " disabled" : ""} placeholder="${escAttr(override.placeholder)}">${esc(member.public_profile_override || "")}</textarea>
+      <div class="cast-row-profile">
+        <textarea data-roster-profile${override.disabled ? " disabled" : ""} placeholder="${escAttr(override.placeholder)}">${esc(member.public_profile_override || "")}</textarea>
+        <button type="button" class="btn" data-roster-draft${draftable ? "" : ` disabled title="${escAttr(draftBlockedReason(member))}"`}>${member.public_profile_override ? "Redraft" : "Draft"}</button>
+      </div>
     </details>
   </div>`;
 }
@@ -294,14 +317,84 @@ function moveRow(row, delta) {
 function showCastManager() {
   if (!S.groupCast) return;
   const rotating = S.groupCast.turn_mode === "round_robin";
-  showModal(`<h2>Cast</h2>
-    <p class="modal-subtitle">${rotating ? "Drag to set the reply order." : "Drag to reorder the cast."}</p>
+  const modeBlocks = overrideCopy().disabled;
+  showModal(`<div class="modal-title-row">
+      <div>
+        <h2>Cast</h2>
+        <p class="modal-subtitle">${rotating ? "Drag to set the reply order." : "Drag to reorder the cast."}</p>
+      </div>
+      <div class="modal-title-actions">
+        <button type="button" class="btn" id="group-roster-draft-all"${modeBlocks ? ` disabled title="${escAttr(overrideCopy().placeholder)}"` : ""}>Draft scene profiles</button>
+      </div>
+    </div>
     <div id="group-roster-list" class="cast-list">${S.groupCast.members.map(castRow).join("")}</div>
     <select id="group-roster-add" class="cast-add" aria-label="Add cast member">${addOptions()}</select>
     <p class="modal-hint">${esc(contextLine(S.groupCast.context_mode))}</p>
     <div class="modal-actions"><button type="button" class="btn" id="group-roster-cancel">Cancel</button><button type="button" class="btn btn-accent" id="group-roster-save">Save cast</button></div>`);
   const list = $("group-roster-list");
   if (!list) return;
+
+  // Drafting state is closure-local to this modal — nothing here outlives it,
+  // so nothing here belongs in `S`. Explicitly *not* `S.castSetupBusy`: four
+  // other surfaces read that flag, and overloading it would couple drafting
+  // here to saving elsewhere.
+  const drafting = new Set();
+  let draftingAll = false;
+  let cancelAll = false;
+  const anyDrafting = () => drafting.size > 0;
+
+  // A late draft must not land after Save has already sent the roster, and a
+  // save must not race a request whose result would then have nowhere to go.
+  // Gated on the request count, not on the cast-wide loop: a single row draft
+  // is just as losable.
+  function syncSaveGate() {
+    const save = $("group-roster-save");
+    if (!save) return;
+    save.disabled = anyDrafting();
+    save.title = anyDrafting() ? "Wait for the scene profiles to finish drafting" : "";
+  }
+
+  // One row's draft. Rethrows, so the caller decides whether to toast — the
+  // cast-wide loop reports once with its progress instead of once per row.
+  async function draftRow(row, btn) {
+    const cardId = row.dataset.rosterCardId;
+    const box = row.querySelector("[data-roster-profile]");
+    const nameInput = row.querySelector("[data-roster-name]");
+    if (!cardId || !box || !nameInput || !btn || drafting.has(row)) return;
+    // Snapshotted before the POST. A result may only land on the row it was
+    // asked about, still holding the text the user had when they asked: the
+    // modal is client-side until Save, so an edit made while the request was in
+    // flight is the newer answer.
+    const asked = { name: nameInput.value, text: box.value };
+    drafting.add(row);
+    btn.disabled = true;
+    btn.textContent = "Drafting…";
+    syncSaveGate();
+    try {
+      const others = [...list.querySelectorAll(".cast-row")]
+        .filter((other) => other !== row)
+        .map((other) => other.querySelector("[data-roster-name]")?.value.trim() || "")
+        .filter(Boolean);
+      const draft = await api.post(convUrl(S.activeConvId, "members", "scene-profile", "generate"), {
+        character_card_id: cardId,
+        display_name: asked.name.trim(),
+        cast_names: others,
+      });
+      // `closeModal()` empties #modal-root, so a result landing after the modal
+      // closed has nowhere to write. Same for a row that has since been
+      // repointed at another card or edited by hand.
+      if (!row.isConnected || row.dataset.rosterCardId !== cardId) return;
+      if (nameInput.value !== asked.name || box.value !== asked.text) return;
+      box.value = draft.profile || "";
+    } finally {
+      drafting.delete(row);
+      if (row.isConnected && btn.isConnected) {
+        btn.disabled = false;
+        btn.textContent = box.value.trim() ? "Redraft" : "Draft";
+      }
+      syncSaveGate();
+    }
+  }
 
   // A row is only draggable while its handle is held, so the name field keeps
   // normal text selection.
@@ -366,6 +459,13 @@ function showCastManager() {
       menu.classList.toggle("open");
       return;
     }
+    const draft = event.target.closest("[data-roster-draft]");
+    if (draft) {
+      // The standalone path owns its own error reporting; the cast-wide loop
+      // reports once, with a count.
+      draftRow(row, draft).catch((error) => toast(error.message, true));
+      return;
+    }
     closeRowMenus();
   });
 
@@ -385,9 +485,61 @@ function showCastManager() {
     list.lastElementChild?.scrollIntoView({ block: "nearest" });
   });
 
+  // Fills every empty scene profile in sequence, one call per member — never a
+  // batch. A batched prompt would have to carry every member's card, which is
+  // exactly the leak Private perspective exists to prevent.
+  $("group-roster-draft-all")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    if (draftingAll) {
+      cancelAll = true;
+      button.textContent = "Stopping…";
+      return;
+    }
+    const rows = [...list.querySelectorAll(".cast-row")].filter(
+      (row) =>
+        canDraftProfile({ character_card_id: row.dataset.rosterCardId }) &&
+        !drafting.has(row) &&
+        !row.querySelector("[data-roster-profile]").value.trim(),
+    );
+    if (!rows.length) {
+      toast("Every card-backed member already has a scene profile");
+      return;
+    }
+    draftingAll = true;
+    cancelAll = false;
+    let done = 0;
+    try {
+      for (const row of rows) {
+        if (cancelAll || !row.isConnected) break;
+        button.textContent = `Stop (${done + 1}/${rows.length})`;
+        // Each row opens and scrolls as its turn comes, so the run is visibly
+        // a sequence of members rather than one opaque wait.
+        row.querySelector(".cast-row-custom")?.setAttribute("open", "");
+        row.scrollIntoView({ block: "nearest" });
+        await draftRow(row, row.querySelector("[data-roster-draft]"));
+        done += 1;
+      }
+      toast(`Drafted ${done} scene profile${done === 1 ? "" : "s"} — review, then Save cast`);
+    } catch (error) {
+      // Stop rather than press on. A drafting failure is almost always systemic
+      // — a dead endpoint, a bad key — so continuing buys N-1 more sticky
+      // toasts and N-1 more billed calls.
+      toast(`Drafted ${done} of ${rows.length} before stopping — ${error.message}`, true);
+    } finally {
+      draftingAll = false;
+      cancelAll = false;
+      button.textContent = "Draft scene profiles";
+      syncSaveGate();
+    }
+  });
+
   $("group-roster-cancel")?.addEventListener("click", closeModal);
   $("group-roster-save")?.addEventListener("click", async () => {
     if (S.castSetupBusy) return;
+    if (anyDrafting()) {
+      toast("Wait for the scene profiles to finish drafting", true);
+      return;
+    }
     const members = [...list.querySelectorAll(".cast-row")].map((row) => ({
       id: row.dataset.rosterMemberId || null,
       character_card_id: row.dataset.rosterCardId || null,

@@ -357,3 +357,68 @@ async def test_extensions_absent_decodes_to_empty_dict(client, db):
     await db.commit()
     got = (await client.get(f"/api/characters/{card_id}")).json()
     assert got["extensions"] == {}
+
+
+def _profile_call(**arguments) -> dict:
+    """The forced ``draft_public_profile`` response shape.
+
+    ``_llm_mock._pass_from_tool_choice`` routes any forced tool name it does not
+    recognise as a core pass tool to the ``workflow`` queue, and this schema is
+    deliberately not in ``inference.tool_registry.TOOLS`` — so this is the queue
+    the public-profile drafter reads from.
+    """
+    return {"tool_calls": [{"type": "function", "function": {"name": "draft_public_profile", "arguments": arguments}}]}
+
+
+async def test_public_profile_generate_returns_the_tool_call_fields(client, db, llm_mock):
+    """The wire shape of the card drafter: the model's two fields, stripped.
+
+    Nothing is persisted — generation hands back an editable draft and the card
+    only changes when `PUT …/public-profile` saves it.
+    """
+    card_id = (
+        await client.post(
+            "/api/characters",
+            json={"name": "Lira", "description": "A wandering bard.", "personality": "Cheerful"},
+        )
+    ).json()["id"]
+    llm_mock.enqueue_workflow(_profile_call(appearance="  A bard in road-worn green.  ", role="\nTavern regular\n"))
+
+    resp = await client.post(f"/api/characters/{card_id}/public-profile/generate")
+    assert resp.status_code == 200
+    assert resp.json() == {"appearance": "A bard in road-worn green.", "role": "Tavern regular"}
+
+    card = (await client.get(f"/api/characters/{card_id}")).json()
+    assert (card.get("extensions") or {}).get("orb", {}).get("public_profile") is None
+
+    # The card's own text is what the model was asked to summarize.
+    sent = llm_mock.captured[-1]["messages"][-1]["content"]
+    assert "A wandering bard." in sent and "Cheerful" in sent
+
+
+async def test_public_profile_generate_on_a_missing_card_is_404(client, db, llm_mock):
+    resp = await client.post("/api/characters/no-such-id/public-profile/generate")
+    assert resp.status_code == 404
+
+
+async def test_public_profile_generate_raises_when_the_model_returns_no_call(client, db, llm_mock):
+    """No silent degrade. A draft assembled from the card's first line under a
+    "Draft ready" toast is indistinguishable from a real answer, and the same
+    code path now runs in a loop that writes N overrides the user saves at once."""
+    card_id = (await client.post("/api/characters", json={"name": "Lira", "description": "A bard."})).json()["id"]
+    llm_mock.enqueue_workflow({"role": "assistant", "content": "Sorry, I can't do that."})
+
+    resp = await client.post(f"/api/characters/{card_id}/public-profile/generate")
+    assert resp.status_code == 502
+    assert resp.json()["detail"] == "The model did not return a usable profile."
+
+
+async def test_public_profile_generate_rejects_a_draft_carrying_a_macro(client, db, llm_mock):
+    """A profile is macro-resolved at turn time, so a generated `{{…}}` would
+    substitute long after the user reviewed and approved the text."""
+    card_id = (await client.post("/api/characters", json={"name": "Lira", "description": "A bard."})).json()["id"]
+    llm_mock.enqueue_workflow(_profile_call(appearance="As tall as {{user}}.", role="Bard."))
+
+    resp = await client.post(f"/api/characters/{card_id}/public-profile/generate")
+    assert resp.status_code == 502
+    assert "macro" in resp.json()["detail"]

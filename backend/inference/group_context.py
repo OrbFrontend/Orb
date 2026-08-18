@@ -15,10 +15,11 @@ The three modes, and what each one puts in the shared body:
     own Writer/Editor call. This is the historical group behaviour.
 ``shared``
     A labelled identity dossier per active member: description + personality,
-    the member's curated profile (scene override or card profile, labelled by
-    which), and examples. Every speaker reads the whole cast, so the active
-    speaker's identity fields move *out* of the trailing message -- nothing is
-    repeated after history.
+    and examples. Nothing curated sits on top of that -- every member already
+    reads every other member's card, so a second, hand-written view of the same
+    member would only restate it. Every speaker reads the whole cast, so the
+    active speaker's identity fields move *out* of the trailing message --
+    nothing is repeated after history.
 ``swap``
     A names-only cast list plus the active speaker's identity fields, in the
     conventional single-character layout. No other member's profile is sent,
@@ -49,8 +50,6 @@ from ..core import CastMember, GroupContextMode, Macros, TurnCast
 CAST_HEADING = "## Cast"
 DOSSIER_HEADING = "## Character dossier: "
 ACTIVE_CARD_HEADING = "## Character: "
-SCENE_PROFILE_LABEL = "Scene profile: "
-CARD_PROFILE_LABEL = "Public profile: "
 EXAMPLE_HEADING = "## Example Dialogue"
 # A dossier is a `##` section, so its examples nest one level deeper or they
 # would close the dossier they belong to.
@@ -128,28 +127,25 @@ def _render_public_cast(cast: TurnCast, macros: Macros | None, roster: str) -> s
 
 
 def render_dossier(member: CastMember, macros: Macros | None, roster: str) -> str:
-    """One member's identity dossier, or ``""`` when it would be empty.
+    """One member's identity dossier -- card text only -- or ``""`` when empty.
 
-    A member with nothing to say about itself — no card text, no profile, as a
-    bare narrator usually is — is skipped rather than announced: an empty
-    ``## Character dossier: …`` heading is wasted prefix. Its name still reaches
-    the model through the cast list, ``{{cast}}`` and the speaker labels on
-    history.
+    No curated profile is layered on top. Under this mode every member already
+    reads every other member's card, so a hand-written public profile would be a
+    second view of the same member -- and it renders as a label on labels
+    (``Public profile: Appearance: …``). The public-profile override is a
+    ``private``-mode instrument: that is the scene's only privacy boundary, and
+    the only place the override was ever doing work.
+
+    A member with no card text therefore contributes no dossier and rides the
+    cast list as a name -- the same floor a bare narrator already gets. An empty
+    ``## Character dossier: …`` heading would be wasted prefix; the name still
+    reaches the model through the cast list, ``{{cast}}`` and the speaker labels
+    on history.
     """
     resolve = _resolver(member_macros(macros, member, roster))
     body = []
     if member.private_sheet:
         body.append(resolve(member.private_sheet))
-    # The curated profile is what the user chose to say about this member to the
-    # rest of the cast, and this mode hides nothing -- so it ships beside the
-    # card text rather than being dropped. Dropping it would also erase a member
-    # whose card carries a profile but no description at all: its dossier would
-    # render empty and it would survive only as a name. Labelled by provenance,
-    # because a scene override is local to this conversation while a card
-    # profile travels with the card.
-    if member.public_profile:
-        label = SCENE_PROFILE_LABEL if member.scene_profile else CARD_PROFILE_LABEL
-        body.append(f"{label}{resolve(member.public_profile)}")
     if member.mes_example:
         body.append(_examples_block(resolve(member.mes_example), DOSSIER_EXAMPLE_HEADING))
     if not body:
