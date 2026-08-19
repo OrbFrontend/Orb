@@ -110,31 +110,39 @@ _SCENE_FORMAT_TAIL = (
 
 
 _REFERENCE_INSTRUCTION = (
-    "A reference image of the subject is sent to the image model with this prompt. The image model takes the "
-    "likeness from that picture, not from your words. Do not describe permanent identity traits such as face "
-    "shape, eye colour, or natural hair colour. Describe what has changed or what is happening now: pose, action, "
-    "expression, current clothing, interaction, setting, lighting, and framing. Do not describe the reference "
-    "image itself and do not mention that a reference exists. "
+    "A reference image of the subject is sent to the image model with this prompt, and the image model will take "
+    "the likeness from that picture. Still describe every visible person in full, including permanent identity "
+    "traits such as face shape, eye colour, and natural hair colour: the picture sharpens the likeness, your words "
+    "are what guarantee it. Then describe what has changed or what is happening now: pose, action, expression, "
+    "current clothing, interaction, setting, lighting, and framing. Do not describe the reference image itself and "
+    "do not mention that a reference exists. "
 )
 
 
 _REFERENCE_TAIL = (
-    "Describe what has changed or what is happening now for them: pose, action, expression, current clothing, "
-    "interaction, setting, lighting, and framing. Describe every OTHER visible person in full, including their "
-    "permanent identity traits, because no picture of them is sent. Do not describe the reference images "
-    "themselves and do not mention that a reference exists. "
+    "Describe EVERY visible person in full, including their permanent identity traits, whether or not a picture of "
+    "them is listed above: the pictures sharpen a likeness, your words are what guarantee it. Then describe what "
+    "has changed or what is happening now: pose, action, expression, current clothing, interaction, setting, "
+    "lighting, and framing. Do not describe the reference images themselves and do not mention that a reference "
+    "exists. "
 )
 
 
 def _reference_instruction(referenced: Sequence[str]) -> str:
     """What the prompter is told about the pictures riding along with its prompt.
 
-    Naming them is not decoration. Suppressing identity traits is right only for the
-    people whose likeness the image model can actually see: said unconditionally, a
-    scene with Alice referenced and Bob merely visible strips Bob's face shape, eye
-    colour and hair from the prompt and renders him as a generic person. So the
-    instruction states the roster and tells the model to describe everyone else in
-    full.
+    **Nobody's description is suppressed, including theirs.** Suppression was keyed on
+    a promise -- "a likeness for Alice went with this prompt, so do not spell her out"
+    -- and no caller can keep that promise: a provider may read only the first element
+    of an array it accepted, a model may ignore the field, and either way Alice comes
+    back a stranger with neither a picture nor a word to place her. Describing her
+    anyway costs some redundancy when the picture did land, and nothing when it did
+    not. That is what lets the render send references optimistically instead of
+    withholding them until somebody hand-measures the provider.
+
+    Naming them is still not decoration: the roster and its order are the only thing
+    that attributes an array of images to people, and the composer binds an analyzed
+    cast entry back to a subject by that name.
 
     The order is load-bearing on the cloud side for a second reason: a provider handed
     two images in one array is told nothing about which is which, so this sentence is
@@ -150,9 +158,7 @@ def _reference_instruction(referenced: Sequence[str]) -> str:
     listed = ", ".join(f"{index}. {name}" for index, name in enumerate(referenced, 1))
     return (
         f"Reference images are sent to the image model with this prompt, in this order: {listed}. "
-        "The image model takes each of those people's likeness from their own picture, not from your words. "
-        "For those people only, do not describe permanent identity traits such as face shape, eye colour, or "
-        "natural hair colour. " + _REFERENCE_TAIL
+        "The image model will take each of those people's likeness from their own picture. " + _REFERENCE_TAIL
     )
 
 

@@ -62,6 +62,17 @@ class RenderTarget:
     `notes` carries user-facing disclosure for a replay that could not be honoured
     exactly: substituting silently is the thing to avoid, and refusing outright is
     not the alternative.
+
+    `reference_capacity` is the **ceiling**, where `reference_slots` is what the
+    style actually switched on: a cloud provider's `max_references`, or the number
+    of image inputs a ComfyUI graph declares. Zero when this target cannot carry a
+    reference at all -- an unsupported provider, or a model off the allowlist.
+
+    The pair is what lets a render tell a caller *why* somebody in frame got no
+    likeness. Fewer slots than capacity is the style's own doing and the user can
+    add a row; slots at capacity is the backend's ceiling and they cannot. Only the
+    target knows either number, and the caller may not ask a preset directly
+    without learning which backend it is talking to.
     """
 
     source: str
@@ -76,6 +87,7 @@ class RenderTarget:
     notes: tuple[str, ...] = ()
     quality: str = ""
     reference_source: str = ""
+    reference_capacity: int = 0
 
 
 @dataclass(frozen=True)
@@ -145,4 +157,13 @@ class ImageGenerationError(WorkflowUserFacingError):
     from being replaced with "see server logs" on the regenerate, reroll and
     rehydrate routes -- the streaming path already relayed it, so the same failed
     render used to read two different ways depending on which button was pressed.
+
+    `kind` is the backend-independent shape of the failure -- was this about the
+    credential, the rate limit, the server, or *what we sent*. `engine/degrade.py`
+    reads it to decide whether a refusal is worth retrying one rung down, and it is
+    declared here rather than on the cloud subclass so that question can be asked of
+    any backend's error without knowing which backend raised it. A backend that does
+    not classify leaves it "", which degrades to "do not retry".
     """
+
+    kind: str = ""

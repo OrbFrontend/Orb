@@ -161,6 +161,11 @@ class ExternalComfyAdapter(ImageAdapter):
             height=height if sized else None,
             reference_slots=self._reference_slots(slots, sources),
             notes=tuple(notes),
+            # The graph's own declaration, not the style's: how many inputs load an
+            # image is structural and found at import, while which of them a style has
+            # pointed at a source is editable. A graph that loads none is zero, and a
+            # style that left every one of them Off still reports the graph's count.
+            reference_capacity=len(reference_slots(slots)),
         )
 
     def _client(self) -> ComfyClient:

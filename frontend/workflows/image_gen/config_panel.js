@@ -35,12 +35,12 @@ import {
   graphReferenceSlots,
   MAX_REFERENCE_SLOTS,
   maxCloudReferences,
-  modelTakesReferences,
   normalizePromptFormat,
   PROMPT_FORMATS,
   pendingDisclosures,
   povChoices,
   promptFormatLabel,
+  providerTakesReferences,
   sizeChoices,
   sizeIsExact,
   styleConnectionId,
@@ -341,12 +341,6 @@ function cloudStyleFields(style, connection) {
           .join("")
       : "";
   const anyReference = sources.slice(0, slots).some(Boolean);
-  const referenceModelNote =
-    preset && anyReference && !modelTakesReferences(preset, style.model)
-      ? `<div class="image-gen-note ig-unready">${esc(
-          style.model || preset?.default_model || "This model",
-        )} does not accept reference images — choose a model that does, or set Reference images to Off.</div>`
-      : "";
   // Every cast row on a target with one slot spends that slot on somebody who is not
   // the subject: the picture's own character is then described in words while another
   // member's face is the only likeness sent. Legal, occasionally wanted, and almost
@@ -359,7 +353,7 @@ function cloudStyleFields(style, connection) {
   // control above stops applying the moment a reference is on. Said here rather than
   // left for the render note: this one is knowable before the render is paid for.
   const referenceSizeNote =
-    preset?.reference_drives_size && anyReference && modelTakesReferences(preset, style.model)
+    preset?.reference_drives_size && anyReference && providerTakesReferences(preset)
       ? `<div class="image-gen-note">${esc(connection.label)} sizes a reference render from the reference image, so Resolution does not apply while these are on.</div>`
       : "";
   return `<div class="ig-grid">
@@ -368,7 +362,7 @@ function cloudStyleFields(style, connection) {
       ${quality}
       ${references}
     </div>
-    ${referenceModelNote}${castOnlyNote}${referenceSizeNote}
+    ${castOnlyNote}${referenceSizeNote}
     <div class="image-gen-note ig-style-backend">${
       // True of one dimension mode only. Every other provider is sent the pixels
       // themselves, so saying this there described a conversion that never happens.

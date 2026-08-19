@@ -255,6 +255,67 @@ def _referenced_subjects(subjects: Sequence[Subject], references: Sequence[Resol
     return names
 
 
+def _referenced_cards(references: Sequence[ResolvedReference]) -> set[str]:
+    """The cards a likeness actually went out for, by `character:<card id>` origin.
+
+    The same match `_referenced_subjects` makes, as a set: that one answers "in what
+    order did the images travel" and this one answers "did this person's travel at
+    all", and only the second can be asked of somebody who got no slot.
+    """
+    return {
+        card
+        for reference in references
+        if reference.origin.startswith("character:")
+        for card in (reference.origin.partition(":")[2],)
+        if card
+    }
+
+
+def _names_phrase(names: Sequence[str]) -> str:
+    """A readable list of names, bounded -- a twelve-hander must not print twelve
+    names into one disclosure line."""
+    if len(names) > 3:
+        return f"{', '.join(names[:3])} and {len(names) - 3} others"
+    if len(names) > 1:
+        return f"{', '.join(names[:-1])} and {names[-1]}"
+    return names[0] if names else ""
+
+
+def _uncovered_note(
+    addressable: Sequence[Subject],
+    references: Sequence[ResolvedReference],
+    declared: int,
+    capacity: int,
+) -> str:
+    """What a scene holding more people than reference slots is disclosed as, or "".
+
+    Only a **mixed** render says anything: somebody was pictured and somebody was
+    not. That is the case that reads as a bug rather than a setting -- one member
+    comes back looking like their card and the next comes back a stranger, with
+    nothing on screen to say why. A render where nobody was pictured is already
+    `_unfilled_note`'s to describe, or is a style pointed at the chat image on
+    purpose, and saying it twice teaches users to skip both.
+
+    Read off `addressable`, not the full cast: a member the analyzer left out of
+    frame contributes nothing to the prompt either, so naming them would report a
+    loss this render did not take. A subject with no card can never fill a slot --
+    a narrator member, or one whose card was deleted -- so it was never denied one.
+
+    The two phrasings are the two remedies. Below capacity is the style's own doing
+    and the user can switch another row on; at capacity is the backend's ceiling,
+    and the only move is a different provider, model or workflow.
+    """
+    covered = _referenced_cards(references)
+    in_frame = [subject for subject in addressable if subject.card_id and subject.name]
+    uncovered = [subject.name for subject in in_frame if subject.card_id not in covered]
+    if not uncovered or len(uncovered) == len(in_frame):
+        return ""
+    lead = f"{_names_phrase(uncovered)} {'was' if len(uncovered) == 1 else 'were'} described in the prompt rather than pictured"
+    if declared < capacity:
+        return f"{lead}: this style fills {declared} of its {capacity} reference slots"
+    return f"{lead}: this render carries {capacity} reference image{'' if capacity == 1 else 's'}"
+
+
 def _unfilled_note(unfilled: int, filled: int) -> str:
     """What an optional slot that resolved to nothing is disclosed as.
 
@@ -345,11 +406,15 @@ async def _generate_fresh(
         if config.get("scene_analysis")
         else None
     )
+    # Hoisted rather than inlined into the call: this is the list the render is
+    # actually *of*, so the disclosure below has to be read off the same answer the
+    # slots were filled from, not off the wider candidate list.
+    addressable = addressable_subjects(subjects, analysis)
     references = await resolve_references(
         target.reference_slots,
         history=history,
         anchor_id=int(message["id"]),
-        subjects=addressable_subjects(subjects, analysis),
+        subjects=addressable,
     )
     unfilled = len(target.reference_slots) - len(references)
     scene, avoid, composer_mode = await compose_scene(
@@ -398,6 +463,9 @@ async def _generate_fresh(
     consumption = _consumption(style, prompt, negative, result, md, source_label=adapter.label)
     if unfilled > 0:
         consumption.setdefault("notes", []).append(_unfilled_note(unfilled, len(references)))
+    uncovered = _uncovered_note(addressable, references, len(target.reference_slots), target.reference_capacity)
+    if uncovered:
+        consumption.setdefault("notes", []).append(uncovered)
     return _attachment(seed, result, md, consumption)
 
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 import base64
 import io
 import json
-from dataclasses import replace
 
 import httpx
 import pytest
@@ -450,16 +449,15 @@ def test_reference_slots_appear_only_when_the_source_is_turned_on():
 
 
 def _capacity(monkeypatch, slots: int) -> None:
-    """Raise xAI's declared capacity, as a probed row would.
+    """Pin the declared capacity, whatever the shipped row happens to say.
 
-    Patched rather than shipped: no row in `PRESETS` declares more than one, because
-    nobody has watched a provider read a second element -- see `test_providers`. The
-    *mechanism* still has to work the day one does.
+    Patched rather than taken from `PRESETS` so these stay tests of the *mechanism*:
+    xAI ships 4 today because somebody measured it (see `test_providers`), every other
+    row ships 1, and either number moving must not decide what an arity test asserts.
     """
     from backend.workflows.image_gen.engine.adapters import openai_image
 
-    raised = replace(XAI, max_references=slots)
-    monkeypatch.setattr(openai_image, "get_preset", lambda _pid: raised)
+    monkeypatch.setattr(openai_image, "reference_capacity", lambda _preset, _ceiling: slots)
 
 
 def test_a_provider_declares_one_optional_slot_per_probed_reference(monkeypatch):
@@ -495,20 +493,28 @@ def test_declared_capacity_stops_where_the_picker_and_the_config_stop(monkeypatc
     """
     from backend.workflows.image_gen.config import MAX_REFERENCE_SLOTS
 
+    # Deliberately *not* patched: the ceiling is applied inside `reference_capacity`,
+    # so a test that replaced it could not also assert that it clamps.
     over = MAX_REFERENCE_SLOTS + 3
-    _capacity(monkeypatch, over)
     config = _config()
     config["styles"][0]["reference_sources"] = ["character"] * over
 
-    assert len(_target(_bound(config), config).reference_slots) == MAX_REFERENCE_SLOTS
+    target = _target(_bound(config), config)
+    assert len(target.reference_slots) == MAX_REFERENCE_SLOTS
+    assert target.reference_capacity == MAX_REFERENCE_SLOTS
 
 
 def test_capacity_truncates_the_stored_list_rather_than_reading_it_as_intent(monkeypatch):
     """A style keeps both backends' answers across a relink, so a four-row ComfyUI
     answer under a one-slot provider is one slot -- or a disclosure asks the user to
-    approve three uploads no adapter makes."""
+    approve three uploads no adapter makes.
+
+    Capacity is pinned at both ends rather than left to whatever the shipped row says:
+    the truncation is the claim, and it has to hold for a provider that reads one and
+    for a provider that reads two."""
     config = _config(reference_sources=["character", "cast", "cast", "cast"])
 
+    _capacity(monkeypatch, 1)
     assert len(_target(_bound(config), config).reference_slots) == 1
 
     _capacity(monkeypatch, 2)
@@ -585,16 +591,20 @@ async def test_references_ride_the_generations_body_when_there_is_no_edits_endpo
     assert record["body"]["image_url"].startswith("data:image/png;base64,")
 
 
-def test_a_model_that_cannot_take_references_declares_no_slot_and_says_so():
-    """No slot is what stops the reference reaching a model that cannot use it --
-    and the provider's answer is not uniform enough to rely on: FLUX.2 rejects
-    `image_url`, schnell returns 200 having ignored it. The note is the difference
-    between that and the reference quietly going missing."""
+def test_the_model_is_not_consulted_about_references_any_more():
+    """A slot is offered on every model of a reference-capable provider.
+
+    Withholding it was a hand-kept allowlist over catalogues that grow without us, and
+    being behind was invisible -- the user configured a likeness, paid for the render,
+    and got neither the picture nor a word about it. A model that cannot use one
+    refuses at render time, for free, and `engine/degrade.py` re-renders without it and
+    says so. `FLUX.1-schnell` is the model that used to be denied a slot here.
+    """
     config = _config("togetherai", "black-forest-labs/FLUX.1-schnell", reference_source="character")
     target = _target(_bound(config), config)
 
-    assert target.reference_slots == ()
-    assert any("does not accept reference images" in note for note in target.notes)
+    assert len(target.reference_slots) == 1
+    assert target.notes == ()
 
 
 def test_a_reference_capable_model_is_not_nagged_about_it():
@@ -606,11 +616,14 @@ def test_a_reference_capable_model_is_not_nagged_about_it():
 
 
 @pytest.mark.asyncio
-async def test_a_gone_model_degrades_onto_one_that_cannot_take_the_reference():
-    """The substitute is not the model the slot was offered for. Replaying a Kontext
-    image after the connection moved to a text-to-image model must drop the
-    reference, not re-send `image_url` to something that answers 400 -- that would
-    turn a graceful degrade into a hard failure."""
+async def test_a_gone_model_falls_back_and_still_carries_its_reference():
+    """The substitute still gets the reference, and the substitution is disclosed.
+
+    This used to drop the reference on the model's behalf, off the allowlist. It no
+    longer guesses: `FLUX.1-schnell` answers 200 having ignored `image_url`, which
+    costs an upload and nothing else now that the prompt describes everyone whether or
+    not a picture went with them. A model that *refuses* is handled one layer up, by
+    the render seam's ladder."""
     record: dict = {}
     calls = {"n": 0}
 
@@ -629,10 +642,8 @@ async def test_a_gone_model_degrades_onto_one_that_cannot_take_the_reference():
 
     result = await adapter.generate(_request(references=(_reference(_png(), "image/png"),)), target=target)
 
-    assert "image_url" not in record["body"]
-    notes = result.backend_info["notes"]
-    assert any("does not accept reference images" in note for note in notes)
-    assert any("is gone" in note for note in notes)
+    assert "image_url" in record["body"]
+    assert any("is gone" in note for note in result.backend_info["notes"])
 
 
 def test_the_reference_slot_declares_the_policy_that_bounds_it():

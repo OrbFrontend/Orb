@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from ..toolkit import get_workflow_config
 from . import pov as pov_mod
-from .config import WORKFLOW_ID, active_style, normalize_config
+from .config import MAX_REFERENCE_SLOTS, WORKFLOW_ID, active_style, normalize_config
 from .engine import ImageGenerationError, comfy_adapter, get_adapter, list_sources
 from .engine.providers import provider_catalogue
 
@@ -51,7 +51,7 @@ async def _status(body) -> dict:
         "source": config["source"],
         "capabilities": dict(adapter.capabilities),
         "sources": list_sources(),
-        "providers": provider_catalogue(),
+        "providers": provider_catalogue(MAX_REFERENCE_SLOTS),
         "api_url": external["api_url"],
         "default_style": config["default_style"],
         "classifier_ready": await pov_mod.classifier_ready(),

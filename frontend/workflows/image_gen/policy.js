@@ -158,9 +158,10 @@ export function graphReferenceSlots(graphs, workflowId) {
   return Array.isArray(declared) ? declared.slice(0, MAX_REFERENCE_SLOTS) : [];
 }
 
-// How many reference images one cloud provider actually reads. A provider fact and an
-// allowlist -- see `ProviderPreset.max_references` -- so a preset that declares none,
-// and every unknown provider, is one.
+// How many reference images one cloud provider's wire dialect can carry. Derived
+// server-side from the reference encoding (`providers.reference_capacity`) rather than
+// hand-measured per provider, so there is no table here to fall behind. An unknown
+// provider is one, which is the safe floor rather than a claim.
 export function maxCloudReferences(preset) {
   const declared = Number(preset?.max_references);
   return Number.isFinite(declared) && declared >= 1 ? Math.min(declared, MAX_REFERENCE_SLOTS) : 1;
@@ -234,12 +235,14 @@ export function sizeChoices(preset, comfy) {
   return CLOUD_SIZES;
 }
 
-export function modelTakesReferences(preset, model) {
-  if (!preset?.supports_references) return false;
-  const allowed = Array.isArray(preset.reference_models) ? preset.reference_models : [];
-  if (!allowed.length) return true;
-  const chosen = String(model || preset.default_model || "").toLowerCase();
-  return allowed.some((marker) => chosen.includes(marker));
+// Whether this provider has a reference field at all. Deliberately not asked of the
+// *model*: that was a hand-kept allowlist over catalogues of hundreds of models, so it
+// was always behind, and being behind was invisible -- the panel hid the control, and
+// the user never learned the capability existed. A model that will not take a
+// reference now refuses at render time, for free, and the render degrades one rung and
+// says so.
+export function providerTakesReferences(preset) {
+  return Boolean(preset?.supports_references);
 }
 
 export function pendingDisclosures(config = {}, connections = []) {

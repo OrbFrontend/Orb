@@ -38,6 +38,7 @@ from ..providers import (
     build_edit_body,
     build_generation_body,
     get_preset,
+    reference_capacity,
     takes_references,
 )
 from .base import ImageAdapter, replayed_target, replayed_text
@@ -46,7 +47,6 @@ logger = logging.getLogger(__name__)
 
 CLOUD_REFERENCE_MAX_BYTES = 4 * 1024 * 1024
 CLOUD_REFERENCE_SLOT = ("cloud", "image_0")
-_NO_REFERENCES = "{model} does not accept reference images, so none was sent"
 
 
 def cloud_reference_slot(index: int) -> tuple[str, str]:
@@ -181,7 +181,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         # Clamped to the same ceiling the picker and `normalize_config` enforce: a style
         # cannot store a source past `MAX_REFERENCE_SLOTS`, so declaring a slot past it
         # would declare one that is permanently Off and count against `unfilled`.
-        capacity = min(max(1, preset.max_references), MAX_REFERENCE_SLOTS) if preset is not None else 1
+        capacity = reference_capacity(preset, MAX_REFERENCE_SLOTS) if preset is not None else 1
         sources = style_reference_sources(style)[:capacity]
         if replay:
             # Position 0 comes from the scalar `reference_source`, which is the
@@ -194,25 +194,33 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
                 replay, capacity
             )[1:]
         source = next(iter(sources), "")
-        if preset is not None and preset.supports_references and any(name in REFERENCE_SOURCES for name in sources):
-            if not takes_references(preset, model):
-                notes.append(_NO_REFERENCES.format(model=model))
-            else:
-                # Enumerated before filtering: a style whose first row is Off and whose
-                # second is on fills `image_1`, not `image_0`, or a replay would re-key
-                # onto the wrong one.
-                references = tuple(
-                    {
-                        "slot": list(cloud_reference_slot(index)),
-                        "source": name,
-                        "label": "Reference image" if index == 0 else f"Reference image {index + 1}",
-                        "mimes": list(preset.reference_mimes),
-                        "max_bytes": CLOUD_REFERENCE_MAX_BYTES,
-                        "required": False,
-                    }
-                    for index, name in enumerate(sources)
-                    if name in REFERENCE_SOURCES
-                )
+        # Whether this target can carry a reference *at all* -- a fact about the
+        # provider's dialect, not about the model and not about what the style switched
+        # on. A style with every row Off still has whatever ceiling the provider gives
+        # it, and the caller needs that ceiling to tell "the style left a row Off" apart
+        # from "there is no further row to turn on".
+        #
+        # Deliberately not asked of the model any more: whether *this* model reads a
+        # reference is the model's to answer, at render time, by refusing. Declaring no
+        # slot on the model's behalf is how a capability the user is paying for goes
+        # missing with nothing on screen to say so.
+        usable = preset is not None and takes_references(preset)
+        if preset is not None and usable and any(name in REFERENCE_SOURCES for name in sources):
+            # Enumerated before filtering: a style whose first row is Off and whose
+            # second is on fills `image_1`, not `image_0`, or a replay would re-key
+            # onto the wrong one.
+            references = tuple(
+                {
+                    "slot": list(cloud_reference_slot(index)),
+                    "source": name,
+                    "label": "Reference image" if index == 0 else f"Reference image {index + 1}",
+                    "mimes": list(preset.reference_mimes),
+                    "max_bytes": CLOUD_REFERENCE_MAX_BYTES,
+                    "required": False,
+                }
+                for index, name in enumerate(sources)
+                if name in REFERENCE_SOURCES
+            )
         return RenderTarget(
             source=self.source_id,
             target_id="",
@@ -226,6 +234,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             notes=tuple(notes),
             quality=quality,
             reference_source=source,
+            reference_capacity=capacity if usable else 0,
         )
 
     def _client(self, timeout: float) -> OpenAIImageClient:
@@ -309,8 +318,6 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             if exc.kind != MODEL_NOT_FOUND or not configured or configured == model:
                 raise
             notes.append(f"the model this image used ({model}) is gone; rendered with {configured} instead")
-            if request.references and not takes_references(preset, configured):
-                notes.append(_NO_REFERENCES.format(model=configured))
             model = configured
             image, build_notes = await submit(model)
         notes.extend(build_notes)
@@ -349,7 +356,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         that carries no reference can never be posted to an endpoint that requires
         one.
         """
-        if request.references and preset.edits_path and takes_references(preset, model):
+        if request.references and preset.edits_path and takes_references(preset):
             return preset.edits_path
         return preset.generations_path
 
@@ -364,7 +371,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             "quality": target.quality,
             "n": 1,
         }
-        references = request.references if takes_references(preset, model) else ()
+        references = request.references if takes_references(preset) else ()
         if references:
             return build_edit_body(preset, references=references, **common)
         return build_generation_body(preset, **common)

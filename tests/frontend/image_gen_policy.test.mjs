@@ -14,7 +14,7 @@ import {
   connectionList,
   isLoopbackUrl,
   maxCloudReferences,
-  modelTakesReferences,
+  providerTakesReferences,
   normalizePromptFormat,
   pendingDisclosures,
   povChoices,
@@ -373,10 +373,11 @@ test("a remote ComfyUI is asked the image question by its styles, not by its imp
   );
 });
 
-test("a provider's reference capacity is an allowlist, so an unprobed one is one slot", () => {
-  // Mirrors `ProviderPreset.max_references`: a preset that declares nothing, and every
-  // provider the panel has never heard of, reads as one. Over-promising here would draw
-  // reference rows the adapter never fills and ask for uploads it never makes.
+test("a provider's reference capacity is whatever the backend derived, floored at one", () => {
+  // The count is derived server-side from the reference encoding
+  // (`providers.reference_capacity`) rather than hand-measured, so there is no table
+  // here to fall behind. A provider the panel has never heard of reads as one, which is
+  // a safe floor rather than a claim.
   assert.equal(maxCloudReferences(null), 1);
   assert.equal(maxCloudReferences({ id: "xai" }), 1);
   assert.equal(maxCloudReferences({ id: "xai", max_references: 3 }), 3);
@@ -435,26 +436,19 @@ test("a connection just added is listed before it holds anything", () => {
   );
 });
 
-test("reference support can be a provider fact with a model-shaped hole", () => {
-  // Together supports references, but only on its Kontext models; the text-to-image
-  // ones answer "Unsupported use of 'image_url' parameter" rather than ignoring it.
-  const together = {
-    supports_references: true,
-    default_model: "black-forest-labs/FLUX.1-schnell",
-    reference_models: ["kontext"],
-  };
-  assert.equal(modelTakesReferences(together, "black-forest-labs/FLUX.1-kontext-pro"), true);
-  assert.equal(modelTakesReferences(together, "black-forest-labs/FLUX.1-schnell"), false);
-  // No model chosen yet falls back to the default, which is what will be sent.
-  assert.equal(modelTakesReferences(together, ""), false);
+test("reference support is a provider fact and is never asked of the model", () => {
+  // The per-model allowlist is gone, and its absence is the point: it was a hand-kept
+  // table over catalogues of hundreds of models, so it was always behind, and being
+  // behind hid the control entirely — the user never learned the capability existed.
+  // A model that will not take a reference refuses at render time, for free, and the
+  // render degrades one rung and says so.
+  assert.equal(providerTakesReferences({ supports_references: true }), true);
+  assert.equal(providerTakesReferences({ supports_references: true, default_model: "flux-schnell" }), true);
 
-  // An empty allowlist is how every other provider reads: the whole catalogue.
-  assert.equal(modelTakesReferences({ supports_references: true, reference_models: [] }, "anything"), true);
-  assert.equal(modelTakesReferences({ supports_references: true }, "anything"), true);
-
-  // A provider with no reference support at all never takes them.
-  assert.equal(modelTakesReferences({ supports_references: false, reference_models: [] }, "kontext"), false);
-  assert.equal(modelTakesReferences(null, "kontext"), false);
+  // Provider-level is still a real answer: OpenRouter has no reference field on this
+  // path at all, measured across three spellings, so there is nothing to send.
+  assert.equal(providerTakesReferences({ supports_references: false }), false);
+  assert.equal(providerTakesReferences(null), false);
 });
 
 // ── resolution ───────────────────────────────────────────────────────────────

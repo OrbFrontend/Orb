@@ -900,23 +900,41 @@ async def test_a_nameless_subject_leaves_no_hole_in_the_roster(monkeypatch):
 
 
 def test_the_reference_instruction_names_the_referenced_subjects_in_order():
-    """With Iris referenced and Ashley merely visible, an unconditional "do not
-    describe permanent identity traits" strips Ashley's face, eyes and hair and renders
-    her as a generic person. So the instruction states the roster and says the rest are
-    to be described in full -- which is also the only thing that can tell a cloud
-    provider handed an array of images which one is which."""
+    """The roster and its order are the only thing that can tell a cloud provider
+    handed an array of images which one is which, and the only thing that binds an
+    analyzed cast entry back to a subject afterwards.
+
+    Nobody's description is suppressed, including theirs -- see
+    `test_nobody_is_left_undescribed_on_the_strength_of_a_reference`."""
     instruction = prompts._reference_instruction(["Iris", "Ashley"])
 
     assert "1. Iris, 2. Ashley" in instruction
-    assert "For those people only" in instruction
-    assert "every OTHER visible person in full" in instruction
+    assert "EVERY visible person in full" in instruction
 
     # A `previous` reference names nobody -- it is a picture of this scene, which is
     # what the original singular wording already describes.
     assert prompts._reference_instruction([]) == prompts._REFERENCE_INSTRUCTION
 
 
-async def test_only_a_referenced_subject_has_its_identity_suppressed(monkeypatch):
+def test_nobody_is_left_undescribed_on_the_strength_of_a_reference():
+    """Suppression was keyed on a promise no caller can keep.
+
+    "A likeness for Iris went with this prompt, so do not spell her out" holds only if
+    the provider actually read that element -- and a provider that accepts an array and
+    reads its first entry is indistinguishable from one that reads all of them. When it
+    did not, Iris came back with neither a picture nor a word to place her. Describing
+    her anyway costs redundancy when the picture landed and nothing when it did not,
+    which is what lets references be sent optimistically instead of withheld until
+    somebody hand-measures the provider.
+    """
+    for instruction in (prompts._reference_instruction([]), prompts._reference_instruction(["Iris", "Ashley"])):
+        assert "do not describe permanent identity traits" not in instruction.lower()
+        assert "identity traits" in instruction
+
+
+async def test_the_roster_names_only_who_got_a_picture_and_nobody_is_suppressed(monkeypatch):
+    """The numbered roster is still the images, in the order they travel -- Ashley got
+    none, so she is not in it -- but the prompt describes her *and* Iris in full."""
     captured: dict = {}
     await _compose(
         monkeypatch,
@@ -929,7 +947,7 @@ async def test_only_a_referenced_subject_has_its_identity_suppressed(monkeypatch
     tail = captured["compose_image_prompt"]
     assert "1. Iris" in tail
     assert "Ashley" not in tail.split("in this order:")[1].split(".")[0]
-    assert "every OTHER visible person in full" in tail
+    assert "EVERY visible person in full" in tail
 
 
 async def test_no_references_means_no_reference_instruction_at_all(monkeypatch):
