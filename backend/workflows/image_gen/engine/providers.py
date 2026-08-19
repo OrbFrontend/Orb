@@ -121,6 +121,16 @@ class ProviderPreset:
     # promising costs a disclosure; over-promising costs a silent no-op that
     # renders without the character reference and still bills for it.
     reference_models: tuple[str, ...] = ()
+    # How many reference images this provider actually *reads*. An allowlist, probed
+    # per provider, exactly as `reference_models` is and for the same reason: a list
+    # field is not evidence that more than its first element is read. xAI and OpenAI
+    # both take `images` as an array and both answer 200 to a second element, which
+    # proves the request was accepted and nothing about whether it was used -- and
+    # over-promising here costs a slot the user configured, a likeness Orb uploaded,
+    # and a render that billed for both and drew from one. So every row below is 1
+    # until someone puts two unmistakable references through it and reads the output.
+    # Raising a row is a one-line change once that measurement exists.
+    max_references: int = 1
     # True when a reference render takes its size from the reference rather than
     # from the request. An image-to-image model generally follows its input, so the
     # resolution picker silently stops applying the moment references are on.
@@ -442,7 +452,7 @@ def get_preset(provider_id: str) -> ProviderPreset | None:
 # whether that menu applies *at all*, and only the panel can say so before the bill.
 _CATALOGUE_FIELDS = (
     "id label base_url default_model dimension_mode aspect_ratios sizes docs_url verified gaps reference_models "
-    "min_dimension max_dimension dimension_step reference_drives_size "
+    "min_dimension max_dimension dimension_step reference_drives_size max_references "
     "supports_negative_prompt supports_seed supports_quality supports_references"
 ).split()
 

@@ -17,6 +17,7 @@ from PIL import Image
 
 from backend.workflows.image_gen import references as refs
 from backend.workflows.image_gen.engine.contracts import ImageGenerationError
+from backend.workflows.image_gen.subjects import Subject
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"first"
 OTHER = b"\x89PNG\r\n\x1a\n" + b"second"
@@ -80,8 +81,14 @@ def _entries(source: str = "previous", node: str = "72") -> list[dict]:
     return [{"slot": [node, "image"], "source": source, "label": f"Load Image (#{node})"}]
 
 
-async def _resolve(entries, history, anchor_id=99, character_id=None):
-    return await refs.resolve_references(entries, history=history, anchor_id=anchor_id, character_id=character_id)
+def _subject(card_id: str, name: str = "", **profile) -> Subject:
+    return Subject(member_id=f"m-{card_id}", card_id=card_id, name=name or card_id, profile=profile)
+
+
+async def _resolve(entries, history, anchor_id=99, character_id=None, subjects=None):
+    if subjects is None:
+        subjects = (_subject(character_id),) if character_id else ()
+    return await refs.resolve_references(entries, history=history, anchor_id=anchor_id, subjects=subjects)
 
 
 @pytest.fixture(autouse=True)
@@ -175,6 +182,12 @@ async def test_only_a_required_slot_fails_when_nothing_resolves():
 
 @pytest.mark.asyncio
 async def test_two_slots_sharing_a_source_resolve_to_one_upload(monkeypatch):
+    """The per-source cache, which is what makes a two-`Load Image` graph work in a
+    solo chat: both rows on the character reference receive the same bytes. This is
+    why `cast` is a source of its own rather than a redefinition of `character` --
+    re-pointing slot two at "subject two" would leave it unfilled here, and a ComfyUI
+    slot is unconditionally required."""
+
     async def avatar(_card_id):
         return AVATAR, "image/png"
 
@@ -185,6 +198,79 @@ async def test_two_slots_sharing_a_source_resolve_to_one_upload(monkeypatch):
     # One digest, so the adapter uploads one file and patches both slots with it.
     assert len(resolved) == 2
     assert resolved[0].digest == resolved[1].digest
+
+
+# ── the cast, addressed by ordinal ───────────────────────────────────────────
+
+
+@pytest.fixture
+def _avatars(monkeypatch):
+    """One distinct avatar per card, so which subject a slot drew is readable."""
+
+    async def avatar(card_id):
+        return AVATAR + card_id.encode(), "image/png"
+
+    monkeypatch.setattr(refs, "get_character_avatar", avatar)
+
+
+@pytest.mark.asyncio
+async def test_two_cast_slots_resolve_to_two_different_members(_avatars):
+    """The ordinal guard. `character` caches by name so two rows share one likeness;
+    `cast` must not, or a scene with three people renders the second one twice."""
+    subjects = (_subject("card-a"), _subject("card-b"), _subject("card-c"))
+
+    resolved = await _resolve(
+        _entries("character", "70") + _entries("cast", "72") + _entries("cast", "90"),
+        [],
+        subjects=subjects,
+    )
+
+    assert [r.origin for r in resolved] == ["character:card-a", "character:card-b", "character:card-c"]
+    assert len({r.digest for r in resolved}) == 3
+
+
+@pytest.mark.asyncio
+async def test_the_ordinal_advances_past_a_member_with_no_likeness(monkeypatch, _avatars):
+    """Which slot draws whom is positional, so it cannot depend on whether the member
+    in front happened to have an image. Subject 1 has no card; slot two still draws
+    subject 2 rather than sliding up."""
+
+    async def avatar(card_id):
+        return (AVATAR + card_id.encode(), "image/png") if card_id else None
+
+    monkeypatch.setattr(refs, "get_character_avatar", avatar)
+    subjects = (_subject("card-a"), Subject(member_id="m", card_id=None, name="Narrator"), _subject("card-c"))
+
+    resolved = await _resolve(_entries("cast_or_character", "72") + _entries("cast", "90"), [], subjects=subjects)
+
+    # Slot one's `cast` found nothing and fell back to the primary; slot two is still
+    # subject 2, not the member slot one skipped.
+    assert [r.origin for r in resolved] == ["character:card-a", "character:card-c"]
+
+
+@pytest.mark.asyncio
+async def test_cast_fails_where_cast_or_character_degrades(_avatars):
+    """The choice ComfyUI's unconditional `required: True` forces on the user: a scene
+    with nobody else either hard-fails or falls back to the primary likeness."""
+    alone = (_subject("card-a"),)
+
+    with pytest.raises(ImageGenerationError) as raised:
+        await _resolve(_entries("cast", "72"), [], subjects=alone)
+    assert "Load Image (#72)" in str(raised.value)
+    assert "another cast member" in str(raised.value)
+
+    degraded = await _resolve(_entries("cast_or_character", "72"), [], subjects=alone)
+    assert [r.origin for r in degraded] == ["character:card-a"]
+
+
+@pytest.mark.asyncio
+async def test_a_cast_reference_records_a_plain_character_origin(_avatars):
+    """Replay knows nothing about a cast: a `cast` slot records `character:<card id>`,
+    which `_origin_bytes` already re-fetches and `_verify_unchanged` already exempts."""
+    resolved = await _resolve(_entries("cast", "72"), [], subjects=(_subject("card-a"), _subject("card-b")))
+
+    assert resolved[0].origin == "character:card-b"
+    assert resolved[0].source == "cast"
 
 
 # ── replay ───────────────────────────────────────────────────────────────────

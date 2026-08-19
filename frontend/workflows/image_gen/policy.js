@@ -149,13 +149,24 @@ export function graphReferenceSlots(graphs, workflowId) {
   return Array.isArray(declared) ? declared.slice(0, MAX_REFERENCE_SLOTS) : [];
 }
 
+// How many reference images one cloud provider actually reads. A provider fact and an
+// allowlist -- see `ProviderPreset.max_references` -- so a preset that declares none,
+// and every unknown provider, is one.
+export function maxCloudReferences(preset) {
+  const declared = Number(preset?.max_references);
+  return Number.isFinite(declared) && declared >= 1 ? Math.min(declared, MAX_REFERENCE_SLOTS) : 1;
+}
+
 // What a style will actually send, which is never simply what it stores: a style keeps
 // both backends' answers across a relink, so `["", "character"]` under a cloud provider
-// is one slot and it is off. Anything reading the stored list to decide what leaves the
-// machine asks the user to approve an upload the panel shows as Off and no adapter makes.
-export function effectiveReferenceSources(style, { graphs = [], source = "" } = {}) {
+// with one slot is one slot and it is off. Anything reading the stored list to decide
+// what leaves the machine asks the user to approve an upload the panel shows as Off and
+// no adapter makes.
+export function effectiveReferenceSources(style, { graphs = [], source = "", preset = null } = {}) {
   const stored = Array.isArray(style?.reference_sources) ? style.reference_sources : [];
-  return stored.slice(0, source === "cloud" ? 1 : graphReferenceSlots(graphs, style?.workflow).length);
+  const capacity =
+    source === "cloud" ? maxCloudReferences(preset) : graphReferenceSlots(graphs, style?.workflow).length;
+  return stored.slice(0, capacity);
 }
 
 // ── resolution ───────────────────────────────────────────────────────────────
@@ -240,7 +251,11 @@ export function pendingDisclosures(config = {}, connections = []) {
       // adapter will send is the question, and a style carries answers for slots its
       // current target does not have.
       sendsImages: linked.some((style) =>
-        effectiveReferenceSources(style, { graphs: external.user_graphs, source: connection.source }).some(Boolean),
+        effectiveReferenceSources(style, {
+          graphs: external.user_graphs,
+          source: connection.source,
+          preset: connection.preset,
+        }).some(Boolean),
       ),
     });
     if (notice) notices.push(notice);

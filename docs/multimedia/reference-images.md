@@ -88,8 +88,13 @@ to character reference. A row left **Off** keeps the filename the workflow shipp
 which doesn't exist on your server, and the render fails in this workflow. But cloud API
 is more flexible and can handle this case.
 
+In a group chat, **Character reference image** means the member who wrote the reply
+you're visualizing. To draw a second person from a likeness too, export the workflow
+with a second **Load Image** node and set that row to **Another cast member, else
+character reference**.
+
 ## Next step
 
 [Reference images](image-generation.md#reference-images) covers the sources you
-can pick per row, how the character reference image works, and what happens on
-reroll.
+can pick per row, how the character reference image works, how a group chat
+addresses the rest of the cast, and what happens on reroll.

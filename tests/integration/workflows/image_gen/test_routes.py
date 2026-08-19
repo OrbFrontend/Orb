@@ -21,6 +21,22 @@ from backend.workflows.image_gen.config import CONFIG_DEFAULTS
 from backend.workflows.image_gen.engine import ImageResult
 
 
+def _avatar() -> str:
+    """A real 64x64 PNG, base64'd: a card avatar is the reference fallback, and the
+    slot policy re-encodes it, which needs bytes PIL can actually open."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), (30, 30, 40)).save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+_AVATAR = _avatar()
+
+
 def _image(**info) -> ImageResult:
     return ImageResult(
         image_bytes=b"\x89PNG\r\n\x1a\nimage",
@@ -127,7 +143,9 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
     assert compose["client"] is lane["writer_client"]
     assert compose["model_name"] == lane["agent_model_name"]
     assert compose["prompt_format"] == "hybrid"
-    assert compose["profile_owner_name"] == "Iris"
+    # A solo chat is one subject, resolved through the same reader a group's is, and
+    # carrying the per-character profile the reference slots draw from.
+    assert [(s.card_id, s.name) for s in compose["subjects"]] == [("ig-char", "Iris")]
     assert compose["style_prompt"] == anime["prompt"]
     assert compose["style_negative_prompt"] == anime["negative_prompt"]
     assert compose["profile_negative_prompt"] == ""
@@ -381,6 +399,115 @@ async def test_a_group_addresses_one_cast_member_s_appearance_at_a_time(client):
     assert (await profile("get_profile", members[0]))["profile"]["appearance_prompt"] == "silver hair"
     assert (await profile("get_profile", members[1]))["profile"]["appearance_prompt"] == "scarred jaw"
     assert (await profile("get_profile", members[0]))["character_id"] == aria
+
+
+@pytest.mark.asyncio
+async def test_a_group_beat_addresses_the_whole_cast_end_to_end(client, monkeypatch):
+    """The whole chain against a real roster: subject order -> slot filling -> prompt.
+
+    Everything below the route is real -- the cast resolver, the per-card profiles, the
+    ordinal cache -- so this is what catches the two halves of a render disagreeing
+    about who is in it, which is the failure the subject list exists to prevent.
+    """
+    aria = (await client.post("/api/characters", json={"name": "Aria", "avatar_b64": _AVATAR})).json()["id"]
+    kael = (await client.post("/api/characters", json={"name": "Kael", "avatar_b64": _AVATAR})).json()["id"]
+    conv = (
+        await client.post(
+            "/api/conversations",
+            json={
+                "kind": "group",
+                "title": "Campfire",
+                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
+            },
+        )
+    ).json()
+    members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
+    await set_workflow_character_state(aria, "image_gen", {"appearance_prompt": "silver hair"})
+    await set_workflow_character_state(kael, "image_gen", {"appearance_prompt": "scarred jaw"})
+    # One beat: Kael answers, then Aria. Aria is the anchor, so she leads.
+    ask, _ = await add_message(conv["id"], "user", "Who goes first?", 0, beat_id="beat-1")
+    first, _ = await add_message(
+        conv["id"], "assistant", "Kael shrugs.", 1, parent_id=ask, speaker_member_id=members[1]["id"], beat_id="beat-1"
+    )
+    mid, _ = await add_message(
+        conv["id"],
+        "assistant",
+        "Aria steps forward.",
+        2,
+        parent_id=first,
+        speaker_member_id=members[0]["id"],
+        beat_id="beat-1",
+    )
+    await set_active_leaf(conv["id"], mid)
+    # A two-`Load Image` graph: the primary in one slot, the next cast member in the other.
+    await set_workflow_config(
+        "image_gen",
+        {
+            "default_style": "cast",
+            "styles": [
+                {
+                    "id": "cast",
+                    "label": "Cast",
+                    "connection": "comfy",
+                    "workflow": "g",
+                    "reference_sources": ["character", "cast"],
+                }
+            ],
+            "external_comfy": {
+                "user_graphs": [
+                    {
+                        "id": "g",
+                        "label": "Cast",
+                        "graph": {
+                            "0": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+                            "s": {"class_type": "KSampler", "inputs": {"seed": 0}},
+                            "o": {"class_type": "SaveImage", "inputs": {"images": ["0", 0]}},
+                            "r": {"class_type": "LoadImage", "inputs": {"image": "a.png"}},
+                            "r2": {"class_type": "LoadImage", "inputs": {"image": "b.png"}},
+                        },
+                        "slots": {
+                            "positive": ["0", "text"],
+                            "seed": ["s", "seed"],
+                            "output": ["o", "images"],
+                            "references": [
+                                {"slot": ["r", "image"], "label": "Load Image (#r)"},
+                                {"slot": ["r2", "image"], "label": "Load Image (#r2)"},
+                            ],
+                        },
+                    }
+                ]
+            },
+        },
+    )
+    captured: dict = {}
+
+    async def fake_compose(**kwargs):
+        captured["compose"] = kwargs
+        return "2girls, standing", "", "single_call"
+
+    async def fake_render(adapter, request, **kwargs):
+        captured["request"] = request
+        return _image()
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
+
+    response = await client.post(
+        f"/api/conversations/{conv['id']}/workflows/image_gen/trigger",
+        json={"action": "generate", "message_id": mid},
+    )
+    assert response.status_code == 200
+    assert "event: image_gen_error" not in response.text
+
+    # The anchor's speaker leads; the other member of the beat follows in roster order.
+    assert [(s.card_id, s.name) for s in captured["compose"]["subjects"]] == [(aria, "Aria"), (kael, "Kael")]
+    # Slot one drew the primary, slot two the next cast member -- and the prompt was
+    # told which likeness went where, so neither identity is suppressed by accident.
+    assert [(r.slot, r.origin) for r in captured["request"].references] == [
+        (("r", "image"), f"character:{aria}"),
+        (("r2", "image"), f"character:{kael}"),
+    ]
+    assert captured["compose"]["referenced_subjects"] == ["Aria", "Kael"]
 
 
 @pytest.mark.asyncio

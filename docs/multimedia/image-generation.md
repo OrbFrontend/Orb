@@ -242,8 +242,10 @@ than ComfyUI's, because the image is base64-encoded inside a JSON request body.
 Orb resizes and re-compresses to stay under that limit; if it cannot, the render
 fails and says so rather than sending an oversized request.
 
-The source choices are the same three listed below. Providers that accept only
-one reference image are sent the first, and Orb notes it on the image.
+The source choices are the same five listed below. How many rows a cloud style
+shows depends on the provider: Orb offers a row only for a reference image that
+provider is known to actually read, which today is one everywhere. A provider sent
+more references than it reads is sent the first, and Orb notes it on the image.
 
 A cloud reference is optional. When no source resolves — a new conversation with
 no images yet, and no character reference — the render goes to the plain
@@ -277,13 +279,41 @@ Each reference row offers these sources:
 |--------|----------------|
 | **Previous image, else character reference** | The most recent image in the chat. If the chat has none, the character reference image. |
 | **Previous image in the chat** | The most recent image in the chat. |
-| **Character reference image** | The character reference image. |
+| **Character reference image** | The character reference image for the character this picture is of. |
+| **Another cast member, else character reference** | The next cast member in the scene. In a solo chat, or when nobody else spoke, the character reference image. |
+| **Another cast member** | The next cast member in the scene. Fails when there is nobody else. |
 
 The previous image is the most recent generated image or uploaded image before
 the reply you are visualizing. If a reply has image variants, Orb sends the
 variant that is currently shown. Orb never sends the image already attached to
 the reply you are visualizing. When no source resolves on ComfyUI, the render
 fails and names the slot - Orb does not substitute a different image.
+
+### Reference images in a group chat
+
+**Character reference image** always means the character the picture is *of* -
+the member who wrote the reply you are visualizing. Two rows both set to it send
+the same likeness twice, which is what a workflow built around two **Load Image**
+nodes needs in a solo chat.
+
+**Another cast member** is how you reach the rest of the scene. Count the rows
+using it: the first draws the second character, the second draws the third, and
+so on. So a two-hander is one **Character reference image** row and one **Another
+cast member** row.
+
+Who counts as "the rest of the scene" is everyone who spoke in the same beat -
+the same round of replies - as the message you are visualizing, in cast order. A
+member who is in the scene but silent this round is not sent, because the scene
+analyzer will usually leave them out of the shot too.
+
+Pick **Another cast member, else character reference** unless you want the render
+to stop when the scene has only one person in it. On ComfyUI a row that resolves
+to nothing cannot render at all, so the plain **Another cast member** is the
+strict choice and the combined one is the forgiving one.
+
+Orb also tells the prompter which characters a likeness was sent for. Characters
+in the shot with no reference image of their own are still described in full, so
+they do not come out as generic people.
 
 Orb looks back at most 30 messages on the branch. Past that, **Previous image,
 else character reference** falls through to the character reference: a picture
@@ -477,7 +507,7 @@ Orb ships **Realistic** and **Anime** styles out of the box. A style contains th
 | **Model** | Selects the model this style renders with. Cloud only. Leave it on the provider's default if you have no preference. |
 | **Resolution** | Sets the output size. Always shown for a cloud connection; on ComfyUI, only when the assigned workflow has **Width** and **Height** slots mapped. |
 | **Quality** | Sets the provider's quality tier, on providers that expose one. Cloud only. |
-| **Reference images** | Chooses what Orb feeds each image input this style's render target has - one on a cloud provider, one per **Load Image** widget on a ComfyUI workflow. Off by default. See [Reference images](#reference-images). |
+| **Reference images** | Chooses what Orb feeds each image input this style's render target has - one per reference the cloud provider is known to read, or one per **Load Image** widget on a ComfyUI workflow. Off by default. See [Reference images](#reference-images). |
 
 A style owns everything that decides what the image looks like. A connection owns
 only how Orb reaches a backend — a URL and a key.
@@ -593,6 +623,7 @@ guaranteed.
 | ComfyUI rejects the workflow. | Check that the server has all required nodes. Check the selected checkpoint and imported slots. |
 | The render times out. | Check the ComfyUI queue. Increase **Render timeout**. The allowed range is 10 to 900 seconds. |
 | A render says it needs a reference image. | Generate or upload an image in the chat first. Or set a character reference image, and set the slot to a source that includes it. |
+| A render says only one character is in this beat. | A row is set to **Another cast member** and nobody else spoke this round. Switch it to **Another cast member, else character reference**. |
 | A reroll says the reference image is gone. | The source image was deleted or its bytes were evicted. Select **Regenerate**. |
 | A reroll says the reference image was replaced. | The image that origin points at now holds different bytes, so the reroll cannot reproduce the picture. Select **Regenerate**. |
 | A reroll says the style needs a reference the image did not record. | That style loads more images than the stored one recorded. Select **Regenerate** under that style. |

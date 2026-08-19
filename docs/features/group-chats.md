@@ -178,6 +178,17 @@ switching member reloads the form rather than writing to whoever spoke last.
 `getGroupCast()` (workflow ABI v3) is how a workflow plugin reads the roster, and
 `speaker_member_id` on the trigger route is how it addresses one member.
 
+Image generation is per-speaker in *which member it is of* and per-beat in *who
+else it may draw*. The speaker of the reply being visualized is the picture's
+primary subject; the other members who spoke in the same beat follow, in cast
+order. Both halves of the render read that one list: a style's reference rows can
+send a likeness for each of them (**Another cast member** — see
+[Reference images](../multimedia/image-generation.md#reference-images-in-a-group-chat)),
+and the prompter is given every subject's saved appearance plus the names of the
+ones a likeness was actually sent for, so an unreferenced character in the shot is
+still described in full instead of coming out as a generic person. A first-person
+shot narrows to the one subject the camera is looking at.
+
 Character expressions follow the floor: the header's 👥 avatar opens the popup on
 the member currently streaming, or the last one to have spoken, and switches face
 mid-beat as the floor moves.

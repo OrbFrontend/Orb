@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+from dataclasses import replace
 
 import httpx
 import pytest
@@ -446,6 +447,81 @@ def test_reference_slots_appear_only_when_the_source_is_turned_on():
     assert len(on.reference_slots) == 1
     assert on.reference_slots[0]["slot"] == list(CLOUD_REFERENCE_SLOT)
     assert on.reference_slots[0]["source"] == "previous_or_character"
+
+
+def _capacity(monkeypatch, slots: int) -> None:
+    """Raise xAI's declared capacity, as a probed row would.
+
+    Patched rather than shipped: no row in `PRESETS` declares more than one, because
+    nobody has watched a provider read a second element -- see `test_providers`. The
+    *mechanism* still has to work the day one does.
+    """
+    from backend.workflows.image_gen.engine.adapters import openai_image
+
+    raised = replace(XAI, max_references=slots)
+    monkeypatch.setattr(openai_image, "get_preset", lambda _pid: raised)
+
+
+def test_a_provider_declares_one_optional_slot_per_probed_reference(monkeypatch):
+    """The target declares the capacity, the render fills what it has. Every slot is
+    optional -- a cloud model has a plain generations endpoint one field away -- so a
+    scene with fewer people than slots degrades with a note instead of failing."""
+    _capacity(monkeypatch, 3)
+    config = _config(reference_sources=["character", "cast", "cast"])
+
+    target = _target(_bound(config), config)
+
+    assert [slot["slot"] for slot in target.reference_slots] == [
+        ["cloud", "image_0"],
+        ["cloud", "image_1"],
+        ["cloud", "image_2"],
+    ]
+    assert [slot["source"] for slot in target.reference_slots] == ["character", "cast", "cast"]
+    assert not any(slot["required"] for slot in target.reference_slots)
+
+
+def test_capacity_truncates_the_stored_list_rather_than_reading_it_as_intent(monkeypatch):
+    """A style keeps both backends' answers across a relink, so a four-row ComfyUI
+    answer under a one-slot provider is one slot -- or a disclosure asks the user to
+    approve three uploads no adapter makes."""
+    config = _config(reference_sources=["character", "cast", "cast", "cast"])
+
+    assert len(_target(_bound(config), config).reference_slots) == 1
+
+    _capacity(monkeypatch, 2)
+    assert len(_target(_bound(config), config).reference_slots) == 2
+
+
+def test_a_row_left_off_keeps_its_position(monkeypatch):
+    """Positional, like every other slot list: an enabled second row fills `image_1`,
+    or a replay re-keys the reference onto the wrong slot."""
+    _capacity(monkeypatch, 2)
+    config = _config(reference_sources=["", "cast"])
+
+    target = _target(_bound(config), config)
+
+    assert [slot["slot"] for slot in target.reference_slots] == [["cloud", "image_1"]]
+    # The scalar record still answers for position 0, which is off.
+    assert target.reference_source == ""
+
+
+def test_a_replay_reads_position_zero_from_the_scalar_and_the_rest_from_the_records(monkeypatch):
+    """`reference_source` is the authoritative recorded fact for this backend and the
+    only one an attachment made before a second slot existed carries. The per-slot
+    records answer for the positions it cannot address."""
+    _capacity(monkeypatch, 2)
+    config = _config(reference_sources=["", ""])
+    replay = {
+        "reference_source": "character",
+        "references": [
+            {"slot": ["cloud", "image_0"], "source": "character"},
+            {"slot": ["cloud", "image_1"], "source": "cast"},
+        ],
+    }
+
+    target = _target(_bound(config), config, replay)
+
+    assert [slot["source"] for slot in target.reference_slots] == ["character", "cast"]
 
 
 @pytest.mark.asyncio

@@ -326,6 +326,33 @@ def test_a_singular_reference_field_discloses_the_ones_it_dropped():
     assert any("one reference image" in note for note in built.notes)
 
 
+def test_reference_capacity_is_an_allowlist_and_nobody_has_probed_a_second():
+    """`max_references` has the epistemics `reference_models` has, for the same reason.
+
+    xAI and OpenAI both take `images` as a JSON *array* and both answer 200 to a
+    second element -- which proves the request was accepted and nothing about whether
+    it was read. Over-promising costs a slot the user configured, a likeness Orb
+    uploaded, and a render that billed for both and drew from one. So every row stays
+    at 1 until someone puts two unmistakable references through it and reads the
+    output back; raising a row is then a one-line change.
+    """
+    assert [preset.id for preset in PRESETS if preset.max_references != 1] == []
+
+
+def test_a_list_encoding_carries_every_reference_and_a_scalar_one_says_it_did_not():
+    """The mechanism a probed row would switch on, pinned against both encodings so a
+    raised `max_references` cannot silently drop the extras it just promised."""
+    two = [_reference(), _reference("image/jpeg")]
+
+    listed = build_edit_body(XAI, model="m", prompt="p", references=two)
+    assert len(listed.body["images"]) == 2
+    assert not any("only the first was sent" in note for note in listed.notes)
+
+    scalar = build_edit_body(NANOGPT, model="step-image-edit-2", prompt="p", references=two)
+    assert isinstance(scalar.body["image"], str)
+    assert any("only the first was sent" in note for note in scalar.notes)
+
+
 @pytest.mark.parametrize(
     "preset",
     [preset for preset in PRESETS if preset.supports_references],

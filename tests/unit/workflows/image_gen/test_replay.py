@@ -171,6 +171,88 @@ async def test_a_style_swap_on_reroll_ignores_the_stale_graph_pins():
 
 
 @pytest.mark.asyncio
+async def test_a_two_reference_render_replays_both_origins_byte_identically(monkeypatch):
+    """A cast render records two `character:` origins, and a reroll must reproduce both.
+
+    Nothing about replay knows a cast exists -- a `cast` slot records the same shape a
+    `character` slot does -- so this is the assertion that the new source cost the
+    replay path nothing: two origins in, two slots filled, in order, from the cards.
+    """
+    from backend.workflows.image_gen import references as refs
+    from backend.workflows.image_gen.engine.contracts import ImageResult
+
+    two_slot = {**GRAPH, "r": {"class_type": "LoadImage", "inputs": {"image": "a.png"}}}
+    two_slot["r2"] = {"class_type": "LoadImage", "inputs": {"image": "b.png"}}
+    slots = {
+        **SLOTS,
+        "references": [
+            {"slot": ["r", "image"], "label": "Load Image (#r)"},
+            {"slot": ["r2", "image"], "label": "Load Image (#r2)"},
+        ],
+    }
+    config = _config(
+        user_graphs=[{"id": "user_cast", "label": "Cast", "graph": two_slot, "slots": slots}],
+        styles=[
+            {
+                "id": "anime",
+                "label": "Anime",
+                "workflow": "user_cast",
+                "reference_sources": ["character", "cast"],
+            }
+        ],
+    )
+
+    async def get_config(_workflow_id):
+        return config
+
+    import io
+
+    from PIL import Image
+
+    def _png(colour):
+        buf = io.BytesIO()
+        Image.new("RGB", (64, 64), colour).save(buf, format="PNG")
+        return buf.getvalue()
+
+    avatars = {"card-a": _png((200, 10, 10)), "card-b": _png((10, 10, 200))}
+
+    async def avatar(card_id):
+        return avatars[card_id], "image/png"
+
+    async def state(_card_id, _wid):
+        return None
+
+    captured: dict = {}
+
+    async def fake_generate(_adapter, request, *, target=None, progress=None):
+        captured["request"] = request
+        return ImageResult(image_bytes=b"rendered", mime="image/webp", backend_info={"source": "external_comfy"})
+
+    monkeypatch.setattr(hooks, "get_workflow_config", get_config)
+    monkeypatch.setattr(hooks, "resolve_and_generate", fake_generate)
+    monkeypatch.setattr(refs, "get_character_avatar", avatar)
+    monkeypatch.setattr(refs, "get_workflow_character_state", state)
+
+    params = {
+        "prompt": "p",
+        "negative_prompt": "",
+        "style_id": "anime",
+        "references": [
+            {"slot": ["r", "image"], "source": "character", "origin": "character:card-a"},
+            {"slot": ["r2", "image"], "source": "cast", "origin": "character:card-b"},
+        ],
+    }
+
+    _, consumption = await hooks.reroll_gen(_RerollCtx("anime", replay=True), params, "1")
+
+    assert [ref.origin for ref in captured["request"].references] == ["character:card-a", "character:card-b"]
+    assert [ref.slot for ref in captured["request"].references] == [("r", "image"), ("r2", "image")]
+    assert not any("not sent" in note for note in consumption.get("notes", []))
+    # The sibling records what it rendered, so a later replay of *it* is reproducible.
+    assert [entry["origin"] for entry in params["references"]] == ["character:card-a", "character:card-b"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.usefixtures("_edit_config")
 async def test_rerolling_onto_a_style_needing_an_unrecorded_reference_is_refused():
     """Submitting anyway would ship the new graph's exporter filenames, which
@@ -551,3 +633,15 @@ async def test_a_cloud_reroll_converts_the_reference_to_what_the_provider_takes(
     (reference,) = captured["request"].references
     assert reference.mime in ("image/png", "image/jpeg")
     assert reference.slot == ("cloud", "image_0")
+
+
+# ── what a partly-filled target discloses ────────────────────────────────────
+
+
+def test_the_unfilled_slot_note_counts_rather_than_claiming_nothing_was_sent():
+    """Trap 4.2. "drawn from the prompt alone" is true only when *nothing* resolved.
+    Said with one of two slots filled it tells the user the opposite of what happened,
+    which is exactly the case a multi-slot cast render makes ordinary."""
+    assert "prompt alone" in hooks._unfilled_note(1, 0)
+    assert hooks._unfilled_note(1, 1) == "1 reference image could not be resolved, so it was not sent"
+    assert hooks._unfilled_note(2, 1) == "2 reference images could not be resolved, so they were not sent"

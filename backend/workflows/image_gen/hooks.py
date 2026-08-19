@@ -18,6 +18,7 @@ from ..toolkit import (
     set_workflow_character_state,
 )
 from . import pov as pov_mod
+from . import subjects as subjects_mod
 from .composer import assemble_prompts, compose_scene
 from .config import (
     MAX_REFERENCE_IMAGE_B64,
@@ -37,7 +38,9 @@ from .engine import (
     recorded_edge,
     resolve_and_generate,
 )
+from .engine.contracts import ResolvedReference
 from .references import refetch_references, resolve_references
+from .subjects import Subject
 
 logger = logging.getLogger(__name__)
 SEED_MODULUS = 2**64
@@ -218,6 +221,43 @@ def _consumption(
     return payload
 
 
+def _referenced_subjects(subjects: Sequence[Subject], references: Sequence[ResolvedReference]) -> list[str]:
+    """Which subjects a likeness was actually sent for, in slot order.
+
+    Matched on the reference's `character:<card id>` origin, which is the only thing
+    that survives both backends and both sources: a `cast` slot and a `character` slot
+    record the same shape, and a `previous` slot records none, so a chat image
+    correctly names nobody.
+
+    Slot order, not subject order, because that is the order the images travel in and
+    a cloud provider handed an array is told nothing else about which is which.
+    """
+    by_card = {subject.card_id: subject.name for subject in subjects if subject.card_id and subject.name}
+    names: list[str] = []
+    for reference in references:
+        card_id = reference.origin.partition(":")[2] if reference.origin.startswith("character:") else ""
+        name = by_card.get(card_id)
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def _unfilled_note(unfilled: int, filled: int) -> str:
+    """What an optional slot that resolved to nothing is disclosed as.
+
+    Count-aware because a target may declare several: "drawn from the prompt alone" is
+    only true when *nothing* resolved, and saying it with one of two slots filled tells
+    the user the opposite of what happened.
+    """
+    if not filled:
+        return "no reference image was available, so this was drawn from the prompt alone"
+    plural = unfilled > 1
+    return (
+        f"{unfilled} reference {'images' if plural else 'image'} could not be resolved, "
+        f"so {'they were' if plural else 'it was'} not sent"
+    )
+
+
 def _recorded_references(params: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     """The reference records on a stored image, as a list this hook can count."""
     recorded = params.get("references")
@@ -255,19 +295,28 @@ async def _generate_fresh(
     selected_style = resolve_style(config, style_id)
     adapter = get_adapter(config, selected_style)
     target = adapter.resolve_target(None)
-    character = getattr(ctx, "character", None)
-    profile_owner_name = str(character.get("name") or "") if isinstance(character, Mapping) else ""
-    appearance = str(profile.get("appearance_prompt") or "")
+    # The order is load-bearing: the camera decides how many subjects there are, the
+    # subjects decide whose likeness each slot draws, and only then is there anything
+    # for the composer to be told about. Nothing here consults the scene analyzer --
+    # that runs *inside* compose_scene and would close the loop.
+    pov, pov_source = await pov_mod.resolve(mode=config["pov_mode"], history=history)
+    logger.info("[image_gen] camera: %s (from %s)", pov, pov_source)
+    subjects = await subjects_mod.resolve(
+        conversation_id=ctx.conversation_id,
+        history=history,
+        anchor_id=int(message["id"]),
+        character_id=getattr(ctx, "character_id", None),
+        character=getattr(ctx, "character", None),
+        profile=profile,
+        pov=pov,
+    )
     references = await resolve_references(
         target.reference_slots,
         history=history,
         anchor_id=int(message["id"]),
-        character_id=getattr(ctx, "character_id", None),
-        profile=profile,
+        subjects=subjects,
     )
     unfilled = len(target.reference_slots) - len(references)
-    pov, pov_source = await pov_mod.resolve(mode=config["pov_mode"], history=history)
-    logger.info("[image_gen] camera: %s (from %s)", pov, pov_source)
     scene, avoid, composer_mode = await compose_scene(
         client=ctx.agent_client,
         model_name=ctx.agent_model_name,
@@ -277,11 +326,11 @@ async def _generate_fresh(
         pov=pov,
         reasoning_on=bool(config.get("prompter_reasoning")),
         scene_analysis=bool(config.get("scene_analysis")),
-        appearance=appearance,
-        profile_owner_name=profile_owner_name,
+        subjects=subjects,
         extra_instructions=str(selected_style.get("extra_instructions") or ""),
         supports_negative=target.supports_negative_prompt,
         has_references=bool(references),
+        referenced_subjects=_referenced_subjects(subjects, references),
         style_prompt=str(selected_style.get("prompt") or ""),
         style_negative_prompt=str(selected_style.get("negative_prompt") or ""),
         profile_negative_prompt=str(profile.get("negative_prompt") or ""),
@@ -313,7 +362,7 @@ async def _generate_fresh(
     )
     consumption = _consumption(style, prompt, negative, result, md, source_label=adapter.label)
     if unfilled > 0:
-        consumption.setdefault("notes", []).append("no reference image was available, so this was drawn from the prompt alone")
+        consumption.setdefault("notes", []).append(_unfilled_note(unfilled, len(references)))
     return _attachment(seed, result, md, consumption)
 
 

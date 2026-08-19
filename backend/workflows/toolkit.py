@@ -4,8 +4,9 @@ Workflows import from this module rather than reaching directly into
 ``backend.inference.client``, ``backend.inference.prompt_builder``, etc. The set of
 re-exports is the workflow author's API: LLM client, tool-schema
 assembly, prompt assembly, macro resolution, read-only DB helpers for
-core state (including the character avatar and the single-attachment
-reader, for workflows that consume prior artifacts as input),
+core state (including the character avatar, the single-attachment
+reader, for workflows that consume prior artifacts as input, and the
+resolved scene cast),
 workflow-scoped storage wrappers, the locks guarding
 read-modify-write on that storage, the forced-call helper,
 the tool-overlay helper, the ``local_ml`` scaffold (for workflows that
@@ -41,7 +42,7 @@ from ..core import (
     workflow_config_lock,
     workflow_state_lock,
 )
-from ..core.domain_types import AgentLane
+from ..core.domain_types import AgentLane, CastMember, TurnCast
 from ..database import (
     get_active_lorebook_entries,
     get_character_avatar,
@@ -90,12 +91,14 @@ from .registry import (
 )
 
 __all__ = [
+    "CastMember",
     "EVICTED_MARKER",
     "FormatDriftReport",
     "LLMClient",
     "Macros",
     "STANDALONE_TOOLS",
     "TOOLS",
+    "TurnCast",
     "build_prefix",
     "enabled_schemas",
     "forced_tool_call",
@@ -112,6 +115,7 @@ __all__ = [
     "get_messages",
     "get_mood_fragments",
     "get_phrase_bank",
+    "get_scene_cast",
     "get_settings",
     "get_user_attachments_for_message",
     "get_user_personas",
@@ -137,6 +141,24 @@ __all__ = [
     "workflow_config_lock",
     "workflow_state_lock",
 ]
+
+
+async def get_scene_cast(conversation_id: str) -> TurnCast:
+    """The conversation's resolved roster, through the one resolver the turn uses.
+
+    ``resolve_cast`` is already imported here for ``build_offturn_prefix``; this
+    exports it under a name a workflow may call, taking a conversation *id* rather
+    than a row so nothing above has to fetch one to ask who is in the scene. A
+    workflow asking who a render is *of* must get the same answer the prefix it
+    rides was built from -- two resolvers would mean a likeness sent for someone
+    the prompt never named.
+
+    A conversation that has gone missing answers as an empty solo cast rather than
+    raising: the caller degrades to "no subjects", which is what a narrator line
+    already resolves to.
+    """
+    conv = await get_conversation(conversation_id)
+    return await resolve_cast(conv) if conv is not None else TurnCast(False, ())
 
 
 async def build_offturn_prefix(

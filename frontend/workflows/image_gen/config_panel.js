@@ -34,6 +34,7 @@ import {
   findConnection,
   graphReferenceSlots,
   MAX_REFERENCE_SLOTS,
+  maxCloudReferences,
   modelTakesReferences,
   normalizePromptFormat,
   PROMPT_FORMATS,
@@ -47,10 +48,17 @@ import {
 
 const WORKFLOW_ID = "image_gen";
 
+// `character` is the primary subject of the render in every row -- two rows on it send
+// the same likeness twice, which is what a two-`Load Image` graph in a solo chat needs.
+// `cast` is the *next* cast member who spoke this beat, counted across the rows that use
+// it, so two `cast` rows draw two different people. `backend/workflows/image_gen/
+// subjects.py` is the only definition of that order.
 const REFERENCE_SOURCES = [
   ["previous_or_character", "Previous image, else character reference"],
   ["previous", "Previous image in the chat"],
   ["character", "Character reference image"],
+  ["cast_or_character", "Another cast member, else character reference"],
+  ["cast", "Another cast member"],
 ];
 const MAX_USER_GRAPHS = 32;
 
@@ -315,16 +323,26 @@ function backendFields(style, connection) {
 
 function cloudStyleFields(style, connection) {
   const preset = connection.preset;
-  const [source] = styleSources(style);
+  const sources = styleSources(style);
   const quality = preset?.supports_quality
     ? `<label>Quality<select ${styleField("quality")}>${optionList(CLOUD_QUALITIES, style.quality || "")}</select></label>`
     : "";
-  // One slot, so one select at position 0 — the same control a single-`LoadImage`
-  // workflow gets, which is the whole point of the sources living on the style.
+  // One select per slot the provider is known to read, positional exactly as a
+  // multi-`Load Image` workflow's rows are — which is the whole point of the sources
+  // living on the style. Most providers declare one, and then this is one control.
+  const slots = maxCloudReferences(preset);
   const references =
-    !preset || preset.supports_references ? `<label>Reference images${referenceSelect(0, source, true)}</label>` : "";
+    !preset || preset.supports_references
+      ? [...Array(slots).keys()]
+          .map(
+            (i) =>
+              `<label>${slots === 1 ? "Reference images" : `Reference image ${i + 1}`}${referenceSelect(i, sources[i], i === 0)}</label>`,
+          )
+          .join("")
+      : "";
+  const anyReference = sources.slice(0, slots).some(Boolean);
   const referenceModelNote =
-    preset && source && !modelTakesReferences(preset, style.model)
+    preset && anyReference && !modelTakesReferences(preset, style.model)
       ? `<div class="image-gen-note ig-unready">${esc(
           style.model || preset?.default_model || "This model",
         )} does not accept reference images — choose a model that does, or set Reference images to Off.</div>`
@@ -333,7 +351,7 @@ function cloudStyleFields(style, connection) {
   // control above stops applying the moment a reference is on. Said here rather than
   // left for the render note: this one is knowable before the render is paid for.
   const referenceSizeNote =
-    preset?.reference_drives_size && source && modelTakesReferences(preset, style.model)
+    preset?.reference_drives_size && anyReference && modelTakesReferences(preset, style.model)
       ? `<div class="image-gen-note">${esc(connection.label)} sizes a reference render from the reference image, so Resolution does not apply while these are on.</div>`
       : "";
   return `<div class="ig-grid">

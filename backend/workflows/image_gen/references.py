@@ -32,11 +32,13 @@ from .config import REFERENCE_MIMES, REFERENCE_SOURCES, WORKFLOW_ID, normalize_p
 from .engine import ImageGenerationError
 from .engine.contracts import ResolvedReference
 from .engine.display_encode import normalize_reference
+from .subjects import Subject
 
 # How each source reads in an error message. The names the import picker uses.
 SOURCE_LABELS = {
     "previous": "the previous image in the chat",
     "character": "the character reference image",
+    "cast": "a reference image for another cast member in this beat",
 }
 
 # How far back a `previous` slot looks, in messages on this branch. Unbounded, the
@@ -130,11 +132,24 @@ def _previous_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> tup
     return None
 
 
-async def _character_image(character_id: str | None, profile: Mapping[str, Any]) -> tuple[bytes, str, str] | None:
-    """The per-character reference, falling back to the card avatar -- a genuine
-    likeness, always present, so this source works before anything is uploaded."""
+async def _subject_image(subject: Subject | None) -> tuple[bytes, str, str] | None:
+    """One subject's likeness: their per-character reference, falling back to the card
+    avatar -- a genuine likeness, always present, so this source works before anything
+    is uploaded.
+
+    One resolver for both `character` (subject 0) and `cast` (subject n+1), because the
+    two differ only in *which* subject is asked about. The origin is keyed by card id
+    either way, which is what lets a replay re-fetch a cast likeness with no knowledge
+    that a cast ever existed -- `_origin_bytes` already reads `character:<card id>`.
+
+    A subject with no card -- a narrator, or a slot addressing a member the beat does
+    not have -- is a missing source, and the caller falls through to the next name in
+    the list.
+    """
+    character_id = subject.card_id if subject is not None else None
     if not character_id:
         return None
+    profile = normalize_profile(subject.profile if subject is not None else None)
     payload, mime = profile.get("reference_image_b64"), profile.get("reference_mime")
     if isinstance(payload, str) and payload and isinstance(mime, str) and mime:
         try:
@@ -213,10 +228,15 @@ async def _resolved(
 def _unresolved(label: str, source: str) -> ImageGenerationError:
     names = REFERENCE_SOURCES.get(source, ())
     tried = " or ".join(SOURCE_LABELS.get(name, name) for name in names) or "any configured source"
-    return ImageGenerationError(
-        f"This workflow needs a reference image for {label}, but {tried} is not available. "
-        "Generate or upload an image in this chat first, or set a character reference image in settings."
+    fix = (
+        # A `cast` slot in a scene where nobody else spoke is not fixed by uploading
+        # anything, so it is told the one thing that does fix it.
+        "Only one character is in this beat. Set that slot to a source that falls back to the "
+        "character reference image, or wait until another cast member speaks."
+        if names == ("cast",)
+        else "Generate or upload an image in this chat first, or set a character reference image in settings."
     )
+    return ImageGenerationError(f"This workflow needs a reference image for {label}, but {tried} is not available. {fix}")
 
 
 async def resolve_references(
@@ -224,10 +244,14 @@ async def resolve_references(
     *,
     history: Sequence[Mapping[str, Any]],
     anchor_id: int,
-    character_id: str | None,
-    profile: Mapping[str, Any] | None = None,
+    subjects: Sequence[Subject] = (),
 ) -> tuple[ResolvedReference, ...]:
     """Bytes for every mapped reference slot, for a fresh render.
+
+    `subjects` is `subjects.resolve`'s answer, in order: entry 0 is what `character`
+    means and entries 1.. are what successive `cast` slots draw from. Passing the
+    list rather than one card id is what makes the two halves of a render agree on
+    who is in it.
 
     An unresolvable *required* slot fails with a specific message rather than
     substituting silently; an unresolvable optional one is simply absent, and the
@@ -235,23 +259,37 @@ async def resolve_references(
     """
     if not entries:
         return ()
-    normalized_profile = normalize_profile(profile)
     # Each source resolves at most once per render, so a two-slot graph reads the
-    # branch once even when both slots share a source.
+    # branch once even when both slots share a source -- and two `character` slots
+    # receive the same likeness twice, which is what makes a two-`LoadImage` graph
+    # work in a solo chat.
+    #
+    # `cast` is the one source keyed by **ordinal** rather than by name: its whole
+    # purpose is that the second `cast` slot is a *different* member, so caching it
+    # under the bare name would dedupe the cast back down to one person. The ordinal
+    # advances on every slot that *reaches* the resolver, whether or not that member
+    # has a likeness, so which slot draws whom does not change when one of them turns
+    # out to be empty.
     cache: dict[str, tuple[bytes, str, str] | None] = {}
     resolved: list[ResolvedReference] = []
+    cast_ordinal = 0
     for entry in entries:
         slot = entry.get("slot")
         source = str(entry.get("source") or "")
         found: tuple[bytes, str, str] | None = None
         for name in REFERENCE_SOURCES.get(source, ()):
-            if name not in cache:
-                cache[name] = (
+            if name == "cast":
+                key, index = f"cast:{cast_ordinal}", cast_ordinal + 1
+                cast_ordinal += 1
+            else:
+                key, index = name, 0
+            if key not in cache:
+                cache[key] = (
                     _previous_image(history, anchor_id)
                     if name == "previous"
-                    else await _character_image(character_id, normalized_profile)
+                    else await _subject_image(subjects[index] if index < len(subjects) else None)
                 )
-            found = cache[name]
+            found = cache[key]
             if found is not None:
                 break
         if found is None:
@@ -278,7 +316,10 @@ async def _origin_bytes(origin: str) -> tuple[bytes, str] | None:
     if kind == "character" and ident:
         # The card's *current* image, not a snapshot: this origin addresses a
         # setting rather than a chat message, so changing it and rerolling applies.
-        current = await _character_image(ident, normalize_profile(await get_workflow_character_state(ident, WORKFLOW_ID)))
+        # Card-keyed whichever slot recorded it, so a `cast` reference replays through
+        # exactly this path with nothing here knowing the cast exists.
+        profile = await get_workflow_character_state(ident, WORKFLOW_ID)
+        current = await _subject_image(Subject(member_id="", card_id=ident, name="", profile=normalize_profile(profile)))
         return (current[0], current[1]) if current else None
     return None
 

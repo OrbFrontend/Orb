@@ -43,6 +43,37 @@ CLOUD_REFERENCE_MAX_BYTES = 4 * 1024 * 1024
 CLOUD_REFERENCE_SLOT = ("cloud", "image_0")
 _NO_REFERENCES = "{model} does not accept reference images, so none was sent"
 
+
+def cloud_reference_slot(index: int) -> tuple[str, str]:
+    """The synthetic slot key for the *index*-th cloud reference.
+
+    Synthetic because a cloud provider has no node graph to key against, and stable
+    because a stored reference is re-keyed by it on replay. Position 0 keeps the
+    literal `CLOUD_REFERENCE_SLOT` spelling every attachment made before this backend
+    could take more than one recorded.
+    """
+    return CLOUD_REFERENCE_SLOT if index == 0 else ("cloud", f"image_{index}")
+
+
+def _recorded_sources(replay: Mapping[str, Any], capacity: int) -> list[str]:
+    """The per-slot sources a stored render used, re-keyed onto this target's slots.
+
+    The same rule the ComfyUI adapter applies, for the same reason: the sources moved
+    onto the style, where they are editable after the fact, so a rehydrate replaying
+    them off the style would reproduce a different picture. `[]` when the record names
+    no cloud slot, and the caller falls back to the legacy single `reference_source`
+    and then to the style.
+    """
+    entries = replay.get("references")
+    recorded: dict[tuple[str, str], str] = {}
+    for entry in entries if isinstance(entries, (list, tuple)) else ():
+        slot = entry.get("slot") if isinstance(entry, Mapping) else None
+        if isinstance(slot, (list, tuple)) and len(slot) == 2:
+            recorded[(str(slot[0]), str(slot[1]))] = str(entry.get("source") or "")
+    sources = [recorded.get(cloud_reference_slot(index), "") for index in range(capacity)]
+    return sources if any(sources) else []
+
+
 CAPABILITIES: ImageBackendCapabilities = {
     "can_generate": True,
     "can_list_models": True,
@@ -136,24 +167,43 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         quality = replayed_text(replay, "quality", str(style.get("quality") or ""))
         references: tuple[Mapping[str, Any], ...] = ()
         notes: list[str] = []
-        # Position 0 because this backend declares exactly one slot. The style stores a
+        # How many slots this backend has is a **provider** fact, not a scene fact:
+        # `resolve_target` has no conversation access, deliberately, so the target
+        # declares its capacity and the render fills what it has. The style stores a
         # list so a ComfyUI graph's several `LoadImage` widgets can each answer, and a
-        # style relinked between the two keeps its first answer either way -- so the
-        # rest of the list is stored but inert here, and nothing may read it as intent.
-        source = replayed_text(replay, "reference_source", next(iter(style_reference_sources(style)), ""))
-        if preset is not None and preset.supports_references and source in REFERENCE_SOURCES:
+        # style relinked between the two keeps its answers either way -- so anything
+        # past this capacity is stored but inert, and nothing may read it as intent.
+        capacity = max(1, preset.max_references) if preset is not None else 1
+        sources = style_reference_sources(style)[:capacity]
+        if replay:
+            # Position 0 comes from the scalar `reference_source`, which is the
+            # authoritative recorded fact for this backend and the only one an
+            # attachment made before it could declare a second slot carries. The
+            # per-reference records answer for the rest, which that scalar cannot
+            # address. Precedence, not a merge: a record whose scalar is absent falls
+            # back to the style at position 0 exactly as it always has.
+            sources = [replayed_text(replay, "reference_source", next(iter(sources), ""))] + _recorded_sources(
+                replay, capacity
+            )[1:]
+        source = next(iter(sources), "")
+        if preset is not None and preset.supports_references and any(name in REFERENCE_SOURCES for name in sources):
             if not takes_references(preset, model):
                 notes.append(_NO_REFERENCES.format(model=model))
             else:
-                references = (
+                # Enumerated before filtering: a style whose first row is Off and whose
+                # second is on fills `image_1`, not `image_0`, or a replay would re-key
+                # onto the wrong one.
+                references = tuple(
                     {
-                        "slot": list(CLOUD_REFERENCE_SLOT),
-                        "source": source,
-                        "label": "Reference image",
+                        "slot": list(cloud_reference_slot(index)),
+                        "source": name,
+                        "label": "Reference image" if index == 0 else f"Reference image {index + 1}",
                         "mimes": list(preset.reference_mimes),
                         "max_bytes": CLOUD_REFERENCE_MAX_BYTES,
                         "required": False,
-                    },
+                    }
+                    for index, name in enumerate(sources)
+                    if name in REFERENCE_SOURCES
                 )
         return RenderTarget(
             source=self.source_id,

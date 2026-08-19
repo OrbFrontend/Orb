@@ -48,10 +48,23 @@ REFERENCE_MIMES = tuple(MIME_EXTENSIONS)
 # Where a mapped `LoadImage` gets its bytes, as an ordered resolution list. The
 # combined source is the default so the choice has no cold-start cliff: a slot
 # pinned to `previous` alone hard-fails on a new conversation's first Visualize.
+#
+# `character` is subject 0 -- the card the render is primarily of -- in *every* slot,
+# which is what makes two `character` rows on one graph send the same likeness twice
+# and is why a group's other members needed a source of their own rather than a
+# redefinition of this one. `cast` is subject *n+1*, counted over the slots that reach
+# it (`references.resolve_references`), so two `cast` rows draw two different members.
+# `subjects.py` owns that ordering; nothing here knows who anyone is.
+#
+# The combined rows are ordinary ordered fallbacks, not new machinery:
+# `cast_or_character` degrades to the primary likeness when the scene has nobody else,
+# exactly as `previous_or_character` degrades to it when the chat has no image yet.
 REFERENCE_SOURCES: dict[str, tuple[str, ...]] = {
     "previous": ("previous",),
     "character": ("character",),
     "previous_or_character": ("previous", "character"),
+    "cast": ("cast",),
+    "cast_or_character": ("cast", "character"),
 }
 DEFAULT_REFERENCE_SOURCE = "previous_or_character"
 

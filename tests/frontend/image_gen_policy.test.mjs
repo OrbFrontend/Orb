@@ -13,6 +13,7 @@ import {
   COMFY_SIZES,
   connectionList,
   isLoopbackUrl,
+  maxCloudReferences,
   modelTakesReferences,
   normalizePromptFormat,
   pendingDisclosures,
@@ -356,6 +357,18 @@ test("a remote ComfyUI is asked the image question by its styles, not by its imp
   );
 });
 
+test("a provider's reference capacity is an allowlist, so an unprobed one is one slot", () => {
+  // Mirrors `ProviderPreset.max_references`: a preset that declares nothing, and every
+  // provider the panel has never heard of, reads as one. Over-promising here would draw
+  // reference rows the adapter never fills and ask for uploads it never makes.
+  assert.equal(maxCloudReferences(null), 1);
+  assert.equal(maxCloudReferences({ id: "xai" }), 1);
+  assert.equal(maxCloudReferences({ id: "xai", max_references: 3 }), 3);
+  // Bounded by the same cap the style's stored list is, and never below one.
+  assert.equal(maxCloudReferences({ max_references: 99 }), 4);
+  assert.equal(maxCloudReferences({ max_references: 0 }), 1);
+});
+
 test("a source stored for a slot the render target does not have is not an upload", () => {
   // A style keeps both backends' answers across a relink, so its stored list outlives
   // the target that shaped it. Reading it raw asks the user to approve an upload the
@@ -369,6 +382,14 @@ test("a source stored for a slot the render target does not have is not an uploa
   assert.deepEqual(
     pendingDisclosures(cloud, connectionList(cloud, PROVIDERS)).map((d) => d.key),
     ["orb:image-gen-privacy-cloud:xai"],
+  );
+
+  // A provider probed for a second slot reads position 1, so the same stored list now
+  // is an upload — the capacity is what decides, never the stored length.
+  const roomy = connectionList(cloud, [{ ...PROVIDERS[0], max_references: 2 }]);
+  assert.deepEqual(
+    pendingDisclosures(cloud, roomy).map((d) => d.key),
+    ["orb:image-gen-privacy-cloud-images:xai"],
   );
 
   // The same in the other direction: a workflow that loads no image at all declares no
