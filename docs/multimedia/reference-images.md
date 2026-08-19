@@ -83,18 +83,19 @@ with two things to watch:
   not the style's resolution. (`grounding_px` is not a resolution and Orb never
   offers it.)
 
-Then, on the style using this workflow, set the one row under **Reference images**
-to character reference. A row left **Off** keeps the filename the workflow shipped with,
-which doesn't exist on your server, and the render fails in this workflow. But cloud API
-is more flexible and can handle this case.
+Then, on the style using this workflow, set **Reference image** to character
+reference. Left **Off**, each **Load Image** keeps the filename the workflow shipped
+with, which doesn't exist on your server, and the render fails in this workflow. But
+cloud API is more flexible and can handle this case.
 
-In a group chat, **Character reference image** means the member who wrote the reply
-you're visualizing. To draw a second person from a likeness too, export the workflow
-with a second **Load Image** node and set that row to **Another cast member, else
-character reference**.
+In a group chat on ComfyUI, that's the member who wrote the reply you're visualizing,
+and it's the one likeness a render sends: a workflow's image inputs are structural, so
+Orb feeds them all the same picture rather than guessing which one wants a face. On a
+cloud provider the reference field is one array, so Orb fills it with one image per
+character in the scene instead. Everyone with no picture is described in words.
 
 ## Next step
 
 [Reference images](image-generation.md#reference-images) covers the sources you
-can pick per row, how the character reference image works, how a group chat
-addresses the rest of the cast, and what happens on reroll.
+can pick, how the character reference image works, how a group chat describes the
+rest of the cast, and what happens on reroll.

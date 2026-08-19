@@ -188,12 +188,16 @@ def _report_binding(where: str, names: Sequence[str], matched: Mapping[int, Any]
 
 
 def _keep_subjects(analysis: dict, subjects: Sequence[SubjectAppearance]) -> None:
-    """First-person looks through the user's eyes at the subject, so drop every other
-    visible character. No-op when no subject is in the analyzed cast, so a first-person
-    view of someone else keeps its cast rather than emptying it.
+    """Keep only the analyzed characters that are actually in this scene's cast.
 
-    `subjects` is already truncated to one under first-person (`subjects.resolve`), so
-    this is that same rule applied to the analyzer's answer rather than a second one.
+    First-person looks through the *user's* eyes, and the user is never a cast member,
+    so what has to go is whoever the analyzer added: the viewer's own body read back as
+    a character, or a passer-by invented from the prose. Every roster member stays --
+    a two-hander seen from the user's eyes is two people in frame, and dropping one
+    would take their likeness and their saved appearance with it.
+
+    No-op when nothing matches, so a first-person view of someone the analyzer named
+    differently keeps its cast rather than emptying it.
     """
     if not isinstance(analysis.get("characters"), list):
         return
@@ -257,7 +261,7 @@ async def analyze_scene(
     picture, and that has to be known *before* the reference slots are filled -- a
     likeness uploaded for a member the analyzer left out of frame is an edit model's
     invitation to draw them back in, against a prompt that never mentions them. So the
-    caller runs this, fills slots from `addressable_subjects`, and only then composes.
+    caller runs this, plans slots from `addressable_subjects`, and only then composes.
 
     Rides *prefix* unchanged, exactly as the compose call does, so splitting the two
     costs no cached KV: the tails differ, the prefix does not.

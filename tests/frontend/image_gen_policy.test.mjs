@@ -13,7 +13,6 @@ import {
   COMFY_SIZES,
   connectionList,
   isLoopbackUrl,
-  maxCloudReferences,
   providerTakesReferences,
   normalizePromptFormat,
   pendingDisclosures,
@@ -105,21 +104,21 @@ test("a remote ComfyUI is disclosed, and its reference images under their own ke
   // prompt text, so a user who accepted the prompt-only wording is asked again.
   const images = comfy("https://comfy.example.com", { sendsImages: true });
   assert.equal(images.key, "orb:image-gen-privacy-images-v2:https://comfy.example.com");
-  assert.match(images.message, /Reference images are turned on/);
+  assert.notEqual(images.message, comfy("https://comfy.example.com").message);
 });
 
-test("the reference disclosure names every likeness a row can reach", () => {
-  // A cast row uploads the *other* members who spoke in the exchange, not only the
-  // character the picture is of. Saying "your character reference photo" and stopping
-  // describes less than what leaves the machine.
+test("the reference disclosure names the two kinds of image that can leave", () => {
+  // The facts are pinned, not the sentence carrying them: a disclosure that omits one
+  // of these describes less than what actually leaves the machine, which is the whole
+  // failure this notice exists to prevent. Rewording it is not a regression.
   for (const notice of [
     comfy("https://comfy.example.com", { sendsImages: true }),
     cloud({ providerId: "xai", providerLabel: "xAI (Grok)", sendsImages: true }),
   ]) {
     assert.match(notice.message, /character reference photo or card art/);
-    assert.match(notice.message, /other characters who spoke in that exchange/);
-    // And the key moved with the wording, so consent given to the narrower sentence
-    // does not silently cover the wider one.
+    assert.match(notice.message, /previous\s+image in the chat/);
+    // Consent is stored per key, so the wider disclosure may never reuse the narrower
+    // one's. `v2` covers the current set because that set only ever shrank.
     assert.match(notice.key, /-images-v2/);
   }
 });
@@ -162,10 +161,13 @@ test("every acknowledgement key is its own, per provider and per boundary", () =
 // them, so the interesting cases are all about *which* stored rows count as a
 // connection the user made — and what a style pointing at one resolves to.
 
+// `supports_references` rides along because the disclosure now asks exactly what the
+// adapter asks: a provider with no reference field in its dialect uploads nothing,
+// whatever a style relinked from elsewhere still stores.
 const PROVIDERS = [
-  { id: "xai", label: "xAI (Grok)", needs_base_url: false, default_model: "grok-imagine-image" },
-  { id: "openai", label: "OpenAI", needs_base_url: false, default_model: "gpt-image-1" },
-  { id: "custom", label: "Custom (OpenAI-compatible)", needs_base_url: true, default_model: "" },
+  { id: "xai", label: "xAI (Grok)", needs_base_url: false, default_model: "grok-imagine-image", supports_references: true },
+  { id: "openai", label: "OpenAI", needs_base_url: false, default_model: "gpt-image-1", supports_references: true },
+  { id: "custom", label: "Custom (OpenAI-compatible)", needs_base_url: true, default_model: "", supports_references: true },
 ];
 
 const config = (over = {}) => ({
@@ -311,7 +313,7 @@ test("a loopback ComfyUI style adds no question to a cloud save", () => {
   const next = config({
     styles: [
       { id: "a", connection: COMFY_CONNECTION },
-      { id: "b", connection: "xai", reference_sources: ["previous"] },
+      { id: "b", connection: "xai", reference_source: "previous" },
     ],
     cloud: { provider: "xai", providers: { xai: { api_key: "k" } } },
   });
@@ -327,7 +329,7 @@ test("one style with references on is enough to ask the larger cloud question", 
   const next = config({
     styles: [
       { id: "a", connection: "xai" },
-      { id: "b", connection: "xai", reference_sources: ["character"] },
+      { id: "b", connection: "xai", reference_source: "character" },
     ],
     cloud: { provider: "xai", providers: { xai: { api_key: "k" } } },
   });
@@ -363,7 +365,7 @@ test("a remote ComfyUI is asked the image question by its styles, not by its imp
   const on = config({
     styles: [
       { id: "a", connection: COMFY_CONNECTION, workflow: "g" },
-      { id: "b", connection: COMFY_CONNECTION, workflow: "g", reference_sources: ["character"] },
+      { id: "b", connection: COMFY_CONNECTION, workflow: "g", reference_source: "character" },
     ],
     external_comfy: external,
   });
@@ -373,46 +375,29 @@ test("a remote ComfyUI is asked the image question by its styles, not by its imp
   );
 });
 
-test("a provider's reference capacity is whatever the backend derived, floored at one", () => {
-  // The count is derived server-side from the reference encoding
-  // (`providers.reference_capacity`) rather than hand-measured, so there is no table
-  // here to fall behind. A provider the panel has never heard of reads as one, which is
-  // a safe floor rather than a claim.
-  assert.equal(maxCloudReferences(null), 1);
-  assert.equal(maxCloudReferences({ id: "xai" }), 1);
-  assert.equal(maxCloudReferences({ id: "xai", max_references: 3 }), 3);
-  // Bounded by the same cap the style's stored list is, and never below one.
-  assert.equal(maxCloudReferences({ max_references: 99 }), 4);
-  assert.equal(maxCloudReferences({ max_references: 0 }), 1);
-});
-
-test("a source stored for a slot the render target does not have is not an upload", () => {
-  // A style keeps both backends' answers across a relink, so its stored list outlives
-  // the target that shaped it. Reading it raw asks the user to approve an upload the
-  // panel shows as Off and no adapter makes — the disclosure has to match the render.
-  const cloud = config({
-    // Slot 0 off, slot 1 on: a two-`LoadImage` ComfyUI style, since relinked to xAI,
-    // which declares one slot and so reads position 0 alone.
-    styles: [{ id: "a", connection: "xai", reference_sources: ["", "character"] }],
+test("a source stored for a target that cannot carry one is not an upload", () => {
+  // A style keeps one source across a relink, so it outlives the target that shaped it.
+  // Reading it raw asks the user to approve an upload the panel shows as Off and no
+  // adapter makes — the disclosure has to match the render.
+  const noField = config({
+    styles: [{ id: "a", connection: "xai", reference_source: "character" }],
     cloud: { provider: "xai", providers: { xai: { api_key: "k" } } },
   });
+  const blind = connectionList(noField, [{ ...PROVIDERS[0], supports_references: false }]);
   assert.deepEqual(
-    pendingDisclosures(cloud, connectionList(cloud, PROVIDERS)).map((d) => d.key),
+    pendingDisclosures(noField, blind).map((d) => d.key),
     ["orb:image-gen-privacy-cloud:xai"],
   );
-
-  // A provider probed for a second slot reads position 1, so the same stored list now
-  // is an upload — the capacity is what decides, never the stored length.
-  const roomy = connectionList(cloud, [{ ...PROVIDERS[0], max_references: 2 }]);
+  // The same provider with a reference field is an upload, on the same stored source.
   assert.deepEqual(
-    pendingDisclosures(cloud, roomy).map((d) => d.key),
+    pendingDisclosures(noField, connectionList(noField, PROVIDERS)).map((d) => d.key),
     ["orb:image-gen-privacy-cloud-images-v2:xai"],
   );
 
-  // The same in the other direction: a workflow that loads no image at all declares no
-  // slot for the answer left over from the one before it.
+  // The same in the other direction: a workflow that loads no image at all has nowhere
+  // to put the answer left over from the one before it.
   const comfy = config({
-    styles: [{ id: "a", connection: COMFY_CONNECTION, workflow: "t2i", reference_sources: ["character"] }],
+    styles: [{ id: "a", connection: COMFY_CONNECTION, workflow: "t2i", reference_source: "character" }],
     external_comfy: { api_url: "https://comfy.example.com", user_graphs: [{ id: "t2i", slots: {} }] },
   });
   assert.deepEqual(

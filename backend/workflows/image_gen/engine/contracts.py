@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, TypedDict
 
 from ...errors import WorkflowUserFacingError
@@ -63,18 +63,20 @@ class RenderTarget:
     exactly: substituting silently is the thing to avoid, and refusing outright is
     not the alternative.
 
-    `reference_capacity` is the **ceiling**, where `reference_slots` is what the
-    style actually switched on: a cloud provider's `max_references`, or the number
-    of image inputs a ComfyUI graph declares. Zero when this target cannot carry a
-    reference at all -- a provider whose dialect has no field to put one in. Never a
-    fact about the *model*: whether this one reads what it was sent is the model's to
-    answer at render time, by refusing (`engine/degrade.py`).
+    A backend answers about references in one of two shapes, and which one it uses is
+    the difference between structural inputs and a homogeneous array:
 
-    The pair is what lets a render tell a caller *why* somebody in frame got no
-    likeness. Fewer slots than capacity is the style's own doing and the user can
-    add a row; slots at capacity is the backend's ceiling and they cannot. Only the
-    target knows either number, and the caller may not ask a preset directly
-    without learning which backend it is talking to.
+    * `reference_slots` is a **ComfyUI graph's declared image inputs**. They are not
+      interchangeable -- an IPAdapter face input and an img2img init are different
+      questions -- so the style feeds them all one picture and nothing derives them.
+    * `reference_capacity` + `reference_template` is a **cloud provider's array**: how
+      many images its dialect can carry, and the per-slot policy each would get. The
+      slots themselves are derived per render from who is in the picture
+      (`references.plan_slots`), because only the render knows that.
+
+    Zero capacity means the provider's dialect has no field to put a reference in at
+    all. Whether the *model* behind it reads what it was sent is the model's to answer
+    at render time, by refusing (`engine/degrade.py`).
     """
 
     source: str
@@ -90,6 +92,7 @@ class RenderTarget:
     quality: str = ""
     reference_source: str = ""
     reference_capacity: int = 0
+    reference_template: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -98,7 +101,7 @@ class ResolvedReference:
 
     `origin` names where the bytes came from in a form a later replay can re-fetch
     by (``"attachment:<id>"``, ``"character:<card id>"``). `digest` identifies the
-    bytes *as sent*, so two slots resolving to one image upload once.
+    bytes *as sent*, so a graph with several image inputs uploads its one picture once.
 
     `source_digest` identifies them *as fetched*, before the destination's mime/size
     policy touched them, and is the only one comparable across renders: a replay

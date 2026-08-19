@@ -1400,7 +1400,10 @@ async def test_scene_profile_draft_for_a_cardless_member_is_a_sentence_not_a_422
     conv, _ = await _two_card_group(client)
     response = await _draft(client, conv["id"], display_name="Narrator")
     assert response.status_code == 400
-    assert response.json()["detail"] == "A narrator has no card to draft a scene profile from"
+    # A prose `detail`, not FastAPI's validation list, and it names what went wrong.
+    # The sentence itself is not pinned -- rewording it is not a regression.
+    detail = response.json()["detail"]
+    assert isinstance(detail, str) and "narrator" in detail.lower()
 
 
 async def test_scene_profile_draft_on_a_solo_conversation_is_409(client, llm_mock):

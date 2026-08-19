@@ -179,16 +179,22 @@ switching member reloads the form rather than writing to whoever spoke last.
 `speaker_member_id` on the trigger route is how it addresses one member.
 
 Image generation is per-speaker in *which member it is of* and per-beat in *who
-else it may draw*. The speaker of the reply being visualized is the picture's
-primary subject; the other members who spoke in the same beat **up to that reply**
-follow, in cast order - a render never reads past its own anchor, so the first
-reply of a beat has a shorter cast than the last. Both halves of the render read that one list: a style's reference rows can
-send a likeness for each of them (**Another cast member** — see
-[Reference images](../multimedia/image-generation.md#reference-images-in-a-group-chat)),
-and the prompter is given every subject's saved appearance plus the names of the
-ones a likeness was actually sent for, so an unreferenced character in the shot is
-still described in full instead of coming out as a generic person. A first-person
-shot narrows to the one subject the camera is looking at.
+else it describes*. The speaker of the reply being visualized is the picture's
+primary subject; the other members who spoke in the same **exchange** - the user's
+last message and every reply since - **up to that reply** follow, in cast order. A
+render never reads past its own anchor, so the first reply of a round has a shorter
+cast than the last. It is the round, not the request: under **Manual** you give one
+member the floor per click, and each click is its own request but the same round. Both halves of the render read
+that one list. **One reference image per character** (see
+[Reference images](../multimedia/image-generation.md#reference-images-in-a-group-chat)):
+a cloud provider's reference field is one array, so it carries one likeness per
+character in the shot, in cast order and never the same person twice; a ComfyUI
+workflow's image inputs are structural and all get the speaker's. Whoever gets no
+picture is described in full instead, and the prompter is told which image is whom,
+so an unpictured character still comes out as themselves rather than as a generic
+person. The camera does not change who is in the scene: first-person looks through
+the *user's* eyes, and the user is a persona rather than a cast member, so every
+character in the beat is in front of the lens and none is dropped.
 
 Character expressions follow the floor: the header's 👥 avatar opens the popup on
 the member currently streaming, or the last one to have spoken, and switches face

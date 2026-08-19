@@ -9,19 +9,21 @@ export function isLoopbackUrl(apiUrl) {
   return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1";
 }
 
-// What an acknowledged reference-image disclosure covers. Bumped when the set of bytes
-// that can leave the machine grows, because consent is stored per key and a stale
-// "acknowledged" would silently cover an upload the user never read about. `v2` added
-// the rest of the cast: a reference row can now draw any group member who spoke in the
-// exchange, not only the character the picture is of.
+// What an acknowledged reference-image disclosure covers. Bumped only when the set of
+// bytes that can leave the machine **grows**, because consent is stored per key and a
+// stale "acknowledged" would silently cover an upload the user never read about.
+//
+// Deliberately still `v2` now that a render sends one likeness instead of the whole
+// cast: the set shrank, so every stored v2 acknowledgement already covers strictly more
+// than can now happen. Bumping would re-ask the entire installed base to consent to less.
 const IMAGE_DISCLOSURE_VERSION = "-images-v2";
 
-// The clause naming every likeness a reference row can reach. One sentence for both
+// The clause naming every likeness a reference can reach. One sentence for both
 // backends so neither can drift into under-describing what it uploads.
 const SENDS_IMAGES =
-  "Reference images are turned on, so images from your conversations are uploaded there too — " +
-  "the character reference photo or card art for the character each picture is of, and, for a row set to " +
-  "a cast source in a group chat, the same for the other characters who spoke in that exchange. ";
+  "A reference image is turned on, so images from your conversations are uploaded there too — " +
+  "the character reference photo or card art for the character each picture is of, or the previous " +
+  "image in the chat. ";
 
 export function privacyDisclosure({ source, apiUrl, providerId, providerLabel, sendsImages }) {
   const scope = sendsImages ? IMAGE_DISCLOSURE_VERSION : "";
@@ -149,6 +151,8 @@ export function findConnection(connections, id) {
   return connections.find((c) => c.id === id) || null;
 }
 
+// The most images one render will ever carry: the ceiling on a cloud provider's
+// reference array, and the most image inputs Orb tracks on an imported graph.
 export const MAX_REFERENCE_SLOTS = 4;
 
 // The image slots one imported graph declares, as normalization stored them. A graph
@@ -167,16 +171,15 @@ export function maxCloudReferences(preset) {
   return Number.isFinite(declared) && declared >= 1 ? Math.min(declared, MAX_REFERENCE_SLOTS) : 1;
 }
 
-// What a style will actually send, which is never simply what it stores: a style keeps
-// both backends' answers across a relink, so `["", "character"]` under a cloud provider
-// with one slot is one slot and it is off. Anything reading the stored list to decide
-// what leaves the machine asks the user to approve an upload the panel shows as Off and
-// no adapter makes.
-export function effectiveReferenceSources(style, { graphs = [], source = "", preset = null } = {}) {
-  const stored = Array.isArray(style?.reference_sources) ? style.reference_sources : [];
-  const capacity =
-    source === "cloud" ? maxCloudReferences(preset) : graphReferenceSlots(graphs, style?.workflow).length;
-  return stored.slice(0, capacity);
+// Whether this style will actually send a picture to this target, which is never
+// simply whether it stores a source: a style keeps one answer across a relink, and the
+// target on the other side may have nowhere to put a reference — a provider whose
+// dialect has no field for one, a workflow with no image inputs, or no workflow at
+// all. Anything reading the stored source to decide what leaves the machine would ask
+// the user to approve an upload no adapter makes.
+export function sendsReference(style, { graphs = [], source = "", preset = null } = {}) {
+  if (!style?.reference_source) return false;
+  return source === "cloud" ? providerTakesReferences(preset) : graphReferenceSlots(graphs, style?.workflow).length > 0;
 }
 
 // ── resolution ───────────────────────────────────────────────────────────────
@@ -256,18 +259,17 @@ export function pendingDisclosures(config = {}, connections = []) {
       apiUrl: external.api_url || "",
       providerId: connection.id,
       providerLabel: connection.label,
-      // One rule for both backends now that a style owns its reference sources. The
+      // One rule for both backends now that a style owns its reference source. The
       // ComfyUI half used to ask whether *any* imported graph mapped a slot, which
       // over-asked for a server no style pointed a reference at and — worse — went on
-      // asking after every style had turned them off. Effective, not stored: what the
-      // adapter will send is the question, and a style carries answers for slots its
-      // current target does not have.
+      // asking after every style had turned them off. What the adapter will send is the
+      // question, not what the style stores.
       sendsImages: linked.some((style) =>
-        effectiveReferenceSources(style, {
+        sendsReference(style, {
           graphs: external.user_graphs,
           source: connection.source,
           preset: connection.preset,
-        }).some(Boolean),
+        }),
       ),
     });
     if (notice) notices.push(notice);

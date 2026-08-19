@@ -93,6 +93,21 @@ def _bound(config) -> OpenAICompatibleImageAdapter:
     return OpenAICompatibleImageAdapter(config, resolve_style(config, "anime"))
 
 
+def _planned(target, subjects=None, previous=None):
+    """The slots this target would actually fill for a given cast.
+
+    A cloud target no longer declares its slots: its reference array is homogeneous, so
+    *who* is in it is the render's answer rather than `resolve_target`'s. Everything that
+    used to read `reference_slots` asks this instead -- the same question, one layer up.
+    """
+    from backend.workflows.image_gen.references import plan_slots
+    from backend.workflows.image_gen.subjects import Subject
+
+    if subjects is None:
+        subjects = (Subject(member_id="m", card_id="card-a", name="Iris"),)
+    return plan_slots(target, subjects, previous=previous)
+
+
 def _target(adapter, config, replay=None):
     return adapter.resolve_target(replay)
 
@@ -222,13 +237,13 @@ def test_a_replay_pins_the_quality_and_reference_slot_it_was_made_with():
     config = _config(quality="high", reference_source="character")
     replayed = _target(_bound(config), config, {"quality": "", "reference_source": ""})
     assert replayed.quality == ""
-    assert replayed.reference_slots == ()
+    assert _planned(replayed) == ()
 
     # An attachment from before the record -- or one made on ComfyUI, which has no
     # such setting and records None -- falls through to what the style says now.
     unrecorded = _target(_bound(config), config, {"quality": None, "width": 1024, "height": 1024})
     assert unrecorded.quality == "high"
-    assert len(unrecorded.reference_slots) == 1
+    assert len(_planned(unrecorded)) == 1
 
 
 @pytest.mark.asyncio
@@ -385,13 +400,13 @@ def test_two_styles_on_one_connection_render_differently():
 
     assert targets["kontext"].model == "black-forest-labs/FLUX.1-kontext-pro"
     assert (targets["kontext"].width, targets["kontext"].height) == (1024, 1536)
-    assert len(targets["kontext"].reference_slots) == 1
+    assert len(_planned(targets["kontext"])) == 1
 
     assert targets["draft"].model == "black-forest-labs/FLUX.1-schnell"
     assert (targets["draft"].width, targets["draft"].height) == (1024, 1024)
     # References are off on this style, so no slot is offered -- and no note either,
     # since nothing was asked for and silently dropped.
-    assert targets["draft"].reference_slots == ()
+    assert _planned(targets["draft"]) == ()
     assert targets["draft"].notes == ()
 
 
@@ -438,119 +453,87 @@ def _reference(data: bytes, mime: str) -> ResolvedReference:
 
 def test_reference_slots_appear_only_when_the_source_is_turned_on():
     """Sending conversation images to a third party is opt-in, so "" is off."""
-    off = _target(_bound(_config()), _config())
-    assert off.reference_slots == ()
+    off = _planned(_target(_bound(_config()), _config()))
+    assert off == ()
 
     config = _config(reference_source="previous_or_character")
-    on = _target(_bound(config), config)
-    assert len(on.reference_slots) == 1
-    assert on.reference_slots[0]["slot"] == list(CLOUD_REFERENCE_SLOT)
-    assert on.reference_slots[0]["source"] == "previous_or_character"
+    on = _planned(_target(_bound(config), config))
+    assert len(on) == 1
+    assert on[0]["slot"] == list(CLOUD_REFERENCE_SLOT)
+    assert on[0]["source"] == "previous_or_character"
 
 
-def _capacity(monkeypatch, slots: int) -> None:
-    """Pin the declared capacity, whatever the shipped row happens to say.
+def test_one_slot_per_person_in_the_picture_and_every_one_optional():
+    """One reference image per character, so the array is as long as the cast in frame
+    and never longer. Every slot is optional -- a cloud model has a plain generations
+    endpoint one field away -- so a source that resolves to nothing degrades with a note
+    instead of failing the render."""
+    from backend.workflows.image_gen.subjects import Subject
 
-    Patched rather than taken from `PRESETS` so these stay tests of the *mechanism*:
-    xAI ships 4 today because somebody measured it (see `test_providers`), every other
-    row ships 1, and either number moving must not decide what an arity test asserts.
-    """
-    from backend.workflows.image_gen.engine.adapters import openai_image
+    config = _config(reference_source="character")
+    cast = tuple(Subject(member_id=f"m{i}", card_id=f"card-{i}", name=n) for i, n in enumerate(("Iris", "Ashley")))
 
-    monkeypatch.setattr(openai_image, "reference_capacity", lambda _preset, _ceiling: slots)
+    slots = _planned(_target(_bound(config), config), cast)
 
-
-def test_a_provider_declares_one_optional_slot_per_probed_reference(monkeypatch):
-    """The target declares the capacity, the render fills what it has. Every slot is
-    optional -- a cloud model has a plain generations endpoint one field away -- so a
-    scene with fewer people than slots degrades with a note instead of failing."""
-    _capacity(monkeypatch, 3)
-    config = _config(reference_sources=["character", "cast", "cast"])
-
-    target = _target(_bound(config), config)
-
-    assert [slot["slot"] for slot in target.reference_slots] == [
-        ["cloud", "image_0"],
-        ["cloud", "image_1"],
-        ["cloud", "image_2"],
-    ]
-    assert [slot["source"] for slot in target.reference_slots] == ["character", "cast", "cast"]
-    assert not any(slot["required"] for slot in target.reference_slots)
+    assert [slot["slot"] for slot in slots] == [["cloud", "image_0"], ["cloud", "image_1"]]
+    assert not any(slot["required"] for slot in slots)
+    # Distinct by construction: slot *i* draws subject *i*, so nobody is sent twice.
+    assert [slot["draw"] for slot in slots] == [(("character", 0),), (("character", 1),)]
 
 
-def test_declared_capacity_stops_where_the_picker_and_the_config_stop(monkeypatch):
-    """`MAX_REFERENCE_SLOTS` is the one ceiling, and every reader honours it.
+def test_a_provider_with_no_reference_field_declares_no_slot():
+    """Provider-level, and deliberately not asked of the model: a *model* that will not
+    take a reference refuses at render time and the seam degrades, where a withheld slot
+    loses the capability silently."""
+    config = _config(reference_source="character")
+    config["cloud"]["provider"] = "openrouter"
+    config["cloud"]["providers"] = {"openrouter": {"api_key": "k"}}
+    config["styles"][0]["connection"] = "openrouter"
+    config["styles"][0]["model"] = "google/gemini-2.5-flash-image"
 
-    The picker offers no row past it (`policy.maxCloudReferences`) and `normalize_config`
-    stores no source past it, so a preset declaring more would declare slots nothing can
-    ever turn on -- counted as unfilled, and disclosed on every render as references
-    that could not be resolved.
+    assert _planned(_target(_bound(config), config)) == ()
 
-    Fed a *raw* style rather than a normalized one, because that is the only way the
-    ceiling can be crossed and the one `style_reference_sources` already exists to
-    survive: a hand-edited config row reaches the adapter through `validate_connection`
-    without passing normalization.
-    """
-    from backend.workflows.image_gen.config import MAX_REFERENCE_SLOTS
 
-    # Deliberately *not* patched: the ceiling is applied inside `reference_capacity`,
-    # so a test that replaced it could not also assert that it clamps.
-    over = MAX_REFERENCE_SLOTS + 3
+def test_a_legacy_list_collapses_to_the_slot_every_target_has():
+    """A hand-edited config row reaches the adapter through `validate_connection`
+    without passing normalization, which is what `style_reference_source` exists to
+    survive -- and a stored list is what every upgraded install still holds."""
     config = _config()
-    config["styles"][0]["reference_sources"] = ["character"] * over
+    config["styles"][0].pop("reference_source", None)
+    config["styles"][0]["reference_sources"] = ["character", "cast"]
 
-    target = _target(_bound(config), config)
-    assert len(target.reference_slots) == MAX_REFERENCE_SLOTS
-    assert target.reference_capacity == MAX_REFERENCE_SLOTS
+    # The bare read answers "" for a shape it does not recognise; normalization is what
+    # migrates the list, and it has run by the time any render reaches the adapter.
+    assert _planned(_target(_bound(config), config)) == ()
 
+    from backend.workflows.image_gen.config import normalize_config
 
-def test_capacity_truncates_the_stored_list_rather_than_reading_it_as_intent(monkeypatch):
-    """A style keeps both backends' answers across a relink, so a four-row ComfyUI
-    answer under a one-slot provider is one slot -- or a disclosure asks the user to
-    approve three uploads no adapter makes.
-
-    Capacity is pinned at both ends rather than left to whatever the shipped row says:
-    the truncation is the claim, and it has to hold for a provider that reads one and
-    for a provider that reads two."""
-    config = _config(reference_sources=["character", "cast", "cast", "cast"])
-
-    _capacity(monkeypatch, 1)
-    assert len(_target(_bound(config), config).reference_slots) == 1
-
-    _capacity(monkeypatch, 2)
-    assert len(_target(_bound(config), config).reference_slots) == 2
+    migrated = normalize_config(config)
+    assert migrated["styles"][0]["reference_source"] == "character"
+    assert len(_planned(_target(_bound(migrated), migrated))) == 1
 
 
-def test_a_row_left_off_keeps_its_position(monkeypatch):
-    """Positional, like every other slot list: an enabled second row fills `image_1`,
-    or a replay re-keys the reference onto the wrong slot."""
-    _capacity(monkeypatch, 2)
-    config = _config(reference_sources=["", "cast"])
-
-    target = _target(_bound(config), config)
-
-    assert [slot["slot"] for slot in target.reference_slots] == [["cloud", "image_1"]]
-    # The scalar record still answers for position 0, which is off.
-    assert target.reference_source == ""
-
-
-def test_a_replay_reads_position_zero_from_the_scalar_and_the_rest_from_the_records(monkeypatch):
-    """`reference_source` is the authoritative recorded fact for this backend and the
-    only one an attachment made before a second slot existed carries. The per-slot
-    records answer for the positions it cannot address."""
-    _capacity(monkeypatch, 2)
-    config = _config(reference_sources=["", ""])
-    replay = {
-        "reference_source": "character",
-        "references": [
-            {"slot": ["cloud", "image_0"], "source": "character"},
-            {"slot": ["cloud", "image_1"], "source": "cast"},
-        ],
-    }
+def test_a_replay_pins_the_source_the_stored_render_used():
+    """The source moved onto the style, where it is editable after the fact, so a
+    rehydrate replaying it off the style would reproduce a different picture."""
+    config = _config(reference_source="")
+    replay = {"reference_source": "character", "references": [{"slot": ["cloud", "image_0"], "source": "character"}]}
 
     target = _target(_bound(config), config, replay)
 
-    assert [slot["source"] for slot in target.reference_slots] == ["character", "cast"]
+    assert [slot["source"] for slot in _planned(target)] == ["character"]
+    assert target.reference_source == "character"
+
+
+def test_a_replay_carrying_no_recorded_source_falls_back_to_the_style():
+    """The scalar is this backend's recorded fact. An attachment made before it existed
+    has no answer at all, and the style is the better guess than rendering blind."""
+    config = _config(reference_source="character")
+    replay = {"references": [{"slot": ["cloud", "image_0"], "origin": "character:card-1"}]}
+
+    target = _target(_bound(config), config, replay)
+
+    assert [slot["source"] for slot in _planned(target)] == ["character"]
 
 
 @pytest.mark.asyncio
@@ -603,7 +586,7 @@ def test_the_model_is_not_consulted_about_references_any_more():
     config = _config("togetherai", "black-forest-labs/FLUX.1-schnell", reference_source="character")
     target = _target(_bound(config), config)
 
-    assert len(target.reference_slots) == 1
+    assert len(_planned(target)) == 1
     assert target.notes == ()
 
 
@@ -611,7 +594,7 @@ def test_a_reference_capable_model_is_not_nagged_about_it():
     config = _config("togetherai", reference_source="character")
     target = _target(_bound(config), config)
 
-    assert len(target.reference_slots) == 1
+    assert len(_planned(target)) == 1
     assert target.notes == ()
 
 
@@ -638,7 +621,7 @@ async def test_a_gone_model_falls_back_and_still_carries_its_reference():
     config = _config("togetherai", "black-forest-labs/FLUX.1-schnell", reference_source="character")
     adapter = _adapter(config, handler)
     target = _target(adapter, config, replay={"backend_model": "black-forest-labs/FLUX.1-kontext-pro"})
-    assert len(target.reference_slots) == 1
+    assert len(_planned(target)) == 1
 
     result = await adapter.generate(_request(references=(_reference(_png(), "image/png"),)), target=target)
 
@@ -651,7 +634,7 @@ def test_the_reference_slot_declares_the_policy_that_bounds_it():
     mimes and the tighter base64-in-JSON cap. `test_display_encode` owns what those
     two then do to the bytes."""
     config = _config(reference_source="character")
-    (slot,) = _target(_bound(config), config).reference_slots
+    (slot,) = _planned(_target(_bound(config), config))
 
     assert tuple(slot["mimes"]) == ("image/png", "image/jpeg")
     assert slot["max_bytes"] == CLOUD_REFERENCE_MAX_BYTES

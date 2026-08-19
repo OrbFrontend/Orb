@@ -120,13 +120,11 @@ class ProviderPreset:
     # is also what decides **capacity**: a list encoding can carry as many as the
     # picker allows, a scalar one carries exactly one. Nothing else needs measuring.
     reference_encoding: str = "url_objects"
-    # Deliberately absent: a per-model reference allowlist, and a per-provider count
-    # of how many references are *read*. Both were hand-measured tables over
-    # catalogues that grow without us -- NanoGPT alone ships 202 image models -- so
-    # both were permanently unfinished, and an unfinished allowlist silently withholds
-    # a capability the user is paying for. Capacity is now derived from the encoding
-    # (`reference_capacity`), and a model that will not take what it was sent says so
-    # itself: `engine/degrade.py` reads the refusal and re-renders one rung down.
+    # Deliberately absent: a per-model reference allowlist. It was a hand-measured table
+    # over catalogues that grow without us -- NanoGPT alone ships 202 image models -- so
+    # it was permanently unfinished, and an unfinished allowlist silently withholds a
+    # capability the user is paying for. A model that will not take what it was sent says
+    # so itself: `engine/degrade.py` reads the refusal and re-renders without it.
     # Rejections are free on every provider measured, so asking costs latency, not
     # money.
     # True when a reference render takes its size from the reference rather than
@@ -442,9 +440,6 @@ def get_preset(provider_id: str) -> ProviderPreset | None:
 # What the settings panel is told about a provider. An allowlist, so a field added
 # to the table above reaches the frontend only when someone puts it here -- which is
 # also what keeps a credential from ever riding along, since none is named.
-# `max_references` is *derived* here rather than declared -- see `reference_capacity`
-# -- so the panel keeps one stable field to draw slot rows from while the table behind
-# it holds no per-provider count to maintain.
 #
 # The whole dimension contract rides along -- `sizes` for a menu provider, the
 # min/max/step grid for a `width_height` one -- because the panel's resolution menu

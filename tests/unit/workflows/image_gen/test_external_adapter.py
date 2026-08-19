@@ -190,8 +190,8 @@ async def test_the_style_that_fails_validation_is_named(monkeypatch):
     config = _config(
         user_graphs=[EDIT_USER_GRAPH],
         styles=[
-            {"id": "edit", "label": "Edit", "workflow": "user_edit", "reference_sources": ["character"]},
-            {"id": "plain", "label": "Prompt only", "workflow": "user_edit", "reference_sources": []},
+            {"id": "edit", "label": "Edit", "workflow": "user_edit", "reference_source": "character"},
+            {"id": "plain", "label": "Prompt only", "workflow": "user_edit", "reference_source": ""},
         ],
     )
 
@@ -276,14 +276,14 @@ def test_whether_a_resolution_applies_is_a_per_graph_answer():
 
 
 def test_a_rehydrate_fills_the_slots_the_stored_render_filled_not_the_style_of_today():
-    """The sources live on the style now, where they can be edited after the fact, so
-    replaying them off the style would quietly reproduce a *different* picture -- the
-    one failure a rehydrate is not allowed to have. The record names the node input
-    each reference filled, and that re-keys onto the graph's declared list."""
+    """The source lives on the style now, where it can be edited after the fact, so
+    replaying it off the style would quietly reproduce a *different* picture -- the one
+    failure a rehydrate is not allowed to have. The record names the node input each
+    reference filled, and that re-keys onto the graph's declared list."""
     config = _config(user_graphs=[EDIT_USER_GRAPH], styles=[{"id": "s", "label": "S", "workflow": "user_edit"}])
     # The migration turned the graph's own pin into the style's answer; switch it off,
     # as someone editing the style since the render would have.
-    off = normalize_config({**config, "styles": [{**config["styles"][0], "reference_sources": []}]})
+    off = normalize_config({**config, "styles": [{**config["styles"][0], "reference_source": ""}]})
     adapter = _bound(off, "s")
     assert adapter.resolve_target(None).reference_slots == ()
 

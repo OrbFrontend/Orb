@@ -12,7 +12,6 @@ import pytest
 
 from backend.core.domain_types import CastMember, TurnCast
 from backend.workflows.image_gen import subjects as subjects_mod
-from backend.workflows.image_gen.pov import FIRST, THIRD
 
 
 def _member(member_id: str, name: str, card_id: str | None = None, kind: str = "character") -> CastMember:
@@ -29,8 +28,13 @@ def _member(member_id: str, name: str, card_id: str | None = None, kind: str = "
     )
 
 
-def _msg(msg_id: int, *, speaker: str | None = None, beat: str | None = None) -> dict:
-    return {"id": msg_id, "speaker_member_id": speaker, "beat_id": beat}
+def _msg(msg_id: int, *, speaker: str | None = None, role: str = "assistant") -> dict:
+    return {"id": msg_id, "speaker_member_id": speaker, "role": role}
+
+
+def _user(msg_id: int) -> dict:
+    """A user message, which is what starts a round."""
+    return _msg(msg_id, role="user")
 
 
 @pytest.fixture
@@ -58,7 +62,6 @@ async def _resolve(**kwargs):
         "character_id": "card-a",
         "character": {"name": "Card Name"},
         "profile": {"appearance_prompt": "silver hair"},
-        "pov": THIRD,
     }
     return await subjects_mod.resolve(**{**base, **kwargs})
 
@@ -85,8 +88,8 @@ async def test_no_primary_means_no_subjects(_scene):
 
 
 @pytest.mark.asyncio
-async def test_the_tail_is_the_beat_and_nothing_wider(_scene):
-    """Roster order, scoped to who actually spoke in this beat.
+async def test_the_tail_is_the_exchange_and_nothing_wider(_scene):
+    """Roster order, scoped to who actually spoke in this round.
 
     The bound matters: sending a likeness for every member of a six-person scene
     would hand the image model five people the analyzer is about to leave out.
@@ -96,13 +99,14 @@ async def test_the_tail_is_the_beat_and_nothing_wider(_scene):
         {"card-b": {"appearance_prompt": "red coat"}},
     )
     history = [
-        # An earlier beat: Ren spoke, and is not part of this picture.
-        _msg(1, speaker="m3", beat="beat-0"),
-        _msg(2, speaker="m2", beat="beat-1"),
-        _msg(3, speaker="m1", beat="beat-1"),
+        # An earlier round: Ren spoke, and is not part of this picture.
+        _msg(1, speaker="m3"),
+        _user(2),
+        _msg(3, speaker="m2"),
+        _msg(4, speaker="m1"),
     ]
 
-    resolved = await _resolve(history=history, anchor_id=3)
+    resolved = await _resolve(history=history, anchor_id=4)
 
     # Iris is the anchor's speaker and leads; Ashley follows in roster order.
     assert [(s.member_id, s.name) for s in resolved] == [("m1", "Iris"), ("m2", "Ashley")]
@@ -110,31 +114,54 @@ async def test_the_tail_is_the_beat_and_nothing_wider(_scene):
 
 
 @pytest.mark.asyncio
-async def test_an_anchor_with_no_beat_has_no_tail(_scene):
-    """A reply written before beats were recorded has no beat to widen to, and must
-    not fall back to the whole branch."""
+async def test_a_round_is_bounded_by_the_user_message_that_opened_it(_scene):
+    """The user speaking closes the previous round: whoever answered *before* it is not
+    in this picture, however recently they spoke."""
+    _scene([_member("m1", "Iris", "card-a"), _member("m2", "Ashley", "card-b")])
+    history = [_msg(1, speaker="m2"), _user(2), _msg(3, speaker="m1")]
+
+    assert [s.name for s in await _resolve(history=history, anchor_id=3)] == ["Iris"]
+
+
+@pytest.mark.asyncio
+async def test_one_reply_per_click_is_still_one_round(_scene):
+    """The regression this scoping exists to fix. Under `manual` turn mode the user
+    gives one member the floor per click, so every reply is its own request-scoped
+    `beat_id`. Scoping the cast to a beat made it permanently a party of one -- a scene
+    of two characters trading lines sent one likeness and described one person, however
+    many replies were on screen."""
+    _scene([_member("m1", "Iris", "card-a"), _member("m2", "Ashley", "card-b")])
+    history = [_user(1), _msg(2, speaker="m1"), _msg(3, speaker="m2"), _msg(4, speaker="m1")]
+
+    assert [s.name for s in await _resolve(history=history, anchor_id=4)] == ["Iris", "Ashley"]
+    # And the cut at the anchor still holds: the first reply of the round has nobody
+    # else in it yet, whatever is further down the branch.
+    assert [s.name for s in await _resolve(history=history, anchor_id=2)] == ["Iris"]
+
+
+@pytest.mark.asyncio
+async def test_the_camera_does_not_change_who_is_in_the_scene(_scene):
+    """First-person looks through the *user's* eyes, and the user is a persona rather
+    than a cast member -- so nobody is behind the lens and everyone in the beat is in
+    front of it.
+
+    This used to truncate to the primary under first-person, which was a solo chat's
+    arithmetic (one character, so one subject) applied to a group: in a scene of the
+    user plus two characters, the second was dropped from the picture *and* from the
+    prompt, and a two-slot style papered over it by sending the first one's likeness
+    twice. Keeping the viewer out of frame is the shot instructions' job.
+    """
     _scene([_member("m1", "Iris", "card-a"), _member("m2", "Ashley", "card-b")])
     history = [_msg(1, speaker="m2"), _msg(2, speaker="m1")]
 
-    assert [s.name for s in await _resolve(history=history)] == ["Iris"]
+    assert [s.name for s in await _resolve(history=history)] == ["Iris", "Ashley"]
 
 
 @pytest.mark.asyncio
-async def test_first_person_truncates_to_the_one_subject(_scene):
-    """Stated once, here, rather than again in the composer: a first-person shot looks
-    at one person, so no slot may be handed a likeness the prompt is about to drop."""
-    _scene([_member("m1", "Iris", "card-a"), _member("m2", "Ashley", "card-b")])
-    history = [_msg(1, speaker="m2", beat="b"), _msg(2, speaker="m1", beat="b")]
-
-    assert [s.name for s in await _resolve(history=history, pov=FIRST)] == ["Iris"]
-    assert [s.name for s in await _resolve(history=history, pov=THIRD)] == ["Iris", "Ashley"]
-
-
-@pytest.mark.asyncio
-async def test_a_narrator_in_the_beat_is_never_a_subject(_scene):
+async def test_a_narrator_in_the_round_is_never_a_subject(_scene):
     """It speaks without being in the picture: no card, so no likeness and no sheet."""
     _scene([_member("m1", "Iris", "card-a"), _member("m2", "Narrator", card_id=None, kind="narrator")])
-    history = [_msg(1, speaker="m2", beat="b"), _msg(2, speaker="m1", beat="b")]
+    history = [_msg(1, speaker="m2"), _msg(2, speaker="m1")]
 
     assert [s.name for s in await _resolve(history=history)] == ["Iris"]
 
@@ -144,7 +171,7 @@ async def test_a_removed_speaker_still_leads_under_the_card_name(_scene):
     """The anchor's speaker was tombstoned since. The route still resolved their card,
     so the render is still of them -- named by the card, which is all that is left."""
     _scene([_member("m2", "Ashley", "card-b")])
-    history = [_msg(2, speaker="m-gone", beat="b")]
+    history = [_msg(2, speaker="m-gone")]
 
     resolved = await _resolve(history=history)
 
@@ -163,7 +190,7 @@ async def test_the_tail_stops_at_the_anchor_not_at_the_end_of_the_beat(_scene):
     """
     _scene([_member("m1", "Iris", "card-a"), _member("m2", "Ashley", "card-b")])
     # The whole beat, as it sits in the database: Iris answered, then Ashley.
-    beat = [_msg(1, speaker="m1", beat="b"), _msg(2, speaker="m2", beat="b")]
+    beat = [_msg(1, speaker="m1"), _msg(2, speaker="m2")]
 
     # Visualizing Ashley's reply -- the last -- sees both.
     assert [s.name for s in await _resolve(history=beat, anchor_id=2)] == ["Ashley", "Iris"]
@@ -188,7 +215,7 @@ async def test_two_members_with_one_name_are_told_apart(_scene):
         [_member("m1", "Guard", "card-a"), _member("m2", "Guard", "card-b")],
         {"card-b": {"appearance_prompt": "scarred jaw"}},
     )
-    history = [_msg(1, speaker="m2", beat="b"), _msg(2, speaker="m1", beat="b")]
+    history = [_msg(1, speaker="m2"), _msg(2, speaker="m1")]
 
     resolved = await _resolve(history=history, anchor_id=2)
 

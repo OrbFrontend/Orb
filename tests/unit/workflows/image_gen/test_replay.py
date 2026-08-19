@@ -15,6 +15,7 @@ import pytest
 from backend.workflows.image_gen import hooks
 from backend.workflows.image_gen.config import normalize_config, resolve_style
 from backend.workflows.image_gen.engine import ImageGenerationError, get_adapter
+from backend.workflows.image_gen.references import replay_slots
 
 GRAPH = {
     "0": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
@@ -172,11 +173,13 @@ async def test_a_style_swap_on_reroll_ignores_the_stale_graph_pins():
 
 @pytest.mark.asyncio
 async def test_a_two_reference_render_replays_both_origins_byte_identically(monkeypatch):
-    """A cast render records two `character:` origins, and a reroll must reproduce both.
+    """A stored render carrying two *different* origins still rerolls to both of them.
 
-    Nothing about replay knows a cast exists -- a `cast` slot records the same shape a
-    `character` slot does -- so this is the assertion that the new source cost the
-    replay path nothing: two origins in, two slots filled, in order, from the cards.
+    An image made while a style could point each slot at a different person records two
+    `character:<card id>` origins, and reroll promises only the seed changes -- so it
+    re-fetches exactly what the record names, however a style would fill those slots
+    today. Replay never knew a cast existed and does not need to now: both origins are
+    the same shape, and `_pair_with_slots` re-keys them onto the graph.
     """
     from backend.workflows.image_gen import references as refs
     from backend.workflows.image_gen.engine.contracts import ImageResult
@@ -197,7 +200,7 @@ async def test_a_two_reference_render_replays_both_origins_byte_identically(monk
                 "id": "anime",
                 "label": "Anime",
                 "workflow": "user_cast",
-                "reference_sources": ["character", "cast"],
+                "reference_source": "character",
             }
         ],
     )
@@ -239,6 +242,8 @@ async def test_a_two_reference_render_replays_both_origins_byte_identically(monk
         "style_id": "anime",
         "references": [
             {"slot": ["r", "image"], "source": "character", "origin": "character:card-a"},
+            # Recorded under a source this build no longer offers -- the origin is what
+            # replay reads, and it is card-keyed either way.
             {"slot": ["r2", "image"], "source": "cast", "origin": "character:card-b"},
         ],
     }
@@ -570,7 +575,9 @@ async def test_a_cloud_record_round_trips_from_the_hook_into_resolve_target(_clo
     target = captured["target"]
     assert target.quality == "high", "a rehydrate billed at today's quality is a rehydrate that lied"
     assert target.reference_source == "character"
-    assert len(target.reference_slots) == 1, "turning references off must not re-render this from the prompt alone"
+    assert len(replay_slots(target, RECORDED_CLOUD)) == 1, (
+        "turning references off must not re-render this from the prompt alone"
+    )
 
 
 @pytest.mark.asyncio
@@ -640,8 +647,10 @@ async def test_a_cloud_reroll_converts_the_reference_to_what_the_provider_takes(
 
 def test_the_unfilled_slot_note_counts_rather_than_claiming_nothing_was_sent():
     """Trap 4.2. "drawn from the prompt alone" is true only when *nothing* resolved.
-    Said with one of two slots filled it tells the user the opposite of what happened,
-    which is exactly the case a multi-slot cast render makes ordinary."""
+    Said with one of several slots filled it tells the user the opposite of what
+    happened. The two facts the sentence has to carry are pinned; its wording is not.
+    """
     assert "prompt alone" in hooks._unfilled_note(1, 0)
-    assert hooks._unfilled_note(1, 1) == "1 reference image could not be resolved, so it was not sent"
-    assert hooks._unfilled_note(2, 1) == "2 reference images could not be resolved, so they were not sent"
+    assert "prompt alone" not in hooks._unfilled_note(1, 1)
+    assert hooks._unfilled_note(1, 1).startswith("1 reference image ")
+    assert hooks._unfilled_note(2, 1).startswith("2 reference images ")

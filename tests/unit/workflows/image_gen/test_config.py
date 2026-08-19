@@ -346,16 +346,21 @@ def test_a_styles_render_settings_are_bounded_and_default_to_off():
     # provider with a different one needs no rewrite here.
     assert _style()["model"] == ""
     assert _style(model="black-forest-labs/FLUX.1-kontext-pro")["model"] == "black-forest-labs/FLUX.1-kontext-pro"
-    # Sending conversation images anywhere is opt-in, per slot.
-    assert _style()["reference_sources"] == []
-    assert _style(reference_sources=["previous"])["reference_sources"] == ["previous"]
-    assert _style(reference_sources=["whatever"])["reference_sources"] == []
-    assert _style(reference_sources="previous")["reference_sources"] == []
-    # A blank between two answers is a real value -- *that* slot is off -- so only
-    # trailing ones are trimmed, or every slot after it would shift up one.
-    assert _style(reference_sources=["", "character", ""])["reference_sources"] == ["", "character"]
-    over = _style(reference_sources=["character"] * (MAX_REFERENCE_SLOTS + 3))["reference_sources"]
-    assert len(over) == MAX_REFERENCE_SLOTS
+    # Sending conversation images anywhere is opt-in, and it is one answer per style:
+    # a character has one reference image, and every image input the target declares is
+    # handed that same picture.
+    assert _style()["reference_source"] == ""
+    assert _style(reference_source="previous")["reference_source"] == "previous"
+    assert _style(reference_source="whatever")["reference_source"] == ""
+    assert _style(reference_source=["previous"])["reference_source"] == ""
+    # The retired cast sources asked for a likeness of somebody in the scene; the one
+    # that survives is the character's own, so a stored row keeps sending a picture
+    # rather than silently reading as prompt-only.
+    assert _style(reference_source="cast")["reference_source"] == "character"
+    assert _style(reference_source="cast_or_character")["reference_source"] == "character"
+    # The combining choice a homogeneous cloud array can honour: every character, then
+    # the chat image. A structural backend takes the first kind and feeds it everywhere.
+    assert _style(reference_source="character_and_previous")["reference_source"] == "character_and_previous"
 
 
 def test_both_backend_halves_are_kept_whichever_connection_is_linked():
@@ -402,7 +407,7 @@ def test_render_settings_hoist_from_the_connection_onto_each_style_that_links_it
     for sid in ("realistic", "anime"):
         assert styles[sid]["model"] == "black-forest-labs/FLUX.1-schnell"
         assert (styles[sid]["width"], styles[sid]["height"]) == (1024, 1536)
-        assert (styles[sid]["quality"], styles[sid]["reference_sources"]) == ("high", ["previous"])
+        assert (styles[sid]["quality"], styles[sid]["reference_source"]) == ("high", "previous")
     # Membership, not truthiness: "" is a real answer for quality ("provider
     # default"), so a style declaring one must not read as "absent, inherit".
     assert (styles["square"]["width"], styles["square"]["height"], styles["square"]["quality"]) == (1024, 1024, "")
@@ -441,7 +446,9 @@ def test_a_graphs_own_per_slot_sources_hoist_onto_every_style_that_names_it():
             {"slot": ["31", "image"], "source": "character", "label": "IPAdapter (#31)"},
         ],
     )
-    assert style["reference_sources"] == ["previous", "character"]
+    # One answer now, so the slot every target has -- the first -- is the one that
+    # survives; the second `Load Image` is handed that same picture.
+    assert style["reference_source"] == "previous"
 
 
 def test_a_comfyui_style_does_not_inherit_the_cloud_blocks_reference_setting():
@@ -451,21 +458,28 @@ def test_a_comfyui_style_does_not_inherit_the_cloud_blocks_reference_setting():
     ComfyUI server on the strength of a setting made for a commercial API."""
     cloud = {"provider": "xai", "reference_source": "character", "providers": {"xai": {"api_key": "k"}}}
     on_comfy = _migrated(style={"connection": "comfy", "workflow": "user_a"}, references=[], cloud=cloud)
-    assert on_comfy["reference_sources"] == []
+    assert on_comfy["reference_source"] == ""
     # The style it *was* made for still inherits it.
     on_cloud = _migrated(style={"connection": "xai"}, references=[], cloud=cloud)
-    assert on_cloud["reference_sources"] == ["character"]
+    assert on_cloud["reference_source"] == "character"
 
 
 def test_the_style_wins_over_both_legacy_shapes_and_the_migration_is_idempotent():
-    style = {"connection": "comfy", "workflow": "user_a", "reference_sources": ["character"]}
+    style = {"connection": "comfy", "workflow": "user_a", "reference_source": "character"}
     references = [{"slot": ["11", "image"], "source": "previous", "label": "Load Image (#11)"}]
-    assert _migrated(style=style, references=references)["reference_sources"] == ["character"]
+    assert _migrated(style=style, references=references)["reference_source"] == "character"
 
-    # Membership, not truthiness: a style that has switched every slot off must not
-    # read as "absent, inherit" on the next read and turn them back on.
-    off = _migrated(style={**style, "reference_sources": []}, references=references)
-    assert off["reference_sources"] == []
+    # The list shape it replaced still out-ranks the graph's, so an install that
+    # upgraded once and has not been opened since does not fall back a step further.
+    listed = _migrated(
+        style={"connection": "comfy", "workflow": "user_a", "reference_sources": ["character"]}, references=references
+    )
+    assert listed["reference_source"] == "character"
+
+    # Membership, not truthiness: a style that has switched its reference off must not
+    # read as "absent, inherit" on the next read and turn it back on.
+    off = _migrated(style={**style, "reference_source": ""}, references=references)
+    assert off["reference_source"] == ""
 
     # A fixed point: the hoist happens on the first read and the first write persists
     # it, so re-normalizing what came out must change nothing. Without this the graph's
@@ -488,7 +502,7 @@ def test_the_legacy_sources_come_from_the_graph_row_that_survived_parsing():
             "external_comfy": {"user_graphs": [{**kept, "graph": "not a graph", "slots": dict(_BASE_SLOTS)}, kept]},
         }
     )
-    assert config["styles"][0]["reference_sources"] == ["previous"]
+    assert config["styles"][0]["reference_source"] == "previous"
 
 
 def test_an_unlinked_style_inherits_from_the_connection_it_actually_renders_on():

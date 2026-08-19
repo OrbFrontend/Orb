@@ -19,8 +19,7 @@ from PIL import Image
 
 from ...config import (
     MAX_REFERENCE_SLOTS,
-    REFERENCE_SOURCES,
-    style_reference_sources,
+    style_reference_source,
     style_source,
 )
 from ..contracts import (
@@ -46,37 +45,45 @@ from .base import ImageAdapter, replayed_target, replayed_text
 logger = logging.getLogger(__name__)
 
 CLOUD_REFERENCE_MAX_BYTES = 4 * 1024 * 1024
+# Synthetic because a cloud provider has no node graph to key a slot against, and
+# stable because a stored reference is re-keyed by it on replay. Only the node half is
+# read by `references.plan_slots`, which numbers the rest itself.
 CLOUD_REFERENCE_SLOT = ("cloud", "image_0")
 
 
-def cloud_reference_slot(index: int) -> tuple[str, str]:
-    """The synthetic slot key for the *index*-th cloud reference.
+# Synthetic because a cloud provider has no node graph to key a slot against, and
+# stable because a stored reference is re-keyed by it on replay. Only the node half is
+# read by `references.plan_slots`, which numbers the rest itself.
+CLOUD_REFERENCE_SLOT = ("cloud", "image_0")
 
-    Synthetic because a cloud provider has no node graph to key against, and stable
-    because a stored reference is re-keyed by it on replay. Position 0 keeps the
-    literal `CLOUD_REFERENCE_SLOT` spelling every attachment made before this backend
-    could take more than one recorded.
+
+def _recorded_source(replay: Mapping[str, Any], current: str) -> str:
+    """Where the stored render drew its reference from, falling back to `current`.
+
+    The same rule the ComfyUI adapter applies, for the same reason: the source moved
+    onto the style, where it is editable after the fact, so a rehydrate replaying it off
+    the style would reproduce a different picture -- turning references off in settings
+    used to re-render an evicted image from the prompt alone and overwrite the row.
+
+    **A string wins, not a truthy one.** `""` is a real recorded value -- "this render
+    sent no reference" -- so the scalar is authoritative whenever it is present at all.
+    The per-reference records answer only for a record made before the scalar existed,
+    and every reference on one render shares a source.
     """
-    return CLOUD_REFERENCE_SLOT if index == 0 else ("cloud", f"image_{index}")
-
-
-def _recorded_sources(replay: Mapping[str, Any], capacity: int) -> list[str]:
-    """The per-slot sources a stored render used, re-keyed onto this target's slots.
-
-    The same rule the ComfyUI adapter applies, for the same reason: the sources moved
-    onto the style, where they are editable after the fact, so a rehydrate replaying
-    them off the style would reproduce a different picture. `[]` when the record names
-    no cloud slot, and the caller falls back to the legacy single `reference_source`
-    and then to the style.
-    """
+    recorded = replay.get("reference_source")
+    if isinstance(recorded, str):
+        return recorded
     entries = replay.get("references")
-    recorded: dict[tuple[str, str], str] = {}
-    for entry in entries if isinstance(entries, (list, tuple)) else ():
-        slot = entry.get("slot") if isinstance(entry, Mapping) else None
-        if isinstance(slot, (list, tuple)) and len(slot) == 2:
-            recorded[(str(slot[0]), str(slot[1]))] = str(entry.get("source") or "")
-    sources = [recorded.get(cloud_reference_slot(index), "") for index in range(capacity)]
-    return sources if any(sources) else []
+    return next(
+        (
+            source
+            for entry in (entries if isinstance(entries, (list, tuple)) else ())
+            if isinstance(entry, Mapping)
+            for source in (str(entry.get("source") or ""),)
+            if source
+        ),
+        current,
+    )
 
 
 CAPABILITIES: ImageBackendCapabilities = {
@@ -170,57 +177,43 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             replay, model=self._model(), width=int(style["width"]), height=int(style["height"])
         )
         quality = replayed_text(replay, "quality", str(style.get("quality") or ""))
-        references: tuple[Mapping[str, Any], ...] = ()
         notes: list[str] = []
-        # How many slots this backend has is a **provider** fact, not a scene fact:
-        # `resolve_target` has no conversation access, deliberately, so the target
-        # declares its capacity and the render fills what it has. The style stores a
-        # list so a ComfyUI graph's several `LoadImage` widgets can each answer, and a
-        # style relinked between the two keeps its answers either way -- so anything
-        # past this capacity is stored but inert, and nothing may read it as intent.
-        # Clamped to the same ceiling the picker and `normalize_config` enforce: a style
-        # cannot store a source past `MAX_REFERENCE_SLOTS`, so declaring a slot past it
-        # would declare one that is permanently Off and count against `unfilled`.
-        capacity = reference_capacity(preset, MAX_REFERENCE_SLOTS) if preset is not None else 1
-        sources = style_reference_sources(style)[:capacity]
+        source = style_reference_source(style)
         if replay:
-            # Position 0 comes from the scalar `reference_source`, which is the
-            # authoritative recorded fact for this backend and the only one an
-            # attachment made before it could declare a second slot carries. The
-            # per-reference records answer for the rest, which that scalar cannot
-            # address. Precedence, not a merge: a record whose scalar is absent falls
-            # back to the style at position 0 exactly as it always has.
-            sources = [replayed_text(replay, "reference_source", next(iter(sources), ""))] + _recorded_sources(
-                replay, capacity
-            )[1:]
-        source = next(iter(sources), "")
-        # Whether this target can carry a reference *at all* -- a fact about the
-        # provider's dialect, not about the model and not about what the style switched
-        # on. A style with every row Off still has whatever ceiling the provider gives
-        # it, and the caller needs that ceiling to tell "the style left a row Off" apart
-        # from "there is no further row to turn on".
+            # The source moved onto the style, where it is editable after the fact, so a
+            # rehydrate replaying it off the style would reproduce a different picture --
+            # turning references off in settings used to re-render an evicted image from
+            # the prompt alone and overwrite the row with it. **A string wins, not a
+            # truthy one**: `""` is a real recorded value ("this render sent none"), so a
+            # record carrying it is authoritative and only a record with no scalar at all
+            # falls back to the style.
+            source = replayed_text(replay, "reference_source", source)
+        # Whether this target can carry a reference *at all*, and how many -- a fact
+        # about the provider's dialect, derived from the reference encoding because that
+        # is the only thing that genuinely constrains it. *Which* images fill it is the
+        # render's answer, not this one: `resolve_target` has no conversation access, so
+        # it declares the array and `references.plan_slots` fills it from who is in the
+        # picture.
         #
-        # Deliberately not asked of the model any more: whether *this* model reads a
-        # reference is the model's to answer, at render time, by refusing. Declaring no
-        # slot on the model's behalf is how a capability the user is paying for goes
-        # missing with nothing on screen to say so.
+        # Deliberately not asked of the model: whether *this* model reads a reference is
+        # the model's to answer, at render time, by refusing. Declaring no slot on the
+        # model's behalf is how a capability the user is paying for goes missing with
+        # nothing on screen to say so.
         usable = preset is not None and takes_references(preset)
-        if preset is not None and usable and any(name in REFERENCE_SOURCES for name in sources):
-            # Enumerated before filtering: a style whose first row is Off and whose
-            # second is on fills `image_1`, not `image_0`, or a replay would re-key
-            # onto the wrong one.
-            references = tuple(
-                {
-                    "slot": list(cloud_reference_slot(index)),
-                    "source": name,
-                    "label": "Reference image" if index == 0 else f"Reference image {index + 1}",
-                    "mimes": list(preset.reference_mimes),
-                    "max_bytes": CLOUD_REFERENCE_MAX_BYTES,
-                    "required": False,
-                }
-                for index, name in enumerate(sources)
-                if name in REFERENCE_SOURCES
-            )
+        capacity = reference_capacity(preset, MAX_REFERENCE_SLOTS) if usable and preset is not None else 0
+        template = (
+            {
+                "slot_prefix": CLOUD_REFERENCE_SLOT[0],
+                "mimes": list(preset.reference_mimes),
+                "max_bytes": CLOUD_REFERENCE_MAX_BYTES,
+                # A cloud slot is never required: the same model has a plain generations
+                # endpoint one field away, so a render whose source resolves to nothing
+                # degrades with a note instead of failing.
+                "required": False,
+            }
+            if capacity and preset is not None
+            else {}
+        )
         return RenderTarget(
             source=self.source_id,
             target_id="",
@@ -230,11 +223,14 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             supports_dimensions=bool(preset and preset.dimension_mode != "none"),
             width=width,
             height=height,
-            reference_slots=references,
+            # Empty on purpose: this backend's slots are derived per render, not
+            # declared here. See `RenderTarget` and `references.plan_slots`.
+            reference_slots=(),
             notes=tuple(notes),
             quality=quality,
             reference_source=source,
-            reference_capacity=capacity if usable else 0,
+            reference_capacity=capacity,
+            reference_template=template,
         )
 
     def _client(self, timeout: float) -> OpenAIImageClient:

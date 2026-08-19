@@ -44,7 +44,13 @@ from .engine import (
     resolve_and_generate,
 )
 from .engine.contracts import ResolvedReference
-from .references import refetch_references, resolve_references
+from .references import (
+    plan_slots,
+    previous_image,
+    refetch_references,
+    replay_slots,
+    resolve_references,
+)
 from .subjects import Subject
 
 logger = logging.getLogger(__name__)
@@ -390,9 +396,9 @@ async def _generate_fresh(
     # The order is load-bearing, and each step depends on the one above it:
     #
     #   camera   -> how many subjects there are at all (first-person keeps one)
-    #   subjects -> who is a candidate for a slot
-    #   analysis -> which of those candidates is actually in frame
-    #   slots    -> whose likeness leaves the machine
+    #   subjects -> who this render is a picture of, primary first
+    #   analysis -> which of them is actually in frame
+    #   slots    -> whose likeness leaves the machine, one image per person
     #   composer -> what the prompt says about the pictures that went with it
     #
     # The analyzer sits *above* the slots rather than inside the compose call so that a
@@ -408,7 +414,6 @@ async def _generate_fresh(
         character_id=getattr(ctx, "character_id", None),
         character=getattr(ctx, "character", None),
         profile=profile,
-        pov=pov,
     )
     analysis = (
         await analyze_scene(
@@ -424,17 +429,16 @@ async def _generate_fresh(
         if config.get("scene_analysis")
         else None
     )
-    # Hoisted rather than inlined into the call: this is the list the render is
-    # actually *of*, so the disclosure below has to be read off the same answer the
-    # slots were filled from, not off the wider candidate list.
+    # Hoisted rather than inlined: this is the list the render is actually *of*, so both
+    # the slots and the disclosure below read the same answer rather than the wider
+    # candidate list. The chat image is found once, because the plan depends on whether
+    # there is one -- `previous_or_character` asks for one slot when the chat has an
+    # image and one per character when it does not.
     addressable = addressable_subjects(subjects, analysis)
-    references = await resolve_references(
-        target.reference_slots,
-        history=history,
-        anchor_id=int(message["id"]),
-        subjects=addressable,
-    )
-    unfilled = len(target.reference_slots) - len(references)
+    previous = previous_image(history, int(message["id"]))
+    slots = plan_slots(target, addressable, previous=previous)
+    references = await resolve_references(slots, subjects=addressable, previous=previous)
+    unfilled = len(slots) - len(references)
     scene, avoid, composer_mode = await compose_scene(
         client=ctx.agent_client,
         model_name=ctx.agent_model_name,
@@ -481,9 +485,9 @@ async def _generate_fresh(
     consumption = _consumption(style, prompt, negative, result, md, source_label=adapter.label)
     if unfilled > 0:
         consumption.setdefault("notes", []).append(_unfilled_note(unfilled, len(references)))
-    # `md["references"]` rather than `references`: the ladder above may have dropped
-    # some of what was resolved, and this note is about what the image model was given.
-    uncovered = _uncovered_note(addressable, md["references"], len(target.reference_slots), target.reference_capacity)
+    # `md["references"]` rather than `references`: the ladder above may have dropped some
+    # of what was resolved, and this note is about what the image model was given.
+    uncovered = _uncovered_note(addressable, md["references"], len(slots), target.reference_capacity)
     if uncovered:
         consumption.setdefault("notes", []).append(uncovered)
     return _attachment(seed, result, md, consumption)
@@ -642,11 +646,12 @@ async def reroll_gen(ctx, params, seed):
     if not target.supports_seed and ctx.replay:
         notes.append("this provider takes no seed: a fresh render of the same prompt, billed as one, not the original image")
     recorded_references = _recorded_references(params)
-    if recorded_references and not target.reference_slots:
+    replay_targets = replay_slots(target, recorded_references)
+    if recorded_references and not replay_targets:
         references = ()
         notes.append(f"this style does not take reference images, so the original's reference was not sent{mismatch}")
     else:
-        references = await refetch_references(recorded_references, slots=target.reference_slots)
+        references = await refetch_references(recorded_references, slots=replay_targets)
         dropped = len(recorded_references) - len(references)
         if dropped > 0:
             notes.append(f"this style takes fewer reference images, so {dropped} of them were not sent")
