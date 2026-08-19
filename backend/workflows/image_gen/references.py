@@ -38,7 +38,7 @@ from .subjects import Subject
 SOURCE_LABELS = {
     "previous": "the previous image in the chat",
     "character": "the character reference image",
-    "cast": "a reference image for another cast member in this beat",
+    "cast": "a reference image for another cast member in this exchange",
 }
 
 # How far back a `previous` slot looks, in messages on this branch. Unbounded, the
@@ -229,10 +229,16 @@ def _unresolved(label: str, source: str) -> ImageGenerationError:
     names = REFERENCE_SOURCES.get(source, ())
     tried = " or ".join(SOURCE_LABELS.get(name, name) for name in names) or "any configured source"
     fix = (
-        # A `cast` slot in a scene where nobody else spoke is not fixed by uploading
-        # anything, so it is told the one thing that does fix it.
-        "Only one character is in this beat. Set that slot to a source that falls back to the "
-        "character reference image, or wait until another cast member speaks."
+        # A `cast` slot with nobody to draw is not fixed by uploading anything, so it is
+        # told the two things that do fix it. Deliberately says *at this message* rather
+        # than *in this beat*: the render only ever reads the branch up to the reply
+        # being visualized, so the first of three replies addresses one subject even
+        # though the finished beat on screen shows three. Telling the user to "wait
+        # until another cast member speaks" when they already have is worse than
+        # saying nothing.
+        "No other cast member had spoken yet at the message you are visualizing, and this slot draws "
+        "one. Visualize a later reply in the exchange, or set that slot to a source that falls back to "
+        "the character reference image."
         if names == ("cast",)
         else "Generate or upload an image in this chat first, or set a character reference image in settings."
     )

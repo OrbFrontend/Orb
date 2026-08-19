@@ -17,7 +17,12 @@ from urllib.parse import urlsplit
 
 from PIL import Image
 
-from ...config import REFERENCE_SOURCES, style_reference_sources, style_source
+from ...config import (
+    MAX_REFERENCE_SLOTS,
+    REFERENCE_SOURCES,
+    style_reference_sources,
+    style_source,
+)
 from ..contracts import (
     ImageBackendCapabilities,
     ImageRequest,
@@ -173,7 +178,10 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         # list so a ComfyUI graph's several `LoadImage` widgets can each answer, and a
         # style relinked between the two keeps its answers either way -- so anything
         # past this capacity is stored but inert, and nothing may read it as intent.
-        capacity = max(1, preset.max_references) if preset is not None else 1
+        # Clamped to the same ceiling the picker and `normalize_config` enforce: a style
+        # cannot store a source past `MAX_REFERENCE_SLOTS`, so declaring a slot past it
+        # would declare one that is permanently Off and count against `unfilled`.
+        capacity = min(max(1, preset.max_references), MAX_REFERENCE_SLOTS) if preset is not None else 1
         sources = style_reference_sources(style)[:capacity]
         if replay:
             # Position 0 comes from the scalar `reference_source`, which is the

@@ -17,22 +17,33 @@ Order is the contract:
 * **Subject 0 is the primary** -- the card the route already resolved for this
   message (`_resolve_workflow_character`), which is what a solo chat has one of and
   what the `character` reference source has always meant.
-* **Subject 1..n are the rest of the cast that spoke in this beat**, in roster
-  order, which is what the `cast` reference source draws from.
+* **Subject 1..n are the rest of the cast that has spoken in this beat so far**, in
+  roster order, which is what the `cast` reference source draws from.
 
 Scoping the tail to the *beat* rather than the whole roster is deliberate: a
 six-member scene where two people traded lines should not send four likenesses for
 characters the scene analyzer then leaves out of the shot. `messages.beat_id` is
 already on every history row the workflow ctx receives, so this costs no query.
 
-Nothing here decides *visibility*. The analyzer decides who is in frame and the
-composer trims the prompt accordingly; this decides only who is addressable.
+**"So far" is the whole of it.** The history handed in is already cut at the anchor
+(`hooks._history_through`), and that cut is a stated invariant of this workflow, not
+an accident: a render never composes from replies that came *after* the one being
+visualized, and the regenerate ctx cannot even see them. So visualizing the first of
+three replies in a beat addresses one subject, and visualizing the last addresses
+three. Widening this to the whole beat would mean sending a likeness for someone
+whose reply the analyzer is not allowed to read -- a picture of an action that has
+not happened yet.
+
+Nothing here decides *visibility*. The analyzer decides who is in frame and
+`composer.addressable_subjects` drops the tail members it left out, so a likeness is
+never uploaded for someone the prompt does not name; this decides only who is a
+candidate.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from ..toolkit import CastMember, get_scene_cast, get_workflow_character_state
@@ -60,12 +71,17 @@ class Subject:
     profile: Mapping[str, Any] = field(default_factory=dict)
 
 
-def _beat_speakers(history: Sequence[Mapping[str, Any]], anchor_id: int) -> tuple[str, ...]:
-    """The member ids that spoke in the anchor's beat, in the order they spoke.
+def _beat_speakers(history: Sequence[Mapping[str, Any]], anchor_id: int) -> frozenset[str]:
+    """The member ids that have spoken in the anchor's beat, as a set.
 
     A beat is one round of the group driver: the user's message plus every reply it
     produced. `beat_id` is request-scoped and indexed, and `get_path_to_leaf` does
     `SELECT *`, so both it and `speaker_member_id` are already on the rows here.
+
+    A *set*, not a sequence, because the caller orders the tail by the roster rather
+    than by who spoke first -- `cast` ordinals must not move when the same two people
+    trade the first line between beats. Answering with an order nothing reads would
+    be an invitation to start reading it.
 
     An anchor with no `beat_id` -- a solo chat, or a group reply written before beats
     were recorded -- has no beat to widen to, and answers empty rather than falling
@@ -73,15 +89,40 @@ def _beat_speakers(history: Sequence[Mapping[str, Any]], anchor_id: int) -> tupl
     """
     beat = next((message.get("beat_id") for message in history if message.get("id") == anchor_id), None)
     if not isinstance(beat, str) or not beat:
-        return ()
-    speakers: list[str] = []
-    for message in history:
-        if message.get("beat_id") != beat:
-            continue
-        member_id = message.get("speaker_member_id")
-        if isinstance(member_id, str) and member_id and member_id not in speakers:
-            speakers.append(member_id)
-    return tuple(speakers)
+        return frozenset()
+    return frozenset(
+        member_id
+        for message in history
+        if message.get("beat_id") == beat
+        for member_id in (message.get("speaker_member_id"),)
+        if isinstance(member_id, str) and member_id
+    )
+
+
+def _disambiguated(subjects: Sequence[Subject]) -> tuple[Subject, ...]:
+    """The same subjects, with no two answering to the same name.
+
+    A name is the only handle the model has on a subject: it is what the roster quotes,
+    what `visible_subjects` comes back as, and what binds an analyzed cast entry to a
+    saved appearance sheet. `group_members.display_name` carries no uniqueness
+    constraint -- only `speaker_key` and the active `character_card_id` do -- so two
+    members really can both be "Guard", and then every one of those bindings is a
+    coin flip: the single name comes back once and *both* sheets are injected.
+
+    So a repeat is numbered off, and the model is handed something it can tell apart.
+    Plain digits and a space: `(2)` would reach a booru encoder as attention syntax,
+    and this text is written into image prompts.
+
+    The first holder keeps the bare name, so the ordinary scene -- where nobody
+    collides -- is untouched, and a rename never silently renumbers the others.
+    """
+    seen: dict[str, int] = {}
+    out: list[Subject] = []
+    for subject in subjects:
+        key = subject.name.casefold()
+        seen[key] = count = seen.get(key, 0) + 1
+        out.append(subject if count == 1 or not subject.name else replace(subject, name=f"{subject.name} {count}"))
+    return tuple(out)
 
 
 async def _profile_for(card_id: str | None) -> dict:
@@ -114,6 +155,9 @@ async def resolve(
     subject 0, and therefore no subjects at all: `cast` addresses *other* members
     relative to a primary, and there is no such thing as the second subject of a
     render that has no first.
+
+    The answer leaves here with distinct names (`_disambiguated`), because every
+    binding downstream of it is by name.
     """
     if not character_id:
         return ()
@@ -132,8 +176,8 @@ async def resolve(
         )
     ]
     if pov == FIRST:
-        return tuple(subjects)
-    spoke = set(_beat_speakers(history, anchor_id))
+        return _disambiguated(subjects)
+    spoke = _beat_speakers(history, anchor_id)
     for member in cast.members:
         if member.member_id in ("", subjects[0].member_id) or member.member_id not in spoke:
             continue
@@ -149,7 +193,7 @@ async def resolve(
                 profile=await _profile_for(member.card_id),
             )
         )
-    return tuple(subjects)
+    return _disambiguated(subjects)
 
 
 def _anchor_member(

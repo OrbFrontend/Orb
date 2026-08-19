@@ -480,6 +480,29 @@ def test_a_provider_declares_one_optional_slot_per_probed_reference(monkeypatch)
     assert not any(slot["required"] for slot in target.reference_slots)
 
 
+def test_declared_capacity_stops_where_the_picker_and_the_config_stop(monkeypatch):
+    """`MAX_REFERENCE_SLOTS` is the one ceiling, and every reader honours it.
+
+    The picker offers no row past it (`policy.maxCloudReferences`) and `normalize_config`
+    stores no source past it, so a preset declaring more would declare slots nothing can
+    ever turn on -- counted as unfilled, and disclosed on every render as references
+    that could not be resolved.
+
+    Fed a *raw* style rather than a normalized one, because that is the only way the
+    ceiling can be crossed and the one `style_reference_sources` already exists to
+    survive: a hand-edited config row reaches the adapter through `validate_connection`
+    without passing normalization.
+    """
+    from backend.workflows.image_gen.config import MAX_REFERENCE_SLOTS
+
+    over = MAX_REFERENCE_SLOTS + 3
+    _capacity(monkeypatch, over)
+    config = _config()
+    config["styles"][0]["reference_sources"] = ["character"] * over
+
+    assert len(_target(_bound(config), config).reference_slots) == MAX_REFERENCE_SLOTS
+
+
 def test_capacity_truncates_the_stored_list_rather_than_reading_it_as_intent(monkeypatch):
     """A style keeps both backends' answers across a relink, so a four-row ComfyUI
     answer under a one-slot provider is one slot -- or a disclosure asks the user to

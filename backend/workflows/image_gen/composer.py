@@ -129,13 +129,19 @@ def _cast_entries(analysis: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return [ch for ch in analysis.get("characters") or [] if isinstance(ch, Mapping)]
 
 
-def _matched(subjects: Sequence[SubjectAppearance], analysis: Mapping[str, Any]) -> dict[int, Mapping[str, Any]]:
+def _matched(names: Sequence[str], analysis: Mapping[str, Any]) -> dict[int, Mapping[str, Any]]:
     """Which analyzed cast entry is which subject, by subject index.
 
     Matched on the name, which is why both prompts quote the roster back and tell the
     model to copy it exactly: with several subjects, a name is the only thing that can
     say *which* of them an entry is. Each entry is claimed at most once, so two members
-    the model gave one name do not both collapse onto the first subject.
+    the model gave one name do not both collapse onto the first subject -- and
+    `subjects.resolve` has already made the roster's own names distinct, so the model
+    is never asked to tell two "Guard"s apart in the first place.
+
+    Takes bare names because that is all it reads: the same answer serves the appearance
+    injector, the first-person trim, and the reference slots, which hold three different
+    subject shapes between them.
 
     `is_listed_subject` is honoured as a fallback for a lone subject only. It carries no
     identity past that -- flagging two entries says they are both subjects, not which is
@@ -145,8 +151,8 @@ def _matched(subjects: Sequence[SubjectAppearance], analysis: Mapping[str, Any])
     entries = _cast_entries(analysis)
     matched: dict[int, Mapping[str, Any]] = {}
     claimed: set[int] = set()
-    for index, subject in enumerate(subjects):
-        name = bounded(subject.name, 200).casefold()
+    for index, subject_name in enumerate(names):
+        name = bounded(subject_name, 200).casefold()
         if not name:
             continue
         for position, entry in enumerate(entries):
@@ -155,11 +161,30 @@ def _matched(subjects: Sequence[SubjectAppearance], analysis: Mapping[str, Any])
             matched[index] = entry
             claimed.add(position)
             break
-    if len(subjects) == 1 and 0 not in matched:
+    if len(names) == 1 and 0 not in matched:
         flagged = next((entry for entry in entries if entry.get("is_listed_subject") is True), None)
         if flagged is not None:
             matched[0] = flagged
     return matched
+
+
+def _report_binding(where: str, names: Sequence[str], matched: Mapping[int, Any]) -> None:
+    """Say when a subject failed to bind, because nothing else will.
+
+    A subject the model renamed drops out of the match and loses its saved appearance
+    sheet -- and the render still succeeds, still looks plausible, and is quietly a
+    picture of someone slightly else. That is the one failure in this workflow with no
+    user-visible symptom, so it gets a log line rather than silence.
+    """
+    missing = [name for index, name in enumerate(names) if index not in matched and bounded(name, 200)]
+    if missing:
+        logger.info(
+            "[image_gen] %s: %d/%d subjects bound; the model did not name %s",
+            where,
+            len(matched),
+            len(names),
+            ", ".join(repr(name) for name in missing),
+        )
 
 
 def _keep_subjects(analysis: dict, subjects: Sequence[SubjectAppearance]) -> None:
@@ -172,7 +197,7 @@ def _keep_subjects(analysis: dict, subjects: Sequence[SubjectAppearance]) -> Non
     """
     if not isinstance(analysis.get("characters"), list):
         return
-    kept = list(_matched(subjects, analysis).values())
+    kept = list(_matched([subject.name for subject in subjects], analysis).values())
     if kept:
         analysis["characters"] = kept
 
@@ -184,7 +209,9 @@ def _visible(subjects: Sequence[SubjectAppearance], analysis: Mapping[str, Any])
     injecting a fixed appearance for someone who left the room is how a saved sheet
     draws a second person into the shot.
     """
-    matched = _matched(subjects, analysis)
+    names = [subject.name for subject in subjects]
+    matched = _matched(names, analysis)
+    _report_binding("analysis", names, matched)
     return [
         subject._replace(face_visible=matched[index].get("face_visible") is not False)
         for index, subject in enumerate(subjects)
@@ -199,7 +226,87 @@ def _named_visible(subjects: Sequence[SubjectAppearance], names: Any) -> list[Su
     which is what the singular `profile_owner_visible` path already did.
     """
     listed = {bounded(name, 200).casefold() for name in names if isinstance(name, str)} if isinstance(names, list) else set()
-    return [subject for subject in subjects if bounded(subject.name, 200).casefold() in listed]
+    matched = {index: subject for index, subject in enumerate(subjects) if bounded(subject.name, 200).casefold() in listed}
+    _report_binding("single call", [subject.name for subject in subjects], matched)
+    return list(matched.values())
+
+
+def _sheets(subjects: Sequence[Subject]) -> list[SubjectAppearance]:
+    """One projection of the subject list, shared by both calls and by the injector, so
+    the roster the model is shown is the roster the fixed tags are drawn from."""
+    return [
+        SubjectAppearance(name=subject.name, appearance=str(subject.profile.get("appearance_prompt") or ""))
+        for subject in subjects
+    ]
+
+
+async def analyze_scene(
+    *,
+    client: Any,
+    model_name: str,
+    prefix: Sequence[dict],
+    settings: Mapping[str, Any],
+    pov: str = THIRD,
+    reasoning_on: bool = False,
+    subjects: Sequence[Subject] = (),
+    supports_negative: bool = True,
+) -> dict:
+    """The analyzer pass on its own: who is in frame, and how they look right now.
+
+    **Separate from the compose call on purpose.** Its answer decides who is in the
+    picture, and that has to be known *before* the reference slots are filled -- a
+    likeness uploaded for a member the analyzer left out of frame is an edit model's
+    invitation to draw them back in, against a prompt that never mentions them. So the
+    caller runs this, fills slots from `addressable_subjects`, and only then composes.
+
+    Rides *prefix* unchanged, exactly as the compose call does, so splitting the two
+    costs no cached KV: the tails differ, the prefix does not.
+
+    Answers `{}` when the forced call yields nothing, which the composer reports as
+    `analysis_failed` and which `addressable_subjects` treats as "no answer" rather
+    than as "nobody is visible".
+    """
+    analysis = await _forced_args(
+        client=client,
+        model_name=model_name,
+        prefix=prefix,
+        tail=[{"role": "user", "content": analyze_ooc(pov, supports_negative, _sheets(subjects))}],
+        tool_name="analyze_scene",
+        settings=settings,
+        max_tokens=2_048,
+        reasoning_on=reasoning_on,
+    )
+    # First-person view is the user looking at the subject: keep only the subject
+    # so a stray background character does not get drawn into the shot.
+    if pov == FIRST:
+        _keep_subjects(analysis, _sheets(subjects))
+    return analysis
+
+
+def addressable_subjects(subjects: Sequence[Subject], analysis: Mapping[str, Any] | None) -> tuple[Subject, ...]:
+    """Whose likeness a reference slot may actually draw, in `cast` ordinal order.
+
+    **Subject 0 is unconditional.** `character` means the render's primary, and a solo
+    chat's one slot has to resolve whether or not the analyzer bothered to list anyone;
+    filtering it would turn a landscape shot of an established character into a hard
+    failure on every ComfyUI graph built around a `LoadImage`.
+
+    **The tail is filtered**, because that is the part a group added and the part that
+    can go wrong. A member who spoke in the beat but whom the analyzer left out of frame
+    contributes nothing to the prompt -- `_visible` already drops their sheet -- so
+    uploading their face anyway sends the image model a person the words never mention.
+
+    Compacted, not sparse: dropping subject 1 means the first `cast` slot draws subject
+    2, which is what "the next cast member" means to someone reading the picker. The
+    slots address positions in *this* list.
+
+    No analysis -- the single-call path, or a forced call that came back empty -- is not
+    an answer of "nobody", so nothing is filtered.
+    """
+    if not analysis or len(subjects) < 2:
+        return tuple(subjects)
+    matched = _matched([subject.name for subject in subjects], analysis)
+    return (subjects[0], *(subject for index, subject in enumerate(subjects) if index and index in matched))
 
 
 async def compose_scene(
@@ -211,7 +318,7 @@ async def compose_scene(
     prompt_format: str = DEFAULT_PROMPT_FORMAT,
     pov: str = THIRD,
     reasoning_on: bool = False,
-    scene_analysis: bool = False,
+    analysis: Mapping[str, Any] | None = None,
     subjects: Sequence[Subject] = (),
     extra_instructions: str = "",
     supports_negative: bool = True,
@@ -223,11 +330,16 @@ async def compose_scene(
 ) -> tuple[str, str, str]:
     """Compose the scene text for one message, as ``(scene, avoid, mode)``.
 
-    *subjects* is ``subjects.resolve``'s ordered answer -- who this render is *of* --
-    and is the same list the reference slots were filled from. *referenced_subjects*
-    names the ones whose likeness actually went with the request, in slot order, which
-    is what stops the reference instruction from suppressing identity traits for
-    everybody else in the frame.
+    *subjects* is ``subjects.resolve``'s ordered answer -- who this render is *of*.
+    *referenced_subjects* names the ones whose likeness actually went with the request,
+    in slot order, which is what stops the reference instruction from suppressing
+    identity traits for everybody else in the frame.
+
+    *analysis* is ``analyze_scene``'s answer, or ``None`` when the user has scene
+    analysis off. It arrives already made rather than being taken here, because the
+    reference slots the caller filled in between depend on it -- see
+    ``addressable_subjects``. ``{}`` is a *failed* analysis and reports as
+    ``analysis_failed``; ``None`` is a render that never asked for one.
 
     *pov* is already resolved (``pov.resolve``) and selects which mode's
     instructions both calls carry. It never reaches the tool schemas: those ship as
@@ -238,30 +350,8 @@ async def compose_scene(
     Raises ``ValueError`` when the forced compose call yields no scene, rather than
     falling back to the raw reply text.
     """
-    # One projection of the subject list, shared by both calls and by the injector, so
-    # the roster the model is shown is the roster the fixed tags are drawn from.
-    sheets = [
-        SubjectAppearance(name=subject.name, appearance=str(subject.profile.get("appearance_prompt") or ""))
-        for subject in subjects
-    ]
-    analysis: dict = {}
-    analysis_block = ""
-    if scene_analysis:
-        analysis = await _forced_args(
-            client=client,
-            model_name=model_name,
-            prefix=prefix,
-            tail=[{"role": "user", "content": analyze_ooc(pov, supports_negative, sheets)}],
-            tool_name="analyze_scene",
-            settings=settings,
-            max_tokens=2_048,
-            reasoning_on=reasoning_on,
-        )
-        # First-person view is the user looking at the subject: keep only the subject
-        # so a stray background character does not get drawn into the shot.
-        if pov == FIRST:
-            _keep_subjects(analysis, sheets)
-        analysis_block = _render_scene(analysis, pov)
+    sheets = _sheets(subjects)
+    analysis_block = _render_scene(analysis, pov) if analysis else ""
 
     tail = [
         {
@@ -304,7 +394,7 @@ async def compose_scene(
         # on-demand surfaces the error, regenerate/reroll drop the attachment.
         raise ValueError("couldn't compose an image prompt for this message")
     avoid = bounded(args.get("avoid"))
-    if analysis_block:
+    if analysis_block and analysis is not None:
         anchor = count_anchor(analysis.get("characters"))
         if anchor is not None and normalized_format != "prose":
             scene = pin_anchor(scene, anchor)
@@ -314,7 +404,8 @@ async def compose_scene(
         visible = _named_visible(sheets, args.get("visible_subjects"))
     # One call, in subject order: injecting per subject would stack them in reverse.
     scene = inject_profile_appearance(scene, visible, prompt_format)
-    mode = "scene_analysis" if analysis_block else ("analysis_failed" if scene_analysis else "single_call")
+    # `None` never asked for an analysis; `{}` asked and the forced call came back empty.
+    mode = "scene_analysis" if analysis_block else ("single_call" if analysis is None else "analysis_failed")
     return scene, avoid, mode
 
 

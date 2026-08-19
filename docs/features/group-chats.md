@@ -180,8 +180,9 @@ switching member reloads the form rather than writing to whoever spoke last.
 
 Image generation is per-speaker in *which member it is of* and per-beat in *who
 else it may draw*. The speaker of the reply being visualized is the picture's
-primary subject; the other members who spoke in the same beat follow, in cast
-order. Both halves of the render read that one list: a style's reference rows can
+primary subject; the other members who spoke in the same beat **up to that reply**
+follow, in cast order - a render never reads past its own anchor, so the first
+reply of a beat has a shorter cast than the last. Both halves of the render read that one list: a style's reference rows can
 send a likeness for each of them (**Another cast member** — see
 [Reference images](../multimedia/image-generation.md#reference-images-in-a-group-chat)),
 and the prompter is given every subject's saved appearance plus the names of the

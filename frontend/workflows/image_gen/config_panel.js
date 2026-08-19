@@ -347,6 +347,14 @@ function cloudStyleFields(style, connection) {
           style.model || preset?.default_model || "This model",
         )} does not accept reference images — choose a model that does, or set Reference images to Off.</div>`
       : "";
+  // Every cast row on a target with one slot spends that slot on somebody who is not
+  // the subject: the picture's own character is then described in words while another
+  // member's face is the only likeness sent. Legal, occasionally wanted, and almost
+  // never what someone picking "Another cast member" on a one-slot provider meant.
+  const castOnlyNote =
+    slots === 1 && String(sources[0] || "").startsWith("cast")
+      ? `<div class="image-gen-note">${esc(connection.label)} reads one reference image, and this row spends it on another cast member — no likeness is sent for the character each picture is of. Pick a character source if you did not mean that.</div>`
+      : "";
   // An image-to-image model takes its output size from what it was handed, so the
   // control above stops applying the moment a reference is on. Said here rather than
   // left for the render note: this one is knowable before the render is paid for.
@@ -360,7 +368,7 @@ function cloudStyleFields(style, connection) {
       ${quality}
       ${references}
     </div>
-    ${referenceModelNote}${referenceSizeNote}
+    ${referenceModelNote}${castOnlyNote}${referenceSizeNote}
     <div class="image-gen-note ig-style-backend">${
       // True of one dimension mode only. Every other provider is sent the pixels
       // themselves, so saying this there described a conversion that never happens.

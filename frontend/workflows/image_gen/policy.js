@@ -9,20 +9,32 @@ export function isLoopbackUrl(apiUrl) {
   return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1";
 }
 
+// What an acknowledged reference-image disclosure covers. Bumped when the set of bytes
+// that can leave the machine grows, because consent is stored per key and a stale
+// "acknowledged" would silently cover an upload the user never read about. `v2` added
+// the rest of the cast: a reference row can now draw any group member who spoke in the
+// exchange, not only the character the picture is of.
+const IMAGE_DISCLOSURE_VERSION = "-images-v2";
+
+// The clause naming every likeness a reference row can reach. One sentence for both
+// backends so neither can drift into under-describing what it uploads.
+const SENDS_IMAGES =
+  "Reference images are turned on, so images from your conversations are uploaded there too — " +
+  "the character reference photo or card art for the character each picture is of, and, for a row set to " +
+  "a cast source in a group chat, the same for the other characters who spoke in that exchange. ";
+
 export function privacyDisclosure({ source, apiUrl, providerId, providerLabel, sendsImages }) {
+  const scope = sendsImages ? IMAGE_DISCLOSURE_VERSION : "";
   if (source === "cloud") {
     const who = providerLabel || providerId || "this provider";
-    const key = `orb:image-gen-privacy-cloud${sendsImages ? "-images" : ""}:${providerId || "unknown"}`;
+    const key = `orb:image-gen-privacy-cloud${scope}:${providerId || "unknown"}`;
     return {
       key,
       message:
         `Your scene prompts will be sent to ${who}, a third-party commercial API. ` +
         `Each image is billed to your account there, and ${who} may retain what you send under its own ` +
         "retention policy. " +
-        (sendsImages
-          ? "Reference images are turned on, so images from your conversations and your character reference " +
-            "photo are uploaded there too. "
-          : "") +
+        (sendsImages ? SENDS_IMAGES : "") +
         "Save this connection?",
     };
   }
@@ -34,14 +46,11 @@ export function privacyDisclosure({ source, apiUrl, providerId, providerLabel, s
     return null;
   }
   return {
-    key: `orb:image-gen-privacy${sendsImages ? "-images" : ""}:${origin}`,
+    key: `orb:image-gen-privacy${scope}:${origin}`,
     message:
       "This ComfyUI server is not on this machine. Your scene prompts leave Orb, other clients may read queued " +
       "prompts, and generated files remain on that server. " +
-      (sendsImages
-        ? "A workflow you assigned uses reference images, so images from your conversations and your character " +
-          "reference image are uploaded there too. "
-        : "") +
+      (sendsImages ? SENDS_IMAGES : "") +
       "Save this connection?",
   };
 }

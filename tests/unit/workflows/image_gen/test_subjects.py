@@ -149,3 +149,50 @@ async def test_a_removed_speaker_still_leads_under_the_card_name(_scene):
     resolved = await _resolve(history=history)
 
     assert [(s.member_id, s.card_id, s.name) for s in resolved] == [("", "card-a", "Card Name")]
+
+
+@pytest.mark.asyncio
+async def test_the_tail_stops_at_the_anchor_not_at_the_end_of_the_beat(_scene):
+    """Scoped to the beat *so far*, because that is all the render may read.
+
+    `hooks._history_through` cuts the branch at the message being visualized, and that
+    cut is deliberate: a render never composes from replies that came after it, and the
+    regenerate ctx cannot even see them. So the first of three replies addresses one
+    subject and the last addresses three -- and the picker's plain `cast` row is
+    documented as the strict choice for exactly this reason.
+    """
+    _scene([_member("m1", "Iris", "card-a"), _member("m2", "Ashley", "card-b")])
+    # The whole beat, as it sits in the database: Iris answered, then Ashley.
+    beat = [_msg(1, speaker="m1", beat="b"), _msg(2, speaker="m2", beat="b")]
+
+    # Visualizing Ashley's reply -- the last -- sees both.
+    assert [s.name for s in await _resolve(history=beat, anchor_id=2)] == ["Ashley", "Iris"]
+    # Visualizing Iris's reply sees only her: Ashley had not spoken yet, and the
+    # history the hook hands in is already cut there.
+    assert [s.name for s in await _resolve(history=beat[:1], anchor_id=1)] == ["Iris"]
+
+
+@pytest.mark.asyncio
+async def test_two_members_with_one_name_are_told_apart(_scene):
+    """`group_members.display_name` carries no uniqueness constraint -- only
+    `speaker_key` and the active `character_card_id` do -- so two members really can
+    both be "Guard".
+
+    Every binding downstream is by name: the roster quotes it, `visible_subjects` comes
+    back as it, and the composer matches an analyzed cast entry on it. Left alone, one
+    "Guard" in the answer would inject *both* sheets and name one person for two
+    images. Numbered off with plain digits, never `(2)`, which a booru encoder reads as
+    attention syntax in a prompt this text is written into.
+    """
+    _scene(
+        [_member("m1", "Guard", "card-a"), _member("m2", "Guard", "card-b")],
+        {"card-b": {"appearance_prompt": "scarred jaw"}},
+    )
+    history = [_msg(1, speaker="m2", beat="b"), _msg(2, speaker="m1", beat="b")]
+
+    resolved = await _resolve(history=history, anchor_id=2)
+
+    assert [(s.card_id, s.name) for s in resolved] == [("card-a", "Guard"), ("card-b", "Guard 2")]
+    # The first holder keeps the bare name, so an ordinary scene is untouched.
+    _scene([_member("m1", "Iris", "card-a"), _member("m2", "Ashley", "card-b")])
+    assert [s.name for s in await _resolve(history=history, anchor_id=2)] == ["Iris", "Ashley"]

@@ -19,7 +19,12 @@ from ..toolkit import (
 )
 from . import pov as pov_mod
 from . import subjects as subjects_mod
-from .composer import assemble_prompts, compose_scene
+from .composer import (
+    addressable_subjects,
+    analyze_scene,
+    assemble_prompts,
+    compose_scene,
+)
 from .config import (
     MAX_REFERENCE_IMAGE_B64,
     MIME_EXTENSIONS,
@@ -231,13 +236,21 @@ def _referenced_subjects(subjects: Sequence[Subject], references: Sequence[Resol
 
     Slot order, not subject order, because that is the order the images travel in and
     a cloud provider handed an array is told nothing else about which is which.
+
+    De-duplicated by **card**, not by name. Two `character` rows send one person's
+    likeness twice and must name them once -- but two members can share a display name
+    while holding different cards, and collapsing those would name one person for two
+    images and shift every position after it. The card is what identifies a likeness;
+    the name is only how the prompt says it.
     """
     by_card = {subject.card_id: subject.name for subject in subjects if subject.card_id and subject.name}
     names: list[str] = []
+    seen: set[str] = set()
     for reference in references:
         card_id = reference.origin.partition(":")[2] if reference.origin.startswith("character:") else ""
         name = by_card.get(card_id)
-        if name and name not in names:
+        if name and card_id not in seen:
+            seen.add(card_id)
             names.append(name)
     return names
 
@@ -295,10 +308,18 @@ async def _generate_fresh(
     selected_style = resolve_style(config, style_id)
     adapter = get_adapter(config, selected_style)
     target = adapter.resolve_target(None)
-    # The order is load-bearing: the camera decides how many subjects there are, the
-    # subjects decide whose likeness each slot draws, and only then is there anything
-    # for the composer to be told about. Nothing here consults the scene analyzer --
-    # that runs *inside* compose_scene and would close the loop.
+    # The order is load-bearing, and each step depends on the one above it:
+    #
+    #   camera   -> how many subjects there are at all (first-person keeps one)
+    #   subjects -> who is a candidate for a slot
+    #   analysis -> which of those candidates is actually in frame
+    #   slots    -> whose likeness leaves the machine
+    #   composer -> what the prompt says about the pictures that went with it
+    #
+    # The analyzer sits *above* the slots rather than inside the compose call so that a
+    # member who spoke in the beat but walked out of the shot never has their face
+    # uploaded: an edit model handed a likeness the prompt never mentions draws that
+    # person back in. `addressable_subjects` is the join, and it costs no extra call.
     pov, pov_source = await pov_mod.resolve(mode=config["pov_mode"], history=history)
     logger.info("[image_gen] camera: %s (from %s)", pov, pov_source)
     subjects = await subjects_mod.resolve(
@@ -310,11 +331,25 @@ async def _generate_fresh(
         profile=profile,
         pov=pov,
     )
+    analysis = (
+        await analyze_scene(
+            client=ctx.agent_client,
+            model_name=ctx.agent_model_name,
+            prefix=prefix,
+            settings=ctx.settings,
+            pov=pov,
+            reasoning_on=bool(config.get("prompter_reasoning")),
+            subjects=subjects,
+            supports_negative=target.supports_negative_prompt,
+        )
+        if config.get("scene_analysis")
+        else None
+    )
     references = await resolve_references(
         target.reference_slots,
         history=history,
         anchor_id=int(message["id"]),
-        subjects=subjects,
+        subjects=addressable_subjects(subjects, analysis),
     )
     unfilled = len(target.reference_slots) - len(references)
     scene, avoid, composer_mode = await compose_scene(
@@ -325,7 +360,7 @@ async def _generate_fresh(
         prompt_format=selected_style["prompt_format"],
         pov=pov,
         reasoning_on=bool(config.get("prompter_reasoning")),
-        scene_analysis=bool(config.get("scene_analysis")),
+        analysis=analysis,
         subjects=subjects,
         extra_instructions=str(selected_style.get("extra_instructions") or ""),
         supports_negative=target.supports_negative_prompt,

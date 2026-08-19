@@ -104,8 +104,24 @@ test("a remote ComfyUI is disclosed, and its reference images under their own ke
   // Uploading conversation images is a materially bigger disclosure than sending
   // prompt text, so a user who accepted the prompt-only wording is asked again.
   const images = comfy("https://comfy.example.com", { sendsImages: true });
-  assert.equal(images.key, "orb:image-gen-privacy-images:https://comfy.example.com");
-  assert.match(images.message, /reference image/);
+  assert.equal(images.key, "orb:image-gen-privacy-images-v2:https://comfy.example.com");
+  assert.match(images.message, /Reference images are turned on/);
+});
+
+test("the reference disclosure names every likeness a row can reach", () => {
+  // A cast row uploads the *other* members who spoke in the exchange, not only the
+  // character the picture is of. Saying "your character reference photo" and stopping
+  // describes less than what leaves the machine.
+  for (const notice of [
+    comfy("https://comfy.example.com", { sendsImages: true }),
+    cloud({ providerId: "xai", providerLabel: "xAI (Grok)", sendsImages: true }),
+  ]) {
+    assert.match(notice.message, /character reference photo or card art/);
+    assert.match(notice.message, /other characters who spoke in that exchange/);
+    // And the key moved with the wording, so consent given to the narrower sentence
+    // does not silently cover the wider one.
+    assert.match(notice.key, /-images-v2/);
+  }
 });
 
 test("cloud always discloses, even with the ComfyUI URL left at loopback", () => {
@@ -124,7 +140,7 @@ test("every acknowledgement key is its own, per provider and per boundary", () =
   const xai = cloud({ providerId: "xai", providerLabel: "xAI (Grok)" });
   const xaiImages = cloud({ providerId: "xai", providerLabel: "xAI (Grok)", sendsImages: true });
   assert.equal(xai.key, "orb:image-gen-privacy-cloud:xai");
-  assert.equal(xaiImages.key, "orb:image-gen-privacy-cloud-images:xai");
+  assert.equal(xaiImages.key, "orb:image-gen-privacy-cloud-images-v2:xai");
   assert.match(xaiImages.message, /character reference/);
   assert.doesNotMatch(xai.message, /character reference/);
 
@@ -301,7 +317,7 @@ test("a loopback ComfyUI style adds no question to a cloud save", () => {
   });
   const keys = pendingDisclosures(next, connectionList(next, PROVIDERS)).map((d) => d.key);
   // And references being on for that one connection picks the bigger wording.
-  assert.deepEqual(keys, ["orb:image-gen-privacy-cloud-images:xai"]);
+  assert.deepEqual(keys, ["orb:image-gen-privacy-cloud-images-v2:xai"]);
 });
 
 test("one style with references on is enough to ask the larger cloud question", () => {
@@ -316,7 +332,7 @@ test("one style with references on is enough to ask the larger cloud question", 
     cloud: { provider: "xai", providers: { xai: { api_key: "k" } } },
   });
   const keys = pendingDisclosures(next, connectionList(next, PROVIDERS)).map((d) => d.key);
-  assert.deepEqual(keys, ["orb:image-gen-privacy-cloud-images:xai"]);
+  assert.deepEqual(keys, ["orb:image-gen-privacy-cloud-images-v2:xai"]);
 
   // And with every style on it prompt-only, the smaller question is the honest one.
   const off = config({
@@ -353,7 +369,7 @@ test("a remote ComfyUI is asked the image question by its styles, not by its imp
   });
   assert.deepEqual(
     pendingDisclosures(on, connectionList(on, PROVIDERS)).map((d) => d.key),
-    ["orb:image-gen-privacy-images:https://comfy.example.com"],
+    ["orb:image-gen-privacy-images-v2:https://comfy.example.com"],
   );
 });
 
@@ -389,7 +405,7 @@ test("a source stored for a slot the render target does not have is not an uploa
   const roomy = connectionList(cloud, [{ ...PROVIDERS[0], max_references: 2 }]);
   assert.deepEqual(
     pendingDisclosures(cloud, roomy).map((d) => d.key),
-    ["orb:image-gen-privacy-cloud-images:xai"],
+    ["orb:image-gen-privacy-cloud-images-v2:xai"],
   );
 
   // The same in the other direction: a workflow that loads no image at all declares no

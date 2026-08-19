@@ -301,19 +301,37 @@ using it: the first draws the second character, the second draws the third, and
 so on. So a two-hander is one **Character reference image** row and one **Another
 cast member** row.
 
-Who counts as "the rest of the scene" is everyone who spoke in the same beat -
-the same round of replies - as the message you are visualizing, in cast order. A
-member who is in the scene but silent this round is not sent, because the scene
-analyzer will usually leave them out of the shot too.
+Who counts as "the rest of the scene" is everyone who has spoken in the same
+exchange - the same round of replies - **up to and including the message you are
+visualizing**, in cast order. A member who is in the scene but silent this round
+is not sent.
+
+That "up to and including" is worth reading twice. Orb never composes a picture
+from replies that come after the one you clicked, so visualizing the *first* reply
+of a three-character round has only one character to draw, even though all three
+replies are on screen by the time you click. Visualize the last reply of the round
+to get the whole group. On ComfyUI a row set to plain **Another cast member** will
+refuse the render and say so; **Another cast member, else character reference**
+falls back instead.
+
+A character who spoke but is no longer in the shot is not sent either. If you have
+**Analyze complex scenes** on, Orb asks who is actually in frame before it uploads
+anything, so a character who walked off mid-scene does not have their photo sent
+to an image model that would happily draw them back in.
 
 Pick **Another cast member, else character reference** unless you want the render
 to stop when the scene has only one person in it. On ComfyUI a row that resolves
 to nothing cannot render at all, so the plain **Another cast member** is the
 strict choice and the combined one is the forgiving one.
 
-Orb also tells the prompter which characters a likeness was sent for. Characters
-in the shot with no reference image of their own are still described in full, so
-they do not come out as generic people.
+Orb also tells the prompter which characters a likeness was sent for, in the order
+the images travel. Characters in the shot with no reference image of their own are
+still described in full, so they do not come out as generic people.
+
+If two members of a group share a display name, Orb numbers the second one -
+"Guard" and "Guard 2" - when it describes them to the prompter, so the right
+appearance ends up on the right person. Rename one of them if you would rather
+pick the names yourself.
 
 Orb looks back at most 30 messages on the branch. Past that, **Previous image,
 else character reference** falls through to the character reference: a picture
@@ -623,7 +641,7 @@ guaranteed.
 | ComfyUI rejects the workflow. | Check that the server has all required nodes. Check the selected checkpoint and imported slots. |
 | The render times out. | Check the ComfyUI queue. Increase **Render timeout**. The allowed range is 10 to 900 seconds. |
 | A render says it needs a reference image. | Generate or upload an image in the chat first. Or set a character reference image, and set the slot to a source that includes it. |
-| A render says only one character is in this beat. | A row is set to **Another cast member** and nobody else spoke this round. Switch it to **Another cast member, else character reference**. |
+| A render says no other cast member had spoken yet. | A row is set to **Another cast member**, and at the reply you picked nobody else had spoken - even if they have by now. Visualize a later reply in the round, or switch the row to **Another cast member, else character reference**. |
 | A reroll says the reference image is gone. | The source image was deleted or its bytes were evicted. Select **Regenerate**. |
 | A reroll says the reference image was replaced. | The image that origin points at now holds different bytes, so the reroll cannot reproduce the picture. Select **Regenerate**. |
 | A reroll says the style needs a reference the image did not record. | That style loads more images than the stored one recorded. Select **Regenerate** under that style. |

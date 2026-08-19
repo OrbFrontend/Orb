@@ -510,6 +510,199 @@ async def test_a_group_beat_addresses_the_whole_cast_end_to_end(client, monkeypa
     assert captured["compose"]["referenced_subjects"] == ["Aria", "Kael"]
 
 
+async def _two_hander(client, *, sources, scene_analysis=False):
+    """A two-`Load Image` scene: Kael answers, then Aria, in one beat.
+
+    Returns the ids the assertions need. Both replies are on the branch, so a test can
+    anchor on either and say what the difference is worth.
+    """
+    aria = (await client.post("/api/characters", json={"name": "Aria", "avatar_b64": _AVATAR})).json()["id"]
+    kael = (await client.post("/api/characters", json={"name": "Kael", "avatar_b64": _AVATAR})).json()["id"]
+    conv = (
+        await client.post(
+            "/api/conversations",
+            json={
+                "kind": "group",
+                "title": "Campfire",
+                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
+            },
+        )
+    ).json()
+    members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
+    await set_workflow_character_state(aria, "image_gen", {"appearance_prompt": "silver hair"})
+    await set_workflow_character_state(kael, "image_gen", {"appearance_prompt": "scarred jaw"})
+    ask, _ = await add_message(conv["id"], "user", "Who goes first?", 0, beat_id="beat-1")
+    first, _ = await add_message(
+        conv["id"], "assistant", "Kael shrugs.", 1, parent_id=ask, speaker_member_id=members[1]["id"], beat_id="beat-1"
+    )
+    last, _ = await add_message(
+        conv["id"],
+        "assistant",
+        "Aria steps forward.",
+        2,
+        parent_id=first,
+        speaker_member_id=members[0]["id"],
+        beat_id="beat-1",
+    )
+    await set_active_leaf(conv["id"], last)
+    await set_workflow_config(
+        "image_gen",
+        {
+            "default_style": "cast",
+            "scene_analysis": scene_analysis,
+            "styles": [
+                {
+                    "id": "cast",
+                    "label": "Cast",
+                    "connection": "comfy",
+                    "workflow": "g",
+                    "reference_sources": sources,
+                }
+            ],
+            "external_comfy": {
+                "user_graphs": [
+                    {
+                        "id": "g",
+                        "label": "Cast",
+                        "graph": {
+                            "0": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+                            "s": {"class_type": "KSampler", "inputs": {"seed": 0}},
+                            "o": {"class_type": "SaveImage", "inputs": {"images": ["0", 0]}},
+                            "r": {"class_type": "LoadImage", "inputs": {"image": "a.png"}},
+                            "r2": {"class_type": "LoadImage", "inputs": {"image": "b.png"}},
+                        },
+                        "slots": {
+                            "positive": ["0", "text"],
+                            "seed": ["s", "seed"],
+                            "output": ["o", "images"],
+                            "references": [
+                                {"slot": ["r", "image"], "label": "Load Image (#r)"},
+                                {"slot": ["r2", "image"], "label": "Load Image (#r2)"},
+                            ],
+                        },
+                    }
+                ]
+            },
+        },
+    )
+    return {"conv": conv["id"], "aria": aria, "kael": kael, "first": first, "last": last}
+
+
+@pytest.mark.asyncio
+async def test_visualizing_mid_beat_says_what_it_can_and_cannot_see(client, monkeypatch):
+    """A render reads the branch only up to the reply being visualized -- a stated
+    invariant of `_history_through`, and the one the regenerate ctx could not break
+    even if this wanted to. So the *first* of two replies has no other cast member to
+    draw, however many the finished exchange on screen shows.
+
+    What is worth testing is the sentence the user gets. "Only one character is in this
+    beat" was wrong twice over: they can see two, and the fix it offered -- wait for
+    someone else to speak -- had already happened.
+    """
+    ids = await _two_hander(client, sources=["character", "cast"])
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", _forbidden_render)
+
+    response = await client.post(
+        f"/api/conversations/{ids['conv']}/workflows/image_gen/trigger",
+        json={"action": "generate", "message_id": ids["first"]},
+    )
+
+    assert response.status_code == 200
+    assert "event: image_gen_error" in response.text
+    assert "No other cast member had spoken yet at the message you are visualizing" in response.text
+    assert "Visualize a later reply in the exchange" in response.text
+    # The advice that was never true here.
+    assert "wait until another cast member speaks" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_a_likeness_is_never_sent_for_someone_the_analyzer_left_out_of_frame(client, monkeypatch):
+    """The composer drops an absent subject's words. The face has to go with them.
+
+    An edit model handed Kael's photo alongside a prompt that never mentions Kael draws
+    Kael, and no wording in the prompt argues it out of that -- which is why the
+    analyzer runs *above* the slots rather than inside the compose call.
+    """
+    ids = await _two_hander(client, sources=["character", "cast_or_character"], scene_analysis=True)
+    captured: dict = {}
+
+    async def fake_forced(*, tool_name, **kwargs):
+        if tool_name == "analyze_scene":
+            # Kael walked off between speaking and the shot.
+            return {"characters": [{"name": "Aria", "sex": "girl", "is_listed_subject": True}]}
+        return {"scene": "1girl, solo, standing", "avoid": ""}
+
+    async def fake_render(adapter, request, **kwargs):
+        captured["request"] = request
+        return _image()
+
+    monkeypatch.setattr("backend.workflows.image_gen.composer._forced_args", fake_forced)
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
+
+    response = await client.post(
+        f"/api/conversations/{ids['conv']}/workflows/image_gen/trigger",
+        json={"action": "generate", "message_id": ids["last"]},
+    )
+
+    assert response.status_code == 200
+    assert "event: image_gen_error" not in response.text
+    # Both slots filled -- the graph needs two -- but the second fell back to the
+    # primary rather than uploading a face the prompt is about to leave out.
+    assert [(r.slot, r.origin) for r in captured["request"].references] == [
+        (("r", "image"), f"character:{ids['aria']}"),
+        (("r2", "image"), f"character:{ids['aria']}"),
+    ]
+    assert f"character:{ids['kael']}" not in [r.origin for r in captured["request"].references]
+
+
+@pytest.mark.asyncio
+async def test_two_members_with_one_name_still_get_one_reference_slot_each(client, monkeypatch):
+    """`display_name` has no uniqueness constraint, so two members really can both be
+    "Guard" -- and then a roster keyed by name names one person for two images and
+    shifts every position after it. The cards are what identify a likeness."""
+    ids = await _two_hander(client, sources=["character", "cast"])
+    members = (await client.get(f"/api/conversations/{ids['conv']}/members")).json()
+    await client.put(
+        f"/api/conversations/{ids['conv']}/members",
+        json={
+            "members": [
+                {"id": member["id"], "character_card_id": member["character_card_id"], "display_name": "Guard"}
+                for member in members
+            ]
+        },
+    )
+    captured: dict = {}
+
+    async def fake_compose(**kwargs):
+        captured["compose"] = kwargs
+        return "2girls, standing", "", "single_call"
+
+    async def fake_render(adapter, request, **kwargs):
+        captured["request"] = request
+        return _image()
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
+
+    response = await client.post(
+        f"/api/conversations/{ids['conv']}/workflows/image_gen/trigger",
+        json={"action": "generate", "message_id": ids["last"]},
+    )
+
+    assert response.status_code == 200
+    assert "event: image_gen_error" not in response.text
+    # Two slots, two different people, two names the model can tell apart.
+    assert [(r.slot, r.origin) for r in captured["request"].references] == [
+        (("r", "image"), f"character:{ids['aria']}"),
+        (("r2", "image"), f"character:{ids['kael']}"),
+    ]
+    assert captured["compose"]["referenced_subjects"] == ["Guard", "Guard 2"]
+
+
+async def _forbidden_render(adapter, request, **kwargs):
+    raise AssertionError("a render that cannot fill a required slot must not reach the backend")
+
+
 @pytest.mark.asyncio
 async def test_a_cloud_reference_that_resolves_to_nothing_renders_anyway_and_says_so(client, monkeypatch):
     """A ComfyUI graph built around a `LoadImage` cannot render without one. A cloud

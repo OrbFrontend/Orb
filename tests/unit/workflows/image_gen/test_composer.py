@@ -9,6 +9,8 @@ from backend.workflows.image_gen.composer import (
     FIRST,
     THIRD,
     _render_scene,
+    addressable_subjects,
+    analyze_scene,
     compose_scene,
 )
 from backend.workflows.image_gen.subjects import Subject
@@ -36,10 +38,39 @@ def _fake_forced(results: dict, captured: dict | None = None):
     return fake
 
 
+async def _run(*, client=None, model_name="m", prefix=(), settings=None, scene_analysis: bool = False, **kwargs):
+    """The composer sequence one render performs, in the order it performs it.
+
+    Mirrors `hooks._generate_fresh`: the analyzer runs first and its answer is handed
+    to the compose call. The two are separate entry points because production fills the
+    reference slots in between -- `addressable_subjects` reads the analysis to decide
+    whose likeness may leave the machine -- so a test that ran `compose_scene` alone
+    would be exercising an order no render uses.
+    """
+    lane = {
+        "client": client,
+        "model_name": model_name,
+        "prefix": prefix,
+        "settings": settings if settings is not None else {"model_name": "writer"},
+    }
+    analysis = (
+        await analyze_scene(
+            **lane,
+            pov=kwargs.get("pov", THIRD),
+            reasoning_on=kwargs.get("reasoning_on", False),
+            subjects=kwargs.get("subjects", ()),
+            supports_negative=kwargs.get("supports_negative", True),
+        )
+        if scene_analysis
+        else None
+    )
+    return await compose_scene(**lane, analysis=analysis, **kwargs)
+
+
 async def _compose(monkeypatch, results: dict, captured: dict | None = None, **kwargs):
-    """One `compose_scene` against stubbed forced-call results."""
+    """One render's composer sequence against stubbed forced-call results."""
     monkeypatch.setattr(composer, "forced_tool_call", _fake_forced(results, captured))
-    return await compose_scene(client=None, model_name="m", prefix=[], settings={"model_name": "writer"}, **kwargs)
+    return await _run(**kwargs)
 
 
 # ── the structured scene block ───────────────────────────────────────────────
@@ -256,9 +287,7 @@ async def test_both_calls_ride_the_prefix_unchanged_with_shared_tool_blob(monkey
     (DeepSeek)."""
     calls = _record_forced_calls(monkeypatch)
     prefix = [{"role": "system", "content": "sys"}, {"role": "assistant", "content": "she waves"}]
-    await compose_scene(
-        client=None, model_name="agent-m", prefix=prefix, settings={"model_name": "writer"}, scene_analysis=True
-    )
+    await _run(model_name="agent-m", prefix=prefix, scene_analysis=True)
     assert [c["tool_name"] for c in calls] == ["analyze_scene", "compose_image_prompt"]
     for call in calls:
         assert call["prefix"] is prefix
@@ -290,10 +319,8 @@ async def test_reasoning_mode_is_explicit_and_ignores_pipeline_pass_flags(monkey
     """The workflow setting owns both calls; no pipeline pass is its fallback."""
     for reasoning_on in (False, True):
         calls = _record_forced_calls(monkeypatch)
-        await compose_scene(
-            client=None,
+        await _run(
             model_name="agent-m",
-            prefix=[],
             settings={
                 "model_name": "writer",
                 "reasoning_enabled_passes": {p: not reasoning_on for p in ("director", "writer", "editor")},
@@ -825,8 +852,48 @@ async def test_both_calls_are_told_the_whole_roster_and_the_names_to_copy(monkey
         scene_analysis=True,
     )
     for tail in captured.values():
-        assert "1. Iris" in tail and "2. Ashley" in tail
+        assert "- Iris" in tail and "- Ashley" in tail
         assert "silver hair" in tail and "red coat" in tail
+
+
+async def test_the_subject_roster_is_never_numbered_against_the_reference_roster(monkeypatch):
+    """Two numbered lists in one prompt is one list too many.
+
+    The reference roster is numbered because its order is a fact about the request --
+    a provider handed an array of images is told nothing else about which is which.
+    The subject roster is *not* the same list: here Iris is subject 1 and no reference
+    at all, while Ashley is subject 2 and reference 1. Numbering both would put
+    "1. Iris" and "1. Ashley" in one prompt meaning different things."""
+    captured: dict = {}
+    await _compose(
+        monkeypatch,
+        {"compose_image_prompt": {"scene": "2girls", "avoid": None, "visible_subjects": []}},
+        captured,
+        subjects=[_subject("Iris", "silver hair"), _subject("Ashley", "red coat")],
+        has_references=True,
+        referenced_subjects=["Ashley"],
+    )
+    tail = captured["compose_image_prompt"]
+    assert "- Iris" in tail and "- Ashley" in tail
+    assert "1. Iris" not in tail and "2. Ashley" not in tail
+    # The one numbered list left says what it is about: the images, in travel order.
+    assert "in this order: 1. Ashley." in tail
+
+
+async def test_a_nameless_subject_leaves_no_hole_in_the_roster(monkeypatch):
+    """A solo card with no name used to be enumerated and then filtered, so the roster
+    opened at "2." with no "1." -- a numbered list missing its first row, in a prompt
+    that also carries the numbered reference list."""
+    captured: dict = {}
+    await _compose(
+        monkeypatch,
+        {"compose_image_prompt": {"scene": "2girls", "avoid": None, "visible_subjects": []}},
+        captured,
+        subjects=[_subject("", "silver hair"), _subject("Ashley", "red coat")],
+    )
+    tail = captured["compose_image_prompt"]
+    assert "- Ashley - fixed positive tags added separately: red coat" in tail
+    assert "2." not in tail.split("Do not copy or contradict")[0]
 
 
 # ── trap 4.1: identity suppression is only for who was actually referenced ───
@@ -876,3 +943,69 @@ async def test_no_references_means_no_reference_instruction_at_all(monkeypatch):
         referenced_subjects=["Iris"],
     )
     assert "reference image" not in captured["compose_image_prompt"]
+
+
+# ── trap 4.2: a slot may only draw someone the picture actually contains ─────
+
+
+def _analysis(*names: str) -> dict:
+    return {"characters": [{"name": name, "sex": "girl"} for name in names]}
+
+
+def test_a_subject_out_of_frame_is_not_addressable_by_a_slot():
+    """The composer already drops an absent subject's *words*. The likeness has to go
+    with them: an edit model handed a face the prompt never mentions draws that person
+    back into the shot, which is the one failure a reference render cannot be talked
+    out of."""
+    subjects = [_subject("Iris"), _subject("Ashley"), _subject("Ren")]
+
+    # Ashley left the room between speaking and the shot; Ren is still in it.
+    assert [s.name for s in addressable_subjects(subjects, _analysis("Iris", "Ren"))] == ["Iris", "Ren"]
+
+
+def test_the_primary_is_addressable_whether_or_not_the_analyzer_listed_them():
+    """`character` means the render's primary, and a solo chat's one slot has to
+    resolve. Filtering subject 0 would turn a wide shot of an established character
+    into a hard failure on every ComfyUI graph built around a `LoadImage`."""
+    subjects = [_subject("Iris"), _subject("Ashley")]
+
+    # The analyzer named Ashley and not Iris. Iris is subject 0 regardless.
+    assert [s.name for s in addressable_subjects(subjects, _analysis("Ashley"))] == ["Iris", "Ashley"]
+    # An analysis that put nobody in frame still leaves the primary addressable.
+    assert [s.name for s in addressable_subjects(subjects, _analysis())] == ["Iris"]
+
+
+def test_a_missing_analysis_is_not_an_answer_of_nobody():
+    """The single-call path has no analysis, and a forced call that came back empty has
+    no answer either. Neither may be read as "the shot is empty" -- that would silently
+    kill every cast slot the moment the analyzer hiccuped."""
+    subjects = [_subject("Iris"), _subject("Ashley")]
+
+    assert [s.name for s in addressable_subjects(subjects, None)] == ["Iris", "Ashley"]
+    assert [s.name for s in addressable_subjects(subjects, {})] == ["Iris", "Ashley"]
+
+
+def test_the_addressable_list_compacts_so_cast_still_means_the_next_one():
+    """The slots address positions in *this* list. A sparse answer would leave the
+    first `cast` row drawing nobody while the second drew somebody, which is not what
+    "the next cast member" says on the picker."""
+    subjects = [_subject("Iris"), _subject("Ashley"), _subject("Ren")]
+
+    assert [s.name for s in addressable_subjects(subjects, _analysis("Iris", "Ren"))][1] == "Ren"
+
+
+async def test_a_subject_the_model_renamed_is_logged_rather_than_silently_dropped(monkeypatch, caplog):
+    """The one failure in this workflow with no user-visible symptom: the render
+    succeeds, looks plausible, and is quietly a picture of someone slightly else."""
+    with caplog.at_level("INFO", logger="backend.workflows.image_gen.composer"):
+        await _compose(
+            monkeypatch,
+            {
+                "analyze_scene": {"characters": [{"name": "the woman", "sex": "girl"}, {"name": "Ashley", "sex": "girl"}]},
+                "compose_image_prompt": {"scene": "2girls", "avoid": None},
+            },
+            subjects=[_subject("Iris", "silver hair"), _subject("Ashley", "red coat")],
+            scene_analysis=True,
+        )
+
+    assert "did not name 'Iris'" in caplog.text

@@ -138,7 +138,8 @@ def _reference_instruction(referenced: Sequence[str]) -> str:
 
     The order is load-bearing on the cloud side for a second reason: a provider handed
     two images in one array is told nothing about which is which, so this sentence is
-    the only thing that can attribute them.
+    the only thing that can attribute them. It is also the only numbered list in the
+    prompt -- the subject roster is bulleted precisely so these numbers mean one thing.
 
     An empty roster is not "no references" -- it is references drawn from the *chat*
     (`previous`), which name nobody. That keeps the original singular wording, which
@@ -354,10 +355,14 @@ _ANALYZE_CAMERA = {
 
 
 def _subject_roster(subjects: Sequence[SubjectAppearance]) -> str:
-    """The cast this render is *of*, numbered, each with its fixed tags.
+    """The cast this render is *of*, one per line, each with its fixed tags.
 
-    Numbered rather than prosed because the reference roster is numbered too, and the
-    two lists are the same list: subject 2 here is the second reference image there.
+    **Bulleted, not numbered.** The reference roster in `_reference_instruction` is
+    numbered, and the two lists are *not* the same list: a render whose first slot is
+    the previous chat image and whose second is a cast member sends one reference for
+    subject 2, so "1. Kael" and "1. Aria" would otherwise sit in one prompt meaning
+    different things. Only one list here gets numbers, and it is the one whose order
+    is a fact about the request -- the images, in the order they travel.
 
     The names are quoted back verbatim, and both calls are told to copy them exactly.
     That is what binds an analyzed cast entry to a subject afterwards -- the composer
@@ -365,10 +370,8 @@ def _subject_roster(subjects: Sequence[SubjectAppearance]) -> str:
     lose her saved appearance.
     """
     rows = [
-        f"{index}. {name}" + (f" - fixed positive tags added separately: {fixed}" if fixed else " - no fixed tags")
-        for index, (name, fixed) in enumerate(
-            ((bounded(subject.name, 200), bounded(subject.appearance)) for subject in subjects), 1
-        )
+        f"- {name}" + (f" - fixed positive tags added separately: {fixed}" if fixed else " - no fixed tags")
+        for name, fixed in ((bounded(subject.name, 200), bounded(subject.appearance)) for subject in subjects)
         if name
     ]
     return "\n".join(rows)
