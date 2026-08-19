@@ -116,6 +116,21 @@ function syncMaxRepliesRow(selectId, rowId) {
   if (row) row.hidden = $(selectId)?.value !== "director";
 }
 
+// Sheet updates are a Private-perspective instrument, for the same reason the
+// public-profile override is one: Private is the only mode that sends a member's
+// own sheet in the trailing message, *after* the history, so rewriting it every
+// beat costs no prefix rebuild. Shared and Swap park that same sheet in the
+// cached body ahead of the history, where a per-beat rewrite bills the whole
+// prefix again — and the blurb's "goes in the tail" would be false besides. So
+// the row goes away with the mode rather than offering a setting that quietly
+// fights the cache. Hidden, not disabled: unlike the override textarea there is
+// no user text here to silently drop, and `save` writes false while it is out of
+// sight, so nobody is billed per beat for a box they cannot see.
+function syncSheetUpdatesRow(selectId, rowId) {
+  const row = $(rowId);
+  if (row) row.hidden = $(selectId)?.value !== "private";
+}
+
 // "Artus", "Artus & Assistant", "Artus, Assistant & 2 more" — a scene name, not
 // a sentence, so it stays short enough for the header.
 function titleFromNames(names) {
@@ -237,8 +252,8 @@ function showGroupSettings() {
     <h3 class="modal-section">Character context</h3>
     <div class="field"><label for="group-settings-context">Mode</label>
       <select id="group-settings-context">${contextModeOptions(S.groupCast.context_mode)}</select></div>
-    <div class="field"><label class="modal-checkbox-label"><input type="checkbox" id="group-settings-sheet-updates"${S.groupCast.sheet_updates ? " checked" : ""}> Keep cast sheets current</label>
-      <p class="modal-hint">After each beat, propose an updated sheet for every member who spoke — hair cut, coat burned, sword broken. Proposals are reviewed in Manage cast and never applied on their own. Costs one extra call per member who spoke.</p></div>
+    <div class="field" id="group-settings-sheet-row"><label class="modal-checkbox-label"><input type="checkbox" id="group-settings-sheet-updates"${S.groupCast.sheet_updates ? " checked" : ""}> Prevent stale cast info</label>
+      <p class="modal-hint">Problem: under Private perspective, character cards go in the tail instead of the shared system prompt and may become stale (e.g. change of outfit). After each beat, propose an updated description for every member who spoke.</p></div>
     <h3 class="modal-section">Reply behavior</h3>
     <div class="field"><label for="group-settings-mode">Mode</label>
       <select id="group-settings-mode">${modeOptions(S.groupCast.turn_mode)}</select></div>
@@ -253,6 +268,10 @@ function showGroupSettings() {
   syncMaxRepliesRow("group-settings-mode", "group-settings-max-row");
   $("group-settings-mode")?.addEventListener("change", () =>
     syncMaxRepliesRow("group-settings-mode", "group-settings-max-row"),
+  );
+  syncSheetUpdatesRow("group-settings-context", "group-settings-sheet-row");
+  $("group-settings-context")?.addEventListener("change", () =>
+    syncSheetUpdatesRow("group-settings-context", "group-settings-sheet-row"),
   );
   $("group-settings-cancel")?.addEventListener("click", closeModal);
   $("group-settings-delete")?.addEventListener("click", () => {
@@ -270,7 +289,11 @@ function showGroupSettings() {
         group_turn_mode: $("group-settings-mode").value,
         group_max_speakers: Math.max(1, Math.min(8, Number($("group-settings-max").value) || 3)),
         group_context_mode: $("group-settings-context").value,
-        group_sheet_updates: $("group-settings-sheet-updates").checked,
+        // A mode change is the same click as the save, so the box is read
+        // through the mode it is being saved under: leaving Private turns the
+        // per-beat pass off rather than leaving it billing out of sight.
+        group_sheet_updates:
+          $("group-settings-context").value === "private" && $("group-settings-sheet-updates").checked,
         character_scenario: $("group-settings-scenario").value.trim(),
         post_history_instructions: $("group-settings-instructions").value.trim(),
       });

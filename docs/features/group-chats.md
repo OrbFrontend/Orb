@@ -118,7 +118,7 @@ and card system-prompt overrides do not compete.
 - A user pin overrides the plan and selects exactly that member.
 
 The stored mode names are internal. The UI calls them `Auto — Director
-chooses`, `Rotate — Cast replies in order` and `Choose — Select every reply`
+chooses`, `Rotate — Cast replies in order` and `Manual — Select every reply`
 (`group_cast.js:TURN_MODES` is the only place that wording lives).
 
 A pin is a *temporary override*, not a mode: outside `manual` the client clears

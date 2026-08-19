@@ -8,7 +8,7 @@ import { avatarCell, avatarUrl, esc, escAttr } from "./utils.js";
 export const TURN_MODES = {
   director: { label: "Auto", hint: "Director chooses" },
   round_robin: { label: "Rotate", hint: "Cast replies in order" },
-  manual: { label: "Choose", hint: "Select every reply" },
+  manual: { label: "Manual", hint: "Select every reply" },
 };
 
 // What each speaker is *told* — distinct from TURN_MODES, which decides who
