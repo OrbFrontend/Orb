@@ -128,7 +128,7 @@ _REFERENCE_TAIL = (
 )
 
 
-def _reference_instruction(referenced: Sequence[str]) -> str:
+def _reference_instruction(referenced: Sequence[tuple[int, str]]) -> str:
     """What the prompter is told about the pictures riding along with its prompt.
 
     **Nobody's description is suppressed, including theirs.** Suppression was keyed on
@@ -149,16 +149,22 @@ def _reference_instruction(referenced: Sequence[str]) -> str:
     the only thing that can attribute them. It is also the only numbered list in the
     prompt -- the subject roster is bulleted precisely so these numbers mean one thing.
 
+    Which is why the caller supplies the number rather than letting this enumerate:
+    these are positions in the array the request carries, and a render can hold images
+    that name nobody. A `previous` slot ahead of a `character` one leaves a gap, and a
+    gap is the honest shape -- renumbering around it would tell the model that image 1
+    is Alice when image 1 is a screenshot of the chat.
+
     An empty roster is not "no references" -- it is references drawn from the *chat*
     (`previous`), which name nobody. That keeps the original singular wording, which
     is what a chat image is: a picture of this scene.
     """
     if not referenced:
         return _REFERENCE_INSTRUCTION
-    listed = ", ".join(f"{index}. {name}" for index, name in enumerate(referenced, 1))
+    listed = ", ".join(f"{position}. {name}" for position, name in referenced)
     return (
-        f"Reference images are sent to the image model with this prompt, in this order: {listed}. "
-        "The image model will take each of those people's likeness from their own picture. " + _REFERENCE_TAIL
+        "Reference images are sent to the image model with this prompt, numbered by their position in that set: "
+        f"{listed}. The image model will take each of those people's likeness from their own picture. " + _REFERENCE_TAIL
     )
 
 
@@ -469,7 +475,7 @@ def compose_ooc(
     extra_instructions: str = "",
     supports_negative: bool = True,
     has_references: bool = False,
-    referenced_subjects: Sequence[str] = (),
+    referenced_subjects: Sequence[tuple[int, str]] = (),
     style_prompt: str = "",
     style_negative_prompt: str = "",
     profile_negative_prompt: str = "",

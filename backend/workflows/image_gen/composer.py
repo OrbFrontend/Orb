@@ -323,7 +323,7 @@ async def compose_scene(
     extra_instructions: str = "",
     supports_negative: bool = True,
     has_references: bool = False,
-    referenced_subjects: Sequence[str] = (),
+    referenced_subjects: Sequence[tuple[int, str]] = (),
     style_prompt: str = "",
     style_negative_prompt: str = "",
     profile_negative_prompt: str = "",
@@ -332,8 +332,10 @@ async def compose_scene(
 
     *subjects* is ``subjects.resolve``'s ordered answer -- who this render is *of*.
     *referenced_subjects* names the ones whose likeness actually went with the request,
-    in slot order, which is what stops the reference instruction from suppressing
-    identity traits for everybody else in the frame.
+    each paired with that image's own 1-based position in the array the request carries,
+    which is what stops the reference instruction from suppressing identity traits for
+    everybody else in the frame -- and what keeps its numbers pointing at the images
+    they claim to, when a slot drawing from the chat sits ahead of one drawing a person.
 
     *analysis* is ``analyze_scene``'s answer, or ``None`` when the user has scene
     analysis off. It arrives already made rather than being taken here, because the

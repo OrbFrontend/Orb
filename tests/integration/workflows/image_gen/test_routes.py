@@ -507,7 +507,7 @@ async def test_a_group_beat_addresses_the_whole_cast_end_to_end(client, monkeypa
         (("r", "image"), f"character:{aria}"),
         (("r2", "image"), f"character:{kael}"),
     ]
-    assert captured["compose"]["referenced_subjects"] == ["Aria", "Kael"]
+    assert captured["compose"]["referenced_subjects"] == [(1, "Aria"), (2, "Kael")]
 
 
 async def _two_hander(client, *, sources, scene_analysis=False):
@@ -696,7 +696,7 @@ async def test_two_members_with_one_name_still_get_one_reference_slot_each(clien
         (("r", "image"), f"character:{ids['aria']}"),
         (("r2", "image"), f"character:{ids['kael']}"),
     ]
-    assert captured["compose"]["referenced_subjects"] == ["Guard", "Guard 2"]
+    assert captured["compose"]["referenced_subjects"] == [(1, "Guard"), (2, "Guard 2")]
 
 
 async def _forbidden_render(adapter, request, **kwargs):

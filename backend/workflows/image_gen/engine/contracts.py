@@ -66,7 +66,9 @@ class RenderTarget:
     `reference_capacity` is the **ceiling**, where `reference_slots` is what the
     style actually switched on: a cloud provider's `max_references`, or the number
     of image inputs a ComfyUI graph declares. Zero when this target cannot carry a
-    reference at all -- an unsupported provider, or a model off the allowlist.
+    reference at all -- a provider whose dialect has no field to put one in. Never a
+    fact about the *model*: whether this one reads what it was sent is the model's to
+    answer at render time, by refusing (`engine/degrade.py`).
 
     The pair is what lets a render tell a caller *why* somebody in frame got no
     likeness. Fewer slots than capacity is the style's own doing and the user can

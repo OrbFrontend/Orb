@@ -17,7 +17,7 @@ import pytest
 from backend.workflows.image_gen.config import normalize_config, resolve_style
 from backend.workflows.image_gen.engine import get_adapter
 from backend.workflows.image_gen.engine.contracts import ResolvedReference
-from backend.workflows.image_gen.hooks import _uncovered_note
+from backend.workflows.image_gen.hooks import _referenced_subjects, _uncovered_note
 from backend.workflows.image_gen.subjects import Subject
 
 
@@ -25,8 +25,12 @@ def _subject(name: str, card_id: str | None = "") -> Subject:
     return Subject(member_id=f"m-{name}", card_id=card_id if card_id != "" else f"card-{name}", name=name)
 
 
-def _reference(card_id: str, index: int = 0) -> ResolvedReference:
-    """A likeness that went out for one card, as `resolve_references` records it."""
+def _reference(card_id: str, index: int = 0) -> dict:
+    """A likeness that actually went out for one card, in the shape the *render* records
+    it -- `backend_info["references"]`, which both adapters build from the request they
+    posted. That, not the resolved list, is what this note reads: see
+    `test_a_degraded_render_names_whoever_the_ladder_dropped`.
+    """
     return ResolvedReference(
         slot=("images", f"image_{index}"),
         source="cast",
@@ -34,7 +38,7 @@ def _reference(card_id: str, index: int = 0) -> ResolvedReference:
         mime="image/png",
         origin=f"character:{card_id}",
         digest=f"d{index}",
-    )
+    ).record()
 
 
 # ── the reported case ────────────────────────────────────────────────────────
@@ -99,7 +103,7 @@ def test_a_previous_image_reference_names_nobody_and_so_stays_quiet():
         mime="image/png",
         origin="attachment:7",
         digest="d",
-    )
+    ).record()
     cast = [_subject("Kael"), _subject("Mara")]
     assert _uncovered_note(cast, [chat_image], declared=1, capacity=1) == ""
 
@@ -142,6 +146,80 @@ def test_two_slots_on_one_card_do_not_count_that_card_twice():
     twice = [_reference("card-Kael", 0), _reference("card-Kael", 1)]
     note = _uncovered_note(cast, twice, declared=2, capacity=2)
     assert "Mara was described" in note
+
+
+def test_a_degraded_render_names_whoever_the_ladder_dropped():
+    """The regression this reads what-was-*sent* for.
+
+    Three members are in frame, three likenesses resolve, and the provider then refuses
+    the array and is re-asked with one (`engine/degrade.py`, which drops from the end).
+    Reading the *resolved* list here made every card look covered, so the one disclosure
+    written to name who came back a stranger went silent in precisely the case with the
+    largest uncovered cast -- while the ladder's own note said two were dropped without
+    saying who.
+    """
+    cast = [_subject("Kael"), _subject("Mara"), _subject("Sera")]
+    resolved = [_reference("card-Kael", 0), _reference("card-Mara", 1), _reference("card-Sera", 2)]
+
+    assert _uncovered_note(cast, resolved, declared=3, capacity=4) == ""
+
+    note = _uncovered_note(cast, resolved[:1], declared=3, capacity=4)
+    assert "Mara and Sera were described in the prompt rather than pictured" in note
+
+
+# ── which image is which ─────────────────────────────────────────────────────
+
+
+def test_the_prompt_numbers_each_likeness_by_its_place_in_the_sent_array():
+    """A provider handed an array is told nothing about which element is which, so the
+    numbers the prompt quotes are the only attribution -- and they must be positions in
+    that array, not positions among the people.
+
+    A style whose first row draws the previous chat image sends Kael as image 2. Numbering
+    him 1 says the chat screenshot is his face.
+    """
+    subjects = [_subject("Kael"), _subject("Mara")]
+    sent = [
+        ResolvedReference(
+            slot=("images", "image_0"),
+            source="previous",
+            data=b"PNG",
+            mime="image/png",
+            origin="attachment:7",
+            digest="d",
+        ),
+        ResolvedReference(
+            slot=("images", "image_1"),
+            source="cast_or_character",
+            data=b"PNG",
+            mime="image/png",
+            origin="character:card-Kael",
+            digest="d1",
+        ),
+    ]
+
+    assert _referenced_subjects(subjects, sent) == [(2, "Kael")]
+
+
+def test_one_card_in_two_slots_is_named_at_both_positions():
+    """Two `character` rows really do send that person's likeness twice. Naming the card
+    once leaves an element of the array unattributed and shifts every position after it;
+    naming it at both positions is simply what happened.
+    """
+    subjects = [_subject("Kael"), _subject("Mara")]
+    sent = [
+        ResolvedReference(
+            slot=("images", f"image_{index}"),
+            source=source,
+            data=b"PNG",
+            mime="image/png",
+            origin=f"character:{card}",
+            digest=f"d{index}",
+        )
+        for index, (source, card) in enumerate((("character", "card-Kael"), ("character", "card-Kael"), ("cast", "card-Mara")))
+    ]
+
+    assert _referenced_subjects(subjects, sent) == [(1, "Kael"), (2, "Kael"), (3, "Mara")]
 
 
 # ── the targets publish the ceiling ──────────────────────────────────────────

@@ -871,13 +871,13 @@ async def test_the_subject_roster_is_never_numbered_against_the_reference_roster
         captured,
         subjects=[_subject("Iris", "silver hair"), _subject("Ashley", "red coat")],
         has_references=True,
-        referenced_subjects=["Ashley"],
+        referenced_subjects=[(1, "Ashley")],
     )
     tail = captured["compose_image_prompt"]
     assert "- Iris" in tail and "- Ashley" in tail
     assert "1. Iris" not in tail and "2. Ashley" not in tail
-    # The one numbered list left says what it is about: the images, in travel order.
-    assert "in this order: 1. Ashley." in tail
+    # The one numbered list left says what it is about: the images, by array position.
+    assert "numbered by their position in that set: 1. Ashley." in tail
 
 
 async def test_a_nameless_subject_leaves_no_hole_in_the_roster(monkeypatch):
@@ -906,7 +906,7 @@ def test_the_reference_instruction_names_the_referenced_subjects_in_order():
 
     Nobody's description is suppressed, including theirs -- see
     `test_nobody_is_left_undescribed_on_the_strength_of_a_reference`."""
-    instruction = prompts._reference_instruction(["Iris", "Ashley"])
+    instruction = prompts._reference_instruction([(1, "Iris"), (2, "Ashley")])
 
     assert "1. Iris, 2. Ashley" in instruction
     assert "EVERY visible person in full" in instruction
@@ -914,6 +914,20 @@ def test_the_reference_instruction_names_the_referenced_subjects_in_order():
     # A `previous` reference names nobody -- it is a picture of this scene, which is
     # what the original singular wording already describes.
     assert prompts._reference_instruction([]) == prompts._REFERENCE_INSTRUCTION
+
+
+def test_the_numbers_are_array_positions_and_may_skip_one():
+    """The numbers are the only attribution a provider handed an array ever gets, so
+    they have to be positions in *that* array rather than in the list of people.
+
+    A style whose first row draws the previous chat image and whose second draws a cast
+    member sends Iris as image 2. Renumbering her to 1 to close the gap tells the model
+    that image 1 -- a screenshot of the chat -- is her face.
+    """
+    instruction = prompts._reference_instruction([(2, "Iris"), (3, "Ashley")])
+
+    assert "2. Iris, 3. Ashley" in instruction
+    assert "1. Iris" not in instruction
 
 
 def test_nobody_is_left_undescribed_on_the_strength_of_a_reference():
@@ -927,7 +941,7 @@ def test_nobody_is_left_undescribed_on_the_strength_of_a_reference():
     which is what lets references be sent optimistically instead of withheld until
     somebody hand-measures the provider.
     """
-    for instruction in (prompts._reference_instruction([]), prompts._reference_instruction(["Iris", "Ashley"])):
+    for instruction in (prompts._reference_instruction([]), prompts._reference_instruction([(1, "Iris"), (2, "Ashley")])):
         assert "do not describe permanent identity traits" not in instruction.lower()
         assert "identity traits" in instruction
 
@@ -942,11 +956,11 @@ async def test_the_roster_names_only_who_got_a_picture_and_nobody_is_suppressed(
         captured,
         subjects=[_subject("Iris"), _subject("Ashley")],
         has_references=True,
-        referenced_subjects=["Iris"],
+        referenced_subjects=[(1, "Iris")],
     )
     tail = captured["compose_image_prompt"]
     assert "1. Iris" in tail
-    assert "Ashley" not in tail.split("in this order:")[1].split(".")[0]
+    assert "Ashley" not in tail.split("position in that set:")[1].split(".")[0]
     assert "EVERY visible person in full" in tail
 
 
@@ -958,7 +972,7 @@ async def test_no_references_means_no_reference_instruction_at_all(monkeypatch):
         captured,
         subjects=[_subject("Iris")],
         has_references=False,
-        referenced_subjects=["Iris"],
+        referenced_subjects=[(1, "Iris")],
     )
     assert "reference image" not in captured["compose_image_prompt"]
 

@@ -226,47 +226,59 @@ def _consumption(
     return payload
 
 
-def _referenced_subjects(subjects: Sequence[Subject], references: Sequence[ResolvedReference]) -> list[str]:
-    """Which subjects a likeness was actually sent for, in slot order.
+def _referenced_subjects(subjects: Sequence[Subject], references: Sequence[ResolvedReference]) -> list[tuple[int, str]]:
+    """Which subject each sent image is of, as `(position, name)` pairs.
 
-    Matched on the reference's `character:<card id>` origin, which is the only thing
-    that survives both backends and both sources: a `cast` slot and a `character` slot
+    *position* is the reference's own 1-based index in the array the request carries --
+    **not** its index among the ones that named somebody. That distinction is the whole
+    contract: a provider handed an array is told nothing about which element is which,
+    so these numbers are the only attribution there is, and a render whose first slot is
+    the previous chat image must not tell the model that image 1 is Alice. A position
+    nobody can be named for is simply absent, which leaves a gap in the numbering rather
+    than a lie in it.
+
+    Matched on the reference's `character:<card id>` origin, the only thing that
+    survives both backends and both sources: a `cast` slot and a `character` slot
     record the same shape, and a `previous` slot records none, so a chat image
     correctly names nobody.
 
-    Slot order, not subject order, because that is the order the images travel in and
-    a cloud provider handed an array is told nothing else about which is which.
-
-    De-duplicated by **card**, not by name. Two `character` rows send one person's
-    likeness twice and must name them once -- but two members can share a display name
-    while holding different cards, and collapsing those would name one person for two
-    images and shift every position after it. The card is what identifies a likeness;
-    the name is only how the prompt says it.
+    Repeats are kept rather than collapsed. Two `character` rows really do send one
+    person's likeness twice, and once the position is carried, saying so twice is
+    accurate -- where naming that card once would leave an element of the array
+    unattributed. Two members can also share a display name while holding different
+    cards; `subjects.resolve` has already made those names distinct, and the card is
+    what identifies a likeness either way.
     """
     by_card = {subject.card_id: subject.name for subject in subjects if subject.card_id and subject.name}
-    names: list[str] = []
-    seen: set[str] = set()
-    for reference in references:
-        card_id = reference.origin.partition(":")[2] if reference.origin.startswith("character:") else ""
-        name = by_card.get(card_id)
-        if name and card_id not in seen:
-            seen.add(card_id)
-            names.append(name)
-    return names
+    return [
+        (position, name)
+        for position, reference in enumerate(references, 1)
+        if reference.origin.startswith("character:")
+        for name in (by_card.get(reference.origin.partition(":")[2]),)
+        if name
+    ]
 
 
-def _referenced_cards(references: Sequence[ResolvedReference]) -> set[str]:
+def _referenced_cards(sent: Sequence[Mapping[str, Any]]) -> set[str]:
     """The cards a likeness actually went out for, by `character:<card id>` origin.
 
     The same match `_referenced_subjects` makes, as a set: that one answers "in what
     order did the images travel" and this one answers "did this person's travel at
     all", and only the second can be asked of somebody who got no slot.
+
+    Read off the render's **own record** of what it posted -- `backend_info["references"]`,
+    which both adapters build from the request they actually sent -- rather than off what
+    `resolve_references` produced. The refusal ladder (`engine/degrade.py`) may trim the
+    array between the two, and it drops from the end: exactly the cast members this
+    disclosure exists to name. Asking the resolved list made the note go silent in the
+    one case it was written for.
     """
     return {
         card
-        for reference in references
-        if reference.origin.startswith("character:")
-        for card in (reference.origin.partition(":")[2],)
+        for entry in sent
+        for origin in (entry.get("origin"),)
+        if isinstance(origin, str) and origin.startswith("character:")
+        for card in (origin.partition(":")[2],)
         if card
     }
 
@@ -283,11 +295,17 @@ def _names_phrase(names: Sequence[str]) -> str:
 
 def _uncovered_note(
     addressable: Sequence[Subject],
-    references: Sequence[ResolvedReference],
+    sent: Sequence[Mapping[str, Any]],
     declared: int,
     capacity: int,
 ) -> str:
     """What a scene holding more people than reference slots is disclosed as, or "".
+
+    *sent* is what the render **posted**, as the backend recorded it, not what
+    `resolve_references` resolved. Those differ whenever the refusal ladder degraded a
+    render, and the ladder drops from the end -- so reading the resolved list here
+    reported full coverage in precisely the case with the largest uncovered cast. See
+    `_referenced_cards`.
 
     Only a **mixed** render says anything: somebody was pictured and somebody was
     not. That is the case that reads as a bug rather than a setting -- one member
@@ -305,7 +323,7 @@ def _uncovered_note(
     and the user can switch another row on; at capacity is the backend's ceiling,
     and the only move is a different provider, model or workflow.
     """
-    covered = _referenced_cards(references)
+    covered = _referenced_cards(sent)
     in_frame = [subject for subject in addressable if subject.card_id and subject.name]
     uncovered = [subject.name for subject in in_frame if subject.card_id not in covered]
     if not uncovered or len(uncovered) == len(in_frame):
@@ -463,7 +481,9 @@ async def _generate_fresh(
     consumption = _consumption(style, prompt, negative, result, md, source_label=adapter.label)
     if unfilled > 0:
         consumption.setdefault("notes", []).append(_unfilled_note(unfilled, len(references)))
-    uncovered = _uncovered_note(addressable, references, len(target.reference_slots), target.reference_capacity)
+    # `md["references"]` rather than `references`: the ladder above may have dropped
+    # some of what was resolved, and this note is about what the image model was given.
+    uncovered = _uncovered_note(addressable, md["references"], len(target.reference_slots), target.reference_capacity)
     if uncovered:
         consumption.setdefault("notes", []).append(uncovered)
     return _attachment(seed, result, md, consumption)

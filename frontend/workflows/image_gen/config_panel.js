@@ -432,9 +432,18 @@ function capturedSources(row, style) {
   // A row rendering no reference control at all — a workflow with no image inputs, a
   // provider that takes none — keeps what is stored rather than blanking it, the same
   // way `stored()` keeps the other half's fields across a relink.
+  //
+  // A row rendering *fewer* controls than the style stores is the same case, one slot at
+  // a time: a 2-`Load Image` style relinked to a one-reference provider draws one select,
+  // and reading only what is drawn would delete position 1 on the next save. That is the
+  // guarantee `policy.effectiveReferenceSources` states from the other side — entries past
+  // what the current target declares are inert, not gone — and it has to hold through a
+  // capture or a relink round-trip silently turns the second `Load Image` off, which for
+  // ComfyUI means submitting the filename the workflow was exported with.
+  const stored = styleSources(style);
   const selects = [...row.querySelectorAll("[data-ig-ref-source]")];
-  if (!selects.length) return styleSources(style);
-  const sources = selects.map((el) => el.value);
+  if (!selects.length) return stored;
+  const sources = [...selects.map((el) => el.value), ...stored.slice(selects.length)];
   while (sources.length && !sources.at(-1)) sources.pop();
   return sources;
 }
