@@ -22,6 +22,7 @@ import json
 import pytest
 
 from backend.features.cards.public_profile import (
+    DRAFT_PROFILE_TOOL,
     MAX_FIELD_WORDS,
     PROFILE_FLOOR,
     PROFILE_TOOL_NAME,
@@ -146,6 +147,18 @@ async def test_both_prompts_quote_the_same_no_secrets_floor():
     # The scene prompt adds the sentence that buys mode-independence.
     assert "no matter which member is currently speaking" in systems[1]
     assert "no matter which member is currently speaking" not in systems[0]
+
+
+def test_the_floor_asks_for_durable_facts_and_the_tool_says_so_too():
+    """A profile is rendered into the cached body of every member's prompt, so
+    anything volatile it asserts keeps asserting turn one for the life of the
+    scene. Both halves have to say it: the floor is what the two prompts quote,
+    and the tool description is what the model reads while filling the field."""
+    assert "durable" in PROFILE_FLOOR
+    assert "belongs to the transcript, not here" in PROFILE_FLOOR
+    appearance = DRAFT_PROFILE_TOOL["function"]["parameters"]["properties"]["appearance"]["description"]
+    assert "Durable" in appearance
+    assert "Never attire, carried gear, or injuries." in appearance
 
 
 async def test_the_drafting_call_is_forced_and_not_at_the_writing_preset():

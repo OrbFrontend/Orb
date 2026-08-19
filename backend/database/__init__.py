@@ -96,6 +96,14 @@ from .queries.interactive_fragments import (
     get_interactive_fragments,
     update_interactive_fragment,
 )
+from .queries.member_sheets import (
+    SheetProposalConflict,
+    apply_sheet_proposal,
+    create_sheet_proposals,
+    get_sheet_proposal,
+    get_sheet_proposals,
+    reject_sheet_proposal,
+)
 from .queries.messages import (
     add_message,
     delete_message_with_descendants,
@@ -327,6 +335,13 @@ __all__ = [
     "switch_to_branch",
     "sync_conversations_for_card",
     "sync_group_members",
+    # member sheet proposals
+    "SheetProposalConflict",
+    "apply_sheet_proposal",
+    "create_sheet_proposals",
+    "get_sheet_proposal",
+    "get_sheet_proposals",
+    "reject_sheet_proposal",
     "touch_conversation",
     "update_character_card",
     "update_conversation",

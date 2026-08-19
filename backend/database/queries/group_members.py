@@ -64,7 +64,21 @@ def _public_profile(card: Mapping | None, override: str | None) -> str:
     return render_public_profile(orb.get("public_profile") if isinstance(orb, dict) else None)
 
 
-def _private_sheet(card: Mapping | None) -> str:
+def _private_sheet(card: Mapping | None, override: str | None = None) -> str:
+    """What the member reads about itself: the scene override, else the card's join.
+
+    ``override is not None`` on purpose, mirroring :func:`_public_profile` — an
+    empty-string override is the user deliberately blanking the sheet for this
+    scene, not an absent one, and the two must stay distinguishable.
+
+    The counterpart to ``public_profile_override``: that one is what the *rest*
+    of the cast sees, this one is what the member reads about *itself*. It
+    exists because a card asserts turn one forever while a scene moves; the
+    sheet rides the uncached tail under Private perspective, so keeping it
+    current costs no prefix rebuild. The card is never written.
+    """
+    if override is not None:
+        return override
     if not card:
         return ""
     parts = []
@@ -125,7 +139,7 @@ async def resolve_cast(conv: Mapping, *, speaker_member_id: str | None = None) -
                 name=member["display_name"],
                 kind=member["member_kind"],
                 public_profile=_public_profile(card, member.get("public_profile_override")),
-                private_sheet=_private_sheet(card),
+                private_sheet=_private_sheet(card, member.get("card_sheet_override")),
                 mes_example=str((card or {}).get("mes_example") or ""),
                 post_history=str((card or {}).get("post_history_instructions") or ""),
                 muted=bool(member.get("muted")),
@@ -199,8 +213,8 @@ async def create_group_conversation(
             await db.execute(
                 """INSERT INTO group_members
                    (id, conversation_id, speaker_key, character_card_id, display_name,
-                    public_profile_override, member_kind, sort_order, muted, active)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    public_profile_override, card_sheet_override, member_kind, sort_order, muted, active)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     member_id,
                     cid,
@@ -208,6 +222,7 @@ async def create_group_conversation(
                     spec.get("character_card_id"),
                     name,
                     spec.get("public_profile_override"),
+                    spec.get("card_sheet_override"),
                     spec.get("member_kind", "character"),
                     order,
                     int(bool(spec.get("muted", False))),
@@ -296,12 +311,14 @@ async def sync_group_members(conversation_id: str, specs: Sequence[Mapping[str, 
             if member_id in existing and existing[member_id]["active"]:
                 await db.execute(
                     """UPDATE group_members SET character_card_id = ?, display_name = ?,
-                       public_profile_override = ?, member_kind = ?, sort_order = ?, muted = ?, active = 1
+                       public_profile_override = ?, card_sheet_override = ?, member_kind = ?,
+                       sort_order = ?, muted = ?, active = 1
                        WHERE id = ? AND conversation_id = ?""",
                     (
                         card_id,
                         spec.get("display_name") or existing[member_id]["display_name"],
                         spec.get("public_profile_override"),
+                        spec.get("card_sheet_override"),
                         spec.get("member_kind", existing[member_id]["member_kind"]),
                         order,
                         int(bool(spec.get("muted", False))),
@@ -316,8 +333,8 @@ async def sync_group_members(conversation_id: str, specs: Sequence[Mapping[str, 
                 await db.execute(
                     """INSERT INTO group_members
                        (id, conversation_id, speaker_key, character_card_id, display_name,
-                        public_profile_override, member_kind, sort_order, muted, active)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
+                        public_profile_override, card_sheet_override, member_kind, sort_order, muted, active)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
                     (
                         member_id,
                         conversation_id,
@@ -325,6 +342,7 @@ async def sync_group_members(conversation_id: str, specs: Sequence[Mapping[str, 
                         card_id,
                         name,
                         spec.get("public_profile_override"),
+                        spec.get("card_sheet_override"),
                         spec.get("member_kind", "character"),
                         order,
                         int(bool(spec.get("muted", False))),

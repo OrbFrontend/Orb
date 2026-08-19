@@ -64,10 +64,13 @@ features/<name>/
 | `backend/main.py` | Thin entry: `build_app()` + uvicorn guard |
 | `backend/api/__init__.py` | `build_app()`: lifespan, middleware, auto-include routers |
 | `backend/api/routes/__init__.py` | `ROUTERS` list — add a file here to register a router |
-| `backend/pipeline/entrypoints.py` | Public `handle_*` functions plus the group beat driver — top of the turn lifecycle. The driver owns what a group runs **once per beat** rather than once per speaker: the Director and the pre-writer direction-note step |
+| `backend/pipeline/entrypoints.py` | Public `handle_*` functions plus the group beat driver — top of the turn lifecycle. The driver owns what a group runs **once per beat** rather than once per speaker: the Director and the pre-writer direction-note step. A beat that arrives with no pinned speaker under `Choose` is a **rest**, not an error — the user's message stands and nobody answers it, the same empty plan the Director may choose under `Auto`. It is decided before any prompt is built, so a rest never pays for a Director call |
 | `backend/pipeline/cast.py` | Who speaks: speaking-plan validation and round-robin policy |
 | `backend/database/queries/group_members.py` | The durable roster **and** `resolve_cast` — active/tombstoned resolution plus the public/private card projection every prefix builder reads. In the query layer on purpose: `workflows/toolkit.build_offturn_prefix` needs the same answer the turn used and may not import `pipeline/`, and two resolvers would mean two prefixes. `_public_profile` keeps the `extensions.orb` walk but delegates the `Appearance:`/`Role:` join to `character_cards.render_public_profile`, beside the writer that stores it |
-| `backend/features/cards/public_profile.py` | The one public-profile drafter, card- and scene-scoped. Owns the tool schema (kept out of `tool_registry.TOOLS` — a profile has no turn phase), the no-secrets floor both prompts quote verbatim, the forced-call drain, and the deterministic output contract (one line per field, no braces, ≤30 words). A scene draft is **one call per member, never batched**: it carries that member's card and the other members' *names only* |
+| `backend/features/cards/public_profile.py` | The one public-profile drafter, card- and scene-scoped. Owns the tool schema (kept out of `tool_registry.TOOLS` — a profile has no turn phase), the no-secrets **and durable-facts** floor both prompts quote verbatim, the forced-call drain, and the deterministic output contract (one line per field, no braces, ≤30 words). Durable-facts is a cache rule, not a style one: the profile is rendered into the shared cached body, so attire, gear and injuries stay out of it and the transcript carries them instead. A scene draft is **one call per member, never batched**: it carries that member's card and the other members' *names only* |
+| `backend/features/cards/sheet_update.py` | The sibling drafter: proposes a rewrite of one member's scene-local sheet from a finished beat, and **applies nothing**. Same posture as `public_profile.py` — forced call, hardcoded summarization hyperparameters, deterministic contract, one call per member and never batched. The contract refuses an empty sheet, a brace, an essay, and a proposal identical to the sheet it was given |
+| `backend/pipeline/sheet_update.py` | The turn stage that drives it, in the `world_change` slot and gated on `run_beat_final` so it runs **once per beat**, on the members that actually spoke. Errors are swallowed at both levels: one member's failed call never drops another's proposal, and the stage never costs the user their reply |
+| `backend/database/queries/member_sheets.py` | The proposal lifecycle: stage / apply / reject. `base_sheet` is to a proposal what `worlds.content_revision` is to a changeset — the apply re-resolves the member's sheet under `BEGIN IMMEDIATE` and marks the proposal `stale` rather than clobbering a hand edit. Conflicts are decided inside the transaction and raised outside it, since `immediate_tx` rolls back on any exception |
 | `backend/inference/group_context.py` | The group character-context projection — the **only** owner of which card fields each mode puts in the shared cached body vs. the speaker's trailing message, plus per-member `{{char}}` scoping. `build_prefix`, `build_writer_content` and the context-size estimator all read it; no pass decides visibility itself |
 | `backend/pipeline/orchestrator.py` | `_run_pipeline()`: director→writer→editor coordination |
 | `backend/pipeline/state.py` | `TurnState`, `ModelLane`, `_PipelineConfig`, `LorebookTurn` |
@@ -98,8 +101,8 @@ features/<name>/
 | `settings` | Global singleton (id=1): endpoint refs, enabled_tools (JSON), feature flags, workflow_config |
 | `endpoints` | LLM API endpoints; `completion_mode` = `chat`\|`text` |
 | `model_configs` | Per-endpoint model params (temp, top_p, max_tokens, system_prompt, …) |
-| `conversations` | Chat sessions; `kind=solo|group`, group turn policy, `group_context_mode` (`private`\|`shared`\|`swap`), `active_leaf_id` branch leaf; `macro_seed` pins {{random}} on copies |
-| `group_members` | Durable ordered group roster; immutable speaker keys, local names/profile overrides, mute/tombstone state |
+| `conversations` | Chat sessions; `kind=solo|group`, group turn policy, `group_context_mode` (`private`\|`shared`\|`swap`), `group_sheet_updates` (per-scene opt-in to the post-beat sheet pass, off by default), `active_leaf_id` branch leaf; `macro_seed` pins {{random}} on copies |
+| `group_members` | Durable ordered group roster; immutable speaker keys, local names, mute/tombstone state, and two scene-local overrides — `public_profile_override` (what the rest of the cast sees) and `card_sheet_override` (what the member reads about itself). Both resolve on `is not None`, so a blanking is not an absence; both default `NULL` to card text, and neither ever writes the card |
 | `messages` | Message tree (`parent_id`); group replies carry `speaker_member_id` and request-scoped `beat_id` |
 | `character_cards` | V3-spec characters (`ccv3` chunk preferred, `chara` V2 fallback); `avatar_b64`, `world_id`, `persona_lock_id`, `extensions` (card extensions JSON; card-embedded fragments at `orb.fragments`, V3-only card fields parked at `orb.v3`, merged ephemerally in `_load_pipeline_context`) |
 | `character_expressions` | Per-character go-emotions expression images |
@@ -112,6 +115,7 @@ features/<name>/
 | `direction_notes` | Persistent notes across a branch (Director or user-authored) |
 | `worlds` / `lorebook_entries` | Lorebook containers + keyword-triggered context entries. `worlds.content_revision` stamps *lore-content* mutations only (never an `enabled` toggle); `lorebook_entries.entry_layer` splits authored rows from the Agent-managed overlay |
 | `world_changesets` | Dynamic Worlds proposals + applied history, including the `manual` record a hand delete of an entry leaves; `source_*` message/conversation ids are nullable cross-domain pointers, with denormalised labels so history survives their deletion |
+| `member_sheet_proposals` | Staged rewrites of `group_members.card_sheet_override`, one per member per beat; `pending`\|`applied`\|`rejected`\|`stale`. Written by the post-beat pass, decided by the user in Manage cast |
 | `documents` | Free-form writing mode documents |
 | `user_attachments` | User-uploaded images on messages |
 | `workflow_attachments` | LRU-3 byte-budget artifact cache for secondary workflows |
@@ -154,7 +158,7 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 ## API Endpoints (quick reference)
 
 - **Settings/endpoints/models:** CRUD under `/api/settings`, `/api/endpoints`, `/api/models`
-- **Conversations:** CRUD + `/members`, `/members/scene-profile/generate`, `/convert-to-group`, `/activate`, `/summarize`, `/compress`, `/stop`, `/context-size`
+- **Conversations:** CRUD + `/members`, `/members/scene-profile/generate`, `/sheet-proposals` (+ `/{pid}/apply|reject`; apply 409s on a moved sheet, no force-apply), `/convert-to-group`, `/activate`, `/summarize`, `/compress`, `/stop`, `/context-size`
 - **Messages:** `/send` (SSE), `/speak`, `/continue`, `/edit`, `/fork-edit`, `/regenerate`, `/super_regenerate`, `/magic_rewrite`, `/switch-branch`, DELETE
 - **Characters:** CRUD + `/import` (PNG), `/import-url`, `/browse`, `/export`, `/expressions`, `/public-profile`
 - **Fragments/Moods:** `/api/fragments`, `/api/interactive-fragments`

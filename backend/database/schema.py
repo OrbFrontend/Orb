@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     group_turn_mode TEXT NOT NULL DEFAULT 'director' CHECK (group_turn_mode IN ('manual', 'round_robin', 'director')),
     group_max_speakers INTEGER NOT NULL DEFAULT 3 CHECK (group_max_speakers BETWEEN 1 AND 8),
     group_context_mode TEXT NOT NULL DEFAULT 'private' CHECK (group_context_mode IN ('private', 'shared', 'swap')),
+    group_sheet_updates INTEGER NOT NULL DEFAULT 0 CHECK (group_sheet_updates IN (0, 1)),
     -- Which group this conversation belongs to: the id of the conversation the
     -- family descends from. NULL means "I am that root", so a plain group needs
     -- no write here and only forks carry a value. ON DELETE SET NULL is the
@@ -133,6 +134,7 @@ CREATE TABLE IF NOT EXISTS group_members (
     character_card_id TEXT DEFAULT NULL,
     display_name TEXT NOT NULL,
     public_profile_override TEXT DEFAULT NULL,
+    card_sheet_override TEXT DEFAULT NULL,
     member_kind TEXT NOT NULL DEFAULT 'character' CHECK (member_kind IN ('character', 'narrator')),
     sort_order INTEGER NOT NULL DEFAULT 0,
     muted INTEGER NOT NULL DEFAULT 0 CHECK (muted IN (0, 1)),
@@ -333,6 +335,21 @@ CREATE TABLE IF NOT EXISTS world_changesets (
 
 CREATE INDEX IF NOT EXISTS idx_changeset_world_status ON world_changesets(world_id, status);
 CREATE INDEX IF NOT EXISTS idx_changeset_source_asst ON world_changesets(source_assistant_message_id);
+
+CREATE TABLE IF NOT EXISTS member_sheet_proposals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    member_id TEXT NOT NULL REFERENCES group_members(id) ON DELETE CASCADE,
+    beat_id TEXT NOT NULL DEFAULT '',
+    base_sheet TEXT NOT NULL DEFAULT '',
+    proposed_sheet TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'applied', 'rejected', 'stale')),
+    created_at TEXT NOT NULL,
+    decided_at TEXT DEFAULT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sheet_proposal_conv_status ON member_sheet_proposals(conversation_id, status);
 
 CREATE TABLE IF NOT EXISTS direction_notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

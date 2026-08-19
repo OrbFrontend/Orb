@@ -13,7 +13,7 @@ import pytest
 from backend.core import CastMember, Macros, TurnCast
 from backend.inference.group_context import context_size_components, render_cast_section
 from backend.inference.prompt_builder import build_prefix
-from backend.pipeline.passes.writer import build_writer_content
+from backend.pipeline.passes.writer import SHEET_FRAMING, build_writer_content
 
 MODES = ("private", "shared", "swap")
 
@@ -89,6 +89,23 @@ def test_private_keeps_other_members_raw_cards_out_of_a_speakers_whole_prompt():
     # Aria's own card reaches only Aria's own trailing message.
     assert "ARIA SHEET" in tail and "ARIA EXAMPLE" in tail and "ARIA DIRECTIVE" in tail
     assert "KAEL SHEET" not in tail and "KAEL DIRECTIVE" not in tail
+
+
+def test_only_private_frames_the_speakers_sheet_against_the_transcript():
+    """Private is the one mode that reads a speaker's own sheet *after* history,
+    so it is the one mode that has to say the transcript outranks it. Shared and
+    Swap put the same text in the system body *before* history, where the
+    ordinary reading order already does that work and where the line would be
+    billed to the whole cast for nothing."""
+    assert SHEET_FRAMING in _tail("private", ARIA)
+    for mode in ("shared", "swap"):
+        assert SHEET_FRAMING not in _tail(mode, ARIA)
+
+
+def test_the_sheet_framing_never_ships_without_a_sheet_to_frame():
+    """A narrator with no card text would otherwise get a caveat about a
+    reference sheet the prompt never shows it."""
+    assert SHEET_FRAMING not in _tail("private", _member("n", "Narrator"))
 
 
 def test_private_prefix_ignores_the_speaker_entirely():

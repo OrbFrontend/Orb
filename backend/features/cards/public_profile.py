@@ -1,7 +1,8 @@
 """The public-profile drafter — one LLM call, card-scoped or scene-scoped.
 
 A public profile is the short, scene-safe view of one cast member: what anyone
-else in the scene could observe or already knows. Two things ask for one:
+else in the scene could observe or already knows, and what stays true for the
+whole scene. Two things ask for one:
 
 * the character editor, drafting the card-level ``extensions.orb.public_profile``
   that travels with the card, and
@@ -13,6 +14,16 @@ Both land in the same rendered two-liner (``Appearance: …`` / ``Role: …`` �
 member and a non-overridden one read identically once assembled into a prompt.
 They therefore share one tool schema, one no-secrets floor, one forced-call
 drain and one output contract; only the framing and the message differ.
+
+**Durable facts only.** A profile is rendered into the shared, cached body of
+every member's prompt (``inference/group_context._render_public_cast``), so
+anything volatile it asserts keeps asserting turn one for the life of the
+scene — a coat that burned in beat three, hair cut in beat nine. Stripping
+attire, gear and injuries out of it is what lets that body be written once and
+never revisited: the transcript is already the record of what changed, and the
+speaker's own sheet rides the uncached tail where it is free to update. The
+cost is that turn one no longer learns what anyone is wearing from the profile;
+that is the greeting's and the premise's job.
 
 **A scene draft is one call per member and is never batched.** The only card in
 a member's drafting context is its own; the rest of the cast reaches the prompt
@@ -48,6 +59,8 @@ PROFILE_TOOL_NAME = "draft_public_profile"
 PROFILE_FLOOR = (
     "A public profile carries only what anyone else in the scene could observe or already knows. "
     "Never include secrets, hidden agendas, private instructions, internal motivations, or example dialogue. "
+    "State only durable traits that hold for the whole scene; what someone wears, carries, or has just suffered "
+    "belongs to the transcript, not here. "
     "Write plain prose in the third person: no curly braces, no macros, no placeholders of any kind. "
     "Keep each field under 30 words."
 )
@@ -80,7 +93,13 @@ DRAFT_PROFILE_TOOL = {
         "parameters": {
             "type": "object",
             "properties": {
-                "appearance": {"type": "string", "description": "Visible appearance only; concise."},
+                "appearance": {
+                    "type": "string",
+                    "description": (
+                        "Durable visible traits only: species, build, height, colouring, permanent marks. "
+                        "Never attire, carried gear, or injuries. Concise."
+                    ),
+                },
                 "role": {"type": "string", "description": "Public role or archetype in the scene; concise."},
             },
             "required": ["appearance", "role"],

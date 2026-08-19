@@ -15,9 +15,11 @@ from ...core import (
     scrub_log,
 )
 from ...database import (
+    SheetProposalConflict,
     activate_character_linked_worlds,
     add_conversation_log,
     add_message,
+    apply_sheet_proposal,
     card_embedded_fragments,
     convert_to_group,
     create_conversation,
@@ -44,11 +46,13 @@ from ...database import (
     get_messages_with_branch_info,
     get_mood_fragments,
     get_settings,
+    get_sheet_proposals,
     get_user_persona,
     group_root_of,
     insert_alternate_greeting_swipes,
     list_conversations,
     mark_orphaned_changesets_stale,
+    reject_sheet_proposal,
     render_public_profile,
     resolve_cast,
     resolve_char_context,
@@ -319,6 +323,51 @@ async def api_generate_scene_profile(
     # Rendered through the same join a card-derived profile takes, so a drafted
     # override and a non-overridden member read identically in the prompt.
     return SceneProfileDraft(profile=render_public_profile(draft))
+
+
+@router.get("/api/conversations/{cid}/sheet-proposals")
+async def api_list_sheet_proposals(
+    cid: str,
+    status: str = "pending",
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
+    """The scene's staged sheet updates. Defaults to the ones awaiting a decision.
+
+    ``status=all`` returns every row, which is what a history view would read;
+    the review surface only ever asks for the default.
+    """
+    return await get_sheet_proposals(cid, status=None if status == "all" else status)
+
+
+@router.post("/api/conversations/{cid}/sheet-proposals/{pid}/apply")
+async def api_apply_sheet_proposal(
+    cid: str,
+    pid: int,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
+    """Write a staged sheet onto its member.
+
+    409 on a proposal that is already decided, whose member has left the scene,
+    or whose sheet has moved since it was derived. There is no force-apply and
+    no rebase, for the reason the changeset apply gives: two edits that look
+    unrelated can still contradict each other in meaning.
+    """
+    try:
+        return await apply_sheet_proposal(pid, conversation_id=cid)
+    except SheetProposalConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/api/conversations/{cid}/sheet-proposals/{pid}/reject")
+async def api_reject_sheet_proposal(
+    cid: str,
+    pid: int,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
+    try:
+        return await reject_sheet_proposal(pid, conversation_id=cid)
+    except SheetProposalConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/api/conversations/{cid}/convert-to-group")

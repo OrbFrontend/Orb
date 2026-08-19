@@ -40,7 +40,7 @@ from .passes.director import direction_note_step, director_stage, progressive
 from .passes.editor.editor import AUDIT_BASELINE_WINDOW
 from .persistence import _consume_pipeline, _conversation_log_writer
 from .predicates import direction_note_recording_active
-from .state import TurnState
+from .state import SheetUpdateTurn, TurnState
 
 logger = logging.getLogger(__name__)
 
@@ -64,13 +64,18 @@ def _history_attachments(attachments: Sequence[Mapping[str, Any]]) -> list[dict]
 
 
 def _group_pin_error(ctx: PipelineContext, pinned_speaker_id: str | None) -> str | None:
+    """A pin that names nobody is an error. A beat with no pin at all is not.
+
+    ``manual`` used to be rejected here for arriving without a speaker, which
+    made the composer a dead end: the user's message was already persisted by
+    the time this ran, so the turn could only end in an error card. Nobody
+    picked is a *rest* instead — see ``_generate_group_beat``.
+    """
     if not ctx.cast.grouped:
         return None
     eligible = [member for member in ctx.group_members if not member.get("muted")]
     if pinned_speaker_id and not any(member["id"] == pinned_speaker_id for member in eligible):
         return "Pinned speaker is not active and unmuted"
-    if not pinned_speaker_id and ctx.conv.get("group_turn_mode") == "manual":
-        return "Manual group turns require a pinned speaker"
     return None
 
 
@@ -263,6 +268,16 @@ async def _generate_group_beat(
         yield {"event": "error", "data": error}
         return
 
+    # `manual` with nobody picked is the scene resting, which is the same empty
+    # plan the Director may choose in `director` mode — the user's message has
+    # landed and no one answers it yet. It exits here rather than falling
+    # through to plan resolution because a rest that has already been decided
+    # must not cost a Director call, and `_prepare_turn` would run one.
+    if not pinned_speaker_id and ctx.conv.get("group_turn_mode") == "manual":
+        yield {"event": "speaking_plan", "data": {"beat_id": beat_id, "plan": []}}
+        yield {"event": "done"}
+        return
+
     setup: _TurnSetup | None = None
     lorebook_messages = [*history, *([{"role": "user", "content": user_message}] if user_message else [])]
     async for ev in _prepare_turn(
@@ -392,6 +407,11 @@ async def _generate_group_beat(
     # correctness bug in that mode, not merely a cache miss.
     speaker_scoped = prefix_is_speaker_scoped(ctx.cast.context_mode)
     current_parent = parent_message_id
+    # What the beat has actually said so far, in order: (member id, name, reply).
+    # The sheet stage is gated on this rather than on the plan -- a planned
+    # speaker that never persisted a reply left no prose, so there is nothing
+    # about it to record and nothing to bill a call for.
+    spoke: list[tuple[str, str, str]] = []
     for index, (row, speaker_beat) in enumerate(plan_rows):
         if ctx.client.is_aborted:
             break
@@ -453,6 +473,21 @@ async def _generate_group_beat(
             schema_overrides=setup.schema_overrides,
             history=pipeline_history,
             world_proposal=setup.world_proposal if index == len(plan_rows) - 1 else None,
+            # Once per beat, on the last speaker: the pass reads the whole beat,
+            # and running it per speaker would bill the same members again for
+            # the same scene with one more line in it.
+            sheet_update=(
+                SheetUpdateTurn(
+                    conversation_id=conversation_id,
+                    beat_id=beat_id,
+                    member_ids=(*(mid for mid, _, _ in spoke), speaker.member_id),
+                    user_message=user_message,
+                    speaker_name=speaker.name,
+                    lines=tuple((name, text) for _, name, text in spoke),
+                )
+                if index == len(plan_rows) - 1 and ctx.conv.get("group_sheet_updates")
+                else None
+            ),
             speaker=speaker,
             speaker_beat=speaker_beat,
             context_mode=ctx.cast.context_mode,
@@ -482,6 +517,7 @@ async def _generate_group_beat(
             yield event
         if persisted_id is None:
             break
+        spoke.append((speaker.member_id, speaker.name, persisted_content))
         # The beat's pre-writer notes have now landed on its first reply. They are
         # one recording, not one per speaker, so the seed stops carrying them
         # before the next speaker copies (and re-persists) the same rows.

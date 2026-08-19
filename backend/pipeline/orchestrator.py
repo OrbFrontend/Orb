@@ -31,7 +31,8 @@ from .passes.director import direction_note_step, director_stage
 from .passes.editor import editor_stage
 from .passes.writer import strip_speaker_label, writer_stage
 from .predicates import direction_note_recording_active
-from .state import LorebookTurn, TurnState, WorldProposalTurn
+from .sheet_update import sheet_update_stage
+from .state import LorebookTurn, SheetUpdateTurn, TurnState, WorldProposalTurn
 from .workflow_bridge import _PostPipelineResult, _run_post_pipeline
 from .world_proposal import world_proposal_stage
 
@@ -119,6 +120,7 @@ async def _run_pipeline(
     history: Sequence[Mapping[str, Any]] | None = None,
     lorebook: LorebookTurn | None = None,
     world_proposal: WorldProposalTurn | None = None,
+    sheet_update: SheetUpdateTurn | None = None,
     speaker: CastMember | None = None,
     speaker_beat: str = "",
     context_mode: GroupContextMode = "private",
@@ -378,6 +380,20 @@ async def _run_pipeline(
                 turn=world_proposal,
                 kv_tracker=kv_tracker,
             ),
+        ):
+            yield ev
+
+    # --- Scene-local sheet update step ---
+    # Last of the post-turn steps, and for the same reason the world stage is
+    # second-to-last: it judges the prose that will actually be persisted, so it
+    # has to sit after the editor and after any draft-rewriting post-pipeline
+    # hook. `run_beat_final` is what makes it once-per-beat rather than
+    # once-per-speaker; the driver only builds a turn for the final speaker, and
+    # the gate here is what keeps that true if another caller forgets.
+    if run_beat_final and sheet_update is not None and state.resp_text.strip() and not client.is_aborted:
+        async for ev in _staged(
+            STAGE_EDITOR,
+            sheet_update_stage(cfg, state, settings=settings, turn=sheet_update),
         ):
             yield ev
 

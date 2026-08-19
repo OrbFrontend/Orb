@@ -51,6 +51,22 @@ def strip_speaker_label(text: str, speaker_name: str) -> str:
     return label.sub("", text, count=1)
 
 
+# Private perspective is the one mode that puts a speaker's own sheet *after*
+# history (``group_context.tail_carries_identity``). Every other mode, and every
+# solo turn, reads it from the system body *before* the transcript. That
+# inversion falls out of the cache layout rather than intent: Private keeps the
+# shared body speaker-independent, so the speaking card has nowhere to go but
+# the tail. The cost is that a fixed, present-tense sheet becomes the last
+# identity text the model reads before writing, outranking a transcript that has
+# since changed the character's hair, dress or gear. One line restores the
+# reading order the placement destroys. It is billed on every writer and editor
+# call, so it stays one sentence.
+SHEET_FRAMING = (
+    "Reference sheet from the scene's start. Where the transcript above shows it has changed "
+    "— appearance, dress, injuries, what they carry — follow the transcript."
+)
+
+
 def build_writer_content(
     lorebook_block: str,
     inj_block: str,
@@ -103,6 +119,7 @@ def build_writer_content(
         tail += f"## You are writing as {speaker.name}\n"
         if tail_carries_identity(context_mode):
             if speaker.private_sheet:
+                tail += f"{SHEET_FRAMING}\n"
                 tail += speaker_macros.resolve_message(speaker.private_sheet) + "\n\n"
             if speaker.mes_example:
                 example = speaker_macros.resolve_message(speaker.mes_example)

@@ -124,7 +124,7 @@
 
 .plan-pill.active {
   background: var(--accent);
-  color: var(--bg);
+  color: var(--bg-deep);
 }
 
 .plan-pill.done {
@@ -294,6 +294,77 @@
 .cast-row-profile [data-roster-draft] {
   flex: 0 0 auto;
   white-space: nowrap;
+}
+
+/* Two overrides live in one disclosure -- what the cast sees, and what the
+   member reads about itself. Unlabelled they read as one field wrapped. */
+.cast-row-label {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.cast-row-sheet {
+  display: flex;
+  margin-top: 6px;
+}
+
+/* The shared modal checkbox carries a 20px bottom margin for the settings
+   panels it was written for; inside a `.field` that already spaces its rows it
+   only pushes the hint away from its own control. */
+#group-settings-sheet-updates ~ *,
+.field > .modal-checkbox-label {
+  margin-bottom: 0;
+}
+
+/* How many staged sheet updates are waiting behind the button. */
+.cast-manage-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--bg-deep);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* A staged sheet update, shown in full: the user is approving text, not a
+   label, so the whole proposed sheet is on the row. */
+.cast-row-proposal {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg-elevated);
+}
+
+.cast-row-proposal.is-stale {
+  border-left-color: var(--text-muted);
+  opacity: 0.75;
+}
+
+.cast-row-proposal-head {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cast-row-proposal-body {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
+
+.cast-row-proposal-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .cast-add {

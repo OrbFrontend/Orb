@@ -254,7 +254,13 @@ async def test_every_speaker_in_a_beat_sees_the_user_s_image(client, llm_mock):
         assert pixel in json.dumps(writer["messages"]), "a speaker was asked about an image it never saw"
 
 
-async def test_manual_group_requires_pin_before_calling_llm(client, llm_mock):
+async def test_manual_group_without_a_pin_rests_instead_of_erroring(client, llm_mock):
+    """`Choose` sends fine with nobody picked: the message lands, no one answers.
+
+    The pick is a separate act (a cast chip), so a send that arrives without one
+    is a rest, not a failed turn -- and a rest that is known before any prompt is
+    built must not pay for a Director call.
+    """
     aria = await _card(client, "Aria")
     conv = (
         await client.post(
@@ -268,9 +274,37 @@ async def test_manual_group_requires_pin_before_calling_llm(client, llm_mock):
     ).json()
     response = await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "Hello"})
     assert response.status_code == 200
-    assert any(name == "error" for name, _ in _sse_events(response.text))
+    events = _sse_events(response.text)
+    assert not any(name == "error" for name, _ in events)
+    plan = next(data for name, data in events if name == "speaking_plan")
+    assert isinstance(plan, dict) and plan["plan"] == []
     assert llm_mock.calls == []
-    assert await get_messages(conv["id"]) == []
+    messages = await get_messages(conv["id"])
+    assert [(m["role"], m["content"]) for m in messages] == [("user", "Hello")]
+
+
+async def test_manual_group_speaks_for_the_member_the_pin_names(client, llm_mock):
+    aria = await _card(client, "Aria")
+    kael = await _card(client, "Kael")
+    conv = (
+        await client.post(
+            "/api/conversations",
+            json={
+                "kind": "group",
+                "group_turn_mode": "manual",
+                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
+            },
+        )
+    ).json()
+    members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
+    llm_mock.enqueue_writer("Kael answers.")
+    response = await client.post(
+        f"/api/conversations/{conv['id']}/send",
+        json={"content": "Hello", "speaker_member_id": members[1]["id"]},
+    )
+    assert response.status_code == 200
+    plan = next(data for name, data in _sse_events(response.text) if name == "speaking_plan")
+    assert [entry["name"] for entry in plan["plan"]] == ["Kael"]
 
 
 async def test_atomic_roster_sync_allows_cards_to_swap_existing_member_slots(client):
@@ -709,6 +743,325 @@ async def test_compression_prompts_stay_on_the_public_cast_projection(client, ll
     assert "### Aria" in system and "### Kael" in system
     assert "ARIA PRIVATE" not in system and "KAEL PRIVATE" not in system
     assert "## Character dossier" not in system
+
+
+# ── The scene-local sheet override ──────────────────────────────────────────
+# `public_profile_override` is what the rest of the cast sees; `card_sheet_override`
+# is what the member reads about *itself*. A card asserts turn one forever, so a
+# long scene needs somewhere scene-local to say the coat burned — without writing
+# the card, which stays a reusable shared asset.
+
+
+async def _put_members(client, conv, members: list[dict]):
+    response = await client.put(f"/api/conversations/{conv['id']}/members", json={"members": members})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _member_spec(member: dict, **overrides) -> dict:
+    spec = {
+        "id": member["id"],
+        "character_card_id": member["character_card_id"],
+        "display_name": member["display_name"],
+        "public_profile_override": member.get("public_profile_override"),
+        "card_sheet_override": member.get("card_sheet_override"),
+        "member_kind": member["member_kind"],
+        "muted": bool(member["muted"]),
+    }
+    return {**spec, **overrides}
+
+
+@pytest.mark.parametrize("mode", ["private", "shared", "swap"])
+async def test_the_sheet_override_is_stored_and_read_back_under_every_mode(client, mode):
+    """Mode-blind, like `public_profile_override` and the scene-profile drafter:
+    which modes *send* it is a UI concern, and a server that accepted it under
+    one mode only would leave the two halves of one field disagreeing."""
+    conv, members = await _two_card_group(client, context_mode=mode)
+    updated = await _put_members(
+        client,
+        conv,
+        [_member_spec(members[0], card_sheet_override="ARIA CURRENT SHEET"), _member_spec(members[1])],
+    )
+    assert updated[0]["card_sheet_override"] == "ARIA CURRENT SHEET"
+    assert updated[1]["card_sheet_override"] is None
+
+
+async def test_an_empty_sheet_override_blanks_the_sheet_rather_than_restoring_the_card(client, llm_mock):
+    """`""` is a deliberate blanking and `null` is absence; the two must not
+    collapse, or blanking becomes unexpressible from the UI."""
+    conv, members = await _two_card_group(client)
+    updated = await _put_members(client, conv, [_member_spec(members[0], card_sheet_override=""), _member_spec(members[1])])
+    assert updated[0]["card_sheet_override"] == ""
+
+    await _run_two_speaker_beat(client, llm_mock, conv)
+    writers = [call for call in llm_mock.captured if call["pass"] == "writer"]
+    assert "ARIA PRIVATE" not in json.dumps(writers[0]["messages"][-1])
+    # The other member is untouched: blanking is per-member, not per-scene.
+    assert "KAEL PRIVATE" in json.dumps(writers[1]["messages"][-1])
+
+
+async def test_a_private_sheet_override_moves_the_tail_and_leaves_the_cached_body_alone(client, llm_mock):
+    """The point of the whole design. Under Private the speaker's own sheet sits
+    *after* history, so keeping it current costs no prefix rebuild — the cached
+    body must come back byte-identical across the edit."""
+    conv, members = await _two_card_group(client)
+    await _run_two_speaker_beat(client, llm_mock, conv)
+    before = _systems(llm_mock, "writer")
+    before_tail = json.dumps([call for call in llm_mock.captured if call["pass"] == "writer"][0]["messages"][-1])
+
+    llm_mock.captured.clear()
+    await _put_members(
+        client,
+        conv,
+        [_member_spec(members[0], card_sheet_override="ARIA, hair shorn and coat burned."), _member_spec(members[1])],
+    )
+    await _run_two_speaker_beat(client, llm_mock, conv)
+    after = _systems(llm_mock, "writer")
+    after_tail = json.dumps([call for call in llm_mock.captured if call["pass"] == "writer"][0]["messages"][-1])
+
+    assert after == before
+    assert "ARIA PRIVATE" in before_tail and "hair shorn" not in before_tail
+    assert "hair shorn" in after_tail and "ARIA PRIVATE" not in after_tail
+
+
+@pytest.mark.parametrize("mode", ["shared", "swap"])
+async def test_the_other_modes_read_the_override_too_even_though_it_lands_before_history(client, llm_mock, mode):
+    """Shared and Swap put the sheet in the system body, so an edit there *is* a
+    prefix rebuild. They still get the override — the field is mode-blind — but
+    this is why the drift fix is aimed at Private."""
+    conv, members = await _two_card_group(client, context_mode=mode)
+    await _put_members(
+        client,
+        conv,
+        [_member_spec(members[0], card_sheet_override="ARIA, hair shorn and coat burned."), _member_spec(members[1])],
+    )
+    await _run_two_speaker_beat(client, llm_mock, conv)
+    systems = _systems(llm_mock, "writer")
+    assert "hair shorn" in systems[0] and "ARIA PRIVATE" not in systems[0]
+
+
+async def test_the_sheet_override_rides_checkpoint_and_compression_forks(client):
+    """Asserted on the *copied* member ids: `create_group_conversation` re-mints
+    them, so a fork that carried the text under the old ids would carry nothing."""
+    conv, members = await _two_card_group(client)
+    await _put_members(
+        client,
+        conv,
+        [_member_spec(members[0], card_sheet_override="ARIA CURRENT SHEET"), _member_spec(members[1])],
+    )
+    parent = None
+    for index, (role, speaker) in enumerate([("user", None), ("assistant", members[0]["id"]), ("user", None)]):
+        parent, _ = await add_message(conv["id"], role, f"Line {index}", index, parent_id=parent, speaker_member_id=speaker)
+    await set_active_leaf(conv["id"], parent)
+
+    checkpoint = (await client.post(f"/api/conversations/{conv['id']}/checkpoint", json={})).json()
+    compressed = (
+        await client.post(f"/api/conversations/{conv['id']}/compress", json={"summary": "So far.", "keep_count": 2})
+    ).json()
+    for cid in (checkpoint["id"], compressed["new_conversation_id"]):
+        forked = (await client.get(f"/api/conversations/{cid}/members?include_inactive=true")).json()
+        assert not {member["id"] for member in forked} & {member["id"] for member in members}
+        assert [member["card_sheet_override"] for member in forked] == ["ARIA CURRENT SHEET", None]
+
+
+async def test_compression_never_re_asserts_a_members_sheet_into_the_summary(client, llm_mock):
+    """Compression forces the public-cast projection, which carries no sheet at
+    all — neither the card's nor the override's. So a summary cannot re-assert
+    pre-update appearance into a fork whose history no longer contradicts it,
+    and the sheet needs no compression-side edit."""
+    conv, members = await _two_card_group(client)
+    await _put_members(
+        client,
+        conv,
+        [_member_spec(members[0], card_sheet_override="ARIA SHEET OVERRIDE"), _member_spec(members[1])],
+    )
+    parent = None
+    for index, (role, speaker) in enumerate([("user", None), ("assistant", members[0]["id"]), ("user", None), ("user", None)]):
+        parent, _ = await add_message(conv["id"], role, f"Line {index}", index, parent_id=parent, speaker_member_id=speaker)
+    await set_active_leaf(conv["id"], parent)
+
+    llm_mock.enqueue_writer("A summary.")
+    assert (await client.post(f"/api/conversations/{conv['id']}/summarize", json={"keep_count": 2})).status_code == 200
+    system = str(llm_mock.captured[-1]["messages"][0]["content"])
+    assert "ARIA SHEET OVERRIDE" not in system and "ARIA PRIVATE" not in system
+    assert "### Aria" in system and "### Kael" in system
+
+
+# ── The post-beat sheet-update pass ─────────────────────────────────────────
+# One call per member the beat touched, staged pending, never applied. Routed
+# through the mock's `workflow` queue for the reason `_profile_call` states: the
+# schema is deliberately absent from `inference.tool_registry.TOOLS`.
+
+
+def _sheet_call(**arguments) -> dict:
+    """The forced ``update_character_sheet`` response."""
+    return {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"function": {"name": "update_character_sheet", "arguments": arguments}}],
+    }
+
+
+async def _sheet_group(client, **kwargs) -> tuple[dict, list[dict]]:
+    conv, members = await _two_card_group(client, **kwargs)
+    updated = (await client.put(f"/api/conversations/{conv['id']}", json={"group_sheet_updates": True})).json()
+    assert updated["group_sheet_updates"] == 1
+    return updated, members
+
+
+def _sheet_calls(llm_mock) -> list[str]:
+    """Every sheet-update call's user message, in order."""
+    return [
+        str(call["messages"][-1]["content"])
+        for call in llm_mock.captured
+        if call["pass"] == "workflow" and "reference sheet" in str(call["messages"][-1]["content"])
+    ]
+
+
+async def _proposals(client, conv, status: str = "pending") -> list[dict]:
+    response = await client.get(f"/api/conversations/{conv['id']}/sheet-proposals", params={"status": status})
+    assert response.status_code == 200
+    return response.json()
+
+
+async def test_the_sheet_pass_is_off_until_the_scene_opts_in(client, llm_mock):
+    """One billed call per member a beat touched is not something a scene should
+    start paying for by existing. Staleness is a property of a *long* scene."""
+    conv, _ = await _two_card_group(client)
+    assert conv["group_sheet_updates"] == 0
+    await _run_two_speaker_beat(client, llm_mock, conv)
+    assert _sheet_calls(llm_mock) == []
+    assert await _proposals(client, conv) == []
+
+
+async def test_an_opted_in_beat_stages_one_proposal_per_member_that_spoke(client, llm_mock):
+    conv, members = await _sheet_group(client)
+    llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn and coatless.", summary="Cut her hair"))
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    await _run_two_speaker_beat(client, llm_mock, conv)
+
+    assert len(_sheet_calls(llm_mock)) == 2
+    pending = await _proposals(client, conv)
+    assert [(item["member_id"], item["proposed_sheet"], item["summary"]) for item in pending] == [
+        (members[0]["id"], "ARIA, shorn and coatless.", "Cut her hair")
+    ]
+    # Staged only: the member's sheet is untouched until the user applies.
+    reloaded = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
+    assert reloaded[0]["card_sheet_override"] is None
+
+
+async def test_a_silent_member_is_never_asked_about(client, llm_mock):
+    """Gated to the members the beat touched. Cast-wide would be one call per
+    member per beat to be told nothing happened to them."""
+    conv, members = await _sheet_group(client)
+    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — Notice the trail"]))
+    llm_mock.enqueue_writer("I found tracks.")
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    assert (await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})).status_code == 200
+
+    calls = _sheet_calls(llm_mock)
+    assert len(calls) == 1 and "Aria" in calls[0] and "Character: Kael" not in calls[0]
+
+
+async def test_each_sheet_call_carries_only_its_own_members_sheet(client, llm_mock):
+    """The never-batched rule, re-pinned for the new tool: another member's
+    *prose* is shared evidence, their *sheet* is not."""
+    conv, _ = await _sheet_group(client)
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    await _run_two_speaker_beat(client, llm_mock, conv)
+
+    aria_call, kael_call = _sheet_calls(llm_mock)
+    assert "ARIA PRIVATE" in aria_call and "KAEL PRIVATE" not in aria_call
+    assert "KAEL PRIVATE" in kael_call and "ARIA PRIVATE" not in kael_call
+    # Both replies are in both calls: the transcript is the shared evidence.
+    for call in (aria_call, kael_call):
+        assert "I found tracks." in call and "The ward is broken." in call
+
+
+async def test_the_pass_runs_once_per_beat_not_once_per_speaker(client, llm_mock):
+    """Two speakers, two members, two calls — not four. `run_beat_final` is what
+    makes the difference, and a regression here doubles the beat's bill."""
+    conv, _ = await _sheet_group(client)
+    for _ in range(4):
+        llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    await _run_two_speaker_beat(client, llm_mock, conv)
+    assert len(_sheet_calls(llm_mock)) == 2
+
+
+async def test_applying_a_proposal_changes_the_tail_and_leaves_the_cached_body_alone(client, llm_mock):
+    """The reason the sheet lives in the tail under Private. An applied update
+    must cost no prefix rebuild, or keeping a scene current costs the KV cache."""
+    conv, _ = await _sheet_group(client)
+    llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn and coatless.", summary="Cut her hair"))
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    await _run_two_speaker_beat(client, llm_mock, conv)
+    before = _systems(llm_mock, "writer")
+
+    pending = await _proposals(client, conv)
+    applied = await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{pending[0]['id']}/apply")
+    assert applied.status_code == 200 and applied.json()["status"] == "applied"
+    reloaded = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
+    assert reloaded[0]["card_sheet_override"] == "ARIA, shorn and coatless."
+
+    llm_mock.captured.clear()
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    await _run_two_speaker_beat(client, llm_mock, conv)
+    assert _systems(llm_mock, "writer") == before
+    tail = json.dumps([call for call in llm_mock.captured if call["pass"] == "writer"][0]["messages"][-1])
+    assert "shorn and coatless" in tail and "ARIA PRIVATE" not in tail
+
+
+async def test_a_proposal_whose_sheet_moved_underneath_it_goes_stale_instead_of_clobbering(client, llm_mock):
+    """The two-writer mitigation. `base_sheet` is to a proposal what
+    `content_revision` is to a changeset — there is no force-apply here either."""
+    conv, members = await _sheet_group(client)
+    llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn and coatless.", summary="Cut her hair"))
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    await _run_two_speaker_beat(client, llm_mock, conv)
+    pending = await _proposals(client, conv)
+
+    await _put_members(
+        client,
+        conv,
+        [_member_spec(members[0], card_sheet_override="ARIA, hand-edited."), _member_spec(members[1])],
+    )
+    response = await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{pending[0]['id']}/apply")
+    assert response.status_code == 409
+    assert (await _proposals(client, conv, "stale"))[0]["id"] == pending[0]["id"]
+    # The hand edit stands: nothing was half-applied on the way to refusing.
+    reloaded = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
+    assert reloaded[0]["card_sheet_override"] == "ARIA, hand-edited."
+
+
+async def test_rejecting_writes_nothing_and_retires_the_row(client, llm_mock):
+    conv, _ = await _sheet_group(client)
+    llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn and coatless.", summary="Cut her hair"))
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    await _run_two_speaker_beat(client, llm_mock, conv)
+    pending = await _proposals(client, conv)
+
+    response = await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{pending[0]['id']}/reject")
+    assert response.status_code == 200 and response.json()["status"] == "rejected"
+    assert await _proposals(client, conv) == []
+    reloaded = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
+    assert reloaded[0]["card_sheet_override"] is None
+    # A decided proposal is decided; a second apply cannot resurrect it.
+    assert (await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{pending[0]['id']}/apply")).status_code == 409
+
+
+async def test_a_failed_sheet_call_never_costs_the_user_their_reply(client, llm_mock):
+    """It is the last step before `_result` and it is bookkeeping. A malformed
+    answer drops the proposal and nothing else."""
+    conv, _ = await _sheet_group(client)
+    llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="Has a {{char}} macro in it."))
+    llm_mock.enqueue_workflow(_sheet_call(changed=True))  # reports a change, returns no sheet
+    await _run_two_speaker_beat(client, llm_mock, conv)
+
+    assert await _proposals(client, conv) == []
+    rows = await get_messages(conv["id"])
+    assert [row["content"] for row in rows if row["role"] == "assistant"] == ["I found tracks.", "The ward is broken."]
 
 
 async def test_group_activation_enables_cast_worlds_and_preserves_floating_worlds(client):

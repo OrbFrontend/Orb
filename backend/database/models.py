@@ -209,6 +209,10 @@ class ConversationRow(TypedDict):
     # Which character information every group generation carries; see
     # ``core.domain_types.GroupContextMode``. Stored but ignored when solo.
     group_context_mode: str
+    # Opt-in to the post-beat sheet-update pass. Off by default: it is one billed
+    # call per member the beat touched, and staleness is a property of a *long*
+    # scene, which a new one is not.
+    group_sheet_updates: int
     # The group family this conversation belongs to: the id of the conversation
     # it descends from, or None when it *is* that root. Read it through
     # ``group_root_of()`` rather than directly -- None is a value, not a gap.
@@ -222,6 +226,10 @@ class GroupMemberRow(TypedDict):
     character_card_id: str | None
     display_name: str
     public_profile_override: str | None
+    # What the member reads about *itself* this scene, replacing the card's
+    # description/personality join. ``None`` falls back to the card; ``""`` is a
+    # deliberate blanking. See ``queries.group_members._private_sheet``.
+    card_sheet_override: str | None
     member_kind: str
     sort_order: int
     muted: int
@@ -423,6 +431,30 @@ class LorebookEntryRow(TypedDict):
     archived: int
     created_at: str
     updated_at: str
+
+
+class MemberSheetProposalRow(TypedDict):
+    """A row from ``member_sheet_proposals`` -- one staged rewrite of one
+    member's scene-local sheet, derived from one beat.
+
+    ``base_sheet`` is the sheet the proposal was derived from, and doubles as the
+    staleness check ``worlds.content_revision`` is for a changeset: the apply
+    re-reads the member's current sheet and refuses when the two no longer match,
+    so a hand edit and a proposal cannot silently clobber each other.
+    ``beat_id`` is the provenance pointer -- the beat, not one speaker's message,
+    because the pass runs once per beat.
+    """
+
+    id: int
+    conversation_id: str
+    member_id: str
+    beat_id: str
+    base_sheet: str
+    proposed_sheet: str
+    summary: str
+    status: str
+    created_at: str
+    decided_at: str | None
 
 
 class WorldChangesetRow(TypedDict):

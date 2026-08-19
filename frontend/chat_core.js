@@ -30,12 +30,13 @@ import { segmentBody } from "./workflow_segmentation.js";
 import { markClickable } from "./workflow_text_interaction.js";
 import { messageProposalsHtml } from "./world_proposals.js";
 
-// `speakerNamed` is for the paths that carry their own speaker (a cast chip
-// clicked on a resting scene, the empty-scene starter): `Choose` mode blocks a
-// turn that has nobody to answer it, which those turns do not.
-export function canStartGeneration(speakerNamed = false) {
+// Nothing about a group's turn mode belongs here. `Choose` used to block every
+// generation that arrived without a pick, which also blocked regenerate and
+// magic rewrite — turns that carry their own speaker off the message they
+// replace. A user message with nobody picked is a rest the backend answers with
+// an empty speaking plan, not a turn to suppress.
+export function canStartGeneration() {
   if (S.isStreaming) return false;
-  if (!speakerNamed && S.groupCast?.turn_mode === "manual" && !S.pinnedSpeakerId) return false;
   return requestSendPermission();
 }
 

@@ -153,6 +153,7 @@ async def fork_conversation(source: ConversationRow, new_title: str) -> str:
                     "character_card_id": m.get("character_card_id"),
                     "display_name": m["display_name"],
                     "public_profile_override": m.get("public_profile_override"),
+                    "card_sheet_override": m.get("card_sheet_override"),
                     "member_kind": m["member_kind"],
                     "muted": bool(m["muted"]),
                     "active": bool(m["active"]),
@@ -253,6 +254,7 @@ async def update_conversation(cid: str, data: dict) -> ConversationRow | None:
             "group_turn_mode",
             "group_max_speakers",
             "group_context_mode",
+            "group_sheet_updates",
             "character_scenario",
             "post_history_instructions",
         ]

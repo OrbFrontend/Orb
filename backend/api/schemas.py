@@ -367,6 +367,11 @@ class GroupMemberSpec(BaseModel):
     character_card_id: str | None = None
     display_name: str = ""
     public_profile_override: str | None = None
+    # The member's own sheet for this scene. Accepted under every
+    # ``group_context_mode``, like ``public_profile_override`` and the
+    # scene-profile drafter: which modes *send* it is a UI concern, not a
+    # server rule, and a half-gated field would leave the two disagreeing.
+    card_sheet_override: str | None = None
     member_kind: Literal["character", "narrator"] = "character"
     muted: bool = False
 
@@ -396,6 +401,7 @@ class ConversationUpdate(BaseModel):
     group_turn_mode: Literal["manual", "round_robin", "director"] | None = None
     group_max_speakers: int | None = Field(default=None, ge=1, le=8)
     group_context_mode: Literal["private", "shared", "swap"] | None = None
+    group_sheet_updates: bool | None = None
     character_scenario: str | None = None
     post_history_instructions: str | None = None
 

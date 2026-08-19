@@ -36,7 +36,8 @@ import {
   optimisticDropDirectionNotesFrom,
   renderDirectionNotesPanel,
 } from "./direction_notes_panel.js";
-import { consumeSpeakerOverride, renderGroupCast } from "./group_setup.js";
+import { restNotice, unansweredHint } from "./group_cast.js";
+import { consumeSpeakerOverride, refreshSheetProposals, renderGroupCast } from "./group_setup.js";
 import { refreshCharacters } from "./library.js";
 import { isUtilityPanelOpen } from "./panels.js";
 // Imported directly rather than via settings.js to avoid an import cycle
@@ -351,7 +352,7 @@ export async function afterStream() {
   }
 
   setStreaming(false);
-  $("send-btn").disabled = Boolean(S.groupCast?.turn_mode === "manual" && !S.pinnedSpeakerId);
+  $("send-btn").disabled = false;
 
   // Anchor the pending diff to the specific message ID it was generated for,
   // so branch navigation doesn't show stale diffs on the wrong message.
@@ -397,6 +398,10 @@ export async function afterStream() {
   if (wasGroupBeat && S.completedBeatMessageIds.length) consumeSpeakerOverride();
   S.completedBeatMessageIds = [];
   renderGroupCast();
+  // The beat may have staged sheet updates. Re-read rather than listening for an
+  // event: the pass proposes for at most the members that spoke, so this is one
+  // small request per group beat, and only for a scene that opted in.
+  if (wasGroupBeat && S.groupCast?.sheet_updates) refreshSheetProposals().then(renderGroupCast);
   clearInspectedMessage();
   // The active branch moved (new reply or a regenerated sibling), so the notes
   // panel's path-scoped set is stale; refetch it if the user has it open. Clear the
@@ -457,7 +462,7 @@ export async function processSSEStream(resp, container, holder, signal) {
         S.speakingPlan = Array.isArray(parsed.plan) ? parsed.plan : [];
         // A rest produces no speaker and no bubble; without this the turn would
         // simply end in silence, and the plan rail is gone by then.
-        if (!S.speakingPlan.length) toast("The scene rests — nobody replies to that.");
+        if (!S.speakingPlan.length) toast(restNotice());
         renderGroupCast();
       } catch (_) {}
       continue;
@@ -936,7 +941,7 @@ export async function continueFromUser() {
 // member is explicit rather than read from state: the empty-scene starter opens
 // with the first eligible member, which is not (and must not become) an override.
 export async function speakAsMember(memberId) {
-  if (!S.activeConvId || !memberId || !canStartGeneration(true)) return;
+  if (!S.activeConvId || !memberId || !canStartGeneration()) return;
   await runStreamRequest(convUrl(S.activeConvId, "speak"), { speaker_member_id: memberId });
 }
 
@@ -951,8 +956,16 @@ export async function sendMessage() {
 
   // Guard against double user turns: if the last message is already from the user,
   // ask the backend to generate a response for it without creating a new message.
+  // A draft in the box is not permission to discard it — this path sends the
+  // *previous* message's turn, not this text, so it may only run with nothing to
+  // lose. A rest (`Choose` with nobody picked) leaves exactly this state behind,
+  // which is how the old silent clear-and-drop became easy to hit.
   const lastMsg = S.messages[S.messages.length - 1];
   if (lastMsg?.role === "user" && lastMsg.id) {
+    if (content) {
+      toast(unansweredHint());
+      return;
+    }
     inp.value = "";
     inp.style.height = "auto";
     await continueFromUser();

@@ -237,6 +237,8 @@ function showGroupSettings() {
     <h3 class="modal-section">Character context</h3>
     <div class="field"><label for="group-settings-context">Mode</label>
       <select id="group-settings-context">${contextModeOptions(S.groupCast.context_mode)}</select></div>
+    <div class="field"><label class="modal-checkbox-label"><input type="checkbox" id="group-settings-sheet-updates"${S.groupCast.sheet_updates ? " checked" : ""}> Keep cast sheets current</label>
+      <p class="modal-hint">After each beat, propose an updated sheet for every member who spoke — hair cut, coat burned, sword broken. Proposals are reviewed in Manage cast and never applied on their own. Costs one extra call per member who spoke.</p></div>
     <h3 class="modal-section">Reply behavior</h3>
     <div class="field"><label for="group-settings-mode">Mode</label>
       <select id="group-settings-mode">${modeOptions(S.groupCast.turn_mode)}</select></div>
@@ -268,6 +270,7 @@ function showGroupSettings() {
         group_turn_mode: $("group-settings-mode").value,
         group_max_speakers: Math.max(1, Math.min(8, Number($("group-settings-max").value) || 3)),
         group_context_mode: $("group-settings-context").value,
+        group_sheet_updates: $("group-settings-sheet-updates").checked,
         character_scenario: $("group-settings-scenario").value.trim(),
         post_history_instructions: $("group-settings-instructions").value.trim(),
       });
@@ -276,6 +279,7 @@ function showGroupSettings() {
       S.groupCast.turn_mode = updated.group_turn_mode;
       S.groupCast.max_speakers = updated.group_max_speakers;
       S.groupCast.context_mode = updated.group_context_mode;
+      S.groupCast.sheet_updates = Boolean(updated.group_sheet_updates);
       // The header title is a plain div except while it is being renamed inline.
       const titleEl = $("chat-title-text");
       if (titleEl) titleEl.textContent = updated.title;
@@ -310,6 +314,35 @@ function overrideCopy() {
   return OVERRIDE_COPY[S.groupCast?.context_mode] || OVERRIDE_COPY.private;
 }
 
+// The sheet override has no per-mode copy because it has no per-mode behaviour:
+// every mode sends a member's own sheet somewhere (Private in the speaker's
+// trailing message, Shared in its dossier, Swap in the active card), so the box
+// is never a slot that silently drops what is typed into it. Blank falls back to
+// the character card, which is never written.
+const SHEET_PLACEHOLDER = "Scene sheet override — replaces the card's description and personality for this scene only";
+
+// A staged sheet update, waiting on the user. The pass proposes and never
+// applies, for the reason Dynamic Worlds stages its changesets: it writes a
+// field the user can also hand-edit, and a bookkeeping model can judge wrong.
+// So the row shows the whole proposed sheet — a summary alone would ask the
+// user to approve text they have not read.
+function proposalsFor(memberId) {
+  return (S.groupCast?.sheet_proposals || []).filter((item) => item.member_id === memberId);
+}
+
+function proposalRow(proposal) {
+  const stale = proposal.status === "stale";
+  return `<div class="cast-row-proposal${stale ? " is-stale" : ""}" data-sheet-proposal="${proposal.id}">
+    <div class="cast-row-proposal-head">${esc(proposal.summary || "Proposed sheet update")}</div>
+    <div class="cast-row-proposal-body">${esc(proposal.proposed_sheet)}</div>
+    ${stale ? `<p class="modal-hint">This sheet changed after the update was proposed, so it can no longer be applied.</p>` : ""}
+    <div class="cast-row-proposal-actions">
+      ${stale ? "" : `<button type="button" class="btn btn-sm" data-sheet-apply>Apply</button>`}
+      <button type="button" class="btn btn-sm" data-sheet-reject>Dismiss</button>
+    </div>
+  </div>`;
+}
+
 // One definition of "this row can be drafted", read by the row button, the
 // cast-wide filter and the per-row guard alike — three places that would
 // otherwise each re-derive the rule and eventually disagree. A member with no
@@ -338,10 +371,16 @@ function castRow(member) {
     <button type="button" class="cast-row-more" data-roster-more title="More actions" aria-label="More actions for ${escAttr(name)}">•••</button>
     <div class="cast-row-menu"><button type="button" class="burger-menu-item" data-roster-remove>Remove from scene</button></div>
     <details class="cast-row-custom"><summary>Customize for this scene</summary>
+      <div class="cast-row-label">What the rest of the cast sees</div>
       <div class="cast-row-profile">
         <textarea data-roster-profile${override.disabled ? " disabled" : ""} placeholder="${escAttr(override.placeholder)}">${esc(member.public_profile_override || "")}</textarea>
         <button type="button" class="btn" data-roster-draft${draftable ? "" : ` disabled title="${escAttr(draftBlockedReason(member))}"`}>${member.public_profile_override ? "Redraft" : "Draft"}</button>
       </div>
+      <div class="cast-row-label">What they read about themselves</div>
+      <div class="cast-row-sheet">
+        <textarea data-roster-sheet placeholder="${escAttr(SHEET_PLACEHOLDER)}">${esc(member.card_sheet_override || "")}</textarea>
+      </div>
+      ${proposalsFor(member.id).map(proposalRow).join("")}
     </details>
   </div>`;
 }
@@ -397,6 +436,46 @@ function showCastManager() {
   let draftingAll = false;
   let cancelAll = false;
   const anyDrafting = () => drafting.size > 0;
+
+  // Apply / Dismiss on one staged sheet update. Unlike everything else in this
+  // modal these write immediately — a proposal is server state the roster PUT
+  // does not carry, so deferring them to Save would mean Save had to reconcile
+  // two writers for one field.
+  //
+  // Applying therefore also overwrites the textarea: the database now holds the
+  // proposed sheet, and a Save that shipped the box's older text would silently
+  // undo the apply the user just watched happen.
+  async function decideProposal(button, row) {
+    const card = button.closest("[data-sheet-proposal]");
+    const id = card?.dataset.sheetProposal;
+    if (!id || button.disabled) return;
+    const applying = button.hasAttribute("data-sheet-apply");
+    button.disabled = true;
+    try {
+      const updated = await api.post(convUrl(S.activeConvId, "sheet-proposals", id, applying ? "apply" : "reject"));
+      if (applying) {
+        const box = row.querySelector("[data-roster-sheet]");
+        if (box) box.value = updated.proposed_sheet;
+        // The cached roster has to move with the database, or reopening this
+        // modal would paint the pre-apply sheet back into the box.
+        const member = (S.groupCast.members || []).find((item) => item.id === updated.member_id);
+        if (member) member.card_sheet_override = updated.proposed_sheet;
+      }
+      S.groupCast.sheet_proposals = (S.groupCast.sheet_proposals || []).filter(
+        (item) => String(item.id) !== String(id),
+      );
+      card.remove();
+    } catch (error) {
+      // A 409 means the sheet moved under the proposal, which the server has now
+      // marked stale. Re-read and repaint this one card rather than leaving an
+      // Apply button that can only fail again.
+      await refreshSheetProposals();
+      const fresh = (S.groupCast.sheet_proposals || []).find((item) => String(item.id) === String(id));
+      if (fresh) card.outerHTML = proposalRow(fresh);
+      else card.remove();
+      throw error;
+    }
+  }
 
   // A late draft must not land after Save has already sent the roster, and a
   // save must not race a request whose result would then have nowhere to go.
@@ -521,6 +600,11 @@ function showCastManager() {
       draftRow(row, draft).catch((error) => toast(error.message, true));
       return;
     }
+    const decision = event.target.closest("[data-sheet-apply], [data-sheet-reject]");
+    if (decision) {
+      decideProposal(decision, row).catch((error) => toast(error.message, true));
+      return;
+    }
     closeRowMenus();
   });
 
@@ -600,6 +684,7 @@ function showCastManager() {
       character_card_id: row.dataset.rosterCardId || null,
       display_name: row.querySelector("[data-roster-name]").value.trim() || "Narrator",
       public_profile_override: row.querySelector("[data-roster-profile]").value.trim() || null,
+      card_sheet_override: row.querySelector("[data-roster-sheet]").value.trim() || null,
       member_kind: row.dataset.rosterKind || "character",
       muted: !row.querySelector("[data-roster-reply]").checked,
     }));
@@ -686,18 +771,6 @@ export function renderGroupCast() {
   renderChatActionMenus();
   const input = $("chat-input");
   if (input) input.placeholder = grouped ? "Write what happens next…" : "Write your message...";
-  // `Choose` needs a speaker before anything can be sent, so the composer must
-  // reflect a mode change or a cleared override immediately — not only after the
-  // next stream settles. Nothing on screen explains a dead send button now that
-  // the reply bar is gone, so the button says why itself — and the reset above
-  // it matters: leaving that reason behind would mislabel the next solo chat.
-  const send = $("send-btn");
-  if (send) send.title = "Send";
-  if (grouped && send && !S.isStreaming && S.activeConvId) {
-    const blocked = S.groupCast.turn_mode === "manual" && !S.pinnedSpeakerId;
-    send.disabled = blocked;
-    if (blocked) send.title = "Choose mode: click a cast member to pick who replies";
-  }
 }
 
 // A speaker override is a one-shot instruction outside `manual` mode: it names
@@ -756,6 +829,21 @@ export function renderGroupList() {
     .join("");
 }
 
+// Never fatal: a scene whose proposals cannot be read is still a scene the user
+// can play and manage, so the cast loads without them rather than not at all.
+async function fetchSheetProposals(cid) {
+  try {
+    return await api.get(convUrl(cid, "sheet-proposals"));
+  } catch {
+    return [];
+  }
+}
+
+export async function refreshSheetProposals() {
+  if (!S.groupCast || !S.activeConvId) return;
+  S.groupCast.sheet_proposals = await fetchSheetProposals(S.activeConvId);
+}
+
 export async function loadGroupCast(conv) {
   if (!conv || conv.kind !== "group") {
     S.groupCast = null;
@@ -771,6 +859,11 @@ export async function loadGroupCast(conv) {
     turn_mode: conv.group_turn_mode,
     max_speakers: conv.group_max_speakers,
     context_mode: conv.group_context_mode,
+    sheet_updates: Boolean(conv.group_sheet_updates),
+    // Staged, never applied. Fetched with the cast because Manage cast is where
+    // they are reviewed, and a round trip on modal open would leave the rows
+    // painting in after the user is already reading.
+    sheet_proposals: conv.group_sheet_updates ? await fetchSheetProposals(conv.id) : [],
   };
   if (!members.some((m) => m.id === S.pinnedSpeakerId && !m.muted)) S.pinnedSpeakerId = null;
   renderGroupCast();

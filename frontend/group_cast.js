@@ -163,6 +163,25 @@ export function recommendContextMode(cards) {
   };
 }
 
+// Why a beat produced no reply, in the words of the mode that produced it. A
+// rest under `Choose` is the user's own doing — they sent without naming anyone
+// — so it reads as the next step rather than as the scene declining to answer.
+export function restNotice() {
+  return S.groupCast?.turn_mode === "manual"
+    ? "Sent. Click a cast member to choose who answers."
+    : "The scene rests — nobody replies to that.";
+}
+
+// How to get an unanswered user message answered — the state a rest leaves
+// behind. `Choose` answers it with a cast chip, and an empty Send would only
+// rest again; every other scene, solo or group, answers it with that empty Send.
+// One sentence, one owner: the composer must not re-derive the rule.
+export function unansweredHint() {
+  return S.groupCast?.turn_mode === "manual"
+    ? "Nobody has answered that yet — click a cast member to give them the floor."
+    : "Nobody has answered that yet — press Send with an empty box to continue from it.";
+}
+
 // A speaker override is one-shot everywhere except `manual`, where picking the
 // speaker *is* the strategy and the choice therefore stays until it is used or
 // cleared. Consumers must not re-derive this rule.
@@ -281,7 +300,15 @@ export function castRailHtml({ hasDraft = false } = {}) {
       return `<button type="button" class="cast-member${isNext ? " next" : ""}${speaking}${member.muted ? " muted" : ""}" data-cast-member-id="${escAttr(member.id)}" aria-pressed="${isNext}" ${member.muted ? "disabled" : ""} title="${escAttr(title)}">${memberAvatar(member)}<span>${esc(member.display_name)}</span></button>`;
     })
     .join("");
-  return `${chips}<button type="button" class="cast-manage" data-cast-manage title="Add, reorder, or mute cast members">+ Manage cast</button>`;
+  // Staged sheet updates are reviewed inside Manage cast, so without a count on
+  // the button they are invisible — and a proposal nobody notices never gets
+  // applied, which would make the whole pass pointless.
+  const staged = (S.groupCast.sheet_proposals || []).length;
+  const badge = staged ? `<span class="cast-manage-badge">${staged}</span>` : "";
+  const manageTitle = staged
+    ? `Add, reorder, or mute cast members — ${staged} sheet update${staged === 1 ? "" : "s"} to review`
+    : "Add, reorder, or mute cast members";
+  return `${chips}<button type="button" class="cast-manage" data-cast-manage title="${escAttr(manageTitle)}">+ Manage cast${badge}</button>`;
 }
 
 // Only a genuinely multi-speaker beat earns the rail: a single planned speaker
