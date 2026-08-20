@@ -6,6 +6,7 @@ from backend.inference.prompt_builder import build_prefix
 from backend.pipeline.cast import parse_speaking_plan, round_robin_member
 from backend.pipeline.passes.director import build_direct_scene_override
 from backend.pipeline.passes.writer import build_writer_content, strip_speaker_label
+from backend.pipeline.state import _DIRECTOR_SEED_FIELDS, TurnState
 
 
 def _member(mid: str, name: str, public: str, private: str) -> CastMember:
@@ -63,6 +64,21 @@ def test_speaker_label_stripper_uses_the_complete_escaped_name():
     assert strip_speaker_label(f"Another: {body}", name) == f"Another: {body}"
 
 
+def test_speaker_label_stripper_leaves_the_name_in_prose_alone():
+    """A colon makes a label; bold alone does not.
+
+    ``**Aria** crosses the room.`` is a sentence that opens on the character's
+    name, which is how a great many cards write. Treating the bold as a label
+    deleted the subject of the sentence.
+    """
+    assert strip_speaker_label("**Aria** crosses the room.", "Aria") == "**Aria** crosses the room."
+    assert strip_speaker_label("__Aria__ crosses the room.", "Aria") == "__Aria__ crosses the room."
+    assert strip_speaker_label("Aria crosses the room.", "Aria") == "Aria crosses the room."
+    # Still a label when a colon says so, or when the name owns its whole line.
+    assert strip_speaker_label("**Aria**: hello", "Aria") == "hello"
+    assert strip_speaker_label("**Aria**\nShe crosses the room.", "Aria") == "She crosses the room."
+
+
 def test_group_director_schema_and_plan_policy_distinguish_rest_from_malformed():
     members = [
         {"id": "a", "speaker_key": "aria", "display_name": "Aria", "active": 1, "muted": 0},
@@ -111,3 +127,29 @@ def test_speaking_plan_resolves_hyphenated_speaker_keys_and_names():
     assert [m["id"] for m, _ in parse_speaking_plan(["arianna — waves"], members, 3)] == ["a"]
     # And a bare speaker with no exchange still resolves.
     assert [(m["id"], exchange) for m, exchange in parse_speaking_plan(["alice-hart"], members, 3)] == [("h", "")]
+
+
+def test_every_director_seed_field_is_a_turn_state_field_and_is_copied_not_shared():
+    """The seed is what speakers 2..n of one exchange start from.
+
+    Two assertions, both about drift: the field list has to name real
+    ``TurnState`` fields (it stands in for the orchestrator's old hand-kept
+    copy), and each speaker has to get its *own* containers, since the
+    once-per-exchange steps that run on the last speaker mutate them in place
+    and would otherwise reach back into a reply already on the wire.
+    """
+    shared = TurnState(active_moods=["tense"], calls=[{"name": "direct_scene"}], macro_choices={"f": "a"})
+    shared.direction_notes = [{"text": "note"}]
+    for name in _DIRECTOR_SEED_FIELDS:
+        assert hasattr(shared, name), name
+
+    first, second = TurnState(), TurnState()
+    first.seed_from(shared)
+    second.seed_from(shared)
+    first.calls.append({"name": "update_character_sheet"})
+    first.direction_notes.append({"text": "later"})
+
+    assert second.calls == [{"name": "direct_scene"}]
+    assert second.direction_notes == [{"text": "note"}]
+    assert shared.calls == [{"name": "direct_scene"}]
+    assert second.active_moods == ["tense"] and second.macro_choices == {"f": "a"}

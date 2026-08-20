@@ -49,13 +49,13 @@ from ..database import (
     get_character_card,
     get_conversation,
     get_director_state,
-    get_group_members,
     get_interactive_fragments,
     get_message_by_id,
     get_messages,
     get_mood_fragments,
     get_phrase_bank,
     get_settings,
+    get_speaker_names,
     get_user_attachments_for_message,
     get_user_persona,
     get_user_personas,
@@ -72,6 +72,7 @@ from ..inference import (
     enabled_schemas,
     format_message_with_attachments,
     local_ml,
+    macro_identity,
     parse_tool_calls,
     reasoning_cfg,
     separate_agent_lane_configured,
@@ -213,20 +214,11 @@ async def build_offturn_prefix(
         conv.get("persona_lock_id") or (card.get("persona_lock_id") if card else None) or settings.get("active_persona_id")
     )
     persona = await get_user_persona(persona_id) if persona_id else None
+    macro_char, cast_names = macro_identity(conv, turn_cast)
     macros = Macros.from_settings(
-        settings,
-        conv.get("title", "") if turn_cast.grouped else conv.get("character_name", ""),
-        persona,
-        seed=conv.get("macro_seed") or conv.get("id", ""),
-        cast=", ".join(member.name for member in turn_cast.members) if turn_cast.grouped else "",
+        settings, macro_char, persona, seed=conv.get("macro_seed") or conv.get("id", ""), cast=cast_names
     )
-    # Inactive members included: a reply by a since-removed member still has to
-    # be attributed, exactly as the turn prefix attributes it.
-    speaker_names = (
-        {m["id"]: m["display_name"] for m in await get_group_members(conversation_id, include_inactive=True)}
-        if turn_cast.grouped
-        else {}
-    )
+    speaker_names = await get_speaker_names(conversation_id) if turn_cast.grouped else {}
     user_description = persona.get("description", "") if persona else settings.get("user_description", "")
     return build_prefix(
         system_prompt,

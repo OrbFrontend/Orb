@@ -184,17 +184,6 @@ async def get_sheet_proposals(
     return [cast(MemberSheetProposalRow, dict(row)) for row in rows]
 
 
-async def get_sheet_proposal(proposal_id: int, *, conversation_id: str) -> MemberSheetProposalRow | None:
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT * FROM member_sheet_proposals WHERE id = ? AND conversation_id = ?",
-                (proposal_id, conversation_id),
-            )
-        )
-    return cast(MemberSheetProposalRow, dict(rows[0])) if rows else None
-
-
 async def apply_sheet_proposal(proposal_id: int, *, conversation_id: str) -> MemberSheetProposalRow:
     """Write the proposed sheet onto the member, in one guarded transaction.
 

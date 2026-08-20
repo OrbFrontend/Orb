@@ -11,7 +11,7 @@ import {
   setMessages,
 } from "./chat_core.js";
 import { renderInspector } from "./chat_inspector.js";
-import { agentPayload, runStreamRequest } from "./chat_stream.js";
+import { runStreamRequest, turnPayload } from "./chat_stream.js";
 import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
 import { confirmDelete } from "./modal.js";
 import { isUtilityPanelOpen } from "./panels.js";
@@ -410,7 +410,7 @@ export async function saveForkEdit(msgId) {
 
   await runStreamRequest(
     convUrl(S.activeConvId, "messages", msgId, "fork-edit"),
-    { content: resolved, ...agentPayload() },
+    { content: resolved, ...turnPayload() },
     {
       beforeRender() {
         if (idx >= 0) {

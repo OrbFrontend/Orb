@@ -35,6 +35,21 @@ async def get_group_members(conversation_id: str, *, include_inactive: bool = Fa
     return [cast(GroupMemberRow, dict(row)) for row in rows]
 
 
+async def get_speaker_names(conversation_id: str) -> dict[str, str]:
+    """Member id → display name for every row the scene has ever had.
+
+    **Inactive members included, always.** A reply written by a member the user
+    has since removed still has to be attributed — in the prompt's history
+    labels, in the summarizer, in the context-size estimate, in the typeahead
+    and in the off-turn workflow prefix — or the line silently merges into the
+    one above it. One reader, so none of those can quietly answer with the
+    active roster instead. (``pipeline.context._load_pipeline_context`` builds
+    the same map inline, from rows it has already fetched for the roster it
+    also needs; it is the one caller for which this would be a second query.)
+    """
+    return {member["id"]: member["display_name"] for member in await get_group_members(conversation_id, include_inactive=True)}
+
+
 async def get_group_member(member_id: str, *, conversation_id: str | None = None) -> GroupMemberRow | None:
     sql = "SELECT * FROM group_members WHERE id = ?"
     args: tuple[Any, ...] = (member_id,)

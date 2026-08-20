@@ -747,7 +747,15 @@ function showCastManager() {
     S.castSetupBusy = true;
     try {
       const updated = await api.put(convUrl(S.activeConvId, "members"), { members });
-      S.groupCast = { ...S.groupCast, members: updated };
+      // A member the save removed took its staged proposals with it (the roster
+      // sync rejects them in the same transaction as the tombstone), so drop them
+      // here too or the rail keeps counting review rows nothing can render.
+      const live = new Set(updated.map((member) => member.id));
+      S.groupCast = {
+        ...S.groupCast,
+        members: updated,
+        sheet_proposals: (S.groupCast.sheet_proposals || []).filter((item) => live.has(item.member_id)),
+      };
       const local = S.conversations.find((item) => item.id === S.activeConvId);
       if (local) {
         local.group_member_names = updated.map((member) => member.display_name);

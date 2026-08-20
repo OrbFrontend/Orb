@@ -835,7 +835,17 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
 }
 
 export function agentPayload() {
-  return { enable_agent: S.agentEnabled, speaker_member_id: S.pinnedSpeakerId || null };
+  return { enable_agent: S.agentEnabled };
+}
+
+// The pinned speaker rides only the routes that start a *new* exchange and can
+// therefore honour it: /send, /continue and /fork-edit. Regenerate, super-
+// regenerate and magic rewrite replace an assistant row whose speaker is already
+// recorded on it, so they must not carry a pick — the backend ignores it, and
+// `runStreamRequest` would otherwise latch it and eat a queue the user set for
+// the next turn.
+export function turnPayload() {
+  return { ...agentPayload(), speaker_member_id: S.pinnedSpeakerId || null };
 }
 
 // The ONE chat generation lifecycle. Every send/continue/regenerate/super-
@@ -855,10 +865,11 @@ export async function runStreamRequest(
   body,
   { cutoffMsgId = null, beforeRender = null, anchorStream = false, afterDone = null } = {},
 ) {
-  // Latch the pick this exchange runs on before the first await: the cast rail is
-  // live during a stream, and a chip clicked while it runs queues someone for
-  // the *next* turn — afterStream must not mistake that for a spent override.
-  S.consumedSpeakerId = S.pinnedSpeakerId;
+  // Latch the pick this exchange runs on before the first await, read off the
+  // request rather than off state: the cast rail is live during a stream, so a
+  // chip clicked while it runs queues someone for the *next* turn, and a request
+  // that carries no pick at all (regenerate, magic rewrite) must not consume one.
+  S.consumedSpeakerId = body?.speaker_member_id || null;
   setStreaming(true);
   setGenerationPhase("pending");
   $("send-btn").disabled = true;
@@ -934,7 +945,7 @@ export async function continueFromUser() {
     toast("Last message is not a user message", true);
     return;
   }
-  await runStreamRequest(convUrl(S.activeConvId, "continue"), agentPayload());
+  await runStreamRequest(convUrl(S.activeConvId, "continue"), turnPayload());
 }
 
 // Give a named member the floor now, with no user message in front of it. The
@@ -998,7 +1009,7 @@ export async function sendMessage() {
 
   await runStreamRequest(
     convUrl(S.activeConvId, "send"),
-    { content, attachments, ...agentPayload() },
+    { content, attachments, ...turnPayload() },
     {
       beforeRender() {
         S.messages.push(userMsg);
@@ -1078,7 +1089,7 @@ export async function submitMagicRewrite(msgId) {
   optimisticDropDirectionNotesFrom(msgId);
   await runStreamRequest(
     convUrl(S.activeConvId, "messages", msgId, "magic_rewrite"),
-    { direction, ...agentPayload() },
+    { direction },
     {
       cutoffMsgId: msgId,
     },

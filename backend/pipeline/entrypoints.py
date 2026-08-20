@@ -418,9 +418,9 @@ async def _generate_group_exchange(
     cast_by_id = {member.member_id: member for member in ctx.cast.members}
     # Only when this request brought no user message of its own: a `/send` starts a
     # new round, so looking back would drag the previous one into this one's evidence.
-    prior_user, prior_lines = (
-        ("", []) if user_message else _round_prefix(history, {mid: member.name for mid, member in cast_by_id.items()})
-    )
+    # Named through `ctx.speaker_names`, which covers members the roster has since
+    # dropped -- their lines are still part of the round the sheet pass reads.
+    prior_user, prior_lines = ("", []) if user_message else _round_prefix(history, ctx.speaker_names)
     public_plan = [
         {
             "member_id": row["id"],
@@ -467,6 +467,9 @@ async def _generate_group_exchange(
         speaker = cast_by_id.get(str(row["id"]))
         if speaker is None:
             break
+        # The exchange's last planned speaker carries every once-per-exchange step:
+        # the Dynamic Worlds proposal, the sheet pass, and the post-turn note step.
+        is_final = index == len(plan_rows) - 1
         turn_index = first_turn_index + index
         yield {
             "event": "speaker_start",
@@ -521,7 +524,7 @@ async def _generate_group_exchange(
             kv_tracker=setup.kv_tracker,
             schema_overrides=setup.schema_overrides,
             history=pipeline_history,
-            world_proposal=setup.world_proposal if index == len(plan_rows) - 1 else None,
+            world_proposal=setup.world_proposal,
             # Once per exchange, on the last speaker: the pass reads the whole exchange,
             # and running it per speaker would bill the same members again for
             # the same scene with one more line in it.
@@ -543,9 +546,7 @@ async def _generate_group_exchange(
                 # cost the opt-in is gated on avoiding. Leaving that invariant to one
                 # line of the client meant a `PUT` that changed only the mode left the
                 # pass running against the layout it was never priced for.
-                if index == len(plan_rows) - 1
-                and ctx.conv.get("group_sheet_updates")
-                and tail_carries_identity(ctx.cast.context_mode)
+                if is_final and ctx.conv.get("group_sheet_updates") and tail_carries_identity(ctx.cast.context_mode)
                 else None
             ),
             speaker=speaker,
@@ -553,7 +554,7 @@ async def _generate_group_exchange(
             context_mode=ctx.cast.context_mode,
             run_director=False,
             director_seed=shared,
-            run_exchange_final=index == len(plan_rows) - 1,
+            run_exchange_final=is_final,
         )
         persisted_id: int | None = None
         persisted_content = ""

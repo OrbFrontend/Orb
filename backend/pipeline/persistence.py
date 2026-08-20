@@ -96,12 +96,13 @@ async def _persist_result(
     exchange_id: str | None = None,
     world_source_user_msg_id: int | None = None,
 ) -> tuple[int | None, list[dict], list[dict]]:
-    # NOTE: *world_source_user_msg_id* is the user row a World proposal cites, and
-    # it is not always *user_msg_id*. In a group exchange the parent of speaker N is
-    # speaker N-1's reply, and a pinned `/speak` has no user row at all. Every
-    # caller states it rather than having this infer "grouped" from another
-    # column's nullability.
     """Save the assistant message and all turn side-effects after ``_result`` fires.
+
+    *world_source_user_msg_id* is the user row a World proposal cites, and it is
+    not always *user_msg_id*: in a group exchange the parent of speaker N is
+    speaker N-1's reply, and a pinned ``/speak`` has no user row at all. Every
+    caller states it rather than having this infer "grouped" from another
+    column's nullability.
 
     Updates director state, saves the assistant message with any workflow
     attachments, writes per-message workflow state, advances the active leaf,

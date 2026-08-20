@@ -130,7 +130,9 @@ and card system-prompt overrides do not compete.
 
 ## Turn policy and message tree
 
-- `manual`: requires an active, unmuted pinned member.
+- `manual`: answers the pinned member, who must be active and unmuted. No pin
+  at all is a **rest** — the user's message stands and nobody answers it yet —
+  decided before any prompt is built, so a rest never pays for a Director call.
 - `round_robin`: selects one next eligible member.
 - `director`: validates a bounded `speaking_plan`; explicit `[]` rests the
   scene, while a missing or malformed plan falls back to round-robin.
@@ -146,8 +148,12 @@ resumes by itself rather than being silently suppressed. In `manual` the pick is
 the strategy, so it survives until it is used or cleared. An aborted or failed
 exchange keeps the override to retry with. Only the pin the finished exchange actually
 ran on is cleared — the client latches it at request time (`consumedSpeakerId`),
-so a chip clicked *while* the exchange streams queues that member for the next turn
-and survives the cleanup.
+read off the request body rather than off state, so a chip clicked *while* the
+exchange streams queues that member for the next turn and survives the cleanup.
+The pin rides only the three routes that start a new exchange and can honour it:
+`/send`, `/continue` and `/fork-edit` (`chat_stream.js:turnPayload`). Regenerate,
+super-regenerate and magic rewrite replace an assistant row whose speaker is
+already recorded on it, so they carry no pick and consume none.
 
 The Director and pre-pipeline setup run once. Each planned speaker then runs the
 Writer, Editor, feedback, and post-workflow path with the shared Director state.

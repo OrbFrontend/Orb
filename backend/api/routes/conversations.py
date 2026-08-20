@@ -49,6 +49,7 @@ from ...database import (
     get_mood_fragments,
     get_settings,
     get_sheet_proposals,
+    get_speaker_names,
     get_user_persona,
     group_root_of,
     insert_alternate_greeting_swipes,
@@ -77,6 +78,7 @@ from ...inference import (
     agent_lane_from_settings,
     client_from_settings,
     group_context,
+    macro_identity,
     prompt_builder,
 )
 from ...pipeline import (
@@ -493,19 +495,15 @@ async def api_summarize_conversation(
     # the summary is not written from — buys nothing and inflates the single
     # longest call in the app.
     summary_cast = (await resolve_cast(conv))._replace(context_mode="private")
-    # `{{char}}` is the scene's title in a group, as it is in the prompt the chat
-    # builds — read live, since `character_name` keeps the name the group was
-    # founded under and a rename must not leave the summary calling it that.
-    char_name = (conv.get("title") if summary_cast.grouped else conv.get("character_name")) or "Character"
+    char_name, cast_names = macro_identity(conv, summary_cast)
+    char_name = char_name or "Character"
     # Resolve the same effective persona the chat would use (conversation/character
     # lock overrides the global active persona) so a summary stays consistent.
     card, active_persona = await resolve_card_and_persona(conv, settings)
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
     macros, user_description = persona_macros(settings, char_name, active_persona, seed=conversation_macro_seed(conv))
-    speaker_names: dict[str, str] = {}
-    if summary_cast.grouped:
-        macros = macros._replace(cast=", ".join(member.name for member in summary_cast.members))
-        speaker_names = {member["id"]: member["display_name"] for member in await get_group_members(cid, include_inactive=True)}
+    macros = macros._replace(cast=cast_names)
+    speaker_names = await get_speaker_names(cid) if summary_cast.grouped else {}
 
     abort_token = AbortToken()
     client = client_from_settings(settings, abort_token=abort_token)
@@ -731,10 +729,9 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     )
     mood_frags = merge_fragments_by_id([f for f in await get_mood_fragments() if f.get("enabled", True)], card_moods)
     lorebook_entries = await get_active_lorebook_entries()
-    macro_char = conv.get("title", "") if turn_cast.grouped else conv["character_name"]
+    macro_char, cast_names = macro_identity(conv, turn_cast)
     macros, user_desc = persona_macros(settings, macro_char, active_persona, seed=conversation_macro_seed(conv))
-    if turn_cast.grouped:
-        macros = macros._replace(cast=", ".join(member.name for member in turn_cast.members))
+    macros = macros._replace(cast=cast_names)
 
     # Resolve character context
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
@@ -767,7 +764,7 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     user_persona_text = f"## User: {macros.user}\n{resolved_user_desc}" if resolved_user_desc.strip() else ""
     msg_chars = sum(len(m.get("content", "") or "") for m in messages)
     if turn_cast.grouped:
-        names = {member["id"]: member["display_name"] for member in await get_group_members(cid, include_inactive=True)}
+        names = await get_speaker_names(cid)
         for message in messages:
             if message.get("role") != "assistant":
                 continue

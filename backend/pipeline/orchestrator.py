@@ -179,26 +179,13 @@ async def _run_pipeline(
         active_moods=director["active_moods"],
         macro_choices=dict(director.get("macro_choices") or {}),
     )
+    # A group exchange runs one Director for every speaker, so speakers 2..n start
+    # from its result instead of re-deriving it. Which fields that covers is
+    # ``TurnState``'s to say (``_DIRECTOR_SEED_FIELDS``), not this module's --
+    # including the pre-writer notes, which the driver clears from the seed once
+    # the exchange's first reply has anchored them.
     if director_seed is not None:
-        for name in (
-            "active_moods",
-            "agent_raw",
-            "calls",
-            "latency",
-            "extra_fields",
-            "progressive_fields",
-            "selected_lorebook_entries",
-            "inj_block",
-            "scene_direction",
-            "writer_lorebook_block",
-            "reasoning_director",
-            "macro_choices",
-            # Recorded once for the exchange, before any speaker ran (the group driver
-            # owns the pre-writer step for the same reason it owns the Director).
-            # It clears them from the seed once the first reply has anchored them.
-            "direction_notes",
-        ):
-            setattr(state, name, getattr(director_seed, name))
+        state.seed_from(director_seed)
 
     # --- Director pass (+ rewrite, style injection, agentic-lorebook block) ---
     if run_director:

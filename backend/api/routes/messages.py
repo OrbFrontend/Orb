@@ -19,6 +19,7 @@ from ...database import (
     get_messages,
     get_messages_with_branch_info,
     get_settings,
+    get_speaker_names,
     get_user_persona,
     get_worlds,
     mark_changesets_stale_for_messages,
@@ -331,13 +332,12 @@ async def api_autocomplete(
     speaker_names: dict[str, str] = {}
     cast_names = ""
     if conv.get("kind", "solo") == "group":
-        roster = await get_group_members(cid, include_inactive=True)
-        char_name = conv.get("title") or conv.get("character_name") or "Character"
         # Names from the active roster (what the scene is), labels from all of it
         # (so a reply by a since-removed member is still attributed).
-        cast_names = ", ".join(m["display_name"] for m in roster if m.get("active"))
+        cast_names = ", ".join(m["display_name"] for m in await get_group_members(cid))
+        char_name = conv.get("title") or conv.get("character_name") or "Character"
         summary_source = f"Scene cast: {cast_names}"
-        speaker_names = {m["id"]: m["display_name"] for m in roster}
+        speaker_names = await get_speaker_names(cid)
     else:
         char_name = conv.get("character_name") or (card or {}).get("name") or "Character"
         summary_source = (card or {}).get("description") or ""

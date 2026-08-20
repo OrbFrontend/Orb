@@ -37,13 +37,24 @@ logger = logging.getLogger(__name__)
 
 
 def strip_speaker_label(text: str, speaker_name: str) -> str:
-    """Remove a leading plain/Markdown label for the complete speaker name."""
+    """Remove a leading plain/Markdown label for the complete speaker name.
+
+    A **colon** is what makes a label a label -- ``Alice smiled.`` is prose and
+    always was, and ``**Alice** walked to the door.`` is the same sentence in
+    bold. The one colon-free form accepted is a name that owns its whole line
+    (a heading, or bold with nothing after it), which prose never is.
+    """
     if not text or not speaker_name.strip():
         return text
     name = re.escape(speaker_name.strip())
+    emph = r"(?:\*\*|__)"
     label = re.compile(
         rf"\A[ \t]*(?:"
-        rf"(?:\*\*|__)\s*{name}\s*:?[ \t]*(?:\*\*|__)\s*:?[ \t]*"
+        # **Alice:** / **Alice**: / __Alice__:
+        rf"{emph}\s*{name}\s*:\s*{emph}[ \t]*:?[ \t]*"
+        rf"|{emph}\s*{name}\s*{emph}[ \t]*:[ \t]*"
+        # **Alice** alone on its line -- no colon, but nothing follows it either.
+        rf"|{emph}\s*{name}\s*{emph}[ \t]*(?=\r?\n)"
         rf"|\[\s*{name}\s*\]\s*:[ \t]*"
         rf"|\#{{1,6}}[ \t]+{name}\s*:?[ \t]*(?:\r?\n)?"
         rf"|{name}\s*:[ \t]*"

@@ -50,6 +50,7 @@ from ..inference import (
     agent_client_from_settings,
     build_prefix,
     client_from_settings,
+    macro_identity,
     separate_agent_lane_configured,
 )
 from .config import _build_writer_tools_blob
@@ -116,7 +117,6 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     card, active_persona = await resolve_card_and_persona(conv, settings)
     cast = await db.resolve_cast(conv)
     all_group_members = await db.get_group_members(conversation_id, include_inactive=True) if cast.grouped else []
-    speaker_names = {m["id"]: m["display_name"] for m in all_group_members}
     # Card-embedded fragments merge into the global lists for this turn only
     # (the context is rebuilt per turn); on id collision the global wins.
     card_moods, card_interactive = await db.cast_embedded_fragments(card, cast)
@@ -161,7 +161,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         agent_system_prompt=agent_system_prompt,
         worlds=worlds,
         cast=cast,
-        speaker_names=speaker_names,
+        speaker_names={m["id"]: m["display_name"] for m in all_group_members},
         group_members=tuple(m for m in all_group_members if m.get("active")),
     )
 
@@ -227,12 +227,10 @@ def _build_prefix_from_ctx(
     base shares its bytes up to the active card.
     """
     conv = ctx.conv
-    group_title = conv.get("title", "") if ctx.cast.grouped else conv["character_name"]
-    macros, user_description = persona_macros(ctx.settings, group_title, ctx.active_persona, seed=conversation_macro_seed(conv))
-    cast = ctx.cast
-    if cast.grouped:
-        macros = macros._replace(cast=", ".join(m.name for m in cast.members))
-        cast = cast._replace(speaker=speaker)
+    macro_char, cast_names = macro_identity(conv, ctx.cast)
+    macros, user_description = persona_macros(ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(conv))
+    macros = macros._replace(cast=cast_names)
+    cast = ctx.cast._replace(speaker=speaker) if ctx.cast.grouped else ctx.cast
 
     return build_prefix(
         system_prompt if system_prompt is not None else ctx.system_prompt,
@@ -329,13 +327,9 @@ async def _prepare_turn(
                 yield ev
         assert setup is not None
     """
-    macro_char = ctx.conv.get("title", "") if ctx.cast.grouped else ctx.conv["character_name"]
+    macro_char, cast_names = macro_identity(ctx.conv, ctx.cast)
     macros = Macros.from_settings(
-        ctx.settings,
-        macro_char,
-        ctx.active_persona,
-        seed=conversation_macro_seed(ctx.conv),
-        cast=", ".join(m.name for m in ctx.cast.members) if ctx.cast.grouped else "",
+        ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(ctx.conv), cast=cast_names
     )
 
     prefix_base, agent_prefix_base = _build_prefixes(ctx, history)
@@ -374,11 +368,7 @@ async def _prepare_turn(
             world_ids=proposal_world_ids,
             conversation_id=conversation_id,
             user_message=last_user_message,
-            character_label=(
-                ctx.conv.get("title", "")
-                if ctx.cast.grouped
-                else ((ctx.card or {}).get("name", "") or ctx.conv.get("character_name", ""))
-            ),
+            character_label=macro_char if ctx.cast.grouped else ((ctx.card or {}).get("name", "") or macro_char),
             conversation_label=ctx.conv.get("title", "") or "",
         )
         if proposal_world_ids

@@ -48,6 +48,9 @@ cache miss on the next request.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from ..core import CastMember, GroupContextMode, Macros, TurnCast
 
 CAST_HEADING = "## Cast"
@@ -93,6 +96,25 @@ def roster_names(cast: TurnCast) -> str:
     return ", ".join(member.name for member in cast.members)
 
 
+def macro_identity(conv: Mapping[str, Any], cast: TurnCast) -> tuple[str, str]:
+    """``({{char}}, {{cast}})`` for one conversation.
+
+    A group is a *scene*, not a character: ``{{char}}`` is its title (read live,
+    so a rename lands immediately, unlike ``character_name``, which keeps the
+    name the group was founded under) and ``{{cast}}`` is the roster. A solo
+    chat keeps its character and leaves ``{{cast}}`` empty.
+
+    The turn prefix, the size estimator, the summarizer and the off-turn
+    workflow prefix all resolve macros against the same two strings, so the one
+    answer lives here beside the projection that renders them. Callers that
+    want a display fallback (``"Character"``) apply it to the first value; this
+    returns what the row actually holds.
+    """
+    if not cast.grouped:
+        return str(conv.get("character_name") or ""), ""
+    return str(conv.get("title") or ""), roster_names(cast)
+
+
 def member_macros(macros: Macros | None, member: CastMember, roster: str) -> Macros | None:
     """Scope *macros* to one member, so ``{{char}}`` means that member.
 
@@ -121,12 +143,12 @@ def _render_public_cast(cast: TurnCast, macros: Macros | None, roster: str) -> s
     Stays on group-title macro scoping -- a public profile is scene-facing
     framing written about the character, not the card text speaking as it.
     """
-    resolve = _resolver(macros)
+    resolve = _resolver(macros._replace(cast=roster) if macros else None)
     parts = [f"\n\n{CAST_HEADING}"]
     for member in cast.members:
         parts.append(f"\n### {member.name}")
         if member.public_profile:
-            parts.append(f"\n{resolve(member.public_profile.replace('{{cast}}', roster))}")
+            parts.append(f"\n{resolve(member.public_profile)}")
     return "".join(parts)
 
 
