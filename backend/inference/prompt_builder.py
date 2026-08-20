@@ -122,7 +122,12 @@ def build_prefix(
             parts.append(f"\n\n{processed_example}")
         else:
             parts.append(f"\n\n## Example Dialogue\n{mes}")
-    if resolved["post_history"] and not (cast and cast.grouped):
+    # Kept for a group as well: this is the *scene's* single directive
+    # (``conversations.post_history_instructions``), not a card's. There is
+    # exactly one per scene, it is identical for every speaker, and it is
+    # therefore cacheable here. A member's own card directive is active-only
+    # and rides the trailing Writer message instead (``passes/writer.py``).
+    if resolved["post_history"]:
         parts.append(f"\n\n## Additional Instructions\n{resolved['post_history']}")
     if resolved["user_desc"].strip():
         user_label = macros.user if macros else "User"

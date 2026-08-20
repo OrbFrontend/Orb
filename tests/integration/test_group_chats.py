@@ -788,7 +788,9 @@ async def test_the_sheet_override_is_stored_and_read_back_under_every_mode(clien
 
 async def test_an_empty_sheet_override_blanks_the_sheet_rather_than_restoring_the_card(client, llm_mock):
     """`""` is a deliberate blanking and `null` is absence; the two must not
-    collapse, or blanking becomes unexpressible from the UI."""
+    collapse. Manage cast coerces an empty box to `null`, so today only the API
+    reaches the blanking case — but the resolution rule is the server's, and
+    collapsing them here would make the distinction unexpressible at all."""
     conv, members = await _two_card_group(client)
     updated = await _put_members(client, conv, [_member_spec(members[0], card_sheet_override=""), _member_spec(members[1])])
     assert updated[0]["card_sheet_override"] == ""
@@ -1519,3 +1521,21 @@ async def test_a_draft_that_fails_the_output_contract_is_502_with_no_payload(cli
     assert response.status_code == 502
     assert why in response.json()["detail"]
     assert "profile" not in response.json()
+
+
+async def test_a_checkpoint_carries_the_scenes_sheet_update_opt_in(client, llm_mock):
+    """Every other scene setting rides `fork_conversation`; this one was dropped.
+
+    Checkpoint, Compress History and "New scene in this group" all fork, so a user
+    who turned the post-beat pass on lost it the first time they branched — and
+    silently, since nothing reports a setting reverting to its default.
+    """
+    conv, _ = await _sheet_group(client)
+    response = await client.post(f"/api/conversations/{conv['id']}/checkpoint", json={"title": "Checkpoint"})
+    assert response.status_code == 200, response.text
+    assert response.json()["group_sheet_updates"] == 1
+
+    # The same for a fresh scene in the family, which forks the same way.
+    fresh = await client.post(f"/api/conversations/{conv['id']}/group-conversation")
+    assert fresh.status_code == 200, fresh.text
+    assert fresh.json()["group_sheet_updates"] == 1

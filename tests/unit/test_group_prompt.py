@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from backend.core import CastMember, Macros, TurnCast
+from backend.database.queries.group_members import allocate_speaker_key
 from backend.inference.prompt_builder import build_prefix
 from backend.pipeline.cast import parse_speaking_plan, round_robin_member
 from backend.pipeline.passes.director import build_direct_scene_override
@@ -44,8 +45,7 @@ def test_speaker_private_sheet_is_only_in_speaker_tail_and_empty_message_has_no_
         None,
         speaker=aria,
         speaker_beat="Take watch",
-        user_name="User",
-        cast_names="Aria, Kael",
+        macros=Macros("User", "Campfire", cast="Aria, Kael"),
     )
     assert isinstance(content, str)
     assert "ARIA PRIVATE Aria Aria, Kael" in content
@@ -77,3 +77,37 @@ def test_group_director_schema_and_plan_policy_distinguish_rest_from_malformed()
     parsed = parse_speaking_plan(["aria — first", "Aria: again", "kael - next", "mira — muted"], members, 3)
     assert [(member["id"], beat) for member, beat in parsed] == [("a", "first"), ("k", "next")]
     assert round_robin_member(members, [{"speaker_member_id": "a"}])["id"] == "k"
+
+
+def test_speaking_plan_resolves_hyphenated_speaker_keys_and_names():
+    """A kebab-cased key is the shape `build_direct_scene_override` asks for.
+
+    Splitting a plan line on the first `-` used to consume the key itself, so
+    every member whose display name had two words — which is what produces a
+    hyphen in `allocate_speaker_key` — was dropped, and a plan of nothing but
+    those read as malformed and fell back to round-robin.
+    """
+    used: set[str] = set()
+    members = [
+        {
+            "id": mid,
+            "speaker_key": allocate_speaker_key(name, used),
+            "display_name": name,
+            "active": 1,
+            "muted": 0,
+        }
+        for mid, name in (("h", "Alice Hart"), ("p", "Jean-Luc Picard"), ("a", "Arianna"))
+    ]
+    assert [m["speaker_key"] for m in members] == ["alice-hart", "jean-luc-picard", "arianna"]
+
+    by_key = parse_speaking_plan(["alice-hart — steps forward", "jean-luc-picard — answers coldly"], members, 3)
+    assert [(m["id"], beat) for m, beat in by_key] == [("h", "steps forward"), ("p", "answers coldly")]
+
+    # Display names work too, and so do the other two separators the model reaches for.
+    by_name = parse_speaking_plan(["Jean-Luc Picard: nods", "Alice Hart - waits"], members, 3)
+    assert [(m["id"], beat) for m, beat in by_name] == [("p", "nods"), ("h", "waits")]
+
+    # A longer key is never truncated into a shorter member's, in either direction.
+    assert [m["id"] for m, _ in parse_speaking_plan(["arianna — waves"], members, 3)] == ["a"]
+    # And a bare speaker with no beat still resolves.
+    assert [(m["id"], beat) for m, beat in parse_speaking_plan(["alice-hart"], members, 3)] == [("h", "")]

@@ -66,6 +66,12 @@ def _history_attachments(attachments: Sequence[Mapping[str, Any]]) -> list[dict]
 def _group_pin_error(ctx: PipelineContext, pinned_speaker_id: str | None) -> str | None:
     """A pin that names nobody is an error. A beat with no pin at all is not.
 
+    Called twice on the paths that persist a user row first (`handle_turn`,
+    `handle_fork_edit`): once before the write, so a bad pin cannot leave the
+    user's message stranded with only an error card under it, and once inside
+    `_generate_group_beat`, which is the check `handle_speak` and the regenerate
+    family rely on. Cheap and pure, so the duplicate costs nothing.
+
     ``manual`` used to be rejected here for arriving without a speaker, which
     made the composer a dead end: the user's message was already persisted by
     the time this ran, so the turn could only end in an error card. Nobody
@@ -241,6 +247,7 @@ async def _generate_reply(
         user_msg_id,
         asst_turn_index,
         extra_on_result=_conversation_log_writer(conversation_id, log_turn_index),
+        world_source_user_msg_id=user_msg_id,
     ):
         yield event
 
@@ -918,7 +925,10 @@ async def _regenerate_with_steering(
                 attachments=attachments,
                 parent_message_id=user_msg_id,
                 first_turn_index=target["turn_index"],
-                beat_id=str(uuid.uuid4()),
+                # The target's own beat, as `handle_regenerate` does: this is a
+                # sibling at the same turn index under the same parent, so it
+                # occupies the same slot in the beat it is replacing.
+                beat_id=str(target.get("beat_id") or uuid.uuid4()),
                 pinned_speaker_id=str(speaker_id),
                 append_user_to_history=False,
                 source_user_message_id=source_user_id,

@@ -21,6 +21,7 @@ from .public_profile import (
 )
 from .sheet_update import (
     SHEET_FLOOR,
+    SHEET_TOOL_NAME,
     SheetUpdate,
     SheetUpdateUnavailable,
     build_beat_transcript,
@@ -47,6 +48,7 @@ __all__ = [
     "draft_scene_profile",
     # sheet_update
     "SHEET_FLOOR",
+    "SHEET_TOOL_NAME",
     "SheetUpdate",
     "SheetUpdateUnavailable",
     "build_beat_transcript",

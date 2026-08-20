@@ -66,13 +66,20 @@ _ACTIVE_PATH_CTE = """
     )
 """
 
+# One row per message a character *wrote*, keyed by the name it wrote under:
+# the conversation's for a solo chat, the speaking member's for a group. Both
+# arms count assistant rows only. A group's user messages carry no
+# ``speaker_member_id`` and so cannot be attributed to a member at all, and
+# counting solo user rows against the character would leave a cast member at
+# half a solo character's total for the same output -- never the favourite, and
+# reaching the "missed you" threshold at twice the play.
 _CHARACTER_USAGE_CTE = """
     , character_usage AS (
         SELECT c.character_name AS character_name, c.character_card_id AS card_id,
                c.id AS conv_id, ap.created_at AS created_at
         FROM active_path ap
         JOIN conversations c ON c.id = ap.conv_id
-        WHERE c.kind = 'solo' AND c.character_name != ''
+        WHERE c.kind = 'solo' AND ap.role = 'assistant' AND c.character_name != ''
         UNION ALL
         SELECT gm.display_name, gm.character_card_id, c.id, ap.created_at
         FROM active_path ap

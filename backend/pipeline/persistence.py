@@ -96,6 +96,11 @@ async def _persist_result(
     beat_id: str | None = None,
     world_source_user_msg_id: int | None = None,
 ) -> tuple[int | None, list[dict], list[dict]]:
+    # NOTE: *world_source_user_msg_id* is the user row a World proposal cites, and
+    # it is not always *user_msg_id*. In a group beat the parent of speaker N is
+    # speaker N-1's reply, and a pinned `/speak` has no user row at all. Every
+    # caller states it rather than having this infer "grouped" from another
+    # column's nullability.
     """Save the assistant message and all turn side-effects after ``_result`` fires.
 
     Updates director state, saves the assistant message with any workflow
@@ -155,11 +160,7 @@ async def _persist_result(
                 await db.create_direction_notes(conversation_id, asst_id, res.direction_notes)
             except Exception:
                 logger.exception("Failed to persist direction notes for assistant message %s; row already committed", asst_id)
-        proposals = await _stage_world_proposals(
-            res,
-            world_source_user_msg_id if beat_id is not None else user_msg_id,
-            asst_id,
-        )
+        proposals = await _stage_world_proposals(res, world_source_user_msg_id, asst_id)
         return asst_id, rejected, proposals
     else:
         logger.info("Skipping assistant message persistence: resp_text is empty (reasoning‑only output)")

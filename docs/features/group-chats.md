@@ -64,9 +64,13 @@ Three rules hold in **every** mode:
   N card scenarios would create N competing ones. Swap is therefore
   identity-field substitution, not control-instruction substitution — a
   deliberate divergence from SillyTavern.
-- `post_history_instructions` stays active-only, in the speaker's own trailing
-  message, and still honours `prevent_prompt_overrides`. Concatenating several
-  members' directives produces contradictory control instructions.
+- A *card's* `post_history_instructions` stays active-only, in the speaker's own
+  trailing message, and still honours `prevent_prompt_overrides`. Concatenating
+  several members' directives produces contradictory control instructions. The
+  *scene's* own directive (`conversations.post_history_instructions`, the
+  "How should this scene be written?" box in Group settings) has no such
+  conflict — there is exactly one and it is the same for every speaker — so it
+  rides the shared cached body, as it does in a solo chat.
 - Member names stay available through `{{cast}}`, the cast section, and the
   speaker labels on history. Card-linked Worlds and card-embedded fragments are
   scene-wide in all three modes, so no mode provides private per-character lore.
@@ -333,8 +337,9 @@ opens Advanced so the control is never seen to disagree with itself.
 The weight comes from `def_chars` on the library list: `description +
 personality + mes_example` summed server-side, one integer per card, so the list
 path can answer "how heavy is this card" without shipping the bodies it
-deliberately omits. `post_history_instructions` is excluded because every mode
-keeps it in the speaker's trailing message and it therefore cannot discriminate.
+deliberately omits. A card's `post_history_instructions` is excluded because
+every mode keeps it in the speaker's trailing message and it therefore cannot
+discriminate.
 
 The speaking-plan rail is painted only while a beat with two or more speakers is
 planned or streaming; a single speaker is announced by its cast chip, and a rest

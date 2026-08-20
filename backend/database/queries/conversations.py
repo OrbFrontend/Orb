@@ -82,18 +82,14 @@ async def create_conversation(
     character_card_id: str | None = None,
     persona_lock_id: int | None = None,
     macro_seed: str = "",
-    kind: str = "solo",
-    group_turn_mode: str = "director",
-    group_max_speakers: int = 3,
 ) -> ConversationRow:
     async with get_db() as db:
         now = datetime.now(UTC).isoformat()
         await db.execute(
             """INSERT INTO conversations
                (id, title, character_card_id, character_name, character_scenario,
-                post_history_instructions, persona_lock_id, macro_seed, created_at, updated_at,
-                kind, group_turn_mode, group_max_speakers)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                post_history_instructions, persona_lock_id, macro_seed, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 cid,
                 title,
@@ -105,9 +101,6 @@ async def create_conversation(
                 macro_seed,
                 now,
                 now,
-                kind,
-                group_turn_mode,
-                group_max_speakers,
             ),
         )
         await db.execute(
@@ -165,6 +158,7 @@ async def fork_conversation(source: ConversationRow, new_title: str) -> str:
             turn_mode=source.get("group_turn_mode", "director"),
             max_speakers=source.get("group_max_speakers", 3),
             context_mode=source.get("group_context_mode", "private"),
+            sheet_updates=bool(source.get("group_sheet_updates")),
             persona_lock_id=source.get("persona_lock_id"),
             macro_seed=source.get("macro_seed") or source["id"],
             group_root_id=group_root_of(source),

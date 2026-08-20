@@ -39,12 +39,11 @@ the client and hands ``(client, model, …)`` in, so this module depends only on
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping, Sequence
 from typing import Any, TypedDict
 
-from ...core import ChatMessage
-from ...inference import LLMClient, parse_tool_calls
+from ...inference import LLMClient
+from ._drafting import BRACES, forced_draft, normalize
 
 PROFILE_TOOL_NAME = "draft_public_profile"
 
@@ -106,14 +105,11 @@ DRAFT_PROFILE_TOOL = {
         },
     },
 }
-DRAFT_PROFILE_CHOICE = {"type": "function", "function": {"name": PROFILE_TOOL_NAME}}
 
 # The rendered profile is two short lines inside a prefix every member reads, so
 # the cap is a prompt-budget rule as much as a style one. Stated in
 # PROFILE_FLOOR and enforced below: a system prompt is a request, not a contract.
 MAX_FIELD_WORDS = 30
-
-_WHITESPACE_RE = re.compile(r"\s+")
 
 
 class PublicProfileDraft(TypedDict):
@@ -143,10 +139,10 @@ def _clean_field(value: Any, label: str) -> str:
     """
     if not isinstance(value, str):
         raise ProfileDraftUnavailable(f"The model returned no {label} for the profile.")
-    text = _WHITESPACE_RE.sub(" ", value).strip()
+    text = normalize(value)
     if not text:
         raise ProfileDraftUnavailable(f"The model returned an empty {label} for the profile.")
-    if "{" in text or "}" in text:
+    if any(brace in text for brace in BRACES):
         raise ProfileDraftUnavailable(f"The drafted {label} contains a macro or placeholder.")
     if len(text.split(" ")) > MAX_FIELD_WORDS:
         raise ProfileDraftUnavailable(f"The drafted {label} is longer than {MAX_FIELD_WORDS} words.")
@@ -241,34 +237,10 @@ def build_scene_message(
 async def _draft(client: LLMClient, model: str, system: str, user: str) -> PublicProfileDraft:
     """One forced ``draft_public_profile`` call, drained and contract-checked.
 
-    Hyperparameters are hardcoded and deliberately do *not* go through
-    ``core.extract_hyperparams`` the way ``documents/audit.py`` does: that path
-    rewrites prose on purpose and wants the user's writing preset, while a
-    roleplay preset at ``temperature: 1.15`` would produce a florid two-liner
-    here. This is a summarization call, not a writing one.
-
     ``LLMCallError`` propagates untouched — it already carries the provider's own
     sentence, and the routes turn it into a 502 verbatim.
     """
-    messages: list[ChatMessage] = [
-        {"role": "system", "content": system},
-        {"role": "user", "content": user},
-    ]
-    response: dict = {}
-    async for event in client.complete(
-        messages=messages,
-        model=model or "",
-        tools=[DRAFT_PROFILE_TOOL],
-        tool_choice=DRAFT_PROFILE_CHOICE,
-        temperature=0.2,
-        max_tokens=512,
-    ):
-        if event.get("type") == "done":
-            response = event.get("message") or {}
-    args = next(
-        (call.get("arguments") or {} for call in parse_tool_calls(response) if call.get("name") == PROFILE_TOOL_NAME),
-        None,
-    )
+    args = await forced_draft(client, model, system=system, user=user, tool=DRAFT_PROFILE_TOOL, max_tokens=512)
     if args is None:
         raise ProfileDraftUnavailable("The model did not return a usable profile.")
     return PublicProfileDraft(

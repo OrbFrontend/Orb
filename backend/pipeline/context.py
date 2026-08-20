@@ -119,35 +119,15 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     speaker_names = {m["id"]: m["display_name"] for m in all_group_members}
     # Card-embedded fragments merge into the global lists for this turn only
     # (the context is rebuilt per turn); on id collision the global wins.
-    card_moods, card_interactive = db.card_embedded_fragments(card)
-    if cast.grouped:
-        seen_cards: set[str] = set()
-        for member in cast.members:
-            if not member.card_id or member.card_id in seen_cards:
-                continue
-            seen_cards.add(member.card_id)
-            member_card = await db.get_character_card(member.card_id)
-            moods, interactive = db.card_embedded_fragments(member_card)
-            card_moods.extend(moods)
-            card_interactive.extend(interactive)
-    mood_fragments = await db.get_mood_fragments()
-    mood_fragments = [f for f in mood_fragments if f.get("enabled", True)]
-    mood_ids = {fragment["id"] for fragment in mood_fragments}
-    for fragment in card_moods:
-        if fragment["id"] not in mood_ids:
-            mood_fragments.append(fragment)
-            mood_ids.add(fragment["id"])
+    card_moods, card_interactive = await db.cast_embedded_fragments(card, cast)
+    mood_fragments = db.merge_fragments_by_id([f for f in await db.get_mood_fragments() if f.get("enabled", True)], card_moods)
     # Prune active moods that reference disabled fragments.
     if director and director.get("active_moods"):
         enabled_ids = {f["id"] for f in mood_fragments}
         director["active_moods"] = [mood for mood in director["active_moods"] if mood in enabled_ids]
-    interactive_fragments = await db.get_interactive_fragments()
-    interactive_fragments = [df for df in interactive_fragments if df.get("enabled", True)]
-    interactive_ids = {fragment["id"] for fragment in interactive_fragments}
-    for fragment in card_interactive:
-        if fragment["id"] not in interactive_ids:
-            interactive_fragments.append(fragment)
-            interactive_ids.add(fragment["id"])
+    interactive_fragments = db.merge_fragments_by_id(
+        [df for df in await db.get_interactive_fragments() if df.get("enabled", True)], card_interactive
+    )
     phrase_bank = await db.get_phrase_bank()
     lorebook_entries = await db.get_active_lorebook_entries()
     worlds = await db.get_worlds()

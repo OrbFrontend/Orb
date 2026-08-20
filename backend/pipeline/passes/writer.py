@@ -16,6 +16,7 @@ from ...core import (
     ChatMessage,
     ContentPart,
     GroupContextMode,
+    Macros,
     build_multimodal_content,
     extract_hyperparams,
 )
@@ -23,6 +24,7 @@ from ...inference import (
     CachedBase,
     LLMClient,
     _KVCacheTracker,
+    member_macros,
     reasoning_cfg,
     tail_carries_identity,
 )
@@ -77,10 +79,8 @@ def build_writer_content(
     depth_block: str = "",
     speaker: CastMember | None = None,
     speaker_beat: str = "",
-    user_name: str = "User",
+    macros: Macros | None = None,
     prevent_prompt_overrides: bool = False,
-    cast_names: str = "",
-    macro_seed: str = "",
     context_mode: GroupContextMode = "private",
 ) -> str | list[ContentPart]:
     """Build the writer's user-message content (string or multimodal list).
@@ -96,11 +96,12 @@ def build_writer_content(
     text twice. Its post-history instructions are active-only in every mode and
     stay here regardless.
 
-    *macro_seed* is the conversation's ``macro_seed``, and it has to be the same
-    one the shared prefix resolves under: without it a ``{{roll}}`` in a card
-    would re-roll every turn, busting this tail's bytes, and the same card text
-    would resolve differently depending on whether the mode routed it here or
-    into the cached body (``inference/group_context.py``).
+    *macros* is the turn's own resolver, scoped to the speaker through the one
+    helper the cached body also uses (``group_context.member_macros``). It must be
+    that object rather than a rebuilt one: the same card text has to resolve
+    identically whether the mode routed it here or into the shared body, and the
+    conversation seed it carries is what keeps a ``{{roll}}`` in a card from
+    re-rolling every turn and busting this tail's bytes.
 
     *tools_sent* gates the no-tools nudge. It is the strongest provider-neutral
     signal Orb owns: a server may still narrow the supplied array based on
@@ -113,16 +114,15 @@ def build_writer_content(
     """
     tail = ""
     if speaker is not None:
-        from ...core.macros import Macros
-
-        speaker_macros = Macros(user_name, speaker.name, seed=macro_seed, cast=cast_names)
+        speaker_macros = member_macros(macros, speaker, macros.cast if macros else "")
+        resolve = speaker_macros.resolve_message if speaker_macros else (lambda text: text)
         tail += f"## You are writing as {speaker.name}\n"
         if tail_carries_identity(context_mode):
             if speaker.private_sheet:
                 tail += f"{SHEET_FRAMING}\n"
-                tail += speaker_macros.resolve_message(speaker.private_sheet) + "\n\n"
+                tail += resolve(speaker.private_sheet) + "\n\n"
             if speaker.mes_example:
-                example = speaker_macros.resolve_message(speaker.mes_example)
+                example = resolve(speaker.mes_example)
                 tail += (
                     example.replace("<START>", "## Example Dialogue")
                     if "<START>" in example
@@ -130,7 +130,7 @@ def build_writer_content(
                 )
                 tail += "\n\n"
         if speaker.post_history and not prevent_prompt_overrides:
-            tail += f"## Additional Instructions\n{speaker_macros.resolve_message(speaker.post_history)}\n\n"
+            tail += f"## Additional Instructions\n{resolve(speaker.post_history)}\n\n"
     if lorebook_block:
         tail += "___\n\n" + lorebook_block + "\n\n"
     if inj_block:
@@ -201,9 +201,7 @@ async def writer_stage(
     depth_block: str = "",
     speaker: CastMember | None = None,
     speaker_beat: str = "",
-    user_name: str = "User",
-    cast_names: str = "",
-    macro_seed: str = "",
+    macros: Macros | None = None,
     context_mode: GroupContextMode = "private",
 ) -> AsyncIterator[dict]:
     """Input-prep + writer pass + event translation.
@@ -233,10 +231,8 @@ async def writer_stage(
         depth_block=depth_block,
         speaker=speaker,
         speaker_beat=speaker_beat,
-        user_name=user_name,
+        macros=macros,
         prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides")),
-        cast_names=cast_names,
-        macro_seed=macro_seed,
         context_mode=context_mode,
     )
     writer_t0 = time.monotonic()

@@ -10,6 +10,7 @@ from .bootstrap import init_db, reset_to_defaults
 from .connection import DB_PATH, get_db, immediate_tx
 from .queries.character_cards import (
     card_embedded_fragments,
+    cast_embedded_fragments,
     create_character_card,
     delete_character_card,
     get_character_avatar,
@@ -18,6 +19,7 @@ from .queries.character_cards import (
     get_workflow_character_state,
     insert_alternate_greeting_swipes,
     list_character_cards,
+    merge_fragments_by_id,
     render_public_profile,
     reroll_unfrozen_greetings,
     resolve_char_context,
@@ -215,6 +217,7 @@ __all__ = [
     "allocate_speaker_key",
     "apply_changeset",
     "card_embedded_fragments",
+    "cast_embedded_fragments",
     "count_pending_changesets",
     "create_and_apply_changeset",
     "create_character_card",
@@ -317,6 +320,7 @@ __all__ = [
     "logs_size_before",
     "mark_changesets_stale_for_messages",
     "mark_orphaned_changesets_stale",
+    "merge_fragments_by_id",
     "render_public_profile",
     "reroll_unfrozen_greetings",
     "reset_to_defaults",

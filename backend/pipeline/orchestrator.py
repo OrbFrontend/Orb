@@ -264,9 +264,7 @@ async def _run_pipeline(
             depth_block=lorebook.depth_block,
             speaker=speaker,
             speaker_beat=speaker_beat,
-            user_name=macros.user,
-            cast_names=macros.cast,
-            macro_seed=macros.seed,
+            macros=macros,
             context_mode=context_mode,
         ),
     ):
@@ -393,7 +391,7 @@ async def _run_pipeline(
     if run_beat_final and sheet_update is not None and state.resp_text.strip() and not client.is_aborted:
         async for ev in _staged(
             STAGE_EDITOR,
-            sheet_update_stage(cfg, state, settings=settings, turn=sheet_update),
+            sheet_update_stage(cfg, state, turn=sheet_update),
         ):
             yield ev
 

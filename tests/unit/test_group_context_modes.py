@@ -70,7 +70,16 @@ def _system(mode: str, speaker: CastMember | None = None, **kwargs) -> str:
 
 def _tail(mode: str, speaker: CastMember, **kwargs) -> str:
     content = build_writer_content(
-        "", "", False, "What happened?", [], None, speaker=speaker, cast_names="Aria, Kael", context_mode=mode, **kwargs
+        "",
+        "",
+        False,
+        "What happened?",
+        [],
+        None,
+        speaker=speaker,
+        macros=Macros("User", "Scene", cast="Aria, Kael"),
+        context_mode=mode,
+        **kwargs,
     )
     assert isinstance(content, str)
     return content
@@ -243,7 +252,7 @@ def test_the_same_card_rolls_the_same_wherever_the_mode_routes_it():
 
     in_shared_body = render_cast_section(TurnCast(True, (gambler,), gambler, "shared"), seeded)
     in_private_tail = build_writer_content(
-        "", "", False, "Go on", [], None, speaker=gambler, cast_names="Gambler", macro_seed="conv-1", context_mode="private"
+        "", "", False, "Go on", [], None, speaker=gambler, macros=seeded, context_mode="private"
     )
     assert isinstance(in_private_tail, str)
 
@@ -252,7 +261,7 @@ def test_the_same_card_rolls_the_same_wherever_the_mode_routes_it():
     assert f"Bet {rolled} on it" in in_private_tail
     # And it is stable turn over turn, which is the point of seeding at all.
     assert in_private_tail == build_writer_content(
-        "", "", False, "Go on", [], None, speaker=gambler, cast_names="Gambler", macro_seed="conv-1", context_mode="private"
+        "", "", False, "Go on", [], None, speaker=gambler, macros=seeded, context_mode="private"
     )
 
 
@@ -322,3 +331,25 @@ def test_size_components_survive_an_empty_roster_and_cardless_members():
     assert [text for _, text in context_size_components(empty, MACROS)] == ["\n\n## Cast\n", ""]
     narrator = TurnCast(True, (_member("n", "Narrator", kind="narrator"),), None, "swap")
     assert dict(context_size_components(narrator, MACROS))["largest_active_card"] == "\n\n## Character: Narrator"
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_the_scenes_own_directive_reaches_every_mode_and_a_cards_never_reaches_the_body(mode):
+    """`conversations.post_history_instructions` is the scene's, not a card's.
+
+    There is exactly one per scene and it is the same for every speaker, so it
+    belongs in the shared cached body where a solo chat already carries it.
+    Suppressing it for groups made the "How should this scene be written?" box in
+    both group modals a field that persisted and was never sent.
+
+    A *card's* directive keeps the opposite rule: active-only, in the tail, because
+    merging several of them produces contradictory control instructions.
+    """
+    speaker = _member("a", "Aria", post_history="CARD DIRECTIVE")
+    system = _system(mode, speaker, post_history_instructions="SCENE DIRECTIVE")
+    assert "SCENE DIRECTIVE" in system
+    assert "CARD DIRECTIVE" not in system
+
+    tail = _tail(mode, speaker)
+    assert "CARD DIRECTIVE" in tail
+    assert "SCENE DIRECTIVE" not in tail

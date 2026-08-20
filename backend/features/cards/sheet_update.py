@@ -31,12 +31,11 @@ Pure logic, like its sibling: the caller builds the client and hands
 
 from __future__ import annotations
 
-import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Any, TypedDict
 
-from ...core import ChatMessage
-from ...inference import LLMClient, parse_tool_calls
+from ...inference import LLMClient
+from ._drafting import BRACES, forced_draft, normalize
 
 SHEET_TOOL_NAME = "update_character_sheet"
 
@@ -92,7 +91,6 @@ UPDATE_SHEET_TOOL = {
         },
     },
 }
-UPDATE_SHEET_CHOICE = {"type": "function", "function": {"name": SHEET_TOOL_NAME}}
 
 # An update is an edit, not a rewrite into something larger. The cap is relative
 # to what came in rather than fixed, because a sheet's natural length is the
@@ -104,8 +102,6 @@ MIN_SHEET_CEILING_CHARS = 1200
 # One short line for the review row. Longer than this is the model narrating the
 # beat instead of naming the change.
 MAX_SUMMARY_WORDS = 25
-
-_WHITESPACE_RE = re.compile(r"\s+")
 
 
 class SheetUpdate(TypedDict):
@@ -121,10 +117,6 @@ class SheetUpdateUnavailable(RuntimeError):
     raises and this module never catches. Mirrors
     :class:`..public_profile.ProfileDraftUnavailable`.
     """
-
-
-def _normalize(text: str) -> str:
-    return _WHITESPACE_RE.sub(" ", text).strip()
 
 
 def _clean_sheet(value: Any, base: str) -> str:
@@ -147,12 +139,12 @@ def _clean_sheet(value: Any, base: str) -> str:
     text = value.strip()
     if not text:
         raise SheetUpdateUnavailable("The model reported a change but returned an empty sheet.")
-    if "{" in text or "}" in text:
+    if any(brace in text for brace in BRACES):
         raise SheetUpdateUnavailable("The proposed sheet contains a macro or placeholder.")
     ceiling = max(MIN_SHEET_CEILING_CHARS, len(base) + MAX_SHEET_GROWTH_CHARS)
     if len(text) > ceiling:
         raise SheetUpdateUnavailable(f"The proposed sheet is longer than {ceiling} characters.")
-    if _normalize(text) == _normalize(base):
+    if normalize(text) == normalize(base):
         raise SheetUpdateUnavailable("The model reported a change but proposed the sheet it was given.")
     return text
 
@@ -164,8 +156,8 @@ def _clean_summary(value: Any) -> str:
     on a review row that already shows both sheets in full, so a missing one
     costs a fallback label rather than the whole proposal.
     """
-    text = _normalize(value) if isinstance(value, str) else ""
-    if not text or "{" in text or "}" in text:
+    text = normalize(value) if isinstance(value, str) else ""
+    if not text or any(brace in text for brace in BRACES):
         return ""
     words = text.split(" ")
     return " ".join(words[:MAX_SUMMARY_WORDS]) if len(words) > MAX_SUMMARY_WORDS else text
@@ -206,29 +198,16 @@ async def propose_sheet_update(
     and the one that must be cheap to express, or a model with a tool it has to
     call will invent a change to fill it.
 
-    Hyperparameters are hardcoded rather than read from the user's preset, for
-    the reason :func:`..public_profile._draft` states: this is a bookkeeping
-    call, and a roleplay preset at ``temperature: 1.15`` would embellish the
-    sheet it was asked to preserve.
+    Hyperparameters are hardcoded rather than read from the user's preset — see
+    :func:`._drafting.forced_draft`.
     """
-    messages: list[ChatMessage] = [
-        {"role": "system", "content": SHEET_SYSTEM_PROMPT},
-        {"role": "user", "content": build_update_message(member_name=member_name, sheet=sheet, transcript=transcript)},
-    ]
-    response: dict = {}
-    async for event in client.complete(
-        messages=messages,
-        model=model or "",
-        tools=[UPDATE_SHEET_TOOL],
-        tool_choice=UPDATE_SHEET_CHOICE,
-        temperature=0.2,
+    args = await forced_draft(
+        client,
+        model,
+        system=SHEET_SYSTEM_PROMPT,
+        user=build_update_message(member_name=member_name, sheet=sheet, transcript=transcript),
+        tool=UPDATE_SHEET_TOOL,
         max_tokens=1024,
-    ):
-        if event.get("type") == "done":
-            response = event.get("message") or {}
-    args: Mapping[str, Any] | None = next(
-        (call.get("arguments") or {} for call in parse_tool_calls(response) if call.get("name") == SHEET_TOOL_NAME),
-        None,
     )
     if args is None:
         raise SheetUpdateUnavailable("The model did not return a usable sheet update.")

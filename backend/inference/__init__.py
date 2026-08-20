@@ -28,6 +28,7 @@ from .endpoint_profiles import (
 from .errors import LLMCallError, provider_sentence, redact
 from .group_context import (
     context_size_components,
+    member_macros,
     prefix_is_speaker_scoped,
     render_cast_section,
     tail_carries_identity,
@@ -102,6 +103,7 @@ __all__ = [
     "_KVCacheTracker",
     # group_context — the one owner of per-mode character-field visibility
     "context_size_components",
+    "member_macros",
     "prefix_is_speaker_scoped",
     "render_cast_section",
     "tail_carries_identity",

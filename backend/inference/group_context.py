@@ -32,10 +32,13 @@ Two rules hold in every mode and are deliberately not configurable:
   group has exactly one premise (``conversations.character_scenario``);
   merging N card scenarios would create N competing ones. Swap therefore means
   identity-field substitution, not control-instruction substitution.
-* ``post_history_instructions`` is a directive, not a shared fact. Merging
-  several of them produces contradictory control instructions, so it stays
-  active-only in the trailing message -- still honouring
-  ``prevent_prompt_overrides``.
+* A *card's* ``post_history_instructions`` is a directive, not a shared fact.
+  Merging several of them produces contradictory control instructions, so a
+  card's stays active-only in the trailing message -- still honouring
+  ``prevent_prompt_overrides``. The *scene's* own directive
+  (``conversations.post_history_instructions``) has no such conflict: there is
+  exactly one, it is the same for every speaker, and ``build_prefix`` puts it in
+  the shared cached body where a solo chat already carries it.
 
 Within a mode the rendered bytes are stable while the active roster and its
 cards are: canonical ``sort_order, id`` order, fixed headings, and macros
@@ -79,8 +82,9 @@ def tail_carries_identity(mode: GroupContextMode) -> bool:
     """True when the speaker's description/personality/examples ride the
     trailing Writer message rather than the shared system body.
 
-    ``post_history_instructions`` is not covered by this: it is active-only in
-    every mode and always stays in the tail.
+    A *card's* ``post_history_instructions`` is not covered by this: it is
+    active-only in every mode and always stays in the tail. The scene's own
+    directive is not a member field at all and rides the shared body.
     """
     return mode == "private"
 

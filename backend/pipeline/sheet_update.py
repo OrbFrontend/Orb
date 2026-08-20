@@ -25,11 +25,11 @@ here at both levels: one member's failed call does not drop another's proposal.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Mapping
-from typing import Any
+from collections.abc import AsyncIterator
 
 from .. import database as db
 from ..features.cards import (
+    SHEET_TOOL_NAME,
     SheetUpdateUnavailable,
     build_beat_transcript,
     propose_sheet_update,
@@ -54,7 +54,6 @@ async def sheet_update_stage(
     cfg: _PipelineConfig,
     state: TurnState,
     *,
-    settings: Mapping[str, Any],
     turn: SheetUpdateTurn,
 ) -> AsyncIterator[dict]:
     """Propose sheet updates for the members this beat touched, and stage them.
@@ -116,6 +115,19 @@ async def sheet_update_stage(
         except Exception:
             logger.exception("Sheet update call failed for member %s; the rest of the beat is unaffected", member.member_id)
             continue
+        # On state.calls for the same reason the world stage puts its call there:
+        # the pass bills one request per touched member, and a billed call the
+        # inspector and the turn log never show is a cost with no record.
+        state.calls.append(
+            {
+                "name": SHEET_TOOL_NAME,
+                "arguments": {
+                    "member": member.name,
+                    "changed": update is not None,
+                    **({"summary": update["summary"]} if update else {}),
+                },
+            }
+        )
         if update is None:
             continue
         staged.append(

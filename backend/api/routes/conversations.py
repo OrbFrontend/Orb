@@ -20,7 +20,7 @@ from ...database import (
     add_conversation_log,
     add_message,
     apply_sheet_proposal,
-    card_embedded_fragments,
+    cast_embedded_fragments,
     convert_to_group,
     create_conversation,
     create_direction_notes,
@@ -52,6 +52,7 @@ from ...database import (
     insert_alternate_greeting_swipes,
     list_conversations,
     mark_orphaned_changesets_stale,
+    merge_fragments_by_id,
     reject_sheet_proposal,
     render_public_profile,
     resolve_cast,
@@ -523,6 +524,21 @@ async def api_summarize_conversation(
     )
 
 
+async def _member_map(conv: ConversationRow, source_cid: str, new_cid: str) -> dict[str, str]:
+    """Old member id → new member id, for a copy of a group's messages.
+
+    ``fork_conversation`` recreates the roster with fresh member ids, so every
+    copied assistant row has to be re-pointed or the copy loses its speakers.
+    ``speaker_key`` is the join: it is immutable and the fork carries it over,
+    which ``id`` and ``display_name`` do not. Empty for a solo conversation.
+    """
+    if conv.get("kind", "solo") != "group":
+        return {}
+    old_members = await get_group_members(source_cid, include_inactive=True)
+    new_by_key = {m["speaker_key"]: m["id"] for m in await get_group_members(new_cid, include_inactive=True)}
+    return {m["id"]: new_by_key[m["speaker_key"]] for m in old_members if m["speaker_key"] in new_by_key}
+
+
 @router.post("/api/conversations/{cid}/compress")
 async def api_compress_conversation(
     cid: str,
@@ -542,14 +558,7 @@ async def api_compress_conversation(
     new_title = f"{old_title} (continued)" if old_title else "Continued"
     new_cid = await fork_conversation(conv, new_title)
 
-    member_map: dict[str, str] = {}
-    if conv.get("kind", "solo") == "group":
-        old_members, new_members = (
-            await get_group_members(cid, include_inactive=True),
-            await get_group_members(new_cid, include_inactive=True),
-        )
-        new_by_key = {m["speaker_key"]: m["id"] for m in new_members}
-        member_map = {m["id"]: new_by_key[m["speaker_key"]] for m in old_members if m["speaker_key"] in new_by_key}
+    member_map = await _member_map(conv, cid, new_cid)
 
     prev_id, _ = await add_message(new_cid, "assistant", data.summary.strip(), 0)
     await set_active_leaf(new_cid, prev_id)
@@ -597,14 +606,7 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
     messages = await get_messages(source_cid)
 
     new_cid = await fork_conversation(conv, new_title)
-    member_map: dict[str, str] = {}
-    if conv.get("kind", "solo") == "group":
-        old_members, new_members = (
-            await get_group_members(source_cid, include_inactive=True),
-            await get_group_members(new_cid, include_inactive=True),
-        )
-        new_by_key = {m["speaker_key"]: m["id"] for m in new_members}
-        member_map = {m["id"]: new_by_key[m["speaker_key"]] for m in old_members if m["speaker_key"] in new_by_key}
+    member_map = await _member_map(conv, source_cid, new_cid)
 
     # Re-insert the path linearly, remapping parent_id and recording old→new
     # message ids so the conversation_logs below can be re-pointed onto the copy.
@@ -706,30 +708,13 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     # breakdown matches the prompt that is actually sent.
     card, active_persona = await resolve_card_and_persona(conv, settings)
     turn_cast = await resolve_cast(conv)
-    # Same card-fragment merge as _load_pipeline_context (globals win on id collision).
-    card_moods, card_interactive = card_embedded_fragments(card)
-    if turn_cast.grouped:
-        seen_cards: set[str] = set()
-        for member in turn_cast.members:
-            if not member.card_id or member.card_id in seen_cards:
-                continue
-            seen_cards.add(member.card_id)
-            member_card = await get_character_card(member.card_id)
-            moods, interactive = card_embedded_fragments(member_card)
-            card_moods.extend(moods)
-            card_interactive.extend(interactive)
-    director_frags = [f for f in await get_interactive_fragments() if f.get("enabled", True)]
-    director_ids = {fragment["id"] for fragment in director_frags}
-    for fragment in card_interactive:
-        if fragment["id"] not in director_ids:
-            director_frags.append(fragment)
-            director_ids.add(fragment["id"])
-    mood_frags = [f for f in await get_mood_fragments() if f.get("enabled", True)]
-    mood_ids = {fragment["id"] for fragment in mood_frags}
-    for fragment in card_moods:
-        if fragment["id"] not in mood_ids:
-            mood_frags.append(fragment)
-            mood_ids.add(fragment["id"])
+    # The same reader and the same merge the turn uses (globals win on id
+    # collision), so the estimate cannot bill a different fragment set.
+    card_moods, card_interactive = await cast_embedded_fragments(card, turn_cast)
+    director_frags = merge_fragments_by_id(
+        [f for f in await get_interactive_fragments() if f.get("enabled", True)], card_interactive
+    )
+    mood_frags = merge_fragments_by_id([f for f in await get_mood_fragments() if f.get("enabled", True)], card_moods)
     lorebook_entries = await get_active_lorebook_entries()
     macro_char = conv.get("title", "") if turn_cast.grouped else conv["character_name"]
     macros, user_desc = persona_macros(settings, macro_char, active_persona, seed=conversation_macro_seed(conv))
@@ -753,9 +738,11 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     # estimate cannot drift from what is actually sent.
     group_components: list[tuple[str, str]] = []
     if turn_cast.grouped:
+        # The card-derived halves are replaced by the group components below;
+        # `post_text` is the *scene's* directive, which `build_prefix` still
+        # renders into the shared body for a group, so it keeps being billed.
         persona_text = ""
         mes_text = ""
-        post_text = ""
         group_components = group_context.context_size_components(
             turn_cast,
             macros,

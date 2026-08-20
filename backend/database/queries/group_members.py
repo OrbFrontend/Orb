@@ -49,10 +49,10 @@ async def get_group_member(member_id: str, *, conversation_id: str | None = None
 def _public_profile(card: Mapping | None, override: str | None) -> str:
     """The member's effective public projection: the scene override, else the card's.
 
-    ``override is not None`` and not ``if override`` on purpose — an empty-string
-    override is the user deliberately blanking the card profile for this scene,
-    not an absent one. (The client coerces a whitespace-only box to ``null`` at
-    save, so a stored ``""`` only ever arrives from an explicit blanking.)
+    ``override is not None`` and not ``if override``, so a stored ``""`` blanks the
+    profile for this scene instead of falling back to the card. Manage cast cannot
+    currently produce one — it coerces an empty box to ``null`` — so today this only
+    round-trips an ``""`` supplied through ``PUT …/members``.
 
     The card walk is local; the ``Appearance``/``Role`` join belongs to
     ``character_cards.render_public_profile``, beside the writer that stores it.
@@ -67,9 +67,8 @@ def _public_profile(card: Mapping | None, override: str | None) -> str:
 def _private_sheet(card: Mapping | None, override: str | None = None) -> str:
     """What the member reads about itself: the scene override, else the card's join.
 
-    ``override is not None`` on purpose, mirroring :func:`_public_profile` — an
-    empty-string override is the user deliberately blanking the sheet for this
-    scene, not an absent one, and the two must stay distinguishable.
+    ``override is not None``, mirroring :func:`_public_profile` — same rule, same
+    caveat about which callers can reach the blanking case.
 
     The counterpart to ``public_profile_override``: that one is what the *rest*
     of the cast sees, this one is what the member reads about *itself*. It
@@ -108,6 +107,11 @@ async def resolve_cast(conv: Mapping, *, speaker_member_id: str | None = None) -
     (``workflows/toolkit.build_offturn_prefix``) sits below ``pipeline/``. A
     prefix that resolved the cast differently from the turn's would evict the
     conversation's KV on every workflow call, so there is exactly one resolver.
+
+    ``CastMember.post_history`` is always the *card's* directive, in both branches.
+    The scene's own (``conversations.post_history_instructions``) is one string for
+    the whole cast, so it is speaker-independent and ``build_prefix`` renders it
+    into the shared system body rather than any member's tail.
     """
     if conv.get("kind", "solo") != "group":
         card_id = conv.get("character_card_id")
@@ -122,7 +126,7 @@ async def resolve_cast(conv: Mapping, *, speaker_member_id: str | None = None) -
             public_profile="",
             private_sheet=_private_sheet(card),
             mes_example=str((card or {}).get("mes_example") or ""),
-            post_history=str((card or {}).get("post_history_instructions") or conv.get("post_history_instructions") or ""),
+            post_history=str((card or {}).get("post_history_instructions") or ""),
         )
         return TurnCast(False, (member,), member)
 
@@ -159,6 +163,7 @@ async def create_group_conversation(
     turn_mode: str = "director",
     max_speakers: int = 3,
     context_mode: str = "private",
+    sheet_updates: bool = False,
     persona_lock_id: int | None = None,
     greeting: str = "",
     greeting_speaker_key: str | None = None,
@@ -183,8 +188,9 @@ async def create_group_conversation(
             """INSERT INTO conversations
                (id, title, character_card_id, character_name, character_scenario,
                 post_history_instructions, persona_lock_id, macro_seed, created_at, updated_at,
-                kind, group_turn_mode, group_max_speakers, group_context_mode, group_root_id)
-               VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'group', ?, ?, ?, ?)""",
+                kind, group_turn_mode, group_max_speakers, group_context_mode,
+                group_sheet_updates, group_root_id)
+               VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'group', ?, ?, ?, ?, ?)""",
             (
                 cid,
                 title,
@@ -198,6 +204,7 @@ async def create_group_conversation(
                 turn_mode,
                 max_speakers,
                 context_mode,
+                int(bool(sheet_updates)),
                 group_root_id,
             ),
         )

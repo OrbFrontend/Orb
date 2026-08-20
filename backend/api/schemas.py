@@ -659,12 +659,18 @@ class EditMessage(BaseModel):
 
 class RegenerateMsg(BaseModel):
     enable_agent: bool = True
+    # Shared with `/continue`, which is the one route here that starts a *new*
+    # beat and so may pin its speaker. `/regenerate` and `/super_regenerate`
+    # ignore it: they replace an existing assistant row, whose speaker is
+    # already recorded on it.
     speaker_member_id: str | None = None
 
 
+# No `speaker_member_id`: a magic rewrite always re-writes an existing assistant
+# row, so the speaker is the one on that row and a client override could only
+# disagree with history.
 class MagicRewriteMsg(BaseModel):
     direction: str
-    speaker_member_id: str | None = None
 
 
 class AutocompleteInput(BaseModel):

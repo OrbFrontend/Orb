@@ -3,13 +3,13 @@ from __future__ import annotations
 import base64
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, cast
 
 import aiosqlite
 
-from ...core import has_inline_macros, resolve_inline
+from ...core import TurnCast, has_inline_macros, resolve_inline
 from ..connection import _build_set_clause, get_db
 from ..models import CharacterCardRow, InteractiveFragmentRow, MoodFragmentRow
 
@@ -170,6 +170,49 @@ def card_embedded_fragments(
         )
 
     return moods, interactive
+
+
+async def cast_embedded_fragments(
+    card: Mapping[str, Any] | None,
+    cast_: TurnCast | None = None,
+) -> tuple[list[MoodFragmentRow], list[InteractiveFragmentRow]]:
+    """Every fragment a turn's characters contribute: the solo card's, or the cast's.
+
+    A group has no single card, so its fragments are the union of its members'.
+    One reader for both callers (the turn's ``_load_pipeline_context`` and the
+    context-size estimator) because a fragment the estimate does not see is a
+    fragment the user is billed for without being shown.
+
+    Cards are visited once each in roster order, so two members sharing a card
+    contribute one copy and the merge order stays byte-stable.
+    """
+    moods, interactive = card_embedded_fragments(card)
+    if cast_ is None or not cast_.grouped:
+        return moods, interactive
+    seen: set[str] = set()
+    for member in cast_.members:
+        if not member.card_id or member.card_id in seen:
+            continue
+        seen.add(member.card_id)
+        member_moods, member_interactive = card_embedded_fragments(await get_character_card(member.card_id))
+        moods.extend(member_moods)
+        interactive.extend(member_interactive)
+    return moods, interactive
+
+
+def merge_fragments_by_id(base: list, extra: Sequence[Mapping[str, Any]]) -> list:
+    """Append *extra* to *base*, skipping ids already present. Globals win.
+
+    The rule ``card_embedded_fragments`` states and every caller has to apply:
+    a card can never hijack a user-configured fragment, and two cards naming the
+    same id contribute it once.
+    """
+    seen = {fragment["id"] for fragment in base}
+    for fragment in extra:
+        if fragment["id"] not in seen:
+            base.append(fragment)
+            seen.add(fragment["id"])
+    return base
 
 
 async def create_character_card(data: dict) -> CharacterCardRow:
