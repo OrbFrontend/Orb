@@ -93,7 +93,7 @@ def _context_mode(conv: Mapping) -> GroupContextMode:
 
     The column carries a CHECK constraint, so an out-of-domain value can only
     arrive from a hand-edited database; falling back to the behaviour-preserving
-    default beats raising inside prompt assembly.
+    default exchanges raising inside prompt assembly.
     """
     mode = str(conv.get("group_context_mode") or "private")
     return typed_cast(GroupContextMode, mode) if mode in ("private", "shared", "swap") else "private"
@@ -244,7 +244,7 @@ async def create_group_conversation(
             cur = await db.execute(
                 """INSERT INTO messages
                    (conversation_id, role, content, turn_index, parent_id, progressive_fields,
-                    created_at, speaker_member_id, beat_id)
+                    created_at, speaker_member_id, exchange_id)
                    VALUES (?, 'assistant', ?, 0, NULL, '{}', ?, ?, ?)""",
                 (cid, greeting.strip(), now, speaker_id, str(uuid.uuid4())),
             )

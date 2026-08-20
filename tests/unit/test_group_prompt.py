@@ -75,7 +75,7 @@ def test_group_director_schema_and_plan_policy_distinguish_rest_from_malformed()
     assert parse_speaking_plan([], members, 3) == []
     assert parse_speaking_plan(["unknown — wait"], members, 3) is None
     parsed = parse_speaking_plan(["aria — first", "Aria: again", "kael - next", "mira — muted"], members, 3)
-    assert [(member["id"], beat) for member, beat in parsed] == [("a", "first"), ("k", "next")]
+    assert [(member["id"], exchange) for member, exchange in parsed] == [("a", "first"), ("k", "next")]
     assert round_robin_member(members, [{"speaker_member_id": "a"}])["id"] == "k"
 
 
@@ -101,13 +101,13 @@ def test_speaking_plan_resolves_hyphenated_speaker_keys_and_names():
     assert [m["speaker_key"] for m in members] == ["alice-hart", "jean-luc-picard", "arianna"]
 
     by_key = parse_speaking_plan(["alice-hart — steps forward", "jean-luc-picard — answers coldly"], members, 3)
-    assert [(m["id"], beat) for m, beat in by_key] == [("h", "steps forward"), ("p", "answers coldly")]
+    assert [(m["id"], exchange) for m, exchange in by_key] == [("h", "steps forward"), ("p", "answers coldly")]
 
     # Display names work too, and so do the other two separators the model reaches for.
     by_name = parse_speaking_plan(["Jean-Luc Picard: nods", "Alice Hart - waits"], members, 3)
-    assert [(m["id"], beat) for m, beat in by_name] == [("p", "nods"), ("h", "waits")]
+    assert [(m["id"], exchange) for m, exchange in by_name] == [("p", "nods"), ("h", "waits")]
 
     # A longer key is never truncated into a shorter member's, in either direction.
     assert [m["id"] for m, _ in parse_speaking_plan(["arianna — waves"], members, 3)] == ["a"]
-    # And a bare speaker with no beat still resolves.
-    assert [(m["id"], beat) for m, beat in parse_speaking_plan(["alice-hart"], members, 3)] == [("h", "")]
+    # And a bare speaker with no exchange still resolves.
+    assert [(m["id"], exchange) for m, exchange in parse_speaking_plan(["alice-hart"], members, 3)] == [("h", "")]

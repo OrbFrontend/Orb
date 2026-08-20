@@ -12,11 +12,11 @@ proposal was derived from. The proposal is marked ``stale`` rather than forced
 through, because a hand edit and a model's edit can contradict each other in
 meaning even when both look reasonable — the same reason nothing here rebases.
 
-**At most one pending proposal per member.** A beat stages against the sheet as
+**At most one pending proposal per member.** An exchange stages against the sheet as
 it stands, so two pending proposals for one member are necessarily derived from
 the same base: applying either one makes the other unapplyable, and the user is
 handed a pile of rows of which all but one can only 409. Regenerating a reply
-re-runs the beat and would stack another. So a new proposal *replaces* the
+re-runs the exchange and would stack another. So a new proposal *replaces* the
 member's pending one in place, and the stage carries the replaced text forward
 (see ``pipeline/sheet_update``) so the changes accumulate instead of competing.
 The row keeps its id, which is also what lets an open review surface repaint
@@ -79,7 +79,7 @@ async def _effective_sheet(db, conversation_id: str, member_id: str) -> str | No
 async def get_pending_sheet_proposals(conversation_id: str) -> dict[str, MemberSheetProposalRow]:
     """The scene's pending proposals keyed by member — at most one each.
 
-    Read by the staging pass so a fresh beat can carry an undecided proposal
+    Read by the staging pass so a fresh exchange can carry an undecided proposal
     forward rather than competing with it.
     """
     async with get_db() as db:
@@ -93,7 +93,7 @@ async def get_pending_sheet_proposals(conversation_id: str) -> dict[str, MemberS
 async def create_sheet_proposals(proposals: Sequence[Mapping[str, Any]]) -> list[MemberSheetProposalRow]:
     """Stage proposals, one per member. Applies nothing.
 
-    Written in one transaction so a beat's proposals arrive together — a review
+    Written in one transaction so an exchange's proposals arrive together — a review
     surface that painted half of them would read as the pass having judged only
     half the cast.
 
@@ -110,7 +110,7 @@ async def create_sheet_proposals(proposals: Sequence[Mapping[str, Any]]) -> list
             conversation_id = str(proposal["conversation_id"])
             member_id = str(proposal["member_id"])
             values = (
-                str(proposal.get("beat_id") or ""),
+                str(proposal.get("exchange_id") or ""),
                 str(proposal.get("base_sheet") or ""),
                 str(proposal["proposed_sheet"]),
                 str(proposal.get("summary") or ""),
@@ -130,7 +130,7 @@ async def create_sheet_proposals(proposals: Sequence[Mapping[str, Any]]) -> list
                 keep = int(existing[0]["id"])
                 await db.execute(
                     """UPDATE member_sheet_proposals
-                       SET beat_id = ?, base_sheet = ?, proposed_sheet = ?, summary = ?, created_at = ?,
+                       SET exchange_id = ?, base_sheet = ?, proposed_sheet = ?, summary = ?, created_at = ?,
                            status = 'pending', decided_at = NULL
                        WHERE id = ?""",
                     (*values, keep),
@@ -144,7 +144,7 @@ async def create_sheet_proposals(proposals: Sequence[Mapping[str, Any]]) -> list
                 continue
             cur = await db.execute(
                 """INSERT INTO member_sheet_proposals
-                   (conversation_id, member_id, beat_id, base_sheet, proposed_sheet, summary, status, created_at)
+                   (conversation_id, member_id, exchange_id, base_sheet, proposed_sheet, summary, status, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)""",
                 (conversation_id, member_id, *values),
             )

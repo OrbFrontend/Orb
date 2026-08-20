@@ -224,7 +224,7 @@ def context_size_components(
     components = [(_SHARED_COMPONENT_KEY[mode], render_cast_section(neutral, macros))]
     # The shared body above covers the whole roster, muted members included --
     # they are in scene. The per-speaker maxima below must not: a muted member
-    # is never scheduled, so billing the beat for a card that can never be sent
+    # is never scheduled, so billing the exchange for a card that can never be sent
     # overstates the call. An all-muted scene generates nothing and measures 0.
     speakers = [member for member in cast.members if not member.muted]
     if prefix_is_speaker_scoped(mode):

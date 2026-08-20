@@ -209,8 +209,8 @@ class ConversationRow(TypedDict):
     # Which character information every group generation carries; see
     # ``core.domain_types.GroupContextMode``. Stored but ignored when solo.
     group_context_mode: str
-    # Opt-in to the post-beat sheet-update pass. Off by default: it is one billed
-    # call per member the beat touched, and staleness is a property of a *long*
+    # Opt-in to the post-exchange sheet-update pass. Off by default: it is one billed
+    # call per member the exchange touched, and staleness is a property of a *long*
     # scene, which a new one is not.
     group_sheet_updates: int
     # The group family this conversation belongs to: the id of the conversation
@@ -268,7 +268,7 @@ class MessageRow(TypedDict):
     created_at: str
     workflow_state: str | None
     speaker_member_id: str | None
-    beat_id: str | None
+    exchange_id: str | None
 
 
 class UserAttachmentRow(TypedDict, total=False):
@@ -435,20 +435,20 @@ class LorebookEntryRow(TypedDict):
 
 class MemberSheetProposalRow(TypedDict):
     """A row from ``member_sheet_proposals`` -- one staged rewrite of one
-    member's scene-local sheet, derived from one beat.
+    member's scene-local sheet, derived from one exchange.
 
     ``base_sheet`` is the sheet the proposal was derived from, and doubles as the
     staleness check ``worlds.content_revision`` is for a changeset: the apply
     re-reads the member's current sheet and refuses when the two no longer match,
     so a hand edit and a proposal cannot silently clobber each other.
-    ``beat_id`` is the provenance pointer -- the beat, not one speaker's message,
-    because the pass runs once per beat.
+    ``exchange_id`` is the provenance pointer -- the exchange, not one speaker's message,
+    because the pass runs once per exchange.
     """
 
     id: int
     conversation_id: str
     member_id: str
-    beat_id: str
+    exchange_id: str
     base_sheet: str
     proposed_sheet: str
     summary: str

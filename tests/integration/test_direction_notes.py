@@ -637,10 +637,10 @@ async def test_per_fragment_call_can_record_nothing(client, db, llm_mock):
     assert len(await _notes_on_active_path(cid)) == 1
 
 
-async def test_group_beat_records_pre_writer_notes_once_on_its_first_reply(client, db, llm_mock):
-    """A group's Director runs once for the whole beat, so the step that reflects
+async def test_group_exchange_records_pre_writer_notes_once_on_its_first_reply(client, db, llm_mock):
+    """A group's Director runs once for the whole exchange, so the step that reflects
     on its scene direction runs once too — beside it, not inside each speaker's
-    pipeline. The notes anchor to the beat's first reply and are not re-recorded
+    pipeline. The notes anchor to the exchange's first reply and are not re-recorded
     by the speakers after it."""
     aria = (await client.post("/api/characters", json={"name": "Aria"})).json()["id"]
     kael = (await client.post("/api/characters", json={"name": "Kael"})).json()["id"]
@@ -678,7 +678,7 @@ async def test_group_beat_records_pre_writer_notes_once_on_its_first_reply(clien
     await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})
 
     order = [p for p, _ in llm_mock.calls]
-    assert order.count("direction_note") == 1, "the beat's Director step ran per speaker"
+    assert order.count("direction_note") == 1, "the exchange's Director step ran per speaker"
     assert order.index("direction_note") < order.index("writer")
     assert await _notes_on_active_path(conv["id"]) == [_NOTE]
     replies = [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"]
@@ -686,10 +686,10 @@ async def test_group_beat_records_pre_writer_notes_once_on_its_first_reply(clien
     assert await dbmod.get_direction_notes_for_message(replies[1]["id"]) == []
 
 
-async def test_group_beat_keeps_the_two_placements_on_their_own_replies(client, db, llm_mock):
-    """Both placements run once per beat, and each lands where it was recorded:
+async def test_group_exchange_keeps_the_two_placements_on_their_own_replies(client, db, llm_mock):
+    """Both placements run once per exchange, and each lands where it was recorded:
     the before-writer note on the first reply, the end-of-turn note on the last.
-    The beat carries the first one to its reply and then stops carrying it, so the
+    The exchange carries the first one to its reply and then stops carrying it, so the
     later speaker neither re-persists it nor absorbs it into its own recording."""
     aria = (await client.post("/api/characters", json={"name": "Aria"})).json()["id"]
     kael = (await client.post("/api/characters", json={"name": "Kael"})).json()["id"]

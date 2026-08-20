@@ -18,7 +18,7 @@ from backend.features.cards.sheet_update import (
     SHEET_FLOOR,
     SHEET_TOOL_NAME,
     SheetUpdateUnavailable,
-    build_beat_transcript,
+    build_exchange_transcript,
     build_update_message,
     propose_sheet_update,
     sheet_reply_budget,
@@ -115,7 +115,7 @@ async def test_a_proposal_that_fails_the_contract_is_unavailable(arguments, why)
 
 
 async def test_a_whitespace_only_difference_is_still_a_no_op():
-    """Otherwise every beat could stage a review row that changes nothing but
+    """Otherwise every exchange could stage a review row that changes nothing but
     the line wrapping, and the queue stops being worth reading."""
     with pytest.raises(SheetUpdateUnavailable, match="proposed the sheet it was given"):
         await _propose(_call(changed=True, sheet=SHEET.replace("\n\n", "\n   \n")))
@@ -180,7 +180,7 @@ def test_a_sheet_update_call_carries_only_its_own_members_sheet():
     message = build_update_message(
         member_name="Aria",
         sheet="ARIA SHEET",
-        transcript=build_beat_transcript([("User", "What now?"), ("Kael", "KAEL SAID THIS")]),
+        transcript=build_exchange_transcript([("User", "What now?"), ("Kael", "KAEL SAID THIS")]),
     )
     assert "ARIA SHEET" in message
     assert "KAEL SHEET" not in message
@@ -189,4 +189,4 @@ def test_a_sheet_update_call_carries_only_its_own_members_sheet():
 
 
 def test_the_transcript_drops_empty_lines_and_keeps_order():
-    assert build_beat_transcript([("User", "One"), ("Aria", "  "), ("Kael", "Two")]) == "User: One\n\nKael: Two"
+    assert build_exchange_transcript([("User", "One"), ("Aria", "  "), ("Kael", "Two")]) == "User: One\n\nKael: Two"

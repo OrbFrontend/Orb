@@ -232,8 +232,8 @@ function patchPendingUserMessage(pendingMsg) {
 }
 
 export async function afterStream() {
-  const wasGroupBeat = S.currentBeatId != null;
-  const groupBeatId = S.currentBeatId;
+  const wasGroupExchange = S.currentExchangeId != null;
+  const groupExchangeId = S.currentExchangeId;
   const inFlightSpeaker = S.currentSpeaker;
   const preservedContent = S.streamingContent;
   const pendingUserMsg = S.pendingUserMsg || null;
@@ -314,11 +314,11 @@ export async function afterStream() {
   }
   S.queuedEdits = {};
 
-  if (wasGroupBeat && inFlightSpeaker && preservedContent?.trim()) {
+  if (wasGroupExchange && inFlightSpeaker && preservedContent?.trim()) {
     const persisted = S.messages.some(
       (message) =>
         message.role === "assistant" &&
-        message.beat_id === groupBeatId &&
+        message.exchange_id === groupExchangeId &&
         message.speaker_member_id === inFlightSpeaker.member_id,
     );
     if (!persisted) {
@@ -329,14 +329,14 @@ export async function afterStream() {
         id: null,
         parent_id: parent?.id || null,
         speaker_member_id: inFlightSpeaker.member_id,
-        beat_id: groupBeatId,
+        exchange_id: groupExchangeId,
         branch_count: 1,
         branch_index: 0,
         prev_branch_id: null,
         next_branch_id: null,
       });
     }
-  } else if (!wasGroupBeat && preservedContent?.trim()) {
+  } else if (!wasGroupExchange && preservedContent?.trim()) {
     const lastMsg = S.messages[S.messages.length - 1];
     if (!lastMsg || lastMsg.role !== "assistant") {
       S.messages.push({
@@ -365,7 +365,7 @@ export async function afterStream() {
   // proposal card belongs under the finished reply, and the in-place path only
   // rewrites the bubble's body, so a turn that raised one repaints in full.
   const lastMsg = S.messages[S.messages.length - 1];
-  const finalized = !wasGroupBeat && !S.worldProposalArrived && finalizeStreamingDiv(lastMsg);
+  const finalized = !wasGroupExchange && !S.worldProposalArrived && finalizeStreamingDiv(lastMsg);
   S.worldProposalArrived = false;
   S.streamingBodyEl = null;
 
@@ -388,20 +388,20 @@ export async function afterStream() {
   } else {
     renderMessages();
   }
-  S.currentBeatId = null;
+  S.currentExchangeId = null;
   S.currentSpeaker = null;
-  // A plan describes one beat. Keeping it past the beat would leave a stale
+  // A plan describes one exchange. Keeping it past the exchange would leave a stale
   // strip above a finished scene, so it dies with the turn that produced it.
   S.speakingPlan = null;
-  // The override named the speaker for a beat that has now produced replies;
+  // The override named the speaker for an exchange that has now produced replies;
   // anything else (an aborted or failed turn) leaves it in place to retry with.
-  if (wasGroupBeat && S.completedBeatMessageIds.length) consumeSpeakerOverride();
-  S.completedBeatMessageIds = [];
+  if (wasGroupExchange && S.completedExchangeMessageIds.length) consumeSpeakerOverride();
+  S.completedExchangeMessageIds = [];
   renderGroupCast();
-  // The beat may have staged sheet updates. Re-read rather than listening for an
+  // The exchange may have staged sheet updates. Re-read rather than listening for an
   // event: the pass proposes for at most the members that spoke, so this is one
-  // small request per group beat, and only for a scene that opted in.
-  if (wasGroupBeat && S.groupCast?.sheet_updates) refreshSheetProposals().then(renderGroupCast);
+  // small request per group exchange, and only for a scene that opted in.
+  if (wasGroupExchange && S.groupCast?.sheet_updates) refreshSheetProposals().then(renderGroupCast);
   clearInspectedMessage();
   // The active branch moved (new reply or a regenerated sibling), so the notes
   // panel's path-scoped set is stale; refetch it if the user has it open. Clear the
@@ -458,7 +458,7 @@ export async function processSSEStream(resp, container, holder, signal) {
     if (event === "speaking_plan") {
       try {
         const parsed = JSON.parse(data);
-        S.currentBeatId = parsed.beat_id;
+        S.currentExchangeId = parsed.exchange_id;
         S.speakingPlan = Array.isArray(parsed.plan) ? parsed.plan : [];
         // A rest produces no speaker and no bubble; without this the turn would
         // simply end in silence, and the plan rail is gone by then.
@@ -470,7 +470,7 @@ export async function processSSEStream(resp, container, holder, signal) {
     if (event === "speaker_start") {
       try {
         const parsed = JSON.parse(data);
-        S.currentBeatId = parsed.beat_id;
+        S.currentExchangeId = parsed.exchange_id;
         S.currentSpeaker = parsed;
         // The popup is not closed on a handover: it reads S.currentSpeaker on
         // its next tick and follows the floor to this member's own face.
@@ -486,7 +486,7 @@ export async function processSSEStream(resp, container, holder, signal) {
     if (event === "speaker_done") {
       try {
         const parsed = JSON.parse(data);
-        if (parsed.message_id) S.completedBeatMessageIds.push(parsed.message_id);
+        if (parsed.message_id) S.completedExchangeMessageIds.push(parsed.message_id);
         finalizeStreamingDiv({ ...parsed, id: parsed.message_id, role: "assistant" });
         S.streamingBodyEl = null;
         holder.el = null;
@@ -855,7 +855,7 @@ export async function runStreamRequest(
   body,
   { cutoffMsgId = null, beforeRender = null, anchorStream = false, afterDone = null } = {},
 ) {
-  // Latch the pick this beat runs on before the first await: the cast rail is
+  // Latch the pick this exchange runs on before the first await: the cast rail is
   // live during a stream, and a chip clicked while it runs queues someone for
   // the *next* turn — afterStream must not mistake that for a spent override.
   S.consumedSpeakerId = S.pinnedSpeakerId;
@@ -876,8 +876,8 @@ export async function runStreamRequest(
   const ct = $("chat-messages");
   const holder = { el: null };
   if (S.groupCast) {
-    S.currentBeatId = "pending";
-    S.completedBeatMessageIds = [];
+    S.currentExchangeId = "pending";
+    S.completedExchangeMessageIds = [];
   } else {
     holder.el = createStreamingDiv();
     if (!S.hideUntilBaked) ct.appendChild(holder.el);

@@ -67,7 +67,7 @@ def keeps_director_value(field: str, value: Any) -> bool:
 
     An empty value normally means "the model declined this field", so it is
     dropped. The speaking plan is the exception: ``[]`` is the Director's way of
-    saying *nobody answers this beat*, and discarding it would silently fall the
+    saying *nobody answers this exchange*, and discarding it would silently fall the
     group back to round-robin. Only ``None`` reads as declined there — the
     combined call omits the key entirely, the per-fragment loop reads it back as
     ``None``, and both must land on the configured strategy rather than a rest.

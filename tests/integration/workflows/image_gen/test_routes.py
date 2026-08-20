@@ -402,7 +402,7 @@ async def test_a_group_addresses_one_cast_member_s_appearance_at_a_time(client):
 
 
 async def _two_hander(client, *, source, connection="comfy"):
-    """A two-`Load Image` scene: Kael answers, then Aria, in one beat.
+    """A two-`Load Image` scene: Kael answers, then Aria, in one exchange.
 
     Returns the ids the assertions need. Both replies are on the branch, so a test can
     anchor on either and say what the difference is worth.
@@ -422,9 +422,9 @@ async def _two_hander(client, *, source, connection="comfy"):
     members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
     await set_workflow_character_state(aria, "image_gen", {"appearance_prompt": "silver hair"})
     await set_workflow_character_state(kael, "image_gen", {"appearance_prompt": "scarred jaw"})
-    ask, _ = await add_message(conv["id"], "user", "Who goes first?", 0, beat_id="beat-1")
+    ask, _ = await add_message(conv["id"], "user", "Who goes first?", 0, exchange_id="exchange-1")
     first, _ = await add_message(
-        conv["id"], "assistant", "Kael shrugs.", 1, parent_id=ask, speaker_member_id=members[1]["id"], beat_id="beat-1"
+        conv["id"], "assistant", "Kael shrugs.", 1, parent_id=ask, speaker_member_id=members[1]["id"], exchange_id="exchange-1"
     )
     last, _ = await add_message(
         conv["id"],
@@ -433,7 +433,7 @@ async def _two_hander(client, *, source, connection="comfy"):
         2,
         parent_id=first,
         speaker_member_id=members[0]["id"],
-        beat_id="beat-1",
+        exchange_id="exchange-1",
     )
     await set_active_leaf(conv["id"], last)
     await set_workflow_config(
@@ -483,7 +483,7 @@ async def _two_hander(client, *, source, connection="comfy"):
 async def test_a_comfy_graph_feeds_every_input_the_speaker_and_nobody_else(client, monkeypatch):
     """Structural inputs are not interchangeable, so a graph gets one answer in all of
     them -- the character the picture is *of*. ad-chan's face is not uploaded into an
-    IPAdapter slot on the strength of her being in the beat; she is described instead.
+    IPAdapter slot on the strength of her being in the round; she is described instead.
     """
     ids = await _two_hander(client, source="character")
     captured: dict = {}
@@ -517,7 +517,7 @@ async def test_a_comfy_graph_feeds_every_input_the_speaker_and_nobody_else(clien
 
 
 @pytest.mark.asyncio
-async def test_a_cloud_array_carries_one_image_per_person_in_the_beat(client, monkeypatch):
+async def test_a_cloud_array_carries_one_image_per_person_in_the_round(client, monkeypatch):
     """The other shape: a homogeneous array, so the slots are derived from who is in the
     picture. One image each and never the same person twice -- and the prompt is told
     which array position is whom, since a provider handed an array is told nothing.
@@ -551,14 +551,14 @@ async def test_a_cloud_array_carries_one_image_per_person_in_the_beat(client, mo
 
 
 @pytest.mark.asyncio
-async def test_visualizing_the_first_reply_of_a_beat_needs_no_other_speaker(client, monkeypatch):
+async def test_visualizing_the_first_reply_of_a_round_needs_no_other_speaker(client, monkeypatch):
     """A render reads the branch only up to the reply being visualized -- a stated
     invariant of `_history_through`. That used to decide which cast member a slot drew,
-    and a first reply with nobody else in the beat could not fill one at all.
+    and a first reply with nobody else in the round could not fill one at all.
 
     It cannot fail that way any more: the likeness is the speaker's own, and the speaker
     is always there. The cut still shapes the *prompt* -- Kael is not described into the
-    first reply of a beat he has not spoken in yet -- which is the part worth keeping.
+    first reply of a round he has not spoken in yet -- which is the part worth keeping.
     """
     ids = await _two_hander(client, source="character")
     captured: dict = {}

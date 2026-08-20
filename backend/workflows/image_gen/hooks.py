@@ -402,7 +402,7 @@ async def _generate_fresh(
     #   composer -> what the prompt says about the pictures that went with it
     #
     # The analyzer sits *above* the slots rather than inside the compose call so that a
-    # member who spoke in the beat but walked out of the shot never has their face
+    # member who spoke in the round but walked out of the shot never has their face
     # uploaded: an edit model handed a likeness the prompt never mentions draws that
     # person back in. `addressable_subjects` is the join, and it costs no extra call.
     pov, pov_source = await pov_mod.resolve(mode=config["pov_mode"], history=history)

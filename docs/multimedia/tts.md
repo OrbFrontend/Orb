@@ -27,7 +27,7 @@ selector: the voice below it belongs to the selected member, and each member of
 the scene speaks in its own. Switching member reloads the form (Orb asks before
 discarding unsaved edits). A reply is always synthesized with the voice of the
 member who wrote it, whichever one the panel is showing — and each speaker in a
-multi-speaker beat takes over the audio channel as its turn starts.
+multi-speaker exchange takes over the audio channel as its turn starts.
 
 ## How It Works
 

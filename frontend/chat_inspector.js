@@ -619,7 +619,7 @@ let _exprTimer = null;
 let _exprLastCallAt = 0;
 
 // Whose face the popup is showing. A solo chat has exactly one answer for the
-// whole conversation; a group has one per beat, so the popup follows the floor —
+// whole conversation; a group has one per exchange, so the popup follows the floor —
 // the member now streaming, else whoever spoke last. Both are the owner of the
 // text the classifier reads, which is what keeps the mood and the portrait the
 // same character's.
@@ -668,7 +668,7 @@ async function _expressionTick() {
   if (!img) return;
   const charId = expressionCharId();
   if (!charId) return;
-  // The floor changed (a group beat handed off, or a new one started): swap the
+  // The floor changed (a group exchange handed off, or a new one started): swap the
   // portrait before classifying, so a mood is never painted on the wrong face.
   if (charId !== img._exprCharId) {
     await _bindExpressionChar(img, charId);

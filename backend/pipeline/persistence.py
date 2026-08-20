@@ -93,11 +93,11 @@ async def _persist_result(
     user_msg_id: int | None,
     turn_index: int,
     speaker_member_id: str | None = None,
-    beat_id: str | None = None,
+    exchange_id: str | None = None,
     world_source_user_msg_id: int | None = None,
 ) -> tuple[int | None, list[dict], list[dict]]:
     # NOTE: *world_source_user_msg_id* is the user row a World proposal cites, and
-    # it is not always *user_msg_id*. In a group beat the parent of speaker N is
+    # it is not always *user_msg_id*. In a group exchange the parent of speaker N is
     # speaker N-1's reply, and a pinned `/speak` has no user row at all. Every
     # caller states it rather than having this infer "grouped" from another
     # column's nullability.
@@ -136,7 +136,7 @@ async def _persist_result(
             attachments=staged,
             progressive_fields=res.progressive_fields,
             speaker_member_id=speaker_member_id,
-            beat_id=beat_id,
+            exchange_id=exchange_id,
             advance_leaf=True,
         )
         # Row id only known here; no other caller can name it yet, so no lock needed.
@@ -182,7 +182,7 @@ async def _fallback_persist(
     turn_index: int,
     accumulated_text: str,
     speaker_member_id: str | None = None,
-    beat_id: str | None = None,
+    exchange_id: str | None = None,
 ):
     """Best-effort save for a turn aborted before ``_result`` fired.
 
@@ -210,7 +210,7 @@ async def _fallback_persist(
                 turn_index,
                 parent_id=user_msg_id,
                 speaker_member_id=speaker_member_id,
-                beat_id=beat_id,
+                exchange_id=exchange_id,
                 advance_leaf=True,
             )
             logger.info(
@@ -229,7 +229,7 @@ async def _shielded_fallback(
     turn_index: int,
     accumulated_text: str,
     speaker_member_id: str | None = None,
-    beat_id: str | None = None,
+    exchange_id: str | None = None,
 ):
     """Run :func:`_fallback_persist` under ``asyncio.shield``, retrying once on cancellation.
 
@@ -245,7 +245,7 @@ async def _shielded_fallback(
                 turn_index,
                 accumulated_text,
                 speaker_member_id,
-                beat_id,
+                exchange_id,
             )
         )
     except asyncio.CancelledError:
@@ -258,7 +258,7 @@ async def _shielded_fallback(
                 turn_index,
                 accumulated_text,
                 speaker_member_id,
-                beat_id,
+                exchange_id,
             )
         except Exception:
             logger.exception("Fallback persistence retry failed")
@@ -293,7 +293,7 @@ async def _consume_pipeline(
     *,
     extra_on_result=None,
     speaker_member_id: str | None = None,
-    beat_id: str | None = None,
+    exchange_id: str | None = None,
     speaker_name: str = "",
     card_id: str | None = None,
     emit_done: bool = True,
@@ -329,7 +329,7 @@ async def _consume_pipeline(
                     user_msg_id,
                     turn_index,
                     speaker_member_id=speaker_member_id,
-                    beat_id=beat_id,
+                    exchange_id=exchange_id,
                     world_source_user_msg_id=world_source_user_msg_id,
                 )
                 persisted = True
@@ -360,16 +360,16 @@ async def _consume_pipeline(
                 turn_index,
                 accumulated_text,
                 speaker_member_id,
-                beat_id,
+                exchange_id,
             )
         elif extra_on_result:
             await _shielded_log_save(extra_on_result, res, asst_id)
 
-    if beat_id is not None and speaker_member_id is not None:
+    if exchange_id is not None and speaker_member_id is not None:
         yield {
             "event": "speaker_done",
             "data": {
-                "beat_id": beat_id,
+                "exchange_id": exchange_id,
                 "message_id": asst_id,
                 "parent_id": user_msg_id,
                 "turn_index": turn_index,

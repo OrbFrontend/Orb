@@ -4,7 +4,7 @@
 with remote-source browse/randomize/download (``downloader`` imports ``parsing``).
 ``public_profile`` is the one drafter behind both public-profile generate routes;
 ``sheet_update`` is its sibling for the scene-local sheet a member reads about
-itself, proposing a rewrite from a finished beat and applying nothing.
+itself, proposing a rewrite from a finished exchange and applying nothing.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from .sheet_update import (
     SHEET_TOOL_NAME,
     SheetUpdate,
     SheetUpdateUnavailable,
-    build_beat_transcript,
+    build_exchange_transcript,
     propose_sheet_update,
 )
 
@@ -51,6 +51,6 @@ __all__ = [
     "SHEET_TOOL_NAME",
     "SheetUpdate",
     "SheetUpdateUnavailable",
-    "build_beat_transcript",
+    "build_exchange_transcript",
     "propose_sheet_update",
 ]

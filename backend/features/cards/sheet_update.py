@@ -3,7 +3,7 @@
 A character card asserts turn one forever. A scene does not: hair is cut, a coat
 burns, a sword breaks. ``group_members.card_sheet_override`` is where a scene
 records that (see ``database.queries.group_members._private_sheet``); this module
-is what drafts the record from a finished beat.
+is what drafts the record from a finished exchange.
 
 The sibling of :mod:`.public_profile`, and deliberately shaped like it — same
 forced-call posture, same hardcoded summarization hyperparameters, same
@@ -13,7 +13,7 @@ rule. Two things differ, and both follow from what a sheet *is*:
 **One call per member, never batched.** The same rule as the public-profile
 drafter and for a stronger reason: a sheet is the member's own private material
 under Private perspective, so member B's sheet entering member A's call would
-write B's secret into a string A reads. The beat's prose is shared and goes into
+write B's secret into a string A reads. The exchange's prose is shared and goes into
 every call; the sheets do not. ``test_a_sheet_update_call_carries_only_its_own_
 members_sheet`` is the executable form of that rule.
 
@@ -62,13 +62,13 @@ SHEET_SYSTEM_PROMPT = (
 
 # Deliberately not registered in ``inference.tool_registry.TOOLS``, for the same
 # reason ``DRAFT_PROFILE_TOOL`` is not: that module partitions its tools by turn
-# phase, and this call is bookkeeping about a finished beat rather than a phase
+# phase, and this call is bookkeeping about a finished exchange rather than a phase
 # of one.
 UPDATE_SHEET_TOOL = {
     "type": "function",
     "function": {
         "name": SHEET_TOOL_NAME,
-        "description": "Report whether a finished beat durably changed one cast member, and rewrite their sheet if so.",
+        "description": "Report whether a finished exchange durably changed one cast member, and rewrite their sheet if so.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -122,7 +122,7 @@ def _sheet_ceiling(base: str) -> int:
 
 
 # One short line for the review row. Longer than this is the model narrating the
-# beat instead of naming the change.
+# exchange instead of naming the change.
 MAX_SUMMARY_WORDS = 25
 
 
@@ -185,8 +185,8 @@ def _clean_summary(value: Any) -> str:
     return " ".join(words[:MAX_SUMMARY_WORDS]) if len(words) > MAX_SUMMARY_WORDS else text
 
 
-def build_beat_transcript(lines: Sequence[tuple[str, str]]) -> str:
-    """The beat as ``Speaker: text``, in order — the only evidence the call gets.
+def build_exchange_transcript(lines: Sequence[tuple[str, str]]) -> str:
+    """The exchange as ``Speaker: text``, in order — the only evidence the call gets.
 
     Shared material by construction: every member's call reads the same
     transcript, which is what makes it safe to include while the sheets stay
@@ -196,12 +196,12 @@ def build_beat_transcript(lines: Sequence[tuple[str, str]]) -> str:
 
 
 def build_update_message(*, member_name: str, sheet: str, transcript: str) -> str:
-    """One member's update context: their sheet, the beat, and nothing else."""
+    """One member's update context: their sheet, the exchange, and nothing else."""
     return (
         f"Character: {member_name}\n\n"
         f'Their current reference sheet:\n"""\n{sheet.strip()}\n"""\n\n'
-        f'The beat that was just played:\n"""\n{transcript.strip()}\n"""\n\n'
-        f"Did this beat durably change {member_name}? If so, return their sheet with that change written in "
+        f'The exchange that was just played:\n"""\n{transcript.strip()}\n"""\n\n'
+        f"Did this exchange durably change {member_name}? If so, return their sheet with that change written in "
         "and everything else carried forward word for word."
     )
 

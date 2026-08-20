@@ -296,7 +296,7 @@ def addressable_subjects(subjects: Sequence[Subject], analysis: Mapping[str, Any
     failure on every ComfyUI graph built around a `LoadImage`.
 
     **The tail is filtered**, because that is the part a group added and the part that
-    can go wrong. A member who spoke in the beat but whom the analyzer left out of frame
+    can go wrong. A member who spoke in the round but whom the analyzer left out of frame
     contributes nothing to the prompt -- `_visible` already drops their sheet -- so
     uploading their face anyway sends the image model a person the words never mention.
 

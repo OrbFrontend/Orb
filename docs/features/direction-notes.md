@@ -24,7 +24,7 @@ Each direction-note fragment chooses its own timing, set by the **When recorded*
 
 A turn may run both — one fragment recording before the Writer, another at the end.
 
-In a [group chat](group-chats.md) both placements are per **beat**, not per speaker: the Director sets one direction for the whole beat, so the before-writer step runs once beside it and its notes anchor to the beat's first reply. The end-of-turn step runs once too, after the last speaker, where it can see how the exchange landed.
+In a [group chat](group-chats.md) both placements are per **exchange**, not per speaker: the Director sets one direction for the whole exchange, so the before-writer step runs once beside it and its notes anchor to the exchange's first reply. The end-of-turn step runs once too, after the last speaker, where it can see how the exchange landed.
 
 When the Director's per-fragment mode (each fragment filled in its own LLM call) is on, each direction-note category is recorded in its own call too, so the model's attention isn't split across categories.
 

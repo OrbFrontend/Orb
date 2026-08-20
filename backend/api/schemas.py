@@ -660,7 +660,7 @@ class EditMessage(BaseModel):
 class RegenerateMsg(BaseModel):
     enable_agent: bool = True
     # Shared with `/continue`, which is the one route here that starts a *new*
-    # beat and so may pin its speaker. `/regenerate` and `/super_regenerate`
+    # exchange and so may pin its speaker. `/regenerate` and `/super_regenerate`
     # ignore it: they replace an existing assistant row, whose speaker is
     # already recorded on it.
     speaker_member_id: str | None = None

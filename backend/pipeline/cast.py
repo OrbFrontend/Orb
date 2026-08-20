@@ -1,3 +1,13 @@
+"""cast.py -- who speaks: speaking-plan validation and round-robin policy.
+
+**"Beat" here is the Director's one-line note for a single speaker** -- a story
+beat, the screenwriting sense of the word, and the only place in group chats that
+still uses it. The turn unit a whole group request produces is an *exchange*
+(``messages.exchange_id``); the wider unit the sheet pass and the image-gen
+subject order read -- the user's last message and every reply since -- is a
+*round*. Three units, three words, none of them interchangeable.
+"""
+
 from __future__ import annotations
 
 import re

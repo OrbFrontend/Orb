@@ -323,7 +323,7 @@ If the scene holds more characters than the provider carries, the image says so
 under **Render details**: it names who was described rather than pictured, and
 whether the room ran out at the provider's ceiling or at the style's setting.
 
-Who is in the running is everyone who has spoken in the same exchange - your last
+Who is in the running is everyone who has spoken in the same round - your last
 message and every reply since - **up to and including the message you are
 visualizing**, in cast order. A member who is in the scene but silent this round is
 not sent. Orb never composes a picture from replies that come after the one you

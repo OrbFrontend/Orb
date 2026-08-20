@@ -118,7 +118,7 @@ def test_the_sheet_framing_never_ships_without_a_sheet_to_frame():
 
 
 def test_private_prefix_ignores_the_speaker_entirely():
-    """The public cast is the same for everyone, so one base serves the beat."""
+    """The public cast is the same for everyone, so one base serves the exchange."""
     assert _system("private", ARIA) == _system("private", KAEL) == _system("private", None)
 
 

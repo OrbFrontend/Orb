@@ -17,16 +17,16 @@ Order is the contract:
   message (`_resolve_workflow_character`), which is what a solo chat has one of, what
   the `character` reference source means, and **the only subject a likeness is ever
   sent for**: a character has one reference image and a render sends one picture.
-* **Subject 1..n are the rest of the cast that has spoken in this exchange so far**,
+* **Subject 1..n are the rest of the cast that has spoken in this round so far**,
   in roster order. Whether each of them is *pictured* as well as described is the render
   target's to cap: a homogeneous cloud array carries one likeness per subject, a
   ComfyUI graph's structural inputs all take the primary's.
 
-Scoping the tail to the *exchange* rather than the whole roster is deliberate: a
+Scoping the tail to the *round* rather than the whole roster is deliberate: a
 six-member scene where two people traded lines should not have four characters
-described into a shot the scene analyzer then leaves them out of. An exchange is one
-round -- the user's last message and every reply since -- which is what the picture is
-of; see `_exchange_speakers` for why it is not `messages.beat_id`.
+described into a shot the scene analyzer then leaves them out of. A round is the
+user's last message and every reply since -- which is what the picture is of; see
+`_round_speakers` for why it is not `messages.exchange_id`.
 
 **"So far" is the whole of it.** The history handed in is already cut at the anchor
 (`hooks._history_through`), and that cut is a stated invariant of this workflow, not
@@ -71,17 +71,17 @@ class Subject:
     profile: Mapping[str, Any] = field(default_factory=dict)
 
 
-def _exchange_speakers(history: Sequence[Mapping[str, Any]], anchor_id: int) -> frozenset[str]:
-    """The member ids that have spoken in the anchor's exchange, as a set.
+def _round_speakers(history: Sequence[Mapping[str, Any]], anchor_id: int) -> frozenset[str]:
+    """The member ids that have spoken in the anchor's round, as a set.
 
-    An **exchange** is one round: the user's most recent message and every reply that has
-    followed it, up to and including the one being visualized. That is what the picture
-    is of, and what this workflow has always documented.
+    A **round** is the user's most recent message and every reply that has followed it,
+    up to and including the one being visualized. That is what the picture is of, and
+    what this workflow has always documented.
 
-    Deliberately *not* `messages.beat_id`. A beat is request-scoped -- one call of the
+    Deliberately *not* `messages.exchange_id`. An exchange is request-scoped -- one call of the
     group driver -- which matches a round only when the driver answers for everybody at
     once. Under `manual` turn mode the user gives one member the floor per click, so
-    every reply is its own beat and the cast was permanently a party of one: a picture of
+    every reply is its own exchange and the cast was permanently a party of one: a picture of
     two characters trading lines sent one likeness and described one person. The round is
     the honest unit, and it costs no query either -- `role` is on every history row.
 
@@ -157,7 +157,7 @@ async def resolve(
 
     **The camera does not change who is in the scene.** First-person looks through the
     *user's* eyes, and the user is a persona rather than a cast member, so no subject is
-    ever behind the lens -- every character in the exchange is in front of it. This used to
+    ever behind the lens -- every character in the round is in front of it. This used to
     truncate to the primary under first-person, which was a solo chat's arithmetic (one
     character, so one subject) applied to a group, and it silently dropped everyone else
     from both the picture and the prompt. Keeping the viewer out of frame is
@@ -188,7 +188,7 @@ async def resolve(
             profile=profile,
         )
     ]
-    spoke = _exchange_speakers(history, anchor_id)
+    spoke = _round_speakers(history, anchor_id)
     for member in cast.members:
         if member.member_id in ("", subjects[0].member_id) or member.member_id not in spoke:
             continue

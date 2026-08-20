@@ -50,7 +50,7 @@ def _history_attachments(attachments: Sequence[Mapping[str, Any]]) -> list[dict]
 
     The wire format (``mime``/``b64``) reaches a turn straight from the browser,
     while ``format_message_with_attachments`` reads history rows through the DB
-    names. A later speaker in a beat sees the user's image only as part of the
+    names. A later speaker in an exchange sees the user's image only as part of the
     replayed history — not as its own trailing attachment — so the two spellings
     have to meet here or the picture silently stops at the first speaker.
     """
@@ -66,18 +66,18 @@ def _history_attachments(attachments: Sequence[Mapping[str, Any]]) -> list[dict]
 # The largest round any strategy can legitimately schedule (``group_max_speakers``
 # is capped at 8). A chip-click scene can chain requests without ever inserting a
 # user row, so the lookback needs a ceiling that is not "the whole conversation".
-_EXCHANGE_MAX_REPLIES = 8
+_ROUND_MAX_REPLIES = 8
 
 
-def _exchange_prefix(
+def _round_prefix(
     history: Sequence[Mapping[str, Any]],
     names: Mapping[str, str],
 ) -> tuple[str, list[tuple[str, str]]]:
     """The round already on the branch: the user's last message and every reply since.
 
-    A beat is *request*-scoped. Under `manual` — and for any cast-chip click on a
+    An exchange is *request*-scoped. Under `manual` — and for any cast-chip click on a
     resting scene — one round is several requests, so this request's own replies
-    are not the round. The sheet pass would otherwise be asked "did this beat
+    are not the round. The sheet pass would otherwise be asked "did this exchange
     durably change Kael?" with the line that changed him in a different request,
     and on `handle_speak` with no user message at all. This is the same round
     ``workflows/image_gen/subjects.py`` reads, for the same reason, and it is
@@ -94,25 +94,25 @@ def _exchange_prefix(
         content = str(row.get("content") or "")
         if content.strip():
             lines.append((names.get(str(row.get("speaker_member_id") or "")) or "Speaker", content))
-        if len(lines) >= _EXCHANGE_MAX_REPLIES:
+        if len(lines) >= _ROUND_MAX_REPLIES:
             break
     lines.reverse()
     return user_message, lines
 
 
 def _group_pin_error(ctx: PipelineContext, pinned_speaker_id: str | None) -> str | None:
-    """A pin that names nobody is an error. A beat with no pin at all is not.
+    """A pin that names nobody is an error. An exchange with no pin at all is not.
 
     Called twice on the paths that persist a user row first (`handle_turn`,
     `handle_fork_edit`): once before the write, so a bad pin cannot leave the
     user's message stranded with only an error card under it, and once inside
-    `_generate_group_beat`, which is the check `handle_speak` and the regenerate
+    `_generate_group_exchange`, which is the check `handle_speak` and the regenerate
     family rely on. Cheap and pure, so the duplicate costs nothing.
 
     ``manual`` used to be rejected here for arriving without a speaker, which
     made the composer a dead end: the user's message was already persisted by
     the time this ran, so the turn could only end in an error card. Nobody
-    picked is a *rest* instead — see ``_generate_group_beat``.
+    picked is a *rest* instead — see ``_generate_group_exchange``.
     """
     if not ctx.cast.grouped:
         return None
@@ -289,7 +289,7 @@ async def _generate_reply(
         yield event
 
 
-async def _generate_group_beat(
+async def _generate_group_exchange(
     ctx: PipelineContext,
     conversation_id: str,
     *,
@@ -298,7 +298,7 @@ async def _generate_group_beat(
     attachments: Sequence[Mapping[str, Any]],
     parent_message_id: int | None,
     first_turn_index: int,
-    beat_id: str,
+    exchange_id: str,
     pinned_speaker_id: str | None,
     append_user_to_history: bool = True,
     source_user_message_id: int | None = None,
@@ -318,7 +318,7 @@ async def _generate_group_beat(
     # through to plan resolution because a rest that has already been decided
     # must not cost a Director call, and `_prepare_turn` would run one.
     if not pinned_speaker_id and ctx.conv.get("group_turn_mode") == "manual":
-        yield {"event": "speaking_plan", "data": {"beat_id": beat_id, "plan": []}}
+        yield {"event": "speaking_plan", "data": {"exchange_id": exchange_id, "plan": []}}
         yield {"event": "done"}
         return
 
@@ -374,10 +374,10 @@ async def _generate_group_beat(
         return
 
     # The pre-writer note step reflects on the scene direction the Director just
-    # set, and in a group that direction is set once for the whole beat — so the
+    # set, and in a group that direction is set once for the whole exchange — so the
     # step belongs here beside it, not inside a speaker's pipeline (which runs
     # with the Director already done and would repeat it per reply). Its notes
-    # ride the beat's first reply, the row `_consume_pipeline` anchors them to.
+    # ride the exchange's first reply, the row `_consume_pipeline` anchors them to.
     pre_writer_notes = [df for df in direction_note_fragments if df.get("direction_note_timing") == "pre_writer"]
     if direction_note_recording_active(settings, pre_writer_notes, agent_on=cfg.agent_on) and cfg.enabled_tools.get(
         "direct_scene"
@@ -419,7 +419,7 @@ async def _generate_group_beat(
     # Only when this request brought no user message of its own: a `/send` starts a
     # new round, so looking back would drag the previous one into this one's evidence.
     prior_user, prior_lines = (
-        ("", []) if user_message else _exchange_prefix(history, {mid: member.name for mid, member in cast_by_id.items()})
+        ("", []) if user_message else _round_prefix(history, {mid: member.name for mid, member in cast_by_id.items()})
     )
     public_plan = [
         {
@@ -430,7 +430,7 @@ async def _generate_group_beat(
         }
         for row, beat in plan_rows
     ]
-    yield {"event": "speaking_plan", "data": {"beat_id": beat_id, "plan": public_plan}}
+    yield {"event": "speaking_plan", "data": {"exchange_id": exchange_id, "plan": public_plan}}
 
     grown_history = list(history)
     if append_user_to_history and parent_message_id is not None and user_message:
@@ -442,10 +442,10 @@ async def _generate_group_beat(
                 "turn_index": first_turn_index - 1,
                 "parent_id": history[-1]["id"] if history else None,
                 "speaker_member_id": None,
-                "beat_id": beat_id,
+                "exchange_id": exchange_id,
                 # Only the first speaker receives the uploads as its own trailing
                 # attachments; every later one has to read them off this row, or
-                # a beat would answer an image only one member ever saw.
+                # an exchange would answer an image only one member ever saw.
                 "user_attachments": _history_attachments(attachments),
             }
         )
@@ -456,7 +456,7 @@ async def _generate_group_beat(
     # correctness bug in that mode, not merely a cache miss.
     speaker_scoped = prefix_is_speaker_scoped(ctx.cast.context_mode)
     current_parent = parent_message_id
-    # What the beat has actually said so far, in order: (member id, name, reply).
+    # What the exchange has actually said so far, in order: (member id, name, reply).
     # The sheet stage is gated on this rather than on the plan -- a planned
     # speaker that never persisted a reply left no prose, so there is nothing
     # about it to record and nothing to bill a call for.
@@ -471,7 +471,7 @@ async def _generate_group_beat(
         yield {
             "event": "speaker_start",
             "data": {
-                "beat_id": beat_id,
+                "exchange_id": exchange_id,
                 "member_id": speaker.member_id,
                 "card_id": speaker.card_id,
                 "name": speaker.name,
@@ -522,13 +522,13 @@ async def _generate_group_beat(
             schema_overrides=setup.schema_overrides,
             history=pipeline_history,
             world_proposal=setup.world_proposal if index == len(plan_rows) - 1 else None,
-            # Once per beat, on the last speaker: the pass reads the whole beat,
+            # Once per exchange, on the last speaker: the pass reads the whole exchange,
             # and running it per speaker would bill the same members again for
             # the same scene with one more line in it.
             sheet_update=(
                 SheetUpdateTurn(
                     conversation_id=conversation_id,
-                    beat_id=beat_id,
+                    exchange_id=exchange_id,
                     # This request's speakers, not the round's: `spoke` is who to
                     # propose *about*, and an earlier request already billed a call
                     # for the members it ran. Only the evidence below widens.
@@ -553,7 +553,7 @@ async def _generate_group_beat(
             context_mode=ctx.cast.context_mode,
             run_director=False,
             director_seed=shared,
-            run_beat_final=index == len(plan_rows) - 1,
+            run_exchange_final=index == len(plan_rows) - 1,
         )
         persisted_id: int | None = None
         persisted_content = ""
@@ -565,7 +565,7 @@ async def _generate_group_beat(
             turn_index,
             extra_on_result=_conversation_log_writer(conversation_id, turn_index),
             speaker_member_id=speaker.member_id,
-            beat_id=beat_id,
+            exchange_id=exchange_id,
             speaker_name=speaker.name,
             card_id=speaker.card_id,
             emit_done=False,
@@ -578,7 +578,7 @@ async def _generate_group_beat(
         if persisted_id is None:
             break
         spoke.append((speaker.member_id, speaker.name, persisted_content))
-        # The beat's pre-writer notes have now landed on its first reply. They are
+        # The exchange's pre-writer notes have now landed on its first reply. They are
         # one recording, not one per speaker, so the seed stops carrying them
         # before the next speaker copies (and re-persists) the same rows.
         shared.direction_notes = []
@@ -590,7 +590,7 @@ async def _generate_group_beat(
                 "turn_index": turn_index,
                 "parent_id": current_parent,
                 "speaker_member_id": speaker.member_id,
-                "beat_id": beat_id,
+                "exchange_id": exchange_id,
             }
         )
         current_parent = persisted_id
@@ -651,7 +651,7 @@ async def handle_turn(
         ctx.director["progressive_fields"] = progressive.branch_baseline(messages)
         await _load_direction_notes(ctx, conversation_id, messages)
 
-        beat_id: str | None = None
+        exchange_id: str | None = None
         if not skip_user_persist:
             # Normalize frontend attachment format to DB format before persisting.
             db_attachments = []
@@ -664,7 +664,7 @@ async def handle_turn(
                         "size": att.get("size"),
                     }
                 )
-            beat_id = str(uuid.uuid4()) if ctx.cast.grouped else None
+            exchange_id = str(uuid.uuid4()) if ctx.cast.grouped else None
             user_msg_id, _ = await db.add_message(
                 conversation_id,
                 "user",
@@ -672,7 +672,7 @@ async def handle_turn(
                 next_turn,
                 parent_id=user_parent_id,
                 attachments=db_attachments,
-                beat_id=beat_id,
+                exchange_id=exchange_id,
                 advance_leaf=True,
             )
             # content carries the macro-resolved text so the frontend can sync
@@ -683,9 +683,9 @@ async def handle_turn(
 
         if ctx.cast.grouped:
             if skip_user_persist:
-                beat_id = str(messages[-1].get("beat_id") or uuid.uuid4())
-            assert beat_id is not None
-            async for event in _generate_group_beat(
+                exchange_id = str(messages[-1].get("exchange_id") or uuid.uuid4())
+            assert exchange_id is not None
+            async for event in _generate_group_exchange(
                 ctx,
                 conversation_id,
                 history=history,
@@ -693,7 +693,7 @@ async def handle_turn(
                 attachments=attachments,
                 parent_message_id=user_msg_id,
                 first_turn_index=asst_turn,
-                beat_id=beat_id,
+                exchange_id=exchange_id,
                 pinned_speaker_id=speaker_member_id,
                 source_user_message_id=user_msg_id,
             ):
@@ -725,7 +725,7 @@ async def handle_speak(
     speaker_member_id: str,
     abort_token: AbortToken | None = None,
 ) -> AsyncIterator[dict]:
-    """Generate a pinned group beat without inserting a synthetic user row."""
+    """Generate a pinned group exchange without inserting a synthetic user row."""
 
     async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
         if not ctx.cast.grouped:
@@ -735,7 +735,7 @@ async def handle_speak(
         await _load_direction_notes(ctx, conversation_id, messages)
         ctx.director["progressive_fields"] = progressive.branch_baseline(messages)
         next_turn = (messages[-1]["turn_index"] + 1) if messages else 0
-        async for event in _generate_group_beat(
+        async for event in _generate_group_exchange(
             ctx,
             conversation_id,
             history=messages,
@@ -743,7 +743,7 @@ async def handle_speak(
             attachments=[],
             parent_message_id=ctx.conv.get("active_leaf_id"),
             first_turn_index=next_turn,
-            beat_id=str(uuid.uuid4()),
+            exchange_id=str(uuid.uuid4()),
             pinned_speaker_id=speaker_member_id,
             source_user_message_id=None,
         ):
@@ -799,7 +799,7 @@ async def handle_fork_edit(
         # Carry original attachments onto the new sibling.
         carried_atts = await db.get_user_attachments_for_message(user_msg_id)
 
-        beat_id = str(uuid.uuid4()) if ctx.cast.grouped else None
+        exchange_id = str(uuid.uuid4()) if ctx.cast.grouped else None
         new_user_id, _ = await db.add_message(
             conversation_id,
             "user",
@@ -807,14 +807,14 @@ async def handle_fork_edit(
             turn_index,
             parent_id=parent_id,
             attachments=carried_atts,
-            beat_id=beat_id,
+            exchange_id=exchange_id,
             advance_leaf=True,
         )
         yield {"event": "user_message_created", "data": {"id": new_user_id, "content": new_content}}
 
         if ctx.cast.grouped:
-            assert beat_id is not None
-            async for event in _generate_group_beat(
+            assert exchange_id is not None
+            async for event in _generate_group_exchange(
                 ctx,
                 conversation_id,
                 history=history,
@@ -822,7 +822,7 @@ async def handle_fork_edit(
                 attachments=carried_atts,
                 parent_message_id=new_user_id,
                 first_turn_index=asst_turn,
-                beat_id=beat_id,
+                exchange_id=exchange_id,
                 pinned_speaker_id=speaker_member_id,
                 source_user_message_id=new_user_id,
             ):
@@ -883,7 +883,7 @@ async def handle_regenerate(
                 if user_msg.get("role") == "user"
                 else next((m.get("id") for m in reversed(history) if m.get("role") == "user"), None)
             )
-            async for event in _generate_group_beat(
+            async for event in _generate_group_exchange(
                 ctx,
                 conversation_id,
                 history=history,
@@ -891,7 +891,7 @@ async def handle_regenerate(
                 attachments=attachments,
                 parent_message_id=user_msg_id,
                 first_turn_index=target["turn_index"],
-                beat_id=str(target.get("beat_id") or uuid.uuid4()),
+                exchange_id=str(target.get("exchange_id") or uuid.uuid4()),
                 pinned_speaker_id=str(speaker_id),
                 source_user_message_id=source_user_id,
             ):
@@ -970,7 +970,7 @@ async def _regenerate_with_steering(
                 yield {"event": "error", "data": "Target has no group speaker identity"}
                 return
             source_user_id = next((m.get("id") for m in reversed(extended_history) if m.get("role") == "user"), None)
-            async for event in _generate_group_beat(
+            async for event in _generate_group_exchange(
                 ctx,
                 conversation_id,
                 history=extended_history,
@@ -978,10 +978,10 @@ async def _regenerate_with_steering(
                 attachments=attachments,
                 parent_message_id=user_msg_id,
                 first_turn_index=target["turn_index"],
-                # The target's own beat, as `handle_regenerate` does: this is a
+                # The target's own exchange, as `handle_regenerate` does: this is a
                 # sibling at the same turn index under the same parent, so it
-                # occupies the same slot in the beat it is replacing.
-                beat_id=str(target.get("beat_id") or uuid.uuid4()),
+                # occupies the same slot in the exchange it is replacing.
+                exchange_id=str(target.get("exchange_id") or uuid.uuid4()),
                 pinned_speaker_id=str(speaker_id),
                 append_user_to_history=False,
                 source_user_message_id=source_user_id,

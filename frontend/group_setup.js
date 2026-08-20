@@ -119,13 +119,13 @@ function syncMaxRepliesRow(selectId, rowId) {
 // Sheet updates are a Private-perspective instrument, for the same reason the
 // public-profile override is one: Private is the only mode that sends a member's
 // own sheet in the trailing message, *after* the history, so rewriting it every
-// beat costs no prefix rebuild. Shared and Swap park that same sheet in the
-// cached body ahead of the history, where a per-beat rewrite bills the whole
+// exchange costs no prefix rebuild. Shared and Swap park that same sheet in the
+// cached body ahead of the history, where a per-exchange rewrite bills the whole
 // prefix again — and the blurb's "goes in the tail" would be false besides. So
 // the row goes away with the mode rather than offering a setting that quietly
 // fights the cache. Hidden, not disabled: unlike the override textarea there is
 // no user text here to silently drop, and `save` writes false while it is out of
-// sight, so nobody is billed per beat for a box they cannot see.
+// sight, so nobody is billed per exchange for a box they cannot see.
 function syncSheetUpdatesRow(selectId, rowId) {
   const row = $(rowId);
   if (row) row.hidden = $(selectId)?.value !== "private";
@@ -253,8 +253,8 @@ function showGroupSettings() {
     <div class="field"><label for="group-settings-context">Mode</label>
       <select id="group-settings-context">${contextModeOptions(S.groupCast.context_mode)}</select></div>
     <div class="field" id="group-settings-sheet-row"><label class="modal-checkbox-label"><input type="checkbox" id="group-settings-sheet-updates"${S.groupCast.sheet_updates ? " checked" : ""}> Propose sheet updates after each reply</label>
-      <p class="modal-hint">A character card describes turn one forever, so a long scene drifts away from it — hair cut, coat burned, arm in a sling. After each beat, each member who spoke is read against the scene and offered a rewritten sheet, which you apply or dismiss in Manage cast. Nothing is written automatically and the character card is never touched.</p>
-      <p class="modal-hint">Costs one extra model call per member who spoke, per beat. Offered under Private perspective only: it is the one mode that reads a member's sheet after the history, where keeping it current costs no prompt-cache rebuild.</p></div>
+      <p class="modal-hint">A character card describes turn one forever, so a long scene drifts away from it — hair cut, coat burned, arm in a sling. After each exchange, each member who spoke is read against the scene and offered a rewritten sheet, which you apply or dismiss in Manage cast. Nothing is written automatically and the character card is never touched.</p>
+      <p class="modal-hint">Costs one extra model call per member who spoke, per exchange. Offered under Private perspective only: it is the one mode that reads a member's sheet after the history, where keeping it current costs no prompt-cache rebuild.</p></div>
     <h3 class="modal-section">Reply behavior</h3>
     <div class="field"><label for="group-settings-mode">Mode</label>
       <select id="group-settings-mode">${modeOptions(S.groupCast.turn_mode)}</select></div>
@@ -292,7 +292,7 @@ function showGroupSettings() {
         group_context_mode: $("group-settings-context").value,
         // A mode change is the same click as the save, so the box is read
         // through the mode it is being saved under: leaving Private turns the
-        // per-beat pass off rather than leaving it billing out of sight.
+        // per-exchange pass off rather than leaving it billing out of sight.
         group_sheet_updates:
           $("group-settings-context").value === "private" && $("group-settings-sheet-updates").checked,
         character_scenario: $("group-settings-scenario").value.trim(),
@@ -827,8 +827,8 @@ export function renderGroupCast() {
 
 // A speaker override is a one-shot instruction outside `manual` mode: it names
 // who replies next, then gets out of the way so the configured strategy resumes.
-// Only the pick this beat actually consumed is cleared — a chip clicked *during*
-// the beat queued someone for the next one and must survive it.
+// Only the pick this exchange actually consumed is cleared — a chip clicked *during*
+// the exchange queued someone for the next one and must survive it.
 export function consumeSpeakerOverride() {
   if (!S.groupCast || !overrideIsOneShot()) return;
   if (!S.pinnedSpeakerId || S.pinnedSpeakerId !== S.consumedSpeakerId) return;
@@ -947,7 +947,7 @@ async function convertToGroup() {
 
 // A cast chip is the whole reply control now that the strategy line is gone.
 // On a resting scene the click hands the member the floor immediately; while a
-// beat runs or a draft waits to be sent it only names them as the next speaker,
+// exchange runs or a draft waits to be sent it only names them as the next speaker,
 // and clicking whoever is already named there takes the pick back.
 //
 // The pin is set on the speak path too, not just the queue path: it is what the
@@ -994,7 +994,7 @@ export function initGroupSetup() {
       return;
     }
     // Mid-stream clicks are allowed now — they queue rather than speak, which is
-    // the one thing a user watching a beat run actually wants to do.
+    // the one thing a user watching an exchange run actually wants to do.
     const button = event.target.closest("[data-cast-member-id]");
     if (!button || button.disabled) return;
     onCastChipClick(button.dataset.castMemberId);

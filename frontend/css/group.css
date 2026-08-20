@@ -104,7 +104,7 @@
   border-color: var(--accent-dim);
 }
 
-/* ── Speaking plan (multi-speaker beats only) ── */
+/* ── Speaking plan (multi-speaker exchanges only) ── */
 .group-speaking-plan {
   display: flex;
   align-items: center;

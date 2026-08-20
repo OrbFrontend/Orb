@@ -167,7 +167,7 @@ async def test_the_spotlight_counts_a_group_member_and_a_solo_character_alike(cl
     twice the play.
 
     Vela out-writes Nova three replies to two. Under the old asymmetry Nova's
-    four active-path rows beat Vela's three and she took the spotlight anyway.
+    four active-path rows exchange Vela's three and she took the spotlight anyway.
     """
     solo = str(uuid.uuid4())
     await dbmod.create_conversation(solo, "Nova chat", "Nova", "")

@@ -46,6 +46,6 @@ Click the character's avatar in the chat header to open the popup. While it's op
 
 ## In a group chat
 
-Click the scene's 👥 avatar in the header. The popup then **follows whoever has the floor**: the member currently streaming a reply, or the one who spoke last when the scene is resting. Hand the floor to someone else and the portrait switches with it, mid-beat included — so a multi-speaker beat plays out as one face after another, each reacting to its own words. The header's halo appears when *any* member of the cast has a pack, and a member without one shows their plain avatar.
+Click the scene's 👥 avatar in the header. The popup then **follows whoever has the floor**: the member currently streaming a reply, or the one who spoke last when the scene is resting. Hand the floor to someone else and the portrait switches with it, mid-exchange included — so a multi-speaker exchange plays out as one face after another, each reacting to its own words. The header's halo appears when *any* member of the cast has a pack, and a member without one shows their plain avatar.
 
 ![Screenshot placeholder: expressions popup open in chat](../assets/screenshots/expressions-popup.png)

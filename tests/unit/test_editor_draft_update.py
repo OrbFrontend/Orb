@@ -129,7 +129,7 @@ async def test_chat_path_emits_draft_update_per_iteration():
 async def test_null_rewritten_text_stops_the_loop():
     # `"rewritten_text": null` is the model declining the rewrite. The default on
     # the .get() only covers an absent key, so a null used to reach .strip() and
-    # abort the whole turn -- in a group beat, mid-beat. It must read as an empty
+    # abort the whole turn -- in a group exchange, mid-exchange. It must read as an empty
     # rewrite and stop the loop with the draft intact.
     client = LLMClient("http://localhost:9999")
 

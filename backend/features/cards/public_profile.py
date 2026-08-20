@@ -18,7 +18,7 @@ drain and one output contract; only the framing and the message differ.
 **Durable facts only.** A profile is rendered into the shared, cached body of
 every member's prompt (``inference/group_context._render_public_cast``), so
 anything volatile it asserts keeps asserting turn one for the life of the
-scene — a coat that burned in beat three, hair cut in beat nine. Stripping
+scene — a coat that burned in exchange three, hair cut in exchange nine. Stripping
 attire, gear and injuries out of it is what lets that body be written once and
 never revisited: the transcript is already the record of what changed, and the
 speaker's own sheet rides the uncached tail where it is free to update. The

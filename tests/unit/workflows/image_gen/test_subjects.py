@@ -88,7 +88,7 @@ async def test_no_primary_means_no_subjects(_scene):
 
 
 @pytest.mark.asyncio
-async def test_the_tail_is_the_exchange_and_nothing_wider(_scene):
+async def test_the_tail_is_the_round_and_nothing_wider(_scene):
     """Roster order, scoped to who actually spoke in this round.
 
     The bound matters: sending a likeness for every member of a six-person scene
@@ -127,7 +127,7 @@ async def test_a_round_is_bounded_by_the_user_message_that_opened_it(_scene):
 async def test_one_reply_per_click_is_still_one_round(_scene):
     """The regression this scoping exists to fix. Under `manual` turn mode the user
     gives one member the floor per click, so every reply is its own request-scoped
-    `beat_id`. Scoping the cast to a beat made it permanently a party of one -- a scene
+    `exchange_id`. Scoping the cast to an exchange made it permanently a party of one -- a scene
     of two characters trading lines sent one likeness and described one person, however
     many replies were on screen."""
     _scene([_member("m1", "Iris", "card-a"), _member("m2", "Ashley", "card-b")])
@@ -142,7 +142,7 @@ async def test_one_reply_per_click_is_still_one_round(_scene):
 @pytest.mark.asyncio
 async def test_the_camera_does_not_change_who_is_in_the_scene(_scene):
     """First-person looks through the *user's* eyes, and the user is a persona rather
-    than a cast member -- so nobody is behind the lens and everyone in the beat is in
+    than a cast member -- so nobody is behind the lens and everyone in the round is in
     front of it.
 
     This used to truncate to the primary under first-person, which was a solo chat's
@@ -179,8 +179,8 @@ async def test_a_removed_speaker_still_leads_under_the_card_name(_scene):
 
 
 @pytest.mark.asyncio
-async def test_the_tail_stops_at_the_anchor_not_at_the_end_of_the_beat(_scene):
-    """Scoped to the beat *so far*, because that is all the render may read.
+async def test_the_tail_stops_at_the_anchor_not_at_the_end_of_the_round(_scene):
+    """Scoped to the round *so far*, because that is all the render may read.
 
     `hooks._history_through` cuts the branch at the message being visualized, and that
     cut is deliberate: a render never composes from replies that came after it, and the
@@ -189,14 +189,14 @@ async def test_the_tail_stops_at_the_anchor_not_at_the_end_of_the_beat(_scene):
     documented as the strict choice for exactly this reason.
     """
     _scene([_member("m1", "Iris", "card-a"), _member("m2", "Ashley", "card-b")])
-    # The whole beat, as it sits in the database: Iris answered, then Ashley.
-    beat = [_msg(1, speaker="m1"), _msg(2, speaker="m2")]
+    # The whole round, as it sits in the database: Iris answered, then Ashley.
+    round_ = [_msg(1, speaker="m1"), _msg(2, speaker="m2")]
 
     # Visualizing Ashley's reply -- the last -- sees both.
-    assert [s.name for s in await _resolve(history=beat, anchor_id=2)] == ["Ashley", "Iris"]
+    assert [s.name for s in await _resolve(history=round_, anchor_id=2)] == ["Ashley", "Iris"]
     # Visualizing Iris's reply sees only her: Ashley had not spoken yet, and the
     # history the hook hands in is already cut there.
-    assert [s.name for s in await _resolve(history=beat[:1], anchor_id=1)] == ["Iris"]
+    assert [s.name for s in await _resolve(history=round_[:1], anchor_id=1)] == ["Iris"]
 
 
 @pytest.mark.asyncio

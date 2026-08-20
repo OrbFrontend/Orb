@@ -96,7 +96,7 @@ The chat history is built once per turn. Each pass receives the same list. Attac
 
 In group mode the assistant history is member-labelled, with consecutive
 text-only assistant rows merged into one chat message. The Director runs against
-the pre-beat base once, speaker 2 and later rebuild a base over the now-grown
+the pre-exchange base once, speaker 2 and later rebuild a base over the now-grown
 history, and pre-pipeline workflow system blocks are captured once and reapplied
 to every later-speaker rebuild.
 
@@ -115,7 +115,7 @@ so changing speaker invalidates the history KV too, not just the card region —
 a one-prefix local server loses most of its history hit whenever the cast
 alternates, while a provider that retains several prefix branches may keep one
 warm lineage per character. And because the Director runs before a speaking plan
-exists, it must use the neutral base: `_generate_group_beat`'s `index == 0`
+exists, it must use the neutral base: `_generate_group_exchange`'s `index == 0`
 shortcut, which hands speaker 1 the setup base verbatim, is a *correctness* bug
 under Swap rather than a cache miss, so that mode rebuilds for the first speaker
 too (`prefix_is_speaker_scoped`).

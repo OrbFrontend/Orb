@@ -169,7 +169,7 @@ async def test_public_profile_merge_preserves_other_orb_extensions(client):
     assert card["extensions"]["vendor"] == {"x": 1}
 
 
-async def test_director_group_beat_streams_and_persists_an_ordered_message_chain(client, llm_mock):
+async def test_director_group_exchange_streams_and_persists_an_ordered_message_chain(client, llm_mock):
     aria = await _card(client, "Aria", description="ARIA PRIVATE")
     kael = await _card(client, "Kael", description="KAEL PRIVATE")
     conv = (
@@ -211,7 +211,7 @@ async def test_director_group_beat_streams_and_persists_an_ordered_message_chain
     assert first["content"] == "I found tracks."
     assert second["content"] == "The ward is broken."
     assert first["parent_id"] == user["id"] and second["parent_id"] == first["id"]
-    assert user["beat_id"] == first["beat_id"] == second["beat_id"]
+    assert user["exchange_id"] == first["exchange_id"] == second["exchange_id"]
 
     writers = [call for call in llm_mock.captured if call["pass"] == "writer"]
     assert "ARIA PRIVATE" in json.dumps(writers[0]["messages"])
@@ -219,7 +219,7 @@ async def test_director_group_beat_streams_and_persists_an_ordered_message_chain
     assert "KAEL PRIVATE" in json.dumps(writers[1]["messages"])
 
 
-async def test_every_speaker_in_a_beat_sees_the_user_s_image(client, llm_mock):
+async def test_every_speaker_in_an_exchange_sees_the_user_s_image(client, llm_mock):
     """An upload answers the whole cast, not just whoever speaks first.
 
     The first speaker receives it as its own trailing attachment; every later one
@@ -330,7 +330,7 @@ async def test_atomic_roster_sync_allows_cards_to_swap_existing_member_slots(cli
     assert [member["character_card_id"] for member in response.json()] == [kael, aria]
 
 
-async def test_group_compress_remaps_speaker_ids_and_preserves_beat_ids(client):
+async def test_group_compress_remaps_speaker_ids_and_preserves_exchange_ids(client):
     aria = await _card(client, "Aria")
     kael = await _card(client, "Kael")
     conv = (
@@ -340,13 +340,25 @@ async def test_group_compress_remaps_speaker_ids_and_preserves_beat_ids(client):
         )
     ).json()
     old_members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
-    beat_id = "beat-copy"
-    user_id, _ = await add_message(conv["id"], "user", "Question", 0, beat_id=beat_id)
+    exchange_id = "exchange-copy"
+    user_id, _ = await add_message(conv["id"], "user", "Question", 0, exchange_id=exchange_id)
     first_id, _ = await add_message(
-        conv["id"], "assistant", "Aria reply", 1, parent_id=user_id, speaker_member_id=old_members[0]["id"], beat_id=beat_id
+        conv["id"],
+        "assistant",
+        "Aria reply",
+        1,
+        parent_id=user_id,
+        speaker_member_id=old_members[0]["id"],
+        exchange_id=exchange_id,
     )
     second_id, _ = await add_message(
-        conv["id"], "assistant", "Kael reply", 2, parent_id=first_id, speaker_member_id=old_members[1]["id"], beat_id=beat_id
+        conv["id"],
+        "assistant",
+        "Kael reply",
+        2,
+        parent_id=first_id,
+        speaker_member_id=old_members[1]["id"],
+        exchange_id=exchange_id,
     )
     await set_active_leaf(conv["id"], second_id)
 
@@ -360,7 +372,7 @@ async def test_group_compress_remaps_speaker_ids_and_preserves_beat_ids(client):
     rows = await get_messages(new_cid)
     assert rows[0]["speaker_member_id"] is None
     assert rows[0]["content"].startswith("Summary with Aria")
-    assert [row["beat_id"] for row in rows[1:]] == [beat_id, beat_id]
+    assert [row["exchange_id"] for row in rows[1:]] == [exchange_id, exchange_id]
     assert [row["speaker_member_id"] for row in rows[1:]] == [new_members[0]["id"], new_members[1]["id"]]
     assert not {row["speaker_member_id"] for row in rows[1:]} & {member["id"] for member in old_members}
 
@@ -386,7 +398,7 @@ async def test_group_summarize_labels_history_and_context_size_is_a_maximum(clie
         ]
     ):
         parent, _ = await add_message(
-            conv["id"], role, content, index, parent_id=parent, speaker_member_id=speaker, beat_id=f"beat-{index}"
+            conv["id"], role, content, index, parent_id=parent, speaker_member_id=speaker, exchange_id=f"exchange-{index}"
         )
     await set_active_leaf(conv["id"], parent)
     llm_mock.enqueue_writer("A summary.")
@@ -454,7 +466,7 @@ async def _two_card_group(
     return conv, members
 
 
-async def _run_two_speaker_beat(client, llm_mock, conv):
+async def _run_two_speaker_exchange(client, llm_mock, conv):
     llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — Notice the trail", "kael — Explain the ward"]))
     llm_mock.enqueue_writer("I found tracks.")
     llm_mock.enqueue_writer("The ward is broken.")
@@ -531,7 +543,7 @@ async def test_context_mode_rides_checkpoint_and_compression_forks(client):
 
 async def test_shared_dossier_gives_every_speaker_one_prefix_and_never_repeats_identity(client, llm_mock):
     conv, _ = await _two_card_group(client, context_mode="shared")
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
 
     systems = _systems(llm_mock, "writer")
     assert len(systems) == 2
@@ -552,7 +564,7 @@ async def test_shared_dossier_gives_every_speaker_one_prefix_and_never_repeats_i
 
 async def test_private_perspective_keeps_the_cast_prefix_stable_and_cards_speaker_local(client, llm_mock):
     conv, _ = await _two_card_group(client)
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
 
     systems = _systems(llm_mock, "writer")
     assert systems[0] == systems[1]
@@ -568,7 +580,7 @@ async def test_classic_card_swap_uses_a_neutral_director_base_and_one_prefix_per
     marker. What must not happen is the Director seeing an arbitrary member's
     card, or the first planned speaker silently inheriting that neutral base."""
     conv, _ = await _two_card_group(client, context_mode="swap")
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
 
     director = _systems(llm_mock, "director")[0]
     assert "## Cast\nAria, Kael" in director
@@ -669,7 +681,7 @@ async def test_classic_card_swap_swaps_the_card_on_the_agent_lane_too(client, ll
 
 
 @pytest.mark.parametrize("mode", ["private", "shared"])
-async def test_the_post_turn_steps_ride_the_beat_base_rather_than_rebuilding_one(client, llm_mock, mode):
+async def test_the_post_turn_steps_ride_the_exchange_base_rather_than_rebuilding_one(client, llm_mock, mode):
     """Dynamic Worlds and the direction-note step inherit the mode for free
     because they extend the speaker's frozen base. Asserted, not assumed: a
     step that rebuilt its own prefix would show up here as a second system
@@ -795,7 +807,7 @@ async def test_an_empty_sheet_override_blanks_the_sheet_rather_than_restoring_th
     updated = await _put_members(client, conv, [_member_spec(members[0], card_sheet_override=""), _member_spec(members[1])])
     assert updated[0]["card_sheet_override"] == ""
 
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
     writers = [call for call in llm_mock.captured if call["pass"] == "writer"]
     assert "ARIA PRIVATE" not in json.dumps(writers[0]["messages"][-1])
     # The other member is untouched: blanking is per-member, not per-scene.
@@ -807,7 +819,7 @@ async def test_a_private_sheet_override_moves_the_tail_and_leaves_the_cached_bod
     *after* history, so keeping it current costs no prefix rebuild — the cached
     body must come back byte-identical across the edit."""
     conv, members = await _two_card_group(client)
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
     before = _systems(llm_mock, "writer")
     before_tail = json.dumps([call for call in llm_mock.captured if call["pass"] == "writer"][0]["messages"][-1])
 
@@ -817,7 +829,7 @@ async def test_a_private_sheet_override_moves_the_tail_and_leaves_the_cached_bod
         conv,
         [_member_spec(members[0], card_sheet_override="ARIA, hair shorn and coat burned."), _member_spec(members[1])],
     )
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
     after = _systems(llm_mock, "writer")
     after_tail = json.dumps([call for call in llm_mock.captured if call["pass"] == "writer"][0]["messages"][-1])
 
@@ -837,7 +849,7 @@ async def test_the_other_modes_read_the_override_too_even_though_it_lands_before
         conv,
         [_member_spec(members[0], card_sheet_override="ARIA, hair shorn and coat burned."), _member_spec(members[1])],
     )
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
     systems = _systems(llm_mock, "writer")
     assert "hair shorn" in systems[0] and "ARIA PRIVATE" not in systems[0]
 
@@ -889,8 +901,8 @@ async def test_compression_never_re_asserts_a_members_sheet_into_the_summary(cli
     assert "### Aria" in system and "### Kael" in system
 
 
-# ── The post-beat sheet-update pass ─────────────────────────────────────────
-# One call per member the beat touched, staged pending, never applied. Routed
+# ── The post-exchange sheet-update pass ─────────────────────────────────────────
+# One call per member the exchange touched, staged pending, never applied. Routed
 # through the mock's `workflow` queue for the reason `_profile_call` states: the
 # schema is deliberately absent from `inference.tool_registry.TOOLS`.
 
@@ -930,20 +942,20 @@ async def _proposals(client, conv, status: str | None = None) -> list[dict]:
 
 
 async def test_the_sheet_pass_is_off_until_the_scene_opts_in(client, llm_mock):
-    """One billed call per member a beat touched is not something a scene should
+    """One billed call per member an exchange touched is not something a scene should
     start paying for by existing. Staleness is a property of a *long* scene."""
     conv, _ = await _two_card_group(client)
     assert conv["group_sheet_updates"] == 0
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
     assert _sheet_calls(llm_mock) == []
     assert await _proposals(client, conv) == []
 
 
-async def test_an_opted_in_beat_stages_one_proposal_per_member_that_spoke(client, llm_mock):
+async def test_an_opted_in_exchange_stages_one_proposal_per_member_that_spoke(client, llm_mock):
     conv, members = await _sheet_group(client)
     llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn and coatless.", summary="Cut her hair"))
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
 
     assert len(_sheet_calls(llm_mock)) == 2
     pending = await _proposals(client, conv)
@@ -956,8 +968,8 @@ async def test_an_opted_in_beat_stages_one_proposal_per_member_that_spoke(client
 
 
 async def test_a_silent_member_is_never_asked_about(client, llm_mock):
-    """Gated to the members the beat touched. Cast-wide would be one call per
-    member per beat to be told nothing happened to them."""
+    """Gated to the members the exchange touched. Cast-wide would be one call per
+    member per exchange to be told nothing happened to them."""
     conv, members = await _sheet_group(client)
     llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — Notice the trail"]))
     llm_mock.enqueue_writer("I found tracks.")
@@ -974,7 +986,7 @@ async def test_each_sheet_call_carries_only_its_own_members_sheet(client, llm_mo
     conv, _ = await _sheet_group(client)
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
 
     aria_call, kael_call = _sheet_calls(llm_mock)
     assert "ARIA PRIVATE" in aria_call and "KAEL PRIVATE" not in aria_call
@@ -984,13 +996,13 @@ async def test_each_sheet_call_carries_only_its_own_members_sheet(client, llm_mo
         assert "I found tracks." in call and "The ward is broken." in call
 
 
-async def test_the_pass_runs_once_per_beat_not_once_per_speaker(client, llm_mock):
-    """Two speakers, two members, two calls — not four. `run_beat_final` is what
-    makes the difference, and a regression here doubles the beat's bill."""
+async def test_the_pass_runs_once_per_exchange_not_once_per_speaker(client, llm_mock):
+    """Two speakers, two members, two calls — not four. `run_exchange_final` is what
+    makes the difference, and a regression here doubles the exchange's bill."""
     conv, _ = await _sheet_group(client)
     for _ in range(4):
         llm_mock.enqueue_workflow(_sheet_call(changed=False))
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
     assert len(_sheet_calls(llm_mock)) == 2
 
 
@@ -1000,7 +1012,7 @@ async def test_applying_a_proposal_changes_the_tail_and_leaves_the_cached_body_a
     conv, _ = await _sheet_group(client)
     llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn and coatless.", summary="Cut her hair"))
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
     before = _systems(llm_mock, "writer")
 
     pending = await _proposals(client, conv)
@@ -1012,7 +1024,7 @@ async def test_applying_a_proposal_changes_the_tail_and_leaves_the_cached_body_a
     llm_mock.captured.clear()
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
     assert _systems(llm_mock, "writer") == before
     tail = json.dumps([call for call in llm_mock.captured if call["pass"] == "writer"][0]["messages"][-1])
     assert "shorn and coatless" in tail and "ARIA PRIVATE" not in tail
@@ -1024,7 +1036,7 @@ async def test_a_proposal_whose_sheet_moved_underneath_it_goes_stale_instead_of_
     conv, members = await _sheet_group(client)
     llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn and coatless.", summary="Cut her hair"))
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
     pending = await _proposals(client, conv)
 
     await _put_members(
@@ -1044,7 +1056,7 @@ async def test_rejecting_writes_nothing_and_retires_the_row(client, llm_mock):
     conv, _ = await _sheet_group(client)
     llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn and coatless.", summary="Cut her hair"))
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
     pending = await _proposals(client, conv)
 
     response = await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{pending[0]['id']}/reject")
@@ -1056,21 +1068,21 @@ async def test_rejecting_writes_nothing_and_retires_the_row(client, llm_mock):
     assert (await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{pending[0]['id']}/apply")).status_code == 409
 
 
-async def test_a_second_beat_replaces_the_pending_proposal_instead_of_stacking_beside_it(client, llm_mock):
-    """Two beats stage against the same stored sheet, so two pending proposals for
+async def test_a_second_exchange_replaces_the_pending_proposal_instead_of_stacking_beside_it(client, llm_mock):
+    """Two exchanges stage against the same stored sheet, so two pending proposals for
     one member are necessarily rivals: applying either makes the other 409. The
     later one replaces the earlier *in place*, and is built on its text, so the
     drift accumulates into one reviewable sheet instead of competing ones."""
     conv, members = await _sheet_group(client)
     llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn.", summary="Cut her hair"))
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
     first = await _proposals(client, conv)
     assert len(first) == 1
 
     llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn and coatless.", summary="Coat burned"))
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
 
     pending = await _proposals(client, conv)
     assert len(pending) == 1, "one member, one undecided proposal"
@@ -1094,7 +1106,7 @@ async def test_a_hand_edit_stops_the_carry_forward(client, llm_mock):
     conv, members = await _sheet_group(client)
     llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn.", summary="Cut her hair"))
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
 
     await _put_members(
         client,
@@ -1103,7 +1115,7 @@ async def test_a_hand_edit_stops_the_carry_forward(client, llm_mock):
     )
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
 
     third = _sheet_calls(llm_mock)[2]
     assert "ARIA, hand-edited." in third and "ARIA, shorn." not in third
@@ -1116,7 +1128,7 @@ async def test_the_review_set_keeps_the_refusal_it_owes_an_explanation_for(clien
     conv, members = await _sheet_group(client)
     llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn.", summary="Cut her hair"))
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
     staged = (await _proposals(client, conv))[0]
 
     await _put_members(
@@ -1141,7 +1153,7 @@ async def test_removing_a_member_retires_its_undecided_proposals(client, llm_moc
     conv, members = await _sheet_group(client)
     llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn.", summary="Cut her hair"))
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
     staged = (await _proposals(client, conv))[0]
 
     await _put_members(client, conv, [_member_spec(members[1])])
@@ -1161,14 +1173,14 @@ async def test_the_pass_is_gated_on_the_mode_by_the_server_not_only_by_the_form(
     updated = (await client.put(f"/api/conversations/{conv['id']}", json={"group_context_mode": "shared"})).json()
     assert updated["group_context_mode"] == "shared" and updated["group_sheet_updates"] == 1
 
-    await _run_two_speaker_beat(client, llm_mock, updated)
+    await _run_two_speaker_exchange(client, llm_mock, updated)
     assert _sheet_calls(llm_mock) == []
     assert await _proposals(client, updated) == []
 
 
 async def test_a_chip_click_reads_the_round_rather_than_its_own_request(client, llm_mock):
-    """A beat is request-scoped, so under Manual — and for any cast-chip click on
-    a resting scene — one round is several requests. Judging "did this beat change
+    """An exchange is request-scoped, so under Manual — and for any cast-chip click on
+    a resting scene — one round is several requests. Judging "did this exchange change
     Kael?" from Kael's reply alone leaves out the line that changed him, and on
     `/speak` leaves out the user's message entirely. The evidence is the round,
     which is what `image_gen`'s subject list already reads."""
@@ -1201,7 +1213,7 @@ async def test_a_failed_sheet_call_never_costs_the_user_their_reply(client, llm_
     conv, _ = await _sheet_group(client)
     llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="Has a {{char}} macro in it."))
     llm_mock.enqueue_workflow(_sheet_call(changed=True))  # reports a change, returns no sheet
-    await _run_two_speaker_beat(client, llm_mock, conv)
+    await _run_two_speaker_exchange(client, llm_mock, conv)
 
     assert await _proposals(client, conv) == []
     rows = await get_messages(conv["id"])
@@ -1251,12 +1263,12 @@ async def test_group_regenerate_and_magic_rewrite_keep_target_speaker_and_parent
         )
     ).json()
     members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
-    user_id, _ = await add_message(conv["id"], "user", "Question", 0, beat_id="original")
+    user_id, _ = await add_message(conv["id"], "user", "Question", 0, exchange_id="original")
     first_id, _ = await add_message(
-        conv["id"], "assistant", "First", 1, parent_id=user_id, speaker_member_id=members[0]["id"], beat_id="original"
+        conv["id"], "assistant", "First", 1, parent_id=user_id, speaker_member_id=members[0]["id"], exchange_id="original"
     )
     target_id, _ = await add_message(
-        conv["id"], "assistant", "Second", 2, parent_id=first_id, speaker_member_id=members[1]["id"], beat_id="original"
+        conv["id"], "assistant", "Second", 2, parent_id=first_id, speaker_member_id=members[1]["id"], exchange_id="original"
     )
     await set_active_leaf(conv["id"], target_id)
 
@@ -1308,7 +1320,7 @@ async def test_group_delete_preview_counts_invisible_sibling_replies(client):
     assert response.json() == {"message_count": 3, "assistant_count": 3}
 
 
-async def test_group_fork_edit_runs_a_fresh_beat_from_the_new_user_sibling(client, db, llm_mock):
+async def test_group_fork_edit_runs_a_fresh_exchange_from_the_new_user_sibling(client, db, llm_mock):
     aria = await _card(client, "Aria")
     conv = (
         await client.post(
@@ -1317,9 +1329,9 @@ async def test_group_fork_edit_runs_a_fresh_beat_from_the_new_user_sibling(clien
         )
     ).json()
     member = (await client.get(f"/api/conversations/{conv['id']}/members")).json()[0]
-    user_id, _ = await add_message(conv["id"], "user", "Old question", 0, beat_id="old")
+    user_id, _ = await add_message(conv["id"], "user", "Old question", 0, exchange_id="old")
     old_reply, _ = await add_message(
-        conv["id"], "assistant", "Old reply", 1, parent_id=user_id, speaker_member_id=member["id"], beat_id="old"
+        conv["id"], "assistant", "Old reply", 1, parent_id=user_id, speaker_member_id=member["id"], exchange_id="old"
     )
     await set_active_leaf(conv["id"], old_reply)
     llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — Answer the edit"]))
@@ -1335,9 +1347,9 @@ async def test_group_fork_edit_runs_a_fresh_beat_from_the_new_user_sibling(clien
         )
     ).fetchone()
     new_reply = await (await db.execute("SELECT * FROM messages WHERE parent_id = ?", (new_user["id"],))).fetchone()
-    assert new_user["id"] != user_id and new_user["beat_id"] != "old"
+    assert new_user["id"] != user_id and new_user["exchange_id"] != "old"
     assert new_reply["speaker_member_id"] == member["id"]
-    assert new_reply["beat_id"] == new_user["beat_id"]
+    assert new_reply["exchange_id"] == new_user["exchange_id"]
 
 
 async def _enqueue_per_fragment_director(llm_mock, **arguments) -> None:
@@ -1353,7 +1365,7 @@ async def _enqueue_per_fragment_director(llm_mock, **arguments) -> None:
         llm_mock.enqueue_director(_direct_scene(**arguments))
 
 
-async def test_per_fragment_director_still_plans_a_group_beat(client, llm_mock):
+async def test_per_fragment_director_still_plans_a_group_exchange(client, llm_mock):
     """`director_individual_fragments` runs each direct_scene field in its own
     forced call. The speaking plan is one of those fields, so it has to survive
     that loop — it used to take the whole group turn down with it."""
@@ -1371,7 +1383,7 @@ async def test_per_fragment_director_still_plans_a_group_beat(client, llm_mock):
 
 
 async def test_an_intentional_rest_survives_both_director_shapes(client, llm_mock):
-    """`[]` is the Director saying nobody answers this beat. The per-fragment loop
+    """`[]` is the Director saying nobody answers this exchange. The per-fragment loop
     drops empty values by design, so it has to make an exception for the plan or a
     rest silently becomes a round-robin reply."""
     for individual in (0, 1):
@@ -1405,7 +1417,7 @@ async def test_a_missing_plan_falls_back_rather_than_resting(client, llm_mock):
 
 async def test_group_steering_excludes_the_reply_it_replaces_from_the_audit(client, llm_mock):
     """The steered paths hand the editor an explicit baseline window so the new
-    draft is not penalised for resembling the reply being replaced. A group beat
+    draft is not penalised for resembling the reply being replaced. A group exchange
     has to receive the same list, or the target rides the prefix into the window
     and the anti-echo audit scores the draft against itself.
 
@@ -1421,13 +1433,13 @@ async def test_group_steering_excludes_the_reply_it_replaces_from_the_audit(clie
 
     async def _steer(*, older: str, replaced: str) -> list[dict]:
         conv, members = await _two_card_group(client)
-        first_user, _ = await add_message(conv["id"], "user", "Then?", 0, beat_id="b0")
+        first_user, _ = await add_message(conv["id"], "user", "Then?", 0, exchange_id="b0")
         older_id, _ = await add_message(
-            conv["id"], "assistant", older, 1, parent_id=first_user, speaker_member_id=members[0]["id"], beat_id="b0"
+            conv["id"], "assistant", older, 1, parent_id=first_user, speaker_member_id=members[0]["id"], exchange_id="b0"
         )
-        user_id, _ = await add_message(conv["id"], "user", "And after?", 2, parent_id=older_id, beat_id="b1")
+        user_id, _ = await add_message(conv["id"], "user", "And after?", 2, parent_id=older_id, exchange_id="b1")
         target, _ = await add_message(
-            conv["id"], "assistant", replaced, 3, parent_id=user_id, speaker_member_id=members[0]["id"], beat_id="b1"
+            conv["id"], "assistant", replaced, 3, parent_id=user_id, speaker_member_id=members[0]["id"], exchange_id="b1"
         )
         await set_active_leaf(conv["id"], target)
         llm_mock.captured.clear()
@@ -1669,7 +1681,7 @@ async def test_a_checkpoint_carries_the_scenes_sheet_update_opt_in(client, llm_m
     """Every other scene setting rides `fork_conversation`; this one was dropped.
 
     Checkpoint, Compress History and "New scene in this group" all fork, so a user
-    who turned the post-beat pass on lost it the first time they branched — and
+    who turned the post-exchange pass on lost it the first time they branched — and
     silently, since nothing reports a setting reverting to its default.
     """
     conv, _ = await _sheet_group(client)

@@ -126,7 +126,7 @@ async def _run_pipeline(
     context_mode: GroupContextMode = "private",
     run_director: bool = True,
     director_seed: TurnState | None = None,
-    run_beat_final: bool = True,
+    run_exchange_final: bool = True,
 ) -> AsyncIterator[dict]:
     """Run the director → writer → editor passes for one turn.
 
@@ -193,7 +193,7 @@ async def _run_pipeline(
             "writer_lorebook_block",
             "reasoning_director",
             "macro_choices",
-            # Recorded once for the beat, before any speaker ran (the group driver
+            # Recorded once for the exchange, before any speaker ran (the group driver
             # owns the pre-writer step for the same reason it owns the Director).
             # It clears them from the seed once the first reply has anchored them.
             "direction_notes",
@@ -336,7 +336,7 @@ async def _run_pipeline(
     # Sees the finished reply. Skipped on an empty draft (no message to anchor notes
     # to) and on a stop arriving after the last pre-editor abort check.
     if (
-        run_beat_final
+        run_exchange_final
         and direction_note_recording_active(settings, post_turn_notes, agent_on=cfg.agent_on)
         and state.resp_text.strip()
         and not client.is_aborted
@@ -368,7 +368,7 @@ async def _run_pipeline(
     # it has to sit after the editor and after any draft-rewriting post-pipeline
     # hook. Same skip conditions as the post-turn notes step -- an empty draft has
     # nothing to derive world state from, and a stop must not start a fresh call.
-    if run_beat_final and world_proposal is not None and state.resp_text.strip() and not client.is_aborted:
+    if run_exchange_final and world_proposal is not None and state.resp_text.strip() and not client.is_aborted:
         async for ev in _staged(
             STAGE_EDITOR,
             world_proposal_stage(
@@ -385,10 +385,10 @@ async def _run_pipeline(
     # Last of the post-turn steps, and for the same reason the world stage is
     # second-to-last: it judges the prose that will actually be persisted, so it
     # has to sit after the editor and after any draft-rewriting post-pipeline
-    # hook. `run_beat_final` is what makes it once-per-beat rather than
+    # hook. `run_exchange_final` is what makes it once-per-exchange rather than
     # once-per-speaker; the driver only builds a turn for the final speaker, and
     # the gate here is what keeps that true if another caller forgets.
-    if run_beat_final and sheet_update is not None and state.resp_text.strip() and not client.is_aborted:
+    if run_exchange_final and sheet_update is not None and state.resp_text.strip() and not client.is_aborted:
         async for ev in _staged(
             STAGE_EDITOR,
             sheet_update_stage(cfg, state, turn=sheet_update),

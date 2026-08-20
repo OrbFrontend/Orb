@@ -158,10 +158,10 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL,
     workflow_state TEXT DEFAULT NULL,
     speaker_member_id TEXT DEFAULT NULL REFERENCES group_members(id) ON DELETE SET NULL,
-    beat_id TEXT DEFAULT NULL
+    exchange_id TEXT DEFAULT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_messages_beat ON messages(conversation_id, beat_id);
+CREATE INDEX IF NOT EXISTS idx_messages_exchange ON messages(conversation_id, exchange_id);
 CREATE INDEX IF NOT EXISTS idx_messages_speaker ON messages(speaker_member_id);
 
 CREATE TABLE IF NOT EXISTS director_state (
@@ -340,7 +340,7 @@ CREATE TABLE IF NOT EXISTS member_sheet_proposals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     member_id TEXT NOT NULL REFERENCES group_members(id) ON DELETE CASCADE,
-    beat_id TEXT NOT NULL DEFAULT '',
+    exchange_id TEXT NOT NULL DEFAULT '',
     base_sheet TEXT NOT NULL DEFAULT '',
     proposed_sheet TEXT NOT NULL,
     summary TEXT NOT NULL DEFAULT '',

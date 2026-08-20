@@ -68,7 +68,7 @@ export function contextMode(mode) {
 //   but each character is then its own cache lineage, and the server holds only
 //   so many. Its cost tracks CAST SIZE and barely moves with card size.
 //
-// Simulated over 30-beat, three-pass sessions (director → writer → editor)
+// Simulated over 30-exchange, three-pass sessions (director → writer → editor)
 // against these same renderers: swap wins iff the cast is narrow enough to keep
 // a branch per character warm and the cards are heavy enough to be worth
 // caching. The boundary lands on `mean >= 500 * (cast - 1)`, and the cast cap
@@ -163,7 +163,7 @@ export function recommendContextMode(cards) {
   };
 }
 
-// Why a beat produced no reply, in the words of the mode that produced it. A
+// Why an exchange produced no reply, in the words of the mode that produced it. A
 // rest under `Manual` is the user's own doing — they sent without naming anyone
 // — so it reads as the next step rather than as the scene declining to answer.
 export function restNotice() {
@@ -267,7 +267,7 @@ export function memberAvatar(member) {
 
 // A click on a cast chip means one of two things, and the scene decides which:
 // on a resting scene it hands that member the floor immediately, and while a
-// beat is streaming — or while an unsent draft is waiting for someone to answer
+// exchange is streaming — or while an unsent draft is waiting for someone to answer
 // it — it only *queues* them as the next speaker. This is the single definition
 // of that rule; the rail's tooltips and group_setup's click handler both read it
 // rather than re-deriving it.
@@ -311,7 +311,7 @@ export function castRailHtml({ hasDraft = false } = {}) {
   return `${chips}<button type="button" class="cast-manage" data-cast-manage title="${escAttr(manageTitle)}">+ Manage cast${badge}</button>`;
 }
 
-// Only a genuinely multi-speaker beat earns the rail: a single planned speaker
+// Only a genuinely multi-speaker exchange earns the rail: a single planned speaker
 // is already announced by its cast chip, and an empty plan (the scene rests)
 // is reported as a toast rather than a permanent strip.
 export function speakingPlanHtml() {

@@ -3,9 +3,24 @@
 Group chats are durable cast conversations. `conversations.kind = 'group'`
 switches prompt construction and turn execution from the legacy scalar card to
 the ordered `group_members` roster. Assistant messages store a member identity
-(`speaker_member_id`) and request identity (`beat_id`); the card is resolved
+(`speaker_member_id`) and request identity (`exchange_id`); the card is resolved
 through the member only when current card data, an avatar, or a workflow profile
 is needed.
+
+## Three units, three words
+
+Group chats measure time three ways, and the words are not interchangeable:
+
+- An **exchange** is one group request — `messages.exchange_id`. Every reply a
+  single `/send`, `/speak` or regenerate produced shares it. It is what the
+  Director plans once for, and what the sheet-update pass is billed per.
+- A **round** is the user's last message and every reply since
+  (`entrypoints._round_prefix`, `subjects._round_speakers`). Under **Manual** —
+  and for any cast-chip click on a resting scene — one round is several
+  exchanges, because each click is its own request answering the same message.
+- A **beat** is the Director's one-line note for a *single speaker* inside the
+  plan (`pipeline/cast.py`), in the screenwriting sense. It is not a unit of
+  time at all.
 
 ## Group families
 
@@ -126,25 +141,25 @@ chooses`, `Rotate — Cast replies in order` and `Manual — Select every reply`
 (`group_cast.js:TURN_MODES` is the only place that wording lives).
 
 A pin is a *temporary override*, not a mode: outside `manual` the client clears
-it once the beat it named has produced a reply, so the configured strategy
+it once the exchange it named has produced a reply, so the configured strategy
 resumes by itself rather than being silently suppressed. In `manual` the pick is
 the strategy, so it survives until it is used or cleared. An aborted or failed
-beat keeps the override to retry with. Only the pin the finished beat actually
+exchange keeps the override to retry with. Only the pin the finished exchange actually
 ran on is cleared — the client latches it at request time (`consumedSpeakerId`),
-so a chip clicked *while* the beat streams queues that member for the next turn
+so a chip clicked *while* the exchange streams queues that member for the next turn
 and survives the cleanup.
 
 The Director and pre-pipeline setup run once. Each planned speaker then runs the
 Writer, Editor, feedback, and post-workflow path with the shared Director state.
-Rows form `user -> speaker 1 -> speaker 2 -> …`, share one beat ID, and receive
+Rows form `user -> speaker 1 -> speaker 2 -> …`, share one exchange ID, and receive
 incrementing turn indices. Post-turn notes and Dynamic Worlds run only after the
-last successful speaker. Keyword/agentic lore selection is frozen for the beat;
+last successful speaker. Keyword/agentic lore selection is frozen for the exchange;
 later speakers see earlier prose in history, but that prose activates new lore
-only on the next beat.
+only on the next exchange.
 
 Regenerating a group reply creates a same-speaker sibling under the original
 parent. It does not replay downstream speakers. Fork-edit instead creates a new
-user sibling and runs a fresh group beat. Removed roster members are tombstoned
+user sibling and runs a fresh group exchange. Removed roster members are tombstoned
 so old messages keep their names; re-adding the same card creates a new member
 identity.
 
@@ -162,19 +177,19 @@ The sheet exists because a card asserts turn one forever and a scene does not:
 hair is cut, a coat burns, a sword breaks. It can be typed by hand in Manage
 cast, and — when the scene opts in — proposed from the played prose.
 
-### The post-beat pass
+### The post-exchange pass
 
 `conversations.group_sheet_updates` is the per-scene opt-in, **off by default**:
-one billed call per member a beat touched is not something a scene should start
+one billed call per member an exchange touched is not something a scene should start
 paying for by existing, and staleness is a property of a *long* scene.
 
 `pipeline/sheet_update.py` drives it in the `world_change` slot, gated on
-`run_beat_final` so it runs **once per beat** on the members that actually spoke
-— not cast-wide, which would bill a call per member per beat to tell a silent
+`run_exchange_final` so it runs **once per exchange** on the members that actually spoke
+— not cast-wide, which would bill a call per member per exchange to tell a silent
 member nothing happened to them. `features/cards/sheet_update.py` owns the call:
 one forced tool call per member, **never batched**, because a sheet is that
 member's own material and B's sheet entering A's call would write B's secret
-into a string A reads. The beat's prose is shared evidence and goes into every
+into a string A reads. The exchange's prose is shared evidence and goes into every
 call; the sheets do not. Failures are swallowed at both levels — one member's
 failed call never drops another's proposal, and the stage never costs the user
 their reply.
@@ -183,15 +198,15 @@ Three rules shape what the pass is allowed to be:
 
 - **It is offered under Private perspective only**, and the gate is the *turn
   driver's*, not the form's. Private is the one mode that reads a member's sheet
-  from the trailing message, after history, where rewriting it every beat costs
+  from the trailing message, after history, where rewriting it every exchange costs
   no prefix rebuild. Under Shared and Swap the same text sits in the cached body
   ahead of the history, so an applied update rebuilds the whole scene prefix —
   the exact cost the opt-in is priced on avoiding. Leaving that invariant to the
   client alone meant a `PUT` changing only the mode left the pass running.
-- **The evidence is the round, not the request.** A beat is request-scoped, so
+- **The evidence is the round, not the request.** An exchange is request-scoped, so
   under `Manual` — and for any cast-chip click on a resting scene — one round is
   several requests. The transcript is therefore the user's last message and every
-  reply since (`entrypoints._exchange_prefix`), the same round
+  reply since (`entrypoints._round_prefix`), the same round
   `workflows/image_gen/subjects.py` reads. Only the *evidence* widens: the
   members proposed **about** stay this request's speakers, since an earlier
   request already billed a call for the ones it ran.
@@ -208,12 +223,12 @@ current effective sheet, and refuses (409) when it no longer matches. There is
 no force-apply and no rebase, because a hand edit and a model's edit can
 contradict each other in meaning even when both look reasonable.
 
-**At most one pending proposal per member.** Every beat stages against the sheet
+**At most one pending proposal per member.** Every exchange stages against the sheet
 as it stands, so two pending proposals for one member are necessarily derived
 from the same base — applying either makes the other unapplyable, and regenerate
-runs the beat again and would stack a third. A new proposal therefore *replaces*
+runs the exchange again and would stack a third. A new proposal therefore *replaces*
 the member's pending one in place, keeping its row id, and the stage builds that
-beat's call on the replaced text so the drift accumulates into one reviewable
+exchange's call on the replaced text so the drift accumulates into one reviewable
 sheet instead of competing ones. A pending proposal whose `base_sheet` no longer
 matches the stored sheet is not carried forward: the user hand-edited underneath
 it, and resurrecting text they overwrote is the one thing staging must not do.
@@ -258,12 +273,12 @@ cover all of them, and which one applies is never the feature's own choice:
   context-size counter, and card-embedded fragments, which merge across the whole
   cast (a global fragment still wins an id clash, and between two cards the first
   member in the roster keeps it).
-- **Per beat** — the feature belongs to the request, which is one Director
+- **Per exchange** — the feature belongs to the request, which is one Director
   decision and N replies. The Director, agentic lore selection, both
-  direction-note placements and the Dynamic Worlds proposal run once per beat
+  direction-note placements and the Dynamic Worlds proposal run once per exchange
   rather than once per speaker (the two that read the finished prose — the
   end-of-turn note and the proposal — after the last one); a user's image upload
-  is answered by every speaker in the beat, not only the first.
+  is answered by every speaker in the exchange, not only the first.
 - **Per speaker** — the feature belongs to a member, and the member is resolved
   from the reply it acts on. Editor passes (anti-slop, anti-repetition, length
   guard), feedback fragments, regenerate / super-regenerate / magic rewrite,
@@ -280,9 +295,9 @@ switching member reloads the form rather than writing to whoever spoke last.
 `getGroupCast()` (workflow ABI v3) is how a workflow plugin reads the roster, and
 `speaker_member_id` on the trigger route is how it addresses one member.
 
-Image generation is per-speaker in *which member it is of* and per-beat in *who
+Image generation is per-speaker in *which member it is of* and per-round in *who
 else it describes*. The speaker of the reply being visualized is the picture's
-primary subject; the other members who spoke in the same **exchange** - the user's
+primary subject; the other members who spoke in the same **round** - the user's
 last message and every reply since - **up to that reply** follow, in cast order. A
 render never reads past its own anchor, so the first reply of a round has a shorter
 cast than the last. It is the round, not the request: under **Manual** you give one
@@ -296,11 +311,11 @@ picture is described in full instead, and the prompter is told which image is wh
 so an unpictured character still comes out as themselves rather than as a generic
 person. The camera does not change who is in the scene: first-person looks through
 the *user's* eyes, and the user is a persona rather than a cast member, so every
-character in the beat is in front of the lens and none is dropped.
+character in the round is in front of the lens and none is dropped.
 
 Character expressions follow the floor: the header's 👥 avatar opens the popup on
 the member currently streaming, or the last one to have spoken, and switches face
-mid-beat as the floor moves.
+mid-exchange as the floor moves.
 
 The composer's local-model typeahead reads the scene the same way the turn does:
 `{{char}}` is the title, its one-line summary is the roster, and each replayed
@@ -325,7 +340,7 @@ Every group request emits one `speaking_plan`, then a
 `speaker_start`/`speaker_done` pair per persisted reply, and exactly one
 request-level `done`. The frontend creates and finalizes a bubble per speaker,
 stops the previous audio channel at every `speaker_start`, and performs a full
-message refetch/render after the beat.
+message refetch/render after the exchange.
 
 ## Chat surface
 
@@ -439,7 +454,7 @@ deliberately omits. A card's `post_history_instructions` is excluded because
 every mode keeps it in the speaker's trailing message and it therefore cannot
 discriminate.
 
-The speaking-plan rail is painted only while a beat with two or more speakers is
+The speaking-plan rail is painted only while an exchange with two or more speakers is
 planned or streaming; a single speaker is announced by its cast chip, and a rest
 (`[]`) is reported as a toast. `Convert to group` is a solo-conversation action
 and never renders inside a group.

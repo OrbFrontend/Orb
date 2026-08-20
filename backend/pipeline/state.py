@@ -285,20 +285,20 @@ class WorldProposalTurn:
 
 @dataclass(frozen=True, slots=True)
 class SheetUpdateTurn:
-    """What a finished group beat may propose sheet updates about.
+    """What a finished group exchange may propose sheet updates about.
 
-    Carries the beat's *evidence* rather than its identity, because unlike a
+    Carries the exchange's *evidence* rather than its identity, because unlike a
     World the target has no revision to re-read against: a sheet update is
-    derived from the prose of one beat, and that prose is only assembled once,
-    in the beat driver. ``lines`` are the beat's replies as
+    derived from the prose of one exchange, and that prose is only assembled once,
+    in the exchange driver. ``lines`` are the exchange's replies as
     ``(speaker_name, text)`` in order, already persisted; the running speaker's
     own draft is appended by the stage from ``TurnState.resp_text``, because it
     is not persisted until after the stage runs.
 
-    ``member_ids`` are the members the beat actually *touched* — the ones that
-    spoke. Cast-wide would be one billed call per member per beat to tell a
+    ``member_ids`` are the members the exchange actually *touched* — the ones that
+    spoke. Cast-wide would be one billed call per member per exchange to tell a
     silent member nothing happened to them. A member that spoke twice in one
-    beat still gets one call, so the stage de-duplicates rather than trusting
+    exchange still gets one call, so the stage de-duplicates rather than trusting
     this to be a set.
 
     ``speaker_name`` labels the running speaker's unpersisted draft in the
@@ -307,7 +307,7 @@ class SheetUpdateTurn:
     """
 
     conversation_id: str
-    beat_id: str
+    exchange_id: str
     member_ids: tuple[str, ...]
     user_message: str
     speaker_name: str = ""
