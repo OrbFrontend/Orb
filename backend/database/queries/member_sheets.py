@@ -11,6 +11,16 @@ member's current effective sheet, and refuses when it no longer matches what the
 proposal was derived from. The proposal is marked ``stale`` rather than forced
 through, because a hand edit and a model's edit can contradict each other in
 meaning even when both look reasonable — the same reason nothing here rebases.
+
+**At most one pending proposal per member.** A beat stages against the sheet as
+it stands, so two pending proposals for one member are necessarily derived from
+the same base: applying either one makes the other unapplyable, and the user is
+handed a pile of rows of which all but one can only 409. Regenerating a reply
+re-runs the beat and would stack another. So a new proposal *replaces* the
+member's pending one in place, and the stage carries the replaced text forward
+(see ``pipeline/sheet_update``) so the changes accumulate instead of competing.
+The row keeps its id, which is also what lets an open review surface repaint
+rather than grow.
 """
 
 from __future__ import annotations
@@ -25,6 +35,9 @@ from .character_cards import get_character_card
 from .group_members import _private_sheet
 
 PROPOSAL_STATUSES = ("pending", "applied", "rejected", "stale")
+# What the review surface asks for: what still needs a decision, plus what the
+# apply already refused and therefore owes the user a reason for.
+REVIEW_STATUSES = ("pending", "stale")
 
 
 class SheetProposalConflict(RuntimeError):
@@ -46,7 +59,13 @@ async def _effective_sheet(db, conversation_id: str, member_id: str) -> str | No
     """
     rows = list(
         await db.execute_fetchall(
-            "SELECT character_card_id, card_sheet_override FROM group_members WHERE id = ? AND conversation_id = ?",
+            # ``active = 1``: a tombstoned member still has a row (old messages keep
+            # their names through it), but it is no longer in the scene and has no
+            # sheet any turn will read. Without this the apply happily wrote onto a
+            # member the user had removed, and the 409 this function exists to raise
+            # was unreachable.
+            "SELECT character_card_id, card_sheet_override FROM group_members "
+            "WHERE id = ? AND conversation_id = ? AND active = 1",
             (member_id, conversation_id),
         )
     )
@@ -57,12 +76,30 @@ async def _effective_sheet(db, conversation_id: str, member_id: str) -> str | No
     return _private_sheet(card, row["card_sheet_override"])
 
 
+async def get_pending_sheet_proposals(conversation_id: str) -> dict[str, MemberSheetProposalRow]:
+    """The scene's pending proposals keyed by member — at most one each.
+
+    Read by the staging pass so a fresh beat can carry an undecided proposal
+    forward rather than competing with it.
+    """
+    async with get_db() as db:
+        rows = await db.execute_fetchall(
+            "SELECT * FROM member_sheet_proposals WHERE conversation_id = ? AND status = 'pending' ORDER BY id",
+            (conversation_id,),
+        )
+    return {str(row["member_id"]): cast(MemberSheetProposalRow, dict(row)) for row in rows}
+
+
 async def create_sheet_proposals(proposals: Sequence[Mapping[str, Any]]) -> list[MemberSheetProposalRow]:
-    """Persist staged proposals, one row each. Applies nothing.
+    """Stage proposals, one per member. Applies nothing.
 
     Written in one transaction so a beat's proposals arrive together — a review
     surface that painted half of them would read as the pass having judged only
     half the cast.
+
+    An **upsert**: a member with an undecided proposal has that row rewritten
+    rather than a second one added beside it. See the module docstring for why
+    two pending rows for one member cannot both be honoured.
     """
     if not proposals:
         return []
@@ -70,22 +107,51 @@ async def create_sheet_proposals(proposals: Sequence[Mapping[str, Any]]) -> list
     ids: list[int] = []
     async with immediate_tx() as db:
         for proposal in proposals:
+            conversation_id = str(proposal["conversation_id"])
+            member_id = str(proposal["member_id"])
+            values = (
+                str(proposal.get("beat_id") or ""),
+                str(proposal.get("base_sheet") or ""),
+                str(proposal["proposed_sheet"]),
+                str(proposal.get("summary") or ""),
+                now,
+            )
+            existing = list(
+                await db.execute_fetchall(
+                    "SELECT id FROM member_sheet_proposals "
+                    "WHERE conversation_id = ? AND member_id = ? AND status = 'pending' ORDER BY id",
+                    (conversation_id, member_id),
+                )
+            )
+            if existing:
+                # Keep the oldest row's id and retire any duplicates a build
+                # before this rule left behind, so the invariant holds from here
+                # on without a migration to repair history.
+                keep = int(existing[0]["id"])
+                await db.execute(
+                    """UPDATE member_sheet_proposals
+                       SET beat_id = ?, base_sheet = ?, proposed_sheet = ?, summary = ?, created_at = ?,
+                           status = 'pending', decided_at = NULL
+                       WHERE id = ?""",
+                    (*values, keep),
+                )
+                for row in existing[1:]:
+                    await db.execute(
+                        "UPDATE member_sheet_proposals SET status = 'rejected', decided_at = ? WHERE id = ?",
+                        (now, int(row["id"])),
+                    )
+                ids.append(keep)
+                continue
             cur = await db.execute(
                 """INSERT INTO member_sheet_proposals
                    (conversation_id, member_id, beat_id, base_sheet, proposed_sheet, summary, status, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)""",
-                (
-                    str(proposal["conversation_id"]),
-                    str(proposal["member_id"]),
-                    str(proposal.get("beat_id") or ""),
-                    str(proposal.get("base_sheet") or ""),
-                    str(proposal["proposed_sheet"]),
-                    str(proposal.get("summary") or ""),
-                    now,
-                ),
+                (conversation_id, member_id, *values),
             )
             if cur.lastrowid is not None:
                 ids.append(int(cur.lastrowid))
+    if not ids:
+        return []
     async with get_db() as db:
         placeholders = ",".join("?" for _ in ids)
         rows = await db.execute_fetchall(
@@ -95,13 +161,24 @@ async def create_sheet_proposals(proposals: Sequence[Mapping[str, Any]]) -> list
     return [cast(MemberSheetProposalRow, dict(row)) for row in rows]
 
 
-async def get_sheet_proposals(conversation_id: str, *, status: str | None = "pending") -> list[MemberSheetProposalRow]:
-    """The conversation's proposals, newest first. ``status=None`` returns all."""
+async def get_sheet_proposals(
+    conversation_id: str, *, statuses: Sequence[str] | None = REVIEW_STATUSES
+) -> list[MemberSheetProposalRow]:
+    """The conversation's proposals, newest first. ``statuses=None`` returns all.
+
+    Defaults to the **review set** rather than to ``pending`` alone. A ``stale``
+    proposal is one the apply refused, and it is precisely the row the user has
+    to see an explanation on — fetching only ``pending`` made it vanish from the
+    surface the moment it was refused, which is the opposite of reporting the
+    refusal.
+    """
     sql = "SELECT * FROM member_sheet_proposals WHERE conversation_id = ?"
     args: tuple[Any, ...] = (conversation_id,)
-    if status is not None:
-        sql += " AND status = ?"
-        args += (status,)
+    if statuses is not None:
+        if not statuses:
+            return []
+        sql += f" AND status IN ({','.join('?' for _ in statuses)})"  # nosec B608 -- fixed vocabulary
+        args += tuple(statuses)
     async with get_db() as db:
         rows = await db.execute_fetchall(sql + " ORDER BY id DESC", args)
     return [cast(MemberSheetProposalRow, dict(row)) for row in rows]

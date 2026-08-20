@@ -63,8 +63,14 @@ def strip_speaker_label(text: str, speaker_name: str) -> str:
 # since changed the character's hair, dress or gear. One line restores the
 # reading order the placement destroys. It is billed on every writer and editor
 # call, so it stays one sentence.
+#
+# It deliberately does not date the sheet. `group_sheet_updates` can bring it
+# current mid-scene, and "from the scene's start" would then be a false claim
+# about the very text the user had just approved — telling the model to discount
+# the update rather than the drift. The transcript still wins either way, which
+# is the only thing this line has to establish.
 SHEET_FRAMING = (
-    "Reference sheet from the scene's start. Where the transcript above shows it has changed "
+    "Reference sheet for this scene. Where the transcript above shows it has changed "
     "— appearance, dress, injuries, what they carry — follow the transcript."
 )
 

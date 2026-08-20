@@ -16,6 +16,16 @@ after this returns. Cast-wide would bill a call per member per beat to tell a
 silent member that nothing happened to them, so the targets are the members that
 actually spoke.
 
+**An undecided proposal is carried forward, not competed with.** A member with a
+pending proposal has this beat's call built on *that* text rather than on the
+member's stored sheet, so two beats of drift accumulate into one reviewable
+sheet instead of two mutually-exclusive ones (``database.queries.member_sheets``
+states the rule; this is the half that makes the replacement lossless). The row
+staged still records the member's *stored* sheet as ``base_sheet``, because that
+is what the apply has to re-check against. A pending proposal whose base no
+longer matches the stored sheet is ignored: the user hand-edited underneath it,
+and resurrecting text they overwrote is the one thing staging must not do.
+
 Every failure path leaves the beat untouched and stages nothing. This runs
 immediately before the turn's ``_result``, so a bookkeeping step must never be
 able to cost the user their reply — the same rule the world stage states, held
@@ -83,6 +93,14 @@ async def sheet_update_stage(
     targets = [by_id[mid] for mid in dict.fromkeys(turn.member_ids) if mid in by_id]
     if not targets:
         return
+    try:
+        pending = await db.get_pending_sheet_proposals(turn.conversation_id)
+    except Exception:
+        # A queue that cannot be read costs the carry-forward, not the beat: the
+        # pass falls back to staging against the stored sheet, which is what it
+        # did before the two were chained.
+        logger.exception("Could not read pending sheet proposals for %s; staging without carry-forward", turn.conversation_id)
+        pending = {}
 
     transcript = _beat_transcript(turn, state, turn.speaker_name)
     if not transcript.strip():
@@ -96,17 +114,27 @@ async def sheet_update_stage(
     client, model = cfg.agent_lane.client, cfg.agent_lane.base.model
     staged: list[dict] = []
     for member in targets:
+        # The sheet this beat reasons *from*: the member's undecided proposal when
+        # it still applies, otherwise what the member actually reads today. Only a
+        # proposal whose base still matches is carried — a mismatch means the user
+        # edited the sheet by hand since, and their text wins.
+        prior = pending.get(member.member_id)
+        carried = (
+            str(prior["proposed_sheet"])
+            if prior is not None and str(prior["base_sheet"]) == member.private_sheet
+            else member.private_sheet
+        )
         # A member with no sheet at all has nothing to carry forward, and a
         # proposal built from "" would be the model inventing a character rather
         # than recording a change to one.
-        if not member.private_sheet.strip():
+        if not carried.strip():
             continue
         try:
             update = await propose_sheet_update(
                 client,
                 model,
                 member_name=member.name,
-                sheet=member.private_sheet,
+                sheet=carried,
                 transcript=transcript,
             )
         except SheetUpdateUnavailable as exc:
@@ -135,10 +163,12 @@ async def sheet_update_stage(
                 "conversation_id": turn.conversation_id,
                 "member_id": member.member_id,
                 "beat_id": turn.beat_id,
-                # The sheet the proposal was derived from, and the value the
-                # apply re-checks against. Stored rather than recomputed: by
+                # The member's *stored* sheet, not the text the call reasoned
+                # from: this is the value the apply re-checks against, and by
                 # review time the member may have been hand-edited, which is
-                # exactly the case this has to detect.
+                # exactly the case this has to detect. When a pending proposal
+                # was carried forward the two differ, and it is this one — the
+                # one an apply can actually match — that has to be recorded.
                 "base_sheet": member.private_sheet,
                 "proposed_sheet": update["sheet"],
                 "summary": update["summary"],

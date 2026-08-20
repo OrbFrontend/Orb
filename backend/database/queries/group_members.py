@@ -304,6 +304,7 @@ async def sync_group_members(conversation_id: str, specs: Sequence[Mapping[str, 
         )
         existing = {row["id"]: dict(row) for row in existing_rows}
         used = {row["speaker_key"] for row in existing_rows}
+        kept: set[str] = {str(spec.get("id") or "") for spec in specs}
         active_cards: set[str] = set()
         # Clear the active set first so an atomic card swap cannot trip the
         # partial unique index while the roster is only half updated.
@@ -355,4 +356,19 @@ async def sync_group_members(conversation_id: str, specs: Sequence[Mapping[str, 
                         int(bool(spec.get("muted", False))),
                     ),
                 )
+        # A member the user just removed is out of the scene, so anything staged
+        # about its sheet is no longer a decision anyone can make: the apply has
+        # nothing active to write onto, and Manage cast renders rows only for the
+        # active roster, so an undecided proposal would sit in the review count
+        # forever with no row to dismiss it from. Retired here rather than in
+        # ``member_sheets`` because it has to be atomic with the tombstone, and
+        # because that module imports this one.
+        leaving = [row["id"] for row in existing_rows if row["active"] and row["id"] not in kept]
+        if leaving:
+            await db.execute(
+                "UPDATE member_sheet_proposals SET status = 'rejected', decided_at = ? "
+                f"WHERE conversation_id = ? AND status IN ('pending', 'stale') "  # nosec B608 -- fixed clauses
+                f"AND member_id IN ({','.join('?' for _ in leaving)})",
+                (datetime.now(UTC).isoformat(), conversation_id, *leaving),
+            )
     return await get_group_members(conversation_id)

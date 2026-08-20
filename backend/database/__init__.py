@@ -99,9 +99,12 @@ from .queries.interactive_fragments import (
     update_interactive_fragment,
 )
 from .queries.member_sheets import (
+    PROPOSAL_STATUSES,
+    REVIEW_STATUSES,
     SheetProposalConflict,
     apply_sheet_proposal,
     create_sheet_proposals,
+    get_pending_sheet_proposals,
     get_sheet_proposal,
     get_sheet_proposals,
     reject_sheet_proposal,
@@ -340,9 +343,12 @@ __all__ = [
     "sync_conversations_for_card",
     "sync_group_members",
     # member sheet proposals
+    "PROPOSAL_STATUSES",
+    "REVIEW_STATUSES",
     "SheetProposalConflict",
     "apply_sheet_proposal",
     "create_sheet_proposals",
+    "get_pending_sheet_proposals",
     "get_sheet_proposal",
     "get_sheet_proposals",
     "reject_sheet_proposal",

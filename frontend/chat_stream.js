@@ -958,7 +958,7 @@ export async function sendMessage() {
   // ask the backend to generate a response for it without creating a new message.
   // A draft in the box is not permission to discard it — this path sends the
   // *previous* message's turn, not this text, so it may only run with nothing to
-  // lose. A rest (`Choose` with nobody picked) leaves exactly this state behind,
+  // lose. A rest (`Manual` with nobody picked) leaves exactly this state behind,
   // which is how the old silent clear-and-drop became easy to hit.
   const lastMsg = S.messages[S.messages.length - 1];
   if (lastMsg?.role === "user" && lastMsg.id) {

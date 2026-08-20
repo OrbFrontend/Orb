@@ -21,6 +21,7 @@ from backend.features.cards.sheet_update import (
     build_beat_transcript,
     build_update_message,
     propose_sheet_update,
+    sheet_reply_budget,
 )
 
 SHEET = "A scout of the Watch, tall and green-cloaked.\n\nPersonality: Terse."
@@ -144,7 +145,24 @@ async def test_the_call_is_forced_and_not_at_the_writing_preset():
     await propose_sheet_update(client, "m", member_name="Aria", sheet=SHEET, transcript=TRANSCRIPT)  # type: ignore[arg-type]
     call = client.calls[0]
     assert call["tool_choice"] == {"type": "function", "function": {"name": SHEET_TOOL_NAME}}
-    assert call["temperature"] == 0.2 and call["max_tokens"] == 1024
+    assert call["temperature"] == 0.2 and call["max_tokens"] == sheet_reply_budget(SHEET)
+
+
+async def test_the_reply_budget_can_always_restate_the_sheet_it_was_given():
+    """The call has to reproduce a whole sheet verbatim, so a *flat* `max_tokens`
+    is a truncation budget on any card longer than it — and a truncated sheet is
+    the one bad output the contract cannot catch: non-empty, brace-free, under
+    the ceiling and different from the base. The budget therefore tracks the
+    same ceiling `_clean_sheet` enforces."""
+    long_sheet = "x" * 6000
+    client = _FakeClient(_call(changed=False))
+    await propose_sheet_update(client, "m", member_name="Aria", sheet=long_sheet, transcript=TRANSCRIPT)  # type: ignore[arg-type]
+    budget = client.calls[0]["max_tokens"]
+    assert budget > sheet_reply_budget(SHEET)
+    # Enough room for the longest proposal this sheet is allowed to grow into,
+    # at a deliberately pessimistic three characters per token.
+    ceiling = max(MIN_SHEET_CEILING_CHARS, len(long_sheet) + MAX_SHEET_GROWTH_CHARS)
+    assert budget >= ceiling / 3
 
 
 async def test_the_prompt_quotes_the_carry_forward_floor():

@@ -24,7 +24,7 @@ from typing import Any
 
 from .. import database as db
 from ..core import resolve_inline
-from ..inference import AbortToken, prefix_is_speaker_scoped
+from ..inference import AbortToken, prefix_is_speaker_scoped, tail_carries_identity
 from .cast import parse_speaking_plan, round_robin_member
 from .config import _resolve_pipeline_config, _split_interactive_fragments
 from .context import (
@@ -61,6 +61,43 @@ def _history_attachments(attachments: Sequence[Mapping[str, Any]]) -> list[dict]
             continue
         out.append({"mime_type": att.get("mime_type") or att.get("mime") or "image/jpeg", "data_b64": b64})
     return out
+
+
+# The largest round any strategy can legitimately schedule (``group_max_speakers``
+# is capped at 8). A chip-click scene can chain requests without ever inserting a
+# user row, so the lookback needs a ceiling that is not "the whole conversation".
+_EXCHANGE_MAX_REPLIES = 8
+
+
+def _exchange_prefix(
+    history: Sequence[Mapping[str, Any]],
+    names: Mapping[str, str],
+) -> tuple[str, list[tuple[str, str]]]:
+    """The round already on the branch: the user's last message and every reply since.
+
+    A beat is *request*-scoped. Under `manual` — and for any cast-chip click on a
+    resting scene — one round is several requests, so this request's own replies
+    are not the round. The sheet pass would otherwise be asked "did this beat
+    durably change Kael?" with the line that changed him in a different request,
+    and on `handle_speak` with no user message at all. This is the same round
+    ``workflows/image_gen/subjects.py`` reads, for the same reason, and it is
+    consulted only when the request did not bring a user message of its own.
+    """
+    lines: list[tuple[str, str]] = []
+    user_message = ""
+    for row in reversed(history):
+        if row.get("role") == "user":
+            user_message = str(row.get("content") or "")
+            break
+        if row.get("role") != "assistant":
+            continue
+        content = str(row.get("content") or "")
+        if content.strip():
+            lines.append((names.get(str(row.get("speaker_member_id") or "")) or "Speaker", content))
+        if len(lines) >= _EXCHANGE_MAX_REPLIES:
+            break
+    lines.reverse()
+    return user_message, lines
 
 
 def _group_pin_error(ctx: PipelineContext, pinned_speaker_id: str | None) -> str | None:
@@ -379,6 +416,11 @@ async def _generate_group_beat(
             plan_rows = parsed
 
     cast_by_id = {member.member_id: member for member in ctx.cast.members}
+    # Only when this request brought no user message of its own: a `/send` starts a
+    # new round, so looking back would drag the previous one into this one's evidence.
+    prior_user, prior_lines = (
+        ("", []) if user_message else _exchange_prefix(history, {mid: member.name for mid, member in cast_by_id.items()})
+    )
     public_plan = [
         {
             "member_id": row["id"],
@@ -487,12 +529,23 @@ async def _generate_group_beat(
                 SheetUpdateTurn(
                     conversation_id=conversation_id,
                     beat_id=beat_id,
+                    # This request's speakers, not the round's: `spoke` is who to
+                    # propose *about*, and an earlier request already billed a call
+                    # for the members it ran. Only the evidence below widens.
                     member_ids=(*(mid for mid, _, _ in spoke), speaker.member_id),
-                    user_message=user_message,
+                    user_message=user_message or prior_user,
                     speaker_name=speaker.name,
-                    lines=tuple((name, text) for _, name, text in spoke),
+                    lines=(*prior_lines, *((name, text) for _, name, text in spoke)),
                 )
-                if index == len(plan_rows) - 1 and ctx.conv.get("group_sheet_updates")
+                # The mode belongs in this condition and not only in Group settings.
+                # Under Shared and Swap a member's sheet is rendered into the *cached*
+                # body, so an applied update rebuilds the whole scene prefix — the exact
+                # cost the opt-in is gated on avoiding. Leaving that invariant to one
+                # line of the client meant a `PUT` that changed only the mode left the
+                # pass running against the layout it was never priced for.
+                if index == len(plan_rows) - 1
+                and ctx.conv.get("group_sheet_updates")
+                and tail_carries_identity(ctx.cast.context_mode)
                 else None
             ),
             speaker=speaker,

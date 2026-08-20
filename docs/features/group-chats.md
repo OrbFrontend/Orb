@@ -148,6 +148,104 @@ user sibling and runs a fresh group beat. Removed roster members are tombstoned
 so old messages keep their names; re-adding the same card creates a new member
 identity.
 
+## Scene-local sheets
+
+`group_members` carries two scene-local overrides, and they answer different
+questions. `public_profile_override` is what the *rest of the cast* sees;
+`card_sheet_override` is what the member reads about *itself*, standing in for
+the card's `description` + `personality` join. Both resolve on `is not None`, so
+a stored `""` blanks the field rather than falling back, and neither ever writes
+the card — a card is a reusable asset that outlives the scene, and a scene that
+edited it would change every other chat the card is in.
+
+The sheet exists because a card asserts turn one forever and a scene does not:
+hair is cut, a coat burns, a sword breaks. It can be typed by hand in Manage
+cast, and — when the scene opts in — proposed from the played prose.
+
+### The post-beat pass
+
+`conversations.group_sheet_updates` is the per-scene opt-in, **off by default**:
+one billed call per member a beat touched is not something a scene should start
+paying for by existing, and staleness is a property of a *long* scene.
+
+`pipeline/sheet_update.py` drives it in the `world_change` slot, gated on
+`run_beat_final` so it runs **once per beat** on the members that actually spoke
+— not cast-wide, which would bill a call per member per beat to tell a silent
+member nothing happened to them. `features/cards/sheet_update.py` owns the call:
+one forced tool call per member, **never batched**, because a sheet is that
+member's own material and B's sheet entering A's call would write B's secret
+into a string A reads. The beat's prose is shared evidence and goes into every
+call; the sheets do not. Failures are swallowed at both levels — one member's
+failed call never drops another's proposal, and the stage never costs the user
+their reply.
+
+Three rules shape what the pass is allowed to be:
+
+- **It is offered under Private perspective only**, and the gate is the *turn
+  driver's*, not the form's. Private is the one mode that reads a member's sheet
+  from the trailing message, after history, where rewriting it every beat costs
+  no prefix rebuild. Under Shared and Swap the same text sits in the cached body
+  ahead of the history, so an applied update rebuilds the whole scene prefix —
+  the exact cost the opt-in is priced on avoiding. Leaving that invariant to the
+  client alone meant a `PUT` changing only the mode left the pass running.
+- **The evidence is the round, not the request.** A beat is request-scoped, so
+  under `Manual` — and for any cast-chip click on a resting scene — one round is
+  several requests. The transcript is therefore the user's last message and every
+  reply since (`entrypoints._exchange_prefix`), the same round
+  `workflows/image_gen/subjects.py` reads. Only the *evidence* widens: the
+  members proposed **about** stay this request's speakers, since an earlier
+  request already billed a call for the ones it ran.
+- **Nothing is applied.** The pass proposes; the user decides, in Manage cast.
+  Same posture as Dynamic Worlds, for the same two failure modes: a bookkeeping
+  model can disagree with a hand edit, and it can simply judge wrong.
+
+### The review queue
+
+`member_sheet_proposals` holds the staged rewrites — `pending` | `applied` |
+`rejected` | `stale`. `base_sheet` is to a proposal what `worlds.content_revision`
+is to a changeset: the apply takes `BEGIN IMMEDIATE`, re-resolves the member's
+current effective sheet, and refuses (409) when it no longer matches. There is
+no force-apply and no rebase, because a hand edit and a model's edit can
+contradict each other in meaning even when both look reasonable.
+
+**At most one pending proposal per member.** Every beat stages against the sheet
+as it stands, so two pending proposals for one member are necessarily derived
+from the same base — applying either makes the other unapplyable, and regenerate
+runs the beat again and would stack a third. A new proposal therefore *replaces*
+the member's pending one in place, keeping its row id, and the stage builds that
+beat's call on the replaced text so the drift accumulates into one reviewable
+sheet instead of competing ones. A pending proposal whose `base_sheet` no longer
+matches the stored sheet is not carried forward: the user hand-edited underneath
+it, and resurrecting text they overwrote is the one thing staging must not do.
+
+The listing route's default is the **review set** — `pending` plus `stale` — not
+`pending` alone. A `stale` proposal is one the apply just refused, and it is
+precisely the row that owes the user an explanation; fetching only `pending` made
+it vanish at the moment of refusal. `?status=all` is the history view, and any
+single status name is accepted.
+
+Two lifecycle edges keep the queue honest. Removing a member from the scene
+retires its undecided proposals in the same transaction as the tombstone —
+Manage cast renders rows only for the active roster, so one left pending would
+sit in the review count forever with no row to dismiss it from. And the client
+fetches the queue whether or not the scene is currently opted in: turning the
+pass off stops it *staging*, and must not also hide what it already staged.
+
+### Where it surfaces
+
+Manage cast is the review surface. Each member's row carries both overrides under
+`Customize for this scene`, and its staged proposal below them — shown in full,
+because the user is approving text rather than a label. A row with something
+waiting opens by default and counts itself on its summary, and the cast rail's
+`+ Manage cast` button carries the scene-wide count; a proposal nobody notices
+never gets applied.
+
+The override boxes are labelled by what they *reach*, which is mode-dependent for
+the sheet: under Shared dossier a member's own sheet **is** its dossier, so the
+words "what they read about themselves" would put the scene's only cross-member
+disclosure behind the most private-sounding label on the screen. Under Swap it is
+self-only for real — only the active speaker's card is sent.
+
 ## The rest of Orb in a group
 
 A group is a conversation, so every feature that reads a conversation keeps
@@ -281,11 +379,11 @@ only definition):
 - **Resting scene** — nothing streaming, nothing drafted or attached: the member
   takes the floor immediately via `POST …/speak`. There is no toggle here; the
   click resolves the pick by using it, and the one-shot cleanup drops the pin
-  afterwards outside `Choose`.
+  afterwards outside `Manual`.
 - **Busy or drafted**: the click only queues that member as the next speaker.
   Clicking whoever is already queued takes the pick back.
 
-Muted members render disabled. In `Choose` mode the send button stays disabled
+Muted members render disabled. In `Manual` mode the send button stays disabled
 until a member is picked and says so in its tooltip, since nothing else on
 screen explains the block.
 

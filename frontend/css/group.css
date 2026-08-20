@@ -275,6 +275,23 @@
   padding: 2px 0;
 }
 
+/* The same count the rail's badge shows, repeated on the row that owns it, so a
+   user sent here by "3 sheet updates to review" can see which members they are
+   without opening every disclosure. */
+.cast-row-summary-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--bg-deep);
+  font-size: 10px;
+  font-weight: 700;
+}
+
 /* The override box and its Draft button share one line: the button is an
    action *on* that box, not a sibling control below it. */
 .cast-row-profile {

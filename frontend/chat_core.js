@@ -30,7 +30,7 @@ import { segmentBody } from "./workflow_segmentation.js";
 import { markClickable } from "./workflow_text_interaction.js";
 import { messageProposalsHtml } from "./world_proposals.js";
 
-// Nothing about a group's turn mode belongs here. `Choose` used to block every
+// Nothing about a group's turn mode belongs here. `Manual` used to block every
 // generation that arrived without a pick, which also blocked regenerate and
 // magic rewrite — turns that carry their own speaker off the message they
 // replace. A user message with nobody picked is a rest the backend answers with

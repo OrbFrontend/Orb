@@ -15,6 +15,8 @@ from ...core import (
     scrub_log,
 )
 from ...database import (
+    PROPOSAL_STATUSES,
+    REVIEW_STATUSES,
     SheetProposalConflict,
     activate_character_linked_worlds,
     add_conversation_log,
@@ -329,15 +331,28 @@ async def api_generate_scene_profile(
 @router.get("/api/conversations/{cid}/sheet-proposals")
 async def api_list_sheet_proposals(
     cid: str,
-    status: str = "pending",
+    status: str = "review",
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
-    """The scene's staged sheet updates. Defaults to the ones awaiting a decision.
+    """The scene's staged sheet updates. Defaults to the review set.
 
-    ``status=all`` returns every row, which is what a history view would read;
-    the review surface only ever asks for the default.
+    ``review`` is ``pending`` plus ``stale`` — what still needs a decision, plus
+    what an apply already refused and therefore owes the user a reason for. A
+    surface that asked for ``pending`` alone made a refused proposal disappear at
+    the moment of refusal, which is the opposite of reporting it.
+
+    ``all`` returns every row, which is what a history view would read; any
+    single status name is also accepted.
     """
-    return await get_sheet_proposals(cid, status=None if status == "all" else status)
+    if status == "all":
+        statuses = None
+    elif status == "review":
+        statuses = REVIEW_STATUSES
+    elif status in PROPOSAL_STATUSES:
+        statuses = (status,)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown proposal status: {status}")
+    return await get_sheet_proposals(cid, statuses=statuses)
 
 
 @router.post("/api/conversations/{cid}/sheet-proposals/{pid}/apply")

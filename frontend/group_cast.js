@@ -164,7 +164,7 @@ export function recommendContextMode(cards) {
 }
 
 // Why a beat produced no reply, in the words of the mode that produced it. A
-// rest under `Choose` is the user's own doing — they sent without naming anyone
+// rest under `Manual` is the user's own doing — they sent without naming anyone
 // — so it reads as the next step rather than as the scene declining to answer.
 export function restNotice() {
   return S.groupCast?.turn_mode === "manual"
@@ -173,7 +173,7 @@ export function restNotice() {
 }
 
 // How to get an unanswered user message answered — the state a rest leaves
-// behind. `Choose` answers it with a cast chip, and an empty Send would only
+// behind. `Manual` answers it with a cast chip, and an empty Send would only
 // rest again; every other scene, solo or group, answers it with that empty Send.
 // One sentence, one owner: the composer must not re-derive the rule.
 export function unansweredHint() {

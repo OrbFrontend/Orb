@@ -252,8 +252,9 @@ function showGroupSettings() {
     <h3 class="modal-section">Character context</h3>
     <div class="field"><label for="group-settings-context">Mode</label>
       <select id="group-settings-context">${contextModeOptions(S.groupCast.context_mode)}</select></div>
-    <div class="field" id="group-settings-sheet-row"><label class="modal-checkbox-label"><input type="checkbox" id="group-settings-sheet-updates"${S.groupCast.sheet_updates ? " checked" : ""}> Prevent stale cast info</label>
-      <p class="modal-hint">Problem: under Private perspective, character cards go in the tail instead of the shared system prompt and may become stale (e.g. change of outfit). After each beat, propose an updated description for every member who spoke.</p></div>
+    <div class="field" id="group-settings-sheet-row"><label class="modal-checkbox-label"><input type="checkbox" id="group-settings-sheet-updates"${S.groupCast.sheet_updates ? " checked" : ""}> Propose sheet updates after each reply</label>
+      <p class="modal-hint">A character card describes turn one forever, so a long scene drifts away from it — hair cut, coat burned, arm in a sling. After each beat, each member who spoke is read against the scene and offered a rewritten sheet, which you apply or dismiss in Manage cast. Nothing is written automatically and the character card is never touched.</p>
+      <p class="modal-hint">Costs one extra model call per member who spoke, per beat. Offered under Private perspective only: it is the one mode that reads a member's sheet after the history, where keeping it current costs no prompt-cache rebuild.</p></div>
     <h3 class="modal-section">Reply behavior</h3>
     <div class="field"><label for="group-settings-mode">Mode</label>
       <select id="group-settings-mode">${modeOptions(S.groupCast.turn_mode)}</select></div>
@@ -337,12 +338,33 @@ function overrideCopy() {
   return OVERRIDE_COPY[S.groupCast?.context_mode] || OVERRIDE_COPY.private;
 }
 
-// The sheet override has no per-mode copy because it has no per-mode behaviour:
-// every mode sends a member's own sheet somewhere (Private in the speaker's
-// trailing message, Shared in its dossier, Swap in the active card), so the box
-// is never a slot that silently drops what is typed into it. Blank falls back to
-// the character card, which is never written.
-const SHEET_PLACEHOLDER = "Scene sheet override — replaces the card's description and personality for this scene only";
+// The sheet override ships under every mode — unlike the public profile, it is
+// never a slot that silently drops what is typed into it, so it is never
+// disabled. What *does* change per mode is who reads it, and that is the whole
+// reason this table exists: under Shared dossier a member's own sheet **is** its
+// dossier, so the box the other two modes can honestly label "what they read
+// about themselves" is, there, what the entire cast reads. Labelling it
+// self-only under Shared put the scene's only cross-member disclosure behind the
+// most private-sounding words on the screen. Swap keeps it self-only for real:
+// only the active speaker's card is sent, so no other member ever sees it.
+const SHEET_COPY = {
+  private: {
+    label: "What they read about themselves",
+    placeholder: "Scene sheet override — replaces the card's description and personality for this scene only",
+  },
+  shared: {
+    label: "What they read about themselves — and, under Shared dossier, what the whole cast reads",
+    placeholder: "Scene sheet override — under Shared dossier this is the dossier every other member reads",
+  },
+  swap: {
+    label: "What they read about themselves",
+    placeholder: "Scene sheet override — sent on their turn only; other members see names alone",
+  },
+};
+
+function sheetCopy() {
+  return SHEET_COPY[S.groupCast?.context_mode] || SHEET_COPY.private;
+}
 
 // A staged sheet update, waiting on the user. The pass proposes and never
 // applies, for the reason Dynamic Worlds stages its changesets: it writes a
@@ -386,6 +408,11 @@ function castRow(member) {
   const name = member.display_name || "Narrator";
   const override = overrideCopy();
   const draftable = canDraftProfile(member);
+  // Opened, and counted on the summary, when this member has something waiting.
+  // The cast rail's badge sends the user here to "review N sheet updates"; with
+  // every review row behind a closed disclosure, what they arrived to do was the
+  // one thing the screen did not show.
+  const proposals = proposalsFor(member.id);
   return `<div class="cast-row" data-roster-member-id="${escAttr(member.id || "")}" data-roster-card-id="${escAttr(member.character_card_id || "")}" data-roster-kind="${escAttr(member.member_kind || "character")}">
     <button type="button" class="cast-drag" data-roster-drag title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(name)}">⠿</button>
     ${memberAvatar(member)}
@@ -393,17 +420,19 @@ function castRow(member) {
     <label class="cast-reply-toggle" title="Muted members stay in the scene but never take a turn"><input type="checkbox" data-roster-reply ${member.muted ? "" : "checked"}> Can reply</label>
     <button type="button" class="cast-row-more" data-roster-more title="More actions" aria-label="More actions for ${escAttr(name)}">•••</button>
     <div class="cast-row-menu"><button type="button" class="burger-menu-item" data-roster-remove>Remove from scene</button></div>
-    <details class="cast-row-custom"><summary>Customize for this scene</summary>
+    <details class="cast-row-custom"${proposals.length ? " open" : ""}><summary>Customize for this scene${
+      proposals.length ? ` <span class="cast-row-summary-badge">${proposals.length}</span>` : ""
+    }</summary>
       <div class="cast-row-label">What the rest of the cast sees</div>
       <div class="cast-row-profile">
         <textarea data-roster-profile${override.disabled ? " disabled" : ""} placeholder="${escAttr(override.placeholder)}">${esc(member.public_profile_override || "")}</textarea>
         <button type="button" class="btn" data-roster-draft${draftable ? "" : ` disabled title="${escAttr(draftBlockedReason(member))}"`}>${member.public_profile_override ? "Redraft" : "Draft"}</button>
       </div>
-      <div class="cast-row-label">What they read about themselves</div>
+      <div class="cast-row-label">${esc(sheetCopy().label)}</div>
       <div class="cast-row-sheet">
-        <textarea data-roster-sheet placeholder="${escAttr(SHEET_PLACEHOLDER)}">${esc(member.card_sheet_override || "")}</textarea>
+        <textarea data-roster-sheet placeholder="${escAttr(sheetCopy().placeholder)}">${esc(member.card_sheet_override || "")}</textarea>
       </div>
-      ${proposalsFor(member.id).map(proposalRow).join("")}
+      ${proposals.map(proposalRow).join("")}
     </details>
   </div>`;
 }
@@ -886,7 +915,13 @@ export async function loadGroupCast(conv) {
     // Staged, never applied. Fetched with the cast because Manage cast is where
     // they are reviewed, and a round trip on modal open would leave the rows
     // painting in after the user is already reading.
-    sheet_proposals: conv.group_sheet_updates ? await fetchSheetProposals(conv.id) : [],
+    //
+    // Not gated on the opt-in: turning the pass off stops it *staging*, and must
+    // not also hide what it already staged. Leaving Private perspective turns the
+    // opt-in off as a side effect, so gating here meant a mode change silently
+    // swallowed a queue the user had never seen — with no way to reach or dismiss
+    // it short of switching back.
+    sheet_proposals: await fetchSheetProposals(conv.id),
   };
   if (!members.some((m) => m.id === S.pinnedSpeakerId && !m.muted)) S.pinnedSpeakerId = null;
   renderGroupCast();
@@ -917,7 +952,7 @@ async function convertToGroup() {
 //
 // The pin is set on the speak path too, not just the queue path: it is what the
 // chip lights up, and afterStream's one-shot cleanup then clears it for us
-// outside `Choose` mode, where the pick is the strategy and should persist.
+// outside `Manual` mode, where the pick is the strategy and should persist.
 function onCastChipClick(memberId) {
   if (castClickSpeaksNow(composerHasDraft())) {
     S.pinnedSpeakerId = memberId;

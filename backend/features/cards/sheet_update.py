@@ -99,6 +99,28 @@ UPDATE_SHEET_TOOL = {
 MAX_SHEET_GROWTH_CHARS = 600
 MIN_SHEET_CEILING_CHARS = 1200
 
+# The reply budget is derived from that same ceiling rather than fixed, for the
+# reason the ceiling itself is: the call is asked to reproduce a whole sheet
+# verbatim, so a flat cap silently became a *truncation* budget on any card
+# longer than it. A truncated sheet is the one bad output the contract cannot
+# catch — it is non-empty, brace-free, under the ceiling and different from the
+# base, so it passes every check while having quietly deleted the character's
+# last paragraph. Three chars per token is deliberately pessimistic (the usual
+# estimate is four), and the slack covers the summary and the JSON envelope.
+_SHEET_CHARS_PER_TOKEN = 3
+_SHEET_TOKEN_SLACK = 256
+
+
+def sheet_reply_budget(sheet: str) -> int:
+    """`max_tokens` for one update call: enough to restate *this* sheet in full."""
+    return _sheet_ceiling(sheet) // _SHEET_CHARS_PER_TOKEN + _SHEET_TOKEN_SLACK
+
+
+def _sheet_ceiling(base: str) -> int:
+    """The longest proposal this base may grow into."""
+    return max(MIN_SHEET_CEILING_CHARS, len(base) + MAX_SHEET_GROWTH_CHARS)
+
+
 # One short line for the review row. Longer than this is the model narrating the
 # beat instead of naming the change.
 MAX_SUMMARY_WORDS = 25
@@ -141,7 +163,7 @@ def _clean_sheet(value: Any, base: str) -> str:
         raise SheetUpdateUnavailable("The model reported a change but returned an empty sheet.")
     if any(brace in text for brace in BRACES):
         raise SheetUpdateUnavailable("The proposed sheet contains a macro or placeholder.")
-    ceiling = max(MIN_SHEET_CEILING_CHARS, len(base) + MAX_SHEET_GROWTH_CHARS)
+    ceiling = _sheet_ceiling(base)
     if len(text) > ceiling:
         raise SheetUpdateUnavailable(f"The proposed sheet is longer than {ceiling} characters.")
     if normalize(text) == normalize(base):
@@ -207,7 +229,7 @@ async def propose_sheet_update(
         system=SHEET_SYSTEM_PROMPT,
         user=build_update_message(member_name=member_name, sheet=sheet, transcript=transcript),
         tool=UPDATE_SHEET_TOOL,
-        max_tokens=1024,
+        max_tokens=sheet_reply_budget(sheet),
     )
     if args is None:
         raise SheetUpdateUnavailable("The model did not return a usable sheet update.")

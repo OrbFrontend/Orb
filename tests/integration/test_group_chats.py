@@ -920,8 +920,11 @@ def _sheet_calls(llm_mock) -> list[str]:
     ]
 
 
-async def _proposals(client, conv, status: str = "pending") -> list[dict]:
-    response = await client.get(f"/api/conversations/{conv['id']}/sheet-proposals", params={"status": status})
+async def _proposals(client, conv, status: str | None = None) -> list[dict]:
+    """The scene's proposals. No status means the route's own default — the review
+    set the client actually asks for, so the tests exercise the shipped call."""
+    params = {"status": status} if status else {}
+    response = await client.get(f"/api/conversations/{conv['id']}/sheet-proposals", params=params)
     assert response.status_code == 200
     return response.json()
 
@@ -1051,6 +1054,145 @@ async def test_rejecting_writes_nothing_and_retires_the_row(client, llm_mock):
     assert reloaded[0]["card_sheet_override"] is None
     # A decided proposal is decided; a second apply cannot resurrect it.
     assert (await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{pending[0]['id']}/apply")).status_code == 409
+
+
+async def test_a_second_beat_replaces_the_pending_proposal_instead_of_stacking_beside_it(client, llm_mock):
+    """Two beats stage against the same stored sheet, so two pending proposals for
+    one member are necessarily rivals: applying either makes the other 409. The
+    later one replaces the earlier *in place*, and is built on its text, so the
+    drift accumulates into one reviewable sheet instead of competing ones."""
+    conv, members = await _sheet_group(client)
+    llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn.", summary="Cut her hair"))
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    await _run_two_speaker_beat(client, llm_mock, conv)
+    first = await _proposals(client, conv)
+    assert len(first) == 1
+
+    llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn and coatless.", summary="Coat burned"))
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    await _run_two_speaker_beat(client, llm_mock, conv)
+
+    pending = await _proposals(client, conv)
+    assert len(pending) == 1, "one member, one undecided proposal"
+    assert pending[0]["id"] == first[0]["id"], "the row is rewritten, not replaced beside"
+    assert pending[0]["proposed_sheet"] == "ARIA, shorn and coatless."
+    # The second call reasoned from the first proposal, not from the stored sheet:
+    # that is what makes replacing the row lossless.
+    assert "ARIA, shorn." in _sheet_calls(llm_mock)[2]
+    # `base_sheet` still names what an apply must match — the *stored* sheet.
+    assert pending[0]["base_sheet"] == "ARIA PRIVATE"
+    assert (await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{pending[0]['id']}/apply")).status_code == 200
+    reloaded = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
+    assert reloaded[0]["card_sheet_override"] == "ARIA, shorn and coatless."
+    assert members[0]["id"] == pending[0]["member_id"]
+
+
+async def test_a_hand_edit_stops_the_carry_forward(client, llm_mock):
+    """Carrying an undecided proposal forward must never resurrect text the user
+    overwrote. A proposal whose base no longer matches the stored sheet is
+    ignored, exactly as the apply refuses it."""
+    conv, members = await _sheet_group(client)
+    llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn.", summary="Cut her hair"))
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    await _run_two_speaker_beat(client, llm_mock, conv)
+
+    await _put_members(
+        client,
+        conv,
+        [_member_spec(members[0], card_sheet_override="ARIA, hand-edited."), _member_spec(members[1])],
+    )
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    await _run_two_speaker_beat(client, llm_mock, conv)
+
+    third = _sheet_calls(llm_mock)[2]
+    assert "ARIA, hand-edited." in third and "ARIA, shorn." not in third
+
+
+async def test_the_review_set_keeps_the_refusal_it_owes_an_explanation_for(client, llm_mock):
+    """A `stale` proposal is one the apply refused. Listing only `pending` made it
+    vanish at the moment of refusal, which is the opposite of reporting it — and
+    left the review surface's own stale row unreachable."""
+    conv, members = await _sheet_group(client)
+    llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn.", summary="Cut her hair"))
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    await _run_two_speaker_beat(client, llm_mock, conv)
+    staged = (await _proposals(client, conv))[0]
+
+    await _put_members(
+        client,
+        conv,
+        [_member_spec(members[0], card_sheet_override="ARIA, hand-edited."), _member_spec(members[1])],
+    )
+    assert (await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{staged['id']}/apply")).status_code == 409
+
+    review = await _proposals(client, conv)
+    assert [(item["id"], item["status"]) for item in review] == [(staged["id"], "stale")]
+    # And it can still be cleared, which is the only action left on it.
+    assert (await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{staged['id']}/reject")).status_code == 200
+    assert await _proposals(client, conv) == []
+
+
+async def test_removing_a_member_retires_its_undecided_proposals(client, llm_mock):
+    """Manage cast renders rows only for the active roster, so a proposal left
+    pending on a tombstoned member sat in the review count forever with no row to
+    dismiss it from — and the apply, which has no active sheet to write onto,
+    could only refuse."""
+    conv, members = await _sheet_group(client)
+    llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn.", summary="Cut her hair"))
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    await _run_two_speaker_beat(client, llm_mock, conv)
+    staged = (await _proposals(client, conv))[0]
+
+    await _put_members(client, conv, [_member_spec(members[1])])
+    assert await _proposals(client, conv) == []
+    assert (await _proposals(client, conv, "all"))[0]["status"] == "rejected"
+    assert (await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{staged['id']}/apply")).status_code == 409
+
+
+async def test_the_pass_is_gated_on_the_mode_by_the_server_not_only_by_the_form(client, llm_mock):
+    """The opt-in is priced on Private perspective: only there does a member's
+    sheet ride the uncached tail, so only there does keeping it current cost no
+    prefix rebuild. Under Shared the same text sits in the cached body and an
+    applied update rebuilds the whole scene prefix — so a `PUT` that changes only
+    the mode must stop the pass, not leave it running against a layout it was
+    never priced for."""
+    conv, _ = await _sheet_group(client)
+    updated = (await client.put(f"/api/conversations/{conv['id']}", json={"group_context_mode": "shared"})).json()
+    assert updated["group_context_mode"] == "shared" and updated["group_sheet_updates"] == 1
+
+    await _run_two_speaker_beat(client, llm_mock, updated)
+    assert _sheet_calls(llm_mock) == []
+    assert await _proposals(client, updated) == []
+
+
+async def test_a_chip_click_reads_the_round_rather_than_its_own_request(client, llm_mock):
+    """A beat is request-scoped, so under Manual — and for any cast-chip click on
+    a resting scene — one round is several requests. Judging "did this beat change
+    Kael?" from Kael's reply alone leaves out the line that changed him, and on
+    `/speak` leaves out the user's message entirely. The evidence is the round,
+    which is what `image_gen`'s subject list already reads."""
+    conv, members = await _sheet_group(client)
+    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — Notice the trail"]))
+    llm_mock.enqueue_writer("I found tracks.")
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    assert (await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})).status_code == 200
+
+    llm_mock.enqueue_writer("The ward is broken.")
+    llm_mock.enqueue_workflow(_sheet_call(changed=False))
+    response = await client.post(f"/api/conversations/{conv['id']}/speak", json={"speaker_member_id": members[1]["id"]})
+    assert response.status_code == 200
+
+    calls = _sheet_calls(llm_mock)
+    assert len(calls) == 2
+    # Kael's call is about Kael, but it reads the whole round: the user's message
+    # and Aria's reply, neither of which was part of Kael's own request.
+    assert "Character: Kael" in calls[1]
+    for evidence in ("What happened?", "I found tracks.", "The ward is broken."):
+        assert evidence in calls[1]
+    # Only this request's speaker is proposed *about*: Aria's own call was already
+    # billed by the request she spoke in.
+    assert "Character: Aria" not in calls[1]
 
 
 async def test_a_failed_sheet_call_never_costs_the_user_their_reply(client, llm_mock):
