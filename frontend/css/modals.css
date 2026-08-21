@@ -44,6 +44,14 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* …unless a tab row follows it: `.tabs` draws the same rule, and two of them
+   stacked read as a header inside a header. */
+.modal > h2.modal-title-flush {
+  padding-bottom: 0;
+  border-bottom: none;
+  margin-bottom: 12px;
+}
+
 .modal p {
   margin-bottom: 16px;
 }

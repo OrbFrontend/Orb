@@ -301,14 +301,16 @@ export function castRailHtml({ hasDraft = false } = {}) {
       return `<button type="button" class="cast-member${isNext ? " next" : ""}${speaking}${member.muted ? " muted" : ""}" data-cast-member-id="${escAttr(member.id)}" aria-pressed="${isNext}" ${member.muted ? "disabled" : ""} title="${escAttr(title)}">${memberAvatar(member)}<span>${esc(member.display_name)}</span></button>`;
     })
     .join("");
-  // Staged sheet updates are reviewed inside Manage cast, so without a count on
-  // the button they are invisible — and a proposal nobody notices never gets
-  // applied, which would make the whole pass pointless.
+  // Staged sheet updates are reviewed on this modal's Cast tab, so without a
+  // count on the button they are invisible — and a proposal nobody notices never
+  // gets applied, which would make the whole pass pointless.
   const staged = (S.groupCast.sheet_proposals || []).length;
   const badge = staged ? `<span class="cast-manage-badge">${staged}</span>` : "";
+  // The scene's only setup affordance now that the header ••• is gone, so the
+  // title names both tabs — the button's own label can only name one of them.
   const manageTitle = staged
-    ? `Add, reorder, or mute cast members — ${staged} sheet update${staged === 1 ? "" : "s"} to review`
-    : "Add, reorder, or mute cast members";
+    ? `Cast and scene settings — ${staged} sheet update${staged === 1 ? "" : "s"} to review`
+    : "Cast and scene settings";
   return `${chips}<button type="button" class="cast-manage" data-cast-manage title="${escAttr(manageTitle)}">+ Manage cast${badge}</button>`;
 }
 

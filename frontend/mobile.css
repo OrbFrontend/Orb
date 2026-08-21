@@ -164,20 +164,11 @@ body {
     width: 100%;
   }
 
-  /* The ⋯ menu carries all of these below the breakpoint, including the
-     desktop ••• overflow's items. */
+  /* The ⋯ menu carries all of these below the breakpoint. */
   #user-profile-btn,
   #tools-panel-btn,
   #inspector-toggle,
-  #chat-overflow-btn,
   #direction-notes-panel-btn {
-    display: none;
-  }
-
-  /* Out-specifies .open, so a menu left open on a wide viewport cannot survive
-     the resize past the breakpoint. */
-  #chat-overflow-menu,
-  #chat-overflow-menu.open {
     display: none;
   }
 

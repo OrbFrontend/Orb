@@ -155,23 +155,23 @@
   border-color: var(--accent-dim);
 }
 
-/* ── Header overflow menu ── */
-#chat-overflow-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  min-width: 190px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, .4);
-  overflow: hidden;
-  z-index: 50;
-  display: none;
+/* ── Scene setup · Cast tab ── */
+/* Reorder hint left, the cast-wide draft action right — the pane's own header
+   row, since the modal's title bar is now shared with the Group settings tab. */
+.cast-pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
 }
 
-#chat-overflow-menu.open {
-  display: block;
+.cast-pane-head .modal-subtitle {
+  margin-bottom: 0;
+}
+
+.cast-pane-head .btn {
+  flex-shrink: 0;
 }
 
 /* ── Cast manager ── */
@@ -550,4 +550,18 @@
   font-weight: 500;
   color: var(--text-secondary);
   margin: 14px 0 8px;
+}
+
+/* ── Scene setup · Group settings tab ── */
+/* Delete used to sit in the modal's action row, where it would now be one click
+   from Save on a tab that isn't even showing the cast. Ruled off at the foot of
+   its own tab instead. */
+.group-danger {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.group-danger .modal-hint {
+  margin-top: 8px;
 }

@@ -109,18 +109,14 @@
         <button class="btn btn-sm" id="inspector-toggle" data-chat-action="inspector" title="Inspector" aria-label="Inspector">🔍 Inspector</button>
         <!-- Secondary scene actions. Wired via addEventListener in app.js (no new
              inline handlers); each item's data-chat-action is the whole contract.
-             The group/solo items are shown by renderChatActionMenus(). -->
-        <button class="btn btn-sm" id="chat-overflow-btn" hidden title="More actions" aria-label="More actions" aria-haspopup="true" aria-expanded="false">•••</button>
-        <div id="chat-overflow-menu">
-          <div class="burger-menu-item" data-chat-action="group-settings" hidden><span class="burger-icon">⚙️</span>Group settings</div>
-          <div class="burger-menu-item" data-chat-action="manage-cast" hidden><span class="burger-icon">👥</span>Manage cast</div>
-        </div>
+             The group/solo items are shown by renderChatActionMenus(). A group's
+             scene setup has no button up here: it opens from the cast rail's
+             "Manage cast" on the composer, where the cast already is. -->
         <button id="mobile-chat-actions-toggle" onclick="toggleMobileHeaderActions()" title="Quick actions">⋯</button>
         <div id="mobile-chat-actions-menu">
           <div class="burger-menu-item" id="mobile-user-profile-btn" onclick="closeMobileHeaderActions();showUserModal()">👤 User</div>
           <div class="burger-menu-item" onclick="closeMobileHeaderActions();toggleToolsPanel()">✨ Workflow</div>
-          <div class="burger-menu-item" data-chat-action="group-settings" hidden>⚙️ Group settings</div>
-          <div class="burger-menu-item" data-chat-action="manage-cast" hidden>👥 Manage cast</div>
+          <div class="burger-menu-item" data-chat-action="group-config" hidden>👥 Scene setup</div>
           <div class="burger-menu-item" data-chat-action="inspector">🔍 Inspector</div>
           <div class="burger-menu-item hidden" id="mobile-direction-notes-btn" onclick="closeMobileHeaderActions();toggleDirectionNotesPanel()">📝 Notes</div>
         </div>

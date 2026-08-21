@@ -351,15 +351,25 @@ message refetch/render after the exchange.
 ## Chat surface
 
 The group screen shows four things: scene identity, conversation, cast and
-composer. Everything else is contextual or lives in Group settings (`•••` in the
-chat header), which owns the durable configuration — title, character context,
-reply behavior, max replies per turn, scene premise, style instructions —
-through `PUT /api/conversations/{cid}`. Cast membership, order, reply
-eligibility and public-profile overrides are edited in Manage cast
+composer. Everything else lives in **Scene setup**, the two-tab modal the cast
+rail's `+ Manage cast` opens. Its **Group settings** tab owns the durable
+configuration — title, character context, reply behavior, max replies per turn,
+scene premise, style instructions, and the group delete — through
+`PUT /api/conversations/{cid}`. Its **Cast** tab owns membership, order, reply
+eligibility, both scene-local overrides and the staged sheet updates
 (`PUT …/members`). The override box is one string with one meaning in every
 mode; only its label changes, and under Shared dossier and Classic card swap it
 is disabled with a one-line reason rather than accepting text that would never
 ship on a turn.
+
+They are one modal because they are one subject: the context mode chosen on the
+settings tab decides what half the cast tab's boxes even do, so a mode picked
+there repaints the other tab's labels, placeholders and Draft buttons before
+anything is saved. **One Save writes both**, sending only the halves that are
+dirty and re-baselining each as it lands — so a title typed on one tab can never
+be lost by saving from the other, and one close guard covers the whole form. The
+scene has no header `•••`: two modals behind an overflow menu were two clicks
+into a place nobody looked, and Group settings was the half that stayed unfound.
 
 Manage cast can also **generate** an override rather than have it hand-typed:
 per row (`Draft` / `Redraft`) and cast-wide (`Draft scene profiles`, which fills
@@ -473,7 +483,7 @@ in play. A count appears only once a group has branched, since every group start
 at one. The row highlights for any conversation in the family, so a checkpoint
 still reads as "this group".
 
-The composer's `•••` is conversation-scoped and asks the *scene* what it is:
+The composer's `☰` is conversation-scoped and asks the *scene* what it is:
 `New conversation` starts an empty scene with the same cast in the same family
 (`POST …/group-conversation`), and `Conversations` lists the family rather than a
 character's chats. Both fall back to the character scope in a solo chat; a group

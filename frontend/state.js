@@ -113,7 +113,7 @@ export const S = {
   // deliberately not the same list:
   //   • `members` is the **active** roster, in sort order. Everything that asks
   //     "who is in this scene" reads it — the cast rail, {{cast}}, the fragment
-  //     set, the plugin ABI, Manage cast.
+  //     set, the plugin ABI, the Cast tab of Scene setup.
   //   • `speakerNames` is id → display name for every member the scene has
   //     *ever* had, tombstoned rows included. Only history labelling reads it.
   // The split mirrors the backend's `get_group_members` / `get_speaker_names`,

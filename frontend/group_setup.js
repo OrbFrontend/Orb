@@ -14,7 +14,7 @@ import {
   speakingPlanHtml,
   TURN_MODES,
 } from "./group_cast.js";
-import { closeModal, setModalCloseGuard, showModal } from "./modal.js";
+import { closeModal, setModalCloseGuard, showModal, switchTab } from "./modal.js";
 import { SIDEBAR_CLOSE_ICON } from "./sidebar_icons.js";
 import { charactersView, notify, S } from "./state.js";
 import { $, avatarCell, avatarUrl, convUrl, esc, escAttr, toast } from "./utils.js";
@@ -27,8 +27,8 @@ const CONTEXT_COMMON =
 
 // One sentence a group surface can afford to show permanently, stating *that
 // mode's* contract — under Shared dossier the old blanket privacy claim would
-// simply be false. For Manage cast, which shows the mode without offering it;
-// a surface that owns the dropdown points at `contextHelp` instead.
+// simply be false. For the Cast tab, which is edited under a mode it does not
+// itself offer; a surface that owns the dropdown points at `contextHelp` instead.
 function contextLine(mode) {
   return `${contextMode(mode).label}: ${contextMode(mode).detail}`;
 }
@@ -235,28 +235,34 @@ function showGroupCreate() {
   });
 }
 
-// ── Group settings ──────────────────────────────────────────────────────────
-// Durable scene configuration: what the composer used to carry inline.
+// ── Scene setup ─────────────────────────────────────────────────────────────
+// The cast and the scene's durable settings, in one two-tab modal opened from
+// the rail. They were two modals behind a header ••• nobody opened, and they
+// were never really two subjects: the context mode chosen under Group settings
+// decides what half the Cast tab's boxes even do, and configuring a scene means
+// moving between them. One Save writes both, so a title typed on one tab cannot
+// be lost by saving from the other.
 
-function showGroupSettings() {
-  if (!S.groupCast || !S.activeConvId) return;
-  const conv = S.conversations.find((item) => item.id === S.activeConvId);
-  const rootId = groupRootId(conv);
-  // Every setting here is per-scene, the title included — but the sidebar names
-  // the group after the scene it started as, so a fork has to say where its own
-  // name will and won't show up rather than letting the rename look broken.
+// ── Group settings pane ─────────────────────────────────────────────────────
+
+// Every setting here is per-scene, the title included — but the sidebar names
+// the group after the scene it started as, so a fork has to say where its own
+// name will and won't show up rather than letting the rename look broken.
+function lineageHint(conv, rootId) {
   const root = rootId === conv?.id ? null : S.conversations.find((item) => item.id === rootId);
-  const lineage = root
+  return root
     ? `<p class="modal-hint">This scene is part of <b>${esc(root.title)}</b>, which keeps that name in the sidebar — renaming here changes only this scene's title.</p>`
     : "";
-  showModal(`<h2>Group settings</h2>
-    <div class="field"><label for="group-settings-title">Title</label>
-      <input id="group-settings-title" value="${escAttr(conv?.title || "")}">${lineage}</div>
+}
+
+function settingsPaneHtml(conv, rootId) {
+  return `<div class="field"><label for="group-settings-title">Title</label>
+      <input id="group-settings-title" value="${escAttr(conv?.title || "")}">${lineageHint(conv, rootId)}</div>
     <h3 class="modal-section">Character context</h3>
     <div class="field"><label for="group-settings-context">Mode</label>
       <select id="group-settings-context">${contextModeOptions(S.groupCast.context_mode)}</select></div>
     <div class="field" id="group-settings-sheet-row"><label class="modal-checkbox-label"><input type="checkbox" id="group-settings-sheet-updates"${S.groupCast.sheet_updates ? " checked" : ""}> Propose sheet updates after each reply</label>
-      <p class="modal-hint">A character card describes turn one forever, so a long scene drifts away from it — hair cut, coat burned, arm in a sling. After each exchange, each member who spoke is read against the scene and offered a rewritten sheet, which you apply or dismiss in Manage cast. Nothing is written automatically and the character card is never touched.</p>
+      <p class="modal-hint">A character card describes turn one forever, so a long scene drifts away from it — hair cut, coat burned, arm in a sling. After each exchange, each member who spoke is read against the scene and offered a rewritten sheet, which you apply or dismiss on the Cast tab. Nothing is written automatically and the character card is never touched.</p>
       <p class="modal-hint">Costs one extra model call per member who spoke, per exchange. Offered under Private perspective only: it is the one mode that reads a member's sheet after the history, where keeping it current costs no prompt-cache rebuild.</p></div>
     <h3 class="modal-section">Reply behavior</h3>
     <div class="field"><label for="group-settings-mode">Mode</label>
@@ -268,67 +274,13 @@ function showGroupSettings() {
     <div class="field"><label for="group-settings-instructions">Style &amp; instructions</label>
       <textarea id="group-settings-instructions" rows="2" placeholder="How should this scene be written?">${esc(conv?.post_history_instructions || "")}</textarea></div>
     ${contextHelp()}
-    <div class="modal-actions"><button type="button" class="btn btn-danger" id="group-settings-delete">Delete group</button><div style="flex:1"></div><button type="button" class="btn" id="group-settings-cancel">Cancel</button><button type="button" class="btn btn-accent" id="group-settings-save">Save</button></div>`);
-  syncMaxRepliesRow("group-settings-mode", "group-settings-max-row");
-  $("group-settings-mode")?.addEventListener("change", () =>
-    syncMaxRepliesRow("group-settings-mode", "group-settings-max-row"),
-  );
-  syncSheetUpdatesRow("group-settings-context", "group-settings-sheet-row");
-  $("group-settings-context")?.addEventListener("change", () =>
-    syncSheetUpdatesRow("group-settings-context", "group-settings-sheet-row"),
-  );
-  $("group-settings-cancel")?.addEventListener("click", closeModal);
-  $("group-settings-delete")?.addEventListener("click", () => {
-    closeModal();
-    // The whole group, not just the scene in front of us — so the request
-    // carries the family's root, exactly as the sidebar's × does.
-    document.dispatchEvent(new CustomEvent("group-delete-request", { detail: rootId }));
-  });
-  $("group-settings-save")?.addEventListener("click", async () => {
-    if (S.castSetupBusy) return;
-    // `group_context_mode` decides what every prefix in the exchange contains,
-    // and under `swap` it decides the cache lineage too. It may not move
-    // between one exchange's speakers.
-    if (S.isStreaming) {
-      toast("Stop generation before changing scene settings", true);
-      return;
-    }
-    S.castSetupBusy = true;
-    try {
-      const updated = await api.put(`/conversations/${S.activeConvId}`, {
-        title: $("group-settings-title").value.trim() || conv?.title || "New Group",
-        group_turn_mode: $("group-settings-mode").value,
-        group_max_speakers: Math.max(1, Math.min(8, Number($("group-settings-max").value) || 3)),
-        group_context_mode: $("group-settings-context").value,
-        // A mode change is the same click as the save, so the box is read
-        // through the mode it is being saved under: leaving Private turns the
-        // per-exchange pass off rather than leaving it billing out of sight.
-        group_sheet_updates:
-          $("group-settings-context").value === "private" && $("group-settings-sheet-updates").checked,
-        character_scenario: $("group-settings-scenario").value.trim(),
-        post_history_instructions: $("group-settings-instructions").value.trim(),
-      });
-      const local = S.conversations.find((item) => item.id === S.activeConvId);
-      if (local) Object.assign(local, updated);
-      S.groupCast.turn_mode = updated.group_turn_mode;
-      S.groupCast.max_speakers = updated.group_max_speakers;
-      S.groupCast.context_mode = updated.group_context_mode;
-      S.groupCast.sheet_updates = Boolean(updated.group_sheet_updates);
-      // The header title is a plain div except while it is being renamed inline.
-      const titleEl = $("chat-title-text");
-      if (titleEl) titleEl.textContent = updated.title;
-      closeModal();
-      renderGroupCast();
-      renderGroupList();
-    } catch (error) {
-      toast(error.message, true);
-    } finally {
-      S.castSetupBusy = false;
-    }
-  });
+    <div class="group-danger">
+      <button type="button" class="btn btn-danger" id="group-settings-delete">Delete group</button>
+      <p class="modal-hint">Deletes this group and every conversation in it. Unsaved changes on either tab are discarded.</p>
+    </div>`;
 }
 
-// ── Manage cast ─────────────────────────────────────────────────────────────
+// ── Cast pane ───────────────────────────────────────────────────────────────
 // One compact row per member; everything else is progressive disclosure.
 
 // One string, one meaning — the override is always the same stored field, so
@@ -344,8 +296,11 @@ const OVERRIDE_COPY = {
   swap: { placeholder: "Not sent under Classic card swap — other members see names only", disabled: true },
 };
 
-function overrideCopy() {
-  return OVERRIDE_COPY[S.groupCast?.context_mode] || OVERRIDE_COPY.private;
+// Every copy lookup below takes the mode rather than reading `S.groupCast`: the
+// mode select sits on the other tab of the same modal, so the answer this pane
+// needs is the *pending* one, which is not in `S` until Save.
+function overrideCopy(mode) {
+  return OVERRIDE_COPY[mode] || OVERRIDE_COPY.private;
 }
 
 // The sheet override ships under every mode — unlike the public profile, it is
@@ -372,8 +327,8 @@ const SHEET_COPY = {
   },
 };
 
-function sheetCopy() {
-  return SHEET_COPY[S.groupCast?.context_mode] || SHEET_COPY.private;
+function sheetCopy(mode) {
+  return SHEET_COPY[mode] || SHEET_COPY.private;
 }
 
 // A staged sheet update, waiting on the user. The pass proposes and never
@@ -403,21 +358,21 @@ function proposalRow(proposal) {
 // otherwise each re-derive the rule and eventually disagree. A member with no
 // card has nothing to draft *from*; a mode that never sends the override has
 // nothing to draft *for*.
-function canDraftProfile(member) {
-  return !overrideCopy().disabled && Boolean(member.character_card_id);
+function canDraftProfile(member, mode) {
+  return !overrideCopy(mode).disabled && Boolean(member.character_card_id);
 }
 
 // Why a Draft button is off, in one line — the same sentence the disabled
 // textarea shows, so a row never gives two different reasons.
-function draftBlockedReason(member) {
-  if (overrideCopy().disabled) return overrideCopy().placeholder;
+function draftBlockedReason(member, mode) {
+  if (overrideCopy(mode).disabled) return overrideCopy(mode).placeholder;
   return member.character_card_id ? "" : "This member has no character card to draft from";
 }
 
-function castRow(member) {
+function castRow(member, mode) {
   const name = member.display_name || "Narrator";
-  const override = overrideCopy();
-  const draftable = canDraftProfile(member);
+  const override = overrideCopy(mode);
+  const draftable = canDraftProfile(member, mode);
   // Opened, and counted on the summary, when this member has something waiting.
   // The cast rail's badge sends the user here to "review N sheet updates"; with
   // every review row behind a closed disclosure, what they arrived to do was the
@@ -436,11 +391,11 @@ function castRow(member) {
       <div class="cast-row-label">What the rest of the cast sees</div>
       <div class="cast-row-profile">
         <textarea data-roster-profile${override.disabled ? " disabled" : ""} placeholder="${escAttr(override.placeholder)}">${esc(member.public_profile_override || "")}</textarea>
-        <button type="button" class="btn" data-roster-draft${draftable ? "" : ` disabled title="${escAttr(draftBlockedReason(member))}"`}>${member.public_profile_override ? "Redraft" : "Draft"}</button>
+        <button type="button" class="btn" data-roster-draft${draftable ? "" : ` disabled title="${escAttr(draftBlockedReason(member, mode))}"`}>${member.public_profile_override ? "Redraft" : "Draft"}</button>
       </div>
-      <div class="cast-row-label">${esc(sheetCopy().label)}</div>
+      <div class="cast-row-label" data-roster-sheet-label>${esc(sheetCopy(mode).label)}</div>
       <div class="cast-row-sheet">
-        <textarea data-roster-sheet placeholder="${escAttr(sheetCopy().placeholder)}">${esc(member.card_sheet_override || "")}</textarea>
+        <textarea data-roster-sheet placeholder="${escAttr(sheetCopy(mode).placeholder)}">${esc(member.card_sheet_override || "")}</textarea>
       </div>
       ${proposals.map(proposalRow).join("")}
     </details>
@@ -460,6 +415,24 @@ function addOptions(takenCardIds) {
   return `<option value="">+ Add cast member…</option><option value="__narrator">✒️ Narrator</option>${characters ? `<optgroup label="Characters">${characters}</optgroup>` : ""}`;
 }
 
+// Reply order is only an order under round-robin; every other strategy picks.
+function orderHint(turnMode) {
+  return turnMode === "round_robin" ? "Drag to set the reply order." : "Drag to reorder the cast.";
+}
+
+function castPaneHtml(mode) {
+  const blocked = overrideCopy(mode).disabled;
+  return `<div class="cast-pane-head">
+      <p class="modal-subtitle" id="group-roster-order-hint">${esc(orderHint(S.groupCast.turn_mode))}</p>
+      <button type="button" class="btn" id="group-roster-draft-all"${blocked ? ` disabled title="${escAttr(overrideCopy(mode).placeholder)}"` : ""}>Draft scene profiles</button>
+    </div>
+    <div id="group-roster-list" class="cast-list">${S.groupCast.members.map((member) => castRow(member, mode)).join("")}</div>
+    <select id="group-roster-add" class="cast-add" aria-label="Add cast member">${addOptions(
+      S.groupCast.members.map((member) => member.character_card_id).filter(Boolean),
+    )}</select>
+    <p class="modal-hint" id="group-roster-context-line">${esc(contextLine(mode))}</p>`;
+}
+
 function closeRowMenus(except = null) {
   for (const menu of document.querySelectorAll(".cast-row-menu.open")) {
     if (menu !== except) menu.classList.remove("open");
@@ -474,25 +447,20 @@ function moveRow(row, delta) {
   row.querySelector("[data-roster-drag]")?.focus();
 }
 
-function showCastManager() {
-  if (!S.groupCast) return;
-  const rotating = S.groupCast.turn_mode === "round_robin";
-  const modeBlocks = overrideCopy().disabled;
-  showModal(`<div class="modal-title-row">
-      <div>
-        <h2>Cast</h2>
-        <p class="modal-subtitle">${rotating ? "Drag to set the reply order." : "Drag to reorder the cast."}</p>
-      </div>
-      <div class="modal-title-actions">
-        <button type="button" class="btn" id="group-roster-draft-all"${modeBlocks ? ` disabled title="${escAttr(overrideCopy().placeholder)}"` : ""}>Draft scene profiles</button>
-      </div>
+// ── The modal ───────────────────────────────────────────────────────────────
+
+function showGroupConfig(initialTab = "cast") {
+  if (!S.groupCast || !S.activeConvId) return;
+  const conv = S.conversations.find((item) => item.id === S.activeConvId);
+  const rootId = groupRootId(conv);
+  showModal(`<h2 class="modal-title-flush">Scene setup</h2>
+    <div class="tabs" role="tablist">
+      <div class="tab active" role="tab" tabindex="0" aria-selected="true" data-scene-tab="cast">Cast</div>
+      <div class="tab" role="tab" tabindex="0" aria-selected="false" data-scene-tab="settings">Group settings</div>
     </div>
-    <div id="group-roster-list" class="cast-list">${S.groupCast.members.map(castRow).join("")}</div>
-    <select id="group-roster-add" class="cast-add" aria-label="Add cast member">${addOptions(
-      S.groupCast.members.map((member) => member.character_card_id).filter(Boolean),
-    )}</select>
-    <p class="modal-hint">${esc(contextLine(S.groupCast.context_mode))}</p>
-    <div class="modal-actions"><button type="button" class="btn" id="group-roster-cancel">Cancel</button><button type="button" class="btn btn-accent" id="group-roster-save">Save cast</button></div>`);
+    <div class="tab-content active" id="group-config-cast">${castPaneHtml(S.groupCast.context_mode)}</div>
+    <div class="tab-content" id="group-config-settings">${settingsPaneHtml(conv, rootId)}</div>
+    <div class="modal-actions"><button type="button" class="btn" id="group-config-cancel">Cancel</button><button type="button" class="btn btn-accent" id="group-config-save">Save</button></div>`);
   const list = $("group-roster-list");
   if (!list) return;
 
@@ -504,6 +472,11 @@ function showCastManager() {
   let draftingAll = false;
   let cancelAll = false;
   const anyDrafting = () => drafting.size > 0;
+
+  // The mode the Cast tab is being edited under: the select on the other tab,
+  // not the saved value, because one Save writes both and the rows have to mean
+  // what they will mean once it lands.
+  const currentMode = () => $("group-settings-context")?.value || S.groupCast.context_mode;
 
   // The roster exactly as Save would send it. One reader of the rows, so the
   // dirty check below and the PUT can never disagree about what is in the form.
@@ -519,6 +492,23 @@ function showCastManager() {
     }));
   }
 
+  // The settings tab as Save would send it — same rule, same reason.
+  function collectSettings() {
+    const mode = currentMode();
+    return {
+      title: $("group-settings-title").value.trim() || conv?.title || "New Group",
+      group_turn_mode: $("group-settings-mode").value,
+      group_max_speakers: Math.max(1, Math.min(8, Number($("group-settings-max").value) || 3)),
+      group_context_mode: mode,
+      // A mode change is the same click as the save, so the box is read through
+      // the mode it is being saved under: leaving Private turns the per-exchange
+      // pass off rather than leaving it billing out of sight.
+      group_sheet_updates: mode === "private" && $("group-settings-sheet-updates").checked,
+      character_scenario: $("group-settings-scenario").value.trim(),
+      post_history_instructions: $("group-settings-instructions").value.trim(),
+    };
+  }
+
   // Re-derive what the add menu offers from the rows on screen. One rule, run
   // after every add and every remove, instead of two mutations of the option
   // list that drift apart the first time a member is taken back out.
@@ -531,14 +521,58 @@ function showCastManager() {
     select.value = "";
   }
 
+  // The Cast tab's boxes are defined by a control on the Group settings tab, so
+  // a mode picked there has to reach across before Save — otherwise the user
+  // types into a box still labelled for the mode they just left. Attributes
+  // only, never a re-render: every row here is an unsaved form.
+  function syncCastForMode() {
+    const mode = currentMode();
+    const override = overrideCopy(mode);
+    const sheet = sheetCopy(mode);
+    for (const row of list.querySelectorAll(".cast-row")) {
+      const profile = row.querySelector("[data-roster-profile]");
+      if (profile) {
+        profile.disabled = override.disabled;
+        profile.placeholder = override.placeholder;
+      }
+      // A row mid-draft owns its own button ("Drafting…", disabled); draftRow
+      // restores it when the call lands.
+      const draft = row.querySelector("[data-roster-draft]");
+      if (draft && !drafting.has(row)) {
+        const member = { character_card_id: row.dataset.rosterCardId };
+        const ok = canDraftProfile(member, mode);
+        draft.disabled = !ok;
+        draft.title = ok ? "" : draftBlockedReason(member, mode);
+      }
+      const label = row.querySelector("[data-roster-sheet-label]");
+      if (label) label.textContent = sheet.label;
+      const box = row.querySelector("[data-roster-sheet]");
+      if (box) box.placeholder = sheet.placeholder;
+    }
+    const all = $("group-roster-draft-all");
+    if (all && !draftingAll) {
+      all.disabled = override.disabled;
+      all.title = override.disabled ? override.placeholder : "";
+    }
+    const line = $("group-roster-context-line");
+    if (line) line.textContent = contextLine(mode);
+  }
+
+  function syncOrderHint() {
+    const hint = $("group-roster-order-hint");
+    if (hint) hint.textContent = orderHint($("group-settings-mode")?.value);
+  }
+
   // This modal is the app's largest unsaved form — names, both overrides, mute
-  // state, reply order, adds and removes — and the scene profiles in it cost a
-  // billed call each. Escape and a backdrop click both route through
-  // `closeModal`, so one guard covers every exit. Save clears it before closing,
-  // since a saved form has nothing to warn about.
-  const baseline = collectMembers();
-  const isDirty = () => JSON.stringify(collectMembers()) !== JSON.stringify(baseline);
-  setModalCloseGuard(() => !isDirty() || window.confirm("Discard the changes to this cast?"));
+  // state, reply order, adds and removes, plus every scene setting — and the
+  // profiles in it cost a billed call each. Escape and a backdrop click both
+  // route through `closeModal`, so one guard covers every exit. Save clears it
+  // before closing, since a saved form has nothing to warn about.
+  const castBaseline = collectMembers();
+  let settingsBaseline = JSON.stringify(collectSettings());
+  const castDirty = () => JSON.stringify(collectMembers()) !== JSON.stringify(castBaseline);
+  const settingsDirty = () => JSON.stringify(collectSettings()) !== settingsBaseline;
+  setModalCloseGuard(() => (!castDirty() && !settingsDirty()) || window.confirm("Discard the changes to this scene?"));
 
   // Apply / Dismiss on one staged sheet update. Unlike everything else in this
   // modal these write immediately — a proposal is server state the roster PUT
@@ -567,7 +601,7 @@ function showCastManager() {
         // landed, so it is not a change the close guard should offer to discard
         // — but re-snapshotting the whole form here would swallow every *other*
         // edit the user has open.
-        const before = baseline.find((item) => item.id === updated.member_id);
+        const before = castBaseline.find((item) => item.id === updated.member_id);
         if (before) before.card_sheet_override = (updated.proposed_sheet || "").trim() || null;
       }
       S.groupCast.sheet_proposals = (S.groupCast.sheet_proposals || []).filter(
@@ -597,7 +631,7 @@ function showCastManager() {
   // Gated on the request count, not on the cast-wide loop: a single row draft
   // is just as losable.
   function syncSaveGate() {
-    const save = $("group-roster-save");
+    const save = $("group-config-save");
     if (!save) return;
     save.disabled = anyDrafting();
     save.title = anyDrafting() ? "Wait for the scene profiles to finish drafting" : "";
@@ -727,12 +761,13 @@ function showCastManager() {
   $("group-roster-add")?.addEventListener("change", (event) => {
     const value = event.target.value;
     if (!value) return;
+    const mode = currentMode();
     if (value === "__narrator") {
-      list.insertAdjacentHTML("beforeend", castRow({ member_kind: "narrator", display_name: "Narrator" }));
+      list.insertAdjacentHTML("beforeend", castRow({ member_kind: "narrator", display_name: "Narrator" }, mode));
     } else {
       const card = charactersView().find((item) => item.id === value);
       if (card) {
-        list.insertAdjacentHTML("beforeend", castRow({ character_card_id: card.id, display_name: card.name }));
+        list.insertAdjacentHTML("beforeend", castRow({ character_card_id: card.id, display_name: card.name }, mode));
       }
     }
     syncAddOptions();
@@ -749,9 +784,10 @@ function showCastManager() {
       button.textContent = "Stopping…";
       return;
     }
+    const mode = currentMode();
     const rows = [...list.querySelectorAll(".cast-row")].filter(
       (row) =>
-        canDraftProfile({ character_card_id: row.dataset.rosterCardId }) &&
+        canDraftProfile({ character_card_id: row.dataset.rosterCardId }, mode) &&
         !drafting.has(row) &&
         !row.querySelector("[data-roster-profile]").value.trim(),
     );
@@ -773,7 +809,7 @@ function showCastManager() {
         await draftRow(row, row.querySelector("[data-roster-draft]"));
         done += 1;
       }
-      toast(`Drafted ${done} scene profile${done === 1 ? "" : "s"} — review, then Save cast`);
+      toast(`Drafted ${done} scene profile${done === 1 ? "" : "s"} — review, then Save`);
     } catch (error) {
       // Stop rather than press on. A drafting failure is almost always systemic
       // — a dead endpoint, a bad key — so continuing buys N-1 more sticky
@@ -783,20 +819,100 @@ function showCastManager() {
       draftingAll = false;
       cancelAll = false;
       button.textContent = "Draft scene profiles";
+      syncCastForMode();
       syncSaveGate();
     }
   });
 
-  $("group-roster-cancel")?.addEventListener("click", closeModal);
-  $("group-roster-save")?.addEventListener("click", async () => {
+  // ── Tabs
+  const tabs = [...document.querySelectorAll("[data-scene-tab]")];
+  function openTab(name) {
+    const tab = tabs.find((item) => item.dataset.sceneTab === name) || tabs[0];
+    if (!tab) return;
+    switchTab(tab, `group-config-${tab.dataset.sceneTab}`);
+    for (const item of tabs) item.setAttribute("aria-selected", String(item === tab));
+  }
+  for (const tab of tabs) {
+    tab.addEventListener("click", () => openTab(tab.dataset.sceneTab));
+    tab.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      openTab(tab.dataset.sceneTab);
+    });
+  }
+  if (initialTab !== "cast") openTab(initialTab);
+
+  // ── Group settings tab
+  syncMaxRepliesRow("group-settings-mode", "group-settings-max-row");
+  $("group-settings-mode")?.addEventListener("change", () => {
+    syncMaxRepliesRow("group-settings-mode", "group-settings-max-row");
+    syncOrderHint();
+  });
+  syncSheetUpdatesRow("group-settings-context", "group-settings-sheet-row");
+  $("group-settings-context")?.addEventListener("change", () => {
+    syncSheetUpdatesRow("group-settings-context", "group-settings-sheet-row");
+    syncCastForMode();
+  });
+  $("group-settings-delete")?.addEventListener("click", () => {
+    // The guard goes first: offering to discard edits to a scene the user is
+    // deleting is noise, and `showConfirmModal` replaces this modal anyway.
+    setModalCloseGuard(null);
+    closeModal();
+    // The whole group, not just the scene in front of us — so the request
+    // carries the family's root, exactly as the sidebar's × does.
+    document.dispatchEvent(new CustomEvent("group-delete-request", { detail: rootId }));
+  });
+
+  // ── Save
+  async function saveSettings() {
+    const updated = await api.put(`/conversations/${S.activeConvId}`, collectSettings());
+    const local = S.conversations.find((item) => item.id === S.activeConvId);
+    if (local) Object.assign(local, updated);
+    S.groupCast.turn_mode = updated.group_turn_mode;
+    S.groupCast.max_speakers = updated.group_max_speakers;
+    S.groupCast.context_mode = updated.group_context_mode;
+    S.groupCast.sheet_updates = Boolean(updated.group_sheet_updates);
+    // The header title is a plain div except while it is being renamed inline.
+    const titleEl = $("chat-title-text");
+    if (titleEl) titleEl.textContent = updated.title;
+  }
+
+  async function saveCast(members) {
+    const updated = await api.put(convUrl(S.activeConvId, "members"), { members });
+    // A member the save removed took its staged proposals with it (the roster
+    // sync rejects them in the same transaction as the tombstone), so drop them
+    // here too or the rail keeps counting review rows nothing can render.
+    const live = new Set(updated.map((member) => member.id));
+    S.groupCast = {
+      ...S.groupCast,
+      members: updated,
+      // Merged, not replaced: the PUT answers with the *active* roster, so
+      // rebuilding from it alone would forget every member this save (or an
+      // earlier one) retired, and their lines would go back to reading
+      // "Unknown speaker". New ids and renames arrive here and win; the
+      // retired names carry over untouched.
+      speakerNames: new Map([...(S.groupCast.speakerNames || []), ...speakerNameMap(updated)]),
+      sheet_proposals: (S.groupCast.sheet_proposals || []).filter((item) => live.has(item.member_id)),
+    };
+    const local = S.conversations.find((item) => item.id === S.activeConvId);
+    if (local) {
+      local.group_member_names = updated.map((member) => member.display_name);
+      local.group_card_ids = updated.flatMap((member) => (member.character_card_id ? [member.character_card_id] : []));
+    }
+    if (!updated.some((member) => member.id === S.pinnedSpeakerId && !member.muted)) S.pinnedSpeakerId = null;
+  }
+
+  $("group-config-cancel")?.addEventListener("click", closeModal);
+  $("group-config-save")?.addEventListener("click", async () => {
     if (S.castSetupBusy) return;
-    // The same guard the conversation switch and the message delete carry. A
-    // roster written mid-exchange lands under a pipeline that already resolved
-    // its cast: the member being removed may be queued to speak two beats from
-    // now, and `group_context_mode` is the one setting an exchange may not see
-    // change under `swap`, where the whole cache lineage hangs on it.
+    // One guard for both halves, because one click writes both.
+    // `group_context_mode` decides what every prefix in the exchange contains,
+    // and under `swap` it decides the cache lineage too, so it may not move
+    // between one exchange's speakers. A roster written mid-exchange lands under
+    // a pipeline that already resolved its cast: the member being removed may be
+    // queued to speak two beats from now.
     if (S.isStreaming) {
-      toast("Stop generation before changing the cast", true);
+      toast("Stop generation before changing the scene", true);
       return;
     }
     if (anyDrafting()) {
@@ -808,40 +924,28 @@ function showCastManager() {
       toast("A scene needs at least one cast member", true);
       return;
     }
+    const castChanged = castDirty();
     S.castSetupBusy = true;
     try {
-      const updated = await api.put(convUrl(S.activeConvId, "members"), { members });
-      // A member the save removed took its staged proposals with it (the roster
-      // sync rejects them in the same transaction as the tombstone), so drop them
-      // here too or the rail keeps counting review rows nothing can render.
-      const live = new Set(updated.map((member) => member.id));
-      S.groupCast = {
-        ...S.groupCast,
-        members: updated,
-        // Merged, not replaced: the PUT answers with the *active* roster, so
-        // rebuilding from it alone would forget every member this save (or an
-        // earlier one) retired, and their lines would go back to reading
-        // "Unknown speaker". New ids and renames arrive here and win; the
-        // retired names carry over untouched.
-        speakerNames: new Map([...(S.groupCast.speakerNames || []), ...speakerNameMap(updated)]),
-        sheet_proposals: (S.groupCast.sheet_proposals || []).filter((item) => live.has(item.member_id)),
-      };
-      const local = S.conversations.find((item) => item.id === S.activeConvId);
-      if (local) {
-        local.group_member_names = updated.map((member) => member.display_name);
-        local.group_card_ids = updated.flatMap((member) =>
-          member.character_card_id ? [member.character_card_id] : [],
-        );
+      // Settings first, and each half re-baselines as it lands: if the roster
+      // PUT then fails, the modal stays open on a form that already agrees with
+      // the database about everything the first call wrote, so a retry sends
+      // only what is still unsaved.
+      if (settingsDirty()) {
+        await saveSettings();
+        settingsBaseline = JSON.stringify(collectSettings());
       }
-      if (!updated.some((member) => member.id === S.pinnedSpeakerId && !member.muted)) S.pinnedSpeakerId = null;
+      if (castChanged) await saveCast(members);
       setModalCloseGuard(null);
       closeModal();
       renderGroupCast();
       renderGroupList();
-      notify("cast", S.groupCast);
-      // The cast owns the scene's card-embedded fragments; whoever holds them
-      // re-reads on this rather than watching the roster.
-      document.dispatchEvent(new CustomEvent("group-cast-updated", { detail: S.activeConvId }));
+      if (castChanged) {
+        notify("cast", S.groupCast);
+        // The cast owns the scene's card-embedded fragments; whoever holds them
+        // re-reads on this rather than watching the roster.
+        document.dispatchEvent(new CustomEvent("group-cast-updated", { detail: S.activeConvId }));
+      }
     } catch (error) {
       toast(error.message, true);
     } finally {
@@ -852,22 +956,20 @@ function showCastManager() {
 
 // ── Chat surface ────────────────────────────────────────────────────────────
 
-// Which secondary actions the header's ••• (and its mobile twin) offer. Convert
-// is a solo-only capability and must never appear inside a group, even mid-switch.
+// Which secondary actions the menus offer. Scene setup is reached from the cast
+// rail on desktop, so only the mobile ⋯ menu still carries an entry for it;
+// convert is a solo-only capability and must never appear inside a group, even
+// mid-switch.
 function renderChatActionMenus() {
   const grouped = Boolean(S.groupCast);
   const visible = {
-    "group-settings": grouped,
-    "manage-cast": grouped,
+    "group-config": grouped,
     "convert-to-group": !grouped && Boolean(S.activeConvId),
     inspector: true,
   };
   for (const item of document.querySelectorAll("[data-chat-action]")) {
     item.hidden = !visible[item.dataset.chatAction];
   }
-  // The header's ••• only has group actions to offer, so a solo scene hides it.
-  const overflow = $("chat-overflow-btn");
-  if (overflow) overflow.hidden = !grouped;
 }
 
 // Whether the composer is holding something that wants an answer. A drafted
@@ -948,7 +1050,7 @@ export function renderGroupList() {
         members.length > 1
           ? `<span class="group-chat-count" title="${escAttr(`${members.length} conversations in this group`)}">${members.length}</span>`
           : "";
-      const title = `Cast: ${memberLine}${members.length > 1 ? `\n${members.length} conversations — open the group, then ••• › Conversations` : ""}`;
+      const title = `Cast: ${memberLine}${members.length > 1 ? `\n${members.length} conversations — open the group, then ☰ › Conversations` : ""}`;
       return `<div class="group-chat-item${open ? " active" : ""}">
           <button type="button" class="group-chat-select" data-group-conversation-id="${escAttr(newest.id)}" title="${escAttr(title)}">
             <span class="group-chat-avatar-stack" aria-hidden="true">${avatarStack}${remaining ? `<span class="group-chat-avatar group-chat-overflow">+${remaining}</span>` : ""}</span>
@@ -1012,7 +1114,7 @@ export async function loadGroupCast(conv) {
     max_speakers: conv.group_max_speakers,
     context_mode: conv.group_context_mode,
     sheet_updates: Boolean(conv.group_sheet_updates),
-    // Staged, never applied. Fetched with the cast because Manage cast is where
+    // Staged, never applied. Fetched with the cast because the Cast tab is where
     // they are reviewed, and a round trip on modal open would leave the rows
     // painting in after the user is already reading.
     //
@@ -1094,7 +1196,7 @@ export function initGroupSetup() {
   });
   $("group-cast-rail")?.addEventListener("click", (event) => {
     if (event.target.closest("[data-cast-manage]")) {
-      showCastManager();
+      showGroupConfig();
       return;
     }
     // Mid-stream clicks are allowed now — they queue rather than speak, which is
@@ -1115,8 +1217,7 @@ export function initGroupSetup() {
     const member = eligibleMembers()[0];
     if (member) document.dispatchEvent(new CustomEvent("group-speak-request", { detail: member.id }));
   });
-  document.addEventListener("group-settings-request", showGroupSettings);
-  document.addEventListener("manage-cast-request", showCastManager);
+  document.addEventListener("group-config-request", () => showGroupConfig());
   document.addEventListener("convert-to-group-request", convertToGroup);
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".cast-row")) closeRowMenus();
