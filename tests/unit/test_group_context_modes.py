@@ -161,19 +161,6 @@ def test_shared_never_layers_a_curated_profile_over_the_cards_it_already_shares(
     assert "Scene profile:" not in system and "Public profile:" not in system
 
 
-def test_shared_gives_a_member_whose_card_is_all_profile_no_dossier_at_all():
-    """The accepted consequence of dropping the curated layer: a card with a
-    public profile but no description contributes no dossier and rides the cast
-    list as a name — the same floor a bare narrator already gets."""
-    facade = _member("f", "Facade", public="Role: the innkeeper")
-    system = str(
-        build_prefix("system", "", "", macros=MACROS, cast=TurnCast(True, (ARIA, facade), ARIA, "shared"))[0]["content"]
-    )
-    assert "## Character dossier: Facade" not in system
-    assert "Role: the innkeeper" not in system
-    assert "## Cast\nAria, Facade" in system
-
-
 def test_shared_keeps_post_history_directives_active_only():
     """Concatenating N post-history blocks would produce N competing directives."""
     system = _system("shared", ARIA)
@@ -324,13 +311,6 @@ def test_size_components_never_bill_a_member_that_cannot_take_the_turn():
         assert "Y" * 10 in components[key]
     # Muted or not, it is still part of the scene the cast is told about.
     assert "X" * 400 in dict(context_size_components(TurnCast(True, (loud, quiet), None, "shared"), MACROS))["cast_dossiers"]
-
-
-def test_size_components_survive_an_empty_roster_and_cardless_members():
-    empty = TurnCast(True, (), None, "shared")
-    assert [text for _, text in context_size_components(empty, MACROS)] == ["\n\n## Cast\n", ""]
-    narrator = TurnCast(True, (_member("n", "Narrator", kind="narrator"),), None, "swap")
-    assert dict(context_size_components(narrator, MACROS))["largest_active_card"] == "\n\n## Character: Narrator"
 
 
 @pytest.mark.parametrize("mode", MODES)

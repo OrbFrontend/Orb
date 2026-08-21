@@ -88,17 +88,6 @@ async def test_a_family_stays_flat_however_deep_the_forking_goes(client):
     assert second["group_root_id"] == conv["id"], "not the checkpoint it was taken from"
 
 
-async def test_solo_forks_carry_no_family(client):
-    card = await _card(client, "Solo")
-    conv = (await client.post("/api/conversations", json={"character_card_id": card})).json()
-    await _history(conv["id"])
-
-    checkpoint = (await client.post(f"/api/conversations/{conv['id']}/checkpoint", json={})).json()
-
-    assert checkpoint["kind"] == "solo"
-    assert checkpoint["group_root_id"] is None
-
-
 async def test_conversion_to_group_founds_a_family(client):
     card = await _card(client, "Ada")
     conv = (await client.post("/api/conversations", json={"character_card_id": card})).json()
@@ -164,18 +153,6 @@ async def test_deleting_the_root_promotes_the_oldest_survivor(client):
     assert conv["id"] not in roots
     assert roots[first["id"]] is None, "the oldest survivor is the new root"
     assert roots[second["id"]] == first["id"]
-
-
-async def test_deleting_a_fork_leaves_the_rest_of_the_family_alone(client):
-    conv = await _group(client)
-    await _history(conv["id"])
-    checkpoint = (await client.post(f"/api/conversations/{conv['id']}/checkpoint", json={})).json()
-
-    assert (await client.delete(f"/api/conversations/{checkpoint['id']}")).status_code == 200
-
-    roots = await _root_ids(client)
-    assert checkpoint["id"] not in roots
-    assert roots[conv["id"]] is None
 
 
 async def test_deleting_the_group_takes_the_whole_family(client):

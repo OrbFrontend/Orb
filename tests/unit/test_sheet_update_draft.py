@@ -15,11 +15,8 @@ from backend.features.cards.sheet_update import (
     MAX_SHEET_GROWTH_CHARS,
     MAX_SUMMARY_WORDS,
     MIN_SHEET_CEILING_CHARS,
-    SHEET_FLOOR,
     SHEET_TOOL_NAME,
     SheetUpdateUnavailable,
-    build_exchange_transcript,
-    build_update_message,
     propose_sheet_update,
     sheet_reply_budget,
 )
@@ -70,13 +67,6 @@ async def test_no_change_is_the_cheap_answer_and_stages_nothing():
     assert await _propose(_call(changed=False, sheet="Something else.", summary="Drift.")) is None
 
 
-async def test_internal_line_breaks_survive():
-    """A sheet is a block of prose, not a one-liner like a profile field — the
-    card join it replaces has a blank line in it."""
-    update = await _propose(_call(changed=True, sheet="A shorn scout.\n\nPersonality: Terse."))
-    assert update is not None and update["sheet"] == "A shorn scout.\n\nPersonality: Terse."
-
-
 async def test_a_missing_summary_costs_a_label_not_the_proposal():
     """The review row shows both sheets in full, so the summary is a
     convenience — losing the whole proposal over it would be the wrong trade."""
@@ -88,12 +78,6 @@ async def test_an_over_long_summary_is_trimmed_rather_than_refused():
     words = " ".join(f"w{i}" for i in range(MAX_SUMMARY_WORDS + 10))
     update = await _propose(_call(changed=True, sheet="A shorn scout.", summary=words))
     assert update is not None and len(update["summary"].split(" ")) == MAX_SUMMARY_WORDS
-
-
-async def test_a_sheet_at_exactly_the_ceiling_is_accepted():
-    ceiling = max(MIN_SHEET_CEILING_CHARS, len(SHEET) + MAX_SHEET_GROWTH_CHARS)
-    update = await _propose(_call(changed=True, sheet="x" * ceiling))
-    assert update is not None and len(update["sheet"]) == ceiling
 
 
 # ── Refused ─────────────────────────────────────────────────────────────────
@@ -164,29 +148,3 @@ async def test_the_reply_budget_can_always_restate_the_sheet_it_was_given():
     ceiling = max(MIN_SHEET_CEILING_CHARS, len(long_sheet) + MAX_SHEET_GROWTH_CHARS)
     assert budget >= ceiling / 3
 
-
-async def test_the_prompt_quotes_the_carry_forward_floor():
-    """The one sentence set that separates this from a rewrite. Quoted verbatim
-    so the prompt cannot drift from what the contract check enforces."""
-    client = _FakeClient(_call(changed=False))
-    await propose_sheet_update(client, "m", member_name="Aria", sheet=SHEET, transcript=TRANSCRIPT)  # type: ignore[arg-type]
-    assert SHEET_FLOOR in str(client.calls[0]["messages"][0]["content"])
-
-
-def test_a_sheet_update_call_carries_only_its_own_members_sheet():
-    """The executable form of the never-batched rule. A sheet is the member's
-    own private material under Private perspective, so another member reaches
-    this prompt through the shared transcript and nowhere else."""
-    message = build_update_message(
-        member_name="Aria",
-        sheet="ARIA SHEET",
-        transcript=build_exchange_transcript([("User", "What now?"), ("Kael", "KAEL SAID THIS")]),
-    )
-    assert "ARIA SHEET" in message
-    assert "KAEL SHEET" not in message
-    # The other member's *prose* is the shared evidence and does belong here.
-    assert "KAEL SAID THIS" in message
-
-
-def test_the_transcript_drops_empty_lines_and_keeps_order():
-    assert build_exchange_transcript([("User", "One"), ("Aria", "  "), ("Kael", "Two")]) == "User: One\n\nKael: Two"

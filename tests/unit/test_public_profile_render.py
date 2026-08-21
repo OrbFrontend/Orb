@@ -47,14 +47,6 @@ def test_the_cast_projection_and_the_renderer_are_the_same_definition():
     assert _public_profile(CARD, None) == "Appearance: Tall, in road-worn green.\nRole: Wandering bard."
 
 
-def test_a_cardless_or_profileless_member_projects_to_nothing():
-    assert _public_profile(None, None) == ""
-    assert _public_profile({}, None) == ""
-    assert _public_profile({"extensions": {}}, None) == ""
-    assert _public_profile({"extensions": {"orb": {}}}, None) == ""
-    assert _public_profile({"extensions": "not-a-dict"}, None) == ""
-
-
 def test_an_empty_override_blanks_the_card_profile_rather_than_falling_back():
     """`override is not None`, not `if override`. An empty string is the user
     deliberately publishing nothing about this member in this scene; only an

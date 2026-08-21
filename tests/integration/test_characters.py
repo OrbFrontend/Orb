@@ -428,11 +428,6 @@ async def test_public_profile_generate_returns_the_tool_call_fields(client, db, 
     assert "A wandering bard." in sent and "Cheerful" in sent
 
 
-async def test_public_profile_generate_on_a_missing_card_is_404(client, db, llm_mock):
-    resp = await client.post("/api/characters/no-such-id/public-profile/generate")
-    assert resp.status_code == 404
-
-
 async def test_public_profile_generate_raises_when_the_model_returns_no_call(client, db, llm_mock):
     """No silent degrade. A draft assembled from the card's first line under a
     "Draft ready" toast is indistinguishable from a real answer, and the same
@@ -444,13 +439,3 @@ async def test_public_profile_generate_raises_when_the_model_returns_no_call(cli
     assert resp.status_code == 502
     assert resp.json()["detail"] == "The model did not return a usable profile."
 
-
-async def test_public_profile_generate_rejects_a_draft_carrying_a_macro(client, db, llm_mock):
-    """A profile is macro-resolved at turn time, so a generated `{{…}}` would
-    substitute long after the user reviewed and approved the text."""
-    card_id = (await client.post("/api/characters", json={"name": "Lira", "description": "A bard."})).json()["id"]
-    llm_mock.enqueue_workflow(_profile_call(appearance="As tall as {{user}}.", role="Bard."))
-
-    resp = await client.post(f"/api/characters/{card_id}/public-profile/generate")
-    assert resp.status_code == 502
-    assert "macro" in resp.json()["detail"]

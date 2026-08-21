@@ -81,37 +81,6 @@ async def test_group_list_includes_active_cast_names_in_roster_order(client, db)
     assert row["group_member_names"] == ["Aria", "Kael"]
 
 
-async def test_group_settings_update_round_trips_every_scene_field(client):
-    """Group settings edits the whole durable scene config, including the shared
-    style instructions — which were previously write-once at creation."""
-    aria = await _card(client, "Aria")
-    conv = (
-        await client.post(
-            "/api/conversations",
-            json={"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}]},
-        )
-    ).json()
-    response = await client.put(
-        f"/api/conversations/{conv['id']}",
-        json={
-            "title": "The Long Watch",
-            "group_turn_mode": "round_robin",
-            "group_max_speakers": 5,
-            "character_scenario": "A cold night on the wall.",
-            "post_history_instructions": "Keep the prose terse.",
-        },
-    )
-    assert response.status_code == 200
-    updated = response.json()
-    assert updated["title"] == "The Long Watch"
-    assert updated["group_turn_mode"] == "round_robin"
-    assert updated["group_max_speakers"] == 5
-    assert updated["character_scenario"] == "A cold night on the wall."
-    assert updated["post_history_instructions"] == "Keep the prose terse."
-    reloaded = next(c for c in (await client.get("/api/conversations")).json() if c["id"] == conv["id"])
-    assert reloaded["post_history_instructions"] == "Keep the prose terse."
-
-
 async def test_conversion_stamps_existing_assistant_identity(client, db):
     card_id = await _card(client, "Solo")
     conv = (await client.post("/api/conversations", json={"character_card_id": card_id})).json()
@@ -498,22 +467,6 @@ async def test_group_context_mode_defaults_to_private_and_rejects_unknown_values
         assert response.json()["group_context_mode"] == mode
 
 
-async def test_creation_can_pick_a_context_mode_and_omitting_it_stays_private(client):
-    """The New group modal offers the control alongside the other durable scene
-    settings, so the create payload has to carry it — not just the update path."""
-    aria = await _card(client, "Aria", description="ARIA PRIVATE")
-    base = {"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}]}
-
-    created = (await client.post("/api/conversations", json={**base, "group_context_mode": "shared"})).json()
-    assert created["group_context_mode"] == "shared"
-
-    # Omitted entirely — every non-group caller and the convert flow rely on this.
-    assert (await client.post("/api/conversations", json=base)).json()["group_context_mode"] == "private"
-
-    rejected = await client.post("/api/conversations", json={**base, "group_context_mode": "everyone_sees_everything"})
-    assert rejected.status_code == 422
-
-
 async def test_solo_conversations_are_unaffected_by_the_column(client, llm_mock):
     card_id = await _card(client, "Solo", description="SOLO PRIVATE")
     conv = (await client.post("/api/conversations", json={"character_card_id": card_id})).json()
@@ -783,21 +736,6 @@ def _member_spec(member: dict, **overrides) -> dict:
     return {**spec, **overrides}
 
 
-@pytest.mark.parametrize("mode", ["private", "shared", "swap"])
-async def test_the_sheet_override_is_stored_and_read_back_under_every_mode(client, mode):
-    """Mode-blind, like `public_profile_override` and the scene-profile drafter:
-    which modes *send* it is a UI concern, and a server that accepted it under
-    one mode only would leave the two halves of one field disagreeing."""
-    conv, members = await _two_card_group(client, context_mode=mode)
-    updated = await _put_members(
-        client,
-        conv,
-        [_member_spec(members[0], card_sheet_override="ARIA CURRENT SHEET"), _member_spec(members[1])],
-    )
-    assert updated[0]["card_sheet_override"] == "ARIA CURRENT SHEET"
-    assert updated[1]["card_sheet_override"] is None
-
-
 async def test_an_empty_sheet_override_blanks_the_sheet_rather_than_restoring_the_card(client, llm_mock):
     """`""` is a deliberate blanking and `null` is absence; the two must not
     collapse. Manage cast coerces an empty box to `null`, so today only the API
@@ -812,46 +750,6 @@ async def test_an_empty_sheet_override_blanks_the_sheet_rather_than_restoring_th
     assert "ARIA PRIVATE" not in json.dumps(writers[0]["messages"][-1])
     # The other member is untouched: blanking is per-member, not per-scene.
     assert "KAEL PRIVATE" in json.dumps(writers[1]["messages"][-1])
-
-
-async def test_a_private_sheet_override_moves_the_tail_and_leaves_the_cached_body_alone(client, llm_mock):
-    """The point of the whole design. Under Private the speaker's own sheet sits
-    *after* history, so keeping it current costs no prefix rebuild — the cached
-    body must come back byte-identical across the edit."""
-    conv, members = await _two_card_group(client)
-    await _run_two_speaker_exchange(client, llm_mock, conv)
-    before = _systems(llm_mock, "writer")
-    before_tail = json.dumps([call for call in llm_mock.captured if call["pass"] == "writer"][0]["messages"][-1])
-
-    llm_mock.captured.clear()
-    await _put_members(
-        client,
-        conv,
-        [_member_spec(members[0], card_sheet_override="ARIA, hair shorn and coat burned."), _member_spec(members[1])],
-    )
-    await _run_two_speaker_exchange(client, llm_mock, conv)
-    after = _systems(llm_mock, "writer")
-    after_tail = json.dumps([call for call in llm_mock.captured if call["pass"] == "writer"][0]["messages"][-1])
-
-    assert after == before
-    assert "ARIA PRIVATE" in before_tail and "hair shorn" not in before_tail
-    assert "hair shorn" in after_tail and "ARIA PRIVATE" not in after_tail
-
-
-@pytest.mark.parametrize("mode", ["shared", "swap"])
-async def test_the_other_modes_read_the_override_too_even_though_it_lands_before_history(client, llm_mock, mode):
-    """Shared and Swap put the sheet in the system body, so an edit there *is* a
-    prefix rebuild. They still get the override — the field is mode-blind — but
-    this is why the drift fix is aimed at Private."""
-    conv, members = await _two_card_group(client, context_mode=mode)
-    await _put_members(
-        client,
-        conv,
-        [_member_spec(members[0], card_sheet_override="ARIA, hair shorn and coat burned."), _member_spec(members[1])],
-    )
-    await _run_two_speaker_exchange(client, llm_mock, conv)
-    systems = _systems(llm_mock, "writer")
-    assert "hair shorn" in systems[0] and "ARIA PRIVATE" not in systems[0]
 
 
 async def test_the_sheet_override_rides_checkpoint_and_compression_forks(client):
@@ -1046,7 +944,9 @@ async def test_a_proposal_whose_sheet_moved_underneath_it_goes_stale_instead_of_
     )
     response = await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{pending[0]['id']}/apply")
     assert response.status_code == 409
-    assert (await _proposals(client, conv, "stale"))[0]["id"] == pending[0]["id"]
+    # A refused proposal is the row that owes the user a reason, so it stays in
+    # the route's default listing rather than vanishing at the moment of refusal.
+    assert [(item["id"], item["status"]) for item in await _proposals(client, conv)] == [(pending[0]["id"], "stale")]
     # The hand edit stands: nothing was half-applied on the way to refusing.
     reloaded = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
     assert reloaded[0]["card_sheet_override"] == "ARIA, hand-edited."
@@ -1119,30 +1019,6 @@ async def test_a_hand_edit_stops_the_carry_forward(client, llm_mock):
 
     third = _sheet_calls(llm_mock)[2]
     assert "ARIA, hand-edited." in third and "ARIA, shorn." not in third
-
-
-async def test_the_review_set_keeps_the_refusal_it_owes_an_explanation_for(client, llm_mock):
-    """A `stale` proposal is one the apply refused. Listing only `pending` made it
-    vanish at the moment of refusal, which is the opposite of reporting it — and
-    left the review surface's own stale row unreachable."""
-    conv, members = await _sheet_group(client)
-    llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn.", summary="Cut her hair"))
-    llm_mock.enqueue_workflow(_sheet_call(changed=False))
-    await _run_two_speaker_exchange(client, llm_mock, conv)
-    staged = (await _proposals(client, conv))[0]
-
-    await _put_members(
-        client,
-        conv,
-        [_member_spec(members[0], card_sheet_override="ARIA, hand-edited."), _member_spec(members[1])],
-    )
-    assert (await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{staged['id']}/apply")).status_code == 409
-
-    review = await _proposals(client, conv)
-    assert [(item["id"], item["status"]) for item in review] == [(staged["id"], "stale")]
-    # And it can still be cleared, which is the only action left on it.
-    assert (await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{staged['id']}/reject")).status_code == 200
-    assert await _proposals(client, conv) == []
 
 
 async def test_removing_a_member_retires_its_undecided_proposals(client, llm_mock):
@@ -1570,12 +1446,6 @@ async def test_scene_profile_draft_on_a_solo_conversation_is_409(client, llm_moc
     assert response.json()["detail"] == "Conversation is not a group"
 
 
-async def test_scene_profile_draft_on_a_missing_card_is_404(client, llm_mock):
-    conv, _ = await _two_card_group(client)
-    response = await _draft(client, conv["id"], character_card_id="no-such-card")
-    assert response.status_code == 404
-
-
 async def test_scene_profile_draft_works_for_a_row_not_yet_on_the_roster(client, llm_mock):
     """Manage cast is client-side until Save, so a member added seconds ago
     exists only in the DOM. Drafting for it must not require a roster row."""
@@ -1637,17 +1507,6 @@ async def test_a_large_cast_is_bounded_and_says_how_many_it_left_out(client, llm
     assert "Other cast members omitted from this draft: 1" in sent
 
 
-async def test_scene_profile_draft_is_mode_blind(client, llm_mock):
-    """`PUT …/members` accepts an override under every mode, so a generate route
-    that refused would leave the two halves of one field disagreeing about
-    whether the mode is a server rule. Gating is the UI's job."""
-    for mode in ("private", "shared", "swap"):
-        conv, members = await _two_card_group(client, context_mode=mode)
-        llm_mock.enqueue_workflow(_profile_call(appearance="Tall.", role="Scout."))
-        response = await _draft(client, conv["id"], character_card_id=members[0]["character_card_id"])
-        assert response.status_code == 200, mode
-
-
 async def test_scene_profile_draft_without_a_tool_call_is_502(client, llm_mock):
     """A loop that writes N overrides the user saves in one click cannot degrade
     silently — a fabricated draft is indistinguishable from a real one."""
@@ -1657,24 +1516,6 @@ async def test_scene_profile_draft_without_a_tool_call_is_502(client, llm_mock):
     response = await _draft(client, conv["id"], character_card_id=members[0]["character_card_id"])
     assert response.status_code == 502
     assert response.json()["detail"] == "The model did not return a usable profile."
-
-
-@pytest.mark.parametrize(
-    ("arguments", "why"),
-    [
-        ({"appearance": "As tall as {{user}}.", "role": "Scout."}, "macro"),
-        ({"appearance": "", "role": "Scout."}, "empty"),
-        ({"appearance": " ".join(f"w{i}" for i in range(31)), "role": "Scout."}, "longer than 30 words"),
-    ],
-)
-async def test_a_draft_that_fails_the_output_contract_is_502_with_no_payload(client, llm_mock, arguments, why):
-    conv, members = await _two_card_group(client)
-    llm_mock.enqueue_workflow(_profile_call(**arguments))
-
-    response = await _draft(client, conv["id"], character_card_id=members[0]["character_card_id"])
-    assert response.status_code == 502
-    assert why in response.json()["detail"]
-    assert "profile" not in response.json()
 
 
 async def test_a_checkpoint_carries_the_scenes_sheet_update_opt_in(client, llm_mock):

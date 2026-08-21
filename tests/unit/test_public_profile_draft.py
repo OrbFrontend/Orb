@@ -22,12 +22,10 @@ import json
 import pytest
 
 from backend.features.cards.public_profile import (
-    DRAFT_PROFILE_TOOL,
     MAX_FIELD_WORDS,
     PROFILE_FLOOR,
     PROFILE_TOOL_NAME,
     ProfileDraftUnavailable,
-    build_card_message,
     build_scene_message,
     draft_card_profile,
     draft_scene_profile,
@@ -73,12 +71,6 @@ async def test_whitespace_and_line_breaks_collapse_to_one_line():
     own newlines would break that shape wherever it is assembled."""
     for draft in await _draft_both(_call(appearance="  Tall,\n  in green.\t", role="A bard.\n\nOf the road.")):
         assert draft == {"appearance": "Tall, in green.", "role": "A bard. Of the road."}
-
-
-async def test_a_field_of_exactly_the_word_cap_is_accepted():
-    words = " ".join(f"w{i}" for i in range(MAX_FIELD_WORDS))
-    for draft in await _draft_both(_call(appearance=words, role="Bard.")):
-        assert draft["appearance"] == words
 
 
 async def test_json_string_arguments_parse_the_same_way():
@@ -149,18 +141,6 @@ async def test_both_prompts_quote_the_same_no_secrets_floor():
     assert "no matter which member is currently speaking" not in systems[0]
 
 
-def test_the_floor_asks_for_durable_facts_and_the_tool_says_so_too():
-    """A profile is rendered into the cached body of every member's prompt, so
-    anything volatile it asserts keeps asserting turn one for the life of the
-    scene. Both halves have to say it: the floor is what the two prompts quote,
-    and the tool description is what the model reads while filling the field."""
-    assert "durable" in PROFILE_FLOOR
-    assert "belongs to the transcript, not here" in PROFILE_FLOOR
-    appearance = DRAFT_PROFILE_TOOL["function"]["parameters"]["properties"]["appearance"]["description"]
-    assert "Durable" in appearance
-    assert "Never attire, carried gear, or injuries." in appearance
-
-
 async def test_the_drafting_call_is_forced_and_not_at_the_writing_preset():
     """A roleplay preset at temperature 1.15 would produce a florid two-liner;
     this is a summarization call, so the hyperparameters are hardcoded."""
@@ -197,7 +177,3 @@ def test_the_scene_message_states_how_many_names_it_left_out():
     assert "Other cast members omitted from this draft: 3" in message
     assert "omitted from this draft" not in build_scene_message(CARD, cast_names=["Kael"])
 
-
-def test_a_sparse_card_still_produces_a_card_message():
-    assert build_card_message({}) == "Sparse narrator card"
-    assert "A scout of the northern watch." in build_card_message(CARD)

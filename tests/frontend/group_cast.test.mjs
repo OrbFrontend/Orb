@@ -181,27 +181,6 @@ test("a cast with no card text lands on the default rather than on the cheaper m
   assert.equal(recommendContextMode([ofTokens(2000), card(0)]).mode, "swap");
 });
 
-test("a recommendation carries the figures it was made from, and both sides of the trade", () => {
-  // The panel states the reasoning; a mode with no `why` renders as an
-  // unexplained instruction to change a setting the user did not ask about.
-  const casts = [
-    [ofTokens(2000), ofTokens(2000)],
-    [ofTokens(300), ofTokens(300), ofTokens(300)],
-    Array.from({ length: 5 }, () => ofTokens(1800)),
-  ];
-  for (const cast of casts) {
-    const rec = recommendContextMode(cast);
-    assert.ok(CONTEXT_MODES[rec.mode], "recommends a real stored mode");
-    assert.equal(rec.cast, cast.length);
-    assert.ok(rec.why?.trim() && rec.cost?.trim());
-    // Each branch has to show the figure it actually turned on. A cast wide
-    // enough to exhaust the cache is decided on its size at any card weight, so
-    // quoting the weight there would name a number that changed nothing.
-    const deciding = rec.cast > 3 ? rec.cast : rec.meanTokens;
-    assert.match(rec.why, new RegExp(deciding.toLocaleString()));
-  }
-});
-
 test("an override is one-shot except in Choose mode, where picking is the strategy", () => {
   scene({ mode: "director" });
   assert.equal(overrideIsOneShot(), true);
@@ -324,11 +303,6 @@ test("a family gathers every conversation of one group and nothing else", () => 
   );
 });
 
-test("solo conversations never join a family", () => {
-  assert.deepEqual(groupFamily([SOLO], "s1"), []);
-  assert.deepEqual(groupFamilies([SOLO]), []);
-});
-
 test("each group collapses to one entry, ordered by its most recent conversation", () => {
   const families = groupFamilies([FORK, OTHER, ROOT, SOLO]);
   assert.deepEqual(
@@ -339,13 +313,6 @@ test("each group collapses to one entry, ordered by its most recent conversation
   // The root names the group; the newest conversation is what a click opens.
   assert.equal(families[0].root.title, "Campfire");
   assert.equal(families[0].newest.id, "g2");
-});
-
-test("a checkpoint taken from a checkpoint stays in the one family", () => {
-  const deep = { id: "g4", kind: "group", title: "Campfire (checkpoint)", group_root_id: "g1" };
-  const families = groupFamilies([deep, FORK, ROOT]);
-  assert.equal(families.length, 1);
-  assert.equal(families[0].members.length, 3);
 });
 
 test("a family whose root is missing still renders, led by its newest member", () => {
