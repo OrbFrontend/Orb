@@ -438,4 +438,3 @@ async def test_public_profile_generate_raises_when_the_model_returns_no_call(cli
     resp = await client.post(f"/api/characters/{card_id}/public-profile/generate")
     assert resp.status_code == 502
     assert resp.json()["detail"] == "The model did not return a usable profile."
-

@@ -176,4 +176,3 @@ def test_the_scene_message_states_how_many_names_it_left_out():
     message = build_scene_message(CARD, cast_names=["Kael"], omitted_cast=3)
     assert "Other cast members omitted from this draft: 3" in message
     assert "omitted from this draft" not in build_scene_message(CARD, cast_names=["Kael"])
-

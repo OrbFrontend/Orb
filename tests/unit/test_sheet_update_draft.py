@@ -147,4 +147,3 @@ async def test_the_reply_budget_can_always_restate_the_sheet_it_was_given():
     # at a deliberately pessimistic three characters per token.
     ceiling = max(MIN_SHEET_CEILING_CHARS, len(long_sheet) + MAX_SHEET_GROWTH_CHARS)
     assert budget >= ceiling / 3
-
