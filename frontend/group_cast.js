@@ -1,4 +1,4 @@
-import { memberById, S } from "./state.js";
+import { S } from "./state.js";
 import { avatarCell, avatarUrl, esc, escAttr } from "./utils.js";
 
 // The three durable reply strategies in user language. The stored values stay
@@ -231,15 +231,16 @@ export function groupFamilies(conversations) {
   });
 }
 
-function memberFor(msg) {
-  return msg?.speaker_member_id ? memberById(msg.speaker_member_id) : null;
-}
-
+// Resolved through `speakerNames`, never through `members`: `members` is the
+// active roster, so a reply written by a member the user has since removed
+// would fall through to "Unknown speaker" and let a roster edit silently
+// rewrite the transcript. The backend refuses the same shortcut in
+// `get_speaker_names` — this is that rule on the other side of the wire.
 export function speakerLabel(msg) {
   if (msg?.role === "user") return "You";
   if (!S.groupCast) return S.conversations.find((c) => c.id === S.activeConvId)?.character_name || "Character";
   if (!msg?.speaker_member_id) return "Summary";
-  return memberFor(msg)?.display_name || "Unknown speaker";
+  return S.groupCast.speakerNames?.get(msg.speaker_member_id) || "Unknown speaker";
 }
 
 export function eligibleMembers() {

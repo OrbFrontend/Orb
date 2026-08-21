@@ -92,7 +92,7 @@ features/<name>/
 | `frontend/sse.js` | THE SSE parser (`sseEvents`, `streamPost`) — only one in the app |
 | `frontend/text_segmentation.js` | Canonical non-workflow frontend sentence policy; line breaks are standalone stream units |
 | `frontend/workflow_api.js` | Plugin facade ABI v3 — the only import for `frontend/workflows/**` |
-| `frontend/group_cast.js` / `group_setup.js` | Pure group identity rendering — cast rail, speaking plan, empty scene, `TURN_MODES` wording, and `recommendContextMode` (the only definition of which context mode a chosen cast should use, keyed on cast size and card weight) (L1) / creation, cast manager, group settings, conversion (L5) |
+| `frontend/group_cast.js` / `group_setup.js` | Pure group identity rendering — cast rail, speaking plan, empty scene, `TURN_MODES` wording, and `recommendContextMode` (the only definition of which context mode a chosen cast should use, keyed on cast size and card weight) (L1) / creation, cast manager, group settings, conversion (L5). `loadGroupCast` fetches the roster **once, with `include_inactive`**, and splits it into the two views `S.groupCast` carries: `members` (active only — the rail, `{{cast}}`, the fragment set, the plugin ABI, Manage cast) and `speakerNames` (id→name over every row the scene has ever had). `speakerLabel` reads the second and never the first — the client half of the rule `get_speaker_names` states, since a reply by a member the user has since removed still has to be attributed without putting that member back on the rail |
 
 ## Database Schema (summary)
 

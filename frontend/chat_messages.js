@@ -122,7 +122,9 @@ export async function deleteMessage(msgId) {
   if (S.isStreaming) return;
   if (!requestSendPermission()) return;
   let detail = "Delete this message, all its siblings, and all their children?";
-  if (S.activeConversation?.kind === "group") {
+  // `S.groupCast` is the open scene's roster, and null in a solo chat — the
+  // same "is this a group" question, asked of a key that exists.
+  if (S.groupCast) {
     try {
       const preview = await api.get(convUrl(S.activeConvId, "messages", msgId, "delete-preview"));
       const count = preview.assistant_count || 0;

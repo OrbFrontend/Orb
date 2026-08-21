@@ -14,7 +14,7 @@ import {
   speakingPlanHtml,
   TURN_MODES,
 } from "./group_cast.js";
-import { closeModal, showModal } from "./modal.js";
+import { closeModal, setModalCloseGuard, showModal } from "./modal.js";
 import { SIDEBAR_CLOSE_ICON } from "./sidebar_icons.js";
 import { charactersView, notify, S } from "./state.js";
 import { $, avatarCell, avatarUrl, convUrl, esc, escAttr, toast } from "./utils.js";
@@ -145,7 +145,10 @@ function titleFromNames(names) {
 
 function pickCardHtml(card) {
   return `<button type="button" class="cast-pick" data-group-card-id="${escAttr(card.id)}" aria-pressed="false">
-    <span class="cast-pick-avatar">${avatarCell(escAttr(avatarUrl(card.id)), { icon: "👤" })}</span>
+    <span class="cast-pick-avatar">${avatarCell(escAttr(avatarUrl(card.id)), {
+      icon: "👤",
+      attrs: 'loading="lazy" decoding="async"',
+    })}</span>
     <span class="cast-pick-name">${esc(card.name)}</span>
   </button>`;
 }
@@ -283,6 +286,13 @@ function showGroupSettings() {
   });
   $("group-settings-save")?.addEventListener("click", async () => {
     if (S.castSetupBusy) return;
+    // `group_context_mode` decides what every prefix in the exchange contains,
+    // and under `swap` it decides the cache lineage too. It may not move
+    // between one exchange's speakers.
+    if (S.isStreaming) {
+      toast("Stop generation before changing scene settings", true);
+      return;
+    }
     S.castSetupBusy = true;
     try {
       const updated = await api.put(`/conversations/${S.activeConvId}`, {
@@ -437,10 +447,14 @@ function castRow(member) {
   </div>`;
 }
 
-function addOptions() {
-  const active = new Set((S.groupCast?.members || []).map((member) => member.character_card_id).filter(Boolean));
+// The characters still on offer, given the cards the list already holds. Takes
+// the taken ids rather than reading the roster, because the list is the live
+// answer once the modal is open: a row removed in the modal has to put its
+// character back on the menu, and only the DOM knows that happened yet.
+function addOptions(takenCardIds) {
+  const taken = new Set(takenCardIds);
   const characters = charactersView()
-    .filter((card) => !active.has(card.id))
+    .filter((card) => !taken.has(card.id))
     .map((card) => `<option value="${escAttr(card.id)}">${esc(card.name)}</option>`)
     .join("");
   return `<option value="">+ Add cast member…</option><option value="__narrator">✒️ Narrator</option>${characters ? `<optgroup label="Characters">${characters}</optgroup>` : ""}`;
@@ -474,7 +488,9 @@ function showCastManager() {
       </div>
     </div>
     <div id="group-roster-list" class="cast-list">${S.groupCast.members.map(castRow).join("")}</div>
-    <select id="group-roster-add" class="cast-add" aria-label="Add cast member">${addOptions()}</select>
+    <select id="group-roster-add" class="cast-add" aria-label="Add cast member">${addOptions(
+      S.groupCast.members.map((member) => member.character_card_id).filter(Boolean),
+    )}</select>
     <p class="modal-hint">${esc(contextLine(S.groupCast.context_mode))}</p>
     <div class="modal-actions"><button type="button" class="btn" id="group-roster-cancel">Cancel</button><button type="button" class="btn btn-accent" id="group-roster-save">Save cast</button></div>`);
   const list = $("group-roster-list");
@@ -488,6 +504,41 @@ function showCastManager() {
   let draftingAll = false;
   let cancelAll = false;
   const anyDrafting = () => drafting.size > 0;
+
+  // The roster exactly as Save would send it. One reader of the rows, so the
+  // dirty check below and the PUT can never disagree about what is in the form.
+  function collectMembers() {
+    return [...list.querySelectorAll(".cast-row")].map((row) => ({
+      id: row.dataset.rosterMemberId || null,
+      character_card_id: row.dataset.rosterCardId || null,
+      display_name: row.querySelector("[data-roster-name]").value.trim() || "Narrator",
+      public_profile_override: row.querySelector("[data-roster-profile]").value.trim() || null,
+      card_sheet_override: row.querySelector("[data-roster-sheet]").value.trim() || null,
+      member_kind: row.dataset.rosterKind || "character",
+      muted: !row.querySelector("[data-roster-reply]").checked,
+    }));
+  }
+
+  // Re-derive what the add menu offers from the rows on screen. One rule, run
+  // after every add and every remove, instead of two mutations of the option
+  // list that drift apart the first time a member is taken back out.
+  function syncAddOptions() {
+    const select = $("group-roster-add");
+    if (!select) return;
+    select.innerHTML = addOptions(
+      [...list.querySelectorAll(".cast-row")].map((row) => row.dataset.rosterCardId).filter(Boolean),
+    );
+    select.value = "";
+  }
+
+  // This modal is the app's largest unsaved form — names, both overrides, mute
+  // state, reply order, adds and removes — and the scene profiles in it cost a
+  // billed call each. Escape and a backdrop click both route through
+  // `closeModal`, so one guard covers every exit. Save clears it before closing,
+  // since a saved form has nothing to warn about.
+  const baseline = collectMembers();
+  const isDirty = () => JSON.stringify(collectMembers()) !== JSON.stringify(baseline);
+  setModalCloseGuard(() => !isDirty() || window.confirm("Discard the changes to this cast?"));
 
   // Apply / Dismiss on one staged sheet update. Unlike everything else in this
   // modal these write immediately — a proposal is server state the roster PUT
@@ -512,6 +563,12 @@ function showCastManager() {
         // modal would paint the pre-apply sheet back into the box.
         const member = (S.groupCast.members || []).find((item) => item.id === updated.member_id);
         if (member) member.card_sheet_override = updated.proposed_sheet;
+        // And so does the dirty baseline, for one field only: this write already
+        // landed, so it is not a change the close guard should offer to discard
+        // — but re-snapshotting the whole form here would swallow every *other*
+        // edit the user has open.
+        const before = baseline.find((item) => item.id === updated.member_id);
+        if (before) before.card_sheet_override = (updated.proposed_sheet || "").trim() || null;
       }
       S.groupCast.sheet_proposals = (S.groupCast.sheet_proposals || []).filter(
         (item) => String(item.id) !== String(id),
@@ -526,6 +583,12 @@ function showCastManager() {
       if (fresh) card.outerHTML = proposalRow(fresh);
       else card.remove();
       throw error;
+    } finally {
+      // The rail's badge counts this queue, and it is the only thing that makes
+      // the sheet-update pass visible at all. Without this a user who reviewed
+      // every proposal and then pressed Cancel would be told there were still
+      // three waiting. Both exits, since the 409 path also moves the count.
+      renderGroupCast();
     }
   }
 
@@ -636,6 +699,7 @@ function showCastManager() {
     if (!row) return;
     if (event.target.closest("[data-roster-remove]")) {
       row.remove();
+      syncAddOptions();
       return;
     }
     const more = event.target.closest("[data-roster-more]");
@@ -669,10 +733,9 @@ function showCastManager() {
       const card = charactersView().find((item) => item.id === value);
       if (card) {
         list.insertAdjacentHTML("beforeend", castRow({ character_card_id: card.id, display_name: card.name }));
-        event.target.querySelector(`option[value="${CSS.escape(card.id)}"]`)?.remove();
       }
     }
-    event.target.value = "";
+    syncAddOptions();
     list.lastElementChild?.scrollIntoView({ block: "nearest" });
   });
 
@@ -727,19 +790,20 @@ function showCastManager() {
   $("group-roster-cancel")?.addEventListener("click", closeModal);
   $("group-roster-save")?.addEventListener("click", async () => {
     if (S.castSetupBusy) return;
+    // The same guard the conversation switch and the message delete carry. A
+    // roster written mid-exchange lands under a pipeline that already resolved
+    // its cast: the member being removed may be queued to speak two beats from
+    // now, and `group_context_mode` is the one setting an exchange may not see
+    // change under `swap`, where the whole cache lineage hangs on it.
+    if (S.isStreaming) {
+      toast("Stop generation before changing the cast", true);
+      return;
+    }
     if (anyDrafting()) {
       toast("Wait for the scene profiles to finish drafting", true);
       return;
     }
-    const members = [...list.querySelectorAll(".cast-row")].map((row) => ({
-      id: row.dataset.rosterMemberId || null,
-      character_card_id: row.dataset.rosterCardId || null,
-      display_name: row.querySelector("[data-roster-name]").value.trim() || "Narrator",
-      public_profile_override: row.querySelector("[data-roster-profile]").value.trim() || null,
-      card_sheet_override: row.querySelector("[data-roster-sheet]").value.trim() || null,
-      member_kind: row.dataset.rosterKind || "character",
-      muted: !row.querySelector("[data-roster-reply]").checked,
-    }));
+    const members = collectMembers();
     if (!members.length) {
       toast("A scene needs at least one cast member", true);
       return;
@@ -754,6 +818,12 @@ function showCastManager() {
       S.groupCast = {
         ...S.groupCast,
         members: updated,
+        // Merged, not replaced: the PUT answers with the *active* roster, so
+        // rebuilding from it alone would forget every member this save (or an
+        // earlier one) retired, and their lines would go back to reading
+        // "Unknown speaker". New ids and renames arrive here and win; the
+        // retired names carry over untouched.
+        speakerNames: new Map([...(S.groupCast.speakerNames || []), ...speakerNameMap(updated)]),
         sheet_proposals: (S.groupCast.sheet_proposals || []).filter((item) => live.has(item.member_id)),
       };
       const local = S.conversations.find((item) => item.id === S.activeConvId);
@@ -764,6 +834,7 @@ function showCastManager() {
         );
       }
       if (!updated.some((member) => member.id === S.pinnedSpeakerId && !member.muted)) S.pinnedSpeakerId = null;
+      setModalCloseGuard(null);
       closeModal();
       renderGroupCast();
       renderGroupList();
@@ -795,7 +866,8 @@ function renderChatActionMenus() {
     item.hidden = !visible[item.dataset.chatAction];
   }
   // The header's ••• only has group actions to offer, so a solo scene hides it.
-  $("chat-overflow-btn").hidden = !grouped;
+  const overflow = $("chat-overflow-btn");
+  if (overflow) overflow.hidden = !grouped;
 }
 
 // Whether the composer is holding something that wants an answer. A drafted
@@ -904,6 +976,13 @@ export async function refreshSheetProposals() {
   S.groupCast.sheet_proposals = await fetchSheetProposals(S.activeConvId);
 }
 
+// Member id → display name, over whatever rows it is given. Kept beside the two
+// callers rather than in `group_cast.js`: that module *reads* the map to label
+// history, and building it is a property of how the roster was fetched.
+function speakerNameMap(rows) {
+  return new Map((rows || []).map((member) => [member.id, member.display_name]));
+}
+
 export async function loadGroupCast(conv) {
   if (!conv || conv.kind !== "group") {
     S.groupCast = null;
@@ -913,9 +992,22 @@ export async function loadGroupCast(conv) {
     notify("cast", null);
     return;
   }
-  const members = await api.get(convUrl(conv.id, "members"));
+  // One fetch, two views. `include_inactive` is what makes the transcript
+  // survive a roster edit (see `speakerNames` below and `state.js`); the roster
+  // itself is the active slice of the same rows, so asking twice would only
+  // give two answers that can disagree. Parallel with the proposals: neither
+  // needs the other, and a scene switch should not pay two serial round trips.
+  const [roster, proposals] = await Promise.all([
+    api.get(`${convUrl(conv.id, "members")}?include_inactive=true`),
+    fetchSheetProposals(conv.id),
+  ]);
+  // A switch that landed while these were in flight owns the screen now, and
+  // this answer is about a conversation nobody is looking at.
+  if (S.activeConvId !== conv.id) return;
+  const members = roster.filter((member) => member.active !== 0);
   S.groupCast = {
     members,
+    speakerNames: speakerNameMap(roster),
     turn_mode: conv.group_turn_mode,
     max_speakers: conv.group_max_speakers,
     context_mode: conv.group_context_mode,
@@ -929,7 +1021,7 @@ export async function loadGroupCast(conv) {
     // opt-in off as a side effect, so gating here meant a mode change silently
     // swallowed a queue the user had never seen — with no way to reach or dismiss
     // it short of switching back.
-    sheet_proposals: await fetchSheetProposals(conv.id),
+    sheet_proposals: proposals,
   };
   if (!members.some((m) => m.id === S.pinnedSpeakerId && !m.muted)) S.pinnedSpeakerId = null;
   renderGroupCast();
@@ -938,6 +1030,10 @@ export async function loadGroupCast(conv) {
 
 async function convertToGroup() {
   if (!S.activeConvId || S.groupCast || S.castSetupBusy) return;
+  if (S.isStreaming) {
+    toast("Stop generation before converting to a group", true);
+    return;
+  }
   S.castSetupBusy = true;
   try {
     const result = await api.post(`/conversations/${S.activeConvId}/convert-to-group`);

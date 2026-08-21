@@ -40,6 +40,7 @@ import {
   overrideIsOneShot,
   recommendContextMode,
   sceneEmptyStateHtml,
+  speakerLabel,
   speakingPlanHtml,
   TURN_MODES,
 } from "../../frontend/group_cast.js";
@@ -49,8 +50,22 @@ const ARTUS = { id: "m1", display_name: "Artus", character_card_id: "c1" };
 const ASSISTANT = { id: "m2", display_name: "Assistant", character_card_id: "c2" };
 const NARRATOR = { id: "m3", display_name: "Narrator", member_kind: "narrator" };
 
-function scene({ mode = "director", members = [ARTUS, ASSISTANT], pinned = null, plan = null, speaker = null } = {}) {
-  S.groupCast = { members, turn_mode: mode, max_speakers: 3 };
+function scene({
+  mode = "director",
+  members = [ARTUS, ASSISTANT],
+  retired = [],
+  pinned = null,
+  plan = null,
+  speaker = null,
+} = {}) {
+  // `members` is the active roster; `speakerNames` spans it plus everyone the
+  // scene has retired, exactly as loadGroupCast derives the two from one fetch.
+  S.groupCast = {
+    members,
+    speakerNames: new Map([...members, ...retired].map((member) => [member.id, member.display_name])),
+    turn_mode: mode,
+    max_speakers: 3,
+  };
   S.pinnedSpeakerId = pinned;
   S.speakingPlan = plan;
   S.currentSpeaker = speaker;
@@ -271,6 +286,49 @@ test("a display name cannot inject markup into the rail or the empty state", () 
   scene({ members: [{ id: "m9", display_name: '<img src=x onerror="boom()">' }] });
   assert.doesNotMatch(castRailHtml(), /<img src=x/);
   assert.doesNotMatch(sceneEmptyStateHtml(), /<img src=x/);
+});
+
+// ── Speaker labels ──────────────────────────────────────────────────────────
+// The role line over every reply. This reads `speakerNames`, never `members`,
+// and the distinction is the whole point: the active roster is what the rail
+// paints, but the transcript outlives it.
+
+test("a reply is labelled with its speaker's name", () => {
+  scene();
+  assert.equal(speakerLabel({ role: "assistant", speaker_member_id: "m1" }), "Artus");
+});
+
+test("the user is always 'You', in a group as in a solo chat", () => {
+  scene();
+  assert.equal(speakerLabel({ role: "user", speaker_member_id: null }), "You");
+});
+
+test("a removed member still labels the lines it wrote", () => {
+  // The regression this pins: Manage cast tombstones a member rather than
+  // deleting it, and its replies keep pointing at that id forever. Resolving
+  // them through the active roster turned a roster edit into a silent rewrite
+  // of the transcript — every one of that member's lines read "Unknown
+  // speaker". The backend refuses the same shortcut in `get_speaker_names`.
+  scene({ members: [ARTUS], retired: [ASSISTANT] });
+  assert.equal(speakerLabel({ role: "assistant", speaker_member_id: "m2" }), "Assistant");
+  // ...and it is still gone from every surface that asks who is in the scene.
+  assert.deepEqual(
+    eligibleMembers().map((member) => member.id),
+    ["m1"],
+  );
+  assert.ok(!castRailHtml().includes("m2"));
+});
+
+test("a group reply with no speaker is the scene's own summary", () => {
+  scene();
+  assert.equal(speakerLabel({ role: "assistant", speaker_member_id: null }), "Summary");
+});
+
+test("an id no roster has ever held is named as unknown rather than blank", () => {
+  // A blank role line merges the reply into the one above it, which is the
+  // failure mode this fallback exists to prevent.
+  scene();
+  assert.equal(speakerLabel({ role: "assistant", speaker_member_id: "gone" }), "Unknown speaker");
 });
 
 // ── Group families ──────────────────────────────────────────────────────────
