@@ -25,15 +25,14 @@ export const TURN_MODES = {
 export const CONTEXT_MODES = {
   private: {
     label: "Private perspective",
-    detail:
-      "Each speaker gets its full card; every other member shows only its public profile — description, personality, examples and instructions never reach another character's turn.",
+    detail: "Each speaker gets its full card appended at tail of prompt; other members only know its public profile.",
     billing:
       "Efficient when speakers change: one long shared history stays cached, and only the speaking card is re-sent each turn.",
   },
   shared: {
     label: "Shared dossier",
     detail:
-      "Every speaker receives a labelled dossier for the whole cast — description, personality and examples for every active member. Members can read one another's card details; nothing is held back.",
+      "Every speaker receives a labelled dossier for the whole cast — description, personality and examples for every active member. Members can read one another's card details. Risk leaking secrets.",
     billing:
       "Every call carries the whole cast, so the first is the most expensive — after that, often the cheapest mode where the provider discounts cached input.",
   },
@@ -41,8 +40,7 @@ export const CONTEXT_MODES = {
     label: "Classic card swap",
     detail:
       "Only the active speaker's card is sent, in the conventional single-character layout — other members appear as names alone, no profiles or details.",
-    billing:
-      "Changing speakers can reduce prompt-cache reuse: the swap sits before the history, so a new speaker re-reads the whole conversation unless the provider keeps a warm branch per character.",
+    billing: "Every speaker has its own cache lane that will be fully billed.",
   },
 };
 

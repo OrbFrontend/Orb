@@ -25,7 +25,7 @@ from typing import Any
 from .. import database as db
 from ..core import resolve_inline
 from ..inference import AbortToken, prefix_is_speaker_scoped, tail_carries_identity
-from .cast import parse_speaking_plan, round_robin_member
+from .cast import parse_speaking_plan, plan_beat, round_robin_member
 from .config import _resolve_pipeline_config, _split_interactive_fragments
 from .context import (
     PipelineContext,
@@ -400,16 +400,23 @@ async def _generate_group_exchange(
         ):
             yield ev
 
+    # Who speaks is settled here; what the Director wrote for whoever that turns
+    # out to be is settled by `plan_beat`. The two are separate questions -- a pin
+    # and round-robin answer the first without the plan and still deserve the
+    # second, or the Director is half-ignored on every path but `director`.
     plan_rows: list[tuple[Mapping[str, Any], str]]
+    raw_plan = shared.extra_fields.get("speaking_plan")
     if pinned_speaker_id:
         pinned = next(m for m in eligible if m["id"] == pinned_speaker_id)
-        plan_rows = [(pinned, "")]
+        plan_rows = [(pinned, plan_beat(raw_plan, rows, pinned_speaker_id))]
     elif ctx.conv.get("group_turn_mode") == "round_robin":
         member = round_robin_member(rows, history)
-        plan_rows = [(member, "")] if member else []
+        plan_rows = [(member, plan_beat(raw_plan, rows, str(member["id"])))] if member else []
     else:
-        parsed = parse_speaking_plan(shared.extra_fields.get("speaking_plan"), rows, int(ctx.conv["group_max_speakers"]))
+        parsed = parse_speaking_plan(raw_plan, rows, int(ctx.conv["group_max_speakers"]))
         if parsed is None:
+            # Unusable plan, not merely an unused one: nothing in it resolved to a
+            # member, so there is no beat to carry over to the fallback speaker.
             member = round_robin_member(rows, history)
             plan_rows = [(member, "")] if member else []
         else:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from backend.core import CastMember, Macros, TurnCast
 from backend.database.queries.group_members import allocate_speaker_key
 from backend.inference.prompt_builder import build_prefix
-from backend.pipeline.cast import parse_speaking_plan, round_robin_member
+from backend.pipeline.cast import parse_speaking_plan, plan_beat, round_robin_member
 from backend.pipeline.passes.director import build_direct_scene_override
 from backend.pipeline.passes.writer import build_writer_content, strip_speaker_label
 from backend.pipeline.state import _DIRECTOR_SEED_FIELDS, TurnState
@@ -127,6 +127,38 @@ def test_speaking_plan_resolves_hyphenated_speaker_keys_and_names():
     assert [m["id"] for m, _ in parse_speaking_plan(["arianna — waves"], members, 3)] == ["a"]
     # And a bare speaker with no exchange still resolves.
     assert [(m["id"], exchange) for m, exchange in parse_speaking_plan(["alice-hart"], members, 3)] == [("h", "")]
+
+
+def test_plan_beat_reads_the_directors_note_for_a_speaker_cast_without_the_plan():
+    """A pin decides *who*; the Director still decides *what* for that speaker.
+
+    Regenerate, magic rewrite, `/speak`, a manual pick and round-robin all settle
+    the speaker before the plan is read. They used to hand the writer an empty
+    beat even when the Director had just written one for that exact member, so a
+    regenerated reply was composed blind while the injected scene direction was
+    aimed at whoever the plan opened with.
+    """
+    members = [
+        {"id": "a", "speaker_key": "aria", "display_name": "Aria", "active": 1, "muted": 0},
+        {"id": "k", "speaker_key": "kael", "display_name": "Kael", "active": 1, "muted": 0},
+        {"id": "m", "speaker_key": "mira", "display_name": "Mira", "active": 1, "muted": 1},
+    ]
+    plan = ["aria — deflect the accusation", "kael — explode at her calm"]
+    assert plan_beat(plan, members, "a") == "deflect the accusation"
+    # Position in the plan is irrelevant: this member is speaking either way.
+    assert plan_beat(plan, members, "k") == "explode at her calm"
+
+    # Uncapped: `group_max_speakers` bounds who is cast, and nobody is being cast here.
+    assert parse_speaking_plan(plan, members, 1) == [(members[0], "deflect the accusation")]
+    assert plan_beat(plan, members, "k") == "explode at her calm"
+
+    # Nothing to read: a plan that never named this member, a muted one, a rest,
+    # a Director that declined the field, and a turn that never ran one.
+    assert plan_beat(["aria — deflect the accusation"], members, "k") == ""
+    assert plan_beat(["mira — muted"], members, "m") == ""
+    assert plan_beat([], members, "a") == ""
+    assert plan_beat(None, members, "a") == ""
+    assert plan_beat("aria — not a list", members, "a") == ""
 
 
 def test_every_director_seed_field_is_a_turn_state_field_and_is_copied_not_shared():

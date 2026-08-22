@@ -262,8 +262,8 @@ function settingsPaneHtml(conv, rootId) {
     <div class="field"><label for="group-settings-context">Mode</label>
       <select id="group-settings-context">${contextModeOptions(S.groupCast.context_mode)}</select></div>
     <div class="field" id="group-settings-sheet-row"><label class="modal-checkbox-label"><input type="checkbox" id="group-settings-sheet-updates"${S.groupCast.sheet_updates ? " checked" : ""}> Propose sheet updates after each reply</label>
-      <p class="modal-hint">A character card describes turn one forever, so a long scene drifts away from it — hair cut, coat burned, arm in a sling. After each exchange, each member who spoke is read against the scene and offered a rewritten sheet, which you apply or dismiss on the Cast tab. Nothing is written automatically and the character card is never touched.</p>
-      <p class="modal-hint">Costs one extra model call per member who spoke, per exchange. Offered under Private perspective only: it is the one mode that reads a member's sheet after the history, where keeping it current costs no prompt-cache rebuild.</p></div>
+      <p class="modal-hint">A character card describes turn one forever, so a long scene drifts away from it, e.g. change of appearance. After each exchange, each member who spoke is offered a rewritten sheet, which you apply or dismiss on the Cast tab.</p>
+      <p class="modal-hint">Costs one extra model call per member who spoke, per exchange.</p></div>
     <h3 class="modal-section">Reply behavior</h3>
     <div class="field"><label for="group-settings-mode">Mode</label>
       <select id="group-settings-mode">${modeOptions(S.groupCast.turn_mode)}</select></div>
@@ -1086,7 +1086,7 @@ function speakerNameMap(rows) {
 }
 
 export async function loadGroupCast(conv) {
-  if (!conv || conv.kind !== "group") {
+  if (conv?.kind !== "group") {
     S.groupCast = null;
     S.pinnedSpeakerId = null;
     S.consumedSpeakerId = null;

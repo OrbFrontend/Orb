@@ -338,7 +338,7 @@ export async function afterStream() {
     }
   } else if (!wasGroupExchange && preservedContent?.trim()) {
     const lastMsg = S.messages[S.messages.length - 1];
-    if (!lastMsg || lastMsg.role !== "assistant") {
+    if (lastMsg?.role !== "assistant") {
       S.messages.push({
         role: "assistant",
         content: preservedContent,

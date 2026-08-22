@@ -74,6 +74,30 @@ def parse_speaking_plan(raw: object, members: Sequence[Mapping], cap: int) -> li
     return out if out or not raw else None
 
 
+def plan_beat(raw: object, members: Sequence[Mapping], member_id: str) -> str:
+    """The Director's beat for one member, for the paths that cast without the plan.
+
+    A pin (regenerate, magic rewrite, ``/speak``, a manual pick) and round-robin
+    both settle *who* speaks before the plan is read, and must: the row a
+    regenerate replaces already owns its speaker, and swapping it would hand one
+    message's branch siblings to two different characters. That is a casting
+    decision and nothing more -- if the Director wrote a beat for the very member
+    about to speak, that beat is its intent for this reply, and dropping it wrote
+    the speaker blind against a scene direction the Director had already aimed
+    somewhere else.
+
+    Read **uncapped** on purpose. ``group_max_speakers`` bounds how many members
+    answer an exchange; here nobody is being cast, so a plan longer than the cap
+    must still yield the beat of the member who *is* speaking.
+    """
+    if not isinstance(raw, list):
+        return ""
+    for member, beat in parse_speaking_plan(raw, members, len(raw)) or ():
+        if str(member["id"]) == str(member_id):
+            return beat
+    return ""
+
+
 def round_robin_member(members: Sequence[Mapping], messages: Sequence[Mapping]) -> Mapping | None:
     eligible = [m for m in members if m.get("active") and not m.get("muted")]
     if not eligible:
