@@ -9,7 +9,8 @@ is needed.
 
 ## Three units, three words
 
-Group chats measure time three ways, and the words are not interchangeable:
+Group chats measure time two ways and direct it a third, and the words are not
+interchangeable:
 
 - An **exchange** is one group request — `messages.exchange_id`. Every reply a
   single `/send`, `/speak` or regenerate produced shares it. It is what the
@@ -18,9 +19,13 @@ Group chats measure time three ways, and the words are not interchangeable:
   (`entrypoints._round_prefix`, `subjects._round_speakers`). Under **Manual** —
   and for any cast-chip click on a resting scene — one round is several
   exchanges, because each click is its own request answering the same message.
-- A **beat** is the Director's one-line note for a *single speaker* inside the
-  plan (`pipeline/cast.py`), in the screenwriting sense. It is not a unit of
-  time at all.
+- A **cue** is what the Director tells a *single speaker* to do in one reply —
+  one line inside the plan (`pipeline/cast.py`), in the theatrical sense. It is
+  not a unit of time at all. It reaches the writer
+  as the `## Your cue` tail section and the client as the `cue` field on
+  `speaking_plan`/`speaker_start`. It was called a *beat* until the word began
+  surfacing in the writer's own prose — "paused a beat" is idiomatic narration,
+  so a header naming it reinforced a word the model already reaches for.
 
 ## Group families
 

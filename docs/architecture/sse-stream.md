@@ -79,8 +79,8 @@ events:
 
 | Event | Data | Meaning |
 |---|---|---|
-| `speaking_plan` | `{exchange_id, plan: [{member_id, card_id, name, beat}]}` | Emitted once for every group exchange, including pins, round-robin, and an intentional empty plan. |
-| `speaker_start` | `{exchange_id, member_id, card_id, name, index, total, beat}` | Makes this speaker the target of following token/editor/workflow events and mints the streaming bubble. |
+| `speaking_plan` | `{exchange_id, plan: [{member_id, card_id, name, cue}]}` | Emitted once for every group exchange, including pins, round-robin, and an intentional empty plan. |
+| `speaker_start` | `{exchange_id, member_id, card_id, name, index, total, cue}` | Makes this speaker the target of following token/editor/workflow events and mints the streaming bubble. |
 | `speaker_done` | `{exchange_id, message_id, parent_id, turn_index, member_id, card_id, name, content}` | Confirms persistence and finalizes that bubble before another speaker may start. |
 
 There is still exactly one request-level `done`. A later-speaker failure does

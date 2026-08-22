@@ -329,7 +329,7 @@ export function speakingPlanHtml() {
   return S.speakingPlan
     .map(
       (item, index) =>
-        `<span class="plan-pill${index < (S.currentSpeaker?.index ?? -1) ? " done" : ""}${item.member_id === S.currentSpeaker?.member_id ? " active" : ""}">${esc(item.name)}${item.beat ? ` · ${esc(item.beat)}` : ""}</span>`,
+        `<span class="plan-pill${index < (S.currentSpeaker?.index ?? -1) ? " done" : ""}${item.member_id === S.currentSpeaker?.member_id ? " active" : ""}">${esc(item.name)}${item.cue ? ` · ${esc(item.cue)}` : ""}</span>`,
     )
     .join("");
 }

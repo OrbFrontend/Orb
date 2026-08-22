@@ -58,7 +58,7 @@ SPEAKING_PLAN_STAGE: dict[str, Any] = {
     "id": SPEAKING_PLAN_FIELD,
     "field_type": "array",
     "injection_label": "Speaking plan",
-    "description": "Choose the ordered speakers and their one-line beats.",
+    "description": "Choose the ordered speakers and their one-line cues.",
 }
 
 # The schema half of the speaking plan: static, because it rides the shared tools
@@ -68,7 +68,7 @@ SPEAKING_PLAN_STAGE: dict[str, Any] = {
 # this string made a mute toggle re-prefill every lane on the backends that render
 # tool declarations ahead of the conversation.
 SPEAKING_PLAN_SCHEMA_DESCRIPTION = (
-    "Ordered speakers and beats, formatted `<speaker_key> — <one-line beat>`. "
+    "Ordered speakers and cues, formatted `<speaker_key> — <one-line cue>`. "
     "Use only the unmuted speaker keys named in the request. Return [] when nobody should answer."
 )
 
@@ -84,7 +84,7 @@ def speaking_plan_instruction(speaker_keys: str) -> str:
     roster used to be invisible on both paths.
     """
     return (
-        f"Cast the exchange with `{SPEAKING_PLAN_FIELD}`: ordered lines `<speaker_key> — <one-line beat>`. "
+        f"Cast the exchange with `{SPEAKING_PLAN_FIELD}`: ordered lines `<speaker_key> — <one-line cue>`. "
         f"Valid unmuted speaker keys: {speaker_keys}. Return [] when nobody should answer."
     )
 

@@ -910,7 +910,7 @@ function showGroupConfig(initialTab = "cast") {
     // and under `swap` it decides the cache lineage too, so it may not move
     // between one exchange's speakers. A roster written mid-exchange lands under
     // a pipeline that already resolved its cast: the member being removed may be
-    // queued to speak two beats from now.
+    // queued to speak two speakers from now.
     if (S.isStreaming) {
       toast("Stop generation before changing the scene", true);
       return;

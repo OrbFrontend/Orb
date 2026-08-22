@@ -95,7 +95,7 @@ def build_writer_content(
     length_guard: LengthGuard | None,
     depth_block: str = "",
     speaker: CastMember | None = None,
-    speaker_beat: str = "",
+    speaker_cue: str = "",
     macros: Macros | None = None,
     prevent_prompt_overrides: bool = False,
     context_mode: GroupContextMode = "private",
@@ -155,8 +155,8 @@ def build_writer_content(
     if tools_sent:
         tail += "**Do not use tool or function calls this turn.**\n\n"
     tail += writer_nudge(length_guard)
-    if speaker_beat:
-        tail += f"## Your beat\n{speaker_beat}\n\n"
+    if speaker_cue:
+        tail += f"## Your cue\n{speaker_cue}\n\n"
     if effective_msg:
         tail += "___\n\n" + effective_msg + "\n\n"
     if depth_block:
@@ -217,7 +217,7 @@ async def writer_stage(
     kv_tracker: _KVCacheTracker,
     depth_block: str = "",
     speaker: CastMember | None = None,
-    speaker_beat: str = "",
+    speaker_cue: str = "",
     macros: Macros | None = None,
     context_mode: GroupContextMode = "private",
 ) -> AsyncIterator[dict]:
@@ -247,7 +247,7 @@ async def writer_stage(
         cfg.length_guard,
         depth_block=depth_block,
         speaker=speaker,
-        speaker_beat=speaker_beat,
+        speaker_cue=speaker_cue,
         macros=macros,
         prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides")),
         context_mode=context_mode,

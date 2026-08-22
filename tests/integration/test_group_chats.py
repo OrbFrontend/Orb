@@ -1174,13 +1174,13 @@ async def test_group_regenerate_and_magic_rewrite_keep_target_speaker_and_parent
     assert rewritten["content"] == "Rewritten"
 
 
-async def test_pinned_speaker_still_gets_the_directors_beat(client, db, llm_mock):
+async def test_pinned_speaker_still_gets_the_directors_cue(client, db, llm_mock):
     """A pin decides *who* speaks. The Director still decides *what* for them.
 
     Regenerate is cast by the row it replaces -- the plan's cast is ignored, and
     has to be, or one message's branch siblings would belong to two different
-    characters. The beat the Director wrote for that very member is not a casting
-    decision though: it is its intent for this reply. Dropping it composed the
+    characters. The cue the Director wrote for that very member is not a casting
+    decision though: it is what the Director wants from this reply. Dropping it composed the
     speaker blind while the scene direction injected alongside was aimed at
     whoever the plan opened with.
     """
@@ -1216,16 +1216,16 @@ async def test_pinned_speaker_still_gets_the_directors_beat(client, db, llm_mock
     ).fetchone()
     assert replacement["speaker_member_id"] == members[1]["id"]
 
-    # The beat is the Director's -- Kael's own line from the plan, not Aria's.
+    # The cue is the Director's -- Kael's own line from the plan, not Aria's.
     tail = writers[0]["messages"][-1]["content"]
-    assert "## Your beat\nexplode at her perfect act" in tail
+    assert "## Your cue\nexplode at her perfect act" in tail
     assert "deflect the accusation calmly" not in tail
 
-    # And it reaches the client, so the rail can show the reply's own beat.
+    # And it reaches the client, so the rail can show the reply's own cue.
     events = _sse_events(response.text)
     speaking_plan = next(data for name, data in events if name == "speaking_plan")
     assert isinstance(speaking_plan, dict)
-    assert [(row["name"], row["beat"]) for row in speaking_plan["plan"]] == [("Kael", "explode at her perfect act")]
+    assert [(row["name"], row["cue"]) for row in speaking_plan["plan"]] == [("Kael", "explode at her perfect act")]
 
 
 async def test_group_delete_preview_counts_invisible_sibling_replies(client):

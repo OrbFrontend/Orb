@@ -7,9 +7,9 @@ Group chat was built over several migrations, none of which ever reached an
 installed database, so their intermediate shapes are not history anybody has to
 replay. What follows is the end state only -- notably ``messages.exchange_id``,
 which spent part of that development called ``beat_id`` and is created here
-under its final name. (``beat`` still means a beat in ``pipeline/cast.py``: the
-Director's one-line note for a single speaker. An *exchange* is one group
-request, which is what this column groups.)
+under its final name. (What the Director tells a single speaker to do, which
+also carried the name for a while, is now a *cue* -- see ``pipeline/cast.py``. An
+*exchange* is one group request, which is what this column groups.)
 
 The ``conversations`` columns are the per-scene policy: ``kind`` splits a group
 from a solo chat, ``group_turn_mode``/``group_max_speakers`` decide who speaks,
