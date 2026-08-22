@@ -368,14 +368,39 @@ test("each group collapses to one entry, ordered by its most recent conversation
     ["g1", "g3"],
   );
   assert.equal(families[0].members.length, 2);
-  // The root names the group; the newest conversation is what a click opens.
+  // The root names the group; with nothing of the family open, the newest
+  // conversation is what the row shows and what a click opens.
   assert.equal(families[0].root.title, "Campfire");
-  assert.equal(families[0].newest.id, "g2");
+  assert.equal(families[0].shown.id, "g2");
+  assert.equal(families[0].open, false);
+});
+
+test("the open conversation is the one its group's row stands for", () => {
+  // Selecting a checkpoint has to repaint the row with *that* conversation's
+  // cast: the two forks' rosters have diverged, and the rail already shows the
+  // open one's. Only the family holding it is marked open.
+  const families = groupFamilies([FORK, OTHER, ROOT, SOLO], "g1");
+  assert.equal(families[0].shown.id, "g1");
+  assert.equal(families[0].open, true);
+  assert.equal(families[0].root.title, "Campfire");
+  assert.equal(families[1].shown.id, "g3");
+  assert.equal(families[1].open, false);
+});
+
+test("a solo conversation on screen leaves every group row on its newest", () => {
+  const families = groupFamilies([FORK, OTHER, ROOT, SOLO], "s1");
+  assert.deepEqual(
+    families.map((f) => [f.shown.id, f.open]),
+    [
+      ["g2", false],
+      ["g3", false],
+    ],
+  );
 });
 
 test("a family whose root is missing still renders, led by its newest member", () => {
   const families = groupFamilies([FORK]);
   assert.equal(families.length, 1);
   assert.equal(families[0].root.id, "g2");
-  assert.equal(families[0].newest.id, "g2");
+  assert.equal(families[0].shown.id, "g2");
 });

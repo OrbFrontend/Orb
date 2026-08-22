@@ -1024,13 +1024,16 @@ export function consumeSpeakerOverride() {
 export function renderGroupList() {
   const list = $("group-chat-list");
   if (!list) return;
-  list.innerHTML = groupFamilies(S.conversations)
-    .map(({ rootId, root, newest, members }) => {
-      // Title from the root (the group's stable name), cast from the newest
-      // conversation (the one the click opens, whose roster may have moved on).
-      const names = (newest.group_member_names || []).filter(Boolean);
+  // Passing the open conversation is what makes selecting a checkpoint repaint
+  // its group's row: the cast line then names that checkpoint's speakers rather
+  // than a sibling's.
+  list.innerHTML = groupFamilies(S.conversations, S.activeConvId)
+    .map(({ rootId, root, shown, open, members }) => {
+      // Title from the root (the group's stable name), cast from the conversation
+      // the row stands for (the one the click opens — the open one, or the newest).
+      const names = (shown.group_member_names || []).filter(Boolean);
       const memberLine = names.length ? names.join(" · ") : "No active cast members";
-      const cardIds = newest.group_card_ids || [];
+      const cardIds = shown.group_card_ids || [];
       const shownCardIds = cardIds.slice(0, 3);
       const avatars = shownCardIds
         .map(
@@ -1043,7 +1046,6 @@ export function renderGroupList() {
         .join("");
       const remaining = cardIds.length - shownCardIds.length;
       const avatarStack = avatars || `<span class="group-chat-avatar group-chat-narrator">✒️</span>`;
-      const open = members.some((conv) => conv.id === S.activeConvId);
       // Silent at one conversation: the count is only news once the group has
       // branched, and every group starts with exactly one.
       const countBadge =
@@ -1052,7 +1054,7 @@ export function renderGroupList() {
           : "";
       const title = `Cast: ${memberLine}${members.length > 1 ? `\n${members.length} conversations — open the group, then ☰ › Conversations` : ""}`;
       return `<div class="group-chat-item${open ? " active" : ""}">
-          <button type="button" class="group-chat-select" data-group-conversation-id="${escAttr(newest.id)}" title="${escAttr(title)}">
+          <button type="button" class="group-chat-select" data-group-conversation-id="${escAttr(shown.id)}" title="${escAttr(title)}">
             <span class="group-chat-avatar-stack" aria-hidden="true">${avatarStack}${remaining ? `<span class="group-chat-avatar group-chat-overflow">+${remaining}</span>` : ""}</span>
             <span class="group-chat-details"><span class="group-chat-title">${esc(root.title)}</span><span class="group-chat-members">${esc(memberLine)}</span></span>
             ${countBadge}

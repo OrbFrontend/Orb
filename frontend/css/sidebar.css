@@ -229,7 +229,13 @@
   font-weight: 600;
 }
 
-.group-chat-details { min-width: 0; }
+/* Grows to fill the row so the count badge is pinned to the trailing edge
+   rather than trailing the title — otherwise the badge sits at a different
+   place in every row, wherever that group's name happens to end. */
+.group-chat-details {
+  min-width: 0;
+  flex: 1;
+}
 
 .group-chat-title,
 .group-chat-members {
@@ -249,7 +255,9 @@
 }
 
 /* How many conversations the group holds. Only painted past one, so it reads as
-   "this scene has branched" rather than as a permanent decoration. */
+   "this scene has branched" rather than as a permanent decoration. Lives at the
+   row's trailing edge, just inside the delete control, which is where the eye
+   looks for a count and the one spot that does not move with the title. */
 .group-chat-count {
   align-self: center;
   flex: 0 0 auto;

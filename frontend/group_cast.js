@@ -207,9 +207,16 @@ export function groupFamily(conversations, rootId) {
 
 // One entry per group, newest-active first, each carrying its family. The root
 // names the group — a checkpoint renaming itself "… (checkpoint)" must not
-// rename the group — while the most recently active member supplies the cast
-// line and is what a click opens, since rosters may have diverged since the fork.
-export function groupFamilies(conversations) {
+// rename the group — while `shown` is the conversation the row stands for: the
+// one that supplies the cast line and that a click opens.
+//
+// `openId` is the conversation on screen, and whichever family member that is
+// *is* the group right now. Rosters diverge across a fork, so the sidebar row
+// has to name the same speakers as the cast rail above the composer — otherwise
+// selecting a checkpoint leaves the row describing a sibling. With nothing of
+// this family open, the most recently active member stands in, since that is
+// the one a click would open.
+export function groupFamilies(conversations, openId = null) {
   const order = [];
   const byRoot = new Map();
   for (const conv of conversations || []) {
@@ -223,9 +230,11 @@ export function groupFamilies(conversations) {
   }
   return order.map((rootId) => {
     const members = byRoot.get(rootId);
+    const shown = (openId && members.find((conv) => conv.id === openId)) || members[0];
     // A family whose root was deleted mid-session still renders: the newest
     // member stands in until the next list refresh reports the promotion.
-    return { rootId, newest: members[0], root: members.find((conv) => conv.id === rootId) || members[0], members };
+    const root = members.find((conv) => conv.id === rootId) || members[0];
+    return { rootId, root, shown, open: shown.id === openId, members };
   });
 }
 
