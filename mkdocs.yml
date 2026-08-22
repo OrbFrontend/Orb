@@ -71,6 +71,7 @@ nav:
       - SSE Turn Stream: architecture/sse-stream.md
       - Secondary Workflows: architecture/secondary-workflow.md
       - Dynamic Worlds: architecture/dynamic-worlds.md
+      - Group Chats: architecture/group-chats.md
   - Features:
       - Overview: features/index.md
       - Group Chats: features/group-chats.md

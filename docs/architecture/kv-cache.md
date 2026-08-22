@@ -101,7 +101,7 @@ history, and pre-pipeline workflow system blocks are captured once and reapplied
 to every later-speaker rebuild.
 
 *What* the system body says about the cast is the scene's **character context
-mode** ([group-chats.md](../features/group-chats.md)), and the three modes have
+mode** ([Group Chats](../architecture/group-chats.md)), and the three modes have
 three different cache topologies:
 
 | Mode | Director prefix | Writer/Editor prefix | Cache consequence |
