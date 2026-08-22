@@ -11,7 +11,11 @@ from __future__ import annotations
 import pytest
 
 from backend.core import CastMember, Macros, TurnCast
-from backend.inference.group_context import context_size_components, render_cast_section
+from backend.inference.group_context import (
+    context_size_components,
+    render_active_card,
+    render_cast_section,
+)
 from backend.inference.prompt_builder import build_prefix
 from backend.pipeline.passes.writer import SHEET_FRAMING, build_writer_content
 
@@ -122,15 +126,28 @@ def test_private_prefix_ignores_the_speaker_entirely():
     assert _system("private", ARIA) == _system("private", KAEL) == _system("private", None)
 
 
-def test_private_is_the_one_mode_that_still_carries_the_scene_override():
-    """Private perspective is the scene's only privacy boundary, so it is the
-    only mode where a curated view of a member does any work — and the override
-    replaces the card profile rather than sitting beside it."""
-    system = _system("private", ARIA)
+@pytest.mark.parametrize("mode", ["private", "swap"])
+def test_both_boundary_modes_carry_the_scene_override(mode):
+    """Private and Swap each keep a card away from everyone but its owner, so in
+    both the curated view is the only thing the rest of the cast is told about a
+    member — and in both the override replaces the card profile rather than
+    sitting beside it. Shared is the mode that drops it."""
+    system = _system(mode, ARIA)
     assert "### Aria\nARIA SCENE OVERRIDE" in system
     assert "### Kael\nRole: mage" in system
-    for mode in ("shared", "swap"):
-        assert "ARIA SCENE OVERRIDE" not in _system(mode, ARIA)
+    assert "ARIA SCENE OVERRIDE" not in _system("shared", ARIA)
+
+
+def test_the_two_boundary_modes_render_one_and_the_same_public_cast():
+    """The consolidation invariant. Private and Swap differ only in where the
+    speaker's own card sits; what the cast is told about everyone is one block
+    from one renderer, so a change to either mode's visibility is a change to
+    both or it is a bug."""
+    public = render_cast_section(_cast("private", ARIA), MACROS)
+    swap = render_cast_section(_cast("swap", ARIA), MACROS)
+    assert swap.startswith(public)
+    # Everything Swap adds past that block is the speaker's own card, nothing else.
+    assert swap[len(public) :] == render_active_card(ARIA, MACROS, "Aria, Kael")
 
 
 # ── Shared dossier ──────────────────────────────────────────────────────────
@@ -190,27 +207,48 @@ def test_shared_skips_a_member_with_nothing_to_say_but_still_names_it():
 # ── Classic card swap ───────────────────────────────────────────────────────
 
 
-def test_swap_sends_only_the_active_card_and_names_for_everyone_else():
+def test_swap_sends_only_the_active_card_and_public_profiles_for_everyone_else():
     system = _system("swap", ARIA)
-    assert "## Cast\nAria, Kael" in system
+    # The public cast rides the system prompt exactly as it does under Private…
+    assert "### Aria\nARIA SCENE OVERRIDE" in system and "### Kael\nRole: mage" in system
+    # …and the speaker's own card is appended after it, card-style.
     assert "## Character: Aria" in system and "ARIA SHEET" in system and "ARIA EXAMPLE" in system
-    for hidden in ("KAEL SHEET", "KAEL EXAMPLE", "Role: mage", "ARIA SCENE OVERRIDE"):
+    assert system.index("### Kael") < system.index("## Character: Aria")
+    # No other member's card text, in either half.
+    for hidden in ("KAEL SHEET", "KAEL EXAMPLE"):
         assert hidden not in system
     tail = _tail("swap", ARIA)
     assert "ARIA SHEET" not in tail and "ARIA EXAMPLE" not in tail
     assert "ARIA DIRECTIVE" in tail
 
 
+def test_swap_names_a_member_that_has_no_profile_to_show():
+    """The names-only floor the old cast list provided: every active member is
+    named whether or not anyone wrote a profile for it."""
+    narrator = _member("n", "Narrator", kind="narrator")
+    system = str(
+        build_prefix("system", "", "", macros=MACROS, cast=TurnCast(True, (ARIA, narrator), ARIA, "swap"))[0]["content"]
+    )
+    assert "### Narrator" in system
+    assert "## Character: Narrator" not in system
+
+
 def test_swap_without_a_speaker_is_the_neutral_base_every_speaker_extends():
-    """The Director runs before the plan exists, so it must never see a card."""
+    """The Director runs before the plan exists, so it must never see a card.
+
+    It does see the public cast: that block is written without reference to the
+    speaker, which is precisely what keeps the neutral base a byte-prefix of
+    every speaker's rather than a fourth variant.
+    """
     neutral = _system("swap", None)
-    assert "## Cast\nAria, Kael" in neutral
+    public = render_cast_section(_cast("swap"), MACROS)
+    assert "### Aria\nARIA SCENE OVERRIDE" in neutral and "### Kael\nRole: mage" in neutral
     assert "ARIA SHEET" not in neutral and "KAEL SHEET" not in neutral
     for speaker in (ARIA, KAEL):
         scoped = _system("swap", speaker)
         assert scoped != neutral
         # Everything up to the active card is shared with the neutral base.
-        assert scoped.startswith(neutral[: neutral.index("## Cast") + len("## Cast\nAria, Kael")])
+        assert scoped.startswith(neutral[: neutral.index(public) + len(public)])
 
 
 # ── Macro scoping ───────────────────────────────────────────────────────────
@@ -285,7 +323,8 @@ def test_size_components_name_what_each_mode_actually_bills():
     keys = {mode: [key for key, _ in context_size_components(_cast(mode), MACROS)] for mode in MODES}
     assert keys["private"] == ["cast_public", "largest_speaker_tail"]
     assert keys["shared"] == ["cast_dossiers", "largest_speaker_tail"]
-    assert keys["swap"] == ["cast_names", "largest_active_card", "largest_speaker_tail"]
+    # Private and Swap share a key because they measure the same block.
+    assert keys["swap"] == ["cast_public", "largest_active_card", "largest_speaker_tail"]
 
 
 def test_size_components_measure_the_same_text_the_prompt_sends():

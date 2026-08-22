@@ -285,15 +285,22 @@ function settingsPaneHtml(conv, rootId) {
 
 // One string, one meaning — the override is always the same stored field, so
 // the box never repoints at a different slot. Only what the scene *does* with it
-// changes, and Private perspective is the one mode that sends it: it is the
-// scene's only privacy boundary, so it is the only place a curated view of a
-// member is doing work. The other two say so instead of silently accepting text
-// that never ships. Each entry's `placeholder` doubles as the one-line reason a
-// disabled control shows, so there is one sentence per mode and not two.
+// changes, and two of the three modes send it: Private perspective and Classic
+// card swap both keep a member's card away from everyone else, so the curated
+// view is the only thing the rest of the cast reads about them, and both render
+// it into the system prompt through the same projection
+// (`inference/group_context.carries_public_cast`). They therefore share one
+// placeholder rather than two that would have to be kept saying the same thing.
+//
+// Shared dossier is the one mode that drops it, and it says so instead of
+// silently accepting text that never ships. Its `placeholder` doubles as the
+// one-line reason its disabled controls show, so there is one sentence for the
+// box and the Draft buttons alike and not two.
+const OVERRIDE_PLACEHOLDER = "Public profile override — how the rest of the cast sees them";
 const OVERRIDE_COPY = {
-  private: { placeholder: "Public profile override — how the rest of the cast sees them", disabled: false },
+  private: { placeholder: OVERRIDE_PLACEHOLDER, disabled: false },
   shared: { placeholder: "Not sent under Shared dossier — every member already reads every card", disabled: true },
-  swap: { placeholder: "Not sent under Classic card swap — other members see names only", disabled: true },
+  swap: { placeholder: OVERRIDE_PLACEHOLDER, disabled: false },
 };
 
 // Every copy lookup below takes the mode rather than reading `S.groupCast`: the
@@ -311,7 +318,8 @@ function overrideCopy(mode) {
 // about themselves" is, there, what the entire cast reads. Labelling it
 // self-only under Shared put the scene's only cross-member disclosure behind the
 // most private-sounding words on the screen. Swap keeps it self-only for real:
-// only the active speaker's card is sent, so no other member ever sees it.
+// only the active speaker's card is sent, so no other member ever sees it —
+// what they see is that member's public profile, which is the box above.
 const SHEET_COPY = {
   private: {
     label: "What they read about themselves",
@@ -323,7 +331,7 @@ const SHEET_COPY = {
   },
   swap: {
     label: "What they read about themselves",
-    placeholder: "Scene sheet override — sent on their turn only; other members see names alone",
+    placeholder: "Scene sheet override — sent on their turn only; other members read the public profile above",
   },
 };
 

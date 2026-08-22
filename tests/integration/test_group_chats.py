@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from os.path import commonprefix
 
 import pytest
 
@@ -536,7 +537,8 @@ async def test_classic_card_swap_uses_a_neutral_director_base_and_one_prefix_per
     await _run_two_speaker_exchange(client, llm_mock, conv)
 
     director = _systems(llm_mock, "director")[0]
-    assert "## Cast\nAria, Kael" in director
+    # The public cast, and only that — the Director must never see a card.
+    assert "### Aria" in director and "### Kael" in director
     assert "ARIA PRIVATE" not in director and "KAEL PRIVATE" not in director
 
     systems = _systems(llm_mock, "writer")
@@ -546,8 +548,11 @@ async def test_classic_card_swap_uses_a_neutral_director_base_and_one_prefix_per
     assert "ARIA PRIVATE" in systems[0] and "KAEL PRIVATE" not in systems[0]
     assert "KAEL PRIVATE" in systems[1] and "ARIA PRIVATE" not in systems[1]
     # Everything up to the active card is still shared with the neutral base.
-    shared_head = director[: director.index("Aria, Kael") + len("Aria, Kael")]
-    assert systems[0].startswith(shared_head) and systems[1].startswith(shared_head)
+    # The public cast is speaker-independent, so it sits inside that shared
+    # region and the lanes diverge only where the card is substituted.
+    shared_head = commonprefix([*systems, director])
+    assert "### Aria" in shared_head and "### Kael" in shared_head, shared_head
+    assert "ARIA PRIVATE" not in shared_head and "KAEL PRIVATE" not in shared_head
 
 
 @pytest.mark.parametrize("mode", ["private", "shared", "swap"])
@@ -615,6 +620,47 @@ async def test_both_model_lanes_agree_on_the_cast_when_the_prefix_is_shared(clie
 
 
 @pytest.mark.kv_divergence_expected
+async def test_classic_card_swap_still_tells_every_speaker_the_public_cast(client, llm_mock):
+    """Swap hides cards, not members. The curated profile is the only thing the
+    rest of the cast is ever told about someone, so it rides the system prompt
+    exactly as it does under Private — the active card is appended after it, not
+    instead of it. Pinned end-to-end because the visibility rule and the modal
+    that fills the field are two halves of one feature."""
+    conv, members = await _two_card_group(client, context_mode="swap")
+    # One member curated per scene, one falling back to its card-level profile:
+    # both halves of `_public_profile` have to survive the mode.
+    assert (
+        await client.put(
+            f"/api/characters/{members[1]['character_card_id']}/public-profile",
+            json={"appearance": "Robed and hooded.", "role": "Keeper of the ward."},
+        )
+    ).status_code == 200
+    assert (
+        await client.put(
+            f"/api/conversations/{conv['id']}/members",
+            json={
+                "members": [
+                    {**members[0], "public_profile_override": "Role: the scout who found the trail."},
+                    members[1],
+                ]
+            },
+        )
+    ).status_code == 200
+
+    await _run_two_speaker_exchange(client, llm_mock, conv)
+
+    systems = _systems(llm_mock, "writer")
+    assert len(systems) == 2
+    for system in [*systems, _systems(llm_mock, "director")[0]]:
+        # Every prefix in the exchange, the Director's neutral base included.
+        assert "### Aria\nRole: the scout who found the trail." in system
+        assert "### Kael\nAppearance: Robed and hooded.\nRole: Keeper of the ward." in system
+    # And the cards themselves are still speaker-only.
+    assert "ARIA PRIVATE" in systems[0] and "KAEL PRIVATE" not in systems[0]
+    assert "KAEL PRIVATE" in systems[1] and "ARIA PRIVATE" not in systems[1]
+
+
+@pytest.mark.kv_divergence_expected
 async def test_classic_card_swap_swaps_the_card_on_the_agent_lane_too(client, llm_mock):
     """Swap diverges both lanes per speaker (hence the marker) — but never
     unevenly: an Editor auditing Aria must not be reading Kael's card."""
@@ -663,7 +709,7 @@ async def test_the_post_turn_steps_ride_the_exchange_base_rather_than_rebuilding
     [
         ("private", ["cast_public", "largest_speaker_tail"]),
         ("shared", ["cast_dossiers", "largest_speaker_tail"]),
-        ("swap", ["cast_names", "largest_active_card", "largest_speaker_tail"]),
+        ("swap", ["cast_public", "largest_active_card", "largest_speaker_tail"]),
     ],
 )
 async def test_context_size_breakdown_follows_the_context_mode(client, mode, expected):
@@ -677,7 +723,7 @@ async def test_context_size_breakdown_follows_the_context_mode(client, mode, exp
     breakdown = (await client.get(f"/api/conversations/{conv['id']}/context-size")).json()["breakdown"]
     assert [key for key in expected if key in breakdown] == expected
     # Exactly one shared-body key per mode — a stale one would double-count.
-    assert {"cast_public", "cast_dossiers", "cast_names"} & set(breakdown) == {expected[0]}
+    assert {"cast_public", "cast_dossiers"} & set(breakdown) == {expected[0]}
     # The biggest card is billed once wherever the mode puts it, never summed.
     billed = "largest_speaker_tail" if mode == "private" else ("largest_active_card" if mode == "swap" else "cast_dossiers")
     assert breakdown[billed]["chars"] >= len(big)

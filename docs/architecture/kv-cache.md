@@ -108,7 +108,11 @@ three different cache topologies:
 |---|---|---|---|
 | Private perspective | shared public-cast prefix | the same prefix | One common trunk. The speaking card is fresh *after* history, so it is a bounded tail miss — this is why an alternating cast still reuses the long conversation body. |
 | Shared dossier | shared-dossier prefix | the same prefix | Best prefix sharing across speakers, but every call carries every dossier's tokens. Its cold prompt is the sum of the cast. |
-| Classic card swap | neutral names-only prefix | names-only prefix + the active card | One cache lane per speaker, and the Director cannot prewarm a selected speaker's Writer prefix. |
+| Classic card swap | neutral public-cast prefix | the same prefix + the active card | One cache lane per speaker, and the Director cannot prewarm a selected speaker's Writer prefix. |
+
+The public-cast block is rendered without reference to the speaker, so the
+Director's neutral prefix is a byte-prefix of every speaker's: Swap adds the
+active card *after* it, it does not replace it.
 
 Two consequences of Swap are easy to get wrong. The swap sits *before* history,
 so changing speaker invalidates the history KV too, not just the card region —

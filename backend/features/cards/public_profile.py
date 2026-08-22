@@ -28,8 +28,9 @@ that is the greeting's and the premise's job.
 **A scene draft is one call per member and is never batched.** The only card in
 a member's drafting context is its own; the rest of the cast reaches the prompt
 as names. Putting member B's card into member A's draft would write B's secret
-into a string every member reads under Private perspective — precisely the leak
-that mode exists to prevent. ``test_scene_profile_draft_sends_only_the_target_card_and_other_names``
+into a string every member reads under Private perspective and Classic card swap
+alike — precisely the leak both of those modes exist to
+prevent. ``test_scene_profile_draft_sends_only_the_target_card_and_other_names``
 is the executable form of that rule.
 
 Pure logic in the shape ``features/documents/audit.py`` uses: the route builds

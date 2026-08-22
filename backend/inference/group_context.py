@@ -21,10 +21,20 @@ The three modes, and what each one puts in the shared body:
     active speaker's identity fields move *out* of the trailing message --
     nothing is repeated after history.
 ``swap``
-    A names-only cast list plus the active speaker's identity fields, in the
-    conventional single-character layout. No other member's profile is sent,
-    and the body therefore differs per speaker (see
+    The same ordered public cast, plus the active speaker's identity fields in
+    the conventional single-character layout. The public block is written
+    without reference to the speaker, so it is byte-identical to the neutral
+    base and each speaker's body merely extends it (see
     :func:`prefix_is_speaker_scoped`).
+
+``private`` and ``swap`` therefore project the *same information* and differ
+only in where the speaker's own card sits: after history in the trailing Writer
+message, or before it in the cached body. That is a caching decision, not a
+visibility one -- both hide every other member's card behind its public profile,
+and only ``shared`` opens the cards up. Keeping one renderer
+(:func:`_render_public_cast`) for both is what holds that equivalence true: a
+second, swap-shaped cast projection would drift from the mode it is supposed to
+mirror.
 
 Two rules hold in every mode and are deliberately not configurable:
 
@@ -61,13 +71,30 @@ EXAMPLE_HEADING = "## Example Dialogue"
 # would close the dossier they belong to.
 DOSSIER_EXAMPLE_HEADING = "### Example Dialogue"
 
-# Which group-specific component key the size estimator reports the shared
-# body under. Distinct per mode because the three measure different things.
-_SHARED_COMPONENT_KEY: dict[GroupContextMode, str] = {
-    "private": "cast_public",
-    "shared": "cast_dossiers",
-    "swap": "cast_names",
-}
+
+def carries_public_cast(mode: GroupContextMode) -> bool:
+    """True when the shared system body carries every member's public profile.
+
+    Two of the three modes do, and for one reason: they keep a card's own text
+    away from everyone but its owner, so the curated profile is the only thing
+    the rest of the cast is ever told about a member. Under ``swap`` that block
+    sits in the system prompt exactly as it does under ``private`` -- the active
+    card is appended *after* it, not instead of it.
+
+    ``shared`` is the exception. There every member already reads every other
+    member's card, so a profile on top would be a second view of the same
+    member, rendered as a label on labels (``Public profile: Appearance: ...``).
+    """
+    return mode != "shared"
+
+
+def _shared_component_key(mode: GroupContextMode) -> str:
+    """Which key the size estimator reports the shared body under.
+
+    Derived from :func:`carries_public_cast` rather than tabulated per mode, so
+    a mode cannot be measured under a heading its prefix no longer renders.
+    """
+    return "cast_public" if carries_public_cast(mode) else "cast_dossiers"
 
 
 def prefix_is_speaker_scoped(mode: GroupContextMode) -> bool:
@@ -138,7 +165,15 @@ def _examples_block(text: str, heading: str) -> str:
 
 
 def _render_public_cast(cast: TurnCast, macros: Macros | None, roster: str) -> str:
-    """Private perspective: one heading per member, confirmed public profile only.
+    """One heading per member, confirmed public profile only -- Private *and* Swap.
+
+    Ignores ``cast.speaker`` entirely, which is what lets Swap put this block in
+    the system prompt ahead of the active card: every speaker in an exchange,
+    and the Director before a speaker exists, renders these same bytes.
+
+    A member with no profile still gets its heading. That is the names-only
+    floor the cast list used to provide on its own -- every active member is
+    named, whether or not anyone wrote a profile for it.
 
     Stays on group-title macro scoping -- a public profile is scene-facing
     framing written about the character, not the card text speaking as it.
@@ -155,12 +190,11 @@ def _render_public_cast(cast: TurnCast, macros: Macros | None, roster: str) -> s
 def render_dossier(member: CastMember, macros: Macros | None, roster: str) -> str:
     """One member's identity dossier -- card text only -- or ``""`` when empty.
 
-    No curated profile is layered on top. Under this mode every member already
-    reads every other member's card, so a hand-written public profile would be a
-    second view of the same member -- and it renders as a label on labels
-    (``Public profile: Appearance: …``). The public-profile override is a
-    ``private``-mode instrument: that is the scene's only privacy boundary, and
-    the only place the override was ever doing work.
+    No curated profile is layered on top -- this is the one mode that drops it,
+    for the reason :func:`carries_public_cast` gives: every member already reads
+    every other member's card here, so a hand-written public profile would be a
+    second view of the same member, and it renders as a label on labels
+    (``Public profile: Appearance: …``).
 
     A member with no card text therefore contributes no dossier and rides the
     cast list as a name -- the same floor a bare narrator already gets. An empty
@@ -180,7 +214,14 @@ def render_dossier(member: CastMember, macros: Macros | None, roster: str) -> st
 
 
 def render_active_card(speaker: CastMember, macros: Macros | None, roster: str) -> str:
-    """Classic card swap: the selected member's identity fields, card-style."""
+    """Classic card swap: the selected member's identity fields, card-style.
+
+    Appended after the public cast, so the speaker is described twice on
+    purpose: the short public line the rest of the cast reads about it, then its
+    own card. The same doubling exists under Private, where the card lands in
+    the tail instead -- neither mode suppresses a member's public profile just
+    because that member happens to be speaking.
+    """
     resolve = _resolver(member_macros(macros, speaker, roster))
     parts = [f"\n\n{ACTIVE_CARD_HEADING}{speaker.name}"]
     if speaker.private_sheet:
@@ -195,21 +236,23 @@ def render_cast_section(cast: TurnCast, macros: Macros | None) -> str:
 
     Returns ``""`` for a solo turn. In Classic card swap a *cast* with no
     ``speaker`` renders the neutral base every speaker's prefix shares: the
-    names-only list and nothing else.
+    public cast and nothing after it.
     """
     if not cast.grouped:
         return ""
     roster = roster_names(cast)
-    if cast.context_mode == "private":
-        return _render_public_cast(cast, macros, roster)
-    # Shared and Swap both keep a names-only list. It guarantees every active
-    # member is named even when its dossier is empty, and in Swap it is what
-    # lets the Director's neutral base and each Writer base share every byte
-    # up to the active card.
-    parts = [f"\n\n{CAST_HEADING}\n{roster}"]
-    if cast.context_mode == "shared":
+    if not carries_public_cast(cast.context_mode):
+        # Shared keeps a names-only list ahead of the dossiers: it guarantees
+        # every active member is named even when its dossier is empty. The other
+        # two get that floor from the public cast's per-member headings.
+        parts = [f"\n\n{CAST_HEADING}\n{roster}"]
         parts.extend(render_dossier(member, macros, roster) for member in cast.members)
-    elif cast.speaker is not None:
+        return "".join(parts)
+    parts = [_render_public_cast(cast, macros, roster)]
+    # Swap alone appends a card, and only once a speaker is chosen -- the
+    # Director and the pre-pipeline hooks run before that and stop at the
+    # public cast, which is exactly the base each speaker then extends.
+    if prefix_is_speaker_scoped(cast.context_mode) and cast.speaker is not None:
         parts.append(render_active_card(cast.speaker, macros, roster))
     return "".join(parts)
 
@@ -243,7 +286,7 @@ def context_size_components(
     mode = cast.context_mode
     roster = roster_names(cast)
     neutral = cast._replace(speaker=None)
-    components = [(_SHARED_COMPONENT_KEY[mode], render_cast_section(neutral, macros))]
+    components = [(_shared_component_key(mode), render_cast_section(neutral, macros))]
     # The shared body above covers the whole roster, muted members included --
     # they are in scene. The per-speaker maxima below must not: a muted member
     # is never scheduled, so billing the exchange for a card that can never be sent

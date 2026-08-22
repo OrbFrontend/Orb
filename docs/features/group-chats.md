@@ -70,7 +70,7 @@ share) and `OVERRIDE_COPY` (how Manage cast labels the override box per mode).
 |---|---|---|---|
 | `private` (default) | Private perspective | Every member's confirmed public profile | That speaker's `description`/`personality`, examples, and post-history instructions |
 | `shared` | Shared dossier | A labelled dossier per member: `description`/`personality` and examples | That speaker's post-history instructions only |
-| `swap` | Classic card swap | A names-only cast list plus the active speaker's `description`/`personality` and examples | That speaker's post-history instructions only |
+| `swap` | Classic card swap | Every member's confirmed public profile, plus the active speaker's `description`/`personality` and examples | That speaker's post-history instructions only |
 
 `backend/inference/group_context.py` is the single owner of that table. Every
 consumer — `build_prefix`, `build_writer_content`, and the context-size
@@ -95,9 +95,19 @@ Three rules hold in **every** mode:
   speaker labels on history. Card-linked Worlds and card-embedded fragments are
   scene-wide in all three modes, so no mode provides private per-character lore.
 
-Only `private` is a privacy boundary. Under `shared` every active member reads
-every other member's card details by design, and under `swap` no cross-member
-identity text exists at all.
+`private` and `swap` are both privacy boundaries, and the same one: a card's
+own text reaches nobody but the member it belongs to, and the rest of the cast
+knows that member through its public profile. They project the *same
+information* and differ only in where the speaker's own card sits — after
+history in the trailing message, or before it in the cached body. That is a
+caching decision, not a visibility one, which is why `recommendContextMode`
+weighs the two on cost alone. `shared` is the mode that opens the cards up, by
+design.
+
+One renderer serves both boundaries: `render_cast_section` calls
+`_render_public_cast` whenever `carries_public_cast(mode)` — every mode but
+`shared` — and only then appends the active card under `swap`. A second,
+swap-shaped cast projection would drift from the mode it mirrors.
 
 The dossier/cast set is the **active** roster in canonical `sort_order, id`
 order — muted members included (a muted member is in scene but never speaks),
@@ -111,10 +121,21 @@ second view of the same member — and it rendered as a label on labels
 card text contributes no dossier and rides the cast list as a name, the same
 floor a bare narrator already gets.
 
-The public-profile override is therefore a **Private perspective** field. That
-is the scene's only privacy boundary, and so the only mode where a curated view
-of a member does any work; Manage cast disables the box, and both Draft buttons,
-under the other two. One reader still sees it in every mode: compression forces
+The public-profile override is therefore a field of **both** boundary modes,
+and Manage cast enables the box and its Draft buttons under Private perspective
+and Classic card swap alike — the two modes where a curated view of a member is
+the only thing the rest of the cast is told about it. **Shared dossier** is the
+one mode that disables them, with a one-line reason.
+
+Both halves of the field are mode-independent on the server and always were:
+`PUT …/members` stores an override under every mode, and
+`POST …/members/scene-profile/generate` drafts one under every mode
+(`api/routes/conversations.py` says so in as many words — a generate route that
+refused would leave the two halves of one field disagreeing about whether the
+mode is a server rule). The enable/disable is a UI judgement about whether the
+text would ship, nothing more.
+
+One reader sees the override even under Shared: compression forces
 `context_mode="private"` (`api/routes/conversations.py`), so an override typed
 before a mode switch still reaches the *summary* prompt. The disabled copy talks
 about the turn for that reason — the string is not sent on a turn, rather than
@@ -285,7 +306,8 @@ The override boxes are labelled by what they *reach*, which is mode-dependent fo
 the sheet: under Shared dossier a member's own sheet **is** its dossier, so the
 words "what they read about themselves" would put the scene's only cross-member
 disclosure behind the most private-sounding label on the screen. Under Swap it is
-self-only for real — only the active speaker's card is sent.
+self-only for real — only the active speaker's card is sent, and what the rest of
+the cast reads about it is the public profile in the box above.
 
 ## The rest of Orb in a group
 
@@ -378,9 +400,8 @@ scene premise, style instructions, and the group delete — through
 `PUT /api/conversations/{cid}`. Its **Cast** tab owns membership, order, reply
 eligibility, both scene-local overrides and the staged sheet updates
 (`PUT …/members`). The override box is one string with one meaning in every
-mode; only its label changes, and under Shared dossier and Classic card swap it
-is disabled with a one-line reason rather than accepting text that would never
-ship on a turn.
+mode; only its label changes, and under Shared dossier alone it is disabled with
+a one-line reason rather than accepting text that would never ship on a turn.
 
 They are one modal because they are one subject: the context mode chosen on the
 settings tab decides what half the cast tab's boxes even do, so a mode picked
@@ -403,8 +424,8 @@ adjust, the scene premise, and the other members' **names only** — bounded to
 the first 16 in roster order, with `Other cast members omitted from this draft:
 N` appended when there are more (a prompt-size guard, not a roster limit).
 Putting member B's card into member A's draft would write B's secret into a
-string every member reads under Private perspective, which is the one thing that
-mode promises cannot happen;
+string every member reads under Private perspective *and* Classic card swap,
+which is the one thing both boundary modes promise cannot happen;
 `test_scene_profile_draft_sends_only_the_target_card_and_other_names` is the
 executable form of the rule. Names arrive from the client because the modal is
 client-side until Save — a member added seconds ago exists only in the DOM — and
@@ -447,12 +468,14 @@ the control under **Advanced**, still defaulted to Private, and adds a
 choice between two modes — Shared dossier is never recommended, being a
 deliberate privacy decision rather than a cost one — and it turns on the two
 things creation already knows: how many characters are picked, and how heavy
-their cards are. The two modes fail in opposite directions:
+their cards are. Both carry the same public cast in the shared body, so that
+block cancels out; what is left is where the *speaking* card lands, and there the
+two fail in opposite directions:
 
-- **Private perspective** keeps the shared body tiny (one public profile per
-  member) but puts the speaking card in the trailing message, *after* history —
-  the one place a prefix cache can never reach, so that card is re-read on every
-  writer and editor call. Its cost tracks **card size** and is flat in cast size.
+- **Private perspective** puts the speaking card in the trailing message, *after*
+  history — the one place a prefix cache can never reach, so that card is re-read
+  on every writer and editor call. Its cost tracks **card size** and is flat in
+  cast size.
 - **Classic card swap** parks the speaking card *before* history where it caches,
   but makes each character its own cache lineage. Its cost tracks **cast size**
   and is nearly flat in card size.
@@ -477,10 +500,11 @@ falls to Private on the comparison itself and needs no separate floor.
 The rule is deliberately asymmetric, and every case it gets wrong it gets wrong
 toward Private — recommending swap on a cast too wide for the cache costs
 multiples, while recommending private where swap was marginally better costs at
-most ~1.3x. Private is also the safer default on meaning: the only mode with a
-privacy boundary, and the only one where characters know anything about each
-other beyond names. The panel therefore states the trade as well as the
-recommendation, and only ever offers — the user applies it, and applying it
+most ~1.3x. Nothing but cost is on the table: the two modes show the cast the
+same thing, so the panel weighs tokens and cache lanes and Private is simply the
+cheaper side to be wrong on. Shared dossier is never recommended — dropping the
+privacy boundary is a decision about the scene, not an optimisation. The panel
+states the trade as well as the recommendation, and only ever offers — the user applies it, and applying it
 opens Advanced so the control is never seen to disagree with itself.
 
 The weight comes from `def_chars` on the library list: `description +
@@ -518,8 +542,11 @@ carry the turn mode and speaker cap.
 
 Context-size reporting is the maximum group call, never a sum, and its component
 keys follow the mode: `cast_public` + `largest_speaker_tail` under Private,
-`cast_dossiers` + `largest_speaker_tail` under Shared, and `cast_names` +
-`largest_active_card` + `largest_speaker_tail` under Swap. `renderContextSize`
+`cast_dossiers` + `largest_speaker_tail` under Shared, and `cast_public` +
+`largest_active_card` + `largest_speaker_tail` under Swap. The shared-body key is
+derived from `carries_public_cast`, not tabulated, so a mode cannot be measured
+under a heading its prefix no longer renders — Private and Swap share
+`cast_public` because they render the same block. `renderContextSize`
 title-cases whatever keys it is handed, so the split needs no frontend work.
 
 The two `largest_*` components measure only members that can actually take the

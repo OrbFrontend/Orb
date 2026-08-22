@@ -39,7 +39,7 @@ export const CONTEXT_MODES = {
   swap: {
     label: "Classic card swap",
     detail:
-      "Only the active speaker's card is sent, in the conventional single-character layout — other members appear as names alone, no profiles or details.",
+      "Only the active speaker's card is sent, in the conventional single-character layout — other members are known by their public profile, never their card details.",
     billing: "Every speaker has its own cache lane that will be fully billed.",
   },
 };
@@ -53,18 +53,19 @@ export function contextMode(mode) {
 // scene exists, because the answer turns on two things it already knows: how
 // many characters are in it and how heavy their cards are.
 //
-// The two modes fail in opposite directions, and that is the whole rule:
+// Both modes put the same public cast in the shared body, so that block is
+// common ground and cancels out of the comparison. What is left is where the
+// *speaking* card lands, and there the two fail in opposite directions:
 //
-//   Private perspective keeps the shared body tiny (one public profile per
-//   member) but puts the speaking card in the trailing message, *after* the
-//   history — the one place a prefix cache can never reach. So the speaker's
-//   card is re-read on every writer and editor call, forever. Its cost tracks
-//   CARD SIZE and barely moves with cast size.
+//   Private perspective puts it in the trailing message, *after* the history —
+//   the one place a prefix cache can never reach. So the speaker's card is
+//   re-read on every writer and editor call, forever. Its cost tracks CARD SIZE
+//   and barely moves with cast size.
 //
-//   Classic card swap parks the speaking card in the cached body *before* the
-//   history, so a character's card is read once and then reused across turns —
-//   but each character is then its own cache lineage, and the server holds only
-//   so many. Its cost tracks CAST SIZE and barely moves with card size.
+//   Classic card swap parks it in the cached body *before* the history, so a
+//   character's card is read once and then reused across turns — but each
+//   character is then its own cache lineage, and the server holds only so many.
+//   Its cost tracks CAST SIZE and barely moves with card size.
 //
 // Simulated over 30-exchange, three-pass sessions (director → writer → editor)
 // against these same renderers: swap wins iff the cast is narrow enough to keep
@@ -78,9 +79,14 @@ export function contextMode(mode) {
 // The rule is therefore deliberately asymmetric. Every case it gets wrong, it
 // gets wrong toward Private: recommending swap on a cast too wide for the cache
 // costs multiples, while recommending private where swap was marginally better
-// costs at most ~1.3x. Private is also the safer default on meaning — it is the
-// only mode with a privacy boundary, and the only one where characters know
-// anything about each other beyond names.
+// costs at most ~1.3x.
+//
+// Nothing but cost is on the table here. The two modes show the cast the same
+// thing — every member's public profile in the system prompt, nobody else's card
+// — and differ only in where the speaking card lands. So the panel weighs tokens
+// and cache lanes, and Private is simply the cheaper side to be wrong on. Shared
+// dossier is never recommended: dropping the privacy boundary is a decision
+// about the scene, not an optimisation.
 
 // Mirrors CHARS_PER_TOKEN in backend/core/utils.py. Both are the same rough
 // estimate; this one only ever has to be right enough to pick a side of a
@@ -146,7 +152,7 @@ export function recommendContextMode(cards) {
       meanTokens,
       threshold,
       why: `${weight} Cards this heavy are worth caching: Classic card swap puts the speaking card ahead of the history, where it is read once per character instead of re-sent on every reply.`,
-      cost: "The trade: characters see only each other's names, never a profile.",
+      cost: "The trade: every character holds a cached branch of its own, so a fourth cast member would flip this back.",
     };
   }
   return {
@@ -157,7 +163,7 @@ export function recommendContextMode(cards) {
     why: swapFits
       ? `${weight} Cards this light cost less re-sent each reply than they would holding a separate cached branch per character.`
       : `${cast} characters is a wide cast. Classic card swap would need a warm cache branch for each of them; Private perspective keeps every speaker on one shared branch, and its cost does not grow with the cast.`,
-    cost: "Every member still sees the others' public profiles, and no card details leak between them.",
+    cost: "The trade: the speaking card is re-read after the history on every reply, so cost tracks card size rather than cast size.",
   };
 }
 
