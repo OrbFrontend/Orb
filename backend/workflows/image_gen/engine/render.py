@@ -9,8 +9,9 @@ and `label` off that adapter before this call, and looking one up again here mad
 It is also where a refused request is retried one rung down -- see
 `engine/degrade.py` for why that lives here rather than in a capability table. The
 seam is the right height for it: every backend passes through, and the decision
-reads only the declared `required` flag on the slots and the shape of the error, so
-no backend is named.
+reads only the shape of the error against what this attempt actually carried -- the
+declared `required` flag on its slots, and which optional fields are on it -- so no
+backend is named.
 """
 
 from __future__ import annotations
@@ -26,11 +27,14 @@ from .contracts import (
     ProgressCallback,
     RenderTarget,
 )
-from .degrade import next_rung, trim
+from .degrade import DROPPABLE_FIELDS, next_rung, trim
 
-# Two rungs at most -- the count the provider named, then none at all -- so a render
-# costs at most three attempts however creatively a provider words its refusal.
-MAX_DEGRADATIONS = 2
+# Every rung strictly reduces what the request carries, so the ladder is finite on its
+# own: two for the references -- the count the provider named, then none at all -- and
+# one apiece for the optional fields, each of which can only be given up once. Derived
+# rather than written down so adding a droppable field cannot silently cost the ladder
+# a rung it needs.
+MAX_DEGRADATIONS = 2 + len(DROPPABLE_FIELDS)
 
 
 def _optional_flags(request: ImageRequest, target: RenderTarget) -> list[bool]:
@@ -45,6 +49,16 @@ def _optional_flags(request: ImageRequest, target: RenderTarget) -> list[bool]:
     """
     required_by_slot = {tuple(slot["slot"]): bool(slot.get("required")) for slot in target.reference_slots if slot.get("slot")}
     return [not required_by_slot.get(tuple(reference.slot), False) for reference in request.references]
+
+
+def _sending(request: ImageRequest) -> tuple[str, ...]:
+    """Which droppable optional fields this attempt is actually carrying.
+
+    Read off the request rather than declared, for the reason `_optional_flags` reads
+    the slots: the ladder's bound is that every rung takes something away, and a field
+    already cleared is one the next refusal must not be able to name again.
+    """
+    return tuple(name for name in DROPPABLE_FIELDS if str(getattr(request, name, "") or "").strip())
 
 
 def _with_notes(result: ImageResult, notes: Sequence[str]) -> ImageResult:
@@ -73,10 +87,11 @@ async def resolve_and_generate(
     `hooks.py` need answers off the target before the call, and a second way to
     reach one is how they come to disagree about replay precedence.
 
-    A provider that refuses the request is asked once more with fewer references
-    rather than failing the render, bounded by `MAX_DEGRADATIONS` and disclosed on
-    the attachment. A refusal that is not about the images -- or a backend whose
-    slots cannot be dropped -- raises untouched.
+    A provider that refuses the request is asked once more with less of it -- fewer
+    references, or without an optional field it named -- rather than failing the
+    render, bounded by `MAX_DEGRADATIONS` and disclosed on the attachment. A refusal
+    that is about neither, or a backend whose slots cannot be dropped, raises
+    untouched.
     """
     attempt = request
     notes: list[str] = []
@@ -88,9 +103,15 @@ async def resolve_and_generate(
             return _with_notes(await adapter.generate(attempt, target=target, progress=progress), notes)
         except ImageGenerationError as exc:
             optional = _optional_flags(attempt, target)
-            rung = next_rung(exc, sent=len(attempt.references), droppable=sum(optional)) if remaining else None
+            rung = (
+                next_rung(exc, sent=len(attempt.references), droppable=sum(optional), sending=_sending(attempt))
+                if remaining
+                else None
+            )
             if rung is None:
                 raise
             attempt = replace(attempt, references=trim(attempt.references, optional, rung.keep))
+            if rung.drop:
+                attempt = replace(attempt, **{rung.drop: ""})
             notes.append(rung.note)
     raise AssertionError("unreachable: the final pass re-raises")  # pragma: no cover

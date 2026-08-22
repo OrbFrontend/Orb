@@ -21,7 +21,7 @@ from backend.workflows.image_gen.engine.contracts import (
     RenderTarget,
     ResolvedReference,
 )
-from backend.workflows.image_gen.engine.degrade import next_rung, trim
+from backend.workflows.image_gen.engine.degrade import DROPPABLE_FIELDS, next_rung, trim
 from backend.workflows.image_gen.engine.openai_image_client import CloudImageError
 from backend.workflows.image_gen.engine.render import (
     MAX_DEGRADATIONS,
@@ -36,6 +36,13 @@ NO_IMAGE = "NanoGPT rejected the request (HTTP 400): An image is required for im
 UNSUPPORTED = "Together AI rejected the request (HTTP 400): Unsupported use of 'image_url' parameter"
 # OpenAI, on a size its model does not take. Nothing to do with the references.
 BAD_SIZE = "OpenAI rejected the request (HTTP 400): Supported sizes are 1024x1024, 1024x1536, 1536x1024, and auto."
+# Together, on FLUX.2-pro -- the same provider whose FLUX.1 default takes this field
+# and ignores it. A per-model list of who accepts a negative prompt is the table this
+# module exists to not keep, so the model is asked and answers for free.
+NO_NEGATIVE = (
+    "Together AI rejected the request (HTTP 400): Invalid parameter detected. "
+    "The parameter \"'negative_prompt'\" is not recognized or supported."
+)
 
 
 def _reference(index: int = 0) -> ResolvedReference:
@@ -76,6 +83,35 @@ def test_a_refusal_that_is_not_about_images_is_left_alone():
     """Dropping a likeness would not fix a bad size, and would cost the user the thing
     they actually asked for. The failure stands and the message reaches them."""
     assert next_rung(_refused(BAD_SIZE), sent=2, droppable=2) is None
+
+
+def test_a_named_field_is_dropped_and_the_references_are_left_alone():
+    """The provider named one of Orb's own optional fields, so that is what goes --
+    the references were not what it refused."""
+    rung = next_rung(_refused(NO_NEGATIVE), sent=3, droppable=3, sending=("negative_prompt",))
+    assert rung is not None and rung.drop == "negative_prompt"
+    assert rung.keep == 3, "a field refusal must not also cost a likeness"
+    assert rung.note == DROPPABLE_FIELDS["negative_prompt"]
+
+
+def test_a_field_refusal_is_answerable_with_no_references_in_hand():
+    """The attempt a reference rung has just left behind carries none, and it is
+    exactly the one that then gets refused for the parameter."""
+    rung = next_rung(_refused(NO_NEGATIVE), sent=0, droppable=0, sending=("negative_prompt",))
+    assert rung is not None and rung.drop == "negative_prompt"
+
+
+def test_a_field_that_was_not_sent_is_never_dropped():
+    """`sending` is read off the attempt, so a field already given up cannot be given
+    up again -- which is what stops the ladder walking in place."""
+    assert next_rung(_refused(NO_NEGATIVE), sent=2, droppable=2, sending=()) is None
+
+
+def test_a_field_name_is_matched_whole():
+    """A neighbouring parameter that merely ends in one of ours is a different field,
+    and dropping ours would not answer the refusal."""
+    other = "rejected the request (HTTP 400): the parameter 'default_negative_prompt' is not supported"
+    assert next_rung(_refused(other), sent=0, droppable=0, sending=("negative_prompt",)) is None
 
 
 @pytest.mark.parametrize("kind", ["auth", "rate_limit", "server", "model_not_found", ""])
@@ -146,9 +182,9 @@ def _target(count: int, *, required: bool = False) -> RenderTarget:
     )
 
 
-def _request(count: int) -> ImageRequest:
+def _request(count: int, *, negative: str = "") -> ImageRequest:
     return ImageRequest(
-        prompt="p", negative_prompt="", seed=1, style_id="s", references=tuple(_reference(i) for i in range(count))
+        prompt="p", negative_prompt=negative, seed=1, style_id="s", references=tuple(_reference(i) for i in range(count))
     )
 
 
@@ -158,9 +194,11 @@ class _Adapter:
     def __init__(self, script: list[str | None]):
         self.script = list(script)
         self.seen: list[int] = []
+        self.negatives: list[str] = []
 
     async def generate(self, request, *, target, progress=None):
         self.seen.append(len(request.references))
+        self.negatives.append(request.negative_prompt)
         message = self.script.pop(0) if self.script else None
         if message is not None:
             raise _refused(message)
@@ -190,14 +228,40 @@ async def test_the_ladder_is_bounded():
     """A provider that concedes one slot at a time could walk this forever, so the
     bound is the ladder's and not the arithmetic's: one attempt plus `MAX_DEGRADATIONS`
     retries, then the refusal stands and the user sees it."""
-    grudging = [f"rejected the request (HTTP 400): accepts up to {n} input images" for n in (4, 3, 2, 1)]
+    sent = MAX_DEGRADATIONS + 3
+    grudging = [f"rejected the request (HTTP 400): accepts up to {n} input images" for n in range(sent - 1, 0, -1)]
     adapter = _Adapter([*grudging, None])
 
     with pytest.raises(ImageGenerationError):
-        await resolve_and_generate(adapter, _request(5), target=_target(5))
+        await resolve_and_generate(adapter, _request(sent), target=_target(sent))
 
-    assert adapter.seen == [5, 4, 3]
+    # One conceded slot per rung, and then the refusal stands with references still in
+    # hand -- derived from the bound rather than written out, so a new droppable field
+    # moves the bound here too instead of quietly reading as a regression.
+    assert adapter.seen == list(range(sent, sent - MAX_DEGRADATIONS - 1, -1))
     assert len(adapter.seen) == MAX_DEGRADATIONS + 1
+
+
+async def test_the_ladder_gives_up_the_references_then_the_field_the_provider_named():
+    """Together's FLUX.2 refuses both, one at a time: `image_url` first, then
+    `negative_prompt` on the referenceless retry. Two rungs, one render, both said."""
+    adapter = _Adapter([UNSUPPORTED, NO_NEGATIVE, None])
+    result = await resolve_and_generate(adapter, _request(2, negative="blurry"), target=_target(2))
+
+    assert adapter.seen == [2, 0, 0]
+    assert adapter.negatives == ["blurry", "blurry", ""]
+    notes = result.backend_info["notes"]
+    assert "rendered from the prompt alone" in notes[0]
+    assert notes[1] == DROPPABLE_FIELDS["negative_prompt"]
+
+
+async def test_a_named_field_goes_without_costing_the_references():
+    adapter = _Adapter([NO_NEGATIVE, None])
+    result = await resolve_and_generate(adapter, _request(2, negative="blurry"), target=_target(2))
+
+    assert adapter.seen == [2, 2], "the likenesses survive a refusal that was not about them"
+    assert adapter.negatives == ["blurry", ""]
+    assert result.backend_info["notes"][0] == DROPPABLE_FIELDS["negative_prompt"]
 
 
 async def test_a_failure_that_is_not_degradable_is_raised_untouched():
