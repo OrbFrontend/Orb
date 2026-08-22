@@ -143,6 +143,7 @@ def _build_writer_tools_blob(
     *,
     agentic_lorebook: bool = False,
     dynamic_world: bool = False,
+    grouped: bool = False,
 ) -> dict:
     """Build the dynamic tool-schema overrides shared across all cached calls.
 
@@ -160,7 +161,7 @@ def _build_writer_tools_blob(
     Called by ``_prepare_turn``.
     """
     writer_fragments, feedback_fragments, direction_note_fragments = _split_interactive_fragments(interactive_fragments)
-    direct_scene = build_direct_scene_override(writer_fragments)
+    direct_scene = build_direct_scene_override(writer_fragments, grouped=grouped)
     # Per-fragment mode fills one field per call, so requiredness on the shared blob
     # is meaningless -- and a non-empty `required` contradicts the "Fill ONLY X, leave
     # others empty" step prompt, which confuses the reasoning pass on endpoints that

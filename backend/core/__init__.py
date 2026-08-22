@@ -11,6 +11,7 @@ submodule (e.g. ``backend.core.locks._workflow_state_locks``), never this facade
 
 from __future__ import annotations
 
+from .domain_types import CastMember, GroupContextMode, TurnCast
 from .llm_types import (
     AssistantToolMessage,
     ChatMessage,
@@ -44,6 +45,9 @@ __all__ = [
     "ChatMessage",
     "ContentPart",
     "WireMessage",
+    "CastMember",
+    "GroupContextMode",
+    "TurnCast",
     # locks — process-level asyncio locks
     "maintenance_lock",
     "workflow_character_state_lock",

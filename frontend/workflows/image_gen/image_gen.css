@@ -45,6 +45,9 @@
 .ig-heading{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);padding-bottom:5px;border-bottom:1px solid var(--border)}
 .ig-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
 .ig-profile-fields{display:grid;gap:10px;margin-bottom:10px}
+/* Group scenes only: which cast member the fields below belong to. Sits on its
+   own row above them, since it re-points the whole section rather than editing it. */
+.ig-profile-member{display:grid;gap:4px}
 
 /* ---- styles accordion ----
    One collapsed row per style, so the list stays short as styles are added. */

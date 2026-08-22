@@ -204,6 +204,23 @@ class TestPerFragmentLoop:
         result = await _run(base, _FRAGMENTS[:1], self._toggle_on(), director={"active_moods": ["pre"]})
         assert result.active_moods == []
 
+    async def test_null_moods_clear_like_an_omission(self):
+        # A model that declines the moods step by emitting `"moods": null` must
+        # land on [], not None -- director_stage set()-unions active_moods, so a
+        # None there aborts the whole turn.
+        responses = [_ds_message({"user_intent": "x"}), _ds_message({"moods": None})]
+        base = _FakeBase(_FRAGMENTS[:1], responses)
+        result = await _run(base, _FRAGMENTS[:1], self._toggle_on(), director={"active_moods": ["pre"]})
+        assert result.active_moods == []
+
+    async def test_non_string_moods_are_dropped(self):
+        # Nothing but a fragment id can be a mood, and an unhashable item would
+        # blow up the same set() union.
+        responses = [_ds_message({"user_intent": "x"}), _ds_message({"moods": ["tense", {"id": "tense"}, 7]})]
+        base = _FakeBase(_FRAGMENTS[:1], responses)
+        result = await _run(base, _FRAGMENTS[:1], self._toggle_on())
+        assert result.active_moods == ["tense"]
+
     async def test_failed_fragment_call_is_skipped_not_fatal(self):
         # Second fragment's call raises; the pass must skip it and still finish,
         # so the turn keeps going (director failures are non-fatal).

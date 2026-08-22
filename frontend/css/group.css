@@ -1,0 +1,567 @@
+/* ═══════════════════════════════════════════
+   Group chats — cast rail, speaking plan,
+   cast manager rows, and the creation picker.
+   ═══════════════════════════════════════════ */
+
+/* ── Cast rail ──
+   A chip is a reply control, so it belongs beside the box the reply answers,
+   not up under the header. Living at the top of #chat-input-area means the
+   horizontal inset comes from the composer; only the gap down to the textarea
+   is this rule's to set, and there is no divider — the composer's own top
+   border already separates the pair from the conversation. That gap matches
+   #chat-input-area's own 12px padding, so the rail sits evenly between the
+   composer's top edge and the textarea instead of riding high in the band. */
+#group-cast-rail {
+  /* One height for every chip in the row, avatar or not, name or not. Derived
+     from the avatar (--cast-avatar + the member chip's 3px padding and 1px
+     border on each side) so resizing the portrait resizes the row with it. */
+  --cast-avatar: 24px;
+  --cast-chip-h: calc(var(--cast-avatar) + 8px);
+  display: flex;
+  /* stretch, not center: the manage chip carries no avatar and would otherwise
+     sit short of the member chips, which are pinned to --cast-chip-h. */
+  align-items: stretch;
+  gap: 8px;
+  padding: 0 0 12px;
+  overflow-x: auto;
+}
+
+/* The height is pinned rather than left to the content: `line-height: normal`
+   makes a name's line box depend on the glyphs in it, so a cast of "Assistant"
+   and "Spooky Gigachad" — one without descenders, one with — can render chips
+   of different heights side by side on fonts where the text out-measures the
+   avatar. line-height: 1 keeps the label out of that calculation entirely. */
+.cast-member {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--cast-chip-h);
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 3px 10px 3px 3px;
+  line-height: 1;
+  white-space: nowrap;
+  transition: border-color .15s, background .15s;
+}
+
+.cast-member:hover:not(:disabled) {
+  border-color: var(--accent-dim);
+}
+
+.cast-avatar {
+  width: var(--cast-avatar, 24px);
+  height: var(--cast-avatar, 24px);
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.cast-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Queued to answer next — the click that set it is the one the chip's title
+   describes, so the accent has to be legible without a caption anywhere. */
+.cast-member.next {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
+}
+
+.cast-member.speaking {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-secondary));
+}
+
+.cast-member.muted {
+  opacity: .45;
+}
+
+/* Height comes from the row (see #group-cast-rail), so this only has to centre
+   its own label inside whatever it is given. */
+.cast-manage {
+  display: flex;
+  align-items: center;
+  border: 1px dashed var(--border);
+  background: none;
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0 12px;
+  font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.cast-manage:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-dim);
+}
+
+/* ── Speaking plan (multi-speaker exchanges only) ── */
+.group-speaking-plan {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 20px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.plan-pill {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  white-space: nowrap;
+}
+
+.plan-pill.active {
+  background: var(--accent);
+  color: var(--bg-deep);
+}
+
+.plan-pill.done {
+  opacity: .55;
+}
+
+/* ── Empty scene ── */
+.scene-starters {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.scene-starter {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  padding: 5px 14px;
+  font-family: var(--font-prose);
+  font-size: 13px;
+}
+
+.scene-starter:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-dim);
+}
+
+/* ── Scene setup · Cast tab ── */
+/* Reorder hint left, the cast-wide draft action right — the pane's own header
+   row, since the modal's title bar is now shared with the Group settings tab. */
+.cast-pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.cast-pane-head .modal-subtitle {
+  margin-bottom: 0;
+}
+
+.cast-pane-head .btn {
+  flex-shrink: 0;
+}
+
+/* ── Cast manager ── */
+.cast-list {
+  display: grid;
+  gap: 6px;
+  max-height: 45vh;
+  overflow: auto;
+}
+
+.cast-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto auto 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.cast-row.dragging {
+  opacity: .5;
+}
+
+.cast-drag {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: grab;
+  padding: 2px 4px;
+  line-height: 1;
+}
+
+.cast-drag:active {
+  cursor: grabbing;
+}
+
+/* A control, not a field caption: it opts out of the bare `label` rule's caps,
+   tracking, and bottom margin — the last of which offsets it inside the row's
+   `align-items: center`. */
+.cast-reply-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 0;
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.cast-row-more {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 2px 4px;
+  line-height: 1;
+}
+
+.cast-row-more:hover {
+  color: var(--text-primary);
+}
+
+.cast-row-menu {
+  position: absolute;
+  top: 34px;
+  right: 6px;
+  min-width: 170px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .4);
+  overflow: hidden;
+  z-index: 5;
+  display: none;
+}
+
+.cast-row-menu.open {
+  display: block;
+}
+
+.cast-row-menu .burger-menu-item {
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+}
+
+.cast-row-custom {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.cast-row-custom > summary {
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+/* The same count the rail's badge shows, repeated on the row that owns it, so a
+   user sent here by "3 sheet updates to review" can see which members they are
+   without opening every disclosure. */
+.cast-row-summary-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--bg-deep);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* The override box and its Draft button share one line: the button is an
+   action *on* that box, not a sibling control below it. */
+.cast-row-profile {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.cast-row-custom textarea {
+  width: 100%;
+  min-height: 52px;
+  flex: 1;
+  min-width: 0;
+}
+
+.cast-row-profile [data-roster-draft] {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* Two overrides live in one disclosure -- what the cast sees, and what the
+   member reads about itself. Unlabelled they read as one field wrapped. */
+.cast-row-label {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.cast-row-sheet {
+  display: flex;
+  margin-top: 6px;
+}
+
+/* The shared modal checkbox carries a 20px bottom margin for the settings
+   panels it was written for; inside a `.field` that already spaces its rows it
+   only pushes the hint away from its own control. */
+#group-settings-sheet-updates ~ *,
+.field > .modal-checkbox-label {
+  margin-bottom: 0;
+}
+
+/* How many staged sheet updates are waiting behind the button. */
+.cast-manage-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--bg-deep);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* A staged sheet update, shown in full: the user is approving text, not a
+   label, so the whole proposed sheet is on the row. */
+.cast-row-proposal {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg-elevated);
+}
+
+.cast-row-proposal.is-stale {
+  border-left-color: var(--text-muted);
+  opacity: 0.75;
+}
+
+.cast-row-proposal-head {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cast-row-proposal-body {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
+
+.cast-row-proposal-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cast-add {
+  width: 100%;
+  margin-top: 10px;
+}
+
+/* ── Creation picker ── */
+.cast-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+  max-height: 40vh;
+  overflow: auto;
+  margin-bottom: 14px;
+}
+
+/* Stands in for the grid, so it keeps the grid's spacing rather than the
+   trailing-note spacing `.modal-hint` gives. */
+.modal .cast-picker-empty {
+  margin: 0 0 14px;
+}
+
+.cast-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.cast-pick:hover {
+  border-color: var(--accent-dim);
+}
+
+.cast-pick.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
+  color: var(--text);
+}
+
+.cast-pick-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.cast-pick-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cast-pick-name {
+  font-size: 12px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* ── Context-mode recommendation ── */
+/* Sits between the cast picker and Premise, carrying the picker's own 14px
+   bottom rhythm so the form spacing does not change when it appears. Tinted
+   like `.cast-pick.selected` — it belongs to the selection above it, not to the
+   fields below. */
+.ctx-recommend {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius);
+  background: var(--accent-glow);
+}
+
+/* The panel is toggled by `hidden`, and it carries padding and a border that a
+   UA `display: none` would otherwise still have to win against. */
+.ctx-recommend[hidden] {
+  display: none;
+}
+
+.ctx-rec-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.ctx-rec-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
+/* Whichever of the two closes the row, it closes it the same way, so the head
+   keeps one shape whether or not there is anything left to apply. */
+.ctx-rec-head > .btn,
+.ctx-rec-state {
+  margin-left: auto;
+}
+
+.ctx-rec-state {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* `.modal-hint`'s 12px top margin is sized to trail a control; inside the panel
+   the lines are body copy and set their own tighter rhythm. */
+.modal .ctx-recommend .modal-hint {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+}
+
+.modal .ctx-recommend .ctx-rec-trade {
+  margin-top: 4px;
+  color: var(--text-muted);
+}
+
+/* ── Modal disclosures ── */
+/* Top-margin only, so a disclosure sits on the same rhythm as the `.field` rows
+   above it and never doubles up with the next block's own leading margin. */
+.group-advanced,
+.group-help {
+  margin: 10px 0 0;
+}
+
+.group-advanced > summary,
+.group-help > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 4px 0;
+}
+
+/* `.group-help`'s body is a `.modal-hint`, which brings its own leading. */
+.group-advanced[open] > summary {
+  margin-bottom: 6px;
+}
+
+.group-advanced > .field:last-child {
+  margin-bottom: 0;
+}
+
+.group-advanced > summary:hover,
+.group-help > summary:hover {
+  color: var(--text-primary);
+}
+
+.modal-section {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin: 14px 0 8px;
+}
+
+/* ── Scene setup · Group settings tab ── */
+/* Delete used to sit in the modal's action row, where it would now be one click
+   from Save on a tab that isn't even showing the cast. Ruled off at the foot of
+   its own tab instead. */
+.group-danger {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.group-danger .modal-hint {
+  margin-top: 8px;
+}

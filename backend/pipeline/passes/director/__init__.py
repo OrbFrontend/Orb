@@ -10,6 +10,7 @@ from .director import (
     build_direct_scene_override,
     director_pass,
     director_stage,
+    speaking_plan_instruction,
 )
 from .lorebook_select import LorebookSelectResult, lorebook_select_step
 
@@ -19,6 +20,7 @@ __all__ = [
     "director_pass",
     "director_stage",
     "build_direct_scene_override",
+    "speaking_plan_instruction",
     "progressive",
     "DirectionNoteResult",
     "extract_direction_notes",

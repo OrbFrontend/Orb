@@ -230,6 +230,23 @@ export async function activateAndPrioritizeWorld(worldId) {
   renderWorldsSidebar();
 }
 
+export function reflectConversationWorldActivation(worldIds) {
+  const active = new Set(worldIds || []);
+  const linked = new Set(
+    charactersView()
+      .map((card) => card.world_id)
+      .filter(Boolean),
+  );
+  for (const world of _worlds) {
+    if (linked.has(world.id)) world.enabled = active.has(world.id) ? 1 : 0;
+  }
+  for (const worldId of [...active].reverse()) {
+    const index = _worlds.findIndex((world) => world.id === worldId);
+    if (index >= 0) _worlds.unshift(_worlds.splice(index, 1)[0]);
+  }
+  renderWorldsSidebar();
+}
+
 // A linked lorebook is on loan to the character in play — selectConversation
 // turns it on, switching away turns it off. A page load has nobody in play, so
 // anything left enabled by the last session would inject that character's lore

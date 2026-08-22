@@ -11,7 +11,7 @@ import {
   setMessages,
 } from "./chat_core.js";
 import { renderInspector } from "./chat_inspector.js";
-import { agentPayload, runStreamRequest } from "./chat_stream.js";
+import { runStreamRequest, turnPayload } from "./chat_stream.js";
 import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
 import { confirmDelete } from "./modal.js";
 import { isUtilityPanelOpen } from "./panels.js";
@@ -121,7 +121,19 @@ function focusEditTextarea(ta, onEscape) {
 export async function deleteMessage(msgId) {
   if (S.isStreaming) return;
   if (!requestSendPermission()) return;
-  confirmDelete("Message", "Delete this message, all its siblings, and all their children?", async () => {
+  let detail = "Delete this message, all its siblings, and all their children?";
+  // `S.groupCast` is the open scene's roster, and null in a solo chat — the
+  // same "is this a group" question, asked of a key that exists.
+  if (S.groupCast) {
+    try {
+      const preview = await api.get(convUrl(S.activeConvId, "messages", msgId, "delete-preview"));
+      const count = preview.assistant_count || 0;
+      detail = `Delete this message, all its siblings, and all their children? This removes ${count} group ${count === 1 ? "reply" : "replies"}.`;
+    } catch (_e) {
+      // Keep deletion available if an older backend does not expose previews.
+    }
+  }
+  confirmDelete("Message", detail, async () => {
     try {
       setMessages(await api.del(convUrl(S.activeConvId, "messages", msgId)));
       S.lastDirectorData = null;
@@ -400,7 +412,7 @@ export async function saveForkEdit(msgId) {
 
   await runStreamRequest(
     convUrl(S.activeConvId, "messages", msgId, "fork-edit"),
-    { content: resolved, ...agentPayload() },
+    { content: resolved, ...turnPayload() },
     {
       beforeRender() {
         if (idx >= 0) {

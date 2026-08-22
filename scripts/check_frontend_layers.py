@@ -39,6 +39,7 @@ LAYERS = {
     "validate.js": 0,
     "scroll_follow.js": 0,
     "text_segmentation.js": 0,
+    "sidebar_icons.js": 0,
     # L1 state + shared pure helpers.
     "state.js": 1,
     "workflow_registry.js": 1,
@@ -47,6 +48,7 @@ LAYERS = {
     # Pure render/state helpers for the Dynamic Worlds review surface; imports
     # only utils.js, so it sits alongside it rather than with the features.
     "world_proposals.js": 1,
+    "group_cast.js": 1,
     # L2 services.
     "tabLock.js": 2,
     "audio_schedule.js": 2,
@@ -88,6 +90,7 @@ LAYERS = {
     "presets.js": 5,
     "direction_notes_panel.js": 5,
     "mobile.js": 5,
+    "group_setup.js": 5,
     # L6 shell / plugin facade.
     "app.js": 6,
     "workflow_api.js": 6,
@@ -105,11 +108,11 @@ ALLOWED_UPWARD: set[tuple[str, str]] = {
 }
 
 # ── 2. Ratchets (may only decrease) ──────────────────────────────────────────
-MAX_INLINE_ON = 265  # inline on*= handlers across frontend/ (js + index.html)
+MAX_INLINE_ON = 263  # inline on*= handlers across frontend/ (js + index.html)
 MAX_UNDERSCORE_IMPORTS = 10  # underscore-prefixed names imported cross-module
 
 # ── 4. Frozen ABI ────────────────────────────────────────────────────────────
-# workflow_api.js's complete export surface (ABI v2, additive-only). A rename or
+# workflow_api.js's complete export surface (ABI v3, additive-only). A rename or
 # removal fails; a genuinely new export is added here in the same commit.
 FROZEN_ABI = {
     "WORKFLOW_API_VERSION",
@@ -163,6 +166,7 @@ FROZEN_ABI = {
     # state accessors
     "requestRepaint",
     "getActiveConvId",
+    "getGroupCast",
     "getMessages",
     "getManifestEntry",
     "canMutate",

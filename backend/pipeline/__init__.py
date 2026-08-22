@@ -20,6 +20,7 @@ from .entrypoints import (
     handle_fork_edit,
     handle_magic_rewrite,
     handle_regenerate,
+    handle_speak,
     handle_super_regenerate,
     handle_turn,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "handle_regenerate",
     "handle_super_regenerate",
     "handle_turn",
+    "handle_speak",
     # predicates — turn predicates
     "agent_enabled",
     "resolve_persona_id",

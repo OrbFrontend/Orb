@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator, Mapping, Sequence
 from typing import Any
 
-from ...core import ChatMessage, Macros
+from ...core import ChatMessage, Macros, TurnCast
 from ...inference import LLMClient, prompt_builder
 
 DEFAULT_SUMMARY_INSTRUCTIONS = (
@@ -39,6 +39,9 @@ class ConversationSummarizer:
         macros: Macros,
         user_description: str,
         custom_instructions: str | None = None,
+        *,
+        cast: TurnCast | None = None,
+        speaker_names: Mapping[str, str] | None = None,
     ) -> list[ChatMessage]:
         prefix = prompt_builder.build_prefix(
             system_prompt,
@@ -49,6 +52,8 @@ class ConversationSummarizer:
             history_slice,
             macros,
             user_description,
+            cast=cast,
+            speaker_names=speaker_names,
         )
         instructions = DEFAULT_SUMMARY_INSTRUCTIONS
         if custom_instructions:

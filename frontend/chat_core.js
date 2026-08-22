@@ -10,8 +10,9 @@ import {
   _renderWorkflowArtifacts,
   _renderWorkflowRejection,
 } from "./chat_workflow.js";
+import { sceneEmptyStateHtml, speakerLabel } from "./group_cast.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
-import { effectiveWorkflowEnabled, S } from "./state.js";
+import { effectiveWorkflowEnabled, S, subscribe } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
 import {
   $,
@@ -29,10 +30,17 @@ import { segmentBody } from "./workflow_segmentation.js";
 import { markClickable } from "./workflow_text_interaction.js";
 import { messageProposalsHtml } from "./world_proposals.js";
 
+// Nothing about a group's turn mode belongs here. `Manual` used to block every
+// generation that arrived without a pick, which also blocked regenerate and
+// magic rewrite — turns that carry their own speaker off the message they
+// replace. A user message with nobody picked is a rest the backend answers with
+// an empty speaking plan, not a turn to suppress.
 export function canStartGeneration() {
   if (S.isStreaming) return false;
   return requestSendPermission();
 }
+
+subscribe("cast", () => renderMessages());
 
 function normalizeMessages(msgs) {
   if (!Array.isArray(msgs)) return msgs;
@@ -338,8 +346,9 @@ export function renderMessages(forceBottom = false) {
             '<div class="empty-state"><div class="icon" id="home-greeting-icon">📜</div><div id="home-greeting">Select a character to begin</div><div class="stats-grid" id="home-stats-grid"></div></div>';
           renderHomeStats();
         } else if (!S.messages.length) {
-          ct.innerHTML =
-            '<div class="empty-state"><div class="icon">📜</div><div>Start writing to begin the scene</div></div>';
+          ct.innerHTML = S.groupCast
+            ? sceneEmptyStateHtml()
+            : '<div class="empty-state"><div class="icon">📜</div><div>Start writing to begin the scene</div></div>';
         } else {
           let msgs = S.messages;
           if (S.isStreaming && S.streamCutoffIndex != null) {
@@ -407,7 +416,7 @@ export function renderMessages(forceBottom = false) {
               // History rather than permanently under the reply.
               const proposalsHtml = messageProposalsHtml(m);
               return `<div class="message ${m.role}" data-msg-id="${m.id}">
-        <div class="msg-role">${m.role === "user" ? "You" : esc(getCharName())} ${branchHtml}</div>
+        <div class="msg-role">${esc(speakerLabel(m))} ${branchHtml}</div>
         ${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${proposalsHtml}${toolbar}
       </div>`;
             })

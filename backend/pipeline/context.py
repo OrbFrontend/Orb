@@ -24,7 +24,7 @@ from types import MappingProxyType
 from typing import Any
 
 from .. import database as db
-from ..core import ChatMessage, Macros
+from ..core import CastMember, ChatMessage, Macros, TurnCast
 from ..database.models import (
     ActiveLorebookEntryRow,
     CharacterCardRow,
@@ -50,6 +50,7 @@ from ..inference import (
     agent_client_from_settings,
     build_prefix,
     client_from_settings,
+    macro_identity,
     separate_agent_lane_configured,
 )
 from .config import _build_writer_tools_blob
@@ -91,6 +92,9 @@ class PipelineContext:
     # narrows it to its mutation targets through ``world_proposal_active`` --
     # the enabled Worlds that opted in, i.e. the ones whose lore fed this turn.
     worlds: list[WorldRow] = field(default_factory=list)
+    cast: TurnCast = field(default_factory=lambda: TurnCast(False, ()))
+    speaker_names: Mapping[str, str] = field(default_factory=dict)
+    group_members: tuple[Mapping[str, Any], ...] = ()
 
 
 async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
@@ -111,19 +115,19 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
 
     director: dict[str, Any] = dict(await db.get_director_state(conversation_id))
     card, active_persona = await resolve_card_and_persona(conv, settings)
+    cast = await db.resolve_cast(conv)
+    all_group_members = await db.get_group_members(conversation_id, include_inactive=True) if cast.grouped else []
     # Card-embedded fragments merge into the global lists for this turn only
     # (the context is rebuilt per turn); on id collision the global wins.
-    card_moods, card_interactive = db.card_embedded_fragments(card)
-    mood_fragments = await db.get_mood_fragments()
-    mood_fragments = [f for f in mood_fragments if f.get("enabled", True)]
-    mood_fragments += [f for f in card_moods if f["id"] not in {g["id"] for g in mood_fragments}]
+    card_moods, card_interactive = await db.cast_embedded_fragments(card, cast)
+    mood_fragments = db.merge_fragments_by_id([f for f in await db.get_mood_fragments() if f.get("enabled", True)], card_moods)
     # Prune active moods that reference disabled fragments.
     if director and director.get("active_moods"):
         enabled_ids = {f["id"] for f in mood_fragments}
         director["active_moods"] = [mood for mood in director["active_moods"] if mood in enabled_ids]
-    interactive_fragments = await db.get_interactive_fragments()
-    interactive_fragments = [df for df in interactive_fragments if df.get("enabled", True)]
-    interactive_fragments += [f for f in card_interactive if f["id"] not in {g["id"] for g in interactive_fragments}]
+    interactive_fragments = db.merge_fragments_by_id(
+        [df for df in await db.get_interactive_fragments() if df.get("enabled", True)], card_interactive
+    )
     phrase_bank = await db.get_phrase_bank()
     lorebook_entries = await db.get_active_lorebook_entries()
     worlds = await db.get_worlds()
@@ -156,6 +160,9 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         agent_client=agent_client,
         agent_system_prompt=agent_system_prompt,
         worlds=worlds,
+        cast=cast,
+        speaker_names={m["id"]: m["display_name"] for m in all_group_members},
+        group_members=tuple(m for m in all_group_members if m.get("active")),
     )
 
 
@@ -202,6 +209,7 @@ def _build_prefix_from_ctx(
     *,
     system_prompt: str | None = None,
     extra_system_blocks: list[str] | None = None,
+    speaker: CastMember | None = None,
 ) -> list[ChatMessage]:
     """Build the LLM message prefix (system prompt + chat history) from *ctx*.
 
@@ -211,11 +219,18 @@ def _build_prefix_from_ctx(
     entries are rendered here into the system body (they are byte-identical
     every turn, so they belong in the cached prefix, not the trailing block) —
     except the ``at_depth`` ones, which ride ``LorebookTurn.depth_block``.
+
+    *speaker* only reaches the system body under Classic card swap, which is
+    the one mode whose prefix depends on who is speaking. Omitting it there
+    yields the neutral base the Director and the pre-pipeline hooks run
+    against — both execute before a speaking plan exists — and every speaker's
+    base shares its bytes up to the active card.
     """
     conv = ctx.conv
-    macros, user_description = persona_macros(
-        ctx.settings, conv["character_name"], ctx.active_persona, seed=conversation_macro_seed(conv)
-    )
+    macro_char, cast_names = macro_identity(conv, ctx.cast)
+    macros, user_description = persona_macros(ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(conv))
+    macros = macros._replace(cast=cast_names)
+    cast = ctx.cast._replace(speaker=speaker) if ctx.cast.grouped else ctx.cast
 
     return build_prefix(
         system_prompt if system_prompt is not None else ctx.system_prompt,
@@ -228,6 +243,8 @@ def _build_prefix_from_ctx(
         user_description,
         constant_lorebook_block=compute_constant_lorebook_block(ctx.lorebook_entries, macros),
         extra_system_blocks=extra_system_blocks,
+        cast=cast,
+        speaker_names=ctx.speaker_names,
     )
 
 
@@ -236,14 +253,17 @@ def _build_prefixes(
     history: Sequence[Mapping[str, Any]],
     *,
     extra_system_blocks: list[str] | None = None,
+    speaker: CastMember | None = None,
 ) -> tuple[list[ChatMessage], list[ChatMessage] | None]:
     """Build the writer prefix and optional agent prefix for a turn.
 
     Returns ``(prefix, agent_prefix)``. ``agent_prefix`` is ``None`` in
     single-model mode. *extra_system_blocks* from pre-pipeline hooks are applied
-    to both so the system body stays identical across all passes.
+    to both so the system body stays identical across all passes — and so is
+    *speaker*, or the Editor's agent lane would see a different cast than the
+    Writer it is auditing.
     """
-    prefix = _build_prefix_from_ctx(ctx, history, extra_system_blocks=extra_system_blocks)
+    prefix = _build_prefix_from_ctx(ctx, history, extra_system_blocks=extra_system_blocks, speaker=speaker)
     agent_sp = ctx.agent_system_prompt
     agent_prefix = (
         _build_prefix_from_ctx(
@@ -251,6 +271,7 @@ def _build_prefixes(
             history,
             system_prompt=agent_sp,
             extra_system_blocks=extra_system_blocks,
+            speaker=speaker,
         )
         if agent_sp is not None
         else None
@@ -275,6 +296,7 @@ class _TurnSetup:
     turn_scratch: dict
     kv_tracker: _KVCacheTracker
     schema_overrides: Mapping[str, dict]
+    extra_system_blocks: tuple[str, ...]
     # Identity of the Worlds this turn may propose changes to; None when no
     # enabled World has opted in to Dynamic Worlds.
     world_proposal: WorldProposalTurn | None = None
@@ -305,8 +327,9 @@ async def _prepare_turn(
                 yield ev
         assert setup is not None
     """
+    macro_char, cast_names = macro_identity(ctx.conv, ctx.cast)
     macros = Macros.from_settings(
-        ctx.settings, ctx.conv["character_name"], ctx.active_persona, seed=conversation_macro_seed(ctx.conv)
+        ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(ctx.conv), cast=cast_names
     )
 
     prefix_base, agent_prefix_base = _build_prefixes(ctx, history)
@@ -345,7 +368,7 @@ async def _prepare_turn(
             world_ids=proposal_world_ids,
             conversation_id=conversation_id,
             user_message=last_user_message,
-            character_label=(ctx.card or {}).get("name", "") or ctx.conv.get("character_name", ""),
+            character_label=macro_char if ctx.cast.grouped else ((ctx.card or {}).get("name", "") or macro_char),
             conversation_label=ctx.conv.get("title", "") or "",
         )
         if proposal_world_ids
@@ -360,6 +383,7 @@ async def _prepare_turn(
         enabled_tools_pre_merge,
         agentic_lorebook=agentic_active,
         dynamic_world=world_proposal is not None,
+        grouped=ctx.cast.grouped,
     )
     schema_overrides = MappingProxyType(overrides)
     accumulators = {
@@ -400,5 +424,6 @@ async def _prepare_turn(
         turn_scratch=turn_scratch,
         kv_tracker=kv_tracker,
         schema_overrides=schema_overrides,
+        extra_system_blocks=tuple(extras),
         world_proposal=world_proposal,
     )

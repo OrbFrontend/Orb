@@ -178,15 +178,14 @@ function computeTopTags() {
 function computeConversationStats() {
   const map = new Map();
   for (const conv of _browserConversations) {
-    const cardId = conv.character_card_id;
-    if (!cardId) continue;
-    const entry = map.get(cardId) || { count: 0, recentTimestamp: "" };
-    entry.count += 1;
-    const ts = convActivity(conv);
-    if (ts && (!entry.recentTimestamp || ts > entry.recentTimestamp)) {
-      entry.recentTimestamp = ts;
+    const cardIds = conv.character_card_id ? [conv.character_card_id] : conv.group_card_ids || [];
+    for (const cardId of cardIds) {
+      const entry = map.get(cardId) || { count: 0, recentTimestamp: "" };
+      entry.count += 1;
+      const ts = convActivity(conv);
+      if (ts && (!entry.recentTimestamp || ts > entry.recentTimestamp)) entry.recentTimestamp = ts;
+      map.set(cardId, entry);
     }
-    map.set(cardId, entry);
   }
   return map;
 }

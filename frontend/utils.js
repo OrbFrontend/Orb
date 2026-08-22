@@ -415,8 +415,10 @@ export function resolvePlaceholders(text) {
     }
   }
   const conv = S.conversations?.find((c) => c.id === S.activeConvId);
-  const charName = conv?.character_name || "";
-  return replacePlaceholders(text, userName, charName);
+  const charName = conv?.kind === "group" ? conv.title || "" : conv?.character_name || "";
+  const resolved = replacePlaceholders(text, userName, charName);
+  const cast = S.groupCast?.members?.map((member) => member.display_name).join(", ") || "";
+  return cast ? resolved.replace(/\{\{cast\}\}/gi, cast) : resolved;
 }
 
 /**
@@ -427,6 +429,7 @@ export function resolvePlaceholders(text) {
 export function effectivePersonaId() {
   const conv = S.conversations?.find((c) => c.id === S.activeConvId);
   if (conv?.persona_lock_id) return conv.persona_lock_id;
+  if (conv?.kind === "group") return S.activePersonaId || null;
   const card = conv?.character_card_id ? charactersView().find((c) => c.id === conv.character_card_id) : null;
   return card?.persona_lock_id || S.activePersonaId || null;
 }

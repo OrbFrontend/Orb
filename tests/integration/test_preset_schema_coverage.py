@@ -440,11 +440,13 @@ SIGNATURE_TABLES = frozenset(
         "character_expressions",
         "user_personas",
         "conversations",
+        "group_members",
         "messages",
         "director_state",
         "worlds",
         "lorebook_entries",
         "world_changesets",
+        "member_sheet_proposals",
         "phrase_bank",
         "mood_fragments",
         "interactive_fragments",
@@ -497,6 +499,18 @@ def _signature(path: str) -> dict:
             "conversations": q("SELECT id, title FROM conversations"),
             "conv_persona": q(
                 "SELECT c.id, up.name FROM conversations c LEFT JOIN user_personas up ON c.persona_lock_id = up.id"
+            ),
+            "group_members": q(
+                "SELECT conversation_id, speaker_key, character_card_id, display_name, public_profile_override, "
+                "card_sheet_override, member_kind, sort_order, muted, active FROM group_members"
+            ),
+            # A pending sheet update is user-facing work in progress, not a log:
+            # its whole point is that someone still has to decide it. Compared
+            # through the member's portable identity, since group_members.id is
+            # re-minted on the way in.
+            "member_sheet_proposals": q(
+                "SELECT gm.speaker_key, p.base_sheet, p.proposed_sheet, p.summary, p.status "
+                "FROM member_sheet_proposals p JOIN group_members gm ON p.member_id = gm.id"
             ),
             "messages": q("SELECT conversation_id, turn_index, role, content FROM messages"),
             "active_leaf": q("SELECT c.id, m.content FROM conversations c LEFT JOIN messages m ON c.active_leaf_id = m.id"),

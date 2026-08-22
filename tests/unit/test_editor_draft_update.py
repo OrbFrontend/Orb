@@ -126,6 +126,32 @@ async def test_chat_path_emits_draft_update_per_iteration():
     assert events[1]["draft"] == "Fixed 0. Sentence 1."
 
 
+async def test_null_rewritten_text_stops_the_loop():
+    # `"rewritten_text": null` is the model declining the rewrite. The default on
+    # the .get() only covers an absent key, so a null used to reach .strip() and
+    # abort the whole turn -- in a group exchange, mid-exchange. It must read as an empty
+    # rewrite and stop the loop with the draft intact.
+    client = LLMClient("http://localhost:9999")
+
+    async def fake_complete(*args, **kwargs):
+        yield {
+            "type": "done",
+            "message": {
+                "content": "",
+                "tool_calls": [
+                    {"id": "tc1", "function": {"name": "editor_rewrite", "arguments": json.dumps({"rewritten_text": None})}}
+                ],
+            },
+        }
+
+    client.complete = fake_complete
+
+    events = await _run(client, [_make_report(["Sentence 0.", "Sentence 1."])], "Sentence 0. Sentence 1.")
+
+    assert [e["type"] for e in events] == ["done"]  # no draft_update: nothing was applied
+    assert events[-1]["draft"] is None  # draft unchanged
+
+
 async def test_text_path_takes_the_same_single_call():
     # Text endpoints used to issue one prefilled call per finding; they now take
     # the same id-anchored call, grammar-constrained from the tool schema.

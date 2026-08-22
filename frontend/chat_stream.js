@@ -36,6 +36,8 @@ import {
   optimisticDropDirectionNotesFrom,
   renderDirectionNotesPanel,
 } from "./direction_notes_panel.js";
+import { restNotice, unansweredHint } from "./group_cast.js";
+import { consumeSpeakerOverride, refreshSheetProposals, renderGroupCast } from "./group_setup.js";
 import { refreshCharacters } from "./library.js";
 import { isUtilityPanelOpen } from "./panels.js";
 // Imported directly rather than via settings.js to avoid an import cycle
@@ -184,7 +186,8 @@ export function setStreaming(active) {
   $("stop-btn").style.display = active ? "flex" : "none";
   const cm = $("chat-messages");
   if (cm) cm.classList.toggle("streaming", active);
-  if (active) onTurnStart();
+  if (active && !S.groupCast) onTurnStart();
+  renderGroupCast();
 }
 
 export function stopGeneration() {
@@ -194,10 +197,10 @@ export function stopGeneration() {
   }
 }
 
-export function createStreamingDiv() {
+export function createStreamingDiv(name = null) {
   const div = document.createElement("div");
   div.className = "message assistant";
-  div.innerHTML = `<div class="msg-role">${esc(getCharName())}</div>
+  div.innerHTML = `<div class="msg-role">${esc(name || getCharName())}</div>
     <div class="msg-body" id="streaming-body">
       <span class="typing-indicator"><span></span><span></span><span></span></span>
     </div>
@@ -229,6 +232,9 @@ function patchPendingUserMessage(pendingMsg) {
 }
 
 export async function afterStream() {
+  const wasGroupExchange = S.currentExchangeId != null;
+  const groupExchangeId = S.currentExchangeId;
+  const inFlightSpeaker = S.currentSpeaker;
   const preservedContent = S.streamingContent;
   const pendingUserMsg = S.pendingUserMsg || null;
   const wasAborted = S.wasAborted;
@@ -308,9 +314,31 @@ export async function afterStream() {
   }
   S.queuedEdits = {};
 
-  if (preservedContent?.trim()) {
+  if (wasGroupExchange && inFlightSpeaker && preservedContent?.trim()) {
+    const persisted = S.messages.some(
+      (message) =>
+        message.role === "assistant" &&
+        message.exchange_id === groupExchangeId &&
+        message.speaker_member_id === inFlightSpeaker.member_id,
+    );
+    if (!persisted) {
+      const parent = S.messages[S.messages.length - 1];
+      S.messages.push({
+        role: "assistant",
+        content: preservedContent,
+        id: null,
+        parent_id: parent?.id || null,
+        speaker_member_id: inFlightSpeaker.member_id,
+        exchange_id: groupExchangeId,
+        branch_count: 1,
+        branch_index: 0,
+        prev_branch_id: null,
+        next_branch_id: null,
+      });
+    }
+  } else if (!wasGroupExchange && preservedContent?.trim()) {
     const lastMsg = S.messages[S.messages.length - 1];
-    if (!lastMsg || lastMsg.role !== "assistant") {
+    if (lastMsg?.role !== "assistant") {
       S.messages.push({
         role: "assistant",
         content: preservedContent,
@@ -337,7 +365,7 @@ export async function afterStream() {
   // proposal card belongs under the finished reply, and the in-place path only
   // rewrites the bubble's body, so a turn that raised one repaints in full.
   const lastMsg = S.messages[S.messages.length - 1];
-  const finalized = !S.worldProposalArrived && finalizeStreamingDiv(lastMsg);
+  const finalized = !wasGroupExchange && !S.worldProposalArrived && finalizeStreamingDiv(lastMsg);
   S.worldProposalArrived = false;
   S.streamingBodyEl = null;
 
@@ -360,6 +388,20 @@ export async function afterStream() {
   } else {
     renderMessages();
   }
+  S.currentExchangeId = null;
+  S.currentSpeaker = null;
+  // A plan describes one exchange. Keeping it past the exchange would leave a stale
+  // strip above a finished scene, so it dies with the turn that produced it.
+  S.speakingPlan = null;
+  // The override named the speaker for an exchange that has now produced replies;
+  // anything else (an aborted or failed turn) leaves it in place to retry with.
+  if (wasGroupExchange && S.completedExchangeMessageIds.length) consumeSpeakerOverride();
+  S.completedExchangeMessageIds = [];
+  renderGroupCast();
+  // The exchange may have staged sheet updates. Re-read rather than listening for an
+  // event: the pass proposes for at most the members that spoke, so this is one
+  // small request per group exchange, and only for a scene that opted in.
+  if (wasGroupExchange && S.groupCast?.sheet_updates) refreshSheetProposals().then(renderGroupCast);
   clearInspectedMessage();
   // The active branch moved (new reply or a regenerated sibling), so the notes
   // panel's path-scoped set is stale; refetch it if the user has it open. Clear the
@@ -370,7 +412,7 @@ export async function afterStream() {
   refreshCharacters();
 }
 
-export async function processSSEStream(resp, container, msgDiv, signal) {
+export async function processSSEStream(resp, container, holder, signal) {
   let fullResponse = "",
     rewrittenResponse = null,
     firstToken = true,
@@ -391,14 +433,72 @@ export async function processSSEStream(resp, container, msgDiv, signal) {
   S.reasoningPassSelected = 0; // tracks what the user is viewing
   S.reasoningUserOverride = false; // true when user has manually clicked a dot
 
+  const resetSpeakerTurnState = () => {
+    fullResponse = "";
+    rewrittenResponse = null;
+    firstToken = true;
+    S.streamingContent = null;
+    S.pendingRefineDiff = null;
+    S.editorDraftBaseline = null;
+    S.reasoningDirector = "";
+    S.reasoningWriter = "";
+    S.reasoningEditor = "";
+    S.lastFeedback = null;
+    S.lastDirectionNotes = null;
+    S.reasoningByPass = {};
+    S.reasoningPassActive = 0;
+    S.reasoningPassSelected = 0;
+    S.reasoningUserOverride = false;
+  };
+
   // sse.js owns the transport (frames, keepalives, chunk-boundary splits); this
   // loop owns the chat event vocabulary. The token/rewrite callbacks close over
   // the current frame's `data`, so they are minted per event.
   for await (const { event, data } of sseEvents(resp.body, { signal })) {
+    if (event === "speaking_plan") {
+      try {
+        const parsed = JSON.parse(data);
+        S.currentExchangeId = parsed.exchange_id;
+        S.speakingPlan = Array.isArray(parsed.plan) ? parsed.plan : [];
+        // A rest produces no speaker and no bubble; without this the turn would
+        // simply end in silence, and the plan rail is gone by then.
+        if (!S.speakingPlan.length) toast(restNotice());
+        renderGroupCast();
+      } catch (_) {}
+      continue;
+    }
+    if (event === "speaker_start") {
+      try {
+        const parsed = JSON.parse(data);
+        S.currentExchangeId = parsed.exchange_id;
+        S.currentSpeaker = parsed;
+        // The popup is not closed on a handover: it reads S.currentSpeaker on
+        // its next tick and follows the floor to this member's own face.
+        resetSpeakerTurnState();
+        holder.el = createStreamingDiv(parsed.name);
+        if (!S.hideUntilBaked) container.appendChild(holder.el);
+        onTurnStart();
+        renderGroupCast();
+        scrollToBottom();
+      } catch (_) {}
+      continue;
+    }
+    if (event === "speaker_done") {
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed.message_id) S.completedExchangeMessageIds.push(parsed.message_id);
+        finalizeStreamingDiv({ ...parsed, id: parsed.message_id, role: "assistant" });
+        S.streamingBodyEl = null;
+        holder.el = null;
+        S.currentSpeaker = null;
+        renderGroupCast();
+      } catch (_) {}
+      continue;
+    }
     const onToken = () => {
       if (firstToken) {
         firstToken = false;
-        if (!msgDiv.isConnected && !S.hideUntilBaked) container.appendChild(msgDiv);
+        if (holder.el && !holder.el.isConnected && !S.hideUntilBaked) container.appendChild(holder.el);
         if (S.streamingBodyEl) S.streamingBodyEl.innerHTML = "";
       }
       fullResponse += unescapeSSE(data);
@@ -421,7 +521,7 @@ export async function processSSEStream(resp, container, msgDiv, signal) {
     // but unread, leaving the backend generating headless. Contain it, log the
     // culprit event + stack, and keep reading.
     try {
-      handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite);
+      handleSSEEvent(event, data, container, holder.el, onToken, onRewrite);
     } catch (e) {
       console.error(`SSE handler for "${event}" threw:`, e);
       if (!dispatchErrorToasted) {
@@ -738,6 +838,16 @@ export function agentPayload() {
   return { enable_agent: S.agentEnabled };
 }
 
+// The pinned speaker rides only the routes that start a *new* exchange and can
+// therefore honour it: /send, /continue and /fork-edit. Regenerate, super-
+// regenerate and magic rewrite replace an assistant row whose speaker is already
+// recorded on it, so they must not carry a pick — the backend ignores it, and
+// `runStreamRequest` would otherwise latch it and eat a queue the user set for
+// the next turn.
+export function turnPayload() {
+  return { ...agentPayload(), speaker_member_id: S.pinnedSpeakerId || null };
+}
+
 // The ONE chat generation lifecycle. Every send/continue/regenerate/super-
 // regenerate/fork-edit/magic-rewrite path streams through this: it flips the UI
 // into streaming, optionally sets the render cutoff, runs an optional caller
@@ -755,6 +865,11 @@ export async function runStreamRequest(
   body,
   { cutoffMsgId = null, beforeRender = null, anchorStream = false, afterDone = null } = {},
 ) {
+  // Latch the pick this exchange runs on before the first await, read off the
+  // request rather than off state: the cast rail is live during a stream, so a
+  // chip clicked while it runs queues someone for the *next* turn, and a request
+  // that carries no pick at all (regenerate, magic rewrite) must not consume one.
+  S.consumedSpeakerId = body?.speaker_member_id || null;
   setStreaming(true);
   setGenerationPhase("pending");
   $("send-btn").disabled = true;
@@ -770,10 +885,16 @@ export async function runStreamRequest(
 
   renderMessages();
   const ct = $("chat-messages");
-  const msgDiv = createStreamingDiv();
-  if (!S.hideUntilBaked) ct.appendChild(msgDiv);
-  if (cutoffMsgId != null || anchorStream) pinStreamingMessage(msgDiv);
-  else scrollToBottom();
+  const holder = { el: null };
+  if (S.groupCast) {
+    S.currentExchangeId = "pending";
+    S.completedExchangeMessageIds = [];
+  } else {
+    holder.el = createStreamingDiv();
+    if (!S.hideUntilBaked) ct.appendChild(holder.el);
+    if (cutoffMsgId != null || anchorStream) pinStreamingMessage(holder.el);
+    else scrollToBottom();
+  }
   S.abortController = new AbortController();
   try {
     const resp = await streamPost(path, body, S.abortController.signal);
@@ -792,7 +913,7 @@ export async function runStreamRequest(
       };
       if (!S.turnError.headline) S.turnError.headline = `Orb returned HTTP ${resp.status}.`;
     } else {
-      await processSSEStream(resp, ct, msgDiv, S.abortController.signal);
+      await processSSEStream(resp, ct, holder, S.abortController.signal);
     }
   } catch (e) {
     if (e.name === "AbortError") {
@@ -824,8 +945,18 @@ export async function continueFromUser() {
     toast("Last message is not a user message", true);
     return;
   }
-  await runStreamRequest(convUrl(S.activeConvId, "continue"), agentPayload());
+  await runStreamRequest(convUrl(S.activeConvId, "continue"), turnPayload());
 }
+
+// Give a named member the floor now, with no user message in front of it. The
+// member is explicit rather than read from state: the empty-scene starter opens
+// with the first eligible member, which is not (and must not become) an override.
+export async function speakAsMember(memberId) {
+  if (!S.activeConvId || !memberId || !canStartGeneration()) return;
+  await runStreamRequest(convUrl(S.activeConvId, "speak"), { speaker_member_id: memberId });
+}
+
+document.addEventListener("group-speak-request", (event) => speakAsMember(event.detail || S.pinnedSpeakerId));
 
 // ── Send Message
 export async function sendMessage() {
@@ -836,8 +967,16 @@ export async function sendMessage() {
 
   // Guard against double user turns: if the last message is already from the user,
   // ask the backend to generate a response for it without creating a new message.
+  // A draft in the box is not permission to discard it — this path sends the
+  // *previous* message's turn, not this text, so it may only run with nothing to
+  // lose. A rest (`Manual` with nobody picked) leaves exactly this state behind,
+  // which is how the old silent clear-and-drop became easy to hit.
   const lastMsg = S.messages[S.messages.length - 1];
   if (lastMsg?.role === "user" && lastMsg.id) {
+    if (content) {
+      toast(unansweredHint());
+      return;
+    }
     inp.value = "";
     inp.style.height = "auto";
     await continueFromUser();
@@ -870,7 +1009,7 @@ export async function sendMessage() {
 
   await runStreamRequest(
     convUrl(S.activeConvId, "send"),
-    { content, attachments, ...agentPayload() },
+    { content, attachments, ...turnPayload() },
     {
       beforeRender() {
         S.messages.push(userMsg);

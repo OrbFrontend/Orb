@@ -106,6 +106,32 @@ export const S = {
   // otherwise leave the new card unpainted.
   worldProposalArrived: false,
 
+  // ── Group chats · owner: group_cast.js
+  // null when solo, else {members, speakerNames, turn_mode, max_speakers,
+  // context_mode, sheet_updates, sheet_proposals} — the durable scene settings
+  // mirrored from the conversation row, plus two views of the roster that are
+  // deliberately not the same list:
+  //   • `members` is the **active** roster, in sort order. Everything that asks
+  //     "who is in this scene" reads it — the cast rail, {{cast}}, the fragment
+  //     set, the plugin ABI, the Cast tab of Scene setup.
+  //   • `speakerNames` is id → display name for every member the scene has
+  //     *ever* had, tombstoned rows included. Only history labelling reads it.
+  // The split mirrors the backend's `get_group_members` / `get_speaker_names`,
+  // for the reason stated there: a reply by a member the user has since removed
+  // still has to be attributed, but it must not put that member back on the
+  // rail.
+  groupCast: null,
+  pinnedSpeakerId: null,
+  // The pick the in-flight exchange was started with, latched at request time. A
+  // chip clicked mid-exchange moves `pinnedSpeakerId` on to the *next* turn, so the
+  // one-shot cleanup after the exchange has to know which pick it is allowed to eat.
+  consumedSpeakerId: null,
+  speakingPlan: null,
+  currentSpeaker: null,
+  currentExchangeId: null,
+  completedExchangeMessageIds: [],
+  castSetupBusy: false,
+
   // ── Reasoning rail & Inspector · owner: chat_inspector.js
   directorState: null,
   lastDirectorData: null,
@@ -252,6 +278,7 @@ const TOPICS = new Set([
   "documents",
   "attachments",
   "tabs",
+  "cast",
 ]);
 
 const _subscribers = new Map(); // topic -> Set<fn>

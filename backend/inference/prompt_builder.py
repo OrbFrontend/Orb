@@ -8,7 +8,8 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping, MutableMapping, Sequence
 from typing import Any
 
-from ..core import ChatMessage, ContentPart, Macros, resolve_stored_random
+from ..core import ChatMessage, ContentPart, Macros, TurnCast, resolve_stored_random
+from .group_context import render_cast_section
 from .tool_registry import TOOLS
 
 
@@ -55,6 +56,19 @@ def format_message_with_attachments(message: Mapping[str, Any], macros: Macros |
     return {"role": role, "content": parts}
 
 
+def group_speaker_label(speaker_names: Mapping[str, str], speaker_member_id: object) -> str:
+    """The name a group prefix attributes one assistant row to.
+
+    An assistant row with no speaker is a summary the compressor wrote, not a
+    member's line; a speaker whose member row is gone entirely is still named
+    rather than silently merged into the reply above it. The context-size
+    estimator bills the same string, so the two read it from here.
+    """
+    if not speaker_member_id:
+        return "Summary"
+    return speaker_names.get(str(speaker_member_id), "Unknown speaker")
+
+
 # ── System-prompt prefix
 
 
@@ -70,6 +84,8 @@ def build_prefix(
     *,
     constant_lorebook_block: str = "",
     extra_system_blocks: list[str] | None = None,
+    cast: TurnCast | None = None,
+    speaker_names: Mapping[str, str] | None = None,
 ) -> list[ChatMessage]:
     resolve = macros.resolve_message if macros else (lambda t: t)
     resolved = {
@@ -84,9 +100,14 @@ def build_prefix(
     }
 
     parts = [system_prompt]
-    if macros and macros.char:
+    if cast and cast.grouped:
+        # Which character fields land here is the context mode's call alone —
+        # public cast, shared dossiers, or the active card. See
+        # ``inference/group_context.py``; no pass decides this for itself.
+        parts.append(render_cast_section(cast, macros))
+    elif macros and macros.char:
         parts.append(f"\n\n## Character: {macros.char}")
-    if resolved["persona"]:
+    if resolved["persona"] and not (cast and cast.grouped):
         parts.append(f"\n{resolved['persona']}")
     # Opaque, pre-rendered (header + macros already resolved by the caller) —
     # not passed through resolve, to avoid double macro expansion.
@@ -94,13 +115,18 @@ def build_prefix(
         parts.append(f"\n\n{constant_lorebook_block}")
     if resolved["scenario"]:
         parts.append(f"\n\n## Scenario\n{resolved['scenario']}")
-    if resolved["mes_example"]:
+    if resolved["mes_example"] and not (cast and cast.grouped):
         mes = resolved["mes_example"]
         if "<START>" in mes:
             processed_example = mes.replace("<START>", "## Example Dialogue")
             parts.append(f"\n\n{processed_example}")
         else:
             parts.append(f"\n\n## Example Dialogue\n{mes}")
+    # Kept for a group as well: this is the *scene's* single directive
+    # (``conversations.post_history_instructions``), not a card's. There is
+    # exactly one per scene, it is identical for every speaker, and it is
+    # therefore cacheable here. A member's own card directive is active-only
+    # and rides the trailing Writer message instead (``passes/writer.py``).
     if resolved["post_history"]:
         parts.append(f"\n\n## Additional Instructions\n{resolved['post_history']}")
     if resolved["user_desc"].strip():
@@ -112,6 +138,31 @@ def build_prefix(
             parts.append(f"\n\n{block}")
 
     processed_messages = [format_message_with_attachments(m, macros) for m in (messages or [])]
+    if cast and cast.grouped:
+        labelled: list[ChatMessage] = []
+        names = dict(speaker_names or {})
+        names.update({m.member_id: m.name for m in cast.members})
+        for original, rendered in zip(messages or [], processed_messages, strict=True):
+            if rendered["role"] != "assistant":
+                labelled.append(rendered)
+                continue
+            label = group_speaker_label(names, original.get("speaker_member_id"))
+            content = rendered["content"]
+            if isinstance(content, str):
+                text = f"{label}: {content}"
+                if labelled and labelled[-1]["role"] == "assistant" and isinstance(labelled[-1]["content"], str):
+                    labelled[-1] = {"role": "assistant", "content": str(labelled[-1]["content"]) + "\n\n" + text}
+                else:
+                    labelled.append({"role": "assistant", "content": text})
+            else:
+                parts_content = list(content)
+                if parts_content and parts_content[0]["type"] == "text":
+                    first = parts_content[0]
+                    parts_content = [{"type": "text", "text": f"{label}: {first['text']}"}, *parts_content[1:]]
+                else:
+                    parts_content.insert(0, {"type": "text", "text": f"{label}:"})
+                labelled.append({"role": "assistant", "content": parts_content})
+        processed_messages = labelled
 
     system_message: ChatMessage = {"role": "system", "content": "".join(parts)}
     return [system_message] + processed_messages
@@ -242,7 +293,15 @@ def build_director_tool_prompt(
     interactive_fragments: Sequence[Mapping[str, Any]] | None = None,
     progressive_state: dict | None = None,
     tool_schema: dict | None = None,
+    cast_instruction: str = "",
 ) -> str:
+    """Build the combined director request for one tool.
+
+    *cast_instruction* is the group speaking-plan line (``director.speaking_plan_
+    instruction``): the roster is volatile and rides this per-call tail rather than
+    the shared tool blob, exactly like the editor's numbered finding ids. Empty on
+    a solo turn.
+    """
     tool = TOOLS.get(tool_name)
     if not tool:
         return ""
@@ -253,6 +312,8 @@ def build_director_tool_prompt(
         _tool_call_instruction(tool_name, schema),
     ]
     if tool_name == "direct_scene":
+        if cast_instruction:
+            parts.append(cast_instruction)
         # Scene context (progressive/interactive) before the mood options, mirroring
         # the per-fragment builder: settle the scene, then pick moods that fit it.
         progressive_lines = [
@@ -289,12 +350,18 @@ def build_director_scene_step_prompt(
     target_fragment: Mapping[str, Any] | None = None,
     decided_fields: Sequence[tuple[str, Any]] = (),
     progressive_prior: Any = None,
+    cast_instruction: str = "",
 ) -> str:
     """Build one ``direct_scene`` request that targets a single output.
 
     With ``target_fragment`` None the model is asked only for ``moods``; otherwise
     only for the named fragment, with the values already chosen this turn
     (``decided_fields``) shown so it can build on them.
+
+    *cast_instruction* is passed only on the speaking-plan stage, and is the only
+    place that stage's roster appears: a step prompt echoes the stage's own
+    ``description``, never the schema property's, so before this the per-fragment
+    path cast the exchange without ever being told the valid keys.
     """
     schema = tool_schema if tool_schema is not None else TOOLS["direct_scene"]["schema"]
     desc = schema["function"]["description"]
@@ -318,6 +385,8 @@ def build_director_scene_step_prompt(
             f"Call ONLY direct_scene - {desc}\nFill ONLY the '{fid}' parameter. Leave moods and all other fields empty."
         )
         parts.append(f"Field '{fid}' ({hint}): {target_fragment['description']}")
+        if cast_instruction:
+            parts.append(cast_instruction)
         prior = [f"- {label}: {_render_decided(value)}" for label, value in decided_fields if value]
         if prior:
             parts.append("Decided so far this turn (build on these, do not contradict):\n" + "\n".join(prior))

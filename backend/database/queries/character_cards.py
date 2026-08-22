@@ -3,13 +3,13 @@ from __future__ import annotations
 import base64
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, cast
 
 import aiosqlite
 
-from ...core import has_inline_macros, resolve_inline
+from ...core import TurnCast, has_inline_macros, resolve_inline
 from ..connection import _build_set_clause, get_db
 from ..models import CharacterCardRow, InteractiveFragmentRow, MoodFragmentRow
 
@@ -22,10 +22,20 @@ async def list_character_cards() -> list[CharacterCardRow]:
     # payload that the client must transfer, JSON-parse, and hold resident on
     # every refresh. The edit modal lazy-loads the full card via
     # get_character_card() when needed.
+    #
+    # `def_chars` is how the list path answers "how heavy is this card" without
+    # reopening that decision: the *measure* of the bodies instead of the bodies,
+    # one integer per row. It sums exactly the fields the group context modes
+    # disagree about — description + personality (`_private_sheet`) and
+    # mes_example. `post_history_instructions` is excluded on purpose: every mode
+    # keeps it in the speaker's trailing message, so it cannot discriminate
+    # between them. New Group Chat's context-mode recommendation is the consumer
+    # (`group_cast.js:recommendContextMode`).
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
                 "SELECT c.id, c.name, c.creator_notes, c.tags, c.creator, c.source_format, c.created_at, c.updated_at, c.avatar_mime, c.world_id, c.persona_lock_id, "
+                "LENGTH(COALESCE(c.description, '')) + LENGTH(COALESCE(c.personality, '')) + LENGTH(COALESCE(c.mes_example, '')) AS def_chars, "
                 "EXISTS(SELECT 1 FROM character_expressions e WHERE e.character_card_id = c.id) AS has_expressions "
                 "FROM character_cards c ORDER BY c.updated_at DESC"
             )
@@ -160,6 +170,49 @@ def card_embedded_fragments(
         )
 
     return moods, interactive
+
+
+async def cast_embedded_fragments(
+    card: Mapping[str, Any] | None,
+    cast_: TurnCast | None = None,
+) -> tuple[list[MoodFragmentRow], list[InteractiveFragmentRow]]:
+    """Every fragment a turn's characters contribute: the solo card's, or the cast's.
+
+    A group has no single card, so its fragments are the union of its members'.
+    One reader for both callers (the turn's ``_load_pipeline_context`` and the
+    context-size estimator) because a fragment the estimate does not see is a
+    fragment the user is billed for without being shown.
+
+    Cards are visited once each in roster order, so two members sharing a card
+    contribute one copy and the merge order stays byte-stable.
+    """
+    moods, interactive = card_embedded_fragments(card)
+    if cast_ is None or not cast_.grouped:
+        return moods, interactive
+    seen: set[str] = set()
+    for member in cast_.members:
+        if not member.card_id or member.card_id in seen:
+            continue
+        seen.add(member.card_id)
+        member_moods, member_interactive = card_embedded_fragments(await get_character_card(member.card_id))
+        moods.extend(member_moods)
+        interactive.extend(member_interactive)
+    return moods, interactive
+
+
+def merge_fragments_by_id(base: list, extra: Sequence[Mapping[str, Any]]) -> list:
+    """Append *extra* to *base*, skipping ids already present. Globals win.
+
+    The rule ``card_embedded_fragments`` states and every caller has to apply:
+    a card can never hijack a user-configured fragment, and two cards naming the
+    same id contribute it once.
+    """
+    seen = {fragment["id"] for fragment in base}
+    for fragment in extra:
+        if fragment["id"] not in seen:
+            base.append(fragment)
+            seen.add(fragment["id"])
+    return base
 
 
 async def create_character_card(data: dict) -> CharacterCardRow:
@@ -313,6 +366,48 @@ async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | 
         return await get_character_card(card_id)
 
 
+# The stored profile's fields, in render order. One tuple so the writer below and
+# every reader agree on the key set: a field added here without a matching writer
+# key would render nothing, and a writer key missing here would be stored and
+# never shown.
+_PROFILE_FIELDS = (("Appearance", "appearance"), ("Role", "role"))
+
+
+def render_public_profile(profile: Mapping[str, Any] | None) -> str:
+    """The stored ``extensions.orb.public_profile`` dict as prompt lines.
+
+    ``Appearance: …\nRole: …``, each field omitted when blank and an entirely
+    blank profile rendering ``""``. Lives beside :func:`set_public_profile`, its
+    only writer, because the invariant being protected is that the two agree on
+    the key set — ``core/`` would be the wrong home for it, having no vocabulary
+    for card extensions at all.
+
+    Shared by the group cast projection (``queries/group_members._public_profile``)
+    and the scene-profile drafter, so a generated override and a card-derived
+    profile read identically once assembled into a prompt.
+    """
+    if not isinstance(profile, Mapping):
+        return ""
+    lines = []
+    for label, key in _PROFILE_FIELDS:
+        value = profile.get(key)
+        if isinstance(value, str) and value.strip():
+            lines.append(f"{label}: {value.strip()}")
+    return "\n".join(lines)
+
+
+async def set_public_profile(card_id: str, appearance: str, role: str) -> CharacterCardRow | None:
+    """Merge only ``extensions.orb.public_profile`` and preserve every sibling key."""
+    card = await get_character_card(card_id)
+    if not card:
+        return None
+    extensions = dict(card.get("extensions") or {})
+    orb = dict(extensions.get("orb") or {}) if isinstance(extensions.get("orb"), dict) else {}
+    orb["public_profile"] = {"appearance": appearance, "role": role}
+    extensions["orb"] = orb
+    return await update_character_card(card_id, {"extensions": extensions})
+
+
 async def sync_conversations_for_card(card_id: str, card: Mapping[str, Any], old_name: str | None = None) -> None:
     """Propagate mutable card fields to all conversations linked to this card.
 
@@ -351,7 +446,12 @@ async def sync_conversations_for_card(card_id: str, card: Mapping[str, Any], old
 async def delete_character_card(card_id: str, delete_conversations: bool = False) -> bool:
     async with get_db() as db:
         if delete_conversations:
-            await db.execute("DELETE FROM conversations WHERE character_card_id = ?", (card_id,))
+            await db.execute(
+                """DELETE FROM conversations
+                   WHERE character_card_id = ?
+                      OR id IN (SELECT conversation_id FROM group_members WHERE character_card_id = ?)""",
+                (card_id, card_id),
+            )
         # When keeping conversations, character_card_id is intentionally left as-is.
         # The dangling reference acts as a pending-relink marker: re-importing the
         # same card (which produces the same stable ID) restores the association
@@ -359,6 +459,24 @@ async def delete_character_card(card_id: str, delete_conversations: bool = False
         cur = await db.execute("DELETE FROM character_cards WHERE id = ?", (card_id,))
         await db.commit()
         return cur.rowcount > 0
+
+
+async def get_character_usage(card_id: str) -> dict[str, int]:
+    """Return solo and active/historical group conversation usage counts."""
+    async with get_db() as db:
+        rows = list(
+            await db.execute_fetchall(
+                """SELECT
+                     (SELECT COUNT(*) FROM conversations WHERE character_card_id = ?) AS solo,
+                     (SELECT COUNT(DISTINCT conversation_id) FROM group_members
+                      WHERE character_card_id = ? AND active = 1) AS active_groups,
+                     (SELECT COUNT(DISTINCT conversation_id) FROM group_members
+                      WHERE character_card_id = ? AND active = 0) AS historical_groups""",
+                (card_id, card_id, card_id),
+            )
+        )
+    row = rows[0]
+    return {"solo": int(row[0]), "active_groups": int(row[1]), "historical_groups": int(row[2])}
 
 
 async def resolve_char_context(

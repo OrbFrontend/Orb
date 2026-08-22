@@ -108,10 +108,10 @@ SECRET_COLUMNS: dict[tuple[str, str], str] = {
 # recursive blank-by-key-name would mangle the node inputs of an imported ComfyUI
 # graph. Paths are the only statement narrow enough to be correct.
 #
-# **All three ``workflow_state`` columns are declared, two of them empty.**
+# **All four ``workflow_state`` columns are declared, three of them empty.**
 # ``workflow_state`` is the same free-form per-workflow JSON slot on ``conversations``,
-# ``character_cards`` and ``messages``, written through the same toolkit helpers; only
-# the character one holds a credential today. Declaring all three makes this table a
+# ``character_cards``, ``messages`` and ``group_members``, written through the same
+# toolkit helpers; only the character one holds a credential today. Declaring all four makes this table a
 # statement about every column that *could* hold one, and gives the coverage test
 # something to assert completeness against -- an absent key and an empty tuple say
 # different things.
@@ -123,6 +123,7 @@ SECRET_JSON_PATHS: dict[tuple[str, str], tuple[tuple[str, ...], ...]] = {
     ("character_cards", "workflow_state"): (("tts", "api_key"),),
     ("conversations", "workflow_state"): (),
     ("messages", "workflow_state"): (),
+    ("group_members", "workflow_state"): (),
 }
 
 # Touch when: exporting one domain only makes sense alongside another (a product
@@ -157,6 +158,10 @@ PRESERVED_COLUMNS: dict[str, tuple[str, ...]] = {
 # ``top_k`` are not.
 SENSITIVE_SUFFIXES: tuple[str, ...] = ("_key", "password", "token")
 SENSITIVE_SUBSTRINGS: tuple[str, ...] = ("secret",)
+
+# Immutable identity keys are not credentials. Keep this explicit so the
+# secret-name tripwire can stay broad without blanking group attribution.
+NON_SECRET_KEY_COLUMNS: frozenset[tuple[str, str]] = frozenset({("group_members", "speaker_key")})
 
 
 def is_sensitive_column(name: str) -> bool:

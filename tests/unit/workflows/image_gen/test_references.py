@@ -16,7 +16,12 @@ import pytest
 from PIL import Image
 
 from backend.workflows.image_gen import references as refs
-from backend.workflows.image_gen.engine.contracts import ImageGenerationError
+from backend.workflows.image_gen.config import REFERENCE_SOURCES
+from backend.workflows.image_gen.engine.contracts import (
+    ImageGenerationError,
+    RenderTarget,
+)
+from backend.workflows.image_gen.subjects import Subject
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"first"
 OTHER = b"\x89PNG\r\n\x1a\n" + b"second"
@@ -77,11 +82,21 @@ def _upload(att_id: int, data: bytes, mime: str = "image/jpeg") -> dict:
 
 
 def _entries(source: str = "previous", node: str = "72") -> list[dict]:
-    return [{"slot": [node, "image"], "source": source, "label": f"Load Image (#{node})"}]
+    """One structural slot, as `plan_slots` hands it to the resolver: the graph's own
+    input, plus the ordered `(kind, subject index)` list the style's source resolves to.
+    Every declared input of one graph carries the same `draw`."""
+    draw = tuple((kind, 0) for kind in REFERENCE_SOURCES[source].kinds) if source in REFERENCE_SOURCES else ()
+    return [{"slot": [node, "image"], "source": source, "label": f"Load Image (#{node})", "draw": draw}]
 
 
-async def _resolve(entries, history, anchor_id=99, character_id=None):
-    return await refs.resolve_references(entries, history=history, anchor_id=anchor_id, character_id=character_id)
+def _subject(card_id: str, name: str = "", **profile) -> Subject:
+    return Subject(member_id=f"m-{card_id}", card_id=card_id, name=name or card_id, profile=profile)
+
+
+async def _resolve(entries, history, anchor_id=99, character_id=None, subjects=None):
+    if subjects is None:
+        subjects = (_subject(character_id),) if character_id else ()
+    return await refs.resolve_references(entries, subjects=subjects, previous=refs.previous_image(history, anchor_id))
 
 
 @pytest.fixture(autouse=True)
@@ -175,6 +190,12 @@ async def test_only_a_required_slot_fails_when_nothing_resolves():
 
 @pytest.mark.asyncio
 async def test_two_slots_sharing_a_source_resolve_to_one_upload(monkeypatch):
+    """The per-source cache, which is what makes a two-`Load Image` graph work in a
+    solo chat: both rows on the character reference receive the same bytes. This is
+    why `cast` is a source of its own rather than a redefinition of `character` --
+    re-pointing slot two at "subject two" would leave it unfilled here, and a ComfyUI
+    slot is unconditionally required."""
+
     async def avatar(_card_id):
         return AVATAR, "image/png"
 
@@ -185,6 +206,186 @@ async def test_two_slots_sharing_a_source_resolve_to_one_upload(monkeypatch):
     # One digest, so the adapter uploads one file and patches both slots with it.
     assert len(resolved) == 2
     assert resolved[0].digest == resolved[1].digest
+
+
+# ── whose likeness, and how many ─────────────────────────────────────────────
+
+
+@pytest.fixture
+def _avatars(monkeypatch):
+    """One distinct avatar per card, so which subject a slot drew is readable.
+
+    Real bytes, not the walk-back tests' stand-ins: a slot carrying a mime allowlist
+    re-encodes what it resolved, and a distinct colour per card is what makes the
+    digests distinguishable afterwards.
+    """
+
+    async def avatar(card_id):
+        buf = io.BytesIO()
+        shade = sum(card_id.encode()) % 200
+        Image.new("RGB", (64, 64), (shade, 40, 90)).save(buf, format="PNG")
+        return buf.getvalue(), "image/png"
+
+    monkeypatch.setattr(refs, "get_character_avatar", avatar)
+
+
+def _cloud_target(source: str, capacity: int = 4) -> RenderTarget:
+    """A homogeneous array: a capacity and a per-slot policy, and no declared slots."""
+    return RenderTarget(
+        source="cloud",
+        target_id="",
+        model="m",
+        supports_negative_prompt=True,
+        supports_seed=True,
+        supports_dimensions=True,
+        width=1024,
+        height=1024,
+        reference_source=source,
+        reference_capacity=capacity,
+        reference_template={"slot_prefix": "cloud", "mimes": ["image/png"], "max_bytes": 4_000_000, "required": False},
+    )
+
+
+def _comfy_target(source: str, nodes: tuple[str, ...]) -> RenderTarget:
+    """Structural inputs: the graph declares them and they are not interchangeable."""
+    return RenderTarget(
+        source="cloud",
+        target_id="g",
+        model="m",
+        supports_negative_prompt=True,
+        supports_seed=True,
+        supports_dimensions=True,
+        width=1024,
+        height=1024,
+        reference_source=source,
+        reference_capacity=len(nodes),
+        reference_slots=tuple(
+            {"slot": [node, "image"], "label": f"Load Image (#{node})", "source": source, "required": True} for node in nodes
+        ),
+    )
+
+
+def test_a_homogeneous_array_draws_one_image_per_person_and_never_twice():
+    """The rule, enforced by construction rather than asked of the user: slot *i* draws
+    subject *i*, so no character can appear in two slots however wide the array is."""
+    cast = (_subject("card-a"), _subject("card-b"), _subject("card-c"))
+
+    slots = refs.plan_slots(_cloud_target("character"), cast, previous=None)
+
+    assert [slot["slot"] for slot in slots] == [["cloud", "image_0"], ["cloud", "image_1"], ["cloud", "image_2"]]
+    assert [slot["draw"] for slot in slots] == [(("character", 0),), (("character", 1),), (("character", 2),)]
+
+
+def test_the_array_stops_at_what_the_provider_carries():
+    """A scene wider than the array is not an error -- the tail is described in the
+    prompt instead, and `hooks._uncovered_note` is what says so on the attachment."""
+    cast = tuple(_subject(f"card-{i}") for i in range(6))
+
+    slots = refs.plan_slots(_cloud_target("character", capacity=2), cast, previous=None)
+
+    assert len(slots) == 2
+    # The front of the list, so the speaker is never the one dropped.
+    assert [slot["draw"][0][1] for slot in slots] == [0, 1]
+
+
+def test_a_subject_with_no_card_never_claims_a_slot():
+    """A narrator is describable and unpicturable. Claiming a slot for one would spend
+    an image on nobody and push a real likeness out of the array."""
+    cast = (_subject("card-a"), Subject(member_id="m", card_id=None, name="Narrator"), _subject("card-c"))
+
+    slots = refs.plan_slots(_cloud_target("character"), cast, previous=None)
+
+    assert [slot["draw"] for slot in slots] == [(("character", 0),), (("character", 2),)]
+
+
+def test_the_combined_source_sends_the_cast_and_then_the_chat_image():
+    """`character_and_previous` is the one choice that combines rather than falls back,
+    which is only meaningful on an array: a structural input takes one picture."""
+    cast = (_subject("card-a"), _subject("card-b"))
+
+    slots = refs.plan_slots(_cloud_target("character_and_previous"), cast, previous=(PNG, "image/png", "attachment:7"))
+
+    assert [slot["draw"] for slot in slots] == [(("character", 0),), (("character", 1),), (("previous", 0),)]
+    # No chat image to add is not a failure; the cast still travels.
+    without = refs.plan_slots(_cloud_target("character_and_previous"), cast, previous=None)
+    assert [slot["draw"] for slot in without] == [(("character", 0),), (("character", 1),)]
+
+
+def test_a_style_that_asked_and_got_nothing_still_plans_a_slot_to_disclose():
+    """A render that asked for a reference and sent none owes the user that sentence.
+    Planning nothing would make it indistinguishable from a style with references off,
+    so one slot is planned, resolves to nothing, and `hooks._unfilled_note` says so."""
+    for source in ("previous", "character", "previous_or_character"):
+        slots = refs.plan_slots(_cloud_target(source), (), previous=None)
+        assert len(slots) == 1, source
+        # It carries the whole chain, so the disclosure names everything that was tried.
+        assert slots[0]["draw"] == tuple((kind, 0) for kind in REFERENCE_SOURCES[source].kinds)
+
+
+def test_the_fallback_source_asks_for_one_kind_or_the_other_never_both():
+    """`previous_or_character` is a fallback, so how many slots it even asks for depends
+    on whether the chat has an image -- which is why the chat image is found before the
+    plan is made rather than during it."""
+    cast = (_subject("card-a"), _subject("card-b"))
+    target = _cloud_target("previous_or_character")
+
+    with_image = refs.plan_slots(target, cast, previous=(PNG, "image/png", "attachment:7"))
+    assert [slot["draw"] for slot in with_image] == [(("previous", 0),)]
+
+    without = refs.plan_slots(target, cast, previous=None)
+    assert [slot["draw"] for slot in without] == [(("character", 0),), (("character", 1),)]
+
+
+def test_a_graph_feeds_every_declared_input_the_same_picture():
+    """Structural inputs are not interchangeable -- an IPAdapter face input and an
+    img2img init are different questions and the graph does not say which is which -- so
+    they all get one answer. It is also what makes a two-`Load Image` graph work in a
+    solo chat, where there is only one person to draw."""
+    cast = (_subject("card-a"), _subject("card-b"))
+
+    slots = refs.plan_slots(_comfy_target("character", ("41", "58")), cast, previous=None)
+
+    assert [slot["slot"] for slot in slots] == [["41", "image"], ["58", "image"]]
+    assert [slot["draw"] for slot in slots] == [(("character", 0),)] * 2
+
+
+def test_a_style_with_no_source_plans_nothing_on_either_shape():
+    cast = (_subject("card-a"),)
+    assert refs.plan_slots(_cloud_target(""), cast, previous=None) == ()
+    assert refs.plan_slots(_comfy_target("", ("41",)), cast, previous=None) == ()
+
+
+@pytest.mark.asyncio
+async def test_a_graph_resolves_and_uploads_its_one_picture_once(_avatars):
+    """Three inputs, one fetch, one digest -- the engine dedupes the upload on it."""
+    resolved = await _resolve(
+        _entries("character", "70") + _entries("character", "72") + _entries("character", "90"),
+        [],
+        subjects=(_subject("card-a"),),
+    )
+
+    assert [r.origin for r in resolved] == ["character:card-a"] * 3
+    assert len({r.digest for r in resolved}) == 1
+
+
+@pytest.mark.asyncio
+async def test_each_array_slot_resolves_its_own_subject(_avatars):
+    cast = (_subject("card-a"), _subject("card-b"))
+    slots = refs.plan_slots(_cloud_target("character"), cast, previous=None)
+
+    resolved = await refs.resolve_references(slots, subjects=cast, previous=None)
+
+    assert [r.origin for r in resolved] == ["character:card-a", "character:card-b"]
+    assert len({r.digest for r in resolved}) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_render_with_no_subject_has_no_likeness_to_send(_avatars):
+    """A narrator line in a group resolves no primary. `character` is then a missing
+    source and a required slot says so, rather than drawing whoever spoke last."""
+    with pytest.raises(ImageGenerationError) as raised:
+        await _resolve(_entries("character", "72"), [], subjects=())
+    assert "Load Image (#72)" in str(raised.value)
 
 
 # ── replay ───────────────────────────────────────────────────────────────────

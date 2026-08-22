@@ -9,8 +9,21 @@ from backend.workflows.image_gen.composer import (
     FIRST,
     THIRD,
     _render_scene,
+    addressable_subjects,
+    analyze_scene,
     compose_scene,
 )
+from backend.workflows.image_gen.subjects import Subject
+
+
+def _subject(name: str, appearance: str = "", card_id: str = "") -> Subject:
+    """One resolved subject, as `subjects.resolve` would hand it to the composer."""
+    return Subject(
+        member_id=f"m-{name}",
+        card_id=card_id or f"card-{name}",
+        name=name,
+        profile={"appearance_prompt": appearance},
+    )
 
 
 def _fake_forced(results: dict, captured: dict | None = None):
@@ -25,10 +38,39 @@ def _fake_forced(results: dict, captured: dict | None = None):
     return fake
 
 
+async def _run(*, client=None, model_name="m", prefix=(), settings=None, scene_analysis: bool = False, **kwargs):
+    """The composer sequence one render performs, in the order it performs it.
+
+    Mirrors `hooks._generate_fresh`: the analyzer runs first and its answer is handed
+    to the compose call. The two are separate entry points because production fills the
+    reference slots in between -- `addressable_subjects` reads the analysis to decide
+    whose likeness may leave the machine -- so a test that ran `compose_scene` alone
+    would be exercising an order no render uses.
+    """
+    lane = {
+        "client": client,
+        "model_name": model_name,
+        "prefix": prefix,
+        "settings": settings if settings is not None else {"model_name": "writer"},
+    }
+    analysis = (
+        await analyze_scene(
+            **lane,
+            pov=kwargs.get("pov", THIRD),
+            reasoning_on=kwargs.get("reasoning_on", False),
+            subjects=kwargs.get("subjects", ()),
+            supports_negative=kwargs.get("supports_negative", True),
+        )
+        if scene_analysis
+        else None
+    )
+    return await compose_scene(**lane, analysis=analysis, **kwargs)
+
+
 async def _compose(monkeypatch, results: dict, captured: dict | None = None, **kwargs):
-    """One `compose_scene` against stubbed forced-call results."""
+    """One render's composer sequence against stubbed forced-call results."""
     monkeypatch.setattr(composer, "forced_tool_call", _fake_forced(results, captured))
-    return await compose_scene(client=None, model_name="m", prefix=[], settings={"model_name": "writer"}, **kwargs)
+    return await _run(**kwargs)
 
 
 # ── the structured scene block ───────────────────────────────────────────────
@@ -166,14 +208,14 @@ async def test_the_camera_decides_who_stays_in_the_cast(monkeypatch, mode_pov, c
         {
             "analyze_scene": {
                 "characters": [
-                    {"name": "Ashley", "is_profile_owner": True, "sex": "girl", "action": "smiling"},
+                    {"name": "Ashley", "is_listed_subject": True, "sex": "girl", "action": "smiling"},
                     {"name": "bystander", "sex": "boy", "action": "walking past"},
                 ],
             },
             "compose_image_prompt": {"scene": composed, "avoid": None},
         },
         scene_analysis=True,
-        profile_owner_name="Ashley",
+        subjects=[_subject("Ashley")],
         pov=mode_pov,
     )
     assert scene == expected
@@ -245,9 +287,7 @@ async def test_both_calls_ride_the_prefix_unchanged_with_shared_tool_blob(monkey
     (DeepSeek)."""
     calls = _record_forced_calls(monkeypatch)
     prefix = [{"role": "system", "content": "sys"}, {"role": "assistant", "content": "she waves"}]
-    await compose_scene(
-        client=None, model_name="agent-m", prefix=prefix, settings={"model_name": "writer"}, scene_analysis=True
-    )
+    await _run(model_name="agent-m", prefix=prefix, scene_analysis=True)
     assert [c["tool_name"] for c in calls] == ["analyze_scene", "compose_image_prompt"]
     for call in calls:
         assert call["prefix"] is prefix
@@ -279,10 +319,8 @@ async def test_reasoning_mode_is_explicit_and_ignores_pipeline_pass_flags(monkey
     """The workflow setting owns both calls; no pipeline pass is its fallback."""
     for reasoning_on in (False, True):
         calls = _record_forced_calls(monkeypatch)
-        await compose_scene(
-            client=None,
+        await _run(
             model_name="agent-m",
-            prefix=[],
             settings={
                 "model_name": "writer",
                 "reasoning_enabled_passes": {p: not reasoning_on for p in ("director", "writer", "editor")},
@@ -433,7 +471,7 @@ async def test_no_negative_workflow_tells_model_to_leave_avoid_empty(monkeypatch
     captured: dict = {}
     await _compose(
         monkeypatch,
-        {"compose_image_prompt": {"scene": "1girl", "profile_owner_visible": False}},
+        {"compose_image_prompt": {"scene": "1girl", "visible_subjects": []}},
         captured,
         supports_negative=False,
     )
@@ -448,7 +486,7 @@ async def test_analysis_avoid_items_ride_avoid(monkeypatch):
                 "characters": [{"name": "Ashley", "sex": "girl", "appearance": "", "action": "walking away"}],
                 "avoid": "looking at viewer",
             },
-            "compose_image_prompt": {"scene": "1girl, from behind", "avoid": "blur", "profile_owner_visible": False},
+            "compose_image_prompt": {"scene": "1girl, from behind", "avoid": "blur", "visible_subjects": []},
         },
         scene_analysis=True,
     )
@@ -474,7 +512,7 @@ async def test_failed_compose_stops_instead_of_shipping_the_reply(monkeypatch):
                 "compose_image_prompt": {
                     "scene": "1girl, solo. Iris sits beside the window. Two women cross the garden behind her.",
                     "avoid": None,
-                    "profile_owner_visible": False,
+                    "visible_subjects": [],
                 }
             },
             {},
@@ -490,7 +528,7 @@ async def test_failed_compose_stops_instead_of_shipping_the_reply(monkeypatch):
                 "compose_image_prompt": {
                     "scene": "1girl, 1boy. Iris sits beside the window. Two women cross the garden behind her.",
                     "avoid": None,
-                    "profile_owner_visible": False,
+                    "visible_subjects": [],
                 },
             },
             {"scene_analysis": True},
@@ -560,11 +598,10 @@ async def test_profile_appearance_binding_follows_prompt_format(monkeypatch, pro
             "compose_image_prompt": {
                 "scene": "2girls, Iris sits beside Ashley.",
                 "avoid": None,
-                "profile_owner_visible": True,
+                "visible_subjects": ["Iris"],
             }
         },
-        appearance="long silver hair, blue eyes",
-        profile_owner_name="Iris",
+        subjects=[_subject("Iris", "long silver hair, blue eyes")],
         prompt_format=prompt_format,
     )
     assert scene == expected
@@ -577,11 +614,10 @@ async def test_single_call_inserts_the_profile_only_when_its_owner_is_visible(mo
             "compose_image_prompt": {
                 "scene": "1girl, solo, sitting by a window",
                 "avoid": None,
-                "profile_owner_visible": True,
+                "visible_subjects": ["Iris"],
             }
         },
-        appearance="long silver hair, blue eyes",
-        profile_owner_name="Iris",
+        subjects=[_subject("Iris", "long silver hair, blue eyes")],
         prompt_format="hybrid",
     )
     assert visible == "1girl, solo, Iris: long silver hair, blue eyes, sitting by a window"
@@ -592,11 +628,10 @@ async def test_single_call_inserts_the_profile_only_when_its_owner_is_visible(mo
             "compose_image_prompt": {
                 "scene": "1boy, solo, standing in a doorway",
                 "avoid": None,
-                "profile_owner_visible": False,
+                "visible_subjects": [],
             }
         },
-        appearance="long silver hair, blue eyes",
-        profile_owner_name="Iris",
+        subjects=[_subject("Iris", "long silver hair, blue eyes")],
     )
     assert "silver hair" not in absent
 
@@ -604,9 +639,8 @@ async def test_single_call_inserts_the_profile_only_when_its_owner_is_visible(mo
 async def test_profile_appearance_negation_cannot_bypass_scene_cleanup(monkeypatch):
     scene, _, _ = await _compose(
         monkeypatch,
-        {"compose_image_prompt": {"scene": "1girl, solo, sitting", "avoid": None, "profile_owner_visible": True}},
-        appearance="long silver hair, not wearing glasses, blue eyes",
-        profile_owner_name="Iris",
+        {"compose_image_prompt": {"scene": "1girl, solo, sitting", "avoid": None, "visible_subjects": ["Iris"]}},
+        subjects=[_subject("Iris", "long silver hair, not wearing glasses, blue eyes")],
         prompt_format="hybrid",
     )
     assert scene == "1girl, solo, Iris: long silver hair, blue eyes, sitting"
@@ -621,7 +655,7 @@ async def test_analysis_owns_profile_visibility_and_preserves_scene_fields(monke
                 "characters": [
                     {
                         "name": "Iris",
-                        "is_profile_owner": True,
+                        "is_listed_subject": True,
                         "sex": "girl",
                         "appearance": None,
                         "outfit": "black dress",
@@ -642,12 +676,11 @@ async def test_analysis_owns_profile_visibility_and_preserves_scene_fields(monke
                 "scene": "black dress, holding hands, smiling, library at night, medium shot",
                 "avoid": None,
                 # Structured analysis, not this redundant field, owns visibility.
-                "profile_owner_visible": False,
+                "visible_subjects": [],
             },
         },
         captured,
-        appearance="long silver hair",
-        profile_owner_name="Iris",
+        subjects=[_subject("Iris", "long silver hair")],
         scene_analysis=True,
     )
     assert scene.startswith("1girl, solo, Iris: long silver hair,")  # identity stays near the prompt head
@@ -663,14 +696,13 @@ async def test_analysis_does_not_insert_an_off_frame_profile(monkeypatch):
         monkeypatch,
         {
             "analyze_scene": {
-                "characters": [{"name": "Ashley", "is_profile_owner": False, "sex": "girl", "action": "reading"}],
+                "characters": [{"name": "Ashley", "is_listed_subject": False, "sex": "girl", "action": "reading"}],
                 "setting": "library",
             },
             # The structured cast is authoritative, not this field.
-            "compose_image_prompt": {"scene": "reading in a library", "avoid": None, "profile_owner_visible": True},
+            "compose_image_prompt": {"scene": "reading in a library", "avoid": None, "visible_subjects": ["Iris"]},
         },
-        appearance="long silver hair",
-        profile_owner_name="Iris",
+        subjects=[_subject("Iris", "long silver hair")],
         scene_analysis=True,
     )
     assert "silver hair" not in scene
@@ -694,7 +726,7 @@ async def test_a_hidden_face_strips_face_traits_from_the_injected_appearance(mon
                 "characters": [
                     {
                         "name": "Malina",
-                        "is_profile_owner": True,
+                        "is_listed_subject": True,
                         "sex": "girl",
                         "appearance": None,
                         "action": "flying upward away from the viewer",
@@ -705,10 +737,307 @@ async def test_a_hidden_face_strips_face_traits_from_the_injected_appearance(mon
             },
             "compose_image_prompt": {"scene": "flying upward away from the viewer", "avoid": None},
         },
-        appearance="jet-black wings, long silky black hair, glowing purple eyes, black eyeliner, black nails",
-        profile_owner_name="Malina",
+        subjects=[
+            _subject("Malina", "jet-black wings, long silky black hair, glowing purple eyes, black eyeliner, black nails")
+        ],
         prompt_format="tags",
         scene_analysis=True,
     )
     assert all(trait in scene for trait in kept)
     assert not any(trait in scene for trait in dropped)
+
+
+# ── several subjects ─────────────────────────────────────────────────────────
+
+
+async def test_two_subjects_are_injected_in_roster_order(monkeypatch):
+    """Trap 4.3. The injector finds its insertion point by peeling the count anchor
+    off the head, so a per-subject loop would stack the second block *in front of* the
+    first and hand the reader the cast backwards. One call, one pass, roster order."""
+    scene, _, _ = await _compose(
+        monkeypatch,
+        {
+            "analyze_scene": {
+                "characters": [
+                    # Deliberately analyzer order, not roster order: the answer must
+                    # follow the subjects, which is what the slots were filled from.
+                    {"name": "Ashley", "sex": "girl", "action": "reading"},
+                    {"name": "Iris", "sex": "girl", "action": "sitting"},
+                ]
+            },
+            "compose_image_prompt": {"scene": "Iris sits beside Ashley.", "avoid": None},
+        },
+        subjects=[_subject("Iris", "long silver hair"), _subject("Ashley", "red coat")],
+        prompt_format="hybrid",
+        scene_analysis=True,
+    )
+    assert scene == "2girls, Iris: long silver hair, Ashley: red coat, Iris sits beside Ashley."
+
+
+async def test_each_subject_keeps_its_own_face_visibility(monkeypatch):
+    """Visibility is per person: Ashley faces away, so her frontal sheet loses its
+    face-only traits while Iris keeps hers."""
+    scene, _, _ = await _compose(
+        monkeypatch,
+        {
+            "analyze_scene": {
+                "characters": [
+                    {"name": "Iris", "sex": "girl", "face_visible": True, "action": "smiling"},
+                    {"name": "Ashley", "sex": "girl", "face_visible": False, "action": "walking away"},
+                ]
+            },
+            "compose_image_prompt": {"scene": "two women in a hallway", "avoid": None},
+        },
+        subjects=[_subject("Iris", "silver hair, blue eyes"), _subject("Ashley", "red coat, green eyes")],
+        prompt_format="hybrid",
+        scene_analysis=True,
+    )
+    assert "Iris: silver hair, blue eyes" in scene
+    assert "Ashley: red coat" in scene and "green eyes" not in scene
+
+
+async def test_a_subject_the_analyzer_left_out_contributes_nothing(monkeypatch):
+    """Someone whose likeness a slot may still have been handed, but who walked out of
+    frame: injecting their sheet is how a saved appearance draws a second person in."""
+    scene, _, _ = await _compose(
+        monkeypatch,
+        {
+            "analyze_scene": {"characters": [{"name": "Iris", "sex": "girl", "action": "alone at the window"}]},
+            "compose_image_prompt": {"scene": "a woman at a window", "avoid": None},
+        },
+        subjects=[_subject("Iris", "silver hair"), _subject("Ashley", "red coat")],
+        prompt_format="hybrid",
+        scene_analysis=True,
+    )
+    assert "silver hair" in scene and "red coat" not in scene
+
+
+async def test_two_subjects_are_named_even_in_tag_format(monkeypatch):
+    """A lone subject keeps raw tags -- there is nothing to bind them to. Two do not:
+    concatenated anonymously they read as one person wearing both outfits, which is
+    worse than a name a booru encoder handles poorly."""
+    scene, _, _ = await _compose(
+        monkeypatch,
+        {"compose_image_prompt": {"scene": "2girls, a hallway", "avoid": None, "visible_subjects": ["Iris", "Ashley"]}},
+        subjects=[_subject("Iris", "silver hair"), _subject("Ashley", "red coat")],
+        prompt_format="tags",
+    )
+    assert scene == "2girls, Iris: silver hair, Ashley: red coat, a hallway"
+
+
+async def test_the_single_call_path_lists_the_visible_subjects_by_name(monkeypatch):
+    """`visible_subjects` replaced a lone boolean because one boolean cannot answer for
+    several people. Only the ones named get their sheet."""
+    scene, _, _ = await _compose(
+        monkeypatch,
+        {"compose_image_prompt": {"scene": "1girl, solo, a hallway", "avoid": None, "visible_subjects": ["Ashley"]}},
+        subjects=[_subject("Iris", "silver hair"), _subject("Ashley", "red coat")],
+        prompt_format="hybrid",
+    )
+    assert "red coat" in scene and "silver hair" not in scene
+
+
+async def test_both_calls_are_told_the_whole_roster_and_the_names_to_copy(monkeypatch):
+    """The name is what binds an analyzed entry back to a subject afterwards, so both
+    calls have to quote the same roster and ask for it verbatim."""
+    captured: dict = {}
+    await _compose(
+        monkeypatch,
+        {
+            "analyze_scene": {"characters": [{"name": "Iris", "sex": "girl", "action": "sitting"}]},
+            "compose_image_prompt": {"scene": "1girl, solo", "avoid": None},
+        },
+        captured,
+        subjects=[_subject("Iris", "silver hair"), _subject("Ashley", "red coat")],
+        scene_analysis=True,
+    )
+    for tail in captured.values():
+        assert "- Iris" in tail and "- Ashley" in tail
+        assert "silver hair" in tail and "red coat" in tail
+
+
+async def test_the_subject_roster_is_never_numbered_against_the_reference_roster(monkeypatch):
+    """Two numbered lists in one prompt is one list too many.
+
+    The reference roster is numbered because its order is a fact about the request --
+    a provider handed an array of images is told nothing else about which is which.
+    The subject roster is *not* the same list: here Iris is subject 1 and no reference
+    at all, while Ashley is subject 2 and reference 1. Numbering both would put
+    "1. Iris" and "1. Ashley" in one prompt meaning different things."""
+    captured: dict = {}
+    await _compose(
+        monkeypatch,
+        {"compose_image_prompt": {"scene": "2girls", "avoid": None, "visible_subjects": []}},
+        captured,
+        subjects=[_subject("Iris", "silver hair"), _subject("Ashley", "red coat")],
+        has_references=True,
+        referenced_subjects=[(1, "Ashley")],
+    )
+    tail = captured["compose_image_prompt"]
+    assert "- Iris" in tail and "- Ashley" in tail
+    assert "1. Iris" not in tail and "2. Ashley" not in tail
+    # The one numbered list left says what it is about: the images, by array position.
+    assert "numbered by their position in that set: 1. Ashley." in tail
+
+
+async def test_a_nameless_subject_leaves_no_hole_in_the_roster(monkeypatch):
+    """A solo card with no name used to be enumerated and then filtered, so the roster
+    opened at "2." with no "1." -- a numbered list missing its first row, in a prompt
+    that also carries the numbered reference list."""
+    captured: dict = {}
+    await _compose(
+        monkeypatch,
+        {"compose_image_prompt": {"scene": "2girls", "avoid": None, "visible_subjects": []}},
+        captured,
+        subjects=[_subject("", "silver hair"), _subject("Ashley", "red coat")],
+    )
+    tail = captured["compose_image_prompt"]
+    assert "- Ashley - fixed positive tags added separately: red coat" in tail
+    assert "2." not in tail.split("Do not copy or contradict")[0]
+
+
+# ── trap 4.1: identity suppression is only for who was actually referenced ───
+
+
+def test_the_reference_instruction_names_the_referenced_subjects_in_order():
+    """The roster and its order are the only thing that can tell a cloud provider
+    handed an array of images which one is which, and the only thing that binds an
+    analyzed cast entry back to a subject afterwards.
+
+    Nobody's description is suppressed, including theirs -- see
+    `test_nobody_is_left_undescribed_on_the_strength_of_a_reference`."""
+    instruction = prompts._reference_instruction([(1, "Iris"), (2, "Ashley")])
+
+    assert "1. Iris, 2. Ashley" in instruction
+    assert "EVERY visible person in full" in instruction
+
+    # A `previous` reference names nobody -- it is a picture of this scene, which is
+    # what the original singular wording already describes.
+    assert prompts._reference_instruction([]) == prompts._REFERENCE_INSTRUCTION
+
+
+def test_the_numbers_are_array_positions_and_may_skip_one():
+    """The numbers are the only attribution a provider handed an array ever gets, so
+    they have to be positions in *that* array rather than in the list of people.
+
+    A style whose first row draws the previous chat image and whose second draws a cast
+    member sends Iris as image 2. Renumbering her to 1 to close the gap tells the model
+    that image 1 -- a screenshot of the chat -- is her face.
+    """
+    instruction = prompts._reference_instruction([(2, "Iris"), (3, "Ashley")])
+
+    assert "2. Iris, 3. Ashley" in instruction
+    assert "1. Iris" not in instruction
+
+
+def test_nobody_is_left_undescribed_on_the_strength_of_a_reference():
+    """Suppression was keyed on a promise no caller can keep.
+
+    "A likeness for Iris went with this prompt, so do not spell her out" holds only if
+    the provider actually read that element -- and a provider that accepts an array and
+    reads its first entry is indistinguishable from one that reads all of them. When it
+    did not, Iris came back with neither a picture nor a word to place her. Describing
+    her anyway costs redundancy when the picture landed and nothing when it did not,
+    which is what lets references be sent optimistically instead of withheld until
+    somebody hand-measures the provider.
+    """
+    for instruction in (prompts._reference_instruction([]), prompts._reference_instruction([(1, "Iris"), (2, "Ashley")])):
+        assert "do not describe permanent identity traits" not in instruction.lower()
+        assert "identity traits" in instruction
+
+
+async def test_the_roster_names_only_who_got_a_picture_and_nobody_is_suppressed(monkeypatch):
+    """The numbered roster is still the images, in the order they travel -- Ashley got
+    none, so she is not in it -- but the prompt describes her *and* Iris in full."""
+    captured: dict = {}
+    await _compose(
+        monkeypatch,
+        {"compose_image_prompt": {"scene": "2girls", "avoid": None, "visible_subjects": []}},
+        captured,
+        subjects=[_subject("Iris"), _subject("Ashley")],
+        has_references=True,
+        referenced_subjects=[(1, "Iris")],
+    )
+    tail = captured["compose_image_prompt"]
+    assert "1. Iris" in tail
+    assert "Ashley" not in tail.split("position in that set:")[1].split(".")[0]
+    assert "EVERY visible person in full" in tail
+
+
+async def test_no_references_means_no_reference_instruction_at_all(monkeypatch):
+    captured: dict = {}
+    await _compose(
+        monkeypatch,
+        {"compose_image_prompt": {"scene": "1girl", "avoid": None, "visible_subjects": []}},
+        captured,
+        subjects=[_subject("Iris")],
+        has_references=False,
+        referenced_subjects=[(1, "Iris")],
+    )
+    assert "reference image" not in captured["compose_image_prompt"]
+
+
+# ── trap 4.2: a slot may only draw someone the picture actually contains ─────
+
+
+def _analysis(*names: str) -> dict:
+    return {"characters": [{"name": name, "sex": "girl"} for name in names]}
+
+
+def test_a_subject_out_of_frame_is_not_addressable_by_a_slot():
+    """The composer already drops an absent subject's *words*. The likeness has to go
+    with them: an edit model handed a face the prompt never mentions draws that person
+    back into the shot, which is the one failure a reference render cannot be talked
+    out of."""
+    subjects = [_subject("Iris"), _subject("Ashley"), _subject("Ren")]
+
+    # Ashley left the room between speaking and the shot; Ren is still in it.
+    assert [s.name for s in addressable_subjects(subjects, _analysis("Iris", "Ren"))] == ["Iris", "Ren"]
+
+
+def test_the_primary_is_addressable_whether_or_not_the_analyzer_listed_them():
+    """`character` means the render's primary, and a solo chat's one slot has to
+    resolve. Filtering subject 0 would turn a wide shot of an established character
+    into a hard failure on every ComfyUI graph built around a `LoadImage`."""
+    subjects = [_subject("Iris"), _subject("Ashley")]
+
+    # The analyzer named Ashley and not Iris. Iris is subject 0 regardless.
+    assert [s.name for s in addressable_subjects(subjects, _analysis("Ashley"))] == ["Iris", "Ashley"]
+    # An analysis that put nobody in frame still leaves the primary addressable.
+    assert [s.name for s in addressable_subjects(subjects, _analysis())] == ["Iris"]
+
+
+def test_a_missing_analysis_is_not_an_answer_of_nobody():
+    """The single-call path has no analysis, and a forced call that came back empty has
+    no answer either. Neither may be read as "the shot is empty" -- that would silently
+    kill every cast slot the moment the analyzer hiccuped."""
+    subjects = [_subject("Iris"), _subject("Ashley")]
+
+    assert [s.name for s in addressable_subjects(subjects, None)] == ["Iris", "Ashley"]
+    assert [s.name for s in addressable_subjects(subjects, {})] == ["Iris", "Ashley"]
+
+
+def test_the_addressable_list_compacts_so_cast_still_means_the_next_one():
+    """The slots address positions in *this* list. A sparse answer would leave the
+    first `cast` row drawing nobody while the second drew somebody, which is not what
+    "the next cast member" says on the picker."""
+    subjects = [_subject("Iris"), _subject("Ashley"), _subject("Ren")]
+
+    assert [s.name for s in addressable_subjects(subjects, _analysis("Iris", "Ren"))][1] == "Ren"
+
+
+async def test_a_subject_the_model_renamed_is_logged_rather_than_silently_dropped(monkeypatch, caplog):
+    """The one failure in this workflow with no user-visible symptom: the render
+    succeeds, looks plausible, and is quietly a picture of someone slightly else."""
+    with caplog.at_level("INFO", logger="backend.workflows.image_gen.composer"):
+        await _compose(
+            monkeypatch,
+            {
+                "analyze_scene": {"characters": [{"name": "the woman", "sex": "girl"}, {"name": "Ashley", "sex": "girl"}]},
+                "compose_image_prompt": {"scene": "2girls", "avoid": None},
+            },
+            subjects=[_subject("Iris", "silver hair"), _subject("Ashley", "red coat")],
+            scene_analysis=True,
+        )
+
+    assert "did not name 'Iris'" in caplog.text

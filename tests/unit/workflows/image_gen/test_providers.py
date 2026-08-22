@@ -21,6 +21,7 @@ from backend.workflows.image_gen.engine.providers import (
     get_preset,
     pixels_for,
     provider_catalogue,
+    reference_capacity,
     takes_references,
 )
 
@@ -73,7 +74,7 @@ def test_a_width_height_preset_declares_the_grid_it_snaps_to():
 
 
 def test_the_catalogue_projects_the_table_and_carries_no_credential():
-    catalogue = provider_catalogue()
+    catalogue = provider_catalogue(4)
     assert {row["id"] for row in catalogue} == {preset.id for preset in PRESETS}
     for row in catalogue:
         assert "api_key" not in row and "key" not in row
@@ -86,7 +87,7 @@ def test_the_catalogue_carries_the_whole_dimension_contract():
     `size_for`/`pixels_for` snap to something else, disclosed only after the render is
     billed. Asserted per row, since a default of 0 or () reads the same as absent on
     the wire and only the presence of the key can be checked."""
-    for row in provider_catalogue():
+    for row in provider_catalogue(4):
         for field in ("sizes", "dimension_mode", "min_dimension", "max_dimension", "dimension_step"):
             assert field in row, f"{row['id']} is missing {field}"
         # Not a menu question but the same one: it decides whether the menu applies at
@@ -326,6 +327,51 @@ def test_a_singular_reference_field_discloses_the_ones_it_dropped():
     assert any("one reference image" in note for note in built.notes)
 
 
+def test_capacity_is_derived_from_the_encoding_and_nobody_maintains_a_count():
+    """Capacity used to be a hand-measured integer per provider, which meant it was
+    permanently unfinished and defaulted to withholding. It now falls out of the one
+    thing that genuinely constrains it -- can the field hold a list.
+
+    Whether the *model* reads every element is deliberately not answered here. A model
+    that will not take what it was sent refuses, for free, and `degrade.py` re-renders
+    one rung down. Guessing high costs an upload; guessing low used to cost the user a
+    capability with nothing on screen to say so.
+    """
+    for preset in PRESETS:
+        capacity = reference_capacity(preset, 4)
+        if not preset.supports_references:
+            assert capacity == 0, preset.id
+        elif preset.reference_encoding in ("string", "url_object"):
+            assert capacity == 1, preset.id
+        else:
+            assert capacity == 4, preset.id
+
+    # The ceiling is the caller's, so the picker and this agree by construction.
+    assert reference_capacity(get_preset("xai"), 2) == 2
+
+
+def test_a_list_encoding_carries_every_reference_and_a_scalar_one_says_it_did_not():
+    """Capacity is derived from the encoding, so this is what that derivation rests
+    on: a list encoding must actually carry every reference, and a scalar one must say
+    it did not. Both are checked here rather than trusted, since `reference_capacity`
+    reads the encoding name and nothing else."""
+    two = [_reference(), _reference("image/jpeg")]
+
+    objects = build_edit_body(XAI, model="m", prompt="p", references=two)
+    assert len(objects.body["images"]) == 2
+    assert not any("only the first was sent" in note for note in objects.notes)
+
+    strings = build_edit_body(NANOGPT, model="nano-banana", prompt="p", references=two)
+    assert len(strings.body["imageDataUrls"]) == 2
+    assert all(uri.startswith("data:") for uri in strings.body["imageDataUrls"])
+    assert not any("only the first was sent" in note for note in strings.notes)
+
+    # `custom` is the row still on a scalar encoding, and it must disclose the drop.
+    scalar = build_edit_body(get_preset("custom"), model="m", prompt="p", references=two)
+    assert isinstance(scalar.body["image"], dict)
+    assert any("only the first was sent" in note for note in scalar.notes)
+
+
 @pytest.mark.parametrize(
     "preset",
     [preset for preset in PRESETS if preset.supports_references],
@@ -341,9 +387,11 @@ def test_every_reference_encoding_sends_a_data_uri(preset):
     if isinstance(carried, str):
         uri = carried
     elif isinstance(carried, list):
-        # The element key is the encoding's, not the field's: OpenAI's `images` array
-        # wants `image_url` where xAI's wants `url`, and it rejects the other by name.
-        (uri,) = carried[0].values()
+        # The element is the encoding's, not the field's: OpenAI's `images` array wants
+        # `{"image_url": ...}` where xAI's wants `{"url": ...}` and rejects the other by
+        # name, while NanoGPT's `imageDataUrls` wants the bare string.
+        first = carried[0]
+        uri = first if isinstance(first, str) else next(iter(first.values()))
     else:
         uri = carried["url"]
     assert uri.startswith("data:image/png;base64,"), preset.id
@@ -351,13 +399,20 @@ def test_every_reference_encoding_sends_a_data_uri(preset):
     assert built.body["n"] == 1
 
 
-def test_an_allowlist_treats_an_unprobed_model_as_incapable():
-    """Under-promising costs a disclosure; over-promising costs a paid render that
-    quietly drops the reference. So an unprobed model is incapable until probed."""
-    assert takes_references(TOGETHER, "black-forest-labs/FLUX.1-kontext-pro") is True
-    assert takes_references(TOGETHER, "black-forest-labs/FLUX.1-schnell") is False
-    # A provider with no per-model holes names none, and every model passes.
-    assert takes_references(XAI, "grok-imagine-image") is True
+def test_reference_support_is_asked_of_the_provider_and_never_of_the_model():
+    """The per-model allowlist is gone, and its absence is the point.
+
+    It was a hand-kept table over catalogues that grow without us, so it was always
+    behind, and being behind is invisible: the user configured a likeness, paid for the
+    render, and got neither the picture nor a word about it. Every model on a provider
+    with a reference field now gets one, and a model that will not take it refuses --
+    free, and one rung down rather than a failed render.
+    """
+    assert takes_references(TOGETHER) is True
+    assert takes_references(XAI) is True
+    # The provider-level answer is still real: OpenRouter has no reference field at
+    # all, measured across three spellings, so there is nothing to send.
+    assert takes_references(OPENROUTER) is False
 
 
 def test_a_reference_render_discloses_that_it_overrode_the_resolution():
@@ -384,27 +439,33 @@ def test_a_provider_whose_references_do_not_drive_the_size_says_nothing():
     assert not any("set the output size" in note for note in built.notes)
 
 
-def test_nanogpt_carries_its_reference_as_a_bare_data_uri_under_image():
+def test_nanogpt_carries_references_as_a_bare_string_array():
     """The one spelling NanoGPT rejects is `images: [{"url": ...}]` -- the shape xAI
-    and OpenAI want -- which 400s with `missing_image_input`. A bare `data:` URI
-    under `image` is what was verified, on both the edits and the generations path."""
-    body = build_edit_body(NANOGPT, model="step-image-edit-2", prompt="p", references=[_reference()]).body
-    assert isinstance(body["image"], str)
-    assert body["image"].startswith("data:image/png;base64,")
-    assert "images" not in body
+    and OpenAI want -- which 400s with `missing_image_input`. `imageDataUrls` is the
+    documented multi field, measured 2026-08-19 carrying four references onto
+    `nano-banana` in order, and it takes a single element just as happily -- which is
+    why it replaces the old scalar `image` outright instead of sitting beside it."""
+    one = build_edit_body(NANOGPT, model="step-image-edit-2", prompt="p", references=[_reference()]).body
+    assert isinstance(one["imageDataUrls"], list) and len(one["imageDataUrls"]) == 1
+    assert one["imageDataUrls"][0].startswith("data:image/png;base64,")
+    assert "image" not in one and "images" not in one
+
+    many = build_edit_body(NANOGPT, model="nano-banana", prompt="p", references=[_reference(), _reference("image/jpeg")]).body
+    assert len(many["imageDataUrls"]) == 2
 
 
 def test_nanogpt_offers_references_on_every_model_and_names_the_trade_once():
-    """The row that opts out of the allowlist, so the empty tuple has to keep meaning
-    "every model" rather than "none". The trade is stated in `gaps` instead."""
-    assert NANOGPT.reference_models == ()
-    assert takes_references(NANOGPT, "cyberrealistic-xl") is True
-    assert takes_references(NANOGPT, "flux-schnell") is True
+    """Capacity here is genuinely per-model -- 1 to 14 across 202 models -- which is
+    exactly the table nobody could keep. The trade is stated in `gaps`, and the
+    per-model truth is enforced by NanoGPT itself, which refuses an over-long array by
+    name and for free."""
+    assert takes_references(NANOGPT) is True
     assert any("ignore them" in gap for gap in NANOGPT.gaps)
 
 
 def test_a_provider_without_reference_support_never_takes_them():
-    assert takes_references(OPENROUTER, "anything-at-all") is False
+    assert takes_references(OPENROUTER) is False
+    assert reference_capacity(OPENROUTER, 4) == 0
 
 
 def test_openrouter_sends_neither_a_seed_nor_a_negative_prompt():

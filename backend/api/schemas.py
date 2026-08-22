@@ -361,6 +361,21 @@ class LorebookImportPayload(BaseModel):
     entries: Any
 
 
+class GroupMemberSpec(BaseModel):
+    id: str | None = None
+    speaker_key: str | None = None
+    character_card_id: str | None = None
+    display_name: str = ""
+    public_profile_override: str | None = None
+    # The member's own sheet for this scene. Accepted under every
+    # ``group_context_mode``, like ``public_profile_override`` and the
+    # scene-profile drafter: which modes *send* it is a UI concern, not a
+    # server rule, and a half-gated field would leave the two disagreeing.
+    card_sheet_override: str | None = None
+    member_kind: Literal["character", "narrator"] = "character"
+    muted: bool = False
+
+
 class ConversationCreate(BaseModel):
     title: str = "New Conversation"
     character_card_id: str | None = None
@@ -368,6 +383,14 @@ class ConversationCreate(BaseModel):
     character_scenario: str = ""
     first_mes: str = ""
     post_history_instructions: str = ""
+    kind: Literal["solo", "group"] = "solo"
+    members: list[GroupMemberSpec] = []
+    group_turn_mode: Literal["manual", "round_robin", "director"] = "director"
+    group_max_speakers: int = Field(default=3, ge=1, le=8)
+    # A new scene has no cast history to reason about, so creation always takes
+    # the behaviour-preserving default; the control lives in Group settings.
+    group_context_mode: Literal["private", "shared", "swap"] = "private"
+    opening_speaker_key: str | None = None
 
 
 class ConversationUpdate(BaseModel):
@@ -375,6 +398,50 @@ class ConversationUpdate(BaseModel):
     # Persona lock for this conversation; an explicit null clears it (the route
     # uses model_dump(exclude_unset=True), so absence leaves it untouched).
     persona_lock_id: int | None = None
+    group_turn_mode: Literal["manual", "round_robin", "director"] | None = None
+    group_max_speakers: int | None = Field(default=None, ge=1, le=8)
+    group_context_mode: Literal["private", "shared", "swap"] | None = None
+    group_sheet_updates: bool | None = None
+    character_scenario: str | None = None
+    post_history_instructions: str | None = None
+
+
+class GroupRosterUpdate(BaseModel):
+    members: list[GroupMemberSpec]
+
+
+class SpeakRequest(BaseModel):
+    speaker_member_id: str
+
+
+class PublicProfilePayload(BaseModel):
+    appearance: str = ""
+    role: str = ""
+
+
+class SceneProfileGenerateRequest(BaseModel):
+    """One member's scene-profile drafting request.
+
+    ``character_card_id`` is optional on purpose: Manage cast can draft for any
+    row, and a narrator row has no card. A narrator deserves a sentence saying
+    why, not a Pydantic 422 the UI has to translate.
+
+    ``cast_names`` comes from the client because the modal is client-side until
+    Save — a member added seconds ago exists only in the DOM. Names only, ever:
+    accepting another member's profile or description text here would put member
+    B's card into member A's draft, which is the one thing Private perspective
+    promises does not happen. Omit the field to fall back to the stored roster.
+    """
+
+    character_card_id: str | None = None
+    display_name: str = ""
+    cast_names: list[str] = []
+
+
+class SceneProfileDraft(BaseModel):
+    """The rendered two-liner, ready to drop into the override box."""
+
+    profile: str
 
 
 class SummarizeRequest(BaseModel):
@@ -580,18 +647,28 @@ class SendMessage(BaseModel):
     enable_agent: bool = True
     turn_index: int | None = None
     attachments: list[AttachmentIn] = []
+    speaker_member_id: str | None = None
 
 
 class EditMessage(BaseModel):
     content: str
     enable_agent: bool = True
     attachments: list[AttachmentIn] = []
+    speaker_member_id: str | None = None
 
 
 class RegenerateMsg(BaseModel):
     enable_agent: bool = True
+    # Shared with `/continue`, which is the one route here that starts a *new*
+    # exchange and so may pin its speaker. `/regenerate` and `/super_regenerate`
+    # ignore it: they replace an existing assistant row, whose speaker is
+    # already recorded on it.
+    speaker_member_id: str | None = None
 
 
+# No `speaker_member_id`: a magic rewrite always re-writes an existing assistant
+# row, so the speaker is the one on that row and a client override could only
+# disagree with history.
 class MagicRewriteMsg(BaseModel):
     direction: str
 

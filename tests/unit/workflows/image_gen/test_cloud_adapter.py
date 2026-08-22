@@ -93,6 +93,21 @@ def _bound(config) -> OpenAICompatibleImageAdapter:
     return OpenAICompatibleImageAdapter(config, resolve_style(config, "anime"))
 
 
+def _planned(target, subjects=None, previous=None):
+    """The slots this target would actually fill for a given cast.
+
+    A cloud target no longer declares its slots: its reference array is homogeneous, so
+    *who* is in it is the render's answer rather than `resolve_target`'s. Everything that
+    used to read `reference_slots` asks this instead -- the same question, one layer up.
+    """
+    from backend.workflows.image_gen.references import plan_slots
+    from backend.workflows.image_gen.subjects import Subject
+
+    if subjects is None:
+        subjects = (Subject(member_id="m", card_id="card-a", name="Iris"),)
+    return plan_slots(target, subjects, previous=previous)
+
+
 def _target(adapter, config, replay=None):
     return adapter.resolve_target(replay)
 
@@ -222,13 +237,13 @@ def test_a_replay_pins_the_quality_and_reference_slot_it_was_made_with():
     config = _config(quality="high", reference_source="character")
     replayed = _target(_bound(config), config, {"quality": "", "reference_source": ""})
     assert replayed.quality == ""
-    assert replayed.reference_slots == ()
+    assert _planned(replayed) == ()
 
     # An attachment from before the record -- or one made on ComfyUI, which has no
     # such setting and records None -- falls through to what the style says now.
     unrecorded = _target(_bound(config), config, {"quality": None, "width": 1024, "height": 1024})
     assert unrecorded.quality == "high"
-    assert len(unrecorded.reference_slots) == 1
+    assert len(_planned(unrecorded)) == 1
 
 
 @pytest.mark.asyncio
@@ -385,13 +400,13 @@ def test_two_styles_on_one_connection_render_differently():
 
     assert targets["kontext"].model == "black-forest-labs/FLUX.1-kontext-pro"
     assert (targets["kontext"].width, targets["kontext"].height) == (1024, 1536)
-    assert len(targets["kontext"].reference_slots) == 1
+    assert len(_planned(targets["kontext"])) == 1
 
     assert targets["draft"].model == "black-forest-labs/FLUX.1-schnell"
     assert (targets["draft"].width, targets["draft"].height) == (1024, 1024)
     # References are off on this style, so no slot is offered -- and no note either,
     # since nothing was asked for and silently dropped.
-    assert targets["draft"].reference_slots == ()
+    assert _planned(targets["draft"]) == ()
     assert targets["draft"].notes == ()
 
 
@@ -438,14 +453,87 @@ def _reference(data: bytes, mime: str) -> ResolvedReference:
 
 def test_reference_slots_appear_only_when_the_source_is_turned_on():
     """Sending conversation images to a third party is opt-in, so "" is off."""
-    off = _target(_bound(_config()), _config())
-    assert off.reference_slots == ()
+    off = _planned(_target(_bound(_config()), _config()))
+    assert off == ()
 
     config = _config(reference_source="previous_or_character")
-    on = _target(_bound(config), config)
-    assert len(on.reference_slots) == 1
-    assert on.reference_slots[0]["slot"] == list(CLOUD_REFERENCE_SLOT)
-    assert on.reference_slots[0]["source"] == "previous_or_character"
+    on = _planned(_target(_bound(config), config))
+    assert len(on) == 1
+    assert on[0]["slot"] == list(CLOUD_REFERENCE_SLOT)
+    assert on[0]["source"] == "previous_or_character"
+
+
+def test_one_slot_per_person_in_the_picture_and_every_one_optional():
+    """One reference image per character, so the array is as long as the cast in frame
+    and never longer. Every slot is optional -- a cloud model has a plain generations
+    endpoint one field away -- so a source that resolves to nothing degrades with a note
+    instead of failing the render."""
+    from backend.workflows.image_gen.subjects import Subject
+
+    config = _config(reference_source="character")
+    cast = tuple(Subject(member_id=f"m{i}", card_id=f"card-{i}", name=n) for i, n in enumerate(("Iris", "Ashley")))
+
+    slots = _planned(_target(_bound(config), config), cast)
+
+    assert [slot["slot"] for slot in slots] == [["cloud", "image_0"], ["cloud", "image_1"]]
+    assert not any(slot["required"] for slot in slots)
+    # Distinct by construction: slot *i* draws subject *i*, so nobody is sent twice.
+    assert [slot["draw"] for slot in slots] == [(("character", 0),), (("character", 1),)]
+
+
+def test_a_provider_with_no_reference_field_declares_no_slot():
+    """Provider-level, and deliberately not asked of the model: a *model* that will not
+    take a reference refuses at render time and the seam degrades, where a withheld slot
+    loses the capability silently."""
+    config = _config(reference_source="character")
+    config["cloud"]["provider"] = "openrouter"
+    config["cloud"]["providers"] = {"openrouter": {"api_key": "k"}}
+    config["styles"][0]["connection"] = "openrouter"
+    config["styles"][0]["model"] = "google/gemini-2.5-flash-image"
+
+    assert _planned(_target(_bound(config), config)) == ()
+
+
+def test_a_legacy_list_collapses_to_the_slot_every_target_has():
+    """A hand-edited config row reaches the adapter through `validate_connection`
+    without passing normalization, which is what `style_reference_source` exists to
+    survive -- and a stored list is what every upgraded install still holds."""
+    config = _config()
+    config["styles"][0].pop("reference_source", None)
+    config["styles"][0]["reference_sources"] = ["character", "cast"]
+
+    # The bare read answers "" for a shape it does not recognise; normalization is what
+    # migrates the list, and it has run by the time any render reaches the adapter.
+    assert _planned(_target(_bound(config), config)) == ()
+
+    from backend.workflows.image_gen.config import normalize_config
+
+    migrated = normalize_config(config)
+    assert migrated["styles"][0]["reference_source"] == "character"
+    assert len(_planned(_target(_bound(migrated), migrated))) == 1
+
+
+def test_a_replay_pins_the_source_the_stored_render_used():
+    """The source moved onto the style, where it is editable after the fact, so a
+    rehydrate replaying it off the style would reproduce a different picture."""
+    config = _config(reference_source="")
+    replay = {"reference_source": "character", "references": [{"slot": ["cloud", "image_0"], "source": "character"}]}
+
+    target = _target(_bound(config), config, replay)
+
+    assert [slot["source"] for slot in _planned(target)] == ["character"]
+    assert target.reference_source == "character"
+
+
+def test_a_replay_carrying_no_recorded_source_falls_back_to_the_style():
+    """The scalar is this backend's recorded fact. An attachment made before it existed
+    has no answer at all, and the style is the better guess than rendering blind."""
+    config = _config(reference_source="character")
+    replay = {"references": [{"slot": ["cloud", "image_0"], "origin": "character:card-1"}]}
+
+    target = _target(_bound(config), config, replay)
+
+    assert [slot["source"] for slot in _planned(target)] == ["character"]
 
 
 @pytest.mark.asyncio
@@ -486,32 +574,39 @@ async def test_references_ride_the_generations_body_when_there_is_no_edits_endpo
     assert record["body"]["image_url"].startswith("data:image/png;base64,")
 
 
-def test_a_model_that_cannot_take_references_declares_no_slot_and_says_so():
-    """No slot is what stops the reference reaching a model that cannot use it --
-    and the provider's answer is not uniform enough to rely on: FLUX.2 rejects
-    `image_url`, schnell returns 200 having ignored it. The note is the difference
-    between that and the reference quietly going missing."""
+def test_the_model_is_not_consulted_about_references_any_more():
+    """A slot is offered on every model of a reference-capable provider.
+
+    Withholding it was a hand-kept allowlist over catalogues that grow without us, and
+    being behind was invisible -- the user configured a likeness, paid for the render,
+    and got neither the picture nor a word about it. A model that cannot use one
+    refuses at render time, for free, and `engine/degrade.py` re-renders without it and
+    says so. `FLUX.1-schnell` is the model that used to be denied a slot here.
+    """
     config = _config("togetherai", "black-forest-labs/FLUX.1-schnell", reference_source="character")
     target = _target(_bound(config), config)
 
-    assert target.reference_slots == ()
-    assert any("does not accept reference images" in note for note in target.notes)
+    assert len(_planned(target)) == 1
+    assert target.notes == ()
 
 
 def test_a_reference_capable_model_is_not_nagged_about_it():
     config = _config("togetherai", reference_source="character")
     target = _target(_bound(config), config)
 
-    assert len(target.reference_slots) == 1
+    assert len(_planned(target)) == 1
     assert target.notes == ()
 
 
 @pytest.mark.asyncio
-async def test_a_gone_model_degrades_onto_one_that_cannot_take_the_reference():
-    """The substitute is not the model the slot was offered for. Replaying a Kontext
-    image after the connection moved to a text-to-image model must drop the
-    reference, not re-send `image_url` to something that answers 400 -- that would
-    turn a graceful degrade into a hard failure."""
+async def test_a_gone_model_falls_back_and_still_carries_its_reference():
+    """The substitute still gets the reference, and the substitution is disclosed.
+
+    This used to drop the reference on the model's behalf, off the allowlist. It no
+    longer guesses: `FLUX.1-schnell` answers 200 having ignored `image_url`, which
+    costs an upload and nothing else now that the prompt describes everyone whether or
+    not a picture went with them. A model that *refuses* is handled one layer up, by
+    the render seam's ladder."""
     record: dict = {}
     calls = {"n": 0}
 
@@ -526,14 +621,12 @@ async def test_a_gone_model_degrades_onto_one_that_cannot_take_the_reference():
     config = _config("togetherai", "black-forest-labs/FLUX.1-schnell", reference_source="character")
     adapter = _adapter(config, handler)
     target = _target(adapter, config, replay={"backend_model": "black-forest-labs/FLUX.1-kontext-pro"})
-    assert len(target.reference_slots) == 1
+    assert len(_planned(target)) == 1
 
     result = await adapter.generate(_request(references=(_reference(_png(), "image/png"),)), target=target)
 
-    assert "image_url" not in record["body"]
-    notes = result.backend_info["notes"]
-    assert any("does not accept reference images" in note for note in notes)
-    assert any("is gone" in note for note in notes)
+    assert "image_url" in record["body"]
+    assert any("is gone" in note for note in result.backend_info["notes"])
 
 
 def test_the_reference_slot_declares_the_policy_that_bounds_it():
@@ -541,7 +634,7 @@ def test_the_reference_slot_declares_the_policy_that_bounds_it():
     mimes and the tighter base64-in-JSON cap. `test_display_encode` owns what those
     two then do to the bytes."""
     config = _config(reference_source="character")
-    (slot,) = _target(_bound(config), config).reference_slots
+    (slot,) = _planned(_target(_bound(config), config))
 
     assert tuple(slot["mimes"]) == ("image/png", "image/jpeg")
     assert slot["max_bytes"] == CLOUD_REFERENCE_MAX_BYTES

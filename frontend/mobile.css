@@ -164,6 +164,7 @@ body {
     width: 100%;
   }
 
+  /* The ⋯ menu carries all of these below the breakpoint. */
   #user-profile-btn,
   #tools-panel-btn,
   #inspector-toggle,

@@ -7,7 +7,6 @@ from backend.workflows.image_gen.engine.graph import (
     describe_render_params,
     enabled_references,
     patch_graph,
-    reference_slots,
     validate_graph_structure,
 )
 
@@ -233,8 +232,8 @@ def _with_reference():
 
 
 def _filled(slots):
-    """Every declared slot, as a style that switched them all on would pass them."""
-    return [entry for entry, _ in enabled_references(slots, ["character"] * len(reference_slots(slots)))]
+    """Every declared slot, as a style that switched its reference on passes them."""
+    return enabled_references(slots, "character")
 
 
 def test_a_reference_slot_is_patched_with_the_uploaded_widget_value():
@@ -270,7 +269,7 @@ def test_a_declared_but_switched_off_slot_still_has_to_name_a_file_that_is_there
     """
     graph, slots = _with_reference()
     with pytest.raises(ImageGenerationError, match="point this style's reference image at it"):
-        validate_graph_structure(graph, slots, OBJECT_INFO, filled=enabled_references(slots, [""]))
+        validate_graph_structure(graph, slots, OBJECT_INFO, filled=enabled_references(slots, ""))
 
 
 def test_an_undeclared_image_input_says_how_to_fix_it():
@@ -295,19 +294,17 @@ def test_a_dangling_reference_slot_is_caught_at_test_connection():
         validate_graph_structure(graph, slots, OBJECT_INFO, filled=_filled(slots))
 
 
-def test_sources_pair_with_declared_slots_by_position():
+def test_one_source_switches_every_declared_slot_on_or_none_of_them():
+    """A character has one reference image, so a workflow built around two `Load Image`
+    nodes is handed that same picture in both -- which is what such a workflow wanted.
+    There is no per-slot answer left to fall out of alignment with the declared list."""
     _, slots = _with_reference()
     slots["references"].append({"slot": ["12", "image"], "label": "Load Image (#12)"})
-    assert [entry["slot"] for entry, _ in enabled_references(slots, ["previous", "character"])] == [
-        ["11", "image"],
-        ["12", "image"],
-    ]
-    # A blank is that slot switched off, and it does not shift the one after it.
-    assert [(e["slot"], s) for e, s in enabled_references(slots, ["", "character"])] == [(["12", "image"], "character")]
-    # A style holding fewer answers than the graph declares reads as "off" past its
-    # end, which is how one that has never been reopened since an import must read.
-    assert [e["slot"] for e, _ in enabled_references(slots, ["previous"])] == [["11", "image"]]
-    assert enabled_references(slots, []) == []
+
+    assert [entry["slot"] for entry in enabled_references(slots, "previous")] == [["11", "image"], ["12", "image"]]
+    # Off is off for the whole graph: every `Load Image` keeps the file it was
+    # exported with, and nothing about the conversation is uploaded.
+    assert enabled_references(slots, "") == []
 
 
 def test_render_params_are_read_back_off_the_graph_that_executes():

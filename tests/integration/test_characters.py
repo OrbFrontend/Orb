@@ -283,6 +283,38 @@ async def test_list_characters_omits_heavy_text_fields(client, db):
     assert "tags" in card
 
 
+async def test_list_characters_reports_card_weight_without_the_bodies(client, db):
+    # New Group Chat's context-mode recommendation weighs the chosen cast, and
+    # the library list is the only card payload creation holds. `def_chars` is
+    # how it gets the measure without reopening the decision above.
+    await client.post(
+        "/api/characters",
+        json={
+            "name": "Weighed",
+            "description": "d" * 400,
+            "personality": "p" * 200,
+            "mes_example": "e" * 300,
+            # Excluded on purpose: every context mode keeps post-history in the
+            # speaker's trailing message, so it cannot discriminate between them.
+            "post_history_instructions": "h" * 500,
+            # Not card identity text either — neither mode puts these anywhere
+            # the other doesn't.
+            "scenario": "s" * 500,
+            "first_mes": "f" * 500,
+        },
+    )
+    resp = await client.get("/api/characters")
+    card = next(c for c in resp.json() if c["name"] == "Weighed")
+    assert card["def_chars"] == 900
+    assert "description" not in card
+
+    # A card with no text at all weighs nothing rather than going missing — the
+    # client reads 0 as "nothing here worth caching".
+    await client.post("/api/characters", json={"name": "Bare"})
+    resp = await client.get("/api/characters")
+    assert next(c for c in resp.json() if c["name"] == "Bare")["def_chars"] == 0
+
+
 async def test_post_history_instructions_synced_on_update(client, db):
     card_resp = await client.post(
         "/api/characters",
@@ -357,3 +389,52 @@ async def test_extensions_absent_decodes_to_empty_dict(client, db):
     await db.commit()
     got = (await client.get(f"/api/characters/{card_id}")).json()
     assert got["extensions"] == {}
+
+
+def _profile_call(**arguments) -> dict:
+    """The forced ``draft_public_profile`` response shape.
+
+    ``_llm_mock._pass_from_tool_choice`` routes any forced tool name it does not
+    recognise as a core pass tool to the ``workflow`` queue, and this schema is
+    deliberately not in ``inference.tool_registry.TOOLS`` — so this is the queue
+    the public-profile drafter reads from.
+    """
+    return {"tool_calls": [{"type": "function", "function": {"name": "draft_public_profile", "arguments": arguments}}]}
+
+
+async def test_public_profile_generate_returns_the_tool_call_fields(client, db, llm_mock):
+    """The wire shape of the card drafter: the model's two fields, stripped.
+
+    Nothing is persisted — generation hands back an editable draft and the card
+    only changes when `PUT …/public-profile` saves it.
+    """
+    card_id = (
+        await client.post(
+            "/api/characters",
+            json={"name": "Lira", "description": "A wandering bard.", "personality": "Cheerful"},
+        )
+    ).json()["id"]
+    llm_mock.enqueue_workflow(_profile_call(appearance="  A bard in road-worn green.  ", role="\nTavern regular\n"))
+
+    resp = await client.post(f"/api/characters/{card_id}/public-profile/generate")
+    assert resp.status_code == 200
+    assert resp.json() == {"appearance": "A bard in road-worn green.", "role": "Tavern regular"}
+
+    card = (await client.get(f"/api/characters/{card_id}")).json()
+    assert (card.get("extensions") or {}).get("orb", {}).get("public_profile") is None
+
+    # The card's own text is what the model was asked to summarize.
+    sent = llm_mock.captured[-1]["messages"][-1]["content"]
+    assert "A wandering bard." in sent and "Cheerful" in sent
+
+
+async def test_public_profile_generate_raises_when_the_model_returns_no_call(client, db, llm_mock):
+    """No silent degrade. A draft assembled from the card's first line under a
+    "Draft ready" toast is indistinguishable from a real answer, and the same
+    code path now runs in a loop that writes N overrides the user saves at once."""
+    card_id = (await client.post("/api/characters", json={"name": "Lira", "description": "A bard."})).json()["id"]
+    llm_mock.enqueue_workflow({"role": "assistant", "content": "Sorry, I can't do that."})
+
+    resp = await client.post(f"/api/characters/{card_id}/public-profile/generate")
+    assert resp.status_code == 502
+    assert resp.json()["detail"] == "The model did not return a usable profile."

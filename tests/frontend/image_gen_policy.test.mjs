@@ -13,7 +13,7 @@ import {
   COMFY_SIZES,
   connectionList,
   isLoopbackUrl,
-  modelTakesReferences,
+  providerTakesReferences,
   normalizePromptFormat,
   pendingDisclosures,
   povChoices,
@@ -103,8 +103,24 @@ test("a remote ComfyUI is disclosed, and its reference images under their own ke
   // Uploading conversation images is a materially bigger disclosure than sending
   // prompt text, so a user who accepted the prompt-only wording is asked again.
   const images = comfy("https://comfy.example.com", { sendsImages: true });
-  assert.equal(images.key, "orb:image-gen-privacy-images:https://comfy.example.com");
-  assert.match(images.message, /reference image/);
+  assert.equal(images.key, "orb:image-gen-privacy-images-v2:https://comfy.example.com");
+  assert.notEqual(images.message, comfy("https://comfy.example.com").message);
+});
+
+test("the reference disclosure names the two kinds of image that can leave", () => {
+  // The facts are pinned, not the sentence carrying them: a disclosure that omits one
+  // of these describes less than what actually leaves the machine, which is the whole
+  // failure this notice exists to prevent. Rewording it is not a regression.
+  for (const notice of [
+    comfy("https://comfy.example.com", { sendsImages: true }),
+    cloud({ providerId: "xai", providerLabel: "xAI (Grok)", sendsImages: true }),
+  ]) {
+    assert.match(notice.message, /character reference photo or card art/);
+    assert.match(notice.message, /previous\s+image in the chat/);
+    // Consent is stored per key, so the wider disclosure may never reuse the narrower
+    // one's. `v2` covers the current set because that set only ever shrank.
+    assert.match(notice.key, /-images-v2/);
+  }
 });
 
 test("cloud always discloses, even with the ComfyUI URL left at loopback", () => {
@@ -123,7 +139,7 @@ test("every acknowledgement key is its own, per provider and per boundary", () =
   const xai = cloud({ providerId: "xai", providerLabel: "xAI (Grok)" });
   const xaiImages = cloud({ providerId: "xai", providerLabel: "xAI (Grok)", sendsImages: true });
   assert.equal(xai.key, "orb:image-gen-privacy-cloud:xai");
-  assert.equal(xaiImages.key, "orb:image-gen-privacy-cloud-images:xai");
+  assert.equal(xaiImages.key, "orb:image-gen-privacy-cloud-images-v2:xai");
   assert.match(xaiImages.message, /character reference/);
   assert.doesNotMatch(xai.message, /character reference/);
 
@@ -145,10 +161,13 @@ test("every acknowledgement key is its own, per provider and per boundary", () =
 // them, so the interesting cases are all about *which* stored rows count as a
 // connection the user made — and what a style pointing at one resolves to.
 
+// `supports_references` rides along because the disclosure now asks exactly what the
+// adapter asks: a provider with no reference field in its dialect uploads nothing,
+// whatever a style relinked from elsewhere still stores.
 const PROVIDERS = [
-  { id: "xai", label: "xAI (Grok)", needs_base_url: false, default_model: "grok-imagine-image" },
-  { id: "openai", label: "OpenAI", needs_base_url: false, default_model: "gpt-image-1" },
-  { id: "custom", label: "Custom (OpenAI-compatible)", needs_base_url: true, default_model: "" },
+  { id: "xai", label: "xAI (Grok)", needs_base_url: false, default_model: "grok-imagine-image", supports_references: true },
+  { id: "openai", label: "OpenAI", needs_base_url: false, default_model: "gpt-image-1", supports_references: true },
+  { id: "custom", label: "Custom (OpenAI-compatible)", needs_base_url: true, default_model: "", supports_references: true },
 ];
 
 const config = (over = {}) => ({
@@ -174,6 +193,24 @@ test("the inert shipped provider row is not a connection the user made", () => {
   // added and that renders nothing.
   const list = connectionList(config({ cloud: { providers: { xai: { api_key: "", base_url: "" } } } }), PROVIDERS);
   assert.deepEqual(list.map((c) => c.id), [COMFY_CONNECTION]);
+});
+
+test("a just-added, still-empty connection is listed while it is pending", () => {
+  // The panel tracks those ids in a Set, so asking it the membership question in
+  // list form threw instead of answering — and took the settings modal with it,
+  // on the shipped defaults, which carry exactly the empty entry this filters.
+  const args = [config({ cloud: { providers: { xai: { api_key: "", base_url: "" } } } }), PROVIDERS];
+  for (const pending of [["xai"], new Set(["xai"])]) {
+    assert.deepEqual(
+      connectionList(...args, pending).map((c) => c.id),
+      [COMFY_CONNECTION, "xai"],
+    );
+  }
+  // And an unrelated pending id leaves the empty entry filtered out as before.
+  assert.deepEqual(
+    connectionList(...args, new Set(["openai"])).map((c) => c.id),
+    [COMFY_CONNECTION],
+  );
 });
 
 test("an entry holding anything, or linked by a style, is a connection", () => {
@@ -276,13 +313,13 @@ test("a loopback ComfyUI style adds no question to a cloud save", () => {
   const next = config({
     styles: [
       { id: "a", connection: COMFY_CONNECTION },
-      { id: "b", connection: "xai", reference_sources: ["previous"] },
+      { id: "b", connection: "xai", reference_source: "previous" },
     ],
     cloud: { provider: "xai", providers: { xai: { api_key: "k" } } },
   });
   const keys = pendingDisclosures(next, connectionList(next, PROVIDERS)).map((d) => d.key);
   // And references being on for that one connection picks the bigger wording.
-  assert.deepEqual(keys, ["orb:image-gen-privacy-cloud-images:xai"]);
+  assert.deepEqual(keys, ["orb:image-gen-privacy-cloud-images-v2:xai"]);
 });
 
 test("one style with references on is enough to ask the larger cloud question", () => {
@@ -292,12 +329,12 @@ test("one style with references on is enough to ask the larger cloud question", 
   const next = config({
     styles: [
       { id: "a", connection: "xai" },
-      { id: "b", connection: "xai", reference_sources: ["character"] },
+      { id: "b", connection: "xai", reference_source: "character" },
     ],
     cloud: { provider: "xai", providers: { xai: { api_key: "k" } } },
   });
   const keys = pendingDisclosures(next, connectionList(next, PROVIDERS)).map((d) => d.key);
-  assert.deepEqual(keys, ["orb:image-gen-privacy-cloud-images:xai"]);
+  assert.deepEqual(keys, ["orb:image-gen-privacy-cloud-images-v2:xai"]);
 
   // And with every style on it prompt-only, the smaller question is the honest one.
   const off = config({
@@ -328,35 +365,39 @@ test("a remote ComfyUI is asked the image question by its styles, not by its imp
   const on = config({
     styles: [
       { id: "a", connection: COMFY_CONNECTION, workflow: "g" },
-      { id: "b", connection: COMFY_CONNECTION, workflow: "g", reference_sources: ["character"] },
+      { id: "b", connection: COMFY_CONNECTION, workflow: "g", reference_source: "character" },
     ],
     external_comfy: external,
   });
   assert.deepEqual(
     pendingDisclosures(on, connectionList(on, PROVIDERS)).map((d) => d.key),
-    ["orb:image-gen-privacy-images:https://comfy.example.com"],
+    ["orb:image-gen-privacy-images-v2:https://comfy.example.com"],
   );
 });
 
-test("a source stored for a slot the render target does not have is not an upload", () => {
-  // A style keeps both backends' answers across a relink, so its stored list outlives
-  // the target that shaped it. Reading it raw asks the user to approve an upload the
-  // panel shows as Off and no adapter makes — the disclosure has to match the render.
-  const cloud = config({
-    // Slot 0 off, slot 1 on: a two-`LoadImage` ComfyUI style, since relinked to xAI,
-    // which declares one slot and so reads position 0 alone.
-    styles: [{ id: "a", connection: "xai", reference_sources: ["", "character"] }],
+test("a source stored for a target that cannot carry one is not an upload", () => {
+  // A style keeps one source across a relink, so it outlives the target that shaped it.
+  // Reading it raw asks the user to approve an upload the panel shows as Off and no
+  // adapter makes — the disclosure has to match the render.
+  const noField = config({
+    styles: [{ id: "a", connection: "xai", reference_source: "character" }],
     cloud: { provider: "xai", providers: { xai: { api_key: "k" } } },
   });
+  const blind = connectionList(noField, [{ ...PROVIDERS[0], supports_references: false }]);
   assert.deepEqual(
-    pendingDisclosures(cloud, connectionList(cloud, PROVIDERS)).map((d) => d.key),
+    pendingDisclosures(noField, blind).map((d) => d.key),
     ["orb:image-gen-privacy-cloud:xai"],
   );
+  // The same provider with a reference field is an upload, on the same stored source.
+  assert.deepEqual(
+    pendingDisclosures(noField, connectionList(noField, PROVIDERS)).map((d) => d.key),
+    ["orb:image-gen-privacy-cloud-images-v2:xai"],
+  );
 
-  // The same in the other direction: a workflow that loads no image at all declares no
-  // slot for the answer left over from the one before it.
+  // The same in the other direction: a workflow that loads no image at all has nowhere
+  // to put the answer left over from the one before it.
   const comfy = config({
-    styles: [{ id: "a", connection: COMFY_CONNECTION, workflow: "t2i", reference_sources: ["character"] }],
+    styles: [{ id: "a", connection: COMFY_CONNECTION, workflow: "t2i", reference_source: "character" }],
     external_comfy: { api_url: "https://comfy.example.com", user_graphs: [{ id: "t2i", slots: {} }] },
   });
   assert.deepEqual(
@@ -380,26 +421,19 @@ test("a connection just added is listed before it holds anything", () => {
   );
 });
 
-test("reference support can be a provider fact with a model-shaped hole", () => {
-  // Together supports references, but only on its Kontext models; the text-to-image
-  // ones answer "Unsupported use of 'image_url' parameter" rather than ignoring it.
-  const together = {
-    supports_references: true,
-    default_model: "black-forest-labs/FLUX.1-schnell",
-    reference_models: ["kontext"],
-  };
-  assert.equal(modelTakesReferences(together, "black-forest-labs/FLUX.1-kontext-pro"), true);
-  assert.equal(modelTakesReferences(together, "black-forest-labs/FLUX.1-schnell"), false);
-  // No model chosen yet falls back to the default, which is what will be sent.
-  assert.equal(modelTakesReferences(together, ""), false);
+test("reference support is a provider fact and is never asked of the model", () => {
+  // The per-model allowlist is gone, and its absence is the point: it was a hand-kept
+  // table over catalogues of hundreds of models, so it was always behind, and being
+  // behind hid the control entirely — the user never learned the capability existed.
+  // A model that will not take a reference refuses at render time, for free, and the
+  // render degrades one rung and says so.
+  assert.equal(providerTakesReferences({ supports_references: true }), true);
+  assert.equal(providerTakesReferences({ supports_references: true, default_model: "flux-schnell" }), true);
 
-  // An empty allowlist is how every other provider reads: the whole catalogue.
-  assert.equal(modelTakesReferences({ supports_references: true, reference_models: [] }, "anything"), true);
-  assert.equal(modelTakesReferences({ supports_references: true }, "anything"), true);
-
-  // A provider with no reference support at all never takes them.
-  assert.equal(modelTakesReferences({ supports_references: false, reference_models: [] }, "kontext"), false);
-  assert.equal(modelTakesReferences(null, "kontext"), false);
+  // Provider-level is still a real answer: OpenRouter has no reference field on this
+  // path at all, measured across three spellings, so there is nothing to send.
+  assert.equal(providerTakesReferences({ supports_references: false }), false);
+  assert.equal(providerTakesReferences(null), false);
 });
 
 // ── resolution ───────────────────────────────────────────────────────────────

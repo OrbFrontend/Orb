@@ -4,8 +4,9 @@ Workflows import from this module rather than reaching directly into
 ``backend.inference.client``, ``backend.inference.prompt_builder``, etc. The set of
 re-exports is the workflow author's API: LLM client, tool-schema
 assembly, prompt assembly, macro resolution, read-only DB helpers for
-core state (including the character avatar and the single-attachment
-reader, for workflows that consume prior artifacts as input),
+core state (including the character avatar, the single-attachment
+reader, for workflows that consume prior artifacts as input, and the
+resolved scene cast),
 workflow-scoped storage wrappers, the locks guarding
 read-modify-write on that storage, the forced-call helper,
 the tool-overlay helper, the ``local_ml`` scaffold (for workflows that
@@ -41,7 +42,7 @@ from ..core import (
     workflow_config_lock,
     workflow_state_lock,
 )
-from ..core.domain_types import AgentLane
+from ..core.domain_types import AgentLane, CastMember, TurnCast
 from ..database import (
     get_active_lorebook_entries,
     get_character_avatar,
@@ -54,10 +55,12 @@ from ..database import (
     get_mood_fragments,
     get_phrase_bank,
     get_settings,
+    get_speaker_names,
     get_user_attachments_for_message,
     get_user_persona,
     get_user_personas,
     get_workflow_attachment_by_id,
+    resolve_cast,
     resolve_char_context,
 )
 from ..inference import (
@@ -69,6 +72,7 @@ from ..inference import (
     enabled_schemas,
     format_message_with_attachments,
     local_ml,
+    macro_identity,
     parse_tool_calls,
     reasoning_cfg,
     separate_agent_lane_configured,
@@ -88,12 +92,14 @@ from .registry import (
 )
 
 __all__ = [
+    "CastMember",
     "EVICTED_MARKER",
     "FormatDriftReport",
     "LLMClient",
     "Macros",
     "STANDALONE_TOOLS",
     "TOOLS",
+    "TurnCast",
     "build_prefix",
     "enabled_schemas",
     "forced_tool_call",
@@ -110,6 +116,7 @@ __all__ = [
     "get_messages",
     "get_mood_fragments",
     "get_phrase_bank",
+    "get_scene_cast",
     "get_settings",
     "get_user_attachments_for_message",
     "get_user_personas",
@@ -135,6 +142,24 @@ __all__ = [
     "workflow_config_lock",
     "workflow_state_lock",
 ]
+
+
+async def get_scene_cast(conversation_id: str) -> TurnCast:
+    """The conversation's resolved roster, through the one resolver the turn uses.
+
+    ``resolve_cast`` is already imported here for ``build_offturn_prefix``; this
+    exports it under a name a workflow may call, taking a conversation *id* rather
+    than a row so nothing above has to fetch one to ask who is in the scene. A
+    workflow asking who a render is *of* must get the same answer the prefix it
+    rides was built from -- two resolvers would mean a likeness sent for someone
+    the prompt never named.
+
+    A conversation that has gone missing answers as an empty solo cast rather than
+    raising: the caller degrades to "no subjects", which is what a narrator line
+    already resolves to.
+    """
+    conv = await get_conversation(conversation_id)
+    return await resolve_cast(conv) if conv is not None else TurnCast(False, ())
 
 
 async def build_offturn_prefix(
@@ -170,6 +195,12 @@ async def build_offturn_prefix(
         return []
     card_id = conv.get("character_card_id")
     card = await get_character_card(card_id) if card_id else None
+    # A group names no single character: the scene's title is {{char}}, the cast
+    # section stands in for the card, and each replayed reply is attributed to
+    # the member who wrote it. Resolved through the same reader the turn uses,
+    # against the *neutral* base (no speaker) — which is the base the Director
+    # runs on in every mode, Classic card swap included.
+    turn_cast = await resolve_cast(conv)
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
     dual_agent = lane == "agent" and separate_agent_lane_configured(settings)
     if dual_agent:
@@ -183,12 +214,11 @@ async def build_offturn_prefix(
         conv.get("persona_lock_id") or (card.get("persona_lock_id") if card else None) or settings.get("active_persona_id")
     )
     persona = await get_user_persona(persona_id) if persona_id else None
+    macro_char, cast_names = macro_identity(conv, turn_cast)
     macros = Macros.from_settings(
-        settings,
-        conv.get("character_name", ""),
-        persona,
-        seed=conv.get("macro_seed") or conv.get("id", ""),
+        settings, macro_char, persona, seed=conv.get("macro_seed") or conv.get("id", ""), cast=cast_names
     )
+    speaker_names = await get_speaker_names(conversation_id) if turn_cast.grouped else {}
     user_description = persona.get("description", "") if persona else settings.get("user_description", "")
     return build_prefix(
         system_prompt,
@@ -200,4 +230,6 @@ async def build_offturn_prefix(
         macros,
         user_description,
         constant_lorebook_block=compute_constant_lorebook_block(await get_active_lorebook_entries(), macros),
+        cast=turn_cast,
+        speaker_names=speaker_names,
     )

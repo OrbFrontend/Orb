@@ -13,10 +13,13 @@ from ...database import (
     delete_message_with_descendants,
     get_changesets_for_messages,
     get_character_card,
+    get_group_members,
     get_message_by_id,
+    get_message_delete_preview,
     get_messages,
     get_messages_with_branch_info,
     get_settings,
+    get_speaker_names,
     get_user_persona,
     get_worlds,
     mark_changesets_stale_for_messages,
@@ -32,6 +35,7 @@ from ...pipeline import (
     handle_fork_edit,
     handle_magic_rewrite,
     handle_regenerate,
+    handle_speak,
     handle_super_regenerate,
     handle_turn,
 )
@@ -48,6 +52,7 @@ from ..schemas import (
     MagicRewriteMsg,
     RegenerateMsg,
     SendMessage,
+    SpeakRequest,
 )
 
 router = APIRouter()
@@ -97,6 +102,18 @@ async def api_get_messages(cid: str, _conv: ConversationRow = Depends(require_co
         return await _attach_world_changesets(await get_messages_with_branch_info(cid))
 
 
+@router.get("/api/conversations/{cid}/messages/{msg_id}/delete-preview")
+async def api_message_delete_preview(
+    cid: str,
+    msg_id: int,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
+    preview = await get_message_delete_preview(cid, msg_id)
+    if preview is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+    return preview
+
+
 @router.post("/api/conversations/{cid}/messages/{msg_id}/edit")
 async def api_edit_message(
     cid: str,
@@ -136,7 +153,17 @@ async def api_fork_edit_message(
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
     """Fork at a user message: persist an edited sibling and stream a fresh reply."""
-    return _pipeline_sse_response(lambda tok: handle_fork_edit(cid, msg_id, data.content, abort_token=tok), request, cid)
+    return _pipeline_sse_response(
+        lambda tok: handle_fork_edit(
+            cid,
+            msg_id,
+            data.content,
+            abort_token=tok,
+            speaker_member_id=data.speaker_member_id,
+        ),
+        request,
+        cid,
+    )
 
 
 @router.delete("/api/conversations/{cid}/messages/{msg_id}")
@@ -218,8 +245,28 @@ async def api_send_message(
 ):
     attachments = [a.model_dump() for a in data.attachments]
     return _pipeline_sse_response(
-        lambda tok: handle_turn(cid, data.content, attachments=attachments, abort_token=tok), request, cid
+        lambda tok: handle_turn(
+            cid,
+            data.content,
+            attachments=attachments,
+            abort_token=tok,
+            speaker_member_id=data.speaker_member_id,
+        ),
+        request,
+        cid,
     )
+
+
+@router.post("/api/conversations/{cid}/speak")
+async def api_group_speak(
+    cid: str,
+    data: SpeakRequest,
+    request: Request,
+    conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
+    if conv.get("kind", "solo") != "group":
+        raise HTTPException(status_code=409, detail="Conversation is not a group")
+    return _pipeline_sse_response(lambda tok: handle_speak(cid, data.speaker_member_id, abort_token=tok), request, cid)
 
 
 @router.post("/api/conversations/{cid}/continue")
@@ -235,7 +282,15 @@ async def api_continue_from_user(
         raise HTTPException(status_code=400, detail="Last message is not a user message")
     user_content = messages[-1]["content"]
     return _pipeline_sse_response(
-        lambda tok: handle_turn(cid, user_content, skip_user_persist=True, abort_token=tok), request, cid
+        lambda tok: handle_turn(
+            cid,
+            user_content,
+            skip_user_persist=True,
+            abort_token=tok,
+            speaker_member_id=data.speaker_member_id if data else None,
+        ),
+        request,
+        cid,
     )
 
 
@@ -264,12 +319,40 @@ async def api_autocomplete(
     persona_id = resolve_persona_id(conv, card, settings)
     persona = await get_user_persona(persona_id) if persona_id else None
     user_name = (persona or {}).get("name") or settings.get("user_name") or "User"
-    char_name = conv.get("character_name") or (card or {}).get("name") or "Character"
 
-    macros = Macros(user=user_name, char=char_name)
+    # A group is a scene, not a character: {{char}} is its title, the "who am I
+    # talking to" summary is the roster, and each replayed line is labelled with
+    # the member who actually said it — the same three substitutions the pipeline
+    # makes. Without them the typeahead completes against one nameless character.
+    #
+    # Read straight off the roster rather than through `resolve_cast`: this route
+    # fires on a typing debounce, and all it needs are names — not the card behind
+    # each one. `{{cast}}` stays empty in a solo chat, exactly as `_prepare_turn`
+    # leaves it, so a draft resolves here the way it will in the turn itself.
+    speaker_names: dict[str, str] = {}
+    cast_names = ""
+    if conv.get("kind", "solo") == "group":
+        # Names from the active roster (what the scene is), labels from all of it
+        # (so a reply by a since-removed member is still attributed).
+        cast_names = ", ".join(m["display_name"] for m in await get_group_members(cid))
+        char_name = conv.get("title") or conv.get("character_name") or "Character"
+        summary_source = f"Scene cast: {cast_names}"
+        speaker_names = await get_speaker_names(cid)
+    else:
+        char_name = conv.get("character_name") or (card or {}).get("name") or "Character"
+        summary_source = (card or {}).get("description") or ""
+
+    macros = Macros(user=user_name, char=char_name, cast=cast_names)
     messages = await get_messages(cid)
-    recent = [{"role": m["role"], "content": macros.resolve_prompt(m["content"] or "")} for m in messages[-4:]]
-    summary = macros.resolve_prompt((card or {}).get("description") or "")
+    recent = [
+        {
+            "role": m["role"],
+            "content": macros.resolve_prompt(m["content"] or ""),
+            "name": speaker_names.get(str(m.get("speaker_member_id")), "") if m.get("speaker_member_id") else "",
+        }
+        for m in messages[-4:]
+    ]
+    summary = macros.resolve_prompt(summary_source)
     prompt = local_ml.build_prompt(char_name, user_name, summary, recent, macros.resolve_prompt(data.draft))
 
     completion = await local_ml.complete(prompt)

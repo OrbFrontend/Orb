@@ -24,21 +24,36 @@ from ...database import (
     get_character_avatar,
     get_character_card,
     get_character_expression,
+    get_character_usage,
     get_lorebook_entries,
+    get_settings,
     get_user_persona,
     get_world,
     get_world_by_name,
     list_character_cards,
     list_expression_labels,
     set_character_expressions,
+    set_public_profile,
     sync_conversations_for_card,
     update_character_card,
 )
 from ...features.cards import downloader as card_downloader
+from ...features.cards import draft_card_profile
 from ...features.cards import expressions as card_expressions
 from ...features.cards import parsing as tavern_cards
-from ..deps import _normalise_lorebook_entry, lorebook_to_book, project_lorebook_view
-from ..schemas import CharacterCardCreate, CharacterCardUpdate, ImportUrlRequest
+from ...inference import agent_lane_from_settings, client_from_settings
+from ..deps import (
+    _normalise_lorebook_entry,
+    lorebook_to_book,
+    profile_draft_failures,
+    project_lorebook_view,
+)
+from ..schemas import (
+    CharacterCardCreate,
+    CharacterCardUpdate,
+    ImportUrlRequest,
+    PublicProfilePayload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +172,32 @@ async def api_get_character(card_id: str):
     return card
 
 
+@router.post("/api/characters/{card_id}/public-profile/generate")
+async def api_generate_public_profile(card_id: str):
+    """Return an editable draft; generation never overwrites the card.
+
+    Raises rather than degrading: a plausible-looking profile built from the
+    card's description under a "Draft ready" toast is worse than an error,
+    because it is indistinguishable from a real answer.
+    """
+    card = await get_character_card(card_id)
+    if not card:
+        raise HTTPException(status_code=404, detail="Character card not found")
+    settings = await get_settings()
+    client = client_from_settings(settings)
+    agent_client, model = agent_lane_from_settings(settings, writer_client=client)
+    with profile_draft_failures(f"Public-profile generation for card {scrub_log(card_id)!r}"):
+        return await draft_card_profile(agent_client, model or "", card)
+
+
+@router.put("/api/characters/{card_id}/public-profile")
+async def api_save_public_profile(card_id: str, data: PublicProfilePayload):
+    card = await set_public_profile(card_id, data.appearance, data.role)
+    if not card:
+        raise HTTPException(status_code=404, detail="Character card not found")
+    return (card.get("extensions") or {}).get("orb", {}).get("public_profile", {})
+
+
 @router.put("/api/characters/{card_id}")
 async def api_update_character(card_id: str, data: CharacterCardUpdate):
     old_card = await get_character_card(card_id)
@@ -184,6 +225,13 @@ async def api_delete_character(card_id: str, delete_conversations: bool = False)
     if not await delete_character_card(card_id, delete_conversations):
         raise HTTPException(status_code=404, detail="Character card not found")
     return {"ok": True}
+
+
+@router.get("/api/characters/{card_id}/usage")
+async def api_character_usage(card_id: str):
+    if not await get_character_card(card_id):
+        raise HTTPException(status_code=404, detail="Character card not found")
+    return await get_character_usage(card_id)
 
 
 @router.get("/api/characters/{card_id}/avatar")

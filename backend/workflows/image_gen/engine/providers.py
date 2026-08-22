@@ -108,19 +108,25 @@ class ProviderPreset:
     # "no edits endpoint" and "no reference support" are not the same fact.
     reference_field: str = "images"
     # How that field is shaped: "url_objects" -> `[{"url": ...}]`, "image_url_objects"
-    # -> `[{"image_url": ...}]`, "url_object" -> `{"url": ...}`, "string" -> the bare
-    # URI. Declared rather than inferred from the field name, because getting it wrong
-    # is invisible: Together answers 200 and renders the prompt alone when the shape is
-    # not the one it wanted. Nor is the *field* name enough to pin the element: OpenAI
-    # takes `images` like xAI and then rejects xAI's `{"url": ...}` element, wanting
-    # `{"image_url": "<uri>"}` -- one key deeper than the field name suggests.
+    # -> `[{"image_url": ...}]`, "string_list" -> `["<uri>", ...]`, "url_object" ->
+    # `{"url": ...}`, "string" -> the bare URI. Declared rather than inferred from the
+    # field name, because getting it wrong is invisible: Together answers 200 and
+    # renders the prompt alone when the shape is not the one it wanted. Nor is the
+    # *field* name enough to pin the element: OpenAI takes `images` like xAI and then
+    # rejects xAI's `{"url": ...}` element, wanting `{"image_url": "<uri>"}` -- one key
+    # deeper than the field name suggests.
+    #
+    # This is the one genuinely irreducible per-provider fact about references, and it
+    # is also what decides **capacity**: a list encoding can carry as many as the
+    # picker allows, a scalar one carries exactly one. Nothing else needs measuring.
     reference_encoding: str = "url_objects"
-    # When non-empty, only these models accept a reference -- same lowercase
-    # substring match, and the same epistemics as `negative_prompt_blind`: an
-    # allowlist, so a model nobody has probed is treated as incapable. Under-
-    # promising costs a disclosure; over-promising costs a silent no-op that
-    # renders without the character reference and still bills for it.
-    reference_models: tuple[str, ...] = ()
+    # Deliberately absent: a per-model reference allowlist. It was a hand-measured table
+    # over catalogues that grow without us -- NanoGPT alone ships 202 image models -- so
+    # it was permanently unfinished, and an unfinished allowlist silently withholds a
+    # capability the user is paying for. A model that will not take what it was sent says
+    # so itself: `engine/degrade.py` reads the refusal and re-renders without it.
+    # Rejections are free on every provider measured, so asking costs latency, not
+    # money.
     # True when a reference render takes its size from the reference rather than
     # from the request. An image-to-image model generally follows its input, so the
     # resolution picker silently stops applying the moment references are on.
@@ -181,6 +187,10 @@ PRESETS: tuple[ProviderPreset, ...] = (
         supports_references=True,
         # Confirmed end-to-end: a JSON body, not multipart.
         reference_field="images",
+        # Measured 2026-08-19: four references whose colours the prompt never named came
+        # back as four objects, and swapping the array swapped the output left-to-right,
+        # so `images` is positional rather than a bag. Recorded because it is the
+        # evidence a list encoding carries more than its first element at all.
         default_model="grok-imagine-image",
         max_prompt=8_000,
         docs_url="https://docs.x.ai/docs/guides/image-generations",
@@ -213,7 +223,6 @@ PRESETS: tuple[ProviderPreset, ...] = (
         supports_references=True,
         reference_field="image_url",
         reference_encoding="string",
-        reference_models=("kontext",),
         # Kontext derives the output size from the reference: a 512x512 reference on
         # a 1024x576 request came back 1024x1024. The picker cannot win that, so the
         # render says so instead of quietly handing back a different shape.
@@ -302,11 +311,11 @@ PRESETS: tuple[ProviderPreset, ...] = (
         # reference came back magenta with `input_tokens_details.image_tokens: 194`
         # confirming it was read rather than accepted and dropped.
         #
-        # `reference_models` is left empty -- meaning every model -- on a measurement
-        # rather than on optimism: all five reachable models were posted a reference
-        # alongside a deliberately invalid `size`, and each got as far as its own size
-        # check, which is only reached once the model and the field have been accepted.
-        # (`chatgpt-image-latest` 403s on organization verification before any of it.)
+        # Every reachable model takes one, measured rather than assumed: all five were
+        # posted a reference alongside a deliberately invalid `size`, and each got as far
+        # as its own size check, which is only reached once the model and the field have
+        # been accepted. (`chatgpt-image-latest` 403s on org verification before any of
+        # it, which the refusal ladder degrades on like any other.)
         supports_references=True,
         # NOT `image: {"url": ...}`. The field is `images` (an array) and its element
         # is `{"image_url": "<data uri>"}`; every other spelling is rejected by name,
@@ -357,12 +366,15 @@ PRESETS: tuple[ProviderPreset, ...] = (
         # either path. `images: [{"url": ...}]` -- the shape xAI and OpenAI want --
         # is the one spelling NanoGPT rejects outright, with `missing_image_input`.
         supports_references=True,
-        reference_field="image",
-        reference_encoding="string",
-        # `reference_models` deliberately left empty: 118 of the 202 image models take
-        # one, the id is in front of the user when they choose it, and an allowlist
-        # over a catalogue this size narrows itself every time NanoGPT ships a model.
-        # The `gaps` line states the trade instead.
+        # NOT `image`, which is single-only. Measured 2026-08-19: `imageDataUrls` is a
+        # bare-string array that carries four references onto `nano-banana` in order,
+        # and takes a *single* element just as happily -- so it replaces `image` outright
+        # rather than adding a second code path for the multi case. Over-capacity is
+        # refused by name (`IMAGE_INPUT_TOO_MANY`, quoting the model's limit) and the
+        # refusal is free, which is what makes asking cheaper than tabulating: capacity
+        # here is genuinely per-model, from 1 to 14 across the catalogue.
+        reference_field="imageDataUrls",
+        reference_encoding="string_list",
         default_model="cyberrealistic-xl",
         # Verified: 3000, and it 400s rather than truncating.
         max_prompt=3_000,
@@ -396,9 +408,6 @@ PRESETS: tuple[ProviderPreset, ...] = (
         supports_references=True,
         reference_field="image_url",
         reference_encoding="string",
-        # `reference_models` empty for NanoGPT's reason: a broker whose image-to-image
-        # models name themselves (`flux/kontext-pro/image-to-image`, `bytedance/uso`),
-        # so the id is in front of the user at the moment they choose it.
         docs_url="https://docs.aimlapi.com/api-references/image-models",
         gaps=(
             *_GAPS_NO_CONTROLS,
@@ -431,8 +440,6 @@ def get_preset(provider_id: str) -> ProviderPreset | None:
 # What the settings panel is told about a provider. An allowlist, so a field added
 # to the table above reaches the frontend only when someone puts it here -- which is
 # also what keeps a credential from ever riding along, since none is named.
-# `reference_models` empty means "every model on this provider takes one"; non-empty
-# is the allowlist the panel matches the chosen model against.
 #
 # The whole dimension contract rides along -- `sizes` for a menu provider, the
 # min/max/step grid for a `width_height` one -- because the panel's resolution menu
@@ -441,20 +448,25 @@ def get_preset(provider_id: str) -> ProviderPreset | None:
 # `reference_drives_size` for the same reason: it is the one capability that decides
 # whether that menu applies *at all*, and only the panel can say so before the bill.
 _CATALOGUE_FIELDS = (
-    "id label base_url default_model dimension_mode aspect_ratios sizes docs_url verified gaps reference_models "
+    "id label base_url default_model dimension_mode aspect_ratios sizes docs_url verified gaps "
     "min_dimension max_dimension dimension_step reference_drives_size "
     "supports_negative_prompt supports_seed supports_quality supports_references"
 ).split()
 
 
-def provider_catalogue() -> list[dict]:
+def provider_catalogue(ceiling: int) -> list[dict]:
     """The preset table projected for the settings panel. A projection, never the
-    config: no configured `api_key` may enter this payload."""
+    config: no configured `api_key` may enter this payload.
+
+    `ceiling` is `MAX_REFERENCE_SLOTS`, passed rather than imported so this module
+    stays free of the config layer it is read by."""
     return [
         {
             **{name: _jsonable(getattr(preset, name)) for name in _CATALOGUE_FIELDS},
-            # The one derived field: `custom` is the row that ships no base URL.
+            # Derived, not declared: `custom` is the row that ships no base URL, and
+            # capacity falls out of the reference encoding.
             "needs_base_url": not preset.base_url,
+            "max_references": reference_capacity(preset, ceiling),
         }
         for preset in PRESETS
     ]
@@ -705,7 +717,9 @@ def build_edit_body(
         # this is unreachable in practice -- but returning early beats emitting the
         # reference field as a JSON `null` for a provider to make sense of.
         return built
-    if preset.reference_encoding in _LIST_ENCODINGS:
+    if preset.reference_encoding == "string_list":
+        built.body[preset.reference_field] = uris
+    elif preset.reference_encoding in _LIST_ENCODINGS:
         key = _LIST_ENCODINGS[preset.reference_encoding]
         built.body[preset.reference_field] = [{key: uri} for uri in uris]
     else:
@@ -722,12 +736,32 @@ def build_edit_body(
     return built
 
 
-def takes_references(preset: ProviderPreset, model: str) -> bool:
-    """True when this model is verified to accept a reference image.
+def takes_references(preset: ProviderPreset) -> bool:
+    """True when this provider has a JSON field to put a reference in at all.
 
-    A provider whose whole catalogue takes them declares no `reference_models` and
-    every model passes; one where it is the exception names the exceptions.
+    Provider-level and nothing finer. Which *models* behind it accept one was a
+    hand-kept allowlist over catalogues that grow without us, and being wrong in the
+    withholding direction is invisible: the user configured a likeness, paid for the
+    render, and got neither the picture nor a word about it. A model that will not
+    take what it was sent refuses, the refusal is free, and `engine/degrade.py`
+    re-renders without the references and says so.
+    """
+    return preset.supports_references
+
+
+def reference_capacity(preset: ProviderPreset, ceiling: int) -> int:
+    """How many references this provider's dialect can physically carry, capped.
+
+    Derived from the encoding rather than declared, because the encoding is the only
+    thing that actually constrains it: a list field takes a list, a scalar field takes
+    one, and no amount of measurement changes either. Whether the model *reads* every
+    element is a different question, and one this deliberately does not try to answer
+    -- guessing high costs an upload, and the prompt no longer depends on the guess.
+
+    `ceiling` is the caller's (`MAX_REFERENCE_SLOTS`), passed in so this module keeps
+    knowing nothing about the picker or the config it is stored under.
     """
     if not preset.supports_references:
-        return False
-    return not preset.reference_models or _matches(model, preset.reference_models)
+        return 0
+    carries_list = preset.reference_encoding == "string_list" or preset.reference_encoding in _LIST_ENCODINGS
+    return max(1, ceiling) if carries_list else 1

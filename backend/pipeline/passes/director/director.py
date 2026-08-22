@@ -47,16 +47,89 @@ logger = logging.getLogger(__name__)
 # ── direct_scene tool override ────────────────────────────────────────────────
 
 
+# The speaking plan is a director output like any interactive fragment, but it is
+# owned by the group driver rather than by a user-authored fragment row. This is
+# the synthetic stage the per-fragment loop runs it as: same shape the loop reads
+# off a real fragment (``field_type`` included, or the step-prompt builder has no
+# type hint to render), so neither the loop nor the prompt builder needs to know
+# the plan is special.
+SPEAKING_PLAN_FIELD = "speaking_plan"
+SPEAKING_PLAN_STAGE: dict[str, Any] = {
+    "id": SPEAKING_PLAN_FIELD,
+    "field_type": "array",
+    "injection_label": "Speaking plan",
+    "description": "Choose the ordered speakers and their one-line cues.",
+}
+
+# The schema half of the speaking plan: static, because it rides the shared tools
+# blob and therefore the cached prefix (kv-cache.md, Invariant 3). It deliberately
+# names no member -- muting one is otherwise prefix-neutral (a muted member still
+# renders in the cast section, in every context mode), so letting the roster reach
+# this string made a mute toggle re-prefill every lane on the backends that render
+# tool declarations ahead of the conversation.
+SPEAKING_PLAN_SCHEMA_DESCRIPTION = (
+    "Ordered speakers and cues, formatted `<speaker_key> — <one-line cue>`. "
+    "Use only the unmuted speaker keys named in the request. Return [] when nobody should answer."
+)
+
+
+def speaking_plan_instruction(speaker_keys: str) -> str:
+    """The live half: which keys are castable *this* exchange, for the trailing message.
+
+    The mirror of the editor's numbered findings — the volatile list is stated in
+    prose on the per-call tail and validated server-side (``cast.parse_speaking_plan``),
+    never expressed as a schema override. It also reaches strictly more of the
+    pipeline there: text mode never renders tool schemas at all, and the
+    per-fragment step prompt only echoes a field's *stage* description, so the
+    roster used to be invisible on both paths.
+    """
+    return (
+        f"Cast the exchange with `{SPEAKING_PLAN_FIELD}`: ordered lines `<speaker_key> — <one-line cue>`. "
+        f"Valid unmuted speaker keys: {speaker_keys}. Return [] when nobody should answer."
+    )
+
+
+def keeps_director_value(field: str, value: Any) -> bool:
+    """Whether a ``direct_scene`` field's value is worth recording.
+
+    An empty value normally means "the model declined this field", so it is
+    dropped. The speaking plan is the exception: ``[]`` is the Director's way of
+    saying *nobody answers this exchange*, and discarding it would silently fall the
+    group back to round-robin. Only ``None`` reads as declined there — the
+    combined call omits the key entirely, the per-fragment loop reads it back as
+    ``None``, and both must land on the configured strategy rather than a rest.
+    Both callers ask this one question, so the two cannot disagree about what a
+    rest means.
+    """
+    if field == SPEAKING_PLAN_FIELD:
+        return value is not None
+    return value not in (None, "", [])
+
+
 def build_direct_scene_override(
     writer_fragments: Sequence[Mapping[str, Any]],
+    grouped: bool = False,
 ) -> dict:
     """Build the ``direct_scene`` tool schema from *writer_fragments*.
 
     Thin wrapper over ``build_direct_scene_tool`` so ``_build_writer_tools_blob``
     reaches the schema through the director module rather than importing the
     schema builder directly — symmetric to ``build_feedback_override``.
+
+    *grouped* widens the schema with the speaking-plan field. A bool and not the
+    roster on purpose: nothing about *which* members are in the scene may reach
+    this blob (see :data:`SPEAKING_PLAN_SCHEMA_DESCRIPTION`), and taking the cast
+    as an argument is what previously let it. The live roster ships with the
+    request instead, through :func:`speaking_plan_instruction`.
     """
-    return build_direct_scene_tool(writer_fragments)
+    schema = build_direct_scene_tool(writer_fragments)
+    if grouped:
+        schema["function"]["parameters"]["properties"][SPEAKING_PLAN_FIELD] = {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": SPEAKING_PLAN_SCHEMA_DESCRIPTION,
+        }
+    return schema
 
 
 def _step_schema(tool_schema: dict, keep: str) -> dict | None:
@@ -115,8 +188,14 @@ def apply_tool_calls(
     for tc in tool_calls:
         args = tc.get("arguments", {})
         if tc["name"] == "direct_scene":
-            moods = args.get("moods", [])
-            extra_fields = {k: v for k, v in args.items() if k != "moods" and v not in (None, "", [])}
+            # A model declines moods by emitting ``"moods": null`` about as often
+            # as it omits the key, and both mean the same thing as the empty call:
+            # no moods this turn. Non-string items are dropped rather than carried
+            # -- they cannot match a fragment id, and an unhashable one would blow
+            # up the set() union in ``director_stage``.
+            raw_moods = args.get("moods")
+            moods = [m for m in raw_moods if isinstance(m, str)] if isinstance(raw_moods, list) else []
+            extra_fields = {k: v for k, v in args.items() if k != "moods" and keeps_director_value(k, v)}
 
     return (moods, extra_fields)
 
@@ -140,8 +219,12 @@ async def director_pass(
     lorebook_block: str = "",
     progressive_state: dict | None = None,
     direction_notes_block: str = "",
+    speaker_keys: str = "",
 ) -> AsyncIterator[dict]:
     """Yield reasoning chunks during each tool call, then a single done dict.
+
+    *speaker_keys* is the exchange's castable roster, comma-joined. It reaches the
+    model only through the trailing request, never the cached tool blob.
 
     Yields:
         ``{"type": "reasoning", "delta": str}``       — zero or more reasoning chunks
@@ -186,7 +269,11 @@ async def director_pass(
         if client.is_aborted:
             break
         tool_schema = next((s for s in tool_schemas if s["function"]["name"] == name), None)
-        if name == "direct_scene" and per_fragment_on and interactive_fragments:
+        # Only the group driver widens direct_scene with a speaking plan, so its
+        # presence in the schema is what says "this turn schedules speakers".
+        scene_fields = tool_schema["function"]["parameters"]["properties"] if name == "direct_scene" and tool_schema else {}
+        plans_speakers = SPEAKING_PLAN_FIELD in scene_fields
+        if name == "direct_scene" and per_fragment_on and (interactive_fragments or plans_speakers):
             reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
             hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
 
@@ -195,7 +282,8 @@ async def director_pass(
             # resolved last, in a call of their own, so they are picked to fit the
             # scene already directed (the moods step is shown the decided fields).
             decided: list[tuple[str, Any]] = []
-            for stage in [*interactive_fragments, None]:
+            stages = [*interactive_fragments, *([SPEAKING_PLAN_STAGE] if plans_speakers else []), None]
+            for stage in stages:
                 if client.is_aborted:
                     break
                 target = stage["id"] if stage else "moods"
@@ -208,6 +296,11 @@ async def director_pass(
                     target_fragment=stage,
                     decided_fields=decided,
                     progressive_prior=(progressive_state or {}).get(stage["id"]) if stage else None,
+                    cast_instruction=(
+                        speaking_plan_instruction(speaker_keys)
+                        if speaker_keys and stage is not None and stage["id"] == SPEAKING_PLAN_FIELD
+                        else ""
+                    ),
                 )
                 step_tail = lorebook_prefix + notes_prefix + step_tail
                 content = build_multimodal_content(step_tail, attachments)
@@ -257,7 +350,7 @@ async def director_pass(
                 else:
                     args = next((tc.get("arguments", {}) for tc in parsed if tc.get("name") == "direct_scene"), {})
                     val = args.get(stage["id"])
-                    if val not in (None, "", []):
+                    if keeps_director_value(stage["id"], val):
                         extra_fields[stage["id"]] = val
                     decided.append((stage["injection_label"], val))
             continue
@@ -270,6 +363,7 @@ async def director_pass(
             interactive_fragments=interactive_fragments,
             progressive_state=progressive_state,
             tool_schema=tool_schema,
+            cast_instruction=speaking_plan_instruction(speaker_keys) if speaker_keys else "",
         )
         tail = lorebook_prefix + (notes_prefix if name == "direct_scene" else "") + tool_tail
         content = build_multimodal_content(tail, attachments)
@@ -346,6 +440,7 @@ async def director_stage(
     kv_tracker: _KVCacheTracker,
     lorebook: LorebookTurn,
     macros: Macros,
+    speaker_keys: str = "",
 ) -> AsyncIterator[dict]:
     """Input-prep + director pass + all post-processing for the director stage.
 
@@ -387,6 +482,7 @@ async def director_stage(
             lorebook_block=lorebook.block,
             progressive_state=prior_progressive,
             direction_notes_block=notes_block if direction_note_to_director(settings) else "",
+            speaker_keys=speaker_keys,
         ):
             if event["type"] == "reasoning":
                 state.reasoning_director += event["delta"]

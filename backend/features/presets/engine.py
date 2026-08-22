@@ -268,7 +268,11 @@ def schema_coverage_problems(conn: sqlite3.Connection) -> list[str]:
                     f"{name}.{fk.from_col} references unclassified parent {fk.parent!r} (excluded or unknown table)"
                 )
         for col in t.cols:
-            if ps.is_sensitive_column(col) and (name, col) not in ps.SECRET_COLUMNS:
+            if (
+                ps.is_sensitive_column(col)
+                and (name, col) not in ps.SECRET_COLUMNS
+                and (name, col) not in ps.NON_SECRET_KEY_COLUMNS
+            ):
                 problems.append(
                     f"column {name}.{col} looks secret but is not in SECRET_COLUMNS; add it (with its scrub value) or rename it"
                 )

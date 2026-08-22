@@ -9,18 +9,20 @@ import { clearInspectedMessage, inspectMessage } from "./chat_messages.js";
 import { stopConversation } from "./chat_stream.js";
 import { resetWorkflowViewportState } from "./chat_workflow.js";
 import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
+import { groupFamily, groupRootId } from "./group_cast.js";
+import { loadGroupCast, renderGroupCast, renderGroupList } from "./group_setup.js";
 import { refreshCharacters, renderCharacters } from "./library.js";
 // Imported from library_fragments.js directly (like settings.js does): going
 // through library.js would widen the library.js → chat.js import cycle.
 import { renderInteractiveFragments, renderMoodFragments } from "./library_fragments.js";
-import { activateAndPrioritizeWorld, deactivateWorld } from "./lorebooks.js";
+import { reflectConversationWorldActivation } from "./lorebooks.js";
 import { closeModal, showConfirmModal, showModal } from "./modal.js";
 import { isUtilityPanelOpen } from "./panels.js";
 // Imported from settings_personas.js directly: going through settings.js would
 // close an import cycle (settings.js → chat.js → this module).
 import { updateUserBtn } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
-import { charactersView, S } from "./state.js";
+import { S } from "./state.js";
 import {
   $,
   avatarCell,
@@ -39,27 +41,75 @@ import { clearTextEffect } from "./workflow_text_effects.js";
 // ── Conversations
 export async function loadConversations() {
   S.conversations = await api.get("/conversations");
+  renderGroupList();
 }
 
-// Stash (or clear, with null) the active character's card-embedded fragments
-// for the sidepanel/inspector. Mirrors the backend merge rule: enabled only,
-// and a card fragment whose id collides with a global one is skipped.
-export function stashCardFragments(card) {
-  const frags = card?.extensions?.orb?.fragments;
-  const keep = (list, globals) =>
-    (Array.isArray(list) ? list : []).filter(
-      (f) => f?.id && f.enabled !== false && !globals.some((g) => g.id === f.id),
-    );
-  S.cardMoodFragments = keep(frags?.mood, S.moodFragments);
-  S.cardInteractiveFragments = keep(frags?.interactive, S.interactiveFragments);
+document.addEventListener("group-created", async (event) => {
+  await loadConversations();
+  await selectConversation(event.detail);
+});
+document.addEventListener("group-selected", (event) => selectConversation(event.detail));
+document.addEventListener("group-delete-request", (event) => _deleteGroupFamily(event.detail));
+// The roster decides which cards contribute fragments, so an edited cast has to
+// re-read them — a member added mid-scene ships its fragments to the very next
+// turn, and the panels would otherwise keep showing the previous cast's.
+document.addEventListener("group-cast-updated", () => refreshSceneCardFragments());
+
+// Stash (or clear, with null) the card-embedded fragments in play for the open
+// conversation. Mirrors the backend merge rule (`_load_pipeline_context`):
+// enabled only, a global id always wins, and the first card to claim an id keeps
+// it. Takes one card or a list, because a group's fragments come from the whole
+// cast — the scene itself has no card, so reading one would show the user none
+// of the fragments the turn actually loads.
+export function stashCardFragments(cards) {
+  const list = (Array.isArray(cards) ? cards : [cards]).filter(Boolean);
+  const merge = (pick, globals) => {
+    const claimed = new Set(globals.map((g) => g.id));
+    const out = [];
+    for (const card of list) {
+      const frags = pick(card?.extensions?.orb?.fragments);
+      for (const f of Array.isArray(frags) ? frags : []) {
+        if (!f?.id || f.enabled === false || claimed.has(f.id)) continue;
+        claimed.add(f.id);
+        out.push(f);
+      }
+    }
+    return out;
+  };
+  S.cardMoodFragments = merge((frags) => frags?.mood, S.moodFragments);
+  S.cardInteractiveFragments = merge((frags) => frags?.interactive, S.interactiveFragments);
   renderMoodFragments();
   renderInteractiveFragments();
+}
+
+// The cards whose embedded fragments this conversation loads: the cast's, for a
+// group; the conversation's own otherwise. Deduplicated because a roster may
+// legitimately carry two members without cards (narrators) and, after a card
+// swap, two slots pointing at one.
+function sceneCardIds(conv) {
+  if (conv?.kind === "group") {
+    return [...new Set((S.groupCast?.members || []).map((member) => member.character_card_id).filter(Boolean))];
+  }
+  return conv?.character_card_id ? [conv.character_card_id] : [];
+}
+
+// Re-read the open conversation's card fragments. The full card carries the
+// extensions the list projection drops, so this is a fetch per scene card.
+export async function refreshSceneCardFragments() {
+  const conv = S.conversations.find((c) => c.id === S.activeConvId);
+  const cards = await Promise.all(
+    sceneCardIds(conv).map((cardId) => api.get(`/characters/${cardId}`).catch(() => null)),
+  );
+  stashCardFragments(cards);
 }
 
 export function resetChatUI() {
   stopAllAudio();
   S.activeCharId = null;
   S.activeConvId = null;
+  S.groupCast = null;
+  S.pinnedSpeakerId = null;
+  S.consumedSpeakerId = null;
   stashCardFragments(null);
   S.messages = [];
   S.lastDirectorData = null;
@@ -68,8 +118,12 @@ export function resetChatUI() {
   S.inspectedDirectorData = null;
   $("chat-title-text").textContent = "Select a character";
   $("chat-avatar").textContent = CHAT_AVATAR_ICON;
+  $("chat-avatar").style.cursor = "";
   $("chat-input").disabled = true;
   $("send-btn").disabled = true;
+  // Drops the cast rail and the group entries in the header menu along with the
+  // conversation they belonged to.
+  renderGroupCast();
   renderMessages();
   renderInspector();
   updateUserBtn(); // no active character → drop any locked-to-character icon
@@ -83,13 +137,8 @@ export async function selectChar(id, source = "recent") {
   if (S.activeCharId === id || S._selectCharLock) return;
   S._selectCharLock = true;
   try {
-    const oldWorldId = charactersView().find((c) => c.id === S.activeCharId)?.world_id || null;
-    const newWorldId = charactersView().find((c) => c.id === id)?.world_id || null;
     S.activeCharId = id;
     renderCharacters();
-    if (oldWorldId && oldWorldId !== newWorldId) {
-      await deactivateWorld(oldWorldId);
-    }
     const existing = S.conversations.find((c) => c.character_card_id === id);
     if (existing) {
       // If selecting from library modal, bump the conversation's access time so
@@ -126,16 +175,38 @@ export async function newConvForChar(id) {
     return;
   }
   try {
-    const oldWorldId = charactersView().find((c) => c.id === S.activeCharId)?.world_id || null;
-    const newWorldId = charactersView().find((c) => c.id === id)?.world_id || null;
     const conv = await api.post("/conversations", { character_card_id: id });
     await loadConversations();
     S.activeCharId = id;
     renderCharacters();
-    if (oldWorldId && oldWorldId !== newWorldId) {
-      await deactivateWorld(oldWorldId);
-    }
     await selectConversation(conv.id);
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+// "New conversation" means the same thing in both scenes — start fresh with the
+// same cast — but a group has no `activeCharId` to start from, so the composer's
+// menu routes through here rather than assuming a character.
+export async function newConversationHere() {
+  const conv = S.conversations.find((c) => c.id === S.activeConvId);
+  if (conv?.kind !== "group") {
+    if (!S.activeCharId) {
+      toast("Select a character first", true);
+      return;
+    }
+    await newConvForChar(S.activeCharId);
+    return;
+  }
+  if (S.isStreaming) {
+    toast("Stop generation before starting a new conversation", true);
+    return;
+  }
+  try {
+    // Same roster and scene configuration, no history, same group.
+    const fresh = await api.post(convUrl(conv.id, "group-conversation"));
+    await loadConversations();
+    await selectConversation(fresh.id);
   } catch (e) {
     toast(e.message, true);
   }
@@ -146,7 +217,6 @@ export async function selectConversation(id) {
     toast("Stop generation before switching conversations", true);
     return;
   }
-  const oldWorldId = charactersView().find((c) => c.id === S.activeCharId)?.world_id || null;
   S.activeConvId = id;
   S.lastDirectorData = null;
   S.reasoningDirector = "";
@@ -156,16 +226,27 @@ export async function selectConversation(id) {
   S.reasoningPassActive = 0;
   S.reasoningPassSelected = 0;
   const conv = S.conversations.find((c) => c.id === id);
+  await loadGroupCast(conv);
+  if (conv?.kind === "group") S.activeCharId = null;
   if (conv?.character_card_id && S.activeCharId !== conv.character_card_id) {
     S.activeCharId = conv.character_card_id;
     renderCharacters();
   }
+  // A group row highlights for any conversation in its family, so switching
+  // between a scene and its checkpoint has to repaint the sidebar too.
+  renderGroupList();
   // The user button shows the persona in force here (pin → default); opening a
   // pinned conversation never mutates the global default.
   updateUserBtn();
   $("chat-title-text").textContent = conv ? conv.title || conv.character_name : "";
   const av = $("chat-avatar");
-  if (conv?.character_card_id) {
+  // A group's avatar is the scene's, not a member's — but it still opens the
+  // popup (wired in initGroupSetup), which follows whoever holds the floor. Only
+  // that case makes the frame itself clickable, so the cursor is reset per paint.
+  av.style.cursor = conv?.kind === "group" ? "pointer" : "";
+  if (conv?.kind === "group") {
+    av.textContent = "👥";
+  } else if (conv?.character_card_id) {
     av.innerHTML = avatarCell(`${avatarUrl(conv.character_card_id)}?t=${Date.now()}`, {
       icon: CHAT_AVATAR_ICON,
       attrs: 'onclick="showAvatarPopup()" style="cursor:pointer"',
@@ -173,34 +254,31 @@ export async function selectConversation(id) {
   } else {
     av.textContent = CHAT_AVATAR_ICON;
   }
-  const hasExpr = (S.characters || []).find((c) => c.id === conv?.character_card_id)?.has_expressions;
-  av.classList.toggle("avatar-halo", !!hasExpr);
+  // The halo means "there are expressions to watch here": one card in a solo
+  // chat, any member of the cast in a group.
+  const expressive = (cardId) => Boolean((S.characters || []).find((c) => c.id === cardId)?.has_expressions);
+  const hasExpr = conv?.kind === "group" ? sceneCardIds(conv).some(expressive) : expressive(conv?.character_card_id);
+  av.classList.toggle("avatar-halo", hasExpr);
   $("chat-input").disabled = false;
   $("send-btn").disabled = false;
 
   // If the character has a linked lorebook, activate it and move it to the top
-  if (conv?.character_card_id) {
-    const char = charactersView().find((c) => c.id === conv.character_card_id);
-    if (char?.world_id) {
-      await activateAndPrioritizeWorld(char.world_id);
-    }
+  if (conv) {
+    const activation = await api.post(convUrl(id, "activate"));
+    reflectConversationWorldActivation(activation.world_ids);
   }
 
-  const newWorldId = charactersView().find((c) => c.id === S.activeCharId)?.world_id || null;
-  if (oldWorldId && oldWorldId !== newWorldId) {
-    await deactivateWorld(oldWorldId);
-  }
-
-  // Fetch messages, director state, and the full card (for its embedded
-  // fragments — the list projection omits extensions) in parallel.
-  const [msgs, directorState, card] = await Promise.all([
+  // Fetch messages, director state, and every scene card in full (for their
+  // embedded fragments — the list projection omits extensions) in parallel.
+  const cardIds = sceneCardIds(conv);
+  const [msgs, directorState, ...cards] = await Promise.all([
     api.get(convUrl(id, "messages")),
     api.get(convUrl(id, "director")),
-    conv?.character_card_id ? api.get(`/characters/${conv.character_card_id}`).catch(() => null) : null,
+    ...cardIds.map((cardId) => api.get(`/characters/${cardId}`).catch(() => null)),
   ]);
   setMessages(msgs);
   S.directorState = directorState;
-  stashCardFragments(card);
+  stashCardFragments(cards);
   // Render only the trailing window first; older messages backfill on scroll-up
   // and during idle time, so switch latency no longer scales with history length.
   resetRenderWindow();
@@ -217,6 +295,9 @@ export async function selectConversation(id) {
   setChatFollowing(true);
   renderMessages(true);
   scrollToBottom();
+  // An empty group opens ready to be written into: the cast is already on
+  // screen, so the only thing left to do is set the scene.
+  if (conv?.kind === "group" && !S.messages.length) $("chat-input").focus();
   // Fetch the director-log for the inspector after first paint — it's a separate
   // round-trip and must not gate the visible switch.
   const lastAsst = [...S.messages].reverse().find((m) => m.role === "assistant" && m.id);
@@ -246,10 +327,19 @@ function confirmDeleteConversation(id, msgCount, afterDelete) {
       try {
         await api.del(`/conversations/${id}`);
         if (S.activeConvId === id) {
+          const wasGroup = S.conversations.find((item) => item.id === id)?.kind === "group";
           S.activeConvId = null;
           S.messages = [];
           $("chat-input").disabled = true;
           $("send-btn").disabled = true;
+          if (wasGroup) {
+            S.groupCast = null;
+            S.pinnedSpeakerId = null;
+            S.consumedSpeakerId = null;
+            $("chat-title-text").textContent = "Select a character";
+            $("chat-avatar").textContent = CHAT_AVATAR_ICON;
+            renderGroupCast();
+          }
           renderMessages();
         }
         await afterDelete();
@@ -260,33 +350,75 @@ function confirmDeleteConversation(id, msgCount, afterDelete) {
   );
 }
 
-async function _deleteConversation(id) {
-  const conv = S.conversations.find((c) => c.id === id);
-  confirmDeleteConversation(
-    id,
-    conv?.message_count ?? (S.activeConvId === id ? S.messages.length : null),
-    loadConversations,
+// The sidebar's × on a group. The row stands for the whole family now, and
+// unlike a character card — which outlives its chats as a reusable asset — a
+// group *is* its conversations, so there is nothing to keep behind after them.
+// The count is stated in the confirm because a branched group takes more with it
+// than the one scene the user is looking at.
+async function _deleteGroupFamily(rootId) {
+  const family = groupFamily(S.conversations, rootId);
+  if (!family.length) return;
+  const root = family.find((conv) => conv.id === rootId) || family[0];
+  const messages = family.reduce((total, conv) => total + (conv.message_count ?? 0), 0);
+  const scale =
+    family.length > 1
+      ? `${family.length} conversations · ${messages} message${messages !== 1 ? "s" : ""}`
+      : `${messages} message${messages !== 1 ? "s" : ""} in this conversation`;
+  showConfirmModal(
+    {
+      title: "Delete Group",
+      message: `Delete "${root.title}" and everything in it?`,
+      confirmText: "Delete",
+      extraHtml: `<p style="color:var(--text-muted);font-size:0.88em;margin-top:8px">${esc(scale)}</p>`,
+    },
+    async () => {
+      try {
+        await api.del(convUrl(root.id, "group"));
+        if (family.some((conv) => conv.id === S.activeConvId)) resetChatUI();
+        await loadConversations();
+      } catch (e) {
+        toast(e.message, true);
+      }
+    },
   );
 }
 
-export async function deleteConversationFromModal(id) {
+export async function deleteConversationFromModal(id, rootId = "") {
   const conv = S.conversations.find((c) => c.id === id);
-  confirmDeleteConversation(id, conv?.message_count ?? null, showConvHistoryModal);
+  // Re-open the list in the scope it was deleted from: a group's family survives
+  // losing the conversation the modal happened to be opened from.
+  confirmDeleteConversation(id, conv?.message_count ?? null, () =>
+    showConvHistoryModal(rootId ? { groupRootId: rootId } : null),
+  );
 }
 
-export async function showConvHistoryModal() {
-  if (!S.activeCharId) {
+// What the Conversations list is scoped to. A group scopes to its family, a solo
+// chat to its character's conversations. Captured when the modal opens so a
+// refresh after a delete keeps looking at the same set.
+function convHistoryScope() {
+  const conv = S.conversations.find((c) => c.id === S.activeConvId);
+  if (conv?.kind === "group") return { groupRootId: groupRootId(conv) };
+  return S.activeCharId ? { charId: S.activeCharId } : null;
+}
+
+export async function showConvHistoryModal(scope = null) {
+  const target = scope || convHistoryScope();
+  if (!target) {
     toast("Select a character first", true);
     return;
   }
   await loadConversations();
-  const convs = S.conversations.filter((c) => c.character_card_id === S.activeCharId);
+  const convs = target.groupRootId
+    ? groupFamily(S.conversations, target.groupRootId)
+    : S.conversations.filter((c) => c.character_card_id === target.charId);
   if (!convs.length) {
     toast("No conversations yet", true);
     return;
   }
-  const char = S.characters.find((c) => c.id === S.activeCharId);
-  const charName = char ? char.name : "Character";
+  const scopeName = target.groupRootId
+    ? convs.find((c) => c.id === target.groupRootId)?.title || convs[0].title || "Group"
+    : S.characters.find((c) => c.id === target.charId)?.name || "Character";
+  const rootAttr = target.groupRootId || "";
   const items = convs
     .map((c) => {
       const isActive = c.id === S.activeConvId;
@@ -303,7 +435,7 @@ export async function showConvHistoryModal() {
       <div class="conv-history-meta">
         <span class="conv-history-title">${title}</span>
         <span class="conv-history-date">${formatRelativeDate(ts)}</span>
-        <button class="conv-history-delete" title="Delete conversation" onclick="event.stopPropagation();deleteConversationFromModal('${c.id}')">&#x2715;</button>
+        <button class="conv-history-delete" title="Delete conversation" onclick="event.stopPropagation();deleteConversationFromModal('${c.id}','${rootAttr}')">&#x2715;</button>
       </div>
       ${
         preview
@@ -315,7 +447,7 @@ export async function showConvHistoryModal() {
     })
     .join("");
   showModal(`
-    <h2>Conversations — ${esc(charName)}</h2>
+    <h2>Conversations — ${esc(scopeName)}</h2>
     <div class="modal-list">${items}</div>
     <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>`);
 }
@@ -324,6 +456,9 @@ export async function showConvHistoryModal() {
 // conversation. User uploads, director state, and inspector logs are carried;
 // alternate branches and workflow-generated artifacts are not. The user stays in
 // the current chat (the copy is a snapshot to branch from later).
+//
+// A group checkpoint joins the group's family rather than founding a second
+// group, so the sidebar keeps one row and the copy shows up in the list below.
 export async function createCheckpoint() {
   if (!S.activeConvId) {
     toast("No active conversation", true);

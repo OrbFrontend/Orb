@@ -210,6 +210,14 @@ All Ctx are `@dataclass(frozen=True)`. Mutable fields routed through `_readonly(
 | `character_id` | str \| None | |
 | `character` | MappingProxyType \| None | Read-only character card view. |
 
+For a group speaker pass, `character_id`/`character` are that member's current
+card, not `conversations.character_card_id` (which is null for groups). POST
+hooks therefore run once per speaker with the correct TTS/image/profile scope.
+Conversation-scoped ON_DEMAND resolves an explicit message/member target, then
+the latest assistant speaker; attachment REGENERATE resolves from its anchor
+message. A group with no resolvable speaker legitimately supplies `None` only
+when no message/member identifies one.
+
 ### 4.2 PostCtx -- paired with POST_PIPELINE
 
 Same shape with these substitutions:
@@ -774,11 +782,11 @@ The three array registrars are idempotent on `workflowId` (re-registration repla
 
 `effectiveWorkflowEnabled(wid)` (facade) -- the frontend mirror of the backend truth table (sec. 3.7), read off `S.settings`. Safe before settings load (defaults to enabled); a malformed map degrades to enabled.
 
-### 11.5 The plugin facade (`workflow_api.js`) — ABI v2
+### 11.5 The plugin facade (`workflow_api.js`) — ABI v3
 
 `frontend/workflow_api.js` is **THE plugin surface**. Everything a workflow is allowed to touch is re-exported (or wrapped) here, so a plugin never reaches into `state.js` / `chat.js` / `audio_player.js` / etc. directly.
 
-**Stability policy — additive only.** New exports may be added; an existing export **never changes name or signature**. That single rule is the extensibility contract. `WORKFLOW_API_VERSION` (currently `2`) bumps only when surface is added (still additive). The stage-0 ABI snapshot check (`scripts/check_frontend_layers.py`) diffs this file's exports against a frozen list, so an accidental rename/removal fails CI. Canonical names throughout — no aliases (`setWorkflowPhase` is `setWorkflowPhase`, one name per operation).
+**Stability policy — additive only.** New exports may be added; an existing export **never changes name or signature**. That single rule is the extensibility contract. `WORKFLOW_API_VERSION` (currently `3`) bumps only when surface is added (still additive). The stage-0 ABI snapshot check (`scripts/check_frontend_layers.py`) diffs this file's exports against a frozen list, so an accidental rename/removal fails CI. Canonical names throughout — no aliases (`setWorkflowPhase` is `setWorkflowPhase`, one name per operation).
 
 **ABI reference.** Tier `frozen` = payload/signature is contract; `stable` = additive-only like the rest.
 
@@ -816,6 +824,7 @@ The three array registrars are idempotent on `workflowId` (re-registration repla
 | `subscribe` | `(topic, (detail) => void) => off` | Subscribe to a **public** state topic: `messages`, `conversations`, `settings`, `workflow-phase` (payload shapes frozen). Plugins are subscribe-only. | frozen |
 | `requestRepaint` | `()` | rAF-debounced `renderMessages`; **no-ops while streaming**. | stable |
 | `getActiveConvId` | `() => id\|null` | Active conversation id. | stable |
+| `getGroupCast` | `() => [{id, name, card_id, muted}]\|null` | The open group's cast in roster order; `null` in a solo chat. Fresh plain copies, not the live roster. Pass an entry's `id` back as `speaker_member_id` on a trigger call to address that member — what a per-character setting needs when the conversation names no character. | stable |
 | `getMessages` | `() => msg[]` | Live messages array (read-only). | stable |
 | `getManifestEntry` | `(wid) => entry\|null` | This workflow's `/api/workflows` entry. | stable |
 | `canMutate` | `() => bool` | Whether this tab may perform mutating actions (multi-tab gate). | stable |

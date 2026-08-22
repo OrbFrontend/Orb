@@ -1,4 +1,4 @@
-// THE plugin surface (ABI v2). A workflow module under frontend/workflows/**
+// THE plugin surface (ABI v3). A workflow module under frontend/workflows/**
 // imports from this file and NOTHING else in the app (only its own relative
 // files besides). Everything a plugin is allowed to touch — registrars, HTTP/DOM
 // helpers, the audio engine, text effects, framework calls, and a small set of
@@ -54,7 +54,7 @@ import {
 import { messageSegments } from "./workflow_segmentation.js";
 import { clearTextEffect, startTextEffect } from "./workflow_text_effects.js";
 
-export const WORKFLOW_API_VERSION = 2;
+export const WORKFLOW_API_VERSION = 3;
 
 // ── Pass-through surface ─────────────────────────────────────────────────────
 // Registrars (7 of the 9; registerAttachmentRenderer + registerAction are below).
@@ -194,6 +194,24 @@ export function requestRepaint() {
 
 export function getActiveConvId() {
   return S.activeConvId;
+}
+
+// The open scene's cast, in roster order — `null` in a solo chat, where "the
+// character" is a property of the conversation and needs no picking. A workflow
+// that keeps per-character settings needs this: in a group the conversation
+// names no character, and the one the backend would infer is whoever spoke last,
+// which is a reading of history rather than a choice the user made. Pass an
+// entry's `id` back as `speaker_member_id` on a trigger call to address that
+// member. A fresh array of plain copies each call, so a plugin cannot reach the
+// live roster through it.
+export function getGroupCast() {
+  if (!S.groupCast) return null;
+  return S.groupCast.members.map((member) => ({
+    id: member.id,
+    name: member.display_name,
+    card_id: member.character_card_id || null,
+    muted: Boolean(member.muted),
+  }));
 }
 
 // Read-only by contract: mutate a message and the framework will overwrite it on

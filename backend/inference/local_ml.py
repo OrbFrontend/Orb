@@ -501,7 +501,10 @@ def build_prompt(
 ) -> str:
     """Assemble a short raw-continuation prompt ending at the user's draft.
 
-    *recent* is oldest→newest ``{"role": "user"|"assistant", "content": str}``.
+    *recent* is oldest→newest ``{"role": "user"|"assistant", "content": str}``,
+    each entry optionally carrying a ``"name"`` that labels that line instead of
+    *char_name* — how a group scene names the member who actually spoke, since
+    there every reply would otherwise be attributed to the scene itself.
     Deliberately excludes the Director/pipeline injection block — this is a
     lightweight typeahead, not a full turn. The model continues the final line.
     """
@@ -511,7 +514,7 @@ def build_prompt(
         lines.append(summary[:max_summary_chars])
         lines.append("***Roleplay chat below***")
     for m in recent:
-        name = user_name if m.get("role") == "user" else char_name
+        name = (m.get("name") or "").strip() or (user_name if m.get("role") == "user" else char_name)
         content = (m.get("content") or "").strip()[
             -max_msg_chars:
         ]  # keep the tail: typeahead reacts to the latest action, which is at the END of the message

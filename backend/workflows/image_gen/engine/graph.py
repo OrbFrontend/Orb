@@ -45,20 +45,18 @@ def reference_slots(slots: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return [entry for entry in entries if isinstance(entry, Mapping)] if isinstance(entries, list) else []
 
 
-def enabled_references(slots: Mapping[str, Any], sources: Sequence[str]) -> list[tuple[Mapping[str, Any], str]]:
-    """The declared slots a style has actually pointed at a source, with that source.
+def enabled_references(slots: Mapping[str, Any], source: str) -> list[Mapping[str, Any]]:
+    """The slots this render will fill: all of them, or none.
 
-    Paired by **position**: `sources[i]` answers for the *i*-th slot the graph declares,
-    which is the shape the style stores and the only one that survives a style being
-    relinked to a backend that keys its slots differently.
+    One source for the whole graph, because a character has one reference image. Every
+    `LoadImage` the graph declares is handed that same picture -- which is what a
+    workflow built around two of them was always for.
 
-    A slot the style left blank -- or one past the end of a shorter list, which `zip`
-    truncates and is how a style that has never been opened since the graph gained a
-    slot reads -- is absent from the result. That is the same render as the old "Not
-    used": the `LoadImage` keeps whatever filename the workflow was exported with, and
-    nothing about the conversation is uploaded for it.
+    A style with no source is the same render as the old "Not used": each `LoadImage`
+    keeps whatever filename the workflow was exported with, and nothing about the
+    conversation is uploaded for it.
     """
-    return [(entry, source) for entry, source in zip(reference_slots(slots), sources) if source]
+    return reference_slots(slots) if source else []
 
 
 def _scalar(inputs: Mapping[str, Any], name: str, kinds: tuple[type, ...]) -> Any:

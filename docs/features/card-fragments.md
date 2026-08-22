@@ -51,9 +51,15 @@ Card fragments are stored in the character card's V2 `extensions` data, under th
 
 And because your own global fragments always win on an ID clash (see [the one rule](#the-one-rule-your-fragments-always-win)), importing a stranger's card can never quietly replace a fragment you've configured.
 
+## In a group chat
+
+A [group](group-chats.md) has a cast rather than one character, so **every member's card contributes its fragments** to the scene, merged into a single set the same way one card's are. Your globals still win on an ID clash, and between two cards the first member in the roster keeps the ID. The sidepanel's **From character** list shows the whole cast's fragments together, and it re-reads them when you change the cast.
+
+The fragments are scene-wide, not per-member: a mood a horror card ships steers whoever speaks next, not only that card's own turns.
+
 ## When card fragments don't run
 
-Card fragments only run when a character that has them is the active character in a conversation. So they don't run when:
+Card fragments only run when a character that has them is in play — the active character of a conversation, or a member of a group's cast. So they don't run when:
 
 - You're in document mode, or any mode with no assigned character.
 - The card has no `extensions`, or nothing under `orb.fragments`.

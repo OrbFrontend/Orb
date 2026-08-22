@@ -28,10 +28,20 @@ from ..toolkit import (
     get_workflow_attachment_by_id,
     get_workflow_character_state,
 )
-from .config import REFERENCE_MIMES, REFERENCE_SOURCES, WORKFLOW_ID, normalize_profile
+from .config import (
+    REFERENCE_MIMES,
+    REFERENCE_SOURCES,
+    WORKFLOW_ID,
+    SourcePolicy,
+    normalize_profile,
+)
 from .engine import ImageGenerationError
-from .engine.contracts import ResolvedReference
+from .engine.contracts import RenderTarget, ResolvedReference
 from .engine.display_encode import normalize_reference
+from .subjects import Subject
+
+# Bytes, mime and the origin they can be re-fetched by -- what every fetch here answers.
+Fetched = tuple[bytes, str, str]
 
 # How each source reads in an error message. The names the import picker uses.
 SOURCE_LABELS = {
@@ -130,11 +140,21 @@ def _previous_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> tup
     return None
 
 
-async def _character_image(character_id: str | None, profile: Mapping[str, Any]) -> tuple[bytes, str, str] | None:
-    """The per-character reference, falling back to the card avatar -- a genuine
-    likeness, always present, so this source works before anything is uploaded."""
+async def _subject_image(subject: Subject | None) -> tuple[bytes, str, str] | None:
+    """The subject's likeness: their per-character reference, falling back to the card
+    avatar -- a genuine likeness, always present, so this source works before anything
+    is uploaded.
+
+    The origin is keyed by card id, which is what lets a replay re-fetch it years later
+    with no conversation in hand -- `_origin_bytes` reads `character:<card id>` back.
+
+    A subject with no card -- a narrator, or a render whose primary card was deleted --
+    is a missing source, and the caller falls through to the next name in the list.
+    """
+    character_id = subject.card_id if subject is not None else None
     if not character_id:
         return None
+    profile = normalize_profile(subject.profile if subject is not None else None)
     payload, mime = profile.get("reference_image_b64"), profile.get("reference_mime")
     if isinstance(payload, str) and payload and isinstance(mime, str) and mime:
         try:
@@ -210,56 +230,190 @@ async def _resolved(
     )
 
 
-def _unresolved(label: str, source: str) -> ImageGenerationError:
-    names = REFERENCE_SOURCES.get(source, ())
-    tried = " or ".join(SOURCE_LABELS.get(name, name) for name in names) or "any configured source"
+def _unresolved(label: str, draw: Sequence[tuple[str, int]]) -> ImageGenerationError:
+    tried = " or ".join(SOURCE_LABELS.get(kind, kind) for kind, _ in draw) or "any configured source"
     return ImageGenerationError(
         f"This workflow needs a reference image for {label}, but {tried} is not available. "
         "Generate or upload an image in this chat first, or set a character reference image in settings."
     )
 
 
+def previous_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> Fetched | None:
+    """The chat image a `previous` source would draw, found once for the whole render.
+
+    Hoisted out of the resolver because the *plan* depends on it: `previous_or_character`
+    sends one image when the chat has one and one per character when it does not, so how
+    many slots the render even asks for cannot be known until this is answered.
+    """
+    return _previous_image(history, anchor_id)
+
+
+def plan_slots(
+    target: RenderTarget,
+    subjects: Sequence[Subject],
+    *,
+    previous: Fetched | None,
+) -> tuple[dict, ...]:
+    """The slots this render will actually try to fill, each carrying what to draw.
+
+    **Two backends, two shapes, one rule about which.** A backend either declares its
+    image inputs or declares only how many it can carry:
+
+    * A **ComfyUI graph declares them**, and they are structural and *not*
+      interchangeable -- an IPAdapter face input and an img2img init are different
+      questions, and nothing in the graph says which is which. So every declared input
+      is handed the same picture, exactly as the style's own source resolves it. That is
+      also what makes a two-`Load Image` graph work in a solo chat, where there is only
+      one person to draw.
+    * A **cloud provider declares a capacity**, and its reference array is homogeneous:
+      "here are pictures of the people in this scene". So the slots are *derived* -- one
+      per subject in frame, in `subjects.py`'s order, plus the chat image when the style
+      asks for it, truncated to what the provider carries.
+
+    That split is why nothing is positional any more. Under the old shape a style pinned
+    slot *i* to a source by hand, which forced every layer to agree on what slot *i*
+    meant; here position is subject order, and the only thing a style says is which
+    *kinds* of image may travel.
+
+    Each returned entry carries `draw`: an ordered `(kind, subject index)` list for the
+    resolver to try in turn. A one-entry `draw` is a slot with no fallback.
+    """
+    source = target.reference_source
+    policy = REFERENCE_SOURCES.get(source)
+    if policy is None:
+        return ()
+    if target.reference_slots:
+        # Structural: the graph's own inputs, every one of them fed the same answer.
+        draw = tuple((kind, 0) for kind in policy.kinds)
+        return tuple({**dict(entry), "draw": draw} for entry in target.reference_slots)
+    template = target.reference_template
+    capacity = max(0, int(target.reference_capacity))
+    if not capacity or not template:
+        return ()
+    node = str(template.get("slot_prefix") or "reference")
+    return tuple(
+        {
+            **{key: value for key, value in template.items() if key != "slot_prefix"},
+            "slot": [node, f"image_{index}"],
+            "source": source,
+            "label": "Reference image" if index == 0 else f"Reference image {index + 1}",
+            "draw": draw,
+        }
+        for index, draw in enumerate(_derived_draw(policy, subjects, capacity, previous is not None))
+    )
+
+
+def _derived_draw(
+    policy: SourcePolicy,
+    subjects: Sequence[Subject],
+    capacity: int,
+    has_previous: bool,
+) -> list[tuple[tuple[str, int], ...]]:
+    """The ordered, **distinct** images a homogeneous array will carry, one entry per
+    slot, each entry the `(kind, subject index)` list that slot may try.
+
+    One per character and never the same character twice -- that is the whole of the
+    rule, and it is enforced here rather than asked of the user, because a subject
+    appears in this list exactly once by construction.
+
+    `all_of` is the difference between the two ways a style can combine kinds:
+    `character_and_previous` sends both, while `previous_or_character` sends the first
+    kind that has anything to send -- which is why the chat image has to be found before
+    this runs. A subject with no card can never fill a slot and so never claims one.
+
+    **A style that asked for something and got nothing still plans one slot.** It
+    resolves to nothing and the render discloses that (`hooks._unfilled_note`), which is
+    the whole reason the disclosure exists: a user who turned references on and received
+    a prompt-only render is owed the sentence. Planning zero slots would make the render
+    silently indistinguishable from one that never asked.
+    """
+    drawable = [index for index, subject in enumerate(subjects) if subject.card_id]
+    planned: list[tuple[tuple[str, int], ...]] = []
+    for kind in policy.kinds:
+        if kind == "previous":
+            if has_previous:
+                planned.append((("previous", 0),))
+        else:
+            planned.extend((("character", index),) for index in drawable)
+        if not policy.all_of and planned:
+            break
+    if not planned:
+        return [tuple((kind, 0) for kind in policy.kinds)]
+    return planned[:capacity]
+
+
 async def resolve_references(
     entries: Sequence[Mapping[str, Any]],
     *,
-    history: Sequence[Mapping[str, Any]],
-    anchor_id: int,
-    character_id: str | None,
-    profile: Mapping[str, Any] | None = None,
+    subjects: Sequence[Subject] = (),
+    previous: Fetched | None = None,
 ) -> tuple[ResolvedReference, ...]:
-    """Bytes for every mapped reference slot, for a fresh render.
+    """Bytes for every slot `plan_slots` produced, for a fresh render.
+
+    Each entry states what it draws, so nothing here decides who is in the picture --
+    that was settled by `subjects.resolve` and the analyzer, above.
+
+    Each *source* resolves at most once per render: a graph with three image inputs
+    reads the branch once and uploads once, since the engine dedupes on the bytes'
+    digest. A cloud array asks for a different subject in each slot and so fetches each
+    likeness once.
 
     An unresolvable *required* slot fails with a specific message rather than
-    substituting silently; an unresolvable optional one is simply absent, and the
-    caller discloses that on the attachment. See `_required`.
+    substituting silently; an unresolvable optional one is simply absent, and the caller
+    discloses that on the attachment. See `_required`.
     """
     if not entries:
         return ()
-    normalized_profile = normalize_profile(profile)
-    # Each source resolves at most once per render, so a two-slot graph reads the
-    # branch once even when both slots share a source.
-    cache: dict[str, tuple[bytes, str, str] | None] = {}
+    cache: dict[tuple[str, int], Fetched | None] = {}
     resolved: list[ResolvedReference] = []
     for entry in entries:
         slot = entry.get("slot")
-        source = str(entry.get("source") or "")
-        found: tuple[bytes, str, str] | None = None
-        for name in REFERENCE_SOURCES.get(source, ()):
-            if name not in cache:
-                cache[name] = (
-                    _previous_image(history, anchor_id)
-                    if name == "previous"
-                    else await _character_image(character_id, normalized_profile)
+        draw: Sequence[tuple[str, int]] = entry.get("draw") or ()
+        found: Fetched | None = None
+        for kind, index in draw:
+            if (kind, index) not in cache:
+                cache[(kind, index)] = (
+                    previous if kind == "previous" else await _subject_image(subjects[index] if index < len(subjects) else None)
                 )
-            found = cache[name]
+            found = cache[(kind, index)]
             if found is not None:
                 break
         if found is None:
             if _required(entry):
-                raise _unresolved(str(entry.get("label") or (slot[0] if slot else "this workflow")), source)
+                raise _unresolved(str(entry.get("label") or (slot[0] if slot else "this workflow")), draw)
             continue
-        resolved.append(await _resolved(slot, source, *found, **_constraints(entry)))
+        resolved.append(await _resolved(slot, str(entry.get("source") or ""), *found, **_constraints(entry)))
     return tuple(resolved)
+
+
+def replay_slots(target: RenderTarget, recorded: Sequence[Mapping[str, Any]]) -> tuple[dict, ...]:
+    """The slots a *replay's* recorded references land in.
+
+    A replay is about a render that already happened, so its slot count comes from the
+    record rather than from today's cast: rehydrating a two-hander must ask for two
+    images however many people are on screen now. A structural backend answers with its
+    declared inputs as always; a derived one is handed as many slots as the record has,
+    bounded by what it can still carry.
+    """
+    if target.reference_slots:
+        return tuple(dict(entry) for entry in target.reference_slots)
+    template = target.reference_template
+    # A style with its reference switched off has nowhere to put a recorded one, even
+    # on a provider with the room: "off" is an answer about this render, not about the
+    # backend, and the caller discloses the drop rather than quietly re-sending.
+    if not template or target.reference_source not in REFERENCE_SOURCES:
+        return ()
+    node = str(template.get("slot_prefix") or "reference")
+    wanted = min(len(recorded), max(0, int(target.reference_capacity)))
+    return tuple(
+        {
+            **{key: value for key, value in template.items() if key != "slot_prefix"},
+            "slot": [node, f"image_{index}"],
+            "source": target.reference_source,
+            "label": "Reference image" if index == 0 else f"Reference image {index + 1}",
+        }
+        for index in range(wanted)
+    )
 
 
 async def _origin_bytes(origin: str) -> tuple[bytes, str] | None:
@@ -278,7 +432,8 @@ async def _origin_bytes(origin: str) -> tuple[bytes, str] | None:
     if kind == "character" and ident:
         # The card's *current* image, not a snapshot: this origin addresses a
         # setting rather than a chat message, so changing it and rerolling applies.
-        current = await _character_image(ident, normalize_profile(await get_workflow_character_state(ident, WORKFLOW_ID)))
+        profile = await get_workflow_character_state(ident, WORKFLOW_ID)
+        current = await _subject_image(Subject(member_id="", card_id=ident, name="", profile=normalize_profile(profile)))
         return (current[0], current[1]) if current else None
     return None
 

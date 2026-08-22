@@ -132,7 +132,11 @@ async def test_stats_message_count_excludes_swiped_branches(client, db):
     assert body["total_messages"] == 2
     sp = body["character_spotlight"]
     assert sp["name"] == "Sara"
-    assert sp["messages"] == 2
+    # The spotlight counts what the *character* wrote, so the one active-path
+    # assistant row — not the user's turn, and not the swiped sibling. Counting
+    # the user's turn here would put a solo character at double a group member's
+    # total for the same output (see _CHARACTER_USAGE_CTE).
+    assert sp["messages"] == 1
 
 
 async def test_missed_theme_excludes_favorite(client, db, monkeypatch):
@@ -140,8 +144,10 @@ async def test_missed_theme_excludes_favorite(client, db, monkeypatch):
     # coin flip to the last candidate must surface Bob under the "missed" theme,
     # never the favorite.  Bob's messages are backdated so he clears the 24-hour
     # recency gate in the "missed" query.
-    await _seed_character("Alice", 300)
-    await _seed_character("Bob", 150, old=True)
+    # Seeds alternate user/assistant and the spotlight counts assistant rows
+    # only, so these are 300 and 110 replies respectively.
+    await _seed_character("Alice", 600)
+    await _seed_character("Bob", 220, old=True)
 
     monkeypatch.setattr("backend.api.routes.stats.random.choice", lambda options: options[-1])
 
@@ -150,3 +156,35 @@ async def test_missed_theme_excludes_favorite(client, db, monkeypatch):
     sp = resp.json()["character_spotlight"]
     assert sp["theme"] == "missed"
     assert sp["name"] == "Bob"
+
+
+async def test_the_spotlight_counts_a_group_member_and_a_solo_character_alike(client, db):
+    """One definition of "messages": what the character wrote.
+
+    The group arm counted assistant rows and the solo arm counted every row on the
+    active path, so a cast member sat at half a solo character's total for the
+    same output — never the favourite, and clearing the "missed" threshold at
+    twice the play.
+
+    Vela out-writes Nova three replies to two. Under the old asymmetry Nova's
+    four active-path rows exchange Vela's three and she took the spotlight anyway.
+    """
+    solo = str(uuid.uuid4())
+    await dbmod.create_conversation(solo, "Nova chat", "Nova", "")
+    parent = None
+    for i, role in enumerate(["user", "assistant", "user", "assistant"]):
+        parent, _ = await dbmod.add_message(solo, role, "x", i, parent_id=parent)
+    await dbmod.set_active_leaf(solo, parent)
+
+    group = await dbmod.create_group_conversation(str(uuid.uuid4()), "Scene", [{"display_name": "Vela"}])
+    member = (await dbmod.get_group_members(group["id"]))[0]
+    parent = None
+    for i, role in enumerate(["user", "assistant", "assistant", "assistant"]):
+        parent, _ = await dbmod.add_message(
+            group["id"], role, "x", i, parent_id=parent, speaker_member_id=member["id"] if role == "assistant" else None
+        )
+    await dbmod.set_active_leaf(group["id"], parent)
+
+    sp = (await client.get("/api/stats")).json()["character_spotlight"]
+    assert sp["name"] == "Vela", sp
+    assert sp["messages"] == 3, sp

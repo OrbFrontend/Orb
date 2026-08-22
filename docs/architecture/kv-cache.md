@@ -94,6 +94,57 @@ Constant lorebook entries are the deliberate mirror image of Invariant 4: they a
 
 The chat history is built once per turn. Each pass receives the same list. Attachments (images) are encoded with the same bytes on every reference.
 
+In group mode the assistant history is member-labelled, with consecutive
+text-only assistant rows merged into one chat message. The Director runs against
+the pre-exchange base once, speaker 2 and later rebuild a base over the now-grown
+history, and pre-pipeline workflow system blocks are captured once and reapplied
+to every later-speaker rebuild.
+
+*What* the system body says about the cast is the scene's **character context
+mode** ([group-chats.md](../features/group-chats.md)), and the three modes have
+three different cache topologies:
+
+| Mode | Director prefix | Writer/Editor prefix | Cache consequence |
+|---|---|---|---|
+| Private perspective | shared public-cast prefix | the same prefix | One common trunk. The speaking card is fresh *after* history, so it is a bounded tail miss — this is why an alternating cast still reuses the long conversation body. |
+| Shared dossier | shared-dossier prefix | the same prefix | Best prefix sharing across speakers, but every call carries every dossier's tokens. Its cold prompt is the sum of the cast. |
+| Classic card swap | neutral names-only prefix | names-only prefix + the active card | One cache lane per speaker, and the Director cannot prewarm a selected speaker's Writer prefix. |
+
+Two consequences of Swap are easy to get wrong. The swap sits *before* history,
+so changing speaker invalidates the history KV too, not just the card region —
+a one-prefix local server loses most of its history hit whenever the cast
+alternates, while a provider that retains several prefix branches may keep one
+warm lineage per character. And because the Director runs before a speaking plan
+exists, it must use the neutral base: `_generate_group_exchange`'s `index == 0`
+shortcut, which hands speaker 1 the setup base verbatim, is a *correctness* bug
+under Swap rather than a cache miss, so that mode rebuilds for the first speaker
+too (`prefix_is_speaker_scoped`).
+
+Nothing about *which* members are in the scene reaches the tools blob. The
+group `direct_scene` override widens the schema with a `speaking_plan` field
+whose description names the field and not the cast; the castable keys ride the
+Director's trailing request (`director.speaking_plan_instruction`), because
+muting a member is otherwise prefix-neutral — a muted member still renders in
+the cast section — and a schema that listed the unmuted keys made one mute
+toggle a whole-prefix miss on every lane. Same rule as the editor's finding
+ids: volatile list in prose on the tail, validated server-side.
+
+Message content upholds Invariant 2 in a group the same way it does across
+turns, and the exchange driver is the one place that needs care: the reply a
+later speaker reads is assembled in memory from what the previous speaker just
+wrote, so its inline macros must be the *same* resolution the row was persisted
+with. `_persist_result` resolves once and writes the result back onto the turn
+state that the `speaker_done` event carries; resolving a second time downstream
+would re-roll and leave the in-exchange history disagreeing with every later
+read of that row.
+
+In Private and Shared a speaker's identity fields live only in the trailing
+Writer message or only in the shared body respectively — never both, so no mode
+bills the same card text twice. Both model lanes are built under the same mode
+and the same speaker, or the Editor's agent lane would audit a draft written
+against a different cast. A mode change is intentionally a cache miss on the
+next request.
+
 ### Invariant 3 — One tool list, shared by every pass
 
 Inference servers serialise the tool schema list into the cached prefix (where in the chat template depends on the server, but it's always *inside* the cached region). So the tool list has to be byte-identical across passes — including passes that won't call any tool. Every pass sends the same schemas; passes that aren't allowed to call them set `tool_choice="none"`.
@@ -303,6 +354,15 @@ resolved Agent lane: the shared Writer/Agent client in single-model mode, or the
 Director/Editor endpoint, model, and agent system prefix in dual-model mode. The
 off-turn prefix builder must therefore reproduce the corresponding pipeline
 prefix byte-for-byte; parity for both model topologies is regression-tested.
+
+That includes a group, whose prefix is a different document altogether: the
+cast section stands in for the card, `{{char}}` is the scene title, `{{cast}}`
+is the roster, and every assistant line carries its speaker's name. Both
+builders resolve it through the one `resolve_cast` in `database/queries/
+group_members.py` — which is *why* it lives in the query layer rather than
+beside the pipeline's cast policy, since `workflows/` sits below `pipeline/`
+and may not import it. An off-turn call names no speaker, so it reproduces the
+neutral base: the same one the Director runs on in all three context modes.
 
 The prompter has its own `prompter_reasoning` switch rather than inheriting a
 pipeline pass. Both calls always use the same switch value and the same

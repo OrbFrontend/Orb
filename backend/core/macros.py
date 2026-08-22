@@ -120,6 +120,12 @@ def _sub(text: str, user_name: str, char_name: str) -> str:
     return _outside_literals(text, _fire)
 
 
+def _sub_cast(text: str, cast_names: str) -> str:
+    if not text or not cast_names:
+        return text or ""
+    return _outside_literals(text, lambda value: re.sub(r"\{\{cast\}\}", cast_names, value, flags=re.IGNORECASE))
+
+
 # Two branches: a comment that owns its line(s) takes the whole line with it (no
 # blank line left behind); one sitting mid-line takes only itself, leaving the
 # surrounding spaces. Non-greedy either way, so the body ends at the first `}}`.
@@ -305,6 +311,7 @@ class Macros(NamedTuple):
     user: str
     char: str
     seed: str = ""
+    cast: str = ""
 
     @classmethod
     def from_settings(
@@ -313,17 +320,18 @@ class Macros(NamedTuple):
         char_name: str,
         active_persona: Mapping[str, Any] | None = None,
         seed: str = "",
+        cast: str = "",
     ) -> Macros:
         user = active_persona.get("name", "User") if active_persona else settings.get("user_name", "User")
-        return cls(user=user, char=char_name, seed=seed)
+        return cls(user=user, char=char_name, seed=seed, cast=cast)
 
     def resolve_message(self, text: str) -> str:
         """Full macro resolution ({{user}}/{{char}} + inline) for a text string."""
-        return resolve_message(text, self.user, self.char, seed=self.seed)
+        return _sub_cast(resolve_message(text, self.user, self.char, seed=self.seed), self.cast)
 
     def resolve_prompt(self, text: str) -> str:
         """Only {{user}}/{{char}} substitution (no inline macros)."""
-        return resolve_prompt(text, self.user, self.char)
+        return _sub_cast(resolve_prompt(text, self.user, self.char), self.cast)
 
     def _resolve_prompt_on_message(self, msg: Mapping[str, Any]) -> dict:
         """Apply prompt-level resolution (substitution only) to a single message dict."""

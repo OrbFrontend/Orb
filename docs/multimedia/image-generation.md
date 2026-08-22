@@ -188,9 +188,9 @@ To import the workflow, do these steps:
    them per style, in step 10.
 8. Select **Confirm slots and add workflow**.
 9. In a style, select the imported workflow.
-10. If the workflow loads images, set each row under **Reference images** on that
-    style. See [Reference images](#reference-images) below. Leave a row **Off** to
-    keep the file the workflow was exported with.
+10. If the workflow loads images, set **Reference image** on that style. See
+    [Reference images](#reference-images) below. Left **Off**, each **Load Image**
+    keeps the file the workflow was exported with.
 11. If your workflow is complex, review the nodes - make sure Orb points to the right node numbers.
 12. Select a checkpoint if Orb must replace the model in the workflow.
 13. Select **Test connection** to validate everything works.
@@ -242,8 +242,17 @@ than ComfyUI's, because the image is base64-encoded inside a JSON request body.
 Orb resizes and re-compresses to stay under that limit; if it cannot, the render
 fails and says so rather than sending an oversized request.
 
-The source choices are the same three listed below. Providers that accept only
-one reference image are sent the first, and Orb notes it on the image.
+The source choices are the four listed below. A cloud style shows the setting
+whenever the provider has a field to put a reference in at all; whether the *model*
+behind it reads one is the model's to answer, at render time. A model that refuses is
+re-rendered with fewer references, or none, with a note on the image.
+
+**How many images travel** is the provider's to decide, and Orb reads it off the shape
+of the provider's reference field rather than a hand-kept table: a field that takes a
+list carries up to four, a field that takes one carries one. The style panel says which
+under the setting. A scene with more characters than the provider carries sends the
+first few - the speaker is never the one dropped - and the image says who was described
+rather than pictured.
 
 A cloud reference is optional. When no source resolves — a new conversation with
 no images yet, and no character reference — the render goes to the plain
@@ -260,30 +269,79 @@ the uploaded file. Orb fills only the **Load Image** nodes the workflow already
 contains and never adds nodes, so a workflow that takes two reference images
 must be exported with two **Load Image** nodes.
 
-Set **Reference images** on the style, the same place a cloud style sets it. The
-style shows one row per **Load Image** widget its assigned workflow declares, and
-each row is **off** by default. Because it is a style setting, two styles can
-share one workflow and feed it differently - one drawing on the chat, another
-rendering from the prompt alone - and you can change your mind without
-re-importing the workflow.
+Set **Reference image** on the style, the same place a cloud style sets it. It is
+one setting for the whole workflow, **off** by default, and every **Load Image**
+node the workflow declares is handed the *same* picture.
 
-A row left **Off** keeps the filename the workflow was exported with. That file
-has to exist on your ComfyUI server, and **Test connection** says so if it does
-not.
+That is deliberate, and it is where ComfyUI differs from a cloud provider. A cloud
+provider's reference field is one homogeneous array - "here are pictures of the people
+in this scene" - so Orb fills it with one image per character. A workflow's image
+inputs are structural and are *not* interchangeable: an IPAdapter face input and an
+img2img init are different questions, and nothing in the workflow says which is which.
+So Orb does not guess, and a group chat on ComfyUI sends the speaker's likeness alone. Because it is a style setting, two styles can share one workflow and
+feed it differently - one drawing on the chat, another rendering from the prompt
+alone - and you can change your mind without re-importing the workflow.
 
-Each reference row offers these sources:
+Left **Off**, every **Load Image** keeps the filename the workflow was exported
+with. Those files have to exist on your ComfyUI server, and **Test connection**
+says so if they do not.
+
+The setting offers these sources:
 
 | Source | What Orb sends |
 |--------|----------------|
-| **Previous image, else character reference** | The most recent image in the chat. If the chat has none, the character reference image. |
+| **Previous image, else character references** | The most recent image in the chat. If the chat has none, the character references instead. |
 | **Previous image in the chat** | The most recent image in the chat. |
-| **Character reference image** | The character reference image. |
+| **Character references** | One reference image per character in the scene. |
+| **Character references and the previous image** | Both: a reference image per character, then the most recent image in the chat. |
 
 The previous image is the most recent generated image or uploaded image before
 the reply you are visualizing. If a reply has image variants, Orb sends the
 variant that is currently shown. Orb never sends the image already attached to
 the reply you are visualizing. When no source resolves on ComfyUI, the render
 fails and names the slot - Orb does not substitute a different image.
+
+### Reference images in a group chat
+
+**One reference image per character.** Nobody is ever sent twice, and the character
+the picture is *of* - the member who wrote the reply you are visualizing - always
+comes first.
+
+On a **cloud provider**, that means one image per character in the shot, in cast
+order, up to what the provider carries. Set the style to **Character references and
+the previous image** to add the chat image after them. On **ComfyUI**, every
+**Load Image** gets the speaker's likeness, for the reason given above.
+
+Anyone who does not get a picture is **described** instead. Orb gives the prompter
+every subject's saved appearance and their permanent identity traits - face shape,
+eye colour, natural hair colour - so a character with no likeness in the request
+still comes out as themselves rather than as a generic person. Orb also tells the
+prompter which array position is which character, because a provider handed several
+images is told nothing else about which is which.
+
+If the scene holds more characters than the provider carries, the image says so
+under **Render details**: it names who was described rather than pictured, and
+whether the room ran out at the provider's ceiling or at the style's setting.
+
+Who is in the running is everyone who has spoken in the same round - your last
+message and every reply since - **up to and including the message you are
+visualizing**, in cast order. A member who is in the scene but silent this round is
+not sent. Orb never composes a picture from replies that come after the one you
+clicked, so visualizing the *first* reply of a three-character round addresses one
+character even though all three replies are on screen by the time you click.
+
+This counts the round, not the request. Under the **Manual** turn mode you give one
+member the floor per click, and each click is a separate request - but they are all
+answers to the same message of yours, so they are one round and one cast.
+
+If you have **Analyze complex scenes** on, Orb asks who is actually in frame before
+it uploads anything, so a character who walked off mid-scene does not have their
+photo sent to an image model that would happily draw them back in.
+
+If two members of a group share a display name, Orb numbers the second one -
+"Guard" and "Guard 2" - when it describes them to the prompter, so the right
+appearance ends up on the right person. Rename one of them if you would rather
+pick the names yourself.
 
 Orb looks back at most 30 messages on the branch. Past that, **Previous image,
 else character reference** falls through to the character reference: a picture
@@ -327,8 +385,8 @@ recorded. Use **Regenerate** for those.
 
 Two cases re-render with a note instead of failing:
 
-- The new style takes no reference images at all. The reference is not sent, and
-  the picture will not match.
+- The new style takes no reference images at all. They are not sent, and the picture
+  will not match.
 - The new style takes fewer than the original recorded. The extras are not sent.
 
 If the image an origin points at has since been replaced - by rehydrating an
@@ -449,6 +507,17 @@ tags are separate.
 This section also holds the character's reference image. See
 [Set the character reference image](#set-the-character-reference-image).
 
+### In a group chat
+
+A [group](../features/group-chats.md) has a cast, so **This Character Only**
+starts with a **Cast member** selector; the prompts and reference image below it
+belong to whichever member is selected. Switch member and the fields reload for
+that character — anything you typed and did not save is discarded, and Orb asks
+first. Narrators have no card, so they are not listed.
+
+Rendering an image for a reply always uses the appearance of the member who
+wrote it, whichever member the settings panel happens to be showing.
+
 ## Change a style
 
 Orb ships **Realistic** and **Anime** styles out of the box. A style contains these items:
@@ -466,7 +535,7 @@ Orb ships **Realistic** and **Anime** styles out of the box. A style contains th
 | **Model** | Selects the model this style renders with. Cloud only. Leave it on the provider's default if you have no preference. |
 | **Resolution** | Sets the output size. Always shown for a cloud connection; on ComfyUI, only when the assigned workflow has **Width** and **Height** slots mapped. |
 | **Quality** | Sets the provider's quality tier, on providers that expose one. Cloud only. |
-| **Reference images** | Chooses what Orb feeds each image input this style's render target has - one on a cloud provider, one per **Load Image** widget on a ComfyUI workflow. Off by default. See [Reference images](#reference-images). |
+| **Reference images** | Chooses what Orb feeds this style's render target - the cloud provider's reference field, or every **Load Image** widget on a ComfyUI workflow. One image per character, never the same character twice. Off by default. See [Reference images](#reference-images). |
 
 A style owns everything that decides what the image looks like. A connection owns
 only how Orb reaches a backend — a URL and a key.
@@ -511,7 +580,7 @@ Leave it on **Auto** if your chats are written in different persons.
 | Mode | Result |
 |---|---|
 | **Auto** | The local POV classifier reads the reply. First- and second-person narration give the first-person camera; third-person narration gives the third-person camera. |
-| **First-person** | Always through the user's eyes. The user is not drawn. |
+| **First-person** | Always through the user's eyes. The user is not drawn. Every other character in the scene still is - the camera decides the viewpoint, not the cast. |
 | **Third-person** | Always from outside. Every person in frame is drawn, including the character the user plays. |
 
 Orb decides the camera in this order. The first match wins:
@@ -581,14 +650,14 @@ guaranteed.
 | Orb cannot find a checkpoint. | Add the checkpoint to ComfyUI. Restart or refresh ComfyUI. Test the connection again. |
 | ComfyUI rejects the workflow. | Check that the server has all required nodes. Check the selected checkpoint and imported slots. |
 | The render times out. | Check the ComfyUI queue. Increase **Render timeout**. The allowed range is 10 to 900 seconds. |
-| A render says it needs a reference image. | Generate or upload an image in the chat first. Or set a character reference image, and set the slot to a source that includes it. |
+| A render says it needs a reference image. | Generate or upload an image in the chat first. Or set a character reference image, and set **Reference image** to a source that includes it. |
 | A reroll says the reference image is gone. | The source image was deleted or its bytes were evicted. Select **Regenerate**. |
 | A reroll says the reference image was replaced. | The image that origin points at now holds different bytes, so the reroll cannot reproduce the picture. Select **Regenerate**. |
-| A reroll says the style needs a reference the image did not record. | That style loads more images than the stored one recorded. Select **Regenerate** under that style. |
+| A reroll says the style needs a reference the image did not record. | That style loads an image the stored one did not record. Select **Regenerate** under that style. |
 | A render says the reference image could not be read. | Orb accepts PNG, JPEG and WebP. Replace the upload or the character reference image. |
 | A render says the reference image is too large after resizing. | Use a smaller source image. Cloud providers cap a reference at 4 MB once encoded. |
 | A reference image was not saved on the character. | Orb accepts PNG, JPEG and WebP up to 10 MB. |
-| The connection test says a node needs an image on the server. | The message names the style. Either point that slot at a source under that style's **Reference images**, so Orb overwrites the filename, or put the file in ComfyUI's `input` directory so the style that leaves the slot **Off** can render it. |
+| The connection test says a node needs an image on the server. | The message names the style. Either set that style's **Reference image** to a source, so Orb overwrites the filename, or put the file in ComfyUI's `input` directory so the style that leaves it **Off** can render it. |
 | ComfyUI completes without an image. | Select a valid image-output node in the imported workflow. |
 | Orb cannot write an image prompt. | Check the Orb LLM endpoint. Use a model that can make tool calls. |
 | An old image shows **Bytes evicted**. | Select **Rehydrate**. Orb uses the stored prompt, settings, and seed to make the image again. On a cloud backend this is a fresh billed render, disclosed on the image. |

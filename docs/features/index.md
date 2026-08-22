@@ -2,6 +2,12 @@
 
 Orb's notable features, grouped by where they sit in the Director → Writer → Editor pipeline.
 
+## Scenes
+
+| Feature | Summary |
+|---|---|
+| [Group Chats](group-chats.md) | Several characters in one scene: who replies, and what each of them is told |
+
 ## Direction
 
 Pre-writer steering: the Director reads the scene and assembles the injection block.

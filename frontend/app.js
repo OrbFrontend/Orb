@@ -21,6 +21,7 @@ import {
   initWorkflowMutationListener,
   loadConversations,
   loadWorkflowManifest,
+  newConversationHere,
   newConvForChar,
   refreshConversationMessages,
   regenerate,
@@ -80,6 +81,7 @@ import {
   setDocProbs,
   toggleDocumentMode,
 } from "./document.js";
+import { initGroupSetup } from "./group_setup.js";
 import {
   addAltGreeting,
   clearExpressions,
@@ -233,6 +235,20 @@ document.addEventListener("click", (e) => {
   if (!e.target.closest("#burger-btn") && !e.target.closest("#burger-dropdown")) closeBurger();
 });
 
+// ── Secondary scene actions
+// Menu items that must stay reachable without competing with the primary header
+// buttons. Items declare a data-chat-action and nothing else; the group actions
+// are handed to group_setup.js as events so the shell stays free of feature
+// imports. group_setup.js decides which items apply to this scene.
+document.addEventListener("click", (e) => {
+  const item = e.target.closest("[data-chat-action]");
+  if (!item) return;
+  closeBurger();
+  closeMobileHeaderActions();
+  if (item.dataset.chatAction === "inspector") toggleInspector();
+  else document.dispatchEvent(new CustomEvent(`${item.dataset.chatAction}-request`));
+});
+
 // ── Image lightbox: click a generated image to pop it out full-screen; click
 // anywhere or press Escape to dismiss. Built as DOM nodes (not innerHTML) so the
 // data: src and alt need no escaping.
@@ -363,6 +379,7 @@ Object.assign(window, {
   closeCropModal,
   // conversations
   newConvForChar,
+  newConversationHere,
   selectConversation,
   deleteConversationFromModal,
   showConvHistoryModal,
@@ -469,6 +486,7 @@ initWorkflowTextInteraction();
 initAudioPlayer();
 initTabLock();
 initWorkflowMutationListener();
+initGroupSetup();
 
 // On a fresh load with no conversation selected, render the JS empty state so
 // the homepage stats grid appears (index.html ships a static empty state).

@@ -350,7 +350,7 @@ function hasOwnAttachment(msg) {
 // Toolbar button: offered only on a persisted assistant message that has no
 // speech attachment yet (auto-generation or a prior create removes it).
 export function createButtonRenderer(msg) {
-  if (!msg || msg.role !== "assistant" || !msg.id) return "";
+  if (msg?.role !== "assistant" || !msg.id) return "";
   if (hasOwnAttachment(msg)) return "";
   if (!canMutate()) {
     return `<button class="tts-create-btn" disabled title="Close other tabs to generate speech">${ICON_SPEAK}</button>`;

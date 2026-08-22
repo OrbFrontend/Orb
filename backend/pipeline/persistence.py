@@ -92,8 +92,17 @@ async def _persist_result(
     settings: Mapping[str, Any],
     user_msg_id: int | None,
     turn_index: int,
+    speaker_member_id: str | None = None,
+    exchange_id: str | None = None,
+    world_source_user_msg_id: int | None = None,
 ) -> tuple[int | None, list[dict], list[dict]]:
     """Save the assistant message and all turn side-effects after ``_result`` fires.
+
+    *world_source_user_msg_id* is the user row a World proposal cites, and it is
+    not always *user_msg_id*: in a group exchange the parent of speaker N is
+    speaker N-1's reply, and a pinned ``/speak`` has no user row at all. Every
+    caller states it rather than having this infer "grouped" from another
+    column's nullability.
 
     Updates director state, saves the assistant message with any workflow
     attachments, writes per-message workflow state, advances the active leaf,
@@ -115,7 +124,15 @@ async def _persist_result(
     # Skip persistence if the LLM produced no content tokens (e.g. reasoning-only).
     # Inline macros the model emitted (copied from context) fire once here — the
     # persist boundary — so the stored history holds the final text.
-    resp_text = resolve_inline(res.resp_text)
+    #
+    # Written back onto *res*, not kept local: a group exchange replays this reply
+    # to the next speaker straight off the ``speaker_done`` event, so that event has
+    # to carry the same text the row holds. Resolving a second time downstream would
+    # roll the dice again and hand the later speakers a number the DB never had —
+    # the next request would then read a different byte at that history position and
+    # re-prefill everything after it.
+    res.resp_text = resolve_inline(res.resp_text)
+    resp_text = res.resp_text
     if resp_text.strip():
         # Attachments ride the same INSERT transaction; aborted turns leave no orphans.
         staged = res.staged_attachments or None
@@ -127,6 +144,9 @@ async def _persist_result(
             parent_id=user_msg_id,
             attachments=staged,
             progressive_fields=res.progressive_fields,
+            speaker_member_id=speaker_member_id,
+            exchange_id=exchange_id,
+            advance_leaf=True,
         )
         # Row id only known here; no other caller can name it yet, so no lock needed.
         for wid, payload in res.staged_message_state.items():
@@ -139,13 +159,6 @@ async def _persist_result(
                     wid,
                     asst_id,
                 )
-        try:
-            await db.set_active_leaf(conversation_id, asst_id)
-        except Exception:
-            logger.exception(
-                "Failed to set active leaf to assistant message %s; row already committed",
-                asst_id,
-            )
         # Counter seed scans existing rows, so this must run after add_message.
         try:
             await db.add_generated_chars(len(resp_text))
@@ -156,7 +169,7 @@ async def _persist_result(
                 await db.create_direction_notes(conversation_id, asst_id, res.direction_notes)
             except Exception:
                 logger.exception("Failed to persist direction notes for assistant message %s; row already committed", asst_id)
-        proposals = await _stage_world_proposals(res, user_msg_id, asst_id)
+        proposals = await _stage_world_proposals(res, world_source_user_msg_id, asst_id)
         return asst_id, rejected, proposals
     else:
         logger.info("Skipping assistant message persistence: resp_text is empty (reasoning‑only output)")
@@ -177,6 +190,8 @@ async def _fallback_persist(
     user_msg_id: int | None,
     turn_index: int,
     accumulated_text: str,
+    speaker_member_id: str | None = None,
+    exchange_id: str | None = None,
 ):
     """Best-effort save for a turn aborted before ``_result`` fired.
 
@@ -203,8 +218,10 @@ async def _fallback_persist(
                 accumulated_text,
                 turn_index,
                 parent_id=user_msg_id,
+                speaker_member_id=speaker_member_id,
+                exchange_id=exchange_id,
+                advance_leaf=True,
             )
-            await db.set_active_leaf(conversation_id, asst_id)
             logger.info(
                 "Fallback persistence saved incomplete assistant message (%d chars)",
                 len(accumulated_text),
@@ -220,6 +237,8 @@ async def _shielded_fallback(
     user_msg_id: int | None,
     turn_index: int,
     accumulated_text: str,
+    speaker_member_id: str | None = None,
+    exchange_id: str | None = None,
 ):
     """Run :func:`_fallback_persist` under ``asyncio.shield``, retrying once on cancellation.
 
@@ -234,6 +253,8 @@ async def _shielded_fallback(
                 user_msg_id,
                 turn_index,
                 accumulated_text,
+                speaker_member_id,
+                exchange_id,
             )
         )
     except asyncio.CancelledError:
@@ -245,6 +266,8 @@ async def _shielded_fallback(
                 user_msg_id,
                 turn_index,
                 accumulated_text,
+                speaker_member_id,
+                exchange_id,
             )
         except Exception:
             logger.exception("Fallback persistence retry failed")
@@ -278,6 +301,12 @@ async def _consume_pipeline(
     turn_index: int,
     *,
     extra_on_result=None,
+    speaker_member_id: str | None = None,
+    exchange_id: str | None = None,
+    speaker_name: str = "",
+    card_id: str | None = None,
+    emit_done: bool = True,
+    world_source_user_msg_id: int | None = None,
 ) -> AsyncIterator[dict]:
     """Drain the pipeline's SSE events, save results, and emit ``done``.
 
@@ -302,7 +331,16 @@ async def _consume_pipeline(
                 yield event
             elif etype == "_result":
                 res = TurnState(**event["data"])
-                asst_id, rejected, proposals = await _persist_result(conversation_id, res, settings, user_msg_id, turn_index)
+                asst_id, rejected, proposals = await _persist_result(
+                    conversation_id,
+                    res,
+                    settings,
+                    user_msg_id,
+                    turn_index,
+                    speaker_member_id=speaker_member_id,
+                    exchange_id=exchange_id,
+                    world_source_user_msg_id=world_source_user_msg_id,
+                )
                 persisted = True
                 for proposal in proposals:
                     # Ordered before `done` on purpose: the frontend paints the
@@ -330,8 +368,30 @@ async def _consume_pipeline(
                 user_msg_id,
                 turn_index,
                 accumulated_text,
+                speaker_member_id,
+                exchange_id,
             )
         elif extra_on_result:
             await _shielded_log_save(extra_on_result, res, asst_id)
 
-    yield {"event": "done"}
+    if exchange_id is not None and speaker_member_id is not None:
+        yield {
+            "event": "speaker_done",
+            "data": {
+                "exchange_id": exchange_id,
+                "message_id": asst_id,
+                "parent_id": user_msg_id,
+                "turn_index": turn_index,
+                "member_id": speaker_member_id,
+                "card_id": card_id,
+                "name": speaker_name,
+                # Post-persist ``res.resp_text``: ``_persist_result`` resolved the
+                # inline macros in place, so this is the text the row holds and the
+                # text the exchange driver replays to the next speaker. The fallback
+                # branch persisted nothing (``message_id`` is None), which ends the
+                # exchange, so its text never reaches another speaker's history.
+                "content": res.resp_text if persisted else accumulated_text,
+            },
+        }
+    if emit_done:
+        yield {"event": "done"}

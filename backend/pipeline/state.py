@@ -111,6 +111,33 @@ _RESULT_FIELDS = (
 )
 
 
+# Fields a group exchange's shared Director run hands to every speaker's turn.
+# The Director, its per-fragment steps and the pre-writer note step all run once
+# for the whole exchange (``entrypoints._generate_group_exchange``), so each
+# speaker's ``TurnState`` starts from that one result rather than re-deriving it.
+# Named here for the reason ``_RESULT_FIELDS`` is: the orchestrator would
+# otherwise keep a hand-copied list of this class's field names, and a director
+# output added below would silently stop reaching speakers 2..n.
+#
+# Everything the Director writes, plus the two seeds it reads (``active_moods``,
+# ``macro_choices``) and the notes the exchange's pre-writer step recorded.
+_DIRECTOR_SEED_FIELDS = (
+    "active_moods",
+    "macro_choices",
+    "agent_raw",
+    "calls",
+    "latency",
+    "extra_fields",
+    "progressive_fields",
+    "selected_lorebook_entries",
+    "inj_block",
+    "scene_direction",
+    "writer_lorebook_block",
+    "reasoning_director",
+    "direction_notes",
+)
+
+
 # Fields seeding ``PostCtx.director_output`` — the read-only director view a
 # post-pipeline workflow hook sees. A named subset of ``TurnState`` (same pattern
 # as ``_RESULT_FIELDS``) so a field rename is caught here rather than silently
@@ -186,6 +213,22 @@ class TurnState:
     # knows it. One per World rather than one per turn because each World has its
     # own ``content_revision`` to race against and its own review queue.
     world_proposals: list[dict] = field(default_factory=list)
+
+    def seed_from(self, director_seed: TurnState) -> None:
+        """Adopt one exchange-wide Director result as this speaker's starting point.
+
+        Mutable containers are **copied**, not shared: every speaker of an
+        exchange seeds from the same object, and the post-turn steps that run on
+        the last of them (``direction_notes.extend``, ``calls.append``) would
+        otherwise reach back into a reply that has already been serialized.
+        """
+        for name in _DIRECTOR_SEED_FIELDS:
+            value = getattr(director_seed, name)
+            if isinstance(value, list):
+                value = list(value)
+            elif isinstance(value, dict):
+                value = dict(value)
+            setattr(self, name, value)
 
     def as_result_event_data(self) -> dict:
         """Return the result-subset dict for the ``_result`` SSE envelope.
@@ -281,3 +324,34 @@ class WorldProposalTurn:
     user_message: str
     character_label: str = ""
     conversation_label: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SheetUpdateTurn:
+    """What a finished group exchange may propose sheet updates about.
+
+    Carries the exchange's *evidence* rather than its identity, because unlike a
+    World the target has no revision to re-read against: a sheet update is
+    derived from the prose of one exchange, and that prose is only assembled once,
+    in the exchange driver. ``lines`` are the exchange's replies as
+    ``(speaker_name, text)`` in order, already persisted; the running speaker's
+    own draft is appended by the stage from ``TurnState.resp_text``, because it
+    is not persisted until after the stage runs.
+
+    ``member_ids`` are the members the exchange actually *touched* — the ones that
+    spoke. Cast-wide would be one billed call per member per exchange to tell a
+    silent member nothing happened to them. A member that spoke twice in one
+    exchange still gets one call, so the stage de-duplicates rather than trusting
+    this to be a set.
+
+    ``speaker_name`` labels the running speaker's unpersisted draft in the
+    transcript. Named rather than inferred from the last id, so the stage does
+    not depend on an ordering convention it cannot check.
+    """
+
+    conversation_id: str
+    exchange_id: str
+    member_ids: tuple[str, ...]
+    user_message: str
+    speaker_name: str = ""
+    lines: tuple[tuple[str, str], ...] = ()

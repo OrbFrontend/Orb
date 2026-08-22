@@ -9,7 +9,13 @@ if [ ! -d ".venv" ]; then
     python3 -m venv .venv
 fi
 
-source .venv/bin/activate
+# A venv is bin/ on POSIX and Scripts/ on Windows (Git Bash runs this script
+# there too), so pick whichever layout the interpreter actually created.
+if [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate
+else
+    source .venv/Scripts/activate
+fi
 
 echo "Installing dev dependencies..."
 pip install -q -r requirements-dev.txt
@@ -27,4 +33,9 @@ python scripts/check_frontend_layers.py
 
 echo ""
 echo "Running frontend unit tests (node --test)..."
-node --test 'tests/frontend/*.test.mjs'
+# Let bash expand the glob so node receives explicit file paths. Node's own
+# handling of positionals is not portable across versions: patterns need v22+,
+# and v25 no longer expands a directory argument -- it loads the directory
+# itself as a test file and fails. Explicit paths work on every version, and
+# under Git Bash on Windows too, since bash does the expansion, not node.
+node --test tests/frontend/*.test.mjs

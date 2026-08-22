@@ -203,16 +203,50 @@ class ConversationRow(TypedDict):
     # {{random}} seed override; '' = use the conversation's own id. Set by
     # checkpoint/compress so seeded picks match the copied history.
     macro_seed: str
+    kind: str
+    group_turn_mode: str
+    group_max_speakers: int
+    # Which character information every group generation carries; see
+    # ``core.domain_types.GroupContextMode``. Stored but ignored when solo.
+    group_context_mode: str
+    # Opt-in to the post-exchange sheet-update pass. Off by default: it is one billed
+    # call per member the exchange touched, and staleness is a property of a *long*
+    # scene, which a new one is not.
+    group_sheet_updates: int
+    # The group family this conversation belongs to: the id of the conversation
+    # it descends from, or None when it *is* that root. Read it through
+    # ``group_root_of()`` rather than directly -- None is a value, not a gap.
+    group_root_id: str | None
+
+
+class GroupMemberRow(TypedDict):
+    id: str
+    conversation_id: str
+    speaker_key: str
+    character_card_id: str | None
+    display_name: str
+    public_profile_override: str | None
+    # What the member reads about *itself* this scene, replacing the card's
+    # description/personality join. ``None`` falls back to the card; ``""`` is a
+    # deliberate blanking. See ``queries.group_members._private_sheet``.
+    card_sheet_override: str | None
+    member_kind: str
+    sort_order: int
+    muted: int
+    active: int
+    workflow_state: str | None
 
 
 class ConversationListRow(ConversationRow, total=False):
-    """A ``ConversationRow`` plus the two aggregate columns list_conversations()
+    """A ``ConversationRow`` plus the aggregate columns list_conversations()
     selects for the sidebar. ``total=False`` because they exist only on that
     query's rows, not on the base table.
     """
 
     last_message_preview: str | None
     message_count: int
+    group_card_ids: list[str]
+    group_member_names: list[str]
 
 
 class MessageRow(TypedDict):
@@ -233,6 +267,8 @@ class MessageRow(TypedDict):
     progressive_fields: dict
     created_at: str
     workflow_state: str | None
+    speaker_member_id: str | None
+    exchange_id: str | None
 
 
 class UserAttachmentRow(TypedDict, total=False):
@@ -397,6 +433,30 @@ class LorebookEntryRow(TypedDict):
     updated_at: str
 
 
+class MemberSheetProposalRow(TypedDict):
+    """A row from ``member_sheet_proposals`` -- one staged rewrite of one
+    member's scene-local sheet, derived from one exchange.
+
+    ``base_sheet`` is the sheet the proposal was derived from, and doubles as the
+    staleness check ``worlds.content_revision`` is for a changeset: the apply
+    re-reads the member's current sheet and refuses when the two no longer match,
+    so a hand edit and a proposal cannot silently clobber each other.
+    ``exchange_id`` is the provenance pointer -- the exchange, not one speaker's message,
+    because the pass runs once per exchange.
+    """
+
+    id: int
+    conversation_id: str
+    member_id: str
+    exchange_id: str
+    base_sheet: str
+    proposed_sheet: str
+    summary: str
+    status: str
+    created_at: str
+    decided_at: str | None
+
+
 class WorldChangesetRow(TypedDict):
     """A row from ``world_changesets`` -- one Agent proposal or one applied
     history record, with ``operations`` / ``before_entries`` / ``after_entries``
@@ -550,6 +610,10 @@ class CharacterCardRow(TypedDict, total=False):
     ``tags`` and ``alternate_greetings`` are the JSON-*decoded* lists;
     ``extensions`` is the JSON-*decoded* V2 card extensions dict (present only
     on ``get_character_card``); ``has_avatar`` is a derived bool, not a column.
+    ``def_chars`` is derived and list-only for the same reason inverted: it is
+    the *measure* of the omitted bodies (description + personality +
+    mes_example, the fields the group context modes disagree about) so a list
+    consumer can weigh a card without being sent one.
     """
 
     id: str
@@ -577,6 +641,7 @@ class CharacterCardRow(TypedDict, total=False):
     extensions: dict
     has_avatar: bool
     has_expressions: bool
+    def_chars: int
 
 
 class CharacterExpressionRow(TypedDict):

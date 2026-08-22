@@ -19,9 +19,10 @@ import logging
 import os
 import re
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping, Sequence
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from typing import Any, cast
 
+import httpx
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
@@ -34,7 +35,8 @@ from ..database import (
 )
 from ..database.models import ConversationRow
 from ..features import lorebook
-from ..inference import AbortToken
+from ..features.cards import ProfileDraftUnavailable
+from ..inference import AbortToken, LLMCallError, provider_sentence
 from ..workflows import WorkflowEventStream, public_event_error
 
 logger = logging.getLogger(__name__)
@@ -395,12 +397,55 @@ def _pipeline_sse_response(
 # ── Shared Depends providers ─────────────────────────────────────────────────
 
 
+# What a transport failure says when the provider gave us no words of its own.
+_PROFILE_UPSTREAM = "The model endpoint did not answer the profile request."
+
+
 async def require_conversation(cid: str) -> ConversationRow:
     """404 guard shared by the ``/api/conversations/{cid}/...`` routes."""
     conv = await get_conversation(cid)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conv
+
+
+@contextmanager
+def profile_draft_failures(what: str):
+    """Turn a public-profile drafting failure into the right status and sentence.
+
+    Shared by the card route and the scene route so the two halves of one
+    feature cannot answer differently: a user who gets a real sentence from the
+    character editor must get the same one from Manage cast.
+
+    Mirrors ``routes/workflows._hook_failures``. The split is between "the
+    backend Orb depends on did not deliver" (502, and the provider's own words
+    survive — see ``inference/errors``) and "this is a bug" (500, traceback to
+    the log and nothing but a fixed sentence on the wire, since an unexpected
+    traceback is where internals leak).
+
+    Neither route degrades silently. Returning a plausible-looking draft built
+    from the card's first line is survivable when a human is reviewing one
+    result, and unacceptable inside a loop that writes N overrides the user
+    saves in a single click.
+    """
+    try:
+        yield
+    except ProfileDraftUnavailable as exc:
+        logger.warning("%s: %s", what, exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    except LLMCallError as exc:
+        logger.warning("%s: %s", what, exc.sentence or exc)
+        raise HTTPException(status_code=502, detail=exc.sentence or _PROFILE_UPSTREAM) from None
+    except httpx.HTTPStatusError as exc:
+        sentence = provider_sentence(exc.response.text if exc.response is not None else "")
+        logger.warning("%s: %s", what, sentence or exc)
+        raise HTTPException(status_code=502, detail=sentence or _PROFILE_UPSTREAM) from None
+    except httpx.HTTPError as exc:
+        logger.warning("%s: %s", what, exc)
+        raise HTTPException(status_code=502, detail=_PROFILE_UPSTREAM) from None
+    except Exception:
+        logger.exception("%s", what)
+        raise HTTPException(status_code=500, detail="Profile drafting failed; see server logs") from None
 
 
 async def require_world(world_id: str) -> Mapping[str, Any]:

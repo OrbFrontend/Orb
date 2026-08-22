@@ -9,20 +9,34 @@ export function isLoopbackUrl(apiUrl) {
   return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1";
 }
 
+// What an acknowledged reference-image disclosure covers. Bumped only when the set of
+// bytes that can leave the machine **grows**, because consent is stored per key and a
+// stale "acknowledged" would silently cover an upload the user never read about.
+//
+// Deliberately still `v2` now that a render sends one likeness instead of the whole
+// cast: the set shrank, so every stored v2 acknowledgement already covers strictly more
+// than can now happen. Bumping would re-ask the entire installed base to consent to less.
+const IMAGE_DISCLOSURE_VERSION = "-images-v2";
+
+// The clause naming every likeness a reference can reach. One sentence for both
+// backends so neither can drift into under-describing what it uploads.
+const SENDS_IMAGES =
+  "A reference image is turned on, so images from your conversations are uploaded there too — " +
+  "the character reference photo or card art for the character each picture is of, or the previous " +
+  "image in the chat. ";
+
 export function privacyDisclosure({ source, apiUrl, providerId, providerLabel, sendsImages }) {
+  const scope = sendsImages ? IMAGE_DISCLOSURE_VERSION : "";
   if (source === "cloud") {
     const who = providerLabel || providerId || "this provider";
-    const key = `orb:image-gen-privacy-cloud${sendsImages ? "-images" : ""}:${providerId || "unknown"}`;
+    const key = `orb:image-gen-privacy-cloud${scope}:${providerId || "unknown"}`;
     return {
       key,
       message:
         `Your scene prompts will be sent to ${who}, a third-party commercial API. ` +
         `Each image is billed to your account there, and ${who} may retain what you send under its own ` +
         "retention policy. " +
-        (sendsImages
-          ? "Reference images are turned on, so images from your conversations and your character reference " +
-            "photo are uploaded there too. "
-          : "") +
+        (sendsImages ? SENDS_IMAGES : "") +
         "Save this connection?",
     };
   }
@@ -34,14 +48,11 @@ export function privacyDisclosure({ source, apiUrl, providerId, providerLabel, s
     return null;
   }
   return {
-    key: `orb:image-gen-privacy${sendsImages ? "-images" : ""}:${origin}`,
+    key: `orb:image-gen-privacy${scope}:${origin}`,
     message:
       "This ComfyUI server is not on this machine. Your scene prompts leave Orb, other clients may read queued " +
       "prompts, and generated files remain on that server. " +
-      (sendsImages
-        ? "A workflow you assigned uses reference images, so images from your conversations and your character " +
-          "reference image are uploaded there too. "
-        : "") +
+      (sendsImages ? SENDS_IMAGES : "") +
       "Save this connection?",
   };
 }
@@ -86,7 +97,13 @@ function stylesOn(config = {}, id) {
   return styles.filter((style) => styleConnectionId(style, config) === id);
 }
 
+// *pending* is any iterable of connection ids the user has added but not yet
+// filled in — the panel holds a Set, and asking a Set for `includes` throws
+// rather than answering false, which took the whole settings modal down as soon
+// as a configured-but-empty provider entry existed. Membership is this
+// function's question, so it owns the shape it is asked in.
 export function connectionList(config = {}, providers = [], pending = []) {
+  const pendingIds = new Set(pending);
   const entries = config.cloud?.providers || {};
   const list = [
     {
@@ -101,7 +118,7 @@ export function connectionList(config = {}, providers = [], pending = []) {
   ];
   for (const [id, entry] of Object.entries(entries)) {
     const linked = stylesOn(config, id);
-    if (!hasContent(entry) && !linked.length && !pending.includes(id)) continue;
+    if (!hasContent(entry) && !linked.length && !pendingIds.has(id)) continue;
     list.push({
       id,
       source: "cloud",
@@ -134,6 +151,8 @@ export function findConnection(connections, id) {
   return connections.find((c) => c.id === id) || null;
 }
 
+// The most images one render will ever carry: the ceiling on a cloud provider's
+// reference array, and the most image inputs Orb tracks on an imported graph.
 export const MAX_REFERENCE_SLOTS = 4;
 
 // The image slots one imported graph declares, as normalization stored them. A graph
@@ -143,13 +162,24 @@ export function graphReferenceSlots(graphs, workflowId) {
   return Array.isArray(declared) ? declared.slice(0, MAX_REFERENCE_SLOTS) : [];
 }
 
-// What a style will actually send, which is never simply what it stores: a style keeps
-// both backends' answers across a relink, so `["", "character"]` under a cloud provider
-// is one slot and it is off. Anything reading the stored list to decide what leaves the
-// machine asks the user to approve an upload the panel shows as Off and no adapter makes.
-export function effectiveReferenceSources(style, { graphs = [], source = "" } = {}) {
-  const stored = Array.isArray(style?.reference_sources) ? style.reference_sources : [];
-  return stored.slice(0, source === "cloud" ? 1 : graphReferenceSlots(graphs, style?.workflow).length);
+// How many reference images one cloud provider's wire dialect can carry. Derived
+// server-side from the reference encoding (`providers.reference_capacity`) rather than
+// hand-measured per provider, so there is no table here to fall behind. An unknown
+// provider is one, which is the safe floor rather than a claim.
+export function maxCloudReferences(preset) {
+  const declared = Number(preset?.max_references);
+  return Number.isFinite(declared) && declared >= 1 ? Math.min(declared, MAX_REFERENCE_SLOTS) : 1;
+}
+
+// Whether this style will actually send a picture to this target, which is never
+// simply whether it stores a source: a style keeps one answer across a relink, and the
+// target on the other side may have nowhere to put a reference — a provider whose
+// dialect has no field for one, a workflow with no image inputs, or no workflow at
+// all. Anything reading the stored source to decide what leaves the machine would ask
+// the user to approve an upload no adapter makes.
+export function sendsReference(style, { graphs = [], source = "", preset = null } = {}) {
+  if (!style?.reference_source) return false;
+  return source === "cloud" ? providerTakesReferences(preset) : graphReferenceSlots(graphs, style?.workflow).length > 0;
 }
 
 // ── resolution ───────────────────────────────────────────────────────────────
@@ -208,12 +238,14 @@ export function sizeChoices(preset, comfy) {
   return CLOUD_SIZES;
 }
 
-export function modelTakesReferences(preset, model) {
-  if (!preset?.supports_references) return false;
-  const allowed = Array.isArray(preset.reference_models) ? preset.reference_models : [];
-  if (!allowed.length) return true;
-  const chosen = String(model || preset.default_model || "").toLowerCase();
-  return allowed.some((marker) => chosen.includes(marker));
+// Whether this provider has a reference field at all. Deliberately not asked of the
+// *model*: that was a hand-kept allowlist over catalogues of hundreds of models, so it
+// was always behind, and being behind was invisible -- the panel hid the control, and
+// the user never learned the capability existed. A model that will not take a
+// reference now refuses at render time, for free, and the render degrades one rung and
+// says so.
+export function providerTakesReferences(preset) {
+  return Boolean(preset?.supports_references);
 }
 
 export function pendingDisclosures(config = {}, connections = []) {
@@ -227,14 +259,17 @@ export function pendingDisclosures(config = {}, connections = []) {
       apiUrl: external.api_url || "",
       providerId: connection.id,
       providerLabel: connection.label,
-      // One rule for both backends now that a style owns its reference sources. The
+      // One rule for both backends now that a style owns its reference source. The
       // ComfyUI half used to ask whether *any* imported graph mapped a slot, which
       // over-asked for a server no style pointed a reference at and — worse — went on
-      // asking after every style had turned them off. Effective, not stored: what the
-      // adapter will send is the question, and a style carries answers for slots its
-      // current target does not have.
+      // asking after every style had turned them off. What the adapter will send is the
+      // question, not what the style stores.
       sendsImages: linked.some((style) =>
-        effectiveReferenceSources(style, { graphs: external.user_graphs, source: connection.source }).some(Boolean),
+        sendsReference(style, {
+          graphs: external.user_graphs,
+          source: connection.source,
+          preset: connection.preset,
+        }),
       ),
     });
     if (notice) notices.push(notice);

@@ -48,6 +48,13 @@
           <div id="char-list"></div>
         </div>
       </div>
+      <div class="sidebar-section chat-only">
+        <div class="sidebar-section-header" id="groups-section-toggle">Groups <span class="arrow">▼</span></div>
+        <div class="sidebar-section-body" id="groups-section">
+          <button type="button" class="btn btn-block btn-sm" id="new-group-btn" style="margin-bottom:8px">+ New group</button>
+          <div id="group-chat-list"></div>
+        </div>
+      </div>
       <div class="sidebar-section doc-only">
         <div class="sidebar-section-header" onclick="toggleSection(this)">Documents <span class="arrow collapsed">▼</span></div>
         <div class="sidebar-section-body collapsed" id="documents-section">
@@ -96,19 +103,28 @@
         <button class="chat-title-edit" id="chat-title-edit-btn" onclick="startEditTitle()" title="Edit title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
       </div>
       <div class="chat-actions">
-        <button class="btn btn-sm" id="user-profile-btn" onclick="showUserModal()" title="User profile">👤 User</button>
+        <button class="btn btn-sm" id="user-profile-btn" onclick="showUserModal()" title="User profile" aria-label="User profile">👤</button>
         <button class="btn btn-sm" id="tools-panel-btn" onclick="toggleToolsPanel()" title="Agentic Tools & Workflows">✨ Workflow</button>
-        <button class="btn btn-sm" id="inspector-toggle" onclick="toggleInspector()">🔍 Inspector</button>
         <button class="btn btn-sm hidden" id="direction-notes-panel-btn" onclick="toggleDirectionNotesPanel()" title="Direction Notes">📝 Notes</button>
+        <button class="btn btn-sm" id="inspector-toggle" data-chat-action="inspector" title="Inspector" aria-label="Inspector">🔍 Inspector</button>
+        <!-- Secondary scene actions. Wired via addEventListener in app.js (no new
+             inline handlers); each item's data-chat-action is the whole contract.
+             The group/solo items are shown by renderChatActionMenus(). A group's
+             scene setup has no button up here: it opens from the cast rail's
+             "Manage cast" on the composer, where the cast already is. -->
         <button id="mobile-chat-actions-toggle" onclick="toggleMobileHeaderActions()" title="Quick actions">⋯</button>
         <div id="mobile-chat-actions-menu">
           <div class="burger-menu-item" id="mobile-user-profile-btn" onclick="closeMobileHeaderActions();showUserModal()">👤 User</div>
           <div class="burger-menu-item" onclick="closeMobileHeaderActions();toggleToolsPanel()">✨ Workflow</div>
-          <div class="burger-menu-item" onclick="closeMobileHeaderActions();toggleInspector()">🔍 Inspector</div>
+          <div class="burger-menu-item" data-chat-action="group-config" hidden>👥 Scene setup</div>
+          <div class="burger-menu-item" data-chat-action="inspector">🔍 Inspector</div>
           <div class="burger-menu-item hidden" id="mobile-direction-notes-btn" onclick="closeMobileHeaderActions();toggleDirectionNotesPanel()">📝 Notes</div>
         </div>
       </div>
     </div>
+    <!-- Only painted while a multi-speaker exchange is planned or streaming; an
+         empty plan never renders a bordered strip. -->
+    <div id="group-speaking-plan" class="group-speaking-plan" hidden></div>
         <div id="chat-messages"><div class="empty-state"><div class="icon">📜</div><div>Select a character to begin</div></div></div>
     <div id="generation-status" class="gen-status hidden">
       <div class="gen-bar"></div>
@@ -118,7 +134,8 @@
     </div>
     <div id="chat-input-area">
       <div id="burger-dropdown">
-        <div class="burger-menu-item" onclick="closeBurger();newConvForChar(S.activeCharId)"><span class="burger-icon">✚</span>New conversation</div>
+        <div class="burger-menu-item" onclick="closeBurger();newConversationHere()"><span class="burger-icon">✚</span>New conversation</div>
+        <div class="burger-menu-item" data-chat-action="convert-to-group" hidden><span class="burger-icon">👥</span>Convert to group</div>
         <div class="burger-menu-item" onclick="closeBurger();showConvHistoryModal()"><span class="burger-icon">📋</span>Conversations</div>
         <div class="burger-menu-item" onclick="closeBurger();showCompressModal()"><span class="burger-icon">📦</span>Compress History</div>
         <div class="burger-menu-item" onclick="closeBurger();createCheckpoint()"><span class="burger-icon">🔖</span>Create Checkpoint</div>
@@ -126,6 +143,10 @@
       </div>
       <input type="file" id="attach-image-input" accept="image/*" multiple style="display:none">
       <div id="attachment-preview" class="attachment-preview"></div>
+      <!-- The cast, sitting on the composer: a chip hands its member the floor
+           on a resting scene and queues them otherwise. Painted by
+           renderGroupCast(); hidden outside a group. -->
+      <div id="group-cast-rail" class="group-cast-rail" hidden></div>
       <button id="chat-ghost-chip" type="button" aria-label="Insert suggestion" hidden></button>
       <div id="chat-input-wrap">
         <button id="burger-btn" onclick="toggleBurger()" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
