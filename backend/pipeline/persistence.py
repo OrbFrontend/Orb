@@ -124,7 +124,15 @@ async def _persist_result(
     # Skip persistence if the LLM produced no content tokens (e.g. reasoning-only).
     # Inline macros the model emitted (copied from context) fire once here — the
     # persist boundary — so the stored history holds the final text.
-    resp_text = resolve_inline(res.resp_text)
+    #
+    # Written back onto *res*, not kept local: a group exchange replays this reply
+    # to the next speaker straight off the ``speaker_done`` event, so that event has
+    # to carry the same text the row holds. Resolving a second time downstream would
+    # roll the dice again and hand the later speakers a number the DB never had —
+    # the next request would then read a different byte at that history position and
+    # re-prefill everything after it.
+    res.resp_text = resolve_inline(res.resp_text)
+    resp_text = res.resp_text
     if resp_text.strip():
         # Attachments ride the same INSERT transaction; aborted turns leave no orphans.
         staged = res.staged_attachments or None
@@ -377,6 +385,11 @@ async def _consume_pipeline(
                 "member_id": speaker_member_id,
                 "card_id": card_id,
                 "name": speaker_name,
+                # Post-persist ``res.resp_text``: ``_persist_result`` resolved the
+                # inline macros in place, so this is the text the row holds and the
+                # text the exchange driver replays to the next speaker. The fallback
+                # branch persisted nothing (``message_id`` is None), which ends the
+                # exchange, so its text never reaches another speaker's history.
                 "content": res.resp_text if persisted else accumulated_text,
             },
         }

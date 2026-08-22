@@ -293,7 +293,15 @@ def build_director_tool_prompt(
     interactive_fragments: Sequence[Mapping[str, Any]] | None = None,
     progressive_state: dict | None = None,
     tool_schema: dict | None = None,
+    cast_instruction: str = "",
 ) -> str:
+    """Build the combined director request for one tool.
+
+    *cast_instruction* is the group speaking-plan line (``director.speaking_plan_
+    instruction``): the roster is volatile and rides this per-call tail rather than
+    the shared tool blob, exactly like the editor's numbered finding ids. Empty on
+    a solo turn.
+    """
     tool = TOOLS.get(tool_name)
     if not tool:
         return ""
@@ -304,6 +312,8 @@ def build_director_tool_prompt(
         _tool_call_instruction(tool_name, schema),
     ]
     if tool_name == "direct_scene":
+        if cast_instruction:
+            parts.append(cast_instruction)
         # Scene context (progressive/interactive) before the mood options, mirroring
         # the per-fragment builder: settle the scene, then pick moods that fit it.
         progressive_lines = [
@@ -340,12 +350,18 @@ def build_director_scene_step_prompt(
     target_fragment: Mapping[str, Any] | None = None,
     decided_fields: Sequence[tuple[str, Any]] = (),
     progressive_prior: Any = None,
+    cast_instruction: str = "",
 ) -> str:
     """Build one ``direct_scene`` request that targets a single output.
 
     With ``target_fragment`` None the model is asked only for ``moods``; otherwise
     only for the named fragment, with the values already chosen this turn
     (``decided_fields``) shown so it can build on them.
+
+    *cast_instruction* is passed only on the speaking-plan stage, and is the only
+    place that stage's roster appears: a step prompt echoes the stage's own
+    ``description``, never the schema property's, so before this the per-fragment
+    path cast the exchange without ever being told the valid keys.
     """
     schema = tool_schema if tool_schema is not None else TOOLS["direct_scene"]["schema"]
     desc = schema["function"]["description"]
@@ -369,6 +385,8 @@ def build_director_scene_step_prompt(
             f"Call ONLY direct_scene - {desc}\nFill ONLY the '{fid}' parameter. Leave moods and all other fields empty."
         )
         parts.append(f"Field '{fid}' ({hint}): {target_fragment['description']}")
+        if cast_instruction:
+            parts.append(cast_instruction)
         prior = [f"- {label}: {_render_decided(value)}" for label, value in decided_fields if value]
         if prior:
             parts.append("Decided so far this turn (build on these, do not contradict):\n" + "\n".join(prior))

@@ -367,6 +367,12 @@ async def _generate_group_exchange(
         kv_tracker=setup.kv_tracker,
         lorebook=setup.lorebook,
         macros=setup.macros,
+        # The castable roster rides the Director's request, not the shared tool
+        # blob: mute is otherwise prefix-neutral, and a schema that named the cast
+        # turned every mute toggle into a full re-prefill (kv-cache.md, Invariant 3).
+        # Same list the plan is validated against below, so the request cannot
+        # advertise a key `parse_speaking_plan` would then reject.
+        speaker_keys=", ".join(str(member["speaker_key"]) for member in eligible),
     ):
         yield ev
     if ctx.client.is_aborted:

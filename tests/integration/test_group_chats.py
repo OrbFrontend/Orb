@@ -1588,3 +1588,49 @@ async def test_a_checkpoint_carries_the_scenes_sheet_update_opt_in(client, llm_m
     fresh = await client.post(f"/api/conversations/{conv['id']}/group-conversation")
     assert fresh.status_code == 200, fresh.text
     assert fresh.json()["group_sheet_updates"] == 1
+
+
+async def test_a_reply_the_next_speaker_reads_is_the_one_the_row_holds(client, llm_mock):
+    """One inline-macro roll per reply, shared by the DB row and the next speaker.
+
+    Inline macros a model emits (copied out of context) fire once, at the persist
+    boundary. A group exchange is the one place that text has a second reader
+    before it is ever re-read from the DB: speaker 2's history is assembled in
+    memory from what speaker 1 just wrote. Resolving separately for each -- or
+    handing the driver the unresolved draft -- rolls the dice twice, so the
+    history speaker 2 saw disagrees with the row every later request reads, and
+    the provider re-prefills from that message onward for the rest of the scene.
+    """
+    aria = await _card(client, "Aria")
+    kael = await _card(client, "Kael")
+    conv = (
+        await client.post(
+            "/api/conversations",
+            json={
+                "kind": "group",
+                "title": "Campfire",
+                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
+            },
+        )
+    ).json()
+    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — Roll", "kael — Answer"]))
+    llm_mock.enqueue_writer("The die shows {{roll::1d20}}.")
+    llm_mock.enqueue_writer("Kael nods.")
+
+    response = await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "Roll for it."})
+    assert response.status_code == 200
+
+    messages = await get_messages(conv["id"])
+    stored = next(m["content"] for m in messages if m["speaker_member_id"] and "die shows" in m["content"])
+    assert "{{roll" not in stored, "the persist boundary did not resolve the macro"
+
+    # The second speaker's prompt replays the first reply out of the in-memory
+    # exchange history; it must carry that same resolved text, byte for byte.
+    second = [call for call in llm_mock.captured if call["pass"] == "writer"][1]
+    wire = json.dumps(second["messages"])
+    assert "{{roll" not in wire, "the next speaker read an unresolved macro"
+    assert stored in wire, "the next speaker read a different roll than the row holds"
+
+    # And the SSE the browser painted the bubble from agrees with both.
+    done = [data for name, data in _sse_events(response.text) if name == "speaker_done"]
+    assert done[0]["content"] == stored

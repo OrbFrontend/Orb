@@ -138,6 +138,21 @@ and card system-prompt overrides do not compete.
   scene, while a missing or malformed plan falls back to round-robin.
 - A user pin overrides the plan and selects exactly that member.
 
+The `speaking_plan` field is split across the two halves of a call, and has to
+be. Its *schema* rides the shared tools blob — the cached prefix — so it names
+the field and never the cast (`director.SPEAKING_PLAN_SCHEMA_DESCRIPTION`);
+muting a member is otherwise entirely prefix-neutral, since a muted member still
+renders in the cast section in every context mode, and a schema that listed the
+unmuted keys turned one mute toggle into a full re-prefill of every lane on the
+backends that render tool declarations ahead of the conversation. The live
+roster ships on the Director's *trailing request* instead
+(`director.speaking_plan_instruction`), the same shape the editor's numbered
+finding ids take: volatile list stated in prose, validated server-side by
+`cast.parse_speaking_plan`. That placement also reaches strictly more of the
+pipeline — text mode never renders tool schemas at all, and the per-fragment
+step prompt echoes a stage's own description rather than the schema property's,
+so before the split neither path was ever told which keys were castable.
+
 The stored mode names are internal. The UI calls them `Auto — Director
 chooses`, `Rotate — Cast replies in order` and `Manual — Select every reply`
 (`group_cast.js:TURN_MODES` is the only place that wording lives).

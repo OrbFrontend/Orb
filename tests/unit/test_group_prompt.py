@@ -4,7 +4,10 @@ from backend.core import CastMember, Macros, TurnCast
 from backend.database.queries.group_members import allocate_speaker_key
 from backend.inference.prompt_builder import build_prefix
 from backend.pipeline.cast import parse_speaking_plan, plan_beat, round_robin_member
-from backend.pipeline.passes.director import build_direct_scene_override
+from backend.pipeline.passes.director import (
+    build_direct_scene_override,
+    speaking_plan_instruction,
+)
 from backend.pipeline.passes.writer import build_writer_content, strip_speaker_label
 from backend.pipeline.state import _DIRECTOR_SEED_FIELDS, TurnState
 
@@ -85,9 +88,16 @@ def test_group_director_schema_and_plan_policy_distinguish_rest_from_malformed()
         {"id": "k", "speaker_key": "kael", "display_name": "Kael", "active": 1, "muted": 0},
         {"id": "m", "speaker_key": "mira", "display_name": "Mira", "active": 1, "muted": 1},
     ]
-    schema = build_direct_scene_override([], cast=members)
+    schema = build_direct_scene_override([], grouped=True)
     prop = schema["function"]["parameters"]["properties"]["speaking_plan"]
-    assert "aria, kael" in prop["description"] and "mira" not in prop["description"]
+    # The blob is the cached prefix (kv-cache.md, Invariant 3), so it names the
+    # field and never the cast: a mute toggle changes nothing here, and the live
+    # roster is stated on the Director's trailing request instead.
+    assert "speaker_key" in prop["description"]
+    assert not any(key in prop["description"] for key in ("aria", "kael", "mira"))
+    eligible = [member for member in members if not member["muted"]]
+    instruction = speaking_plan_instruction(", ".join(member["speaker_key"] for member in eligible))
+    assert "aria, kael" in instruction and "mira" not in instruction
     assert parse_speaking_plan([], members, 3) == []
     assert parse_speaking_plan(["unknown — wait"], members, 3) is None
     parsed = parse_speaking_plan(["aria — first", "Aria: again", "kael - next", "mira — muted"], members, 3)

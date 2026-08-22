@@ -117,6 +117,12 @@ class _KVCacheTracker:
         self._entries: list[dict] = []
         self._conversation_id = conversation_id
         self._prev_entries: list[dict] = list(_prev_turn_entries.get(conversation_id, [])) if conversation_id else []
+        # How far ``log_summary`` has already printed. One tracker can be summarised
+        # several times per request — a group exchange runs one pipeline per speaker
+        # and each one summarises on its way out — and reprinting the whole list
+        # every time made the report grow quadratically with cast size, burying the
+        # calls the reader opened the log for.
+        self._reported = 0
 
     def record(
         self,
@@ -153,27 +159,43 @@ class _KVCacheTracker:
         """Find the previous entry to compare against.
 
         Prefers the nearest same-model entry within this turn; falls back to
-        the same (label, model) entry from the previous turn.
+        the *latest* same-(label, model) entry from the previous turn.
         Returns ``(entry, is_cross_turn)``.
+
+        Both scans run backwards, and the second one has to: a request can leave
+        several entries under one label — every speaker of a group exchange logs
+        a ``writer``, and the editor's ReAct loop logs an ``editor`` per iteration
+        — and only the last of them holds the history this call actually extends.
+        Comparing against the first understated ``msgs_overlap`` by a whole
+        exchange's worth of replies.
         """
         for j in range(i - 1, -1, -1):
             if self._entries[j].get("model", "") == model:
                 return self._entries[j], False
-        if self._prev_entries:
-            for p in self._prev_entries:
-                if p["label"] == label and p.get("model", "") == model:
-                    return p, True
+        for p in reversed(self._prev_entries):
+            if p["label"] == label and p.get("model", "") == model:
+                return p, True
         return None, False
 
     def log_summary(self) -> None:
-        if not self._entries:
-            return
+        """Print the calls recorded since the last summary, comparisons unchanged.
 
-        lines = ["KV cache report  (provider = truth; local = msgs-prefix + tools-match, template-dependent):"]
+        Only *unreported* entries are rendered; ``_find_prev`` still ranges over
+        the whole list, so a group exchange's second speaker is still measured
+        against the first speaker's calls — it just isn't reprinted alongside them.
+        """
+        first = self._reported
+        if first >= len(self._entries):
+            return
+        self._reported = len(self._entries)
+
+        header = "KV cache report" + (" (continued)" if first else "")
+        lines = [f"{header}  (provider = truth; local = msgs-prefix + tools-match, template-dependent):"]
         total_cached = 0
         total_prompt = 0
 
-        for i, e in enumerate(self._entries):
+        for i in range(first, len(self._entries)):
+            e = self._entries[i]
             model = e.get("model", "")
             prev, cross_turn = self._find_prev(i, model, e["label"])
 
@@ -217,11 +239,14 @@ class _KVCacheTracker:
 
             lines.append(f"  {e['label']:<28}  {provider_note}  |  {local_note}")
 
+        # Over the calls printed above, not the whole conversation: on a continued
+        # report those are one speaker's calls, which is the unit worth totalling.
+        scope = "Totals (this report)" if first else "Totals"
         if total_prompt:
             pct_total = total_cached / total_prompt * 100
-            lines.append(f"  Totals — provider cached: {total_cached}/{total_prompt} tok ({pct_total:.1f}%)")
+            lines.append(f"  {scope} — provider cached: {total_cached}/{total_prompt} tok ({pct_total:.1f}%)")
         else:
-            lines.append("  Totals — provider cached: N/A (server returned no usage data)")
+            lines.append(f"  {scope} — provider cached: N/A (server returned no usage data)")
 
         logger.info("\n".join(lines))
 

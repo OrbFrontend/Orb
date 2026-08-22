@@ -383,7 +383,7 @@ async def _prepare_turn(
         enabled_tools_pre_merge,
         agentic_lorebook=agentic_active,
         dynamic_world=world_proposal is not None,
-        cast=(list(ctx.group_members) if ctx.cast.grouped else None),
+        grouped=ctx.cast.grouped,
     )
     schema_overrides = MappingProxyType(overrides)
     accumulators = {

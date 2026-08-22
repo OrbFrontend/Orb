@@ -39,6 +39,7 @@ The invariants asserted (numbered per the architecture doc §4):
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 import pytest
@@ -914,3 +915,64 @@ async def test_editor_tools_blob_constant_across_tool_switch():
         )
     )
     assert next(iter(blobs)) == full_blob, "editor shipped a tools blob that is not the full enabled set"
+
+
+# ── The report itself, on a request that runs several pipelines ───────────────
+
+
+def _entry(tracker: _KVCacheTracker, label: str, body: str) -> None:
+    tracker.record(label, [{"role": "user", "content": body}], None, model="m")
+
+
+def test_the_report_prints_each_call_once_across_a_multi_speaker_exchange(caplog):
+    """One tracker, one pipeline per speaker, one report line per call.
+
+    A group exchange summarises on the way out of every speaker's ``_run_pipeline``
+    against the *shared* tracker, so reprinting the whole list each time grew the
+    report quadratically in cast size and buried the calls the reader opened the
+    log for.
+    """
+    tracker = _KVCacheTracker(conversation_id=None)
+    _entry(tracker, "director:direct_scene", "d")
+    _entry(tracker, "writer", "w1")
+    with caplog.at_level(logging.INFO, logger="backend.inference.kv_tracker"):
+        tracker.log_summary()
+        first = caplog.text
+        caplog.clear()
+        _entry(tracker, "writer", "w2")
+        tracker.log_summary()
+        second = caplog.text
+        caplog.clear()
+        # Nothing new recorded: nothing to say.
+        tracker.log_summary()
+        assert caplog.text == ""
+
+    def _rows(text: str) -> list[str]:
+        # A report row is "  <label>  provider: ..."; the label also appears inside
+        # other rows' "vs '<label>'" comparison notes, which are not rows.
+        return [line.split("  provider:")[0].strip() for line in text.splitlines() if "  provider:" in line]
+
+    assert _rows(first) == ["director:direct_scene", "writer"]
+    assert _rows(second) == ["writer"], "the continued report reprinted an already-reported call\n" + second
+
+
+def test_a_new_request_is_measured_against_the_latest_call_of_that_label(monkeypatch):
+    """Cross-turn comparison takes the *last* same-label entry, not the first.
+
+    A group exchange leaves one ``writer`` entry per speaker. The next request's
+    first writer call extends the history the *final* speaker saw, so comparing it
+    against speaker 1's call reported an overlap short by a whole exchange of
+    replies — the tracker's own numbers arguing the cache had broken when it had not.
+    """
+    from backend.inference import kv_tracker as mod
+
+    monkeypatch.setattr(mod, "_prev_turn_entries", {}, raising=True)
+    previous = mod._KVCacheTracker(conversation_id="c1")
+    _entry(previous, "writer", "SHARED")
+    _entry(previous, "writer", "SHARED-AND-MORE")
+    previous.log_summary()
+
+    current = mod._KVCacheTracker(conversation_id="c1")
+    prev, cross_turn = current._find_prev(0, "m", "writer")
+    assert cross_turn and prev is not None
+    assert "SHARED-AND-MORE" in prev["msgs_serialized"], "compared against the stalest same-label call"

@@ -120,6 +120,24 @@ shortcut, which hands speaker 1 the setup base verbatim, is a *correctness* bug
 under Swap rather than a cache miss, so that mode rebuilds for the first speaker
 too (`prefix_is_speaker_scoped`).
 
+Nothing about *which* members are in the scene reaches the tools blob. The
+group `direct_scene` override widens the schema with a `speaking_plan` field
+whose description names the field and not the cast; the castable keys ride the
+Director's trailing request (`director.speaking_plan_instruction`), because
+muting a member is otherwise prefix-neutral — a muted member still renders in
+the cast section — and a schema that listed the unmuted keys made one mute
+toggle a whole-prefix miss on every lane. Same rule as the editor's finding
+ids: volatile list in prose on the tail, validated server-side.
+
+Message content upholds Invariant 2 in a group the same way it does across
+turns, and the exchange driver is the one place that needs care: the reply a
+later speaker reads is assembled in memory from what the previous speaker just
+wrote, so its inline macros must be the *same* resolution the row was persisted
+with. `_persist_result` resolves once and writes the result back onto the turn
+state that the `speaker_done` event carries; resolving a second time downstream
+would re-roll and leave the in-exchange history disagreeing with every later
+read of that row.
+
 In Private and Shared a speaker's identity fields live only in the trailing
 Writer message or only in the shared body respectively — never both, so no mode
 bills the same card text twice. Both model lanes are built under the same mode
