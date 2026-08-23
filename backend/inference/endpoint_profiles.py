@@ -14,6 +14,15 @@ To add a new quirk:
   2. Attach a ``custom=`` callable for one-off logic.
   3. Promote a recurring ``custom=`` pattern to a named dataclass field.
   4. Subclass ``ModelProfile`` and override ``apply()`` for radically different APIs.
+
+Some quirks cannot be declared at all: a proxy endpoint fronts a different
+upstream engine per model, and an engine that accepts a field and ignores it
+looks identical to one that honors it until the reply arrives. Those are
+*learned* into module-level session sets (``_TOOL_CHOICE_UNSUPPORTED``,
+``_FORCED_CHOICE_IGNORED``, ``_STRUCTURED_OUTPUT_IGNORED``) by the caller that
+saw the evidence, and every knob reader consults them. Prefer that over
+enumerating models in ``PROFILES``: a hand-kept per-model capability list
+behind a proxy goes stale the day the proxy re-routes it.
 """
 
 from __future__ import annotations
@@ -175,10 +184,16 @@ PROFILES: dict[str, dict[str | None, ModelProfile]] = {
             allow_forced_tool_choice=False,  # forced -> "auto"
         ),
     },
-    # NanoGPT proxies to per-model providers whose tool-argument decoding is
+    # NanoGPT is a *proxy*: each model id it fronts sits behind a different
+    # upstream engine with its own config, so no endpoint-wide statement about
+    # decoding is true of every model. Its own tool-argument decoding is
     # unconstrained (observed: GLM-5.2 TEE mangles hyphenated argument keys
-    # under a forced call), but its documented response_format json_schema
-    # strict mode is honored -- so forced calls go out as structured output.
+    # under a forced call) while its documented response_format json_schema
+    # strict mode is honored by the routes that implement it -- so the opt-in
+    # here is the *optimistic default*, not a claim about the whole catalogue.
+    # An upstream that quietly ignores the schema is demoted per model on the
+    # first reply that proves it (``note_structured_output_ignored``), which is
+    # why this stays one endpoint-wide knob instead of a hand-kept model list.
     "nano-gpt.com": {
         None: ModelProfile(
             allow_extra=None,  # lenient passthrough; drop nothing
@@ -198,6 +213,26 @@ _FORCED_CHOICE_IGNORED: set[tuple[str, str]] = set()
 def note_forced_tool_choice_ignored(endpoint_url: str, model: str) -> None:
     """Record that *model* answered a forced tool_choice with some other tool."""
     _FORCED_CHOICE_IGNORED.add((endpoint_url, model))
+
+
+# (endpoint_url, model) pairs whose reply proved the endpoint did not actually
+# constrain decoding to the strict ``response_format`` schema it was sent. A
+# provider that *rejects* the field answers 4xx and is handled by
+# recover_from_error; one that accepts and ignores it can only be caught by
+# reading the reply. In-memory only, like ``_FORCED_CHOICE_IGNORED`` above.
+_STRUCTURED_OUTPUT_IGNORED: set[tuple[str, str]] = set()
+
+
+def note_structured_output_ignored(endpoint_url: str, model: str) -> None:
+    """Record that *model* ignored a strict ``response_format`` schema.
+
+    Callers must only report a reply that *proves* the constraint was absent --
+    a completed, non-empty answer that is not the JSON the schema demanded.
+    A truncated or empty reply proves nothing (same standard as
+    :func:`note_forced_tool_choice_ignored`), and demoting on one would cost
+    the endpoint its best-caching call shape over a flaky turn.
+    """
+    _STRUCTURED_OUTPUT_IGNORED.add((endpoint_url, model))
 
 
 def honors_forced_tool_choice(endpoint_url: str, model: str = "", params: Mapping[str, Any] | None = None) -> bool:
@@ -230,7 +265,17 @@ def honors_forced_tool_choice(endpoint_url: str, model: str = "", params: Mappin
 
 
 def supports_structured_tool_calls(endpoint_url: str, model: str = "") -> bool:
-    """True when the (endpoint, model) profile opts into structured forced calls."""
+    """True when the (endpoint, model) profile opts into structured forced calls.
+
+    The profile knob is an *opt-in that evidence can revoke*. A proxy endpoint
+    fronts many upstream engines, so honoring strict ``response_format`` is a
+    per-model fact the URL cannot settle; a model that answers a schema-forced
+    call with something the schema forbids has proven its route decodes
+    unconstrained, and :func:`note_structured_output_ignored` demotes just that
+    pair for the rest of the session.
+    """
+    if (endpoint_url, model) in _STRUCTURED_OUTPUT_IGNORED:
+        return False
     profile = profile_for(endpoint_url, model)
     return profile is not None and profile.structured_tool_calls
 
