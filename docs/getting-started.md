@@ -17,6 +17,10 @@
    - Linux/Mac: `./run_unix.sh`
    - Windows: `run_windows.bat`
 
+The launcher creates a `.venv` virtualenv in the repo root on first run, installs
+`requirements.txt` into it, and starts the server from it. You never have to activate it
+yourself to run Orb — only to run the scripts below.
+
 ## First Run
 
 1. Open the **Endpoints** sidepanel and configure your Writer and Agent LLM endpoints.
@@ -31,17 +35,27 @@
 ## Coming from SillyTavern
 
 `scripts/migrate_sillytavern.py` copies an existing SillyTavern install into Orb. Stop Orb first,
-then run it from the repo root with the project's virtualenv active:
+then run it from the repo root with the project's `.venv` active — the one the launcher created:
 
-```
-python scripts/migrate_sillytavern.py --st-dir /path/to/SillyTavern --dry-run
-python scripts/migrate_sillytavern.py --st-dir /path/to/SillyTavern
-```
+=== "Linux/macOS"
 
-`--dry-run` does the entire migration and then throws it away, so you can read the report before
-committing to anything. The real run copies your database first, and every id it writes is derived
-from the source file — so running it twice imports nothing twice, and an interrupted run picks up
-where it stopped.
+    ```bash
+    source .venv/bin/activate
+    python scripts/migrate_sillytavern.py --st-dir /path/to/SillyTavern --dry-run
+    python scripts/migrate_sillytavern.py --st-dir /path/to/SillyTavern
+    ```
+
+=== "Windows"
+
+    ```bat
+    .venv\Scripts\activate.bat
+    python scripts\migrate_sillytavern.py --st-dir C:\path\to\SillyTavern --dry-run
+    python scripts\migrate_sillytavern.py --st-dir C:\path\to\SillyTavern
+    ```
+
+    (In PowerShell, activate with `.venv\Scripts\Activate.ps1` instead.)
+
+`--dry-run` is optional, it's a safety check before committing.
 
 What comes over:
 
