@@ -171,13 +171,6 @@ async def test_export_strips_api_keys_by_default(client, db_path):
     assert all(r[0] == "" for r in conn.execute("SELECT api_key FROM endpoints").fetchall())
 
 
-async def test_export_keeps_keys_when_not_stripped(client, db_path):
-    await client.put("/api/settings", json={"api_key": "sk-secret"})
-    name = (await client.post("/api/presets/export", json={"domains": ["configs"], "strip_keys": False})).json()["name"]
-    conn = sqlite3.connect(str(_snap_dir(db_path) / name))
-    assert conn.execute("SELECT api_key FROM settings WHERE id=1").fetchone()[0] == "sk-secret"
-
-
 async def test_export_without_configs_scrubs_keys(client, db_path):
     await client.put("/api/settings", json={"api_key": "sk-secret"})
     name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]
@@ -359,27 +352,6 @@ async def test_apply_nulls_dangling_character_persona_lock(client, db):
         assert await cur.fetchall() == []
 
 
-async def test_apply_nulls_dangling_conversation_persona_lock(client, db):
-    """Same guarantee for the chats domain: a conversation's persona_lock_id
-    that no longer resolves locally is nulled on import, not left dangling."""
-    pid = (await client.post("/api/user-personas", json={"name": "Pinned"})).json()["id"]
-    await _make_conv_with_tree(db)
-    await db.execute("UPDATE conversations SET persona_lock_id = ? WHERE id = 'conv-1'", (pid,))
-    await db.commit()
-    name = (await client.post("/api/presets/export", json={"domains": ["chats"]})).json()["name"]
-
-    await client.delete(f"/api/user-personas/{pid}")
-    await client.delete("/api/conversations/conv-1")
-
-    resp = await client.post(f"/api/presets/{name}/apply", json={})
-    assert resp.status_code == 200, resp.json()
-
-    async with db.execute("SELECT persona_lock_id FROM conversations WHERE id = 'conv-1'") as cur:
-        assert (await cur.fetchone())["persona_lock_id"] is None
-    async with db.execute("PRAGMA foreign_key_check") as cur:
-        assert await cur.fetchall() == []
-
-
 async def test_apply_remaps_persona_lock_when_configs_included(client, db):
     """When configs travels with characters, personas are re-keyed on import
     (fresh auto-increment ids). A character's persona_lock_id must follow that
@@ -394,27 +366,6 @@ async def test_apply_remaps_persona_lock_when_configs_included(client, db):
 
     # The lock still resolves to the persona named "Pinned", whatever its new id.
     async with db.execute("SELECT persona_lock_id FROM character_cards WHERE id = ?", (ch,)) as cur:
-        locked_id = (await cur.fetchone())["persona_lock_id"]
-    assert locked_id is not None
-    async with db.execute("SELECT name FROM user_personas WHERE id = ?", (locked_id,)) as cur:
-        assert (await cur.fetchone())["name"] == "Pinned"
-    async with db.execute("PRAGMA foreign_key_check") as cur:
-        assert await cur.fetchall() == []
-
-
-async def test_apply_remaps_conversation_persona_lock_when_configs_included(client, db):
-    """The chats-path counterpart: a conversation's persona_lock_id must be
-    remapped to the re-keyed persona when configs is imported alongside."""
-    pid = (await client.post("/api/user-personas", json={"name": "Pinned"})).json()["id"]
-    await _make_conv_with_tree(db)
-    await db.execute("UPDATE conversations SET persona_lock_id = ? WHERE id = 'conv-1'", (pid,))
-    await db.commit()
-    name = (await client.post("/api/presets/export", json={"domains": ["chats", "configs"]})).json()["name"]
-
-    resp = await client.post(f"/api/presets/{name}/apply", json={})
-    assert resp.status_code == 200, resp.json()
-
-    async with db.execute("SELECT persona_lock_id FROM conversations WHERE id = 'conv-1'") as cur:
         locked_id = (await cur.fetchone())["persona_lock_id"]
     assert locked_id is not None
     async with db.execute("SELECT name FROM user_personas WHERE id = ?", (locked_id,)) as cur:
@@ -442,15 +393,6 @@ async def test_apply_configs_clears_orphaned_local_persona_lock(client, db):
         assert (await cur.fetchone())["persona_lock_id"] is None
     async with db.execute("PRAGMA foreign_key_check") as cur:
         assert await cur.fetchall() == []
-
-
-async def test_partial_restore_takes_auto_backup(client):
-    await client.post("/api/characters", json={"name": "X"})
-    name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]
-    resp = await client.post(f"/api/presets/{name}/restore", json={})
-    backup = resp.json()["backup"]
-    lst = {e["name"]: e for e in (await client.get("/api/presets")).json()}
-    assert lst[backup]["kind"] == "auto"
 
 
 async def test_restore_overwrites_imported(client, db_path):

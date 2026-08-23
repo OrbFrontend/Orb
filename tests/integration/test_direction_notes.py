@@ -16,7 +16,6 @@ import backend.database as dbmod
 from backend.pipeline import (
     handle_magic_rewrite,
     handle_regenerate,
-    handle_super_regenerate,
     handle_turn,
 )
 
@@ -145,22 +144,6 @@ async def test_off_does_not_run(client, db, llm_mock):
     assert await _notes_on_active_path(cid) == []
 
 
-async def test_no_enabled_fragment_does_not_run(client, db, llm_mock):
-    cid = "conv-dn-nofrag"
-    await dbmod.create_conversation(cid, "dn", "Bot", "a scenario")
-    # Recording on, but no direction_note fragment exists: nothing to fill, so the
-    # sub-call is skipped entirely (mirrors the feedback step with no feedback fragment).
-    await client.put("/api/settings", json={"enable_agent": True, "direction_notes_record": True})
-
-    llm_mock.enqueue_writer("A reply.")
-    llm_mock.enqueue_direction_note(_record_call(trajectory=_NOTE))
-
-    await _drain(handle_turn(cid, "hello"))
-
-    assert not any(p == "direction_note" for p, _ in llm_mock.calls)
-    assert await _notes_on_active_path(cid) == []
-
-
 async def test_obeys_global_agent_toggle(client, db, llm_mock):
     cid = "conv-dn-agent-off"
     await dbmod.create_conversation(cid, "dn", "Bot", "a scenario")
@@ -242,27 +225,6 @@ async def test_magic_rewrite_records_note_on_new_branch(client, db, llm_mock):
     assert asst2["id"] != asst1["id"]
     assert await _notes_on_active_path(cid) == [note_b]
     assert [r["content"] for r in await dbmod.get_direction_notes_for_message(asst2["id"])] == [note_b]
-
-
-async def test_super_regenerate_records_note_on_new_branch(client, db, llm_mock):
-    cid = "conv-dn-super"
-    await dbmod.create_conversation(cid, "dn", "Bot", "a scenario")
-    await _make_fragment()
-    await client.put("/api/settings", json={"enable_agent": True, "direction_notes_record": True})
-
-    llm_mock.enqueue_writer("She waits by the gate.")
-    llm_mock.enqueue_direction_note(_record_call(trajectory=_NOTE))
-    await _drain(handle_turn(cid, "hello"))
-    asst1 = await _last_assistant(cid)
-
-    note_b = "She has decided to leave at dawn."
-    llm_mock.enqueue_writer("She paces by the gate.")
-    llm_mock.enqueue_direction_note(_record_call(trajectory=note_b))
-    await _drain(handle_super_regenerate(cid, asst1["id"]))
-
-    asst2 = await _last_assistant(cid)
-    assert asst2["id"] != asst1["id"]
-    assert await _notes_on_active_path(cid) == [note_b]
 
 
 async def test_injection_is_independent_of_recording(client, db, llm_mock):

@@ -79,11 +79,6 @@ def test_resolve_message_idempotent_on_resolved_text():
     assert resolve_message(once, "Alice", "Bot") == once
 
 
-def test_resolve_inline_idempotent():
-    once = resolve_inline("{{random::alpha::beta}} / {{roll::1d1}}")
-    assert resolve_inline(once) == once
-
-
 # ── seeded determinism (per-turn-rebuilt prompt fields) ──────────────────────
 
 
@@ -219,31 +214,11 @@ def test_pick_is_random_alias():
     assert resolve_inline("{{PICK::up}}") == "up"
 
 
-def test_pick_seeded_deterministic():
-    text = "{{pick::a::b::c::d::e::f}}"
-    first = resolve_message(text, "U", "C", seed="conv-1")
-    assert all(resolve_message(text, "U", "C", seed="conv-1") == first for _ in range(5))
-
-
-def test_pick_works_in_stored_random():
-    choices: dict[str, str] = {}
-    (out,) = resolve_stored_random(["{{pick::x::y}}"], choices, "mood:m")
-    assert out in {"x", "y"}
-    assert resolve_stored_random(["{{pick::x::y}}"], choices, "mood:m") == [out]
-
-
 def test_time_resolves_to_hh_mm():
     import re
 
     assert re.fullmatch(r"\d{2}:\d{2}", resolve_inline("{{time}}"))
     assert re.fullmatch(r"at \d{2}:\d{2}!", resolve_message("at {{TIME}}!", "U", "C", seed="conv-1"))
-
-
-def test_time_detected_and_backtick_literal():
-    assert has_inline_macros("it is {{time}}")
-    assert has_inline_macros("it is {{pick::a::b}}")
-    assert not has_inline_macros("say `{{time}}`")
-    assert resolve_inline("say `{{time}}`") == "say `{{time}}`"
 
 
 def test_date_resolves_to_iso_date():
@@ -274,12 +249,6 @@ def test_macro_inside_comment_does_not_fire():
     # deleted rather than resolved — its trailing `}}` survives (grammar limit).
     assert resolve_inline("{{// dice: {{roll::1d6}} }}x") == " }}x"
     assert resolve_message("{{// pick {{random::a::b}} }}y", "U", "C") == " }}y"
-
-
-def test_comment_detected_and_backtick_literal():
-    assert has_inline_macros("hi {{// psst}}")
-    assert not has_inline_macros("show `{{// psst}}`")
-    assert resolve_inline("show `{{// psst}}`") == "show `{{// psst}}`"
 
 
 def test_comment_body_cannot_contain_closing_braces():

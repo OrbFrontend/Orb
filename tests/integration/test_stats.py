@@ -27,27 +27,34 @@ async def _seed_character(name: str, message_count: int, *, old: bool = False) -
 
     Pass ``old=True`` to backdate all messages by 48 hours so they satisfy the
     "missed" spotlight query's 24-hour recency cutoff.
+
+    The rows go in over a single transaction rather than through ``add_message``:
+    the spotlight thresholds need hundreds of messages, and one commit per row
+    made this the slowest file in the suite.
     """
     from datetime import datetime, timedelta
 
     import aiosqlite
 
+    import backend.database.connection as _db_conn
+
     cid = str(uuid.uuid4())
     await dbmod.create_conversation(cid, f"{name} chat", name, "")
-    parent_id: int | None = None
-    for i in range(message_count):
-        parent_id, _ = await dbmod.add_message(cid, "user" if i % 2 == 0 else "assistant", "x", i, parent_id=parent_id)
-    await dbmod.set_active_leaf(cid, parent_id)
-    if old:
-        import backend.database.connection as _db_conn
+    stamp = (datetime.now(UTC) - timedelta(hours=48)) if old else datetime.now(UTC)
+    created_at = stamp.isoformat()
 
-        cutoff = (datetime.now(UTC) - timedelta(hours=48)).isoformat()
-        async with aiosqlite.connect(_db_conn.DB_PATH) as conn:
-            await conn.execute(
-                "UPDATE messages SET created_at = ? WHERE conversation_id = ?",
-                (cutoff, cid),
+    async with aiosqlite.connect(_db_conn.DB_PATH) as conn:
+        await conn.execute("BEGIN")
+        parent_id: int | None = None
+        for i in range(message_count):
+            cur = await conn.execute(
+                "INSERT INTO messages (conversation_id, role, content, turn_index, parent_id, "
+                "progressive_fields, created_at) VALUES (?, ?, ?, ?, ?, '{}', ?)",
+                (cid, "user" if i % 2 == 0 else "assistant", "x", i, parent_id, created_at),
             )
-            await conn.commit()
+            parent_id = cur.lastrowid
+        await conn.execute("UPDATE conversations SET active_leaf_id = ? WHERE id = ?", (parent_id, cid))
+        await conn.commit()
     return cid
 
 

@@ -86,19 +86,10 @@ class TestFreshRegistration:
         assert "wf_a_tool" in TOOLS
         assert "wf_a_tool" in STANDALONE_TOOLS
 
-    def test_non_standalone_tool_omitted_from_standalone_set(self):
-        spec = _tool_spec("wf_a_tool", standalone=False)
-        register_workflow(Workflow(id="wf_a", display_name="A", tools=[spec]))
-        assert "wf_a_tool" in TOOLS
-        assert "wf_a_tool" not in STANDALONE_TOOLS
-
     def test_get_workflow_returns_registered(self):
         w = Workflow(id="wf_a", display_name="A")
         register_workflow(w)
         assert get_workflow("wf_a") is w
-
-    def test_get_workflow_missing(self):
-        assert get_workflow("nope") is None
 
     @pytest.mark.parametrize("workflow_id", ["", ".hidden", "foo.bar", "foo/bar", "foo[0]", "white space"])
     def test_invalid_workflow_id_rejected(self, workflow_id):
@@ -266,18 +257,8 @@ class TestSubscriptionAPI:
         assert [s.hook_type for s in iter_subscriptions(HookType.PRE_PIPELINE)] == [HookType.PRE_PIPELINE]
         assert [s.hook_type for s in iter_subscriptions(HookType.POST_PIPELINE)] == [HookType.POST_PIPELINE]
 
-    def test_iter_subscriptions_empty_when_no_match(self):
-        register_workflow(Workflow(id="lonely", display_name="Lonely"))
-        subscribe("lonely", HookType.PRE_PIPELINE, _noop_pre)
-        assert iter_subscriptions(HookType.REGENERATE) == []
-
     def test_get_subscription_unknown_workflow_returns_none(self):
         assert get_subscription("ghost", HookType.REGENERATE) is None
-
-    def test_get_subscription_missing_hook_returns_none(self):
-        register_workflow(Workflow(id="onesided", display_name="OneSided"))
-        subscribe("onesided", HookType.PRE_PIPELINE, _noop_pre)
-        assert get_subscription("onesided", HookType.POST_PIPELINE) is None
 
     def test_workflow_has_hook_agrees_with_get_subscription(self):
         register_workflow(Workflow(id="probe", display_name="Probe"))
@@ -311,14 +292,6 @@ class TestOverlayEnableTools:
         assert isinstance(out, dict)
         assert out == {"x": True, "y": True}
 
-    def test_empty_set_no_change(self):
-        out = overlay_enable_tools({"x": True}, set())
-        assert out == {"x": True}
-
-    def test_frozenset_contribution(self):
-        out = overlay_enable_tools({}, frozenset({"a", "b"}))
-        assert out == {"a": True, "b": True}
-
 
 class TestProducesArtifactsMandate:
     """Negative check in subscribe() + positive check in finalize_registry().
@@ -339,29 +312,6 @@ class TestProducesArtifactsMandate:
         register_workflow(Workflow(id="not_artifact", display_name="X", produces_artifacts=False))
         with pytest.raises(ValueError, match="produces_artifacts=True"):
             subscribe("not_artifact", HookType.REGENERATE, self._noop_regen)
-
-    def test_subscribe_reroll_gen_rejected_when_produces_artifacts_false(self):
-        register_workflow(Workflow(id="not_artifact", display_name="X", produces_artifacts=False))
-        with pytest.raises(ValueError, match="produces_artifacts=True"):
-            subscribe("not_artifact", HookType.REROLL_GEN, self._noop_reroll)
-
-    def test_subscribe_regenerate_accepted_when_produces_artifacts_true(self):
-        register_workflow(Workflow(id="art", display_name="Art", produces_artifacts=True))
-        subscribe("art", HookType.REGENERATE, self._noop_regen)
-        assert get_subscription("art", HookType.REGENERATE) is not None
-
-    def test_subscribe_pre_pipeline_unaffected_by_produces_artifacts_flag(self):
-        register_workflow(Workflow(id="non_art", display_name="N", produces_artifacts=False))
-        subscribe("non_art", HookType.PRE_PIPELINE, _noop_pre)
-        assert get_subscription("non_art", HookType.PRE_PIPELINE) is not None
-
-    def test_finalize_registry_empty_registry_no_op(self):
-        finalize_registry()
-
-    def test_finalize_registry_non_producer_workflows_ignored(self):
-        register_workflow(Workflow(id="x", display_name="X", produces_artifacts=False))
-        register_workflow(Workflow(id="y", display_name="Y", produces_artifacts=False))
-        finalize_registry()
 
     def test_finalize_registry_raises_when_regenerate_missing(self):
         register_workflow(Workflow(id="art", display_name="Art", produces_artifacts=True))

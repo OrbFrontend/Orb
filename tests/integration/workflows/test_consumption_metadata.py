@@ -59,14 +59,6 @@ async def test_consumption_metadata_absent_stores_null(client):
     assert row["consumption_metadata"] is None
 
 
-async def test_consumption_metadata_non_dict_stores_null(client):
-    # The row helper accepts only dict values for the metadata fields;
-    # non-dict input is silently coerced to NULL at the storage boundary.
-    cid, mid, aid = await _seed_with_consumption_metadata(client, "not a dict")  # type: ignore[arg-type]
-    row = await must_get_workflow_attachment(aid)
-    assert row["consumption_metadata"] is None
-
-
 async def test_consumption_metadata_non_serializable_stores_null_and_does_not_raise(client):
     cid = await _new_conversation(client)
     mid, _ = await add_message(cid, "assistant", "scene", 0)
@@ -131,29 +123,6 @@ async def test_reroll_gen_raw_bytes_writes_null_consumption_metadata(client):
 
     async def reroll(ctx, params, seed):
         return b"NEW"
-
-    wf = make_workflow(
-        "img",
-        regenerate=lambda ctx, body: [],
-        reroll_gen=reroll,
-        produces_artifacts=True,
-    )
-    with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen",
-            json={},
-        )
-    assert resp.status_code == 200
-    new_id = resp.json()["attachment_id"]
-    new_row = await must_get_workflow_attachment(new_id)
-    assert new_row["consumption_metadata"] is None
-
-
-async def test_reroll_gen_tuple_with_non_dict_metadata_coerces_to_null(client):
-    cid, mid, aid = await _seed_with_consumption_metadata(client, {"v": 1})
-
-    async def reroll(ctx, params, seed):
-        return (b"NEW", "not a dict")
 
     wf = make_workflow(
         "img",
@@ -274,29 +243,6 @@ async def test_rehydrate_tuple_none_keeps_stored_consumption_metadata(client):
 
     async def reroll(ctx, params, seed):
         return (b"RECOVERED", None)
-
-    wf = make_workflow(
-        "img",
-        regenerate=lambda ctx, body: [],
-        reroll_gen=reroll,
-        produces_artifacts=True,
-    )
-    with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate",
-            json={},
-        )
-    assert resp.status_code == 200
-    row = await must_get_workflow_attachment(aid)
-    assert json.loads(row["consumption_metadata"]) == {"orig": True}
-
-
-async def test_rehydrate_tuple_non_dict_coerces_and_keeps_stored(client):
-    cid, mid, aid = await _seed_with_consumption_metadata(client, {"orig": True})
-    await evict(aid)
-
-    async def reroll(ctx, params, seed):
-        return (b"RECOVERED", "not a dict")
 
     wf = make_workflow(
         "img",

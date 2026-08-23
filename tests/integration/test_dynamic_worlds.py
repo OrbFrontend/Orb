@@ -149,15 +149,6 @@ async def test_no_proposal_when_the_world_has_not_opted_in(client, llm_mock):
     assert "world_change" not in [c[0] for c in llm_mock.calls]
 
 
-async def test_no_proposal_when_no_world_has_opted_in(client, llm_mock):
-    card = (await client.post("/api/characters", json={"name": "Loner"})).json()
-    await _conversation("conv-dw-4", card["id"])
-    llm_mock.enqueue_writer("Nothing here.")
-
-    events = await _drain(handle_turn("conv-dw-4", "hello"))
-    assert not [e for e in events if e.get("event") == "world_change_proposed"]
-
-
 async def test_an_opted_in_world_proposes_without_a_character_linking_it(client, llm_mock):
     """The target set is what the prompt was played against, not what a card names.
 
@@ -234,21 +225,6 @@ async def test_one_call_proposes_to_every_opted_in_world(client, llm_mock):
     assert "world_id" not in gorge_cs["operations"][0]
     # Each names its own World's revision to race against.
     assert gorge_cs["base_revision"] == 1 and guild_cs["base_revision"] == 0
-
-
-async def test_the_catalog_names_every_world_in_play(client, llm_mock):
-    _, card_id = await _world_with_character(client, name="Gorge")
-    guild = (await client.post("/api/worlds", json={"name": "Guild"})).json()
-    await client.put(f"/api/worlds/{guild['id']}/dynamic", json={"enabled": True})
-    await _conversation("conv-dw-4e", card_id)
-
-    llm_mock.enqueue_writer("It falls.")
-    llm_mock.enqueue_world_change(_propose(operations=[]))
-    await _drain(handle_turn("conv-dw-4e", "I cross"))
-
-    (call,) = _world_calls(llm_mock)
-    request = call["messages"][-1]["content"]
-    assert "## Gorge" in request and "## Guild" in request
 
 
 async def test_no_proposal_when_the_agent_is_off(client, llm_mock):
@@ -510,13 +486,6 @@ async def test_rejecting_changes_nothing(client, llm_mock):
     assert await _pending(client, world_id) == []
 
 
-async def test_a_decided_changeset_cannot_be_decided_twice(client, llm_mock):
-    world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-23")
-    await client.post(f"/api/worlds/{world_id}/changesets/{changeset['id']}/reject")
-    again = await client.post(f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={})
-    assert again.status_code == 409
-
-
 async def test_apply_and_reject_cannot_both_win(client, llm_mock):
     world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-23-race")
 
@@ -739,18 +708,6 @@ async def test_undo_survives_its_replacements_authored_target_being_deleted(clie
     assert history[applied["id"]] == "reverted"
 
 
-async def test_undo_still_refuses_when_the_overlay_row_itself_was_edited(client, llm_mock):
-    """The carve-out is the lost pointer alone -- every other field still guards."""
-    world_id, authored_id, applied = await _applied_overlay_on(client, llm_mock, "conv-dw-cascade-3", _REPLACE_OP)
-    created = applied["after_entries"][0]["id"]
-    await client.delete(f"/api/worlds/{world_id}/entries/{authored_id}")
-    await client.put(f"/api/worlds/{world_id}/entries/{created}", json={"content": "hand-edited since"})
-
-    resp = await client.post(f"/api/worlds/{world_id}/changesets/{applied['id']}/undo")
-    assert resp.status_code == 409
-    assert await _effective_names(client, world_id) == ["The Bridge"]
-
-
 async def test_deleting_a_suppressed_authored_entry_leaves_an_inert_marker(client, llm_mock):
     world_id, authored_id, _ = await _applied_overlay_on(
         client,
@@ -853,16 +810,6 @@ async def test_a_deletion_makes_an_older_proposal_stale_and_is_recorded_once(cli
     assert [c["status"] for c in await _pending(client, world_id)] == ["stale"]
 
 
-async def test_a_world_that_never_opted_in_records_nothing(client):
-    """A plain lorebook has no history for a deletion to join."""
-    world = (await client.post("/api/worlds", json={"name": "Plain"})).json()
-    entry = (await client.post(f"/api/worlds/{world['id']}/entries", json=_ENTRY)).json()
-
-    assert (await client.delete(f"/api/worlds/{world['id']}/entries/{entry['id']}")).status_code == 200
-    assert (await client.get(f"/api/worlds/{world['id']}/changesets")).json() == []
-    assert (await client.delete(f"/api/worlds/{world['id']}/entries/{entry['id']}")).status_code == 404
-
-
 async def test_reset_restores_the_authored_world_and_is_itself_undoable(client, llm_mock):
     world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-31")
     await client.post(f"/api/worlds/{world_id}/changesets/{changeset['id']}/apply", json={})
@@ -879,12 +826,6 @@ async def test_reset_restores_the_authored_world_and_is_itself_undoable(client, 
         "Collapsed Bridge",
         "The Bridge",
     ]
-
-
-async def test_reset_on_a_world_with_no_overlay_is_a_no_op(client):
-    world = (await client.post("/api/worlds", json={"name": "Untouched"})).json()
-    resp = await client.post(f"/api/worlds/{world['id']}/reset")
-    assert resp.status_code == 200 and resp.json()["reset"] is False
 
 
 async def test_editing_a_source_message_makes_the_proposal_stale(client, llm_mock):

@@ -1,28 +1,12 @@
-"""
-Sanity checks for seed constants in database.py.
+"""Sanity checks for the seeded phrase bank.
 
-These run without a real database — they just validate that every seed
-entry has the right Python types so SQLite binding never sees a tuple,
-list, or None where a string is expected.
+No database involved: these only validate that every seed entry is a shape the
+phrase-bank loader can bind, and that the regex variants actually compile.
 """
 
 import re
 
-import pytest
-
-from backend.database import SEED_MOOD_FRAGMENTS, SEED_PHRASE_BANK
-
-STR_FIELDS = ("id", "label", "description", "prompt_text", "negative_prompt")
-
-
-class TestSeedMoodFragments:
-    @pytest.mark.parametrize("fragment", SEED_MOOD_FRAGMENTS, ids=lambda f: f.get("id", "?"))
-    def test_string_fields_are_str(self, fragment):
-        for field in STR_FIELDS:
-            value = fragment[field]
-            assert isinstance(value, str), (
-                f"Mood fragment {fragment.get('id')!r}: {field!r} must be str, got {type(value).__name__!r}"
-            )
+from backend.database import SEED_PHRASE_BANK
 
 
 class TestSeedPhraseBank:

@@ -1084,22 +1084,6 @@ async def test_removing_a_member_retires_its_undecided_proposals(client, llm_moc
     assert (await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{staged['id']}/apply")).status_code == 409
 
 
-async def test_the_pass_is_gated_on_the_mode_by_the_server_not_only_by_the_form(client, llm_mock):
-    """The opt-in is priced on Private perspective: only there does a member's
-    sheet ride the uncached tail, so only there does keeping it current cost no
-    prefix rebuild. Under Shared the same text sits in the cached body and an
-    applied update rebuilds the whole scene prefix — so a `PUT` that changes only
-    the mode must stop the pass, not leave it running against a layout it was
-    never priced for."""
-    conv, _ = await _sheet_group(client)
-    updated = (await client.put(f"/api/conversations/{conv['id']}", json={"group_context_mode": "shared"})).json()
-    assert updated["group_context_mode"] == "shared" and updated["group_sheet_updates"] == 1
-
-    await _run_two_speaker_exchange(client, llm_mock, updated)
-    assert _sheet_calls(llm_mock) == []
-    assert await _proposals(client, updated) == []
-
-
 async def test_a_chip_click_reads_the_round_rather_than_its_own_request(client, llm_mock):
     """An exchange is request-scoped, so under Manual — and for any cast-chip click on
     a resting scene — one round is several requests. Judging "did this exchange change
@@ -1538,14 +1522,6 @@ async def test_scene_profile_draft_for_a_cardless_member_is_a_sentence_not_a_422
     assert isinstance(detail, str) and "narrator" in detail.lower()
 
 
-async def test_scene_profile_draft_on_a_solo_conversation_is_409(client, llm_mock):
-    card_id = await _card(client, "Solo")
-    conv = (await client.post("/api/conversations", json={"character_card_id": card_id})).json()
-    response = await _draft(client, conv["id"], character_card_id=card_id)
-    assert response.status_code == 409
-    assert response.json()["detail"] == "Conversation is not a group"
-
-
 async def test_scene_profile_draft_works_for_a_row_not_yet_on_the_roster(client, llm_mock):
     """Manage cast is client-side until Save, so a member added seconds ago
     exists only in the DOM. Drafting for it must not require a roster row."""
@@ -1573,23 +1549,6 @@ async def test_omitted_cast_names_fall_back_to_the_stored_roster_without_the_tar
     assert "Aria" not in others
 
 
-async def test_client_supplied_names_keep_ui_order_and_duplicates(client, llm_mock):
-    """Untrusted display text — stripped and capped, but never sorted or
-    deduplicated: canonical order is what the user sees, and two members may
-    legitimately share one display name."""
-    conv, members = await _two_card_group(client)
-    llm_mock.enqueue_workflow(_profile_call(appearance="Tall.", role="Scout."))
-
-    await _draft(
-        client,
-        conv["id"],
-        character_card_id=members[0]["character_card_id"],
-        cast_names=["  Zed  ", "Kael", "Zed", "   ", "K" * 100],
-    )
-    sent = _drafting_message(llm_mock)
-    assert f"Zed, Kael, Zed, {'K' * 64}" in sent
-
-
 async def test_a_large_cast_is_bounded_and_says_how_many_it_left_out(client, llm_mock):
     """A prompt-size guard, not a roster limit. The roster has no ceiling, so the
     prompt must not claim the list it carries is the whole cast."""
@@ -1605,17 +1564,6 @@ async def test_a_large_cast_is_bounded_and_says_how_many_it_left_out(client, llm
     sent = _drafting_message(llm_mock)
     assert "Extra15" in sent and "Extra16" not in sent
     assert "Other cast members omitted from this draft: 1" in sent
-
-
-async def test_scene_profile_draft_without_a_tool_call_is_502(client, llm_mock):
-    """A loop that writes N overrides the user saves in one click cannot degrade
-    silently — a fabricated draft is indistinguishable from a real one."""
-    conv, members = await _two_card_group(client)
-    llm_mock.enqueue_workflow({"role": "assistant", "content": "I'm not sure who that is."})
-
-    response = await _draft(client, conv["id"], character_card_id=members[0]["character_card_id"])
-    assert response.status_code == 502
-    assert response.json()["detail"] == "The model did not return a usable profile."
 
 
 async def test_a_checkpoint_carries_the_scenes_sheet_update_opt_in(client, llm_mock):

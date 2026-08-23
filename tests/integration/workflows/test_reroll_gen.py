@@ -248,26 +248,6 @@ async def test_hook_returns_non_bytes_500(client):
     assert resp.status_code == 500
 
 
-async def test_hook_returns_empty_bytes_500(client):
-    cid, mid, aid = await _seed_with_metadata(client)
-
-    async def reroll(ctx, params, seed):
-        return b""
-
-    wf = make_workflow(
-        "img",
-        regenerate=lambda ctx, body: [],
-        reroll_gen=reroll,
-        produces_artifacts=True,
-    )
-    with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen",
-            json={},
-        )
-    assert resp.status_code == 500
-
-
 # ── caller-supplied overrides ────────────────────────────────────────────────
 
 

@@ -10,7 +10,13 @@ if [ ! -d ".venv" ]; then
     python3 -m venv .venv
 fi
 
-source .venv/bin/activate
+# A venv is bin/ on POSIX and Scripts/ on Windows (Git Bash runs this script
+# there too), so pick whichever layout the interpreter actually created.
+if [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate
+else
+    source .venv/Scripts/activate
+fi
 
 echo "Installing dev dependencies..."
 pip install -q -r requirements-dev.txt

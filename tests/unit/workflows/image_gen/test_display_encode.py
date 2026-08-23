@@ -32,12 +32,12 @@ def _png(w, h, fmt: str = "PNG") -> bytes:
 
 
 def test_reencodes_to_webp_at_full_resolution():
-    src = _png(1472, 2304)
+    src = _png(736, 1152)
     out, mime = shrink_for_display(src, "image/png")
     assert mime == "image/webp"
     assert len(out) < len(src)
     with Image.open(io.BytesIO(out)) as img:
-        assert img.size == (1472, 2304)  # resolution preserved
+        assert img.size == (736, 1152)  # resolution preserved
 
 
 def test_non_image_bytes_pass_through_untouched():
@@ -50,7 +50,7 @@ def test_non_image_bytes_pass_through_untouched():
 def test_a_normal_reference_is_uploaded_byte_for_byte():
     """Identity-edit workflows are the ones that lose face detail to a downscale,
     so the cap only exists to stop a 12 MP phone upload."""
-    src = _png(1024, 1536)
+    src = _png(512, 768)
     assert normalize_reference(src, "image/png") == (src, "image/png")
     # With no contract to break, a reference Orb cannot read is still one ComfyUI
     # probably can, so it is handed back rather than refused.
@@ -58,11 +58,11 @@ def test_a_normal_reference_is_uploaded_byte_for_byte():
 
 
 def test_an_oversized_reference_is_bounded():
-    out, mime = normalize_reference(_png(5000, 3000), "image/png")
+    out, mime = normalize_reference(_png(4200, 600), "image/png")
     assert mime == "image/webp"
     with Image.open(io.BytesIO(out)) as img:
         assert max(img.size) == 4096
-        assert abs(img.size[0] / img.size[1] - 5000 / 3000) < 0.01  # aspect preserved
+        assert abs(img.size[0] / img.size[1] - 4200 / 600) < 0.01  # aspect preserved
 
 
 # ── references, against a declared contract ──────────────────────────────────
@@ -84,7 +84,7 @@ def test_the_conversion_target_is_the_lossy_one_the_provider_allows():
     """PNG is lossless and a reference is photographic, so preferring it tripled the
     bytes of the WebP every render is already stored as -- on the common path, not an
     edge case. The preference is by compression, not by preset order."""
-    stored, stored_mime = shrink_for_display(_png(1024, 1536), "image/png")
+    stored, stored_mime = shrink_for_display(_png(512, 768), "image/png")
     as_png, _ = normalize_reference(stored, stored_mime, allowed=("image/png",), max_bytes=_CAP)
     as_either, mime = normalize_reference(stored, stored_mime, allowed=("image/png", "image/jpeg"), max_bytes=_CAP)
 
@@ -97,9 +97,9 @@ def test_the_conversion_target_is_the_lossy_one_the_provider_allows():
     [
         # Over the cap in a mime the provider already accepts: a "keep whichever is
         # smaller" rule hands this straight back, still oversized.
-        (_png(4000, 3000, "JPEG"), "image/jpeg"),
+        (_png(2000, 1500, "JPEG"), "image/jpeg"),
         # And the same picture arriving as the WebP a render is stored as.
-        (_png(4000, 3000, "WEBP"), "image/webp"),
+        (_png(2000, 1500, "WEBP"), "image/webp"),
     ],
     ids=["already an accepted mime", "needs conversion too"],
 )

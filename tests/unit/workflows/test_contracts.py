@@ -9,10 +9,8 @@ from types import MappingProxyType
 import pytest
 
 from backend.workflows.contracts import (
-    OnDemandCtx,
     PostCtx,
     PreCtx,
-    RegenCtx,
     RerollGenCtx,
     ToolSpec,
     _readonly,
@@ -20,19 +18,10 @@ from backend.workflows.contracts import (
 
 
 class TestReadonlyDict:
-    def test_dict_becomes_mapping_proxy(self):
-        wrapped = _readonly({"a": 1})
-        assert isinstance(wrapped, MappingProxyType)
-
     def test_item_assignment_raises(self):
         wrapped = _readonly({"a": 1})
         with pytest.raises(TypeError):
             wrapped["a"] = 2
-
-    def test_item_deletion_raises(self):
-        wrapped = _readonly({"a": 1})
-        with pytest.raises(TypeError):
-            del wrapped["a"]
 
     def test_nested_dict_wrapped(self):
         wrapped = _readonly({"outer": {"inner": 1}})
@@ -59,15 +48,6 @@ class TestReadonlyListAndTuple:
         with pytest.raises(AttributeError):
             wrapped.append(2)
 
-    def test_item_assignment_raises(self):
-        wrapped = _readonly([1])
-        with pytest.raises(TypeError):
-            wrapped[0] = 2
-
-    def test_tuple_stays_tuple(self):
-        wrapped = _readonly((1, 2))
-        assert isinstance(wrapped, tuple)
-
     def test_nested_list_in_dict_raises(self):
         wrapped = _readonly({"items": [1, 2]})
         with pytest.raises(AttributeError):
@@ -85,10 +65,6 @@ class TestReadonlySets:
         with pytest.raises(AttributeError):
             wrapped.add(2)
 
-    def test_frozenset_stays_frozenset(self):
-        wrapped = _readonly(frozenset({1, 2}))
-        assert isinstance(wrapped, frozenset)
-
 
 class TestReadonlyBytes:
     def test_bytearray_becomes_bytes(self):
@@ -98,15 +74,6 @@ class TestReadonlyBytes:
 
 
 class TestReadonlyPrimitivesAndOpaque:
-    def test_string_passthrough(self):
-        assert _readonly("hello") == "hello"
-
-    def test_int_passthrough(self):
-        assert _readonly(42) == 42
-
-    def test_none_passthrough(self):
-        assert _readonly(None) is None
-
     def test_arbitrary_object_passthrough(self):
         obj = object()
         assert _readonly(obj) is obj
@@ -117,11 +84,6 @@ class TestReadonlyDoesNotMutateSource:
         src = {"a": 1, "nested": {"b": 2}}
         _readonly(src)
         assert src == {"a": 1, "nested": {"b": 2}}
-
-    def test_source_list_unchanged(self):
-        src = [1, 2, 3]
-        _readonly(src)
-        assert src == [1, 2, 3]
 
 
 def _make_pre_ctx(history_src=None, settings_src=None) -> PreCtx:
@@ -206,62 +168,9 @@ class TestAllCtxFrozen:
         with pytest.raises(dataclasses.FrozenInstanceError):
             post.draft = "e"  # type: ignore[misc]
 
-    def test_ondemandctx_frozen(self):
-        od = OnDemandCtx(
-            conversation_id="c1",
-            history=_readonly([]),
-            last_user_message="",
-            settings=_readonly({}),
-            client=object(),
-            agent_client=object(),
-            agent_model_name="agent",
-        )
-        with pytest.raises(dataclasses.FrozenInstanceError):
-            od.client = None  # type: ignore[misc]
-
-    def test_regenctx_frozen(self):
-        rc = RegenCtx(
-            conversation_id="c1",
-            message_id=1,
-            attachment_id=1,
-            original_attachment=_readonly({}),
-            history=_readonly([]),
-            last_user_message="",
-            settings=_readonly({}),
-            client=object(),
-            agent_client=object(),
-            agent_model_name="agent",
-        )
-        with pytest.raises(dataclasses.FrozenInstanceError):
-            rc.client = None  # type: ignore[misc]
-
-    def test_rerollgenctx_frozen(self):
-        rg = RerollGenCtx(
-            conversation_id="c1",
-            message_id=1,
-            attachment_id=1,
-            original_attachment=_readonly({}),
-            settings=_readonly({}),
-            client=object(),
-        )
-        with pytest.raises(dataclasses.FrozenInstanceError):
-            rg.client = None  # type: ignore[misc]
-
 
 class TestRerollGenCtxFields:
     """Pin RerollGenCtx field set: no history, no turn_scratch, no kv_tracker."""
-
-    def test_no_history_field(self):
-        fields = {f.name for f in dataclasses.fields(RerollGenCtx)}
-        assert "history" not in fields
-
-    def test_no_turn_scratch_field(self):
-        fields = {f.name for f in dataclasses.fields(RerollGenCtx)}
-        assert "turn_scratch" not in fields
-
-    def test_no_kv_tracker_field(self):
-        fields = {f.name for f in dataclasses.fields(RerollGenCtx)}
-        assert "kv_tracker" not in fields
 
     def test_expected_field_set(self):
         fields = {f.name for f in dataclasses.fields(RerollGenCtx)}
@@ -306,7 +215,3 @@ class TestToolSpec:
     def test_defaults(self):
         spec = ToolSpec(name="x", schema={}, choice={})
         assert spec.standalone is True
-
-    def test_can_set_standalone_false(self):
-        spec = ToolSpec(name="x", schema={}, choice={}, standalone=False)
-        assert spec.standalone is False

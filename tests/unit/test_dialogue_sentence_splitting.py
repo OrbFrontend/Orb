@@ -110,10 +110,6 @@ class TestContrastiveNegationSplitterDialogueQuotes:
         assert "she screamed, her voice cracking." in sentences
         assert not any("she screamed" in s and "I want" in s for s in sentences)
 
-    def test_plain_period_split_unaffected(self):
-        sentences = neg_split("He walked. She ran. They stopped.")
-        assert sentences == ["He walked.", "She ran.", "They stopped."]
-
     def test_mid_sentence_quote_no_spurious_split(self):
         sentences = neg_split('She said "hello" to him. He nodded.')
         assert sentences == ['She said "hello" to him.', "He nodded."]

@@ -3,7 +3,8 @@ Integration test fixtures.
 
 Strategy:
 - Patch backend.database.connection.DB_PATH to a per-test temp file before any DB call.
-- Call init_db() directly (bypasses FastAPI lifespan, which ASGITransport does not trigger).
+- Seed that file by copying a session-scoped template built once by init_db()
+  (bypasses FastAPI lifespan, which ASGITransport does not trigger).
 - Yield an httpx.AsyncClient wired to the real ASGI app.
 - Yield a raw aiosqlite connection for direct DB assertions.
 """
@@ -11,6 +12,7 @@ Strategy:
 from __future__ import annotations
 
 import asyncio
+import shutil
 import socket
 from pathlib import Path
 
@@ -62,15 +64,43 @@ def _reset_module_locks():
         d.clear()
 
 
+@pytest.fixture(scope="session")
+def _fresh_db_template(tmp_path_factory) -> Path:
+    """A fresh-install database, built once and copied per test.
+
+    ``init_db`` runs the whole CREATE TABLES script plus every seed insert. At
+    ~0.6s a test that was the single largest line item in the suite, and it
+    produces the same bytes every time, so it runs once here and each test
+    copies the result.
+
+    Tests that exercise ``init_db`` or the migration chain itself (e.g.
+    ``test_fresh_install_stamping``) still call it directly and are unaffected.
+    """
+    template = tmp_path_factory.mktemp("db_template") / "template.db"
+
+    async def _build() -> None:
+        original = db_connection.DB_PATH
+        db_connection.DB_PATH = str(template)
+        try:
+            await init_db()
+        finally:
+            db_connection.DB_PATH = original
+
+    asyncio.run(_build())
+    return template
+
+
 @pytest.fixture
-async def db_path(tmp_path: Path) -> Path:
-    return tmp_path / "test.db"
+async def db_path(tmp_path: Path, _fresh_db_template: Path) -> Path:
+    """A per-test database file, pre-seeded from the session template."""
+    path = tmp_path / "test.db"
+    shutil.copyfile(_fresh_db_template, path)
+    return path
 
 
 @pytest.fixture
 async def client(db_path: Path, monkeypatch):
     monkeypatch.setattr(db_connection, "DB_PATH", str(db_path))
-    await init_db()
 
     from backend.main import app
 
@@ -135,11 +165,10 @@ async def streaming_client(db_path: Path, monkeypatch):
     interact with the server while the stream is still open, and then
     drive the stream to completion.
 
-    Lifespan is disabled to match the existing ``client`` fixture, which
-    drives ``init_db`` directly instead of through FastAPI's startup hook.
+    Lifespan is disabled to match the existing ``client`` fixture; the schema
+    arrives with ``db_path``, copied from the session-scoped template.
     """
     monkeypatch.setattr(db_connection, "DB_PATH", str(db_path))
-    await init_db()
 
     from backend.main import app
 

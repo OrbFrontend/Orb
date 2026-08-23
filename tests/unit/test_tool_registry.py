@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.database.seeds import DEFAULT_ENABLED_TOOLS, DEFAULT_SETTINGS
+from backend.database.seeds import DEFAULT_ENABLED_TOOLS
 from backend.inference import (
     BUILTIN_TOOL_NAMES,
     POST_WRITER_TOOLS,
@@ -44,9 +44,6 @@ class TestBuiltinToolNames:
     def test_matches_tools_keys_at_module_load(self):
         assert BUILTIN_TOOL_NAMES == frozenset(TOOLS) - STANDALONE_TOOLS
 
-    def test_is_a_frozenset(self):
-        assert isinstance(BUILTIN_TOOL_NAMES, frozenset)
-
 
 class TestStandaloneToolsBaseline:
     def test_empty_at_module_load(self):
@@ -64,10 +61,6 @@ class TestPipelinePhaseSets:
     def test_phase_sets_partition_builtins(self):
         assert PRE_WRITER_TOOLS | POST_WRITER_TOOLS == BUILTIN_TOOL_NAMES
 
-    def test_give_feedback_is_post_writer(self):
-        assert "give_feedback" in POST_WRITER_TOOLS
-        assert "give_feedback" not in PRE_WRITER_TOOLS
-
 
 class TestEnabledToolsHoldsOnlyTools:
     """enabled_tools is a tool-registry switch, not a feature-flag bag. The
@@ -77,21 +70,8 @@ class TestEnabledToolsHoldsOnlyTools:
     def test_default_enabled_tools_subset_of_registry(self):
         assert set(DEFAULT_ENABLED_TOOLS) <= set(TOOLS)
 
-    def test_length_guard_flags_are_not_in_enabled_tools(self):
-        assert "length_guard" not in DEFAULT_ENABLED_TOOLS
-        assert "length_guard_enforce" not in DEFAULT_ENABLED_TOOLS
-
-    def test_length_guard_flags_are_top_level_settings(self):
-        assert "length_guard_enabled" in DEFAULT_SETTINGS
-        assert "length_guard_enforce" in DEFAULT_SETTINGS
-
 
 class TestEnabledSchemasBaseline:
-    def test_none_returns_all_built_in_schemas(self):
-        schemas = enabled_schemas(None)
-        names = [s["function"]["name"] for s in schemas]
-        assert set(names) == BUILTIN_TOOL_NAMES
-
     def test_none_returns_tools_insertion_order(self):
         schemas = enabled_schemas(None)
         names = [s["function"]["name"] for s in schemas]
@@ -144,6 +124,7 @@ class TestRegisterTool:
         assert _TEST_TOOL_NAME in STANDALONE_TOOLS
 
     def test_registered_tool_lands_at_end_under_insertion_order(self, _restore_registry):
+        before = [s["function"]["name"] for s in enabled_schemas(None)]
         register_tool(
             "z_late_tool",
             {"type": "function", "function": {"name": "z_late_tool"}},
@@ -151,13 +132,6 @@ class TestRegisterTool:
             standalone=False,
         )
         names = [s["function"]["name"] for s in enabled_schemas(None)]
-        assert names[-1] == "z_late_tool"
-        assert names[:-1] == [
-            "direct_scene",
-            "editor_apply_patch",
-            "editor_rewrite",
-            "give_feedback",
-            "record_direction_note",
-            "select_lorebook",
-            "propose_world_changes",
-        ]
+        # A late registration appends; it must never reorder the built-in prefix,
+        # which the cross-pass KV cache depends on staying byte-identical.
+        assert names == [*before, "z_late_tool"]

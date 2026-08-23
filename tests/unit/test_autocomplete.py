@@ -1,21 +1,14 @@
-"""Autocomplete: Tier-1 pure trimmer (always runs) + Tier-2 real weights (opt-in).
+"""Autocomplete: the pure prompt trimmer — no model, no DB.
 
-Tier-2 loads the actual GGUF and needs `pip install -r requirements-ml.txt`; it
-skips cleanly when the extra or the model file is absent, so the default suite
-stays green without ML deps.
+The real-weights smoke test lived here too, but it loaded the GGUF for ~10s to
+assert the output was a non-empty string; the trimmer is what Orb actually owns.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
-import time
-
-import pytest
 
 from backend.inference import local_ml as lc
-
-# ── Tier 1: pure prompt trimmer, no model, no DB ────────────────────────────
 
 
 def test_build_prompt_ends_at_draft_and_excludes_injection():
@@ -70,28 +63,3 @@ def test_complete_reconciles_trailing_space(monkeypatch):
     out = asyncio.run(lc.complete("Sam: I hold up both"))
     assert seen["prompt"] == "Sam: I hold up both"
     assert out == " hands"
-
-
-# ── Tier 2: real weights (opt-in) ───────────────────────────────────────────
-
-
-def test_real_model_completes():
-    pytest.importorskip("llama_cpp", reason="opt-in: needs requirements-ml.txt")
-    if not os.path.exists(lc.resolve_path("autocomplete")):
-        pytest.skip(f"GGUF not on disk: {lc.resolve_path('autocomplete')}")
-
-    prompt = lc.build_prompt(
-        "Aria",
-        "Sam",
-        "Aria is a wry tavern keeper.",
-        [{"role": "assistant", "content": "You arrive at the gate."}],
-        "I walk into the",
-    )
-    t0 = time.perf_counter()
-    out = asyncio.run(lc.complete(prompt, n_predict=12))
-    dt_ms = (time.perf_counter() - t0) * 1000
-    # Informational only — CPU timing is machine-dependent, so not asserted.
-    print(f"\n[autocomplete] {dt_ms:.0f}ms for ~12 tokens -> {out!r}")
-    assert isinstance(out, str)
-    assert out.strip() != ""
-    assert len(out) < 400

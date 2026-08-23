@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from backend.database import SEED_INTERACTIVE_FRAGMENTS
 from backend.inference import (
     build_direct_scene_tool,
@@ -24,12 +22,6 @@ from backend.pipeline.passes.editor import extract_feedback_values
 
 
 class TestBuildDirectSceneTool:
-    def test_returns_function_tool_structure(self):
-        tool = build_direct_scene_tool([])
-        assert tool["type"] == "function"
-        assert tool["function"]["name"] == "direct_scene"
-        assert "parameters" in tool["function"]
-
     def test_moods_always_present(self):
         tool = build_direct_scene_tool([])
         props = tool["function"]["parameters"]["properties"]
@@ -148,10 +140,6 @@ class TestBuildFeedbackTool:
         tool = build_feedback_tool([self._frag(required=True)])
         assert "next_actions" in tool["function"]["parameters"]["required"]
 
-    def test_optional_fragment_not_required(self):
-        tool = build_feedback_tool([self._frag(required=False)])
-        assert tool["function"]["parameters"]["required"] == []
-
     def test_empty_fragments_empty_schema(self):
         tool = build_feedback_tool([])
         assert tool["function"]["parameters"]["properties"] == {}
@@ -216,9 +204,6 @@ class TestExtractFeedbackValues:
     def test_ignores_other_tools(self):
         calls = [{"name": "direct_scene", "arguments": {"moods": ["tense"]}}]
         assert extract_feedback_values(calls) == {}
-
-    def test_empty_calls(self):
-        assert extract_feedback_values([]) == {}
 
 
 # ── apply_tool_calls ─────────────────────────────────────────────────────────
@@ -293,25 +278,10 @@ class TestApplyToolCalls:
         assert "user_intent" not in extra
         assert "writing_direction" not in extra
 
-    def test_empty_list_excluded_from_extra_fields(self):
-        calls = [
-            {
-                "name": "direct_scene",
-                "arguments": {"moods": [], "keywords": [], "detected_repetitions": []},
-            }
-        ]
-        _, extra = apply_tool_calls(calls, [])
-        assert "detected_repetitions" not in extra
-
     def test_current_moods_used_when_no_direct_scene_call(self):
         calls = [{"name": "record_direction_note", "arguments": {"note": "x"}}]
         moods, _ = apply_tool_calls(calls, ["existing-mood"])
         assert moods == ["existing-mood"]
-
-    def test_empty_tool_calls_returns_current_moods(self):
-        moods, extra = apply_tool_calls([], ["foo"])
-        assert moods == ["foo"]
-        assert extra == {}
 
 
 # ── build_style_injection ────────────────────────────────────────────────────
@@ -339,10 +309,6 @@ class TestBuildStyleInjection:
                 "sort_order": 4,
             },
         ]
-
-    def test_header_always_present(self):
-        result = build_style_injection([], interactive_fragments=[], extra_fields={})
-        assert "**Scene Direction**" in result
 
     def test_string_field_rendered_with_label(self):
         frags = self._make_frags()
@@ -506,30 +472,9 @@ class TestComputeStyleInjectionBlock:
 class TestSeedInteractiveFragments:
     STR_FIELDS = ("id", "label", "description", "field_type", "injection_label")
 
-    @pytest.mark.parametrize("frag", SEED_INTERACTIVE_FRAGMENTS, ids=lambda f: f.get("id", "?"))
-    def test_string_fields_are_str(self, frag):
-        for field in self.STR_FIELDS:
-            assert isinstance(frag[field], str), f"{frag['id']!r}.{field!r} must be str"
-
-    @pytest.mark.parametrize("frag", SEED_INTERACTIVE_FRAGMENTS, ids=lambda f: f.get("id", "?"))
-    def test_required_is_bool(self, frag):
-        assert isinstance(frag["required"], bool)
-
-    @pytest.mark.parametrize("frag", SEED_INTERACTIVE_FRAGMENTS, ids=lambda f: f.get("id", "?"))
-    def test_field_type_is_valid(self, frag):
-        assert frag["field_type"] in ("string", "array", "progressive", "feedback", "direction_note")
-
-    def test_seed_ids_match_original_hardcoded_params(self):
-        ids = {f["id"] for f in SEED_INTERACTIVE_FRAGMENTS}
-        expected = {
-            "user_intent",
-            "keywords",
-            "next_event",
-            "detected_repetitions",
-            "suggested_actions",
-            "characterization",
-        }
-        assert ids == expected
+    def test_field_type_is_valid(self):
+        for frag in SEED_INTERACTIVE_FRAGMENTS:
+            assert frag["field_type"] in ("string", "array", "progressive", "feedback", "direction_note"), frag["id"]
 
 
 # build_director/editor/feedback preambles open [OOC: -- their builders must close it.

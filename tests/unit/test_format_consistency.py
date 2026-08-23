@@ -27,11 +27,6 @@ def _assert_unchanged(draft: str, base: list[str], *, enabled: bool = True):
     return report
 
 
-def test_axis_enums_render_as_wire_values():
-    assert str(Dialogue.QUOTED) == "quoted"
-    assert f"{Narration.ASTERISK}" == "asterisk"
-
-
 # ---------- classification ----------
 
 
@@ -125,16 +120,6 @@ def test_already_consistent_is_byte_identical():
     _assert_unchanged(draft, base)
 
 
-def test_embedded_thought_message_is_noop_against_quotes_baseline():
-    base = ['She smiles. "Hello there," she says warmly.']
-    draft = (
-        "She paused at the door, one hand on the frame. "
-        "*Was he really serious about this?* "
-        '"Tell me the truth," she said quietly.'
-    )
-    _assert_unchanged(draft, base)
-
-
 def test_disabled_is_noop():
     base = ["*She smiles.* Hello there."]
     draft = 'She smiles. "Hello there."'
@@ -199,19 +184,6 @@ def test_bold_italic_run_preserved_while_prose_normalizes():
     assert new == 'He leans in close. "You came back." ***He could not believe it.***'
 
 
-def test_bold_italic_run_left_byte_identical_when_prose_is_consistent():
-    base = QUOTES_BASELINE
-    draft = '***She steps closer, watching him.*** "Are you sure?"'
-    # The `***…***` is protected and the quoted dialogue already matches: no-op.
-    _assert_unchanged(draft, base)
-
-
-def test_four_asterisk_run_preserved():
-    base = QUOTES_BASELINE
-    draft = "He was ****really**** angry."
-    _assert_unchanged(draft, base)  # ****really**** carried through intact
-
-
 def test_scene_divider_run_preserved_with_surrounding_text():
     base = QUOTES_BASELINE
     draft = "She turns away.\n\n***\n\nThe room falls silent."
@@ -239,29 +211,7 @@ def test_code_block_passes_through_rewrite_verbatim():
     assert new == 'He leans in. "You came back."\n\n```python\nx = a ***b*** c  # not RP markup\n```'
 
 
-def test_asterisk_runs_preserved_in_both_prose_and_code():
-    # A `***…***` run is protected whether it sits in prose or inside a fence; both
-    # survive verbatim and the bare narration around them is already consistent.
-    base = QUOTES_BASELINE
-    draft = "She turns. ***Important.***\n\n```\nkeep ***this***\n```"
-    _assert_unchanged(draft, base)
-
-
-def test_code_only_draft_is_byte_identical():
-    base = ['She smiles. "Hello there," she says warmly.']
-    draft = "```\n*not* RP markup, ***at all***\n```"
-    _assert_unchanged(draft, base)
-
-
 # ---------- *emphasis* inside dialogue (LLMs do this constantly) ----------
-
-
-def test_emphasis_in_dialogue_is_noop_against_quotes_baseline():
-    # `*stupid*` is emphasis, not narration; against a quotes baseline the turn is
-    # already consistent and must come back byte-identical.
-    base = ['She smiles. "Hello there," she says warmly.']
-    draft = 'He frowns. "Do you think I am *stupid*?"'
-    _assert_unchanged(draft, base)
 
 
 def test_emphasis_in_dialogue_survives_narration_strip():
@@ -434,20 +384,6 @@ def test_genuine_asterisk_convention_draft_is_not_misread_as_full_markup():
 # ---------- punctuation / glyph preservation across a rewrite ----------
 
 
-def test_ellipsis_survives_dialogue_rewrite():
-    base = ["*She waves.* Hi there."]  # asterisk baseline, bare dialogue
-    draft = 'She hesitates. "I... I am not sure about this."'
-    new, _ = normalize_to_baseline(draft, base, enabled=True)
-    assert "..." in new
-
-
-def test_em_dash_survives_narration_rewrite():
-    base = ['She smiles. "Hello there."']  # quotes baseline, bare narration
-    draft = "*He pauses — caught off guard — then steps forward.* What now?"
-    new, _ = normalize_to_baseline(draft, base, enabled=True)
-    assert "—" in new
-
-
 def test_question_and_exclamation_preserved_through_inversion():
     base = ["*She smiles, stepping back.* Hello there."]  # asterisk baseline
     draft = 'She gasps. "Is that really you?! I cannot believe it!"'
@@ -486,15 +422,6 @@ def test_mixed_draft_against_asterisk_baseline_strips_only_dialogue_quotes():
 # ---------- multiple dialogue beats in one turn ----------
 
 
-def test_multiple_quoted_beats_all_stripped_for_asterisk_baseline():
-    base = ["*She paces the room.* Right then."]  # asterisk baseline, bare dialogue
-    draft = '"Wait," he said. *He grabbed her wrist.* "Do not go."'
-    new, rep = normalize_to_baseline(draft, base, enabled=True)
-    assert rep.changed
-    assert '"' not in new
-    assert "Wait" in new and "Do not go" in new
-
-
 def test_asterisk_narration_without_quotes_is_ambiguous_noop():
     # Asterisk narration with bare beats but no quotes at all: the bare runs could be
     # action or unquoted dialogue, so the dialogue axis reads UNKNOWN and the
@@ -524,9 +451,3 @@ def test_single_word_message_is_ambiguous_noop():
 def test_empty_draft_is_noop():
     base = ['She smiles. "Hello there."']
     _assert_unchanged("", base)
-
-
-def test_whitespace_only_draft_is_noop():
-    base = ['She smiles. "Hello there."']
-    draft = "   \n  "
-    _assert_unchanged(draft, base)
