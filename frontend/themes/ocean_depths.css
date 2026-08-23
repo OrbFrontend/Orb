@@ -266,7 +266,11 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, rgba(67,214,228,0.65), rgba(61,220,132,0.7));
 }
-* { scrollbar-width: thin; scrollbar-color: rgba(52,210,170,0.45) transparent; }
+:root {
+  --scrollbar-width: thin;
+  --scrollbar-thumb: rgba(52,210,170,0.45);
+  --scrollbar-track: transparent;
+}
 
 ::selection { background: rgba(61,220,132,0.30); color: #eafff2; }
 

@@ -8,6 +8,7 @@
   width: var(--inspector-width);
 }
 
+/* Safari < 18.2 fallback; every other engine takes base.css's standard props. */
 .inspector-inner::-webkit-scrollbar { width: 4px; }
 .inspector-inner::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
@@ -231,6 +232,7 @@ details.inspector-block[open] .reasoning-summary-arrow {
   resize: vertical;
 }
 
+/* Safari < 18.2 fallback; every other engine takes base.css's standard props. */
 .reasoning-box::-webkit-scrollbar { width: 3px; }
 .reasoning-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 

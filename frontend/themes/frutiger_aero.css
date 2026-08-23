@@ -227,7 +227,11 @@ body {
   border-radius: 8px;
 }
 ::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #a3e0f8, #38ace3); }
-* { scrollbar-width: thin; scrollbar-color: #4eb3e3 rgba(255,255,255,0.3); }
+:root {
+  --scrollbar-width: thin;
+  --scrollbar-thumb: #4eb3e3;
+  --scrollbar-track: rgba(255,255,255,0.3);
+}
 
 /* Aqua text selection. */
 ::selection { background: rgba(40,165,225,0.32); color: #0f3a54; }

@@ -3,6 +3,22 @@
    ═══════════════════════════════════════════ */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* Scrollbars, app-wide. The standard properties are the only ones that reach
+   both engines: `::-webkit-scrollbar` has never done anything in Firefox, and
+   Chromium ignores *every* ::-webkit-scrollbar rule on an element whose
+   `scrollbar-width`/`scrollbar-color` is non-`auto`. Themes used to declare
+   both on `*` themselves, which silently voided the per-panel webkit widths
+   living below them -- the sidebar's intended 4px hairline was rendering as a
+   full ~15px native bar, insetting the rows away from the pinned header.
+   Themes now hand over the three tokens and this is the single applier.
+   `*`, not `:root`, because `scrollbar-width` does not inherit. The webkit
+   blocks still scattered around the sheets are the fallback for Safari < 18.2,
+   which predates `scrollbar-width`; there, these declarations drop out. */
+* {
+  scrollbar-width: var(--scrollbar-width, thin);
+  scrollbar-color: var(--scrollbar-thumb, var(--border)) var(--scrollbar-track, transparent);
+}
+
 body {
   font-family: var(--font-ui);
   background: var(--bg-deep);

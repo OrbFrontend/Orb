@@ -28,10 +28,18 @@
 .sidebar-scroll {
   flex: 1;
   overflow-y: auto;
+  /* No scroll gutter here, unlike every other panel. The sidebar's rows line up
+     against .sidebar-header, which is pinned *outside* this box and so never
+     loses the gutter's width -- so the moment an expanded section overflows,
+     a bar would inset every row below the header and break that alignment.
+     Themes are free to ask for a fat bar (litestep does) which makes the jump
+     that much worse. Wheel, touch, drag-select and keyboard scrolling are all
+     untouched; only the bar itself is gone. */
+  scrollbar-width: none;
 }
 
-.sidebar-scroll::-webkit-scrollbar { width: 4px; }
-.sidebar-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+/* Safari < 18.2, which has no `scrollbar-width`. */
+.sidebar-scroll::-webkit-scrollbar { width: 0; }
 
 /* Theme picker */
 .theme-row {

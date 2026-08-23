@@ -286,7 +286,11 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   border-radius: 0;
 }
 ::-webkit-scrollbar-thumb:hover { background: #44443f; }
-* { scrollbar-width: auto; scrollbar-color: #5a5a56 #26282a; }
+:root {
+  --scrollbar-width: auto;
+  --scrollbar-thumb: #5a5a56;
+  --scrollbar-track: #26282a;
+}
 
 /* Classic navy selection. */
 ::selection { background: #46648c; color: #ffffff; }

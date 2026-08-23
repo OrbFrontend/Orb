@@ -223,6 +223,7 @@
   padding: 4px 6px;
 }
 
+/* Safari < 18.2 fallback; every other engine takes base.css's standard props. */
 .lb-entries-scroll::-webkit-scrollbar { width: 4px; }
 .lb-entries-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 

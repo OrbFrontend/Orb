@@ -118,6 +118,7 @@
   transition: padding-bottom 0.25s ease;
 }
 
+/* Safari < 18.2 fallback; every other engine takes base.css's standard props. */
 #chat-messages::-webkit-scrollbar { width: 6px; }
 #chat-messages::-webkit-scrollbar-track { background: transparent; }
 #chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }

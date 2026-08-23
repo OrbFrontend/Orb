@@ -194,7 +194,11 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(70,168,82,0.3); border-radius: 2px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(70,168,82,0.52); }
-* { scrollbar-width: thin; scrollbar-color: rgba(70,168,82,0.36) transparent; }
+:root {
+  --scrollbar-width: thin;
+  --scrollbar-thumb: rgba(70,168,82,0.36);
+  --scrollbar-track: transparent;
+}
 
 ::selection { background: rgba(70,168,82,0.3); color: #eaf6dd; }
 

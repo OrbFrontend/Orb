@@ -25,7 +25,11 @@
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 0; }
 ::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); }
-* { scrollbar-width: thin; scrollbar-color: var(--border-light) transparent; }
+:root {
+  --scrollbar-width: thin;
+  --scrollbar-thumb: var(--border-light);
+  --scrollbar-track: transparent;
+}
 
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }

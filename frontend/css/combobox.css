@@ -111,8 +111,6 @@
   max-height: 180px;
   overflow-y: auto;
   padding: 3px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
 }
 
 .cb-option {

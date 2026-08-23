@@ -289,7 +289,11 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   border-radius: 0;
 }
 ::-webkit-scrollbar-thumb:hover { background: #dcd8d0; }
-* { scrollbar-width: auto; scrollbar-color: #a8a8a0 #c4c8cc; }
+:root {
+  --scrollbar-width: auto;
+  --scrollbar-thumb: #a8a8a0;
+  --scrollbar-track: #c4c8cc;
+}
 
 /* Classic navy selection. */
 ::selection { background: #33507a; color: #ffffff; }

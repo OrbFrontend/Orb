@@ -168,6 +168,7 @@
   max-height: 60vh;
   overflow-y: auto;
 }
+/* Safari < 18.2 fallback; every other engine takes base.css's standard props. */
 .modal-list::-webkit-scrollbar { width: 4px; }
 .modal-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
@@ -319,6 +320,7 @@
   overflow-y: auto;
 }
 
+/* Safari < 18.2 fallback; every other engine takes base.css's standard props. */
 .card-picker::-webkit-scrollbar { width: 4px; }
 .card-picker::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
