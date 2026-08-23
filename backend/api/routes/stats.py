@@ -10,6 +10,7 @@ from fastapi import APIRouter
 from ...core import estimate_tokens
 from ...database import DB_PATH, get_generated_chars, get_global_stats
 from ...inference.local_ml import model_dir
+from ...inference.prose_rewriter.runtime import bin_bytes as llama_bin_bytes
 
 router = APIRouter()
 
@@ -24,13 +25,16 @@ async def api_global_stats():
     avg_latency = s["avg_latency_ms"]
     # On-disk footprint: the main db plus its WAL/shared-memory sidecars, which
     # hold not-yet-checkpointed pages and can be a sizable share of the total,
-    # plus any downloaded local-ML weights (data/models/*.gguf).
+    # plus any downloaded local-ML weights (data/models/*.gguf) and the
+    # llama-server runtime the prose rewriter fetches (~100 MB unpacked, which
+    # is enough to be a visible surprise if it went uncounted).
     storage_bytes = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
     models_dir = model_dir()
     for name in os.listdir(models_dir):
         p = os.path.join(models_dir, name)
         if os.path.isfile(p):
             storage_bytes += os.path.getsize(p)
+    storage_bytes += llama_bin_bytes()
     # The hero slot shows one of several "story beat" themes, chosen uniformly
     # among those with data (50/50 today, extensible by appending more themes).
     themes = []

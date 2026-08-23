@@ -82,6 +82,6 @@ async def test_upload_missing_card_404(client):
 async def test_classify_emotion_503_when_deps_absent(client, monkeypatch):
     from backend.inference import local_ml
 
-    monkeypatch.setattr(local_ml, "deps_ok", lambda: (False, "extras not installed"))
+    monkeypatch.setattr(local_ml, "deps_ok", lambda feature=None: (False, "extras not installed"))
     resp = await client.post("/api/local-ml/classify-emotion", json={"text": "I am so happy!"})
     assert resp.status_code == 503

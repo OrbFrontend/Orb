@@ -138,6 +138,11 @@ class SettingsRow(_SettingsBase, total=False):
     workflow_config: str  # left raw; decoded per-slot by get_workflow_config()
     workflow_enabled: dict[str, bool]  # decoded by get_settings(); per-workflow on/off, missing key => on
     local_ml_enabled: dict[str, bool]  # decoded by get_settings(); per-local-ML-feature on/off, missing key => on
+    # Per-local-ML-feature config, decoded by get_settings(). Sibling to
+    # local_ml_enabled and written only by the dedicated route, never by
+    # update_settings(). Shape is the feature's own, e.g.
+    # {"prose_rewriter": {"variant": "4b-q8", "gpu": true}}.
+    local_ml_config: dict[str, dict]
     # Per-endpoint transport mode, surfaced by the get_settings() overlay from
     # the active/agent endpoint row (default 'chat'). agent_completion_mode
     # falls back to completion_mode when the agent shares the writer endpoint.

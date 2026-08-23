@@ -32,6 +32,7 @@ from .passes.editor.length_guard import (
     apply_length_guard_tools,
     resolve_length_guard,
 )
+from .passes.editor.slm_rewrite import ProseRewrite, resolve_prose_rewrite
 from .predicates import agent_enabled, direction_note_recording_active, is_dual_model
 from .state import ModelLane, _PipelineConfig
 
@@ -76,6 +77,12 @@ def _resolve_pipeline_config(
     length_guard: LengthGuard | None = resolve_length_guard(settings, agent_on)
     enabled_tools = apply_length_guard_tools(enabled_tools, length_guard)
 
+    # No `agent_on` conjunction, unlike every other editor feature above: the
+    # prose rewriter is a local model gated only by its own Local ML toggle,
+    # its selected variant being on disk, and a llama-server binary resolving.
+    # It contributes no tool schema, so the cached prefix is untouched.
+    prose_rewrite: ProseRewrite | None = resolve_prose_rewrite(settings)
+
     # In dual-model mode the writer's KV cache is disjoint; skip tool schemas there.
     dual_model = is_dual_model(agent_client)
     writer_enabled_tools = {} if dual_model else enabled_tools
@@ -116,6 +123,7 @@ def _resolve_pipeline_config(
         audit_enabled=audit_enabled,
         length_guard=length_guard,
         do_edit=audit_enabled or length_guard is not None,
+        prose_rewrite=prose_rewrite,
         writer_lane=writer_lane,
         agent_lane=agent_lane,
     )

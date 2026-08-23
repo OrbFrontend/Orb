@@ -1,5 +1,10 @@
-"""Local-ML scaffold routes: status, one-at-a-time model download, and the
-per-feature enable toggle. Drives the Settings "Local ML" tri-state card."""
+"""Local-ML scaffold routes: status, one-at-a-time model download, the
+per-feature enable toggle, and — for the prose rewriter — the variant selector,
+the llama-server runtime fetch and model deletion.
+
+Drives the Settings "Local ML" card, which is a tri-state per single-file
+feature and an expanded panel for a feature that reports ``variants``.
+"""
 
 from __future__ import annotations
 
@@ -8,8 +13,9 @@ import logging
 
 from fastapi import APIRouter, Body, HTTPException
 
-from ...database import get_settings, set_local_ml_enabled
-from ...inference import local_ml
+from ...database import get_settings, set_local_ml_config, set_local_ml_enabled
+from ...inference import local_ml, prose_rewriter
+from ...inference.prose_rewriter import runtime as llama_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -18,38 +24,191 @@ router = APIRouter()
 _download_lock = asyncio.Lock()
 
 
+def _require(feature: str) -> local_ml.ModelSpec:
+    if feature not in local_ml.MODELS:
+        raise HTTPException(status_code=404, detail=f"Unknown local-ML feature {feature!r}")
+    return local_ml.MODELS[feature]
+
+
+def _prose_config(settings) -> dict:
+    return (settings.get("local_ml_config") or {}).get(prose_rewriter.FEATURE) or {}
+
+
+#: Strong references to fire-and-forget pre-warm tasks. Without this the only
+#: reference is the event loop's weak one and the task can be collected
+#: mid-load, which shows up as a model that silently never finishes warming.
+_BACKGROUND: set[asyncio.Task] = set()
+
+
+def _spawn(coro) -> None:
+    task = asyncio.create_task(coro)
+    _BACKGROUND.add(task)
+    task.add_done_callback(_BACKGROUND.discard)
+
+
+async def _prewarm(variant, gpu: bool) -> None:
+    """Load the model in the background so the first turn does not pay for it.
+
+    Failures are logged, not raised: the panel reads ``HOST.state``, and a
+    pre-warm that could not start is the same information as a ``failed``
+    state — surfacing it as a 500 on a settings write would be worse.
+    """
+    try:
+        await prose_rewriter.HOST.ensure(variant, gpu)
+    except Exception:
+        logger.warning("Prose rewriter pre-warm failed", exc_info=True)
+
+
 @router.get("/api/local-ml/status")
 async def api_local_ml_status():
-    """Per-feature tri-state: extras installed? model present? feature enabled?"""
-    ok, reason = local_ml.deps_ok()
+    """Per-feature tri-state: extras installed? model present? feature enabled?
+
+    ``deps_ok`` is now per feature — the prose rewriter drives a child process
+    and needs only ``huggingface_hub``, while the in-process classifiers need
+    the ``llama-cpp-python`` binding too, so one global answer would gray out a
+    button that works. The top-level ``deps_ok`` stays as the whole-extras
+    answer the grouped opt-in card is keyed on.
+    """
     settings = await get_settings()
     enabled_map = settings.get("local_ml_enabled", {})
+    features: dict[str, dict] = {}
+    for f, spec in local_ml.MODELS.items():
+        f_ok, f_reason = local_ml.deps_ok(f)
+        info: dict = {
+            "present": local_ml.present(f),
+            "enabled": enabled_map.get(f, True),
+            "size_mb": spec.size_mb,
+            "deps_ok": f_ok,
+            "reason": f_reason,
+            "runtime": spec.runtime,
+        }
+        if spec.variants:
+            config = _prose_config(settings) if f == prose_rewriter.FEATURE else {}
+            info["variants"] = [
+                {
+                    "id": v.id,
+                    "label": v.label,
+                    "detail": v.detail,
+                    "size_mb": v.size_mb,
+                    "present": prose_rewriter.on_disk(v),
+                }
+                for v in spec.variants
+            ]
+            info["selected"] = config.get("variant") or None
+            info["gpu"] = bool(config.get("gpu", True))
+            runtime_found, runtime_detail = prose_rewriter.runtime_ok()
+            info["runtime_ok"] = runtime_found
+            info["runtime_reason"] = runtime_detail
+            info.update(prose_rewriter.state())
+        features[f] = info
+    deps_ok, reason = local_ml.deps_ok()
     return {
-        "deps_ok": ok,
+        "deps_ok": deps_ok,
         "reason": reason,
         "install_cmd": local_ml.install_cmd(),
-        "features": {
-            f: {"present": local_ml.present(f), "enabled": enabled_map.get(f, True), "size_mb": spec.size_mb}
-            for f, spec in local_ml.MODELS.items()
-        },
+        "features": features,
     }
 
 
 @router.post("/api/local-ml/{feature}/download")
-async def api_local_ml_download(feature: str):
-    """Download feature's GGUF into backend/data/models/ (one at a time)."""
-    if feature not in local_ml.MODELS:
-        raise HTTPException(status_code=404, detail=f"Unknown local-ML feature {feature!r}")
-    ok, reason = local_ml.deps_ok()
+async def api_local_ml_download(feature: str, data: dict | None = Body(default=None)):  # noqa: B008
+    """Download a GGUF into backend/data/models/ (one at a time).
+
+    An optional ``{"variant": "..."}`` names one of a variant-bearing feature's
+    checkpoints; without it the feature's own default file is fetched.
+    """
+    spec = _require(feature)
+    ok, reason = local_ml.deps_ok(feature)
     if not ok:
         raise HTTPException(status_code=400, detail=reason)
+    variant = str((data or {}).get("variant") or "") or None
+    # Validated here rather than inside download(): a bad id is the caller's
+    # mistake and should not first take the global download lock and occupy a
+    # worker thread to find that out.
+    if variant and variant not in {v.id for v in spec.variants}:
+        raise HTTPException(status_code=404, detail=f"Unknown variant {variant!r} for {feature!r}")
     async with _download_lock:
         try:
-            await asyncio.to_thread(local_ml.download, feature)
+            await asyncio.to_thread(local_ml.download, feature, variant)
         except Exception:
-            logger.exception("local-ml download %r failed", feature)
+            logger.exception("local-ml download %r (%s) failed", feature, variant)
             raise HTTPException(status_code=500, detail="Download failed; see server logs") from None
     return {"ok": True, "present": local_ml.present(feature)}
+
+
+@router.delete("/api/local-ml/{feature}/model")
+async def api_local_ml_delete_model(feature: str, variant: str | None = None):
+    """Delete one downloaded GGUF.
+
+    Exists because the three prose-rewriter checkpoints are 9.6 GB combined and
+    "go find the folder" is not an acceptable only exit at that size.
+    """
+    spec = _require(feature)
+    if variant and variant not in {v.id for v in spec.variants}:
+        raise HTTPException(status_code=404, detail=f"Unknown variant {variant!r} for {feature!r}")
+    try:
+        removed = await asyncio.to_thread(local_ml.delete_model, feature, variant)
+    except OSError:
+        logger.exception("local-ml delete %r (%s) failed", feature, variant)
+        raise HTTPException(status_code=500, detail="Delete failed; see server logs") from None
+    if removed and feature == prose_rewriter.FEATURE:
+        # The host may be serving the file just unlinked. Staling it restarts
+        # lazily on next use rather than killing a turn already in flight.
+        prose_rewriter.HOST.invalidate()
+    return {"ok": True, "removed": removed, "present": local_ml.present(feature)}
+
+
+@router.post("/api/local-ml/{feature}/config")
+async def api_local_ml_config(feature: str, data: dict = Body(...)):  # noqa: B008
+    """Set one feature's config (prose rewriter: ``variant`` + ``gpu``).
+
+    A variant or GPU change marks the host stale and RETURNS IMMEDIATELY; the
+    restart happens lazily on next use. Draining and restarting inline would
+    block a settings write on a turn that may be mid-rewrite, or kill it.
+
+    Then it pre-warms in the background. Loading 2.2-4.7 GB from cold is
+    seconds to tens of seconds, and paying that inside the first turn after
+    flipping the toggle looks like a hang; kicking it off here means the model
+    is hot while the user is still in Settings.
+    """
+    spec = _require(feature)
+    if not spec.variants:
+        raise HTTPException(status_code=404, detail=f"{feature!r} has no configurable variants")
+    variant_id = str(data.get("variant") or "") or None
+    if variant_id and variant_id not in {v.id for v in spec.variants}:
+        raise HTTPException(status_code=404, detail=f"Unknown variant {variant_id!r} for {feature!r}")
+    gpu = bool(data.get("gpu", True))
+    await set_local_ml_config(feature, {"variant": variant_id, "gpu": gpu})
+    settings = await get_settings()
+    if feature == prose_rewriter.FEATURE:
+        variant = prose_rewriter.resolve(variant_id)
+        prose_rewriter.HOST.mark_stale(variant, gpu)
+        if variant is not None and prose_rewriter.on_disk(variant):
+            _spawn(_prewarm(variant, gpu))
+    return {"local_ml_config": settings.get("local_ml_config", {})}
+
+
+@router.post("/api/local-ml/prose_rewriter/runtime")
+async def api_prose_rewriter_runtime(data: dict | None = Body(default=None)):  # noqa: B008
+    """Fetch a prebuilt llama-server into backend/data/llama-bin/.
+
+    ``{"backend": "gpu"|"cpu"}`` picks the archive — Vulkan or plain CPU — and
+    that choice is baked into the binary, not into a runtime flag. This
+    downloads and then executes a native binary from the official ggml-org
+    release feed; ``ORB_LLAMA_SERVER`` is the escape hatch for a self-supplied
+    one.
+    """
+    backend = "cpu" if str((data or {}).get("backend") or "gpu") == "cpu" else "gpu"
+    async with _download_lock:
+        try:
+            path = await asyncio.to_thread(llama_runtime.fetch, backend)
+        except llama_runtime.LlamaServerMissing as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from None
+        except Exception:
+            logger.exception("llama-server fetch (%s) failed", backend)
+            raise HTTPException(status_code=500, detail="Runtime download failed; see server logs") from None
+    ok, reason = prose_rewriter.runtime_ok()
+    return {"ok": ok, "path": path, "runtime_ok": ok, "runtime_reason": reason}
 
 
 @router.post("/api/local-ml/slop-score")
@@ -88,8 +247,14 @@ async def api_classify_emotion(data: dict = Body(...)):  # noqa: B008
 @router.post("/api/local-ml/{feature}/enabled")
 async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B008
     """Flip one feature's on/off toggle; return the full decoded map."""
-    if feature not in local_ml.MODELS:
-        raise HTTPException(status_code=404, detail=f"Unknown local-ML feature {feature!r}")
-    await set_local_ml_enabled(feature, bool(data.get("enabled")))
+    _require(feature)
+    enabled = bool(data.get("enabled"))
+    await set_local_ml_enabled(feature, enabled)
     settings = await get_settings()
+    if enabled and feature == prose_rewriter.FEATURE:
+        # Pre-warm on enable, for the same reason the config route does.
+        config = _prose_config(settings)
+        variant = prose_rewriter.resolve(str(config.get("variant") or ""))
+        if variant is not None and prose_rewriter.on_disk(variant):
+            _spawn(_prewarm(variant, bool(config.get("gpu", True))))
     return {"local_ml_enabled": settings.get("local_ml_enabled", {})}

@@ -1,0 +1,463 @@
+"""llama-server, supervised: one child process, one model, N parallel slots.
+
+WHY A CHILD PROCESS RATHER THAN A BINDING. The rewriter generates one request
+per paragraph and wants them decoded *together*. Reaching continuous batching
+through ``llama-cpp-python`` (the binding the classifiers already use) means
+driving ``llama_decode`` and the KV cache by hand from Python; reaching it
+through ``llama-server`` means ``--parallel 4 --cont-batching`` and an HTTP
+call. There is no third option that is less work than the second — which is
+also why this feature's ``runtime`` is ``llama_server`` and it needs none of
+``requirements-ml.txt`` except ``huggingface_hub`` for the download.
+
+ADAPTED FROM ProseRewriterWebUI's threads-and-http.client original. Orb is
+async, so the thread-per-paragraph pool, the ``queue.Queue`` fan-in and the
+log-drain thread are gone: ``asyncio.create_subprocess_exec``, an ``httpx``
+client Orb already depends on, and one drain task.
+
+THE CHILD IS BOUND TO LOOPBACK ON AN EPHEMERAL PORT and is not the thing anyone
+connects to. Its own web UI is off, and nothing here exposes the port, because
+it has no authentication and ``/slots`` will hand out other people's prompts.
+
+MODEL SWITCHING IS A RESTART. llama.cpp cannot swap weights inside a running
+server, so a variant change or a GPU/CPU flip stops the child and starts a new
+one. ``ModelHost`` is the only thing allowed to do that, and it sets
+``state = "loading"`` BEFORE draining in-flight work — new work has to stop
+arriving for the drain to end.
+
+THIS IS ORB'S FIRST MANAGED SUBPROCESS. ``shutdown()`` is registered in the
+FastAPI ``lifespan`` (``api/__init__.py``); without it an orphaned child holds
+the GPU after Orb exits.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import json
+import logging
+import os
+import socket
+import subprocess
+import time
+from collections import deque
+from pathlib import Path
+
+import httpx
+
+from . import catalog, runtime
+from .catalog import Variant
+
+logger = logging.getLogger(__name__)
+
+# Per slot, and the number is the trained envelope plus room to finish a
+# sentence: 512 source tokens is the documented maximum input, the generation
+# budget never exceeds 512, and the prompt's own three blocks are a dozen more.
+# n_ctx is divided by the slot count inside llama.cpp, so this multiplies.
+CTX_PER_SLOT = 1280
+# Four lanes rather than eight, because that multiplication is not free: the KV
+# cache is allocated in full when the model loads, and a 1280-token lane is
+# 140 MB on the 1.7B and 190 MB on the 4B. Eight of them reserve well over a
+# gigabyte of VRAM before the first request arrives, which is the difference
+# between fitting and not on an 8 GB card.
+DEFAULT_SLOTS = 4
+BOOT_TIMEOUT = 300.0
+STOP_TOKEN = "<|im_end|>"
+
+#: Seconds at zero in-flight before the child is stopped and its VRAM released.
+#: Matters most when the Writer is also local on the same card.
+IDLE_TIMEOUT = float(os.environ.get("ORB_PROSE_REWRITER_IDLE", "300"))
+
+_HELP_CACHE: dict[str, str] = {}
+
+
+def _help_text(binary: Path) -> str:
+    """``--help`` once per binary, cached, so optional flags can be probed.
+
+    People bring their own llama-server — a distro package, a release tarball,
+    a build from last year — and a flag the binary has never heard of is not a
+    warning, it is an immediate exit with a usage message.
+    """
+    key = str(binary)
+    if key not in _HELP_CACHE:
+        try:
+            done = subprocess.run(  # noqa: S603 — binary resolved by runtime.find_binary
+                [key, "--help"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30
+            )
+            _HELP_CACHE[key] = (done.stdout or "") + (done.stderr or "")
+        except Exception:  # a binary that will not even print help fails properly at boot
+            _HELP_CACHE[key] = ""
+    return _HELP_CACHE[key]
+
+
+def _free_port() -> int:
+    """A port the child can have. The race between closing this socket and the
+    child binding it is the standard one: nothing else on a single-user box is
+    competing for an ephemeral port."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _error_text(blob: str) -> str:
+    try:
+        payload = json.loads(blob)
+    except ValueError:
+        return blob.strip() or "llama-server reported an error"
+    if isinstance(payload, dict):
+        inner = payload.get("error", payload)
+        return str(inner.get("message") or inner) if isinstance(inner, dict) else str(inner)
+    return str(payload)
+
+
+class LlamaServer:
+    """A running child, and the three endpoints this feature asks it for:
+    ``/health`` while it loads, ``/tokenize`` to size a job, ``/completion``
+    to run one."""
+
+    def __init__(self, variant: Variant, binary: Path, *, slots: int, gpu: bool) -> None:
+        self.variant, self.binary, self.slots = variant, binary, slots
+        self.port = _free_port()
+        self.started_at = time.monotonic()
+        self.log: deque[str] = deque(maxlen=60)
+        self.ready = False
+        self.process: asyncio.subprocess.Process | None = None
+        self._drain_task: asyncio.Task | None = None
+        self._client: httpx.AsyncClient | None = None
+        self.argv = [
+            str(binary),
+            "--model",
+            catalog.variant_path(variant),
+            "--alias",
+            variant.id,
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(self.port),
+            # GPU vs CPU is this flag ALONE. Vulkan is a property of which
+            # binary was fetched, not a runtime switch.
+            "--n-gpu-layers",
+            "999" if gpu else "0",
+            "--ctx-size",
+            str(slots * CTX_PER_SLOT),
+            "--parallel",
+            str(slots),
+            "--cont-batching",
+            "--threads-http",
+            str(slots * 2 + 4),
+        ]
+        # Optional, and asked for only if this build has it: this feature never
+        # calls /v1/chat/completions, and llama.cpp's own front end has no
+        # business being reachable on a port we opened.
+        if "--no-webui" in _help_text(binary):
+            self.argv.append("--no-webui")
+
+    async def start(self) -> None:
+        self.process = await asyncio.create_subprocess_exec(
+            *self.argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        self._drain_task = asyncio.create_task(self._drain())
+        self._client = httpx.AsyncClient(base_url=f"http://127.0.0.1:{self.port}", timeout=30.0)
+
+    async def _drain(self) -> None:
+        """Keep the last 60 log lines so a boot failure can report *why*.
+
+        Decoded as UTF-8 explicitly: llama.cpp writes UTF-8, and on Windows the
+        locale code page cannot represent most of what a GGUF's metadata puts
+        in that log — a decode error here would kill the only reader that could
+        have told us why the child refused to load.
+        """
+        assert self.process is not None and self.process.stdout is not None
+        async for raw in self.process.stdout:
+            line = raw.decode("utf-8", "replace").rstrip()
+            self.log.append(line)
+            logger.debug("llama | %s", line)
+
+    def tail(self, n: int = 12) -> str:
+        return "\n".join(list(self.log)[-n:])
+
+    @property
+    def alive(self) -> bool:
+        return self.process is not None and self.process.returncode is None
+
+    async def wait_ready(self, timeout: float = BOOT_TIMEOUT) -> None:
+        """Poll ``/health`` until ok, or say why it never will.
+
+        A 4.7 GB model off a cold page cache is tens of seconds, so the timeout
+        is generous; what it is really for is the case where the child died,
+        which shows up here as a returncode that is no longer None.
+        """
+        assert self.process is not None
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            code = self.process.returncode
+            if code is not None:
+                raise RuntimeError(
+                    f"llama-server exited with status {code} while loading {self.variant.local_name}:\n{self.tail()}"
+                )
+            try:
+                response = await self._get("/health", timeout=5.0)
+                if response.get("status") == "ok":
+                    self.ready = True
+                    return
+            except Exception:  # not up yet is the common case, not an error
+                pass
+            await asyncio.sleep(0.25)
+        await self.stop()
+        raise RuntimeError(f"llama-server did not become ready within {timeout:.0f}s:\n{self.tail()}")
+
+    async def stop(self) -> None:
+        self.ready = False
+        process, self.process = self.process, None
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+        if self._drain_task is not None:
+            self._drain_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._drain_task
+            self._drain_task = None
+        if process is None or process.returncode is not None:
+            return
+        process.terminate()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=15)
+        except TimeoutError:
+            process.kill()
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(process.wait(), timeout=5)
+
+    # ── requests ─────────────────────────────────────────────────────────────
+
+    def _http(self) -> httpx.AsyncClient:
+        if self._client is None:
+            raise RuntimeError("llama-server is not running")
+        return self._client
+
+    async def _get(self, path: str, timeout: float = 5.0) -> dict:
+        response = await self._http().get(path, timeout=timeout)
+        response.raise_for_status()
+        return response.json() if response.content else {}
+
+    async def count_tokens(self, text: str) -> int:
+        """The real count from the model's own vocabulary.
+
+        Estimating from characters would be free and would be wrong in the one
+        direction that matters: the 512-token ceiling is where the model leaves
+        the length it was trained on, and a paragraph waved through at an
+        estimate degrades quietly instead of being passed through intact.
+        """
+        response = await self._http().post("/tokenize", json={"content": text}, timeout=30.0)
+        if response.status_code != 200:
+            raise RuntimeError(_error_text(response.text))
+        return len(response.json().get("tokens") or [])
+
+    async def generate(self, prompt: str, *, n_predict: int, temperature: float, top_p: float) -> tuple[str, bool]:
+        """Stream one completion; return ``(text, stopped)``.
+
+        ``stopped`` is whether the model ended the paragraph itself — a
+        generation that did not ran out of budget rather than finishing, and
+        ``text.finish`` trims its half-sentence tail.
+
+        Cancelling the awaiting task closes the connection mid-stream, and
+        llama.cpp treats a dropped client as a cancellation: pressing Stop
+        frees the slot instead of leaving it decoding for another 400 tokens.
+        """
+        payload = {
+            "prompt": prompt,
+            "n_predict": n_predict,
+            "temperature": temperature,
+            "top_p": top_p,
+            "stream": True,
+            "cache_prompt": True,
+            # Belt and braces. <|im_end|> is marked EOG in these GGUFs, so
+            # generation ends on the token; the string stop covers a build that
+            # reads the metadata differently, and llama.cpp trims it either way.
+            "stop": [STOP_TOKEN],
+        }
+        parts: list[str] = []
+        stopped = False
+        headers = {"Accept": "text/event-stream"}
+        async with self._http().stream("POST", "/completion", json=payload, headers=headers, timeout=600.0) as response:
+            if response.status_code != 200:
+                raise RuntimeError(_error_text((await response.aread()).decode("utf-8", "replace")))
+            async for raw in response.aiter_lines():
+                line = raw.rstrip("\r\n")
+                if not line:
+                    continue
+                if line.startswith("error:"):
+                    raise RuntimeError(_error_text(line[6:]))
+                if not line.startswith("data:"):
+                    continue
+                message = json.loads(line[5:])
+                if message.get("error"):
+                    raise RuntimeError(_error_text(json.dumps(message["error"])))
+                content = message.get("content") or ""
+                if content:
+                    parts.append(content)
+                if message.get("stop"):
+                    # Newer builds report `stop_type`; older ones report the
+                    # three booleans. Either way the question is the same one:
+                    # did it end, or did it run out of budget?
+                    stop_type = message.get("stop_type")
+                    if stop_type is not None:
+                        stopped = stop_type in ("eos", "word")
+                    else:
+                        stopped = bool(message.get("stopped_eos") or message.get("stopped_word"))
+        return "".join(parts), stopped
+
+
+class ModelHost:
+    """The current child, and the only thing allowed to replace it.
+
+    THE LOCK GUARDS THE SWAP, NOT THE GENERATION. Callers take a reference to
+    the running server through :meth:`acquire` and then talk to it without
+    holding anything, which is what makes concurrent paragraph rewrites
+    concurrent. A swap waits for the in-flight count to reach zero before it
+    kills anything, so a rewrite in progress is never cut off by someone
+    changing the selector in Settings.
+    """
+
+    def __init__(self, *, slots: int = DEFAULT_SLOTS) -> None:
+        self.slots = slots
+        self.state = "idle"  # idle | loading | ready | failed
+        self.error = ""
+        self.variant: Variant | None = None
+        self.gpu = True
+        self.server: LlamaServer | None = None
+        self._lock = asyncio.Lock()
+        self._inflight = 0
+        self._idle = asyncio.Condition()
+        self._stale = False
+        self._idle_task: asyncio.Task | None = None
+        self._last_used = time.monotonic()
+
+    # ── loading ──────────────────────────────────────────────────────────────
+
+    def mark_stale(self, variant: Variant | None, gpu: bool) -> None:
+        """Record a new selection without touching the running child.
+
+        The config route calls this and returns immediately: a turn may be
+        mid-rewrite, and a settings write has no business blocking on it or
+        killing it. The restart happens on the next :meth:`ensure`.
+        """
+        if self.variant is not None and variant is not None and self.variant.id == variant.id and self.gpu == gpu:
+            return
+        self.variant, self.gpu, self._stale = variant, gpu, True
+
+    def invalidate(self) -> None:
+        """Force a restart on next use even though the selection is unchanged.
+
+        The case this exists for is the GGUF being deleted or renamed out from
+        under a running child: same variant id, different reality.
+        """
+        self._stale = True
+
+    @property
+    def healthy(self) -> bool:
+        return not self._stale and self.server is not None and self.server.alive and self.server.ready
+
+    async def ensure(self, variant: Variant, gpu: bool) -> LlamaServer:
+        """The running server for *variant*, starting or restarting as needed."""
+        async with self._lock:
+            same = self.variant is not None and self.variant.id == variant.id and self.gpu == gpu
+            if same and self.healthy and self.server is not None:
+                return self.server
+            binary = runtime.find_binary()
+            path = catalog.variant_path(variant)
+            if not os.path.exists(path):
+                raise RuntimeError(f"{variant.label} is not downloaded — {variant.local_name} is missing.")
+            # The flag goes up BEFORE the drain, not after it: new work has to
+            # stop arriving for the drain to end, and `state` is what callers
+            # read to turn themselves away with a message.
+            self.variant, self.gpu, self.state, self.error, self._stale = variant, gpu, "loading", "", False
+            await self._drain()
+            if self.server is not None:
+                await self.server.stop()
+                self.server = None
+            logger.info("Loading %s (%d MB, %d slots, gpu=%s)…", variant.local_name, variant.size_mb, self.slots, gpu)
+            server = LlamaServer(variant, binary, slots=self.slots, gpu=gpu)
+            try:
+                await server.start()
+                await server.wait_ready()
+            except Exception as exc:
+                self.state, self.error = "failed", str(exc)
+                with contextlib.suppress(Exception):
+                    await server.stop()
+                raise
+            self.server = server
+            self.state = "ready"
+            self._last_used = time.monotonic()
+            self._start_idle_watch()
+            logger.info("Prose rewriter ready in %.1fs on 127.0.0.1:%d", time.monotonic() - server.started_at, server.port)
+            return server
+
+    async def _drain(self, timeout: float = 120.0) -> None:
+        deadline = time.monotonic() + timeout
+        async with self._idle:
+            while self._inflight and time.monotonic() < deadline:
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(self._idle.wait(), timeout=0.25)
+
+    async def shutdown(self) -> None:
+        """Stop the child and the idle watcher. Registered in the app lifespan."""
+        if self._idle_task is not None:
+            self._idle_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._idle_task
+            self._idle_task = None
+        if self.server is not None:
+            await self.server.stop()
+            self.server = None
+        self.state = "idle"
+
+    # ── idle unload ──────────────────────────────────────────────────────────
+
+    def _start_idle_watch(self) -> None:
+        if self._idle_task is None or self._idle_task.done():
+            self._idle_task = asyncio.create_task(self._idle_watch())
+
+    async def _idle_watch(self) -> None:
+        """Stop the child after IDLE_TIMEOUT at zero in-flight, freeing VRAM."""
+        while True:
+            await asyncio.sleep(min(30.0, max(5.0, IDLE_TIMEOUT / 4)))
+            if self.server is None:
+                return
+            if self._inflight or time.monotonic() - self._last_used < IDLE_TIMEOUT:
+                continue
+            async with self._lock:
+                if self._inflight or self.server is None:
+                    continue
+                if time.monotonic() - self._last_used < IDLE_TIMEOUT:
+                    continue
+                logger.info("Prose rewriter idle for %.0fs; unloading %s", IDLE_TIMEOUT, self.server.variant.local_name)
+                await self.server.stop()
+                self.server = None
+                self.state = "idle"
+                self._idle_task = None
+                return
+
+    # ── in-flight accounting ─────────────────────────────────────────────────
+
+    @contextlib.asynccontextmanager
+    async def acquire(self):
+        """Hold one in-flight slot for the duration of a rewrite."""
+        async with self._idle:
+            self._inflight += 1
+        try:
+            yield
+        finally:
+            async with self._idle:
+                self._inflight -= 1
+                self._last_used = time.monotonic()
+                self._idle.notify_all()
+
+    @property
+    def in_flight(self) -> int:
+        return self._inflight
+
+
+#: One host per process. The rewriter is a single-user local feature and a
+#: second resident model would double the VRAM for no gain.
+HOST = ModelHost()

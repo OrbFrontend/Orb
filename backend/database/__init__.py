@@ -145,6 +145,7 @@ from .queries.phrase_bank import (
 from .queries.settings import (
     get_settings,
     get_workflow_config,
+    set_local_ml_config,
     set_local_ml_enabled,
     set_workflow_config,
     set_workflow_enabled,
@@ -340,6 +341,7 @@ __all__ = [
     "resolve_char_context",
     "set_active_leaf",
     "set_character_expressions",
+    "set_local_ml_config",
     "set_local_ml_enabled",
     "set_public_profile",
     "set_workflow_character_state",

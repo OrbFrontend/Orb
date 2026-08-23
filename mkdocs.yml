@@ -86,6 +86,7 @@ nav:
           - Anti-slop: features/anti-slop.md
           - Anti-repetition: features/anti-repetition.md
           - Length Guard: features/length-guard.md
+          - Prose Rewriter: features/prose-rewriter.md
       - Writing Tools:
           - Macros: features/macros.md
           - Super-regenerate: features/super-regenerate.md

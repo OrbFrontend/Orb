@@ -87,7 +87,17 @@ async def lifespan(app: FastAPI):
             "will be refused until this is fixed:\n  - " + "\n  - ".join(problems)
         )
     logger.info("Database initialized")
-    yield
+    try:
+        yield
+    finally:
+        # The prose rewriter supervises a llama-server child — Orb's only
+        # managed subprocess. Without this teardown an orphan keeps the model
+        # resident and holds the GPU after Orb exits.
+        from ..inference.prose_rewriter import (
+            shutdown as shutdown_prose_rewriter,  # noqa: PLC0415 — deferred
+        )
+
+        await shutdown_prose_rewriter()
 
 
 def build_app() -> FastAPI:

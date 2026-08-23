@@ -26,6 +26,7 @@ from ..features.lorebook import (
 )
 from ..inference import CachedBase, LLMClient
 from .passes.editor.length_guard import LengthGuard
+from .passes.editor.slm_rewrite import ProseRewrite
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +78,10 @@ class _PipelineConfig:
     audit_enabled: bool
     length_guard: LengthGuard | None
     do_edit: bool
+    # Local prose rewriter (Editor pass, pre-audit). Non-None means enabled;
+    # deliberately independent of ``agent_on`` — it is a local model on its own
+    # Local ML toggle, not one of the remote Agent passes.
+    prose_rewrite: ProseRewrite | None
     # The two call surfaces for the turn. ``writer_lane`` runs the writer pass;
     # ``agent_lane`` runs director + editor. In single-model mode they are the
     # same object by construction (see :class:`ModelLane`).

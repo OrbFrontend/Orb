@@ -145,6 +145,7 @@ PRESERVED_COLUMNS: dict[str, tuple[str, ...]] = {
         "workflows_globally_enabled",
         "workflow_enabled",
         "local_ml_enabled",
+        "local_ml_config",
     ),
 }
 

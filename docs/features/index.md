@@ -30,6 +30,7 @@ Post-writer audits that catch and rewrite low-quality output.
 | [Anti-slop](anti-slop.md) | Remove overused words, phrases, and LLM-pattern boilerplate |
 | [Anti-repetition](anti-repetition.md) | Detect and rewrite repeated structure, openers, and phrasing |
 | [Length Guard](length-guard.md) | Active or passive protection against length degradation |
+| [Prose Rewriter](prose-rewriter.md) | A local SLM rewrites each paragraph's texture before the Editor audits it |
 
 ## Writing Tools
 

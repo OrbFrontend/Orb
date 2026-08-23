@@ -76,6 +76,11 @@ export async function loadSettings() {
   if (S.settings.enabled_tools) S.enabledTools = { ...S.enabledTools, ...S.settings.enabled_tools };
   if (typeof S.settings.enable_agent === "number") S.agentEnabled = S.settings.enable_agent !== 0;
 
+  // Per-local-ML-feature config (prose rewriter: variant + gpu). Kept on
+  // S.settings rather than promoted to a top-level S key: the Settings panel is
+  // the only reader, and it re-fetches /local-ml/status for the disk facts anyway.
+  if (!S.settings.local_ml_config || typeof S.settings.local_ml_config !== "object") S.settings.local_ml_config = {};
+
   // Length guard is a feature flag, not a tool — its own settings columns, not enabled_tools.
   S.lengthGuardEnabled = Boolean(S.settings.length_guard_enabled);
   S.lengthGuardEnforce = Boolean(S.settings.length_guard_enforce);
@@ -198,12 +203,14 @@ const LOCAL_ML_LABELS = {
   slop_classifier: "AI-Slop Classifier",
   emotion_classifier: "Character Expressions",
   pov_classifier: "Image POV",
+  prose_rewriter: "Prose Rewriter",
 };
 const LOCAL_ML_DESCS = {
   autocomplete: "Autocomplete input as you type.",
   slop_classifier: "Unlock AI slop scorer.",
   emotion_classifier: "Track a character's mood with expression images in the avatar popup.",
   pov_classifier: "Auto POV for image-gen.",
+  prose_rewriter: "Rewrite each paragraph with a local model, before the Editor audits the result.",
 };
 
 // Tri-state per feature: deps missing → grayed Download + hint; deps ok & model
@@ -232,39 +239,177 @@ async function loadLocalMLSection() {
     return;
   }
   el.innerHTML = Object.entries(st.features)
-    .map(([f, info]) => {
-      const name = esc(LOCAL_ML_LABELS[f] || f);
-      if (!info.present) {
-        return `<div class="tool-card">
-          <div class="tool-card-header"><span class="tool-card-name">${name}</span>
-            <button class="btn btn-sm" id="local-ml-dl-${f}" onclick="downloadLocalMlModel('${f}')">Download</button></div>
-          <div class="tool-card-desc">Not downloaded (~${info.size_mb} MB)</div>
-        </div>`;
-      }
-      const desc = LOCAL_ML_DESCS[f] || "";
-      return `<div class="tool-card ${info.enabled ? "tool-on" : ""}">
-        <div class="tool-card-header"><span class="tool-card-name">${name}</span>
-          <label class="tog" onclick="event.stopPropagation()">
-            <input type="checkbox" ${info.enabled ? "checked" : ""} onchange="toggleLocalMlEnabled('${f}', this.checked)">
-            <span class="tog-slider"></span>
-          </label></div>
-        ${desc ? `<div class="tool-card-desc">${desc}</div>` : ""}
-      </div>`;
-    })
+    .map(([f, info]) => (info.variants ? variantCard(f, info) : simpleCard(f, info)))
     .join("");
+  wireLocalMLSection(el);
 }
 
-export async function downloadLocalMlModel(feature) {
-  const btn = $(`local-ml-dl-${feature}`);
+// One enable toggle over one file: the shape every local-ML feature had before
+// the rewriter arrived.
+function simpleCard(f, info) {
+  const name = esc(LOCAL_ML_LABELS[f] || f);
+  if (!info.present) {
+    return `<div class="tool-card">
+      <div class="tool-card-header"><span class="tool-card-name">${name}</span>
+        <button class="btn btn-sm" data-ml-act="download" data-ml-feature="${escAttr(f)}">Download</button></div>
+      <div class="tool-card-desc">Not downloaded (~${info.size_mb} MB)</div>
+    </div>`;
+  }
+  const desc = LOCAL_ML_DESCS[f] || "";
+  return `<div class="tool-card ${info.enabled ? "tool-on" : ""}">
+    <div class="tool-card-header"><span class="tool-card-name">${name}</span>
+      ${enableToggle(f, info.enabled)}</div>
+    ${desc ? `<div class="tool-card-desc">${desc}</div>` : ""}
+  </div>`;
+}
+
+const enableToggle = (f, on) =>
+  `<label class="tog" data-ml-act="stop">
+    <input type="checkbox" ${on ? "checked" : ""} data-ml-act="enabled" data-ml-feature="${escAttr(f)}">
+    <span class="tog-slider"></span>
+  </label>`;
+
+// A feature that ships several interchangeable checkpoints: one row per
+// variant (download it, use it, delete it), a GPU switch, the llama.cpp runtime
+// row, and a self-test. The enable toggle only appears once something is on
+// disk — there is nothing to enable before that.
+function variantCard(f, info) {
+  const name = esc(LOCAL_ML_LABELS[f] || f);
+  const desc = LOCAL_ML_DESCS[f] || "";
+  const anyPresent = info.variants.some((v) => v.present);
+  const rows = info.variants.map((v) => variantRow(f, v, info.selected)).join("");
+  return `<div class="tool-card ${anyPresent && info.enabled ? "tool-on" : ""}">
+    <div class="tool-card-header"><span class="tool-card-name">${name}</span>
+      ${anyPresent ? enableToggle(f, info.enabled) : ""}</div>
+    ${desc ? `<div class="tool-card-desc">${desc}</div>` : ""}
+    <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">${rows}</div>
+    <label class="tool-card-desc" style="display:flex;align-items:center;gap:6px;margin-top:8px">
+      <input type="checkbox" ${info.gpu ? "checked" : ""} data-ml-act="gpu" data-ml-feature="${escAttr(f)}">
+      Run on GPU
+    </label>
+    ${runtimeRow(info)}
+    ${stateRow(f, info)}
+  </div>`;
+}
+
+function variantRow(f, v, selected) {
+  const attrs = `data-ml-feature="${escAttr(f)}" data-ml-variant="${escAttr(v.id)}"`;
+  const size = `${(v.size_mb / 1024).toFixed(1)} GB`;
+  const control = v.present
+    ? `<label class="tool-card-desc" style="display:flex;align-items:center;gap:4px;margin:0">
+         <input type="radio" name="local-ml-variant-${escAttr(f)}" ${v.id === selected ? "checked" : ""}
+                data-ml-act="select" ${attrs}> Use
+       </label>
+       <button class="btn btn-sm" data-ml-act="delete" ${attrs}>Delete</button>`
+    : `<button class="btn btn-sm" data-ml-act="download" ${attrs}>Download</button>`;
+  return `<div style="display:flex;align-items:center;gap:8px">
+    <span style="flex:1;min-width:0">${esc(v.label)}
+      <span class="tool-card-desc" style="display:block">${esc(v.detail)}</span></span>
+    <span class="tool-card-desc">${size}</span>${control}
+  </div>`;
+}
+
+function runtimeRow(info) {
+  if (info.runtime_ok) return '<div class="tool-card-desc" style="margin-top:8px">llama.cpp runtime: ready</div>';
+  return `<div class="tool-card-desc" style="display:flex;align-items:center;gap:8px;margin-top:8px">
+    <span style="flex:1;min-width:0">llama.cpp runtime: not installed</span>
+    <button class="btn btn-sm" data-ml-act="runtime">Download (~100 MB)</button>
+  </div>`;
+}
+
+// `state` is the host's own swap state, so "loading" here is a real model load
+// rather than a spinner this panel invented.
+function stateRow(f, info) {
+  return `<div class="tool-card-desc" id="local-ml-state-${escAttr(f)}" style="margin-top:8px">${esc(
+    info.state || "idle",
+  )}${info.error ? `: ${esc(info.error)}` : ""}</div>`;
+}
+
+// ONE delegated listener per section, not inline on*= handlers: a variant card
+// carries three rows of up to three controls each plus two checkboxes and two
+// buttons, and check_frontend_layers.py's inline-handler ratchet is already at
+// its ceiling (it may only decrease). Re-attached by marker rather than
+// unconditionally, because renderSettings() rebuilds this element from scratch
+// while a plain repaint reuses it.
+function wireLocalMLSection(el) {
+  if (el.dataset.mlWired) return;
+  el.dataset.mlWired = "1";
+  el.addEventListener("click", onLocalMLClick);
+  el.addEventListener("change", onLocalMLChange);
+}
+
+async function onLocalMLClick(ev) {
+  const target = ev.target.closest("[data-ml-act]");
+  if (!target) return;
+  const { mlAct: act, mlFeature: feature, mlVariant: variant } = target.dataset;
+  if (act === "stop") return ev.stopPropagation();
+  if (act === "download") return downloadLocalMlModel(feature, variant, target);
+  if (act === "delete") return deleteLocalMlModel(feature, variant);
+  if (act === "runtime") return fetchLlamaRuntime(target);
+}
+
+function onLocalMLChange(ev) {
+  const target = ev.target.closest("[data-ml-act]");
+  if (!target) return;
+  const { mlAct: act, mlFeature: feature, mlVariant: variant } = target.dataset;
+  if (act === "enabled") return toggleLocalMlEnabled(feature, target.checked);
+  if (act === "select") return saveLocalMlConfig(feature, { variant });
+  if (act === "gpu") return saveLocalMlConfig(feature, { gpu: target.checked });
+}
+
+// The config route takes the whole object, so a change to one field has to
+// carry the other: read the current selection out of the rendered controls
+// rather than keeping a second copy of it in module state.
+async function saveLocalMlConfig(feature, patch) {
+  const root = $("local-ml-section");
+  const picked = root?.querySelector(`input[name="local-ml-variant-${feature}"]:checked`);
+  const gpuBox = root?.querySelector(`input[data-ml-act="gpu"][data-ml-feature="${feature}"]`);
+  const body = {
+    variant: patch.variant ?? picked?.dataset.mlVariant ?? null,
+    gpu: patch.gpu ?? Boolean(gpuBox?.checked),
+  };
+  try {
+    const res = await api.post(`/local-ml/${feature}/config`, body);
+    if (res && typeof res.local_ml_config === "object") S.settings.local_ml_config = res.local_ml_config;
+  } catch (e) {
+    toast(e.message || "Failed to save", true);
+  }
+  loadLocalMLSection();
+}
+
+function deleteLocalMlModel(feature, variant) {
+  confirmDelete("Model", "Delete this downloaded model file? It can be downloaded again.", async () => {
+    try {
+      await api.del(`/local-ml/${feature}/model${variant ? `?variant=${encodeURIComponent(variant)}` : ""}`);
+    } catch (e) {
+      toast(e.message || "Delete failed", true);
+    }
+    loadLocalMLSection();
+  });
+}
+
+async function fetchLlamaRuntime(btn) {
+  const gpu = $("local-ml-section")?.querySelector('input[data-ml-act="gpu"]');
+  btn.disabled = true;
+  btn.textContent = "Downloading…";
+  try {
+    await api.post("/local-ml/prose_rewriter/runtime", { backend: gpu?.checked === false ? "cpu" : "gpu" });
+  } catch (e) {
+    toast(e.message || "Runtime download failed", true);
+  }
+  loadLocalMLSection();
+}
+
+export async function downloadLocalMlModel(feature, variant, btn) {
   if (btn) {
     btn.disabled = true;
     btn.textContent = "Downloading…";
   }
   try {
-    await api.post(`/local-ml/${feature}/download`, {});
+    await api.post(`/local-ml/${feature}/download`, variant ? { variant } : {});
     await loadLocalMLSection(); // flips the card to a toggle
-  } catch (_e) {
-    toast("Download failed", true);
+  } catch (e) {
+    toast(e.message || "Download failed", true);
     if (btn) {
       btn.disabled = false;
       btn.textContent = "Download";
