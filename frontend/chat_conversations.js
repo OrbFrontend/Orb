@@ -227,11 +227,10 @@ export async function selectConversation(id) {
   S.reasoningPassSelected = 0;
   const conv = S.conversations.find((c) => c.id === id);
   await loadGroupCast(conv);
+  const prevCharId = S.activeCharId;
   if (conv?.kind === "group") S.activeCharId = null;
-  if (conv?.character_card_id && S.activeCharId !== conv.character_card_id) {
-    S.activeCharId = conv.character_card_id;
-    renderCharacters();
-  }
+  else if (conv?.character_card_id) S.activeCharId = conv.character_card_id;
+  if (S.activeCharId !== prevCharId) renderCharacters();
   // A group row highlights for any conversation in its family, so switching
   // between a scene and its checkpoint has to repaint the sidebar too.
   renderGroupList();
