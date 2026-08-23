@@ -33,6 +33,7 @@ import {
   castRailHtml,
   contextMode,
   eligibleMembers,
+  GROUP_LIMIT,
   groupFamilies,
   groupFamily,
   groupRootId,
@@ -43,6 +44,7 @@ import {
   speakerLabel,
   speakingPlanHtml,
   TURN_MODES,
+  visibleGroups,
 } from "../../frontend/group_cast.js";
 import { S } from "../../frontend/state.js";
 
@@ -403,4 +405,74 @@ test("a family whose root is missing still renders, led by its newest member", (
   assert.equal(families.length, 1);
   assert.equal(families[0].root.id, "g2");
   assert.equal(families[0].shown.id, "g2");
+});
+
+// ── Sidebar cap ─────────────────────────────────────────────────────────────
+// The Groups section is capped the way Worlds and Documents are: a recent slice
+// by default, a search box and a "show all" behind it.
+
+// n families in conversation order, the (openIndex)th marked open.
+function families(n, openIndex = -1) {
+  return Array.from({ length: n }, (_, i) => ({
+    rootId: `r${i}`,
+    root: { id: `r${i}`, title: `Group ${i}` },
+    shown: { id: `r${i}`, group_member_names: [`Cast ${i}`] },
+    open: i === openIndex,
+    members: [],
+  }));
+}
+
+test("a list inside the cap shows whole, with nothing hidden", () => {
+  const { shown, hidden } = visibleGroups(families(GROUP_LIMIT));
+  assert.equal(shown.length, GROUP_LIMIT);
+  assert.equal(hidden, 0);
+});
+
+test("past the cap the newest are shown and the rest counted", () => {
+  const { shown, hidden } = visibleGroups(families(GROUP_LIMIT + 4));
+  assert.equal(shown.length, GROUP_LIMIT);
+  assert.equal(shown[0].rootId, "r0");
+  assert.equal(hidden, 4);
+});
+
+test("expanded shows every group", () => {
+  const { shown, hidden } = visibleGroups(families(GROUP_LIMIT + 4), { expanded: true });
+  assert.equal(shown.length, GROUP_LIMIT + 4);
+  assert.equal(hidden, 0);
+});
+
+test("the open group keeps a row even when recency pushed it past the cut", () => {
+  // Otherwise selecting a checkpoint of a quiet group would delete the row the
+  // click came from. It takes the last slot, and the hidden count still counts
+  // every group the list is not showing.
+  const { shown, hidden } = visibleGroups(families(GROUP_LIMIT + 4, GROUP_LIMIT + 2));
+  assert.equal(shown.length, GROUP_LIMIT);
+  assert.equal(shown[shown.length - 1].rootId, `r${GROUP_LIMIT + 2}`);
+  assert.equal(hidden, 4);
+});
+
+test("an open group already inside the cap is not moved", () => {
+  const { shown } = visibleGroups(families(GROUP_LIMIT + 4, 1));
+  assert.deepEqual(
+    shown.map((f) => f.rootId),
+    families(GROUP_LIMIT).map((f) => f.rootId),
+  );
+});
+
+test("search matches the group name or its cast, and ignores the cap", () => {
+  const all = families(GROUP_LIMIT + 4);
+  assert.deepEqual(
+    visibleGroups(all, { query: "Group 1" }).shown.map((f) => f.rootId),
+    ["r1", "r10", "r11"],
+  );
+  assert.deepEqual(
+    visibleGroups(all, { query: "cast 3" }).shown.map((f) => f.rootId),
+    ["r3"],
+  );
+  // A search that matches nothing hides everything rather than falling back.
+  assert.deepEqual(visibleGroups(all, { query: "nobody" }).shown, []);
+});
+
+test("search never reports a hidden remainder, so no “show all” is offered", () => {
+  assert.equal(visibleGroups(families(GROUP_LIMIT + 4), { query: "Group" }).hidden, 0);
 });

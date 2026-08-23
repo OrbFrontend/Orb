@@ -6,6 +6,7 @@ import {
   castRailHtml,
   contextMode,
   eligibleMembers,
+  GROUP_LIMIT,
   groupFamilies,
   groupRootId,
   memberAvatar,
@@ -13,6 +14,7 @@ import {
   recommendContextMode,
   speakingPlanHtml,
   TURN_MODES,
+  visibleGroups,
 } from "./group_cast.js";
 import { closeModal, setModalCloseGuard, showModal, switchTab } from "./modal.js";
 import { SIDEBAR_CLOSE_ICON } from "./sidebar_icons.js";
@@ -1026,51 +1028,80 @@ export function consumeSpeakerOverride() {
   renderGroupCast();
 }
 
+// Sidebar list state. Lives here rather than in `S`: it is how this one panel
+// is being looked at, not part of the scene, and nothing outside reads it.
+let _groupSearch = "";
+let _groupsExpanded = false;
+
 // One row per group, not per conversation. A checkpoint is a branch of the
 // scene, so it belongs *inside* its group's row — reachable through the
 // conversations modal — rather than beside it as a second group.
+function _groupItemHtml({ rootId, root, shown, open, members }) {
+  // Title from the root (the group's stable name), cast from the conversation
+  // the row stands for (the one the click opens — the open one, or the newest).
+  const names = (shown.group_member_names || []).filter(Boolean);
+  const memberLine = names.length ? names.join(" · ") : "No active cast members";
+  const cardIds = shown.group_card_ids || [];
+  const shownCardIds = cardIds.slice(0, 3);
+  const avatars = shownCardIds
+    .map(
+      (cardId) =>
+        `<span class="group-chat-avatar">${avatarCell(escAttr(avatarUrl(cardId)), {
+          icon: "👤",
+          attrs: 'loading="lazy" decoding="async"',
+        })}</span>`,
+    )
+    .join("");
+  const remaining = cardIds.length - shownCardIds.length;
+  const avatarStack = avatars || `<span class="group-chat-avatar group-chat-narrator">✒️</span>`;
+  // Silent at one conversation: the count is only news once the group has
+  // branched, and every group starts with exactly one.
+  const countBadge =
+    members.length > 1
+      ? `<span class="group-chat-count" title="${escAttr(`${members.length} conversations in this group`)}">${members.length}</span>`
+      : "";
+  const title = `Cast: ${memberLine}${members.length > 1 ? `\n${members.length} conversations — open the group, then ☰ › Conversations` : ""}`;
+  return `<div class="group-chat-item${open ? " active" : ""}">
+      <button type="button" class="group-chat-select" data-group-conversation-id="${escAttr(shown.id)}" title="${escAttr(title)}">
+        <span class="group-chat-avatar-stack" aria-hidden="true">${avatarStack}${remaining ? `<span class="group-chat-avatar group-chat-overflow">+${remaining}</span>` : ""}</span>
+        <span class="group-chat-details"><span class="group-chat-title">${esc(root.title)}</span><span class="group-chat-members">${esc(memberLine)}</span></span>
+        ${countBadge}
+      </button>
+      <button type="button" class="btn-icon group-chat-delete" data-group-delete-root-id="${escAttr(rootId)}" title="Delete group" aria-label="Delete group ${escAttr(root.title)}">${SIDEBAR_CLOSE_ICON}</button>
+    </div>`;
+}
+
 export function renderGroupList() {
   const list = $("group-chat-list");
   if (!list) return;
   // Passing the open conversation is what makes selecting a checkpoint repaint
   // its group's row: the cast line then names that checkpoint's speakers rather
   // than a sibling's.
-  list.innerHTML = groupFamilies(S.conversations, S.activeConvId)
-    .map(({ rootId, root, shown, open, members }) => {
-      // Title from the root (the group's stable name), cast from the conversation
-      // the row stands for (the one the click opens — the open one, or the newest).
-      const names = (shown.group_member_names || []).filter(Boolean);
-      const memberLine = names.length ? names.join(" · ") : "No active cast members";
-      const cardIds = shown.group_card_ids || [];
-      const shownCardIds = cardIds.slice(0, 3);
-      const avatars = shownCardIds
-        .map(
-          (cardId) =>
-            `<span class="group-chat-avatar">${avatarCell(escAttr(avatarUrl(cardId)), {
-              icon: "👤",
-              attrs: 'loading="lazy" decoding="async"',
-            })}</span>`,
-        )
-        .join("");
-      const remaining = cardIds.length - shownCardIds.length;
-      const avatarStack = avatars || `<span class="group-chat-avatar group-chat-narrator">✒️</span>`;
-      // Silent at one conversation: the count is only news once the group has
-      // branched, and every group starts with exactly one.
-      const countBadge =
-        members.length > 1
-          ? `<span class="group-chat-count" title="${escAttr(`${members.length} conversations in this group`)}">${members.length}</span>`
-          : "";
-      const title = `Cast: ${memberLine}${members.length > 1 ? `\n${members.length} conversations — open the group, then ☰ › Conversations` : ""}`;
-      return `<div class="group-chat-item${open ? " active" : ""}">
-          <button type="button" class="group-chat-select" data-group-conversation-id="${escAttr(shown.id)}" title="${escAttr(title)}">
-            <span class="group-chat-avatar-stack" aria-hidden="true">${avatarStack}${remaining ? `<span class="group-chat-avatar group-chat-overflow">+${remaining}</span>` : ""}</span>
-            <span class="group-chat-details"><span class="group-chat-title">${esc(root.title)}</span><span class="group-chat-members">${esc(memberLine)}</span></span>
-            ${countBadge}
-          </button>
-          <button type="button" class="btn-icon group-chat-delete" data-group-delete-root-id="${escAttr(rootId)}" title="Delete group" aria-label="Delete group ${escAttr(root.title)}">${SIDEBAR_CLOSE_ICON}</button>
-        </div>`;
-    })
-    .join("");
+  const families = groupFamilies(S.conversations, S.activeConvId);
+
+  // The search box only earns its space once the list outgrows the default view.
+  const searchWrap = $("group-search-wrap");
+  if (searchWrap) {
+    searchWrap.style.display = families.length > GROUP_LIMIT || _groupSearch.trim() ? "" : "none";
+  }
+  const searchInp = $("group-search");
+  if (searchInp && searchInp.value !== _groupSearch) searchInp.value = _groupSearch;
+
+  const { shown, hidden } = visibleGroups(families, { query: _groupSearch, expanded: _groupsExpanded });
+  if (families.length && !shown.length) {
+    list.innerHTML = `<div class="worlds-empty">No groups match “${esc(_groupSearch.trim())}”</div>`;
+    return;
+  }
+
+  let html = shown.map(_groupItemHtml).join("");
+  if (!_groupSearch.trim()) {
+    if (hidden > 0) {
+      html += `<button type="button" class="worlds-more" data-group-expand>+${hidden} more — show all</button>`;
+    } else if (_groupsExpanded && families.length > GROUP_LIMIT) {
+      html += `<button type="button" class="worlds-more" data-group-collapse>Show less</button>`;
+    }
+  }
+  list.innerHTML = html;
 }
 
 // Never fatal: a scene whose proposals cannot be read is still a scene the user
@@ -1192,7 +1223,21 @@ export function initGroupSetup() {
     event.currentTarget.nextElementSibling?.classList.toggle("collapsed");
   });
   $("new-group-btn")?.addEventListener("click", showGroupCreate);
+  $("group-search")?.addEventListener("input", (event) => {
+    _groupSearch = event.target.value;
+    renderGroupList();
+  });
   $("group-chat-list")?.addEventListener("click", (event) => {
+    if (event.target.closest("[data-group-expand]")) {
+      _groupsExpanded = true;
+      renderGroupList();
+      return;
+    }
+    if (event.target.closest("[data-group-collapse]")) {
+      _groupsExpanded = false;
+      renderGroupList();
+      return;
+    }
     const deleteButton = event.target.closest("[data-group-delete-root-id]");
     if (deleteButton) {
       document.dispatchEvent(

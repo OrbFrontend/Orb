@@ -244,6 +244,36 @@ export function groupFamilies(conversations, openId = null) {
   });
 }
 
+// How many group rows the sidebar shows before the rest collapse behind
+// "show all", mirroring Worlds' RECENT_LIMIT and Documents' DOC_LIMIT.
+export const GROUP_LIMIT = 5;
+
+// Which families a sidebar of *families* should paint.
+//   • query: every family whose group name or cast matches.
+//   • otherwise: the most recent GROUP_LIMIT, in the order the conversation
+//     list already carries, unless expanded.
+// Groups have no persistent `enabled` flag the way Worlds do, so the cap is a
+// plain slice rather than an active-aware one — with a single exception: the
+// open group always keeps a row, taking the last slot when recency has pushed
+// it past the cut. Otherwise opening an old group's checkpoint would make its
+// row vanish from under the click that selected it.
+export function visibleGroups(families, { query = "", expanded = false } = {}) {
+  const q = query.trim().toLowerCase();
+  if (q) {
+    const match = ({ root, shown }) =>
+      (root.title || "").toLowerCase().includes(q) ||
+      (shown.group_member_names || []).some((name) => (name || "").toLowerCase().includes(q));
+    return { shown: families.filter(match), hidden: 0 };
+  }
+  if (expanded || families.length <= GROUP_LIMIT) return { shown: families, hidden: 0 };
+  const head = families.slice(0, GROUP_LIMIT);
+  if (!head.some((family) => family.open)) {
+    const openFamily = families.find((family) => family.open);
+    if (openFamily) head[head.length - 1] = openFamily;
+  }
+  return { shown: head, hidden: families.length - head.length };
+}
+
 // Resolved through `speakerNames`, never through `members`: `members` is the
 // active roster, so a reply written by a member the user has since removed
 // would fall through to "Unknown speaker" and let a roster edit silently
