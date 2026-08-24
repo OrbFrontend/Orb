@@ -10,9 +10,14 @@ also why this feature's ``runtime`` is ``llama_server`` and it needs none of
 ``requirements-ml.txt`` except ``huggingface_hub`` for the download.
 
 ADAPTED FROM ProseRewriterWebUI's threads-and-http.client original. Orb is
-async, so the thread-per-paragraph pool, the ``queue.Queue`` fan-in and the
-log-drain thread are gone: ``asyncio.create_subprocess_exec``, an ``httpx``
-client Orb already depends on, and one drain task.
+async, so the thread-per-paragraph pool and the ``queue.Queue`` fan-in are
+gone: ``asyncio.create_subprocess_exec``, an ``httpx`` client Orb already
+depends on, and one drain task.
+
+EXCEPT ON WINDOWS, WHERE ASYNCIO CANNOT SPAWN A PROCESS AT ALL under the event
+loop Orb actually runs on, and says so with a bare ``NotImplementedError``.
+:func:`_can_spawn_async` explains why; :class:`_ThreadChild` is the fallback,
+and the reference's log-drain thread comes back with it.
 
 THE CHILD IS BOUND TO LOOPBACK ON AN EPHEMERAL PORT and is not the thing anyone
 connects to. Its own web UI is off, and nothing here exposes the port, because
@@ -38,9 +43,12 @@ import logging
 import os
 import socket
 import subprocess
+import threading
 import time
 from collections import deque
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Protocol
 
 import httpx
 
@@ -109,6 +117,208 @@ def _error_text(blob: str) -> str:
     return str(payload)
 
 
+# ── spawning a child, on whatever loop we were given ─────────────────────────
+
+
+def _can_spawn_async() -> bool:
+    """Whether the running event loop implements ``create_subprocess_exec``.
+
+    Only Windows ever says no, and it says it in the worst way available: a
+    bare ``NotImplementedError`` off ``BaseEventLoop._make_subprocess_transport``,
+    no message, several frames inside asyncio. Windows implements subprocesses
+    on the **Proactor** loop alone, and uvicorn selects the **Selector** loop on
+    win32 whenever ``--reload`` or ``--workers`` is in play
+    (``uvicorn/loops/asyncio.py``) -- which is exactly what ``run_windows.bat``
+    passes. So this is not an exotic configuration to survive: it is every
+    Windows install that uses the shipped launcher, and :class:`_ThreadChild` is
+    the ordinary path there rather than a degraded one.
+
+    Probed rather than assumed from ``os.name``, so a Windows user who runs Orb
+    without ``--reload`` still gets the cheaper path.
+    """
+    if not runtime.IS_WINDOWS:
+        return True
+    proactor = getattr(asyncio, "ProactorEventLoop", None)  # Windows-only symbol
+    return proactor is not None and isinstance(asyncio.get_running_loop(), proactor)
+
+
+def _decode(raw: bytes) -> str:
+    """One log line as text.
+
+    Decoded as UTF-8 explicitly: llama.cpp writes UTF-8, and on Windows the
+    locale code page cannot represent most of what a GGUF's metadata puts in
+    that log -- a decode error here would kill the only reader that could have
+    told us why the child refused to load.
+    """
+    return raw.decode("utf-8", "replace").rstrip()
+
+
+class Child(Protocol):
+    """A spawned llama-server, reduced to what :class:`LlamaServer` asks of it.
+
+    Log lines are *pushed* to a sink rather than pulled, because the two
+    implementations disagree about which thread they arrive on and pushing is
+    the only shape that does not make that the caller's problem.
+    """
+
+    async def start(self, argv: Sequence[str]) -> None: ...
+
+    @property
+    def returncode(self) -> int | None:
+        """Exit status, or ``None`` while it runs. Never blocks -- ``wait_ready``
+        asks on every poll of a boot that can take five minutes."""
+        ...
+
+    async def wait(self, timeout: float) -> bool:
+        """Wait for exit. ``False`` when *timeout* elapsed first."""
+        ...
+
+    def terminate(self) -> None: ...
+
+    def kill(self) -> None: ...
+
+    async def aclose(self) -> None:
+        """Stop reading the log. Called once the process is already gone."""
+        ...
+
+
+class _AsyncChild:
+    """``asyncio.create_subprocess_exec`` plus a drain task. The good path."""
+
+    def __init__(self, sink: Callable[[str], None]) -> None:
+        self._sink = sink
+        self._process: asyncio.subprocess.Process | None = None
+        self._drain: asyncio.Task | None = None
+
+    async def start(self, argv: Sequence[str]) -> None:
+        self._process = await asyncio.create_subprocess_exec(
+            *argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        self._drain = asyncio.create_task(self._pump())
+
+    async def _pump(self) -> None:
+        process = self._process
+        assert process is not None and process.stdout is not None
+        async for raw in process.stdout:
+            self._sink(_decode(raw))
+
+    @property
+    def returncode(self) -> int | None:
+        return None if self._process is None else self._process.returncode
+
+    async def wait(self, timeout: float) -> bool:
+        if self._process is None:
+            return True
+        try:
+            await asyncio.wait_for(self._process.wait(), timeout=timeout)
+        except TimeoutError:
+            return False
+        return True
+
+    def terminate(self) -> None:
+        if self._process is not None and self._process.returncode is None:
+            self._process.terminate()
+
+    def kill(self) -> None:
+        if self._process is not None and self._process.returncode is None:
+            self._process.kill()
+
+    async def aclose(self) -> None:
+        drain, self._drain = self._drain, None
+        if drain is not None:
+            drain.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await drain
+
+
+class _ThreadChild:
+    """``subprocess.Popen`` plus a reader thread, for a loop that cannot spawn.
+
+    Nothing blocking runs on the event loop: reading the pipe is the thread's
+    entire job and all it hands back is a decoded line, and both waits go
+    through :func:`asyncio.to_thread`. The thread is a daemon because a child
+    that ignores ``kill`` must not be able to hold up interpreter exit --
+    ``shutdown()`` has already done everything it can by that point.
+    """
+
+    def __init__(self, sink: Callable[[str], None]) -> None:
+        self._sink = sink
+        self._process: subprocess.Popen[bytes] | None = None
+        self._reader: threading.Thread | None = None
+
+    async def start(self, argv: Sequence[str]) -> None:
+        self._process = subprocess.Popen(  # noqa: S603 — binary resolved by runtime.find_binary
+            list(argv),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            # The child is a console program and Orb may have been started from
+            # a shortcut rather than a console: without this a black window sits
+            # on the desktop for as long as the model is loaded. Zero everywhere
+            # else, where Popen rejects a non-zero value outright.
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        self._reader = threading.Thread(target=self._pump, name="orb-llama-log", daemon=True)
+        self._reader.start()
+
+    def _pump(self) -> None:
+        process = self._process
+        assert process is not None and process.stdout is not None
+        try:
+            # `iter(readline, b"")` rather than iterating the file: a pipe read
+            # ahead in block-sized chunks would hold back the very lines a boot
+            # failure is diagnosed from until the buffer filled.
+            for raw in iter(process.stdout.readline, b""):
+                self._sink(_decode(raw))
+        finally:
+            with contextlib.suppress(Exception):
+                process.stdout.close()
+
+    @property
+    def returncode(self) -> int | None:
+        # poll(), not `.returncode`: Popen only fills that attribute in when
+        # something asks, so reading it bare reports a dead child as running.
+        return None if self._process is None else self._process.poll()
+
+    async def wait(self, timeout: float) -> bool:
+        process = self._process
+        if process is None:
+            return True
+
+        def _wait() -> bool:
+            try:
+                process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                return False
+            return True
+
+        return await asyncio.to_thread(_wait)
+
+    def terminate(self) -> None:
+        if self._process is not None and self._process.poll() is None:
+            self._process.terminate()
+
+    def kill(self) -> None:
+        if self._process is not None and self._process.poll() is None:
+            self._process.kill()
+
+    async def aclose(self) -> None:
+        reader, self._reader = self._reader, None
+        if reader is not None:
+            # The read loop ends at EOF, which is the child's death, so by the
+            # time this is called the join is only collecting last words. Still
+            # bounded: a child that survived kill() must not hang shutdown.
+            await asyncio.to_thread(reader.join, 5.0)
+
+
+async def spawn(argv: Sequence[str], sink: Callable[[str], None]) -> Child:
+    """Start *argv*, whichever way this event loop is able to."""
+    child: Child = _AsyncChild(sink) if _can_spawn_async() else _ThreadChild(sink)
+    await child.start(argv)
+    return child
+
+
 class LlamaServer:
     """A running child, and the three endpoints this feature asks it for:
     ``/health`` while it loads, ``/tokenize`` to size a job, ``/completion``
@@ -119,9 +329,13 @@ class LlamaServer:
         self.port = _free_port()
         self.started_at = time.monotonic()
         self.log: deque[str] = deque(maxlen=60)
+        # Guards `log` alone. Under _ThreadChild the reader appends from its own
+        # thread while `tail()` snapshots from the loop, and iterating a deque
+        # mid-append raises -- in the boot-failure path, which is the one place
+        # the log has to survive.
+        self._log_lock = threading.Lock()
         self.ready = False
-        self.process: asyncio.subprocess.Process | None = None
-        self._drain_task: asyncio.Task | None = None
+        self.child: Child | None = None
         self._client: httpx.AsyncClient | None = None
         self.argv = [
             str(binary),
@@ -152,34 +366,27 @@ class LlamaServer:
             self.argv.append("--no-webui")
 
     async def start(self) -> None:
-        self.process = await asyncio.create_subprocess_exec(
-            *self.argv,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-        self._drain_task = asyncio.create_task(self._drain())
+        self.child = await spawn(self.argv, self._log_line)
         self._client = httpx.AsyncClient(base_url=f"http://127.0.0.1:{self.port}", timeout=30.0)
 
-    async def _drain(self) -> None:
+    def _log_line(self, line: str) -> None:
         """Keep the last 60 log lines so a boot failure can report *why*.
 
-        Decoded as UTF-8 explicitly: llama.cpp writes UTF-8, and on Windows the
-        locale code page cannot represent most of what a GGUF's metadata puts
-        in that log — a decode error here would kill the only reader that could
-        have told us why the child refused to load.
+        Reached from the drain task or from the reader thread depending on how
+        the child was spawned, so it may not assume it owns the loop.
         """
-        assert self.process is not None and self.process.stdout is not None
-        async for raw in self.process.stdout:
-            line = raw.decode("utf-8", "replace").rstrip()
+        with self._log_lock:
             self.log.append(line)
-            logger.debug("llama | %s", line)
+        logger.debug("llama | %s", line)
 
     def tail(self, n: int = 12) -> str:
-        return "\n".join(list(self.log)[-n:])
+        with self._log_lock:
+            lines = list(self.log)
+        return "\n".join(lines[-n:])
 
     @property
     def alive(self) -> bool:
-        return self.process is not None and self.process.returncode is None
+        return self.child is not None and self.child.returncode is None
 
     async def wait_ready(self, timeout: float = BOOT_TIMEOUT) -> None:
         """Poll ``/health`` until ok, or say why it never will.
@@ -188,11 +395,16 @@ class LlamaServer:
         is generous; what it is really for is the case where the child died,
         which shows up here as a returncode that is no longer None.
         """
-        assert self.process is not None
+        assert self.child is not None
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            code = self.process.returncode
+            code = self.child.returncode
             if code is not None:
+                # Drain before reporting: the reason the child gave up is in its
+                # last few lines, and the reader can still be behind them. This
+                # is the one message anybody diagnoses a bad GGUF or a Vulkan
+                # build with no loader from, so it does not get to be racy.
+                await self.stop()
                 raise RuntimeError(
                     f"llama-server exited with status {code} while loading {self.variant.local_name}:\n{self.tail()}"
                 )
@@ -209,24 +421,22 @@ class LlamaServer:
 
     async def stop(self) -> None:
         self.ready = False
-        process, self.process = self.process, None
+        child, self.child = self.child, None
         if self._client is not None:
             await self._client.aclose()
             self._client = None
-        if self._drain_task is not None:
-            self._drain_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await self._drain_task
-            self._drain_task = None
-        if process is None or process.returncode is not None:
+        if child is None:
             return
-        process.terminate()
-        try:
-            await asyncio.wait_for(process.wait(), timeout=15)
-        except TimeoutError:
-            process.kill()
-            with contextlib.suppress(Exception):
-                await asyncio.wait_for(process.wait(), timeout=5)
+        if child.returncode is None:
+            child.terminate()
+            if not await child.wait(timeout=15):
+                child.kill()
+                await child.wait(timeout=5)
+        # AFTER the process is gone, not before. The drain is what captures a
+        # dying child's last words, and `tail()` is how `wait_ready` explains a
+        # boot failure — closing it first threw away the explanation.
+        with contextlib.suppress(Exception):
+            await child.aclose()
 
     # ── requests ─────────────────────────────────────────────────────────────
 
