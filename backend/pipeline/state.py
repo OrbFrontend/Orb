@@ -101,6 +101,7 @@ _RESULT_FIELDS = (
     "latency",
     "effective_msg",
     "resp_text",
+    "writer_draft",
     "inj_block",
     "extra_fields",
     "progressive_fields",
@@ -198,6 +199,11 @@ class TurnState:
 
     # --- writer / editor outputs ---
     resp_text: str = ""
+    # Writer text after any group-speaker label has been stripped and inline
+    # macros have been frozen, but before the local rewriter, Editor, or
+    # post-pipeline workflows modify it. This travels in ``_result`` so
+    # persistence can retain the source for an on-demand local rewrite later.
+    writer_draft: str = ""
     writer_content: str | list[ContentPart] = ""
     reasoning_director: str = ""
     reasoning_writer: str = ""

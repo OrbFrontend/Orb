@@ -210,7 +210,8 @@ const LOCAL_ML_DESCS = {
   slop_classifier: "Unlock AI slop scorer.",
   emotion_classifier: "Track a character's mood with expression images in the avatar popup.",
   pov_classifier: "Auto POV for image-gen.",
-  prose_rewriter: "Rewrite each paragraph with a local model, before the Editor audits the result.",
+  prose_rewriter:
+    "Rewrite each paragraph with a local model before the Editor audits the result, or apply it on demand below an assistant reply from its original Writer draft.",
 };
 
 // Tri-state per feature: deps missing → grayed Download + hint; deps ok & model

@@ -15,11 +15,13 @@ import { runStreamRequest, turnPayload } from "./chat_stream.js";
 import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
 import { confirmDelete } from "./modal.js";
 import { isUtilityPanelOpen } from "./panels.js";
+import { sseEvents, streamPost } from "./sse.js";
 import { S } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
 import {
   $,
   convUrl,
+  formatProse,
   initChatScrollFollow,
   resolvePlaceholders,
   scrollToBottom,
@@ -151,6 +153,91 @@ export async function deleteMessage(msgId) {
       toast(e.message, true);
     }
   });
+}
+
+// Rewrite the original Writer draft retained for one saved assistant reply with the
+// configured local model. This does not create a sibling or run
+// Director/Writer/Editor; the backend changes the selected message in place
+// and keeps pending World proposals in sync with the new source text.
+export async function rewriteMessageProse(msgId, btn) {
+  if (!S.activeConvId || S.isStreaming || S.isProseRewriting) return;
+  if (!requestSendPermission()) return;
+  const source = S.messages.find((m) => m.id === msgId)?.content || "";
+  const abortController = new AbortController();
+  const sendBtn = $("send-btn");
+  const stopBtn = $("stop-btn");
+  let completed = false;
+  S.isProseRewriting = true;
+  // Reuse the standard Stop control. stopGeneration() aborts this controller
+  // and signals the backend's per-conversation token, just as it does for a
+  // normal Writer stream.
+  S.abortController = abortController;
+  sendBtn.disabled = true;
+  sendBtn.style.display = "none";
+  stopBtn.style.display = "flex";
+  stopBtn.title = "Stop prose rewrite";
+  if (btn) btn.disabled = true;
+  try {
+    const response = await streamPost(
+      convUrl(S.activeConvId, "messages", msgId, "prose-rewrite"),
+      {},
+      abortController.signal,
+    );
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      const error = new Error(body || `Orb returned HTTP ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+    for await (const { event, data } of sseEvents(response.body, { signal: abortController.signal })) {
+      if (event === "prose_rewrite_update") {
+        try {
+          applyProseRewriteSnapshot(msgId, JSON.parse(data).draft);
+        } catch (_) {}
+      } else if (event === "prose_rewrite_done") {
+        const result = JSON.parse(data);
+        completed = true;
+        if (result.aborted) toast("Prose rewrite stopped");
+        else if (result.warning) toast(`Prose rewriter didn't run: ${result.warning}`, true);
+        applyProseRewriteSnapshot(msgId, result.content);
+        // Re-fetch rather than patch only the message text: the backend also
+        // marks proposals sourced from this response stale, and their cards
+        // must repaint along with the final persistent result.
+        setMessages(await api.get(convUrl(S.activeConvId, "messages")));
+        renderMessages();
+        scrollToMessage(msgId);
+        if (!result.warning && !result.aborted) toast(result.changed ? "Message rewritten" : "No prose changes needed");
+      } else if (event === "error") {
+        throw new Error(data || "Prose rewrite failed");
+      }
+    }
+    if (!completed) throw new Error("Prose rewrite stream ended before completion");
+  } catch (e) {
+    if (abortController.signal.aborted || e?.name === "AbortError") toast("Prose rewrite stopped");
+    else if (e.status === 503) toast("Enable & download the Prose Rewriter in Settings → Local ML");
+    else {
+      console.error("prose rewrite failed", e);
+      toast("Prose rewrite failed", true);
+    }
+  } finally {
+    // A dropped stream never persists a partial snapshot. Put the saved source
+    // back into the bubble instead of leaving a local-only intermediate draft.
+    if (!completed) applyProseRewriteSnapshot(msgId, source);
+    S.isProseRewriting = false;
+    if (S.abortController === abortController) S.abortController = null;
+    sendBtn.disabled = false;
+    sendBtn.style.display = "flex";
+    stopBtn.style.display = "none";
+    stopBtn.title = "Stop generation";
+    if (btn) btn.disabled = false;
+  }
+}
+
+function applyProseRewriteSnapshot(msgId, content) {
+  const message = S.messages.find((m) => m.id === msgId);
+  if (message) message.content = content;
+  const body = document.querySelector(`#chat-messages .message[data-msg-id="${msgId}"] .msg-body`);
+  if (body) body.innerHTML = formatProse(resolvePlaceholders(content));
 }
 
 export async function switchBranch(msgId) {

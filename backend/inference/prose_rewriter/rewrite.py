@@ -1,9 +1,10 @@
 """One draft in, one rewritten draft out.
 
-``plan`` splits the draft into slots BEFORE anything runs, because the
-paragraphs are generated simultaneously and finish out of order; the layout is
-what puts each one back where it belongs, and what lets a partial assembly be
-emitted as a ``draft_update`` while the rest are still decoding.
+``plan`` splits the draft into slots BEFORE anything runs. Paragraphs generate
+simultaneously for throughput, but progress is published in document order:
+the reader should see the top of the draft settle before a later paragraph
+changes. The layout puts each rewrite back where it belongs and lets a partial
+assembly be emitted while the rest are still decoding.
 
 DEVIATION FROM ProseRewriterWebUI, and it is the only one that matters. The
 reference *raises* on a paragraph over 512 tokens ("add a blank line to split
@@ -73,9 +74,11 @@ async def arewrite(
 ) -> str:
     """Rewrite *draft* paragraph-by-paragraph and return the reassembled text.
 
-    *on_progress* is awaited with the whole current assembly each time a
-    paragraph lands — paragraphs finish out of order, so a delta would be
-    meaningless and the caller repaints the document instead.
+    *on_progress* is awaited with the whole current assembly after each
+    contiguous top-to-bottom run of completed paragraphs. Generation remains
+    concurrent, but a lower paragraph never visibly changes ahead of one above
+    it; a delta would still be meaningless, so the caller repaints the document
+    instead.
 
     Raises on anything that stops the rewrite happening at all (no binary, no
     GGUF, boot failure, HTTP error). The Editor-pass caller turns that into a
@@ -90,6 +93,12 @@ async def arewrite(
         return draft
 
     done: dict[int, str] = {}
+    completed: set[int] = set()
+    # ``jobs`` is in source order. A later paragraph may finish first, but its
+    # snapshot waits here until every preceding job has settled (whether it
+    # rewrote successfully or correctly passed through unchanged).
+    next_progress = 0
+    last_snapshot = draft
     # Twice the slot count keeps the scheduler fed at all times — there is
     # always a request waiting to fill a slot the moment one frees — without
     # opening ninety-six connections for a ninety-six-paragraph draft.
@@ -97,24 +106,36 @@ async def arewrite(
     lock = asyncio.Lock()
 
     async def run(index: int, source: str) -> None:
+        nonlocal last_snapshot, next_progress
         async with admit:
+            result = ""
             n = await server.count_tokens(source)
             if n > T.MAX_SOURCE_TOKENS:
                 # Out past the trained envelope. Passing it through is the
                 # honest answer; the reference errors because a human can split it.
                 logger.info("Prose rewriter: paragraph %d is %d tokens (>%d); left unchanged", index, n, T.MAX_SOURCE_TOKENS)
-                return
-            raw, stopped = await server.generate(
-                T.serve_prompt(source), n_predict=budget(n), temperature=TEMPERATURE, top_p=TOP_P
-            )
-            result = T.finish(raw, stopped)
-            if not result:
-                return  # nothing usable; the slot keeps the writer's paragraph
+            else:
+                raw, stopped = await server.generate(
+                    T.serve_prompt(source), n_predict=budget(n), temperature=TEMPERATURE, top_p=TOP_P
+                )
+                result = T.finish(raw, stopped)
             async with lock:
-                done[index] = result
-                snapshot = assemble(layout, done)
-            if on_progress is not None:
-                await on_progress(snapshot)
+                if result:
+                    done[index] = result
+                completed.add(index)
+
+                # Awaiting a callback while holding this small bookkeeping lock
+                # serializes its delivery too. In production it is an unbounded
+                # Queue.put (no wait), and this keeps a slow custom callback from
+                # letting a newer snapshot overtake an older one.
+                advanced = False
+                while next_progress < len(jobs) and jobs[next_progress][0] in completed:
+                    next_progress += 1
+                    advanced = True
+                snapshot = assemble(layout, done) if advanced else ""
+                if on_progress is not None and snapshot and snapshot != last_snapshot:
+                    last_snapshot = snapshot
+                    await on_progress(snapshot)
 
     async with host.acquire():
         await asyncio.gather(*(run(i, source) for i, source in jobs))

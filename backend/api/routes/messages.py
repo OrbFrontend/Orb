@@ -3,7 +3,9 @@ SSE-streaming regenerate / rewrite endpoints."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import asyncio
+import contextlib
+from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -30,7 +32,7 @@ from ...database import (
     update_message_content,
 )
 from ...database.models import ConversationRow
-from ...inference import local_ml
+from ...inference import AbortToken, local_ml
 from ...pipeline import (
     handle_fork_edit,
     handle_magic_rewrite,
@@ -38,6 +40,11 @@ from ...pipeline import (
     handle_speak,
     handle_super_regenerate,
     handle_turn,
+)
+from ...pipeline.passes.editor.slm_rewrite import (
+    ProseRewrite,
+    prose_rewrite_step,
+    resolve_prose_rewrite,
 )
 from ...pipeline.predicates import resolve_persona_id
 from ..deps import (
@@ -234,6 +241,123 @@ async def api_magic_rewrite_msg(
 ):
     """Magic rewrite: runs the full pipeline as a new sibling steered by a user-supplied direction."""
     return _pipeline_sse_response(lambda tok: handle_magic_rewrite(cid, msg_id, data.direction, abort_token=tok), request, cid)
+
+
+async def _stream_prose_rewrite_message(
+    cid: str,
+    msg_id: int,
+    config: ProseRewrite,
+    abort_token: AbortToken,
+) -> AsyncIterator[dict]:
+    """Stream an assistant row's original Writer draft through the local rewriter.
+
+    The shared prose step provides whole-draft snapshots in visible document
+    order. Unlike the in-turn caller, this stream persists only after its
+    final ``rewritten`` event, so a disconnected or failed request leaves the
+    saved message byte-identical. This generator begins only after the SSE
+    layer acquires the conversation lock, so loading the row here prevents a
+    pre-stream edit from being overwritten with stale content.
+    """
+    message = await get_message_by_id(msg_id)
+    if not message or message["conversation_id"] != cid or message["role"] != "assistant":
+        yield {"event": "error", "data": "Message changed or was deleted before the prose rewrite started"}
+        return
+    writer_draft = message.get("writer_draft")
+    if writer_draft is None:
+        yield {"event": "error", "data": "Original Writer draft is unavailable for this message"}
+        return
+    current_content = message["content"] or ""
+    rewritten = writer_draft
+    warning = ""
+    events = prose_rewrite_step(writer_draft, config)
+    try:
+        while True:
+            next_event = asyncio.create_task(anext(events))
+            abort_wait = asyncio.create_task(abort_token.wait())
+            done, _pending = await asyncio.wait({next_event, abort_wait}, return_when=asyncio.FIRST_COMPLETED)
+            if abort_wait in done:
+                if not next_event.done():
+                    next_event.cancel()
+                with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration, Exception):
+                    await next_event
+                yield {
+                    "event": "prose_rewrite_done",
+                    "data": {
+                        "message_id": msg_id,
+                        "content": current_content,
+                        "changed": False,
+                        "warning": "",
+                        "aborted": True,
+                    },
+                }
+                return
+
+            abort_wait.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await abort_wait
+            try:
+                event = next_event.result()
+            except StopAsyncIteration:
+                break
+            if event["type"] == "draft_update":
+                yield {"event": "prose_rewrite_update", "data": {"message_id": msg_id, "draft": event["draft"]}}
+            elif event["type"] == "rewritten":
+                rewritten = event["draft"]
+            elif event["type"] == "warning":
+                warning = event["reason"]
+    finally:
+        await events.aclose()
+
+    changed = not warning and rewritten != current_content
+    if changed:
+        await update_message_content(msg_id, rewritten)
+        await mark_changesets_stale_for_messages([msg_id])
+    yield {
+        "event": "prose_rewrite_done",
+        "data": {
+            "message_id": msg_id,
+            "content": rewritten if not warning else current_content,
+            "changed": changed,
+            "warning": warning,
+        },
+    }
+
+
+@router.post("/api/conversations/{cid}/messages/{msg_id}/prose-rewrite")
+async def api_prose_rewrite_message(
+    cid: str,
+    msg_id: int,
+    request: Request,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
+    """Stream the local prose rewriter over one saved assistant message.
+
+    This is deliberately separate from Magic Rewrite: it has no remote-model
+    call, direction, or branch. It applies the configured local model to the
+    original Writer draft retained for the selected response and preserves the
+    message tree. A changed source invalidates any still-pending World proposal
+    that was inferred from it.
+    """
+    message = await get_message_by_id(msg_id)
+    if not message or message["conversation_id"] != cid:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if message["role"] != "assistant":
+        raise HTTPException(status_code=400, detail="Only assistant messages can be rewritten")
+    writer_draft = message.get("writer_draft")
+    if writer_draft is None:
+        raise HTTPException(status_code=409, detail="Original Writer draft is unavailable for this message")
+
+    config = resolve_prose_rewrite(await get_settings())
+    if config is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Prose rewriter unavailable: enable it and download a model in Settings → Local ML",
+        )
+    return _pipeline_sse_response(
+        lambda tok: _stream_prose_rewrite_message(cid, msg_id, config, tok),
+        request,
+        cid,
+    )
 
 
 @router.post("/api/conversations/{cid}/send")

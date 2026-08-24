@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncGenerator, Mapping
 from typing import Any, TypedDict
 
 from ....inference import local_ml, prose_rewriter
@@ -65,13 +65,14 @@ def resolve_prose_rewrite(settings: Mapping[str, Any]) -> ProseRewrite | None:
     return {"variant_id": variant_id, "gpu": bool(config.get("gpu", True))}
 
 
-async def prose_rewrite_step(draft: str, config: ProseRewrite) -> AsyncIterator[dict]:
+async def prose_rewrite_step(draft: str, config: ProseRewrite) -> AsyncGenerator[dict, None]:
     """Rewrite *draft*, yielding the editor pass's internal event vocabulary.
 
     Yields:
         ``{"type": "draft_update", "draft": str}`` — one per completed
-        paragraph, carrying the WHOLE current assembly rather than a delta;
-        paragraphs finish out of order, so there is no meaningful delta.
+        top-to-bottom run of paragraphs, carrying the WHOLE current assembly
+        rather than a delta; generation is concurrent, so there is no
+        meaningful delta.
         ``{"type": "warning", "reason": str}`` — the rewrite did not happen.
         ``{"type": "rewritten", "draft": str}`` — exactly once, last. Terminal
         and internal: ``editor_pass`` consumes it and never forwards it.

@@ -82,6 +82,10 @@ export const S = {
 
   // ── Streaming / generation lifecycle · owner: chat_stream.js
   isStreaming: false,
+  // A saved-message local rewrite holds the same backend conversation lock as
+  // generation, but does not create a streaming bubble. It reuses
+  // abortController so the normal Stop control can cancel it.
+  isProseRewriting: false,
   streamingBodyEl: null,
   streamCutoffIndex: null,
   abortController: null,
