@@ -121,7 +121,7 @@ MODELS: dict[str, ModelSpec] = {
             Variant(
                 id="1.7b-q8",
                 label="1.7B · Q8_0",
-                detail="Fastest. The smaller checkpoint, at effectively full precision.",
+                detail="Fastest, good enough.",
                 repo_id=_PROSE_1_7B_REPO,
                 path="GGUF/prose-rewriter-1.7b-v1.2-Q8_0.gguf",
                 revision=_PROSE_1_7B_REV,
@@ -132,7 +132,7 @@ MODELS: dict[str, ModelSpec] = {
             Variant(
                 id="4b-q4km",
                 label="4B · Q4_K_M",
-                detail="The larger checkpoint at 1.7B's footprint, with quantisation error.",
+                detail="Medium quality.",
                 repo_id=_PROSE_4B_REPO,
                 path="GGUF/prose-rewriter-4b-v1.2-Q4_K_M.gguf",
                 revision=_PROSE_4B_REV,
@@ -143,7 +143,7 @@ MODELS: dict[str, ModelSpec] = {
             Variant(
                 id="4b-q8",
                 label="4B · Q8_0",
-                detail="Best quality. Invents less than the 1.7B at equal copy rate.",
+                detail="Best quality, invents the least.",
                 repo_id=_PROSE_4B_REPO,
                 path="GGUF/prose-rewriter-4b-v1.2-Q8_0.gguf",
                 revision=_PROSE_4B_REV,

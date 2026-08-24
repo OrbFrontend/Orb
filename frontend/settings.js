@@ -216,7 +216,8 @@ const LOCAL_ML_DESCS = {
 // Tri-state per feature: deps missing → grayed Download + hint; deps ok & model
 // absent → active Download; model present → enable/disable toggle. Fetched fresh
 // (not from S.settings) because deps/present are server-filesystem facts.
-async function loadLocalMLSection() {
+async function loadLocalMLSection({ expectLoad = false } = {}) {
+  stopMlStateWatch();
   const el = $("local-ml-section");
   if (!el) return;
   let st;
@@ -242,6 +243,7 @@ async function loadLocalMLSection() {
     .map(([f, info]) => (info.variants ? variantCard(f, info) : simpleCard(f, info)))
     .join("");
   wireLocalMLSection(el);
+  watchMlStates(st.features, expectLoad);
 }
 
 // One enable toggle over one file: the shape every local-ML feature had before
@@ -269,10 +271,12 @@ const enableToggle = (f, on) =>
     <span class="tog-slider"></span>
   </label>`;
 
-// A feature that ships several interchangeable checkpoints: one row per
-// variant (download it, use it, delete it), a GPU switch, the llama.cpp runtime
-// row, and a self-test. The enable toggle only appears once something is on
-// disk — there is nothing to enable before that.
+// A feature that ships several interchangeable checkpoints renders as one
+// hairline-separated table: a radio to pick, the size, one action, and the
+// blurb on its own line beneath the name — a wrapping blurb sharing a row with
+// the controls is what made this card ragged. The enable toggle only appears
+// once something is on disk, and the runtime row only while it is missing:
+// nothing to enable, nothing to say.
 function variantCard(f, info) {
   const name = esc(LOCAL_ML_LABELS[f] || f);
   const desc = LOCAL_ML_DESCS[f] || "";
@@ -282,47 +286,103 @@ function variantCard(f, info) {
     <div class="tool-card-header"><span class="tool-card-name">${name}</span>
       ${anyPresent ? enableToggle(f, info.enabled) : ""}</div>
     ${desc ? `<div class="tool-card-desc">${desc}</div>` : ""}
-    <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">${rows}</div>
-    <label class="tool-card-desc" style="display:flex;align-items:center;gap:6px;margin-top:8px">
-      <input type="checkbox" ${info.gpu ? "checked" : ""} data-ml-act="gpu" data-ml-feature="${escAttr(f)}">
-      Run on GPU
-    </label>
+    <div class="ml-variants">${rows}</div>
     ${runtimeRow(info)}
-    ${stateRow(f, info)}
+    <div class="ml-foot">
+      <label class="ml-check">
+        <input type="checkbox" ${info.gpu ? "checked" : ""} data-ml-act="gpu" data-ml-feature="${escAttr(f)}">
+        Run on GPU
+      </label>
+      ${stateRow(f, info)}
+    </div>
   </div>`;
 }
 
+// Every cell is placed explicitly by class, so a row missing its radio (an
+// undownloaded variant) still lines its name up with the rows that have one.
 function variantRow(f, v, selected) {
   const attrs = `data-ml-feature="${escAttr(f)}" data-ml-variant="${escAttr(v.id)}"`;
-  const size = `${(v.size_mb / 1024).toFixed(1)} GB`;
-  const control = v.present
-    ? `<label class="tool-card-desc" style="display:flex;align-items:center;gap:4px;margin:0">
-         <input type="radio" name="local-ml-variant-${escAttr(f)}" ${v.id === selected ? "checked" : ""}
-                data-ml-act="select" ${attrs}> Use
-       </label>
-       <button class="btn btn-sm" data-ml-act="delete" ${attrs}>Delete</button>`
-    : `<button class="btn btn-sm" data-ml-act="download" ${attrs}>Download</button>`;
-  return `<div style="display:flex;align-items:center;gap:8px">
-    <span style="flex:1;min-width:0">${esc(v.label)}
-      <span class="tool-card-desc" style="display:block">${esc(v.detail)}</span></span>
-    <span class="tool-card-desc">${size}</span>${control}
+  const rid = escAttr(`ml-var-${f}-${v.id}`);
+  const on = v.present && v.id === selected;
+  const label = escAttr(v.label);
+  const pick = v.present
+    ? `<input type="radio" id="${rid}" name="local-ml-variant-${escAttr(f)}" ${on ? "checked" : ""}
+              aria-label="Use ${label}" data-ml-act="select" ${attrs}>
+       <label class="ml-variant-name" for="${rid}">${label}</label>`
+    : `<span class="ml-variant-name">${label}</span>`;
+  const act = v.present
+    ? `<button class="btn btn-xs btn-danger ml-variant-act" title="Delete" aria-label="Delete ${label}"
+               data-ml-act="delete" ${attrs}>×</button>`
+    : `<button class="btn btn-xs ml-variant-act" data-ml-act="download" ${attrs}>Download</button>`;
+  return `<div class="ml-variant${on ? " ml-variant-on" : ""}">
+    ${pick}
+    <span class="ml-variant-size">${(v.size_mb / 1024).toFixed(1)} GB</span>
+    ${act}
+    <div class="ml-variant-detail">${esc(v.detail)}</div>
   </div>`;
 }
 
+// Only speaks up when the binary is missing: an installed runtime is the
+// expected state, and the row vanishing is its own confirmation.
 function runtimeRow(info) {
-  if (info.runtime_ok) return '<div class="tool-card-desc" style="margin-top:8px">llama.cpp runtime: ready</div>';
-  return `<div class="tool-card-desc" style="display:flex;align-items:center;gap:8px;margin-top:8px">
-    <span style="flex:1;min-width:0">llama.cpp runtime: not installed</span>
-    <button class="btn btn-sm" data-ml-act="runtime">Download (~100 MB)</button>
+  if (info.runtime_ok) return "";
+  return `<div class="ml-runtime">
+    <span>llama.cpp runtime</span>
+    <button class="btn btn-xs" data-ml-act="runtime">Download · 100 MB</button>
   </div>`;
 }
 
 // `state` is the host's own swap state, so "loading" here is a real model load
 // rather than a spinner this panel invented.
 function stateRow(f, info) {
-  return `<div class="tool-card-desc" id="local-ml-state-${escAttr(f)}" style="margin-top:8px">${esc(
-    info.state || "idle",
-  )}${info.error ? `: ${esc(info.error)}` : ""}</div>`;
+  const cls = info.state === "loading" ? " ml-foot-loading" : info.error ? " ml-foot-error" : "";
+  return `<span class="ml-foot-state${cls}" id="local-ml-state-${escAttr(f)}">${esc(mlStateText(info))}</span>`;
+}
+
+const mlStateText = (info) => `${info.state || "idle"}${info.error ? `: ${info.error}` : ""}`;
+
+// Status is a snapshot, and one field in it is not settled when the snapshot is
+// taken: picking a variant, flipping GPU or enabling the feature kicks off a
+// background pre-warm that runs for as long as it takes to read 2-5 GB off
+// disk. The read that follows the write therefore always says "loading", and
+// with nothing re-reading it, that is what the card said forever. So poll while
+// a load is in flight — and patch only the state line, never re-render: a
+// re-render would wipe the busy row off a download running in the same card.
+const ML_STATE_POLL_MS = 1500;
+let mlStateTimer = null;
+
+function stopMlStateWatch() {
+  if (mlStateTimer !== null) clearTimeout(mlStateTimer);
+  mlStateTimer = null;
+}
+
+// `expectLoad` covers the race the state field cannot: a pre-warm task that has
+// not reached the host yet still reads "idle", so the write paths ask for one
+// poll regardless and let its answer decide whether to keep going.
+function watchMlStates(features, expectLoad) {
+  stopMlStateWatch();
+  const loading = Object.values(features).some((info) => info.state === "loading");
+  if (!loading && !expectLoad) return;
+  mlStateTimer = setTimeout(pollMlStates, ML_STATE_POLL_MS);
+}
+
+async function pollMlStates() {
+  mlStateTimer = null;
+  if (!$("local-ml-section")) return; // panel closed — nothing to write into
+  let st;
+  try {
+    st = await api.get("/local-ml/status");
+  } catch (_e) {
+    return; // a dropped poll costs nothing; the next render re-reads
+  }
+  for (const [f, info] of Object.entries(st.features)) {
+    const el = $(`local-ml-state-${f}`);
+    if (!el) continue;
+    el.textContent = mlStateText(info);
+    el.classList.toggle("ml-foot-error", Boolean(info.error));
+    el.classList.toggle("ml-foot-loading", info.state === "loading");
+  }
+  watchMlStates(st.features, false);
 }
 
 // ONE delegated listener per section, not inline on*= handlers: a variant card
@@ -374,7 +434,7 @@ async function saveLocalMlConfig(feature, patch) {
   } catch (e) {
     toast(e.message || "Failed to save", true);
   }
-  loadLocalMLSection();
+  loadLocalMLSection({ expectLoad: true }); // the config write pre-warms in the background
 }
 
 function deleteLocalMlModel(feature, variant) {
@@ -388,32 +448,47 @@ function deleteLocalMlModel(feature, variant) {
   });
 }
 
+// A download is a progressless multi-minute POST, so "working" has to be a state
+// of the row rather than a longer word on the button: a "Downloading…" label
+// outgrew the fixed action column and printed over the size beside it. The row
+// (or the whole card, for a feature with no variant rows) takes the generation
+// bar's sliding sliver, and every action in the card goes inert — a second
+// multi-GB fetch queued behind the first is not a thing anyone means to ask for.
+// Returns the undo, for the failure path; success re-renders the section anyway.
+function beginMlBusy(btn) {
+  const scope = btn?.closest(".ml-variant, .ml-runtime, .tool-card");
+  if (!scope) return () => {};
+  const others = [...(btn.closest(".tool-card")?.querySelectorAll("button[data-ml-act]") ?? [btn])];
+  scope.classList.add("ml-busy");
+  scope.setAttribute("aria-busy", "true");
+  for (const b of others) b.disabled = true;
+  return () => {
+    scope.classList.remove("ml-busy");
+    scope.removeAttribute("aria-busy");
+    for (const b of others) b.disabled = false;
+  };
+}
+
 async function fetchLlamaRuntime(btn) {
   const gpu = $("local-ml-section")?.querySelector('input[data-ml-act="gpu"]');
-  btn.disabled = true;
-  btn.textContent = "Downloading…";
+  const endBusy = beginMlBusy(btn);
   try {
     await api.post("/local-ml/prose_rewriter/runtime", { backend: gpu?.checked === false ? "cpu" : "gpu" });
   } catch (e) {
     toast(e.message || "Runtime download failed", true);
+    endBusy();
   }
   loadLocalMLSection();
 }
 
 export async function downloadLocalMlModel(feature, variant, btn) {
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "Downloading…";
-  }
+  const endBusy = beginMlBusy(btn);
   try {
     await api.post(`/local-ml/${feature}/download`, variant ? { variant } : {});
     await loadLocalMLSection(); // flips the card to a toggle
   } catch (e) {
     toast(e.message || "Download failed", true);
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = "Download";
-    }
+    endBusy();
   }
 }
 
@@ -424,7 +499,7 @@ export async function toggleLocalMlEnabled(feature, on) {
   } catch (_e) {
     toast("Failed to toggle", true);
   }
-  loadLocalMLSection();
+  loadLocalMLSection({ expectLoad: on }); // enabling pre-warms; disabling has nothing to wait for
 }
 
 // ── Agent Tools Panel

@@ -58,9 +58,10 @@ Settings → **Local ML** → *Prose Rewriter*.
 
 The rewriter does not use `llama-cpp-python`; it drives a `llama-server` child
 process, which is what buys continuous batching across paragraphs. Press
-**Download** on the runtime row (~100 MB) and Orb fetches a prebuilt binary from
+**Download** on the runtime row (100 MB) and Orb fetches a prebuilt binary from
 the official [`ggml-org/llama.cpp`](https://github.com/ggml-org/llama.cpp) releases
-into `backend/data/llama-bin/`.
+into `backend/data/llama-bin/`. The row is only there while the binary is missing —
+once it is installed the card stops mentioning it.
 
 !!! note "This downloads and then runs a native binary"
     It is the only place Orb does that. The archive comes from the official GitHub
@@ -85,12 +86,13 @@ Vulkan build being the one that was fetched, and the checkbox flips
 
 | Variant | Size | Notes |
 |---|---|---|
-| `1.7B · Q8_0` | 2.2 GB | Fastest. The smaller checkpoint at effectively full precision. |
-| `4B · Q4_K_M` | 2.7 GB | The larger checkpoint at the 1.7B's footprint, with quantisation error. |
-| `4B · Q8_0` | 4.7 GB | Best quality. Invents less than the 1.7B at equal copy rate. |
+| `1.7B · Q8_0` | 2.2 GB | Fastest, good enough. |
+| `4B · Q4_K_M` | 2.7 GB | Medium quality. |
+| `4B · Q8_0` | 4.7 GB | Best quality, invents the least. |
 
-Download one, pick **Use**, and switch the feature on. Each has a **Delete** next to
-it — 9.6 GB for all three is too much to leave with no exit but the file manager.
+Download one, select its radio, and switch the feature on. Each downloaded variant
+has a **×** next to it — 9.6 GB for all three is too much to leave with no exit but
+the file manager.
 
 Selecting a variant or flipping the GPU box **pre-warms** the model in the
 background, so it is hot by the time you leave Settings rather than costing you a
