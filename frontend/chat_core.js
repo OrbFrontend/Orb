@@ -36,7 +36,7 @@ import { messageProposalsHtml } from "./world_proposals.js";
 // replace. A user message with nobody picked is a rest the backend answers with
 // an empty speaking plan, not a turn to suppress.
 export function canStartGeneration() {
-  if (S.isStreaming || S.isProseRewriting) return false;
+  if (S.isStreaming || S.proseRewriteMsgId) return false;
   return requestSendPermission();
 }
 
@@ -140,9 +140,12 @@ export function buildMsgToolbar(m, childByParent = null) {
   // Unlike Magic Rewrite, this applies the configured local SLM to the original
   // Writer draft saved for this reply. Keep it on assistant text only:
   // rewriting a user's words in place would be an unexpected ownership change.
+  // Disabled from state rather than from the clicked node, so the busy button
+  // survives a re-render mid-rewrite. Only one rewrite runs at a time, so every
+  // message's button goes down together.
   const proseRewriteBtn =
     isAssistant && m.id && typeof m.writer_draft === "string" && S.settings?.local_ml_enabled?.prose_rewriter !== false
-      ? `<button class="msg-btn-prose-rewrite" onclick="rewriteMessageProse(${m.id},this)" title="Rewrite original Writer draft">${ICON_PROSE_REWRITE}</button>`
+      ? `<button class="msg-btn-prose-rewrite" onclick="rewriteMessageProse(${m.id})" title="Rewrite original Writer draft"${S.proseRewriteMsgId ? " disabled" : ""}>${ICON_PROSE_REWRITE}</button>`
       : "";
 
   const magicInput =
@@ -424,8 +427,15 @@ export function renderMessages(forceBottom = false) {
               // active lore, and a decided one belongs in the world drawer's
               // History rather than permanently under the reply.
               const proposalsHtml = messageProposalsHtml(m);
-              return `<div class="message ${m.role}" data-msg-id="${m.id}">
-        <div class="msg-role">${esc(speakerLabel(m))} ${branchHtml}</div>
+              // The prose rewriter edits a saved bubble in place with no streaming
+              // box of its own, so the role line names the work and the bubble
+              // wears an accent rail until the stream ends.
+              const isProseRewriting = !!m.id && m.id === S.proseRewriteMsgId;
+              const rewritingHtml = isProseRewriting
+                ? `<span class="msg-rewriting"><span class="dot"></span>Rewriting prose…</span>`
+                : "";
+              return `<div class="message ${m.role}${isProseRewriting ? " prose-rewriting" : ""}" data-msg-id="${m.id}">
+        <div class="msg-role">${esc(speakerLabel(m))} ${branchHtml}${rewritingHtml}</div>
         ${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${proposalsHtml}${toolbar}
       </div>`;
             })

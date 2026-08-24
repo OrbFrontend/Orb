@@ -10,7 +10,7 @@ import {
   renderMessages,
   setMessages,
 } from "./chat_core.js";
-import { renderInspector } from "./chat_inspector.js";
+import { clearWorkflowPhase, renderInspector, setWorkflowPhase } from "./chat_inspector.js";
 import { runStreamRequest, turnPayload } from "./chat_stream.js";
 import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
 import { confirmDelete } from "./modal.js";
@@ -155,19 +155,26 @@ export async function deleteMessage(msgId) {
   });
 }
 
+// Status-pill channel for the prose rewrite. Deliberately not a `workflow:` id —
+// setWorkflowPhase suppresses those for a disabled workflow, and the rewriter is
+// a Local ML feature with its own toggle, not a registered workflow. It only
+// borrows the pill, which is the app's one out-of-turn "something is running"
+// surface.
+const PROSE_REWRITE_CHANNEL = "prose-rewrite";
+
 // Rewrite the original Writer draft retained for one saved assistant reply with the
 // configured local model. This does not create a sibling or run
 // Director/Writer/Editor; the backend changes the selected message in place
 // and keeps pending World proposals in sync with the new source text.
-export async function rewriteMessageProse(msgId, btn) {
-  if (!S.activeConvId || S.isStreaming || S.isProseRewriting) return;
+export async function rewriteMessageProse(msgId) {
+  if (!S.activeConvId || S.isStreaming || S.proseRewriteMsgId) return;
   if (!requestSendPermission()) return;
   const source = S.messages.find((m) => m.id === msgId)?.content || "";
   const abortController = new AbortController();
   const sendBtn = $("send-btn");
   const stopBtn = $("stop-btn");
   let completed = false;
-  S.isProseRewriting = true;
+  S.proseRewriteMsgId = msgId;
   // Reuse the standard Stop control. stopGeneration() aborts this controller
   // and signals the backend's per-conversation token, just as it does for a
   // normal Writer stream.
@@ -176,7 +183,12 @@ export async function rewriteMessageProse(msgId, btn) {
   sendBtn.style.display = "none";
   stopBtn.style.display = "flex";
   stopBtn.title = "Stop prose rewrite";
-  if (btn) btn.disabled = true;
+  // Two signals, because either one alone can be off-screen: the bubble itself
+  // is marked busy, and the out-of-turn status pill above the composer says what
+  // the Stop button next to it would cancel. Paint both before the request goes
+  // out — the first snapshot waits on a model boot as well as a paragraph.
+  renderMessages();
+  setWorkflowPhase(PROSE_REWRITE_CHANNEL, "Rewriting prose…");
   try {
     const response = await streamPost(
       convUrl(S.activeConvId, "messages", msgId, "prose-rewrite"),
@@ -202,10 +214,9 @@ export async function rewriteMessageProse(msgId, btn) {
         applyProseRewriteSnapshot(msgId, result.content);
         // Re-fetch rather than patch only the message text: the backend also
         // marks proposals sourced from this response stale, and their cards
-        // must repaint along with the final persistent result.
+        // must repaint along with the final persistent result. The repaint
+        // itself happens in `finally`, once the busy marks are cleared.
         setMessages(await api.get(convUrl(S.activeConvId, "messages")));
-        renderMessages();
-        scrollToMessage(msgId);
         if (!result.warning && !result.aborted) toast(result.changed ? "Message rewritten" : "No prose changes needed");
       } else if (event === "error") {
         throw new Error(data || "Prose rewrite failed");
@@ -223,13 +234,18 @@ export async function rewriteMessageProse(msgId, btn) {
     // A dropped stream never persists a partial snapshot. Put the saved source
     // back into the bubble instead of leaving a local-only intermediate draft.
     if (!completed) applyProseRewriteSnapshot(msgId, source);
-    S.isProseRewriting = false;
+    S.proseRewriteMsgId = null;
     if (S.abortController === abortController) S.abortController = null;
     sendBtn.disabled = false;
     sendBtn.style.display = "flex";
     stopBtn.style.display = "none";
     stopBtn.title = "Stop generation";
-    if (btn) btn.disabled = false;
+    clearWorkflowPhase(PROSE_REWRITE_CHANNEL);
+    // One repaint for every exit — success, warning, abort, or a dropped stream.
+    // It clears the busy marks and paints whichever content the branch above
+    // settled on.
+    renderMessages();
+    if (completed) scrollToMessage(msgId);
   }
 }
 

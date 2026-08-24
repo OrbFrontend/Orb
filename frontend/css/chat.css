@@ -366,6 +366,63 @@
 }
 .wf-claim-item:hover { background: var(--accent-glow); color: var(--accent); }
 
+/* Prose rewrite (local model, on demand): unlike a turn it has no streaming
+   bubble and no phase bar of its own — it edits a saved message in place, one
+   paragraph at a time, and the toolbar it was launched from fades out as soon as
+   the pointer leaves. So the message wears the state: an accent rail down the
+   bubble marks which one is being rewritten, and the role line says so. */
+.message .msg-rewriting {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.message .msg-rewriting .dot {
+  width: 5px;
+  height: 5px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: pulse 1.5s infinite;
+}
+
+/* Only while the badge is there: a long speaker label plus the badge overruns a
+   narrow row, and the badge takes its own line rather than squeezing the name. */
+.message.prose-rewriting .msg-role { flex-wrap: wrap; }
+
+.message.prose-rewriting .msg-body {
+  position: relative;
+  border-color: var(--accent-dim);
+}
+
+/* Offset by the bubble's own 1px border so the rail replaces that edge rather
+   than sitting inside it. */
+.message.prose-rewriting .msg-body::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  left: -1px;
+  width: 2px;
+  background: var(--accent);
+  border-radius: var(--radius) 0 0 var(--radius);
+  animation: pulse 1.5s infinite;
+}
+
+/* Hold the row open while the rewrite runs: its button is the disabled control
+   the user just pressed, and hiding it on mouse-away reads as nothing happened. */
+.message.prose-rewriting .msg-toolbar { opacity: 1; }
+
+/* The rail and the dot are the marks; the pulse only draws the eye to them. Drop
+   the motion and keep both at full strength. */
+@media (prefers-reduced-motion: reduce) {
+  .message .msg-rewriting .dot,
+  .message.prose-rewriting .msg-body::before {
+    animation: none;
+  }
+}
+
 /* Editor diff highlights */
 .diff-change {
   background: var(--accent-glow);
@@ -414,6 +471,11 @@
   color: var(--text-primary);
   background: var(--bg-hover);
 }
+
+/* A control the user just pressed, or one this message can't offer, has to read
+   as unavailable — an SVG-only button gets no default dimming from the browser. */
+.msg-toolbar button:disabled { opacity: .45; cursor: default; }
+.msg-toolbar button:disabled:hover { color: var(--text-muted); background: none; }
 
 .msg-toolbar .msg-btn-del { color: var(--red); opacity: .6; }
 .msg-toolbar .msg-btn-del:hover { color: var(--red); opacity: 1; background: var(--bg-hover); }
