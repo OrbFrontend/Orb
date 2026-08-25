@@ -162,10 +162,9 @@ export async function deleteMessage(msgId) {
 // surface.
 const PROSE_REWRITE_CHANNEL = "prose-rewrite";
 
-// Rewrite the original Writer draft retained for one saved assistant reply with the
-// configured local model. This does not create a sibling or run
-// Director/Writer/Editor; the backend changes the selected message in place
-// and keeps pending World proposals in sync with the new source text.
+// Rewrite the original Writer draft retained for one saved assistant reply with
+// the configured local model. This creates no sibling and runs no
+// Director/Writer/Editor pass; the backend edits the selected message in place.
 export async function rewriteMessageProse(msgId) {
   if (!S.activeConvId || S.isStreaming || S.proseRewriteMsgId) return;
   if (!requestSendPermission()) return;
@@ -241,9 +240,8 @@ export async function rewriteMessageProse(msgId) {
     stopBtn.style.display = "none";
     stopBtn.title = "Stop generation";
     clearWorkflowPhase(PROSE_REWRITE_CHANNEL);
-    // One repaint for every exit — success, warning, abort, or a dropped stream.
-    // It clears the busy marks and paints whichever content the branch above
-    // settled on.
+    // One repaint for every exit: it clears the busy marks and paints whichever
+    // content the branch above settled on.
     renderMessages();
     if (completed) scrollToMessage(msgId);
   }

@@ -113,12 +113,13 @@ def find_binary() -> Path:
     )
 
 
-def runtime_ok() -> tuple[bool, str]:
-    """``(found, reason)`` — the panel's runtime row, without raising."""
+def runtime_ok() -> bool:
+    """Whether a llama-server binary resolves. The panel's runtime row."""
     try:
-        return True, str(find_binary())
-    except LlamaServerMissing as exc:
-        return False, str(exc)
+        find_binary()
+    except LlamaServerMissing:
+        return False
+    return True
 
 
 # ── fetch ────────────────────────────────────────────────────────────────────

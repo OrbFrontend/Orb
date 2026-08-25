@@ -1,11 +1,9 @@
 """Spawning the llama-server child on both kinds of event loop.
 
-The threaded path is Windows-only in production — Windows implements asyncio
-subprocesses on the Proactor loop alone, and uvicorn hands Orb a Selector loop
-whenever ``--reload`` is set, which is what both shipped launchers pass. A
-branch that only ever runs on the platform CI does not cover is how
-``NotImplementedError`` reached a user's chat bubble in the first place, so
-both implementations are exercised here against the same expectations.
+The threaded path is Windows-only in production (see ``server._can_spawn_async``).
+A branch that only ever runs on the platform CI does not cover is how
+``NotImplementedError`` reached a user's chat bubble in the first place, so both
+implementations are exercised here against the same expectations.
 """
 
 from __future__ import annotations
@@ -56,11 +54,8 @@ async def test_child_streams_log_lines_and_stops(impl):
 
 @pytest.mark.parametrize("impl", IMPLEMENTATIONS)
 async def test_returncode_reports_an_exit_without_being_waited_on(impl):
-    """``wait_ready`` polls ``returncode`` to notice a child that died loading.
-
-    ``Popen`` only fills its ``returncode`` attribute in when something calls
-    ``poll()``, so the threaded implementation has to poll rather than read.
-    """
+    """``wait_ready`` polls ``returncode`` to notice a child that died loading,
+    and ``Popen`` only fills that attribute in when something calls ``poll()``."""
     sink: list[str] = []
     child = impl(sink.append)
     await child.start(_argv(QUICK))
@@ -84,46 +79,33 @@ async def test_stop_is_idempotent_and_terminate_survives_a_dead_child(impl):
     await child.aclose()
 
 
-async def test_spawn_picks_the_threaded_child_when_the_loop_cannot_spawn(monkeypatch):
-    monkeypatch.setattr(S, "_can_spawn_async", lambda: False)
+@pytest.mark.parametrize(("can_spawn", "expected"), [(True, S._AsyncChild), (False, S._ThreadChild)])
+async def test_spawn_picks_the_implementation_the_loop_can_support(monkeypatch, can_spawn, expected):
+    monkeypatch.setattr(S, "_can_spawn_async", lambda: can_spawn)
     child = await S.spawn(_argv(QUICK), lambda _line: None)
-    assert isinstance(child, S._ThreadChild)
+    assert isinstance(child, expected)
     await child.wait(timeout=20)
     await child.aclose()
 
 
-async def test_spawn_prefers_asyncio_when_the_loop_supports_it(monkeypatch):
-    monkeypatch.setattr(S, "_can_spawn_async", lambda: True)
-    child = await S.spawn(_argv(QUICK), lambda _line: None)
-    assert isinstance(child, S._AsyncChild)
-    await child.wait(timeout=20)
-    await child.aclose()
-
-
-async def test_can_spawn_async_is_true_off_windows(monkeypatch):
-    monkeypatch.setattr(S.runtime, "IS_WINDOWS", False)
-    assert S._can_spawn_async() is True
-
-
-async def test_can_spawn_async_rejects_a_windows_loop_that_is_not_proactor(monkeypatch):
+async def test_can_spawn_async_rejects_only_a_windows_loop_that_is_not_proactor(monkeypatch):
     """The exact configuration ``run_windows.bat`` produces: win32 + --reload,
     which uvicorn answers with a SelectorEventLoop that cannot spawn."""
-    monkeypatch.setattr(S.runtime, "IS_WINDOWS", True)
+    monkeypatch.setattr(S.runtime, "IS_WINDOWS", False)
+    assert S._can_spawn_async() is True
 
     class _NotProactor:  # stands in for asyncio.ProactorEventLoop on a POSIX box
         pass
 
+    monkeypatch.setattr(S.runtime, "IS_WINDOWS", True)
     monkeypatch.setattr(S.asyncio, "ProactorEventLoop", _NotProactor, raising=False)
     assert S._can_spawn_async() is False
 
 
 async def test_llama_server_boot_failure_reports_the_child_log(monkeypatch, tmp_path):
-    """A child that exits while loading must surface its own last words.
-
-    ``stop()`` closes the drain *after* the process is reaped precisely so this
-    tail is not empty — it is the whole diagnostic for a bad GGUF or a Vulkan
-    build with no loader.
-    """
+    """``stop()`` closes the drain *after* the process is reaped precisely so
+    this tail is not empty — it is the whole diagnostic for a bad GGUF or a
+    Vulkan build with no loader."""
     monkeypatch.setattr(S, "_help_text", lambda _binary: "")
     variant = S.catalog.variants()[0]
     server = S.LlamaServer(variant, tmp_path / "llama-server", slots=1, gpu=False)
@@ -160,7 +142,7 @@ async def test_release_waits_for_an_in_flight_rewrite_before_stopping_the_child(
 
     async def releasing() -> None:
         await asyncio.sleep(0)  # let the rewrite take its slot first
-        assert host.in_flight == 1
+        assert host._inflight == 1
         await host.release()
         order.append("released")
 

@@ -12,12 +12,10 @@ also why this feature's ``runtime`` is ``llama_server`` and it needs none of
 ADAPTED FROM ProseRewriterWebUI's threads-and-http.client original. Orb is
 async, so the thread-per-paragraph pool and the ``queue.Queue`` fan-in are
 gone: ``asyncio.create_subprocess_exec``, an ``httpx`` client Orb already
-depends on, and one drain task.
-
-EXCEPT ON WINDOWS, WHERE ASYNCIO CANNOT SPAWN A PROCESS AT ALL under the event
-loop Orb actually runs on, and says so with a bare ``NotImplementedError``.
-:func:`_can_spawn_async` explains why; :class:`_ThreadChild` is the fallback,
-and the reference's log-drain thread comes back with it.
+depends on, and one drain task — except on Windows, where asyncio cannot spawn
+a process at all under the loop Orb runs on. :func:`_can_spawn_async` explains
+why and :class:`_ThreadChild` is the fallback, which brings the reference's
+log-drain thread back with it.
 
 THE CHILD IS BOUND TO LOOPBACK ON AN EPHEMERAL PORT and is not the thing anyone
 connects to. Its own web UI is off, and nothing here exposes the port, because
@@ -236,11 +234,10 @@ class _AsyncChild:
 class _ThreadChild:
     """``subprocess.Popen`` plus a reader thread, for a loop that cannot spawn.
 
-    Nothing blocking runs on the event loop: reading the pipe is the thread's
-    entire job and all it hands back is a decoded line, and both waits go
-    through :func:`asyncio.to_thread`. The thread is a daemon because a child
-    that ignores ``kill`` must not be able to hold up interpreter exit --
-    ``shutdown()`` has already done everything it can by that point.
+    Nothing blocking runs on the event loop: the thread's entire job is reading
+    the pipe, and both waits go through :func:`asyncio.to_thread`. The thread is
+    a daemon because a child that ignores ``kill`` must not hold up interpreter
+    exit -- ``shutdown()`` has already done all it can by then.
     """
 
     def __init__(self, sink: Callable[[str], None]) -> None:
@@ -453,10 +450,10 @@ class LlamaServer:
     async def count_tokens(self, text: str) -> int:
         """The real count from the model's own vocabulary.
 
-        Estimating from characters would be free and would be wrong in the one
-        direction that matters: the 512-token ceiling is where the model leaves
-        the length it was trained on, and a paragraph waved through at an
-        estimate degrades quietly instead of being passed through intact.
+        A character estimate would be free and wrong in the one direction that
+        matters: the 512-token ceiling is where the model leaves the length it
+        was trained on, and a paragraph waved through on an estimate degrades
+        quietly instead of being passed through intact.
         """
         response = await self._http().post("/tokenize", json={"content": text}, timeout=30.0)
         if response.status_code != 200:
@@ -466,13 +463,10 @@ class LlamaServer:
     async def generate(self, prompt: str, *, n_predict: int, temperature: float, top_p: float) -> tuple[str, bool]:
         """Stream one completion; return ``(text, stopped)``.
 
-        ``stopped`` is whether the model ended the paragraph itself — a
-        generation that did not ran out of budget rather than finishing, and
-        ``text.finish`` trims its half-sentence tail.
-
-        Cancelling the awaiting task closes the connection mid-stream, and
-        llama.cpp treats a dropped client as a cancellation: pressing Stop
-        frees the slot instead of leaving it decoding for another 400 tokens.
+        ``stopped`` is whether the model ended the paragraph itself; ``text.finish``
+        trims the half-sentence tail of one that merely ran out of budget.
+        Cancelling the awaiting task closes the connection mid-stream, which
+        llama.cpp treats as a cancellation, so Stop frees the slot at once.
         """
         payload = {
             "prompt": prompt,
@@ -607,18 +601,15 @@ class ModelHost:
 
         FOR THE FILE OPERATIONS THAT CANNOT RUN AROUND A LIVE CHILD. llama.cpp
         mmaps the GGUF and Windows refuses to unlink a mapped file or a running
-        executable, so deleting a variant or replacing the llama-server binary
-        fails there with a bare sharing violation and no exit but restarting
-        Orb. Everywhere else the unlink would succeed and leave the child
-        serving weights that are no longer on disk.
+        executable, so deleting a variant or replacing the binary fails there
+        with a bare sharing violation and no exit but restarting Orb; elsewhere
+        the unlink succeeds and leaves the child serving weights that are gone.
 
-        Drains first, so a rewrite already in flight finishes rather than being
-        cut off — the same courtesy ``ensure`` pays a variant swap. The lock is
-        what holds new work off meanwhile, so ``state`` is left saying ``ready``
-        until the child is actually gone: it still is, right up to that point,
-        and the in-flight rewrite is still using it. Marks stale so the next
-        ``ensure`` reloads even though the selection has not changed; the idle
-        watcher needs no help, as it returns on its own once it finds no server.
+        Drains first, so a rewrite in flight finishes rather than being cut off
+        — the same courtesy ``ensure`` pays a variant swap; the lock holds new
+        work off meanwhile, which is why ``state`` still says ``ready`` until
+        the child is actually gone. Marks stale so the next ``ensure`` reloads
+        even though the selection has not changed.
         """
         async with self._lock:
             if self.server is None:
@@ -682,10 +673,6 @@ class ModelHost:
                 self._inflight -= 1
                 self._last_used = time.monotonic()
                 self._idle.notify_all()
-
-    @property
-    def in_flight(self) -> int:
-        return self._inflight
 
 
 #: One host per process. The rewriter is a single-user local feature and a

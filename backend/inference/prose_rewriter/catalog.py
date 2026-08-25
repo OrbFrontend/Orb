@@ -1,12 +1,11 @@
-"""The three prose-rewriter GGUFs, as seen from inside the feature.
+"""The prose-rewriter GGUFs, as seen from inside the feature.
 
-WHY A SECOND VIEW OF THE SAME TABLE. ``local_ml.MODELS`` owns the download
-plumbing — repo id, pinned revision, on-disk basename, ``prune_stale``'s claim
-list — and knows nothing about llama-server. This module is the other half: the
-label the selector shows, the size the KV cache is budgeted against, and which
-of the three is currently selected. Both read the *same* ``Variant`` rows off
-the spec, so a fourth checkpoint is one entry in ``local_ml.MODELS`` and reaches
-both the download button and the selector at once.
+``local_ml.MODELS`` owns the download plumbing — repo id, pinned revision,
+on-disk basename, ``prune_stale``'s claim list — and knows nothing about
+llama-server. This module is the other half: the label the selector shows, the
+size the KV cache is budgeted against, and which of the three is selected. Both
+read the *same* ``Variant`` rows off the spec, so a fourth checkpoint is one
+entry in ``local_ml.MODELS`` and reaches both at once.
 
 THERE IS NO ``resolve_default()`` HERE, unlike the reference. Orb persists the
 choice in ``settings.local_ml_config`` and passes it in; a feature that silently
@@ -38,8 +37,6 @@ class Variant:
     path: str
     revision: str  # pinned commit sha — a repo re-point can't swap the weights under us
     size_mb: int
-    params: str
-    quant: str
 
     @property
     def local_name(self) -> str:
@@ -55,20 +52,6 @@ def variants() -> tuple[Variant, ...]:
     return MODELS[FEATURE].variants
 
 
-def by_id() -> dict[str, Variant]:
-    return {v.id: v for v in variants()}
-
-
-def get(variant_id: str) -> Variant:
-    try:
-        return by_id()[variant_id]
-    except KeyError:
-        raise ValueError(f"Unknown prose-rewriter model {variant_id!r}; choose one of {', '.join(by_id())}") from None
-
-
-DEFAULT_ID = "4b-q8"
-
-
 def resolve(variant_id: str | None) -> Variant | None:
     """The selected variant, or ``None`` when nothing usable is selected.
 
@@ -79,7 +62,7 @@ def resolve(variant_id: str | None) -> Variant | None:
     """
     if not variant_id:
         return None
-    return by_id().get(variant_id)
+    return next((v for v in variants() if v.id == variant_id), None)
 
 
 def variant_path(variant: Variant) -> str:

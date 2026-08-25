@@ -86,8 +86,7 @@ export const S = {
   // is running over, or null. It holds the same backend conversation lock as
   // generation but creates no streaming bubble, so it doubles as the "busy" flag
   // and as the target the renderer marks — the message itself is the only place
-  // the work is visible. It reuses abortController so the normal Stop control
-  // can cancel it.
+  // the work is visible.
   proseRewriteMsgId: null,
   streamingBodyEl: null,
   streamCutoffIndex: null,

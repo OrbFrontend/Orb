@@ -226,10 +226,9 @@ label.ml-variant-name { cursor: pointer; }
   color: var(--text-muted);
 }
 
-/* Busy state for a download in flight — the row keeps its geometry and borrows
-   the generation status bar's indeterminate sliver (`gen-bar-slide`, defined in
-   status-bar.css; keyframe names are global). Nothing here changes a label, so
-   nothing can outgrow the action column and print over the size beside it. */
+/* Busy state for a download in flight (see `beginMlBusy`). Borrows the generation
+   status bar's indeterminate sliver — `gen-bar-slide`, defined in status-bar.css;
+   keyframe names are global — and leaves the row's geometry alone. */
 .ml-busy {
   position: relative;
   overflow: hidden;

@@ -27,7 +27,7 @@ import logging
 from collections.abc import AsyncGenerator, Mapping
 from typing import Any, TypedDict
 
-from ....inference import local_ml, prose_rewriter
+from ....inference import prose_rewriter
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +57,7 @@ def resolve_prose_rewrite(settings: Mapping[str, Any]) -> ProseRewrite | None:
         return None
     config = (settings.get("local_ml_config") or {}).get(FEATURE) or {}
     variant_id = str(config.get("variant") or "")
-    ok, _reason = prose_rewriter.available(variant_id)
-    if not ok:
+    if not prose_rewriter.available(variant_id):
         return None
     # `gpu` defaults on: someone who fetched the Vulkan build meant to use it,
     # and the checkbox is how they say otherwise.
@@ -118,9 +117,3 @@ async def prose_rewrite_step(draft: str, config: ProseRewrite) -> AsyncGenerator
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
     yield {"type": "rewritten", "draft": rewritten}
-
-
-def size_mb(variant_id: str | None) -> int:
-    """Download size of *variant_id*, for the panel. 0 when unknown."""
-    variant = prose_rewriter.resolve(variant_id)
-    return variant.size_mb if variant is not None else local_ml.MODELS[FEATURE].size_mb

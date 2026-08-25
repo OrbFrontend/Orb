@@ -275,9 +275,8 @@ const enableToggle = (f, on) =>
 // A feature that ships several interchangeable checkpoints renders as one
 // hairline-separated table: a radio to pick, the size, one action, and the
 // blurb on its own line beneath the name — a wrapping blurb sharing a row with
-// the controls is what made this card ragged. The enable toggle only appears
-// once something is on disk, and the runtime row only while it is missing:
-// nothing to enable, nothing to say.
+// the controls is what made this card ragged. The enable toggle appears only
+// once something is on disk: nothing to enable, nothing to say.
 function variantCard(f, info) {
   const name = esc(LOCAL_ML_LABELS[f] || f);
   const desc = LOCAL_ML_DESCS[f] || "";
@@ -485,7 +484,7 @@ async function fetchLlamaRuntime(btn) {
   loadLocalMLSection();
 }
 
-export async function downloadLocalMlModel(feature, variant, btn) {
+async function downloadLocalMlModel(feature, variant, btn) {
   const endBusy = beginMlBusy(btn);
   try {
     await api.post(`/local-ml/${feature}/download`, variant ? { variant } : {});
@@ -496,7 +495,7 @@ export async function downloadLocalMlModel(feature, variant, btn) {
   }
 }
 
-export async function toggleLocalMlEnabled(feature, on) {
+async function toggleLocalMlEnabled(feature, on) {
   try {
     const res = await api.post(`/local-ml/${feature}/enabled`, { enabled: on });
     if (res && typeof res.local_ml_enabled === "object") S.settings.local_ml_enabled = res.local_ml_enabled;

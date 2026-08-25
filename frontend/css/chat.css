@@ -366,11 +366,9 @@
 }
 .wf-claim-item:hover { background: var(--accent-glow); color: var(--accent); }
 
-/* Prose rewrite (local model, on demand): unlike a turn it has no streaming
-   bubble and no phase bar of its own — it edits a saved message in place, one
-   paragraph at a time, and the toolbar it was launched from fades out as soon as
-   the pointer leaves. So the message wears the state: an accent rail down the
-   bubble marks which one is being rewritten, and the role line says so. */
+/* Prose rewrite (local model, on demand): it has no streaming bubble of its own
+   — it edits a saved message in place — so the message itself wears the state: an
+   accent rail marks which bubble is being rewritten, and the role line says so. */
 .message .msg-rewriting {
   display: inline-flex;
   align-items: center;

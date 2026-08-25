@@ -11,6 +11,15 @@ from backend.inference.prose_rewriter import rewrite
 
 pytestmark = pytest.mark.asyncio
 
+FIRST = "First " + "source " * 16
+SECOND = "Second " + "source " * 16
+DRAFT = f"{FIRST}\n\n{SECOND}"
+BOTH_REWRITTEN = "First rewrite.\n\nSecond rewrite."
+
+
+def _source(prompt: str) -> str:
+    return prompt.split("<|im_start|>source\n", 1)[1].split("<|im_end|>", 1)[0]
+
 
 class _Server:
     def __init__(self, *, first_delay: float, second_delay: float) -> None:
@@ -21,8 +30,7 @@ class _Server:
         return 10
 
     async def generate(self, prompt: str, **_kwargs) -> tuple[str, bool]:
-        source = prompt.split("<|im_start|>source\n", 1)[1].split("<|im_end|>", 1)[0]
-        if source.startswith("First"):
+        if _source(prompt).startswith("First"):
             await asyncio.sleep(self.first_delay)
             return "First rewrite.", True
         await asyncio.sleep(self.second_delay)
@@ -43,8 +51,7 @@ class _FlakyServer:
         return 10
 
     async def generate(self, prompt: str, **_kwargs) -> tuple[str, bool]:
-        source = prompt.split("<|im_start|>source\n", 1)[1].split("<|im_end|>", 1)[0]
-        if source.startswith("First"):
+        if _source(prompt).startswith("First"):
             raise RuntimeError("the child died")
         await asyncio.sleep(0.2)
         self.second_finished = True
@@ -65,61 +72,42 @@ class _Host:
         yield
 
 
-async def test_progress_waits_for_the_first_unfinished_paragraph():
-    first = "First " + "source " * 16
-    second = "Second " + "source " * 16
-    draft = f"{first}\n\n{second}"
+async def _rewrite(**delays) -> tuple[str, list[str]]:
+    """``arewrite`` over a two-paragraph draft; returns the result and every snapshot."""
     updates: list[str] = []
-
-    async def record(snapshot: str) -> None:
-        updates.append(snapshot)
-
     rewritten = await rewrite.arewrite(
-        draft,
-        variant=object(),
-        host=_Host(first_delay=0.01),
-        on_progress=record,
+        DRAFT, variant=object(), host=_Host(**delays), on_progress=lambda snapshot: _record(updates, snapshot)
     )
+    return rewritten, updates
 
-    expected = "First rewrite.\n\nSecond rewrite."
-    assert rewritten == expected
-    assert updates == [expected]
+
+async def _record(updates: list[str], snapshot: str) -> None:
+    updates.append(snapshot)
+
+
+async def test_progress_waits_for_the_first_unfinished_paragraph():
+    """The second paragraph lands first, but its snapshot waits for the one above."""
+    rewritten, updates = await _rewrite(first_delay=0.01)
+    assert rewritten == BOTH_REWRITTEN
+    assert updates == [BOTH_REWRITTEN]
 
 
 async def test_progress_emits_the_top_paragraph_before_later_ones():
-    first = "First " + "source " * 16
-    second = "Second " + "source " * 16
-    draft = f"{first}\n\n{second}"
-    updates: list[str] = []
-
-    async def record(snapshot: str) -> None:
-        updates.append(snapshot)
-
-    rewritten = await rewrite.arewrite(
-        draft,
-        variant=object(),
-        host=_Host(second_delay=0.01),
-        on_progress=record,
-    )
-
-    assert rewritten == "First rewrite.\n\nSecond rewrite."
-    assert updates == [f"First rewrite.\n\n{second.strip()}", rewritten]
+    rewritten, updates = await _rewrite(second_delay=0.01)
+    assert rewritten == BOTH_REWRITTEN
+    assert updates == [f"First rewrite.\n\n{SECOND.strip()}", BOTH_REWRITTEN]
 
 
 async def test_a_failed_paragraph_takes_its_siblings_down_with_it():
-    """A failure must not leave the other paragraphs decoding.
-
-    ``gather`` alone raises the first exception and lets the rest run on, past
+    """``gather`` alone raises the first exception and lets the rest run on, past
     the point where the caller has reported the failure and released its
-    in-flight slot — so the host is free to stop the child underneath them.
-    """
-    draft = f"First {'source ' * 16}\n\nSecond {'source ' * 16}"
+    in-flight slot — so the host is free to stop the child underneath them."""
     host = _Host(server=_FlakyServer())
 
     # Verbatim, not wrapped in an ExceptionGroup: this string is the warning
     # the user reads.
     with pytest.raises(RuntimeError, match="the child died"):
-        await rewrite.arewrite(draft, variant=object(), host=host)
+        await rewrite.arewrite(DRAFT, variant=object(), host=host)
 
     assert host.server.second_finished is False
     await asyncio.sleep(0.3)  # comfortably past the sibling's own sleep

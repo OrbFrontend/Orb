@@ -96,9 +96,7 @@ async def api_local_ml_status():
             ]
             info["selected"] = config.get("variant") or None
             info["gpu"] = bool(config.get("gpu", True))
-            runtime_found, runtime_detail = prose_rewriter.runtime_ok()
-            info["runtime_ok"] = runtime_found
-            info["runtime_reason"] = runtime_detail
+            info["runtime_ok"] = prose_rewriter.runtime_ok()
             info.update(prose_rewriter.state())
         features[f] = info
     deps_ok, reason = local_ml.deps_ok()
@@ -218,8 +216,7 @@ async def api_prose_rewriter_runtime(data: dict | None = Body(default=None)):  #
         except Exception:
             logger.exception("llama-server fetch (%s) failed", backend)
             raise HTTPException(status_code=500, detail="Runtime download failed; see server logs") from None
-    ok, reason = prose_rewriter.runtime_ok()
-    return {"ok": ok, "path": path, "runtime_ok": ok, "runtime_reason": reason}
+    return {"ok": True, "path": path}
 
 
 @router.post("/api/local-ml/slop-score")

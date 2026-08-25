@@ -12,7 +12,8 @@ from __future__ import annotations
 import pytest
 
 from backend.inference import local_ml
-from backend.inference import prose_rewriter as pr
+from backend.inference.prose_rewriter import catalog
+from backend.inference.prose_rewriter import runtime as pr_runtime
 
 
 @pytest.fixture(autouse=True)
@@ -71,7 +72,7 @@ async def test_enable_toggle_roundtrips(client):
 async def test_status_enumerates_the_rewriter_variants(client):
     st = (await client.get("/api/local-ml/status")).json()
     info = st["features"]["prose_rewriter"]
-    assert [v["id"] for v in info["variants"]] == [v.id for v in pr.variants()]
+    assert [v["id"] for v in info["variants"]] == [v.id for v in catalog.variants()]
     assert all({"id", "label", "detail", "size_mb", "present"} <= set(v) for v in info["variants"])
     # Nothing downloaded in CI, so nothing is selected and the card offers
     # downloads rather than a selector.
@@ -145,7 +146,7 @@ async def test_the_runtime_fetch_is_never_reached_by_accident(client, monkeypatc
     Status reads the binary's *presence*; nothing on the ordinary paths may
     decide to go and get one.
     """
-    monkeypatch.setattr(pr.runtime, "fetch", lambda backend="gpu": (_ for _ in ()).throw(AssertionError("must not fetch")))
+    monkeypatch.setattr(pr_runtime, "fetch", lambda backend="gpu": (_ for _ in ()).throw(AssertionError("must not fetch")))
     assert (await client.get("/api/local-ml/status")).status_code == 200
     assert (await client.post("/api/local-ml/prose_rewriter/config", json={"variant": None})).status_code == 200
     assert (await client.post("/api/local-ml/prose_rewriter/enabled", json={"enabled": True})).status_code == 200

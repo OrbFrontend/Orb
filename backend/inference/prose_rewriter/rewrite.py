@@ -6,13 +6,9 @@ the reader should see the top of the draft settle before a later paragraph
 changes. The layout puts each rewrite back where it belongs and lets a partial
 assembly be emitted while the rest are still decoding.
 
-DEVIATION FROM ProseRewriterWebUI, and it is the only one that matters. The
-reference *raises* on a paragraph over 512 tokens ("add a blank line to split
-it") because a human is pasting into a text box and can act on that. Orb's
-input is machine-generated mid-turn, and there is nobody to ask — so an
-over-long paragraph passes through unchanged, and the paragraph and character
-caps clamp rather than raise. A rewrite that declines part of a draft is a
-worse rewrite; a rewrite that fails the turn is a bug.
+EVERY LIMIT HERE CLAMPS RATHER THAN RAISES — see :func:`_admissible`. A rewrite
+that declines part of a draft is a worse rewrite; one that fails the turn is a
+bug.
 
 SAMPLING IS FIXED at the reference defaults. ``temperature`` and ``top_p`` are
 properties of how these weights were tuned, not preferences, and exposing them
@@ -75,10 +71,8 @@ async def arewrite(
     """Rewrite *draft* paragraph-by-paragraph and return the reassembled text.
 
     *on_progress* is awaited with the whole current assembly after each
-    contiguous top-to-bottom run of completed paragraphs. Generation remains
-    concurrent, but a lower paragraph never visibly changes ahead of one above
-    it; a delta would still be meaningless, so the caller repaints the document
-    instead.
+    contiguous top-to-bottom run of completed paragraphs — never a delta, which
+    would be meaningless when generation is concurrent.
 
     Raises on anything that stops the rewrite happening at all (no binary, no
     GGUF, boot failure, HTTP error). The Editor-pass caller turns that into a
@@ -138,15 +132,13 @@ async def arewrite(
                     await on_progress(snapshot)
 
     async with host.acquire():
-        # No bare ``gather``: it propagates the first failure but leaves the
-        # other paragraphs RUNNING, decoding into a queue nobody reads and
-        # holding llama-server slots after this call has already reported the
-        # failure and released its in-flight count — which then lets a swap or
-        # the idle unload stop the child underneath them. A dead child fails
-        # every paragraph at once, so that is the ordinary case, not a corner.
-        # Tasks are named here (rather than left to ``gather``) so the failing
-        # one's exception still surfaces verbatim; a ``TaskGroup`` would wrap it
-        # in an ``ExceptionGroup`` and cost the warning its message.
+        # Cancel-on-failure, which a bare ``gather`` does not do: it propagates
+        # the first failure but leaves the others RUNNING, holding llama-server
+        # slots after this call released its in-flight count — which then lets a
+        # swap or the idle unload stop the child underneath them. A dead child
+        # fails every paragraph at once, so that is the ordinary case. A
+        # ``TaskGroup`` would wrap the exception in an ``ExceptionGroup`` and
+        # cost the warning its message, so the tasks are tracked by hand.
         tasks = [asyncio.create_task(run(i, source)) for i, source in jobs]
         try:
             await asyncio.gather(*tasks)
@@ -161,11 +153,11 @@ async def arewrite(
 def _admissible(layout: list[tuple[str, str]]) -> list[tuple[int, str]]:
     """``(slot index, source)`` for every paragraph this run will actually rewrite.
 
-    The caps CLAMP rather than raise, and they clamp by declining to rewrite
-    rather than by dropping text: a piece past either limit keeps the writer's
-    words and stays in the layout, so the reassembled draft is always the whole
-    draft. The reference rejects the request instead, which is right for a
-    person pasting and wrong for a turn already in flight.
+    The caps clamp by declining to rewrite rather than by dropping text: a piece
+    past either limit keeps the writer's words and stays in the layout, so the
+    reassembled draft is always the whole draft. The reference rejects the
+    request instead — right for a person pasting into a text box, wrong for a
+    turn already in flight with nobody to ask.
     """
     jobs: list[tuple[int, str]] = []
     chars = 0
@@ -182,21 +174,11 @@ def _admissible(layout: list[tuple[str, str]]) -> list[tuple[int, str]]:
     return jobs
 
 
-def available(variant_id: str | None) -> tuple[bool, str]:
-    """``(ready, reason)`` — is there a usable variant *and* a runtime binary?
+def available(variant_id: str | None) -> bool:
+    """Is there a selected variant, on disk, *and* a runtime binary?
 
     Pure filesystem facts; says nothing about the settings toggle, which is the
     caller's business.
     """
     variant = catalog.resolve(variant_id)
-    if variant is None:
-        return False, "No prose-rewriter model selected"
-    if not catalog.on_disk(variant):
-        return False, f"{variant.label} is not downloaded"
-    return runtime_ok()
-
-
-def runtime_ok() -> tuple[bool, str]:
-    """``(True, "")`` or ``(False, why)`` — is a llama-server binary resolvable?"""
-    ok, detail = runtime.runtime_ok()
-    return (True, "") if ok else (False, detail)
+    return variant is not None and catalog.on_disk(variant) and runtime.runtime_ok()

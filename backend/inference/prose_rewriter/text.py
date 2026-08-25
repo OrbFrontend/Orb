@@ -1,27 +1,17 @@
 """The prompt contract, and the text repairs applied on the way back out.
 
 THE PROMPT IS A PROPERTY OF THE WEIGHTS, not a setting. `serve_prompt` builds
-the exact three-block string the pool was written in, which is also what the
-`chat_template.jinja` shipped inside each model repo produces from the `source`
-and `edit` roles; the model card documents it. Ported into Orb verbatim from
-ProseRewriterWebUI; `tests/unit/test_prose_rewriter_text.py` pins the string
-byte-for-byte, which is the way a hand edit here would go unnoticed.
+the exact three-block string the pool was written in, which is also what each
+model repo's `chat_template.jinja` produces; `tests/unit/test_prose_rewriter_text.py`
+pins it byte-for-byte, which is the only way a hand edit here would be noticed.
+The `edit` block is fixed at `match` -- the band that rewrites in place. Serving
+these weights with no block at all measured del:ins 19.0 against 2.8 at `match`,
+worse than a control trained without the block ever having existed.
 
 The REPAIRS are a property of the corpus rather than of the model. AO3's scrape
 drops inter-sentence spaces and whole paragraph breaks, so the targets carried
-welded dialogue and the model learned to emit some of it; `normalise_spacing`,
-`split_lost_paragraphs` and `restore_sentence_spacing` undo the specific defect
-each comment describes. They are ninety lines of regex with no dependencies,
-which is why they live here instead of behind an import of a training pipeline
-that would want torch, transformers and peft to hand them over.
-
-THE MODE IS FIXED AT `match`, AND NOTHING SHOULD TALK THIS FILE OUT OF IT. The
-three `edit` values name what was done to build the *input*, so they read
-backwards: `match` says the source is already the human's length, which is the
-band that rewrites in place. Serving these weights with no block at all gives
-del:ins 19.0 against 2.8 at `match` -- worse than a control trained without the
-block ever having existed. `inflate` and `compress` are real and documented on
-the model card; they are not things an audience should be able to select.
+welded dialogue and the model learned to emit some of it; the three functions
+below undo the specific defect each comment describes.
 """
 
 from __future__ import annotations
@@ -31,10 +21,9 @@ import re
 EDIT_MODE = "match"
 
 
-def serve_prompt(source: str, edit_mode: str = EDIT_MODE) -> str:
+def serve_prompt(source: str) -> str:
     """The three-block prompt, exactly as the pool was written."""
-    edit = f"<|im_start|>edit\n{edit_mode}<|im_end|>\n" if edit_mode else ""
-    return f"<|im_start|>source\n{source}<|im_end|>\n{edit}<|im_start|>rewrite\n"
+    return f"<|im_start|>source\n{source}<|im_end|>\n<|im_start|>edit\n{EDIT_MODE}<|im_end|>\n<|im_start|>rewrite\n"
 
 
 # ANY newline run, not just blank lines -- the corpus builder split on r"\n+" and

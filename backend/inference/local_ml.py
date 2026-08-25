@@ -126,8 +126,6 @@ MODELS: dict[str, ModelSpec] = {
                 path="GGUF/prose-rewriter-1.7b-v1.2-Q8_0.gguf",
                 revision=_PROSE_1_7B_REV,
                 size_mb=2165,
-                params="1.7B",
-                quant="Q8_0",
             ),
             Variant(
                 id="4b-q4km",
@@ -137,8 +135,6 @@ MODELS: dict[str, ModelSpec] = {
                 path="GGUF/prose-rewriter-4b-v1.2-Q4_K_M.gguf",
                 revision=_PROSE_4B_REV,
                 size_mb=2716,
-                params="4B",
-                quant="Q4_K_M",
             ),
             Variant(
                 id="4b-q8",
@@ -148,8 +144,6 @@ MODELS: dict[str, ModelSpec] = {
                 path="GGUF/prose-rewriter-4b-v1.2-Q8_0.gguf",
                 revision=_PROSE_4B_REV,
                 size_mb=4694,
-                params="4B",
-                quant="Q8_0",
             ),
         ),
     ),
