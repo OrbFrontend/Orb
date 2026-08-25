@@ -9,8 +9,30 @@ in CI. Nothing in this file loads a model or starts a child process.
 
 from __future__ import annotations
 
+import pytest
+
 from backend.inference import local_ml
 from backend.inference import prose_rewriter as pr
+
+
+@pytest.fixture(autouse=True)
+def _empty_model_dir(tmp_path, monkeypatch):
+    """Point data/models/ at an empty temp dir for every test here.
+
+    These tests describe a fresh install -- nothing downloaded -- but
+    ``model_dir()`` is a fixed repo path, so on a developer machine that has
+    actually fetched a variant ``present`` read True and the status test
+    failed. The delete test is the sharper reason: it calls the real
+    ``delete_model``, which on such a machine would remove a multi-GB weight
+    file as a side effect of running the suite. ``local_ml.present`` and
+    ``catalog.variant_path`` both reach disk through this one function (the
+    latter imports it lazily, so patching the attribute covers it), which
+    makes it the single seam that isolates every path in this module.
+    """
+    models = tmp_path / "models"
+    models.mkdir()
+    monkeypatch.setattr(local_ml, "model_dir", lambda: str(models))
+    return models
 
 
 async def test_download_400_when_deps_missing(client, monkeypatch):
