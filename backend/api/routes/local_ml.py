@@ -118,15 +118,18 @@ async def api_local_ml_download(feature: str, data: dict | None = Body(default=N
     checkpoints; without it the feature's own default file is fetched.
     """
     spec = _require(feature)
-    ok, reason = local_ml.deps_ok(feature)
-    if not ok:
-        raise HTTPException(status_code=400, detail=reason)
     variant = str((data or {}).get("variant") or "") or None
     # Validated here rather than inside download(): a bad id is the caller's
     # mistake and should not first take the global download lock and occupy a
-    # worker thread to find that out.
+    # worker thread to find that out. It is also checked *before* deps, for the
+    # same reason `_require` is: whether a variant exists is a fact about the
+    # request, not about the machine, so the answer must not change from 404 to
+    # 400 just because this install happens to be missing the extras.
     if variant and variant not in {v.id for v in spec.variants}:
         raise HTTPException(status_code=404, detail=f"Unknown variant {variant!r} for {feature!r}")
+    ok, reason = local_ml.deps_ok(feature)
+    if not ok:
+        raise HTTPException(status_code=400, detail=reason)
     async with _download_lock:
         try:
             await asyncio.to_thread(local_ml.download, feature, variant)
