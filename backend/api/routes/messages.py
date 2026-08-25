@@ -65,15 +65,39 @@ from ..schemas import (
 router = APIRouter()
 
 
-async def _attach_world_changesets(messages: Sequence[Mapping[str, Any]]) -> list[dict]:
-    """Hang each assistant message's world changesets off its row.
+def _row_for_client(message: Mapping[str, Any]) -> dict:
+    """One message row, shaped for the wire.
 
-    One batched query for the whole active path rather than a lookup per
-    message: painting a long conversation must not turn into N round trips. Each
-    message gains a ``world_changesets`` list (newest first, absent when the
-    message has none), which is what the proposal card under a reply is painted
-    from. Returns new dicts rather than mutating the rows in place, so the
-    row contracts the query layer returns stay what they say they are.
+    ``writer_draft`` is dropped and replaced by the one bit the client actually
+    reads off it — whether the prose-rewrite button has a source to work from.
+    Sending the column itself put a second near-complete copy of every assistant
+    reply on the wire so the frontend could run a ``typeof``: measured at 36% of
+    a forty-exchange conversation's payload, and rising with reply length. The
+    rewrite route reads the real text out of the row it loads under the
+    conversation lock, which is the only place it may be read from anyway.
+
+    ``isinstance`` rather than truthiness, so the flag answers exactly the
+    question the route asks (``writer_draft is None`` → 409): the button is
+    offered iff pressing it would be accepted.
+    """
+    row = dict(message)
+    row["has_writer_draft"] = isinstance(row.pop("writer_draft", None), str)
+    return row
+
+
+async def _message_rows_for_client(messages: Sequence[Mapping[str, Any]]) -> list[dict]:
+    """Every message row on the active path, shaped for the wire.
+
+    Two projections, applied together because every list route needs both:
+    :func:`_row_for_client` per row, and each assistant message's world
+    changesets hung off it. One batched changeset query for the whole path
+    rather than a lookup per message: painting a long conversation must not
+    turn into N round trips. A message gains a ``world_changesets`` list
+    (newest first, absent when it has none), which is what the proposal card
+    under a reply is painted from. Returns new dicts rather than mutating the
+    rows in place, so the row contracts the query layer returns stay what they
+    say they are — ``get_messages_with_branch_info`` still carries the real
+    ``writer_draft`` for its server-side callers (Compress, Checkpoint).
 
     Each changeset carries a read-side ``world_name`` (a projection, not a
     column): one turn can propose to several Worlds, so stacked cards have to
@@ -82,7 +106,7 @@ async def _attach_world_changesets(messages: Sequence[Mapping[str, Any]]) -> lis
     ids = [int(m["id"]) for m in messages if m.get("id") is not None and m.get("role") == "assistant"]
     rows = await get_changesets_for_messages(ids)
     if not rows:
-        return [dict(m) for m in messages]
+        return [_row_for_client(m) for m in messages]
     world_names = {w["id"]: w.get("name", "") for w in await get_worlds()}
     by_message: dict[int, list[dict]] = {}
     for row in rows:
@@ -91,7 +115,10 @@ async def _attach_world_changesets(messages: Sequence[Mapping[str, Any]]) -> lis
     out: list[dict] = []
     for m in messages:
         found = by_message.get(int(m["id"])) if m.get("id") is not None else None
-        out.append({**m, "world_changesets": found} if found else dict(m))
+        row = _row_for_client(m)
+        if found:
+            row["world_changesets"] = found
+        out.append(row)
     return out
 
 
@@ -106,7 +133,7 @@ async def api_get_messages(cid: str, _conv: ConversationRow = Depends(require_co
     async with stream_idle_lock(cid) as idle:
         if idle:
             await reroll_unfrozen_greetings(cid)
-        return await _attach_world_changesets(await get_messages_with_branch_info(cid))
+        return await _message_rows_for_client(await get_messages_with_branch_info(cid))
 
 
 @router.get("/api/conversations/{cid}/messages/{msg_id}/delete-preview")
@@ -188,7 +215,7 @@ async def api_delete_message(cid: str, msg_id: int, _conv: ConversationRow = Dep
         # id list read before the delete would match nothing after it. Applied
         # history survives the same cascade with its denormalised labels intact.
         await mark_orphaned_changesets_stale()
-        return await _attach_world_changesets(await get_messages_with_branch_info(cid))
+        return await _message_rows_for_client(await get_messages_with_branch_info(cid))
 
 
 @router.post("/api/conversations/{cid}/messages/{msg_id}/switch-branch")
@@ -204,7 +231,7 @@ async def api_switch_branch(cid: str, msg_id: int, _conv: ConversationRow = Depe
         # Switching branches alters nothing about a proposal: a World has one
         # canonical timeline, and an accepted change stays canon even if its
         # source branch is later abandoned.
-        return await _attach_world_changesets(await get_messages_with_branch_info(cid))
+        return await _message_rows_for_client(await get_messages_with_branch_info(cid))
 
 
 @router.post("/api/conversations/{cid}/messages/{msg_id}/regenerate")

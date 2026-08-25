@@ -471,7 +471,10 @@ function beginMlBusy(btn) {
 }
 
 async function fetchLlamaRuntime(btn) {
-  const gpu = $("local-ml-section")?.querySelector('input[data-ml-act="gpu"]');
+  // Scoped to the card the button is in, not the first GPU box in the section:
+  // which archive to fetch is that card's own question, and a second
+  // variant-bearing feature would otherwise silently answer it for this one.
+  const gpu = btn.closest(".tool-card")?.querySelector('input[data-ml-act="gpu"]');
   const endBusy = beginMlBusy(btn);
   try {
     await api.post("/local-ml/prose_rewriter/runtime", { backend: gpu?.checked === false ? "cpu" : "gpu" });

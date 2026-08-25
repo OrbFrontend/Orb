@@ -122,8 +122,12 @@ async def _persist_result(
         )
 
     # Skip persistence if the LLM produced no content tokens (e.g. reasoning-only).
-    # Inline macros the model emitted (copied from context) fire once here — the
-    # persist boundary — so the stored history holds the final text.
+    # Inline macros the model emitted (copied from context) are already frozen by
+    # the time they get here: the writer stage resolves them the moment streaming
+    # ends, so the retained ``writer_draft`` and every post-writer pass read the
+    # same settled text. This call is the backstop for the paths that do not run
+    # the writer stage, and a no-op for the ones that do — a resolved string has
+    # no macros left to roll.
     #
     # Written back onto *res*, not kept local: a group exchange replays this reply
     # to the next speaker straight off the ``speaker_done`` event, so that event has

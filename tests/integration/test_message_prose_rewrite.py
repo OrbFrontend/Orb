@@ -301,6 +301,17 @@ async def test_compression_preserves_retained_writer_drafts(client, db):
     response = await client.post(f"/api/conversations/{cid}/compress", json={"summary": "Earlier events.", "keep_count": 2})
 
     assert response.status_code == 200
-    messages = (await client.get(f"/api/conversations/{response.json()['new_conversation_id']}/messages")).json()
+    new_cid = response.json()["new_conversation_id"]
+    # Read the column, not the wire: the list routes project it away (see
+    # ``_for_the_client``), and what this test is about is the fork carrying
+    # the text across, byte for byte.
+    async with db.execute(
+        "SELECT writer_draft FROM messages WHERE conversation_id = ? AND content = ?",
+        (new_cid, "Editor-final reply."),
+    ) as cursor:
+        assert (await cursor.fetchone())["writer_draft"] == "Original Writer draft."
+    # And the client still learns the button has a source, without being sent one.
+    messages = (await client.get(f"/api/conversations/{new_cid}/messages")).json()
     retained_assistant = next(message for message in messages if message["content"] == "Editor-final reply.")
-    assert retained_assistant["writer_draft"] == "Original Writer draft."
+    assert retained_assistant["has_writer_draft"] is True
+    assert "writer_draft" not in retained_assistant

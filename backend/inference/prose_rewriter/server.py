@@ -556,14 +556,6 @@ class ModelHost:
             return
         self.variant, self.gpu, self._stale = variant, gpu, True
 
-    def invalidate(self) -> None:
-        """Force a restart on next use even though the selection is unchanged.
-
-        The case this exists for is the GGUF being deleted or renamed out from
-        under a running child: same variant id, different reality.
-        """
-        self._stale = True
-
     @property
     def healthy(self) -> bool:
         return not self._stale and self.server is not None and self.server.alive and self.server.ready
@@ -609,6 +601,34 @@ class ModelHost:
             while self._inflight and time.monotonic() < deadline:
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self._idle.wait(), timeout=0.25)
+
+    async def release(self) -> None:
+        """Let go of the files the child holds, and reload lazily on next use.
+
+        FOR THE FILE OPERATIONS THAT CANNOT RUN AROUND A LIVE CHILD. llama.cpp
+        mmaps the GGUF and Windows refuses to unlink a mapped file or a running
+        executable, so deleting a variant or replacing the llama-server binary
+        fails there with a bare sharing violation and no exit but restarting
+        Orb. Everywhere else the unlink would succeed and leave the child
+        serving weights that are no longer on disk.
+
+        Drains first, so a rewrite already in flight finishes rather than being
+        cut off — the same courtesy ``ensure`` pays a variant swap. The lock is
+        what holds new work off meanwhile, so ``state`` is left saying ``ready``
+        until the child is actually gone: it still is, right up to that point,
+        and the in-flight rewrite is still using it. Marks stale so the next
+        ``ensure`` reloads even though the selection has not changed; the idle
+        watcher needs no help, as it returns on its own once it finds no server.
+        """
+        async with self._lock:
+            if self.server is None:
+                self._stale = True
+                return
+            await self._drain()
+            await self.server.stop()
+            self.server = None
+            self.state = "idle"
+            self._stale = True
 
     async def shutdown(self) -> None:
         """Stop the child and the idle watcher. Registered in the app lifespan."""

@@ -144,7 +144,7 @@ export function buildMsgToolbar(m, childByParent = null) {
   // survives a re-render mid-rewrite. Only one rewrite runs at a time, so every
   // message's button goes down together.
   const proseRewriteBtn =
-    isAssistant && m.id && typeof m.writer_draft === "string" && S.settings?.local_ml_enabled?.prose_rewriter !== false
+    isAssistant && m.id && m.has_writer_draft && S.settings?.local_ml_enabled?.prose_rewriter !== false
       ? `<button class="msg-btn-prose-rewrite" onclick="rewriteMessageProse(${m.id})" title="Rewrite original Writer draft"${S.proseRewriteMsgId ? " disabled" : ""}>${ICON_PROSE_REWRITE}</button>`
       : "";
 

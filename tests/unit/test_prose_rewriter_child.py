@@ -132,3 +132,50 @@ async def test_llama_server_boot_failure_reports_the_child_log(monkeypatch, tmp_
     with pytest.raises(RuntimeError, match="CUDA error: no device"):
         await server.wait_ready(timeout=20)
     await server.stop()
+
+
+class _StoppableServer:
+    """Stands in for a loaded LlamaServer; records that it was stopped."""
+
+    def __init__(self) -> None:
+        self.stopped = False
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+
+async def test_release_waits_for_an_in_flight_rewrite_before_stopping_the_child():
+    """Deleting a GGUF or replacing the binary has to let go of the files first
+    — Windows will not unlink a mapped weight or a running executable — but it
+    must not cut off a rewrite already decoding, the way a bare stop would."""
+    host = S.ModelHost()
+    host.server = _StoppableServer()
+    host.state = "ready"
+    order: list[str] = []
+
+    async def rewriting() -> None:
+        async with host.acquire():
+            await asyncio.sleep(0.05)
+            order.append("rewrite finished")
+
+    async def releasing() -> None:
+        await asyncio.sleep(0)  # let the rewrite take its slot first
+        assert host.in_flight == 1
+        await host.release()
+        order.append("released")
+
+    server = host.server
+    await asyncio.gather(rewriting(), releasing())
+
+    assert order == ["rewrite finished", "released"]
+    assert server.stopped is True
+    assert host.server is None
+    assert host.state == "idle"
+
+
+async def test_release_with_no_child_still_forces_the_next_load():
+    """The file may have been deleted while nothing was loaded; the next
+    ``ensure`` must not trust a 'healthy' it inherited from before."""
+    host = S.ModelHost()
+    await host.release()
+    assert host.healthy is False

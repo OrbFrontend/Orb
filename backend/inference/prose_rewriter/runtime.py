@@ -189,7 +189,18 @@ def _unpack(archive: Path, into: Path) -> None:
             zf.extractall(into)  # noqa: S202 — official release archive
     else:
         with tarfile.open(archive) as tf:
-            tf.extractall(into)  # noqa: S202 — official release archive
+            # `filter="data"` refuses absolute paths, `..` escapes, links that
+            # point out of the tree, and device nodes. Asked for explicitly
+            # rather than left to the default: it only becomes the default in
+            # 3.14, warns in between, and this is unpacking something fetched
+            # over the network. Probed because the keyword arrived in 3.11.4 as
+            # a backport and the three 3.11 patch releases before it raise
+            # TypeError on it — the same reason `--no-webui` is probed on the
+            # binary rather than simply sent.
+            if hasattr(tarfile, "data_filter"):
+                tf.extractall(into, filter="data")  # noqa: S202 — official release archive
+            else:
+                tf.extractall(into)  # noqa: S202 — official release archive
 
 
 def _flatten(unpacked: Path, dest: Path) -> Path:

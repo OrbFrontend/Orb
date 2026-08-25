@@ -5,6 +5,10 @@ paragraphs before the Editor audits them. It targets *texture* — the cadence, 
 stock constructions, the tells that mark a paragraph as machine-written — which is
 a whole-paragraph rewrite job the Editor's surgical patching cannot do.
 
+It works two ways: automatically, inside every turn's Editor pass, and
+[on demand](#on-demand-after-the-fact) from the toolbar under a reply you already
+have.
+
 It is off by default and downloads nothing until you ask it to.
 
 ## What it actually does
@@ -49,6 +53,37 @@ Consequences worth knowing:
   call at all.
 - **Writing-mode documents are unaffected** — they run their own auditor and never
   enter this pass.
+
+## On demand, after the fact
+
+The rewriter also runs from the toolbar under any assistant reply, on the message
+you already have. The button appears once the feature is switched on, and only on
+replies that still carry a Writer draft.
+
+**It rewrites the original Writer draft, not what is on screen.** Orb keeps each
+reply's Writer output — before the in-turn rewriter, before the Editor, with
+inline macros already frozen — and that retained text is the source. So the
+button is a *redo from source*, not a second pass on the current text:
+
+- **Editor patches on that reply are discarded.** The audit ran against the old
+  prose; its findings do not describe the new prose, and re-applying them would
+  be patching text that no longer exists.
+- **A manual edit you made to that reply is discarded too.** If you have hand-
+  edited a reply and want to keep those words, do not press it.
+- The message tree is untouched: no sibling, no branch, no new row. The reply is
+  edited in place.
+- Any unreviewed World proposal that was inferred from that reply goes **stale**,
+  the same as if you had edited it by hand — the evidence it was drawn from just
+  changed.
+
+Paragraphs settle top to bottom while it runs, and the bubble wears an accent
+rail until it finishes. The ordinary **Stop** button cancels it. Nothing is saved
+until the rewrite completes: stopping it, closing the tab, or a failure all leave
+the stored message exactly as it was.
+
+Replies written before this feature shipped have no retained draft and show no
+button — the old source was never stored, and guessing one from edited text would
+be worse than not offering it.
 
 ## Setup
 

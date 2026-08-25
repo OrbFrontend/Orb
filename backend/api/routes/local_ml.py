@@ -149,15 +149,18 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
     spec = _require(feature)
     if variant and variant not in {v.id for v in spec.variants}:
         raise HTTPException(status_code=404, detail=f"Unknown variant {variant!r} for {feature!r}")
+    if feature == prose_rewriter.FEATURE:
+        # BEFORE the unlink, not after: llama.cpp mmaps the GGUF, and Windows
+        # refuses to delete a mapped file — the request would 500 and the only
+        # way out would be waiting out the idle unload or restarting Orb.
+        # `release` drains first, so a rewrite in flight finishes rather than
+        # being cut off, and the next use reloads whatever is still on disk.
+        await prose_rewriter.HOST.release()
     try:
         removed = await asyncio.to_thread(local_ml.delete_model, feature, variant)
     except OSError:
         logger.exception("local-ml delete %r (%s) failed", feature, variant)
         raise HTTPException(status_code=500, detail="Delete failed; see server logs") from None
-    if removed and feature == prose_rewriter.FEATURE:
-        # The host may be serving the file just unlinked. Staling it restarts
-        # lazily on next use rather than killing a turn already in flight.
-        prose_rewriter.HOST.invalidate()
     return {"ok": True, "removed": removed, "present": local_ml.present(feature)}
 
 
@@ -202,6 +205,11 @@ async def api_prose_rewriter_runtime(data: dict | None = Body(default=None)):  #
     one.
     """
     backend = "cpu" if str((data or {}).get("backend") or "gpu") == "cpu" else "gpu"
+    # A re-fetch replaces backend/data/llama-bin/ wholesale, and on Windows a
+    # running executable cannot be unlinked. Stop the child first — it reloads
+    # on next use, against the binary that just landed rather than the one it
+    # was started from, which is what someone switching CPU↔Vulkan is asking for.
+    await prose_rewriter.HOST.release()
     async with _download_lock:
         try:
             path = await asyncio.to_thread(llama_runtime.fetch, backend)

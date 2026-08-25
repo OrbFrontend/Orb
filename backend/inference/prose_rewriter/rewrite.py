@@ -138,7 +138,23 @@ async def arewrite(
                     await on_progress(snapshot)
 
     async with host.acquire():
-        await asyncio.gather(*(run(i, source) for i, source in jobs))
+        # No bare ``gather``: it propagates the first failure but leaves the
+        # other paragraphs RUNNING, decoding into a queue nobody reads and
+        # holding llama-server slots after this call has already reported the
+        # failure and released its in-flight count — which then lets a swap or
+        # the idle unload stop the child underneath them. A dead child fails
+        # every paragraph at once, so that is the ordinary case, not a corner.
+        # Tasks are named here (rather than left to ``gather``) so the failing
+        # one's exception still surfaces verbatim; a ``TaskGroup`` would wrap it
+        # in an ``ExceptionGroup`` and cost the warning its message.
+        tasks = [asyncio.create_task(run(i, source)) for i, source in jobs]
+        try:
+            await asyncio.gather(*tasks)
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
     return assemble(layout, done)
 
 

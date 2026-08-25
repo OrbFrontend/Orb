@@ -281,7 +281,9 @@ def deps_ok(feature: str | None = None) -> tuple[bool, str]:
     ``llama_server`` feature drives a child process over HTTP and needs only
     ``huggingface_hub``, to fetch the weights; ``llama_cpp`` features run the
     model in-process and need the binding too. ``feature=None`` keeps the
-    original whole-extras meaning for the legacy caller in ``routes/messages``.
+    original whole-extras meaning, which is what the Local ML card's top-level
+    ``deps_ok`` (the grouped opt-in) is keyed on; every per-feature caller
+    passes a name.
     """
     runtime = MODELS[feature].runtime if feature in MODELS else "llama_cpp"
     try:

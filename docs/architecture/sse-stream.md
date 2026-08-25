@@ -140,4 +140,16 @@ To prevent collisions, the orchestrator drops any hook attempt to emit a reserve
 
 `handle_turn` is the entry point for `/send` and `/continue`, but regenerate, fork-edit, super-regenerate, and magic-rewrite all stream through the **same** `_sse_stream` wrapper and emit the **same** event vocabulary. That's why the frontend dispatcher is written once: learn the events here and you've learned every chat route.
 
+### The one route that doesn't: `/prose-rewrite`
+
+`POST /api/conversations/{cid}/messages/{msg_id}/prose-rewrite` takes the same `_sse_stream` wrapper — same conversation lock, same `AbortToken`, so the ordinary Stop button cancels it — but it is **not** a generating route and deliberately does not speak the turn vocabulary. It runs no LLM pass, creates no message and no branch; it re-runs the local prose rewriter over the `writer_draft` retained for one *already-saved* assistant reply and edits that row in place. There is no bubble to stream tokens into, so there are no `token`s, no `writer_done`, and no `done` — the terminal event is `prose_rewrite_done`. The frontend consumes it in its own loop in `chat_messages.js` rather than through the shared dispatcher.
+
+| # | Event | Payload | Meaning |
+|---|-------|---------|---------|
+| 1 | `prose_rewrite_update` | `{ "message_id": 412, "draft": "…" }` | *Optional, repeatable.* The whole draft as it stands, one per completed top-to-bottom run of paragraphs. Generation is concurrent, so there is no meaningful delta and the client repaints the bubble wholesale. **Nothing is saved yet** — a dropped stream leaves the row untouched and the frontend puts the stored text back. |
+| 2 | `prose_rewrite_done` | `{ "message_id": 412, "content": "…", "changed": true, "warning": "", "aborted": true? }` | **Terminal.** `content` is the text now in the row (on a warning or an abort, the text that was already there). `changed` says whether the row was written; the write happens just before this event and never earlier. `warning` carries the rewriter declining — same meaning as `kind: "local_ml"` on the turn stream. `aborted` is present only when Stop won the race. |
+| — | `error` | a bare string | **Terminal.** The message moved or was deleted between validation and the lock. |
+
+Applying a rewrite marks any still-pending World proposal inferred from that reply stale, exactly as a manual `/edit` does.
+
 The whole contract, in one sentence: **one `POST` opens an SSE stream; the backend pushes control (`user_message_created`, `done`, `error`), meta (`director_*`, `writer_done`, `writer_rewrite`, `editor_done`, `feedback`, `reasoning`, `world_change_proposed`, workflow events), and `token` events; the frontend routes each by name in one switch; underscore-prefixed events stay server-side.**
