@@ -201,7 +201,15 @@ def _unpack(archive: Path, into: Path) -> None:
             if hasattr(tarfile, "data_filter"):
                 tf.extractall(into, filter="data")  # noqa: S202 — official release archive
             else:
-                tf.extractall(into)  # noqa: S202 — official release archive
+                base = into.resolve()
+                for member in tf.getmembers():
+                    member_path = Path(member.name)
+                    if member_path.is_absolute() or ".." in member_path.parts:
+                        raise LlamaServerMissing(f"Illegal tar archive entry: {member.name}")
+                    target = (base / member_path).resolve()
+                    if os.path.commonpath([str(base), str(target)]) != str(base):
+                        raise LlamaServerMissing(f"Illegal tar archive entry: {member.name}")
+                    tf.extract(member, into)  # noqa: S202 — validated member path
 
 
 def _flatten(unpacked: Path, dest: Path) -> Path:
