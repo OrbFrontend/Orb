@@ -185,12 +185,12 @@ async def api_local_ml_config(feature: str, data: dict = Body(...)):  # noqa: B0
         raise HTTPException(status_code=404, detail=f"Unknown variant {variant_id!r} for {feature!r}")
     gpu = bool(data.get("gpu", True))
     raw_batch_size = data.get("batch_size", prose_rewriter.DEFAULT_BATCH_SIZE)
-    if type(raw_batch_size) is not int or not prose_rewriter.MIN_BATCH_SIZE <= raw_batch_size <= prose_rewriter.MAX_BATCH_SIZE:
+    batch_size = prose_rewriter.select_batch_size(raw_batch_size)
+    if batch_size is None:
         raise HTTPException(
             status_code=400,
             detail=(f"batch_size must be an integer from {prose_rewriter.MIN_BATCH_SIZE} to {prose_rewriter.MAX_BATCH_SIZE}"),
         )
-    batch_size = raw_batch_size
     await set_local_ml_config(feature, {"variant": variant_id, "gpu": gpu, "batch_size": batch_size})
     settings = await get_settings()
     if feature == prose_rewriter.FEATURE:

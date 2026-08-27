@@ -71,6 +71,17 @@ DEFAULT_SLOTS = 4
 BOOT_TIMEOUT = 300.0
 STOP_TOKEN = "<|im_end|>"
 
+# Every request-derived slot choice is converted to these code-owned strings
+# before argv is assembled. Besides documenting the exact memory/concurrency
+# contract, this prevents stored/API data from remaining tainted at the
+# subprocess sink (CodeQL py/command-line-injection).
+_SLOT_ARGV = {
+    1: ("1280", "1", "6"),
+    2: ("2560", "2", "8"),
+    3: ("3840", "3", "10"),
+    4: ("5120", "4", "12"),
+}
+
 #: Seconds at zero in-flight before the child is stopped and its VRAM released.
 #: Matters most when the Writer is also local on the same card.
 IDLE_TIMEOUT = float(os.environ.get("ORB_PROSE_REWRITER_IDLE", "300"))
@@ -248,7 +259,7 @@ class _ThreadChild:
         self._reader: threading.Thread | None = None
 
     async def start(self, argv: Sequence[str]) -> None:
-        self._process = subprocess.Popen(  # noqa: S603 — binary resolved by runtime.find_binary
+        self._process = subprocess.Popen(  # noqa: S603 — local executable; request choices use closed argv allowlists
             list(argv),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -324,7 +335,14 @@ class LlamaServer:
     to run one."""
 
     def __init__(self, variant: Variant, binary: Path, *, slots: int, gpu: bool) -> None:
-        self.variant, self.binary, self.slots = variant, binary, slots
+        trusted_variant = catalog.resolve(variant.id)
+        if trusted_variant is None or trusted_variant != variant:
+            raise ValueError(f"Unregistered prose-rewriter variant {variant.id!r}")
+        try:
+            ctx_size, parallel, http_threads = _SLOT_ARGV[slots]
+        except KeyError:
+            raise ValueError(f"slots must be between {MIN_SLOTS} and {MAX_SLOTS}") from None
+        self.variant, self.binary, self.slots = trusted_variant, binary, slots
         self.port = _free_port()
         self.started_at = time.monotonic()
         self.log: deque[str] = deque(maxlen=60)
@@ -339,9 +357,9 @@ class LlamaServer:
         self.argv = [
             str(binary),
             "--model",
-            catalog.variant_path(variant),
+            catalog.variant_path(trusted_variant),
             "--alias",
-            variant.id,
+            "prose-rewriter",
             "--host",
             "127.0.0.1",
             "--port",
@@ -351,12 +369,12 @@ class LlamaServer:
             "--n-gpu-layers",
             "999" if gpu else "0",
             "--ctx-size",
-            str(slots * CTX_PER_SLOT),
+            ctx_size,
             "--parallel",
-            str(slots),
+            parallel,
             "--cont-batching",
             "--threads-http",
-            str(slots * 2 + 4),
+            http_threads,
         ]
         # Optional, and asked for only if this build has it: this feature never
         # calls /v1/chat/completions, and llama.cpp's own front end has no

@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 import pytest
 
+from backend.inference import prose_rewriter
 from backend.inference.prose_rewriter import rewrite
 from backend.pipeline.passes.editor import slm_rewrite
 
@@ -135,3 +136,13 @@ async def test_turn_config_defaults_an_old_or_malformed_batch_size(monkeypatch):
 
     assert old is not None and old["batch_size"] == 4
     assert malformed is not None and malformed["batch_size"] == 4
+
+
+@pytest.mark.parametrize("raw", [1, 2, 3, 4])
+async def test_batch_size_selector_maps_supported_input_to_the_closed_allowlist(raw):
+    assert prose_rewriter.select_batch_size(raw) == raw
+
+
+@pytest.mark.parametrize("raw", [0, 5, 2.5, "2", True, None])
+async def test_batch_size_selector_rejects_everything_outside_the_closed_allowlist(raw):
+    assert prose_rewriter.select_batch_size(raw) is None

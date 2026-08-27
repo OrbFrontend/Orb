@@ -21,12 +21,23 @@ DEFAULT_BATCH_SIZE = DEFAULT_SLOTS
 MIN_BATCH_SIZE = MIN_SLOTS
 MAX_BATCH_SIZE = MAX_SLOTS
 
+# A request or preset may supply the key, but never the value that reaches the
+# child command line. Returning a literal from this closed map is the same
+# allowlist barrier CodeQL recommends for command arguments; range-checking and
+# returning the original int leaves the taint attached even though 1..4 is safe.
+_BATCH_SIZE_ALLOWLIST = {1: 1, 2: 2, 3: 3, 4: 4}
+
+
+def select_batch_size(value: object) -> int | None:
+    """A code-owned batch size for an exact supported input, else ``None``."""
+    if type(value) is not int:
+        return None
+    return _BATCH_SIZE_ALLOWLIST.get(value)
+
 
 def resolve_batch_size(value: object) -> int:
     """A persisted parallel-paragraph count, with old/malformed blobs made safe."""
-    if type(value) is int and MIN_BATCH_SIZE <= value <= MAX_BATCH_SIZE:
-        return value
-    return DEFAULT_BATCH_SIZE
+    return select_batch_size(value) or DEFAULT_BATCH_SIZE
 
 
 async def shutdown() -> None:
@@ -52,6 +63,7 @@ __all__ = [
     "resolve",
     "resolve_batch_size",
     "runtime_ok",
+    "select_batch_size",
     "shutdown",
     "state",
 ]

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from dataclasses import replace
 
 import pytest
 
@@ -117,17 +118,31 @@ async def test_llama_server_boot_failure_reports_the_child_log(monkeypatch, tmp_
     await server.stop()
 
 
-async def test_parallel_slots_scale_the_reserved_context(monkeypatch, tmp_path):
+@pytest.mark.parametrize("slots", [1, 2, 3, 4])
+async def test_parallel_slots_select_only_fixed_command_arguments(monkeypatch, tmp_path, slots):
     """One configured paragraph lane maps to one full CTX_PER_SLOT KV lane."""
     monkeypatch.setattr(S, "_help_text", lambda _binary: "")
     monkeypatch.setattr(S, "_free_port", lambda: 12345)
     variant = S.catalog.variants()[0]
-    server = S.LlamaServer(variant, tmp_path / "llama-server", slots=2, gpu=True)
+    server = S.LlamaServer(variant, tmp_path / "llama-server", slots=slots, gpu=True)
 
+    alias = server.argv.index("--alias")
     parallel = server.argv.index("--parallel")
     context = server.argv.index("--ctx-size")
-    assert server.argv[parallel + 1] == "2"
-    assert server.argv[context + 1] == str(2 * S.CTX_PER_SLOT)
+    threads = server.argv.index("--threads-http")
+    assert server.argv[alias + 1] == "prose-rewriter"
+    assert server.argv[parallel + 1] == str(slots)
+    assert server.argv[context + 1] == str(slots * S.CTX_PER_SLOT)
+    assert server.argv[threads + 1] == str(slots * 2 + 4)
+
+
+async def test_llama_server_rejects_a_variant_outside_the_registry(tmp_path):
+    """A request-selected id must resolve to a code-owned registry row before
+    any part of it is allowed into the child command."""
+    variant = replace(S.catalog.variants()[0], id="--host", path="/tmp/attacker.gguf")
+
+    with pytest.raises(ValueError, match="Unregistered prose-rewriter variant"):
+        S.LlamaServer(variant, tmp_path / "llama-server", slots=2, gpu=False)
 
 
 async def test_batch_size_change_marks_the_loaded_host_stale():
