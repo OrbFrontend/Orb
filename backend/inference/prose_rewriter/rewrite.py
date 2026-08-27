@@ -24,7 +24,7 @@ from collections.abc import Awaitable, Callable
 from . import catalog, runtime
 from . import text as T
 from .catalog import Variant
-from .server import HOST, ModelHost
+from .server import DEFAULT_SLOTS, HOST, ModelHost
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,7 @@ async def arewrite(
     variant: Variant,
     *,
     gpu: bool = True,
+    batch_size: int = DEFAULT_SLOTS,
     host: ModelHost | None = None,
     on_progress: Callable[[str], Awaitable[None]] | None = None,
 ) -> str:
@@ -78,60 +79,63 @@ async def arewrite(
     GGUF, boot failure, HTTP error). The Editor-pass caller turns that into a
     pass-through plus a warning; this layer does not decide policy.
     """
-    host = host or HOST
-    server = await host.ensure(variant, gpu)
-
     layout = T.plan(draft)
     jobs = _admissible(layout)
     if not jobs:
         return draft
 
-    done: dict[int, str] = {}
-    completed: set[int] = set()
-    # ``jobs`` is in source order. A later paragraph may finish first, but its
-    # snapshot waits here until every preceding job has settled (whether it
-    # rewrote successfully or correctly passed through unchanged).
-    next_progress = 0
-    last_snapshot = draft
-    # Twice the slot count keeps the scheduler fed at all times — there is
-    # always a request waiting to fill a slot the moment one frees — without
-    # opening ninety-six connections for a ninety-six-paragraph draft.
-    admit = asyncio.Semaphore(max(2, host.slots * 2))
-    lock = asyncio.Lock()
+    host = host or HOST
+    async with host.use(variant, gpu, batch_size) as server:
+        done: dict[int, str] = {}
+        completed: set[int] = set()
+        # ``jobs`` is in source order. A later paragraph may finish first, but its
+        # snapshot waits here until every preceding job has settled (whether it
+        # rewrote successfully or correctly passed through unchanged).
+        next_progress = 0
+        last_snapshot = draft
+        # Twice the slot count keeps the scheduler fed at all times — there is
+        # always a request waiting to fill a slot the moment one frees — without
+        # opening ninety-six connections for a ninety-six-paragraph draft.
+        admit = asyncio.Semaphore(max(2, server.slots * 2))
+        lock = asyncio.Lock()
 
-    async def run(index: int, source: str) -> None:
-        nonlocal last_snapshot, next_progress
-        async with admit:
-            result = ""
-            n = await server.count_tokens(source)
-            if n > T.MAX_SOURCE_TOKENS:
-                # Out past the trained envelope. Passing it through is the
-                # honest answer; the reference errors because a human can split it.
-                logger.info("Prose rewriter: paragraph %d is %d tokens (>%d); left unchanged", index, n, T.MAX_SOURCE_TOKENS)
-            else:
-                raw, stopped = await server.generate(
-                    T.serve_prompt(source), n_predict=budget(n), temperature=TEMPERATURE, top_p=TOP_P
-                )
-                result = T.finish(raw, stopped)
-            async with lock:
-                if result:
-                    done[index] = result
-                completed.add(index)
+        async def run(index: int, source: str) -> None:
+            nonlocal last_snapshot, next_progress
+            async with admit:
+                result = ""
+                n = await server.count_tokens(source)
+                if n > T.MAX_SOURCE_TOKENS:
+                    # Out past the trained envelope. Passing it through is the
+                    # honest answer; the reference errors because a human can split it.
+                    logger.info(
+                        "Prose rewriter: paragraph %d is %d tokens (>%d); left unchanged",
+                        index,
+                        n,
+                        T.MAX_SOURCE_TOKENS,
+                    )
+                else:
+                    raw, stopped = await server.generate(
+                        T.serve_prompt(source), n_predict=budget(n), temperature=TEMPERATURE, top_p=TOP_P
+                    )
+                    result = T.finish(raw, stopped)
+                async with lock:
+                    if result:
+                        done[index] = result
+                    completed.add(index)
 
-                # Awaiting a callback while holding this small bookkeeping lock
-                # serializes its delivery too. In production it is an unbounded
-                # Queue.put (no wait), and this keeps a slow custom callback from
-                # letting a newer snapshot overtake an older one.
-                advanced = False
-                while next_progress < len(jobs) and jobs[next_progress][0] in completed:
-                    next_progress += 1
-                    advanced = True
-                snapshot = assemble(layout, done) if advanced else ""
-                if on_progress is not None and snapshot and snapshot != last_snapshot:
-                    last_snapshot = snapshot
-                    await on_progress(snapshot)
+                    # Awaiting a callback while holding this small bookkeeping lock
+                    # serializes its delivery too. In production it is an unbounded
+                    # Queue.put (no wait), and this keeps a slow custom callback from
+                    # letting a newer snapshot overtake an older one.
+                    advanced = False
+                    while next_progress < len(jobs) and jobs[next_progress][0] in completed:
+                        next_progress += 1
+                        advanced = True
+                    snapshot = assemble(layout, done) if advanced else ""
+                    if on_progress is not None and snapshot and snapshot != last_snapshot:
+                        last_snapshot = snapshot
+                        await on_progress(snapshot)
 
-    async with host.acquire():
         # Cancel-on-failure, which a bare ``gather`` does not do: it propagates
         # the first failure but leaves the others RUNNING, holding llama-server
         # slots after this call released its in-flight count — which then lets a
@@ -147,7 +151,7 @@ async def arewrite(
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             raise
-    return assemble(layout, done)
+        return assemble(layout, done)
 
 
 def _admissible(layout: list[tuple[str, str]]) -> list[tuple[int, str]]:

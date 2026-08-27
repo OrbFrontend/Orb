@@ -250,8 +250,8 @@ async def set_local_ml_config(feature: str, config: Mapping[str, Any]) -> None:
 
     Same atomic ``json_set`` idiom as ``set_local_ml_enabled``: one named key,
     so two features written concurrently can't clobber each other. The value is
-    the feature's whole config object (variant + gpu for the prose rewriter),
-    replaced rather than merged — the route sends the full shape.
+    the feature's whole config object (variant + gpu + batch size for the prose
+    rewriter), replaced rather than merged — the route sends the full shape.
 
     Deliberately NOT in ``update_settings``'s allow-list, the same documented
     exception ``local_ml_enabled`` has: this route is the only writer.

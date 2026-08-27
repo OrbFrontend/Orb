@@ -46,7 +46,7 @@ def _spawn(coro) -> None:
     task.add_done_callback(_BACKGROUND.discard)
 
 
-async def _prewarm(variant, gpu: bool) -> None:
+async def _prewarm(variant, gpu: bool, batch_size: int) -> None:
     """Load the model in the background so the first turn does not pay for it.
 
     Failures are logged, not raised: the panel reads ``HOST.state``, and a
@@ -54,7 +54,7 @@ async def _prewarm(variant, gpu: bool) -> None:
     state — surfacing it as a 500 on a settings write would be worse.
     """
     try:
-        await prose_rewriter.HOST.ensure(variant, gpu)
+        await prose_rewriter.HOST.ensure(variant, gpu, batch_size)
     except Exception:
         logger.warning("Prose rewriter pre-warm failed", exc_info=True)
 
@@ -96,6 +96,7 @@ async def api_local_ml_status():
             ]
             info["selected"] = config.get("variant") or None
             info["gpu"] = bool(config.get("gpu", True))
+            info["batch_size"] = prose_rewriter.resolve_batch_size(config.get("batch_size"))
             info["runtime_ok"] = prose_rewriter.runtime_ok()
             info.update(prose_rewriter.state())
         features[f] = info
@@ -164,11 +165,12 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
 
 @router.post("/api/local-ml/{feature}/config")
 async def api_local_ml_config(feature: str, data: dict = Body(...)):  # noqa: B008
-    """Set one feature's config (prose rewriter: ``variant`` + ``gpu``).
+    """Set one feature's config (prose rewriter: variant, GPU and batch size).
 
-    A variant or GPU change marks the host stale and RETURNS IMMEDIATELY; the
-    restart happens lazily on next use. Draining and restarting inline would
-    block a settings write on a turn that may be mid-rewrite, or kill it.
+    Any change marks the host stale and RETURNS IMMEDIATELY. Draining and
+    restarting inline would block a settings write on a turn that may be
+    mid-rewrite, or kill it. The background pre-warm finishes the current
+    rewrite, then reloads with the new allocation; new work waits behind it.
 
     Then it pre-warms in the background. Loading 2.2-4.7 GB from cold is
     seconds to tens of seconds, and paying that inside the first turn after
@@ -182,13 +184,20 @@ async def api_local_ml_config(feature: str, data: dict = Body(...)):  # noqa: B0
     if variant_id and variant_id not in {v.id for v in spec.variants}:
         raise HTTPException(status_code=404, detail=f"Unknown variant {variant_id!r} for {feature!r}")
     gpu = bool(data.get("gpu", True))
-    await set_local_ml_config(feature, {"variant": variant_id, "gpu": gpu})
+    raw_batch_size = data.get("batch_size", prose_rewriter.DEFAULT_BATCH_SIZE)
+    if type(raw_batch_size) is not int or not prose_rewriter.MIN_BATCH_SIZE <= raw_batch_size <= prose_rewriter.MAX_BATCH_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"batch_size must be an integer from {prose_rewriter.MIN_BATCH_SIZE} to {prose_rewriter.MAX_BATCH_SIZE}"),
+        )
+    batch_size = raw_batch_size
+    await set_local_ml_config(feature, {"variant": variant_id, "gpu": gpu, "batch_size": batch_size})
     settings = await get_settings()
     if feature == prose_rewriter.FEATURE:
         variant = prose_rewriter.resolve(variant_id)
-        prose_rewriter.HOST.mark_stale(variant, gpu)
+        prose_rewriter.HOST.mark_stale(variant, gpu, batch_size)
         if variant is not None and prose_rewriter.on_disk(variant):
-            _spawn(_prewarm(variant, gpu))
+            _spawn(_prewarm(variant, gpu, batch_size))
     return {"local_ml_config": settings.get("local_ml_config", {})}
 
 
@@ -264,5 +273,11 @@ async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B
         config = _prose_config(settings)
         variant = prose_rewriter.resolve(str(config.get("variant") or ""))
         if variant is not None and prose_rewriter.on_disk(variant):
-            _spawn(_prewarm(variant, bool(config.get("gpu", True))))
+            _spawn(
+                _prewarm(
+                    variant,
+                    bool(config.get("gpu", True)),
+                    prose_rewriter.resolve_batch_size(config.get("batch_size")),
+                )
+            )
     return {"local_ml_enabled": settings.get("local_ml_enabled", {})}

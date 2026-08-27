@@ -34,7 +34,11 @@ async def _drain(agen) -> list[dict]:
 
 
 def _enable(monkeypatch) -> None:
-    monkeypatch.setattr(message_routes, "resolve_prose_rewrite", lambda _settings: {"variant_id": "test", "gpu": False})
+    monkeypatch.setattr(
+        message_routes,
+        "resolve_prose_rewrite",
+        lambda _settings: {"variant_id": "test", "gpu": False, "batch_size": 4},
+    )
 
 
 def _done_event(response) -> dict:
@@ -47,7 +51,12 @@ async def _content(db, message_id: int) -> str:
 
 
 def _stream(cid: str, message_id: int, token):
-    return message_routes._stream_prose_rewrite_message(cid, message_id, {"variant_id": "test", "gpu": False}, token)
+    return message_routes._stream_prose_rewrite_message(
+        cid,
+        message_id,
+        {"variant_id": "test", "gpu": False, "batch_size": 4},
+        token,
+    )
 
 
 async def test_rewrites_saved_assistant_message_and_stales_its_proposals(client, db, monkeypatch):

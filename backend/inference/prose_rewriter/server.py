@@ -4,7 +4,7 @@ WHY A CHILD PROCESS RATHER THAN A BINDING. The rewriter generates one request
 per paragraph and wants them decoded *together*. Reaching continuous batching
 through ``llama-cpp-python`` (the binding the classifiers already use) means
 driving ``llama_decode`` and the KV cache by hand from Python; reaching it
-through ``llama-server`` means ``--parallel 4 --cont-batching`` and an HTTP
+through ``llama-server`` means ``--parallel N --cont-batching`` and an HTTP
 call. There is no third option that is less work than the second — which is
 also why this feature's ``runtime`` is ``llama_server`` and it needs none of
 ``requirements-ml.txt`` except ``huggingface_hub`` for the download.
@@ -60,11 +60,13 @@ logger = logging.getLogger(__name__)
 # budget never exceeds 512, and the prompt's own three blocks are a dozen more.
 # n_ctx is divided by the slot count inside llama.cpp, so this multiplies.
 CTX_PER_SLOT = 1280
-# Four lanes rather than eight, because that multiplication is not free: the KV
-# cache is allocated in full when the model loads, and a 1280-token lane is
-# 140 MB on the 1.7B and 190 MB on the 4B. Eight of them reserve well over a
-# gigabyte of VRAM before the first request arrives, which is the difference
-# between fitting and not on an 8 GB card.
+# Four lanes is the compatibility default and the upper bound exposed in
+# Settings. The multiplication is not free: the KV cache is allocated in full
+# when the model loads, and a 1280-token lane is 140 MB on the 1.7B and 190 MB
+# on the 4B. More than four gives diminishing throughput here while reserving
+# well over a gigabyte before the first request arrives.
+MIN_SLOTS = 1
+MAX_SLOTS = 4
 DEFAULT_SLOTS = 4
 BOOT_TIMEOUT = 300.0
 STOP_TOKEN = "<|im_end|>"
@@ -516,7 +518,7 @@ class ModelHost:
     """The current child, and the only thing allowed to replace it.
 
     THE LOCK GUARDS THE SWAP, NOT THE GENERATION. Callers take a reference to
-    the running server through :meth:`acquire` and then talk to it without
+    the running server through :meth:`use` and then talk to it without
     holding anything, which is what makes concurrent paragraph rewrites
     concurrent. A swap waits for the in-flight count to reach zero before it
     kills anything, so a rewrite in progress is never cut off by someone
@@ -524,6 +526,8 @@ class ModelHost:
     """
 
     def __init__(self, *, slots: int = DEFAULT_SLOTS) -> None:
+        if not MIN_SLOTS <= slots <= MAX_SLOTS:
+            raise ValueError(f"slots must be between {MIN_SLOTS} and {MAX_SLOTS}")
         self.slots = slots
         self.state = "idle"  # idle | loading | ready | failed
         self.error = ""
@@ -539,55 +543,97 @@ class ModelHost:
 
     # ── loading ──────────────────────────────────────────────────────────────
 
-    def mark_stale(self, variant: Variant | None, gpu: bool) -> None:
+    def mark_stale(self, variant: Variant | None, gpu: bool, slots: int) -> None:
         """Record a new selection without touching the running child.
 
         The config route calls this and returns immediately: a turn may be
         mid-rewrite, and a settings write has no business blocking on it or
         killing it. The restart happens on the next :meth:`ensure`.
         """
-        if self.variant is not None and variant is not None and self.variant.id == variant.id and self.gpu == gpu:
+        if (
+            self.variant is not None
+            and variant is not None
+            and self.variant.id == variant.id
+            and self.gpu == gpu
+            and self.slots == slots
+        ):
             return
-        self.variant, self.gpu, self._stale = variant, gpu, True
+        self.variant, self.gpu, self.slots, self._stale = variant, gpu, slots, True
 
     @property
     def healthy(self) -> bool:
         return not self._stale and self.server is not None and self.server.alive and self.server.ready
 
-    async def ensure(self, variant: Variant, gpu: bool) -> LlamaServer:
+    async def ensure(self, variant: Variant, gpu: bool, slots: int) -> LlamaServer:
         """The running server for *variant*, starting or restarting as needed."""
+        if not MIN_SLOTS <= slots <= MAX_SLOTS:
+            raise ValueError(f"slots must be between {MIN_SLOTS} and {MAX_SLOTS}")
         async with self._lock:
-            same = self.variant is not None and self.variant.id == variant.id and self.gpu == gpu
-            if same and self.healthy and self.server is not None:
-                return self.server
-            binary = runtime.find_binary()
-            path = catalog.variant_path(variant)
-            if not os.path.exists(path):
-                raise RuntimeError(f"{variant.label} is not downloaded — {variant.local_name} is missing.")
-            # The flag goes up BEFORE the drain, not after it: new work has to
-            # stop arriving for the drain to end, and `state` is what callers
-            # read to turn themselves away with a message.
-            self.variant, self.gpu, self.state, self.error, self._stale = variant, gpu, "loading", "", False
-            await self._drain()
-            if self.server is not None:
-                await self.server.stop()
-                self.server = None
-            logger.info("Loading %s (%d MB, %d slots, gpu=%s)…", variant.local_name, variant.size_mb, self.slots, gpu)
-            server = LlamaServer(variant, binary, slots=self.slots, gpu=gpu)
-            try:
-                await server.start()
-                await server.wait_ready()
-            except Exception as exc:
-                self.state, self.error = "failed", str(exc)
-                with contextlib.suppress(Exception):
-                    await server.stop()
-                raise
-            self.server = server
-            self.state = "ready"
-            self._last_used = time.monotonic()
-            self._start_idle_watch()
-            logger.info("Prose rewriter ready in %.1fs on 127.0.0.1:%d", time.monotonic() - server.started_at, server.port)
-            return server
+            return await self._ensure_locked(variant, gpu, slots)
+
+    async def _ensure_locked(self, variant: Variant, gpu: bool, slots: int) -> LlamaServer:
+        """``ensure`` with the swap lock already held."""
+        same = self.variant is not None and self.variant.id == variant.id and self.gpu == gpu and self.slots == slots
+        if same and self.healthy and self.server is not None:
+            return self.server
+        binary = runtime.find_binary()
+        path = catalog.variant_path(variant)
+        if not os.path.exists(path):
+            raise RuntimeError(f"{variant.label} is not downloaded — {variant.local_name} is missing.")
+        # The flag goes up BEFORE the drain, not after it: new work has to
+        # stop arriving for the drain to end, and `state` is what callers
+        # read to turn themselves away with a message.
+        self.variant, self.gpu, self.slots, self.state, self.error, self._stale = (
+            variant,
+            gpu,
+            slots,
+            "loading",
+            "",
+            False,
+        )
+        await self._drain()
+        if self.server is not None:
+            await self.server.stop()
+            self.server = None
+        logger.info("Loading %s (%d MB, %d slots, gpu=%s)…", variant.local_name, variant.size_mb, slots, gpu)
+        server = LlamaServer(variant, binary, slots=slots, gpu=gpu)
+        try:
+            await server.start()
+            await server.wait_ready()
+        except Exception as exc:
+            self.state, self.error = "failed", str(exc)
+            with contextlib.suppress(Exception):
+                await server.stop()
+            raise
+        self.server = server
+        self.state = "ready"
+        self._last_used = time.monotonic()
+        self._start_idle_watch()
+        logger.info("Prose rewriter ready in %.1fs on 127.0.0.1:%d", time.monotonic() - server.started_at, server.port)
+        return server
+
+    @contextlib.asynccontextmanager
+    async def use(self, variant: Variant, gpu: bool, slots: int):
+        """Yield a server protected from config-driven reloads.
+
+        The in-flight count is raised before the swap lock is released. This
+        closes the small but real gap an ensure-then-account sequence would
+        leave, where a Settings change could otherwise stop a child that a
+        rewrite had just received but had not started sending requests to yet.
+        """
+        if not MIN_SLOTS <= slots <= MAX_SLOTS:
+            raise ValueError(f"slots must be between {MIN_SLOTS} and {MAX_SLOTS}")
+        async with self._lock:
+            server = await self._ensure_locked(variant, gpu, slots)
+            async with self._idle:
+                self._inflight += 1
+        try:
+            yield server
+        finally:
+            async with self._idle:
+                self._inflight -= 1
+                self._last_used = time.monotonic()
+                self._idle.notify_all()
 
     async def _drain(self, timeout: float = 120.0) -> None:
         deadline = time.monotonic() + timeout
@@ -658,21 +704,6 @@ class ModelHost:
                 self.state = "idle"
                 self._idle_task = None
                 return
-
-    # ── in-flight accounting ─────────────────────────────────────────────────
-
-    @contextlib.asynccontextmanager
-    async def acquire(self):
-        """Hold one in-flight slot for the duration of a rewrite."""
-        async with self._idle:
-            self._inflight += 1
-        try:
-            yield
-        finally:
-            async with self._idle:
-                self._inflight -= 1
-                self._last_used = time.monotonic()
-                self._idle.notify_all()
 
 
 #: One host per process. The rewriter is a single-user local feature and a

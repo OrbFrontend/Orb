@@ -43,6 +43,7 @@ class ProseRewrite(TypedDict):
 
     variant_id: str
     gpu: bool
+    batch_size: int
 
 
 def resolve_prose_rewrite(settings: Mapping[str, Any]) -> ProseRewrite | None:
@@ -61,7 +62,11 @@ def resolve_prose_rewrite(settings: Mapping[str, Any]) -> ProseRewrite | None:
         return None
     # `gpu` defaults on: someone who fetched the Vulkan build meant to use it,
     # and the checkbox is how they say otherwise.
-    return {"variant_id": variant_id, "gpu": bool(config.get("gpu", True))}
+    return {
+        "variant_id": variant_id,
+        "gpu": bool(config.get("gpu", True)),
+        "batch_size": prose_rewriter.resolve_batch_size(config.get("batch_size")),
+    }
 
 
 async def prose_rewrite_step(draft: str, config: ProseRewrite) -> AsyncGenerator[dict, None]:
@@ -91,7 +96,13 @@ async def prose_rewrite_step(draft: str, config: ProseRewrite) -> AsyncGenerator
 
     async def worker() -> str:
         try:
-            return await prose_rewriter.arewrite(draft, variant, gpu=config["gpu"], on_progress=queue.put)
+            return await prose_rewriter.arewrite(
+                draft,
+                variant,
+                gpu=config["gpu"],
+                batch_size=config["batch_size"],
+                on_progress=queue.put,
+            )
         finally:
             queue.put_nowait(_DONE)
 

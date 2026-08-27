@@ -117,6 +117,12 @@ The **Run on GPU** checkbox is a separate axis: GPU acceleration comes from the
 Vulkan build being the one that was fetched, and the checkbox flips
 `--n-gpu-layers` between all and none.
 
+**Parallel batch** controls how many paragraphs llama.cpp decodes at once. One
+uses the least memory; four is fastest and remains the default. Changing it
+finishes any rewrite already in progress, then reloads and pre-warms the model
+with the new allocation in the background. A new rewrite waits for that reload
+rather than using the old batch size.
+
 ### 2. A model
 
 | Variant | Size | Notes |
@@ -129,16 +135,18 @@ Download one, select its radio, and switch the feature on. Each downloaded varia
 has a **×** next to it — 9.6 GB for all three is too much to leave with no exit but
 the file manager.
 
-Selecting a variant or flipping the GPU box **pre-warms** the model in the
-background, so it is hot by the time you leave Settings rather than costing you a
-visible stall on the first turn.
+Selecting a variant, flipping the GPU box, or changing the parallel batch
+**pre-warms** the model in the background, so it is hot by the time you leave
+Settings rather than costing you a visible stall on the first turn.
 
 ## VRAM
 
-The KV cache is allocated in full when the model loads: four slots at 1280 tokens
-each is roughly 0.6 GB on the 1.7B and 0.8 GB on the 4B, **on top of** the model.
+The KV cache is allocated in full when the model loads. Each parallel paragraph
+gets a 1280-token slot: roughly 0.14 GB on the 1.7B or 0.19 GB on the 4B,
+**on top of** the model. The default four-slot batch is therefore roughly 0.6 GB
+or 0.8 GB respectively.
 
-| Variant | Model | + KV cache | Total |
+| Variant | Model | + KV cache (batch 4) | Total |
 |---|---|---|---|
 | 1.7B Q8_0 | 2.2 GB | ~0.6 GB | ~2.8 GB |
 | 4B Q4_K_M | 2.7 GB | ~0.8 GB | ~3.5 GB |

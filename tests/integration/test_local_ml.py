@@ -79,6 +79,7 @@ async def test_status_enumerates_the_rewriter_variants(client):
     assert info["selected"] is None
     assert info["present"] is False
     assert info["runtime"] == "llama_server"
+    assert info["batch_size"] == 4
 
 
 async def test_status_reports_deps_per_feature_not_globally(client):
@@ -91,13 +92,28 @@ async def test_status_reports_deps_per_feature_not_globally(client):
     assert {"deps_ok", "reason"} <= set(st["features"]["autocomplete"])
 
 
-async def test_config_roundtrips_the_variant_and_gpu_flag(client):
-    resp = await client.post("/api/local-ml/prose_rewriter/config", json={"variant": "1.7b-q8", "gpu": False})
+async def test_config_roundtrips_variant_gpu_and_batch_size(client):
+    resp = await client.post("/api/local-ml/prose_rewriter/config", json={"variant": "1.7b-q8", "gpu": False, "batch_size": 2})
     assert resp.status_code == 200
-    assert resp.json()["local_ml_config"]["prose_rewriter"] == {"variant": "1.7b-q8", "gpu": False}
+    assert resp.json()["local_ml_config"]["prose_rewriter"] == {
+        "variant": "1.7b-q8",
+        "gpu": False,
+        "batch_size": 2,
+    }
     st = (await client.get("/api/local-ml/status")).json()
     assert st["features"]["prose_rewriter"]["selected"] == "1.7b-q8"
     assert st["features"]["prose_rewriter"]["gpu"] is False
+    assert st["features"]["prose_rewriter"]["batch_size"] == 2
+
+
+@pytest.mark.parametrize("batch_size", [0, 5, 1.5, "2", True])
+async def test_config_rejects_an_invalid_batch_size(client, batch_size):
+    resp = await client.post(
+        "/api/local-ml/prose_rewriter/config",
+        json={"variant": "1.7b-q8", "gpu": True, "batch_size": batch_size},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "batch_size must be an integer from 1 to 4"
 
 
 async def test_config_rejects_an_unknown_variant(client):

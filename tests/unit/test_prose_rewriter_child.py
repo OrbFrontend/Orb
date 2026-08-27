@@ -107,6 +107,7 @@ async def test_llama_server_boot_failure_reports_the_child_log(monkeypatch, tmp_
     this tail is not empty — it is the whole diagnostic for a bad GGUF or a
     Vulkan build with no loader."""
     monkeypatch.setattr(S, "_help_text", lambda _binary: "")
+    monkeypatch.setattr(S, "_free_port", lambda: 12345)
     variant = S.catalog.variants()[0]
     server = S.LlamaServer(variant, tmp_path / "llama-server", slots=1, gpu=False)
     server.argv = _argv("import sys\nprint('CUDA error: no device')\nsys.exit(1)\n")
@@ -116,13 +117,50 @@ async def test_llama_server_boot_failure_reports_the_child_log(monkeypatch, tmp_
     await server.stop()
 
 
+async def test_parallel_slots_scale_the_reserved_context(monkeypatch, tmp_path):
+    """One configured paragraph lane maps to one full CTX_PER_SLOT KV lane."""
+    monkeypatch.setattr(S, "_help_text", lambda _binary: "")
+    monkeypatch.setattr(S, "_free_port", lambda: 12345)
+    variant = S.catalog.variants()[0]
+    server = S.LlamaServer(variant, tmp_path / "llama-server", slots=2, gpu=True)
+
+    parallel = server.argv.index("--parallel")
+    context = server.argv.index("--ctx-size")
+    assert server.argv[parallel + 1] == "2"
+    assert server.argv[context + 1] == str(2 * S.CTX_PER_SLOT)
+
+
+async def test_batch_size_change_marks_the_loaded_host_stale():
+    host = S.ModelHost(slots=4)
+    variant = S.catalog.variants()[0]
+    host.variant = variant
+    host.gpu = True
+    host._stale = False
+
+    host.mark_stale(variant, True, 2)
+
+    assert host.slots == 2
+    assert host.healthy is False
+
+
+async def test_host_rejects_batch_sizes_outside_the_supported_range():
+    with pytest.raises(ValueError, match="slots must be between 1 and 4"):
+        S.ModelHost(slots=0)
+    with pytest.raises(ValueError, match="slots must be between 1 and 4"):
+        S.ModelHost(slots=5)
+
+
 class _StoppableServer:
     """Stands in for a loaded LlamaServer; records that it was stopped."""
 
     def __init__(self) -> None:
+        self.alive = True
+        self.ready = True
         self.stopped = False
 
     async def stop(self) -> None:
+        self.alive = False
+        self.ready = False
         self.stopped = True
 
 
@@ -133,10 +171,12 @@ async def test_release_waits_for_an_in_flight_rewrite_before_stopping_the_child(
     host = S.ModelHost()
     host.server = _StoppableServer()
     host.state = "ready"
+    variant = S.catalog.variants()[0]
+    host.variant = variant
     order: list[str] = []
 
     async def rewriting() -> None:
-        async with host.acquire():
+        async with host.use(variant, True, 4):
             await asyncio.sleep(0.05)
             order.append("rewrite finished")
 

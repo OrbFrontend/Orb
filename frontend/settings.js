@@ -76,7 +76,7 @@ export async function loadSettings() {
   if (S.settings.enabled_tools) S.enabledTools = { ...S.enabledTools, ...S.settings.enabled_tools };
   if (typeof S.settings.enable_agent === "number") S.agentEnabled = S.settings.enable_agent !== 0;
 
-  // Per-local-ML-feature config (prose rewriter: variant + gpu). Kept on
+  // Per-local-ML-feature config (prose rewriter: variant + gpu + batch size). Kept on
   // S.settings rather than promoted to a top-level S key: the Settings panel is
   // the only reader, and it re-fetches /local-ml/status for the disk facts anyway.
   if (!S.settings.local_ml_config || typeof S.settings.local_ml_config !== "object") S.settings.local_ml_config = {};
@@ -210,8 +210,7 @@ const LOCAL_ML_DESCS = {
   slop_classifier: "Unlock AI slop scorer.",
   emotion_classifier: "Track a character's mood with expression images in the avatar popup.",
   pov_classifier: "Auto POV for image-gen.",
-  prose_rewriter:
-    "Rewrite each paragraph with a local model before the Editor audits the result, or apply it on demand below an assistant reply from its original Writer draft.",
+  prose_rewriter: "Locally rewrite prose, automatically or on demand.",
 };
 
 // Tri-state per feature: deps missing → grayed Download + hint; deps ok & model
@@ -288,6 +287,7 @@ function variantCard(f, info) {
     ${desc ? `<div class="tool-card-desc">${desc}</div>` : ""}
     <div class="ml-variants">${rows}</div>
     ${runtimeRow(info)}
+    ${batchSizeControl(f, info)}
     <div class="ml-foot">
       <label class="ml-check">
         <input type="checkbox" ${info.gpu ? "checked" : ""} data-ml-act="gpu" data-ml-feature="${escAttr(f)}">
@@ -295,6 +295,29 @@ function variantCard(f, info) {
       </label>
       ${stateRow(f, info)}
     </div>
+  </div>`;
+}
+
+// llama.cpp calls these parallel slots; from the user's side it is the number
+// of paragraphs in one continuous batch. Each slot owns a full KV lane, so the
+// control names the workload and explains the memory consequence together.
+function batchSizeControl(f, info) {
+  if (!Number.isInteger(info.batch_size)) return "";
+  const id = escAttr(`ml-batch-size-${f}`);
+  const options = [
+    [1, "1 · lowest VRAM"],
+    [2, "2"],
+    [3, "3"],
+    [4, "4 · fastest"],
+  ]
+    .map(
+      ([value, label]) => `<option value="${value}" ${info.batch_size === value ? "selected" : ""}>${label}</option>`,
+    )
+    .join("");
+  return `<div class="ml-batch">
+    <label for="${id}">Parallel batch</label>
+    <select class="tool-card-select" id="${id}" data-ml-act="batch-size" data-ml-feature="${escAttr(f)}">${options}</select>
+    <div>Lower values use less VRAM (~140–190 MB per slot).</div>
   </div>`;
 }
 
@@ -415,18 +438,21 @@ function onLocalMLChange(ev) {
   if (act === "enabled") return toggleLocalMlEnabled(feature, target.checked);
   if (act === "select") return saveLocalMlConfig(feature, { variant });
   if (act === "gpu") return saveLocalMlConfig(feature, { gpu: target.checked });
+  if (act === "batch-size") return saveLocalMlConfig(feature, { batchSize: Number(target.value) });
 }
 
 // The config route takes the whole object, so a change to one field has to
-// carry the other: read the current selection out of the rendered controls
+// carry the others: read the current values out of the rendered controls
 // rather than keeping a second copy of it in module state.
 async function saveLocalMlConfig(feature, patch) {
   const root = $("local-ml-section");
   const picked = root?.querySelector(`input[name="local-ml-variant-${feature}"]:checked`);
   const gpuBox = root?.querySelector(`input[data-ml-act="gpu"][data-ml-feature="${feature}"]`);
+  const batchSelect = root?.querySelector(`select[data-ml-act="batch-size"][data-ml-feature="${feature}"]`);
   const body = {
     variant: patch.variant ?? picked?.dataset.mlVariant ?? null,
     gpu: patch.gpu ?? Boolean(gpuBox?.checked),
+    batch_size: patch.batchSize ?? Number(batchSelect?.value || 4),
   };
   try {
     const res = await api.post(`/local-ml/${feature}/config`, body);

@@ -15,7 +15,18 @@ from __future__ import annotations
 from .catalog import FEATURE, on_disk, resolve
 from .rewrite import arewrite, available
 from .runtime import runtime_ok
-from .server import HOST
+from .server import DEFAULT_SLOTS, HOST, MAX_SLOTS, MIN_SLOTS
+
+DEFAULT_BATCH_SIZE = DEFAULT_SLOTS
+MIN_BATCH_SIZE = MIN_SLOTS
+MAX_BATCH_SIZE = MAX_SLOTS
+
+
+def resolve_batch_size(value: object) -> int:
+    """A persisted parallel-paragraph count, with old/malformed blobs made safe."""
+    if type(value) is int and MIN_BATCH_SIZE <= value <= MAX_BATCH_SIZE:
+        return value
+    return DEFAULT_BATCH_SIZE
 
 
 async def shutdown() -> None:
@@ -31,11 +42,15 @@ def state() -> dict[str, str]:
 
 __all__ = [
     "FEATURE",
+    "DEFAULT_BATCH_SIZE",
     "HOST",
+    "MAX_BATCH_SIZE",
+    "MIN_BATCH_SIZE",
     "arewrite",
     "available",
     "on_disk",
     "resolve",
+    "resolve_batch_size",
     "runtime_ok",
     "shutdown",
     "state",

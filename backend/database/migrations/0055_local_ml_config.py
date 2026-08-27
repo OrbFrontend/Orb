@@ -3,8 +3,9 @@
 
 Sibling to ``local_ml_enabled``, which answers "is this feature on"; this one
 answers "and how is it configured". The first tenant is the prose rewriter,
-whose choices are which of three checkpoints to serve and whether to offload to
-the GPU: ``{"prose_rewriter": {"variant": "4b-q8", "gpu": true}}``.
+whose choices are which checkpoint to serve, whether to offload to the GPU and
+how many paragraph slots to allocate: ``{"prose_rewriter": {"variant":
+"4b-q8", "gpu": true, "batch_size": 2}}``.
 
 A JSON column rather than two more flat columns because the shape is the
 feature's own business and a second variant-bearing feature must not need a

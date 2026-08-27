@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 import pytest
 
 from backend.inference.prose_rewriter import rewrite
+from backend.pipeline.passes.editor import slm_rewrite
 
 pytestmark = pytest.mark.asyncio
 
@@ -23,6 +24,7 @@ def _source(prompt: str) -> str:
 
 class _Server:
     def __init__(self, *, first_delay: float, second_delay: float) -> None:
+        self.slots = 2
         self.first_delay = first_delay
         self.second_delay = second_delay
 
@@ -45,6 +47,7 @@ class _FlakyServer:
     """
 
     def __init__(self) -> None:
+        self.slots = 2
         self.second_finished = False
 
     async def count_tokens(self, _source: str) -> int:
@@ -59,17 +62,12 @@ class _FlakyServer:
 
 
 class _Host:
-    slots = 2
-
     def __init__(self, *, first_delay: float = 0, second_delay: float = 0, server=None) -> None:
         self.server = server or _Server(first_delay=first_delay, second_delay=second_delay)
 
-    async def ensure(self, _variant, _gpu: bool):
-        return self.server
-
     @asynccontextmanager
-    async def acquire(self):
-        yield
+    async def use(self, _variant, _gpu: bool, _batch_size: int):
+        yield self.server
 
 
 async def _rewrite(**delays) -> tuple[str, list[str]]:
@@ -112,3 +110,28 @@ async def test_a_failed_paragraph_takes_its_siblings_down_with_it():
     assert host.server.second_finished is False
     await asyncio.sleep(0.3)  # comfortably past the sibling's own sleep
     assert host.server.second_finished is False, "the sibling outlived the call that failed"
+
+
+async def test_turn_config_resolves_the_persisted_batch_size(monkeypatch):
+    monkeypatch.setattr(slm_rewrite.prose_rewriter, "available", lambda _variant: True)
+
+    resolved = slm_rewrite.resolve_prose_rewrite(
+        {
+            "local_ml_config": {
+                "prose_rewriter": {"variant": "1.7b-q8", "gpu": False, "batch_size": 2},
+            }
+        }
+    )
+
+    assert resolved == {"variant_id": "1.7b-q8", "gpu": False, "batch_size": 2}
+
+
+async def test_turn_config_defaults_an_old_or_malformed_batch_size(monkeypatch):
+    monkeypatch.setattr(slm_rewrite.prose_rewriter, "available", lambda _variant: True)
+    base = {"variant": "1.7b-q8", "gpu": True}
+
+    old = slm_rewrite.resolve_prose_rewrite({"local_ml_config": {"prose_rewriter": base}})
+    malformed = slm_rewrite.resolve_prose_rewrite({"local_ml_config": {"prose_rewriter": {**base, "batch_size": 99}}})
+
+    assert old is not None and old["batch_size"] == 4
+    assert malformed is not None and malformed["batch_size"] == 4
