@@ -122,8 +122,12 @@ async def _persist_result(
         )
 
     # Skip persistence if the LLM produced no content tokens (e.g. reasoning-only).
-    # Inline macros the model emitted (copied from context) fire once here — the
-    # persist boundary — so the stored history holds the final text.
+    # Inline macros the model emitted (copied from context) are already frozen by
+    # the time they get here: the writer stage resolves them the moment streaming
+    # ends, so the retained ``writer_draft`` and every post-writer pass read the
+    # same settled text. This call is the backstop for the paths that do not run
+    # the writer stage, and a no-op for the ones that do — a resolved string has
+    # no macros left to roll.
     #
     # Written back onto *res*, not kept local: a group exchange replays this reply
     # to the next speaker straight off the ``speaker_done`` event, so that event has
@@ -146,6 +150,10 @@ async def _persist_result(
             progressive_fields=res.progressive_fields,
             speaker_member_id=speaker_member_id,
             exchange_id=exchange_id,
+            # Writer stage freezes inline macros before it captures this, so it
+            # is the same stable, human-readable source the in-turn local
+            # rewriter received.
+            writer_draft=res.writer_draft or resp_text,
             advance_leaf=True,
         )
         # Row id only known here; no other caller can name it yet, so no lock needed.
@@ -220,6 +228,9 @@ async def _fallback_persist(
                 parent_id=user_msg_id,
                 speaker_member_id=speaker_member_id,
                 exchange_id=exchange_id,
+                # The writer stage did not finish on this abort path, so its
+                # macro-frozen partial text is the closest retained draft.
+                writer_draft=accumulated_text,
                 advance_leaf=True,
             )
             logger.info(

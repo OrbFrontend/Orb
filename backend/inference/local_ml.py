@@ -27,16 +27,34 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..core.text_segmentation import remove_quoted_spans, split_sentences
+from .prose_rewriter.catalog import Variant
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 @dataclass(frozen=True)
 class ModelSpec:
+    """One local-ML feature's weights, and how they are run.
+
+    ``runtime`` names the engine, because the two differ in what they need
+    installed: ``llama_cpp`` features are in-process and want the full
+    ``requirements-ml.txt``; ``llama_server`` features (the prose rewriter)
+    drive a child ``llama-server`` over HTTP and need only ``huggingface_hub``,
+    for the download. ``deps_ok(feature)`` reads this — a stock install with
+    just ``huggingface_hub`` can run the rewriter and nothing else.
+
+    ``variants`` is non-empty when the feature ships several interchangeable
+    checkpoints the user picks between. The spec's own ``filename`` then names
+    the default one, so every path that predates variants (``resolve_path``,
+    ``download``) keeps working unchanged.
+    """
+
     repo_id: str
     filename: str  # path *inside the HF repo* — upstream's layout, not ours
     size_mb: int
     revision: str  # pinned commit sha — a repo re-point can't swap the weights under us
+    runtime: str = "llama_cpp"  # llama_cpp (in-process) | llama_server (child process)
+    variants: tuple[Variant, ...] = ()
 
     @property
     def local_name(self) -> str:
@@ -45,10 +63,24 @@ class ModelSpec:
         Upstream repos disagree about where a GGUF lives — root, ``gguf/``,
         ``GGUF/`` — and mirroring that gave us a tree whose two case-variant
         directories are ONE directory on macOS/Windows. Basenames must stay
-        unique across MODELS (test_local_ml asserts it).
+        unique across MODELS *and* across every spec's variants — a name two
+        specs both claim is one file two features would fight over, and a
+        variant name no spec claims is a file ``prune_stale`` deletes the next
+        time anything downloads. ``test_prose_rewriter_catalog`` asserts both.
         """
         return os.path.basename(self.filename)
 
+    def all_names(self) -> set[str]:
+        """Every basename this spec puts under data/models/ — the prune claim."""
+        return {self.local_name, *(v.local_name for v in self.variants)}
+
+
+# The two prose-rewriter repos, pinned. Named once because three variants
+# share them and a half-updated pin is a silently different model.
+_PROSE_1_7B_REPO = "chartreuse-verte/prose-rewriter-1.7b-v1.2"
+_PROSE_1_7B_REV = "9376423c82bf236c9cfc8d79fa1675fa104d4979"
+_PROSE_4B_REPO = "chartreuse-verte/prose-rewriter-4b-v1.2"
+_PROSE_4B_REV = "b73aa3290a81024389e06c9d525238071ccbe480"
 
 MODELS: dict[str, ModelSpec] = {
     "autocomplete": ModelSpec(
@@ -74,6 +106,46 @@ MODELS: dict[str, ModelSpec] = {
         filename="gguf/povtense-17m-q8_0.gguf",
         size_mb=20,
         revision="1245e55c47f9afc3d4938ef70f5228580228d899",
+    ),
+    # Not an in-process model: served by a child llama-server (see
+    # inference/prose_rewriter/). `filename`/`size_mb` name the default variant
+    # so the legacy single-file paths below keep working; the selector reads
+    # `variants`, and every basename here must also be claimed by prune_stale.
+    "prose_rewriter": ModelSpec(
+        repo_id=_PROSE_4B_REPO,
+        filename="GGUF/prose-rewriter-4b-v1.2-Q8_0.gguf",
+        size_mb=4694,
+        revision=_PROSE_4B_REV,
+        runtime="llama_server",
+        variants=(
+            Variant(
+                id="1.7b-q8",
+                label="1.7B · Q8_0",
+                detail="Fastest, good enough.",
+                repo_id=_PROSE_1_7B_REPO,
+                path="GGUF/prose-rewriter-1.7b-v1.2-Q8_0.gguf",
+                revision=_PROSE_1_7B_REV,
+                size_mb=2165,
+            ),
+            Variant(
+                id="4b-q4km",
+                label="4B · Q4_K_M",
+                detail="Medium quality.",
+                repo_id=_PROSE_4B_REPO,
+                path="GGUF/prose-rewriter-4b-v1.2-Q4_K_M.gguf",
+                revision=_PROSE_4B_REV,
+                size_mb=2716,
+            ),
+            Variant(
+                id="4b-q8",
+                label="4B · Q8_0",
+                detail="Best quality, invents the least.",
+                repo_id=_PROSE_4B_REPO,
+                path="GGUF/prose-rewriter-4b-v1.2-Q8_0.gguf",
+                revision=_PROSE_4B_REV,
+                size_mb=4694,
+            ),
+        ),
     ),
 }
 
@@ -196,10 +268,21 @@ def install_cmd() -> str:
     return f"{_shell_quote(sys.executable)} -m pip install -r {_shell_quote(req)}"
 
 
-def deps_ok() -> tuple[bool, str]:
-    """Cheap check (no model load): are both ML extras importable?"""
+def deps_ok(feature: str | None = None) -> tuple[bool, str]:
+    """Cheap check (no model load): are *feature*'s extras importable?
+
+    Per-runtime, because the features no longer share one answer. A
+    ``llama_server`` feature drives a child process over HTTP and needs only
+    ``huggingface_hub``, to fetch the weights; ``llama_cpp`` features run the
+    model in-process and need the binding too. ``feature=None`` keeps the
+    original whole-extras meaning, which is what the Local ML card's top-level
+    ``deps_ok`` (the grouped opt-in) is keyed on; every per-feature caller
+    passes a name.
+    """
+    runtime = MODELS[feature].runtime if feature in MODELS else "llama_cpp"
     try:
-        _import_llama()
+        if runtime == "llama_cpp":
+            _import_llama()
         import huggingface_hub  # noqa: F401, PLC0415 — deferred; only needed for downloads
     except Exception as e:  # ModuleNotFoundError or a broken build
         return False, f"ML extras not installed ({e}); {install_cmd()}"
@@ -207,6 +290,15 @@ def deps_ok() -> tuple[bool, str]:
 
 
 def present(feature: str) -> bool:
+    """Is *feature* usable from disk?
+
+    For a variant-bearing spec that means ANY variant is downloaded — the
+    Settings card flips from "download something" to "pick one and enable" on
+    the first file, not on the default one.
+    """
+    spec = MODELS.get(feature)
+    if spec is not None and spec.variants:
+        return any(os.path.exists(os.path.join(model_dir(), v.local_name)) for v in spec.variants)
     return os.path.exists(resolve_path(feature))
 
 
@@ -223,7 +315,10 @@ def prune_stale(root: str | None = None) -> None:
     ``gguf/`` are one directory, that fired on a model we had just fetched.
     """
     root = root or model_dir()
-    keep = {s.local_name for s in MODELS.values()}
+    # Every basename a spec puts on disk, VARIANTS INCLUDED. A variant the claim
+    # set forgets is wiped the next time any feature downloads — 4.7 GB gone
+    # because an unrelated button was pressed.
+    keep = {name for s in MODELS.values() for name in s.all_names()}
     walked: list[str] = []
     for dirpath, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d != ".cache"]  # hf's bookkeeping is its own business
@@ -237,21 +332,50 @@ def prune_stale(root: str | None = None) -> None:
             os.rmdir(d)
 
 
-def download(feature: str) -> None:
-    """Fetch feature's GGUF into data/models/, then prune stale weights. Blocking; run in a thread."""
+def variant_spec(feature: str, variant_id: str | None) -> tuple[str, str, str, str]:
+    """``(repo_id, path_in_repo, revision, local_name)`` for one download.
+
+    A ``variant_id`` names one of the spec's variants; ``None`` falls back to
+    the spec's own file, which is what every single-file feature uses.
+    """
+    spec = MODELS[feature]
+    if variant_id:
+        for v in spec.variants:
+            if v.id == variant_id:
+                return v.repo_id, v.path, v.revision, v.local_name
+        raise ValueError(f"Unknown variant {variant_id!r} for {feature!r}")
+    return spec.repo_id, spec.filename, spec.revision, spec.local_name
+
+
+def download(feature: str, variant: str | None = None) -> None:
+    """Fetch a GGUF into data/models/, then prune stale weights. Blocking; run in a thread."""
     from huggingface_hub import hf_hub_download  # noqa: PLC0415 — deferred
 
-    spec = MODELS[feature]
-    got = hf_hub_download(repo_id=spec.repo_id, filename=spec.filename, revision=spec.revision, local_dir=model_dir())
-    flat = os.path.join(model_dir(), spec.local_name)
+    repo_id, path, revision, local_name = variant_spec(feature, variant)
+    got = hf_hub_download(repo_id=repo_id, filename=path, revision=revision, local_dir=model_dir())
+    flat = os.path.join(model_dir(), local_name)
     if os.path.normpath(got) != os.path.normpath(flat):
         os.replace(got, flat)  # hf mirrors the repo's own gguf//GGUF/ nesting; we don't keep it
     prune_stale()  # after fetch: new file lands before old ones go, so a failed download keeps the old model
 
 
+def delete_model(feature: str, variant: str | None = None) -> bool:
+    """Remove one downloaded GGUF. Returns whether a file was actually deleted.
+
+    Exists because the three rewriter variants are 9.6 GB combined and "find
+    the folder yourself" is not an acceptable only exit at that size.
+    """
+    _repo, _path, _rev, local_name = variant_spec(feature, variant)
+    target = os.path.join(model_dir(), local_name)
+    if not os.path.exists(target):
+        return False
+    os.remove(target)
+    return True
+
+
 def available(feature: str = "autocomplete") -> tuple[bool, str]:
     """Feature readiness: extras installed AND this feature's model present."""
-    ok, reason = deps_ok()
+    ok, reason = deps_ok(feature)
     if not ok:
         return False, reason
     if not present(feature):

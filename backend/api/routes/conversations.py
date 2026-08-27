@@ -587,6 +587,7 @@ async def api_compress_conversation(
             attachments=user_attachment_payloads(msg),
             speaker_member_id=member_map.get(str(msg.get("speaker_member_id"))) if msg.get("speaker_member_id") else None,
             exchange_id=msg.get("exchange_id"),
+            writer_draft=msg.get("writer_draft"),
         )
         await set_active_leaf(new_cid, prev_id)
 
@@ -636,6 +637,7 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
             progressive_fields=msg.get("progressive_fields") or {},
             speaker_member_id=member_map.get(str(msg.get("speaker_member_id"))) if msg.get("speaker_member_id") else None,
             exchange_id=msg.get("exchange_id"),
+            writer_draft=msg.get("writer_draft"),
         )
         id_map[msg["id"]] = new_id
         prev_id = new_id

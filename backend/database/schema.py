@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS settings (
     workflows_globally_enabled INTEGER NOT NULL DEFAULT 1,
     workflow_enabled TEXT NOT NULL DEFAULT '{}',
     local_ml_enabled TEXT NOT NULL DEFAULT '{}',
+    local_ml_config TEXT NOT NULL DEFAULT '{}',
     attachment_cache_budget_bytes INTEGER NOT NULL DEFAULT 524288000,
     attachment_access_counter INTEGER NOT NULL DEFAULT 0,
     generated_chars INTEGER DEFAULT NULL
@@ -152,6 +153,7 @@ CREATE TABLE IF NOT EXISTS messages (
     conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
     content TEXT NOT NULL,
+    writer_draft TEXT DEFAULT NULL,
     turn_index INTEGER NOT NULL,
     parent_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
     progressive_fields TEXT NOT NULL DEFAULT '{}',

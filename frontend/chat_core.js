@@ -36,7 +36,7 @@ import { messageProposalsHtml } from "./world_proposals.js";
 // replace. A user message with nobody picked is a rest the backend answers with
 // an empty speaking plan, not a turn to suppress.
 export function canStartGeneration() {
-  if (S.isStreaming) return false;
+  if (S.isStreaming || S.proseRewriteMsgId) return false;
   return requestSendPermission();
 }
 
@@ -89,6 +89,7 @@ export const ICON_DEL = `<svg viewBox="0 0 24 24" fill="none" stroke="currentCol
 export const ICON_CLEAR = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>`;
 export const ICON_SUPER_REGEN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>`;
 export const ICON_MAGIC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/></svg>`;
+export const ICON_PROSE_REWRITE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H18v14H6.5A2.5 2.5 0 0 0 4 19.5z"/><path d="M4 5.5v14"/><path d="M8 7h6"/><path d="M8 11h4"/><path d="m15 19 1.5 1.5L21 16"/></svg>`;
 export const ICON_SEND = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
 export const ICON_CHEVRON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="6 9 12 15 18 9"/></svg>`;
 export const ICON_FORK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
@@ -136,6 +137,17 @@ export function buildMsgToolbar(m, childByParent = null) {
       ? `<button class="msg-btn-magic" onclick="toggleMagicInput(${m.id})" title="Magic Rewrite">${ICON_MAGIC}</button>`
       : "";
 
+  // Unlike Magic Rewrite, this applies the configured local SLM to the original
+  // Writer draft saved for this reply. Keep it on assistant text only:
+  // rewriting a user's words in place would be an unexpected ownership change.
+  // Disabled from state rather than from the clicked node, so the busy button
+  // survives a re-render mid-rewrite. Only one rewrite runs at a time, so every
+  // message's button goes down together.
+  const proseRewriteBtn =
+    isAssistant && m.id && m.has_writer_draft && S.settings?.local_ml_enabled?.prose_rewriter !== false
+      ? `<button class="msg-btn-prose-rewrite" onclick="rewriteMessageProse(${m.id})" title="Rewrite original Writer draft"${S.proseRewriteMsgId ? " disabled" : ""}>${ICON_PROSE_REWRITE}</button>`
+      : "";
+
   const magicInput =
     isAssistant && m.id && !isGreeting && S.magicInputMsgId === m.id
       ? `<span class="magic-input-wrap" id="magic-wrap-${m.id}"><input class="magic-input" type="text" placeholder="Direction/Fix..." id="magic-input-${m.id}" onkeydown="handleMagicKey(event,${m.id})" autofocus><button class="magic-apply" onclick="submitMagicRewrite(${m.id})" title="Apply">${ICON_SEND}</button></span>`
@@ -169,7 +181,7 @@ export function buildMsgToolbar(m, childByParent = null) {
       ? `<button onclick="clearRefineDiff()" title="Clear diff highlights" class="btn-clear-diff">${ICON_CLEAR}</button>`
       : "";
 
-  return `${editBtn}${forkBtn}${regenBtn}${superRegenBtn}${magicBtn}${magicInput}${noteBtn}${slopBtn}${_renderExtraButtons(m)}${delBtn}${diffBtn}`;
+  return `${editBtn}${forkBtn}${regenBtn}${superRegenBtn}${magicBtn}${proseRewriteBtn}${magicInput}${noteBtn}${slopBtn}${_renderExtraButtons(m)}${delBtn}${diffBtn}`;
 }
 
 function _renderExtraButtons(msg) {
@@ -415,8 +427,15 @@ export function renderMessages(forceBottom = false) {
               // active lore, and a decided one belongs in the world drawer's
               // History rather than permanently under the reply.
               const proposalsHtml = messageProposalsHtml(m);
-              return `<div class="message ${m.role}" data-msg-id="${m.id}">
-        <div class="msg-role">${esc(speakerLabel(m))} ${branchHtml}</div>
+              // The prose rewriter edits a saved bubble in place with no streaming
+              // box of its own, so the role line names the work and the bubble
+              // wears an accent rail until the stream ends.
+              const isProseRewriting = !!m.id && m.id === S.proseRewriteMsgId;
+              const rewritingHtml = isProseRewriting
+                ? `<span class="msg-rewriting"><span class="dot"></span>Rewriting prose…</span>`
+                : "";
+              return `<div class="message ${m.role}${isProseRewriting ? " prose-rewriting" : ""}" data-msg-id="${m.id}">
+        <div class="msg-role">${esc(speakerLabel(m))} ${branchHtml}${rewritingHtml}</div>
         ${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${proposalsHtml}${toolbar}
       </div>`;
             })

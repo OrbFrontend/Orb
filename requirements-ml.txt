@@ -3,5 +3,11 @@
 #   pip install -r requirements-ml.txt
 # Then use Settings → Local ML to download the model (orb-human-tpeahead gguf)
 # into backend/data/models/, or set ORB_AUTOCOMPLETE_MODEL to an existing GGUF's path.
+#
+# NOT every local-ML feature needs both. The Prose Rewriter has
+# runtime="llama_server": it drives a child llama-server process over HTTP
+# rather than loading a model in-process, so huggingface_hub alone (for the
+# download) is enough for it. deps_ok() checks per feature, so installing
+# only huggingface_hub leaves the rewriter usable and the rest greyed out.
 llama-cpp-python>=0.3.0
 huggingface_hub

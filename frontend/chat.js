@@ -66,6 +66,7 @@ export {
   initChatKeyNav,
   initChatSwipeNav,
   inspectMessage,
+  rewriteMessageProse,
   saveEdit,
   saveEditPending,
   saveForkEdit,

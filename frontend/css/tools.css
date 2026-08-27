@@ -114,6 +114,255 @@ input[type="range"]::-moz-range-track {
   margin-top: 8px;
 }
 
+/* ── Local ML variant table.
+   One row per checkpoint: radio, name, size, one action, and the blurb on a
+   second line indented to the name. Hairlines instead of gaps and boxes, so
+   three checkpoints read as a list rather than three nested cards. The base
+   `input` rule sizes fields at full width, and the bare `label` rule uppercases
+   captions — both wrong for a control row, so both are undone here. */
+.ml-variants {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.ml-variant {
+  display: grid;
+  grid-template-columns: 13px minmax(0, 1fr) 50px 72px;
+  align-items: center;
+  column-gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Drawn from theme tokens rather than left native: a native control takes its
+   unchecked colours from the browser's colour-scheme, which paints a white
+   bubble on every dark theme Orb ships. */
+.ml-variant input[type="radio"],
+.ml-check input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border-light);
+  background: none;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.ml-variant input[type="radio"] {
+  grid-column: 1;
+  border-radius: 50%;
+}
+
+.ml-variant input[type="radio"]:checked {
+  border-color: var(--accent);
+  background: radial-gradient(circle at 50% 50%, var(--accent) 0 3px, transparent 3.5px);
+}
+
+.ml-check input[type="checkbox"] {
+  border-radius: 3px;
+}
+
+.ml-check input[type="checkbox"]:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.ml-check input[type="checkbox"]:checked::after {
+  content: "✓";
+  font-size: 9px;
+  line-height: 1;
+  color: #fff;
+}
+
+.ml-variant input[type="radio"]:focus-visible,
+.ml-check input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.ml-variant-name {
+  grid-column: 2;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-primary);
+}
+
+label.ml-variant-name { cursor: pointer; }
+
+.ml-variant-on .ml-variant-name { color: var(--accent); }
+
+.ml-variant-size {
+  grid-column: 3;
+  font-size: 11px;
+  text-align: right;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sizing stays with .btn-xs (forms.css loads later and would win anyway); this
+   only places the cell and pins the button to its right edge, so the size
+   column lands at the same x whether the row offers Download or a delete. */
+.ml-variant-act {
+  grid-column: 4;
+  justify-self: end;
+  line-height: 1.4;
+}
+
+.ml-variant-detail {
+  grid-column: 2 / -1;
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* Busy state for a download in flight (see `beginMlBusy`). Borrows the generation
+   status bar's indeterminate sliver — `gen-bar-slide`, defined in status-bar.css;
+   keyframe names are global — and leaves the row's geometry alone. */
+.ml-busy {
+  position: relative;
+  overflow: hidden;
+}
+
+.ml-busy::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 40%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: gen-bar-slide 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ml-busy::after {
+    width: 100%;
+    opacity: .55;
+    animation: none;
+  }
+}
+
+/* Nothing in the app styled a disabled button, so one read as clickable while
+   its download ran. Scoped to the panel that has inert buttons to show. */
+.tool-card .btn:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.tool-card .btn:disabled:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
+
+/* Runtime row — present only while the binary is missing, so it reads as the
+   one thing left to do rather than a status line. */
+.ml-runtime {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding-bottom: 4px; /* clearance for the .ml-busy sliver, so it never reads as an underline */
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.ml-runtime span {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The rewriter's parallel request count is also its KV-lane count, so this is
+   a first-class memory control rather than a hidden performance tweak. */
+.ml-batch {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 8px;
+}
+
+.ml-batch label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-secondary);
+}
+
+.ml-batch select {
+  width: auto;
+  min-width: 112px;
+}
+
+.ml-batch div {
+  grid-column: 1 / -1;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* Card footer: the GPU switch on the left, the host's swap state on the right.
+   Wraps rather than squeezing the switch, because a state can be an error
+   sentence and the switch's label must stay on one line. */
+.ml-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-top: 8px;
+}
+
+.ml-check {
+  display: flex;
+  flex: none;
+  white-space: nowrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.ml-foot-state {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  text-align: right;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+}
+
+.ml-foot-error { color: var(--red); }
+
+/* A model load is seconds to tens of seconds of silence; the word alone reads
+   as a hang, so it breathes while the panel polls. */
+.ml-foot-loading { animation: ml-state-pulse 1.4s ease-in-out infinite; }
+
+@keyframes ml-state-pulse {
+  0%, 100% { opacity: .45; }
+  50%      { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ml-foot-loading { animation: none; }
+}
+
 /* Two-control grid (recording + injection): labels share a sized first column so
    the selects start at the same x and fill the rest, keeping both rows aligned. */
 .dn-config {
@@ -202,4 +451,3 @@ input[type="range"]::-moz-range-track {
   letter-spacing: 0;
   margin-bottom: 20px;
 }
-

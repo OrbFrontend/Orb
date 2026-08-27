@@ -138,6 +138,11 @@ class SettingsRow(_SettingsBase, total=False):
     workflow_config: str  # left raw; decoded per-slot by get_workflow_config()
     workflow_enabled: dict[str, bool]  # decoded by get_settings(); per-workflow on/off, missing key => on
     local_ml_enabled: dict[str, bool]  # decoded by get_settings(); per-local-ML-feature on/off, missing key => on
+    # Per-local-ML-feature config, decoded by get_settings(). Sibling to
+    # local_ml_enabled and written only by the dedicated route, never by
+    # update_settings(). Shape is the feature's own, e.g.
+    # {"prose_rewriter": {"variant": "4b-q8", "gpu": true, "batch_size": 2}}.
+    local_ml_config: dict[str, dict]
     # Per-endpoint transport mode, surfaced by the get_settings() overlay from
     # the active/agent endpoint row (default 'chat'). agent_completion_mode
     # falls back to completion_mode when the agent shares the writer endpoint.
@@ -262,6 +267,11 @@ class MessageRow(TypedDict):
     conversation_id: str
     role: MessageRole
     content: str
+    # Immutable Writer output before the local rewriter, Editor, and
+    # post-pipeline workflows, with inline macros frozen. NULL means the row
+    # predates this capture or did not come from the Writer pipeline (for
+    # example a greeting or summary).
+    writer_draft: str | None
     turn_index: int
     parent_id: int | None
     progressive_fields: dict

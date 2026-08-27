@@ -26,6 +26,7 @@ from ..features.lorebook import (
 )
 from ..inference import CachedBase, LLMClient
 from .passes.editor.length_guard import LengthGuard
+from .passes.editor.slm_rewrite import ProseRewrite
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +78,10 @@ class _PipelineConfig:
     audit_enabled: bool
     length_guard: LengthGuard | None
     do_edit: bool
+    # Local prose rewriter (Editor pass, pre-audit). Non-None means enabled;
+    # deliberately independent of ``agent_on`` — it is a local model on its own
+    # Local ML toggle, not one of the remote Agent passes.
+    prose_rewrite: ProseRewrite | None
     # The two call surfaces for the turn. ``writer_lane`` runs the writer pass;
     # ``agent_lane`` runs director + editor. In single-model mode they are the
     # same object by construction (see :class:`ModelLane`).
@@ -96,6 +101,7 @@ _RESULT_FIELDS = (
     "latency",
     "effective_msg",
     "resp_text",
+    "writer_draft",
     "inj_block",
     "extra_fields",
     "progressive_fields",
@@ -193,6 +199,11 @@ class TurnState:
 
     # --- writer / editor outputs ---
     resp_text: str = ""
+    # Writer text after any group-speaker label has been stripped and inline
+    # macros have been frozen, but before the local rewriter, Editor, or
+    # post-pipeline workflows modify it. This travels in ``_result`` so
+    # persistence can retain the source for an on-demand local rewrite later.
+    writer_draft: str = ""
     writer_content: str | list[ContentPart] = ""
     reasoning_director: str = ""
     reasoning_writer: str = ""

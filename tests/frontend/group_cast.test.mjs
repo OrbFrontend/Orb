@@ -460,15 +460,25 @@ test("an open group already inside the cap is not moved", () => {
 });
 
 test("search matches the group name or its cast, and ignores the cap", () => {
-  const all = families(GROUP_LIMIT + 4);
+  // Twelve, not `GROUP_LIMIT + 4`. The match is a substring, and demonstrating
+  // that needs the list to reach double digits before "Group 1" has more than
+  // one answer — sizing the fixture off the cap instead is what quietly emptied
+  // this expectation down to a single row when the cap moved to 5.
+  const all = families(12);
   assert.deepEqual(
     visibleGroups(all, { query: "Group 1" }).shown.map((f) => f.rootId),
     ["r1", "r10", "r11"],
   );
+  // The cast is searched too, not just the group's own name.
   assert.deepEqual(
     visibleGroups(all, { query: "cast 3" }).shown.map((f) => f.rootId),
     ["r3"],
   );
+  // And the cap genuinely does not apply: the recency slice is what the sidebar
+  // paints unsearched, so a query is free to return more rows than fit in it.
+  const everything = visibleGroups(all, { query: "Group" }).shown;
+  assert.equal(everything.length, all.length);
+  assert.ok(everything.length > GROUP_LIMIT, "the fixture has to outrun the cap for this to mean anything");
   // A search that matches nothing hides everything rather than falling back.
   assert.deepEqual(visibleGroups(all, { query: "nobody" }).shown, []);
 });

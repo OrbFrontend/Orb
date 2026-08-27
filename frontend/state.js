@@ -82,6 +82,12 @@ export const S = {
 
   // ── Streaming / generation lifecycle · owner: chat_stream.js
   isStreaming: false,
+  // Owned by chat_messages.js: the id of the saved message a local prose rewrite
+  // is running over, or null. It holds the same backend conversation lock as
+  // generation but creates no streaming bubble, so it doubles as the "busy" flag
+  // and as the target the renderer marks — the message itself is the only place
+  // the work is visible.
+  proseRewriteMsgId: null,
   streamingBodyEl: null,
   streamCutoffIndex: null,
   abortController: null,

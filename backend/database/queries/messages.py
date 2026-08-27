@@ -217,6 +217,7 @@ async def add_message(
     progressive_fields: dict | None = None,
     speaker_member_id: str | None = None,
     exchange_id: str | None = None,
+    writer_draft: str | None = None,
     advance_leaf: bool = False,
 ) -> tuple[int, list[dict]]:
     """Add a message. Returns ``(message_id, rejected_workflow_atts)``.
@@ -265,11 +266,12 @@ async def add_message(
         now = datetime.now(UTC).isoformat()
         try:
             cur = await db.execute(
-                "INSERT INTO messages (conversation_id, role, content, turn_index, parent_id, progressive_fields, created_at, speaker_member_id, exchange_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO messages (conversation_id, role, content, writer_draft, turn_index, parent_id, progressive_fields, created_at, speaker_member_id, exchange_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     cid,
                     role,
                     content,
+                    writer_draft,
                     turn_index,
                     parent_id,
                     json.dumps(progressive_fields or {}),

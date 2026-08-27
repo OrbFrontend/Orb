@@ -39,7 +39,7 @@ integration module may persist through `database/`; slices never import peers.
 |-------|---------|
 | `core/` | Dependency-free kernel: `domain_types`, `llm_types`, `macros`, `locks`, `text_segmentation`, `utils` |
 | `database/` | aiosqlite foundation: schema, migrations, queries, models (TypedDicts) |
-| `inference/` | LLM transport + prompt/tool assembly (`client`, `cached_call`, `prompt_builder`, `tool_registry`) |
+| `inference/` | LLM transport + prompt/tool assembly (`client`, `cached_call`, `prompt_builder`, `tool_registry`); local models in `local_ml.py` (in-process GGUF classifiers) and `prose_rewriter/` (a supervised `llama-server` child — Orb's only managed subprocess; teardown lives in the app `lifespan`) |
 | `analysis/` | Pure prose-quality detection: `audit.py` + detectors, `targets.py` (findings → id-addressable draft offsets), `patching.py`, `healing.py` (trims patch text that restates the draft around the span); shared by editor + workflows |
 | `workflows/` | Plugin registry + shipped workflows (TTS, image generation, format_consistency) |
 | `pipeline/` | Director→Writer→Editor turn engine (`entrypoints`, `orchestrator`, `context`, `config`, `persistence`, `passes/`) |
@@ -66,7 +66,7 @@ features/<name>/
 | `model_configs` | Per-endpoint model params (temp, top_p, max_tokens, system_prompt, …) |
 | `conversations` | Chat sessions; `kind=solo|group`, group turn policy, `group_context_mode` (`private`\|`shared`\|`swap`), `group_sheet_updates` (per-scene opt-in to the post-exchange sheet pass, off by default), `active_leaf_id` branch leaf; `macro_seed` pins {{random}} on copies |
 | `group_members` | Durable ordered group roster; immutable speaker keys, local names, mute/tombstone state, and two scene-local overrides — `public_profile_override` (what the rest of the cast sees) and `card_sheet_override` (what the member reads about itself). Both resolve on `is not None`, so a stored `""` blanks the field rather than falling back (Manage cast coerces an empty box to `NULL`, so only the API reaches that case today); both default `NULL` to card text, and neither ever writes the card |
-| `messages` | Message tree (`parent_id`); group replies carry `speaker_member_id` and request-scoped `exchange_id` |
+| `messages` | Message tree (`parent_id`); group replies carry `speaker_member_id` and request-scoped `exchange_id`; Writer-produced replies retain immutable inline-macro-frozen pre-rewriter/editor `writer_draft` for on-demand local rewriting |
 | `character_cards` | V3-spec characters (`ccv3` chunk preferred, `chara` V2 fallback); `avatar_b64`, `world_id`, `persona_lock_id`, `extensions` (card extensions JSON; card-embedded fragments at `orb.fragments`, V3-only card fields parked at `orb.v3`, merged ephemerally in `_load_pipeline_context`) |
 | `character_expressions` | Per-character go-emotions expression images |
 | `user_personas` | User profiles injected into system prompt |
@@ -122,7 +122,7 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 
 - **Settings/endpoints/models:** CRUD under `/api/settings`, `/api/endpoints`, `/api/models`
 - **Conversations:** CRUD + `/members`, `/members/scene-profile/generate`, `/sheet-proposals` (`?status=` defaults to the review set — `pending` + `stale`; `all` is the history view. + `/{pid}/apply|reject`; apply 409s on a moved sheet, a decided proposal, or a member that left the scene — no force-apply), `/convert-to-group`, `/activate`, `/summarize`, `/compress`, `/stop`, `/context-size`
-- **Messages:** `/send` (SSE), `/speak`, `/continue`, `/edit`, `/fork-edit`, `/regenerate`, `/super_regenerate`, `/magic_rewrite`, `/switch-branch`, DELETE
+- **Messages:** `/send` (SSE), `/speak`, `/continue`, `/edit`, `/fork-edit`, `/regenerate`, `/super_regenerate`, `/magic_rewrite`, `/prose-rewrite` (SSE), `/switch-branch`, DELETE
 - **Characters:** CRUD + `/import` (PNG), `/import-url`, `/browse`, `/export`, `/expressions`, `/public-profile`
 - **Fragments/Moods:** `/api/fragments`, `/api/interactive-fragments`
 - **Worlds/Lorebook:** CRUD under `/api/worlds/{id}/entries` (`?view=all|authored|effective`) + `/import` + `/export` (standalone `character_book` JSON — V2 shape plus the additive V3 `use_regex`/`selective`/`secondary_keys` keys; `?view=authored` is the default and `effective` is opt-in, as it is for `/api/characters/{id}/export?world_view=`). `POST /api/worlds/deactivate-linked` is the client's boot sweep: a World a character card links to is on loan to whoever is in play, so a fresh page (nobody in play) turns every linked World off before the sidebar paints; floating Worlds are global lore and survive a reload untouched. It stamps neither `updated_at` nor `content_revision`
@@ -130,7 +130,7 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 - **Phrase bank, Personas, Presets, Documents:** standard CRUD
 - **Workflows:** `/api/workflows`, trigger/regenerate/reroll/rehydrate/activate/delete on attachments. `reroll` and `rehydrate` share one `reroll_gen` hook and differ by one declared bit, `RerollGenCtx.replay`: rehydrate reproduces the stored render target, reroll re-renders the same subject on today's configuration. Only regenerate recomposes prompts
 - **Image generation:** backend-agnostic readiness/styles/connection/model discovery via the conversation-less workflow QUERY route (`POST /api/workflows/image_gen/query`, `action` = status\|styles\|test\|models\|node_types). Generation uses the conversation-scoped workflow trigger
-- **Local ML:** `/api/local-ml/status`, `/{feature}/download`, `/{feature}/enabled`, plus one route per inference shape (`/slop-score`, `/classify-emotion`); 503 when the extras, the GGUF, or the toggle is missing
+- **Local ML:** `/api/local-ml/status`, `/{feature}/download` (optional `{"variant"}`), `/{feature}/enabled`, `/{feature}/config` (per-feature JSON blob — the prose rewriter's variant + GPU flag), `DELETE /{feature}/model?variant=`, `/prose_rewriter/runtime` (fetch the llama-server binary), plus one route per inference shape (`/slop-score`, `/classify-emotion`); 503 when the extras, the GGUF, or the toggle is missing. `deps_ok` is per feature — the prose rewriter's `runtime="llama_server"` needs only `huggingface_hub`, not `llama-cpp-python`
 - **Inspector:** `/api/conversations/{cid}/director`, `/logs`, `/messages/{id}/director-log`
 - **Direction notes:** CRUD under `/api/conversations/{cid}/direction-notes`
 - **Storage:** `GET /api/storage?days=N` (what a cleanup would reclaim), `POST /api/storage/cleanup` (age-based artifact eviction + Director-log wipe — payload columns blanked in place, `LOG_KEEP_COLUMNS` whitelist survives — then VACUUM)

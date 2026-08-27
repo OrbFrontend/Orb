@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from typing import cast
+from collections.abc import Mapping
+from typing import Any, cast
 
 from ..connection import _build_set_clause, get_db
 from ..models import SettingsRow
@@ -38,6 +39,7 @@ async def get_settings() -> SettingsRow:
         )
         s["workflow_enabled"] = json.loads(s.get("workflow_enabled") or "{}")
         s["local_ml_enabled"] = json.loads(s.get("local_ml_enabled") or "{}")
+        s["local_ml_config"] = json.loads(s.get("local_ml_config") or "{}")
         # Overlay endpoint_url, api_key, model_name, and hyperparameters from the
         # active endpoint's active model config so callers always get live values
         # rather than the stale flat columns.
@@ -239,6 +241,25 @@ async def set_local_ml_enabled(feature: str, enabled: bool) -> None:
             "SET local_ml_enabled = json_set(COALESCE(local_ml_enabled, '{}'), '$.' || ?, json(?)) "
             "WHERE id = 1",
             (feature, json.dumps(bool(enabled))),
+        )
+        await db.commit()
+
+
+async def set_local_ml_config(feature: str, config: Mapping[str, Any]) -> None:
+    """Replace one local-ML feature's config blob via a per-key JSON1 write.
+
+    Same atomic ``json_set`` idiom as ``set_local_ml_enabled``: one named key,
+    so two features written concurrently can't clobber each other. The value is
+    the feature's whole config object (variant + gpu + batch size for the prose
+    rewriter), replaced rather than merged — the route sends the full shape.
+
+    Deliberately NOT in ``update_settings``'s allow-list, the same documented
+    exception ``local_ml_enabled`` has: this route is the only writer.
+    """
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE settings SET local_ml_config = json_set(COALESCE(local_ml_config, '{}'), '$.' || ?, json(?)) WHERE id = 1",
+            (feature, json.dumps(dict(config))),
         )
         await db.commit()
 
