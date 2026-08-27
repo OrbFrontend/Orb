@@ -57,6 +57,23 @@ def _empty_model_dir(tmp_path, monkeypatch):
     return models
 
 
+@pytest.fixture
+def _deps_installed(monkeypatch):
+    """Report the rewriter's extras as installed, for the tests past the gate.
+
+    CI installs requirements-dev.txt and never requirements-ml.txt, so
+    ``huggingface_hub`` is absent, ``deps_ok("prose_rewriter")`` is False, and
+    the download route 400s at its deps check -- before it reaches the patched
+    ``download`` or the selection sweep that follows it. A developer machine
+    with the extras 200s instead, which is why the two selection tests below
+    passed locally and failed in CI (the second one silently: its assertions
+    still hold when the sweep never runs, so it passed there for the wrong
+    reason). Those tests are about the sweep, not the gate; the gate has its
+    own tests above and they patch ``deps_ok`` the other way.
+    """
+    monkeypatch.setattr(local_ml, "deps_ok", lambda feature=None: (True, ""))
+
+
 async def test_download_400_when_deps_missing(client, monkeypatch):
     monkeypatch.setattr(local_ml, "deps_ok", lambda feature=None: (False, "extras not installed"))
     # download() must never run; guard against an accidental network hit.
@@ -194,7 +211,9 @@ async def _select(client) -> str | None:
     return st["features"]["prose_rewriter"]["selected"]
 
 
-async def test_a_download_arms_the_feature_when_nothing_usable_is_selected(client, monkeypatch, _empty_model_dir):
+async def test_a_download_arms_the_feature_when_nothing_usable_is_selected(
+    client, monkeypatch, _empty_model_dir, _deps_installed
+):
     """Downloading a checkpoint selects it; the radio was the only thing that did.
 
     Without this, the obvious path — download, switch on — left the feature
@@ -211,7 +230,7 @@ async def test_a_download_arms_the_feature_when_nothing_usable_is_selected(clien
     assert await _select(client) == variant.id
 
 
-async def test_a_second_download_never_steals_a_working_selection(client, monkeypatch, _empty_model_dir):
+async def test_a_second_download_never_steals_a_working_selection(client, monkeypatch, _empty_model_dir, _deps_installed):
     """The pick is user data: filling a hole is allowed, overriding is not."""
     first, second = catalog.variants()[0], catalog.variants()[1]
     (_empty_model_dir / first.local_name).write_text("gguf")
