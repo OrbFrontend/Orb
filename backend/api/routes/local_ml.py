@@ -46,6 +46,47 @@ def _spawn(coro) -> None:
     task.add_done_callback(_BACKGROUND.discard)
 
 
+async def _sync_selection(feature: str, spec: local_ml.ModelSpec, *, prefer: str | None = None) -> dict:
+    """Keep the stored variant pointing at a checkpoint that is actually on disk.
+
+    Downloading a GGUF did not select it and deleting one did not deselect it,
+    so both ends of the obvious workflow landed in the same silent state: the
+    feature enabled, ``resolve_prose_rewrite`` returning ``None`` because the
+    selection names nothing, and every turn skipping the rewriter with no cue
+    in the card or the log. The radio was the only thing that armed it, and
+    nothing said so.
+
+    This only ever *fills a hole* — a live pick whose file is on disk is user
+    data and is never overridden, which is what keeps ``catalog``'s rule intact
+    (there is still no implicit default; the choice is written down, and the
+    radio the user is looking at agrees with it). *prefer* is the file that
+    just arrived, and it wins only among candidates when the current pick has
+    nothing behind it.
+
+    Returns the whole ``local_ml_config`` blob so the caller can hand the
+    client its new copy in the same response.
+    """
+    settings = await get_settings()
+    if feature != prose_rewriter.FEATURE or not spec.variants:
+        return settings.get("local_ml_config", {})
+    config = _prose_config(settings)
+    current = prose_rewriter.resolve(str(config.get("variant") or ""))
+    if current is not None and prose_rewriter.on_disk(current):
+        return settings.get("local_ml_config", {})
+    present = [v for v in spec.variants if prose_rewriter.on_disk(v)]
+    picked = next((v for v in present if v.id == prefer), None) or (present[0] if present else None)
+    gpu = bool(config.get("gpu", True))
+    batch_size = prose_rewriter.resolve_batch_size(config.get("batch_size"))
+    await set_local_ml_config(feature, {"variant": picked.id if picked else None, "gpu": gpu, "batch_size": batch_size})
+    # Same follow-through as the config route: the selection moved, so a loaded
+    # child is stale, and the next turn should not pay for the load.
+    prose_rewriter.HOST.mark_stale(picked, gpu, batch_size)
+    if picked is not None and prose_rewriter.available(picked.id):
+        _spawn(_prewarm(picked, gpu, batch_size))
+    settings = await get_settings()
+    return settings.get("local_ml_config", {})
+
+
 async def _prewarm(variant, gpu: bool, batch_size: int) -> None:
     """Load the model in the background so the first turn does not pay for it.
 
@@ -135,7 +176,8 @@ async def api_local_ml_download(feature: str, data: dict | None = Body(default=N
         except Exception:
             logger.exception("local-ml download %r (%s) failed", feature, variant)
             raise HTTPException(status_code=500, detail="Download failed; see server logs") from None
-    return {"ok": True, "present": local_ml.present(feature)}
+    config = await _sync_selection(feature, spec, prefer=variant)
+    return {"ok": True, "present": local_ml.present(feature), "local_ml_config": config}
 
 
 @router.delete("/api/local-ml/{feature}/model")
@@ -160,7 +202,10 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
     except OSError:
         logger.exception("local-ml delete %r (%s) failed", feature, variant)
         raise HTTPException(status_code=500, detail="Delete failed; see server logs") from None
-    return {"ok": True, "removed": removed, "present": local_ml.present(feature)}
+    # After the unlink, so the sweep reads the disk as it now is: deleting the
+    # selected checkpoint hands the selection to another one that is present.
+    config = await _sync_selection(feature, spec)
+    return {"ok": True, "removed": removed, "present": local_ml.present(feature), "local_ml_config": config}
 
 
 @router.post("/api/local-ml/{feature}/config")
@@ -264,9 +309,17 @@ async def api_classify_emotion(data: dict = Body(...)):  # noqa: B008
 @router.post("/api/local-ml/{feature}/enabled")
 async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B008
     """Flip one feature's on/off toggle; return the full decoded map."""
-    _require(feature)
+    spec = _require(feature)
     enabled = bool(data.get("enabled"))
     await set_local_ml_enabled(feature, enabled)
+    # Switching a feature on means "make this work", so it is also the moment to
+    # repair a selection that points at nothing — the state an install that
+    # downloaded a checkpoint before this sweep existed is sitting in, and the
+    # one place such an install reliably passes through. When it does repair
+    # one it also pre-warms it, and the block below then asks for the same
+    # variant a second time: `ensure` short-circuits on a healthy host, so the
+    # duplicate is a no-op rather than a second load.
+    config_blob = await _sync_selection(feature, spec) if enabled else {}
     settings = await get_settings()
     if enabled and feature == prose_rewriter.FEATURE:
         # Pre-warm on enable, for the same reason the config route does.
@@ -280,4 +333,7 @@ async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B
                     prose_rewriter.resolve_batch_size(config.get("batch_size")),
                 )
             )
-    return {"local_ml_enabled": settings.get("local_ml_enabled", {})}
+    return {
+        "local_ml_enabled": settings.get("local_ml_enabled", {}),
+        "local_ml_config": config_blob or settings.get("local_ml_config", {}),
+    }

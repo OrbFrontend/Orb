@@ -11,9 +11,30 @@ from __future__ import annotations
 
 import pytest
 
+from backend.api.routes import local_ml as ml_routes
 from backend.inference import local_ml
 from backend.inference.prose_rewriter import catalog
 from backend.inference.prose_rewriter import runtime as pr_runtime
+
+
+@pytest.fixture(autouse=True)
+def _no_child_process(monkeypatch):
+    """No llama-server child, ever — the third leg of this file's house rule.
+
+    Selecting a variant pre-warms it, and a developer machine that has both a
+    real ``llama-server`` on PATH and a fake GGUF written by these tests has
+    everything the host needs to go and start one. Neutralised at the two
+    seams the routes use: the pre-warm task, and the release the delete path
+    takes before it unlinks. ``HOST`` is a module singleton, so a task that
+    grabbed its lock under one test's event loop would also fail the next test
+    with "bound to a different event loop".
+    """
+
+    async def _noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(ml_routes, "_prewarm", _noop)
+    monkeypatch.setattr(ml_routes.prose_rewriter.HOST, "release", _noop)
 
 
 @pytest.fixture(autouse=True)
@@ -166,3 +187,74 @@ async def test_the_runtime_fetch_is_never_reached_by_accident(client, monkeypatc
     assert (await client.get("/api/local-ml/status")).status_code == 200
     assert (await client.post("/api/local-ml/prose_rewriter/config", json={"variant": None})).status_code == 200
     assert (await client.post("/api/local-ml/prose_rewriter/enabled", json={"enabled": True})).status_code == 200
+
+
+async def _select(client) -> str | None:
+    st = (await client.get("/api/local-ml/status")).json()
+    return st["features"]["prose_rewriter"]["selected"]
+
+
+async def test_a_download_arms_the_feature_when_nothing_usable_is_selected(client, monkeypatch, _empty_model_dir):
+    """Downloading a checkpoint selects it; the radio was the only thing that did.
+
+    Without this, the obvious path — download, switch on — left the feature
+    enabled and silently inert, because ``resolve_prose_rewrite`` reads the
+    stored variant and there wasn't one.
+    """
+    variant = catalog.variants()[0]
+    monkeypatch.setattr(local_ml, "download", lambda f, v=None: (_empty_model_dir / variant.local_name).write_text("gguf"))
+
+    resp = await client.post("/api/local-ml/prose_rewriter/download", json={"variant": variant.id})
+
+    assert resp.status_code == 200
+    assert resp.json()["local_ml_config"]["prose_rewriter"]["variant"] == variant.id
+    assert await _select(client) == variant.id
+
+
+async def test_a_second_download_never_steals_a_working_selection(client, monkeypatch, _empty_model_dir):
+    """The pick is user data: filling a hole is allowed, overriding is not."""
+    first, second = catalog.variants()[0], catalog.variants()[1]
+    (_empty_model_dir / first.local_name).write_text("gguf")
+    await client.post("/api/local-ml/prose_rewriter/config", json={"variant": first.id, "gpu": False, "batch_size": 1})
+    monkeypatch.setattr(local_ml, "download", lambda f, v=None: (_empty_model_dir / second.local_name).write_text("gguf"))
+
+    await client.post("/api/local-ml/prose_rewriter/download", json={"variant": second.id})
+
+    assert await _select(client) == first.id
+    # And the fields it did not come to change are left alone.
+    st = (await client.get("/api/local-ml/status")).json()["features"]["prose_rewriter"]
+    assert st["gpu"] is False
+    assert st["batch_size"] == 1
+
+
+async def test_deleting_the_selected_model_hands_the_selection_to_one_that_is_there(client, _empty_model_dir):
+    first, second = catalog.variants()[0], catalog.variants()[1]
+    for v in (first, second):
+        (_empty_model_dir / v.local_name).write_text("gguf")
+    await client.post("/api/local-ml/prose_rewriter/config", json={"variant": first.id, "gpu": True, "batch_size": 4})
+
+    resp = await client.request("DELETE", "/api/local-ml/prose_rewriter/model", params={"variant": first.id})
+
+    assert resp.json()["local_ml_config"]["prose_rewriter"]["variant"] == second.id
+    assert await _select(client) == second.id
+
+
+async def test_deleting_the_last_model_clears_the_selection(client, _empty_model_dir):
+    only = catalog.variants()[0]
+    (_empty_model_dir / only.local_name).write_text("gguf")
+    await client.post("/api/local-ml/prose_rewriter/config", json={"variant": only.id, "gpu": True, "batch_size": 4})
+
+    await client.request("DELETE", "/api/local-ml/prose_rewriter/model", params={"variant": only.id})
+
+    assert await _select(client) is None
+
+
+async def test_enabling_repairs_a_selection_that_points_at_nothing(client, _empty_model_dir):
+    """The self-heal for an install that downloaded before the sweep existed."""
+    present = catalog.variants()[1]
+    (_empty_model_dir / present.local_name).write_text("gguf")
+
+    resp = await client.post("/api/local-ml/prose_rewriter/enabled", json={"enabled": True})
+
+    assert resp.json()["local_ml_config"]["prose_rewriter"]["variant"] == present.id
+    assert await _select(client) == present.id

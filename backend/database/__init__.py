@@ -111,6 +111,7 @@ from .queries.member_sheets import (
 )
 from .queries.messages import (
     add_message,
+    clear_writer_draft,
     delete_message_with_descendants,
     get_deepest_descendant,
     get_message_by_id,
@@ -226,6 +227,7 @@ __all__ = [
     "apply_sheet_proposal",
     "card_embedded_fragments",
     "cast_embedded_fragments",
+    "clear_writer_draft",
     "convert_to_group",
     "count_pending_changesets",
     "create_and_apply_changeset",

@@ -142,7 +142,7 @@ To prevent collisions, the orchestrator drops any hook attempt to emit a reserve
 
 ### The one route that doesn't: `/prose-rewrite`
 
-`POST /api/conversations/{cid}/messages/{msg_id}/prose-rewrite` takes the same `_sse_stream` wrapper — same conversation lock, same `AbortToken`, so the ordinary Stop button cancels it — but it is **not** a generating route and deliberately does not speak the turn vocabulary. It runs no LLM pass, creates no message and no branch; it re-runs the local prose rewriter over the `writer_draft` retained for one *already-saved* assistant reply and edits that row in place. There is no bubble to stream tokens into, so there are no `token`s, no `writer_done`, and no `done` — the terminal event is `prose_rewrite_done`. The frontend consumes it in its own loop in `chat_messages.js` rather than through the shared dispatcher.
+`POST /api/conversations/{cid}/messages/{msg_id}/prose-rewrite` takes the same `_sse_stream` wrapper — same conversation lock, same `AbortToken`, so the ordinary Stop button cancels it — but it is **not** a generating route and deliberately does not speak the turn vocabulary. It runs no LLM pass, creates no message and no branch; it re-runs the local prose rewriter over one *already-saved* assistant reply — the retained `writer_draft` when the row has one, the saved content when it does not — and edits that row in place. There is no bubble to stream tokens into, so there are no `token`s, no `writer_done`, and no `done` — the terminal event is `prose_rewrite_done`. The frontend consumes it in its own loop in `chat_messages.js` rather than through the shared dispatcher.
 
 | # | Event | Payload | Meaning |
 |---|-------|---------|---------|

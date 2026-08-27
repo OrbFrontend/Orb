@@ -162,9 +162,10 @@ export async function deleteMessage(msgId) {
 // surface.
 const PROSE_REWRITE_CHANNEL = "prose-rewrite";
 
-// Rewrite the original Writer draft retained for one saved assistant reply with
-// the configured local model. This creates no sibling and runs no
-// Director/Writer/Editor pass; the backend edits the selected message in place.
+// Rewrite one saved assistant reply with the configured local model: the
+// retained pre-editor Writer draft when the row has one, the reply's own text
+// when it does not. This creates no sibling and runs no Director/Writer/Editor
+// pass; the backend edits the selected message in place.
 export async function rewriteMessageProse(msgId) {
   if (!S.activeConvId || S.isStreaming || S.proseRewriteMsgId) return;
   if (!requestSendPermission()) return;

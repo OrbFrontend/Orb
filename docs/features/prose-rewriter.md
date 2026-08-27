@@ -57,19 +57,22 @@ Consequences worth knowing:
 ## On demand, after the fact
 
 The rewriter also runs from the toolbar under any assistant reply, on the message
-you already have. The button appears once the feature is switched on, and only on
-replies that still carry a Writer draft.
+you already have. The button appears on any reply with text, once the feature is
+switched on and a model is selected.
 
-**It rewrites the original Writer draft, not what is on screen.** Orb keeps each
-reply's Writer output — before the in-turn rewriter, before the Editor, with
-inline macros already frozen — and that retained text is the source. So the
-button is a *redo from source*, not a second pass on the current text:
+**Where it rewrites *from* depends on the reply.** Orb keeps each reply's Writer
+output — before the in-turn rewriter, before the Editor, with inline macros
+already frozen — and that retained draft is the source when there is one, which
+makes the button a *redo from source* rather than a second pass on the current
+text. When there is no retained draft, the reply itself is the source. The
+tooltip says which: *Rewrite original Writer draft* or *Rewrite this message*.
 
-- **Editor patches on that reply are discarded.** The audit ran against the old
-  prose; its findings do not describe the new prose, and re-applying them would
-  be patching text that no longer exists.
-- **A manual edit you made to that reply is discarded too.** If you have hand-
-  edited a reply and want to keep those words, do not press it.
+- **Editor patches on that reply are discarded** when it rewrites from the draft.
+  The audit ran against the old prose; its findings do not describe the new prose,
+  and re-applying them would be patching text that no longer exists.
+- **A hand edit is never discarded.** Editing a reply retires its retained draft,
+  so a rewrite after an edit starts from what you wrote, not from the text you
+  replaced.
 - The message tree is untouched: no sibling, no branch, no new row. The reply is
   edited in place.
 - Any unreviewed World proposal that was inferred from that reply goes **stale**,
@@ -81,9 +84,11 @@ rail until it finishes. The ordinary **Stop** button cancels it. Nothing is save
 until the rewrite completes: stopping it, closing the tab, or a failure all leave
 the stored message exactly as it was.
 
-Replies written before this feature shipped have no retained draft and show no
-button — the old source was never stored, and guessing one from edited text would
-be worse than not offering it.
+Replies written before this feature shipped have no retained draft — the old
+source was never stored — so they rewrite their own text instead. That is a
+slightly different job than a redo from source, and it is the only honest one
+available for them; refusing outright left the button dead on exactly the
+conversations most people have the most of.
 
 ## Setup
 
@@ -93,10 +98,16 @@ Settings → **Local ML** → *Prose Rewriter*.
 
 The rewriter does not use `llama-cpp-python`; it drives a `llama-server` child
 process, which is what buys continuous batching across paragraphs. Press
-**Download** on the runtime row (100 MB) and Orb fetches a prebuilt binary from
+**Download** in the runtime box (100 MB) and Orb fetches a prebuilt binary from
 the official [`ggml-org/llama.cpp`](https://github.com/ggml-org/llama.cpp) releases
-into `backend/data/llama-bin/`. The row is only there while the binary is missing —
-once it is installed the card stops mentioning it.
+into `backend/data/llama-bin/`. The box is only there while the binary is missing —
+once it is installed the card stops mentioning it and the models appear.
+
+**The models are gated on it.** A checkpoint on disk without the binary rewrites
+nothing, so until the runtime is installed the card offers the runtime and
+nothing else. The one exception is a variant you already downloaded: its row
+stays — without a radio, since there is nothing to select it for — so its **×**
+remains reachable and 5 GB is never stranded by a missing binary.
 
 !!! note "This downloads and then runs a native binary"
     It is the only place Orb does that. The archive comes from the official GitHub
@@ -115,7 +126,10 @@ a silent-breakage channel. Override with `ORB_LLAMA_CPP_BUILD=latest` or an expl
 
 The **Run on GPU** checkbox is a separate axis: GPU acceleration comes from the
 Vulkan build being the one that was fetched, and the checkbox flips
-`--n-gpu-layers` between all and none.
+`--n-gpu-layers` between all and none. That is why it sits *inside* the runtime
+box while the binary is missing — it picks which archive the button fetches,
+which has to be decided before the download, not after. Once the runtime is in,
+the same checkbox moves to the foot of the card as the model's placement switch.
 
 **Parallel batch** controls how many paragraphs llama.cpp decodes at once. One
 uses the least memory; four is fastest and remains the default. Changing it
@@ -131,9 +145,17 @@ rather than using the old batch size.
 | `4B · Q4_K_M` | 2.7 GB | Medium quality. |
 | `4B · Q8_0` | 4.7 GB | Best quality, invents the least. |
 
-Download one, select its radio, and switch the feature on. Each downloaded variant
-has a **×** next to it — 9.6 GB for all three is too much to leave with no exit but
-the file manager.
+Download one and switch the feature on. The download **selects** what it fetched
+when nothing usable was selected before, so the obvious path arms the feature;
+the radio is there to change your mind between two you have on disk, not a step
+you can forget. A live selection is never overridden — a second download leaves
+your pick alone — and deleting the selected checkpoint hands the selection to
+another one that is present, or clears it when that was the last. Switching the
+feature on repairs a selection that points at nothing, which is the self-heal
+for an install that downloaded before any of that was true.
+
+Each downloaded variant has a **×** next to it — 9.6 GB for all three is too much
+to leave with no exit but the file manager.
 
 Selecting a variant, flipping the GPU box, or changing the parallel batch
 **pre-warms** the model in the background, so it is hot by the time you leave

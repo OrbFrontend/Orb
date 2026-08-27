@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ...core.macros import Macros, resolve_inline
 from ...database import (
+    clear_writer_draft,
     delete_message_with_descendants,
     get_changesets_for_messages,
     get_character_card,
@@ -65,23 +66,57 @@ from ..schemas import (
 router = APIRouter()
 
 
+def _retained_draft(message: Mapping[str, Any]) -> str | None:
+    """The row's retained pre-editor Writer draft, when it carries real text.
+
+    Blank counts as absent: a draft of ``""`` is not a source, and letting it
+    through would have the client promise a rewrite of text that is not there.
+    """
+    draft = message.get("writer_draft")
+    return draft if isinstance(draft, str) and draft.strip() else None
+
+
+def _prose_rewrite_source(message: Mapping[str, Any]) -> str | None:
+    """The text an on-demand prose rewrite works from, or ``None`` if there is none.
+
+    The retained Writer draft when the row has one — going back to the
+    pre-editor text is the point of the feature — and otherwise the saved
+    content. Every reply written before ``writer_draft`` existed (migration
+    0056) carries NULL, and a hard refusal made the button permanently dead on
+    exactly the conversations a user has the most of. Rewriting what is on
+    screen is a slightly different job (the editor's patches are in it, and get
+    rewritten too) but it is the job that was asked for, and it is the only
+    honest source a legacy row has. Which one it was is what
+    ``has_writer_draft`` tells the client, so the tooltip can name the text it
+    is about to replace.
+    """
+    draft = _retained_draft(message)
+    if draft is not None:
+        return draft
+    content = message.get("content") or ""
+    return content if content.strip() else None
+
+
 def _row_for_client(message: Mapping[str, Any]) -> dict:
     """One message row, shaped for the wire.
 
     ``writer_draft`` is dropped and replaced by the one bit the client actually
-    reads off it — whether the prose-rewrite button has a source to work from.
-    Sending the column itself put a second near-complete copy of every assistant
-    reply on the wire so the frontend could run a ``typeof``: measured at 36% of
-    a forty-exchange conversation's payload, and rising with reply length. The
-    rewrite route reads the real text out of the row it loads under the
-    conversation lock, which is the only place it may be read from anyway.
+    reads off it — whether a prose rewrite would start from the pre-editor draft
+    or from the message as it stands. Sending the column itself put a second
+    near-complete copy of every assistant reply on the wire so the frontend
+    could run a ``typeof``: measured at 36% of a forty-exchange conversation's
+    payload, and rising with reply length. The rewrite route reads the real text
+    out of the row it loads under the conversation lock, which is the only place
+    it may be read from anyway.
 
-    ``isinstance`` rather than truthiness, so the flag answers exactly the
-    question the route asks (``writer_draft is None`` → 409): the button is
-    offered iff pressing it would be accepted.
+    The flag no longer decides whether the button appears — since the fallback
+    landed, any assistant message with text has a source (see
+    :func:`_prose_rewrite_source`), and the client already holds the content it
+    would need to see that.
     """
     row = dict(message)
-    row["has_writer_draft"] = isinstance(row.pop("writer_draft", None), str)
+    row["has_writer_draft"] = _retained_draft(row) is not None
+    row.pop("writer_draft", None)
     return row
 
 
@@ -171,6 +206,14 @@ async def api_edit_message(
         # the next fetch would re-roll from it and clobber the manual edit.
         if original["role"] == "assistant" and original["parent_id"] is None:
             await set_workflow_message_state(msg_id, "macros", None)
+        # Same clobber, one surface over: the retained Writer draft describes
+        # the text this edit just replaced, and the on-demand prose rewriter
+        # prefers it over the saved content — so a rewrite after an edit would
+        # quietly restore the pre-edit prose. Dropping it makes the rewriter
+        # fall back to what the user actually wrote, which is what they mean by
+        # "rewrite this message".
+        if original["role"] == "assistant":
+            await clear_writer_draft(msg_id)
         # An unreviewed world-change proposal was derived from this exact text.
         # Editing either source message invalidates that evidence, so the
         # proposal goes stale and must be re-evaluated rather than applied.
@@ -276,27 +319,28 @@ async def _stream_prose_rewrite_message(
     config: ProseRewrite,
     abort_token: AbortToken,
 ) -> AsyncIterator[dict]:
-    """Stream an assistant row's original Writer draft through the local rewriter.
+    """Stream an assistant row's Writer draft — or its saved text — through the local rewriter.
 
     The shared prose step provides whole-draft snapshots in visible document
     order. Unlike the in-turn caller, this stream persists only after its
     final ``rewritten`` event, so a disconnected or failed request leaves the
     saved message byte-identical. This generator begins only after the SSE
     layer acquires the conversation lock, so loading the row here prevents a
-    pre-stream edit from being overwritten with stale content.
+    pre-stream edit from being overwritten with stale content — which is also
+    why the source is resolved here and not carried in from the route.
     """
     message = await get_message_by_id(msg_id)
     if not message or message["conversation_id"] != cid or message["role"] != "assistant":
         yield {"event": "error", "data": "Message changed or was deleted before the prose rewrite started"}
         return
-    writer_draft = message.get("writer_draft")
-    if writer_draft is None:
-        yield {"event": "error", "data": "Original Writer draft is unavailable for this message"}
+    source = _prose_rewrite_source(message)
+    if source is None:
+        yield {"event": "error", "data": "This message has no text to rewrite"}
         return
     current_content = message["content"] or ""
-    rewritten = writer_draft
+    rewritten = source
     warning = ""
-    events = prose_rewrite_step(writer_draft, config)
+    events = prose_rewrite_step(source, config)
     try:
         while True:
             next_event = asyncio.create_task(anext(events))
@@ -361,18 +405,22 @@ async def api_prose_rewrite_message(
 
     This is deliberately separate from Magic Rewrite: it has no remote-model
     call, direction, or branch. It applies the configured local model to the
-    original Writer draft retained for the selected response and preserves the
+    original Writer draft retained for the selected response — or, for a reply
+    saved before drafts were retained, to the reply itself — and preserves the
     message tree. A changed source invalidates any still-pending World proposal
     that was inferred from it.
+
+    The pre-flight check answers only "is there anything here to rewrite"; the
+    stream resolves the source again under the conversation lock, and that
+    second read is the one that counts.
     """
     message = await get_message_by_id(msg_id)
     if not message or message["conversation_id"] != cid:
         raise HTTPException(status_code=404, detail="Message not found")
     if message["role"] != "assistant":
         raise HTTPException(status_code=400, detail="Only assistant messages can be rewritten")
-    writer_draft = message.get("writer_draft")
-    if writer_draft is None:
-        raise HTTPException(status_code=409, detail="Original Writer draft is unavailable for this message")
+    if _prose_rewrite_source(message) is None:
+        raise HTTPException(status_code=409, detail="This message has no text to rewrite")
 
     config = resolve_prose_rewrite(await get_settings())
     if config is None:

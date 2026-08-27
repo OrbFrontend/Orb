@@ -129,12 +129,18 @@ select {
   transition: border-color .15s, box-shadow .15s;
 }
 
-input[type="checkbox"] {
+/* Boxes and bubbles opt out of the field styling above and take the theme's
+   accent for their checked fill — the hover/focus rules below already exempt
+   both, so the reset had simply missed the radio. One rule, so a checkbox in
+   Settings and one in a modal cannot drift apart. */
+input[type="checkbox"],
+input[type="radio"] {
   width: auto;
   padding: 0;
   border: none;
   background: none;
   box-shadow: none;
+  accent-color: var(--accent);
 }
 
 input:not([type="checkbox"]):not([type="radio"]):hover,

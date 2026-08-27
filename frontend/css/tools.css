@@ -134,57 +134,18 @@ input[type="range"]::-moz-range-track {
   border-bottom: 1px solid var(--border);
 }
 
-/* Drawn from theme tokens rather than left native: a native control takes its
-   unchecked colours from the browser's colour-scheme, which paints a white
-   bubble on every dark theme Orb ships. */
-.ml-variant input[type="radio"],
-.ml-check input[type="checkbox"] {
-  appearance: none;
-  -webkit-appearance: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
+/* Left native, like every other box in this panel. These were hand-painted from
+   theme tokens to dodge the browser's white bubble on a dark theme, and bought
+   that with an unchecked outline of --border-light — a hairline token, which on
+   most themes is the same as no control at all. The audit checkboxes two cards
+   up are native; matching them is worth more than the bubble. Colour comes from
+   `accent-color` on the shared reset in forms.css. */
+.ml-variant input[type="radio"] {
+  grid-column: 1;
   width: 13px;
   height: 13px;
   margin: 0;
-  padding: 0;
-  border: 1px solid var(--border-light);
-  background: none;
-  box-shadow: none;
   cursor: pointer;
-}
-
-.ml-variant input[type="radio"] {
-  grid-column: 1;
-  border-radius: 50%;
-}
-
-.ml-variant input[type="radio"]:checked {
-  border-color: var(--accent);
-  background: radial-gradient(circle at 50% 50%, var(--accent) 0 3px, transparent 3.5px);
-}
-
-.ml-check input[type="checkbox"] {
-  border-radius: 3px;
-}
-
-.ml-check input[type="checkbox"]:checked {
-  border-color: var(--accent);
-  background: var(--accent);
-}
-
-.ml-check input[type="checkbox"]:checked::after {
-  content: "✓";
-  font-size: 9px;
-  line-height: 1;
-  color: #fff;
-}
-
-.ml-variant input[type="radio"]:focus-visible,
-.ml-check input[type="checkbox"]:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 
 .ml-variant-name {
@@ -265,21 +226,39 @@ label.ml-variant-name { cursor: pointer; }
   border-color: var(--border);
 }
 
-/* Runtime row — present only while the binary is missing, so it reads as the
-   one thing left to do rather than a status line. */
-.ml-runtime {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* Runtime gate — the card's whole body while the binary is missing, so it reads
+   as the one thing left to do rather than a status line. A callout box, because
+   what it gates (the model table) is hidden behind it. */
+.ml-gate {
+  display: grid;
+  gap: 4px;
   margin-top: 8px;
-  padding-bottom: 4px; /* clearance for the .ml-busy sliver, so it never reads as an underline */
+  padding: 8px 10px 10px; /* the bottom pad is clearance for the .ml-busy sliver */
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius);
+  background: var(--accent-glow);
+}
+
+.ml-gate-title {
   font-size: 11px;
+  font-weight: 500;
   color: var(--text-secondary);
 }
 
-.ml-runtime span {
-  flex: 1;
-  min-width: 0;
+.ml-gate-desc {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* Which build to fetch on the left, the fetch itself on the right: the choice
+   is baked into the binary, so it has to be made before the button, not after. */
+.ml-gate-act {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 /* The rewriter's parallel request count is also its KV-lane count, so this is
@@ -324,19 +303,15 @@ label.ml-variant-name { cursor: pointer; }
   margin-top: 8px;
 }
 
-.ml-check {
-  display: flex;
+/* The GPU switch wears the panel's own checkbox-label look (.lg-enforce-label)
+   and adds only what its two rows need: it must not wrap, and it must sit on
+   the label's own line rather than being pushed to the top of a wrapped foot.
+   Written as a compound selector so it wins regardless of rule order. */
+.lg-enforce-label.ml-check {
+  align-self: auto;
   flex: none;
+  margin: 0; /* the bare `label` rule's 4px bottom margin would decentre the row */
   white-space: nowrap;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  font-size: 11px;
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--text-secondary);
-  cursor: pointer;
 }
 
 .ml-foot-state {

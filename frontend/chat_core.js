@@ -138,15 +138,31 @@ export function buildMsgToolbar(m, childByParent = null) {
       : "";
 
   // Unlike Magic Rewrite, this applies the configured local SLM to the original
-  // Writer draft saved for this reply. Keep it on assistant text only:
-  // rewriting a user's words in place would be an unexpected ownership change.
-  // Disabled from state rather than from the clicked node, so the busy button
-  // survives a re-render mid-rewrite. Only one rewrite runs at a time, so every
-  // message's button goes down together.
-  const proseRewriteBtn =
-    isAssistant && m.id && m.has_writer_draft && S.settings?.local_ml_enabled?.prose_rewriter !== false
-      ? `<button class="msg-btn-prose-rewrite" onclick="rewriteMessageProse(${m.id})" title="Rewrite original Writer draft"${S.proseRewriteMsgId ? " disabled" : ""}>${ICON_PROSE_REWRITE}</button>`
-      : "";
+  // Writer draft saved for this reply — or to the reply itself, for one saved
+  // before drafts were retained. Offered on any assistant message that has
+  // text, because that is exactly what the backend can work from; gating it on
+  // `has_writer_draft` left the button missing from every message written
+  // before the feature shipped, which is most of them. The flag now only picks
+  // the wording, since which text is about to be replaced is not the same
+  // question in the two cases. Keep it on assistant text only: rewriting a
+  // user's words in place would be an unexpected ownership change. Disabled
+  // from state rather than from the clicked node, so the busy button survives a
+  // re-render mid-rewrite. Only one rewrite runs at a time, so every message's
+  // button goes down together.
+  // Also gated on a variant being selected: with nothing picked the route can
+  // only 503, and a button that is guaranteed to fail is worse than no button.
+  // The selection is now armed by the download itself, so this reads "a model
+  // is set up" rather than "someone remembered to click the radio".
+  const canProseRewrite =
+    isAssistant &&
+    m.id &&
+    (m.content || "").trim() &&
+    S.settings?.local_ml_config?.prose_rewriter?.variant &&
+    S.settings?.local_ml_enabled?.prose_rewriter !== false;
+  const proseRewriteTitle = m.has_writer_draft ? "Rewrite original Writer draft" : "Rewrite this message";
+  const proseRewriteBtn = canProseRewrite
+    ? `<button class="msg-btn-prose-rewrite" onclick="rewriteMessageProse(${m.id})" title="${proseRewriteTitle}"${S.proseRewriteMsgId ? " disabled" : ""}>${ICON_PROSE_REWRITE}</button>`
+    : "";
 
   const magicInput =
     isAssistant && m.id && !isGreeting && S.magicInputMsgId === m.id

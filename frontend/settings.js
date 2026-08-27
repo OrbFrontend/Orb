@@ -77,8 +77,11 @@ export async function loadSettings() {
   if (typeof S.settings.enable_agent === "number") S.agentEnabled = S.settings.enable_agent !== 0;
 
   // Per-local-ML-feature config (prose rewriter: variant + gpu + batch size). Kept on
-  // S.settings rather than promoted to a top-level S key: the Settings panel is
-  // the only reader, and it re-fetches /local-ml/status for the disk facts anyway.
+  // S.settings rather than promoted to a top-level S key: this panel and the
+  // message toolbar's rewrite-button gate are the only readers, and the panel
+  // re-fetches /local-ml/status for the disk facts anyway. Normalised here so a
+  // transcript painted before any local-ML write reads a missing selection as
+  // absent rather than throwing.
   if (!S.settings.local_ml_config || typeof S.settings.local_ml_config !== "object") S.settings.local_ml_config = {};
 
   // Length guard is a feature flag, not a tool — its own settings columns, not enabled_tools.
@@ -276,27 +279,42 @@ const enableToggle = (f, on) =>
 // blurb on its own line beneath the name — a wrapping blurb sharing a row with
 // the controls is what made this card ragged. The enable toggle appears only
 // once something is on disk: nothing to enable, nothing to say.
+//
+// The whole table is gated on the runtime, because a checkpoint without the
+// llama-server binary rewrites nothing: offering three multi-GB downloads
+// first, and the 100 MB that makes them work as a footnote underneath, had it
+// exactly backwards. `data-ml-selected` carries the stored pick for the writes
+// that happen while no radio is on screen (see `saveLocalMlConfig`).
 function variantCard(f, info) {
   const name = esc(LOCAL_ML_LABELS[f] || f);
   const desc = LOCAL_ML_DESCS[f] || "";
+  const ready = Boolean(info.runtime_ok);
   const anyPresent = info.variants.some((v) => v.present);
-  const rows = info.variants.map((v) => variantRow(f, v, info.selected)).join("");
-  return `<div class="tool-card ${anyPresent && info.enabled ? "tool-on" : ""}">
+  // One exception to the gate: a checkpoint already on disk keeps its row so
+  // its delete button stays reachable — a removed binary must not strand 5 GB.
+  const showVariants = ready || anyPresent;
+  const rows = info.variants.map((v) => variantRow(f, v, info.selected, ready)).join("");
+  return `<div class="tool-card ${ready && anyPresent && info.enabled ? "tool-on" : ""}"
+       data-ml-feature="${escAttr(f)}" data-ml-selected="${escAttr(info.selected || "")}">
     <div class="tool-card-header"><span class="tool-card-name">${name}</span>
-      ${anyPresent ? enableToggle(f, info.enabled) : ""}</div>
+      ${ready && anyPresent ? enableToggle(f, info.enabled) : ""}</div>
     ${desc ? `<div class="tool-card-desc">${desc}</div>` : ""}
-    <div class="ml-variants">${rows}</div>
-    ${runtimeRow(info)}
-    ${batchSizeControl(f, info)}
-    <div class="ml-foot">
-      <label class="ml-check">
-        <input type="checkbox" ${info.gpu ? "checked" : ""} data-ml-act="gpu" data-ml-feature="${escAttr(f)}">
-        Run on GPU
-      </label>
-      ${stateRow(f, info)}
-    </div>
+    ${ready ? "" : runtimeGate(f, info)}
+    ${showVariants ? `<div class="ml-variants">${rows}</div>` : ""}
+    ${ready ? batchSizeControl(f, info) : ""}
+    ${ready ? `<div class="ml-foot">${gpuCheck(f, info)}${stateRow(f, info)}</div>` : ""}
   </div>`;
 }
+
+// One control, two homes: while the runtime is missing this box picks which
+// build to fetch (Vulkan or CPU-only, baked into the binary), and afterwards it
+// is the running model's own placement switch. Same setting either way, so it
+// is the same checkbox rather than two that could disagree.
+const gpuCheck = (f, info, title) =>
+  `<label class="lg-enforce-label ml-check" title="${escAttr(title || "Offload the model to the GPU.")}">
+    <input type="checkbox" ${info.gpu ? "checked" : ""} data-ml-act="gpu" data-ml-feature="${escAttr(f)}">
+    Run on GPU
+  </label>`;
 
 // llama.cpp calls these parallel slots; from the user's side it is the number
 // of paragraphs in one continuous batch. Each slot owns a full KV lane, so the
@@ -323,20 +341,24 @@ function batchSizeControl(f, info) {
 
 // Every cell is placed explicitly by class, so a row missing its radio (an
 // undownloaded variant) still lines its name up with the rows that have one.
-function variantRow(f, v, selected) {
+// Without the runtime a row can only ever be deleted: there is nothing to pick
+// between and nothing worth fetching, so the radio goes and Download greys out.
+function variantRow(f, v, selected, ready) {
   const attrs = `data-ml-feature="${escAttr(f)}" data-ml-variant="${escAttr(v.id)}"`;
   const rid = escAttr(`ml-var-${f}-${v.id}`);
-  const on = v.present && v.id === selected;
+  const on = ready && v.present && v.id === selected;
   const label = escAttr(v.label);
-  const pick = v.present
-    ? `<input type="radio" id="${rid}" name="local-ml-variant-${escAttr(f)}" ${on ? "checked" : ""}
+  const pick =
+    ready && v.present
+      ? `<input type="radio" id="${rid}" name="local-ml-variant-${escAttr(f)}" ${on ? "checked" : ""}
               aria-label="Use ${label}" data-ml-act="select" ${attrs}>
        <label class="ml-variant-name" for="${rid}">${label}</label>`
-    : `<span class="ml-variant-name">${label}</span>`;
+      : `<span class="ml-variant-name">${label}</span>`;
   const act = v.present
     ? `<button class="btn btn-xs btn-danger ml-variant-act" title="Delete" aria-label="Delete ${label}"
                data-ml-act="delete" ${attrs}>×</button>`
-    : `<button class="btn btn-xs ml-variant-act" data-ml-act="download" ${attrs}>Download</button>`;
+    : `<button class="btn btn-xs ml-variant-act" data-ml-act="download" ${attrs}
+               ${ready ? "" : 'disabled title="Download the llama.cpp runtime first"'}>Download</button>`;
   return `<div class="ml-variant${on ? " ml-variant-on" : ""}">
     ${pick}
     <span class="ml-variant-size">${(v.size_mb / 1024).toFixed(1)} GB</span>
@@ -345,13 +367,18 @@ function variantRow(f, v, selected) {
   </div>`;
 }
 
-// Only speaks up when the binary is missing: an installed runtime is the
-// expected state, and the row vanishing is its own confirmation.
-function runtimeRow(info) {
-  if (info.runtime_ok) return "";
-  return `<div class="ml-runtime">
-    <span>llama.cpp runtime</span>
-    <button class="btn btn-xs" data-ml-act="runtime">Download · 100 MB</button>
+// The card's whole content while the binary is missing, rather than a footnote
+// under the models it is a prerequisite for: it says what it is, why it is
+// wanted, and which build to fetch. An installed runtime is the expected state,
+// so the box vanishing is its own confirmation.
+function runtimeGate(f, info) {
+  return `<div class="ml-gate">
+    <div class="ml-gate-title">llama.cpp runtime required</div>
+    <div class="ml-gate-desc">Rewrites run in a local llama-server. Fetch it to unlock the models.</div>
+    <div class="ml-gate-act">
+      ${gpuCheck(f, info, "Ticked fetches the Vulkan build; unticked fetches the CPU-only one.")}
+      <button class="btn btn-sm" data-ml-act="runtime">Download · 100 MB</button>
+    </div>
   </div>`;
 }
 
@@ -441,22 +468,37 @@ function onLocalMLChange(ev) {
   if (act === "batch-size") return saveLocalMlConfig(feature, { batchSize: Number(target.value) });
 }
 
+// Every local-ML write lands here. Four routes can now move what the message
+// toolbar's rewrite button is gated on — the enable toggle moves the flag, and
+// config, download and delete can all move the selected variant — so each hands
+// its map(s) back and this syncs whichever it was given. The repaint is the
+// point: nothing else re-reads S.settings, so without it the transcript keeps
+// whatever gate it was painted with until something unrelated re-renders it.
+function applyLocalMlResponse(res) {
+  if (!res || typeof res !== "object") return;
+  if (typeof res.local_ml_enabled === "object") S.settings.local_ml_enabled = res.local_ml_enabled;
+  if (typeof res.local_ml_config === "object") S.settings.local_ml_config = res.local_ml_config;
+  renderMessages();
+}
+
 // The config route takes the whole object, so a change to one field has to
 // carry the others: read the current values out of the rendered controls
-// rather than keeping a second copy of it in module state.
+// rather than keeping a second copy of it in module state. The card's
+// `data-ml-selected` stands in for the radios while the runtime gate is up —
+// flipping GPU there must not silently clear a variant the user already picked.
 async function saveLocalMlConfig(feature, patch) {
   const root = $("local-ml-section");
+  const card = root?.querySelector(`.tool-card[data-ml-feature="${feature}"]`);
   const picked = root?.querySelector(`input[name="local-ml-variant-${feature}"]:checked`);
   const gpuBox = root?.querySelector(`input[data-ml-act="gpu"][data-ml-feature="${feature}"]`);
   const batchSelect = root?.querySelector(`select[data-ml-act="batch-size"][data-ml-feature="${feature}"]`);
   const body = {
-    variant: patch.variant ?? picked?.dataset.mlVariant ?? null,
+    variant: patch.variant ?? picked?.dataset.mlVariant ?? (card?.dataset.mlSelected || null),
     gpu: patch.gpu ?? Boolean(gpuBox?.checked),
     batch_size: patch.batchSize ?? Number(batchSelect?.value || 4),
   };
   try {
-    const res = await api.post(`/local-ml/${feature}/config`, body);
-    if (res && typeof res.local_ml_config === "object") S.settings.local_ml_config = res.local_ml_config;
+    applyLocalMlResponse(await api.post(`/local-ml/${feature}/config`, body));
   } catch (e) {
     toast(e.message || "Failed to save", true);
   }
@@ -466,7 +508,11 @@ async function saveLocalMlConfig(feature, patch) {
 function deleteLocalMlModel(feature, variant) {
   confirmDelete("Model", "Delete this downloaded model file? It can be downloaded again.", async () => {
     try {
-      await api.del(`/local-ml/${feature}/model${variant ? `?variant=${encodeURIComponent(variant)}` : ""}`);
+      // Deleting the selected checkpoint hands the selection to another one
+      // that is present, so the response carries the config back.
+      applyLocalMlResponse(
+        await api.del(`/local-ml/${feature}/model${variant ? `?variant=${encodeURIComponent(variant)}` : ""}`),
+      );
     } catch (e) {
       toast(e.message || "Delete failed", true);
     }
@@ -482,7 +528,7 @@ function deleteLocalMlModel(feature, variant) {
 // multi-GB fetch queued behind the first is not a thing anyone means to ask for.
 // Returns the undo, for the failure path; success re-renders the section anyway.
 function beginMlBusy(btn) {
-  const scope = btn?.closest(".ml-variant, .ml-runtime, .tool-card");
+  const scope = btn?.closest(".ml-variant, .ml-gate, .tool-card");
   if (!scope) return () => {};
   const others = [...(btn.closest(".tool-card")?.querySelectorAll("button[data-ml-act]") ?? [btn])];
   scope.classList.add("ml-busy");
@@ -513,7 +559,9 @@ async function fetchLlamaRuntime(btn) {
 async function downloadLocalMlModel(feature, variant, btn) {
   const endBusy = beginMlBusy(btn);
   try {
-    await api.post(`/local-ml/${feature}/download`, variant ? { variant } : {});
+    // A downloaded checkpoint arms the feature when nothing usable was
+    // selected, so the response carries the (possibly new) selection back.
+    applyLocalMlResponse(await api.post(`/local-ml/${feature}/download`, variant ? { variant } : {}));
     await loadLocalMLSection(); // flips the card to a toggle
   } catch (e) {
     toast(e.message || "Download failed", true);
@@ -523,8 +571,9 @@ async function downloadLocalMlModel(feature, variant, btn) {
 
 async function toggleLocalMlEnabled(feature, on) {
   try {
-    const res = await api.post(`/local-ml/${feature}/enabled`, { enabled: on });
-    if (res && typeof res.local_ml_enabled === "object") S.settings.local_ml_enabled = res.local_ml_enabled;
+    // Enabling also repairs a selection that points at nothing, so the response
+    // carries both maps back.
+    applyLocalMlResponse(await api.post(`/local-ml/${feature}/enabled`, { enabled: on }));
   } catch (_e) {
     toast("Failed to toggle", true);
   }

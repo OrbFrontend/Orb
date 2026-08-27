@@ -452,7 +452,7 @@
   user-select: none;
 }
 
-.lb-case-check input { cursor: pointer; accent-color: var(--accent); }
+.lb-case-check input { cursor: pointer; }
 .lb-case-check input:disabled { cursor: not-allowed; }
 .lb-case-check input:disabled + span { opacity: 0.5; }
 

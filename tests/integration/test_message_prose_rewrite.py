@@ -216,15 +216,45 @@ async def test_keeps_the_message_when_the_local_rewriter_warns(client, db, monke
     assert await _content(db, message_id) == "Editor-final reply."
 
 
-async def test_rejects_messages_without_a_retained_writer_draft(client):
+async def test_falls_back_to_the_saved_text_when_no_draft_was_retained(client, db, monkeypatch):
+    """A reply from before ``writer_draft`` existed rewrites its own content."""
     cid = "message-prose-legacy"
     await dbmod.create_conversation(cid, "Prose", "Bot", "")
     message_id, _ = await dbmod.add_message(cid, "assistant", "Legacy reply.", 0, advance_leaf=True)
+    _enable(monkeypatch)
+
+    sources: list[str] = []
+
+    async def fake_rewrite(source, _config):
+        sources.append(source)
+        yield {"type": "rewritten", "draft": "Rewritten legacy reply."}
+
+    monkeypatch.setattr(message_routes, "prose_rewrite_step", fake_rewrite)
+
+    response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
+
+    assert response.status_code == 200
+    assert sources == ["Legacy reply."]
+    done = _done_event(response)
+    assert done["content"] == "Rewritten legacy reply."
+    assert done["changed"] is True
+    assert await _content(db, message_id) == "Rewritten legacy reply."
+    # The row says the rewrite started from the message itself, so the client
+    # can name the text it replaced.
+    messages = (await client.get(f"/api/conversations/{cid}/messages")).json()
+    assert next(m for m in messages if m["id"] == message_id)["has_writer_draft"] is False
+
+
+async def test_rejects_messages_with_no_text_to_rewrite(client):
+    """No draft and no content is the one case with nothing to work from."""
+    cid = "message-prose-empty"
+    await dbmod.create_conversation(cid, "Prose", "Bot", "")
+    message_id, _ = await dbmod.add_message(cid, "assistant", "   ", 0, advance_leaf=True)
 
     response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Original Writer draft is unavailable for this message"
+    assert response.json()["detail"] == "This message has no text to rewrite"
 
 
 async def test_pipeline_persists_writer_draft_before_later_stages(client, db, llm_mock):
@@ -312,3 +342,51 @@ async def test_compression_preserves_retained_writer_drafts(client, db):
     retained_assistant = next(message for message in messages if message["content"] == "Editor-final reply.")
     assert retained_assistant["has_writer_draft"] is True
     assert "writer_draft" not in retained_assistant
+
+
+async def test_a_hand_edit_retires_the_retained_draft(client, db, monkeypatch):
+    """Editing a reply must not leave a rewrite able to restore the old prose.
+
+    The retained draft describes the text the edit replaced. Preferring it
+    would let the rewriter put the pre-edit prose back and report a successful
+    rewrite; after the edit the reply itself is the only honest source.
+    """
+    cid = "message-prose-edited"
+    message_id = await _assistant_message(cid, "Editor-final reply.", writer_draft="Original Writer draft.")
+    _enable(monkeypatch)
+
+    edit = await client.post(
+        f"/api/conversations/{cid}/messages/{message_id}/edit",
+        json={"content": "What the user actually wants to keep."},
+    )
+    assert edit.status_code == 200
+
+    sources: list[str] = []
+
+    async def fake_rewrite(source, _config):
+        sources.append(source)
+        yield {"type": "rewritten", "draft": source.upper()}
+
+    monkeypatch.setattr(message_routes, "prose_rewrite_step", fake_rewrite)
+    response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
+
+    assert response.status_code == 200
+    assert sources == ["What the user actually wants to keep."]
+    assert await _content(db, message_id) == "WHAT THE USER ACTUALLY WANTS TO KEEP."
+    async with db.execute("SELECT writer_draft FROM messages WHERE id = ?", (message_id,)) as cursor:
+        assert (await cursor.fetchone())["writer_draft"] is None
+
+
+async def test_editing_a_user_message_leaves_assistant_drafts_alone(client, db):
+    """The clear is scoped to the row that was edited, and to assistant rows."""
+    cid = "message-prose-user-edit"
+    await dbmod.create_conversation(cid, "Prose", "Bot", "")
+    user_id, _ = await dbmod.add_message(cid, "user", "Prompt", 0, advance_leaf=True)
+    assistant_id, _ = await dbmod.add_message(
+        cid, "assistant", "Reply.", 1, parent_id=user_id, writer_draft="Original Writer draft.", advance_leaf=True
+    )
+
+    await client.post(f"/api/conversations/{cid}/messages/{user_id}/edit", json={"content": "Edited prompt."})
+
+    async with db.execute("SELECT writer_draft FROM messages WHERE id = ?", (assistant_id,)) as cursor:
+        assert (await cursor.fetchone())["writer_draft"] == "Original Writer draft."
