@@ -1,9 +1,14 @@
 """Local-ML scaffold routes: status, one-at-a-time model download, the
-per-feature enable toggle, and — for the prose rewriter — the variant selector,
-the llama-server runtime fetch and model deletion.
+per-feature enable toggle, and — for a feature that has one — its own config.
 
 Drives the Settings "Local ML" card, which is a tri-state per single-file
 feature and an expanded panel for a feature that reports ``variants``.
+
+WHAT THIS MODULE KNOWS is the shared artifact catalog: which features exist,
+whether their extras are installed, whether their weights are on disk. What it
+does NOT know is what any feature does with them. Feature behaviour — selection
+repair, pre-warming, releasing a mapped file — is asked for by name from the
+slice that owns it, and composed here.
 """
 
 from __future__ import annotations
@@ -13,8 +18,9 @@ import logging
 
 from fastapi import APIRouter, Body, HTTPException
 
-from ...database import get_settings, set_local_ml_config, set_local_ml_enabled
-from ...inference import local_ml, prose_rewriter
+from ...database import get_settings, set_local_ml_enabled
+from ...features import prose_rewriter
+from ...inference import local_ml
 from ...inference.local_models import assets, catalog, dependencies
 from ...inference.local_models.llama_server import binary as llama_binary
 
@@ -31,75 +37,20 @@ def _require(feature: str) -> catalog.ModelSpec:
     return catalog.MODELS[feature]
 
 
-def _prose_config(settings) -> dict:
-    return (settings.get("local_ml_config") or {}).get(prose_rewriter.FEATURE) or {}
-
-
-#: Strong references to fire-and-forget pre-warm tasks. Without this the only
-#: reference is the event loop's weak one and the task can be collected
-#: mid-load, which shows up as a model that silently never finishes warming.
-_BACKGROUND: set[asyncio.Task] = set()
-
-
-def _spawn(coro) -> None:
-    task = asyncio.create_task(coro)
-    _BACKGROUND.add(task)
-    task.add_done_callback(_BACKGROUND.discard)
-
-
-async def _sync_selection(feature: str, spec: catalog.ModelSpec, *, prefer: str | None = None) -> dict:
-    """Keep the stored variant pointing at a checkpoint that is actually on disk.
-
-    Downloading a GGUF did not select it and deleting one did not deselect it,
-    so both ends of the obvious workflow landed in the same silent state: the
-    feature enabled, ``resolve_prose_rewrite`` returning ``None`` because the
-    selection names nothing, and every turn skipping the rewriter with no cue
-    in the card or the log. The radio was the only thing that armed it, and
-    nothing said so.
-
-    This only ever *fills a hole* — a live pick whose file is on disk is user
-    data and is never overridden, which is what keeps ``catalog``'s rule intact
-    (there is still no implicit default; the choice is written down, and the
-    radio the user is looking at agrees with it). *prefer* is the file that
-    just arrived, and it wins only among candidates when the current pick has
-    nothing behind it.
-
-    Returns the whole ``local_ml_config`` blob so the caller can hand the
-    client its new copy in the same response.
-    """
-    settings = await get_settings()
-    if feature != prose_rewriter.FEATURE or not spec.variants:
-        return settings.get("local_ml_config", {})
-    config = _prose_config(settings)
-    current = prose_rewriter.resolve(str(config.get("variant") or ""))
-    if current is not None and prose_rewriter.on_disk(current):
-        return settings.get("local_ml_config", {})
-    present = [v for v in spec.variants if prose_rewriter.on_disk(v)]
-    picked = next((v for v in present if v.id == prefer), None) or (present[0] if present else None)
-    gpu = bool(config.get("gpu", True))
-    batch_size = prose_rewriter.resolve_batch_size(config.get("batch_size"))
-    await set_local_ml_config(feature, {"variant": picked.id if picked else None, "gpu": gpu, "batch_size": batch_size})
-    # Same follow-through as the config route: the selection moved, so a loaded
-    # child is stale, and the next turn should not pay for the load.
-    profile = prose_rewriter.profile_for_selection(picked, gpu, batch_size)
-    prose_rewriter.HOST.mark_stale(profile)
-    if profile is not None and prose_rewriter.available(picked.id if picked else None):
-        _spawn(_prewarm(profile))
+async def _config_blob() -> dict:
     settings = await get_settings()
     return settings.get("local_ml_config", {})
 
 
-async def _prewarm(profile) -> None:
-    """Load the model in the background so the first turn does not pay for it.
+async def _sync_selection(feature: str, *, prefer: str | None = None) -> dict:
+    """Let a feature repair its own stored selection, and return the new blob.
 
-    Failures are logged, not raised: the panel reads ``HOST.state``, and a
-    pre-warm that could not start is the same information as a ``failed``
-    state — surfacing it as a 500 on a settings write would be worse.
+    Generic here, feature behaviour there: the sweep only means something for a
+    feature that has a selection to repair.
     """
-    try:
-        await prose_rewriter.HOST.ensure(profile)
-    except Exception:
-        logger.warning("Prose rewriter pre-warm failed", exc_info=True)
+    if feature == prose_rewriter.FEATURE:
+        return await prose_rewriter.integration.sync_selection(prefer=prefer)
+    return await _config_blob()
 
 
 @router.get("/api/local-ml/status")
@@ -111,6 +62,9 @@ async def api_local_ml_status():
     the ``llama-cpp-python`` binding too, so one global answer would gray out a
     button that works. The top-level ``deps_ok`` stays as the whole-extras
     answer the grouped opt-in card is keyed on.
+
+    ``runtime_ok`` is keyed on the spec's runtime rather than on the rewriter:
+    it is a fact about the shared llama-server binary, not about any feature.
     """
     settings = await get_settings()
     enabled_map = settings.get("local_ml_enabled", {})
@@ -126,22 +80,20 @@ async def api_local_ml_status():
             "runtime": spec.runtime,
         }
         if spec.variants:
-            config = _prose_config(settings) if f == prose_rewriter.FEATURE else {}
             info["variants"] = [
                 {
                     "id": v.id,
                     "label": v.label,
                     "detail": v.detail,
                     "size_mb": v.size_mb,
-                    "present": prose_rewriter.on_disk(v),
+                    "present": assets.variant_present(v),
                 }
                 for v in spec.variants
             ]
-            info["selected"] = config.get("variant") or None
-            info["gpu"] = bool(config.get("gpu", True))
-            info["batch_size"] = prose_rewriter.resolve_batch_size(config.get("batch_size"))
-            info["runtime_ok"] = prose_rewriter.runtime_ok()
-            info.update(prose_rewriter.state())
+        if spec.runtime == "llama_server":
+            info["runtime_ok"] = llama_binary.runtime_ok()
+        if f == prose_rewriter.FEATURE:
+            info.update(await prose_rewriter.integration.status_extra(settings))
         features[f] = info
     deps_ok, reason = dependencies.deps_ok()
     return {
@@ -178,7 +130,7 @@ async def api_local_ml_download(feature: str, data: dict | None = Body(default=N
         except Exception:
             logger.exception("local-ml download %r (%s) failed", feature, variant)
             raise HTTPException(status_code=500, detail="Download failed; see server logs") from None
-    config = await _sync_selection(feature, spec, prefer=variant)
+    config = await _sync_selection(feature, prefer=variant)
     return {"ok": True, "present": assets.present(feature), "local_ml_config": config}
 
 
@@ -193,12 +145,8 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
     if variant and variant not in {v.id for v in spec.variants}:
         raise HTTPException(status_code=404, detail=f"Unknown variant {variant!r} for {feature!r}")
     if feature == prose_rewriter.FEATURE:
-        # BEFORE the unlink, not after: llama.cpp mmaps the GGUF, and Windows
-        # refuses to delete a mapped file — the request would 500 and the only
-        # way out would be waiting out the idle unload or restarting Orb.
-        # `release` drains first, so a rewrite in flight finishes rather than
-        # being cut off, and the next use reloads whatever is still on disk.
-        await prose_rewriter.HOST.release()
+        # Before the unlink, not after — the feature explains why.
+        await prose_rewriter.integration.release_host()
     try:
         removed = await asyncio.to_thread(assets.delete_model, feature, variant)
     except OSError:
@@ -206,7 +154,7 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
         raise HTTPException(status_code=500, detail="Delete failed; see server logs") from None
     # After the unlink, so the sweep reads the disk as it now is: deleting the
     # selected checkpoint hands the selection to another one that is present.
-    config = await _sync_selection(feature, spec)
+    config = await _sync_selection(feature)
     return {"ok": True, "removed": removed, "present": assets.present(feature), "local_ml_config": config}
 
 
@@ -214,38 +162,21 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
 async def api_local_ml_config(feature: str, data: dict = Body(...)):  # noqa: B008
     """Set one feature's config (prose rewriter: variant, GPU and batch size).
 
-    Any change marks the host stale and RETURNS IMMEDIATELY. Draining and
-    restarting inline would block a settings write on a turn that may be
-    mid-rewrite, or kill it. The background pre-warm finishes the current
-    rewrite, then reloads with the new allocation; new work waits behind it.
-
-    Then it pre-warms in the background. Loading 2.2-4.7 GB from cold is
-    seconds to tens of seconds, and paying that inside the first turn after
-    flipping the toggle looks like a hang; kicking it off here means the model
-    is hot while the user is still in Settings.
+    The body is opaque here — this route validates the feature id and hands the
+    rest to the slice, which owns what its own settings mean. STATUS CODES STAY
+    IN THE API and validation stays in the feature: it raises two errors of its
+    own rather than importing FastAPI to say 404.
     """
-    spec = _require(feature)
-    if not spec.variants:
+    _require(feature)
+    if feature != prose_rewriter.FEATURE:
         raise HTTPException(status_code=404, detail=f"{feature!r} has no configurable variants")
-    variant_id = str(data.get("variant") or "") or None
-    if variant_id and variant_id not in {v.id for v in spec.variants}:
-        raise HTTPException(status_code=404, detail=f"Unknown variant {variant_id!r} for {feature!r}")
-    gpu = bool(data.get("gpu", True))
-    raw_batch_size = data.get("batch_size", prose_rewriter.DEFAULT_BATCH_SIZE)
-    batch_size = prose_rewriter.select_batch_size(raw_batch_size)
-    if batch_size is None:
-        raise HTTPException(
-            status_code=400,
-            detail=(f"batch_size must be an integer from {prose_rewriter.MIN_BATCH_SIZE} to {prose_rewriter.MAX_BATCH_SIZE}"),
-        )
-    await set_local_ml_config(feature, {"variant": variant_id, "gpu": gpu, "batch_size": batch_size})
-    settings = await get_settings()
-    if feature == prose_rewriter.FEATURE:
-        profile = prose_rewriter.profile_for_selection(prose_rewriter.resolve(variant_id), gpu, batch_size)
-        prose_rewriter.HOST.mark_stale(profile)
-        if profile is not None:
-            _spawn(_prewarm(profile))
-    return {"local_ml_config": settings.get("local_ml_config", {})}
+    try:
+        config = await prose_rewriter.integration.apply_config(data)
+    except prose_rewriter.UnknownVariant as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    except prose_rewriter.UnsupportedBatchSize as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    return {"local_ml_config": config}
 
 
 @router.post("/api/local-ml/prose_rewriter/runtime")
@@ -259,14 +190,9 @@ async def api_prose_rewriter_runtime(data: dict | None = Body(default=None)):  #
     one.
     """
     backend = "cpu" if str((data or {}).get("backend") or "gpu") == "cpu" else "gpu"
-    # A re-fetch replaces backend/data/llama-bin/ wholesale, and on Windows a
-    # running executable cannot be unlinked. Stop the child first — it reloads
-    # on next use, against the binary that just landed rather than the one it
-    # was started from, which is what someone switching CPU↔Vulkan is asking for.
-    await prose_rewriter.HOST.release()
     async with _download_lock:
         try:
-            path = await asyncio.to_thread(llama_binary.fetch, backend)
+            path = await prose_rewriter.integration.fetch_runtime(backend)
         except llama_binary.LlamaServerMissing as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from None
         except Exception:
@@ -311,29 +237,15 @@ async def api_classify_emotion(data: dict = Body(...)):  # noqa: B008
 @router.post("/api/local-ml/{feature}/enabled")
 async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B008
     """Flip one feature's on/off toggle; return the full decoded map."""
-    spec = _require(feature)
+    _require(feature)
     enabled = bool(data.get("enabled"))
     await set_local_ml_enabled(feature, enabled)
-    # Switching a feature on means "make this work", so it is also the moment to
-    # repair a selection that points at nothing — the state an install that
-    # downloaded a checkpoint before this sweep existed is sitting in, and the
-    # one place such an install reliably passes through. When it does repair
-    # one it also pre-warms it, and the block below then asks for the same
-    # variant a second time: `ensure` short-circuits on a healthy host, so the
-    # duplicate is a no-op rather than a second load.
-    config_blob = await _sync_selection(feature, spec) if enabled else {}
+    if feature == prose_rewriter.FEATURE:
+        # Switching a feature on means "make this work", so the slice gets to
+        # repair a selection that points at nothing, and pre-warm what it picks.
+        await prose_rewriter.integration.on_enabled(enabled)
     settings = await get_settings()
-    if enabled and feature == prose_rewriter.FEATURE:
-        # Pre-warm on enable, for the same reason the config route does.
-        config = _prose_config(settings)
-        profile = prose_rewriter.profile_for_selection(
-            prose_rewriter.resolve(str(config.get("variant") or "")),
-            bool(config.get("gpu", True)),
-            prose_rewriter.resolve_batch_size(config.get("batch_size")),
-        )
-        if profile is not None:
-            _spawn(_prewarm(profile))
     return {
         "local_ml_enabled": settings.get("local_ml_enabled", {}),
-        "local_ml_config": config_blob or settings.get("local_ml_config", {}),
+        "local_ml_config": settings.get("local_ml_config", {}),
     }

@@ -11,7 +11,7 @@ not a sentence boundary and an emoticon is not punctuation spacing.
 
 from __future__ import annotations
 
-from backend.inference.prose_rewriter import text as T
+from backend.features.prose_rewriter import text as T
 
 # ── the prompt ───────────────────────────────────────────────────────────────
 

@@ -15,8 +15,8 @@ is looking at.
 
 from __future__ import annotations
 
-from ..local_models import assets
-from ..local_models.catalog import MODELS, ModelVariantSpec
+from ...inference.local_models import assets
+from ...inference.local_models.catalog import MODELS, ModelVariantSpec
 
 FEATURE = "prose_rewriter"
 

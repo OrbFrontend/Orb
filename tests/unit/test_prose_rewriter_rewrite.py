@@ -7,8 +7,8 @@ from contextlib import asynccontextmanager
 
 import pytest
 
+from backend.features.prose_rewriter import rewrite
 from backend.inference.local_models.llama_server import LaunchProfile
-from backend.inference.prose_rewriter import rewrite
 
 pytestmark = pytest.mark.asyncio
 

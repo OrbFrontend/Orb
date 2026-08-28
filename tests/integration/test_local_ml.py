@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import pytest
 
-from backend.api.routes import local_ml as ml_routes
+from backend.features import prose_rewriter
+from backend.features.prose_rewriter import catalog, integration
 from backend.inference.local_models import assets, dependencies
 from backend.inference.local_models.llama_server import binary as llama_binary
-from backend.inference.prose_rewriter import catalog
 
 
 @pytest.fixture(autouse=True)
@@ -33,8 +33,8 @@ def _no_child_process(monkeypatch):
     async def _noop(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(ml_routes, "_prewarm", _noop)
-    monkeypatch.setattr(ml_routes.prose_rewriter.HOST, "release", _noop)
+    monkeypatch.setattr(integration, "_prewarm", _noop)
+    monkeypatch.setattr(prose_rewriter.HOST, "release", _noop)
 
 
 @pytest.fixture(autouse=True)

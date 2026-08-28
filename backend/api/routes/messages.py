@@ -33,6 +33,11 @@ from ...database import (
     update_message_content,
 )
 from ...database.models import ConversationRow
+from ...features.prose_rewriter import (
+    ProseRewriteConfig,
+    resolve_config,
+    rewrite_events,
+)
 from ...inference import AbortToken, local_ml
 from ...pipeline import (
     handle_fork_edit,
@@ -41,11 +46,6 @@ from ...pipeline import (
     handle_speak,
     handle_super_regenerate,
     handle_turn,
-)
-from ...pipeline.passes.editor.slm_rewrite import (
-    ProseRewrite,
-    prose_rewrite_step,
-    resolve_prose_rewrite,
 )
 from ...pipeline.predicates import resolve_persona_id
 from ..deps import (
@@ -316,7 +316,7 @@ async def api_magic_rewrite_msg(
 async def _stream_prose_rewrite_message(
     cid: str,
     msg_id: int,
-    config: ProseRewrite,
+    config: ProseRewriteConfig,
     abort_token: AbortToken,
 ) -> AsyncIterator[dict]:
     """Stream an assistant row's Writer draft — or its saved text — through the local rewriter.
@@ -340,7 +340,7 @@ async def _stream_prose_rewrite_message(
     current_content = message["content"] or ""
     rewritten = source
     warning = ""
-    events = prose_rewrite_step(source, config)
+    events = rewrite_events(source, config)
     try:
         while True:
             next_event = asyncio.create_task(anext(events))
@@ -422,7 +422,7 @@ async def api_prose_rewrite_message(
     if _prose_rewrite_source(message) is None:
         raise HTTPException(status_code=409, detail="This message has no text to rewrite")
 
-    config = resolve_prose_rewrite(await get_settings())
+    config = resolve_config(await get_settings())
     if config is None:
         raise HTTPException(
             status_code=503,

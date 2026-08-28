@@ -21,10 +21,8 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
-from ..local_models.llama_server import LaunchProfile, ManagedLlamaServerHost, binary
-from . import catalog
+from ...inference.local_models.llama_server import LaunchProfile, ManagedLlamaServerHost
 from . import text as T
-from .profile import HOST
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +62,7 @@ async def arewrite(
     draft: str,
     profile: LaunchProfile,
     *,
-    host: ManagedLlamaServerHost | None = None,
+    host: ManagedLlamaServerHost,
     on_progress: Callable[[str], Awaitable[None]] | None = None,
 ) -> str:
     """Rewrite *draft* paragraph-by-paragraph and return the reassembled text.
@@ -74,15 +72,18 @@ async def arewrite(
     would be meaningless when generation is concurrent.
 
     Raises on anything that stops the rewrite happening at all (no binary, no
-    GGUF, boot failure, HTTP error). The Editor-pass caller turns that into a
-    pass-through plus a warning; this layer does not decide policy.
+    GGUF, boot failure, HTTP error). ``service.rewrite_events`` turns that into
+    a pass-through plus a warning; this layer does not decide policy.
+
+    *host* is passed in rather than defaulted to the feature's singleton: the
+    service owns that object, and reaching back up for it from here would mean
+    a deferred import, which is the shape this whole split removed.
     """
     layout = T.plan(draft)
     jobs = _admissible(layout)
     if not jobs:
         return draft
 
-    host = host or HOST
     async with host.use(profile) as server:
         done: dict[int, str] = {}
         completed: set[int] = set()
@@ -182,13 +183,3 @@ def _admissible(layout: list[tuple[str, str]]) -> list[tuple[int, str]]:
             continue
         jobs.append((slot, piece))
     return jobs
-
-
-def available(variant_id: str | None) -> bool:
-    """Is there a selected variant, on disk, *and* a runtime binary?
-
-    Pure filesystem facts; says nothing about the settings toggle, which is the
-    caller's business.
-    """
-    variant = catalog.resolve(variant_id)
-    return variant is not None and catalog.on_disk(variant) and binary.runtime_ok()

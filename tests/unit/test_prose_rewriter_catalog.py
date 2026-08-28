@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import os
 
+from backend.features.prose_rewriter import catalog
 from backend.inference.local_models import assets
-from backend.inference.prose_rewriter import catalog
 
 
 def test_an_unusable_selection_resolves_to_none_rather_than_raising():

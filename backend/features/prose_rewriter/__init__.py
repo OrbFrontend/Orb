@@ -9,39 +9,31 @@ training corpus rather than settings.
 The Editor pass runs this BEFORE its audit, so Orb's scanners see and patch the
 rewritten prose rather than text that no longer exists.
 
-The child process, the binary and the asset store are NOT this feature's: they
-live in ``inference/local_models/`` and are shared. What is here is the part
-that is only ever about the rewriter — its prompt, its paragraph algorithm, its
-selection, and the tuning its launch profile is built from.
+WHAT IS NOT HERE: the child process, the binary, and the model files. Those are
+``inference/local_models/``, shared with anything else that ever wants a local
+model. This slice is the part that is only ever about the rewriter — its
+prompt, its paragraph algorithm, its selection, and the tuning its launch
+profile is built from.
 """
 
 from __future__ import annotations
 
-from ..local_models.llama_server import runtime_ok
-from .catalog import FEATURE, on_disk, resolve, variants
-from .profile import (
+from . import integration
+from .catalog import FEATURE, on_disk, resolve, variant_path, variants
+from .config import (
     DEFAULT_BATCH_SIZE,
-    HOST,
     MAX_BATCH_SIZE,
     MIN_BATCH_SIZE,
+    ProseRewriteConfig,
+    UnknownVariant,
+    UnsupportedBatchSize,
+    launch_profile,
     launch_profile_for,
-    profile_for_selection,
     resolve_batch_size,
+    resolve_config,
     select_batch_size,
 )
-from .rewrite import arewrite, available
-
-
-async def shutdown() -> None:
-    """Stop the llama-server child. Orb's only managed subprocess — an orphan
-    holds the GPU after Orb exits, so the app lifespan must call this."""
-    await HOST.shutdown()
-
-
-def state() -> dict[str, str]:
-    """``{"state": idle|loading|ready|failed, "error": …}`` for the panel."""
-    return {"state": HOST.state, "error": HOST.error}
-
+from .service import HOST, available, rewrite_events, shutdown, state
 
 __all__ = [
     "DEFAULT_BATCH_SIZE",
@@ -49,16 +41,21 @@ __all__ = [
     "HOST",
     "MAX_BATCH_SIZE",
     "MIN_BATCH_SIZE",
-    "arewrite",
+    "ProseRewriteConfig",
+    "UnknownVariant",
+    "UnsupportedBatchSize",
     "available",
+    "integration",
+    "launch_profile",
     "launch_profile_for",
     "on_disk",
-    "profile_for_selection",
     "resolve",
     "resolve_batch_size",
-    "runtime_ok",
+    "resolve_config",
+    "rewrite_events",
     "select_batch_size",
     "shutdown",
     "state",
+    "variant_path",
     "variants",
 ]

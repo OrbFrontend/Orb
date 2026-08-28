@@ -1,24 +1,29 @@
-"""How the rewriter launches its child: the closed allowlist, and the barrier.
+"""What the rewriter is configured to be, and how that becomes a child process.
 
-TRANSITIONAL LOCATION. Phase 3 of the local-model split moves this file's
-contents into ``features/prose_rewriter/config.py`` unchanged. It sits here
-rather than there for one phase because the opposite — creating the feature
-module early and importing it from ``inference/`` — is the exact upward edge
-the split exists to delete.
+Three readings of one question. :class:`ProseRewriteConfig` is what the user
+chose, resolved out of ``settings.local_ml_config``; ``SLOT_ALLOCATION`` is the
+tuning that choice picks among; ``LaunchProfile`` is the command line that
+comes out the other end.
 
 EVERY NUMBER THAT REACHES ARGV IS A LITERAL FROM THIS MODULE. A stored or
 request-supplied batch size is used only as a key into ``SLOT_ALLOCATION``;
 what comes back is code-owned. Same barrier as a range check, minus the part
 where the tainted value itself survives to the subprocess sink.
+
+THE TWO ERRORS BELOW ARE THE FEATURE'S, NOT HTTP'S. A slice does not import
+FastAPI to say "404": it raises something specific and the route owns the
+mapping.
 """
 
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
+from typing import Any, TypedDict
 
-from ..local_models import assets
-from ..local_models.catalog import ModelVariantSpec
-from ..local_models.llama_server import LaunchProfile, ManagedLlamaServerHost
+from ...inference.local_models import assets, llama_server
+from ...inference.local_models.catalog import ModelVariantSpec
+from ...inference.local_models.llama_server import LaunchProfile
 from . import catalog
 
 #: Per slot, and the number is the trained envelope plus room to finish a
@@ -43,6 +48,23 @@ SLOT_ALLOCATION: dict[int, tuple[int, int, int]] = {
 MIN_BATCH_SIZE = min(SLOT_ALLOCATION)
 MAX_BATCH_SIZE = max(SLOT_ALLOCATION)
 DEFAULT_BATCH_SIZE = MAX_BATCH_SIZE
+
+
+class ProseRewriteConfig(TypedDict):
+    """Resolved prose-rewriter config. A non-None value means enabled."""
+
+    variant_id: str
+    gpu: bool
+    batch_size: int
+
+
+class UnknownVariant(ValueError):
+    """A selection that names no registered checkpoint. The route answers 404."""
+
+
+class UnsupportedBatchSize(ValueError):
+    """A lane count outside the closed allocation. The route answers 400."""
+
 
 #: What the child calls itself in its own logs and on /v1/models.
 ALIAS = "prose-rewriter"
@@ -70,6 +92,51 @@ def resolve_batch_size(value: object) -> int:
     return select_batch_size(value) or DEFAULT_BATCH_SIZE
 
 
+def resolve_config(settings: Mapping[str, Any]) -> ProseRewriteConfig | None:
+    """Resolve the rewriter config from *settings*, or ``None`` when it can't run.
+
+    Four things must hold, and all four are cheap: the Local ML toggle is on,
+    a variant is selected, that variant's GGUF is on disk, and a llama-server
+    binary resolves. Checked here rather than at the seam so a turn never pays
+    a filesystem walk twice and the gating at the call site is one boolean.
+
+    Unlike the Agent's own passes this is **not** agent-gated: the rewriter is
+    a local model on its own Local ML toggle and has nothing to do with whether
+    the remote Agent passes are on.
+    """
+    if settings.get("local_ml_enabled", {}).get(catalog.FEATURE, True) is False:
+        return None
+    config = (settings.get("local_ml_config") or {}).get(catalog.FEATURE) or {}
+    variant_id = str(config.get("variant") or "")
+    if not runnable(variant_id):
+        return None
+    # `gpu` defaults on: someone who fetched the Vulkan build meant to use it,
+    # and the checkbox is how they say otherwise.
+    return {
+        "variant_id": variant_id,
+        "gpu": bool(config.get("gpu", True)),
+        "batch_size": resolve_batch_size(config.get("batch_size")),
+    }
+
+
+def runnable(variant_id: str | None) -> bool:
+    """Is there a selected variant, on disk, *and* a runtime binary?
+
+    Pure filesystem facts; says nothing about the settings toggle, which is
+    :func:`resolve_config`'s first line.
+    """
+    variant = catalog.resolve(variant_id)
+    return variant is not None and catalog.on_disk(variant) and llama_server.runtime_ok()
+
+
+def launch_profile(config: ProseRewriteConfig) -> LaunchProfile:
+    """The resolved-config convenience wrapper, for the rewrite event stream."""
+    variant = catalog.resolve(config["variant_id"])
+    if variant is None:  # raced with a registry change since resolve_config
+        raise UnknownVariant(f"Model {config['variant_id']!r} is no longer registered.")
+    return launch_profile_for(variant, config["gpu"], config["batch_size"])
+
+
 def launch_profile_for(variant: ModelVariantSpec, gpu: bool, batch_size: int) -> LaunchProfile:
     """The one constructor of a prose ``LaunchProfile`` — and the trust barrier.
 
@@ -82,11 +149,11 @@ def launch_profile_for(variant: ModelVariantSpec, gpu: bool, batch_size: int) ->
     """
     trusted = catalog.resolve(variant.id)
     if trusted is None or trusted != variant:
-        raise ValueError(f"Unregistered prose-rewriter variant {variant.id!r}")
+        raise UnknownVariant(f"Unregistered prose-rewriter variant {variant.id!r}")
     try:
         ctx_size, parallel, http_threads = SLOT_ALLOCATION[batch_size]
     except (KeyError, TypeError):
-        raise ValueError(f"slots must be between {MIN_BATCH_SIZE} and {MAX_BATCH_SIZE}") from None
+        raise UnsupportedBatchSize(f"slots must be between {MIN_BATCH_SIZE} and {MAX_BATCH_SIZE}") from None
     path = assets.variant_path(trusted)
     if not os.path.exists(path):
         raise RuntimeError(f"{trusted.label} is not downloaded — {trusted.local_name} is missing.")
@@ -115,10 +182,3 @@ def profile_for_selection(variant: ModelVariantSpec | None, gpu: bool, batch_siz
     if variant is None or not catalog.on_disk(variant):
         return None
     return launch_profile_for(variant, gpu, batch_size)
-
-
-#: One host per process. The rewriter is a single-user local feature and a
-#: second resident model would double the VRAM for no gain. Constructing it
-#: registers it with the shared runtime manager, which is what makes the app
-#: lifespan able to stop the child it may be supervising.
-HOST = ManagedLlamaServerHost(name="prose_rewriter", idle_timeout=IDLE_TIMEOUT)

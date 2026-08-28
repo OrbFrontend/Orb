@@ -18,6 +18,8 @@ from typing import Any
 
 from ..core import ChatMessage, Macros
 from ..database.models import PhraseGroup
+from ..features.prose_rewriter import ProseRewriteConfig
+from ..features.prose_rewriter import resolve_config as resolve_prose_rewrite
 from ..inference import (
     CachedBase,
     LLMClient,
@@ -32,7 +34,6 @@ from .passes.editor.length_guard import (
     apply_length_guard_tools,
     resolve_length_guard,
 )
-from .passes.editor.slm_rewrite import ProseRewrite, resolve_prose_rewrite
 from .predicates import agent_enabled, direction_note_recording_active, is_dual_model
 from .state import ModelLane, _PipelineConfig
 
@@ -81,7 +82,7 @@ def _resolve_pipeline_config(
     # prose rewriter is a local model gated only by its own Local ML toggle,
     # its selected variant being on disk, and a llama-server binary resolving.
     # It contributes no tool schema, so the cached prefix is untouched.
-    prose_rewrite: ProseRewrite | None = resolve_prose_rewrite(settings)
+    prose_rewrite: ProseRewriteConfig | None = resolve_prose_rewrite(settings)
 
     # In dual-model mode the writer's KV cache is disjoint; skip tool schemas there.
     dual_model = is_dual_model(agent_client)

@@ -33,6 +33,7 @@ from ....analysis.patching import (
     filter_audit_report_to_text,
 )
 from ....core import AssistantToolMessage, ContentPart, WireMessage, extract_hyperparams
+from ....features.prose_rewriter import ProseRewriteConfig, rewrite_events
 from ....inference import (
     EDITOR_RENUMBER_NOTICE,
     TOOLS,
@@ -45,7 +46,6 @@ from ....inference import (
     reasoning_cfg,
 )
 from .length_guard import LengthGuard, evaluate_length_guard
-from .slm_rewrite import ProseRewrite, prose_rewrite_step
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +190,7 @@ async def editor_pass(
     audit_context_msgs: list[str] | None = None,
     writer_user_msg: str | list[ContentPart] | None = None,
     feedback_fragments: Sequence[Mapping[str, Any]] | None = None,
-    prose_rewrite: ProseRewrite | None = None,
+    prose_rewrite: ProseRewriteConfig | None = None,
 ) -> AsyncIterator[dict]:
     """Rewrite the prose locally (optional), run the ReAct edit loop, then feedback.
 
@@ -221,8 +221,14 @@ async def editor_pass(
     # the edit loop then found nothing to patch still has to be announced.
     original_draft = draft
 
+    # BEFORE the audit, and that ordering is the whole point: the scanners must
+    # see the prose that will actually be persisted, and ``build_targets``
+    # anchors byte offsets into the exact string it was handed. Rewriting after
+    # the audit would leave every ``Target`` pointing into a draft that no
+    # longer exists — "a stale list silently edits the wrong sentences"
+    # (``analysis/patching.py``).
     if prose_rewrite is not None and draft:
-        async for ev in prose_rewrite_step(draft, prose_rewrite):
+        async for ev in rewrite_events(draft, prose_rewrite):
             if ev["type"] == "rewritten":
                 draft = ev["draft"]  # everything below now reads the rewritten prose
             else:  # draft_update / warning — both travel on as-is

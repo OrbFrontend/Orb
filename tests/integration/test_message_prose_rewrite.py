@@ -36,7 +36,7 @@ async def _drain(agen) -> list[dict]:
 def _enable(monkeypatch) -> None:
     monkeypatch.setattr(
         message_routes,
-        "resolve_prose_rewrite",
+        "resolve_config",
         lambda _settings: {"variant_id": "test", "gpu": False, "batch_size": 4},
     )
 
@@ -77,7 +77,7 @@ async def test_rewrites_saved_assistant_message_and_stales_its_proposals(client,
         stale_ids.append(ids)
         return 0
 
-    monkeypatch.setattr(message_routes, "prose_rewrite_step", fake_rewrite)
+    monkeypatch.setattr(message_routes, "rewrite_events", fake_rewrite)
     monkeypatch.setattr(message_routes, "mark_changesets_stale_for_messages", mark_stale)
 
     response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
@@ -106,7 +106,7 @@ async def test_streams_a_snapshot_before_persisting_the_rewrite(streaming_client
         await finish.wait()
         yield {"type": "rewritten", "draft": "Final rewritten reply."}
 
-    monkeypatch.setattr(message_routes, "prose_rewrite_step", fake_rewrite)
+    monkeypatch.setattr(message_routes, "rewrite_events", fake_rewrite)
 
     try:
         async with streaming_client.stream(
@@ -144,7 +144,7 @@ async def test_abort_keeps_the_saved_message_unchanged(client, db, monkeypatch):
         await continue_rewrite.wait()
         yield {"type": "rewritten", "draft": "This must not persist."}
 
-    monkeypatch.setattr(message_routes, "prose_rewrite_step", fake_rewrite)
+    monkeypatch.setattr(message_routes, "rewrite_events", fake_rewrite)
     token = AbortToken()
     stream = _stream(cid, message_id, token)
 
@@ -166,7 +166,7 @@ async def test_stream_loads_the_current_message_after_acquiring_its_lock(client,
         await asyncio.Event().wait()
         yield {"type": "rewritten", "draft": "Unreachable"}
 
-    monkeypatch.setattr(message_routes, "prose_rewrite_step", waiting_rewrite)
+    monkeypatch.setattr(message_routes, "rewrite_events", waiting_rewrite)
     token = AbortToken()
     stream = _stream(cid, message_id, token)
 
@@ -201,7 +201,7 @@ async def test_keeps_the_message_when_the_local_rewriter_warns(client, db, monke
         yield {"type": "warning", "reason": "The local model stopped"}
         yield {"type": "rewritten", "draft": "Original Writer draft."}
 
-    monkeypatch.setattr(message_routes, "prose_rewrite_step", failed_rewrite)
+    monkeypatch.setattr(message_routes, "rewrite_events", failed_rewrite)
 
     response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
 
@@ -229,7 +229,7 @@ async def test_falls_back_to_the_saved_text_when_no_draft_was_retained(client, d
         sources.append(source)
         yield {"type": "rewritten", "draft": "Rewritten legacy reply."}
 
-    monkeypatch.setattr(message_routes, "prose_rewrite_step", fake_rewrite)
+    monkeypatch.setattr(message_routes, "rewrite_events", fake_rewrite)
 
     response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
 
@@ -299,7 +299,7 @@ async def test_noop_rewrite_uses_the_macro_frozen_writer_draft(client, db, llm_m
         yield {"type": "rewritten", "draft": source}
 
     _enable(monkeypatch)
-    monkeypatch.setattr(message_routes, "prose_rewrite_step", no_op_rewrite)
+    monkeypatch.setattr(message_routes, "rewrite_events", no_op_rewrite)
 
     response = await client.post(f"/api/conversations/{cid}/messages/{row['id']}/prose-rewrite", json={})
 
@@ -367,7 +367,7 @@ async def test_a_hand_edit_retires_the_retained_draft(client, db, monkeypatch):
         sources.append(source)
         yield {"type": "rewritten", "draft": source.upper()}
 
-    monkeypatch.setattr(message_routes, "prose_rewrite_step", fake_rewrite)
+    monkeypatch.setattr(message_routes, "rewrite_events", fake_rewrite)
     response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
 
     assert response.status_code == 200
