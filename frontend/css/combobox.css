@@ -169,6 +169,21 @@
   color: var(--text-muted);
 }
 
+.cb-status {
+  padding: 7px 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.cb-option + .cb-status {
+  margin-top: 3px;
+  border-top: 1px solid var(--border);
+}
+
+.cb-status-error {
+  color: var(--warning, #c9944d);
+}
+
 mark.cb-hl {
   background: var(--accent-glow);
   color: var(--accent);

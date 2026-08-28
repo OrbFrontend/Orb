@@ -42,6 +42,7 @@ LAYERS = {
     "sidebar_icons.js": 0,
     # L1 state + shared pure helpers.
     "state.js": 1,
+    "model_catalog.js": 1,
     "workflow_registry.js": 1,
     "utils.js": 1,
     "notify.js": 1,

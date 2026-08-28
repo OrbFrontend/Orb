@@ -5,6 +5,7 @@
 import { api } from "./api.js";
 import { renderInspector } from "./chat.js";
 import { showConfirmModal } from "./modal.js";
+import { filterModelChoices, mergeModelChoices } from "./model_catalog.js";
 import { S } from "./state.js";
 import { $, esc, escAttr, toast } from "./utils.js";
 import { validate } from "./validate.js";
@@ -382,6 +383,33 @@ function updateAgentModelWarning() {
 // ── Combobox engine
 
 let _comboboxCleanups = [];
+const _availableModels = new Map();
+const _availableModelRequests = new Map();
+
+function _modelChoices(ctx) {
+  const endpointId = S[ctx.endpointIdKey];
+  return mergeModelChoices(S[ctx.configsKey], _availableModels.get(endpointId));
+}
+
+async function _loadAvailableModels(ctx) {
+  const endpointId = S[ctx.endpointIdKey];
+  if (!endpointId) throw new Error("Choose or save an endpoint first");
+  if (_availableModels.has(endpointId)) return;
+
+  let request = _availableModelRequests.get(endpointId);
+  if (!request) {
+    request = api.get(`/endpoints/${endpointId}/available-models`).then((payload) => {
+      if (!Array.isArray(payload?.models)) throw new Error("Endpoint returned an invalid models response");
+      _availableModels.set(endpointId, payload.models);
+    });
+    _availableModelRequests.set(endpointId, request);
+  }
+  try {
+    await request;
+  } finally {
+    if (_availableModelRequests.get(endpointId) === request) _availableModelRequests.delete(endpointId);
+  }
+}
 
 function highlightMatch(text, query) {
   if (!query) return esc(text);
@@ -402,20 +430,25 @@ export function initComboboxes() {
   });
   _comboboxCleanups = [];
   const epRoot = document.querySelector('[data-combobox="endpoint_url"]');
-  if (epRoot) initCombobox(epRoot, () => S.endpoints.map((e) => ({ value: e.url, id: e.id, type: "endpoint" })), false);
+  if (epRoot) initCombobox(epRoot, () => S.endpoints.map((e) => ({ value: e.url, id: e.id, type: "endpoint" })));
   const mdRoot = document.querySelector('[data-combobox="model_name"]');
   if (mdRoot)
-    initCombobox(mdRoot, () => S.modelConfigs.map((m) => ({ value: m.model_name, id: m.id, type: "model" })), false);
+    initCombobox(mdRoot, () => _modelChoices(WRITER_CTX), {
+      searchable: true,
+      loadItems: () => _loadAvailableModels(WRITER_CTX),
+    });
   const agentEpRoot = document.querySelector('[data-combobox="agent_endpoint_url"]');
   if (agentEpRoot)
-    initCombobox(agentEpRoot, () => S.endpoints.map((e) => ({ value: e.url, id: e.id, type: "endpoint" })), true);
+    initCombobox(agentEpRoot, () => S.endpoints.map((e) => ({ value: e.url, id: e.id, type: "endpoint" })), {
+      isAgent: true,
+    });
   const agentMdRoot = document.querySelector('[data-combobox="agent_model_name"]');
   if (agentMdRoot)
-    initCombobox(
-      agentMdRoot,
-      () => S.agentModelConfigs.map((m) => ({ value: m.model_name, id: m.id, type: "model" })),
-      true,
-    );
+    initCombobox(agentMdRoot, () => _modelChoices(AGENT_CTX), {
+      isAgent: true,
+      searchable: true,
+      loadItems: () => _loadAvailableModels(AGENT_CTX),
+    });
 }
 
 // Global delete function for combobox items
@@ -433,6 +466,7 @@ window.deleteComboboxItem = (_btn, type, id, isAgent = false) => {
         let wasActive = false;
         if (type === "endpoint") {
           await api.del(`/endpoints/${id}`);
+          _availableModels.delete(id);
           const index = S.endpoints.findIndex((e) => e.id === id);
           if (index > -1) S.endpoints.splice(index, 1);
           if (isAgent) {
@@ -494,17 +528,22 @@ window.deleteComboboxItem = (_btn, type, id, isAgent = false) => {
   );
 };
 
-function initCombobox(rootEl, getItems, isAgent = false) {
+function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, loadItems = null } = {}) {
   const input = rootEl.querySelector(".cb-input");
   const control = rootEl.querySelector(".cb-control");
   const dropdown = rootEl.querySelector(".cb-dropdown");
   const list = rootEl.querySelector(".cb-list");
   let activeIdx = -1;
   let isOpen = false;
+  let isLoading = false;
+  let loadError = "";
+  let destroyed = false;
+  let valueBeforeInput = input.value;
+  let valueBeforeSearch = input.value;
 
   function getFiltered() {
-    // Always return all items, no filtering (for creating new records)
-    return getItems();
+    const items = getItems();
+    return searchable ? filterModelChoices(items, input.value) : items;
   }
 
   function render() {
@@ -512,23 +551,31 @@ function initCombobox(rootEl, getItems, isAgent = false) {
     const total = items.length;
     activeIdx = Math.max(-1, Math.min(activeIdx, total - 1));
     const q = input.value.trim();
-    if (!total) {
-      list.innerHTML = '<div class="cb-empty">No saved options</div>';
-    } else {
-      list.innerHTML = items
-        .map((item, i) => {
-          const value = item.value;
-          const id = item.id;
-          const type = item.type;
-          const agentArg = isAgent ? ", true" : "";
-          return `
-              <div class="cb-option${i === activeIdx ? " active" : ""}" data-value="${esc(value)}" data-id="${id}" data-type="${type}">
+    const optionHtml = items
+      .map((item, i) => {
+        const value = item.value;
+        const id = item.id;
+        const type = item.type;
+        const agentArg = isAgent ? ", true" : "";
+        const idAttrs = id == null ? "" : ` data-id="${id}"`;
+        const deleteHtml =
+          id == null
+            ? ""
+            : `<button class="cb-delete-btn" title="Delete" onclick="event.stopPropagation(); deleteComboboxItem(this, '${type}', ${id}${agentArg})">×</button>`;
+        return `
+              <div class="cb-option${i === activeIdx ? " active" : ""}" data-value="${escAttr(value)}"${idAttrs} data-type="${escAttr(type)}">
                 <span class="cb-option-text">${highlightMatch(value, q)}</span>
-                <button class="cb-delete-btn" title="Delete" onclick="event.stopPropagation(); deleteComboboxItem(this, '${type}', ${id}${agentArg})">×</button>
+                ${deleteHtml}
               </div>`;
-        })
-        .join("");
-    }
+      })
+      .join("");
+    let statusHtml = "";
+    if (isLoading) statusHtml = '<div class="cb-status">Loading available models…</div>';
+    else if (loadError)
+      statusHtml = `<div class="cb-status cb-status-error" title="${escAttr(loadError)}">Available models unavailable; type a model name.</div>`;
+    else if (!total)
+      statusHtml = `<div class="cb-empty">${searchable && q ? "No matching models" : "No saved options"}</div>`;
+    list.innerHTML = optionHtml + statusHtml;
     list.querySelectorAll(".cb-option").forEach((el, i) => {
       el.addEventListener(
         "touchstart",
@@ -564,13 +611,25 @@ function initCombobox(rootEl, getItems, isAgent = false) {
     });
   }
 
-  function openDropdown() {
+  async function openDropdown(revertValue = input.value) {
     if (isOpen) return;
     isOpen = true;
+    valueBeforeSearch = revertValue;
     activeIdx = -1;
     control.classList.add("open");
     dropdown.hidden = false;
-    render(); // Show all options
+    isLoading = Boolean(loadItems);
+    loadError = "";
+    render();
+    if (!loadItems) return;
+    try {
+      await loadItems();
+    } catch (e) {
+      loadError = e.message || "Model discovery failed";
+    } finally {
+      isLoading = false;
+      if (!destroyed && isOpen) render();
+    }
   }
 
   function closeDropdown() {
@@ -587,45 +646,87 @@ function initCombobox(rootEl, getItems, isAgent = false) {
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  input.addEventListener("keydown", (e) => {
-    // Only handle Escape to close dropdown - mouse-only navigation
+  const onInput = () => {
+    if (!searchable) return;
+    activeIdx = -1;
+    if (!isOpen) void openDropdown(valueBeforeInput);
+    else render();
+  };
+  const onBeforeInput = () => {
+    if (searchable && !isOpen) valueBeforeInput = input.value;
+  };
+  const onFocus = () => {
+    if (searchable && !isOpen) valueBeforeInput = input.value;
+  };
+  const onKeydown = (e) => {
     if (e.key === "Escape") {
-      closeDropdown();
+      if (isOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (searchable) input.value = valueBeforeSearch;
+        closeDropdown();
+      }
       return;
     }
-    // Allow typing, tab navigation, etc. but no arrow key or Enter navigation
-  });
-  control.addEventListener("mousedown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!isOpen) {
+        void openDropdown();
+        return;
+      }
+      const total = getFiltered().length;
+      if (!total) return;
+      activeIdx = e.key === "ArrowDown" ? (activeIdx + 1) % total : (activeIdx - 1 + total) % total;
+      render();
+      list.querySelector(".cb-option.active")?.scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter" && isOpen && activeIdx >= 0) {
+      e.preventDefault();
+      const item = getFiltered()[activeIdx];
+      if (item) void selectVal(item.value);
+    }
+  };
+  const onControlDown = (e) => {
     // Only toggle when clicking the arrow (cb-arrow), not the input or control background
     if (!e.target.closest(".cb-arrow")) return;
     e.preventDefault();
     // Toggle dropdown
     if (isOpen) closeDropdown();
-    else openDropdown();
+    else void openDropdown();
     // Focus input
     input.focus();
-  });
-  control.addEventListener(
-    "touchstart",
-    (e) => {
-      if (!e.target.closest(".cb-arrow")) return;
-      e.preventDefault();
-      if (isOpen) closeDropdown();
-      else openDropdown();
-    },
-    { passive: false },
-  );
+  };
+  const onControlTouch = (e) => {
+    if (!e.target.closest(".cb-arrow")) return;
+    e.preventDefault();
+    if (isOpen) closeDropdown();
+    else void openDropdown();
+  };
   const onDocDown = (e) => {
     if (!rootEl.contains(e.target)) closeDropdown();
   };
   const onDocTouch = (e) => {
     if (!rootEl.contains(e.target)) closeDropdown();
   };
+  input.addEventListener("beforeinput", onBeforeInput);
+  input.addEventListener("focus", onFocus);
+  input.addEventListener("input", onInput);
+  input.addEventListener("keydown", onKeydown);
+  control.addEventListener("mousedown", onControlDown);
+  control.addEventListener("touchstart", onControlTouch, { passive: false });
   document.addEventListener("mousedown", onDocDown);
   document.addEventListener("touchstart", onDocTouch, { passive: true });
   _comboboxCleanups.push(() => {
+    destroyed = true;
+    input.removeEventListener("beforeinput", onBeforeInput);
+    input.removeEventListener("focus", onFocus);
+    input.removeEventListener("input", onInput);
+    input.removeEventListener("keydown", onKeydown);
+    control.removeEventListener("mousedown", onControlDown);
+    control.removeEventListener("touchstart", onControlTouch);
     document.removeEventListener("mousedown", onDocDown);
     document.removeEventListener("touchstart", onDocTouch);
+    control.classList.remove("open");
+    dropdown.hidden = true;
   });
 }
 
@@ -718,6 +819,7 @@ async function _syncEndpointRecord(ctx, url, apiKey) {
     if (existing.api_key !== apiKey) {
       await api.put(`/endpoints/${existing.id}`, { api_key: apiKey });
       existing.api_key = apiKey;
+      _availableModels.delete(existing.id);
     }
     await api.put("/settings", { [ctx.settingsEndpointField]: existing.id });
     if (!S[ctx.configsKey].length || S[ctx.configsKey][0]?.endpoint_id !== existing.id) {
@@ -832,6 +934,7 @@ async function _doSaveEndpointSetting(ctx, el) {
       await _syncEndpointRecord(ctx, v, payload[ctx.apiKeyField] || "");
     } else if (key === ctx.apiKeyField && S[ctx.endpointIdKey]) {
       await api.put(`/endpoints/${S[ctx.endpointIdKey]}`, { api_key: v });
+      _availableModels.delete(S[ctx.endpointIdKey]);
     } else if (baseKey === "completion_mode" && S[ctx.endpointIdKey]) {
       // Endpoint-scoped like api_key; the /settings PUT above is a harmless
       // no-op (not in the settings allowlist — it lives on the endpoint row).
@@ -844,6 +947,7 @@ async function _doSaveEndpointSetting(ctx, el) {
       // Endpoint-scoped like completion_mode; the /settings PUT above is a
       // harmless no-op (proxy lives on the endpoint row, not settings).
       await api.put(`/endpoints/${S[ctx.endpointIdKey]}`, { proxy: v });
+      _availableModels.delete(S[ctx.endpointIdKey]);
     } else if (key === ctx.modelField) {
       await _syncModelConfigRecord(ctx, v, payload);
     } else if (ctx.hyperparamKeys.includes(key) && S[ctx.configIdKey]) {

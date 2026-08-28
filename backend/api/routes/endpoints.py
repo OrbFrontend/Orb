@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import httpx
 from fastapi import APIRouter, HTTPException
 
 from ...database import (
@@ -15,6 +16,7 @@ from ...database import (
     update_endpoint,
     update_model_config,
 )
+from ...inference import LLMClient, provider_sentence, redact
 from ..schemas import (
     EndpointCreate,
     EndpointUpdate,
@@ -61,6 +63,33 @@ async def api_delete_endpoint(endpoint_id: int):
 @router.get("/api/endpoints/{endpoint_id}/models")
 async def api_get_model_configs(endpoint_id: int):
     return await get_model_configs(endpoint_id)
+
+
+@router.get("/api/endpoints/{endpoint_id}/available-models")
+async def api_get_available_models(endpoint_id: int):
+    endpoint = await get_endpoint(endpoint_id)
+    if not endpoint:
+        raise HTTPException(status_code=404, detail="Endpoint not found")
+
+    client = LLMClient(
+        endpoint["url"],
+        endpoint["api_key"],
+        proxy=endpoint.get("proxy"),
+    )
+    try:
+        models = await client.list_models()
+    except httpx.HTTPStatusError as exc:
+        sentence = redact(provider_sentence(exc.response.text), endpoint["api_key"])
+        suffix = f": {sentence}" if sentence else ""
+        raise HTTPException(
+            status_code=502,
+            detail=f"Model discovery failed (provider HTTP {exc.response.status_code}){suffix}",
+        ) from None
+    except httpx.RequestError:
+        raise HTTPException(status_code=502, detail="Model discovery could not reach the endpoint") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=f"Model discovery failed: {exc}") from None
+    return {"models": models}
 
 
 @router.post("/api/endpoints/{endpoint_id}/models")

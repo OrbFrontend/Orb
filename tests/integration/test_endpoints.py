@@ -1,5 +1,68 @@
 from __future__ import annotations
 
+import httpx
+
+from backend.api.routes import endpoints as endpoint_routes
+
+
+async def test_discover_available_models_uses_saved_endpoint(client, monkeypatch):
+    endpoint = (
+        await client.post(
+            "/api/endpoints",
+            json={"url": "https://catalog.test/v1", "api_key": "catalog-key"},
+        )
+    ).json()
+    await client.put(f"/api/endpoints/{endpoint['id']}", json={"proxy": "http://localhost:8080"})
+    seen = {}
+
+    class FakeLLMClient:
+        def __init__(self, base_url, api_key, *, proxy):
+            seen.update(base_url=base_url, api_key=api_key, proxy=proxy)
+
+        async def list_models(self):
+            return ["model/a", "model/b"]
+
+    monkeypatch.setattr(endpoint_routes, "LLMClient", FakeLLMClient)
+
+    resp = await client.get(f"/api/endpoints/{endpoint['id']}/available-models")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"models": ["model/a", "model/b"]}
+    assert seen == {
+        "base_url": "https://catalog.test/v1",
+        "api_key": "catalog-key",
+        "proxy": "http://localhost:8080",
+    }
+
+
+async def test_discover_available_models_surfaces_provider_error_without_key(client, monkeypatch):
+    endpoint = (
+        await client.post(
+            "/api/endpoints",
+            json={"url": "https://catalog.test/v1", "api_key": "secret-catalog-key"},
+        )
+    ).json()
+
+    class FakeLLMClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def list_models(self):
+            request = httpx.Request("GET", "https://catalog.test/v1/models")
+            response = httpx.Response(
+                401,
+                json={"error": {"message": "Bad key: secret-catalog-key"}},
+                request=request,
+            )
+            raise httpx.HTTPStatusError("unauthorized", request=request, response=response)
+
+    monkeypatch.setattr(endpoint_routes, "LLMClient", FakeLLMClient)
+
+    resp = await client.get(f"/api/endpoints/{endpoint['id']}/available-models")
+
+    assert resp.status_code == 502
+    assert resp.json()["detail"] == "Model discovery failed (provider HTTP 401): Bad key: [redacted]"
+
 
 async def test_delete_endpoint_removes_from_db(client, db):
     """Test DELETE /api/endpoints/{id} removes endpoint"""
