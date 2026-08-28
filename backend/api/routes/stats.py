@@ -9,8 +9,8 @@ from fastapi import APIRouter
 
 from ...core import estimate_tokens
 from ...database import DB_PATH, get_generated_chars, get_global_stats
-from ...inference.local_ml import model_dir
-from ...inference.prose_rewriter.runtime import bin_bytes as llama_bin_bytes
+from ...inference.local_models.assets import model_dir
+from ...inference.local_models.llama_server.binary import bin_bytes as llama_bin_bytes
 
 router = APIRouter()
 

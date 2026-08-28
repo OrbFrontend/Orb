@@ -17,14 +17,14 @@ import os
 from pathlib import Path
 
 from backend.inference.local_models import assets, dependencies
-from backend.inference.prose_rewriter import runtime
+from backend.inference.local_models.llama_server import binary
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_model_and_binary_dirs_resolve_under_backend_data():
     assert Path(assets.model_dir()) == ROOT / "backend" / "data" / "models"
-    assert Path(runtime.bin_dir()) == ROOT / "backend" / "data" / "llama-bin"
+    assert Path(binary.bin_dir()) == ROOT / "backend" / "data" / "llama-bin"
 
 
 def test_the_install_command_names_this_repos_requirements_file():

@@ -96,13 +96,12 @@ async def prose_rewrite_step(draft: str, config: ProseRewrite) -> AsyncGenerator
 
     async def worker() -> str:
         try:
-            return await prose_rewriter.arewrite(
-                draft,
-                variant,
-                gpu=config["gpu"],
-                batch_size=config["batch_size"],
-                on_progress=queue.put,
-            )
+            # The profile is built HERE, not before the task: an undownloaded
+            # checkpoint or a batch size outside the allowlist raises, and
+            # inside the task that failure reaches the `except` below as one
+            # warning plus the writer's draft, which is this step's contract.
+            profile = prose_rewriter.launch_profile_for(variant, config["gpu"], config["batch_size"])
+            return await prose_rewriter.arewrite(draft, profile, on_progress=queue.put)
         finally:
             queue.put_nowait(_DONE)
 

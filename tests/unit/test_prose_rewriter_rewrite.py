@@ -7,9 +7,8 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from backend.inference import prose_rewriter
+from backend.inference.local_models.llama_server import LaunchProfile
 from backend.inference.prose_rewriter import rewrite
-from backend.pipeline.passes.editor import slm_rewrite
 
 pytestmark = pytest.mark.asyncio
 
@@ -17,6 +16,18 @@ FIRST = "First " + "source " * 16
 SECOND = "Second " + "source " * 16
 DRAFT = f"{FIRST}\n\n{SECOND}"
 BOTH_REWRITTEN = "First rewrite.\n\nSecond rewrite."
+
+# Any valid profile: these tests never start a child, and the fake host ignores
+# it. What it stands in for is the argument arewrite no longer resolves itself.
+_PROFILE = LaunchProfile(
+    model_id="1.7b-q8",
+    model_path="/models/prose.gguf",
+    alias="prose-rewriter",
+    gpu_layers=999,
+    ctx_size=2560,
+    parallel=2,
+    http_threads=8,
+)
 
 
 def _source(prompt: str) -> str:
@@ -33,6 +44,9 @@ class _Server:
         return 10
 
     async def generate(self, prompt: str, **_kwargs) -> tuple[str, bool]:
+        # **_kwargs absorbs stop/cache_prompt: what this file tests is the
+        # ordering of concurrent paragraphs, not the request body (that is
+        # tests/unit/test_llama_server_client.py).
         if _source(prompt).startswith("First"):
             await asyncio.sleep(self.first_delay)
             return "First rewrite.", True
@@ -67,7 +81,7 @@ class _Host:
         self.server = server or _Server(first_delay=first_delay, second_delay=second_delay)
 
     @asynccontextmanager
-    async def use(self, _variant, _gpu: bool, _batch_size: int):
+    async def use(self, _profile):
         yield self.server
 
 
@@ -75,7 +89,7 @@ async def _rewrite(**delays) -> tuple[str, list[str]]:
     """``arewrite`` over a two-paragraph draft; returns the result and every snapshot."""
     updates: list[str] = []
     rewritten = await rewrite.arewrite(
-        DRAFT, variant=object(), host=_Host(**delays), on_progress=lambda snapshot: _record(updates, snapshot)
+        DRAFT, _PROFILE, host=_Host(**delays), on_progress=lambda snapshot: _record(updates, snapshot)
     )
     return rewritten, updates
 
@@ -106,43 +120,8 @@ async def test_a_failed_paragraph_takes_its_siblings_down_with_it():
     # Verbatim, not wrapped in an ExceptionGroup: this string is the warning
     # the user reads.
     with pytest.raises(RuntimeError, match="the child died"):
-        await rewrite.arewrite(DRAFT, variant=object(), host=host)
+        await rewrite.arewrite(DRAFT, _PROFILE, host=host)
 
     assert host.server.second_finished is False
     await asyncio.sleep(0.3)  # comfortably past the sibling's own sleep
     assert host.server.second_finished is False, "the sibling outlived the call that failed"
-
-
-async def test_turn_config_resolves_the_persisted_batch_size(monkeypatch):
-    monkeypatch.setattr(slm_rewrite.prose_rewriter, "available", lambda _variant: True)
-
-    resolved = slm_rewrite.resolve_prose_rewrite(
-        {
-            "local_ml_config": {
-                "prose_rewriter": {"variant": "1.7b-q8", "gpu": False, "batch_size": 2},
-            }
-        }
-    )
-
-    assert resolved == {"variant_id": "1.7b-q8", "gpu": False, "batch_size": 2}
-
-
-async def test_turn_config_defaults_an_old_or_malformed_batch_size(monkeypatch):
-    monkeypatch.setattr(slm_rewrite.prose_rewriter, "available", lambda _variant: True)
-    base = {"variant": "1.7b-q8", "gpu": True}
-
-    old = slm_rewrite.resolve_prose_rewrite({"local_ml_config": {"prose_rewriter": base}})
-    malformed = slm_rewrite.resolve_prose_rewrite({"local_ml_config": {"prose_rewriter": {**base, "batch_size": 99}}})
-
-    assert old is not None and old["batch_size"] == 4
-    assert malformed is not None and malformed["batch_size"] == 4
-
-
-@pytest.mark.parametrize("raw", [1, 2, 3, 4])
-async def test_batch_size_selector_maps_supported_input_to_the_closed_allowlist(raw):
-    assert prose_rewriter.select_batch_size(raw) == raw
-
-
-@pytest.mark.parametrize("raw", [0, 5, 2.5, "2", True, None])
-async def test_batch_size_selector_rejects_everything_outside_the_closed_allowlist(raw):
-    assert prose_rewriter.select_batch_size(raw) is None

@@ -21,10 +21,10 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
-from ..local_models.catalog import ModelVariantSpec
-from . import catalog, runtime
+from ..local_models.llama_server import LaunchProfile, ManagedLlamaServerHost, binary
+from . import catalog
 from . import text as T
-from .server import DEFAULT_SLOTS, HOST, ModelHost
+from .profile import HOST
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +62,9 @@ def assemble(layout: list[tuple[str, str]], done: dict[int, str]) -> str:
 
 async def arewrite(
     draft: str,
-    variant: ModelVariantSpec,
+    profile: LaunchProfile,
     *,
-    gpu: bool = True,
-    batch_size: int = DEFAULT_SLOTS,
-    host: ModelHost | None = None,
+    host: ManagedLlamaServerHost | None = None,
     on_progress: Callable[[str], Awaitable[None]] | None = None,
 ) -> str:
     """Rewrite *draft* paragraph-by-paragraph and return the reassembled text.
@@ -85,7 +83,7 @@ async def arewrite(
         return draft
 
     host = host or HOST
-    async with host.use(variant, gpu, batch_size) as server:
+    async with host.use(profile) as server:
         done: dict[int, str] = {}
         completed: set[int] = set()
         # ``jobs`` is in source order. A later paragraph may finish first, but its
@@ -115,7 +113,15 @@ async def arewrite(
                     )
                 else:
                     raw, stopped = await server.generate(
-                        T.serve_prompt(source), n_predict=budget(n), temperature=TEMPERATURE, top_p=TOP_P
+                        T.serve_prompt(source),
+                        n_predict=budget(n),
+                        temperature=TEMPERATURE,
+                        top_p=TOP_P,
+                        # Belt and braces. <|im_end|> is marked EOG in these
+                        # GGUFs, so generation ends on the token; the string
+                        # stop covers a build that reads the metadata
+                        # differently, and llama.cpp trims it either way.
+                        stop=(T.STOP_TOKEN,),
                     )
                     result = T.finish(raw, stopped)
                 async with lock:
@@ -185,4 +191,4 @@ def available(variant_id: str | None) -> bool:
     caller's business.
     """
     variant = catalog.resolve(variant_id)
-    return variant is not None and catalog.on_disk(variant) and runtime.runtime_ok()
+    return variant is not None and catalog.on_disk(variant) and binary.runtime_ok()

@@ -16,7 +16,7 @@ from fastapi import APIRouter, Body, HTTPException
 from ...database import get_settings, set_local_ml_config, set_local_ml_enabled
 from ...inference import local_ml, prose_rewriter
 from ...inference.local_models import assets, catalog, dependencies
-from ...inference.prose_rewriter import runtime as llama_runtime
+from ...inference.local_models.llama_server import binary as llama_binary
 
 logger = logging.getLogger(__name__)
 
@@ -81,14 +81,15 @@ async def _sync_selection(feature: str, spec: catalog.ModelSpec, *, prefer: str 
     await set_local_ml_config(feature, {"variant": picked.id if picked else None, "gpu": gpu, "batch_size": batch_size})
     # Same follow-through as the config route: the selection moved, so a loaded
     # child is stale, and the next turn should not pay for the load.
-    prose_rewriter.HOST.mark_stale(picked, gpu, batch_size)
-    if picked is not None and prose_rewriter.available(picked.id):
-        _spawn(_prewarm(picked, gpu, batch_size))
+    profile = prose_rewriter.profile_for_selection(picked, gpu, batch_size)
+    prose_rewriter.HOST.mark_stale(profile)
+    if profile is not None and prose_rewriter.available(picked.id if picked else None):
+        _spawn(_prewarm(profile))
     settings = await get_settings()
     return settings.get("local_ml_config", {})
 
 
-async def _prewarm(variant, gpu: bool, batch_size: int) -> None:
+async def _prewarm(profile) -> None:
     """Load the model in the background so the first turn does not pay for it.
 
     Failures are logged, not raised: the panel reads ``HOST.state``, and a
@@ -96,7 +97,7 @@ async def _prewarm(variant, gpu: bool, batch_size: int) -> None:
     state — surfacing it as a 500 on a settings write would be worse.
     """
     try:
-        await prose_rewriter.HOST.ensure(variant, gpu, batch_size)
+        await prose_rewriter.HOST.ensure(profile)
     except Exception:
         logger.warning("Prose rewriter pre-warm failed", exc_info=True)
 
@@ -240,10 +241,10 @@ async def api_local_ml_config(feature: str, data: dict = Body(...)):  # noqa: B0
     await set_local_ml_config(feature, {"variant": variant_id, "gpu": gpu, "batch_size": batch_size})
     settings = await get_settings()
     if feature == prose_rewriter.FEATURE:
-        variant = prose_rewriter.resolve(variant_id)
-        prose_rewriter.HOST.mark_stale(variant, gpu, batch_size)
-        if variant is not None and prose_rewriter.on_disk(variant):
-            _spawn(_prewarm(variant, gpu, batch_size))
+        profile = prose_rewriter.profile_for_selection(prose_rewriter.resolve(variant_id), gpu, batch_size)
+        prose_rewriter.HOST.mark_stale(profile)
+        if profile is not None:
+            _spawn(_prewarm(profile))
     return {"local_ml_config": settings.get("local_ml_config", {})}
 
 
@@ -265,8 +266,8 @@ async def api_prose_rewriter_runtime(data: dict | None = Body(default=None)):  #
     await prose_rewriter.HOST.release()
     async with _download_lock:
         try:
-            path = await asyncio.to_thread(llama_runtime.fetch, backend)
-        except llama_runtime.LlamaServerMissing as exc:
+            path = await asyncio.to_thread(llama_binary.fetch, backend)
+        except llama_binary.LlamaServerMissing as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from None
         except Exception:
             logger.exception("llama-server fetch (%s) failed", backend)
@@ -325,15 +326,13 @@ async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B
     if enabled and feature == prose_rewriter.FEATURE:
         # Pre-warm on enable, for the same reason the config route does.
         config = _prose_config(settings)
-        variant = prose_rewriter.resolve(str(config.get("variant") or ""))
-        if variant is not None and prose_rewriter.on_disk(variant):
-            _spawn(
-                _prewarm(
-                    variant,
-                    bool(config.get("gpu", True)),
-                    prose_rewriter.resolve_batch_size(config.get("batch_size")),
-                )
-            )
+        profile = prose_rewriter.profile_for_selection(
+            prose_rewriter.resolve(str(config.get("variant") or "")),
+            bool(config.get("gpu", True)),
+            prose_rewriter.resolve_batch_size(config.get("batch_size")),
+        )
+        if profile is not None:
+            _spawn(_prewarm(profile))
     return {
         "local_ml_enabled": settings.get("local_ml_enabled", {}),
         "local_ml_config": config_blob or settings.get("local_ml_config", {}),

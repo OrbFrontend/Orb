@@ -13,8 +13,8 @@ import pytest
 
 from backend.api.routes import local_ml as ml_routes
 from backend.inference.local_models import assets, dependencies
+from backend.inference.local_models.llama_server import binary as llama_binary
 from backend.inference.prose_rewriter import catalog
-from backend.inference.prose_rewriter import runtime as pr_runtime
 
 
 @pytest.fixture(autouse=True)
@@ -201,7 +201,7 @@ async def test_the_runtime_fetch_is_never_reached_by_accident(client, monkeypatc
     Status reads the binary's *presence*; nothing on the ordinary paths may
     decide to go and get one.
     """
-    monkeypatch.setattr(pr_runtime, "fetch", lambda backend="gpu": (_ for _ in ()).throw(AssertionError("must not fetch")))
+    monkeypatch.setattr(llama_binary, "fetch", lambda backend="gpu": (_ for _ in ()).throw(AssertionError("must not fetch")))
     assert (await client.get("/api/local-ml/status")).status_code == 200
     assert (await client.post("/api/local-ml/prose_rewriter/config", json={"variant": None})).status_code == 200
     assert (await client.post("/api/local-ml/prose_rewriter/enabled", json={"enabled": True})).status_code == 200

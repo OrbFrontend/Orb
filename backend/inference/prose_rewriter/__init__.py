@@ -8,36 +8,28 @@ training corpus rather than settings.
 
 The Editor pass runs this BEFORE its audit, so Orb's scanners see and patch the
 rewritten prose rather than text that no longer exists.
+
+The child process, the binary and the asset store are NOT this feature's: they
+live in ``inference/local_models/`` and are shared. What is here is the part
+that is only ever about the rewriter — its prompt, its paragraph algorithm, its
+selection, and the tuning its launch profile is built from.
 """
 
 from __future__ import annotations
 
-from .catalog import FEATURE, on_disk, resolve
+from ..local_models.llama_server import runtime_ok
+from .catalog import FEATURE, on_disk, resolve, variants
+from .profile import (
+    DEFAULT_BATCH_SIZE,
+    HOST,
+    MAX_BATCH_SIZE,
+    MIN_BATCH_SIZE,
+    launch_profile_for,
+    profile_for_selection,
+    resolve_batch_size,
+    select_batch_size,
+)
 from .rewrite import arewrite, available
-from .runtime import runtime_ok
-from .server import DEFAULT_SLOTS, HOST, MAX_SLOTS, MIN_SLOTS
-
-DEFAULT_BATCH_SIZE = DEFAULT_SLOTS
-MIN_BATCH_SIZE = MIN_SLOTS
-MAX_BATCH_SIZE = MAX_SLOTS
-
-# A request or preset may supply the key, but never the value that reaches the
-# child command line. Returning a literal from this closed map is the same
-# allowlist barrier CodeQL recommends for command arguments; range-checking and
-# returning the original int leaves the taint attached even though 1..4 is safe.
-_BATCH_SIZE_ALLOWLIST = {1: 1, 2: 2, 3: 3, 4: 4}
-
-
-def select_batch_size(value: object) -> int | None:
-    """A code-owned batch size for an exact supported input, else ``None``."""
-    if type(value) is not int:
-        return None
-    return _BATCH_SIZE_ALLOWLIST.get(value)
-
-
-def resolve_batch_size(value: object) -> int:
-    """A persisted parallel-paragraph count, with old/malformed blobs made safe."""
-    return select_batch_size(value) or DEFAULT_BATCH_SIZE
 
 
 async def shutdown() -> None:
@@ -52,18 +44,21 @@ def state() -> dict[str, str]:
 
 
 __all__ = [
-    "FEATURE",
     "DEFAULT_BATCH_SIZE",
+    "FEATURE",
     "HOST",
     "MAX_BATCH_SIZE",
     "MIN_BATCH_SIZE",
     "arewrite",
     "available",
+    "launch_profile_for",
     "on_disk",
+    "profile_for_selection",
     "resolve",
     "resolve_batch_size",
     "runtime_ok",
     "select_batch_size",
     "shutdown",
     "state",
+    "variants",
 ]
