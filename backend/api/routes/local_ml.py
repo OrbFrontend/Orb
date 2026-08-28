@@ -15,6 +15,7 @@ from fastapi import APIRouter, Body, HTTPException
 
 from ...database import get_settings, set_local_ml_config, set_local_ml_enabled
 from ...inference import local_ml, prose_rewriter
+from ...inference.local_models import assets, catalog, dependencies
 from ...inference.prose_rewriter import runtime as llama_runtime
 
 logger = logging.getLogger(__name__)
@@ -24,10 +25,10 @@ router = APIRouter()
 _download_lock = asyncio.Lock()
 
 
-def _require(feature: str) -> local_ml.ModelSpec:
-    if feature not in local_ml.MODELS:
+def _require(feature: str) -> catalog.ModelSpec:
+    if feature not in catalog.MODELS:
         raise HTTPException(status_code=404, detail=f"Unknown local-ML feature {feature!r}")
-    return local_ml.MODELS[feature]
+    return catalog.MODELS[feature]
 
 
 def _prose_config(settings) -> dict:
@@ -46,7 +47,7 @@ def _spawn(coro) -> None:
     task.add_done_callback(_BACKGROUND.discard)
 
 
-async def _sync_selection(feature: str, spec: local_ml.ModelSpec, *, prefer: str | None = None) -> dict:
+async def _sync_selection(feature: str, spec: catalog.ModelSpec, *, prefer: str | None = None) -> dict:
     """Keep the stored variant pointing at a checkpoint that is actually on disk.
 
     Downloading a GGUF did not select it and deleting one did not deselect it,
@@ -113,10 +114,10 @@ async def api_local_ml_status():
     settings = await get_settings()
     enabled_map = settings.get("local_ml_enabled", {})
     features: dict[str, dict] = {}
-    for f, spec in local_ml.MODELS.items():
-        f_ok, f_reason = local_ml.deps_ok(f)
+    for f, spec in catalog.MODELS.items():
+        f_ok, f_reason = dependencies.deps_ok(f)
         info: dict = {
-            "present": local_ml.present(f),
+            "present": assets.present(f),
             "enabled": enabled_map.get(f, True),
             "size_mb": spec.size_mb,
             "deps_ok": f_ok,
@@ -141,11 +142,11 @@ async def api_local_ml_status():
             info["runtime_ok"] = prose_rewriter.runtime_ok()
             info.update(prose_rewriter.state())
         features[f] = info
-    deps_ok, reason = local_ml.deps_ok()
+    deps_ok, reason = dependencies.deps_ok()
     return {
         "deps_ok": deps_ok,
         "reason": reason,
-        "install_cmd": local_ml.install_cmd(),
+        "install_cmd": dependencies.install_cmd(),
         "features": features,
     }
 
@@ -167,17 +168,17 @@ async def api_local_ml_download(feature: str, data: dict | None = Body(default=N
     # 400 just because this install happens to be missing the extras.
     if variant and variant not in {v.id for v in spec.variants}:
         raise HTTPException(status_code=404, detail=f"Unknown variant {variant!r} for {feature!r}")
-    ok, reason = local_ml.deps_ok(feature)
+    ok, reason = dependencies.deps_ok(feature)
     if not ok:
         raise HTTPException(status_code=400, detail=reason)
     async with _download_lock:
         try:
-            await asyncio.to_thread(local_ml.download, feature, variant)
+            await asyncio.to_thread(assets.download, feature, variant)
         except Exception:
             logger.exception("local-ml download %r (%s) failed", feature, variant)
             raise HTTPException(status_code=500, detail="Download failed; see server logs") from None
     config = await _sync_selection(feature, spec, prefer=variant)
-    return {"ok": True, "present": local_ml.present(feature), "local_ml_config": config}
+    return {"ok": True, "present": assets.present(feature), "local_ml_config": config}
 
 
 @router.delete("/api/local-ml/{feature}/model")
@@ -198,14 +199,14 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
         # being cut off, and the next use reloads whatever is still on disk.
         await prose_rewriter.HOST.release()
     try:
-        removed = await asyncio.to_thread(local_ml.delete_model, feature, variant)
+        removed = await asyncio.to_thread(assets.delete_model, feature, variant)
     except OSError:
         logger.exception("local-ml delete %r (%s) failed", feature, variant)
         raise HTTPException(status_code=500, detail="Delete failed; see server logs") from None
     # After the unlink, so the sweep reads the disk as it now is: deleting the
     # selected checkpoint hands the selection to another one that is present.
     config = await _sync_selection(feature, spec)
-    return {"ok": True, "removed": removed, "present": local_ml.present(feature), "local_ml_config": config}
+    return {"ok": True, "removed": removed, "present": assets.present(feature), "local_ml_config": config}
 
 
 @router.post("/api/local-ml/{feature}/config")

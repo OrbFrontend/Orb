@@ -21,9 +21,9 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
+from ..local_models.catalog import ModelVariantSpec
 from . import catalog, runtime
 from . import text as T
-from .catalog import Variant
 from .server import DEFAULT_SLOTS, HOST, ModelHost
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ def assemble(layout: list[tuple[str, str]], done: dict[int, str]) -> str:
 
 async def arewrite(
     draft: str,
-    variant: Variant,
+    variant: ModelVariantSpec,
     *,
     gpu: bool = True,
     batch_size: int = DEFAULT_SLOTS,

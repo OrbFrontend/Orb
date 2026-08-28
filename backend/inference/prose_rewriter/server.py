@@ -50,8 +50,8 @@ from typing import Protocol
 
 import httpx
 
+from ..local_models.catalog import ModelVariantSpec
 from . import catalog, runtime
-from .catalog import Variant
 
 logger = logging.getLogger(__name__)
 
@@ -334,7 +334,7 @@ class LlamaServer:
     ``/health`` while it loads, ``/tokenize`` to size a job, ``/completion``
     to run one."""
 
-    def __init__(self, variant: Variant, binary: Path, *, slots: int, gpu: bool) -> None:
+    def __init__(self, variant: ModelVariantSpec, binary: Path, *, slots: int, gpu: bool) -> None:
         trusted_variant = catalog.resolve(variant.id)
         if trusted_variant is None or trusted_variant != variant:
             raise ValueError(f"Unregistered prose-rewriter variant {variant.id!r}")
@@ -549,7 +549,7 @@ class ModelHost:
         self.slots = slots
         self.state = "idle"  # idle | loading | ready | failed
         self.error = ""
-        self.variant: Variant | None = None
+        self.variant: ModelVariantSpec | None = None
         self.gpu = True
         self.server: LlamaServer | None = None
         self._lock = asyncio.Lock()
@@ -561,7 +561,7 @@ class ModelHost:
 
     # ── loading ──────────────────────────────────────────────────────────────
 
-    def mark_stale(self, variant: Variant | None, gpu: bool, slots: int) -> None:
+    def mark_stale(self, variant: ModelVariantSpec | None, gpu: bool, slots: int) -> None:
         """Record a new selection without touching the running child.
 
         The config route calls this and returns immediately: a turn may be
@@ -582,14 +582,14 @@ class ModelHost:
     def healthy(self) -> bool:
         return not self._stale and self.server is not None and self.server.alive and self.server.ready
 
-    async def ensure(self, variant: Variant, gpu: bool, slots: int) -> LlamaServer:
+    async def ensure(self, variant: ModelVariantSpec, gpu: bool, slots: int) -> LlamaServer:
         """The running server for *variant*, starting or restarting as needed."""
         if not MIN_SLOTS <= slots <= MAX_SLOTS:
             raise ValueError(f"slots must be between {MIN_SLOTS} and {MAX_SLOTS}")
         async with self._lock:
             return await self._ensure_locked(variant, gpu, slots)
 
-    async def _ensure_locked(self, variant: Variant, gpu: bool, slots: int) -> LlamaServer:
+    async def _ensure_locked(self, variant: ModelVariantSpec, gpu: bool, slots: int) -> LlamaServer:
         """``ensure`` with the swap lock already held."""
         same = self.variant is not None and self.variant.id == variant.id and self.gpu == gpu and self.slots == slots
         if same and self.healthy and self.server is not None:
@@ -631,7 +631,7 @@ class ModelHost:
         return server
 
     @contextlib.asynccontextmanager
-    async def use(self, variant: Variant, gpu: bool, slots: int):
+    async def use(self, variant: ModelVariantSpec, gpu: bool, slots: int):
         """Yield a server protected from config-driven reloads.
 
         The in-flight count is raised before the swap lock is released. This
