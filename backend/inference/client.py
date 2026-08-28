@@ -315,6 +315,34 @@ class LLMClient:
     def _url(self) -> str:
         return f"{self.base_url}/chat/completions"
 
+    async def list_models(self) -> list[str]:
+        """Return model ids advertised by an OpenAI-compatible ``GET /models``.
+
+        Discovery uses the same bearer authentication and endpoint proxy as
+        generation, but a short finite timeout: unlike a completion, this is a
+        small non-streaming settings request and should fail back to Orb's
+        editable model-name field promptly.
+        """
+        url = f"{self.base_url}/models"
+        async with httpx.AsyncClient(timeout=20.0, proxy=self.proxy, follow_redirects=True) as client:
+            response = await client.get(url, headers=self._headers())
+        response.raise_for_status()
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise ValueError("Endpoint returned a non-JSON models response") from exc
+
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, list):
+            raise ValueError("Endpoint models response does not contain a data list")
+
+        model_ids: set[str] = set()
+        for item in data:
+            model_id = item.get("id") if isinstance(item, dict) else None
+            if isinstance(model_id, str) and model_id.strip():
+                model_ids.add(model_id.strip())
+        return sorted(model_ids, key=str.casefold)
+
     def _server_root(self) -> str:
         """Server root for llama.cpp native endpoints (/completion, /apply-template,
         /props), which sit beside the OpenAI-compat ``/v1`` surface. Strips a

@@ -120,7 +120,7 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 
 ## API Endpoints (quick reference)
 
-- **Settings/endpoints/models:** CRUD under `/api/settings`, `/api/endpoints`, `/api/models`
+- **Settings/endpoints/models:** CRUD under `/api/settings`, `/api/endpoints`, `/api/models`; remote model discovery at `/api/endpoints/{id}/available-models`
 - **Conversations:** CRUD + `/members`, `/members/scene-profile/generate`, `/sheet-proposals` (`?status=` defaults to the review set — `pending` + `stale`; `all` is the history view. + `/{pid}/apply|reject`; apply 409s on a moved sheet, a decided proposal, or a member that left the scene — no force-apply), `/convert-to-group`, `/activate`, `/summarize`, `/compress`, `/stop`, `/context-size`
 - **Messages:** `/send` (SSE), `/speak`, `/continue`, `/edit`, `/fork-edit`, `/regenerate`, `/super_regenerate`, `/magic_rewrite`, `/prose-rewrite` (SSE), `/switch-branch`, DELETE
 - **Characters:** CRUD + `/import` (PNG), `/import-url`, `/browse`, `/export`, `/expressions`, `/public-profile`
