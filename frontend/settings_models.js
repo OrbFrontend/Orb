@@ -386,6 +386,13 @@ let _comboboxCleanups = [];
 const _availableModels = new Map();
 const _availableModelRequests = new Map();
 
+function _invalidateAvailableModels(endpointId) {
+  _availableModels.delete(endpointId);
+  // A request started with the old connection settings may still complete.
+  // Removing it here makes its result ineligible to repopulate the cache.
+  _availableModelRequests.delete(endpointId);
+}
+
 function _modelChoices(ctx) {
   const endpointId = S[ctx.endpointIdKey];
   return mergeModelChoices(S[ctx.configsKey], _availableModels.get(endpointId));
@@ -400,7 +407,7 @@ async function _loadAvailableModels(ctx) {
   if (!request) {
     request = api.get(`/endpoints/${endpointId}/available-models`).then((payload) => {
       if (!Array.isArray(payload?.models)) throw new Error("Endpoint returned an invalid models response");
-      _availableModels.set(endpointId, payload.models);
+      if (_availableModelRequests.get(endpointId) === request) _availableModels.set(endpointId, payload.models);
     });
     _availableModelRequests.set(endpointId, request);
   }
@@ -466,7 +473,7 @@ window.deleteComboboxItem = (_btn, type, id, isAgent = false) => {
         let wasActive = false;
         if (type === "endpoint") {
           await api.del(`/endpoints/${id}`);
-          _availableModels.delete(id);
+          _invalidateAvailableModels(id);
           const index = S.endpoints.findIndex((e) => e.id === id);
           if (index > -1) S.endpoints.splice(index, 1);
           if (isAgent) {
@@ -540,17 +547,18 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
   let destroyed = false;
   let valueBeforeInput = input.value;
   let valueBeforeSearch = input.value;
+  let searchQuery = "";
 
   function getFiltered() {
     const items = getItems();
-    return searchable ? filterModelChoices(items, input.value) : items;
+    return searchable ? filterModelChoices(items, searchQuery) : items;
   }
 
   function render() {
     const items = getFiltered();
     const total = items.length;
     activeIdx = Math.max(-1, Math.min(activeIdx, total - 1));
-    const q = input.value.trim();
+    const q = searchQuery.trim();
     const optionHtml = items
       .map((item, i) => {
         const value = item.value;
@@ -574,7 +582,7 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
     else if (loadError)
       statusHtml = `<div class="cb-status cb-status-error" title="${escAttr(loadError)}">Available models unavailable; type a model name.</div>`;
     else if (!total)
-      statusHtml = `<div class="cb-empty">${searchable && q ? "No matching models" : "No saved options"}</div>`;
+      statusHtml = `<div class="cb-empty">${searchable ? (q ? "No matching models" : "No available models") : "No saved options"}</div>`;
     list.innerHTML = optionHtml + statusHtml;
     list.querySelectorAll(".cb-option").forEach((el, i) => {
       el.addEventListener(
@@ -611,10 +619,11 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
     });
   }
 
-  async function openDropdown(revertValue = input.value) {
+  async function openDropdown({ revertValue = input.value, query = "" } = {}) {
     if (isOpen) return;
     isOpen = true;
     valueBeforeSearch = revertValue;
+    searchQuery = searchable ? query : "";
     activeIdx = -1;
     control.classList.add("open");
     dropdown.hidden = false;
@@ -641,6 +650,7 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
 
   async function selectVal(val) {
     input.value = val;
+    searchQuery = "";
     closeDropdown();
     await onHybridInput(input);
     input.dispatchEvent(new Event("change", { bubbles: true }));
@@ -649,13 +659,11 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
   const onInput = () => {
     if (!searchable) return;
     activeIdx = -1;
-    if (!isOpen) void openDropdown(valueBeforeInput);
+    searchQuery = input.value;
+    if (!isOpen) void openDropdown({ revertValue: valueBeforeInput, query: searchQuery });
     else render();
   };
   const onBeforeInput = () => {
-    if (searchable && !isOpen) valueBeforeInput = input.value;
-  };
-  const onFocus = () => {
     if (searchable && !isOpen) valueBeforeInput = input.value;
   };
   const onKeydown = (e) => {
@@ -664,6 +672,7 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
         e.preventDefault();
         e.stopPropagation();
         if (searchable) input.value = valueBeforeSearch;
+        searchQuery = "";
         closeDropdown();
       }
       return;
@@ -690,10 +699,12 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
     if (!e.target.closest(".cb-arrow")) return;
     e.preventDefault();
     // Toggle dropdown
-    if (isOpen) closeDropdown();
-    else void openDropdown();
+    const opening = !isOpen;
+    if (opening) void openDropdown();
+    else closeDropdown();
     // Focus input
     input.focus();
+    if (opening && searchable) input.select();
   };
   const onControlTouch = (e) => {
     if (!e.target.closest(".cb-arrow")) return;
@@ -708,7 +719,6 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
     if (!rootEl.contains(e.target)) closeDropdown();
   };
   input.addEventListener("beforeinput", onBeforeInput);
-  input.addEventListener("focus", onFocus);
   input.addEventListener("input", onInput);
   input.addEventListener("keydown", onKeydown);
   control.addEventListener("mousedown", onControlDown);
@@ -718,7 +728,6 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
   _comboboxCleanups.push(() => {
     destroyed = true;
     input.removeEventListener("beforeinput", onBeforeInput);
-    input.removeEventListener("focus", onFocus);
     input.removeEventListener("input", onInput);
     input.removeEventListener("keydown", onKeydown);
     control.removeEventListener("mousedown", onControlDown);
@@ -819,7 +828,7 @@ async function _syncEndpointRecord(ctx, url, apiKey) {
     if (existing.api_key !== apiKey) {
       await api.put(`/endpoints/${existing.id}`, { api_key: apiKey });
       existing.api_key = apiKey;
-      _availableModels.delete(existing.id);
+      _invalidateAvailableModels(existing.id);
     }
     await api.put("/settings", { [ctx.settingsEndpointField]: existing.id });
     if (!S[ctx.configsKey].length || S[ctx.configsKey][0]?.endpoint_id !== existing.id) {
@@ -934,7 +943,7 @@ async function _doSaveEndpointSetting(ctx, el) {
       await _syncEndpointRecord(ctx, v, payload[ctx.apiKeyField] || "");
     } else if (key === ctx.apiKeyField && S[ctx.endpointIdKey]) {
       await api.put(`/endpoints/${S[ctx.endpointIdKey]}`, { api_key: v });
-      _availableModels.delete(S[ctx.endpointIdKey]);
+      _invalidateAvailableModels(S[ctx.endpointIdKey]);
     } else if (baseKey === "completion_mode" && S[ctx.endpointIdKey]) {
       // Endpoint-scoped like api_key; the /settings PUT above is a harmless
       // no-op (not in the settings allowlist — it lives on the endpoint row).
@@ -947,7 +956,7 @@ async function _doSaveEndpointSetting(ctx, el) {
       // Endpoint-scoped like completion_mode; the /settings PUT above is a
       // harmless no-op (proxy lives on the endpoint row, not settings).
       await api.put(`/endpoints/${S[ctx.endpointIdKey]}`, { proxy: v });
-      _availableModels.delete(S[ctx.endpointIdKey]);
+      _invalidateAvailableModels(S[ctx.endpointIdKey]);
     } else if (key === ctx.modelField) {
       await _syncModelConfigRecord(ctx, v, payload);
     } else if (ctx.hyperparamKeys.includes(key) && S[ctx.configIdKey]) {

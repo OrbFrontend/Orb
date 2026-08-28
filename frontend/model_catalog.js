@@ -24,20 +24,25 @@ export function mergeModelChoices(configs, availableModels) {
 }
 
 export function filterModelChoices(choices, query) {
-  const needle = String(query || "")
-    .trim()
-    .toLocaleLowerCase();
+  const needle = normalizeSearchValue(query).trim();
   if (!needle) return choices;
   const compactNeedle = compactSearchValue(needle);
   return choices.filter((item) => {
-    const haystack = item.value.toLocaleLowerCase();
+    const haystack = normalizeSearchValue(item.value);
     return haystack.includes(needle) || (compactNeedle && compactSearchValue(haystack).includes(compactNeedle));
   });
+}
+
+function normalizeSearchValue(value) {
+  // Identifiers should compare consistently regardless of the user's locale.
+  return String(value ?? "")
+    .normalize("NFKC")
+    .toLowerCase();
 }
 
 function compactSearchValue(value) {
   // Model ids use separators inconsistently across providers. Treat spaces,
   // punctuation, and path delimiters as equivalent while retaining letters
-  // and numbers from every script. NFKC also folds full-width forms.
-  return value.normalize("NFKC").replace(/[^\p{L}\p{N}]+/gu, "");
+  // and numbers from every script.
+  return value.replace(/[^\p{L}\p{N}]+/gu, "");
 }

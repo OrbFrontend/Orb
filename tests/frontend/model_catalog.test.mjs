@@ -48,3 +48,12 @@ test("model search ignores separators in names and queries", () => {
     ["openai/gpt-5-mini"],
   );
 });
+
+test("model search normalizes compatibility characters", () => {
+  const choices = mergeModelChoices([], ["google/Gemma-4"]);
+
+  assert.deepEqual(
+    filterModelChoices(choices, "ＧＥＭＭＡ ４").map((item) => item.value),
+    ["google/Gemma-4"],
+  );
+});
