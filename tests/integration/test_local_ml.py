@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import pytest
 
-from backend.api.routes import local_ml as ml_routes
-from backend.inference import local_ml
-from backend.inference.prose_rewriter import catalog
-from backend.inference.prose_rewriter import runtime as pr_runtime
+from backend.features import prose_rewriter
+from backend.features.prose_rewriter import catalog, integration
+from backend.inference.local_models import assets, dependencies
+from backend.inference.local_models.llama_server import binary as llama_binary
 
 
 @pytest.fixture(autouse=True)
@@ -33,8 +33,8 @@ def _no_child_process(monkeypatch):
     async def _noop(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(ml_routes, "_prewarm", _noop)
-    monkeypatch.setattr(ml_routes.prose_rewriter.HOST, "release", _noop)
+    monkeypatch.setattr(integration, "_prewarm", _noop)
+    monkeypatch.setattr(prose_rewriter.HOST, "release", _noop)
 
 
 @pytest.fixture(autouse=True)
@@ -46,14 +46,15 @@ def _empty_model_dir(tmp_path, monkeypatch):
     actually fetched a variant ``present`` read True and the status test
     failed. The delete test is the sharper reason: it calls the real
     ``delete_model``, which on such a machine would remove a multi-GB weight
-    file as a side effect of running the suite. ``local_ml.present`` and
-    ``catalog.variant_path`` both reach disk through this one function (the
-    latter imports it lazily, so patching the attribute covers it), which
-    makes it the single seam that isolates every path in this module.
+    file as a side effect of running the suite. ``assets.present`` and
+    ``catalog.variant_path`` both reach disk through this one function -- the
+    latter by delegating to ``assets.variant_path``, which looks ``model_dir``
+    up in its own module globals -- which makes it the single seam that
+    isolates every path in this module.
     """
     models = tmp_path / "models"
     models.mkdir()
-    monkeypatch.setattr(local_ml, "model_dir", lambda: str(models))
+    monkeypatch.setattr(assets, "model_dir", lambda: str(models))
     return models
 
 
@@ -71,13 +72,13 @@ def _deps_installed(monkeypatch):
     reason). Those tests are about the sweep, not the gate; the gate has its
     own tests above and they patch ``deps_ok`` the other way.
     """
-    monkeypatch.setattr(local_ml, "deps_ok", lambda feature=None: (True, ""))
+    monkeypatch.setattr(dependencies, "deps_ok", lambda feature=None: (True, ""))
 
 
 async def test_download_400_when_deps_missing(client, monkeypatch):
-    monkeypatch.setattr(local_ml, "deps_ok", lambda feature=None: (False, "extras not installed"))
+    monkeypatch.setattr(dependencies, "deps_ok", lambda feature=None: (False, "extras not installed"))
     # download() must never run; guard against an accidental network hit.
-    monkeypatch.setattr(local_ml, "download", lambda f: (_ for _ in ()).throw(AssertionError("must not download")))
+    monkeypatch.setattr(assets, "download", lambda f: (_ for _ in ()).throw(AssertionError("must not download")))
     resp = await client.post("/api/local-ml/autocomplete/download")
     assert resp.status_code == 400
 
@@ -91,8 +92,8 @@ async def test_status_covers_every_registered_feature(client):
     # The Settings card is generic over MODELS, so a new entry (pov_classifier)
     # only reaches the UI if status enumerates the registry rather than a list.
     st = (await client.get("/api/local-ml/status")).json()
-    assert set(st["features"]) == set(local_ml.MODELS)
-    assert st["features"]["pov_classifier"]["size_mb"] == local_ml.MODELS["pov_classifier"].size_mb
+    assert set(st["features"]) == set(assets.MODELS)
+    assert st["features"]["pov_classifier"]["size_mb"] == assets.MODELS["pov_classifier"].size_mb
 
 
 async def test_enable_toggle_roundtrips(client):
@@ -171,14 +172,14 @@ async def test_config_404s_for_an_unknown_feature(client):
 async def test_a_variant_download_never_reaches_the_network(client, monkeypatch):
     # The house guard, extended to the variant path: the route must refuse on
     # deps before it can touch hf_hub_download.
-    monkeypatch.setattr(local_ml, "deps_ok", lambda feature=None: (False, "extras not installed"))
-    monkeypatch.setattr(local_ml, "download", lambda f, v=None: (_ for _ in ()).throw(AssertionError("must not download")))
+    monkeypatch.setattr(dependencies, "deps_ok", lambda feature=None: (False, "extras not installed"))
+    monkeypatch.setattr(assets, "download", lambda f, v=None: (_ for _ in ()).throw(AssertionError("must not download")))
     resp = await client.post("/api/local-ml/prose_rewriter/download", json={"variant": "1.7b-q8"})
     assert resp.status_code == 400
 
 
 async def test_downloading_an_unknown_variant_404s(client, monkeypatch):
-    monkeypatch.setattr(local_ml, "download", lambda f, v=None: (_ for _ in ()).throw(AssertionError("must not download")))
+    monkeypatch.setattr(assets, "download", lambda f, v=None: (_ for _ in ()).throw(AssertionError("must not download")))
     resp = await client.post("/api/local-ml/prose_rewriter/download", json={"variant": "9b-q2"})
     assert resp.status_code == 404
 
@@ -200,7 +201,7 @@ async def test_the_runtime_fetch_is_never_reached_by_accident(client, monkeypatc
     Status reads the binary's *presence*; nothing on the ordinary paths may
     decide to go and get one.
     """
-    monkeypatch.setattr(pr_runtime, "fetch", lambda backend="gpu": (_ for _ in ()).throw(AssertionError("must not fetch")))
+    monkeypatch.setattr(llama_binary, "fetch", lambda backend="gpu": (_ for _ in ()).throw(AssertionError("must not fetch")))
     assert (await client.get("/api/local-ml/status")).status_code == 200
     assert (await client.post("/api/local-ml/prose_rewriter/config", json={"variant": None})).status_code == 200
     assert (await client.post("/api/local-ml/prose_rewriter/enabled", json={"enabled": True})).status_code == 200
@@ -221,7 +222,7 @@ async def test_a_download_arms_the_feature_when_nothing_usable_is_selected(
     stored variant and there wasn't one.
     """
     variant = catalog.variants()[0]
-    monkeypatch.setattr(local_ml, "download", lambda f, v=None: (_empty_model_dir / variant.local_name).write_text("gguf"))
+    monkeypatch.setattr(assets, "download", lambda f, v=None: (_empty_model_dir / variant.local_name).write_text("gguf"))
 
     resp = await client.post("/api/local-ml/prose_rewriter/download", json={"variant": variant.id})
 
@@ -235,7 +236,7 @@ async def test_a_second_download_never_steals_a_working_selection(client, monkey
     first, second = catalog.variants()[0], catalog.variants()[1]
     (_empty_model_dir / first.local_name).write_text("gguf")
     await client.post("/api/local-ml/prose_rewriter/config", json={"variant": first.id, "gpu": False, "batch_size": 1})
-    monkeypatch.setattr(local_ml, "download", lambda f, v=None: (_empty_model_dir / second.local_name).write_text("gguf"))
+    monkeypatch.setattr(assets, "download", lambda f, v=None: (_empty_model_dir / second.local_name).write_text("gguf"))
 
     await client.post("/api/local-ml/prose_rewriter/download", json={"variant": second.id})
 
@@ -277,3 +278,61 @@ async def test_enabling_repairs_a_selection_that_points_at_nothing(client, _empt
 
     assert resp.json()["local_ml_config"]["prose_rewriter"]["variant"] == present.id
     assert await _select(client) == present.id
+
+
+async def test_status_payload_keys_are_unchanged(client):
+    """The exact object the Settings panel reads, pinned.
+
+    The payload is assembled from two places now — what the shared catalog can
+    answer, and what the feature adds — and a key dropped in that split would
+    not fail anything else: ``frontend/settings.js`` reads these with ``?.`` and
+    would simply render an empty row.
+    """
+    st = (await client.get("/api/local-ml/status")).json()
+    assert set(st) == {"deps_ok", "reason", "install_cmd", "features"}
+
+    plain = st["features"]["autocomplete"]
+    assert set(plain) == {"present", "enabled", "size_mb", "deps_ok", "reason", "runtime"}
+
+    rewriter = st["features"]["prose_rewriter"]
+    assert set(rewriter) == {
+        *plain,
+        "variants",
+        "runtime_ok",  # generic: a fact about the shared binary, not the feature
+        "selected",
+        "gpu",
+        "batch_size",
+        "state",
+        "error",
+    }
+    assert all(set(v) == {"id", "label", "detail", "size_mb", "present"} for v in rewriter["variants"])
+
+
+async def test_the_runtime_fetch_lives_on_its_own_router(client, monkeypatch):
+    """Split out of the generic module, same URL and same response.
+
+    It shares ``api.deps._download_lock`` with the model download rather than
+    holding a second one: two routers, one home connection, and the fetch
+    replaces a directory a model load may be reading from.
+    """
+    monkeypatch.setattr(llama_binary, "fetch", lambda backend="gpu": f"/bin/llama-server-{backend}")
+
+    resp = await client.post("/api/local-ml/prose_rewriter/runtime", json={"backend": "cpu"})
+
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "path": "/bin/llama-server-cpu"}
+
+
+async def test_a_failed_runtime_fetch_reports_what_went_wrong(client, monkeypatch):
+    """``LlamaServerMissing`` carries the message the panel shows; anything else
+    is a 500 with the detail in the server log rather than in the response."""
+
+    def _boom(backend="gpu"):
+        raise llama_binary.LlamaServerMissing("b10549 does not publish that asset.")
+
+    monkeypatch.setattr(llama_binary, "fetch", _boom)
+
+    resp = await client.post("/api/local-ml/prose_rewriter/runtime", json={"backend": "gpu"})
+
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "b10549 does not publish that asset."

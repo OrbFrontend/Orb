@@ -19,6 +19,10 @@ from __future__ import annotations
 import re
 
 EDIT_MODE = "match"
+#: The checkpoints' end-of-turn token, sent as a string stop alongside the EOG
+#: metadata. A property of these weights' chat template, which is why it lives
+#: with the prompt rather than with the llama-server transport.
+STOP_TOKEN = "<|im_end|>"
 
 
 def serve_prompt(source: str) -> str:

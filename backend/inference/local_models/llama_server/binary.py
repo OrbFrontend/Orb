@@ -33,7 +33,11 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_ROOT = Path(__file__).resolve().parents[3]
+#: The repo root. Four parents up from
+#: ``backend/inference/local_models/llama_server/`` — a wrong count does not
+#: raise, it silently points ``bin_dir()`` at a directory nothing ever put a
+#: binary in. Pinned by ``tests/unit/test_local_models_paths.py``.
+_ROOT = Path(__file__).resolve().parents[4]
 
 IS_WINDOWS = os.name == "nt"
 EXE = ".exe" if IS_WINDOWS else ""
@@ -42,7 +46,9 @@ BINARY_NAME = f"llama-server{EXE}"
 #: Verified build. Bump deliberately, never automatically.
 DEFAULT_BUILD = "b10549"
 REPO_SLUG = "ggml-org/llama.cpp"
-USER_AGENT = "Orb/prose-rewriter"
+#: Outbound only, on the GitHub releases API. Named for the binary rather than
+#: for the one feature that happens to use it today.
+USER_AGENT = "Orb/llama-server"
 
 #: Build tags carry binaries; the semver tags are nightlies with no assets, so
 #: "latest release" is the wrong thing to ask the API for.
@@ -107,6 +113,11 @@ def find_binary() -> Path:
     local = Path(bin_dir()) / BINARY_NAME
     if _executable(local):
         return local
+    # NAMES A FEATURE, DELIBERATELY, in shared code. This is panel text, the
+    # prose rewriter is the only place in the UI that offers the fetch, and a
+    # generic "no binary" message would send the user nowhere. The moment a
+    # second llama-server feature exists this becomes wrong, and it is a
+    # one-line fix then.
     raise LlamaServerMissing(
         "No llama-server binary. Fetch one from Settings → Local ML → Prose Rewriter, "
         "or point ORB_LLAMA_SERVER at one you already have."
@@ -120,6 +131,33 @@ def runtime_ok() -> bool:
     except LlamaServerMissing:
         return False
     return True
+
+
+_HELP_CACHE: dict[str, str] = {}
+
+
+def _help_text(binary: Path) -> str:
+    """``--help`` once per binary, cached, so optional flags can be probed."""
+    key = str(binary)
+    if key not in _HELP_CACHE:
+        try:
+            done = subprocess.run(  # noqa: S603 — binary resolved by find_binary
+                [key, "--help"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30
+            )
+            _HELP_CACHE[key] = (done.stdout or "") + (done.stderr or "")
+        except Exception:  # a binary that will not even print help fails properly at boot
+            _HELP_CACHE[key] = ""
+    return _HELP_CACHE[key]
+
+
+def supports_flag(binary: Path, flag: str) -> bool:
+    """Whether this build accepts *flag*.
+
+    People bring their own llama-server — a distro package, a release tarball,
+    a build from last year — and a flag the binary has never heard of is not a
+    warning, it is an immediate exit with a usage message.
+    """
+    return flag in _help_text(binary)
 
 
 # ── fetch ────────────────────────────────────────────────────────────────────

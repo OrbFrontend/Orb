@@ -26,6 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from ..database import DB_PATH, init_db
 from ..database.migrations import run_pending, stamp_all
 from ..features.presets import schema_safety_problems as preset_schema_safety_problems
+from ..inference.local_models.llama_server import manager
 from .deps import FRONTEND_DIR
 from .routes import ROUTERS
 from .routes.storage import VACUUM_FREE_BYTES, free_bytes
@@ -90,14 +91,12 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        # The prose rewriter supervises a llama-server child — Orb's only
-        # managed subprocess. Without this teardown an orphan keeps the model
-        # resident and holds the GPU after Orb exits.
-        from ..inference.prose_rewriter import (
-            shutdown as shutdown_prose_rewriter,  # noqa: PLC0415 — deferred
-        )
-
-        await shutdown_prose_rewriter()
+        # Every supervised llama-server child. These are Orb's only managed
+        # subprocesses, and without this teardown an orphan keeps its model
+        # resident and holds the GPU after Orb exits. A process that never
+        # imported a feature that owns one has an empty registry and nothing
+        # to do.
+        await manager.shutdown_all()
 
 
 def build_app() -> FastAPI:

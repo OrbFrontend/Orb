@@ -14,6 +14,7 @@ Pipeline passes: **Director** (optional, pre-writer) → **Writer** (streams out
 
 - **Cross-pass KV caching:** All passes share one byte-identical prefix (same system prompt, history, tool schemas). Read [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md) before touching prompt assembly, pass ordering, or tool schemas. Group chats are the one place a prefix may legitimately vary *within* an exchange: under `group_context_mode = 'swap'` the active card sits before history, so each speaker gets its own frozen base and the Director keeps a neutral one.
 - **Dynamic Worlds:** the Agent may propose durable World changes from a finished turn, to **every enabled World that opted in** (`dynamic_enabled`) — one forced call, split into one pending changeset per World. It only ever writes an *overlay* — `lorebook_entries.entry_layer` splits user-`authored` rows from Agent-`dynamic` ones, and no code path lets the Agent touch an authored row. Every consumer sees the resolved view through `inference/lorebook.select_effective_entries`. Read [docs/architecture/dynamic-worlds.md](docs/architecture/dynamic-worlds.md) before touching lorebook projection, the changeset lifecycle, or `worlds.content_revision`.
+- **Local prose rewriter:** when it is configured, `features/prose_rewriter` rewrites the writer's draft paragraph-by-paragraph at the *top* of the editor pass, **before** the audit — `analysis/targets.py` anchors byte offsets into the exact string it was handed, so rewriting after the audit would leave every `Target` pointing into a draft that no longer exists. Any failure keeps the writer's prose and emits one non-terminal `warning`; it never costs a turn. The turn and the on-demand `/prose-rewrite` route consume the same `rewrite_events` stream, so neither reimplements progress ordering or the failure contract.
 - **Editor patching:** `editor_apply_patch` anchors on a numbered finding id, not a `search` string — `analysis/targets.py` resolves the audit into addressable offsets. Every replacement is healed before it lands (`analysis/healing.py`): any run of words the model copied from the draft *outside* its target span is trimmed off either end, so a mis-aimed patch can't print the same text twice.
 - **Secondary workflows:** Pluggable hooks (pre/post pipeline, on-demand). Full reference: [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md).
 - **SSE wire contract:** [docs/architecture/sse-stream.md](docs/architecture/sse-stream.md).
@@ -25,25 +26,32 @@ Dependencies run **strictly downward**. Never import up or sideways into a peer 
 Dependency order (top to bottom — each layer may only import layers below it):
 
 1. `api/`
-2. `pipeline/`, `features/`
-3. `workflows/`
-4. `inference/`, `analysis/`
-5. `database/`
-6. `core/`
+2. `pipeline/`
+3. `features/`
+4. `workflows/`
+5. `inference/`, `analysis/`
+6. `database/`
+7. `core/`
 
-`database/` may also import `core/`. Feature slices follow the ordinary downward
-rule: pure logic may reuse lower-layer inference/analysis utilities, while an
-integration module may persist through `database/`; slices never import peers.
+`pipeline/` may import `features/`; `features/` never imports `pipeline/`; a
+feature slice never imports a peer slice. Feature slices otherwise follow the
+ordinary downward rule: pure logic may reuse lower-layer inference/analysis
+utilities, while an integration module may persist through `database/`.
+
+Enforced by `scripts/check_backend_layers.py` (run via `scripts/lint.sh` and
+from `tests/unit/test_backend_layers.py`). It parses imports — do not spell
+this check as a grep, because `inference/.../binary.py` contains the literal
+`https://api.github.com/...`.
 
 | Layer | Purpose |
 |-------|---------|
 | `core/` | Dependency-free kernel: `domain_types`, `llm_types`, `macros`, `locks`, `text_segmentation`, `utils` |
 | `database/` | aiosqlite foundation: schema, migrations, queries, models (TypedDicts) |
-| `inference/` | LLM transport + prompt/tool assembly (`client`, `cached_call`, `prompt_builder`, `tool_registry`); local models in `local_ml.py` (in-process GGUF classifiers) and `prose_rewriter/` (a supervised `llama-server` child — Orb's only managed subprocess; teardown lives in the app `lifespan`) |
+| `inference/` | LLM transport + prompt/tool assembly (`client`, `cached_call`, `prompt_builder`, `tool_registry`); local models split in two — `local_ml.py` (in-process GGUF calls through `llama-cpp-python`) and `local_models/` (the shared half: the complete artifact manifest, the asset store, per-runtime dependency checks, and `llama_server/`, a supervised `llama-server` child — Orb's only managed subprocess, torn down by `manager.shutdown_all()` in the app `lifespan`). Neither may import a feature |
 | `analysis/` | Pure prose-quality detection: `audit.py` + detectors, `targets.py` (findings → id-addressable draft offsets), `patching.py`, `healing.py` (trims patch text that restates the draft around the span); shared by editor + workflows |
 | `workflows/` | Plugin registry + shipped workflows (TTS, image generation, format_consistency) |
 | `pipeline/` | Director→Writer→Editor turn engine (`entrypoints`, `orchestrator`, `context`, `config`, `persistence`, `passes/`) |
-| `features/` | Self-contained slices: `cards`, `lorebook`, `summarization`, `presets`, `documents` |
+| `features/` | Self-contained slices: `cards`, `lorebook`, `summarization`, `presets`, `documents`, `prose_rewriter` |
 | `api/` | HTTP layer: FastAPI app factory, routes, Pydantic schemas |
 
 **The one-way rule:** lower layers never import up. When a lower layer needs higher-layer *behavior*, use dependency inversion — the lower layer declares a hook, the higher layer registers an implementation. Example: `database/queries/messages.py` owns `register_workflow_attachment_persister`; `workflows/attachment_cache.py` fills it in.
@@ -130,7 +138,7 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 - **Phrase bank, Personas, Presets, Documents:** standard CRUD
 - **Workflows:** `/api/workflows`, trigger/regenerate/reroll/rehydrate/activate/delete on attachments. `reroll` and `rehydrate` share one `reroll_gen` hook and differ by one declared bit, `RerollGenCtx.replay`: rehydrate reproduces the stored render target, reroll re-renders the same subject on today's configuration. Only regenerate recomposes prompts
 - **Image generation:** backend-agnostic readiness/styles/connection/model discovery via the conversation-less workflow QUERY route (`POST /api/workflows/image_gen/query`, `action` = status\|styles\|test\|models\|node_types). Generation uses the conversation-scoped workflow trigger
-- **Local ML:** `/api/local-ml/status`, `/{feature}/download` (optional `{"variant"}`), `/{feature}/enabled`, `/{feature}/config` (per-feature JSON blob — the prose rewriter's variant + GPU flag), `DELETE /{feature}/model?variant=`, `/prose_rewriter/runtime` (fetch the llama-server binary), plus one route per inference shape (`/slop-score`, `/classify-emotion`); 503 when the extras, the GGUF, or the toggle is missing. `deps_ok` is per feature — the prose rewriter's `runtime="llama_server"` needs only `huggingface_hub`, not `llama-cpp-python`
+- **Local ML:** `/api/local-ml/status`, `/{feature}/download` (optional `{"variant"}`), `/{feature}/enabled`, `/{feature}/config` (per-feature JSON blob — the prose rewriter's variant + GPU flag + batch size), `DELETE /{feature}/model?variant=`, plus one route per inference shape (`/slop-score`, `/classify-emotion`); 503 when the extras, the GGUF, or the toggle is missing. `deps_ok` is per feature — the prose rewriter's `runtime="llama_server"` needs only `huggingface_hub`, not `llama-cpp-python`. `api/routes/local_ml.py` stays generic over the artifact manifest and asks a feature for its own behaviour through the `_MANAGEMENT` controller map (status extras, selection repair, config, enable, host release); `POST /api/local-ml/prose_rewriter/runtime` (fetch the llama-server binary) is the one feature-named URL and lives in `api/routes/prose_rewriter.py`, sharing `api/deps._download_lock` with the model download
 - **Inspector:** `/api/conversations/{cid}/director`, `/logs`, `/messages/{id}/director-log`
 - **Direction notes:** CRUD under `/api/conversations/{cid}/direction-notes`
 - **Storage:** `GET /api/storage?days=N` (what a cleanup would reclaim), `POST /api/storage/cleanup` (age-based artifact eviction + Director-log wipe — payload columns blanked in place, `LOG_KEEP_COLUMNS` whitelist survives — then VACUUM)
