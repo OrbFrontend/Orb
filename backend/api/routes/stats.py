@@ -26,8 +26,8 @@ async def api_global_stats():
     # On-disk footprint: the main db plus its WAL/shared-memory sidecars, which
     # hold not-yet-checkpointed pages and can be a sizable share of the total,
     # plus any downloaded local-ML weights (data/models/*.gguf) and the
-    # llama-server runtime the prose rewriter fetches (~100 MB unpacked, which
-    # is enough to be a visible surprise if it went uncounted).
+    # llama-server runtime a local-model feature may have fetched (~100 MB
+    # unpacked, which is enough to be a visible surprise if it went uncounted).
     storage_bytes = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
     models_dir = model_dir()
     for name in os.listdir(models_dir):

@@ -123,6 +123,16 @@ async def locked_attachment_group(aid: int, expected_message_id: int) -> AsyncIt
             return
 
 
+# One large download at a time, across every route that starts one. The
+# local-ML model fetches and the llama-server runtime fetch are separate
+# routers but the same resource: a single-user box on a home connection, where
+# two multi-gigabyte pulls at once are slower than either alone and the runtime
+# fetch also replaces a directory a model load may be reading from. Lives here
+# rather than in a route module because it is shared mutable state and two
+# routers must bind the same object.
+_download_lock = asyncio.Lock()
+
+
 # Per-conversation serialization for the streaming pipeline. The five chat
 # streaming routes refuse a second POST against a held lock with an in-band
 # SSE error event; /edit, /delete, and /switch-branch share the same lock

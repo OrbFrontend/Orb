@@ -278,3 +278,61 @@ async def test_enabling_repairs_a_selection_that_points_at_nothing(client, _empt
 
     assert resp.json()["local_ml_config"]["prose_rewriter"]["variant"] == present.id
     assert await _select(client) == present.id
+
+
+async def test_status_payload_keys_are_unchanged(client):
+    """The exact object the Settings panel reads, pinned.
+
+    The payload is assembled from two places now — what the shared catalog can
+    answer, and what the feature adds — and a key dropped in that split would
+    not fail anything else: ``frontend/settings.js`` reads these with ``?.`` and
+    would simply render an empty row.
+    """
+    st = (await client.get("/api/local-ml/status")).json()
+    assert set(st) == {"deps_ok", "reason", "install_cmd", "features"}
+
+    plain = st["features"]["autocomplete"]
+    assert set(plain) == {"present", "enabled", "size_mb", "deps_ok", "reason", "runtime"}
+
+    rewriter = st["features"]["prose_rewriter"]
+    assert set(rewriter) == {
+        *plain,
+        "variants",
+        "runtime_ok",  # generic: a fact about the shared binary, not the feature
+        "selected",
+        "gpu",
+        "batch_size",
+        "state",
+        "error",
+    }
+    assert all(set(v) == {"id", "label", "detail", "size_mb", "present"} for v in rewriter["variants"])
+
+
+async def test_the_runtime_fetch_lives_on_its_own_router(client, monkeypatch):
+    """Split out of the generic module, same URL and same response.
+
+    It shares ``api.deps._download_lock`` with the model download rather than
+    holding a second one: two routers, one home connection, and the fetch
+    replaces a directory a model load may be reading from.
+    """
+    monkeypatch.setattr(llama_binary, "fetch", lambda backend="gpu": f"/bin/llama-server-{backend}")
+
+    resp = await client.post("/api/local-ml/prose_rewriter/runtime", json={"backend": "cpu"})
+
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "path": "/bin/llama-server-cpu"}
+
+
+async def test_a_failed_runtime_fetch_reports_what_went_wrong(client, monkeypatch):
+    """``LlamaServerMissing`` carries the message the panel shows; anything else
+    is a 500 with the detail in the server log rather than in the response."""
+
+    def _boom(backend="gpu"):
+        raise llama_binary.LlamaServerMissing("b10549 does not publish that asset.")
+
+    monkeypatch.setattr(llama_binary, "fetch", _boom)
+
+    resp = await client.post("/api/local-ml/prose_rewriter/runtime", json={"backend": "gpu"})
+
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "b10549 does not publish that asset."

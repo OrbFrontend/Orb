@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
+from typing import Any, Protocol
 
 from fastapi import APIRouter, Body, HTTPException
 
@@ -23,12 +25,38 @@ from ...features import prose_rewriter
 from ...inference import local_ml
 from ...inference.local_models import assets, catalog, dependencies
 from ...inference.local_models.llama_server import binary as llama_binary
+from ..deps import _download_lock
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_download_lock = asyncio.Lock()
+
+class _FeatureManagement(Protocol):
+    """What a feature must offer to be managed from the generic Local ML card.
+
+    Composition in the top layer, not a callback pointing down. The shared
+    catalog describes artifacts; this describes behaviour, and putting these
+    hooks on ``ModelSpec`` instead would turn the inference catalog into a
+    registry of higher-layer behaviour — the dependency problem this refactor
+    removed, in a less visible form.
+    """
+
+    async def status_extra(self, settings: Mapping[str, Any]) -> dict: ...
+
+    async def sync_selection(self, *, prefer: str | None = None) -> dict: ...
+
+    async def apply_config(self, body: Mapping[str, Any]) -> dict: ...
+
+    async def on_enabled(self, enabled: bool) -> None: ...
+
+    async def release_host(self) -> None: ...
+
+
+#: The features that have management behaviour of their own. A feature absent
+#: from this map is a plain download-and-toggle one, and the config route's 404
+#: is exactly that statement.
+_MANAGEMENT: dict[str, _FeatureManagement] = {prose_rewriter.FEATURE: prose_rewriter.integration}
 
 
 def _require(feature: str) -> catalog.ModelSpec:
@@ -48,8 +76,9 @@ async def _sync_selection(feature: str, *, prefer: str | None = None) -> dict:
     Generic here, feature behaviour there: the sweep only means something for a
     feature that has a selection to repair.
     """
-    if feature == prose_rewriter.FEATURE:
-        return await prose_rewriter.integration.sync_selection(prefer=prefer)
+    controller = _MANAGEMENT.get(feature)
+    if controller is not None:
+        return await controller.sync_selection(prefer=prefer)
     return await _config_blob()
 
 
@@ -92,8 +121,9 @@ async def api_local_ml_status():
             ]
         if spec.runtime == "llama_server":
             info["runtime_ok"] = llama_binary.runtime_ok()
-        if f == prose_rewriter.FEATURE:
-            info.update(await prose_rewriter.integration.status_extra(settings))
+        controller = _MANAGEMENT.get(f)
+        if controller is not None:
+            info.update(await controller.status_extra(settings))
         features[f] = info
     deps_ok, reason = dependencies.deps_ok()
     return {
@@ -144,9 +174,10 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
     spec = _require(feature)
     if variant and variant not in {v.id for v in spec.variants}:
         raise HTTPException(status_code=404, detail=f"Unknown variant {variant!r} for {feature!r}")
-    if feature == prose_rewriter.FEATURE:
+    controller = _MANAGEMENT.get(feature)
+    if controller is not None:
         # Before the unlink, not after — the feature explains why.
-        await prose_rewriter.integration.release_host()
+        await controller.release_host()
     try:
         removed = await asyncio.to_thread(assets.delete_model, feature, variant)
     except OSError:
@@ -168,37 +199,16 @@ async def api_local_ml_config(feature: str, data: dict = Body(...)):  # noqa: B0
     own rather than importing FastAPI to say 404.
     """
     _require(feature)
-    if feature != prose_rewriter.FEATURE:
+    controller = _MANAGEMENT.get(feature)
+    if controller is None:
         raise HTTPException(status_code=404, detail=f"{feature!r} has no configurable variants")
     try:
-        config = await prose_rewriter.integration.apply_config(data)
+        config = await controller.apply_config(data)
     except prose_rewriter.UnknownVariant as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from None
     except prose_rewriter.UnsupportedBatchSize as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
     return {"local_ml_config": config}
-
-
-@router.post("/api/local-ml/prose_rewriter/runtime")
-async def api_prose_rewriter_runtime(data: dict | None = Body(default=None)):  # noqa: B008
-    """Fetch a prebuilt llama-server into backend/data/llama-bin/.
-
-    ``{"backend": "gpu"|"cpu"}`` picks the archive — Vulkan or plain CPU — and
-    that choice is baked into the binary, not into a runtime flag. This
-    downloads and then executes a native binary from the official ggml-org
-    release feed; ``ORB_LLAMA_SERVER`` is the escape hatch for a self-supplied
-    one.
-    """
-    backend = "cpu" if str((data or {}).get("backend") or "gpu") == "cpu" else "gpu"
-    async with _download_lock:
-        try:
-            path = await prose_rewriter.integration.fetch_runtime(backend)
-        except llama_binary.LlamaServerMissing as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from None
-        except Exception:
-            logger.exception("llama-server fetch (%s) failed", backend)
-            raise HTTPException(status_code=500, detail="Runtime download failed; see server logs") from None
-    return {"ok": True, "path": path}
 
 
 @router.post("/api/local-ml/slop-score")
@@ -240,10 +250,11 @@ async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B
     _require(feature)
     enabled = bool(data.get("enabled"))
     await set_local_ml_enabled(feature, enabled)
-    if feature == prose_rewriter.FEATURE:
+    controller = _MANAGEMENT.get(feature)
+    if controller is not None:
         # Switching a feature on means "make this work", so the slice gets to
         # repair a selection that points at nothing, and pre-warm what it picks.
-        await prose_rewriter.integration.on_enabled(enabled)
+        await controller.on_enabled(enabled)
     settings = await get_settings()
     return {
         "local_ml_enabled": settings.get("local_ml_enabled", {}),
