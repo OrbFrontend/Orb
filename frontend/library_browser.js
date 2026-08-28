@@ -35,6 +35,11 @@ const _tagBit = new Map(); // tag -> its bit in the data-tagmask attribute
 // the panel opens in — while still running the one pass that clears a filter.
 let _filterApplied = false;
 
+// Bumped by every open. A cold-cache fetch resolves against the run that
+// started it, so one that lands after the modal was closed and reopened has to
+// recognise that a newer run owns the DOM now.
+let _openToken = 0;
+
 // The in-flight hydration run, or null: { wrap, sorted, renderItem, next }.
 // Held in module scope so a filter can force it to completion rather than match
 // against a library that is only partly in the DOM (see flushHydration).
@@ -45,12 +50,19 @@ let _hydration = null;
 // rest can land during idle time. Mirrors chat_core.js's RENDER_WINDOW_SIZE.
 const BROWSER_CHUNK = 60;
 
+// Milliseconds of the idle budget to leave unspent, so appending a chunk cannot
+// run the frame over.
+const IDLE_RESERVE_MS = 8;
+
 // requestIdleCallback where it exists, a macrotask everywhere else. The timeout
-// bounds how long a busy main thread can stall hydration.
+// bounds how long a busy main thread can stall hydration. The fallback reports
+// no budget, which lands the caller on one chunk per turn — the same thing a
+// real deadline reports once it has timed out rather than gone idle.
+const NO_BUDGET = { timeRemaining: () => 0 };
 const onIdle =
   typeof requestIdleCallback === "function"
     ? (fn) => requestIdleCallback(fn, { timeout: 200 })
-    : (fn) => setTimeout(fn, 0);
+    : (fn) => setTimeout(() => fn(NO_BUDGET), 0);
 
 // Internet character browse state
 let _internetSource = "characterhub";
@@ -63,6 +75,7 @@ let _internetHasMore = false;
 // ── Character Browser Modal
 
 export async function showCharacterBrowserModal() {
+  const token = ++_openToken;
   // Paint from cache. S.allCharacters and S.conversations are the canonical
   // copies — every character CRUD path calls loadCharacters(), every
   // conversation mutation calls loadConversations(), and tabLock rules out a
@@ -114,16 +127,20 @@ export async function showCharacterBrowserModal() {
   renderCharacterBrowser();
 
   if (!_browserLoading) return;
+  let characters = [];
+  let conversations = [];
   try {
-    const [characters, conversations] = await Promise.all([api.get("/characters"), api.get("/conversations")]);
-    _browserCharacters = characters;
-    _browserConversations = conversations;
+    [characters, conversations] = await Promise.all([api.get("/characters"), api.get("/conversations")]);
   } catch (e) {
     console.error("Failed to load characters for browser:", e);
   }
+  // Reopened while the fetch was in flight: a newer run owns the modal and its
+  // state, so this one paints nothing.
+  if (token !== _openToken) return;
   _browserLoading = false;
-  // The modal can be closed, or switched to the Internet panel, while the cold
-  // fetch is in flight.
+  _browserCharacters = characters;
+  _browserConversations = conversations;
+  // Or simply closed.
   const countEl = $("char-browser-count");
   if (!countEl) return;
   countEl.textContent = browserCountLabel();
@@ -206,8 +223,11 @@ export function toggleTagSelection(tag) {
   } else {
     _browserSelectedTags.add(tag);
   }
-  // Update button visual via data-tag attribute
-  const button = document.querySelector(`.char-tag[data-tag="${tag}"]`);
+  // Matched on the property, not through an attribute selector: card tags are
+  // arbitrary text off an imported PNG, and interpolating one carrying a double
+  // quote into `[data-tag="…"]` threw a SyntaxError that took the filter down
+  // with it. At most 15 buttons, so the scan is free.
+  const button = [...document.querySelectorAll("#char-browser-tags .char-tag")].find((b) => b.dataset.tag === tag);
   if (button) {
     button.classList.toggle("active", _browserSelectedTags.has(tag));
   }
@@ -378,11 +398,15 @@ function renderCharBrowserItems() {
   // modal's own 85vh ceiling, past which a taller value changes nothing.
   container.style.minHeight = `${Math.min(container.offsetHeight, Math.round(window.innerHeight * 0.85))}px`;
 
+  // Queue the tail before filtering, not after: a filter that survived this
+  // re-render (changing the sort while a search is typed) makes the pass below
+  // flush hydration, and it can only flush a run that already exists. Otherwise
+  // the first pass would match against the head alone until the next idle tick.
+  if (sorted.length > head.length) hydrateRest(container.firstElementChild, sorted, renderItem, head.length);
+
   // Fresh nodes: nothing is hidden yet, whatever the previous render left.
   _filterApplied = false;
   applyBrowserFilter();
-
-  if (sorted.length > head.length) hydrateRest(container.firstElementChild, sorted, renderItem, head.length);
 }
 
 // Append the rest of the library a chunk at a time during idle frames, so
@@ -391,17 +415,33 @@ function renderCharBrowserItems() {
 // visibility toggle applyBrowserFilter implements rather than a rebuild per
 // keystroke.
 //
-// `wrap.isConnected` is the cancellation signal, and it covers every way a run
-// can be orphaned: closing the modal, switching view mode, and changing the
-// sort all replace #char-browser-content's children, detaching the wrapper this
-// run was appending into.
+// A run is cancelled either by being superseded (a later render installed its
+// own) or by having its panel torn down — closing the modal, switching view
+// mode and changing the sort all replace #char-browser-content's children,
+// which detaches the wrapper this run was appending into. Identity and
+// `isConnected` on that wrapper tell the two apart, so neither needs a counter.
 function hydrateRest(wrap, sorted, renderItem, start) {
   _hydration = { wrap, sorted, renderItem, next: start };
   const step = () => {
-    onIdle(() => {
+    onIdle((deadline) => {
       const run = _hydration;
-      if (!run || run.wrap !== wrap || !wrap.isConnected) return;
-      appendChunk(run, Math.min(run.next + BROWSER_CHUNK, run.sorted.length));
+      // Superseded: a later render already installed its own run.
+      if (!run || run.wrap !== wrap) return;
+      // Torn down: drop the run rather than hold a detached grid and the whole
+      // sorted array alive until the next open.
+      if (!wrap.isConnected) {
+        _hydration = null;
+        return;
+      }
+      // Spend the whole idle budget rather than a fixed chunk per callback: on
+      // a quiet main thread the library lands in a handful of passes instead of
+      // one per BROWSER_CHUNK cards, which is what keeps the tail short on a
+      // big library. The first chunk is unconditional, so a callback that fired
+      // on its timeout instead of on real idle — timeRemaining() 0 — still
+      // makes progress.
+      do {
+        appendChunk(run, Math.min(run.next + BROWSER_CHUNK, run.sorted.length));
+      } while (run.next < run.sorted.length && deadline.timeRemaining() > IDLE_RESERVE_MS);
       // A filter set while hydration was still running has to see the cards
       // that just landed.
       if (_filterApplied) applyBrowserFilter();
