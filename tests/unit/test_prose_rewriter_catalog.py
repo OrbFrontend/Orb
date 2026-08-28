@@ -72,3 +72,23 @@ def test_variant_path_is_the_flat_name_under_the_models_dir(tmp_path, monkeypatc
     assert catalog.on_disk(variant) is False
     (tmp_path / variant.local_name).write_text("weights")
     assert catalog.on_disk(variant) is True
+
+
+def test_prune_stale_keeps_every_registered_prose_variant(tmp_path, monkeypatch):
+    """All three at once, not just the one the test above happened to pick.
+
+    ``prune_stale`` reads the WHOLE registry to build its claim set, so the
+    property that matters is that no variant is missing from it — a checkpoint
+    the claim set forgets is 4.7 GB deleted the next time an unrelated Download
+    button is pressed.
+    """
+    monkeypatch.setattr(local_ml, "model_dir", lambda: str(tmp_path))
+    for variant in catalog.variants():
+        (tmp_path / variant.local_name).write_text("weights")
+    (tmp_path / "unclaimed.gguf").write_text("stale")
+
+    local_ml.prune_stale(str(tmp_path))
+
+    for variant in catalog.variants():
+        assert os.path.exists(tmp_path / variant.local_name), variant.id
+    assert not os.path.exists(tmp_path / "unclaimed.gguf")
