@@ -40,8 +40,7 @@ def test_the_shared_local_model_layer_stays_below_its_callers():
     """
     checker = _checker()
     shared = ROOT / "backend" / "inference" / "local_models"
-    if not shared.exists():  # the package lands in Phase 1 of the split
-        return
+    assert shared.is_dir(), "the shared local-model package moved; point this test at it"
     for path in sorted(shared.rglob("*.py")):
         package = checker._package_parts(path)
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):

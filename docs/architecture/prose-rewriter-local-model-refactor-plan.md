@@ -1,10 +1,44 @@
 # Prose Rewriter / Local Model Separation Refactor Plan
 
-- Status: ready for implementation
+- Status: **landed** (all five phases, one commit each)
 - Scope: backend architecture only
 - Schema changes: none
 - HTTP/SSE contract changes: none
 - Frontend changes: none
+
+## As landed
+
+The §16 open decisions were settled on the plan's own recommendations:
+`pipeline/passes/editor/slm_rewrite.py` was deleted, `ProseRewrite` was renamed
+to `ProseRewriteConfig`, and `local_ml.py` kept its name with a first paragraph
+that says what it is *not*.
+
+Four deviations, each taken to avoid a module or a shim with no responsibility
+of its own. Every one is noted in its phase's commit message:
+
+- `LaunchProfile` is defined in `llama_server/client.py`, not `host.py`:
+  `_argv` reads nearly every field, `host` imports `client`, and the other
+  direction is a cycle for one dataclass. The package facade exports it either
+  way.
+- Phase 2 deleted `inference/prose_rewriter/server.py` outright instead of
+  leaving a re-export shim. Only the feature's own `__init__` imported it, so
+  the shim would have had one caller for one phase. `profile.py` was still the
+  transitional location §10 describes, and Phase 3 moved it to
+  `features/prose_rewriter/config.py`.
+- `arewrite` takes its host as a required keyword rather than defaulting to the
+  singleton: `service.py` owns `HOST`, and a default would need a deferred
+  import back up — the shape the split removed. `rewrite.py`'s `available()`
+  became `config.runnable()`, re-exported under the old name from the service.
+- `api/routes/local_ml.py` was retargeted onto the owning modules
+  (`assets.download`, `dependencies.deps_ok`) in Phase 1 rather than Phase 3.
+  §8.2's retargeted test patches require it: while the route still called the
+  re-exports, a patched `assets.download` left the download route reaching
+  `hf_hub_download` for real.
+
+The Phase 2 exit grep leaves two accepted hits rather than one: the
+`LlamaServerMissing` panel text of §8.10, and `process.py`'s credit to
+ProseRewriterWebUI for the design it was ported from. Both are provenance, not
+policy.
 
 ## 1. Decision
 

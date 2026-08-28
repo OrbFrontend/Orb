@@ -28,6 +28,10 @@ echo "Running Pylance type check on backend..."
 PYRIGHT_PYTHON_FORCE_VERSION=latest python -m pyright backend/ "$@"
 
 echo ""
+echo "Running backend layer check..."
+python scripts/check_backend_layers.py
+
+echo ""
 echo "Running frontend layer + plugin-boundary check..."
 python scripts/check_frontend_layers.py
 
