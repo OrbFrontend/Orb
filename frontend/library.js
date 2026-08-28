@@ -651,8 +651,13 @@ export async function saveImportedChar() {
   _pendingExtensions = null;
   try {
     const created = await api.post("/characters", d);
-    closeModal();
+    // Refresh before closing, not after: closeModal() runs the pending close
+    // callback synchronously, and for an internet import that callback reopens
+    // the Character Library — which now paints from S.allCharacters. Closing
+    // first would reopen it against a cache that does not yet hold the card
+    // that was just imported.
     await Promise.all([loadCharacters(), loadWorlds()]);
+    closeModal();
     toast(`Imported "${created.name}"`);
   } catch (e) {
     if (e.status === 409) toast("Character already in your library", true);
