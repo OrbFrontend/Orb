@@ -42,9 +42,6 @@ SLOT_ALLOCATION: dict[int, tuple[int, int, int]] = {
     2: (2560, 2, 8),
     3: (3840, 3, 10),
     4: (5120, 4, 12),
-    5: (6400, 5, 14),
-    6: (7680, 6, 16),
-    7: (8960, 7, 18),
     8: (10240, 8, 20),
 }
 
@@ -79,7 +76,8 @@ IDLE_TIMEOUT = float(os.environ.get("ORB_PROSE_REWRITER_IDLE", "300"))
 # A request or preset may supply the key, but never the value that reaches the
 # child command line. Returning a literal from this closed map is the same
 # allowlist barrier CodeQL recommends for command arguments; range-checking and
-# returning the original int leaves the taint attached even though 1..8 is safe.
+# returning the original int leaves the taint attached even though the supported
+# 1, 2, 3, 4, and 8 values are safe.
 _BATCH_SIZE_ALLOWLIST = {size: size for size in SLOT_ALLOCATION}
 
 
@@ -156,7 +154,8 @@ def launch_profile_for(variant: ModelVariantSpec, gpu: bool, batch_size: int) ->
     try:
         ctx_size, parallel, http_threads = SLOT_ALLOCATION[batch_size]
     except (KeyError, TypeError):
-        raise UnsupportedBatchSize(f"slots must be between {MIN_BATCH_SIZE} and {MAX_BATCH_SIZE}") from None
+        supported = ", ".join(str(size) for size in SLOT_ALLOCATION)
+        raise UnsupportedBatchSize(f"slots must be one of {supported}") from None
     path = assets.variant_path(trusted)
     if not os.path.exists(path):
         raise RuntimeError(f"{trusted.label} is not downloaded — {trusted.local_name} is missing.")

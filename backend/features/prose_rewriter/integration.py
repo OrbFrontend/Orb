@@ -130,9 +130,8 @@ async def apply_config(body: Mapping[str, Any]) -> dict:
     gpu = bool(body.get("gpu", True))
     batch_size = config.select_batch_size(body.get("batch_size", config.DEFAULT_BATCH_SIZE))
     if batch_size is None:
-        raise config.UnsupportedBatchSize(
-            f"batch_size must be an integer from {config.MIN_BATCH_SIZE} to {config.MAX_BATCH_SIZE}"
-        )
+        supported = ", ".join(str(size) for size in config.SLOT_ALLOCATION)
+        raise config.UnsupportedBatchSize(f"batch_size must be one of {supported}")
     await set_local_ml_config(catalog.FEATURE, {"variant": variant_id, "gpu": gpu, "batch_size": batch_size})
     _apply(config.profile_for_selection(catalog.resolve(variant_id), gpu, batch_size))
     settings = await get_settings()

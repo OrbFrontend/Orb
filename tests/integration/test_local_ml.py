@@ -149,14 +149,14 @@ async def test_config_roundtrips_variant_gpu_and_batch_size(client, batch_size):
     assert st["features"]["prose_rewriter"]["batch_size"] == batch_size
 
 
-@pytest.mark.parametrize("batch_size", [0, 9, 1.5, "2", True])
+@pytest.mark.parametrize("batch_size", [0, 5, 6, 7, 9, 1.5, "2", True])
 async def test_config_rejects_an_invalid_batch_size(client, batch_size):
     resp = await client.post(
         "/api/local-ml/prose_rewriter/config",
         json={"variant": "1.7b-q8", "gpu": True, "batch_size": batch_size},
     )
     assert resp.status_code == 400
-    assert resp.json()["detail"] == "batch_size must be an integer from 1 to 8"
+    assert resp.json()["detail"] == "batch_size must be one of 1, 2, 3, 4, 8"
 
 
 async def test_config_rejects_an_unknown_variant(client):
