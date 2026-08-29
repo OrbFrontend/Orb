@@ -27,7 +27,7 @@ from ..graph import (
     resolve_graph,
     validate_graph_structure,
 )
-from .base import ImageAdapter, replayed_target
+from .base import ImageAdapter, replayed_reference_source, replayed_target
 
 COMFY_REFERENCE_MAX_BYTES = 8 * 1024 * 1024
 
@@ -142,12 +142,12 @@ class ExternalComfyAdapter(ImageAdapter):
         )
         slots = self._graph_slots(graph_id)
         # The style is the live answer; a replay is about a render that already happened,
-        # and the source has been the style's to edit since. `or` rather than a branch:
-        # a record that names nothing (the graph was replaced, or the image predates the
-        # record) is no answer, and the style is the better guess.
+        # and the source has been the style's to edit since. So the style goes in as the
+        # fallback: a record that names nothing (the graph was replaced, or the image
+        # predates the record) is no answer, and the style is the better guess.
         source = style_reference_source(style)
         if replay:
-            source = _recorded_source(slots, replay) or source
+            source = replayed_reference_source(replay, source, slots=reference_slots(slots))
         sized = "width" in slots and "height" in slots
         if not sized and (width, height) != (DEFAULT_CLOUD_EDGE, DEFAULT_CLOUD_EDGE):
             notes.append("this workflow has no resolution inputs mapped; it decides its own output size")
@@ -313,37 +313,6 @@ class ExternalComfyAdapter(ImageAdapter):
                 "notes": list(notes),
             },
         )
-
-
-def _slot_key(slot: Any) -> tuple[str, str] | None:
-    return (str(slot[0]), str(slot[1])) if isinstance(slot, (list, tuple)) and len(slot) == 2 else None
-
-
-def _recorded_source(slots: Mapping[str, Any], replay: Mapping[str, Any]) -> str:
-    """Where the stored render drew its reference from, re-keyed onto this graph.
-
-    Rehydrate reproduces the stored render target. The source moved onto the style,
-    where it can be edited after the fact, so replaying it off the style would quietly
-    reproduce a *different* picture -- the one failure a rehydrate is not allowed to
-    have. The record names the node input each reference filled, and that re-keys onto
-    the declared list directly.
-
-    `""` when nothing recorded lands on a declared slot, which is a record about some
-    other graph; the caller falls back to the style rather than rendering blind. Every
-    reference on one render shares a source, so the first that lands answers for all.
-    """
-    declared = {key for entry in reference_slots(slots) for key in (_slot_key(entry.get("slot")),) if key}
-    entries = replay.get("references")
-    return next(
-        (
-            source
-            for entry in (entries if isinstance(entries, (list, tuple)) else ())
-            if isinstance(entry, Mapping) and _slot_key(entry.get("slot")) in declared
-            for source in (str(entry.get("source") or ""),)
-            if source
-        ),
-        "",
-    )
 
 
 def _safe_system_summary(stats: Mapping[str, Any]) -> dict:

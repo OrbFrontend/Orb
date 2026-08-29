@@ -65,21 +65,8 @@ is allowed only for a loopback address such as `http://127.0.0.1:8080/v1`.
 
 ## Reference images
 
-Reference images are off by default. Enable them on a style, then choose one of
-these sources:
-
-- The latest conversation image, falling back to the character reference
-- The latest conversation image only
-- The character reference only
-
-Orb asks for a separate privacy confirmation before sending references. It sends
-the image inline to the provider, converts it to a supported format, and reduces
-it to at most 4 MB when necessary.
-
-Reference support can depend on the model. In particular, Together AI requires a
-Kontext model, NanoGPT and AI/ML API support references only on some models, and
-OpenRouter does not support them. If no reference is available, Orb performs a
-normal text-to-image render and notes this in **Render details**.
+Reference images are off by default. For the sources, provider limits, privacy,
+and reroll behavior, see [Reference images](image-generation.md#reference-images).
 
 ## Limits and billing
 

@@ -1,11 +1,8 @@
 # Reference Image Setup
 
-Tired of a different character generated every scene? Reference images are the solution.
+This page adds a ComfyUI edit workflow that keeps a character's likeness.
 
-This can be done via Cloud API or a local ComfyUI setup. But the requirement is that the
-model and the workflow must be able to handle Loading Images.
-
-This page only gets the local workflow running. For what Orb feeds it, and when, see
+For the source choices and render behavior, see
 [Reference images](image-generation.md#reference-images).
 
 ## Before you start
@@ -83,19 +80,11 @@ with two things to watch:
   not the style's resolution. (`grounding_px` is not a resolution and Orb never
   offers it.)
 
-Then, on the style using this workflow, set **Reference image** to character
-reference. Left **Off**, each **Load Image** keeps the filename the workflow shipped
-with, which doesn't exist on your server, and the render fails in this workflow. But
-cloud API is more flexible and can handle this case.
-
-In a group chat on ComfyUI, that's the member who wrote the reply you're visualizing,
-and it's the one likeness a render sends: a workflow's image inputs are structural, so
-Orb feeds them all the same picture rather than guessing which one wants a face. On a
-cloud provider the reference field is one array, so Orb fills it with one image per
-character in the scene instead. Everyone with no picture is described in words.
+Then, on the style using this workflow, set **Reference image** to **Character
+references**. Left **Off**, each **Load Image** keeps the filename the workflow
+shipped with, which does not exist on your server, and the render fails.
 
 ## Next step
 
-[Reference images](image-generation.md#reference-images) covers the sources you
-can pick, how the character reference image works, how a group chat describes the
-rest of the cast, and what happens on reroll.
+[Image Generation](image-generation.md) covers reference images, group chats, and
+reroll behavior.

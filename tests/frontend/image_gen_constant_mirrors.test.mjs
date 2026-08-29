@@ -104,8 +104,8 @@ test("camera modes agree, so the picker cannot offer a mode pov.resolve rejects"
 
 test("reference sources agree with the normalizer's resolution table", () => {
   // The panel's menu excludes nothing: every key the backend resolves is offerable.
-  const backend = [...config.matchAll(/^\s{4}"(previous|character|previous_or_character)":/gm)].map((x) => x[1]);
-  const offered = [...panel.matchAll(/\["(previous|character|previous_or_character)",/g)].map((x) => x[1]);
+  const backend = [...config.matchAll(/^\s{4}"(previous|character|previous_or_character|character_and_previous)":/gm)].map((x) => x[1]);
+  const offered = [...panel.matchAll(/\["(previous|character|previous_or_character|character_and_previous)",/g)].map((x) => x[1]);
   assert.deepEqual(offered.sort(), backend.sort());
 });
 

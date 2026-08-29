@@ -40,7 +40,12 @@ from ..providers import (
     reference_capacity,
     takes_references,
 )
-from .base import ImageAdapter, replayed_target, replayed_text
+from .base import (
+    ImageAdapter,
+    replayed_reference_source,
+    replayed_target,
+    replayed_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,42 +54,6 @@ CLOUD_REFERENCE_MAX_BYTES = 4 * 1024 * 1024
 # stable because a stored reference is re-keyed by it on replay. Only the node half is
 # read by `references.plan_slots`, which numbers the rest itself.
 CLOUD_REFERENCE_SLOT = ("cloud", "image_0")
-
-
-# Synthetic because a cloud provider has no node graph to key a slot against, and
-# stable because a stored reference is re-keyed by it on replay. Only the node half is
-# read by `references.plan_slots`, which numbers the rest itself.
-CLOUD_REFERENCE_SLOT = ("cloud", "image_0")
-
-
-def _recorded_source(replay: Mapping[str, Any], current: str) -> str:
-    """Where the stored render drew its reference from, falling back to `current`.
-
-    The same rule the ComfyUI adapter applies, for the same reason: the source moved
-    onto the style, where it is editable after the fact, so a rehydrate replaying it off
-    the style would reproduce a different picture -- turning references off in settings
-    used to re-render an evicted image from the prompt alone and overwrite the row.
-
-    **A string wins, not a truthy one.** `""` is a real recorded value -- "this render
-    sent no reference" -- so the scalar is authoritative whenever it is present at all.
-    The per-reference records answer only for a record made before the scalar existed,
-    and every reference on one render shares a source.
-    """
-    recorded = replay.get("reference_source")
-    if isinstance(recorded, str):
-        return recorded
-    entries = replay.get("references")
-    return next(
-        (
-            source
-            for entry in (entries if isinstance(entries, (list, tuple)) else ())
-            if isinstance(entry, Mapping)
-            for source in (str(entry.get("source") or ""),)
-            if source
-        ),
-        current,
-    )
-
 
 CAPABILITIES: ImageBackendCapabilities = {
     "can_generate": True,
@@ -187,7 +156,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             # truthy one**: `""` is a real recorded value ("this render sent none"), so a
             # record carrying it is authoritative and only a record with no scalar at all
             # falls back to the style.
-            source = replayed_text(replay, "reference_source", source)
+            source = replayed_reference_source(replay, source)
         # Whether this target can carry a reference *at all*, and how many -- a fact
         # about the provider's dialect, derived from the reference encoding because that
         # is the only thing that genuinely constrains it. *Which* images fill it is the

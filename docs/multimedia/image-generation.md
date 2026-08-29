@@ -227,12 +227,20 @@ from ComfyUI instead.
 
 ## Reference images
 
+Reference images are off by default. Set them on a style. The four sources are:
+
+| Source | Cloud API | ComfyUI |
+|--------|-----------|---------|
+| **Previous image, else character references** | The most recent image in the chat. If there is none, character references. | The most recent image in the chat. If there is none, the character reference for the reply's speaker. |
+| **Previous image in the chat** | The most recent image in the chat. | The most recent image in the chat. |
+| **Character references** | One reference image per character in the scene. | The reply's speaker's character reference, copied to every **Load Image** node. |
+| **Character references and the previous image** | Character references, then the most recent image in the chat. | The speaker's character reference, then the previous image as a fallback. |
+
 ### On a cloud provider
 
-Set **Reference images** on the style. It is **off** by default: sending images
-from your conversations to a third party is opt-in. Because it is a style
-setting, one style on a provider can send references while another on the same
-key does not.
+Sending images from your conversations to a third party is opt-in. Because this
+is a style setting, one style on a provider can send references while another on
+the same key does not.
 
 When it is on, Orb routes the render to the provider's image-edit endpoint and
 sends the resolved image inline with the request. Orb converts it to a format the
@@ -242,10 +250,10 @@ than ComfyUI's, because the image is base64-encoded inside a JSON request body.
 Orb resizes and re-compresses to stay under that limit; if it cannot, the render
 fails and says so rather than sending an oversized request.
 
-The source choices are the four listed below. A cloud style shows the setting
-whenever the provider has a field to put a reference in at all; whether the *model*
-behind it reads one is the model's to answer, at render time. A model that refuses is
-re-rendered with fewer references, or none, with a note on the image.
+A cloud style shows the setting whenever the provider has a field to put a
+reference in at all. Whether the *model* reads it is the model's to answer at
+render time. A model that refuses is re-rendered with fewer references, or none,
+with a note on the image.
 
 **How many images travel** is the provider's to decide, and Orb reads it off the shape
 of the provider's reference field rather than a hand-kept table: a field that takes a
@@ -285,15 +293,6 @@ alone - and you can change your mind without re-importing the workflow.
 Left **Off**, every **Load Image** keeps the filename the workflow was exported
 with. Those files have to exist on your ComfyUI server, and **Test connection**
 says so if they do not.
-
-The setting offers these sources:
-
-| Source | What Orb sends |
-|--------|----------------|
-| **Previous image, else character references** | The most recent image in the chat. If the chat has none, the character references instead. |
-| **Previous image in the chat** | The most recent image in the chat. |
-| **Character references** | One reference image per character in the scene. |
-| **Character references and the previous image** | Both: a reference image per character, then the most recent image in the chat. |
 
 The previous image is the most recent generated image or uploaded image before
 the reply you are visualizing. If a reply has image variants, Orb sends the
@@ -344,7 +343,7 @@ appearance ends up on the right person. Rename one of them if you would rather
 pick the names yourself.
 
 Orb looks back at most 30 messages on the branch. Past that, **Previous image,
-else character reference** falls through to the character reference: a picture
+else character references** falls through to character references: a picture
 from far earlier in the conversation is usually a different scene, and often a
 different character, so the likeness you set on purpose is the better answer.
 
