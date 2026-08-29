@@ -495,6 +495,12 @@
 
 .fragment-item:hover { background: var(--bg-hover); }
 
+/* Interactive rows already gain visual inset from their drag handle. Keep the
+   row surface aligned with the section, but pull its contents in slightly. */
+#interactive-frag-list > .fragment-item {
+  padding-left: 6px;
+}
+
 .fragment-item.dragging {
   opacity: 0.5;
   border: 1px dashed var(--accent);
