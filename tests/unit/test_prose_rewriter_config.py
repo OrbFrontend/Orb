@@ -38,9 +38,9 @@ async def test_a_variant_outside_the_registry_is_refused(downloaded):
         config.launch_profile_for(forged, True, 2)
 
 
-@pytest.mark.parametrize("batch_size", [0, 5, -1])
+@pytest.mark.parametrize("batch_size", [0, 9, -1])
 async def test_a_batch_size_outside_the_supported_range_is_refused(downloaded, batch_size):
-    with pytest.raises(ValueError, match="slots must be between 1 and 4"):
+    with pytest.raises(ValueError, match="slots must be between 1 and 8"):
         config.launch_profile_for(catalog.variants()[0], True, batch_size)
 
 
@@ -65,7 +65,7 @@ async def test_launch_profile_is_a_pure_function_of_the_selection(downloaded):
     assert built != config.launch_profile_for(variant, True, 3)
 
 
-@pytest.mark.parametrize("batch_size", [1, 2, 3, 4])
+@pytest.mark.parametrize("batch_size", range(1, 9))
 async def test_parallel_slots_select_only_fixed_command_arguments(downloaded, monkeypatch, batch_size):
     """One configured paragraph lane maps to one full CTX_PER_SLOT KV lane, and
     the request-derived number only ever chooses among these literals."""
@@ -95,12 +95,12 @@ async def test_a_selection_with_nothing_behind_it_is_a_profile_of_none(tmp_path,
     assert config.profile_for_selection(catalog.variants()[0], True, 4) is None
 
 
-@pytest.mark.parametrize("raw", [1, 2, 3, 4])
+@pytest.mark.parametrize("raw", range(1, 9))
 async def test_batch_size_selector_maps_supported_input_to_the_closed_allowlist(raw):
     assert config.select_batch_size(raw) == raw
 
 
-@pytest.mark.parametrize("raw", [0, 5, 2.5, "2", True, None])
+@pytest.mark.parametrize("raw", [0, 9, 2.5, "2", True, None])
 async def test_batch_size_selector_rejects_everything_outside_the_closed_allowlist(raw):
     assert config.select_batch_size(raw) is None
 

@@ -32,22 +32,25 @@ from . import catalog
 #: n_ctx is divided by the slot count inside llama.cpp, so this multiplies.
 CTX_PER_SLOT = 1280
 
-#: ``batch_size -> (ctx_size, parallel, threads_http)``. Four lanes is the
-#: compatibility default and the upper bound exposed in Settings. The
-#: multiplication is not free: the KV cache is allocated in full when the model
-#: loads, and a 1280-token lane is 140 MB on the 1.7B and 190 MB on the 4B.
-#: More than four gives diminishing throughput here while reserving well over a
-#: gigabyte before the first request arrives.
+#: ``batch_size -> (ctx_size, parallel, threads_http)``. Four lanes remains the
+#: compatibility default; Settings exposes up to eight for machines with enough
+#: memory. The multiplication is not free: the KV cache is allocated in full
+#: when the model loads, and a 1280-token lane is 140 MB on the 1.7B and 190 MB
+#: on the 4B.
 SLOT_ALLOCATION: dict[int, tuple[int, int, int]] = {
     1: (1280, 1, 6),
     2: (2560, 2, 8),
     3: (3840, 3, 10),
     4: (5120, 4, 12),
+    5: (6400, 5, 14),
+    6: (7680, 6, 16),
+    7: (8960, 7, 18),
+    8: (10240, 8, 20),
 }
 
 MIN_BATCH_SIZE = min(SLOT_ALLOCATION)
 MAX_BATCH_SIZE = max(SLOT_ALLOCATION)
-DEFAULT_BATCH_SIZE = MAX_BATCH_SIZE
+DEFAULT_BATCH_SIZE = 4
 
 
 class ProseRewriteConfig(TypedDict):
@@ -76,7 +79,7 @@ IDLE_TIMEOUT = float(os.environ.get("ORB_PROSE_REWRITER_IDLE", "300"))
 # A request or preset may supply the key, but never the value that reaches the
 # child command line. Returning a literal from this closed map is the same
 # allowlist barrier CodeQL recommends for command arguments; range-checking and
-# returning the original int leaves the taint attached even though 1..4 is safe.
+# returning the original int leaves the taint attached even though 1..8 is safe.
 _BATCH_SIZE_ALLOWLIST = {size: size for size in SLOT_ALLOCATION}
 
 

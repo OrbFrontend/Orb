@@ -326,7 +326,11 @@ function batchSizeControl(f, info) {
     [1, "1 · lowest VRAM"],
     [2, "2"],
     [3, "3"],
-    [4, "4 · fastest"],
+    [4, "4 · default"],
+    [5, "5"],
+    [6, "6"],
+    [7, "7"],
+    [8, "8 · fastest"],
   ]
     .map(
       ([value, label]) => `<option value="${value}" ${info.batch_size === value ? "selected" : ""}>${label}</option>`,

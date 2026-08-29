@@ -131,28 +131,32 @@ async def test_status_reports_deps_per_feature_not_globally(client):
     assert {"deps_ok", "reason"} <= set(st["features"]["autocomplete"])
 
 
-async def test_config_roundtrips_variant_gpu_and_batch_size(client):
-    resp = await client.post("/api/local-ml/prose_rewriter/config", json={"variant": "1.7b-q8", "gpu": False, "batch_size": 2})
+@pytest.mark.parametrize("batch_size", [2, 8])
+async def test_config_roundtrips_variant_gpu_and_batch_size(client, batch_size):
+    resp = await client.post(
+        "/api/local-ml/prose_rewriter/config",
+        json={"variant": "1.7b-q8", "gpu": False, "batch_size": batch_size},
+    )
     assert resp.status_code == 200
     assert resp.json()["local_ml_config"]["prose_rewriter"] == {
         "variant": "1.7b-q8",
         "gpu": False,
-        "batch_size": 2,
+        "batch_size": batch_size,
     }
     st = (await client.get("/api/local-ml/status")).json()
     assert st["features"]["prose_rewriter"]["selected"] == "1.7b-q8"
     assert st["features"]["prose_rewriter"]["gpu"] is False
-    assert st["features"]["prose_rewriter"]["batch_size"] == 2
+    assert st["features"]["prose_rewriter"]["batch_size"] == batch_size
 
 
-@pytest.mark.parametrize("batch_size", [0, 5, 1.5, "2", True])
+@pytest.mark.parametrize("batch_size", [0, 9, 1.5, "2", True])
 async def test_config_rejects_an_invalid_batch_size(client, batch_size):
     resp = await client.post(
         "/api/local-ml/prose_rewriter/config",
         json={"variant": "1.7b-q8", "gpu": True, "batch_size": batch_size},
     )
     assert resp.status_code == 400
-    assert resp.json()["detail"] == "batch_size must be an integer from 1 to 4"
+    assert resp.json()["detail"] == "batch_size must be an integer from 1 to 8"
 
 
 async def test_config_rejects_an_unknown_variant(client):

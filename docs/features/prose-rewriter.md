@@ -100,8 +100,9 @@ installation, it must stay in the runtime box because it determines which binary
 Orb downloads.
 
 **Parallel batch** sets how many paragraphs llama.cpp decodes at once. One uses
-the least memory; four is the default and is faster. If you run on CPU, my recommendation
-is either the 1.7B Q8 or the 4B Q4_KM at batch 4.
+the least memory; four is the default, and machines with more memory can select
+up to eight for greater throughput. If you run on CPU, my recommendation is
+either the 1.7B Q8 or the 4B Q4_KM at batch 4.
 
 ### 2. Download a variant
 
