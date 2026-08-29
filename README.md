@@ -32,6 +32,8 @@ An **Editor** audits the LLM's response then surgically fixes it.
 14. **Assisted Document Mode**: A version of Mikupad where you don't need to worry about special tokens
 15. **Image Generation**: One-click image-gen workflow that's compatible with ComfyUI and several Cloud Providers, 
 support reference images so you don't generate a different character every time
+16. **Dynamic Lorebooks**: Lorebook entries can be managed by agents, either write or read
+17. **Local ML Integration**: Prose humanizer and various classifiers that run entirely in CPU
 
 ## Architecture
 
@@ -59,15 +61,19 @@ For optimal KV cache reuse, the following will remain consistent across passes:
 - Built once and reused forever
 - Includes character description, scenario, example dialogue, and additional instructions
 
-#### 2. Chat History
-- The conversation history (previous messages) is identical across all passes
-- Maintains exact same message content, attachments, and ordering
-
-#### 3. Tool Schemas
+#### 2. Tool Schemas
 - The same tool definitions must be sent in each LLM call for kv cache reuse
 - Inconsistent tool schemas break KV cache alignment
 
-For a stepped visual walkthrough of the cache mechanism across all three passes and the reasoning-mode fork, open [kv-cache-animation](https://orbfrontend.github.io/Orb/architecture/kv-cache-animation.html) in a browser. The full write-up is in [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md).
+#### 3. Chat History
+- The conversation history (previous messages) is identical across all passes
+- Maintains exact same message content, attachments, and ordering
+
+#### 4. Agent Instructions and Injected Prompts
+- These are dynamic and go in the tail, they change across passes and turns
+- They will receive the highest attention from the LLM
+
+For a visual walkthrough of the cache mechanism across all three passes and the reasoning-mode fork, open [kv-cache-animation](https://orbfrontend.github.io/Orb/architecture/kv-cache-animation.html) in a browser. The full write-up is in [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md).
 
 ## Design Principles
 
