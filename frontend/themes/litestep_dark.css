@@ -87,7 +87,15 @@ body {
   letter-spacing: 0;
   text-shadow: 1px 1px 0 rgba(0,0,0,0.4) !important;
 }
-#chat-header, #chat-header * { color: #ffffff !important; }
+/* White belongs to the titlebar text, not to everything standing on
+   it: the action buttons and the mobile burger menu keep their own
+   face colors. */
+#chat-header, #chat-header .chat-title,
+#chat-header .chat-title-edit { color: #ffffff !important; }
+#chat-header .btn, #chat-header .burger-menu-item,
+#chat-header #mobile-sidebar-toggle,
+#chat-header #mobile-chat-actions-toggle { color: #e4e2dc !important; }
+#chat-header .btn-accent, #chat-header .btn-active { color: #1e1102 !important; }
 
 .sidebar-section-header { color: #a8b4c4 !important; }
 .sidebar-section-header:hover { color: #e4e2dc !important; background: #48505a !important; }
