@@ -122,6 +122,9 @@
   position: relative;
   content-visibility: auto;
   contain-intrinsic-size: auto 300px;
+  /* content-visibility implies paint containment, which clips the bubble's own
+     drop shadow at the right edge. Widen the clip so themed shadows survive. */
+  overflow-clip-margin: 8px;
 }
 
 #chat-messages.measuring-render .message {
