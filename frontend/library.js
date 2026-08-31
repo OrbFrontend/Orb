@@ -275,6 +275,15 @@ export async function clearExpressions(id) {
   }
 }
 
+// The two public-cast boxes are the only pair in this modal whose rule is not
+// readable off the label: `features/cards/public_profile.PROFILE_FLOOR` holds a
+// profile to durable, openly-observable facts, because it is rendered into the
+// cached shared body every member reads on every turn — a coat or a fresh wound
+// typed here would still be asserting itself twenty exchanges after it stopped
+// being true. The examples carry that rule; each shows a trait that cannot expire.
+const PUBLIC_APPEARANCE_PLACEHOLDER = "e.g. Tall, silver-haired, moves with a soldier's stiffness";
+const PUBLIC_ROLE_PLACEHOLDER = "e.g. The caravan's hired scout, and the only one who knows the pass";
+
 // ── Shared tab template for create / edit modals
 function charFormTabs(prefix, d, isEdit, worlds = []) {
   const publicProfile = d.extensions?.orb?.public_profile || {};
@@ -329,8 +338,8 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       </div>
     </div>
     <div id="${prefix}-ta" class="tab-content">
-      <div class="field"><label>Group chat - Public cast appearance</label><textarea id="${prefix}-public-appearance" rows="2">${esc(publicProfile.appearance || "")}</textarea></div>
-      <div class="field"><label>Group chat - Public cast role</label><textarea id="${prefix}-public-role" rows="2">${esc(publicProfile.role || "")}</textarea></div>
+      <div class="field"><label>Group chat - Public cast appearance</label><textarea id="${prefix}-public-appearance" rows="2" placeholder="${escAttr(PUBLIC_APPEARANCE_PLACEHOLDER)}">${esc(publicProfile.appearance || "")}</textarea></div>
+      <div class="field"><label>Group chat - Public cast role</label><textarea id="${prefix}-public-role" rows="2" placeholder="${escAttr(PUBLIC_ROLE_PLACEHOLDER)}">${esc(publicProfile.role || "")}</textarea></div>
       ${d.id ? `<button type="button" class="btn btn-sm" id="${prefix}-generate-public-profile">Generate editable draft</button><div class="modal-hint">Only these confirmed public fields enter a group's shared cast prompt.</div>` : ""}
       <div class="field">
         <label>Tags</label>
