@@ -1,73 +1,52 @@
 # ComfyUI Setup
 
-Orb renders images with a [ComfyUI](https://www.comfy.org/) server. Orb does not
-install ComfyUI or image models — you run ComfyUI yourself and point Orb at it.
+Orb uses a ComfyUI server to generate images. You install and run ComfyUI and its
+models separately from Orb.
 
-This page is a quick, out-of-the-box setup that gets you to a running ComfyUI server Orb
-can reach. For hardware requirements, GPU drivers, and advanced configuration,
-see the [official ComfyUI documentation](https://docs.comfy.org/).
+For hardware and driver requirements, see the
+[official ComfyUI documentation](https://docs.comfy.org/installation/system_requirements).
 
 ## Before you start
 
-- A GPU is strongly recommended. Check the
-  [system requirements](https://docs.comfy.org/installation/system_requirements).
-- Enough disk space for a checkpoint (typically 2–7 GB each).
+- A GPU is strongly recommended.
+- Reserve several gigabytes for each checkpoint.
+- Install [ComfyUI Manager](https://docs.comfy.org/installation/install_comfyui#comfyui-manager)
+  if possible. It makes custom-node installation easier.
 
-## Install and launch ComfyUI
-
-It's recommended to run with ComfyUI Manager. We'll install custom nodes later more easily with it.
+## Install and start ComfyUI
 
 === "Windows"
 
-    **Easiest — ComfyUI Desktop**
+    **ComfyUI Desktop**
 
-    1. Download the installer from [comfy.org/download](https://www.comfy.org/download).
-    2. Run the installer and launch **ComfyUI**.
-       ComfyUI-Manager is included and enabled by default.
-    3. Desktop listens on port `8000`, not `8188`. Open
-       **Settings → Server Config → Port**, set it to `8188`, and restart ComfyUI.
-       The server is then at `http://127.0.0.1:8188`.
+    1. Download it from [comfy.org/download](https://www.comfy.org/download).
+    2. Install and start ComfyUI.
+    3. Desktop uses port `8000` by default. In **Settings → Server Config → Port**,
+       change it to `8188` and restart ComfyUI.
 
-    **Portable build (advanced)**
-
-    1. Download the portable `.7z` from the
-       [ComfyUI releases](https://github.com/comfyanonymous/ComfyUI/releases).
-    2. Extract it. The `.bat` launchers ignore any arguments you append, so to run
-       with the Manager enabled, open a terminal in the extracted folder and run:
-
-        ```bat
-        .\python_embeded\python.exe -m pip install -r ComfyUI\manager_requirements.txt
-        .\python_embeded\python.exe -s ComfyUI\main.py --windows-standalone-build --enable-manager
-        ```
-
-        (Add `--cpu` to the second command if you don't have an NVIDIA GPU.)
-        If you don't want the Manager, `run_nvidia_gpu.bat` / `run_cpu.bat` work as-is.
+    The portable build is for advanced users. Download it from the
+    [ComfyUI releases](https://github.com/comfyanonymous/ComfyUI/releases), then
+    follow ComfyUI's instructions for enabling Manager. Use `--cpu` when you do
+    not have an NVIDIA GPU.
 
 === "macOS"
 
-    **ComfyUI Desktop**
-
     1. Download the macOS build from [comfy.org/download](https://www.comfy.org/download).
-    2. Open the `.dmg` and drag **ComfyUI** to Applications.
-    3. Launch it. ComfyUI-Manager is included and enabled by default.
-    4. Desktop listens on port `8000`, not `8188`. Open
-       **Settings → Server Config → Port**, set it to `8188`, and restart ComfyUI.
-       The server is then at `http://127.0.0.1:8188`.
+    2. Open the DMG and move ComfyUI to Applications.
+    3. Start it and change the port from `8000` to `8188` in **Settings → Server
+       Config → Port**.
 
-    Requires Apple Silicon (M1 or later) and macOS 13 Ventura or newer — Intel Macs
-    are not supported. First launch may be slow while dependencies initialize.
+    The desktop build requires Apple Silicon and macOS 13 Ventura or newer.
 
 === "Linux"
 
-    **comfy-cli (recommended)**
+    **comfy-cli**
 
     ```bash
     pip install comfy-cli
     comfy install
     comfy launch
     ```
-
-    `comfy install` includes ComfyUI-Manager, and `comfy launch` enables it for you.
 
     **Manual install**
 
@@ -80,87 +59,67 @@ It's recommended to run with ComfyUI Manager. We'll install custom nodes later m
     python main.py --enable-manager
     ```
 
-    (The torch line is the NVIDIA/CUDA build; see the
+    The manual commands use the NVIDIA/CUDA build. See the
     [ComfyUI README](https://github.com/comfyanonymous/ComfyUI#manual-install-windows-linux)
-    for AMD, Intel, or CPU-only.)
+    for AMD, Intel, or CPU-only installs. The default server URL is
+    `http://127.0.0.1:8188`.
 
-    The server starts at `http://127.0.0.1:8188`.
+## Install a model
 
-Make sure ComfyUI starts up without any problems.
+ComfyUI needs a checkpoint, text encoder, and VAE. The following files match the
+included starter workflows:
 
-## Download checkpoints
+1. Download [Anima](https://civitai.com/models/2458426/anima?modelVersionId=2945208)
+   and put `anima-base-v1.0.safetensors` in `ComfyUI/models/checkpoints/`.
+2. Put `qwen_3_06b_base.safetensors` in `ComfyUI/models/text_encoders/`.
+3. Put `qwen_image_vae.safetensors` in `ComfyUI/models/vae/`.
+4. For a realistic style, download
+   [Real Dream](https://civitai.red/models/153568/real-dream?modelVersionId=3098044)
+   and put `real-dream-v2-anima-bf16.safetensors` in `models/checkpoints/`.
+5. Restart or refresh ComfyUI.
 
-ComfyUI needs at least one checkpoint (image model) to render anything.
+## Test a starter workflow
 
-1. Go to <https://civitai.com/models/2458426/anima?modelVersionId=2945208>
-2. Download the Anima checkpoint (anima-base-v1.0.safetensors) as a `.safetensors` file and place it in `ComfyUI/models/checkpoints/`.
-3. Download the text encoder (qwen_3_06b_base.safetensors) and put it in `ComfyUI/models/text_encoders/`.
-4. Download the VAE (qwen_image_vae.safetensors) and put it in `ComfyUI/models/vae/`.
-5. Restart ComfyUI, or refresh the UI.
+1. Open [Anima_Default.png](../assets/Anima_Default.png) in ComfyUI by dragging it
+   into the window or selecting **File → Open**.
+2. Select **Run** and wait for the image.
+3. Save or export the result as a PNG. The PNG includes the workflow metadata.
 
-Do the same for the realistic model: <https://civitai.red/models/153568/real-dream?modelVersionId=3098044>
+You can import the included PNG directly into Orb without running it first. For
+the realistic model, use [RealDream_Default.png](../assets/RealDream_Default.png).
 
-Simply download and put real-dream-v2-anima-bf16.safetensors in `ComfyUI/models/checkpoints/`.
+### Optional models
 
-## Create your first ComfyUI gen
+- [MiaoMiao Harem](https://civitai.com/models/934764/miaomiao-harem?modelVersionId=3125933)
+  is an anime-focused option. Its workflow is
+  [MiaoMiaoHarem_Default.png](../assets/MiaoMiaoHarem_Default.png). It also needs
+  [UltraSharpV2](https://huggingface.co/Kim2091/UltraSharpV2/resolve/main/4x-UltraSharpV2.safetensors)
+  in `models/upscale_models/`.
+- [Krea 2](https://civitai.red/models/2760803/dasiwa-krea2-or-turbo-or-raw?modelVersionId=3151280)
+  needs at least 24 GB of VRAM for the setup described here. Use
+  [Krea2_Default.png](../assets/Krea2_Default.png), the int8 checkpoint, the fp8
+  [text encoder](https://civitai.red/models/2731465/qwen3-vl-4b-abliterated-comfyui-krea-2-text-encoder-bf16-fp8?modelVersionId=3070870),
+  and the [Qwen VAE](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/blob/main/split_files/vae/qwen_image_vae.safetensors).
 
-1. Download the [Anima_Default.png](../assets/Anima_Default.png) and drag it into ComfyUI. The embedded workflow loads automatically.
-2. If drag and drop doesn't work, go to ComfyUI -> File -> Open, then select the image.
-3. Click Run button (top right corner) and wait, your GPU will work, then an image will show up.
-4. Export/Save the output image as a PNG file. This file contains the whole workflow config which we'll import into Orb later.
+For image editing with a reference image, see
+[Reference Image Setup](reference-images.md).
 
-Or you can also just import the above default PNG workflows straight into Orb, no need to even touch ComfyUI.
+## Connect Orb to ComfyUI
 
-For the realistic model, do [RealDream_Default.png](../assets/RealDream_Default.png)
+For Orb and ComfyUI on the same computer, use `http://127.0.0.1:8188` in Orb.
 
-### A great anime-only model in case you find base Anima lacking:
+For another computer, or when Orb uses HTTPS, start ComfyUI with network access
+and CORS enabled:
 
-<https://civitai.com/models/934764/miaomiao-harem?modelVersionId=3125933>
+```bash
+python main.py --listen 0.0.0.0 --enable-cors-header --enable-manager
+```
 
-Workflow: [MiaoMiaoHarem_Default.png](../assets/MiaoMiaoHarem_Default.png)
-
-Download <https://huggingface.co/Kim2091/UltraSharpV2/resolve/main/4x-UltraSharpV2.safetensors> and put it in `ComfyUI/models/upscale_models/`
-
-### If you're GPU-rich (24GB+ VRAM), try Krea 2:
-
-<https://civitai.red/models/2760803/dasiwa-krea2-or-turbo-or-raw?modelVersionId=3151280>
- (Download the int8-convrot version and put it in `ComfyUI/models/checkpoints/`)
-
-Workflow: [Krea2_Default.png](../assets/Krea2_Default.png)
-
-<https://civitai.red/models/2731465/qwen3-vl-4b-abliterated-comfyui-krea-2-text-encoder-bf16-fp8?modelVersionId=3070870>
- (Download the fp8 version and put it in `ComfyUI/models/text_encoders/`)
-
-<https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/blob/main/split_files/vae/qwen_image_vae.safetensors>
- (Download the full weights and put it in `ComfyUI/models/vae/`)
-
-There are other ways to run Krea 2 with lower VRAM but won't go into that here.
-
-To edit an existing picture instead of drawing a new one — keeping a character's
-face across images — see [Reference Image Setup](reference-images.md).
-
-## Make ComfyUI reachable from Orb
-
-Orb talks to ComfyUI from your browser, so the server must accept requests from Orb's origin.
-
-- **Same machine, default port:** the URL is `http://127.0.0.1:8188`. Nothing
-  extra needed.
-- **Different machine, or Orb served over HTTPS:** launch ComfyUI so it listens
-  on the network and allows cross-origin requests:
-
-    ```bash
-    python main.py --listen 0.0.0.0 --enable-cors-header --enable-manager
-    ```
-
-    Then use `http://<server-ip>:8188` as the URL in Orb.
+Then use `http://<server-ip>:8188` in Orb. Add a Bearer-token API key if the
+server requires one.
 
 !!! warning
-    `--listen 0.0.0.0` exposes ComfyUI on your network. Only do this on a trusted
-    network, and consider a Bearer token / reverse proxy if it's reachable more
-    broadly. Orb supports an API key for Bearer-token servers.
+    `--listen 0.0.0.0` exposes ComfyUI to your network. Use it only on a trusted
+    network, or protect the server with a token or reverse proxy.
 
-## Next step
-
-Your ComfyUI server is ready. Head to
-[Image Generation](image-generation.md#external-comfyui) to enter the URL,
-pick a checkpoint per style, and test the connection.
+Continue with [Image Generation](image-generation.md#connect-an-image-backend).

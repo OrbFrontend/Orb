@@ -1,61 +1,56 @@
-# Text-to-Speech (TTS)
+# Text-to-Speech
 
-Edge TTS is included in the main Python dependencies; cloud and self-hosted backends use the existing HTTP client stack.
+Orb can read character dialogue aloud. Speech settings are global, while each
+character has its own voice.
 
-## Playback Controls
+## Playback controls
 
-TTS settings live in the **Settings** panel:
+In **Settings**, configure:
 
-- **Audio/TTS enabled** — global toggle to enable or disable all speech playback
-- **Auto-speak** — automatically play speech for new assistant messages
-- **Volume** — playback volume level
+- **Audio/TTS enabled**: turn speech playback on or off
+- **Auto-speak**: play speech for each new assistant reply
+- **Volume**: set playback volume
 
-The speaker icon on each assistant message triggers speech for that message. Playback state is shown on the button itself.
+Select the speaker icon on an assistant reply to read it. Select a quoted line to
+read only that line. Orb highlights the line currently playing.
 
-## Character Voice Settings
+## Character voices
 
-Each character keeps its own voice profile in the character editor **Voice** tab:
+Open a character's **Voice** tab to choose:
 
-- Enabled/disabled
-- Backend/API config
+- Whether the voice is enabled
+- Backend and connection settings
 - Language and voice
 - Speed and pitch
 - Preview playback
 
-In a [group chat](../features/group-chats.md) the panel opens on a **Cast member**
-selector: the voice below it belongs to the selected member, and each member of
-the scene speaks in its own. Switching member reloads the form (Orb asks before
-discarding unsaved edits). A reply is always synthesized with the voice of the
-member who wrote it, whichever one the panel is showing — and each speaker in a
-multi-speaker exchange takes over the audio channel as its turn starts.
+In a group chat, choose a **Cast member** in the Voice panel. Each reply uses the
+voice of the member who wrote it, regardless of which member is selected in the
+panel.
 
-## How It Works
+## How speech is made
 
-Clicking the speaker icon on a character message, or enabling auto-speak for new assistant messages, triggers a three-step pipeline:
+1. Orb extracts quoted dialogue locally. Narration and inner monologue are left
+   out. Recognized action beats such as `*laughs*` can become pauses or emotion
+   tags for compatible backends.
+2. The selected backend synthesizes the dialogue.
+3. The browser plays the audio. Orb caches generated audio for replay.
 
-1. **Speech Extraction** — the regex extractor extracts spoken dialogue locally, strips inner monologue/scene text, and converts recognized action beats (`*laughs*`, `*sighs*`) into pauses or emotion tags for capable backends. Handles straight (`"..."`) and curly (`\u201c...\u201d`) double quotes.
-2. **TTS Synthesis** — the speakable text is sent to the configured backend (Edge TTS, OpenAI-compatible, Fish Speech, ElevenLabs, Kokoro-82M).
-3. **Playback** — the generated audio plays in-browser; results are cached on disk so repeated plays are instant.
+Orb recognizes straight and curly double quotes.
 
-Clicking a **quoted dialogue line** in an assistant message speaks just that line (click-to-speak). Chunks are fetched on first click and cached in the DOM. The currently spoken line gets a subtle highlight during playback (karaoke mode).
+## Available backends
 
-## Available Backends
+| Backend | Setup | API key | Notes |
+|---|---|---|---|
+| Microsoft Edge TTS | Included in `requirements.txt` | None | 400+ voices in 80+ languages |
+| OpenAI-compatible | HTTP endpoint | Required | Uses `POST /v1/audio/speech`; voices and models depend on the provider |
+| Kokoro-82M | Install `requirements-tts.txt` | None | Local model with 54 voices and 9 languages |
+| Fish Speech | HTTP endpoint | Optional | Local server with voice references |
+| ElevenLabs | HTTP endpoint | Required | Cloud voices and emotion tags |
 
-| Backend | Install | API Key | Voices | Models | Notes |
-|---------|---------|---------|--------|--------|-------|
-| Microsoft Edge TTS | Included in `requirements.txt` | None (free) | Fetched live, filterable by language | — | 400+ voices, 80+ languages |
-| OpenAI-Compatible | None (httpx) | Required | 10 built-in voices (alloy, echo, nova, shimmer...) | Fetched live from `/v1/models` | Works with any provider implementing `POST /v1/audio/speech` |
-| Kokoro-82M | See `requirements-tts.txt` | None | 54 voices, 9 languages | — | Self-hosted local model. [hexgrad/kokoro](https://github.com/hexgrad/kokoro) |
-| Fish Speech | None (httpx) | Optional | Fetched live from `/v1/references/list` | — | Self-hosted, supports voice cloning via references |
-| ElevenLabs | None (httpx) | Required | Fetched live from ElevenLabs API | — | 300+ cloud voices, emotion tags, highest quality |
+## Add a backend
 
-## Adding New Backends
-
-Each backend is a single file in `backend/tts/` implementing the `TTSAdapter` base class. The router auto-registers adapters whose dependencies are installed (try/except import). See `backend/tts/edge_adapter.py` as a reference.
-
-Key methods to implement:
-
-- `list_voices()` — return available voices (can be static or fetched from API)
-- `list_models()` — optional, return available models (for backends with multiple models)
-- `synthesize()` — convert speakable chunks into audio bytes
-- `backend_name`, `supports_streaming`, `supports_emotion_tags` properties
+Backends live in `backend/tts/` and implement the `TTSAdapter` base class. The
+router registers an adapter when its dependencies are available. Implement
+`list_voices()`, `list_models()` when needed, and `synthesize()`, plus the adapter
+metadata properties. `backend/tts/edge_adapter.py` is a reference.

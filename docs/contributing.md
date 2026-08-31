@@ -1,21 +1,23 @@
 # Contributing
 
-Before opening a PR, please read the contributing guide:
-<https://github.com/OrbFrontend/Orb/blob/main/CONTRIBUTING.md>
+Read the [contributing guide](https://github.com/OrbFrontend/Orb/blob/main/CONTRIBUTING.md)
+before opening a pull request.
 
-Ideas, help requests, and questions go in [Discussions](https://github.com/OrbFrontend/Orb/discussions).
+Use [GitHub Discussions](https://github.com/OrbFrontend/Orb/discussions) for
+questions, ideas, and help requests. Use issues for confirmed bugs and focused
+feature requests.
 
-## Editing the Wiki
+## Build the documentation locally
 
-This wiki is built with [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) from Markdown files in [`docs/`](https://github.com/OrbFrontend/Orb/tree/main/docs).
-
-Local preview:
+The wiki uses [MkDocs Material](https://squidfunk.github.io/mkdocs-material/).
+From the repository root:
 
 ```bash
 pip install -r requirements-docs.txt
 mkdocs serve
 ```
 
-Then open <http://127.0.0.1:8000>. Pages are auto-reloaded as you edit.
+Open <http://127.0.0.1:8000>. MkDocs reloads pages as you edit them.
 
-PRs that change `docs/**` or `mkdocs.yml` are deployed to GitHub Pages on merge to `main`.
+Changes to `docs/**` and `mkdocs.yml` are deployed to GitHub Pages after they are
+merged into `main`.

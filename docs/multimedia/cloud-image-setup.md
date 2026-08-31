@@ -1,85 +1,65 @@
 # Cloud Image Setup
 
-Use a cloud provider when you want image generation without running ComfyUI or
-downloading models. You provide an API key, choose a model, and pay the provider
-for each image.
+Cloud image providers generate images without a local ComfyUI server. You need a
+provider account, an API key, and billing or credits.
 
-For general image-generation settings, styles, and prompt behavior, see
-[Image Generation](image-generation.md).
+For general image settings, see [Image Generation](image-generation.md).
 
 !!! warning
-    Cloud renders leave your machine. The provider receives the image prompt and,
-    if enabled, a reference image. Its billing, moderation, and data-retention
-    policies apply.
-
-## Before you start
-
-You need:
-
-- An account with a supported provider
-- An API key that can generate images
-- Billing or credits on that account
+    The provider receives the image prompt and, when enabled, reference images.
+    Its billing, moderation, and data-retention policies apply.
 
 ## Connect a provider
 
 1. Open **Workflow → Secondary**.
 2. In **Image Generation**, select **Settings**.
-3. Open **Connections** and select **Add connection**.
-4. Choose a provider and paste its API key.
+3. Open **Connections → Add connection**.
+4. Select a provider and enter its API key.
 5. Select **Test connection**.
-6. Under **Styles**, open a style and assign the new connection.
-7. Choose a **Model** and **Resolution**. Set **Quality** or
-   **Reference images** if the provider supports them.
+6. Under **Styles**, assign the connection to a style.
+7. Choose a **Model** and **Resolution**. Set **Quality** or **Reference images**
+   when the provider supports them.
 8. Select **Save** and accept the privacy confirmation.
 
-Testing a connection checks the key and loads available models. It does not
-generate an image or incur a render charge.
+Testing checks the key and loads the provider's models. It does not generate an
+image or charge for a render.
 
-A connection stores access details. Each style separately stores its model,
-resolution, quality, and reference-image setting. This lets several styles share
-one API key while using different models.
+The connection stores access details. Each style stores its own model, resolution,
+quality, and reference-image settings, so several styles can share one key.
 
 ## Supported providers
 
-| Provider | Good to know |
+| Provider | Notes |
 |---|---|
-| **xAI (Grok)** | Supports quality settings and reference images. Uses fixed aspect ratios. |
-| **OpenAI** | Supports quality settings and reference images. Does not use negative prompts or seeds. Some models require organization verification. |
-| **OpenRouter** | Offers models from several vendors. Does not support reference images, negative prompts, or seeds through its image endpoint. The returned size may differ from the request. |
-| **Together AI** | Supports seeds and flexible sizes. Reference images work only with Kontext models. Some fast models ignore negative prompts. |
-| **NanoGPT** | Offers a large, changing model catalogue. Reference-image, negative-prompt, seed, and size behavior varies by model. |
-| **AI/ML API** | Has no default model, so you must select one. Reference images require an image-to-image model. This integration is based on provider documentation and has not been verified against the live API. |
-| **Custom (OpenAI-compatible)** | Use an image API that follows the OpenAI-compatible contract. Capabilities depend on the server. |
+| **xAI (Grok)** | Quality settings and reference images; fixed aspect ratios |
+| **OpenAI** | Quality settings and reference images; no negative prompts or seeds; some models require organization verification |
+| **OpenRouter** | Several vendors; no reference images, negative prompts, or seeds through its image endpoint |
+| **Together AI** | Seeds and flexible sizes; reference images only with Kontext models |
+| **NanoGPT** | Model capabilities vary; check the selected model |
+| **AI/ML API** | No default model; image-to-image models are required for reference images. This integration is based on provider documentation. |
+| **Custom (OpenAI-compatible)** | Works with a compatible image API; capabilities depend on the server |
 
-The settings panel shows the capabilities Orb applies for the selected provider.
-When a capability varies by model, check the model description and your first
-render's **Render details**.
+The settings panel shows the capabilities Orb applies to the selected provider
+and model. Check the first image's **Render details** as well.
 
-### Custom endpoints
+## Custom endpoints
 
-For **Custom (OpenAI-compatible)**, enter the base URL including its version path,
-for example `https://api.example.com/v1`.
+For **Custom (OpenAI-compatible)**, enter a base URL with its version path, such
+as `https://api.example.com/v1`. Orb requires HTTPS, except for loopback URLs such
+as `http://127.0.0.1:8080/v1`, and rejects URLs containing a username or password.
 
-Orb requires HTTPS and rejects URLs containing a username or password. Plain HTTP
-is allowed only for a loopback address such as `http://127.0.0.1:8080/v1`.
+## References and billing
 
-## Reference images
+Reference images are off by default. See
+[Reference images](image-generation.md#reference-images) for source choices and
+limits.
 
-Reference images are off by default. For the sources, provider limits, privacy,
-and reroll behavior, see [Reference images](image-generation.md#reference-images).
+Cloud APIs do not expose all ComfyUI controls. Negative prompts, seeds, steps,
+CFG, samplers, and schedulers may be ignored. Providers may also map your
+requested resolution to a supported size.
 
-## Limits and billing
+**Render details** records the request, returned size, and any cost reported by
+the provider. The provider dashboard is the source of truth for billing.
 
-Cloud APIs expose fewer controls than ComfyUI. Depending on the provider, negative
-prompts and seeds may be ignored, and the requested resolution may be mapped to a
-supported size. Steps, CFG, sampler, and scheduler controls are not available.
-
-**Render details** records what Orb sent, what size came back, and any cost the
-provider reported. Not every provider reports a price, so use the provider's
-dashboard as the source of truth.
-
-Every action that creates an image is a new paid request, including **Visualize**,
-**Regenerate**, **Reroll**, and **Rehydrate**.
-
-Average fee: ~$0.08 per very high quality image. If a provider charges you more than this,
-you're being ripped off.
+Every action that creates an image is a new provider request, including Visualize,
+Regenerate, Reroll, and Rehydrate.

@@ -2,35 +2,38 @@
 
 ![Orb](assets/Orb.png)
 
-**Orb** is an agentic roleplay frontend that sits between you and the LLM, reading each scene and steering the style as the narrative evolves. What to steer and how to steer are highly customizable.
+Orb is a roleplay and writing app that connects your characters and conversations
+to an LLM. It can also use optional local or cloud tools for scene direction,
+editing, images, and speech.
 
-## Why Orb?
+## How a reply is made
 
-LLMs suffer from **stylistic inertia** in long roleplay sessions. Once a tone is established over several turns, the model tends to perpetuate it regardless of narrative shifts. A lighthearted conversation that turns tragic will often retain the cadence and vocabulary of the earlier tone because the weight of prior context anchors the model's generation.
+The **Writer** creates the reply. When enabled, the **Director** reads the scene
+first and gives the Writer short instructions about mood, pacing, and focus. The
+**Editor** can then check the reply for repetition, unwanted phrases, and length.
+You can enable these passes separately in **Settings**.
 
-Static system prompts cannot solve this — they're written once and don't adapt.
+Orb stores characters, conversations, Worlds, settings, and other data in a local
+SQLite database.
 
-Orb solves it with an **agentic middleware layer** that intercepts each user message, runs a short analytical pass to "read the room," then dynamically assembles prompt directives that shape the model's writing before the actual roleplay generation happens.
-
-## Where to next
+## Start here
 
 <div class="grid cards" markdown>
 
 -   **[Getting Started](getting-started.md)**
 
-    Install Orb, pick a backend, and start your first session.
+    Install Orb, configure an LLM endpoint, and start a conversation.
 
 -   **[Features](features/index.md)**
 
-    Writer direction, anti-slop, length guard, magic rewrite, and more.
+    Learn about direction, editing, writing tools, groups, and data management.
 
 -   **[Multimedia](multimedia/index.md)**
 
-    Visualize any reply on ComfyUI or a cloud API, and give your characters a
-    voice.
+    Set up image generation and text-to-speech.
 
 -   **[Contributing](contributing.md)**
 
-    How to open a PR, file an issue, or join the discussion.
+    Report a problem, suggest an improvement, or contribute code and docs.
 
 </div>

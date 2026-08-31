@@ -1,7 +1,18 @@
 # Length Guard
 
-Actively or passively protect against length degradation as context grows.
+Length Guard limits the size of assistant replies. It checks word count after the
+Writer finishes and asks the **Editor** to rewrite an overlong reply.
 
-Triggered based on max character count. The user may configure the target length and the preferred number of paragraphs in rewrite.
+## Configure it
 
-The whole reply will be rewritten on trigger.
+Open the tools panel and enable **Length Guard**. Set:
+
+- **Max words**: the word limit for a reply
+- **Max paragraphs**: the paragraph limit used by the rewrite
+- **Enforce**: asks the Writer to stay within both limits before the Editor runs
+
+The guard is off by default and requires the global **Agent** toggle. The default
+limits are 240 words and 4 paragraphs.
+
+When a reply exceeds **Max words**, the Editor rewrites the whole reply while
+preserving its main story beats and voice. It does not truncate the text.
