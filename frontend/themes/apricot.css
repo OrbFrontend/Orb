@@ -527,6 +527,56 @@ textarea:focus, select:focus, #chat-input:focus {
    wallpaper's own apricot says "careful" without leaving the palette. */
 .field-warning { color: var(--apricot-deep) !important; }
 
+/* An enabled tool card says "on" the way every other control here does:
+   solid mint. The base's translucent --accent-glow was mixing with the
+   panel cream underneath into an olive that matches nothing else. Its
+   1px border stays soft — it is a card nested in a panel, not a widget
+   on the desk (rule 1). */
+.tool-card.tool-on {
+  background: #e7f1d7 !important;
+  border-color: var(--mint-deep) !important;
+}
+
+/* ═══ Homepage ══════════════════════════════════════════════
+   The stats grid renders inside .empty-state, which means it sits on
+   the wallpaper: every tile is a widget and takes the full card
+   treatment rather than the base's hairline. */
+.stat-card {
+  background: var(--bg-elevated) !important;
+  border: 2px solid var(--ink) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--shadow-card) !important;
+}
+
+/* The hero card leads the grid, so it takes the mint wash the user
+   bubbles use — one green means one thing across the app. Its
+   accent-tinted border goes: nothing tints visibly against ink. */
+.stat-card-favorite {
+  background: linear-gradient(135deg, #eff5e4 0%, #dcecc6 100%) !important;
+  border-color: var(--ink) !important;
+}
+
+/* .empty-state hands its children the white lift that keeps type
+   legible on the wallpaper. Inside a tile there is no wallpaper to
+   fight, and the halo just softens the numbers — so cancel it, and
+   lift the labels off --text-muted while we're here: at 11px on
+   cream, muted clay is a shade too quiet to scan. */
+.stat-card, .stat-card * { text-shadow: none !important; }
+.stat-card-label, .stat-fav-count { color: var(--text-secondary) !important; }
+.stat-fav-eyebrow { color: var(--accent-dim) !important; }
+
+/* A clickable hero presses like a pill — same lift, same landing.
+   Bigger numbers than a button's because the card is bigger. */
+.stat-card-clickable:hover {
+  border-color: var(--ink) !important;
+  transform: translate(-1px, -1px);
+  box-shadow: 5px 5px 0 var(--shadow-ink) !important;
+}
+.stat-card-clickable:active {
+  transform: translate(3px, 3px);
+  box-shadow: 0 0 0 transparent !important;
+}
+
 /* ═══ Chrome ════════════════════════════════════════════════ */
 ::selection { background: var(--lilac); color: var(--ink); }
 
@@ -547,8 +597,10 @@ textarea:focus, select:focus, #chat-input:focus {
 @media (prefers-reduced-motion: reduce) {
   .btn:hover, .btn-accent:hover, .btn-active:hover, #send-btn:hover,
   .btn-danger:hover, #stop-btn:hover, #burger-btn:hover,
+  .stat-card-clickable:hover,
   .btn:active, .btn-accent:active, .btn-active:active, #send-btn:active,
-  .btn-danger:active, #stop-btn:active, #burger-btn:active {
+  .btn-danger:active, #stop-btn:active, #burger-btn:active,
+  .stat-card-clickable:active {
     transform: none;
   }
 }

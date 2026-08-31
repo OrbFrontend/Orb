@@ -170,12 +170,18 @@ label.ml-variant-name { cursor: pointer; }
   font-variant-numeric: tabular-nums;
 }
 
-/* Sizing stays with .btn-xs (forms.css loads later and would win anyway); this
-   only places the cell and pins the button to its right edge, so the size
-   column lands at the same x whether the row offers Download or a delete. */
-.ml-variant-act {
+/* Places the cell and pins the button to its right edge, so the size column
+   lands at the same x whether the row offers Download or a delete.
+
+   The size is overridden off .btn-xs's 10px: this card runs a two-step scale —
+   12px for names, 11px for everything that supports them — and a 10px control
+   sitting between an 11px size and an 11px blurb reads as a third system rather
+   than as a smaller button. Compounded with .ml-variant so it out-specifies
+   .btn-xs in forms.css, which loads after this file. */
+.ml-variant .ml-variant-act {
   grid-column: 4;
   justify-self: end;
+  font-size: 11px;
   line-height: 1.4;
 }
 
@@ -285,9 +291,11 @@ label.ml-variant-name { cursor: pointer; }
   min-width: 112px;
 }
 
+/* Same role as .ml-variant-detail — the small print under a control — so it
+   takes the same 11px. It was the card's only 10px body text. */
 .ml-batch div {
   grid-column: 1 / -1;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.4;
   color: var(--text-muted);
 }
@@ -303,15 +311,22 @@ label.ml-variant-name { cursor: pointer; }
   margin-top: 8px;
 }
 
-/* The GPU switch wears the panel's own checkbox-label look (.lg-enforce-label)
-   and adds only what its two rows need: it must not wrap, and it must sit on
-   the label's own line rather than being pushed to the top of a wrapped foot.
-   Written as a compound selector so it wins regardless of rule order. */
+/* The GPU switch borrows .lg-enforce-label's checkbox-label layout, but not its
+   type: that class is a 10px uppercase caption among other 10px uppercase
+   captions in Settings, and dropped in here it shouts next to an 11px state on
+   the same row while under-serving a 13px native checkbox it has to sit beside.
+   So the compound takes the card's own 11px sentence case, plus what its two
+   rows need — it must not wrap, and it must sit on the label's own line rather
+   than being pushed to the top of a wrapped foot. Compound, so it wins
+   regardless of rule order, and so the shared class is left alone. */
 .lg-enforce-label.ml-check {
   align-self: auto;
   flex: none;
   margin: 0; /* the bare `label` rule's 4px bottom margin would decentre the row */
   white-space: nowrap;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .ml-foot-state {

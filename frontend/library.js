@@ -329,8 +329,8 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       </div>
     </div>
     <div id="${prefix}-ta" class="tab-content">
-      <div class="field"><label>Public cast appearance</label><textarea id="${prefix}-public-appearance" rows="2">${esc(publicProfile.appearance || "")}</textarea></div>
-      <div class="field"><label>Public cast role</label><textarea id="${prefix}-public-role" rows="2">${esc(publicProfile.role || "")}</textarea></div>
+      <div class="field"><label>Group chat - Public cast appearance</label><textarea id="${prefix}-public-appearance" rows="2">${esc(publicProfile.appearance || "")}</textarea></div>
+      <div class="field"><label>Group chat - Public cast role</label><textarea id="${prefix}-public-role" rows="2">${esc(publicProfile.role || "")}</textarea></div>
       ${d.id ? `<button type="button" class="btn btn-sm" id="${prefix}-generate-public-profile">Generate editable draft</button><div class="modal-hint">Only these confirmed public fields enter a group's shared cast prompt.</div>` : ""}
       <div class="field">
         <label>Tags</label>
