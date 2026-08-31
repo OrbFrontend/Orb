@@ -115,19 +115,7 @@ def _context_mode(conv: Mapping) -> GroupContextMode:
 
 
 async def resolve_cast(conv: Mapping, *, speaker_member_id: str | None = None) -> TurnCast:
-    """Resolve the active roster; synthesize the legacy member for solo chats.
-
-    Lives in the query layer rather than beside the pipeline's cast policy
-    because every prefix builder needs it, and the off-turn one
-    (``workflows/toolkit.build_offturn_prefix``) sits below ``pipeline/``. A
-    prefix that resolved the cast differently from the turn's would evict the
-    conversation's KV on every workflow call, so there is exactly one resolver.
-
-    ``CastMember.post_history`` is always the *card's* directive, in both branches.
-    The scene's own (``conversations.post_history_instructions``) is one string for
-    the whole cast, so it is speaker-independent and ``build_prefix`` renders it
-    into the shared system body rather than any member's tail.
-    """
+    """Resolve the active cast, including legacy solo chats."""
     if conv.get("kind", "solo") != "group":
         card_id = conv.get("character_card_id")
         card = await get_character_card(card_id) if card_id else None

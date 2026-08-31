@@ -1,12 +1,4 @@
-"""Expression packs → {go-emotions label: (data_b64, mime)}.
-
-Two producers, one shape:
-- ``extract_expressions_zip``: parse a user-uploaded .zip of expression images.
-- ``fetch_embedded_expressions``: best-effort auto-import of a card's embedded
-  expression pack. chub — and sites mirroring chub cards (chararc, botbooru) —
-  embed ``extensions.chub.expressions`` on the card itself, so the same pack
-  rides along through our parse pipeline regardless of import source.
-"""
+"""Extract and fetch character expression packs."""
 
 from __future__ import annotations
 

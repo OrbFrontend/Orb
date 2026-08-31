@@ -1,6 +1,4 @@
-"""
-utils.py — Shared helpers.
-"""
+"""Shared utility helpers."""
 
 from __future__ import annotations
 

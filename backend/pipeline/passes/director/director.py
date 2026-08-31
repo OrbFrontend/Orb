@@ -1,7 +1,4 @@
-"""
-passes/director/director.py — The director pass: selects moods and plot direction,
-and optionally rewrites the user's prompt before the writer runs.
-"""
+"""Run Director scene-direction and mood steps."""
 
 from __future__ import annotations
 
@@ -42,9 +39,6 @@ if TYPE_CHECKING:
     from ...state import LorebookTurn, TurnState, _PipelineConfig
 
 logger = logging.getLogger(__name__)
-
-
-# ── direct_scene tool override ────────────────────────────────────────────────
 
 
 # The speaking plan is a director output like any interactive fragment, but it is
@@ -169,9 +163,6 @@ class DirectorResult:
     extra_fields: dict = field(default_factory=dict)
 
 
-# ── Tool-call result unpacking ────────────────────────────────────────────────
-
-
 def apply_tool_calls(
     tool_calls: list[dict],
     current_moods: list[str],
@@ -198,9 +189,6 @@ def apply_tool_calls(
             extra_fields = {k: v for k, v in args.items() if k != "moods" and keeps_director_value(k, v)}
 
     return (moods, extra_fields)
-
-
-# ── Agent pass ────────────────────────────────────────────────────────────────
 
 
 async def director_pass(
@@ -462,7 +450,6 @@ async def director_stage(
     direction_notes = director.get("direction_notes") or []
     notes_block = macros.resolve_message(render_direction_notes_block(direction_notes)) if direction_notes else ""
 
-    # --- Director pass ---
     has_pre_writer_tools = any(cfg.enabled_tools.get(n, False) for n in PRE_WRITER_TOOLS)
     if cfg.agent_on and has_pre_writer_tools:
         yield {"event": "director_start"}
@@ -507,7 +494,6 @@ async def director_stage(
     if cfg.agent_lane.client.is_aborted:
         return
 
-    # --- Agentic lorebook selection ---
     # Its own forced select_lorebook call, independent of direct_scene, so agentic
     # lorebook works whether or not the Director's scene-direction tool is enabled.
     # Runs before director_done so its picks ride state.calls into the inspector/log.

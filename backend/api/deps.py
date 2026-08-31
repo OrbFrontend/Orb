@@ -1,15 +1,4 @@
-"""Cross-route shared state and helpers for the ``api/`` layer.
-
-Everything here is process-global surface that more than one route module
-needs, plus the few ``Depends`` providers and request validators the route
-files share. It lives in exactly one module so the shared mutable registries
-(``_active_aborts`` and the lock dicts) are never duplicated when the routes
-are split across files -- importing a name binds the one canonical object.
-
-Patch seam (mirrors the ``DB_PATH`` trap in ``database/connection.py``):
-``_workflow_root_locks`` / ``_conversation_stream_locks`` are patched in tests
-via ``backend.api.deps`` -- the canonical module, not a facade re-export.
-"""
+"""Shared API state, dependencies, and request validators."""
 
 from __future__ import annotations
 
@@ -71,38 +60,7 @@ async def _workflow_root_lock(root_id: int):
 
 @asynccontextmanager
 async def locked_attachment_group(aid: int, expected_message_id: int) -> AsyncIterator[tuple[Mapping[str, Any], int]]:
-    """Hold the group-root lock for attachment ``aid``, stable against root promotion.
-
-    The group root id (``parent_attachment_id or id``) is a *mutable* identity:
-    deleting a root variant promotes the oldest surviving sibling to a new root
-    (see ``delete_workflow_attachments``). Resolving the root from a pre-lock
-    snapshot and then locking it has a time-of-check/time-of-use gap -- a
-    concurrent delete can promote the root between the read and the acquire,
-    leaving the caller holding an obsolete lock and mutating the group under a
-    stale identity (two callers on the same logical group could even hold
-    different keys, defeating serialization).
-
-    This resolves the root, acquires its lock, then RE-READS ``aid`` under the
-    lock. If the canonical root moved while acquiring, the held lock is stale, so
-    it releases and retries on the new root. On success it yields the attachment
-    snapshot read *under the held lock* together with the canonical root id, so a
-    caller feeds its hook / insert a snapshot consistent with the lock it holds.
-
-    Raises ``HTTPException`` 404 if the target does not exist or is not attached
-    to ``expected_message_id`` (raised here, in the API layer, exactly as
-    ``require_conversation`` does, so callers need no error mapping).
-    ``BEGIN IMMEDIATE`` in the cache layer remains the final integrity boundary;
-    this only stabilizes the process-local lock identity so its *holders'*
-    same-group mutations serialize and a generative hook never runs against a
-    since-deleted parent. Retry is unbounded, which is safe here: promotion
-    requires this same lock, so churn cannot outrun acquisition on a single-user
-    local app.
-
-    ``/activate`` is not a holder (see ``api_activate_workflow_attachment``), so
-    a swipe can commit between two holders' transactions. Only the active-pointer
-    commit order is at stake there, and ``set_active_sibling``'s own
-    ``BEGIN IMMEDIATE`` keeps the pointer it writes valid regardless.
-    """
+    """Hold the attachment group lock for aid."""
     while True:
         before = await get_workflow_attachment_by_id(aid)
         if before is None or before["message_id"] != expected_message_id:
@@ -154,16 +112,7 @@ async def _conversation_stream_lock(cid: str):
 
 @asynccontextmanager
 async def stream_idle_lock(cid: str) -> AsyncGenerator[bool, None]:
-    """Try-acquire the conversation stream lock without ever queuing.
-
-    Yields ``True`` holding the lock when no pipeline stream is running on
-    *cid*, ``False`` without it when one is. locked()/acquire() are atomic
-    across coroutines (no await between — see the note in ``_sse_stream``), so
-    the check cannot lose the lock to a stream and then block behind it. Lets
-    read paths do stream-consistent side writes (greeting re-rolls) that must
-    never wait out a running stream and must never interleave with its
-    prompt-building reads.
-    """
+    """Hold the stream lock until request cleanup."""
     lock = _conversation_stream_locks.setdefault(cid, asyncio.Lock())
     if lock.locked():
         yield False
@@ -234,21 +183,7 @@ async def _sse_stream(
     abort_token: AbortToken | None = None,
     cid: str | None = None,
 ):
-    """Wrap an event-dict async generator as SSE, stopping cleanly on client disconnect.
-
-    The primary stop path is the explicit POST /stop endpoint, which signals
-    *abort_token*. That breaks out of the asyncio.wait() loop in complete() and
-    lets the async-with block close the TCP connection to the LLM server
-    normally — no task cancellation needed.
-
-    A background watcher also polls request.is_disconnected() as a fallback
-    for cases like the user closing the browser tab without clicking Stop.
-
-    During long token-free stretches (director/editor thinking silently) a
-    ``: keepalive`` SSE comment is emitted every ``_SSE_KEEPALIVE_SECS`` so an
-    idle-timeout proxy can't drop the connection mid-turn. The comment carries no
-    event/data line, so the frontend parser ignores it.
-    """
+    """Encode async events as SSE and stop on disconnect."""
 
     async def _watch_disconnect() -> None:
         try:
@@ -324,16 +259,7 @@ async def _sse_stream(
 
 
 async def _encode_workflow_event_stream(events: AsyncIterator[dict]) -> AsyncGenerator[str, None]:
-    """Serialize a workflow ``WorkflowEventStream`` as SSE frames -- API-owned wire encoding.
-
-    Each event is validated against the shared public-event contract
-    (:func:`public_event_error`); a malformed event is logged and dropped rather
-    than corrupting the frame stream. The ``finally`` closes the underlying
-    domain iterator, so on normal completion *and* on client disconnect (the
-    wrapping :class:`_CleanupStreamingResponse` calls ``aclose`` on this
-    generator) the workflow's own teardown -- e.g. cancelling an in-flight
-    external render in its generator ``finally`` -- always runs.
-    """
+    """Encode workflow events as SSE."""
     try:
         it = events.__aiter__()
         while True:
@@ -373,13 +299,7 @@ async def _encode_workflow_event_stream(events: AsyncIterator[dict]) -> AsyncGen
 
 
 def _workflow_event_stream_response(stream: WorkflowEventStream) -> _CleanupStreamingResponse:
-    """API-owned SSE response for a workflow ``WorkflowEventStream`` domain result.
-
-    The workflow hook returns *what* to emit (validated event dicts); the API
-    layer owns *how* it reaches the client. ``_CleanupStreamingResponse``
-    guarantees the domain iterator is closed on client disconnect so the
-    workflow can cancel in-flight work.
-    """
+    """Create an SSE response for a workflow event stream."""
     return _CleanupStreamingResponse(
         _encode_workflow_event_stream(stream.events),
         media_type="text/event-stream",
@@ -404,9 +324,6 @@ def _pipeline_sse_response(
     )
 
 
-# ── Shared Depends providers ─────────────────────────────────────────────────
-
-
 # What a transport failure says when the provider gave us no words of its own.
 _PROFILE_UPSTREAM = "The model endpoint did not answer the profile request."
 
@@ -421,23 +338,7 @@ async def require_conversation(cid: str) -> ConversationRow:
 
 @contextmanager
 def profile_draft_failures(what: str):
-    """Turn a public-profile drafting failure into the right status and sentence.
-
-    Shared by the card route and the scene route so the two halves of one
-    feature cannot answer differently: a user who gets a real sentence from the
-    character editor must get the same one from Manage cast.
-
-    Mirrors ``routes/workflows._hook_failures``. The split is between "the
-    backend Orb depends on did not deliver" (502, and the provider's own words
-    survive — see ``inference/errors``) and "this is a bug" (500, traceback to
-    the log and nothing but a fixed sentence on the wire, since an unexpected
-    traceback is where internals leak).
-
-    Neither route degrades silently. Returning a plausible-looking draft built
-    from the card's first line is survivable when a human is reviewing one
-    result, and unacceptable inside a loop that writes N overrides the user
-    saves in a single click.
-    """
+    """Map profile-drafting errors to HTTP responses."""
     try:
         yield
     except ProfileDraftUnavailable as exc:
@@ -485,17 +386,7 @@ async def require_changeset(changeset_id: int, world: dict = Depends(require_wor
 
 
 def project_lorebook_view(entries: Sequence[Mapping[str, Any]], view: str) -> list[Mapping[str, Any]]:
-    """One of the views a caller may ask a World's rows for.
-
-    ``all`` is both layers raw, archived overlay rows included, so the drawer can
-    label them and show history. ``effective`` is the projection the prompt
-    actually sees. ``authored`` is the user-owned layer alone.
-
-    Defined here, beside the other route-facing lorebook helpers, because three
-    routes ask the same question -- the entry list, the standalone lorebook
-    export, and the ``character_book`` embedded in a card export -- and a fourth
-    reading of what "authored" means is exactly the drift this prevents.
-    """
+    """Project a World into the requested lorebook view."""
     if view == "authored":
         return [e for e in entries if e.get("entry_layer") != "dynamic"]
     return list(lorebook.select_effective_entries(entries)) if view == "effective" else list(entries)
@@ -559,13 +450,7 @@ def _normalise_lorebook_entry(item: dict) -> dict:
 
 
 def lorebook_to_book(world_name: str, entries: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """Serialise lorebook entry rows as a Tavern ``character_book`` dict.
-
-    Export counterpart of :func:`_normalise_lorebook_entry` — keep the two
-    field mappings in sync. The V3-only keys are additive, and readers that
-    ignore unknown entry fields (Orb's own parser included) still see a valid
-    V2 book.
-    """
+    """Serialize a World lorebook to Character Card shape."""
     return {
         "name": world_name,
         "extensions": {},

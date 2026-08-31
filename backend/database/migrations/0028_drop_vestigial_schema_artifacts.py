@@ -1,41 +1,4 @@
-"""0028_drop_vestigial_schema_artifacts — drop every table/column an earlier build
-left behind that the fresh-install DDL (backend/database/schema.py) never carried,
-so a migrated DB stops diverging from ``CREATE_TABLES_SQL``.
-
-All four artefact groups are the same class of bug: a feature (or an early cut of
-one) shipped schema via a since-rewritten migration or the old inline ``init_db``
-path, the feature was removed or redesigned, and nothing dropped the leftovers from
-databases that booted in the window. Each tripped the fresh-vs-migrated
-schema-equivalence gate (backend/features/presets/engine.py ``assert_schema_safe``), refusing every
-preset export/snapshot/restore. The full inventory, found by fresh-installing every
-historical DDL version in git history and migrating it to HEAD:
-
-1. ``settings.active_model_config_id`` — superseded when the active-model pointer
-   moved to ``endpoints.active_model_config_id`` (migration 0010); the old
-   settings-level pointer was never read again and never dropped.
-2. ``settings.active_agent_endpoint_id`` / ``settings.active_agent_model_config_id``
-   — an early version of the agent-endpoint feature (later rewritten into what is
-   now 0013) put this pointer pair on ``settings``; the redesign kept only
-   ``settings.agent_endpoint_id`` + ``endpoints.agent_active_model_config_id``.
-3. ``voice_profiles`` table and ``conversation_logs.reasoning_feedback`` /
-   ``conversation_logs.feedback_latency_ms`` — legacy TTS storage (0015) ported and
-   dropped by 0020, but re-created by bootstrap while the table was still in the
-   then-current DDL; and an early cut of the feedback sub-step whose split columns
-   0024 consolidated into the single ``feedback`` JSON column.
-4. ``settings.tts_scripter_enabled`` / ``settings.tts_scripter_prompt`` — the
-   detached LLM speech scripter (84bf39e), removed by 16a4288, which deleted the
-   DDL and inline ALTERs but not the columns already on disk.
-
-``voice_profiles`` is dropped only when empty: on any DB that reaches 0028, 0020
-has already run, so any real rows were ported long ago; a non-empty table would
-mean un-ported data, so we leave it for a human rather than silently lose it (the
-equivalence gate keeps complaining, which is the intended loud signal).
-
-Idempotent: every drop is skipped when the table/column is already absent (fresh
-installs, or a DB already through 0028). ``ALTER TABLE … DROP COLUMN`` is the same
-mechanism migration 0016 uses; foreign keys are flipped off for the ``settings``
-column drops since several carry a ``REFERENCES`` clause.
-"""
+"""Remove schema artifacts left by superseded features."""
 
 from __future__ import annotations
 

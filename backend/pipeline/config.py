@@ -1,15 +1,4 @@
-"""
-config.py — Per-turn configuration resolution.
-
-Resolves settings and the enabled-tools map into the immutable
-:class:`_PipelineConfig` the passes run under: feature flags, the two
-:class:`ModelLane` call surfaces (writer + agent), length-guard config, and the
-dynamic tool-schema overrides that stay byte-identical across all passes (so the
-LLM's KV cache is not busted).
-
-Imports the pass modules (length guard, director/editor overrides) — which is
-why the dependency-free predicates live in ``predicates.py`` rather than here.
-"""
+"""Resolve per-turn settings, model lanes, and tool schemas."""
 
 from __future__ import annotations
 
@@ -154,21 +143,7 @@ def _build_writer_tools_blob(
     dynamic_world: bool = False,
     grouped: bool = False,
 ) -> dict:
-    """Build the dynamic tool-schema overrides shared across all cached calls.
-
-    Mutates *enabled_tools* in place to enable ``give_feedback`` when the feedback
-    step is active, ``record_direction_note`` when the direction-note step is,
-    ``select_lorebook`` when agentic lorebook is active, and
-    ``propose_world_changes`` when at least one enabled World has Dynamic Worlds
-    on. Returns a ``schema_overrides`` dict (``direct_scene`` and
-    optionally ``give_feedback``/``record_direction_note``) held byte-stable
-    across every cached call in a turn so the LLM's KV cache is not busted.
-    (``select_lorebook`` and ``propose_world_changes`` need no override -- their
-    schemas are fixed, so enabling them lets ``enabled_schemas`` emit the
-    registry schema into the shared blob.)
-
-    Called by ``_prepare_turn``.
-    """
+    """Build the tool schemas shared by cached calls."""
     writer_fragments, feedback_fragments, direction_note_fragments = _split_interactive_fragments(interactive_fragments)
     direct_scene = build_direct_scene_override(writer_fragments, grouped=grouped)
     # Per-fragment mode fills one field per call, so requiredness on the shared blob

@@ -1,13 +1,4 @@
-"""Dependency-free sentence and quotation primitives.
-
-This is the canonical backend policy for non-workflow code.  Analysis builds
-its prose-specific block model on these primitives and inference uses them for
-input shaping.  Workflows intentionally keep private implementations so they
-remain self-contained.
-
-Every public sentence splitter treats every Unicode/Python line boundary as a
-hard separator.  A returned sentence therefore never contains a line break.
-"""
+"""Dependency-free sentence and quotation primitives."""
 
 from __future__ import annotations
 

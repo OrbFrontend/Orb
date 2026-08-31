@@ -1,16 +1,4 @@
-"""
-state.py — Per-turn dataclasses shared across passes.
-
-``ModelLane``, ``_PipelineConfig``, and ``TurnState`` are built by the
-orchestrator and consumed by the director, writer, and editor passes. They live
-here so the passes depend downward into ``state`` rather than upward into the
-orchestrator.
-
-``TurnState`` travels the full turn: passes mutate it, the orchestrator
-serializes a result-subset into the ``_result`` SSE event via
-``as_result_event_data``, and persistence rehydrates a fresh ``TurnState`` from
-that dict to drive the saves.
-"""
+"""Per-turn dataclasses shared across pipeline passes."""
 
 from __future__ import annotations
 
@@ -31,30 +19,13 @@ from .passes.editor.length_guard import LengthGuard
 
 @dataclass(frozen=True, slots=True)
 class ModelLane:
-    """One model's call surface for a turn: an LLM client paired with its
-    cached base (prefix + tool blob + model name + macro resolver).
-
-    A turn has two lanes — ``writer`` and ``agent`` (director + editor). In
-    single-model mode both lanes are the same object, making the KV-cache
-    byte-identity invariant structural rather than a per-call-site convention.
-    In dual-model mode the agent lane carries its own client and prefix, while
-    the writer lane has an empty tool blob (Invariant 5).
-
-    Reasoning is per-pass (director and editor share the agent lane but toggle
-    reasoning independently), so it is not part of the lane.
-    """
+    """An LLM client paired with its frozen prompt base."""
 
     client: LLMClient
     base: CachedBase
 
     def sends_tool_schemas(self, trailing: Sequence[ChatMessage], *, tools_in_prompt: bool = True) -> bool:
-        """Whether a call extending this lane sends its frozen schema tuple.
-
-        The base owns schema presence; the client owns transport/profile policy.
-        Keeping the conjunction here gives every pass the same answer and leaves
-        room for call-dependent transports such as text mode's multimodal chat
-        fallback without duplicating that knowledge in pipeline configuration.
-        """
+        """Return whether a call extending this lane sends tool schemas."""
         if not self.base.tools:
             return False
         messages = [*self.base.prefix, *trailing]
@@ -89,11 +60,7 @@ class _PipelineConfig:
     agent_lane: ModelLane
 
 
-# Fields the terminal ``_result`` event carries — a fixed subset of ``TurnState``
-# so the wire shape stays stable and working fields (``writer_content``,
-# ``writer_lorebook_block``, etc.) stay off the wire. Every name here is a
-# ``TurnState`` field with a default, so the dict rehydrates cleanly via
-# ``TurnState(**event["data"])``.
+# Fields included in the terminal ``_result`` event.
 _RESULT_FIELDS = (
     "active_moods",
     "agent_raw",
@@ -117,16 +84,7 @@ _RESULT_FIELDS = (
 )
 
 
-# Fields a group exchange's shared Director run hands to every speaker's turn.
-# The Director, its per-fragment steps and the pre-writer note step all run once
-# for the whole exchange (``entrypoints._generate_group_exchange``), so each
-# speaker's ``TurnState`` starts from that one result rather than re-deriving it.
-# Named here for the reason ``_RESULT_FIELDS`` is: the orchestrator would
-# otherwise keep a hand-copied list of this class's field names, and a director
-# output added below would silently stop reaching speakers 2..n.
-#
-# Everything the Director writes, plus the two seeds it reads (``active_moods``,
-# ``macro_choices``) and the notes the exchange's pre-writer step recorded.
+# Fields copied from the shared Director result to each group speaker.
 _DIRECTOR_SEED_FIELDS = (
     "active_moods",
     "macro_choices",
@@ -144,10 +102,7 @@ _DIRECTOR_SEED_FIELDS = (
 )
 
 
-# Fields seeding ``PostCtx.director_output`` — the read-only director view a
-# post-pipeline workflow hook sees. A named subset of ``TurnState`` (same pattern
-# as ``_RESULT_FIELDS``) so a field rename is caught here rather than silently
-# drifting the orchestrator's hand-built dict.
+# Fields exposed as the read-only Director output to post-pipeline workflows.
 _DIRECTOR_OUTPUT_FIELDS = (
     "active_moods",
     "agent_raw",
@@ -160,31 +115,14 @@ _DIRECTOR_OUTPUT_FIELDS = (
 
 @dataclass(slots=True)
 class TurnState:
-    """Mutable state threaded through all three pass stages, then consumed by persistence.
+    """Mutable state shared by the turn stages and persistence."""
 
-    Seeded at the start of ``_run_pipeline`` from the director state and user
-    message; mutated by each stage; serialized into the ``_result`` event by
-    ``as_result_event_data``; then rehydrated from that dict by persistence.
-    Every field has a default so a partially-completed turn (aborted or under
-    test) still produces a valid instance.
-
-    Progressive seed/output handling lives in the director pass (see
-    ``passes/director/progressive.py``); ``progressive_fields`` here is the
-    persisted output, parallel to ``active_moods``. ``staged_attachments`` /
-    ``staged_message_state`` are set by the orchestrator from post-pipeline
-    workflow hooks just before ``_result`` is emitted.
-    """
-
-    # --- seeds / inputs ---
     user_message: str = ""
     effective_msg: str = ""
     active_moods: list[str] = field(default_factory=list)
-    # Per-conversation {{random}} picks for fragment text: seeded from the
-    # committed director state, extended by the director stage when a fragment
-    # with a fresh macro renders, persisted back with the rest of the state.
+    # Per-conversation macro choices, persisted with Director state.
     macro_choices: dict[str, str] = field(default_factory=dict)
 
-    # --- director outputs ---
     agent_raw: str = ""
     calls: list[dict] = field(default_factory=list)
     latency: int = 0
@@ -192,17 +130,12 @@ class TurnState:
     progressive_fields: dict = field(default_factory=dict)
     selected_lorebook_entries: list[str] = field(default_factory=list)
     inj_block: str = ""
-    # Scene Direction before the direction-notes block is appended; read by the
-    # pre-writer notes step so the notes are not listed to it a second time.
+    # Scene Direction before direction notes are appended.
     scene_direction: str = ""
     writer_lorebook_block: str = ""
 
-    # --- writer / editor outputs ---
     resp_text: str = ""
-    # Writer text after any group-speaker label has been stripped and inline
-    # macros have been frozen, but before the local rewriter, Editor, or
-    # post-pipeline workflows modify it. This travels in ``_result`` so
-    # persistence can retain the source for an on-demand local rewrite later.
+    # Writer text before local rewriting, editing, or post-pipeline workflows.
     writer_draft: str = ""
     writer_content: str | list[ContentPart] = ""
     reasoning_director: str = ""
@@ -211,28 +144,14 @@ class TurnState:
     feedback_values: dict = field(default_factory=dict)
     direction_notes: list[dict] = field(default_factory=list)
 
-    # --- post-pipeline workflow staging (set by the orchestrator) ---
     staged_attachments: list[dict] = field(default_factory=list)
     staged_message_state: dict = field(default_factory=dict)
 
-    # --- Dynamic Worlds (set by the proposal stage, staged by persistence) ---
-    # The validated, not-yet-persisted proposals, one per World the turn touched:
-    # ``{world_id, base_revision, summary, operations, source_*}``. Empty when the
-    # feature is off for this turn, or when the model proposed nothing. Persistence
-    # turns each into a pending ``world_changesets`` row once the assistant message
-    # has an id -- a changeset must name its source message, and no earlier point
-    # knows it. One per World rather than one per turn because each World has its
-    # own ``content_revision`` to race against and its own review queue.
+    # Validated proposals, staged after the assistant message is persisted.
     world_proposals: list[dict] = field(default_factory=list)
 
     def seed_from(self, director_seed: TurnState) -> None:
-        """Adopt one exchange-wide Director result as this speaker's starting point.
-
-        Mutable containers are **copied**, not shared: every speaker of an
-        exchange seeds from the same object, and the post-turn steps that run on
-        the last of them (``direction_notes.extend``, ``calls.append``) would
-        otherwise reach back into a reply that has already been serialized.
-        """
+        """Copy the shared exchange Director result into this speaker's state."""
         for name in _DIRECTOR_SEED_FIELDS:
             value = getattr(director_seed, name)
             if isinstance(value, list):
@@ -242,48 +161,24 @@ class TurnState:
             setattr(self, name, value)
 
     def as_result_event_data(self) -> dict:
-        """Return the result-subset dict for the ``_result`` SSE envelope.
-
-        Shallow copy on purpose: ``staged_attachments`` carries raw artifact bytes.
-        """
+        """Return the stable field subset for the ``_result`` SSE event."""
         return {name: getattr(self, name) for name in _RESULT_FIELDS}
 
     def as_director_output(self) -> dict:
-        """Return the director-output subset seeding ``PostCtx.director_output``.
-
-        The plain dict the orchestrator hands to post-pipeline workflow hooks
-        (wrapped read-only by the bridge). Co-located with ``_RESULT_FIELDS`` so
-        a field rename surfaces here instead of silently drifting.
-        """
+        """Return the read-only Director output for post-pipeline workflows."""
         return {name: getattr(self, name) for name in _DIRECTOR_OUTPUT_FIELDS}
 
 
 @dataclass(frozen=True, slots=True)
 class LorebookTurn:
-    """The lorebook inputs for one main-pipeline turn.
-
-    Bundles the per-turn lorebook inputs threaded through the pipeline.
-    ``block`` and ``catalog`` are the Director-facing context and are
-    mutually exclusive by mode (kept separate because they inject at different
-    positions in the Director prompt). ``writer_block`` derives the final block
-    shown to the writer. Constant entries are not part of any trailing block —
-    they ride the cached system prefix (``context._build_prefix_from_ctx``), or
-    ``depth_block`` when they set ``at_depth``; ``entries`` still carries the
-    full pool so the catalog/selection layer sees everything.
-
-    The selection/rendering it delegates to lives in the pure ``lorebook`` layer
-    (``backend/inference/lorebook.py``); this bundle is the pipeline-turn view
-    that threads those inputs from ``_prepare_turn`` to ``director_stage``.
-    """
+    """Lorebook inputs threaded through one pipeline turn."""
 
     entries: Sequence[Mapping[str, Any]]
     messages: Sequence[Mapping[str, Any]]
     agentic: bool
-    block: str = ""  # Director-facing lore context (substring mode; "" when agentic)
-    catalog: str = ""  # Director-facing pick catalog (agentic mode; "" otherwise)
-    # Rendered once per turn by ``_prepare_turn``: the ``constant`` + ``at_depth``
-    # entries, macros resolved unseeded. Frozen here so the writer and the editor
-    # replaying its content see the same {{roll}} values.
+    block: str = ""  # Director-facing lore context in substring mode.
+    catalog: str = ""  # Director-facing pick catalog in agentic mode.
+    # Frozen so replayed prompts see the same macro values.
     depth_block: str = ""
 
     @property
@@ -291,14 +186,7 @@ class LorebookTurn:
         return AGENTIC_LOREBOOK_SCAN_DEPTH if self.agentic else LOREBOOK_SCAN_DEPTH
 
     def writer_block(self, director_selected: Sequence[str], macros: Macros | None = None) -> str:
-        """The trailing lorebook block injected into the writer prompt.
-
-        In substring mode this equals the Director-facing ``block`` already
-        computed up front (same entries/messages/depth), so it is reused rather
-        than recomputed. In agentic mode it is the union of the current-turn
-        keyword scan and the Director's *director_selected* picks. Constant
-        entries never appear here — they ride the cached system prefix.
-        """
+        """Return the lorebook block appended to the Writer prompt."""
         if not self.agentic:
             return self.block
         return compute_lorebook_block(
@@ -312,23 +200,7 @@ class LorebookTurn:
 
 @dataclass(frozen=True, slots=True)
 class WorldProposalTurn:
-    """Identity of the Worlds a completed turn may propose changes to.
-
-    Deliberately carries no entries and no revisions: the proposal step re-reads
-    both immediately before it runs, so a proposal is always based on each World
-    as it stands *after* the turn's own latency rather than as it stood when the
-    turn began.
-
-    The targets are every World that is *enabled* -- feeding this turn's prompt,
-    so its lore is what the exchange was played against -- and has its own
-    ``dynamic_enabled`` opt-in (``predicates.world_proposal_active``). A World the
-    user has not opted in is never a target, and a disabled one is not either: it
-    contributed nothing to the scene, so nothing in the scene is evidence about
-    it. ``user_message`` is the *semantic* user message: on the steered paths it
-    is the original message, not Orb's OOC steering prompt. The two labels are
-    denormalised into each changeset so applied history stays readable after the
-    chat is deleted.
-    """
+    """World targets and labels for a completed turn's proposal stage."""
 
     world_ids: tuple[str, ...]
     conversation_id: str
@@ -339,26 +211,7 @@ class WorldProposalTurn:
 
 @dataclass(frozen=True, slots=True)
 class SheetUpdateTurn:
-    """What a finished group exchange may propose sheet updates about.
-
-    Carries the exchange's *evidence* rather than its identity, because unlike a
-    World the target has no revision to re-read against: a sheet update is
-    derived from the prose of one exchange, and that prose is only assembled once,
-    in the exchange driver. ``lines`` are the exchange's replies as
-    ``(speaker_name, text)`` in order, already persisted; the running speaker's
-    own draft is appended by the stage from ``TurnState.resp_text``, because it
-    is not persisted until after the stage runs.
-
-    ``member_ids`` are the members the exchange actually *touched* — the ones that
-    spoke. Cast-wide would be one billed call per member per exchange to tell a
-    silent member nothing happened to them. A member that spoke twice in one
-    exchange still gets one call, so the stage de-duplicates rather than trusting
-    this to be a set.
-
-    ``speaker_name`` labels the running speaker's unpersisted draft in the
-    transcript. Named rather than inferred from the last id, so the stage does
-    not depend on an ordering convention it cannot check.
-    """
+    """Evidence and targets for one group's scene-sheet update stage."""
 
     conversation_id: str
     exchange_id: str

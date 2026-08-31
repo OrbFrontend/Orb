@@ -1,14 +1,4 @@
-"""Every instruction string and tool schema the composer sends, and nothing else.
-
-Separated from `composer.py` because this is **data**, not flow: the strings are
-tuned against model behaviour and the schemas are a byte-stable blob that both
-off-turn calls ship in a fixed order so they reuse each other's cached prefix.
-Editing this file changes what the model is told; editing `composer.py` changes
-when it is asked. Keeping the two apart is what makes that distinction reviewable.
-
-Written in ASD-STE100 Simplified Technical English -- short imperative sentences,
-no synonyms -- which a small agent model follows more reliably.
-"""
+"""Define image-composition instructions and tool schemas."""
 
 from __future__ import annotations
 
@@ -129,36 +119,7 @@ _REFERENCE_TAIL = (
 
 
 def _reference_instruction(referenced: Sequence[tuple[int, str]]) -> str:
-    """What the prompter is told about the pictures riding along with its prompt.
-
-    **Nobody's description is suppressed, including theirs.** Suppression was keyed on
-    a promise -- "a likeness for Alice went with this prompt, so do not spell her out"
-    -- and no caller can keep that promise: a provider may read only the first element
-    of an array it accepted, a model may ignore the field, and either way Alice comes
-    back a stranger with neither a picture nor a word to place her. Describing her
-    anyway costs some redundancy when the picture did land, and nothing when it did
-    not. That is what lets the render send references optimistically instead of
-    withholding them until somebody hand-measures the provider.
-
-    Naming them is still not decoration: the roster and its order are the only thing
-    that attributes an array of images to people, and the composer binds an analyzed
-    cast entry back to a subject by that name.
-
-    The order is load-bearing on the cloud side for a second reason: a provider handed
-    two images in one array is told nothing about which is which, so this sentence is
-    the only thing that can attribute them. It is also the only numbered list in the
-    prompt -- the subject roster is bulleted precisely so these numbers mean one thing.
-
-    Which is why the caller supplies the number rather than letting this enumerate:
-    these are positions in the array the request carries, and a render can hold images
-    that name nobody. A `previous` slot ahead of a `character` one leaves a gap, and a
-    gap is the honest shape -- renumbering around it would tell the model that image 1
-    is Alice when image 1 is a screenshot of the chat.
-
-    An empty roster is not "no references" -- it is references drawn from the *chat*
-    (`previous`), which name nobody. That keeps the original singular wording, which
-    is what a chat image is: a picture of this scene.
-    """
+    """Describe the reference images supplied to the composer."""
     if not referenced:
         return _REFERENCE_INSTRUCTION
     listed = ", ".join(f"{position}. {name}" for position, name in referenced)
@@ -367,20 +328,7 @@ _ANALYZE_CAMERA = {
 
 
 def _subject_roster(subjects: Sequence[SubjectAppearance]) -> str:
-    """The cast this render is *of*, one per line, each with its fixed tags.
-
-    **Bulleted, not numbered.** The reference roster in `_reference_instruction` is
-    numbered, and the two lists are *not* the same list: a render whose first slot is
-    the previous chat image and whose second is a cast member sends one reference for
-    subject 2, so "1. Kael" and "1. Aria" would otherwise sit in one prompt meaning
-    different things. Only one list here gets numbers, and it is the one whose order
-    is a fact about the request -- the images, in the order they travel.
-
-    The names are quoted back verbatim, and both calls are told to copy them exactly.
-    That is what binds an analyzed cast entry to a subject afterwards -- the composer
-    matches on the name, so a model that renamed "Mara" to "the woman" would silently
-    lose her saved appearance.
-    """
+    """Render the fixed cast roster for the composer."""
     rows = [
         f"- {name}" + (f" - fixed positive tags added separately: {fixed}" if fixed else " - no fixed tags")
         for name, fixed in ((bounded(subject.name, 200), bounded(subject.appearance)) for subject in subjects)

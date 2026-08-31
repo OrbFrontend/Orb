@@ -1,20 +1,4 @@
-"""
-context.py — Everything that happens before the passes run.
-
-Two phases:
-
-* **Load** — :func:`_load_pipeline_context` fetches all per-conversation data
-  (settings, conversation, card, director state, fragments, phrase bank,
-  lorebook, LLM clients) into the frozen :class:`PipelineContext`, and
-  :func:`_build_prefixes` builds the writer and optional agent message prefixes.
-* **Prepare** — :func:`_prepare_turn` runs pre-pipeline workflow hooks (which may
-  extend the tool map or system prompt), computes the lorebook block or agentic
-  catalog, builds the tool blob, and yields a single :class:`_TurnSetup`.
-
-LLM clients are built via :func:`backend.inference.client_from_settings` /
-:func:`agent_client_from_settings` — tests substitute the streaming client by
-patching ``backend.inference.client.LLMClient``.
-"""
+"""Load conversation context and prepare a pipeline turn."""
 
 from __future__ import annotations
 
@@ -211,21 +195,7 @@ def _build_prefix_from_ctx(
     extra_system_blocks: list[str] | None = None,
     speaker: CastMember | None = None,
 ) -> list[ChatMessage]:
-    """Build the LLM message prefix (system prompt + chat history) from *ctx*.
-
-    *system_prompt* overrides ``ctx.system_prompt`` when given — used for the
-    agent prefix in dual-model mode. *extra_system_blocks* are additional system
-    sections contributed by pre-pipeline workflow hooks. Constant lorebook
-    entries are rendered here into the system body (they are byte-identical
-    every turn, so they belong in the cached prefix, not the trailing block) —
-    except the ``at_depth`` ones, which ride ``LorebookTurn.depth_block``.
-
-    *speaker* only reaches the system body under Classic card swap, which is
-    the one mode whose prefix depends on who is speaking. Omitting it there
-    yields the neutral base the Director and the pre-pipeline hooks run
-    against — both execute before a speaking plan exists — and every speaker's
-    base shares its bytes up to the active card.
-    """
+    """Build the LLM prefix from ctx."""
     conv = ctx.conv
     macro_char, cast_names = macro_identity(conv, ctx.cast)
     macros, user_description = persona_macros(ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(conv))
@@ -311,22 +281,7 @@ async def _prepare_turn(
     last_user_message: str,
     lorebook_messages: Sequence[Mapping[str, Any]],
 ) -> AsyncIterator[dict | _TurnSetup]:
-    """Prepare everything a turn needs before the pipeline starts.
-
-    Builds macros, prefixes, tool maps, and the lorebook block; runs
-    pre-pipeline workflow hooks (which may stream SSE events); then yields a
-    single :class:`_TurnSetup` as the last item.
-
-    Drain it as::
-
-        setup = None
-        async for ev in _prepare_turn(...):
-            if isinstance(ev, _TurnSetup):
-                setup = ev
-            else:
-                yield ev
-        assert setup is not None
-    """
+    """Load and freeze per-turn context."""
     macro_char, cast_names = macro_identity(ctx.conv, ctx.cast)
     macros = Macros.from_settings(
         ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(ctx.conv), cast=cast_names

@@ -1,16 +1,4 @@
-"""Spawning a llama-server child, on whatever event loop we were given.
-
-ADAPTED FROM ProseRewriterWebUI's threads-and-http.client original. Orb is
-async, so the thread-per-request pool and the ``queue.Queue`` fan-in are gone:
-``asyncio.create_subprocess_exec`` and one drain task — except on Windows,
-where asyncio cannot spawn a process at all under the loop Orb runs on.
-:func:`_can_spawn_async` explains why and :class:`_ThreadChild` is the
-fallback, which brings the reference's log-drain thread back with it.
-
-Log lines are *pushed* to a sink rather than pulled, because the two
-implementations disagree about which thread they arrive on and pushing is the
-only shape that does not make that the caller's problem.
-"""
+"""Spawn and monitor a llama-server child process."""
 
 from __future__ import annotations
 
@@ -25,24 +13,7 @@ from . import binary
 
 
 def _can_spawn_async() -> bool:
-    """Whether the running event loop implements ``create_subprocess_exec``.
-
-    Only Windows ever says no, and it says it in the worst way available: a
-    bare ``NotImplementedError`` off ``BaseEventLoop._make_subprocess_transport``,
-    no message, several frames inside asyncio. Windows implements subprocesses
-    on the **Proactor** loop alone, and uvicorn selects the **Selector** loop on
-    win32 whenever ``--reload`` or ``--workers`` is in play
-    (``uvicorn/loops/asyncio.py``) -- which is exactly what ``run_windows.bat``
-    passes. So this is not an exotic configuration to survive: it is every
-    Windows install that uses the shipped launcher, and :class:`_ThreadChild` is
-    the ordinary path there rather than a degraded one.
-
-    Probed rather than assumed from ``os.name``, so a Windows user who runs Orb
-    without ``--reload`` still gets the cheaper path. ``binary.IS_WINDOWS`` is
-    read as a module attribute rather than imported by value: it is the seam
-    the only test of this branch patches, and binding it at import would make
-    that test pass on the constant instead of on the branch.
-    """
+    """Return whether the loop supports async subprocesses."""
     if not binary.IS_WINDOWS:
         return True
     proactor = getattr(asyncio, "ProactorEventLoop", None)  # Windows-only symbol

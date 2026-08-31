@@ -1,7 +1,4 @@
-"""
-prompt_builder.py — Assembles system prompts, lorebook blocks, style
-injections, and tool-call request messages for the pipeline passes.
-"""
+"""Build prompt blocks and tool-call messages for pipeline passes."""
 
 from __future__ import annotations
 
@@ -554,19 +551,7 @@ def build_world_change_prompt(
     reasoning_on: bool = False,
     tool_schema: dict | None = None,
 ) -> str:
-    """Build the request message for the post-turn Dynamic Worlds proposal step.
-
-    The exchange itself is not quoted here: the step replays the writer's user
-    message and the *final* reply (post-editor, post-hook) as the two messages
-    immediately above this request, so it both reads the prose that will actually
-    be persisted and extends the warm writer/editor prefix.
-
-    *original_user_message* is passed only on the steered paths
-    (super-regenerate, magic rewrite), where the replayed user turn is Orb's own
-    OOC steering instruction rather than anything the user said in the fiction.
-    A steer directs the writer; it is not an event in the world, so the step is
-    told to judge the original message instead.
-    """
+    """Build the post-turn Dynamic Worlds proposal request."""
     preamble = WORLD_CHANGE_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
     parts = [preamble, WORLD_CHANGE_RULES]
     if original_user_message:

@@ -1,11 +1,4 @@
-"""The scene composition flow: what to ask the model, in what order, and what to
-do with the answer.
-
-The two halves it coordinates live next door -- `prompts.py` owns every instruction
-string and schema, `scrub.py` owns the deterministic text surgery applied to the
-result. What is left here is the sequencing: analyze (optionally), compose, pin the
-count anchor, inject the fixed appearance, assemble the final prompt pair.
-"""
+"""Sequence image-scene analysis, composition, and prompt cleanup."""
 
 from __future__ import annotations
 
@@ -36,7 +29,6 @@ logger = logging.getLogger(__name__)
 
 
 async def _forced_args(*, client, model_name, prefix, tail, tool_name, settings, max_tokens, reasoning_on) -> dict:
-    # Debug: the per-call instruction actually sent. Set this logger to WARNING to silence.
     logger.info("[image_gen] %s tail:\n%s", tool_name, "\n--\n".join(m["content"] for m in tail))
     args: dict = {}
     async for event in forced_tool_call(
@@ -130,24 +122,7 @@ def _cast_entries(analysis: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 
 
 def _matched(names: Sequence[str], analysis: Mapping[str, Any]) -> dict[int, Mapping[str, Any]]:
-    """Which analyzed cast entry is which subject, by subject index.
-
-    Matched on the name, which is why both prompts quote the roster back and tell the
-    model to copy it exactly: with several subjects, a name is the only thing that can
-    say *which* of them an entry is. Each entry is claimed at most once, so two members
-    the model gave one name do not both collapse onto the first subject -- and
-    `subjects.resolve` has already made the roster's own names distinct, so the model
-    is never asked to tell two "Guard"s apart in the first place.
-
-    Takes bare names because that is all it reads: the same answer serves the appearance
-    injector, the first-person trim, and the reference slots, which hold three different
-    subject shapes between them.
-
-    `is_listed_subject` is honoured as a fallback for a lone subject only. It carries no
-    identity past that -- flagging two entries says they are both subjects, not which is
-    which -- but for one subject it preserves the behaviour the singular flag had: a
-    model that wrote "the woman" instead of "Mara" still keeps her saved appearance.
-    """
+    """Match analyzed cast entries to subject indexes."""
     entries = _cast_entries(analysis)
     matched: dict[int, Mapping[str, Any]] = {}
     claimed: set[int] = set()
@@ -255,21 +230,7 @@ async def analyze_scene(
     subjects: Sequence[Subject] = (),
     supports_negative: bool = True,
 ) -> dict:
-    """The analyzer pass on its own: who is in frame, and how they look right now.
-
-    **Separate from the compose call on purpose.** Its answer decides who is in the
-    picture, and that has to be known *before* the reference slots are filled -- a
-    likeness uploaded for a member the analyzer left out of frame is an edit model's
-    invitation to draw them back in, against a prompt that never mentions them. So the
-    caller runs this, plans slots from `addressable_subjects`, and only then composes.
-
-    Rides *prefix* unchanged, exactly as the compose call does, so splitting the two
-    costs no cached KV: the tails differ, the prefix does not.
-
-    Answers `{}` when the forced call yields nothing, which the composer reports as
-    `analysis_failed` and which `addressable_subjects` treats as "no answer" rather
-    than as "nobody is visible".
-    """
+    """Analyze who is visible and their current appearance."""
     analysis = await _forced_args(
         client=client,
         model_name=model_name,
@@ -288,25 +249,7 @@ async def analyze_scene(
 
 
 def addressable_subjects(subjects: Sequence[Subject], analysis: Mapping[str, Any] | None) -> tuple[Subject, ...]:
-    """Whose likeness a reference slot may actually draw, in `cast` ordinal order.
-
-    **Subject 0 is unconditional.** `character` means the render's primary, and a solo
-    chat's one slot has to resolve whether or not the analyzer bothered to list anyone;
-    filtering it would turn a landscape shot of an established character into a hard
-    failure on every ComfyUI graph built around a `LoadImage`.
-
-    **The tail is filtered**, because that is the part a group added and the part that
-    can go wrong. A member who spoke in the round but whom the analyzer left out of frame
-    contributes nothing to the prompt -- `_visible` already drops their sheet -- so
-    uploading their face anyway sends the image model a person the words never mention.
-
-    Compacted, not sparse: dropping subject 1 means the first `cast` slot draws subject
-    2, which is what "the next cast member" means to someone reading the picker. The
-    slots address positions in *this* list.
-
-    No analysis -- the single-call path, or a forced call that came back empty -- is not
-    an answer of "nobody", so nothing is filtered.
-    """
+    """Return subjects that reference slots may depict."""
     if not analysis or len(subjects) < 2:
         return tuple(subjects)
     matched = _matched([subject.name for subject in subjects], analysis)
@@ -332,30 +275,7 @@ async def compose_scene(
     style_negative_prompt: str = "",
     profile_negative_prompt: str = "",
 ) -> tuple[str, str, str]:
-    """Compose the scene text for one message, as ``(scene, avoid, mode)``.
-
-    *subjects* is ``subjects.resolve``'s ordered answer -- who this render is *of*.
-    *referenced_subjects* names the ones whose likeness actually went with the request,
-    each paired with that image's own 1-based position in the array the request carries,
-    which is what stops the reference instruction from suppressing identity traits for
-    everybody else in the frame -- and what keeps its numbers pointing at the images
-    they claim to, when a slot drawing from the chat sits ahead of one drawing a person.
-
-    *analysis* is ``analyze_scene``'s answer, or ``None`` when the user has scene
-    analysis off. It arrives already made rather than being taken here, because the
-    reference slots the caller filled in between depend on it -- see
-    ``addressable_subjects``. ``{}`` is a *failed* analysis and reports as
-    ``analysis_failed``; ``None`` is a render that never asked for one.
-
-    *pov* is already resolved (``pov.resolve``) and selects which mode's
-    instructions both calls carry. It never reaches the tool schemas: those ship as
-    one byte-stable blob so a camera switch costs no cached prefix. Both calls ride
-    *prefix* unchanged -- the byte-identical conversation prefix the chat turns
-    send -- so the server's cached KV survives analyze -> compose -> the next turn.
-
-    Raises ``ValueError`` when the forced compose call yields no scene, rather than
-    falling back to the raw reply text.
-    """
+    """Compose scene text as (scene, avoid, mode)."""
     sheets = _sheets(subjects)
     analysis_block = _render_scene(analysis, pov) if analysis else ""
 

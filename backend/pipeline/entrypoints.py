@@ -1,19 +1,4 @@
-"""
-entrypoints.py — The five public turn handlers and the shared turn driver.
-
-Wires together context loading, the pass orchestrator, and persistence:
-
-* :func:`handle_turn` / :func:`handle_fork_edit` / :func:`handle_regenerate` /
-  :func:`handle_super_regenerate` / :func:`handle_magic_rewrite` -- arrange
-  history and turn indices, persist the user row when one is needed, then
-  delegate to :func:`_generate_reply` (setup -> pipeline -> persist).
-
-``_resolve_target_and_parent`` and ``_prepare_regen_context`` are shared helpers
-for the regenerate family: load the target message, rebuild branch history, and
-reset the director to the branch baseline. ``_regenerate_with_steering`` backs
-both super-regenerate and magic-rewrite, which differ only in the steering
-message they inject.
-"""
+"""Public turn handlers and the shared generation driver."""
 
 from __future__ import annotations
 
@@ -101,19 +86,7 @@ def _round_prefix(
 
 
 def _group_pin_error(ctx: PipelineContext, pinned_speaker_id: str | None) -> str | None:
-    """A pin that names nobody is an error. An exchange with no pin at all is not.
-
-    Called twice on the paths that persist a user row first (`handle_turn`,
-    `handle_fork_edit`): once before the write, so a bad pin cannot leave the
-    user's message stranded with only an error card under it, and once inside
-    `_generate_group_exchange`, which is the check `handle_speak` and the regenerate
-    family rely on. Cheap and pure, so the duplicate costs nothing.
-
-    ``manual`` used to be rejected here for arriving without a speaker, which
-    made the composer a dead end: the user's message was already persisted by
-    the time this ran, so the turn could only end in an error card. Nobody
-    picked is a *rest* instead — see ``_generate_group_exchange``.
-    """
+    """Return an error when a group pin names no member."""
     if not ctx.cast.grouped:
         return None
     eligible = [member for member in ctx.group_members if not member.get("muted")]

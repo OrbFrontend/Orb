@@ -1,36 +1,4 @@
-"""sheet_update.py — the scene-local sheet stage of a group exchange.
-
-The sibling of :mod:`world_proposal`, and the same shape: decides whether the
-stage runs at all, re-reads its targets, drives one forced tool call per target,
-and stages the validated results for the user to review. Two differences, both
-from what a sheet is:
-
-**One call per member, never batched.** ``features/cards/sheet_update`` owns
-that rule and states why. This module is what honours it — the loop below is
-per member, and each iteration sends that member's sheet and no other's.
-
-**It runs once per exchange, not once per speaker.** ``run_exchange_final`` gates it in
-the orchestrator, and the exchange driver hands it the exchange's persisted replies; the
-running speaker's own draft is appended here, because it is not persisted until
-after this returns. Cast-wide would bill a call per member per exchange to tell a
-silent member that nothing happened to them, so the targets are the members that
-actually spoke.
-
-**An undecided proposal is carried forward, not competed with.** A member with a
-pending proposal has this exchange's call built on *that* text rather than on the
-member's stored sheet, so two exchanges of drift accumulate into one reviewable
-sheet instead of two mutually-exclusive ones (``database.queries.member_sheets``
-states the rule; this is the half that makes the replacement lossless). The row
-staged still records the member's *stored* sheet as ``base_sheet``, because that
-is what the apply has to re-check against. A pending proposal whose base no
-longer matches the stored sheet is ignored: the user hand-edited underneath it,
-and resurrecting text they overwrote is the one thing staging must not do.
-
-Every failure path leaves the exchange untouched and stages nothing. This runs
-immediately before the turn's ``_result``, so a bookkeeping step must never be
-able to cost the user their reply — the same rule the world stage states, held
-here at both levels: one member's failed call does not drop another's proposal.
-"""
+"""Stage scene-local sheet updates after a group exchange."""
 
 from __future__ import annotations
 

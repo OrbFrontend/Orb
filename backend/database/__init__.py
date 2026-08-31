@@ -1,8 +1,4 @@
-"""Backend database package.
-
-Re-exports the layer's public API so call sites import one name from
-``backend.database`` rather than reaching into its submodules.
-"""
+"""Database schema, queries, and bootstrap helpers."""
 
 from __future__ import annotations
 

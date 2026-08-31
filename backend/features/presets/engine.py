@@ -1,29 +1,4 @@
-"""Preset / backup engine: selective export, merge-import, full snapshots.
-
-A *preset* is a standalone SQLite ``.db`` file holding a chosen subset of the
-live database's data plus an ``orb_preset_meta`` row describing what it carries.
-Snapshots are the same kind of file (a full-domain preset) and live in the same
-on-disk library, so the UI lists everything uniformly.
-
-Two ways to bring a file's data into the live DB:
-
-  * **apply** -- merge by identity. UUID-keyed entities (characters, worlds,
-    conversations, fragments) upsert; a parent's child collection (a chat's
-    message tree, a world's lorebook entries) is replaced wholesale; integer-PK
-    rows that are *referenced* by other tables are reinserted with fresh ids and
-    the references translated. Existing data the preset doesn't mention is left
-    alone.
-  * **restore** -- roll the live DB back to the file. A *full-coverage* file is
-    copied over the live DB whole (``restore_full``). A *partial* file is restored
-    domain-scoped (``restore_partial``): the same merge machinery as apply, but
-    each covered domain is emptied first, so those domains end up *exactly*
-    matching the file (rows added since are dropped) while domains the file
-    doesn't carry are left untouched.
-
-All logic here is synchronous ``sqlite3`` (mirroring the migration runner) so it
-can ``ATTACH`` databases and run ``VACUUM INTO``; routes invoke it via
-``asyncio.to_thread`` while holding ``backend.core.locks.maintenance_lock``.
-"""
+"""Export, import, restore, and maintain preset database files."""
 
 from __future__ import annotations
 
@@ -42,14 +17,10 @@ from ...database.schema import CREATE_TABLES_SQL
 
 META_TABLE = "orb_preset_meta"
 
-# The set of user-facing domains, derived from the declared roots. Order is
-# informational (meta stores them sorted); the actual merge order is the
-# schema-derived topological sort in _build_schema_model().
+# User-facing domains, derived from the declared roots.
 ALL_DOMAINS: list[str] = sorted(set(ps.DOMAIN_ROOTS.values()))
 
-# How long a full restore waits for the live DB's write lock before giving up.
-# Routes already serialise restores behind maintenance_lock, so the only thing
-# to wait out is an ordinary request's short write transaction.
+# Maximum wait for the live DB write lock during a full restore.
 RESTORE_LOCK_TIMEOUT = 15.0
 
 
@@ -62,7 +33,6 @@ class PresetError(Exception):
     """Raised for caller-facing preset failures (bad file, version skew, etc.)."""
 
 
-# ── schema model (derived from the live schema, zero hand-maintenance) ───────
 #
 # Everything the merge engine needs -- table classification, the FK graph, a
 # safe insert order, which edges to defer -- is read from the live database with
@@ -419,9 +389,6 @@ def assert_schema_safe(conn: sqlite3.Connection) -> None:
         raise PresetError("Preset schema safety check failed:\n  - " + "\n  - ".join(problems))
 
 
-# ── paths ───────────────────────────────────────────────────────────────────
-
-
 def _db_path() -> str:
     # Resolved dynamically so tests that monkeypatch connection.DB_PATH work.
     from ...database import connection
@@ -436,26 +403,7 @@ def _snapshots_dir() -> str:
 
 
 def _library_path(name: str) -> str:
-    """Resolve a library entry by file name, rejecting path traversal.
-
-    ``name`` arrives straight from a request path parameter, so it is validated
-    against a strict filename allowlist before reaching any filesystem sink. The
-    pattern admits only the characters our own ``_unique_name`` emits (letters,
-    digits, ``-``, ``_``) plus the literal ``.db`` suffix, so ``/``, ``\\`` and
-    any ``.`` outside that suffix -- hence every path separator and ``..`` -- are
-    rejected up front. The repetition is length-bounded (a real name's stem is a
-    15-char timestamp plus a slug capped at 40) so the match cannot backtrack on
-    a long run of ``-`` (CodeQL ``py/polynomial-redos``).
-
-    The resolved path is then normalised with ``realpath`` and checked to be
-    strictly contained in the library root before it reaches any filesystem
-    sink. This realpath-normalise-then-prefix-check is the barrier CodeQL
-    ``py/path-injection`` recognises, and it doubles as the runtime guard against
-    a symlink planted in the library (``realpath`` follows links, so an entry
-    pointing outside the root fails the containment test). A validated ``name``
-    is always a non-empty file name, so the resolved path is necessarily a child
-    of the root -- never the root itself -- hence the plain ``startswith`` test.
-    """
+    """Resolve a library filename after rejecting path traversal."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}\.db", name):
         raise PresetError("Invalid preset name")
     root = os.path.realpath(_snapshots_dir())
@@ -477,9 +425,6 @@ def _unique_name(kind: str, label: str) -> str:
         name = f"{base}-{i}.db"
         i += 1
     return name
-
-
-# ── meta ──────────────────────────────────────────────────────────────────
 
 
 def _write_meta(conn: sqlite3.Connection, included: list[str], label: str, kind: str, keys_stripped: bool) -> None:
@@ -537,9 +482,6 @@ def read_meta(path: str) -> dict | None:
         "kind": row[3],
         "keys_stripped": bool(row[4]),
     }
-
-
-# ── export ──────────────────────────────────────────────────────────────────
 
 
 def _assert_integrity(conn: sqlite3.Connection, what: str) -> None:
@@ -618,22 +560,7 @@ def _blank_json_paths(conn: sqlite3.Connection, table: str, column: str, paths: 
 
 
 def _scrub_configs(conn: sqlite3.Connection, schema: _Schema) -> None:
-    """Strip personal config + secrets when 'configs' is not exported.
-
-    Deleting the configs domain's non-singleton roots (endpoints, user_personas)
-    auto-nulls their references on the settings row via the schema's ON DELETE SET
-    NULL and cascades model_configs (this runs FK-on, on the export clone). The
-    singleton's secret/free-text columns are then blanked per SECRET_COLUMNS so a
-    shared preset never leaks a key, identity, or prompts. Import ignores configs
-    in such a preset anyway (gated by meta), so exact default values do not matter
-    -- only that nothing personal remains. Both the set of configs roots and the
-    blanked columns are derived/declared, so a new configs table or secret column
-    is covered without editing here.
-
-    The JSON pass is not scoped to singletons: a credential inside a free-form
-    ``workflow_state`` rides a character card, so it ships in a ``characters``
-    export that never touches ``settings`` at all.
-    """
+    """Remove personal configuration and secrets from an export."""
     for root, domain in ps.DOMAIN_ROOTS.items():
         if domain == "configs" and schema.tables[root].kind != "singleton":
             conn.execute(f"DELETE FROM {root}")  # nosec B608 — schema-derived identifier, values parameterised
@@ -721,7 +648,6 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
     return name
 
 
-# ── merge (apply) ─────────────────────────────────────────────────────────
 #
 # One generic engine drives every domain. Given the schema model it:
 #   A. (restore only) wipes each additive domain so it ends up matching the file.
@@ -905,24 +831,7 @@ def _fixup_deferred(conn, schema, table, from_col, idmaps, cache) -> None:
 
 
 def _reconcile_crossref(conn, schema, fk: _FK, idmaps, cache, remap: bool) -> None:
-    """Realign every row of a soft-pointer column after its parent was *fully*
-    replaced, including rows the import never touched.
-
-    A full table replace (re-keying user_personas, or wiping worlds on a restore)
-    can orphan pointers held by rows in *other* domains -- a pre-existing
-    character's persona_lock_id, a stale world link. This is the generalised
-    successor to _reconcile_persona_locks and the world_id null-out: remap through
-    the parent's old->new map where one exists, then NULL whatever still dangles.
-    (Same-domain children are not reconciled here: the domain's own replace already
-    rebuilt them, and their surrogate parent ids are not portable across it.)
-
-    ``remap`` is False when the child *table's own domain was merged this pass*:
-    phase C already resolved those rows' pointers into the new id space via
-    _resolve_fk, so re-running the file old->new map would double-remap them (and
-    silently corrupt a row whose freshly-assigned new id collides with a file old
-    id). Only the NULL-out runs in that case, catching pre-existing rows the merge
-    left untouched whose now-stale local pointer no longer resolves.
-    """
+    """Reconcile soft pointers after parent rows are remapped."""
     table, col = fk.table, fk.from_col
     pmap = idmaps.get(fk.parent)
     if remap and pmap:
@@ -1010,19 +919,7 @@ def _merge(conn: sqlite3.Connection, included: set[str], replace: bool) -> dict[
 
 
 def apply_preset(preset_path: str, *, replace: bool = False) -> dict:
-    """Merge a preset's data into the live DB by identity. Returns row counts
-    per merged domain. Raises PresetError on schema-version skew or FK failure.
-
-    With ``replace=True`` (the partial-restore path) each covered domain is
-    emptied before its merge, so the domain ends up exactly matching the file
-    rather than merged into existing rows; domains the file doesn't carry are
-    left untouched.
-
-    The stored library file is never written: we validate + upgrade + ATTACH a
-    throwaway ``.``-prefixed copy (which ``list_library`` ignores), so a buggy
-    migration on ingest can never corrupt the user's backup. ``restore_full`` does
-    the same with its own temp copy.
-    """
+    """Merge a preset into the live database by identity."""
     work = os.path.join(_snapshots_dir(), f".apply-{os.getpid()}-{datetime.datetime.now():%H%M%S%f}.tmp")
     shutil.copyfile(preset_path, work)
     try:
@@ -1072,9 +969,6 @@ def restore_partial(preset_path: str) -> dict:
     rest untouched. The full-coverage counterpart is ``restore_full``.
     """
     return apply_preset(preset_path, replace=True)
-
-
-# ── snapshots / restore / library ─────────────────────────────────────────
 
 
 def create_snapshot(label: str = "") -> str:
@@ -1157,33 +1051,7 @@ def _copy_over_live(prepared: str, live: str) -> None:
 
 
 def restore_full(name: str) -> None:
-    """Replace the live DB's contents with a library file (clean rollback).
-
-    The replacement is prepared out-of-place -- preset marker dropped, migrated,
-    vacuumed, integrity- and FK-checked on a private temp copy -- and only then
-    copied into the live database through SQLite's online backup API.
-
-    Why not prepare a file and ``os.replace`` it over the live path: that swap is
-    POSIX-only. Windows opens files without ``FILE_SHARE_DELETE`` and SQLite's
-    win32 VFS is no exception, so renaming over a database *any* connection still
-    holds open fails with ``PermissionError: [WinError 5]``. The app serves
-    overlapping requests on their own short-lived connections, so on Windows the
-    swap lost a coin flip against any concurrent request -- and failed outright
-    under the test suite, which holds an assertion connection open for the whole
-    test. Going through SQLite is portable and strictly stronger: the write takes
-    the ordinary locking protocol, so connections already open on the live path
-    follow the restore (the schema-cookie bump re-prepares their statements)
-    instead of being stranded on an unlinked inode.
-
-    It also retires the stale-WAL hazard the swap carried. A swapped-in file left
-    the *previous* database's ``-wal``/``-shm`` at the live path, and SQLite
-    replays a ``-wal`` it finds beside a database regardless of that database's
-    own journal mode -- silently reverting the restore on the next open, and with
-    a truncated ``-wal``, leaving a malformed file. It closes that path's
-    residual race too (a reader opening the live path mid-swap could replay the
-    stale WAL): here the live file, its WAL and its readers are the same objects
-    throughout, so there is nothing stale to clear and no window to race.
-    """
+    """Replace the live database with a full preset."""
     src = _library_path(name)
     live = _db_path()
     tmp = f"{live}.restore-{os.getpid()}"
@@ -1276,9 +1144,6 @@ def prune_auto(keep: int = 10) -> None:
             os.remove(os.path.join(_snapshots_dir(), entry["name"]))
         except OSError:
             pass
-
-
-# ── import (external file) ─────────────────────────────────────────────────
 
 
 def check_and_upgrade(path: str) -> None:

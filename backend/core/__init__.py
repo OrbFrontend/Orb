@@ -1,13 +1,4 @@
-"""Shared kernel — dependency-free leaves imported by every layer above.
-
-This package is the bottom of the one-way dependency order
-(``api → {pipeline, features} → workflows → {inference, analysis} → core``).
-It imports nothing upward; everything else may import it.
-
-The facade re-exports the kernel surface so callers write ``from .core import X``
-regardless of which submodule ``X`` actually lives in. Patch the *canonical*
-submodule (e.g. ``backend.core.locks._workflow_state_locks``), never this facade.
-"""
+"""Dependency-free shared kernel."""
 
 from __future__ import annotations
 

@@ -1,18 +1,4 @@
-"""cast.py -- who speaks: speaking-plan validation and round-robin policy.
-
-**A "cue" is what the Director tells a single speaker to do in one reply** --
-one line, in the theatrical sense. This module owns the term; it travels from
-here into the writer's tail (``## Your cue``) and onto the wire as the ``cue``
-field of ``speaking_plan`` and ``speaker_start``. It is not a unit of time at
-all. The turn unit a whole group request produces is an *exchange*
-(``messages.exchange_id``); the wider unit the sheet pass and the image-gen
-subject order read -- the user's last message and every reply since -- is a
-*round*. Three words, none of them interchangeable.
-
-It was called a *beat* until the word started surfacing in the writer's own
-prose: "paused a beat" is idiomatic narration, so a section header naming it
-reinforced a word the model already reaches for. A cue is rare in narration.
-"""
+"""Validate speaking plans and choose group speakers."""
 
 from __future__ import annotations
 
@@ -81,21 +67,7 @@ def parse_speaking_plan(raw: object, members: Sequence[Mapping], cap: int) -> li
 
 
 def plan_cue(raw: object, members: Sequence[Mapping], member_id: str) -> str:
-    """The Director's cue for one member, for the paths that cast without the plan.
-
-    A pin (regenerate, magic rewrite, ``/speak``, a manual pick) and round-robin
-    both settle *who* speaks before the plan is read, and must: the row a
-    regenerate replaces already owns its speaker, and swapping it would hand one
-    message's branch siblings to two different characters. That is a casting
-    decision and nothing more -- if the Director wrote a cue for the very member
-    about to speak, that cue is what it wants from this reply, and dropping it wrote
-    the speaker blind against a scene direction the Director had already aimed
-    somewhere else.
-
-    Read **uncapped** on purpose. ``group_max_speakers`` bounds how many members
-    answer an exchange; here nobody is being cast, so a plan longer than the cap
-    must still yield the cue of the member who *is* speaking.
-    """
+    """Return the Director cue for one cast member."""
     if not isinstance(raw, list):
         return ""
     for member, cue in parse_speaking_plan(raw, members, len(raw)) or ():

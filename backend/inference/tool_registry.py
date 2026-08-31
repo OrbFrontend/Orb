@@ -1,16 +1,13 @@
-"""
-tool_registry.py — Built-in tool schemas and the tool registry.
-"""
+"""Define and assemble built-in tool schemas."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-# ── Agent tool definitions (OpenAI function-calling format)
+# Agent tool definitions.
 
-# Fixed parameters always present in direct_scene regardless of interactive fragments.
-# Only moods is fixed; all other parameters come from interactive fragments.
+# Fixed parameters always present in direct_scene.
 _DIRECT_SCENE_FIXED_PROPERTIES = {
     "moods": {
         "type": "array",
@@ -21,10 +18,7 @@ _DIRECT_SCENE_FIXED_PROPERTIES = {
 
 _DIRECT_SCENE_FIXED_REQUIRED: list[str] = []
 
-# The Agentic Lorebook selection parameter. It is the sole parameter of the
-# standalone `select_lorebook` tool (see below); the schema declares only the
-# *parameter* — the catalog of selectable values rides the select step's OOC
-# trailing. Kept out of `required` so the Director may select none.
+# The catalog is supplied in the selection step's trailing context.
 _ACTIVE_LOREBOOK_PROPERTY = {
     "selected_lorebook_entries": {
         "type": "array",

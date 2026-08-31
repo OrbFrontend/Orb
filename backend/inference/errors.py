@@ -1,25 +1,4 @@
-"""The provider's own words, kept alongside the status they arrived with.
-
-``raise_for_status()`` throws away the only part of an HTTP failure the user can
-act on. *"Reasoning is mandatory for this endpoint and cannot be disabled."* is a
-setting away from being fixed; ``Client error '400 Bad Request' for url ...`` is
-not. This module is the seam where the transport stops discarding the body.
-
-Sibling of image_gen's cloud funnel
-(``workflows/image_gen/engine/openai_image_client.py:74-137``), deliberately not a
-reuse of it: ``inference/`` is L4 and may not import ``workflows/`` (L3). The two
-share a strategy -- name the well-known shapes, then walk for any human-looking
-string -- and differ in how much they scrub. image_gen strips URLs and paths
-because a render failure travels to a user who may not be the operator; Orb's chat
-transport is self-hosted, the user *is* the operator, and the endpoint URL is the
-single most diagnostic token in a misrouted request. Only the credential goes.
-
-:class:`LLMCallError` subclasses ``httpx.HTTPStatusError`` on purpose, not
-``RuntimeError``: ``LLMClient._with_retry`` catches ``httpx.HTTPError`` and
-``RetryPolicy.should_retry`` reads ``exc.response.status_code`` off an
-``HTTPStatusError``. A plain ``RuntimeError`` here would silently disable retry
-for every 429/500/503 that reaches it.
-"""
+"""Preserve useful provider error messages for LLM calls."""
 
 from __future__ import annotations
 
@@ -132,22 +111,7 @@ def _first_string(value: Any) -> str:
 
 
 def provider_sentence(body: str, _depth: int = 0) -> str:
-    """The one sentence from an error body worth showing the user.
-
-    Deliberately incurious: the well-known keys first (they yield a clean single
-    sentence), then a generic walk. No vocabulary matching against provider prose --
-    a marker list has to be right about words no two providers share, and when it is
-    wrong it replaces an actionable message with a confident wrong one.
-
-    ``error.metadata.raw`` outranks ``error.message`` because of what a gateway
-    *is*. When OpenRouter proxies an upstream rejection it answers with its own
-    constant -- ``"Provider returned error"`` -- and parks the upstream's verbatim
-    body in ``metadata.raw``. Reading ``message`` first there yields precisely the
-    non-sentence this module exists to eliminate. The preference is structural, not
-    a vocabulary match: ``raw`` is by construction the more specific of the two, so
-    it wins whenever it is present and says something, whatever words it uses.
-    ``raw`` is usually itself a JSON body, hence the bounded recursion.
-    """
+    """Extract one sanitized sentence from a provider error body."""
     text = body.strip()
     if not text:
         return ""

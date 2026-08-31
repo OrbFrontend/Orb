@@ -1,15 +1,4 @@
-"""Fish Speech adapter — self-hosted TTS via native HTTP API.
-
-Fish Speech (https://github.com/fishaudio/fish-speech) uses its own API:
-- POST /v1/tts          — synthesize speech
-- GET  /v1/references/list — list voice references (saved speaker profiles)
-
-Request format:
-    POST /v1/tts
-    {"text": "...", "reference_id": "...", "format": "mp3", "temperature": 0.8}
-
-Output: wav/mp3/opus/pcm binary audio.
-"""
+"""Fish Speech TTS adapter."""
 
 from __future__ import annotations
 

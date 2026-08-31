@@ -1,16 +1,4 @@
-"""Workflow-attachment byte cache.
-
-Single chokepoint for byte writes into the `workflow_attachments`
-table -- size accounting and eviction live behind one entry point.
-
-Eviction marker:
-    The literal sentinel string EVICTED_MARKER replaces an evicted row's
-    `data_b64` column. Other columns (seed, generation_metadata,
-    filename, mime_type, etc.) stay intact so a subsequent rehydrate
-    can recover the bytes from stored parameters. Rows without usable
-    recovery metadata are pinned: eviction is refused rather than
-    destroying their only byte copy.
-"""
+"""Cache workflow attachment bytes with size accounting and recovery-aware eviction."""
 
 from __future__ import annotations
 
@@ -207,34 +195,7 @@ def _covered(victims: list[dict], shortfall: int) -> bool:
 
 
 async def rehydrate_attachment(attachment_id: int, data: bytes, *, consumption_metadata: dict | None = None) -> None:
-    """Restore bytes into an evicted workflow_attachments row in place.
-
-    Atomic: one connection holds ``BEGIN IMMEDIATE`` across the
-    precondition recheck, eviction prefix, and final UPDATE. Concurrent
-    rehydrates of the same id serialize on the SQLite write lock.
-
-    ``consumption_metadata`` overwrites the row's stored value in the same
-    transaction as the byte write when a dict is supplied; ``None`` leaves
-    the stored value intact. The bytes are the runtime truth and their
-    ``consumption_metadata`` is the derived store co-written here, so a
-    regeneration that yields byte-different output can replace metadata that
-    no longer describes the restored bytes.
-
-    Budget accounting uses ``len(data)`` directly -- the caller already
-    holds the bytes to be written, so the precise new byte count is
-    known. The row's stored bytes are the single source of truth for
-    size; nothing is read from a separate size column.
-
-    Preconditions enforced inside the lock:
-      - The row exists. Otherwise raises ``LookupError``.
-      - The row holds the EVICTED_MARKER sentinel. Otherwise raises
-        ``ValueError`` -- a parallel rehydrate already restored the
-        bytes; this call's work is throwaway.
-      - ``len(data)`` is not strictly greater than the cache budget.
-        Otherwise raises ``ValueError`` before evicting anything;
-        restoring an oversized row would evict every other byte-bearing
-        row and still not fit.
-    """
+    """Restore evicted bytes into an attachment row."""
     import base64
 
     new_size = len(data)
@@ -421,22 +382,7 @@ async def _record_access_inner(db, attachment_ids: list[int]) -> None:
 
 
 async def record_access(attachment_ids: list[int]) -> None:
-    """Bump the global access counter and prepend the assigned counter
-    values onto each target row's ``recent_accesses``.
-
-    Ids are assigned counter values in input-list order: the first id
-    in the list gets the smallest fresh counter, the last gets the
-    largest. Callers that want intra-call ordering encode it as input
-    order; the HTTP route forwards the request body's ``ids`` list as-is
-    so the frontend controls the assignment. Birth and rehydrate paths
-    inside this module call ``_record_access_inner`` directly to share
-    the open transaction with their surrounding writes.
-
-    Missing ids (e.g. the row was deleted between client capture and
-    the POST landing) are silently skipped. The counter is still
-    consumed -- we trade a few wasted counter values for not having to
-    roll back the transaction.
-    """
+    """Record an attachment access and update its recency."""
     if not attachment_ids:
         return
     async with get_db() as db:
@@ -505,24 +451,7 @@ def _stored_rehydratable(seed: object, generation_metadata: object) -> bool:
 
 
 def validate_workflow_attachment_shape(attachment: Any) -> tuple[bool, str | None]:
-    """Pre-flight SHAPE + emptiness check for a workflow-attachment dict.
-
-    Mirrors ``insert_workflow_attachment_row``'s raise gates in
-    ``backend/database/queries/workflow_attachments.py``, with one
-    extension: ``os.path.getsize == 0`` closes the gap the row helper
-    would otherwise catch only after reading the file.
-
-    Reason strings are intentionally shorter rephrasings of the row
-    helper's ValueError text -- chosen for frontend chip brevity. The
-    unit-test suite pins them verbatim, so changes break the contract.
-
-    Returns ``(True, None)`` on pass; ``(False, reason)`` on first
-    failed gate. Residual race: a path that vanishes between this check
-    and the row helper's ``open()`` still trips OSError under
-    ``BEGIN IMMEDIATE`` and rolls back the batch; outer try/except in
-    the route catches as HTTP 500. Sub-millisecond window; accepted
-    residual.
-    """
+    """Validate a workflow-attachment payload."""
     # Defense-in-depth: today's only caller (regenerate route) pre-filters
     # non-dicts before invoking, but the gate stays so unit tests pin the
     # exhaustive contract and future callers don't need to re-derive it.
@@ -566,26 +495,7 @@ def validate_workflow_attachment_shape(attachment: Any) -> tuple[bool, str | Non
 
 
 async def _check_flat_parent_on(db, parent_id: int, expected_message_id: int) -> None:
-    """Verify parent_id names an existing root attached to expected_message_id.
-
-    Two invariants enforced together because both protect the renderer's
-    group resolution (which joins by message_id and walks parent links
-    within that scope):
-
-      - The parent is a root (parent_attachment_id IS NULL). A 2+ deep
-        tree would put the new sibling outside the group the user sees.
-      - The parent belongs to the same message as the new insert. A
-        cross-message parent would orphan the new sibling under a root
-        the renderer never iterates from the new message's side, and the
-        eventual ``_set_active_sibling_on`` would clobber the foreign
-        message's active pointer.
-
-    Shared between single-row and batch insert paths so both enforce the
-    same invariants.
-
-    Raises ``LookupError`` if the row is missing, ``ValueError`` if the
-    row is itself a sibling or belongs to a different message.
-    """
+    """Verify a parent attachment belongs to the expected message."""
     rows = list(
         await db.execute_fetchall(
             "SELECT parent_attachment_id, message_id FROM workflow_attachments WHERE id = ?",
@@ -612,49 +522,7 @@ async def _check_flat_parent_on(db, parent_id: int, expected_message_id: int) ->
 async def insert_workflow_attachment(
     message_id: int, attachment: dict, *, mark_active: bool = True
 ) -> tuple[int | None, dict | None]:
-    """Cache-aware workflow-attachment insertion.
-
-    Returns ``(new_id, None)`` on successful insert (byte-bearing or
-    marker), or ``(None, rejected)`` on refusal. ``rejected`` is a shallow
-    copy of the input attachment with a ``reason`` key naming the rejection
-    class -- one of ``WORKFLOW_NOT_PRODUCES_ARTIFACTS_REASON`` (producing
-    workflow not declared ``produces_artifacts=True``) or
-    ``OVERSIZE_NO_METADATA_REASON`` (oversize and missing the
-    ``seed`` + ``generation_metadata`` fields rehydrate needs). Exactly
-    one of the two slots is non-None. Mirrors the batch helper's
-    ``(new_ids, rejected_atts)`` shape.
-
-    Oversize policy: an attachment whose size exceeds the cache budget
-    is marker-inserted (bytes never stored; row carries the EVICTED_MARKER
-    sentinel) iff it carries a non-empty ``seed`` and strictly
-    JSON-serializable dict ``generation_metadata`` -- the fields rehydrate
-    needs to reproduce the bytes later. Without
-    those fields the att is permanently unrecoverable as a marker, so
-    the function rejects instead of inserting. Marker-inserted rows still
-    get their parent's ``active_sibling_id`` updated -- the freshly
-    inserted variant is the displayed default, and the frontend renders
-    a "click Rehydrate" placeholder for marker rows.
-
-    `mark_active` (default True) updates the root row's
-    ``active_sibling_id`` to point at the freshly inserted sibling. Set
-    False to insert without moving the active pointer (e.g. when
-    restoring an older sibling).
-
-    Atomic: one connection holds ``BEGIN IMMEDIATE`` across the parent
-    flatness check, eviction prefix, row insert, birth-access record,
-    and (optional) active-sibling write.
-
-    Raises:
-      ValueError  -- ``parent_attachment_id`` names a row that is itself
-                     a sibling (its ``parent_attachment_id`` is not NULL),
-                     OR a row belonging to a different message, OR the
-                     attachment dict is malformed (empty workflow_id,
-                     not exactly one of data/path, wrong types, empty
-                     bytes after path-to-bytes normalization).
-      LookupError -- ``parent_attachment_id`` or ``message_id`` does
-                     not exist.
-      OSError     -- path-shape attachment whose path cannot be stat'd.
-    """
+    """Cache and insert one workflow attachment."""
     parent_id = attachment.get("parent_attachment_id")
     new_size = _estimate_size(attachment)
     workflow_id = attachment.get("workflow_id") or ""
@@ -719,63 +587,7 @@ async def insert_workflow_attachments(
     db=None,
     mark_active: bool = True,
 ) -> tuple[list[int], list[dict]]:
-    """Batch-aware atomic insert of workflow attachments.
-
-    Returns ``(new_ids, rejected_atts)``. ``new_ids`` lists the row ids
-    actually inserted, in input order with rejected indices skipped.
-    ``rejected_atts`` lists the input dicts dropped for rehydratability
-    reasons (oversize AND lacking ``seed`` + ``generation_metadata``);
-    callers can surface those to the user as a warning.
-
-    Plan-then-execute: with all batch sizes known up front, compute the
-    minimal eviction set that lets the post-batch cache fit in budget,
-    then execute the plan in a single transaction. The whole batch + the
-    caller's surrounding writes commit together when ``db`` is provided.
-
-    Plan, in order:
-
-    1. Reserve capacity occupied by pinned existing rows, then marker/reject
-       new attachments biggest-first until the new byte-bearing total fits
-       in the remaining budget. Markering a big new att can
-       spare many small existing rows from eviction, so this runs
-       first. Rehydratable atts become markers (insert_as_evicted);
-       non-rehydratable ones drop into ``rejected_atts``. Marker rows
-       persist with EVICTED_MARKER in ``data_b64`` and recover via
-       ``rehydrate_attachment``.
-    2. Evict recoverable existing byte-bearing rows oldest-first per LRU-3 for any
-       residual shortfall (``occupied + new_byte_total > budget``).
-       When pre-existing occupancy already exceeds budget (e.g. after
-       a runtime settings shrink), step 2 converges toward budget by
-       evicting on the next write. Unrecoverable rows remain pinned even
-       when their occupancy alone exceeds the new budget.
-
-    Birth-as-access fires once for every successfully-inserted row
-    (rejected ones never reach the DB at all).
-
-    ``mark_active`` (default True) updates the parent root's
-    ``active_sibling_id`` for each inserted new sibling; rejected atts
-    are skipped. Last write wins for inserted siblings of the same root.
-
-    When ``db`` is provided, the caller owns the transaction lifecycle.
-    When None, this helper opens its own connection, holds
-    ``BEGIN IMMEDIATE`` across the read/plan/execute sequence, and
-    commits.
-
-    Raises propagate from the underlying row helper (LookupError for a
-    missing message or parent, ValueError for non-rehydratability is
-    not raised here -- those atts go in rejected_atts; ValueError for
-    malformed attachment shape such as flat-parent violation or empty
-    data DOES still raise; OSError for unreadable paths during stat).
-    The caller's transaction rolls back on any such raise.
-
-    ``rejected_atts`` entries are shallow copies of the input dicts, each
-    tagged with a ``reason`` key naming the rejection class:
-    ``WORKFLOW_NOT_PRODUCES_ARTIFACTS_REASON`` (Step 0 policy partition --
-    producing workflow not declared ``produces_artifacts=True``) or
-    ``OVERSIZE_NO_METADATA_REASON`` (Step A oversize partition -- attachment
-    exceeds budget AND lacks ``seed`` + ``generation_metadata``). Route
-    and SSE projection layers read the ``reason`` key verbatim.
-    """
+    """Cache and insert workflow attachments atomically."""
     if not attachments:
         return [], []
 
@@ -901,31 +713,7 @@ async def set_active_sibling(
     *,
     expected_message_id: int | None = None,
 ) -> None:
-    """Persist the active-sibling choice for a workflow attachment group.
-
-    Validation runs inside the same ``BEGIN IMMEDIATE`` transaction as
-    the UPDATE so a concurrent row-delete cannot land between check and
-    write. Raises:
-
-    - ``LookupError`` if the root row does not exist, the root is not
-      on ``expected_message_id`` (when given), the sibling row does not
-      exist, or the sibling sits on a different message than the root.
-    - ``ValueError`` if the root is not a root
-      (``parent_attachment_id IS NOT NULL``), or the sibling exists on
-      the right message but does not belong to the root's group
-      (``sibling.id != root.id`` AND
-      ``sibling.parent_attachment_id != root_id``).
-
-    ``sibling_id=None`` clears ``active_sibling_id`` and bypasses the
-    sibling checks (only the root checks run). ``expected_message_id``
-    is optional so internal/test callers that have already verified row
-    provenance can pass ``None`` and skip the message-on-root check.
-
-    Internal insert paths bypass this validation entirely by calling
-    ``_set_active_sibling_on`` directly inside their own
-    ``BEGIN IMMEDIATE`` -- they construct the sibling row in the same
-    transaction, so group membership is trivially true.
-    """
+    """Persist the active attachment variant."""
     async with get_db() as db:
         await db.execute("BEGIN IMMEDIATE")
         root_rows = list(
@@ -981,37 +769,7 @@ async def delete_workflow_attachments(
     scope: str,
     expected_message_id: int | None = None,
 ) -> dict:
-    """Delete a workflow-attachment variant or a whole group.
-
-    Validation and writes share one ``BEGIN IMMEDIATE`` (matching
-    ``set_active_sibling``) so a concurrent mutation cannot land between
-    check and write. The group root is derived from the target inside the
-    transaction.
-
-    scope "group": delete the root and every sibling.
-    scope "variant": delete ``target_id``. When ``target_id`` is the group
-      root and siblings survive, the oldest survivor is promoted to root
-      (the others are re-parented onto it) before the old root is deleted,
-      so the survivors remain one group rather than scattering into
-      singletons. Only a root row's annotation reaches the LLM prefix
-      (see ``prompt_builder``), so the promoted root inherits the deleted
-      root's annotation, keeping the message's model-visible text stable.
-
-    Performs no eviction or access-counter bookkeeping: deleted rows
-    release their own byte budget and their access records vanish with
-    them.
-
-    Returns ``{"deleted_ids": list[int], "group_empty": bool,
-    "root_id": int, "active_sibling_id": int | None}``. ``root_id`` is the
-    post-op root (the deleted root id when ``group_empty``).
-    ``active_sibling_id`` is meaningful only when ``group_empty`` is False,
-    where it may still be None (deleting the active variant reverts the
-    group to newest-wins via the ``ON DELETE SET NULL`` foreign key).
-
-    Raises ``LookupError`` (target missing, or not on
-    ``expected_message_id``) and ``ValueError`` (scope not
-    "variant"/"group").
-    """
+    """Delete an attachment variant or group."""
     if scope not in ("variant", "group"):
         raise ValueError(f"scope must be 'variant' or 'group'; got {scope!r}")
     async with get_db() as db:

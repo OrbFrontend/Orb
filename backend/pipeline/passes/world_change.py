@@ -1,25 +1,4 @@
-"""
-passes/world_change.py -- Dynamic Worlds proposal step.
-
-Asks the model, via a forced ``propose_world_changes`` call, whether the turn
-established anything durably true of the shared World. It runs last: after the
-editor and after the draft-rewriting post-pipeline hooks, so the prose it judges
-is the prose that will be persisted, not the writer's first draft.
-
-The wire schema is the fixed ``propose_world_changes`` tool held in the shared
-per-turn blob, so the call reuses the cached base and only forces the tool
-choice; the catalog of existing entries rides this step's OOC trailing. The
-exchange is replayed as the two messages before the request -- the writer's user
-message and the final reply -- which both grounds the judgement in the persisted
-text and extends the warm writer/editor prefix.
-
-The step proposes; it never writes. Its output is validated in
-``features/lorebook/proposals.py`` and staged as a *pending* changeset at the
-same persistence boundary as the assistant reply. Errors and aborts are
-swallowed into an empty proposal: this runs immediately before the turn's
-``_result``, where a propagating exception would skip persisting the finished
-reply, and a bookkeeping step must never cost the user their message.
-"""
+"""Propose Dynamic Worlds changes after the final draft is ready."""
 
 from __future__ import annotations
 

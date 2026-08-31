@@ -1,14 +1,4 @@
-"""The rewriter as a running thing: its host, its readiness, its event stream.
-
-Both callers — the Editor pass and the on-demand message route — consume
-:func:`rewrite_events`, so neither reimplements progress ordering or the
-failure contract.
-
-THE SAFE FAILURE MODE IS A BYTE-IDENTICAL NO-OP, the same contract
-``format_consistency`` states. No binary, no GGUF, a boot timeout, a dead
-child, an HTTP error — all of them keep the writer's prose and emit one
-warning. A local nicety must never cost a turn.
-"""
+"""Run the prose rewriter and expose its event stream."""
 
 from __future__ import annotations
 

@@ -1,34 +1,4 @@
-"""
-phrase_repetition.py — Detect exact phrase repetition (n-gram level) across messages.
-
-Catches stock phrases the model keeps reaching for across multiple turns, like
-a description that reappears word-for-word in three different messages.
-
-Public API:
-    detect_phrase_repetition(messages, min_n=2, max_n=5, min_messages=2,
-                             min_content_words=2, require_last_message=True)
-    PhraseResult, FlaggedPhrase  (dataclasses)
-
-How it works:
-    - For each message: strip dialogue, split into sentences, tokenize.
-    - Extract every n-gram (n in [min_n, max_n]) and track the set of distinct
-      message indices where it appears. Repeated occurrences within one message
-      don't inflate the count.
-    - Drop n-grams with fewer than min_content_words non-stopword tokens — this
-      filters out glue phrases like "in the air" or "I don't know".
-    - Drop n-grams that appear in fewer than min_messages messages.
-    - Drop sub-n-grams: if a shorter phrase is fully contained in a longer one
-      that appears in exactly the same messages, the shorter one is redundant.
-    - When require_last_message is True, only keep phrases that also appear in
-      the final message (the current draft), making the report immediately
-      actionable.
-
-Example target pattern:
-    Message 1: "His shadowed red eyes flickered in the firelight."
-    Message 4: "She met the shadowed red eyes across the table."
-    Message 7: "Behind the mask, his shadowed red eyes burned."
-    ^^^ flagged as "shadowed red eyes" (3 messages).
-"""
+"""Detect exact phrase repetition across messages."""
 
 from __future__ import annotations
 
@@ -54,9 +24,6 @@ __all__ = [
 ]
 
 
-# ---------- public dataclasses ----------
-
-
 @dataclass(slots=True)
 class FlaggedPhrase:
     phrase: str
@@ -71,18 +38,7 @@ class PhraseResult:
     total_messages: int
 
 
-# ---------- text processing ----------
-# Segmentation lives in text_segmentation so every detector splits text the
-# same way. _split_sentences strips dialogue before splitting into sentences.
-
 _split_sentences = split_narration_sentences
-
-
-# ---------- redundancy suppression ----------
-# n-gram extraction and the contiguous-containment test both live in lexical
-# (shared, were duplicated here); this module keeps only the suppression policy.
-# deduplicate_phrases is the single source of truth, used here and by audit's
-# two-pass merge so the same phrase can't surface twice across passes.
 
 
 def _rank(p: FlaggedPhrase) -> tuple[int, int, str]:
@@ -91,11 +47,7 @@ def _rank(p: FlaggedPhrase) -> tuple[int, int, str]:
 
 
 def _overlap_chains(a: tuple[str, ...], b: tuple[str, ...]) -> bool:
-    """True when a and b tile a longer phrase head-to-tail — a suffix of one
-    equals a prefix of the other — and the shared run carries a content word.
-    Catches one long repeat surfacing as two overlapping fragments, e.g.
-    "the tight ring" + "ring of muscle" (overlap "ring"). The content-word
-    requirement stops stopword joints ("into the" + "the dark") from merging."""
+    """Return whether two phrases overlap on a meaningful token run."""
     for x, y in ((a, b), (b, a)):
         for k in range(min(len(x), len(y)) - 1, 0, -1):  # k < len excludes containment
             if x[-k:] == y[:k] and count_content_words(x[-k:]):
@@ -104,17 +56,7 @@ def _overlap_chains(a: tuple[str, ...], b: tuple[str, ...]) -> bool:
 
 
 def deduplicate_phrases(phrases: list[FlaggedPhrase]) -> list[FlaggedPhrase]:
-    """Drop phrases that restate the same underlying repeat as another.
-
-    A shorter phrase contiguously contained in a longer one always recurs in a
-    superset of the longer's messages, so for each containment pair keep:
-      - the longer phrase when both span the same messages (more specific), else
-      - the shorter phrase, which recurs more widely (the longer is a partial
-        coincidence: "six centuries" in 3 msgs subsumes "for six centuries" in 2).
-    For phrases that merely overlap head-to-tail across the same messages, keep
-    the higher-ranked one ("ring of muscle" / "the tight ring" -> one line).
-    Survivors are returned best-first (_rank order); callers need not re-sort.
-    """
+    """Drop phrases that describe the same underlying repeat."""
     grams = {id(p): tuple(p.phrase.split()) for p in phrases}
     msgs = {id(p): frozenset(p.message_indices) for p in phrases}
     suppressed: set[int] = set()
@@ -131,9 +73,6 @@ def deduplicate_phrases(phrases: list[FlaggedPhrase]) -> list[FlaggedPhrase]:
     return sorted((p for p in phrases if id(p) not in suppressed), key=_rank)
 
 
-# ---------- public API ----------
-
-
 def detect_phrase_repetition(
     messages: list[str],
     min_n: int = 2,
@@ -142,26 +81,7 @@ def detect_phrase_repetition(
     min_content_words: int = 2,
     require_last_message: bool = True,
 ) -> PhraseResult:
-    """Detect phrases that recur word-for-word across multiple messages.
-
-    Args:
-        messages: list of assistant messages. When require_last_message is True,
-            the final entry is treated as the current draft.
-        min_n: minimum phrase length in words.
-        max_n: maximum phrase length in words.
-        min_messages: how many distinct messages a phrase must appear in to be flagged.
-        min_content_words: minimum content words (non-stopwords) in a phrase.
-            Filters out grammatical glue like "in the air" or "I don't know".
-            Load-bearing at min_n=2: a value of 2 forces both tokens of a 2-gram
-            to be content words, so 2-word flags can't degenerate into a
-            single-word match dressed up with a stopword ("the eyes", "his gaze").
-        require_last_message: when True, only flag phrases that also appear in
-            the last message. Set to False to flag any repeated phrase across the
-            full list.
-
-    Returns:
-        PhraseResult sorted by (message count descending, phrase length descending).
-    """
+    """Return repeated phrases across the supplied messages."""
     total = len(messages)
     if total < min_messages or min_n < 1 or max_n < min_n:
         return PhraseResult([], total)

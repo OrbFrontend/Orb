@@ -1,17 +1,4 @@
-"""
-passes/editor/length_guard.py — The length-guard feature.
-
-Caps response length in two arms:
-
-* *Preventive* (writer): :func:`writer_nudge` appends a "keep it under N words"
-  instruction to the writer's user message, only in enforce mode.
-* *Corrective* (editor): :func:`evaluate_length_guard` checks the finished draft
-  and, when it overshoots, gives the editor a directive to call ``editor_rewrite``.
-
-:func:`resolve_length_guard` converts raw settings into the :class:`LengthGuard`
-config; a non-None result means the guard is enabled. :func:`apply_length_guard_tools`
-ensures ``editor_rewrite`` is present in every pass's tool blob.
-"""
+"""Apply preventive and corrective response-length limits."""
 
 from __future__ import annotations
 

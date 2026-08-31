@@ -1,29 +1,4 @@
-"""Per-(endpoint, model) request translation profiles.
-
-Some OpenAI-compatible backends reject unknown body fields or require
-specific value shapes. This module defines policies that mutate the request
-body before it leaves ``LLMClient.complete()``.
-
-Two-level lookup (PROFILES dict):
-- Known endpoint + known model → model-specific profile (replaces default).
-- Known endpoint + unknown/blank model → endpoint default (``None`` key).
-- Unknown endpoint → ``None`` = pass-through (local llama.cpp, vLLM, etc.).
-
-To add a new quirk:
-  1. Flip a typed knob (``allow_extra``, ``allow_forced_tool_choice``).
-  2. Attach a ``custom=`` callable for one-off logic.
-  3. Promote a recurring ``custom=`` pattern to a named dataclass field.
-  4. Subclass ``ModelProfile`` and override ``apply()`` for radically different APIs.
-
-Some quirks cannot be declared at all: a proxy endpoint fronts a different
-upstream engine per model, and an engine that accepts a field and ignores it
-looks identical to one that honors it until the reply arrives. Those are
-*learned* into module-level session sets (``_TOOL_CHOICE_UNSUPPORTED``,
-``_FORCED_CHOICE_IGNORED``, ``_STRUCTURED_OUTPUT_IGNORED``) by the caller that
-saw the evidence, and every knob reader consults them. Prefer that over
-enumerating models in ``PROFILES``: a hand-kept per-model capability list
-behind a proxy goes stale the day the proxy re-routes it.
-"""
+"""Translate requests for endpoint and model quirks."""
 
 from __future__ import annotations
 
@@ -236,27 +211,7 @@ def note_structured_output_ignored(endpoint_url: str, model: str) -> None:
 
 
 def honors_forced_tool_choice(endpoint_url: str, model: str = "", params: Mapping[str, Any] | None = None) -> bool:
-    """True when a forced-function ``tool_choice`` is expected to actually force.
-
-    Dry-runs :func:`prepare_request_body` over a throwaway body rather than
-    re-stating any provider rule, so profile knobs, conditional transforms
-    (DeepSeek's thinking check) and session-learned drops all count. *params*
-    is the rest of the intended body — pass the reasoning params, since
-    whether forcing survives can depend on them.
-
-    Providers that ignore the field instead of rejecting it can't be known up
-    front; they get learned via :func:`note_forced_tool_choice_ignored`.
-
-    Callers that assembled a multi-tool array only as a cache optimization
-    should ship just the forced tool when this returns ``False``: an unforced
-    array turns every rival schema into a coin flip.
-
-    ``True`` says the *choice* survives to the wire. It says nothing about what
-    the server then renders into the prompt — several backends honor forcing by
-    serializing only the forced tool and dropping the rest of the array (see
-    docs/architecture/kv-cache.md, Invariant 3). So a ``True`` here does not mean
-    a shared multi-tool array is producing a shared prefix.
-    """
+    """Return whether this endpoint should honor forced tool choice."""
     if (endpoint_url, model) in _FORCED_CHOICE_IGNORED:
         return False
     body: dict = {**(dict(params) if params else {}), "tool_choice": {"type": "function", "function": {"name": "_probe"}}}
@@ -297,7 +252,6 @@ def profile_for(endpoint_url: str, model: str = "") -> ModelProfile | None:
     return None
 
 
-# ---------------------------------------------------------------------------
 # Request preparation + error recovery (the provider seam LLMClient calls)
 #
 # These two module-level functions are the *entire* provider-specific surface
@@ -306,7 +260,6 @@ def profile_for(endpoint_url: str, model: str = "") -> ModelProfile | None:
 # worth one retry. Everything that knows about a provider -- URL matching,
 # error-text sniffing, the session memory of what a model rejects -- lives
 # here, not in llm_client.
-# ---------------------------------------------------------------------------
 
 # (endpoint_url, model) pairs seen to reject the tool_choice param this
 # session. In-memory only (cleared on restart); lets later calls drop it up

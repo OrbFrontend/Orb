@@ -1,27 +1,4 @@
-"""
-template_repetition.py — Detect repetitive sentence-opening templates spread
-across many paragraphs.
-
-Similar to opening_monotony, but looser: instead of requiring a strict
-consecutive run, it clusters narration sentences by similar openings across the
-whole response. Useful for catching recurring openers that aren't adjacent.
-
-Public API:
-    detect_template_repetition(text, max_words=3, flag_threshold=3, similarity_threshold=0.5)
-    TemplateResult, FlaggedTemplate  (dataclasses)
-
-How it works:
-    - Strip dialogue and split the remaining narration into sentences.
-    - Take the first max_words words of each sentence as its "template".
-    - Cluster templates by word-overlap similarity (Jaccard) or shared prefix.
-    - Flag any cluster that reaches flag_threshold or more sentences.
-
-Example target pattern:
-    "The question hangs in the air..."
-    (several paragraphs later...)
-    "The question is heavy..."
-    ^^^ flagged as "the question" template repetition
-"""
+"""Detect repeated sentence-opening templates in narration."""
 
 from __future__ import annotations
 
@@ -41,8 +18,6 @@ __all__ = [
     "FlaggedTemplate",
 ]
 
-# ---------- public dataclasses ----------
-
 
 @dataclass(slots=True)
 class FlaggedTemplate:
@@ -61,14 +36,7 @@ class TemplateResult:
     repetition_score: float
 
 
-# ---------- text processing ----------
-# Segmentation lives in text_segmentation so every detector splits text the
-# same way. _split_sentences strips dialogue before splitting into sentences.
-
 _split_sentences = split_narration_sentences
-
-
-# ---------- template analysis ----------
 
 
 def _get_template(sentence: str, max_words: int) -> str | None:
@@ -77,10 +45,8 @@ def _get_template(sentence: str, max_words: int) -> str | None:
     words = sentence.split()
     if len(words) < 3:
         return None
-    # Take up to max_words words
     template_words = words[:max_words]
     normalized = [normalize_word(w) for w in template_words]
-    # Filter out empty words after normalization
     normalized = [w for w in normalized if w]
     if len(normalized) < 3:
         return None
@@ -105,11 +71,7 @@ def _word_overlap_similarity(t1: str, t2: str) -> float:
 
 
 def _templates_similar(t1: str, t2: str, threshold: float, max_words: int) -> bool:
-    """True if two templates are similar enough to cluster together.
-
-    Two templates match if they share a common prefix of at least (max_words - 1)
-    words, or if their Jaccard word-overlap meets the threshold.
-    """
+    """Return whether two templates are similar enough to cluster."""
     if t1 == t2:
         return True
 
@@ -134,26 +96,15 @@ def _cluster_templates(
     similarity_threshold: float,
     max_words: int,
 ) -> dict[str, list[tuple[str, str]]]:
-    """Group sentences into clusters of similar templates.
-
-    Uses greedy clustering: each sentence joins the first existing cluster whose
-    canonical template is similar enough; otherwise it starts a new cluster.
-    After clustering, the most frequent template in each cluster becomes the
-    canonical form.
-
-    Returns a dict mapping canonical template -> list of (sentence, template) pairs.
-    """
-    # Greedy clustering first
+    """Group sentences by similar templates."""
     clusters: list[list[tuple[str, str]]] = []
 
     for sent, tmpl in zip(sentences, templates):
         if tmpl is None:
             continue
 
-        # Try to find an existing cluster
         found_cluster = None
         for cluster in clusters:
-            # Use first template as canonical for similarity check
             canonical = cluster[0][1]
             if _templates_similar(tmpl, canonical, similarity_threshold, max_words):
                 cluster.append((sent, tmpl))
@@ -161,18 +112,14 @@ def _cluster_templates(
                 break
 
         if not found_cluster:
-            # Create new cluster
             clusters.append([(sent, tmpl)])
 
-    # Re-canonicalize: use most frequent template in each cluster as canonical
     result: dict[str, list[tuple[str, str]]] = {}
     for cluster in clusters:
-        # Count template frequencies
         counts: dict[str, int] = defaultdict(int)
         for _, tmpl in cluster:
             counts[tmpl] += 1
 
-        # Choose most frequent (or shortest as tiebreaker)
         best = max(counts.keys(), key=lambda t: (counts[t], -len(t)))
         result[best] = cluster
 
@@ -185,18 +132,7 @@ def detect_template_repetition(
     flag_threshold: int = 3,
     similarity_threshold: float = 0.5,
 ) -> TemplateResult:
-    """Detect narration sentences whose openings follow the same template too often.
-
-    Args:
-        text: The text to analyze.
-        max_words: How many words to take from the start of each sentence as its template.
-        flag_threshold: Minimum number of sentences sharing a template before it's flagged.
-        similarity_threshold: Minimum Jaccard word-overlap for two templates to be
-            considered the same (0–1).
-
-    Returns:
-        TemplateResult with flagged templates and statistics.
-    """
+    """Return repeated narration-opening templates."""
     sentences = _split_sentences(text)
     if DEBUG:
         sys.stderr.write(f"[template_repetition] sentences: {sentences}\n")

@@ -1,5 +1,4 @@
-"""Conversation lifecycle, summarize/compress/checkpoint, context-size,
-stop, and Inspector (director / logs / director-log) routes."""
+"""Handle conversation lifecycle and context routes."""
 
 from __future__ import annotations
 
@@ -284,22 +283,7 @@ async def api_generate_scene_profile(
     data: SceneProfileGenerateRequest,
     conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ) -> SceneProfileDraft:
-    """Draft one member's scene-local public profile. Persists nothing.
-
-    Named ``scene-profile`` rather than ``public-profile``: this is the
-    conversation-local ``group_members.public_profile_override``, not the
-    card-level profile, and the two return different shapes — identical last
-    segments would be a trap.
-
-    One member per call, never batched: the only card in the context is the
-    target's, and the rest of the cast arrives as names. See
-    ``features/cards/public_profile`` for why.
-
-    Deliberately **not** gated on ``group_context_mode``. ``PUT …/members``
-    accepts an override under every mode, and a generate route that refused
-    would leave the two halves of one field disagreeing about whether the mode
-    is a server rule. It is a UI concern.
-    """
+    """Draft and store a scene-local public profile."""
     if conv.get("kind", "solo") != "group":
         raise HTTPException(status_code=409, detail="Conversation is not a group")
     if not data.character_card_id:
@@ -336,16 +320,7 @@ async def api_list_sheet_proposals(
     status: str = "review",
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
-    """The scene's staged sheet updates. Defaults to the review set.
-
-    ``review`` is ``pending`` plus ``stale`` — what still needs a decision, plus
-    what an apply already refused and therefore owes the user a reason for. A
-    surface that asked for ``pending`` alone made a refused proposal disappear at
-    the moment of refusal, which is the opposite of reporting it.
-
-    ``all`` returns every row, which is what a history view would read; any
-    single status name is also accepted.
-    """
+    """List scene-sheet proposals for review."""
     if status == "all":
         statuses = None
     elif status == "review":
@@ -595,23 +570,7 @@ async def api_compress_conversation(
 
 
 async def _checkpoint_conversation(source_cid: str, new_title: str) -> ConversationRow | None:
-    """Duplicate a conversation's active path into a fresh conversation.
-
-    A "checkpoint" snapshots the *current* line of the story so the user can
-    branch off it without disturbing the original. It carries the linear
-    active-path messages (root→leaf), their user uploads, the director state
-    (moods / progressive fields, so continuation behaves identically), and the
-    per-turn conversation logs that drive the inspector.
-
-    Two things are deliberately *not* carried, mirroring the "active path +
-    user uploads only" contract the Compress History flow established:
-      * non-active branches (alternate swipes / forks), and
-      * workflow-generated attachments and workflow_state (regenerable; their
-        bytes live in a budgeted cache and per-message state may point at
-        attachment ids that would not exist on the copy).
-
-    Returns the new conversation row, or None if *source_cid* is missing.
-    """
+    """Copy a conversation's active path into a new conversation."""
     conv = await get_conversation(source_cid)
     if not conv:
         return None

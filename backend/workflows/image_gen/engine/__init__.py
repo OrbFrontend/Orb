@@ -1,10 +1,4 @@
-"""Narrow public facade for image generation.
-
-Only what crosses out of `engine/`: the hook layer's render seam, the adapter
-lookups the query actions dispatch through, and the error type every caller
-funnels on. Adapters, capabilities and the graph helpers are imported from their
-own modules -- re-exporting them here would advertise a surface nothing uses.
-"""
+"""Public image-generation engine facade."""
 
 from .contracts import (
     ImageGenerationError,

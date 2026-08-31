@@ -1,18 +1,4 @@
-"""Resolve the image camera to exactly one viewpoint, before any LLM call, so each
-mode gets instructions written for it alone and the analyzer never spends a
-decision on the question it is worst at.
-
-The levers, first hit wins:
-
-1. a manual ``pov_mode`` of "first" or "third", from the global workflow config
-2. the local povtense classifier, walking back through recent assistant messages
-   while it answers "ambiguous"
-3. ``DEFAULT_POV``
-
-A camera tag in the character's appearance prompt is not a lever -- the picker owns
-the camera, so the tag stays plain appearance data. Nothing here is persisted:
-"use the previous message's POV" is served by re-classifying it (lever 2).
-"""
+"""Resolve the image prompt's point of view."""
 
 from __future__ import annotations
 

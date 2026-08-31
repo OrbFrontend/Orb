@@ -1,13 +1,4 @@
-"""One-shot forced tool call helper for workflow authors.
-
-Wraps a single ``client.complete(tool_choice=...)`` invocation: assembles
-the tools array, optionally records the call against a KV-cache tracker,
-forwards reasoning deltas to the SSE stream when the caller supplied a
-``pass_id``, and yields exactly one terminal ``{"type": "result", "args":
-<dict>}`` event. Never raises -- tool-call missing, parse failure, or any
-network error all degrade to ``{"type": "result", "args": {}}`` so a
-single bad LLM reply cannot crash a workflow.
-"""
+"""Run a workflow's forced tool call and return its arguments."""
 
 from __future__ import annotations
 
@@ -66,45 +57,7 @@ async def forced_tool_call(
     max_tokens: int = 8192,
     tools_in_prompt: bool = True,
 ) -> AsyncIterator[dict]:
-    """Force one tool call and yield its parsed arguments.
-
-    Reasoning deltas yield as ``{"event": "reasoning", "data": {"pass":
-    pass_id, "delta": ...}}`` when ``pass_id`` is set (the orchestrator
-    forwards these to SSE); they are suppressed when ``pass_id`` is None
-    so on-demand handlers without an SSE stream do not need to filter.
-    The terminal event is always ``{"type": "result", "args": <dict>}``.
-
-    Tools assembly:
-      - ``offer_tools=<names>`` -- fixed, order-stable array of those
-        registry tools (forced ``tool_name`` appended if absent). Use to
-        share one blob across sibling forced calls so a provider that must
-        keep tools in the body still lets them reuse each other's cached
-        prefix. Takes precedence over ``enabled_tools``. Collapses to the
-        single forced tool on providers that don't honor forcing (known up
-        front via ``honors_forced_tool_choice``, or learned from a reply that
-        called some other tool) -- an unforced array picks its own tool.
-      - ``enabled_tools=None`` -- single-tool array. Smallest bytes; use
-        when the caller does not need pipeline tools-bytes cache reuse.
-      - ``enabled_tools=<dict>`` -- assemble the same tools array
-        ``enabled_schemas(enabled_tools, schema_overrides)`` returns. If
-        ``tool_name`` is standalone or otherwise absent from the result,
-        append its schema so the forced ``tool_choice`` resolves.
-        ``schema_overrides`` must be the dict the pipeline shipped this
-        turn (``pre_ctx.schema_overrides`` / ``post_ctx.schema_overrides``)
-        for byte-identical tools cache reuse.
-
-    ``kv_tracker=None`` skips the per-call ``record(...)`` + ``record_usage(...)``
-    steps silently (the on-demand path does not participate in turn caching).
-
-    ``model_name`` overrides ``settings["model_name"]`` for callers on another
-    resolved lane. The same value labels the KV tracker and the wire request.
-
-    ``tools_in_prompt=False`` forwards the client flag of the same name: the
-    prompt must not carry the tool schemas (text mode never renders them; chat
-    mode then forces via ``response_format`` and omits ``tools`` from the body).
-    Use it for off-turn calls that ride a cached conversation prefix, so the
-    forced tool's schema cannot perturb the server-rendered prompt bytes.
-    """
+    """Run one forced tool call and yield its parsed arguments."""
     schema = TOOLS[tool_name]["schema"]
     resolved_model = model_name or settings["model_name"]
     reasoning_params = reasoning_cfg(reasoning_on)

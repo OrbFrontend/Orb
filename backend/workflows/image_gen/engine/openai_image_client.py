@@ -1,18 +1,4 @@
-"""HTTP client for the OpenAI-shaped `POST /v1/images/*` contract.
-
-Mirrors `comfy_client.py`: one class, a `transport=` seam so every path is
-testable under `httpx.MockTransport`, and **one error funnel** so no server
-internal reaches the user.
-
-**The funnel classifies only what changes Orb's behaviour, and never replaces what
-the provider said.** There is exactly one branch a caller acts on --
-`MODEL_NOT_FOUND`, which drives the re-render in the adapter. Every other branch
-picks a sentence to put *in front of* the provider's own words; none of them may
-swallow them. Classifying further does not scale: a marker list over provider prose
-has to be right about vocabulary no two providers share, and when it is wrong it
-replaces an actionable message with a confident wrong one. Guessing less and
-quoting more is the trade this module makes on purpose.
-"""
+"""Call OpenAI-shaped image-generation APIs."""
 
 from __future__ import annotations
 

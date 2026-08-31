@@ -1,11 +1,4 @@
-"""Synthesis logic for the TTS workflow: profile normalization, the
-text-to-bytes call, and the reproduction record (seed + generation metadata).
-
-No conversation, turn, or HTTP state is touched here -- every function maps
-its arguments to a value (the synthesis call reaches a TTS backend over the
-network through an engine adapter, but takes no orchestration context). The
-hook layer in ``hooks.py`` wires these into the pipeline and HTTP routes.
-"""
+"""Synthesize speech blocks and align their text."""
 
 from __future__ import annotations
 
@@ -212,25 +205,7 @@ def reconcile_boundaries(dialogue_text: str, boundaries: list[dict]) -> list[dic
 
 
 async def synthesize_blocks(text: str, profile: dict) -> tuple[bytes, str, list[dict]]:
-    """Render ``text`` as one self-contained clip per speakable block.
-
-    Returns ``(concatenated_bytes, mime, blocks)`` where the bytes are
-    ``clip0 ++ clip1 ++ ...`` -- each clip a complete file synthesized from a
-    single ``regex_extract`` chunk -- and ``blocks[i]`` carries that clip's
-    ``[byte_start, byte_end)``, the silence to insert after it, and ``words``:
-    one clip-relative timing span per alignable word, which the frontend
-    karaoke highlighter maps onto the rendered text. The frontend slices a clip
-    out by byte range to play one block.
-
-    The extractor expresses inter-chunk timing as a *leading* ``pause_before_ms``
-    on the following chunk. That gap is relocated onto the previous block's
-    ``pause_after_ms`` and zeroed on the chunk before synthesis, so the silence
-    is reproduced by the player instead of being baked into a clip -- baking it
-    in would both shift the clip's byte range and double the pause once the
-    player adds its own gap. Raises ``ValueError`` when no audio is produced
-    (empty text, no quoted dialogue, or every clip empty), matching
-    ``synthesize`` so the hook callers degrade through their existing guards.
-    """
+    """Render each speakable block as a self-contained clip."""
     backend = profile.get("backend") or "edge"
     adapter = get_adapter(backend)
     chunks = regex_extract(

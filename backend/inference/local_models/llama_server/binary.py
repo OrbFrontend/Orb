@@ -1,21 +1,4 @@
-"""Finding a ``llama-server`` binary, and fetching one when there isn't.
-
-THIS IS THE ONLY PLACE ORB DOWNLOADS AND THEN EXECUTES A NATIVE BINARY, and it
-is worth saying out loud rather than leaving as a surprise. The archive comes
-from the official ``ggml-org/llama.cpp`` GitHub release feed over HTTPS, behind
-an explicit button in Settings, into ``backend/data/llama-bin/``. GitHub
-publishes no per-asset checksum, so there is nothing to pin the bytes against —
-the trust posture is the same as a GGUF's, which is to say the transport and the
-publisher. ``ORB_LLAMA_SERVER`` is the escape hatch for anyone who would rather
-supply their own.
-
-THE BUILD IS PINNED, not taken newest-first. Four llama-server behaviours are
-load-bearing here — ``/health``, ``/tokenize``, ``/completion``'s SSE shape and
-the ``--no-webui`` flag — and "whatever shipped this morning" is a silent
-breakage channel we would only discover through a user's broken turn. The
-``--help`` probe in ``server.py`` guards the flag; this pin guards the rest.
-``ORB_LLAMA_CPP_BUILD=latest`` or an explicit ``bNNNNN`` overrides it.
-"""
+"""Find and download the llama-server binary."""
 
 from __future__ import annotations
 
@@ -158,9 +141,6 @@ def supports_flag(binary: Path, flag: str) -> bool:
     warning, it is an immediate exit with a usage message.
     """
     return flag in _help_text(binary)
-
-
-# ── fetch ────────────────────────────────────────────────────────────────────
 
 
 def _arch() -> str:

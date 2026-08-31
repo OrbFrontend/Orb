@@ -1,18 +1,4 @@
-"""Document-mode Output Auditor — prose-quality scan + one-shot LLM patch.
-
-The doc-mode twin of the chat editor's audit step (``pipeline/passes/editor``):
-the same pure-prose scanners run over a generated run ("draft") with the
-preceding document text as cross-boundary context, and findings can be fixed by
-a single forced patch-JSON call that byte-extends the generation prompt
-(KV-cache-friendly — see ``patch_document``). Patches address findings by the
-id the numbered report gives them (``analysis.targets``), never by a ``search``
-string, so a patch can only ever land inside the draft. Stateless like the rest of
-the slice — the client POSTs draft + context after a generation ends (EOS or
-Stop), and patches apply only to the draft, never to user prose.
-
-Depends only downward (``analysis`` + ``inference`` + ``core``), mirroring
-``continuation.py``; the route (``api/routes/documents.py``) owns the HTTP.
-"""
+"""Audit and patch generated text in Document mode."""
 
 from __future__ import annotations
 
@@ -82,9 +68,6 @@ _PATCH_JSON_INSTRUCTION = (
     "flow, preserving the author's voice, tense, and intent; an empty `replace` deletes the span. "
     "Do not copy the old sentence into `replace`."
 )
-
-
-# ── Pure helpers ─────────────────────────────────────────────────────────────
 
 
 def trim_incomplete_tail(draft: str) -> tuple[str, str]:
@@ -201,9 +184,6 @@ def _extract_patches(resp: dict) -> list:
     return found if isinstance(found, list) else []
 
 
-# ── Route-facing orchestrators ───────────────────────────────────────────────
-
-
 async def audit_document(
     draft: str,
     context: str,
@@ -247,20 +227,7 @@ async def patch_document(
     assisted: bool,
     truncated: bool,
 ) -> dict:
-    """Re-audit the run, then fix the findings with one forced JSON patch call
-    on the writer endpoint. Returns the DocumentPatchResponse payload.
-
-    Patches apply to the trimmed draft core only; a truncated tail fragment is
-    reattached verbatim.
-
-    KV-cache contract (docs/architecture/kv-cache.md): the patch prompt is a
-    byte-extension of the generation prompt — generation shape replayed
-    verbatim (raw string or build_generation_messages), draft appended as the
-    model's own turn, audit report as a pure suffix. Forcing is decoding-only
-    on every shape (json_schema grammar on the text transport,
-    tools_in_prompt=False on chat), so the schema never lands in prompt bytes
-    and the generation prefix stays warm for both this call and the next run.
-    """
+    """Re-audit and patch generated document text."""
     core, tail = trim_incomplete_tail(draft) if truncated else (draft, "")
     if not core.strip():
         return {

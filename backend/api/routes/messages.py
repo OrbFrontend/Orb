@@ -1,5 +1,4 @@
-"""Message-level routes: fetch, send/continue, edit, branch ops, and the
-SSE-streaming regenerate / rewrite endpoints."""
+"""Message, branch, and streaming generation routes."""
 
 from __future__ import annotations
 
@@ -77,19 +76,7 @@ def _retained_draft(message: Mapping[str, Any]) -> str | None:
 
 
 def _prose_rewrite_source(message: Mapping[str, Any]) -> str | None:
-    """The text an on-demand prose rewrite works from, or ``None`` if there is none.
-
-    The retained Writer draft when the row has one — going back to the
-    pre-editor text is the point of the feature — and otherwise the saved
-    content. Every reply written before ``writer_draft`` existed (migration
-    0056) carries NULL, and a hard refusal made the button permanently dead on
-    exactly the conversations a user has the most of. Rewriting what is on
-    screen is a slightly different job (the editor's patches are in it, and get
-    rewritten too) but it is the job that was asked for, and it is the only
-    honest source a legacy row has. Which one it was is what
-    ``has_writer_draft`` tells the client, so the tooltip can name the text it
-    is about to replace.
-    """
+    """Return the text an on-demand rewrite should use."""
     draft = _retained_draft(message)
     if draft is not None:
         return draft
@@ -98,22 +85,7 @@ def _prose_rewrite_source(message: Mapping[str, Any]) -> str | None:
 
 
 def _row_for_client(message: Mapping[str, Any]) -> dict:
-    """One message row, shaped for the wire.
-
-    ``writer_draft`` is dropped and replaced by the one bit the client actually
-    reads off it — whether a prose rewrite would start from the pre-editor draft
-    or from the message as it stands. Sending the column itself put a second
-    near-complete copy of every assistant reply on the wire so the frontend
-    could run a ``typeof``: measured at 36% of a forty-exchange conversation's
-    payload, and rising with reply length. The rewrite route reads the real text
-    out of the row it loads under the conversation lock, which is the only place
-    it may be read from anyway.
-
-    The flag no longer decides whether the button appears — since the fallback
-    landed, any assistant message with text has a source (see
-    :func:`_prose_rewrite_source`), and the client already holds the content it
-    would need to see that.
-    """
+    """Shape one message row for the API."""
     row = dict(message)
     row["has_writer_draft"] = _retained_draft(row) is not None
     row.pop("writer_draft", None)
@@ -121,23 +93,7 @@ def _row_for_client(message: Mapping[str, Any]) -> dict:
 
 
 async def _message_rows_for_client(messages: Sequence[Mapping[str, Any]]) -> list[dict]:
-    """Every message row on the active path, shaped for the wire.
-
-    Two projections, applied together because every list route needs both:
-    :func:`_row_for_client` per row, and each assistant message's world
-    changesets hung off it. One batched changeset query for the whole path
-    rather than a lookup per message: painting a long conversation must not
-    turn into N round trips. A message gains a ``world_changesets`` list
-    (newest first, absent when it has none), which is what the proposal card
-    under a reply is painted from. Returns new dicts rather than mutating the
-    rows in place, so the row contracts the query layer returns stay what they
-    say they are — ``get_messages_with_branch_info`` still carries the real
-    ``writer_draft`` for its server-side callers (Compress, Checkpoint).
-
-    Each changeset carries a read-side ``world_name`` (a projection, not a
-    column): one turn can propose to several Worlds, so stacked cards have to
-    say which book each one is about.
-    """
+    """Shape the active message path for the API."""
     ids = [int(m["id"]) for m in messages if m.get("id") is not None and m.get("role") == "assistant"]
     rows = await get_changesets_for_messages(ids)
     if not rows:
@@ -401,19 +357,7 @@ async def api_prose_rewrite_message(
     request: Request,
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
-    """Stream the local prose rewriter over one saved assistant message.
-
-    This is deliberately separate from Magic Rewrite: it has no remote-model
-    call, direction, or branch. It applies the configured local model to the
-    original Writer draft retained for the selected response — or, for a reply
-    saved before drafts were retained, to the reply itself — and preserves the
-    message tree. A changed source invalidates any still-pending World proposal
-    that was inferred from it.
-
-    The pre-flight check answers only "is there anything here to rewrite"; the
-    stream resolves the source again under the conversation lock, and that
-    second read is the one that counts.
-    """
+    """Stream a prose rewrite for one saved assistant message."""
     message = await get_message_by_id(msg_id)
     if not message or message["conversation_id"] != cid:
         raise HTTPException(status_code=404, detail="Message not found")

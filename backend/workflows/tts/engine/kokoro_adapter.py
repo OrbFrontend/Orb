@@ -1,11 +1,4 @@
-"""
-backend/tts/kokoro_adapter.py — Kokoro-82M TTS backend adapter.
-
-Calls a local Kokoro TTS API server (Python 3.11 required, kokoro won't install on 3.13+).
-The server runs as a separate process at http://localhost:9200 by default.
-
-Model: https://github.com/hexgrad/kokoro
-"""
+"""Kokoro TTS adapter."""
 
 from __future__ import annotations
 
@@ -143,9 +136,7 @@ class KokoroTTSAdapter(TTSAdapter):
         return "Kokoro-82M"
 
 
-# ---------------------------------------------------------------------------
 # WAV helpers for per-chunk concatenation
-# ---------------------------------------------------------------------------
 
 
 def _silence_pcm(duration_ms: int, sample_rate: int = 24000) -> bytes:

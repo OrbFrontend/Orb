@@ -1,19 +1,4 @@
-"""Deterministic text surgery on what the prompter model wrote.
-
-Pure string in, string out: nothing here calls a model, reads config beyond the
-format enum, or knows a backend exists. That is the point -- these rules exist
-because a *text encoder* misreads certain phrasings, so they are testable against
-a literal expected string rather than against a live composition.
-
-Three families:
-
-* **Chunk stripping** -- a comma chunk the encoder would draw wrongly is dropped
-  whole (a negation, the literal word "camera", a stray "pov").
-* **Viewer rewriting** -- first-person contact phrasing swapped for the booru tags
-  an encoder has actually seen. See `rewrite_viewer_contact`.
-* **Count anchoring** -- the booru count block ("1girl, solo") is owned
-  deterministically rather than left to whatever the model wrote.
-"""
+"""Clean and normalize composed image prompts."""
 
 from __future__ import annotations
 
@@ -250,22 +235,7 @@ class SubjectAppearance(NamedTuple):
 
 
 def inject_profile_appearance(scene: str, subjects: Sequence[SubjectAppearance], prompt_format: str) -> str:
-    """Insert every visible subject's fixed traits at once, near the prompt head.
-
-    **One call, not one per subject.** The insertion point is found by peeling the
-    count anchor off the head, so calling this in a loop would stack the second
-    subject's block *in front of* the first and hand the reader the cast in reverse.
-    Taking the sequence is what keeps the emitted order the roster order.
-
-    A lone unnamed subject keeps the raw tags -- that is a solo chat, where there is
-    nothing to bind them to and a name is noise. Past that the name is written in
-    whatever the format can bind with, including in `tags`: two anonymous tag runs
-    concatenated read as one person wearing both outfits, which is worse than a name
-    a booru encoder handles poorly.
-
-    Face-only traits go for a subject whose face the analyzer could not see; the
-    others keep theirs, since visibility is per person.
-    """
+    """Insert fixed appearance traits for visible subjects."""
     normalized_format = normalize_prompt_format(prompt_format)
     blocks: list[tuple[str, str]] = []
     for subject in subjects:

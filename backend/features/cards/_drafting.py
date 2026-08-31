@@ -1,17 +1,4 @@
-"""The shape both card drafters share: one forced tool call, drained and parsed.
-
-``public_profile`` and ``sheet_update`` are siblings — same forced-call posture,
-same hardcoded summarization hyperparameters, same "``LLMCallError`` propagates
-untouched" rule, same brace check on the way out. This is that shape, written
-once, so the two cannot answer differently about what a usable reply is.
-
-Deliberately *not* ``workflows._forced_call.forced_tool_call``: that helper
-resolves its schema out of ``inference.tool_registry.TOOLS``, and neither of
-these tools is registered there — a profile and a sheet update are bookkeeping
-about a scene rather than a phase of a turn, so forcing them into that module's
-turn-phase partition would be the wrong statement. What is shared here is the
-drain, not the registry.
-"""
+"""Shared forced-call helpers for card profile and sheet drafts."""
 
 from __future__ import annotations
 
@@ -23,9 +10,7 @@ from ...inference import LLMClient, parse_tool_calls
 
 _WHITESPACE_RE = re.compile(r"\s+")
 
-# A drafted field is macro-resolved at turn time (``inference/group_context``),
-# so a generated brace would quietly substitute months later, inside a string
-# the user already reviewed and approved.
+# Drafted fields are macro-resolved when a turn is assembled.
 BRACES = ("{", "}")
 
 

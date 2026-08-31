@@ -1,19 +1,4 @@
-"""Every live host, for the two operations that touch all of them at once.
-
-A host owns one resident model and belongs to its feature; this registry is not
-a second owner. It exists because two things are properties of the *binary*
-rather than of any one feature — stopping every child when Orb exits, and
-letting go of every child before the executable underneath them is replaced —
-and neither can be done from a module that only knows about one host.
-
-A PLAIN LIST, NOT A WeakSet: hosts are module-level singletons that must not
-become collectable while a child of theirs is running. ``register`` is
-idempotent on identity.
-
-Registration happens when the owning feature's service module is imported, so
-``shutdown_all()`` is a no-op in a process that never imported one — which is
-correct, because such a process cannot have spawned a child.
-"""
+"""Track live llama-server hosts for global lifecycle operations."""
 
 from __future__ import annotations
 

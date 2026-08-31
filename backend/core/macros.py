@@ -1,73 +1,4 @@
-"""
-macros.py — Macro resolution for prompts and messages.
-
-A dependency-free leaf: it turns ``{{user}}``/``{{char}}`` and inline macros
-like ``{{roll}}`` into literal text and imports nothing else in the codebase.
-It knows about *strings and message dicts*, not about the LLM client — the
-pipeline applies :meth:`Macros.resolve_prompt_messages` at the transport
-boundary (the cached-base ``resolve`` hook in ``cached_call.py``) rather than
-this module reaching up into the client layer.
-
-Public API:
-    resolve_message(text, user_name, char_name, seed="") — Full resolution
-        ({{user}}/{{char}} + inline macros like {{roll}} and {{random}}).
-        Use for: the latest user message, persona, scenario, and other
-        prompt text that should have all macros resolved. A non-empty
-        *seed* makes {{random}} and {{roll}} deterministic (see below).
-
-    resolve_prompt(text, user_name, char_name) — Substitution only
-        ({{user}}/{{char}}, no inline macros).
-        Use for: historical messages and prompt context where inline
-        macros should NOT fire.
-
-    resolve_inline(text) — Inline macros only ({{roll}}/{{random}}, fresh
-        rolls; no {{user}}/{{char}}). The persist-boundary entry: message
-        content is resolved once with this right before it is written to
-        the DB, so stored history never re-rolls.
-
-    has_inline_macros(text) — True when *text* contains an inline macro.
-
-    resolve_stored_random(texts, choices, key_prefix) — {{random}} with a
-        per-conversation choice map. Used for global rows (mood/interactive
-        fragments) whose source text cannot be rewritten: the first
-        resolution rolls and records into *choices*; later turns reuse the
-        stored pick so the fragment stays fixed for the conversation.
-
-Inline macros (adding one = a regex + a handler + a row in _INLINE_MACROS):
-    {{// comment }}               — dropped. A comment that owns its line takes
-        the line with it; a mid-line one leaves the surrounding text untouched.
-        Multi-line; the body cannot contain ``}}`` (grammar, not enforced — the
-        match ends at the first one, so a macro nested inside is deleted rather
-        than resolved but its trailing ``}}`` survives). Stripped before every
-        other inline macro.
-    {{roll::NdM}}                 — sum of N M-sided dice.
-    {{random::opt1::opt2::...}}   — one option, ``::``-separated. Options
-        cannot contain ``::`` or ``}}`` (grammar, not enforced).
-    {{pick::opt1::opt2::...}}     — alias of {{random}}, same grammar.
-    {{time}}                      — current local time, HH:MM.
-    {{date}}                      — current local date, YYYY-MM-DD.
-    Time/date ignore the seed: they always resolve to *now*, so in
-        per-turn-rebuilt prompt text they change bytes over time (KV-cache
-        bust — prefer them in messages, where they freeze at the persist
-        boundary).
-    Roll/random/pick re-roll on every unseeded resolution; with a seed (or a
-    stored choice) the result is stable — so a roll or pick in
-    per-turn-rebuilt prompt text (persona, scenario) stays fixed for the
-    conversation.
-
-Literal escape: any macro inside a single-backtick span (`{{random::a::b}}`)
-    is left untouched by every resolver, {{user}}/{{char}} included. The
-    backticks stay in the text, so literalness survives repeated resolution
-    passes — used to show macro syntax to a model (e.g. instructing the
-    Director to emit a macro) without it firing en route.
-
-    Macros.resolve_message(text)      — instance method, full resolution
-    Macros.resolve_prompt(text)       — instance method, substitution only
-    Macros.resolve_prompt_messages(msgs) — batch prompt-level res on message list
-        (the transport-boundary catch-all that guarantees no placeholder
-        reaches the model, whatever a pass assembled)
-    Macros.from_settings(...)         — factory from app settings
-"""
+"""Resolve prompt, message, and inline macros."""
 
 from __future__ import annotations
 
@@ -77,9 +8,7 @@ from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from datetime import datetime
 from typing import Any, NamedTuple
 
-# ---------------------------------------------------------------------------
 # Internal helpers
-# ---------------------------------------------------------------------------
 
 
 _LITERAL_RE = re.compile(r"`[^`\n]*`")
@@ -209,9 +138,7 @@ def _apply_content(content: str | list | None, fn) -> str | list | None:
     return content
 
 
-# ---------------------------------------------------------------------------
 # Module-level functions
-# ---------------------------------------------------------------------------
 
 
 def resolve_message(text: str, user_name: str, char_name: str, seed: str = "") -> str:
@@ -248,20 +175,7 @@ def resolve_stored_random(
     choices: MutableMapping[str, str],
     key_prefix: str,
 ) -> list[str]:
-    """Resolve {{random}}/{{pick}} in *texts* against a per-conversation choice map.
-
-    For global rows (mood/interactive fragments) whose source text cannot be
-    rewritten: each {{random}} occurrence gets the key
-    ``f"{key_prefix}:{macro_text}:{ordinal}"`` where *ordinal* counts prior
-    occurrences of the same macro text across all *texts* — the same scheme as
-    the seeded path in :func:`_resolve_inline`, so a pick survives edits around
-    it and can never be claimed by a different macro. Because the key embeds
-    the exact macro text, a stored pick is always one of the current options
-    and is reused verbatim; editing a macro's options changes its key, so the
-    edited macro re-rolls fresh (and the old key goes stale, harmlessly).
-    Fresh picks are recorded into *choices* (mutated in place). {{roll}} and
-    {{user}}/{{char}} are left untouched.
-    """
+    """Resolve random and pick macros against stored choices."""
     seen: dict[str, int] = {}
 
     def _pick(m: re.Match) -> str:
@@ -293,9 +207,7 @@ def resolve_prompt(text: str, user_name: str, char_name: str) -> str:
     return _sub(text, user_name, char_name)
 
 
-# ---------------------------------------------------------------------------
 # Macros class
-# ---------------------------------------------------------------------------
 
 
 class Macros(NamedTuple):
@@ -341,14 +253,5 @@ class Macros(NamedTuple):
         }
 
     def resolve_prompt_messages(self, messages: Sequence[Mapping[str, Any]]) -> list[dict]:
-        """Apply prompt-level resolution to every message in a list.
-
-        This is the transport-boundary catch-all: passed to a cached base's
-        ``resolve`` hook so the fully-assembled wire messages are scrubbed of
-        ``{{user}}``/``{{char}}`` just before they are sent, no matter which
-        pass built them (e.g. the director's tool prompt embeds user-authored
-        fragment text that can carry ``{{char}}``). Inline macros like
-        ``{{roll}}`` are intentionally *not* fired here — those are resolved on
-        the latest user message and prefix content when it is built.
-        """
+        """Resolve prompt macros in a message sequence."""
         return [self._resolve_prompt_on_message(m) for m in messages]

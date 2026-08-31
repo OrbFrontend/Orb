@@ -1,21 +1,4 @@
-"""Document-mode continuation policy — prompt shape + transport choice.
-
-A user feature (not a pipeline pass), byte-symmetric with
-``features/summarization``: it owns the fallback instruction, the chat-message
-shape, the transport branch, and the delta filter; the route
-(``api/routes/documents.py``) owns the HTTP. Depends only downward on
-``inference`` + ``core``.
-
-Two prompting strategies, chosen per request by the ``assisted`` flag:
-
-* **Raw** (default) — the document is sent verbatim (text transport) or wrapped
-  as a single user turn (chat fallback); the user hand-types any chat-template
-  control tokens. Mikupad-style; unchanged behaviour.
-* **Assisted** — the document is a transcript written with readable line macros
-  (``### SYSTEM:`` / ``### USER:`` / ``### ASSISTANT:``); :func:`parse_doc_macros`
-  renders it to chat messages + an open prefill and lets the model's own
-  template supply BOS/turn markers. See ``docs/features/document-mode.md``.
-"""
+"""Build prompts and transport settings for Document mode."""
 
 from __future__ import annotations
 
@@ -79,23 +62,7 @@ def _msg(role: str, content: str) -> ChatMessage:
 
 
 def parse_doc_macros(text: str) -> tuple[list[ChatMessage], str | None]:
-    """Parse an assisted-mode document into chat messages + an open prefill.
-
-    A flat line scan (no message tree): each line is a SYSTEM/USER/ASSISTANT
-    macro or continuation prose. SYSTEM lines are hoisted into one front system
-    turn; the remaining USER lines and prose coalesce into alternating
-    user/assistant runs in document order.
-
-    Returns ``(messages, prefill)``:
-
-    * ``messages`` always starts ``[system, user]`` and strictly alternates, so
-      appending the prefill as an open assistant turn preserves alternation.
-    * ``prefill`` is the final prose block verbatim, or ``None`` when the
-      document ends with a note (fresh-turn generation) or the final prose is
-      whitespace-only.
-
-    See ``docs/features/document-mode.md`` for the convention and rationale.
-    """
+    """Parse assisted-mode document macros into messages and prefill."""
     system_parts: list[str] = []
     # Alternating runs by construction: prose accumulates until a USER line and
     # vice versa. Each entry is [role, [line, ...]] with role in {user, assistant}.
@@ -169,20 +136,7 @@ def uses_raw_transport(completion_mode: str, assisted: bool) -> bool:
 
 
 def build_generation_messages(prompt: str, *, assisted: bool, completion_mode: str) -> tuple[list[ChatMessage], str | None]:
-    """The generation-call message list for the three message-based shapes
-    (everything except text+raw — see :func:`uses_raw_transport`).
-
-    Returns ``(messages, prefill)``; ``prefill`` is non-None only for
-    text+assisted, where ``/apply-template`` renders it as an open assistant
-    turn. On the chat transport a prefill is instead closed as an assistant
-    turn plus a re-anchor user turn (``/chat/completions`` cannot leave a
-    trailing assistant turn open; quality is model-dependent — text mode is the
-    recommended assisted path).
-
-    The Output Auditor's patch call extends these EXACT lists, so the patch
-    prompt byte-extends the generation prompt and the server's KV prefix
-    survives — keep both paths building from here (docs/architecture/kv-cache.md).
-    """
+    """Build generation messages for the selected mode."""
     if assisted:
         messages, prefill = parse_doc_macros(prompt)
         if completion_mode == "text":

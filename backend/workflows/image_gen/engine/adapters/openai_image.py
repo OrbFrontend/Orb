@@ -1,10 +1,4 @@
-"""Cloud API image generation over the OpenAI-shaped `/images/*` contract.
-
-One adapter, many providers: the wire dialect that genuinely differs -- dimension
-spelling, model-list shape, reference encoding -- lives in `providers.py`'s preset
-table, which is the single place a provider is declared and the single place it
-gets corrected.
-"""
+"""Adapt cloud image generation to the shared engine."""
 
 from __future__ import annotations
 

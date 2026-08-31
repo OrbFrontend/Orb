@@ -374,18 +374,7 @@ _PROFILE_FIELDS = (("Appearance", "appearance"), ("Role", "role"))
 
 
 def render_public_profile(profile: Mapping[str, Any] | None) -> str:
-    """The stored ``extensions.orb.public_profile`` dict as prompt lines.
-
-    ``Appearance: …\nRole: …``, each field omitted when blank and an entirely
-    blank profile rendering ``""``. Lives beside :func:`set_public_profile`, its
-    only writer, because the invariant being protected is that the two agree on
-    the key set — ``core/`` would be the wrong home for it, having no vocabulary
-    for card extensions at all.
-
-    Shared by the group cast projection (``queries/group_members._public_profile``)
-    and the scene-profile drafter, so a generated override and a card-derived
-    profile read identically once assembled into a prompt.
-    """
+    """Render a stored public profile as prompt lines."""
     if not isinstance(profile, Mapping):
         return ""
     lines = []

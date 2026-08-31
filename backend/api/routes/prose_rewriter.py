@@ -1,15 +1,4 @@
-"""The one prose-rewriter URL that is not generic: fetching the llama-server.
-
-Everything else the Settings panel does for this feature — status, download,
-delete, enable, config — is a generic Local ML route parameterised by a feature
-id, and stays that way. Fetching a runtime is not: it downloads a native
-binary, and the request names the feature because the panel's button does.
-
-The download lock comes from :mod:`api.deps` so this router and ``local_ml``
-serialise against the same object: they are two routers over one home
-connection, and the runtime fetch replaces a directory a model load may be
-reading from.
-"""
+"""Prose-rewriter runtime download route."""
 
 from __future__ import annotations
 

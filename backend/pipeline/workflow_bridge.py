@@ -1,17 +1,4 @@
-"""
-workflow_bridge.py — The single point where the pipeline talks to workflows.
-
-Iterates PRE_PIPELINE and POST_PIPELINE hook subscriptions, validates every
-event a hook yields (tool enables, system-prompt blocks, draft replacements,
-attachment artifacts, per-message state), and rejects malformed or
-underscore-prefixed events so one bad hook can neither crash a turn nor
-impersonate an internal event.
-
-Depends only downward (``workflows``, ``inference``, ``core``) plus one leaf
-pipeline sibling, ``failures``, which itself imports no pipeline module — so both
-the pre-pipeline setup path and the post-pipeline orchestrator path can still
-safely import it.
-"""
+"""Bridge pipeline turns to secondary-workflow hooks."""
 
 from __future__ import annotations
 

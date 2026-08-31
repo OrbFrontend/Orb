@@ -1,11 +1,4 @@
-"""
-cached_call.py — Shared completion chokepoint for every pipeline pass.
-
-Defines :func:`cached_complete` (the single call site all passes funnel
-through) and :class:`CachedBase` (the shared prefix + tools + model bottom
-of the prompt stack). The KV tracker is an optional pass-in; this module has
-no runtime dependency on it.
-"""
+"""Shared completion entry point and cached prompt base."""
 
 from __future__ import annotations
 
@@ -81,24 +74,7 @@ async def _relay_reasoning(stream: AsyncIterator[dict], reply: dict) -> AsyncIte
 
 @dataclass(frozen=True)
 class CachedBase:
-    """The shared bottom of the prompt stack for one turn on one server.
-
-    Holds the system+history *prefix*, the *tools* blob, and the *model*.
-    Built once per server per turn; all passes on that server extend it via
-    :meth:`complete` rather than rebuilding it. Fields are frozen tuples so
-    nothing can mutate or reorder the shared base mid-turn.
-
-    In dual-model turns there are two bases — one for the writer's server, one
-    for the agent (director + editor) server. The writer's base simply has an
-    empty ``tools`` tuple, which is how Invariant 5 is enforced without
-    threading a flag through the writer pass.
-
-    ``resolve`` is an optional ``messages -> messages`` transform applied to
-    ``[*prefix, *trailing]`` right before the call (in practice
-    ``Macros.resolve_prompt_messages``, which scrubs ``{{user}}``/``{{char}}``
-    from pass-appended content). The tracker snapshot is taken after resolution,
-    so it always matches what was actually sent. ``None`` means no transform.
-    """
+    """Frozen prompt base shared by calls on one server."""
 
     prefix: tuple[Mapping[str, Any], ...]
     tools: tuple[dict, ...]

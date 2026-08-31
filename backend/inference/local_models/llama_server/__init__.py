@@ -1,14 +1,4 @@
-"""A supervised ``llama-server`` child: binary, process, transport, lifecycle.
-
-Everything a feature needs to run continuously-batched generation against its
-own GGUF, and nothing about any particular feature's prompts, sampling or
-selection policy. A caller builds a :class:`LaunchProfile` from its own closed
-allowlist, owns a :class:`ManagedLlamaServerHost`, and asks it for a client.
-
-ORB'S ONLY MANAGED SUBPROCESS lives here. ``manager.shutdown_all()`` is
-registered in the FastAPI lifespan; without it an orphaned child holds the GPU
-after Orb exits.
-"""
+"""Supervise llama-server binaries, processes, and clients."""
 
 from __future__ import annotations
 

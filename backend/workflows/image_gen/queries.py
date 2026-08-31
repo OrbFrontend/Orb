@@ -1,14 +1,4 @@
-"""Conversation-less config and capability discovery -- the QUERY hook.
-
-These back the tools-panel card and the settings form. They answer from the saved
-config or by probing the backend, with **no conversation in scope**, which is what
-separates them from `hooks.py`: nothing here reads history, composes a prompt, or
-persists an attachment.
-
-Each reports its own failure in-band as ``{"error": ...}`` rather than raising --
-the caller degrades (empty model list, plain-text fields) instead of treating a
-probe failure as an HTTP error.
-"""
+"""Handle conversation-free image workflow capability queries."""
 
 from __future__ import annotations
 

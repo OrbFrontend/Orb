@@ -1,15 +1,4 @@
-"""
-world_proposal.py — the Dynamic Worlds stage of a turn.
-
-Sits between the orchestrator and ``passes/world_change.py``: decides whether
-the stage runs at all, re-reads the target Worlds, drives the forced tool call,
-and parks the validated results on :class:`TurnState` for persistence to stage.
-
-Several opted-in Worlds share **one** call — the judgement is about the exchange,
-not about a book, and asking N times would cost N generations to answer the same
-question — then split into one pending changeset each, because that is the unit
-the revision check and the review queue both work in.
-"""
+"""Run the Dynamic Worlds proposal stage for a turn."""
 
 from __future__ import annotations
 
@@ -143,23 +132,7 @@ async def world_proposal_stage(
 
 
 async def reevaluate_changeset(changeset: Mapping[str, Any]):
-    """Re-run the proposal step for a stale changeset against the current World.
-
-    The replacement for automatic rebasing. Two changes that touch different
-    entries can still contradict each other in meaning, so a proposal that lost
-    its revision race is not replayed — it is re-derived from its stored source
-    messages against the World as it now stands, and comes back as a fresh
-    pending changeset (linked via ``supersedes_changeset_id``).
-
-    Scoped to the changeset's own World, even when the turn that produced it had
-    others in play: the user is re-judging *this* proposal, and a re-evaluation
-    that silently opened a second World's queue would be a surprise.
-
-    Returns the new changeset, or ``None`` when the model validly proposed no
-    operations this time. Either result retires the original (see
-    ``db.supersede_world_changeset``). Missing source context and
-    failed/malformed model calls raise, leaving it open for retry or dismissal.
-    """
+    """Re-run a stale World proposal against current data."""
     changeset_id = int(changeset["id"])
     asst_id = changeset.get("source_assistant_message_id")
     user_id = changeset.get("source_user_message_id")

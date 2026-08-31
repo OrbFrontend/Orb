@@ -1,17 +1,4 @@
-"""Pipeline layer — the Director→Writer→Editor turn engine.
-
-Each turn is handled by a chain of single-purpose modules:
-
-* ``predicates`` — dependency-free helpers (the package's leaf, like ``core/``)
-* ``state`` — per-turn dataclasses shared across all passes
-* ``config`` — resolves flags, lanes, and the tool blob for a turn
-* ``context`` — loads conversation data and builds LLM prefixes
-* ``workflow_bridge`` — runs secondary-workflow hooks before and after the passes
-* ``orchestrator`` — sequences the three passes and collects the result
-* ``persistence`` — saves the assistant message and all turn side-effects
-* ``entrypoints`` — the five public ``handle_*`` functions called by routes
-* ``passes/`` — the director, writer, and editor passes
-"""
+"""Director, Writer, and Editor turn pipeline."""
 
 from __future__ import annotations
 

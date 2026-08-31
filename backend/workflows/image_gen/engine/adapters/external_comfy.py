@@ -98,19 +98,7 @@ class ExternalComfyAdapter(ImageAdapter):
         return next((item["slots"] for item in self._graphs() if item["id"] == graph_id), {})
 
     def _reference_slots(self, slots: Mapping[str, Any], source: str) -> tuple[Mapping[str, Any], ...]:
-        """Every image input this graph declares, once `source` has switched them on.
-
-        The graph declares which of its inputs load an image; the style says where the
-        one picture they all receive comes from, so the same workflow can run under one
-        style that feeds it the previous image and another that renders it from the
-        prompt alone.
-
-        `mimes` is load-bearing: the upload names the file by extension off the mime,
-        so anything outside the three Orb declares lands on the server as a `.png`
-        that is not one. `required` is True of every slot here -- something asked for an
-        image, and rendering one unfilled would submit the exporter's own filename and
-        draw whatever that machine had.
-        """
+        """Return graph image inputs enabled by the reference source."""
         return tuple(
             {
                 **copy.deepcopy(entry),

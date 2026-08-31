@@ -1,35 +1,4 @@
-"""What to do when a provider refuses what it was sent.
-
-The alternative this replaces was a table: a per-provider count of how many
-references are read, and a per-provider allowlist of which models read any. Both
-were hand-measured against catalogues that grow without us -- NanoGPT alone ships
-202 image models -- so both were permanently unfinished, and an unfinished
-allowlist withholds a capability the user configured and is paying for, silently.
-
-**Asking is cheaper than tabulating.** Every provider measured refuses a bad
-request *before* rendering, and bills nothing for the refusal: an over-capacity
-reference array, an unknown model and an invalid enum all came back 400/404/422
-for free. So the render sends what the style asked for, and a provider that cannot
-take it says so at no cost.
-
-**Classified on the shape of the refusal, never on a provider's vocabulary.** The
-same posture `pipeline/failures.py` takes for turn errors. Two facts decide it:
-the failure was about the *request* rather than the credential or the server, and
-the message is about images. Anything else is not a reference problem, and
-degrading on it would quietly drop a likeness because the resolution was wrong.
-
-**Two things a refusal can be about, one ladder.** References are one; the other is
-one of Orb's own optional fields, which a provider names outright -- Together's
-FLUX.2 answers *"The parameter 'negative_prompt' is not recognized or supported"*
-where its FLUX.1 default takes the same field. Same posture, same reason: a
-per-model list of who takes a negative prompt is the table this module exists to
-not keep, and the model already says so for free.
-
-**Bounded, and disclosed.** At most one rung per droppable field plus two for the
-references -- the count the provider named, then none at all -- and each rung it
-takes appends a note. Silent degradation is the thing this exists to avoid; it is
-only worth doing because the user is told.
-"""
+"""Choose bounded fallbacks when a provider rejects optional fields."""
 
 from __future__ import annotations
 

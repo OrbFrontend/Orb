@@ -1,8 +1,4 @@
-"""Download character cards from external sources (CharacterHub, etc.).
-
-Use a registry pattern so new sources can be added by calling register_source()
-with a name, a browse function, a download function and a randomize function.
-"""
+"""Download character cards from external sources."""
 
 from __future__ import annotations
 
@@ -151,9 +147,6 @@ async def _fetch_avatar(avatar_url: object, source_label: str) -> tuple[str | No
         return None, None, b""
 
 
-# ── CharacterHub ──────────────────────────────────────────────────────
-
-
 async def _chub_search(q: str, page: int) -> dict:
     """Run a CharacterHub search and normalize the response shape."""
     params = {
@@ -268,7 +261,6 @@ register_source(
 )
 
 
-# ── Character Archive (chararc.bernkastel.pictures) ───────────────────
 #
 # Character Archive mirrors cards from upstream sites (chub, etc.) behind a
 # FastAPI JSON API. Browse hits the meilisearch-backed search endpoint; the
@@ -432,7 +424,6 @@ register_source(
 )
 
 
-# ── Botbooru (botbooru.com) ───────────────────────────────────────────
 #
 # Botbooru serves standard tavern PNG cards (tEXt chara chunk) and exposes a
 # JSON browse API whose `q` matches both tags and character names. Unlike the
@@ -526,7 +517,6 @@ register_source(
 )
 
 
-# ── Wyvern (wyvern.chat) ──────────────────────────────────────────────
 #
 # Wyvern exposes an unauthenticated JSON explore API. The search endpoint
 # already returns full card definitions (description/personality/first_mes/…),

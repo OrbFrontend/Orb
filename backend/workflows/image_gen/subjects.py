@@ -1,45 +1,4 @@
-"""Who this render is a picture *of*, in order.
-
-Above `engine/` for the same stated reason as `references.py`: this reads
-conversation state through the workflow toolkit, while the engine's half of the
-split knows only bytes and slots.
-
-**The one answer.** Two halves of a render need to agree on the cast -- the
-reference image (whose likeness is sent) and the prompt (whose fixed appearance is
-injected, and whose identity traits the composer must still spell out because no
-picture of them was sent). Answering that question twice is how a likeness for Bob
-rides along with a prompt that names only Alice. So both halves read this list, the
-same posture `inference/group_context.py` has for card-field visibility.
-
-Order is the contract:
-
-* **Subject 0 is the primary** -- the card the route already resolved for this
-  message (`_resolve_workflow_character`), which is what a solo chat has one of, what
-  the `character` reference source means, and **the only subject a likeness is ever
-  sent for**: a character has one reference image and a render sends one picture.
-* **Subject 1..n are the rest of the cast that has spoken in this round so far**,
-  in roster order. Whether each of them is *pictured* as well as described is the render
-  target's to cap: a homogeneous cloud array carries one likeness per subject, a
-  ComfyUI graph's structural inputs all take the primary's.
-
-Scoping the tail to the *round* rather than the whole roster is deliberate: a
-six-member scene where two people traded lines should not have four characters
-described into a shot the scene analyzer then leaves them out of. A round is the
-user's last message and every reply since -- which is what the picture is of; see
-`_round_speakers` for why it is not `messages.exchange_id`.
-
-**"So far" is the whole of it.** The history handed in is already cut at the anchor
-(`hooks._history_through`), and that cut is a stated invariant of this workflow, not
-an accident: a render never composes from replies that came *after* the one being
-visualized, and the regenerate ctx cannot even see them. So visualizing the first of
-three replies in a round addresses one subject, and visualizing the last addresses
-three. Widening this past the anchor would mean describing an action the analyzer
-is not allowed to read -- a picture of something that has not happened yet.
-
-Nothing here decides *visibility*. The analyzer decides who is in frame and
-`composer._visible` drops the sheets of those it left out; this decides only who is a
-candidate.
-"""
+"""Resolve the ordered subject candidates for an image render."""
 
 from __future__ import annotations
 
@@ -72,29 +31,7 @@ class Subject:
 
 
 def _round_speakers(history: Sequence[Mapping[str, Any]], anchor_id: int) -> frozenset[str]:
-    """The member ids that have spoken in the anchor's round, as a set.
-
-    A **round** is the user's most recent message and every reply that has followed it,
-    up to and including the one being visualized. That is what the picture is of, and
-    what this workflow has always documented.
-
-    Deliberately *not* `messages.exchange_id`. An exchange is request-scoped -- one call of the
-    group driver -- which matches a round only when the driver answers for everybody at
-    once. Under `manual` turn mode the user gives one member the floor per click, so
-    every reply is its own exchange and the cast was permanently a party of one: a picture of
-    two characters trading lines sent one likeness and described one person. The round is
-    the honest unit, and it costs no query either -- `role` is on every history row.
-
-    A *set*, not a sequence, because the caller orders the tail by the roster rather than
-    by who spoke first, so the prompt's roster does not reshuffle when the same two
-    people trade the first line between rounds. Answering with an order nothing reads
-    would be an invitation to start reading it.
-
-    A scene that opens with character greetings and no user message yet is one round, so
-    everyone in it counts. The walk stops at the anchor rather than trusting the caller's
-    cut, because a render never composes from replies that came after the one being
-    visualized and that invariant is cheap to enforce twice.
-    """
+    """Return member ids that spoke in the anchored round."""
     speakers: list[str] = []
     for message in history:
         if message.get("role") == "user":
@@ -110,22 +47,7 @@ def _round_speakers(history: Sequence[Mapping[str, Any]], anchor_id: int) -> fro
 
 
 def _disambiguated(subjects: Sequence[Subject]) -> tuple[Subject, ...]:
-    """The same subjects, with no two answering to the same name.
-
-    A name is the only handle the model has on a subject: it is what the roster quotes,
-    what `visible_subjects` comes back as, what names the subject the reference picture
-    is of, and what binds an analyzed cast entry to a saved appearance sheet. `group_members.display_name` carries no uniqueness
-    constraint -- only `speaker_key` and the active `character_card_id` do -- so two
-    members really can both be "Guard", and then every one of those bindings is a
-    coin flip: the single name comes back once and *both* sheets are injected.
-
-    So a repeat is numbered off, and the model is handed something it can tell apart.
-    Plain digits and a space: `(2)` would reach a booru encoder as attention syntax,
-    and this text is written into image prompts.
-
-    The first holder keeps the bare name, so the ordinary scene -- where nobody
-    collides -- is untouched, and a rename never silently renumbers the others.
-    """
+    """Disambiguate subject names."""
     seen: dict[str, int] = {}
     out: list[Subject] = []
     for subject in subjects:
@@ -148,30 +70,7 @@ async def resolve(
     character: Mapping[str, Any] | None,
     profile: Mapping[str, Any],
 ) -> tuple[Subject, ...]:
-    """The ordered subjects of one render.
-
-    The primary is supplied rather than re-derived: the route resolved it before the
-    hook ran (it is what the per-character profile lock and the stored profile are
-    keyed by), and re-reading history for it here would be a second answer to a
-    question already settled. What this adds is the tail.
-
-    **The camera does not change who is in the scene.** First-person looks through the
-    *user's* eyes, and the user is a persona rather than a cast member, so no subject is
-    ever behind the lens -- every character in the round is in front of it. This used to
-    truncate to the primary under first-person, which was a solo chat's arithmetic (one
-    character, so one subject) applied to a group, and it silently dropped everyone else
-    from both the picture and the prompt. Keeping the viewer out of frame is
-    `prompts._SHOT_*_FIRST`'s job, and dropping people the analyzer invented is
-    `composer._keep_subjects`'.
-
-    A conversation with no resolvable primary (a narrator line in a group) has no
-    subject 0, and therefore no subjects at all: the tail is *other* members relative
-    to a primary, and there is no such thing as the second subject of a render that
-    has no first.
-
-    The answer leaves here with distinct names (`_disambiguated`), because every
-    binding downstream of it is by name.
-    """
+    """Resolve the ordered subjects of one render."""
     if not character_id:
         return ()
     cast = await get_scene_cast(conversation_id)

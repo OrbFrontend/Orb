@@ -1,16 +1,4 @@
-"""
-persistence.py — Saves the turn output after the pipeline finishes.
-
-:func:`_consume_pipeline` drains the pipeline's SSE events, passes public ones
-through to the caller, and on the terminal ``_result`` event writes the assistant
-message and all turn side-effects (director state, workflow attachments,
-per-message state, active-leaf advance, lifetime char counter, conversation log).
-
-The ``_persist_*`` / ``_fallback_*`` / ``_shielded_*`` helpers separate the happy
-path from the best-effort save triggered when a turn is aborted before
-``_result`` fires, with ``asyncio.shield`` protecting the finally-block writes
-from request-task cancellation.
-"""
+"""Persist pipeline output and turn side effects."""
 
 from __future__ import annotations
 
@@ -96,23 +84,7 @@ async def _persist_result(
     exchange_id: str | None = None,
     world_source_user_msg_id: int | None = None,
 ) -> tuple[int | None, list[dict], list[dict]]:
-    """Save the assistant message and all turn side-effects after ``_result`` fires.
-
-    *world_source_user_msg_id* is the user row a World proposal cites, and it is
-    not always *user_msg_id*: in a group exchange the parent of speaker N is
-    speaker N-1's reply, and a pinned ``/speak`` has no user row at all. Every
-    caller states it rather than having this infer "grouped" from another
-    column's nullability.
-
-    Updates director state, saves the assistant message with any workflow
-    attachments, writes per-message workflow state, advances the active leaf,
-    and increments the lifetime character counter.
-
-    Returns ``(asst_id, rejected_workflow_atts, world_proposals)``.
-    ``rejected_workflow_atts`` is non-empty when the attachment cache dropped
-    entries that lacked the metadata needed for re-synthesis;
-    ``world_proposals`` holds one staged Dynamic Worlds changeset per World.
-    """
+    """Persist the assistant message and turn side effects."""
     if agent_enabled(settings):
         await db.update_director_state(
             conversation_id,

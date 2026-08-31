@@ -1,10 +1,4 @@
-"""Are this feature's Python extras importable, and how to install them.
-
-Cheap answers only — nothing here loads a model. The imports are deliberately
-function-local: base Orb runs without ``requirements-ml.txt``, and hoisting
-them to module scope would break every stock install at import time. No test in
-the suite installs the extras, so nothing would catch it.
-"""
+"""Check and install optional local-model dependencies."""
 
 from __future__ import annotations
 

@@ -1,30 +1,4 @@
-"""Cloud image provider presets and the pure request builders that read them.
-
-No I/O -- every function below maps arguments to a value, so each provider's wire
-format is unit-testable without a network.
-
-**The request builder is a strict allowlist.** xAI silently ignores unknown fields,
-so the API never tells you a parameter was wrong: send `negative_prompt` to a
-provider that has no such field and it returns a perfectly good image that ignored
-it. A field is emitted only when the preset declares it.
-
-Only the **xai**, **togetherai**, **openrouter**, **openai** and **nanogpt** rows are
-verified against the live API; every other row is declared from vendor documentation
-and marked ``verified=False`` -- and every verified row contradicted its own catalogue
-or docs on a field that fails silently, which is what the flag is warning about.
-Each row carries the measurement that corrected it.
-
-**A provider with no JSON reference field is not a row here.** Chutes, Z.AI and
-ElectronHub were, and were dropped on that test; the comment above `aimlapi` says why.
-
-OpenAI is the row that shows an unverified one is not merely imprecise but can be
-*inert*: declared from its documentation it sent `response_format`, which that API
-rejects outright, so every render 400'd before it began.
-
-A provider's own catalogue is not evidence either. OpenRouter's image models
-advertise `seed` and an `image` input modality; both are the `/chat/completions`
-schema, and both are inert on the images path. Only a measured effect counts.
-"""
+"""Define cloud image provider presets and request builders."""
 
 from __future__ import annotations
 
@@ -172,7 +146,6 @@ _GAPS_NO_CONTROLS = (
 )
 
 PRESETS: tuple[ProviderPreset, ...] = (
-    # ── verified against the live API ────────────────────────────────────────
     ProviderPreset(
         id="xai",
         label="xAI (Grok)",
@@ -387,7 +360,6 @@ PRESETS: tuple[ProviderPreset, ...] = (
             "reports the cost of each render in USD",
         ),
     ),
-    # ── declared from vendor docs, unverified ────────────────────────────────
     # Dropped for having no JSON reference field, recorded so nobody re-adds them from
     # the same docs: **Chutes** has no OpenAI-shaped images endpoint at all -- `/v1` is
     # chat, `/images/` is *container* images, and its image models answer per-chute at
@@ -475,9 +447,6 @@ def provider_catalogue(ceiling: int) -> list[dict]:
 def _jsonable(value: Any) -> Any:
     """Preset tuples are declared frozen; the wire wants arrays."""
     return list(value) if isinstance(value, tuple) else value
-
-
-# ── dimensions ───────────────────────────────────────────────────────────────
 
 
 def _parse_ratio(candidate: str) -> float | None:
@@ -571,9 +540,6 @@ def pixels_for(preset: ProviderPreset, width: int, height: int) -> tuple[int, in
         final_h,
         f"{preset.label} renders in steps of {step}px up to {high}px; {requested} was rendered as {final_w}x{final_h}",
     )
-
-
-# ── request builders ─────────────────────────────────────────────────────────
 
 
 @dataclass

@@ -1,15 +1,4 @@
-"""Model files on disk: where they live, getting them, removing them.
-
-Everything here is generic over the manifest in :mod:`catalog`. A function
-takes a feature id resolved through that closed registry or a trusted spec
-record — never a raw request-derived path, which is what keeps a stored
-selection from naming a file outside ``data/models/``.
-
-DOWNLOADS ARE FLATTENED. Upstream repos disagree about where a GGUF lives
-(root, ``gguf/``, ``GGUF/`` — two of which are ONE directory on a
-case-insensitive filesystem), so every fetch lands under its basename and
-``prune_stale`` claims by basename too.
-"""
+"""Manage local model files on disk."""
 
 from __future__ import annotations
 

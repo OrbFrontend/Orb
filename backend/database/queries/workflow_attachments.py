@@ -1,15 +1,4 @@
-"""Raw row-level helpers for `workflow_attachments`.
-
-This module is the database boundary for the workflow-attachment cache.
-Higher-level concerns (size budget, eviction, access tracking) live in
-`backend.workflows.attachment_cache`. The functions here are
-side-effect-free with respect to the cache state -- they only read and
-write rows.
-
-Provenance guard: `insert_workflow_attachment_row` enforces a non-empty
-`workflow_id` so user-upload code paths cannot accidentally land rows in
-this table.
-"""
+"""Read and write workflow attachment rows."""
 
 from __future__ import annotations
 
@@ -92,40 +81,7 @@ async def insert_workflow_attachment_row(
     db=None,
     insert_as_evicted: bool = False,
 ) -> int:
-    """Insert a workflow_attachments row. Returns the new id.
-
-    attachment dict shape:
-      filename: str (required)
-      mime:     str (required)
-      data:     bytes XOR path: str (required; exactly one)
-      workflow_id: str non-empty (required)
-      parent_attachment_id: int or None (optional; default NULL)
-      annotation: str or None (optional; default NULL)
-      seed: str or None (optional; default NULL)
-      generation_metadata: dict or None (optional; default NULL; JSON-encoded)
-      consumption_metadata: dict or None (optional; default NULL; JSON-encoded)
-
-    If ``db`` is provided, the helper runs the SELECT + INSERT on the
-    caller's connection without committing -- caller owns the transaction
-    lifecycle. When ``db`` is None, the helper opens its own connection
-    and commits.
-
-    insert_as_evicted: when True, the row is inserted with the
-    EVICTED_MARKER sentinel in ``data_b64`` -- the bytes themselves are
-    never stored, and the byte count is therefore unrecoverable from this
-    row alone. Only ``seed`` + ``generation_metadata`` make such a row
-    recoverable later via ``rehydrate_attachment``; without them the
-    artifact is permanently byteless. The empty-data guard still applies:
-    a marker still requires a non-empty payload so the would-have-been
-    bytes are well-defined.
-
-    Raises:
-      ValueError -- empty workflow_id, both-or-neither data/path, wrong
-                    types, empty payload.
-      OSError    -- path stat or read failure (caller decides whether to
-                    surface).
-      LookupError -- message_id does not exist.
-    """
+    """Insert one workflow attachment row."""
     workflow_id = attachment.get("workflow_id")
     if not isinstance(workflow_id, str) or not workflow_id:
         raise ValueError(f"workflow_id must be a non-empty string; got {workflow_id!r}")

@@ -1,9 +1,4 @@
-"""Document-mode routes: CRUD + a stateless LLM continuation proxy (SSE).
-
-HTTP concerns only — prompt shape and transport policy live in the
-``features/documents`` slice. The generate route is a stateless proxy: the
-client owns persistence of generated text (it still 404s an unknown ``did``).
-"""
+"""Document CRUD and continuation routes."""
 
 from __future__ import annotations
 

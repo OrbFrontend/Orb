@@ -39,28 +39,7 @@ class AbortToken:
 
 
 def reasoning_cfg(on: bool, prefill: str = "") -> dict:
-    """Reasoning params dict to spread into a ``client.complete()`` call.
-
-    Covers all known API styles in one place (OpenAI-style, llama.cpp,
-    Anthropic thinking).
-
-    *prefill* is the text-mode reasoning prefill: words put in the model's mouth
-    inside the thought channel. It rides this dict (rather than a free kwarg) so
-    that a prefill cannot exist on a reasoning-off call — the ``on`` branch is
-    the only one that carries it. ``reasoning_prefill`` is Orb-internal: both
-    transports strip it, it is never sent to a provider.
-
-    ``chat_template_kwargs`` carries two aliases for the same toggle because
-    templates disagree on the name: Qwen3/Gemma read ``enable_thinking``; Kimi K2
-    reads a boolean ``thinking``. Each template reads only the name it knows and
-    ignores the other, so sending both is safe and makes the toggle actually take
-    on all of them (a template that silently ignores the flag would keep thinking).
-
-    The on-dict deliberately carries no effort level: how hard to think is the
-    per-model ``reasoning_effort`` setting, injected by the client in
-    :func:`apply_reasoning_effort` -- absent there too, the provider default
-    governs.
-    """
+    """Return per-call reasoning parameters for model."""
     return (
         {
             "reasoning": {"enabled": True},
@@ -398,34 +377,7 @@ class LLMClient:
         tool_choice: dict | str | None = None,
         **params,
     ) -> AsyncIterator[dict]:
-        """Stream a completion. Yields deltas then a final assembled message.
-
-        Transport is chosen by ``completion_mode``: text mode routes through
-        :meth:`_complete_text` (llama.cpp native), except calls carrying image
-        parts, which fall back to chat (no text-mode multimodal path yet).
-
-        ``tools_in_prompt=False`` (param) declares that the conversation's
-        prompt must not carry the tool schemas: text mode already never renders
-        them; chat mode then forces via ``response_format`` and omits ``tools``
-        from the body. For a forced call this is decoding-only on both
-        transports — prompt bytes and KV cache untouched.
-
-        Endpoints whose profile sets ``structured_tool_calls`` drop the pair on
-        every call, flag or no flag: forced calls ride ``response_format``, and
-        ``tools``/``tool_choice`` never enter the body, so that endpoint's
-        server-rendered prompts carry no schemas at all (see ``_complete_chat``).
-        That opt-in is optimistic: a proxy endpoint fronts a different engine
-        per model, so a reply that disproves the schema demotes the pair and the
-        call re-issues itself with ordinary tool calling
-        (``_audit_structured_reply``).
-
-        Yields:
-            ``{"type": "reasoning", "delta": str}`` — zero or more reasoning chunks
-            ``{"type": "content",   "delta": str}`` — zero or more content chunks
-            ``{"type": "done", "message": dict, "usage": dict | None}``
-                — assembled message (content and/or tool_calls) and the
-                  provider usage object (``None`` when the server omits it).
-        """
+        """Stream one completion and yield deltas followed by the assembled message."""
         # Transport choice and chat-only param scrubbing happen once, outside the
         # retry loop; each attempt re-opens a fresh stream from the same inputs.
         if self._uses_text_transport(messages):
@@ -500,31 +452,7 @@ class LLMClient:
             return True  # full delay elapsed, no abort
 
     def _audit_structured_reply(self, model: str, content: str, finish_reason: str | None) -> bool:
-        """Demote (endpoint, model) when a reply proves the strict schema was ignored.
-
-        Returns whether the demotion happened, so the caller can re-issue.
-
-        Only the profile-driven trigger reaches here. A strict
-        ``response_format`` grammar cannot emit anything but the object it
-        constrains, so a completed reply that is not that object is proof the
-        route decoded free-form -- the provider accepted the field and dropped
-        it. That is invisible otherwise: unlike a rejection it returns 200, and
-        the unparseable arguments degrade to ``{}``, so the pass silently
-        contributes nothing every turn until the process restarts.
-
-        Nothing short of proof counts. An empty reply, a ``length`` cutoff
-        (valid JSON, merely truncated) and a user stop (partial bytes, and the
-        pass is being discarded anyway) all stay silent -- the same standard
-        ``note_forced_tool_choice_ignored`` holds itself to, and for the same
-        reason: the demotion costs this endpoint its best-caching call shape
-        (Invariant 3, docs/architecture/kv-cache.md).
-
-        Every later call for the pair ships ordinary ``tools`` + forced
-        ``tool_choice`` instead, which is a different cache lane. Passes read
-        the policy per call, so the rest of the turn that found it moves lanes
-        too -- and that costs nothing over deferring it, since the lane's cold
-        start is paid on whichever turn the switch lands on.
-        """
+        """Record that a structured reply did not honor its requested schema."""
         if not content or finish_reason == "length" or self.abort_token.is_aborted:
             return False
         try:
@@ -1114,24 +1042,7 @@ class LLMClient:
         yield _done(" (text)", message, usage)
 
     async def complete_raw(self, prompt: str, model: str, **params) -> AsyncIterator[dict]:
-        """Stream a raw text completion from a bare *prompt* string (no chat template).
-
-        Text-transport only: POSTs *prompt* verbatim to llama.cpp's native
-        ``/completion``. There is no ``/apply-template`` step and no
-        ThinkSplitter — a raw continuation has no chat template, so no reasoning
-        channel; provider bytes are streamed through as content. Preserves the
-        ``complete()`` event contract (``content`` deltas then a ``done`` message
-        with synthesized usage). ``cache_prompt: true`` gives KV reuse across
-        successive continuations of the same document for free.
-
-        ``grammar``/``json_schema`` params constrain decoding (grammar wins,
-        mirroring ``_complete_text``) — prompt bytes and KV cache untouched, so
-        a forced-JSON call can still byte-extend a cached prefix.
-
-        *model* is accepted for signature symmetry with ``complete()`` (the
-        native ``/completion`` endpoint serves whatever model the server loaded,
-        so it is not sent in the body).
-        """
+        """Stream a raw completion for prompt."""
         async for event in self._with_retry(lambda: self._complete_raw(prompt, **params)):
             yield event
 
@@ -1316,19 +1227,7 @@ def _sanitize_args(obj):
 
 
 def _make_tool_call(name: str, arguments) -> dict:
-    """Build a normalised tool call dict, JSON-decoding ``arguments`` if it's a string.
-
-    Arguments always describe an object schema (``function.parameters``), so
-    anything that does not decode to a dict is dropped rather than handed on --
-    every consumer indexes the result, and a bare string or list would raise
-    deep inside a pass instead of degrading to "the model skipped this tool".
-
-    A string that is not bare JSON gets one salvage attempt for the first
-    balanced object inside it: models that ignore a forced schema often still
-    emit the right object, merely wrapped in a fence or a markup tag. The
-    discard is logged either way -- it is the point where a whole pass's output
-    silently becomes nothing, and it used to be invisible.
-    """
+    """Build a normalized tool-call dictionary."""
     raw = arguments if isinstance(arguments, str) else None
     if raw is not None:
         try:

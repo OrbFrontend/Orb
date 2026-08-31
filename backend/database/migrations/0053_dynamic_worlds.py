@@ -1,26 +1,4 @@
-"""
-0053_dynamic_worlds -- Agent-managed dynamic overlay on top of authored lore.
-
-Takes a pre-Dynamic-Worlds database to the shape ``schema.py`` ships: the two
-World-level columns the overlay needs (``dynamic_enabled``, the per-World
-opt-in; ``content_revision``, the optimistic-concurrency stamp bumped once per
-lore-content mutation), the five ``lorebook_entries`` columns that distinguish
-an authored row from an Agent-owned overlay row, and the ``world_changesets``
-table holding proposals and applied history.
-
-``lorebook_entries`` is *rebuilt* from the canonical fresh-install DDL rather
-than ALTER-extended: ``entry_layer``/``overlay_action`` carry CHECK constraints
-and ``supersedes_entry_id`` a self-referencing ``ON DELETE SET NULL`` edge, and
-``ALTER TABLE ADD COLUMN`` can express neither. Rebuilding is also the backfill
--- every pre-existing row arrives through the copy with the new columns at their
-defaults, so it reads as ``entry_layer='authored'`` with an empty
-``overlay_action``: exactly the projection it had before this migration. The FK
-shape matters beyond tidiness, because the preset engine derives merge order and
-FK rewriting from the live schema.
-
-``content_revision`` starts at 0 for every World: it is a comparison token, not a
-count, so it needs no historical reconstruction.
-"""
+"""Add Dynamic Worlds columns, overlay fields, and changesets."""
 
 from __future__ import annotations
 
@@ -45,13 +23,7 @@ def _column_names(conn: sqlite3.Connection, table: str) -> list[str]:
 
 
 def _rebuild(conn: sqlite3.Connection, table: str) -> None:
-    """Replace *table* with its canonical fresh-install shape, carrying every row over.
-
-    Standard SQLite table-rebuild recipe (as in 0027). The runner commits before
-    invoking us; ``PRAGMA foreign_keys`` is a no-op inside a transaction, and
-    leaving enforcement on would let ``DROP TABLE`` cascade through the very
-    edges whose rows are being copied.
-    """
+    """Replace a table with its canonical schema and copy its rows."""
     conn.commit()
     had_fk = conn.execute("PRAGMA foreign_keys").fetchone()[0]
     conn.execute("PRAGMA foreign_keys=OFF")

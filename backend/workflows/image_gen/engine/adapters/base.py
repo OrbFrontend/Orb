@@ -1,12 +1,4 @@
-"""The image-backend adapter protocol.
-
-Mirrors the TTS split (``tts/engine/base.py`` + ``router.py``) with one difference:
-an image adapter binds a config *and a style* at construction rather than taking
-them per call. Every entry point already took ``config`` first, so binding it
-removes an argument rather than adding a concept; the style rides along because
-"which backend, which model, at what size" is a property of the style, and an
-adapter answering about one style while rendering another is the bug this fixes.
-"""
+"""Define the image-backend adapter protocol."""
 
 from __future__ import annotations
 
@@ -90,22 +82,7 @@ class ImageAdapter(ABC):
 
 
 def replayed_target(replay: Mapping[str, Any] | None, *, model: str, width: int, height: int) -> tuple[str, int, int]:
-    """What a stored image recorded, falling back to what the bound style says now.
-
-    The two facts every backend replays identically -- which model drew it, and at
-    what size. One function rather than a copy per adapter, because they must not
-    drift: reading today's setting at replay time is the silent substitution reroll
-    and rehydrate exist to avoid, and it is only ever noticed as "the restored image
-    is the wrong shape".
-
-    A recorded model of `""` or `None` falls through rather than pinning nothing: it
-    means the original ran a target carrying its own -- a self-contained ComfyUI graph
-    with its loaders inside it. The size is taken only as a *pair*, since half a
-    recorded resolution describes no image.
-
-    What is *not* here is the graph id: that is ComfyUI's alone, and it is the one pin
-    that can be gone from the config, which the caller has to disclose.
-    """
+    """Return the stored render target or current style defaults."""
     if not replay:
         return model, width, height
     stored_model = replay.get("backend_model")
@@ -136,28 +113,7 @@ def replayed_reference_source(
     *,
     slots: Sequence[Mapping[str, Any]] | None = None,
 ) -> str:
-    """Where the stored render drew its reference from, falling back to `current`.
-
-    The source moved onto the style, where it is editable after the fact, so a
-    rehydrate replaying it off the style would quietly reproduce a *different*
-    picture -- the one failure a rehydrate is not allowed to have. Turning
-    references off in settings used to re-render an evicted image from the prompt
-    alone and overwrite the row with it.
-
-    The two backends record the fact differently, which is what `slots` selects:
-
-    * **Cloud** (no `slots`) answers from the stored scalar, and **a string wins,
-      not a truthy one**: `""` is a real recorded value -- "this render sent no
-      reference" -- so a record carrying it is authoritative. Only a record with no
-      scalar at all, made before the field existed, falls back to `current`.
-    * **ComfyUI** (`slots` = the graph's declared reference slots) answers from the
-      per-reference records instead, because the scalar says nothing about *which*
-      graph it described. The record names the node input each reference filled, and
-      that re-keys onto the declared list directly. Every reference on one render
-      shares a source, so the first that lands answers for all; a record whose slots
-      land nowhere is about some other graph and yields `current` rather than
-      rendering blind.
-    """
+    """Return the stored reference source or current defaults."""
     if not replay:
         return current
     recorded = replay.get("reference_source")
