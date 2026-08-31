@@ -43,8 +43,13 @@ export {
 // ── Theme
 let _themes = null;
 
+/* What a browser with no stored choice gets, and what an unknown stored name
+   falls back to. Keep it in sync with the <link id="theme-link"> in index.html,
+   which paints this same sheet before any of this module runs. */
+const DEFAULT_THEME = "camono";
+
 export function applyTheme(name) {
-  if (_themes && !_themes.includes(name)) name = "dark";
+  if (_themes && !_themes.includes(name)) name = DEFAULT_THEME;
   $("theme-link").href = `/static/themes/${name}.css`;
   localStorage.setItem("ar-theme", name);
   const sel = $("theme-select");
@@ -52,7 +57,7 @@ export function applyTheme(name) {
 }
 
 export function initTheme() {
-  applyTheme(localStorage.getItem("ar-theme") || "dark");
+  applyTheme(localStorage.getItem("ar-theme") || DEFAULT_THEME);
 }
 
 export async function initThemeList() {
@@ -60,11 +65,11 @@ export async function initThemeList() {
   _themes = themes;
   const sel = $("theme-select");
   if (!sel) return;
-  const current = localStorage.getItem("ar-theme") || "dark";
+  const current = localStorage.getItem("ar-theme") || DEFAULT_THEME;
   sel.innerHTML = themes
     .map((t) => `<option value="${t}">${t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</option>`)
     .join("");
-  sel.value = _themes.includes(current) ? current : "dark";
+  sel.value = _themes.includes(current) ? current : DEFAULT_THEME;
 }
 
 // ── Settings

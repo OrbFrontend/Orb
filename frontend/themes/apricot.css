@@ -1,0 +1,557 @@
+/* ═══════════════════════════════════════════════════════════
+   Apricot — the warm pastel desktop rice: a sunset wallpaper
+   (lilac in one corner, apricot through the body, cream on the
+   floor), cream widget cards outlined in ink, and candy-pastel
+   pills for anything you can press. Mono type throughout, the
+   way the bar, the fetch and the clock widget all wear it.
+
+   Two rules hold the whole sheet together:
+
+   1. INK IS FOR THINGS THAT FLOAT OR RESPOND — cards, bars,
+      fields, buttons, avatars, toggles. Structure *inside* a
+      card (section rules, list dividers, row hairlines) stays on
+      the soft clay --border. Put ink on those too and the UI
+      stops being a desktop and becomes a colouring book.
+   2. THE WALLPAPER IS PART OF THE LAYOUT. #main is left
+      transparent so the header, the composer and every message
+      read as separate widgets sitting on the desk, not as one
+      slab. Anything whose text lands on the wallpaper instead of
+      on cream (role labels, hover toolbars, the empty state) is
+      darkened here and given a faint white lift.
+
+   The floating geometry is desktop-only. Below 901px — mobile.js's
+   MOBILE_SIDEBAR_BREAKPOINT — the panels become fixed drawers and
+   insets/radii would fight them, so only the paint carries over.
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Private palette ──────────────────────────────────────
+     One token per *role*, not per swatch: mint is "on / now",
+     coral is destructive, lilac is decoration (selection, the
+     toast slip), deep rose is speech, deep apricot is the
+     wallpaper's own hue and is allowed onto a card only for the
+     wordmark and modal titles. Tints and hover shades of these
+     stay as literals at their use site — a token per shade would
+     be six more names for six one-off pixels. */
+  --ink:#2f2620;
+  --band:#e4d0b3;          /* titlebar beige — headers and docks */
+  --mint:#c8e3ab;
+  --mint-deep:#7fae63;
+  --rose-deep:#a8506a;     /* dialogue: dark enough to read as prose */
+  --lilac:#cbb6e8;
+  --apricot-deep:#bd6b32;
+  --coral:#f0a186;
+  /* Shadows are hard offsets, never blurs: one light source at the
+     top-left, and every box drops the same solid ink to its lower
+     right. The three sizes are the whole depth scale — button, card,
+     popover — so how far a thing floats is legible at a glance
+     instead of being guessed from a blur radius. */
+  --shadow-ink:rgba(47,38,32,0.65);
+  --shadow-btn:2px 2px 0 var(--shadow-ink);
+  --shadow-card:3px 3px 0 var(--shadow-ink);
+  --shadow-pop:6px 6px 0 var(--shadow-ink);
+
+  /* Cream widget stack over a warm-sand desk. --bg-deep is the
+     sand the app uses for sunken wells (inspector readouts, the
+     document desk, combobox fields) — a shade the wallpaper's
+     own mid-tone, so a well always reads as cut *into* a card. */
+  --bg-deep:#ecd9c1;
+  --bg-primary:#f3e8d9;
+  --bg-surface:#f8f0e4;
+  --bg-elevated:#fdf7ed;
+  --bg-hover:#eddcc6;
+  --border:#cbb69c;
+  --border-light:#b09876;
+
+  --text-primary:#2f2620;
+  --text-secondary:#6d5b4c;
+  --text-muted:#8b7360;
+
+  /* Sage, not the pill mint: --accent lands on cream as *text*
+     (section arrows, .btn-active labels, the modal titles), and
+     the pale pill green is illegible there. The pale one comes
+     back below as a fill, where ink sits on top of it. */
+  --accent:#4f8039;
+  --accent-dim:#3d6529;
+  --accent-glow:rgba(127,174,99,0.22);
+  --accent-muted:rgba(127,174,99,0.14);
+
+  --red:#c2503f;
+
+  /* Fira Code is the one bundled mono with a real weight axis, so
+     bold is drawn rather than smeared — headers and .msg-role can
+     use weight instead of yet another colour. */
+  --font-prose:'Fira Code','JetBrains Mono','Cascadia Code',ui-monospace,monospace;
+  --font-ui:'Fira Code','JetBrains Mono','Cascadia Code',ui-monospace,monospace;
+  --font-mono:'Fira Code','JetBrains Mono','Cascadia Code',ui-monospace,monospace;
+  --radius:12px;
+  /* Mono runs wide — every glyph pays for the widest one — so prose
+     sits a step below the serif themes' 16px rather than matching it.
+     UI labels are sized independently and don't follow this down. */
+  --font-prose-size:14px;
+  --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
+
+  --scrollbar-width:thin;
+  --scrollbar-thumb:#cba57e;
+  --scrollbar-track:transparent;
+}
+
+/* Warm the mobile chrome that mobile.css tokenises. It declares these
+   on :root *after* this file, so plain values would lose the tie —
+   hence !important on the custom properties themselves. The ⋯ menu
+   takes the hard popover shadow like every other dropdown; the two
+   drawer shadows stay soft on purpose — a drawer sliding over dimmed
+   content is separating layers, not floating a box, and a solid bar
+   down its edge reads as a rendering fault rather than as depth. */
+:root {
+  --mobile-overlay-color:rgba(74,49,32,0.34) !important;
+  --mobile-panel-shadow-left:12px 0 30px rgba(47,38,32,0.34) !important;
+  --mobile-panel-shadow-right:-12px 0 30px rgba(47,38,32,0.34) !important;
+  --mobile-menu-shadow:6px 6px 0 rgba(47,38,32,0.65) !important;
+}
+
+/* ── The wallpaper. Lilac bleeds down from the top-left, an apricot
+   sun sits off the top-right, a cream bloom lifts the floor, all
+   over a peach base. The lilac fades through rose rather than
+   straight to transparent: violet and orange are near-opposites,
+   so a direct blend greys out into mud exactly where the two
+   blooms overlap — the warm midpoint keeps that seam pink. Static
+   gradients, painted once, fixed so the desk doesn't slide when a
+   panel scrolls. */
+body {
+  background:
+    radial-gradient(85% 62% at 12% -16%, #cfc2e8 0%, rgba(228,176,196,0.55) 40%, rgba(240,190,160,0) 74%),
+    radial-gradient(88% 78% at 103% -4%, #f0a061 0%, rgba(240,160,97,0) 60%),
+    radial-gradient(95% 80% at 28% 112%, #fff3e6 0%, rgba(255,243,230,0) 66%),
+    linear-gradient(150deg, #f9d5b8 0%, #f6c9a4 45%, #fbe2c9 100%)
+    !important;
+  background-attachment: fixed !important;
+}
+
+/* ═══ Panels ════════════════════════════════════════════════ */
+#sidebar, #inspector, #tools-panel, #direction-notes-panel {
+  background: var(--bg-primary) !important;
+}
+#sidebar { border-right: 2px solid var(--ink) !important; }
+#inspector.open, #tools-panel.open, #direction-notes-panel.open {
+  border-left: 2px solid var(--ink) !important;
+}
+
+/* Headers are titlebars: a deeper beige band closed off by an ink
+   rule, exactly the way the terminal window wears its own. */
+.sidebar-header, #chat-header, #doc-header {
+  background: var(--band) !important;
+  border-bottom: 2px solid var(--ink) !important;
+}
+#chat-header .chat-title, #doc-header .doc-title { color: var(--ink) !important; }
+/* The wordmark takes the wallpaper's apricot — the one place the
+   desk colour is allowed onto a card, so the app signs itself. */
+.sidebar-header h1 { color: var(--apricot-deep) !important; letter-spacing: 0 !important; }
+.sidebar-section-header:hover { background: var(--bg-hover) !important; }
+
+/* ── Desktop geometry: every panel becomes a floating widget with
+   the desk showing between them. Below the mobile breakpoint the
+   panels are fixed drawers, so none of this applies there. */
+@media (min-width: 901px) {
+  #app { padding: 12px; }
+
+  /* Margins, not `gap`: a closed #inspector/#tools/#notes is still a
+     flex item, so a gap would leave three dead 12px strips pinned to
+     the right edge whether or not anything is open. */
+  #sidebar { margin-right: 12px; }
+  #inspector.open, #tools-panel.open, #direction-notes-panel.open { margin-left: 12px; }
+
+  #sidebar,
+  #inspector.open, #tools-panel.open, #direction-notes-panel.open {
+    border: 2px solid var(--ink) !important;
+    border-radius: 16px !important;
+    box-shadow: var(--shadow-card) !important;
+  }
+
+  #chat-header, #doc-header, #chat-input-area, #doc-footer {
+    border: 2px solid var(--ink) !important;
+    border-radius: 16px !important;
+    box-shadow: var(--shadow-card) !important;
+  }
+  #chat-header, #doc-header { margin-bottom: 12px; }
+  #chat-input-area, #doc-footer { margin-top: 12px; }
+
+  /* The desk shows through the message column. */
+  #chat-messages { padding: 10px 12px 14px !important; }
+}
+
+/* ═══ Buttons ═══════════════════════════════════════════════
+   Everything pressable is a pill with an ink outline standing on its
+   own hard shadow. Hover lifts it a pixel and the shadow grows to
+   match; pressing walks the button the full 2px down-right into the
+   shadow, which goes to nothing — the gap closes, so the button
+   physically lands on the page. No colour change needed. */
+.btn {
+  background: var(--bg-elevated) !important;
+  border: 2px solid var(--ink) !important;
+  border-radius: 999px !important;
+  color: var(--ink) !important;
+  font-weight: 500;
+  box-shadow: var(--shadow-btn) !important;
+  transition: background .15s, transform .08s, box-shadow .08s !important;
+}
+.btn:hover { background: var(--bg-hover) !important; }
+
+/* One press behaviour for every pill, however it got its colour. */
+.btn:hover, .btn-accent:hover, .btn-active:hover, #send-btn:hover,
+.btn-danger:hover, #stop-btn:hover, #burger-btn:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 var(--shadow-ink) !important;
+}
+.btn:active, .btn-accent:active, .btn-active:active, #send-btn:active,
+.btn-danger:active, #stop-btn:active, #burger-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 transparent !important;
+}
+
+/* Primary + "this is on right now": the mint pill. Ink text, since
+   dark-on-pastel is what the whole palette does. */
+.btn-accent, .btn-active, #send-btn {
+  background: var(--mint) !important;
+  border: 2px solid var(--ink) !important;
+  color: var(--ink) !important;
+  text-shadow: none !important;
+  box-shadow: var(--shadow-btn) !important;
+}
+.btn-accent:hover, .btn-active:hover, #send-btn:hover {
+  background: #d5ecbb !important;
+  color: var(--ink) !important;
+}
+
+/* Destructive: coral, still ink-on-pastel. Soft enough to live in a
+   toolbar, distinct enough that nobody presses it by accident. */
+.btn-danger, #stop-btn {
+  background: var(--coral) !important;
+  border: 2px solid var(--ink) !important;
+  color: var(--ink) !important;
+  box-shadow: var(--shadow-btn) !important;
+}
+.btn-danger:hover, #stop-btn:hover { background: #f5b49d !important; color: var(--ink) !important; }
+
+/* The two round controls on the composer, like a transport bar. */
+#send-btn, #stop-btn { border-radius: 999px !important; }
+#burger-btn {
+  background: var(--bg-elevated) !important;
+  border: 2px solid var(--ink) !important;
+  border-radius: 999px !important;
+  color: var(--ink) !important;
+  box-shadow: var(--shadow-btn) !important;
+}
+#burger-btn:hover { background: var(--bg-hover) !important; color: var(--ink) !important; }
+
+/* Avatars are objects on the desk too — same ink edge as the album
+   art on a media widget. Kept off .group-chat-avatar, whose 2px
+   border is a *cutout* against the row behind it in the stack. */
+.chat-avatar, .char-avatar-sm, .char-avatar-lg, .card-pick-avatar,
+.cast-avatar, .cast-pick-avatar, .persona-avatar, .world-avatar,
+.char-browser-avatar, .char-browser-list-avatar, .stat-fav-avatar {
+  border: 2px solid var(--ink) !important;
+  background: var(--bg-elevated) !important;
+}
+
+/* Mobile header controls: same pills at tap size. */
+#mobile-sidebar-toggle, #mobile-chat-actions-toggle, #doc-mobile-sidebar-toggle {
+  background: var(--bg-elevated) !important;
+  border: 2px solid var(--ink) !important;
+  border-radius: 999px !important;
+  color: var(--ink) !important;
+}
+
+/* ═══ Fields ════════════════════════════════════════════════
+   A field is a lighter cream well inside its card, ink-edged like
+   everything else you can touch, with a mint focus ring. */
+input[type="text"], input[type="number"], input[type="password"],
+input[type="search"], input[type="email"], textarea, select,
+#chat-input {
+  background: var(--bg-elevated) !important;
+  border: 2px solid var(--ink) !important;
+  border-radius: 12px !important;
+  color: var(--ink) !important;
+}
+input:not([type="checkbox"]):not([type="radio"]):focus,
+textarea:focus, select:focus, #chat-input:focus {
+  border-color: var(--ink) !important;
+  box-shadow: 0 0 0 3px var(--accent-glow) !important;
+}
+::placeholder { color: var(--text-muted) !important; }
+
+/* Readonly prompt rows read as plain text; the well only appears
+   once the pencil unlocks the field. */
+.image-gen-edit[readonly] {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: inherit !important;
+}
+
+/* Combobox: the wrapper *is* the well, so the inner input stays
+   chromeless — otherwise two ink rings stack inside one control. */
+.cb-control {
+  background: var(--bg-elevated) !important;
+  border: 2px solid var(--ink) !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+}
+.cb-control:hover { box-shadow: none !important; }
+.cb-control.open, .cb-control:focus-within {
+  border-color: var(--ink) !important;
+  box-shadow: 0 0 0 3px var(--accent-glow) !important;
+}
+.cb-root .cb-input { background: transparent !important; border: none !important; color: var(--ink) !important; }
+.cb-arrow { color: var(--text-secondary) !important; }
+.cb-dropdown, #burger-dropdown, #mobile-chat-actions-menu, .wf-claim-popover,
+.avatar-popup-content {
+  background: var(--bg-elevated) !important;
+  border: 2px solid var(--ink) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--shadow-pop) !important;
+}
+.cb-option.active, .cb-option:hover { background: var(--mint) !important; color: var(--ink) !important; }
+.burger-menu-item:hover { background: var(--bg-hover) !important; }
+/* The enlarged-avatar scrim covers the sidebar column only; warm it so
+   it reads as the same dimming the modal layer does, not as a black
+   hole cut out of one panel. (Its .avatar-popup-content is the card,
+   and it is in the group above.) */
+.avatar-popup { background: rgba(96,62,38,0.55) !important; }
+
+/* Toggle: an ink-edged track that turns mint, with a cream knob.
+
+   The knob has to shrink here. The 32×18 track keeps its outside
+   size, but a 2px border leaves a 28×14 padding box instead of the
+   30×16 the base sizes its 12px knob against — inset at the base's
+   2px, a 12px circle then has 1px of air at the ends, which against
+   a rounded cap reads as the knob sitting *on* the outline. 10px at
+   2px gives 2px of clearance on all four sides, and the travel the
+   base already asks for (translateX(14px)) still lands it exactly
+   2px off the far end: 2 + 14 + 10 = 26 of 28. */
+.tog-slider {
+  background: var(--bg-deep) !important;
+  border: 2px solid var(--ink) !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+}
+.tog-slider:before {
+  width: 10px !important;
+  height: 10px !important;
+  left: 2px;
+  bottom: 2px;
+  background: #fffaf1 !important;
+  box-shadow: 0 1px 2px rgba(122,80,48,0.35) !important;
+}
+.tog input:checked + .tog-slider { background: var(--mint) !important; border-color: var(--ink) !important; }
+.tog input:checked + .tog-slider:before { background: #fffaf1 !important; }
+
+/* ═══ Messages ══════════════════════════════════════════════
+   Cards on the desk. The assistant gets plain cream; the user gets
+   the mint wash, so the two speakers are told apart by colour and
+   by side at once. */
+.message .msg-body {
+  background: var(--bg-surface) !important;
+  border: 2px solid var(--ink) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--shadow-card) !important;
+}
+.message.user .msg-body { background: #e7f1d7 !important; border-color: var(--ink) !important; }
+
+/* Dialogue in deep rose — the pink of the pills, dropped far enough
+   in value to be read as prose rather than seen as a highlight. */
+.message .msg-body .quoted { color: var(--rose-deep) !important; }
+.message .msg-body em { color: #7d6857 !important; }
+
+/* Code sits a shade below the card it's quoted in. */
+.message .msg-body pre,
+.message .msg-body code.inline-code,
+.message .msg-body .code-block-btn {
+  background: #fffaf1 !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: 10px !important;
+}
+
+/* ── Text that lands on the wallpaper, not on a card. The muted
+   clay tones vanish against peach, so they darken and take a thin
+   white lift — the same trick desktop icon labels use. */
+.msg-role, .swipe-counter, .swipe-nav, .msg-toolbar, .empty-state, .slop-chip {
+  color: #6a5343 !important;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.55) !important;
+}
+.msg-role { font-weight: 600 !important; }
+.message.user .msg-role { color: #4a6b36 !important; }
+.msg-toolbar button, .swipe-nav button { color: inherit !important; }
+.msg-toolbar button:hover, .swipe-nav button:hover {
+  color: var(--ink) !important;
+  background: rgba(255,255,255,0.6) !important;
+}
+.msg-toolbar .msg-btn-del { color: #a83a2c !important; }
+.msg-toolbar .msg-btn-del:hover { color: #a83a2c !important; background: rgba(255,255,255,0.6) !important; }
+.slop-chip { background: rgba(255,255,255,0.55) !important; }
+
+/* Generation status: a floating capsule between the transcript and
+   the composer. The :not(.hidden) below is what keeps its margin from
+   holding a gap open while it's away. */
+.gen-status {
+  background: var(--band) !important;
+  border-top: 2px solid var(--ink) !important;
+  color: var(--text-secondary) !important;
+}
+@media (min-width: 901px) {
+  .gen-status {
+    border: 2px solid var(--ink) !important;
+    border-radius: 999px !important;
+    box-shadow: var(--shadow-card) !important;
+  }
+  .gen-status:not(.hidden) { margin-bottom: 12px; }
+}
+
+/* ═══ Composer ══════════════════════════════════════════════ */
+#chat-input-area {
+  background: var(--bg-primary) !important;
+  border-top: 2px solid var(--ink) !important;
+}
+/* The attachment tray lives *inside* the dock, so by rule 1 it stays
+   on the soft border — an ink box nested in an ink box reads as a
+   mistake. The cast rail beside it gets nothing at all: it carries no
+   side padding of its own, so any box would sit flush against the
+   chips, and those chips already draw their own edges. */
+.attachment-preview {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+}
+
+/* The speaking plan is not in the dock: it hangs between the header
+   and the transcript, on the wallpaper, so it is a widget and takes
+   the full card treatment. */
+.group-speaking-plan {
+  background: var(--bg-elevated) !important;
+  border: 2px solid var(--ink) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--shadow-card) !important;
+}
+@media (min-width: 901px) {
+  .group-speaking-plan { margin-bottom: 12px; }
+}
+
+/* ═══ Modals ════════════════════════════════════════════════ */
+/* A warm scrim, deliberately light: dim the desk any further and the
+   whole sunset turns to mud behind the sheet. The 2px blur is only
+   ever mounted while a modal is open, so it costs nothing at rest. */
+.modal-overlay {
+  background: rgba(96,62,38,0.22) !important;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.modal, .modal-crop {
+  background: var(--bg-surface) !important;
+  border: 2px solid var(--ink) !important;
+  border-radius: 18px !important;
+  box-shadow: var(--shadow-pop) !important;
+}
+.modal h2, .modal h3 { color: var(--apricot-deep) !important; }
+.tab.active { color: var(--accent) !important; border-bottom-color: var(--mint-deep) !important; }
+
+/* ═══ Readouts ══════════════════════════════════════════════
+   Injection and reasoning panes are the app's sunken wells: warm
+   sand, cut into the cream card, with darker-than-muted text —
+   they're small and monospaced and get read closely. */
+.injection-box, .reasoning-box, #doc-help pre {
+  background: var(--bg-deep) !important;
+  border: 2px solid var(--ink) !important;
+  border-radius: 12px !important;
+  color: #5c4a3c !important;
+}
+
+/* ═══ Document mode ═════════════════════════════════════════
+   The desk goes transparent so the page floats on the wallpaper,
+   like every other widget here. */
+#doc-editor-scroll { background: transparent !important; }
+#doc-page {
+  background: #fffaf1 !important;
+  border: 2px solid var(--ink) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--shadow-card) !important;
+}
+#doc-footer {
+  background: var(--bg-primary) !important;
+  border-top: 2px solid var(--ink) !important;
+}
+/* The two segmented controls in the footer are pills like everything
+   else pressable; their selected leaf takes the mint fill instead of
+   the base's inset accent underline, which a 2px ink edge swallows. */
+.doc-mode-toggle, .doc-probs-toggle {
+  background: var(--bg-elevated) !important;
+  border: 2px solid var(--ink) !important;
+  border-radius: 999px !important;
+}
+.doc-mode-opt + .doc-mode-opt { border-left: 2px solid var(--ink) !important; }
+.doc-mode-opt.active, .doc-probs-toggle.active {
+  background: var(--mint) !important;
+  color: var(--ink) !important;
+  box-shadow: none !important;
+}
+#doc-prob-popup {
+  background: var(--bg-elevated) !important;
+  border: 2px solid var(--ink) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--shadow-pop) !important;
+}
+
+/* ═══ Toast ═════════════════════════════════════════════════
+   The one lilac object in the app: a note slipped onto the desk. */
+.toast {
+  background: #f2e7fb !important;
+  border: 2px solid var(--ink) !important;
+  border-radius: 14px !important;
+  color: var(--ink) !important;
+  box-shadow: var(--shadow-pop) !important;
+}
+/* Only the fill: notifications.css owns .toast.error's red edge with a
+   more specific !important, and it should — that edge is the signal. */
+.toast.error { background: #fdeadf !important; }
+
+/* A failed turn is a card in the transcript, not chrome bolted under
+   one: same ink edge and shadow as a message, with the red spine the
+   base gives it widened so it survives against the outline. */
+.turn-error {
+  background: #fbe1d6 !important;
+  border: 2px solid var(--ink) !important;
+  border-left: 6px solid var(--red) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--shadow-card) !important;
+}
+
+/* The base's warning mustard (#c8a84b) turns muddy on cream; the
+   wallpaper's own apricot says "careful" without leaving the palette. */
+.field-warning { color: var(--apricot-deep) !important; }
+
+/* ═══ Chrome ════════════════════════════════════════════════ */
+::selection { background: var(--lilac); color: var(--ink); }
+
+/* Safari < 18.2 only; every other engine takes the three
+   --scrollbar-* tokens above via base.css. */
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #cba57e;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background: #b9906a; background-clip: padding-box; }
+
+/* The lift-and-press is decoration; the colour change and the shadow
+   already carry the state, so drop the motion when it's unwanted. */
+@media (prefers-reduced-motion: reduce) {
+  .btn:hover, .btn-accent:hover, .btn-active:hover, #send-btn:hover,
+  .btn-danger:hover, #stop-btn:hover, #burger-btn:hover,
+  .btn:active, .btn-accent:active, .btn-active:active, #send-btn:active,
+  .btn-danger:active, #stop-btn:active, #burger-btn:active {
+    transform: none;
+  }
+}
+
+textarea { appearance: none; -webkit-appearance: none; }
+textarea::-webkit-resizer { background: transparent; }
