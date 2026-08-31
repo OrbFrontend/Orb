@@ -8,6 +8,8 @@ activation gating, and keyword-scan parity.
 
 from __future__ import annotations
 
+import logging
+
 from backend.features.lorebook import (
     AGENTIC_LOREBOOK_SCAN_DEPTH,
     LOREBOOK_SCAN_DEPTH,
@@ -310,6 +312,75 @@ class TestSelectActiveEntries:
         msgs = [{"role": "user", "content": "we travel to natlan"}]
         core = compute_lorebook_block(entries, msgs, scan_depth=AGENTIC_LOREBOOK_SCAN_DEPTH, director_selected=["Dragon"])
         assert core == compute_agentic_lorebook_block(entries, ["Dragon"], None, msgs)
+
+
+# ── Catalog delimiters on Director picks ─────────────────────────────────────
+
+
+class TestDirectorPickDelimiters:
+    """The catalog renders ``- [Name] — kw``; models copy the brackets too.
+
+    ``.strip()`` removes whitespace and not delimiters, so before this a correct
+    relevance judgment arriving as ``[The Ashen Seal]`` activated nothing,
+    injected no lore, and logged nothing.
+    """
+
+    _entries = [_entry("The Ashen Seal", keywords=["wax seal", "raven crest"])]
+
+    def _names(self, pick):
+        return [e["name"] for e in select_active_entries(self._entries, [], scan_depth=2, director_selected=[pick])]
+
+    def test_bracketed_pick_activates_the_entry(self):
+        assert self._names("[The Ashen Seal]") == ["The Ashen Seal"]
+
+    def test_bare_and_folded_picks_still_activate(self):
+        assert self._names("The Ashen Seal") == ["The Ashen Seal"]
+        assert self._names("  the ashen seal  ") == ["The Ashen Seal"]
+
+    def test_appended_catalog_metadata_is_not_undone(self):
+        # The explicit decision: a pick carrying the catalog row's keywords is a
+        # model copying the whole line, not a name. It stays unmatched so the
+        # prompt defect is visible instead of guessed through.
+        assert self._names("[The Ashen Seal] — wax seal") == []
+        assert self._names("The Ashen Seal — wax seal") == []
+
+    def test_only_a_matched_outer_pair_is_stripped(self):
+        # Two delimited names in one string: the leading bracket closes early, so
+        # nothing is unwrapped and the malformed pick matches nothing.
+        entries = [*self._entries, _entry("Captain Ilyra")]
+        picked = select_active_entries(entries, [], scan_depth=2, director_selected=["[The Ashen Seal] and [Captain Ilyra]"])
+        assert picked == []
+
+    def test_a_name_that_contains_brackets_is_matched_as_stored(self):
+        # Unconditional bracket deletion would make this name unreachable; only
+        # the pick is unwrapped, so both the bare and the wrapped form land.
+        entries = [_entry("[Redacted] File")]
+        for pick in ("[Redacted] File", "[[Redacted] File]"):
+            picked = select_active_entries(entries, [], scan_depth=2, director_selected=[pick])
+            assert [e["name"] for e in picked] == ["[Redacted] File"]
+
+    def test_a_recovered_pick_is_logged_as_a_warning(self, caplog):
+        # That warning count is the per-model rate of this failure.
+        with caplog.at_level(logging.WARNING, logger="backend.inference.lorebook"):
+            assert self._names("[The Ashen Seal]") == ["The Ashen Seal"]
+        assert "matched only after stripping catalog delimiters" in caplog.text
+
+    def test_a_clean_pick_logs_nothing(self, caplog):
+        with caplog.at_level(logging.INFO, logger="backend.inference.lorebook"):
+            assert self._names("The Ashen Seal") == ["The Ashen Seal"]
+        assert caplog.text == ""
+
+    def test_a_pick_naming_a_constant_entry_stays_silent(self, caplog):
+        # Constant entries ride the cached prefix; excluding them here is by
+        # design, so it must not read as a failed pick.
+        entries = [_entry("Const", constant=True)]
+        with caplog.at_level(logging.INFO, logger="backend.inference.lorebook"):
+            assert select_active_entries(entries, [], scan_depth=2, director_selected=["[Const]"]) == []
+        assert caplog.text == ""
+
+    def test_the_block_renders_from_a_bracketed_pick(self):
+        block = compute_agentic_lorebook_block(self._entries, ["[The Ashen Seal]"])
+        assert "The Ashen Seal: The Ashen Seal content" in block
 
 
 # ── LorebookTurn ──────────────────────────────────────────────────────────────

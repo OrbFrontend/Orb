@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.analysis import Target, apply_id_patches
+from backend.analysis import PatchError, PatchErrorKind, Target, apply_id_patches
 
 DRAFT = "Alpha one. Beta two. Gamma three."
 
@@ -132,3 +132,65 @@ def test_no_op_replace_reported(targets):
 def test_empty_target_list_names_no_range():
     _, errors = apply_id_patches(DRAFT, [], [{"id": 1, "replace": "X."}])
     assert errors == ["Error: no finding with id 1 in the report. Valid ids: (none — the report has no numbered findings)."]
+
+
+# ── Error metadata ────────────────────────────────────────────────────────────
+#
+# The message is written for the model; the kind and id are written for the loop
+# around it. The editor tells a rejected real target apart from a junk id on
+# these, so they are as much a contract as the strings above.
+
+
+def test_errors_are_plain_strings_to_every_existing_caller(targets):
+    # A str subclass, so joining, comparing and counting are unchanged — the
+    # tool-result text and the `len(patches) - len(errors)` count both rely on
+    # that staying true.
+    _, errors = apply_id_patches(DRAFT, targets, [{"id": 9, "replace": "X."}])
+    assert isinstance(errors[0], str)
+    assert errors == ["Error: no finding with id 9 in the report. Valid ids: 1-3."]
+    assert "\n".join(errors) == errors[0]
+
+
+@pytest.mark.parametrize(
+    ("patch", "kind", "tid"),
+    [
+        ("junk", PatchErrorKind.MALFORMED, None),
+        ({"replace": "X."}, PatchErrorKind.MALFORMED, None),
+        ({"id": 1}, PatchErrorKind.MALFORMED, 1),
+        ({"id": 1, "replace": 42}, PatchErrorKind.MALFORMED, 1),
+        ({"id": 9, "replace": "X."}, PatchErrorKind.UNKNOWN_ID, 9),
+        ({"id": 1, "replace": "Alpha one."}, PatchErrorKind.NO_OP, 1),
+    ],
+)
+def test_each_failure_carries_its_kind_and_finding(targets, patch, kind, tid):
+    _, errors = apply_id_patches(DRAFT, targets, [patch])
+    assert (errors[0].kind, errors[0].tid) == (kind, tid)
+
+
+def test_a_duplicate_id_is_its_own_kind(targets):
+    _, errors = apply_id_patches(DRAFT, targets, [{"id": 1, "replace": "X."}, {"id": 1, "replace": "Y."}])
+    assert (errors[0].kind, errors[0].tid) == (PatchErrorKind.DUPLICATE_ID, 1)
+
+
+def test_healing_and_guarding_are_distinguishable():
+    # Both leave a target unrepaired, but only one of them means the model
+    # copied text it was never given: the editor replays that one.
+    draft = '"I\'m bored." She murmured.'
+    span = "She murmured."
+    start = draft.index(span)
+    restated = [Target(tid=1, span=span, start=start, end=start + len(span))]
+    _, errors = apply_id_patches(draft, restated, [{"id": 1, "replace": '"I\'m bored."'}])
+    assert errors[0].kind == PatchErrorKind.RESTATED_CONTEXT
+
+    draft = "Don't touch the latch. The room was very quiet. She waited."
+    span = "The room was very quiet."
+    start = draft.index(span)
+    cloned = [Target(tid=1, span=span, start=start, end=start + len(span))]
+    _, errors = apply_id_patches(draft, cloned, [{"id": 1, "replace": "Don't touch the latch, she thought."}])
+    assert (errors[0].kind, errors[0].tid) == (PatchErrorKind.PROTECTED_SEQUENCE, 1)
+
+
+def test_a_patch_error_can_be_built_directly():
+    error = PatchError("Error: something.", tid=3, kind=PatchErrorKind.NO_OP)
+    assert error == "Error: something."
+    assert (error.tid, error.kind) == (3, PatchErrorKind.NO_OP)

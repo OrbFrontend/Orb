@@ -25,6 +25,7 @@ from .audit import AuditReport
 from .detectors.opening_monotony import FlaggedOpener, MonotonyResult
 from .detectors.slop_detector import DetectionResult
 from .detectors.template_repetition import FlaggedTemplate, TemplateResult
+from .guarding import guard_protected_sequences, protected_bands
 from .healing import heal_replacement
 from .targets import Target
 from .text.text_segmentation import split_narration_sentences
@@ -141,6 +142,46 @@ def filter_audit_report_to_text(report: AuditReport, target_text: str) -> AuditR
 # ── ID-anchored patch application ─────────────────────────────────────────────
 
 
+class PatchErrorKind:
+    """Why a patch did not apply, for callers that must tell the cases apart.
+
+    The text of an error is written for the model; the kind is written for the
+    loop around it. An unknown id is the model naming a finding that does not
+    exist and costs nothing to ignore, while ``PROTECTED_SEQUENCE`` means a real
+    target was left unrepaired for a reason the model can act on — policies that
+    treat those alike either chase junk ids or swallow a rejection silently.
+    """
+
+    MALFORMED = "malformed"  # not an {id, replace} object, or `replace` is not text
+    UNKNOWN_ID = "unknown_id"  # names no finding in the report
+    DUPLICATE_ID = "duplicate_id"  # a second patch for a finding already patched
+    NO_OP = "no_op"  # `replace` repeats the flagged text, before or after healing
+    RESTATED_CONTEXT = "restated_context"  # healed away entirely: all copied context
+    PROTECTED_SEQUENCE = "protected_sequence"  # clones text outside the target span
+
+
+class PatchError(str):
+    """One error message, plus the finding and the reason behind it.
+
+    A ``str`` subclass rather than a record, because the message *is* the
+    payload for its first audience: it is fed back to the model verbatim as the
+    tool result, joined, logged, and counted as a plain string by every existing
+    caller. The two attributes ride along for the second audience — the editor
+    loop, which needs to know that *this* rejection was a real target it can ask
+    the model to redo. ``tid`` is ``None`` when the patch never named a valid
+    finding at all.
+    """
+
+    tid: int | None
+    kind: str
+
+    def __new__(cls, text: str, *, tid: int | None, kind: str) -> PatchError:
+        error = super().__new__(cls, text)
+        error.tid = tid
+        error.kind = kind
+        return error
+
+
 def _coerce_id(raw: object) -> int | None:
     """A finding id from whatever the model's JSON put in the field.
 
@@ -163,7 +204,26 @@ def _coerce_id(raw: object) -> int | None:
     return None
 
 
-def _no_op_error(tid: int) -> str:
+def _neighbour_bounds(draft: str, targets: Sequence[Target]) -> dict[int, tuple[int, int]]:
+    """Per target id, the end of the target before it and the start of the one after.
+
+    Document order over *all* targets, not just the patched ones: every target
+    is mutable text, so a finding nobody patched still never counts as protected
+    context for its neighbour. The two offsets bound the protected gaps touching
+    each target — see :func:`analysis.guarding.protected_bands`, which will only
+    accept gaps adjacent to their target. ``build_targets`` merges regions that
+    overlap, so the clamps below are belt-and-braces for a hand-built list.
+    """
+    ordered = sorted(targets, key=lambda t: t.start)
+    bounds: dict[int, tuple[int, int]] = {}
+    for k, target in enumerate(ordered):
+        previous_end = min(ordered[k - 1].end, target.start) if k else 0
+        next_start = max(ordered[k + 1].start, target.end) if k + 1 < len(ordered) else len(draft)
+        bounds[target.tid] = (max(previous_end, 0), min(next_start, len(draft)))
+    return bounds
+
+
+def _no_op_error(tid: int) -> PatchError:
     """The one no-op message, raised both on the raw `replace` and on the healed one.
 
     A replacement can arrive equal to the flagged text, or become equal to it
@@ -171,10 +231,14 @@ def _no_op_error(tid: int) -> str:
     edit nothing, so both must read the same to the model and cost the same one
     error to the ``len(patches) - len(errors)`` count.
     """
-    return f"Error: the patch for id {tid} is a no-op — `replace` repeats the flagged text unchanged."
+    return PatchError(
+        f"Error: the patch for id {tid} is a no-op — `replace` repeats the flagged text unchanged.",
+        tid=tid,
+        kind=PatchErrorKind.NO_OP,
+    )
 
 
-def apply_id_patches(draft: str, targets: Sequence[Target], patches: Sequence[Any]) -> tuple[str, list[str]]:
+def apply_id_patches(draft: str, targets: Sequence[Target], patches: Sequence[Any]) -> tuple[str, list[PatchError]]:
     """Apply ``{"id": N, "replace": "…"}`` patches by splicing recorded offsets.
 
     *targets* must be the list that produced the report the model answered —
@@ -185,17 +249,26 @@ def apply_id_patches(draft: str, targets: Sequence[Target], patches: Sequence[An
     before it lands, which drops sentences the model copied out of the draft on
     either side of its target — the mis-aim that otherwise prints a sentence
     twice. A replacement that is *only* such copies heals to nothing and is
-    rejected rather than deleting the flagged span on a guess.
+    rejected rather than deleting the flagged span on a guess. What healing
+    leaves is then checked by
+    :func:`analysis.guarding.guard_protected_sequences`, which rejects a
+    replacement that clones a significant run out of the untouchable text
+    beside its target — the same duplication, sitting where no trim could
+    remove it safely. A rejection is per-patch: the other replacements still
+    apply and the rejected target keeps the writer's original text.
 
     Errors are written in the report's own id vocabulary because they are fed
     back to the model verbatim as the tool result. The failure modes are a
-    malformed patch, a no-op replacement (before *or* after healing), and one
-    that heals away entirely; nothing here can fail to *find* its anchor.
-    Exactly one error is emitted per patch that does not apply, so callers can
-    count applications as ``len(patches) - len(errors)``. Returns
-    ``(updated_draft, error_messages)``.
+    malformed patch, a no-op replacement (before *or* after healing), one that
+    heals away entirely, and one that copies protected text; nothing here can
+    fail to *find* its anchor. Exactly one error is emitted per patch that does
+    not apply, so callers can count applications as
+    ``len(patches) - len(errors)``. Returns ``(updated_draft, error_messages)``;
+    each message is a :class:`PatchError`, which reads as the plain string the
+    model is shown and carries the finding id and :class:`PatchErrorKind` for
+    callers that must act differently on different failures.
     """
-    errors: list[str] = []
+    errors: list[PatchError] = []
     by_id = {t.tid: t for t in targets}
     id_range = f"1-{len(targets)}" if targets else "(none — the report has no numbered findings)"
     resolved: list[tuple[Target, str]] = []
@@ -206,24 +279,54 @@ def apply_id_patches(draft: str, targets: Sequence[Target], patches: Sequence[An
         # A malformed tool call can place a non-dict where the schema expects an
         # {id, replace} object; report it rather than crash on .get().
         if not isinstance(p, dict):
-            errors.append(f"Error: patch {i} is not an object with `id` and `replace`.")
+            errors.append(
+                PatchError(
+                    f"Error: patch {i} is not an object with `id` and `replace`.",
+                    tid=None,
+                    kind=PatchErrorKind.MALFORMED,
+                )
+            )
             continue
         raw_id = p.get("id")
         pid = _coerce_id(raw_id)
         if pid is None:
-            errors.append(f"Error: patch {i} has a non-integer id ({raw_id!r}). Valid ids: {id_range}.")
+            errors.append(
+                PatchError(
+                    f"Error: patch {i} has a non-integer id ({raw_id!r}). Valid ids: {id_range}.",
+                    tid=None,
+                    kind=PatchErrorKind.MALFORMED,
+                )
+            )
             continue
         target = by_id.get(pid)
         if target is None:
-            errors.append(f"Error: no finding with id {pid} in the report. Valid ids: {id_range}.")
+            errors.append(
+                PatchError(
+                    f"Error: no finding with id {pid} in the report. Valid ids: {id_range}.",
+                    tid=pid,
+                    kind=PatchErrorKind.UNKNOWN_ID,
+                )
+            )
             continue
         if pid in seen_ids:
-            errors.append(f"Error: id {pid} was patched more than once. Emit exactly one patch per finding.")
+            errors.append(
+                PatchError(
+                    f"Error: id {pid} was patched more than once. Emit exactly one patch per finding.",
+                    tid=pid,
+                    kind=PatchErrorKind.DUPLICATE_ID,
+                )
+            )
             continue
         seen_ids.add(pid)
         replace = p.get("replace")
         if replace is None:
-            errors.append(f"Error: the patch for id {pid} has no `replace` text.")
+            errors.append(
+                PatchError(
+                    f"Error: the patch for id {pid} has no `replace` text.",
+                    tid=pid,
+                    kind=PatchErrorKind.MALFORMED,
+                )
+            )
             continue
         # An id can be recovered from a stringy or float JSON value because every
         # such form names one finding unambiguously. Replacement prose cannot:
@@ -231,7 +334,13 @@ def apply_id_patches(draft: str, targets: Sequence[Target], patches: Sequence[An
         # into the draft, the one input class here that would neither error nor
         # produce a correct edit.
         if not isinstance(replace, str):
-            errors.append(f"Error: the patch for id {pid} has a non-text `replace` ({type(replace).__name__}). Send a string.")
+            errors.append(
+                PatchError(
+                    f"Error: the patch for id {pid} has a non-text `replace` ({type(replace).__name__}). Send a string.",
+                    tid=pid,
+                    kind=PatchErrorKind.MALFORMED,
+                )
+            )
             continue
         if replace == target.span:
             errors.append(_no_op_error(pid))
@@ -244,16 +353,45 @@ def apply_id_patches(draft: str, targets: Sequence[Target], patches: Sequence[An
     # span is already in its final form, which is exactly the text a replacement
     # must not duplicate.
     out = draft
-    heal_errors: list[str] = []
+    heal_errors: list[PatchError] = []
+    # Bands are sliced from the original *draft*: back-to-front application
+    # leaves everything before the next target's start untouched, so the two
+    # gaps adjacent to the target being patched still read as they did here.
+    bounds = _neighbour_bounds(draft, targets)
     for target, replace in sorted(resolved, key=lambda r: r[0].start, reverse=True):
         healed = heal_replacement(out, target.start, target.end, replace)
         for note in healed.notes:
             logger.info("Patch id %d healed: %s", target.tid, note)
         if healed.rejection is not None:
-            heal_errors.append(f"Error: the patch for id {target.tid} {healed.rejection}.")
+            heal_errors.append(
+                PatchError(
+                    f"Error: the patch for id {target.tid} {healed.rejection}.",
+                    tid=target.tid,
+                    kind=PatchErrorKind.RESTATED_CONTEXT,
+                )
+            )
             continue
         if healed.replace == out[healed.start : healed.end]:
             heal_errors.append(_no_op_error(target.tid))
+            continue
+        # Guarding reads the *healed* text, so an end-aligned copy that healing
+        # already trimmed is not charged twice, and an interior one left behind
+        # is still caught.
+        previous_end, next_start = bounds[target.tid]
+        clone = guard_protected_sequences(
+            healed.replace,
+            protected_bands(draft, previous_end, target.start, target.end, next_start),
+            target.span,
+        )
+        if clone is not None:
+            logger.warning("Protected-sequence guard rejected patch id %d: %s", target.tid, clone.rejection)
+            heal_errors.append(
+                PatchError(
+                    f"Error: the patch for id {target.tid} {clone.rejection}.",
+                    tid=target.tid,
+                    kind=PatchErrorKind.PROTECTED_SEQUENCE,
+                )
+            )
             continue
         out = out[: healed.start] + healed.replace + out[healed.end :]
         logger.debug("Patch id %d OK: %r → %r", target.tid, target.span[:60], healed.replace[:60])

@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 # so non-pipeline consumers (Document mode) can share them; re-imported here
 # under their original names so this module's surface is unchanged.
 from ....analysis.patching import (
+    PatchErrorKind,
     apply_id_patches,
     filter_audit_report_to_text,
 )
@@ -552,6 +553,9 @@ async def _run_edit_loop(
     current_draft = draft
     prev_issues = report.total_issues
     all_calls: list[dict] = []
+    # At most one extra iteration per pass is spent explaining a guard
+    # rejection; see where it is set.
+    guard_retry_spent = False
 
     # ── ReAct loop
     for iteration in range(MAX_EDITOR_ITERATIONS):
@@ -719,6 +723,7 @@ async def _run_edit_loop(
             )
             for e in errors:
                 logger.warning("Editor iteration %d patch error: %s", iteration + 1, e)
+            rejected = [e for e in errors if e.kind == PatchErrorKind.PROTECTED_SEQUENCE]
 
             report, targets = await _run_contextual_audit(
                 current_draft, phrase_bank, assistant_messages, audit_toggles, effective_msg
@@ -738,7 +743,34 @@ async def _run_edit_loop(
             )
             debug_parts.append(f"Post-iteration {iteration + 1} audit ({report.total_issues} issues):\n{report_text}")
 
-            if report.total_issues <= 1:
+            # ── Explaining a protected-sequence rejection
+            #
+            # A guard rejection is the one failure the model could act on and
+            # never hears about. The rejected target keeps the writer's original
+            # text, so its issues cannot clear, so `total_issues` cannot improve
+            # — which means one of the two stops below *always* fires first, and
+            # the replay that would have carried the reason is never reached.
+            # The model is left believing its patch landed.
+            #
+            # On the structured path the reason has somewhere to go: the
+            # tool-result turn already carries `errors` verbatim. So keep the
+            # loop alive for exactly one more iteration to deliver it, once per
+            # pass, and only while there is still a target to redo. The flat
+            # recap non-thinking models get has no tool-result slot, so those
+            # keep the quieter behaviour of stopping and leaving the span as the
+            # writer wrote it.
+            explain_rejection = bool(rejected) and replay_structured and not guard_retry_spent and bool(targets)
+            if explain_rejection:
+                guard_retry_spent = True
+                logger.info(
+                    "Editor iteration %d: %d patch(es) rejected by the protected-sequence guard, "
+                    "continuing once to tell the model why",
+                    iteration + 1,
+                    len(rejected),
+                )
+                debug_parts.append("Protected-sequence rejection replayed to the model:\n" + "\n".join(rejected))
+
+            if report.total_issues <= 1 and not explain_rejection:
                 if not length_guard_triggered:
                     break
                 # Audit clean but length guard still pending: next iteration's
@@ -747,7 +779,7 @@ async def _run_edit_loop(
                 # survives the hand-off.
                 logger.info("Editor: audit within threshold, length guard still pending — queuing rewrite")
 
-            if report.total_issues >= prev_issues:
+            if report.total_issues >= prev_issues and not explain_rejection:
                 logger.info(
                     "Editor: no progress (%d → %d issues), stopping",
                     prev_issues,
@@ -868,7 +900,7 @@ def _build_editor_request(
     return prompt, report_text
 
 
-def _tool_result_text(errors: list[str], report_text: str, *, renumbered: bool) -> str:
+def _tool_result_text(errors: Sequence[str], report_text: str, *, renumbered: bool) -> str:
     """The tool-result content fed back on the structured-replay path.
 
     Apply errors first (they name the ids the model just used), then the
@@ -886,7 +918,7 @@ def _tool_result_text(errors: list[str], report_text: str, *, renumbered: bool) 
 def _append_iteration_context(
     msgs: list[WireMessage],
     resp: dict,
-    errors: list[str],
+    errors: Sequence[str],
     report_text: str,
     *,
     renumbered: bool,

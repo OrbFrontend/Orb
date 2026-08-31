@@ -144,9 +144,28 @@ def test_only_the_adjacent_sentence_counts():
 
 
 def test_differing_terminator_is_a_different_sentence():
+    # Healing trims only an *unchanged* copy, because only an unchanged copy is
+    # guaranteed to rejoin: `howled!` beside `howled.` is text the model may
+    # have meant, so healing leaves it alone and hands the whole replacement on.
     draft = "Bad line. The wind howled."
-    out, _ = _patch(draft, "Bad line.", "Good line. The wind howled!")
-    assert out == "Good line. The wind howled! The wind howled."
+    healed = heal_replacement(draft, 0, len("Bad line."), "Good line. The wind howled!")
+    assert healed.replace == "Good line. The wind howled!"
+    assert healed.notes == ()
+
+
+def test_a_repunctuated_copy_of_the_next_sentence_is_rejected_by_the_guard():
+    # The other half of the split above: what healing declines to trim, the
+    # protected-sequence guard refuses to splice. It compares lexically, where
+    # `howled!` and `howled.` are the same three words — so the duplication the
+    # trim could not safely remove never reaches the draft. See
+    # tests/unit/test_protected_sequences.py.
+    draft = "Bad line. The wind howled."
+    out, errors = _patch(draft, "Bad line.", "Good line. The wind howled!")
+    assert out == draft
+    assert errors == [
+        "Error: the patch for id 1 copies protected text from after the flagged span "
+        "\u2014 \u201cThe wind howled\u201d is already in the draft; replace only the flagged text."
+    ]
 
 
 def test_an_overlap_that_is_not_end_aligned_is_not_trimmed():

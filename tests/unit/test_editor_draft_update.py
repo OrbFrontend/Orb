@@ -248,3 +248,157 @@ async def test_apply_errors_reach_the_model_in_id_vocabulary():
     tool_msgs = [m for m in sent[1] if m.get("role") == "tool"]
     assert "no finding with id 99" in tool_msgs[0]["content"]
     assert "Valid ids: 1-3." in tool_msgs[0]["content"]
+
+
+# ── The protected-sequence guard, in the loop ─────────────────────────────────
+#
+# Two audit findings, so the pass does not take the `total_issues <= 1` skip and
+# the ReAct loop actually runs — a single-target fixture measures the patch
+# function, not the orchestration around it. What these pin is the guard's real
+# user-visible effect: a rejected patch means the flagged span *keeps its slop*,
+# not that it gets a better repair.
+
+GUARDED_DRAFT = (
+    '"Don\'t touch it," Mara said. She said softly, her voice thick with tension. '
+    '"I wasn\'t going to," Ilya replied. The silence was deafening.'
+)
+GUARDED_NARRATION = "She said softly, her voice thick with tension."
+GUARDED_CLOSER = "The silence was deafening."
+
+
+async def test_every_patch_rejected_stops_the_loop_with_the_draft_intact():
+    # Both replacements copy protected dialogue, so nothing applies, the issue
+    # count cannot move, and the no-progress stop fires. One bad patch per
+    # target abandons both repairs — defensible (intact writer text beats a
+    # corrupt splice) but worth seeing asserted before any retry policy lands.
+    client = LLMClient("http://localhost:9999")
+
+    async def fake_complete(*args, **kwargs):
+        yield _patch_call(
+            [
+                {"id": 1, "replace": "Don't touch it, she whispered again."},
+                {"id": 2, "replace": "I wasn't going to, he said again."},
+            ]
+        )
+
+    client.complete = fake_complete
+
+    audits = [_make_report([GUARDED_NARRATION, GUARDED_CLOSER])] * 2
+    events = await _run(client, audits, GUARDED_DRAFT)
+
+    assert [e["type"] for e in events] == ["draft_update", "done"]
+    assert events[0]["draft"] == GUARDED_DRAFT  # the iteration changed nothing
+    assert events[-1]["draft"] is None  # and the pass reports the draft unchanged
+
+
+async def test_a_rejected_patch_does_not_block_its_neighbour():
+    # One clone, one clean replacement: the clean one lands, the flagged span
+    # behind the rejection keeps the writer's original text, and the `<= 1`
+    # break ends the pass with it still unrepaired.
+    client = LLMClient("http://localhost:9999")
+
+    async def fake_complete(*args, **kwargs):
+        yield _patch_call(
+            [
+                {"id": 1, "replace": "Don't touch it, she whispered again."},
+                {"id": 2, "replace": "Nobody spoke."},
+            ]
+        )
+
+    client.complete = fake_complete
+
+    audits = [_make_report([GUARDED_NARRATION, GUARDED_CLOSER]), _make_report([GUARDED_NARRATION])]
+    events = await _run(client, audits, GUARDED_DRAFT)
+
+    assert events[-1]["draft"] == GUARDED_DRAFT.replace(GUARDED_CLOSER, "Nobody spoke.")
+    assert GUARDED_NARRATION in events[-1]["draft"]
+
+
+def _scripted(responses: list[dict], seen: list[list]):
+    """A fake `complete` that answers with *responses* in order, recording messages."""
+
+    async def fake_complete(messages, model, tools=None, tool_choice=None, **params):
+        seen.append(list(messages))
+        yield responses[min(len(seen) - 1, len(responses) - 1)]
+
+    return fake_complete
+
+
+def _tool_turns(messages: list) -> list[str]:
+    return [m["content"] for m in messages if m.get("role") == "tool"]
+
+
+async def test_thinking_mode_is_told_when_and_why_a_patch_was_rejected():
+    # Without this the model is left believing its patch landed: the rejected
+    # target keeps the writer's text, so the issue count cannot improve, so the
+    # `<= 1` stop fires before the tool-result turn that carries the reason.
+    client = LLMClient("http://localhost:9999")
+    seen: list[list] = []
+    client.complete = _scripted(
+        [
+            _patch_call(
+                [
+                    {"id": 1, "replace": "Don't touch it, she whispered again."},
+                    {"id": 2, "replace": "Nobody spoke."},
+                ]
+            ),
+            _patch_call([{"id": 1, "replace": "Her hand fell away from the latch."}]),
+        ],
+        seen,
+    )
+
+    audits = [
+        _make_report([GUARDED_NARRATION, GUARDED_CLOSER]),
+        _make_report([GUARDED_NARRATION]),
+        _make_report([]),
+    ]
+    events = await _run(client, audits, GUARDED_DRAFT, reasoning_on=True)
+
+    assert len(seen) == 2  # the loop did not stop on the rejection
+    rejection = _tool_turns(seen[1])[0]
+    assert "the patch for id 1 copies protected text from before the flagged span" in rejection
+    assert "Don't touch it" in rejection  # *why*, in the draft's own words
+    # And the second attempt lands, so the span the rejection saved is repaired.
+    assert events[-1]["draft"] == GUARDED_DRAFT.replace(GUARDED_NARRATION, "Her hand fell away from the latch.").replace(
+        GUARDED_CLOSER, "Nobody spoke."
+    )
+
+
+async def test_the_rejection_is_explained_once_not_chased_forever():
+    # The extra iteration buys the model one informed attempt, not a retry loop:
+    # a model that copies again gets the ordinary no-progress stop.
+    client = LLMClient("http://localhost:9999")
+    seen: list[list] = []
+    client.complete = _scripted([_patch_call([{"id": 1, "replace": "Don't touch it, she whispered again."}])], seen)
+
+    audits = [_make_report([GUARDED_NARRATION, GUARDED_CLOSER])] * 3
+    events = await _run(client, audits, GUARDED_DRAFT, reasoning_on=True)
+
+    assert len(seen) == 2  # one explanation, then the stop
+    assert "copies protected text" in _tool_turns(seen[1])[0]
+    assert events[-1]["draft"] is None  # nothing applied, writer's text intact
+
+
+async def test_non_thinking_mode_still_stops_quietly():
+    # The flat recap has no tool-result slot to carry the reason, so those models
+    # keep the phase-one behaviour: the flagged span keeps its slop, and the
+    # rejection is logged rather than replayed.
+    client = LLMClient("http://localhost:9999")
+    seen: list[list] = []
+    client.complete = _scripted(
+        [
+            _patch_call(
+                [
+                    {"id": 1, "replace": "Don't touch it, she whispered again."},
+                    {"id": 2, "replace": "Nobody spoke."},
+                ]
+            )
+        ],
+        seen,
+    )
+
+    audits = [_make_report([GUARDED_NARRATION, GUARDED_CLOSER]), _make_report([GUARDED_NARRATION])]
+    events = await _run(client, audits, GUARDED_DRAFT)
+
+    assert len(seen) == 1
+    assert events[-1]["draft"] == GUARDED_DRAFT.replace(GUARDED_CLOSER, "Nobody spoke.")

@@ -30,11 +30,14 @@ pipeline's prefix bytes and the workflow toolkit's off-turn prefix identical.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ..core import Macros
+
+logger = logging.getLogger(__name__)
 
 LOREBOOK_SCAN_DEPTH = 6
 # The agentic fallback scan only looks at the current turn (previous assistant
@@ -217,6 +220,99 @@ def select_keyword_entries(
     return matched
 
 
+def _unwrap_catalog_delimiters(text: str) -> str | None:
+    """The inside of *text*'s outer ``[...]`` pair, or ``None`` when it has none.
+
+    "Outer pair" is literal: the leading ``[`` must be closed by the *final*
+    ``]``. ``[A] and [B]`` therefore unwraps to nothing — its first bracket
+    closes early, so the string is two delimited names rather than one wrapped
+    one — while ``[Name [with] brackets]`` unwraps to its inner text.
+    """
+    if len(text) < 2 or not (text.startswith("[") and text.endswith("]")):
+        return None
+    depth = 0
+    for i, ch in enumerate(text):
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0 and i != len(text) - 1:
+                return None
+    return text[1:-1] if depth == 0 else None
+
+
+def normalize_director_pick(pick: str) -> str:
+    """Fold one Director pick into the key :func:`select_active_entries` matches on.
+
+    :func:`build_lorebook_catalog` renders every candidate as ``- [The Ashen
+    Seal] — wax seal, raven crest``, and models routinely copy the delimiters
+    along with the name. ``.strip()`` removes whitespace, not brackets, so a
+    *correct* relevance judgment arriving as ``[The Ashen Seal]`` matched
+    nothing: no entry activated, no lore was injected, and nothing was logged.
+
+    Only one matched outer pair is removed, and only from the *pick*. Entry
+    names are folded as they are stored: the catalog is the side that added the
+    delimiter, so the pick is the side that undoes it, and an entry whose name
+    genuinely contains a bracket keeps it.
+
+    Trailing catalog metadata is deliberately **not** undone — ``The Ashen Seal
+    — wax seal`` stays unmatched. That em dash belongs to the catalog line, but
+    a name may contain one too, and a pick with keywords glued on is a model
+    copying a whole catalog row rather than a name: a prompt defect worth seeing
+    unmatched in the logs, not one worth guessing through.
+    """
+    trimmed = (pick or "").strip()
+    inner = _unwrap_catalog_delimiters(trimmed)
+    return (inner.strip() if inner is not None else trimmed).casefold()
+
+
+def _fold_name(entry: Mapping[str, Any]) -> str:
+    """The match key for an entry's own ``name``."""
+    return (entry.get("name", "") or "").strip().casefold()
+
+
+def _resolve_director_picks(
+    picks: Sequence[str],
+    selectable: set[str],
+    known: set[str],
+) -> set[str]:
+    """Normalized picks that name a *selectable* entry, logging what needed undoing.
+
+    Two numbers fall out of this and both matter. A pick counted as *recovered*
+    would have activated nothing before delimiter stripping, so its rate is the
+    per-model rate of the catalog-delimiter defect and the signal that says
+    whether the prompt also needs work. A pick that names nothing at all is
+    either a hallucinated entry or a whole catalog row copied in place of a
+    name. Picks naming a *constant* entry are neither: those are excluded from
+    the trailing block on purpose, so they stay silent.
+    """
+    matched: set[str] = set()
+    recovered: list[str] = []
+    unmatched: list[str] = []
+    for pick in picks:
+        raw = (pick or "").strip()
+        key = normalize_director_pick(raw)
+        if key in selectable:
+            matched.add(key)
+            if key != raw.casefold():
+                recovered.append(raw)
+        elif key not in known:
+            unmatched.append(raw)
+    if recovered:
+        logger.warning(
+            "Lorebook: %d director pick(s) matched only after stripping catalog delimiters: %s",
+            len(recovered),
+            ", ".join(repr(p) for p in recovered),
+        )
+    if unmatched:
+        logger.info(
+            "Lorebook: %d director pick(s) named no entry: %s",
+            len(unmatched),
+            ", ".join(repr(p) for p in unmatched),
+        )
+    return matched
+
+
 def select_active_entries(
     entries: Sequence[Mapping[str, Any]],
     messages: Sequence[Mapping[str, Any]] | None,
@@ -228,22 +324,27 @@ def select_active_entries(
 
     An entry is active when a keyword matched within the ``scan_depth`` most
     recent messages, OR its ``name`` is in *director_selected* (case-insensitive,
-    trimmed). The pool is projected to the effective layer first, then constant
-    entries are excluded — they ride the cached system prefix, and filtering
-    here (rather than per caller) also keeps a director pick that names a
-    constant entry from duplicating it into the trailing block. Returns entries
-    in input order — the union underlying both the substring
-    (``director_selected=()``) and agentic paths.
+    trimmed, and stripped of the catalog's own ``[...]`` delimiters — see
+    :func:`normalize_director_pick`). The pool is projected to the effective
+    layer first, then constant entries are excluded — they ride the cached
+    system prefix, and filtering here (rather than per caller) also keeps a
+    director pick that names a constant entry from duplicating it into the
+    trailing block. Returns entries in input order — the union underlying both
+    the substring (``director_selected=()``) and agentic paths.
     """
-    entries = [e for e in select_effective_entries(entries) if not e.get("constant")]
-    director_named = {(n or "").strip().casefold() for n in director_selected}
-    keyword_hit = {id(e) for e in select_keyword_entries(messages or [], entries, scan_depth)}
+    effective = select_effective_entries(entries)
+    candidates = [e for e in effective if not e.get("constant")]
+    director_named = _resolve_director_picks(
+        director_selected,
+        {_fold_name(e) for e in candidates},
+        {_fold_name(e) for e in effective},
+    )
+    keyword_hit = {id(e) for e in select_keyword_entries(messages or [], candidates, scan_depth)}
 
     def is_active(entry: Mapping[str, Any]) -> bool:
-        name = (entry.get("name", "") or "").strip().casefold()
-        return id(entry) in keyword_hit or name in director_named
+        return id(entry) in keyword_hit or _fold_name(entry) in director_named
 
-    return [e for e in entries if is_active(e)]
+    return [e for e in candidates if is_active(e)]
 
 
 # ── Rendering ─────────────────────────────────────────────────────────────────

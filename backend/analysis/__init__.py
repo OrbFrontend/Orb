@@ -19,7 +19,12 @@ from .detectors.slop_detector import DetectionResult
 from .detectors.structural_repetition import StructuralResult
 from .detectors.template_repetition import FlaggedTemplate, TemplateResult
 from .format_consistency import FormatDriftReport, normalize_to_baseline
-from .patching import apply_id_patches, filter_audit_report_to_text
+from .patching import (
+    PatchError,
+    PatchErrorKind,
+    apply_id_patches,
+    filter_audit_report_to_text,
+)
 from .targets import Target, build_targets, format_numbered_report, target_ids_for
 from .text.text_segmentation import split_narration_sentences
 
@@ -38,6 +43,8 @@ __all__ = [
     # patching — report filtering + id-anchored application
     "apply_id_patches",
     "filter_audit_report_to_text",
+    "PatchError",
+    "PatchErrorKind",
     # detector result types
     "DetectionResult",
     "MonotonyResult",
