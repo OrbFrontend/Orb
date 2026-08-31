@@ -1,30 +1,21 @@
-/* ═══════════════════════════════════════════════════════════════════════
-   style.css — component entrypoint.
 
-   The former single ~4000-line stylesheet was split by UI component into
-   css/*.css. These @imports load them in the original source order, so the
-   cascade is byte-for-byte identical to the old monolith. Keep this order:
-   later files intentionally override earlier ones where specificity ties.
+/* Keep component imports ordered; later files override earlier ones. */
 
-   (Loaded after themes/<name>.css and before mobile.css via index.html, so
-   theme variables remain available and mobile overrides still win.)
-   ═══════════════════════════════════════════════════════════════════════ */
-
-@import "css/base.css"; /* reset, base typography, layout shell */
-@import "css/sidebar.css"; /* sidebar: sections, conversation + character lists, fragments, avatar popup */
-@import "css/chat.css"; /* chat area: messages, toolbar, swipe nav, input, attachments, conv history */
-@import "css/inspector.css"; /* inspector panel: reasoning stepper rail */
-@import "css/tools.css"; /* tools panel */
-@import "css/status-bar.css"; /* generation status bar */
-@import "css/modals.css"; /* modal shell, tabs, character + persona + phrase-bank modals */
-@import "css/forms.css"; /* buttons, form fields, toggles, toast, tab-lock banner */
-@import "css/notifications.css"; /* toast stack + failed-turn card (after forms.css: .toast.error must out-specify the theme !important blocks) */
-@import "css/character-browser.css"; /* character library browser modal (grid/list) */
-@import "css/combobox.css"; /* settings hybrid-input combobox */
-@import "css/lorebooks.css"; /* worlds sidebar + lorebook drawer/editor */
-@import "css/context-size.css"; /* inspector context-size meter */
-@import "css/workflows.css"; /* workflow artifact widgets + status pill */
-@import "css/audio-transport.css"; /* workflow audio player transport bar */
-@import "css/character-browser-internet.css"; /* character browser: internet panel */
-@import "css/document.css"; /* document mode: free-form LLM-assisted writing surface */
-@import "css/group.css"; /* group chats: cast rail, speaking plan, cast manager, creation picker */
+@import "css/base.css";
+@import "css/sidebar.css";
+@import "css/chat.css";
+@import "css/inspector.css";
+@import "css/tools.css";
+@import "css/status-bar.css";
+@import "css/modals.css";
+@import "css/forms.css";
+@import "css/notifications.css";
+@import "css/character-browser.css";
+@import "css/combobox.css";
+@import "css/lorebooks.css";
+@import "css/context-size.css";
+@import "css/workflows.css";
+@import "css/audio-transport.css";
+@import "css/character-browser-internet.css";
+@import "css/document.css";
+@import "css/group.css";

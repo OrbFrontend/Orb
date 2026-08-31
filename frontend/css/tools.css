@@ -1,6 +1,3 @@
-/* ═══════════════════════════════════════════
-   5. Tools Panel
-   ═══════════════════════════════════════════ */
 .tools-inner {
   padding: 16px;
   overflow-y: auto;
@@ -11,7 +8,6 @@
 
 .tools-inner::-webkit-scrollbar { width: 0; }
 
-/* Range inputs — theme-aware (uses --accent, --bg-*) */
 input[type="range"] {
   -webkit-appearance: none; appearance: none;
   width: 100%; height: 6px;
@@ -34,8 +30,6 @@ input[type="range"]::-moz-range-track {
   height: 6px; background: var(--bg-elevated); border-radius: var(--radius);
 }
 
-/* Section demarcation inside the tools list (Director / Editor), matching the
-   Settings panel's "DATA" divider: a centered uppercase label flanked by rules. */
 .tools-divider {
   display: flex;
   align-items: center;
@@ -73,7 +67,6 @@ input[type="range"]::-moz-range-track {
   background: var(--accent-glow);
 }
 
-/* Director/Editor items grayed out and inert while Main Workflows is off. */
 #tools-list.workflows-off .tool-card {
   opacity: 0.5;
   pointer-events: none;
@@ -107,19 +100,10 @@ input[type="range"]::-moz-range-track {
   padding: 2px 6px;
 }
 
-/* A card's action button (Settings, …) stacks under the card body on its
-   content axis: it is a secondary escape hatch, so it reads with the content it
-   configures. Sizing/colour come from the shared .btn .btn-sm pair. */
 .tool-card-btn {
   margin-top: 8px;
 }
 
-/* ── Local ML variant table.
-   One row per checkpoint: radio, name, size, one action, and the blurb on a
-   second line indented to the name. Hairlines instead of gaps and boxes, so
-   three checkpoints read as a list rather than three nested cards. The base
-   `input` rule sizes fields at full width, and the bare `label` rule uppercases
-   captions — both wrong for a control row, so both are undone here. */
 .ml-variants {
   margin-top: 8px;
   border-top: 1px solid var(--border);
@@ -134,12 +118,6 @@ input[type="range"]::-moz-range-track {
   border-bottom: 1px solid var(--border);
 }
 
-/* Left native, like every other box in this panel. These were hand-painted from
-   theme tokens to dodge the browser's white bubble on a dark theme, and bought
-   that with an unchecked outline of --border-light — a hairline token, which on
-   most themes is the same as no control at all. The audit checkboxes two cards
-   up are native; matching them is worth more than the bubble. Colour comes from
-   `accent-color` on the shared reset in forms.css. */
 .ml-variant input[type="radio"] {
   grid-column: 1;
   width: 13px;
@@ -170,14 +148,6 @@ label.ml-variant-name { cursor: pointer; }
   font-variant-numeric: tabular-nums;
 }
 
-/* Places the cell and pins the button to its right edge, so the size column
-   lands at the same x whether the row offers Download or a delete.
-
-   The size is overridden off .btn-xs's 10px: this card runs a two-step scale —
-   12px for names, 11px for everything that supports them — and a 10px control
-   sitting between an 11px size and an 11px blurb reads as a third system rather
-   than as a smaller button. Compounded with .ml-variant so it out-specifies
-   .btn-xs in forms.css, which loads after this file. */
 .ml-variant .ml-variant-act {
   grid-column: 4;
   justify-self: end;
@@ -193,9 +163,6 @@ label.ml-variant-name { cursor: pointer; }
   color: var(--text-muted);
 }
 
-/* Busy state for a download in flight (see `beginMlBusy`). Borrows the generation
-   status bar's indeterminate sliver — `gen-bar-slide`, defined in status-bar.css;
-   keyframe names are global — and leaves the row's geometry alone. */
 .ml-busy {
   position: relative;
   overflow: hidden;
@@ -220,8 +187,6 @@ label.ml-variant-name { cursor: pointer; }
   }
 }
 
-/* Nothing in the app styled a disabled button, so one read as clickable while
-   its download ran. Scoped to the panel that has inert buttons to show. */
 .tool-card .btn:disabled {
   opacity: .5;
   cursor: default;
@@ -232,14 +197,11 @@ label.ml-variant-name { cursor: pointer; }
   border-color: var(--border);
 }
 
-/* Runtime gate — the card's whole body while the binary is missing, so it reads
-   as the one thing left to do rather than a status line. A callout box, because
-   what it gates (the model table) is hidden behind it. */
 .ml-gate {
   display: grid;
   gap: 4px;
   margin-top: 8px;
-  padding: 8px 10px 10px; /* the bottom pad is clearance for the .ml-busy sliver */
+  padding: 8px 10px 10px;
   border: 1px solid var(--accent-dim);
   border-radius: var(--radius);
   background: var(--accent-glow);
@@ -257,8 +219,6 @@ label.ml-variant-name { cursor: pointer; }
   color: var(--text-muted);
 }
 
-/* Which build to fetch on the left, the fetch itself on the right: the choice
-   is baked into the binary, so it has to be made before the button, not after. */
 .ml-gate-act {
   display: flex;
   align-items: center;
@@ -267,8 +227,6 @@ label.ml-variant-name { cursor: pointer; }
   margin-top: 4px;
 }
 
-/* The rewriter's parallel request count is also its KV-lane count, so this is
-   a first-class memory control rather than a hidden performance tweak. */
 .ml-batch {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -291,8 +249,6 @@ label.ml-variant-name { cursor: pointer; }
   min-width: 112px;
 }
 
-/* Same role as .ml-variant-detail — the small print under a control — so it
-   takes the same 11px. It was the card's only 10px body text. */
 .ml-batch div {
   grid-column: 1 / -1;
   font-size: 11px;
@@ -300,9 +256,6 @@ label.ml-variant-name { cursor: pointer; }
   color: var(--text-muted);
 }
 
-/* Card footer: the GPU switch on the left, the host's swap state on the right.
-   Wraps rather than squeezing the switch, because a state can be an error
-   sentence and the switch's label must stay on one line. */
 .ml-foot {
   display: flex;
   flex-wrap: wrap;
@@ -311,18 +264,10 @@ label.ml-variant-name { cursor: pointer; }
   margin-top: 8px;
 }
 
-/* The GPU switch borrows .lg-enforce-label's checkbox-label layout, but not its
-   type: that class is a 10px uppercase caption among other 10px uppercase
-   captions in Settings, and dropped in here it shouts next to an 11px state on
-   the same row while under-serving a 13px native checkbox it has to sit beside.
-   So the compound takes the card's own 11px sentence case, plus what its two
-   rows need — it must not wrap, and it must sit on the label's own line rather
-   than being pushed to the top of a wrapped foot. Compound, so it wins
-   regardless of rule order, and so the shared class is left alone. */
 .lg-enforce-label.ml-check {
   align-self: auto;
   flex: none;
-  margin: 0; /* the bare `label` rule's 4px bottom margin would decentre the row */
+  margin: 0;
   white-space: nowrap;
   font-size: 11px;
   text-transform: none;
@@ -340,8 +285,6 @@ label.ml-variant-name { cursor: pointer; }
 
 .ml-foot-error { color: var(--red); }
 
-/* A model load is seconds to tens of seconds of silence; the word alone reads
-   as a hang, so it breathes while the panel polls. */
 .ml-foot-loading { animation: ml-state-pulse 1.4s ease-in-out infinite; }
 
 @keyframes ml-state-pulse {
@@ -353,8 +296,6 @@ label.ml-variant-name { cursor: pointer; }
   .ml-foot-loading { animation: none; }
 }
 
-/* Two-control grid (recording + injection): labels share a sized first column so
-   the selects start at the same x and fill the rest, keeping both rows aligned. */
 .dn-config {
   display: grid;
   grid-template-columns: auto 1fr;

@@ -1,32 +1,14 @@
-/* ═══════════════════════════════════════════════════════════
-   LiteStep Dark — early-2000s Windows shell replacement, night
-   build. Charcoal desktop, graphite widget boxes with hard 3D
-   bevels, navy titlebars, Tahoma at small sizes, amber-dot
-   accents.
 
-   No blur, no glow, no rounded corners — 2003 hardware
-   couldn't afford them and neither does this theme. Bevels are
-   faked with two-tone borders (light top-left, dark
-   bottom-right), the classic Win2k trick.
-   ═══════════════════════════════════════════════════════════ */
-
-/* Fixedsys Excelsior — public-domain remake of the classic
-   pre-XP Windows Notepad/terminal font. Designed for 16px;
-   fractional sizes will look soft, keep multiples crisp. */
 @font-face {
   font-family: 'Fixedsys Excelsior';
   src: url('/static/fonts/fixedsys.woff') format('woff');
   font-weight: normal;
   font-style: normal;
   font-display: swap;
-  /* Fixedsys runs small for its px size — scale glyphs up so
-     the base CSS's 10-13px UI text stays readable. Prose size
-     below is reduced to compensate. */
   size-adjust: 125%;
 }
 
 :root {
-  /* Graphite widgets over a near-black slate desktop */
   --bg-deep:#232b36;
   --bg-primary:#3a3a38;
   --bg-surface:#42423f;
@@ -39,7 +21,6 @@
   --text-secondary:#a8b4c4;
   --text-muted:#84909e;
 
-  /* LiteStep amber dots */
   --accent:#f0922e;
   --accent-dim:#b06a1c;
   --accent-glow:rgba(240,146,46,0.2);
@@ -51,21 +32,17 @@
   --font-ui:'Fixedsys Excelsior','Lucida Console',monospace;
   --font-mono:'Fixedsys Excelsior','Lucida Console',monospace;
   --radius:0px;
-  /* 13px × the 125% size-adjust ≈ the 16px chat text you see */
   --font-prose-size:13px;
   --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
 }
 
 *, *::before, *::after { border-radius: 0 !important; }
 
-/* ── The desktop: flat dark slate with a faint vertical fade,
-   exactly like the stock wallpaper-less LiteStep desktop. */
 body {
   background: linear-gradient(180deg, #2e3844 0%, #26303c 40%, #202a35 100%) !important;
   background-attachment: fixed !important;
 }
 
-/* ── Panels: graphite widget boxes with the raised-bevel edge. */
 #sidebar, #inspector, #tools-panel {
   background: #3a3a38 !important;
   box-shadow: inset 1px 1px 0 #5a5a56, inset -1px -1px 0 #181818 !important;
@@ -73,13 +50,10 @@ body {
 #sidebar { border-right: 1px solid #101010 !important; }
 #inspector.open, #tools-panel.open { border-left: 1px solid #101010 !important; }
 
-/* Headers: the navy gradient titlebar. */
 .sidebar-header, #chat-header {
   background: linear-gradient(90deg, #2a4266 0%, #46648c 100%) !important;
   border-bottom: 1px solid #182538 !important;
 }
-/* Fixedsys has no bold — synthetic bold smears the bitmap
-   shapes, so titles stay normal weight at the native 16px. */
 .sidebar-header h1 {
   color: #ffffff !important;
   font-size: 16px !important;
@@ -87,9 +61,6 @@ body {
   letter-spacing: 0;
   text-shadow: 1px 1px 0 rgba(0,0,0,0.4) !important;
 }
-/* White belongs to the titlebar text, not to everything standing on
-   it: the action buttons and the mobile burger menu keep their own
-   face colors. */
 #chat-header, #chat-header .chat-title,
 #chat-header .chat-title-edit { color: #ffffff !important; }
 #chat-header .btn, #chat-header .burger-menu-item,
@@ -100,8 +71,6 @@ body {
 .sidebar-section-header { color: #a8b4c4 !important; }
 .sidebar-section-header:hover { color: #e4e2dc !important; background: #48505a !important; }
 
-/* ── Buttons: the raised gray button. Light top-left, dark
-   bottom-right; inverts when pressed. */
 .btn {
   background: #3a3a38 !important;
   border: 1px solid !important;
@@ -117,7 +86,6 @@ body {
   box-shadow: inset 1px 1px 2px rgba(0,0,0,0.4) !important;
 }
 
-/* Primary buttons: same chrome, amber face — the litestep dots. */
 .btn-accent, .btn-active, #send-btn {
   background: linear-gradient(180deg, #e08a2a 0%, #c46e16 100%) !important;
   border: 1px solid !important;
@@ -134,7 +102,6 @@ body {
   border-color: #6a3e0c #f0b060 #f0b060 #6a3e0c !important;
 }
 
-/* Danger: the "Cancel at your peril" red. */
 .btn-danger, #stop-btn {
   background: linear-gradient(180deg, #b04434 0%, #922a1c 100%) !important;
   border: 1px solid !important;
@@ -154,7 +121,6 @@ body {
 }
 #burger-btn:hover { background: #44443f !important; }
 
-/* ── Composer dock: the taskbar. */
 #chat-input-area {
   background: #3a3a38 !important;
   border-top: 1px solid #5a5a56 !important;
@@ -167,7 +133,6 @@ body {
   color: #e4e2dc !important;
 }
 
-/* Inputs everywhere: sunken dark wells. */
 input[type="text"], input[type="number"], input[type="password"], textarea, select {
   background: #1c1c1a !important;
   border: 1px solid !important;
@@ -175,16 +140,12 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   color: #e4e2dc !important;
 }
 
-/* Image-gen prompt rows read as plain text while readonly; the sunken
-   well only appears once the pencil unlocks the field. */
 .image-gen-edit[readonly] {
   background: transparent !important;
   border-color: transparent !important;
   color: inherit !important;
 }
 
-/* Combobox hybrids: the wrapper IS the sunken well; the inner
-   input stays chromeless so there's no double border ring. */
 .cb-control {
   background: #1c1c1a !important;
   border: 1px solid !important;
@@ -208,16 +169,12 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
 }
 .cb-option.active, .cb-option:hover { background: #2a4266 !important; color: #ffffff !important; }
 
-/* ── Toggle: a checkbox-era slider — sunken track, square
-   button knob, amber when on. */
 .tog-slider {
   background: #242422 !important;
   border: 1px solid !important;
   border-color: #181818 #5a5a56 #5a5a56 #181818 !important;
   box-shadow: none !important;
 }
-/* Knob: square, beveled with shadows only — a border would
-   inflate it past the 2px track inset. */
 .tog-slider:before {
   background: #3a3a38 !important;
   box-shadow: inset 1px 1px 0 #5a5a56, inset -1px -1px 0 #181818 !important;
@@ -229,8 +186,6 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
 }
 .tog input:checked + .tog-slider:before { background: #f0ece4 !important; }
 
-/* ── Messages: little dialog boxes on the desktop. Assistant
-   gets plain widget graphite; user gets the deep selection blue. */
 .message .msg-body {
   background: #42423f !important;
   border: 1px solid #101010 !important;
@@ -241,7 +196,6 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   border-color: #101010 !important;
 }
 
-/* Code blocks: Lucida Console on near-black, sunken. */
 .message .msg-body pre,
 .message .msg-body code.inline-code {
   background: #1c1c1a !important;
@@ -249,8 +203,6 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   border-color: #181818 #5a5a56 #5a5a56 #181818 !important;
 }
 
-/* ── Modals: a proper dialog — navy titlebar comes from
-   .modal-header if present, graphite body, hard drop shadow. */
 .modal-overlay { background: rgba(8,12,18,0.6) !important; }
 .modal, .modal-crop {
   background: #3a3a38 !important;
@@ -262,11 +214,8 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   color: #ffffff !important;
 }
 
-/* Phrase-bank kind chip: no synthetic bold (Fixedsys). */
 .phrase-group-count { font-weight: normal !important; }
 
-/* ── Injection & reasoning blocks: base paints them desktop-blue with
-   slate text (invisible here) — restyle as sunken dark readouts. */
 .injection-box,
 .reasoning-box {
   background: #1c1c1a !important;
@@ -276,7 +225,6 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   font-size: 12px !important;
 }
 
-/* ── Toast: a tooltip-yellow notification slip, dimmed. */
 .toast {
   background: #4a4630 !important;
   border: 1px solid #101010 !important;
@@ -284,7 +232,6 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   box-shadow: 2px 2px 0 rgba(0,0,0,0.5) !important;
 }
 
-/* ── Scrollbars: chunky gray with beveled thumb. */
 ::-webkit-scrollbar { width: 14px; height: 14px; }
 ::-webkit-scrollbar-track { background: #26282a; }
 ::-webkit-scrollbar-thumb {
@@ -300,11 +247,8 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   --scrollbar-track: #26282a;
 }
 
-/* Classic navy selection. */
 ::selection { background: #46648c; color: #ffffff; }
 
-/* ── Text sitting directly on the slate desktop reads like
-   desktop icon labels: white with a hard 1px dark shadow. */
 .msg-role {
   color: #ffffff !important;
   font-weight: normal !important;
@@ -316,8 +260,6 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
 }
 .swipe-nav button:hover { color: #ffffff !important; background: rgba(255,255,255,0.1) !important; }
 .empty-state { color: #c2ccd8 !important; text-shadow: 1px 1px 0 rgba(0,0,0,0.55) !important; }
-/* Toolbar icons sit on the slate desktop — light like the
-   desktop icon labels, not widget-gray. */
 .msg-toolbar { color: #ccd4dc !important; text-shadow: 1px 1px 0 rgba(0,0,0,0.5) !important; }
 .msg-toolbar button, .msg-toolbar .msg-tool { color: inherit !important; }
 .msg-toolbar button:hover, .msg-toolbar .msg-tool:hover { color: #ffffff !important; }

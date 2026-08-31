@@ -1,6 +1,3 @@
-/* ═══════════════════════════════════════════
-   7. Modals
-   ═══════════════════════════════════════════ */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -24,10 +21,6 @@
   flex-direction: column;
 }
 
-/* The modal is the scroll container; its children keep their own height. A child
-   that sets `overflow` has an automatic minimum size of zero, so without this a
-   tall sibling (an opened disclosure) squeezes it to nothing instead of making
-   the modal scroll — which is what happened to the cast picker under Advanced. */
 .modal > * { flex-shrink: 0; }
 
 .modal h2 {
@@ -38,14 +31,11 @@
   color: var(--accent);
 }
 
-/* Direct-child h2: visual header section with bottom border */
 .modal > h2 {
   padding-bottom: 14px;
   border-bottom: 1px solid var(--border);
 }
 
-/* …unless a tab row follows it: `.tabs` draws the same rule, and two of them
-   stacked read as a header inside a header. */
 .modal > h2.modal-title-flush {
   padding-bottom: 0;
   border-bottom: none;
@@ -63,9 +53,6 @@
   line-height: 1.4;
 }
 
-/* Small print that trails a control or fills a disclosure — the standing context
-   sentence on the group surfaces, the public-profile note in the card editor.
-   Out-specifies `.modal p`, whose 16px bottom margin is wrong for a trailing note. */
 .modal .modal-hint {
   font-size: 12px;
   color: var(--text-muted);
@@ -80,12 +67,7 @@
   margin-top: 20px;
 }
 
-/* To push a destructive button to the far left of the row (editor modals with
-   a Delete alongside Cancel/Save), put an explicit `<div style="flex:1"></div>`
-   spacer after it — see library.js. Button colour must not drive alignment, so
-   confirm modals stay consistently right-aligned regardless of confirmClass. */
 
-/* Modal title row — title left, actions top-right */
 .modal-title-row {
   display: flex;
   justify-content: space-between;
@@ -116,9 +98,6 @@
   flex-shrink: 0;
 }
 
-/* Secondary modal — rendered in #modal-sub-root above the main modal, so a
-   sub-modal or confirmation doesn't tear down its parent. Single depth-2 layer,
-   not an arbitrary stack (see modal.js). */
 #modal-sub-root {
   position: fixed;
   inset: 0;
@@ -129,7 +108,6 @@
   pointer-events: auto;
 }
 
-/* Crop modal — rendered in #modal-crop-root above the main modal */
 #modal-crop-root {
   position: fixed;
   inset: 0;
@@ -147,7 +125,6 @@
   max-width: 100%;
 }
 
-/* Crop modal: canvas-centered layout, suppresses standard header/footer borders */
 .modal-crop {
   align-items: center;
   gap: 12px;
@@ -162,17 +139,14 @@
   padding-top: 0;
 }
 
-/* Bleed-edge list inside modal (e.g. conversations history) */
 .modal-list {
   margin: 0 -24px;
   max-height: 60vh;
   overflow-y: auto;
 }
-/* Safari < 18.2 fallback; every other engine takes base.css's standard props. */
 .modal-list::-webkit-scrollbar { width: 4px; }
 .modal-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-/* Character create/edit: avatar + name header row */
 .modal-char-header {
   display: flex;
   gap: 16px;
@@ -180,7 +154,6 @@
   margin-bottom: 16px;
 }
 
-/* Muted hint text in modal character header */
 .modal-char-hint {
   font-size: 12px;
   color: var(--text-muted);
@@ -211,7 +184,6 @@
   flex: 1;
 }
 
-/* Tabs */
 .tabs {
   display: flex;
   gap: 0;
@@ -239,7 +211,6 @@
 .tab-content { display: none; }
 .tab-content.active { display: block; }
 
-/* Character modal · Fragments tab: roomier card-style rows than the sidebar list */
 .card-frag-hint {
   font-size: 11px;
   color: var(--text-muted);
@@ -251,7 +222,6 @@
   margin: 14px 0 6px;
   padding: 0 2px;
 }
-/* Card-editor dividers stay plain text — no rules. */
 #ce-card-frag-list .frag-divider::before,
 #ce-card-frag-list .frag-divider::after { display: none; }
 #ce-card-frag-list .frag-divider:first-child { margin-top: 0; }
@@ -292,7 +262,6 @@
   margin-top: 12px;
 }
 
-/* Character avatar (large, in modals) */
 .char-avatar-lg {
   width: 80px;
   height: 80px;
@@ -310,7 +279,6 @@
 
 .char-avatar-lg img { width: 100%; height: 100%; object-fit: cover; }
 
-/* Card picker grid */
 .card-picker {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -320,7 +288,6 @@
   overflow-y: auto;
 }
 
-/* Safari < 18.2 fallback; every other engine takes base.css's standard props. */
 .card-picker::-webkit-scrollbar { width: 4px; }
 .card-picker::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
@@ -373,7 +340,6 @@
   margin-top: 1px;
 }
 
-/* ── Persona List ── */
 .persona-list {
   display: flex;
   flex-direction: column;
@@ -399,7 +365,6 @@
   border-color: var(--accent-dim);
 }
 
-/* Neutral status note: which persona is pinned to the open chat/character. */
 .persona-lock-warning {
   margin: 0 0 10px;
   padding: 8px 12px;
@@ -458,7 +423,6 @@
   white-space: nowrap;
 }
 
-/* ── Persona lock buttons (persona selector modal) ── */
 .persona-lock-btns {
   display: flex;
   gap: 4px;
@@ -494,14 +458,12 @@
   background: none;
 }
 
-/* ── Phrase Bank ── */
 .phrase-bank-list {
   margin-bottom: 20px;
   max-height: 300px;
   overflow-y: auto;
 }
 
-/* The preset/backup library is its own, taller scroll area. */
 #preset-library-list {
   max-height: 460px;
 }
@@ -547,9 +509,6 @@
   white-space: nowrap;
 }
 
-/* Kind/count chip ("regex" / "3 variants"). Sits on the row like the
-   .phrase-variant chips — --bg-deep is a page background in some themes
-   (Litestep's desktop slate) and swallows muted text there. */
 .phrase-group-count {
   font-size: 10px;
   text-transform: uppercase;
@@ -574,7 +533,6 @@
   background: var(--bg-surface);
 }
 
-/* ── Presets / backups ─────────────────────────────────────────────── */
 .snapshot-modal .modal-subtitle { margin-bottom: 12px; }
 .snapshot-modal .field { margin-bottom: 12px; }
 .snapshot-modal .modal-checkbox-label { margin-bottom: 10px; }
@@ -679,7 +637,6 @@
   border-color: var(--accent);
 }
 
-/* ── Phrase bank: regex mode ── */
 .phrase-mode-toggle {
   display: flex;
   gap: 4px;
@@ -752,4 +709,3 @@
   text-overflow: ellipsis;
   max-width: 100%;
 }
-

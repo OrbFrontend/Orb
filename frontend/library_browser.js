@@ -1,8 +1,3 @@
-// Character Library browser modal: grid/list views with search + tag filtering
-// + sorting, plus the Internet browse panel (CharacterHub / Character Archive
-// search, randomize, import). Split out of library.js; the public surface is
-// re-exported from library.js. Reads the shared avatar cache-bust map and the
-// character-edit modal from library.js.
 import { api } from "./api.js";
 import { _avatarBust, showCharEditModal } from "./library.js";
 import { setModalCloseCallback, showModal } from "./modal.js";
@@ -20,51 +15,31 @@ import {
 } from "./utils.js";
 import { validate } from "./validate.js";
 
-// Character browser modal state
-let _browserViewMode = "grid"; // 'grid', 'list', or 'internet'
+let _browserViewMode = "grid"; // grid, list, or internet
 let _browserSearchQuery = "";
 let _browserCharacters = [];
-let _browserSortBy = "time-added"; // 'name', 'time-added', 'most-recent-chat', 'most-chats'
+let _browserSortBy = "time-added"; // name, time-added, most-recent-chat, or most-chats
 let _browserConversations = [];
-let _browserLoading = false; // true only while a cold cache is being fetched
+let _browserLoading = false; // true while the cache is loading
 const _browserSelectedTags = new Set();
-let _browserTopTags = []; // top 15 most popular tags
-const _tagBit = new Map(); // tag -> its bit in the data-tagmask attribute
-// Whether the rendered cards currently carry a filter. Lets applyBrowserFilter
-// skip the pass entirely when nothing is filtered and nothing was — the state
-// the panel opens in — while still running the one pass that clears a filter.
+let _browserTopTags = []; // most-used tags
+const _tagBit = new Map(); // tag -> data-tagmask bit
 let _filterApplied = false;
 
-// Bumped by every open. A cold-cache fetch resolves against the run that
-// started it, so one that lands after the modal was closed and reopened has to
-// recognise that a newer run owns the DOM now.
 let _openToken = 0;
 
-// The in-flight hydration run, or null: { wrap, sorted, renderItem, next }.
-// Held in module scope so a filter can force it to completion rather than match
-// against a library that is only partly in the DOM (see flushHydration).
 let _hydration = null;
 
-// How many cards the first paint contains. At 600px wide the grid is ~6 columns
-// and the 85vh modal shows ~5 rows, so one chunk overfills the viewport and the
-// rest can land during idle time. Mirrors chat_core.js's RENDER_WINDOW_SIZE.
 const BROWSER_CHUNK = 60;
 
-// Milliseconds of the idle budget to leave unspent, so appending a chunk cannot
-// run the frame over.
 const IDLE_RESERVE_MS = 8;
 
-// requestIdleCallback where it exists, a macrotask everywhere else. The timeout
-// bounds how long a busy main thread can stall hydration. The fallback reports
-// no budget, which lands the caller on one chunk per turn — the same thing a
-// real deadline reports once it has timed out rather than gone idle.
 const NO_BUDGET = { timeRemaining: () => 0 };
 const onIdle =
   typeof requestIdleCallback === "function"
     ? (fn) => requestIdleCallback(fn, { timeout: 200 })
     : (fn) => setTimeout(() => fn(NO_BUDGET), 0);
 
-// Internet character browse state
 let _internetSource = "characterhub";
 let _internetQuery = "";
 let _internetPage = 1;
@@ -72,17 +47,8 @@ let _internetResults = [];
 let _internetLoading = false;
 let _internetHasMore = false;
 
-// ── Character Browser Modal
-
 export async function showCharacterBrowserModal() {
   const token = ++_openToken;
-  // Paint from cache. S.allCharacters and S.conversations are the canonical
-  // copies — every character CRUD path calls loadCharacters(), every
-  // conversation mutation calls loadConversations(), and tabLock rules out a
-  // second tab changing them underneath us — so re-fetching both here only
-  // bought a pair of round-trips the modal had to sit behind before it could
-  // paint at all. A cold cache (boot has not finished, or it failed) is the one
-  // case that still fetches, and it does so into the shell already on screen.
   _browserCharacters = charactersView();
   _browserConversations = S.conversations || [];
   _browserLoading = _browserCharacters.length === 0;
@@ -134,13 +100,10 @@ export async function showCharacterBrowserModal() {
   } catch (e) {
     console.error("Failed to load characters for browser:", e);
   }
-  // Reopened while the fetch was in flight: a newer run owns the modal and its
-  // state, so this one paints nothing.
   if (token !== _openToken) return;
   _browserLoading = false;
   _browserCharacters = characters;
   _browserConversations = conversations;
-  // Or simply closed.
   const countEl = $("char-browser-count");
   if (!countEl) return;
   countEl.textContent = browserCountLabel();
@@ -165,10 +128,6 @@ function browserTagsHtml() {
     .join("");
 }
 
-// Paint whichever panel the current view mode selects, and show or hide the
-// search + tag rows that only apply to the local library. The single owner of
-// that dispatch: showCharacterBrowserModal and setCharBrowserView both route
-// through here rather than each repeating it.
 function renderCharacterBrowser() {
   const isInternet = _browserViewMode === "internet";
   const searchRow = document.querySelector(".char-browser-search-row");
@@ -201,9 +160,6 @@ export function onCharBrowserSearch() {
     return;
   }
   _browserSearchQuery = query;
-  // Filter in place — never rebuild the grid on a keystroke. Rebuilding tore
-  // down and recreated every avatar <img>, which flickered; toggling visibility
-  // on the existing nodes is flicker-free and instant.
   applyBrowserFilter();
 }
 
@@ -211,7 +167,6 @@ export function setCharBrowserSort(sortBy) {
   _browserSortBy = sortBy;
   S.characterBrowserSort = sortBy;
   api.put("/settings", { character_library_sort: sortBy }).catch((e) => console.error("Failed to save sort mode", e));
-  // Update dropdown UI
   const select = document.getElementById("char-browser-sort");
   if (select) select.value = sortBy;
   renderCharBrowserItems();
@@ -223,10 +178,6 @@ export function toggleTagSelection(tag) {
   } else {
     _browserSelectedTags.add(tag);
   }
-  // Matched on the property, not through an attribute selector: card tags are
-  // arbitrary text off an imported PNG, and interpolating one carrying a double
-  // quote into `[data-tag="…"]` threw a SyntaxError that took the filter down
-  // with it. At most 15 buttons, so the scan is free.
   const button = [...document.querySelectorAll("#char-browser-tags .char-tag")].find((b) => b.dataset.tag === tag);
   if (button) {
     button.classList.toggle("active", _browserSelectedTags.has(tag));
@@ -242,24 +193,17 @@ function computeTopTags() {
       counts.set(tag, (counts.get(tag) || 0) + 1);
     }
   }
-  // sort by count descending, then alphabetically
   const sorted = Array.from(counts.entries()).sort((a, b) => {
     if (b[1] !== a[1]) return b[1] - a[1];
     return a[0].localeCompare(b[0]);
   });
   _browserTopTags = sorted.slice(0, 15).map((entry) => entry[0]);
-  // One bit per top tag, so a card's whole filterable tag set fits in a single
-  // integer attribute (see tagMaskFor / charItemMatchAttrs). 15 tags is well
-  // inside the 31 bits a JS bitwise AND operates on.
   _tagBit.clear();
   _browserTopTags.forEach((tag, i) => {
     _tagBit.set(tag, 1 << i);
   });
 }
 
-// Fold a tag list into its data-tagmask value. Tags outside the top 15 have no
-// bit, which is exact rather than lossy: _browserSelectedTags is only ever fed
-// by the tag buttons, so the top 15 are the only tags that can be filtered on.
 function tagMaskFor(tags) {
   let mask = 0;
   for (const tag of tags) {
@@ -286,8 +230,6 @@ function computeConversationStats() {
 
 function applySort(characters) {
   const sortBy = _browserSortBy;
-  // Only the two chat-activity sorts read the map; name and date-added (the
-  // default) walked every conversation to build one they never touched.
   const stats = sortBy === "most-recent-chat" || sortBy === "most-chats" ? computeConversationStats() : new Map();
   const collator = new Intl.Collator(undefined, { sensitivity: "base" });
   return [...characters].sort((a, b) => {
@@ -295,7 +237,6 @@ function applySort(characters) {
       case "name":
         return collator.compare(a.name, b.name);
       case "time-added": {
-        // Use created_at descending (newest first)
         const aTime = a.created_at || "";
         const bTime = b.created_at || "";
         return bTime.localeCompare(aTime);
@@ -318,25 +259,11 @@ function applySort(characters) {
   });
 }
 
-// Show/hide already-rendered cards to match the active search + tag filter,
-// without rebuilding the DOM. The match data rides on each card as data-name
-// (lowercased) and data-tagmask (a bitmask over _browserTopTags), so filtering
-// is a cheap visibility toggle — no avatar <img> is destroyed/recreated, so
-// there is no flicker.
 function applyBrowserFilter() {
   const query = _browserSearchQuery;
   const selectedMask = tagMaskFor(_browserSelectedTags);
   const filterOn = !!query || selectedMask !== 0;
-  // Search and tag filtering match against the whole library, not just the part
-  // idle time happened to have appended by now, so a live filter drains what is
-  // left of hydration before scanning. Normally already a no-op by the time
-  // anyone has typed: the idle passes finish within a few frames of the modal
-  // painting, and this is the only thing that would have made them observable.
   if (filterOn) flushHydration();
-  // No filter now and none applied before means every card is already visible,
-  // which is the state the panel opens in. Skip the pass rather than write an
-  // inline style onto every node in the library. The `_filterApplied` half is
-  // what still lets the one pass that *clears* a filter through.
   if (!filterOn && !_filterApplied) return;
 
   const container = $("char-browser-content");
@@ -346,16 +273,9 @@ function applyBrowserFilter() {
 
   let visible = 0;
   for (const el of items) {
-    // A card matches when its name contains the query and it carries every
-    // selected tag — the bitmask makes the second half one AND instead of a
-    // JSON.parse and a nested loop per card.
     const show =
       (!query || (el.dataset.name || "").includes(query)) &&
       (selectedMask === 0 || (Number(el.dataset.tagmask) & selectedMask) === selectedMask);
-    // Inline display overrides the card's stylesheet display rule (which would
-    // win over the [hidden] UA rule); "" restores the stylesheet value. Written
-    // only when it changes, so a keystroke invalidates the cards that actually
-    // flipped instead of every card in the grid.
     const next = show ? "" : "none";
     if (el.style.display !== next) el.style.display = next;
     if (show) visible++;
@@ -371,11 +291,6 @@ function renderCharBrowserItems() {
   if (!container) return;
   _hydration = null;
 
-  // The sort runs over the full set — it has to, to know which cards belong in
-  // the first chunk — but the paint does not. Only the first screenful goes in
-  // synchronously; hydrateRest appends the remainder during idle time. Search
-  // and tag filtering are then applied in place by applyBrowserFilter over the
-  // finished grid, so typing never rebuilds it.
   const sorted = applySort(_browserCharacters);
 
   if (sorted.length === 0) {
@@ -391,59 +306,27 @@ function renderCharBrowserItems() {
     `<div class="${wrapClass}">${head.map(renderItem).join("")}</div>` +
     `<div class="char-browser-empty" data-browser-empty style="display:none">No characters match your filters</div>`;
 
-  // Hold the panel open so it can't collapse and re-centre the modal when a
-  // filter hides most cards. Measured off the first chunk alone: it already
-  // overfills the viewport, so it anchors the panel exactly as well as the full
-  // set did, at 60 laid-out cards instead of the whole library. Clamped to the
-  // modal's own 85vh ceiling, past which a taller value changes nothing.
   container.style.minHeight = `${Math.min(container.offsetHeight, Math.round(window.innerHeight * 0.85))}px`;
 
-  // Queue the tail before filtering, not after: a filter that survived this
-  // re-render (changing the sort while a search is typed) makes the pass below
-  // flush hydration, and it can only flush a run that already exists. Otherwise
-  // the first pass would match against the head alone until the next idle tick.
   if (sorted.length > head.length) hydrateRest(container.firstElementChild, sorted, renderItem, head.length);
 
-  // Fresh nodes: nothing is hidden yet, whatever the previous render left.
   _filterApplied = false;
   applyBrowserFilter();
 }
 
-// Append the rest of the library a chunk at a time during idle frames, so
-// opening the modal costs one screenful of DOM instead of the whole set. Every
-// card still ends up resident, which is what lets search stay the pure
-// visibility toggle applyBrowserFilter implements rather than a rebuild per
-// keystroke.
-//
-// A run is cancelled either by being superseded (a later render installed its
-// own) or by having its panel torn down — closing the modal, switching view
-// mode and changing the sort all replace #char-browser-content's children,
-// which detaches the wrapper this run was appending into. Identity and
-// `isConnected` on that wrapper tell the two apart, so neither needs a counter.
 function hydrateRest(wrap, sorted, renderItem, start) {
   _hydration = { wrap, sorted, renderItem, next: start };
   const step = () => {
     onIdle((deadline) => {
       const run = _hydration;
-      // Superseded: a later render already installed its own run.
       if (!run || run.wrap !== wrap) return;
-      // Torn down: drop the run rather than hold a detached grid and the whole
-      // sorted array alive until the next open.
       if (!wrap.isConnected) {
         _hydration = null;
         return;
       }
-      // Spend the whole idle budget rather than a fixed chunk per callback: on
-      // a quiet main thread the library lands in a handful of passes instead of
-      // one per BROWSER_CHUNK cards, which is what keeps the tail short on a
-      // big library. The first chunk is unconditional, so a callback that fired
-      // on its timeout instead of on real idle — timeRemaining() 0 — still
-      // makes progress.
       do {
         appendChunk(run, Math.min(run.next + BROWSER_CHUNK, run.sorted.length));
       } while (run.next < run.sorted.length && deadline.timeRemaining() > IDLE_RESERVE_MS);
-      // A filter set while hydration was still running has to see the cards
-      // that just landed.
       if (_filterApplied) applyBrowserFilter();
       if (run.next < run.sorted.length) step();
       else _hydration = null;
@@ -463,11 +346,6 @@ function appendChunk(run, end) {
   run.next = end;
 }
 
-// Put whatever is left of the library into the DOM right now, abandoning the
-// idle schedule. Called when a filter goes on: correctness of the match set is
-// unconditional, while the cost of building the tail in one go is conditional
-// on hydration not having finished yet — and it is the same work the panel used
-// to do on every open, before anyone had typed anything.
 function flushHydration() {
   const run = _hydration;
   _hydration = null;
@@ -475,10 +353,6 @@ function flushHydration() {
   appendChunk(run, run.sorted.length);
 }
 
-// Match-data attributes shared by the grid card and the list item, read by
-// applyBrowserFilter. data-name is lowercased for case-insensitive search;
-// data-tagmask is the card's tags folded into one integer (see tagMaskFor),
-// which keeps the per-card markup small enough that parsing a chunk stays cheap.
 function charItemMatchAttrs(c) {
   return `data-char-item data-name="${escAttr((c.name || "").toLowerCase())}" data-tagmask="${tagMaskFor(c.tags || [])}"`;
 }
@@ -507,8 +381,6 @@ function renderCharBrowserListItem(c) {
       </div>
     </div>`;
 }
-
-// ── Internet character browse
 
 function renderInternetPanel() {
   const container = $("char-browser-content");

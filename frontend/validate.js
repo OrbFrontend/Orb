@@ -1,11 +1,4 @@
-/**
- * Frontend Input Validation Module
- *
- * Provides reusable validation functions for all user inputs across the Orb application.
- * Each function returns { valid: boolean, error?: string } for consistent error handling.
- */
-
-// ── Constants ──
+// Validators return { valid, error? } so forms can share one error path.
 
 const MAX_CHAT_INPUT = 100000;
 const MAX_CHARACTER_NAME = 200;
@@ -30,17 +23,7 @@ const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
 const ALLOWED_IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const FRAGMENT_ID_REGEX = /^[a-z0-9][a-z0-9_-]*$/;
 const VALID_URL_REGEX = /^https?:\/\/.+$/;
-// _MAX_SETTINGS_TEXT / _MAX_AVATAR_SIZE / _MIN_AVATAR_DIMENSION were dead
-// (declared, never read) and have been removed.
 
-// ── Generic Validators ──
-
-/**
- * Validate that a string is not empty (after trimming).
- * @param {string} value - The value to check
- * @param {string} fieldName - Display name for error messages
- * @returns {{ valid: boolean, error?: string }}
- */
 export function required(value, fieldName = "Field") {
   const trimmed = typeof value === "string" ? value.trim() : "";
   if (!trimmed) {
@@ -49,28 +32,14 @@ export function required(value, fieldName = "Field") {
   return { valid: true };
 }
 
-/**
- * Validate maximum string length.
- * @param {string} value - The value to check
- * @param {number} max - Maximum allowed length
- * @param {string} fieldName - Display name for error messages
- * @returns {{ valid: boolean, error?: string }}
- */
 export function maxLength(value, max, fieldName = "Field") {
-  if (typeof value !== "string") return { valid: true }; // non-strings passed elsewhere
+  if (typeof value !== "string") return { valid: true };
   if (value.length > max) {
     return { valid: false, error: `${fieldName} must be ${max} characters or less` };
   }
   return { valid: true };
 }
 
-/**
- * Validate minimum string length.
- * @param {string} value - The value to check
- * @param {number} min - Minimum required length
- * @param {string} fieldName - Display name for error messages
- * @returns {{ valid: boolean, error?: string }}
- */
 export function minLength(value, min, fieldName = "Field") {
   if (typeof value !== "string") return { valid: true };
   if (value.length < min) {
@@ -79,14 +48,8 @@ export function minLength(value, min, fieldName = "Field") {
   return { valid: true };
 }
 
-/**
- * Validate that a value is a valid number (not NaN).
- * @param {number|string} value - The value to check
- * @param {string} fieldName - Display name for error messages
- * @returns {{ valid: boolean, error?: string }}
- */
 export function isNumber(value, fieldName = "Field") {
-  if (value === "" || value == null) return { valid: true }; // handled by required/empty checks
+  if (value === "" || value == null) return { valid: true };
   const num = typeof value === "string" ? parseFloat(value) : value;
   if (Number.isNaN(num)) {
     return { valid: false, error: `${fieldName} must be a valid number` };
@@ -94,14 +57,6 @@ export function isNumber(value, fieldName = "Field") {
   return { valid: true, parsed: num };
 }
 
-/**
- * Validate a number is within a range.
- * @param {number} value - The parsed number value
- * @param {number} min - Minimum allowed value
- * @param {number} max - Maximum allowed value
- * @param {string} fieldName - Display name for error messages
- * @returns {{ valid: boolean, error?: string }}
- */
 export function numberRange(value, min, max, fieldName = "Field") {
   if (typeof value !== "number" || Number.isNaN(value)) return { valid: true };
   if (value < min || value > max) {
@@ -110,12 +65,6 @@ export function numberRange(value, min, max, fieldName = "Field") {
   return { valid: true };
 }
 
-/**
- * Validate that a value is a whole number (integer).
- * @param {number} value - The value to check
- * @param {string} fieldName - Display name for error messages
- * @returns {{ valid: boolean, error?: string }}
- */
 export function isInteger(value, fieldName = "Field") {
   if (typeof value !== "number" || Number.isNaN(value)) return { valid: true };
   if (!Number.isInteger(value)) {
@@ -124,13 +73,6 @@ export function isInteger(value, fieldName = "Field") {
   return { valid: true };
 }
 
-/**
- * Validate an email-like or URL format string.
- * @param {string} value - The value to check
- * @param {string} fieldName - Display name for error messages
- * @param {"url"|"email"} format - The format to validate against
- * @returns {{ valid: boolean, error?: string }}
- */
 export function formatMatch(value, _fieldName, format = "url") {
   if (typeof value !== "string" || !value.trim()) return { valid: true };
   const regex = format === "url" ? VALID_URL_REGEX : /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -140,14 +82,6 @@ export function formatMatch(value, _fieldName, format = "url") {
   return { valid: true };
 }
 
-/**
- * Validate a string matches a regex pattern.
- * @param {string} value - The value to check
- * @param {RegExp} regex - The regex pattern
- * @param {string} fieldName - Display name for error messages
- * @param {string} hint - Human-readable format hint
- * @returns {{ valid: boolean, error?: string }}
- */
 export function patternMatch(value, regex, fieldName, hint) {
   if (typeof value !== "string" || !value.trim()) return { valid: true };
   if (!regex.test(value.trim())) {
@@ -156,13 +90,6 @@ export function patternMatch(value, regex, fieldName, hint) {
   return { valid: true };
 }
 
-/**
- * Validate an image file.
- * @param {File} file - The file to validate
- * @param {number} maxSize - Maximum file size in bytes
- * @param {string[]} allowedMimes - Allowed MIME types
- * @returns {{ valid: boolean, error?: string }}
- */
 export function validateImageFile(file, maxSize = MAX_IMAGE_SIZE, allowedMimes = ALLOWED_IMAGE_MIMES) {
   if (!file) {
     return { valid: false, error: "No file selected" };
@@ -180,14 +107,6 @@ export function validateImageFile(file, maxSize = MAX_IMAGE_SIZE, allowedMimes =
   return { valid: true };
 }
 
-/**
- * Validate multiple image files.
- * @param {File[]} files - Array of files to validate
- * @param {number} maxCount - Maximum number of files
- * @param {number} maxSize - Maximum size per file
- * @param {number} totalMaxSize - Maximum total size for all files
- * @returns {{ valid: boolean, error?: string, warnings?: string[] }}
- */
 export function validateImageFiles(files, maxCount = 10, maxSize = MAX_IMAGE_SIZE, totalMaxSize = 20 * 1024 * 1024) {
   const warnings = [];
 
@@ -216,13 +135,6 @@ export function validateImageFiles(files, maxCount = 10, maxSize = MAX_IMAGE_SIZ
   return { valid: true, warnings };
 }
 
-// ── Domain-Specific Validators ──
-
-/**
- * Validate a chat message.
- * @param {string} content - The message content
- * @returns {{ valid: boolean, error?: string }}
- */
 export function validateChatInput(content) {
   const trimmed = (content || "").trim();
   if (!trimmed) {
@@ -234,11 +146,6 @@ export function validateChatInput(content) {
   return { valid: true };
 }
 
-/**
- * Validate a character name.
- * @param {string} name - The character name
- * @returns {{ valid: boolean, error?: string }}
- */
 export function validateCharacterName(name) {
   const trimmed = (name || "").trim();
   if (!trimmed) {
@@ -250,12 +157,6 @@ export function validateCharacterName(name) {
   return { valid: true };
 }
 
-/**
- * Validate a character text field (description, personality, scenario, first_mes, mes_example).
- * @param {string} value - The field value
- * @param {string} fieldName - Display name for error messages
- * @returns {{ valid: boolean, error?: string }}
- */
 export function validateCharacterField(value, fieldName = "Field") {
   if (typeof value !== "string") return { valid: true };
   if (value.length > MAX_CHARACTER_FIELD) {
@@ -264,12 +165,6 @@ export function validateCharacterField(value, fieldName = "Field") {
   return { valid: true };
 }
 
-/**
- * Validate a character advanced field (system_prompt, post_history_instructions).
- * @param {string} value - The field value
- * @param {string} fieldName - Display name for error messages
- * @returns {{ valid: boolean, error?: string }}
- */
 export function validateCharacterAdvancedField(value, fieldName = "Field") {
   if (typeof value !== "string") return { valid: true };
   if (value.length > MAX_CHARACTER_ADVANCED) {
@@ -278,11 +173,6 @@ export function validateCharacterAdvancedField(value, fieldName = "Field") {
   return { valid: true };
 }
 
-/**
- * Validate alternate greetings.
- * @param {string[]} greetings - Array of greeting strings
- * @returns {{ valid: boolean, error?: string }}
- */
 export function validateAlternateGreetings(greetings) {
   if (!Array.isArray(greetings)) return { valid: true };
 
@@ -304,11 +194,6 @@ export function validateAlternateGreetings(greetings) {
   return { valid: true };
 }
 
-/**
- * Validate a mood fragment.
- * @param {object} data - The fragment data
- * @returns {{ valid: boolean, error?: string }}
- */
 export function validateMoodFragment(data) {
   const id = (data.id || "").trim();
   const label = (data.label || "").trim();
@@ -348,11 +233,6 @@ export function validateMoodFragment(data) {
 
 const FRAGMENT_FIELD_TYPES = ["string", "array", "progressive", "feedback", "direction_note"];
 
-/**
- * Validate an interactive fragment.
- * @param {object} data - The fragment data
- * @returns {{ valid: boolean, error?: string }}
- */
 export function validateInteractiveFragment(data) {
   const id = (data.id || "").trim();
   const label = (data.label || "").trim();
@@ -390,12 +270,6 @@ export function validateInteractiveFragment(data) {
   return { valid: true };
 }
 
-/**
- * Validate a settings field value.
- * @param {string} key - The settings key
- * @param {any} value - The value to validate
- * @returns {{ valid: boolean, error?: string }}
- */
 export function validateSetting(key, value) {
   switch (key) {
     case "endpoint_url": {
@@ -499,12 +373,6 @@ export function validateSetting(key, value) {
   }
 }
 
-/**
- * Validate a user profile.
- * @param {string} name - The profile name
- * @param {string} description - The profile description
- * @returns {{ valid: boolean, error?: string }}
- */
 export function validateUserProfile(name, description) {
   const nameTrimmed = (name || "").trim();
   if (!nameTrimmed) {
@@ -521,12 +389,6 @@ export function validateUserProfile(name, description) {
   return { valid: true };
 }
 
-/**
- * Validate a persona.
- * @param {string} name - The persona name
- * @param {string} description - The persona description
- * @returns {{ valid: boolean, error?: string }}
- */
 export function validatePersona(name, description) {
   const nameTrimmed = (name || "").trim();
   if (!nameTrimmed) {
@@ -543,11 +405,6 @@ export function validatePersona(name, description) {
   return { valid: true };
 }
 
-/**
- * Validate phrase bank variants.
- * @param {string[]} variants - Array of variant strings
- * @returns {{ valid: boolean, error?: string }}
- */
 export function validatePhraseVariants(variants) {
   if (!Array.isArray(variants)) return { valid: true };
 
@@ -569,12 +426,6 @@ export function validatePhraseVariants(variants) {
   return { valid: true };
 }
 
-/**
- * Validate a phrase-bank regex pattern by compiling it with the JS engine.
- * Surfaces the engine's own error message so the field can show it live.
- * @param {string} pattern - The regular expression source
- * @returns {{ valid: boolean, error?: string }}
- */
 export function validatePhraseRegex(pattern) {
   const src = (pattern || "").trim();
   if (!src) {
@@ -591,11 +442,6 @@ export function validatePhraseRegex(pattern) {
   }
 }
 
-/**
- * Validate character browser search query.
- * @param {string} query - The search query
- * @returns {{ valid: boolean, error?: string }}
- */
 export function validateBrowseSearch(query) {
   if (typeof query !== "string") return { valid: true };
   if (query.length > MAX_BROWSE_SEARCH) {
@@ -604,11 +450,6 @@ export function validateBrowseSearch(query) {
   return { valid: true };
 }
 
-/**
- * Validate a conversation title.
- * @param {string} title - The conversation title
- * @returns {{ valid: boolean, error?: string }}
- */
 export function validateConversationTitle(title) {
   const trimmed = (title || "").trim();
   if (!trimmed) return { valid: false, error: "Title cannot be empty" };
@@ -618,16 +459,9 @@ export function validateConversationTitle(title) {
   return { valid: true };
 }
 
-// An edit message obeys the identical rules to a fresh chat message; alias so
-// there is one implementation (and one place to change the limit).
 export const validateEditMessage = validateChatInput;
 
-// ── Export all validators to window for inline handler access ──
-
-// Note: These are primarily for internal module use, but exposed for
-// any inline onclick handlers that may need direct access.
 export const validate = {
-  // Generic
   required,
   maxLength,
   minLength,
@@ -638,7 +472,6 @@ export const validate = {
   patternMatch,
   validateImageFile,
   validateImageFiles,
-  // Domain-specific
   validateChatInput,
   validateCharacterName,
   validateCharacterField,

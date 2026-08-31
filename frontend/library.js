@@ -1,9 +1,3 @@
-// Character library entrypoint. Mood/interactive fragments and the character
-// browser modal were split into library_fragments.js and library_browser.js;
-// this file keeps character CRUD (create / import / edit / delete / export), the
-// recent-characters sidebar, and the shared avatar cache-bust map, and
-// re-exports the two sub-modules so "./library.js" stays the stable import path
-// for app.js and chat modules.
 import { api } from "./api.js";
 import { loadConversations, refreshSceneCardFragments, resetChatUI, stashCardFragments } from "./chat.js";
 import { createChipInput } from "./chips.js";
@@ -60,32 +54,15 @@ export {
   updateInteractiveFragmentExample,
 } from "./library_fragments.js";
 
-// Pending avatar for the character create modal (cleared on submit or cancel)
 let _pendingAvatar = null;
-// Stable ID and source format carried over from an imported card (cleared on submit)
 let _pendingImportId = null;
 let _pendingImportSourceFormat = null;
 let _pendingTags = null;
-// Embedded character_book from an imported PNG (cleared on submit)
 let _pendingCharacterBook = null;
-// The card's V2 extensions dict (edit: from GET, import: from the parsed PNG).
-// _readCharEditForm sends it back with only orb.fragments replaced, so
-// third-party extension keys round-trip untouched.
 let _pendingExtensions = null;
-// Per-card cache-bust timestamps so the browser re-fetches updated avatars.
-// Shared with library_browser.js (read-only there) for its card thumbnails.
 export const _avatarBust = new Map();
 
-// ── Characters
-
-/**
- * Build a sorted list of characters showing only the top N most recently
- * talked-to characters (ordered by most recent conversation time).
- * Characters without conversations are sorted by their last update time
- * and included only if there are fewer than `limit` characters total.
- */
 function filterRecentCharacters(characters, conversations, limit = 5) {
-  // Map each character_card_id to its most recent conversation timestamp
   const recentMap = new Map();
   for (const conv of conversations) {
     const ts = convActivity(conv);
@@ -96,17 +73,14 @@ function filterRecentCharacters(characters, conversations, limit = 5) {
     }
   }
 
-  // Tag each character with its "activity" timestamp for sorting
   const tagged = characters.map((char) => {
     const convTime = recentMap.get(char.id);
     const activityTime = convTime || char.updated_at || char.created_at || "";
     return { char, activityTime, hasConversation: !!convTime };
   });
 
-  // Sort by activity time descending (conversations beat updates)
   tagged.sort((a, b) => b.activityTime.localeCompare(a.activityTime));
 
-  // Return only the top N
   return tagged.slice(0, limit).map((t) => t.char);
 }
 
@@ -115,17 +89,11 @@ export async function loadCharacters() {
     api.get("/characters"),
     S.conversations || api.get("/conversations"),
   ]);
-  // Store full list for efficient refreshes
   S.allCharacters = characters;
   S.characters = filterRecentCharacters(characters, conversations || []);
   renderCharacters();
 }
 
-/**
- * Efficiently refresh the character list by re-filtering from the full character
- * set using already-loaded conversations (no API calls). Called after sending a
- * message to promote the active character to the top of the recent list.
- */
 export function refreshCharacters() {
   const source = charactersView();
   if (!source.length) return;
@@ -215,8 +183,6 @@ async function performDeleteCharacter(id) {
   }
 }
 
-// ── Alternate greetings helpers (used by both create and edit modals)
-
 export function addAltGreeting(prefix) {
   const container = $(`${prefix}-ag-list`);
   if (!container) return;
@@ -232,10 +198,7 @@ function _readAltGreetings(prefix) {
   return [...container.querySelectorAll("textarea")].map((t) => t.value.trim()).filter(Boolean);
 }
 
-// ── Avatar crop helpers
-
 export function triggerAvatarCrop(prefix, _cardId) {
-  // TODO: unused param cardId
   showCropModal(({ b64, mime }) => {
     _pendingAvatar = { b64, mime };
     const el = $(`${prefix}-avatar-preview`);
@@ -243,13 +206,9 @@ export function triggerAvatarCrop(prefix, _cardId) {
   });
 }
 
-// ── Export
-
 export function exportCharacter(id, name) {
   downloadBlob(`${name || "character"}.png`, `/api/characters/${id}/export`);
 }
-
-// ── Expression images (uploaded per character, shown in the avatar popup)
 
 export async function handleExpressionsZip(inp, id) {
   const f = inp.files[0];
@@ -275,16 +234,9 @@ export async function clearExpressions(id) {
   }
 }
 
-// The two public-cast boxes are the only pair in this modal whose rule is not
-// readable off the label: `features/cards/public_profile.PROFILE_FLOOR` holds a
-// profile to durable, openly-observable facts, because it is rendered into the
-// cached shared body every member reads on every turn — a coat or a fresh wound
-// typed here would still be asserting itself twenty exchanges after it stopped
-// being true. The examples carry that rule; each shows a trait that cannot expire.
 const PUBLIC_APPEARANCE_PLACEHOLDER = "e.g. Tall, silver-haired, moves with a soldier's stiffness";
 const PUBLIC_ROLE_PLACEHOLDER = "e.g. The caravan's hired scout, and the only one who knows the pass";
 
-// ── Shared tab template for create / edit modals
 function charFormTabs(prefix, d, isEdit, worlds = []) {
   const publicProfile = d.extensions?.orb?.public_profile || {};
   const agHtml = (d.alternate_greetings || [])
@@ -400,11 +352,6 @@ export function showCharCreateModal() {
     </div>`);
 }
 
-// The character-form validation gauntlet, run against the live DOM fields of the
-// create ("cc") or edit/import ("ce") modal. Returns the first failing
-// `{valid:false,error}` or `{valid:true}`. `advanced` also checks the System
-// Prompt / Post-History fields, which exist only in the edit/import modal.
-// Replaces the three hand-inlined copies (create / edit / import).
 function _validateCharForm(prefix, { advanced = false } = {}) {
   const checks = [
     validate.validateCharacterName($(`${prefix}-name`).value),
@@ -424,13 +371,7 @@ function _validateCharForm(prefix, { advanced = false } = {}) {
   return checks.find((c) => !c.valid) || { valid: true };
 }
 
-// The character payload built from the edit/import modal's "ce" fields.
-// saveCharEdit and saveImportedChar share this shape exactly (the import path then
-// tacks on id / source_format / character_book).
 function _readCharEditForm() {
-  // Rebuild extensions around the edited fragments: only orb.fragments is
-  // replaced; sibling keys (third-party card extensions) pass through. Empty
-  // fragment lists drop the key entirely so untouched cards stay clean.
   const ext = structuredClone(_pendingExtensions || {});
   const frags = readCardFragments();
   if (frags && (frags.mood.length || frags.interactive.length)) {
@@ -496,8 +437,6 @@ export async function createCharacter() {
   }
 }
 
-// ── Character tag chips (edit/import modal only; prefix "ce"), via the shared
-// chips.js widget. Reads/writes the live `_pendingTags` array.
 const _charTagChips = createChipInput({
   wrapId: "ce-tag-wrap",
   inputId: "ce-tag-text",
@@ -531,7 +470,6 @@ export async function showCharEditModal(idOrData) {
 
   const tags = (c.tags || []).map((t) => `<span class="char-tag">${esc(t)}</span>`).join("");
 
-  // Load worlds for the lorebook selector
   let worlds = [];
   try {
     worlds = await api.get("/worlds");
@@ -565,7 +503,6 @@ export async function showCharEditModal(idOrData) {
     </div>`);
   _charTagChips.render();
   renderCardFragmentsTab();
-  // New UI is wired programmatically (the inline-handler lint ratchet is at its ceiling).
   $("ce-tab-frag")?.addEventListener("click", (e) => switchTab(e.currentTarget, "ce-tf"));
   $("ce-card-frag-add-mood")?.addEventListener("click", () => showCardMoodFragmentModal());
   $("ce-card-frag-add-interactive")?.addEventListener("click", () => showCardInteractiveFragmentModal());
@@ -607,9 +544,6 @@ export async function saveCharEdit(id, exportAfter = false) {
   _pendingAvatar = null;
   try {
     const updated = await api.put(`/characters/${id}`, d);
-    // Refresh the sidepanel's ephemeral card fragments if this character is in
-    // play. A group has no active character, so the question there is whether
-    // the edited card is in the cast — and the merge needs its castmates too.
     if (S.activeCharId === id) stashCardFragments(updated);
     else if ((S.groupCast?.members || []).some((member) => member.character_card_id === id)) {
       await refreshSceneCardFragments();
@@ -624,7 +558,6 @@ export async function saveCharEdit(id, exportAfter = false) {
     closeModal();
     await loadCharacters();
     await loadConversations();
-    // If the active conversation belongs to this character, refresh its title
     const activeConv = S.conversations.find((c) => c.id === S.activeConvId);
     if (activeConv && activeConv.character_card_id === id) {
       const titleEl = document.getElementById("chat-title-text");
@@ -660,11 +593,6 @@ export async function saveImportedChar() {
   _pendingExtensions = null;
   try {
     const created = await api.post("/characters", d);
-    // Refresh before closing, not after: closeModal() runs the pending close
-    // callback synchronously, and for an internet import that callback reopens
-    // the Character Library — which now paints from S.allCharacters. Closing
-    // first would reopen it against a cache that does not yet hold the card
-    // that was just imported.
     await Promise.all([loadCharacters(), loadWorlds()]);
     closeModal();
     toast(`Imported "${created.name}"`);

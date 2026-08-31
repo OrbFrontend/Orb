@@ -1,7 +1,3 @@
-// Workflow-private dialogue parser. It intentionally does not import the app's
-// text utilities: TTS must remain portable as a plugin. The backend owns an
-// independent implementation; shared adversarial fixtures pin their behavior.
-
 const QUOTE_PAIRS = new Map([
   ["“", "”"],
   ["‘", "’"],

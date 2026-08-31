@@ -1,11 +1,3 @@
-// `segmentBody` is the only writer of `.seg` spans; it runs from the chat
-// render path, never from workflow code. The integer `data-seg` (word) and
-// `data-sent` (sentence) these spans carry are the single source of truth for
-// unit numbering -- workflows address units only by index, never by
-// re-tokenizing text. A word that `formatProse` splits across an inline tag
-// (`wo<strong>rd</strong>`) keeps one `data-seg`, so one visual word is always
-// one unit.
-
 import {
   isHardLineBreak,
   isSentenceWhitespace,
@@ -13,15 +5,12 @@ import {
   tokenEndsSentence,
 } from "./text_segmentation.js";
 
+// Word and sentence indices are shared by text effects and click handlers.
+
 function _isWs(c) {
   return isSentenceWhitespace(c) || isHardLineBreak(c);
 }
 
-// Pure tokenizer over one text run. `carry` threads state across runs so a word
-// or sentence can span the inline-element boundaries `formatProse` introduces.
-// `pendingWord` retains the prior visual word until the next one arrives, so
-// the shared policy can resolve abbreviations with look-ahead. `breakPending`
-// is a hard boundary from a line break or tight Unicode punctuation.
 export function tokenizeRun(text, carry, opts) {
   let { wordIndex, sentIndex, midWord, breakPending } = carry;
   let pendingWord = carry.pendingWord || "";
@@ -103,9 +92,6 @@ function _wrapTextNode(node, words) {
   node.parentNode.replaceChild(frag, node);
 }
 
-// Callers gate this off for diff-rendered bodies; the `<pre>`/`<code>` subtree
-// skip keeps fenced and inline code opaque, and a `<br>` between runs is
-// recorded as a hard sentence boundary the text-only walk would otherwise miss.
 export function segmentBody(bodyEl) {
   if (!bodyEl || bodyEl.dataset.segApplied === "1") return;
   const walker = document.createTreeWalker(bodyEl, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
@@ -118,7 +104,6 @@ export function segmentBody(bodyEl) {
       return NodeFilter.FILTER_ACCEPT;
     },
   });
-  // Collect before mutating; replacing a text node mid-walk invalidates the walker.
   const items = [];
   let breakBefore = false;
   let node = walker.nextNode();
@@ -146,10 +131,6 @@ export function segmentBody(bodyEl) {
   bodyEl.dataset.segApplied = "1";
 }
 
-// `word` and `sentenceText` are lazy getters: they coalesce the fragments of a
-// split word / the spans of a sentence only when read, so the per-word
-// affordance pass (one `segDescriptor` per `.seg` span) pays nothing unless a
-// handler actually inspects text.
 export function segDescriptor(spanEl, extra) {
   const wordIndex = Number(spanEl.dataset.seg);
   const sentIndex = Number(spanEl.dataset.sent);
@@ -184,10 +165,6 @@ export function segDescriptor(spanEl, extra) {
   return d;
 }
 
-// One entry per visual word, with split-word fragments coalesced. A word-level
-// effect aligns its timeline to these indices rather than re-tokenizing the
-// message text, which would diverge from the DOM numbering on any message
-// containing code (the `<pre>`/`<code>` subtrees `segmentBody` skips).
 export function messageSegments(msgId) {
   const bodyEl = document.querySelector(`#chat-messages .message[data-msg-id="${msgId}"] .msg-body`);
   if (!bodyEl) return [];

@@ -1,6 +1,3 @@
-// Backup & Presets: selective export, merge-import, and a library of .db
-// snapshots that can be applied (merged) or restored (full replace).
-
 import { api } from "./api.js";
 import { closeSubModal, showModal, showSubConfirmModal, showSubModal } from "./modal.js";
 import { $, downloadBlob, esc, escHandlerArg, toast } from "./utils.js";
@@ -15,8 +12,6 @@ const DOMAINS = [
   { id: "configs", label: "Settings & endpoints" },
 ];
 
-// Last-fetched library entries by file name, so restorePreset() can tailor its
-// warning to the backup's domain coverage. Populated by refreshPresetLibrary().
 let libraryByName = {};
 
 function fmtSize(bytes) {
@@ -45,8 +40,6 @@ export function showPresetsModal() {
   refreshPresetLibrary();
 }
 
-// Sub-modal: choose what the snapshot carries. Everything checked makes a full
-// backup that can be restored; a subset makes a portable preset.
 export function showSnapshotModal() {
   const rows = DOMAINS.map(
     (d) => `
@@ -85,12 +78,10 @@ export function showSnapshotModal() {
 
 export function onPresetDomainChange(cb) {
   const domain = cb.dataset.domain;
-  // A domain that requires another forces it on; unchecking the required one is blocked.
   if (cb.dataset.requires && cb.checked) {
     const req = $(`exp-${cb.dataset.requires}`);
     if (req) req.checked = true;
   }
-  // If something requires this domain and is checked, keep this checked.
   if (!cb.checked) {
     const dependent = DOMAINS.find((d) => d.requires === domain);
     if (dependent && $(`exp-${dependent.id}`)?.checked) {
@@ -137,8 +128,6 @@ export async function handlePresetImportFile(inp) {
   const f = inp.files[0];
   if (!f) return;
   inp.value = "";
-  // Import just adds the file to the library (non-destructive); the user then
-  // chooses Apply (merge) or Restore (overwrite) from the list.
   try {
     toast("Importing…");
     await api.upload("/presets/import", f);
@@ -242,10 +231,6 @@ export async function refreshPresetLibrary() {
 function presetRow(it) {
   const chips = (it.included_domains || []).map((d) => `<span class="preset-chip">${esc(d)}</span>`).join("");
   const title = it.label || it.name;
-  // Restore rolls the covered domains back to this file, offered for every
-  // backup: a full-coverage file is swapped in whole, a partial file replaces
-  // just the domains it carries (leaving the rest alone). Imported files are
-  // overwritten the same way -- the auto-backup taken first makes it reversible.
   return `
     <div class="preset-item">
       <div class="preset-item-top">

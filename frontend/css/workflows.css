@@ -1,7 +1,4 @@
-/* Workflows ----------------------- */
 
-/* Bookmark/folder tabs: active tab carries an accent top edge and merges into
-   the content panel below by overlapping the shelf line. */
 .tab-row {
   display: flex;
   gap: 6px;
@@ -31,12 +28,12 @@
 }
 
 .tab-button-active {
-  margin-bottom: -1px;                       /* pull down over the shelf line */
+  margin-bottom: -1px;
   color: var(--text-primary);
   background: var(--accent-glow);
   border-color: var(--accent-dim);
-  border-bottom-color: var(--bg-primary);    /* match panel bg so tab merges into content */
-  box-shadow: inset 0 2px 0 var(--accent);   /* bookmark accent edge on top */
+  border-bottom-color: var(--bg-primary);
+  box-shadow: inset 0 2px 0 var(--accent);
 }
 
 .workflow-card {
@@ -106,9 +103,6 @@
   cursor: zoom-in;
 }
 
-/* Click a generated image to pop it out full-screen. max-width/height only —
-   an <img> never upscales past its natural size, so this is "as big as possible
-   without exceeding original dimensions" for free. */
 .image-lightbox {
   position: fixed;
   inset: 0;
@@ -308,10 +302,6 @@
   font-style: italic;
 }
 
-/* Framework chrome header on every workflow-artifact widget: label left,
-   minimize + delete controls right. The whole strip toggles collapse, so it
-   bleeds out to the card's padding edges -- the hover tint then reads as "this
-   bar is the button" rather than a pill floating inside the card. */
 .workflow-artifact-header {
   display: flex;
   align-items: center;
@@ -348,7 +338,6 @@
   flex-shrink: 0;
 }
 
-/* Lighter than the regen/reroll body buttons so chrome reads below content. */
 .workflow-chrome-btn {
   width: 22px;
   height: 22px;
@@ -364,8 +353,6 @@
   cursor: pointer;
 }
 
-/* One step above the header strip's own hover so the button stays legible when
-   both are lit. */
 .workflow-chrome-btn:hover {
   color: var(--text-primary);
   border-color: var(--border);
@@ -386,8 +373,6 @@
   background: rgba(196, 93, 93, .12);
 }
 
-/* Collapsed widget is just the header strip -- no body, nav, or counter, so the
-   strip fills the card and rounds on all four corners. */
 .workflow-artifact-swipe.minimized {
   gap: 0;
 }
@@ -397,9 +382,6 @@
   border-radius: var(--radius);
 }
 
-/* Delete dialog actions: Cancel pinned left, destructive choices grouped right.
-   Own class so the global `.modal-actions .btn-danger { margin-right: auto }`
-   single-action rule does not split the two delete buttons apart. */
 .workflow-delete-actions {
   display: flex;
   flex-wrap: wrap;
@@ -424,8 +406,6 @@
   display: none;
 }
 
-/* Out-of-turn workflow status pill: only the secondary label shows, so hide the
-   turn-generation chrome and the label's left divider. */
 .gen-status.pill-only .gen-bar,
 .gen-status.pill-only .gen-dot,
 .gen-status.pill-only .gen-text {
@@ -437,4 +417,3 @@
   padding-left: 0;
   margin-left: 0;
 }
-

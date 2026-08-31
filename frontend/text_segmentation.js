@@ -1,7 +1,3 @@
-// Canonical non-workflow frontend sentence policy.  It mirrors the backend
-// core scanner, while preserving exact separator tokens for UI diffs.  Workflow
-// plugins deliberately do not import this module.
-
 const TERMINATORS = new Set([...".!?…。！？؟۔｡．।॥"]);
 const TIGHT_TERMINATORS = new Set([..."…。！？؟۔｡．।॥"]);
 const TRAILING_MARKERS = new Set([..."'»›」』*_)]}>”’“‘\""]);
@@ -167,8 +163,6 @@ function _lineStream(line) {
   return out;
 }
 
-// Lossless token stream: sentence entries never contain a line break; every
-// line separator is its own entry. Joining all entry text reproduces input.
 export function sentenceStream(text) {
   const out = [];
   let start = 0;
@@ -198,8 +192,6 @@ export function endsWithSentenceTerminator(text) {
   return Boolean(trimmed && TERMINATORS.has(trimmed.at(-1)));
 }
 
-// DOM segmentation sees whitespace-separated visual words. Probe the same
-// scanner with the next word so abbreviation decisions stay identical.
 export function tokenEndsSentence(token, nextToken = "") {
   if (!token || !nextToken) return false;
   const probe = `${token} ${nextToken}`;

@@ -1,23 +1,15 @@
-// FastAPI puts the human half of a failure in `detail`. Unwrapped once, here, so
-// `e.message` is the sentence at every call site — the alternative is the ~40
-// existing `toast(e.message, true)` callers each showing a raw `{"detail":"..."}`,
-// and a backend that took care to word a provider's rejection well being read
-// through a JSON wrapper. The raw body stays on `err.body` for anything that wants it.
 function _detail(body) {
   try {
     const parsed = JSON.parse(body);
     const detail = parsed?.detail;
     if (typeof detail === "string" && detail) return detail;
-    // A 422 from request validation is a list of {loc, msg}, never a string.
     if (Array.isArray(detail)) {
       return detail
         .map((entry) => entry?.msg)
         .filter(Boolean)
         .join("; ");
     }
-  } catch {
-    // Not JSON — a proxy error page or an empty body. Fall through to the raw text.
-  }
+  } catch {}
   return "";
 }
 

@@ -1,13 +1,4 @@
-/* Workflow audio player transport (frontend/audio_transport.js). A floating
-   control bar pinned just above the composer and out of the message flow, so
-   #chat-messages keeps its full height and its scrollbar runs the whole column.
-   It lives inside #chat-input-area; the chat re-render only rebuilds
-   #chat-messages, so the bar survives it. */
 .audio-transport {
-  /* Fluid scale: every size below derives from one of these viewport-tracked
-     tokens (the repo's min(82vw, ...) mobile-token idiom), clamped so the bar
-     shrinks on small screens and caps out instead of ballooning on 4K. Retune
-     the whole widget here. */
   --at-mx: clamp(10px, 1.4vw, 22px);
   --at-my: clamp(6px, 0.6vw, 11px);
   --at-px: clamp(12px, 1.3vw, 24px);
@@ -21,12 +12,6 @@
   --at-vol-w: clamp(64px, 7vw, 116px);
   --at-thumb: clamp(10px, 1vw, 15px);
 
-  /* Pinned to the composer's top edge: bottom:100% tracks the composer as its
-     textarea grows (the idiom #burger-dropdown already uses), and absolute
-     positioning keeps the bar out of the message flow so #chat-messages keeps
-     its full height and scrollbar. The inset card floats over the bottom of the
-     message list; audio_transport.js reserves matching scroll space so the
-     newest message clears it instead of hiding behind it. */
   position: absolute;
   left: 0;
   right: 0;
@@ -34,9 +19,6 @@
   display: flex;
   flex-direction: column;
   gap: calc(var(--at-gap) * 0.75);
-  /* left/right are re-set per-frame by audio_transport.js to align with the
-     message bubbles (assistant left / user right, scrollbar included); --at-mx is
-     the pre-sync fallback. Top/bottom stay fluid here. */
   margin: var(--at-my) var(--at-mx);
   padding: var(--at-py) var(--at-px);
   background: var(--bg-elevated);
@@ -174,8 +156,6 @@
   background: var(--bg-hover);
   border-radius: calc(var(--at-track) * 0.4);
 }
-/* Close (x) at the right end of the tab row -- dismisses the bar without stopping
-   playback (audio_transport.js). Inherits the --at-* scale from .audio-transport. */
 .audio-transport-close {
   margin-left: auto;
   flex: 0 0 auto;
@@ -198,9 +178,6 @@
   height: 1.1em;
   display: block;
 }
-/* Floating button that restores a dismissed bar (audio_transport.js): same anchor
-   as the bar -- above the composer -- but a small corner control. Standalone, so
-   it uses literal clamps rather than the bar-scoped --at-* tokens. */
 .audio-reopen {
   position: absolute;
   bottom: 100%;
@@ -228,4 +205,3 @@
   height: 58%;
   display: block;
 }
-

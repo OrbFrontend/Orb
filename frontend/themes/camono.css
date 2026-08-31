@@ -1,17 +1,7 @@
-/* Camono — Everforest Dark (hard) on the original camo/mono chassis.
-   Palette: sriramkswamy/everforest. The greys carry the whole UI; the six
-   hues are held back for meaning, so only green (accent) and red (danger)
-   are wired to tokens. Fonts, zero radius and the full-bleed message list
-   are unchanged — this is a repaint, not a redesign. */
 :root {
-  /* bg_dim → bg3, straight off the ramp. --border rides bg3 with --bg-hover:
-     a hovered row lands exactly on the hairline tone, which reads as the row
-     lifting to meet its own border rather than as two competing greys. */
   --bg-deep:#1e2326;--bg-primary:#272e33;--bg-surface:#2e383c;--bg-elevated:#374145;
   --bg-hover:#414b50;--border:#414b50;--border-light:#4f5b58;
 
-  /* fg over grey2 over grey0. Menu rows stay bi-color off this spread —
-     the name inherits --text-primary, its meta line takes --text-muted. */
   --text-primary:#d3c6aa;
   --text-secondary:#9da9a0;
   --text-muted:#7a8478;
@@ -30,7 +20,6 @@
   --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
 }
 
-/* Scrollbars */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 0; }
@@ -44,7 +33,6 @@
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }
 
-/* Full-width messages */
 .message {
   max-width: 100% !important;
   margin-left: 0 !important;
@@ -73,15 +61,10 @@ textarea::-webkit-resizer { background: transparent; }
   padding: 1 !important;
 }
 
-/* Narration/thought text: Everforest's comment grey (grey1). Sits between
-   --text-secondary and --text-muted on purpose — quieter than the prose it
-   interrupts, but no longer the dimmest thing on screen. */
 .message .msg-body em {
   color: #859289 !important;
 }
 
-/* Section headers stay bi-color: the label on the grey ramp, the disclosure
-   arrow on green, so the collapsed/expanded state carries its own hue. */
 .sidebar-section-header .arrow {
   color: var(--accent-dim);
 }

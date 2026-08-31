@@ -15,13 +15,7 @@ export const MAX_REFERENCE_IMAGE_BYTES = 10_000_000;
 export const REFERENCE_IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp"];
 
 let referenceImage = { reference_image_b64: "", reference_mime: "" };
-// What the fields held when the modal loaded them, so the panel's unsaved-changes
-// guard can speak for this section too -- it saves on the same button as the config
-// but through a different route, and is invisible to a diff of the config alone.
 let loadedProfile = null;
-// Which cast member's appearance is on screen. Null in a solo chat, where the
-// conversation names the character; in a group it is the user's pick, because
-// the appearance belongs to a member and the scene has several.
 let memberId = null;
 
 export function initCharacterProfile() {
@@ -38,14 +32,10 @@ export function resetCharacterProfile() {
   memberId = null;
 }
 
-// The cast entries an appearance can belong to. A narrator has no card and so no
-// avatar, reference image or appearance prompt to store one against.
 function castWithCards() {
   return (getGroupCast() || []).filter((member) => member.card_id);
 }
 
-// What every profile call has to say to reach the right character. Solo chats
-// send nothing and the backend reads the conversation's own card.
 function profileTarget() {
   return memberId ? { speaker_member_id: memberId } : {};
 }
@@ -63,9 +53,6 @@ export function profileIsDirty() {
   return JSON.stringify(currentProfile()) !== JSON.stringify(loadedProfile);
 }
 
-// Switching members throws away whatever is typed, so it asks first -- the same
-// bargain the modal's own close guard makes, for the same reason: these fields
-// save on a button, not on edit.
 function selectMember(select) {
   const next = select.value;
   if (next === memberId) return;
@@ -145,7 +132,6 @@ export async function populateProfile() {
       el.textContent = "This scene has no character cards to describe.";
       return;
     }
-    // A first open, or a roster that no longer holds the previous pick.
     if (!cast.some((member) => member.id === memberId)) memberId = cast[0].id;
   } else {
     memberId = null;

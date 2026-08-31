@@ -1,10 +1,3 @@
-// Frontend entry point for the "tts" workflow. loadWorkflowModules()
-// dynamic-imports this file from the /static mount when the workflow is listed
-// in the manifest. It registers the per-message create button, the attachment
-// playback widget, the auto-play signal handler, and the config panel, and
-// loads the workflow's global config slot into a snapshot the widget and panel
-// share by reference.
-
 import {
   api,
   registerAttachmentRenderer,
@@ -18,9 +11,6 @@ import { attachmentRenderer, autoplayHandler, createButtonRenderer, initWidget }
 
 const WORKFLOW_ID = "tts";
 
-// Ship the workflow's stylesheet by injecting a <link> once, rather than
-// editing the core stylesheet -- the /static mount serves it alongside this
-// module.
 function injectStyles() {
   if (document.getElementById("tts-workflow-styles")) return;
   const link = document.createElement("link");
@@ -30,9 +20,6 @@ function injectStyles() {
   document.head.appendChild(link);
 }
 
-// The config slot is stored as a full replacement (not merged with defaults),
-// so a persisted slot may lack these keys; defaulting them here to the same
-// values as the backend config_defaults keeps that case consistent.
 const config = {
   auto_play: false,
   volume: 0.75,
@@ -61,9 +48,6 @@ initKaraoke(config);
 initConfigPanel(config);
 
 registerWorkflowMessageButton(WORKFLOW_ID, createButtonRenderer);
-// The attachment renderer is a consumption surface (it replays already-produced
-// bytes), so it is never gated by the toggle (registerAttachmentRenderer is
-// ungated by design).
 registerAttachmentRenderer(WORKFLOW_ID, attachmentRenderer);
 registerWorkflowToolsPanelCard(WORKFLOW_ID, configPanelRenderer);
 registerWorkflowEventHandler(WORKFLOW_ID, `${WORKFLOW_ID}_autoplay`, autoplayHandler);

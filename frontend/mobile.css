@@ -1,8 +1,4 @@
-/* ═══════════════════════════════════════════
-   Mobile UI — viewport, header controls, layouts
-   ═══════════════════════════════════════════ */
 
-/* ── Shared mobile tokens ── */
 :root {
   --mobile-header-button-size: 34px;
   --mobile-actions-menu-min-width: 170px;
@@ -19,7 +15,6 @@
   --mobile-slide-duration: .2s ease;
 }
 
-/* ── Viewport sizing ── */
 html {
   height: 100%;
 }
@@ -44,7 +39,6 @@ body {
   position: relative;
 }
 
-/* ── Mobile header controls ── */
 #mobile-sidebar-toggle,
 #mobile-chat-actions-toggle {
   display: none;
@@ -90,8 +84,6 @@ body {
   display: block;
 }
 
-/* Keep this breakpoint in sync with `MOBILE_SIDEBAR_BREAKPOINT` in `mobile.js`. */
-/* ── Main mobile layout ── */
 @media (max-width: 900px) {
   #app {
     position: relative;
@@ -164,7 +156,6 @@ body {
     width: 100%;
   }
 
-  /* The ⋯ menu carries all of these below the breakpoint. */
   #user-profile-btn,
   #tools-panel-btn,
   #inspector-toggle,
@@ -180,20 +171,15 @@ body {
     width: 100%;
   }
 
-  /* Recent Characters action buttons (edit/delete): always visible on mobile. */
   .char-item-actions {
     opacity: 1;
   }
 
-  /* Avatar popup: the sidebar is usually collapsed on mobile, so center the
-     enlarged avatar over the whole screen (the chat area) instead. */
   .avatar-popup {
     width: 100%;
     z-index: 120;
   }
 
-  /* A two-line provider sentence in a 420px-wide lozenge runs off a phone
-     screen. Pin both edges and let the stack be as wide as the viewport allows. */
   .toast-stack {
     left: 12px;
     right: 12px;
@@ -202,13 +188,8 @@ body {
     align-items: stretch;
   }
 
-  /* No .turn-error override: the card is width:100%/max-width:95% like .message,
-     which has no mobile override either, so it already tracks the column here.
-     The old `margin: 12px 8px` existed to widen a card that was shrinking to
-     fit-content — a symptom that is fixed at the source in notifications.css. */
 }
 
-/* ── Tablet modal/layout tightening ── */
 @media (max-width: 700px) {
   .modal {
     width: 100%;
@@ -252,7 +233,6 @@ body {
     overflow-y: auto;
   }
 
-  /* Let the internet browse controls wrap instead of overflowing the row. */
   .internet-controls {
     flex-wrap: wrap;
   }
@@ -260,16 +240,11 @@ body {
     flex-basis: 100%;
     order: 1;
   }
-  /* Let the source dropdown shrink so it shares a row with the Search and
-     Randomize buttons instead of pushing Randomize onto its own line. In a
-     flex-wrap row, wrapping is decided by flex-basis before shrink applies, so
-     the basis must be 0 (not auto) to keep the select from forcing a wrap. */
   .internet-controls select {
     flex: 1 1 0;
     min-width: 0;
   }
 
-  /* Character create/edit modal: stop inner content forcing horizontal overflow. */
   .modal-char-header > div {
     min-width: 0;
   }
@@ -294,12 +269,6 @@ body {
     row-gap: 8px;
   }
 
-  /* ── Lorebook drawer: single-pane master/detail ──
-     The desktop drawer is a two-pane layout (300px entry list + editor side by
-     side). That doesn't fit a phone, so collapse it to one full-width pane at a
-     time: the entry list by default, swapping to the editor (with a back button)
-     once an entry is selected. The swap is driven by CSS :has() — no JS class
-     toggle needed. */
   #lorebook-drawer .lb-entry-list {
     width: 100%;
     min-width: 0;
@@ -324,7 +293,6 @@ body {
     justify-content: center;
   }
 
-  /* Larger tap targets and roomier rows for touch. */
   #lorebook-drawer .lb-entry-item {
     padding: 10px 10px;
   }
@@ -333,8 +301,6 @@ body {
     font-size: 14px;
   }
 
-  /* Let the editor header and keyword footer wrap instead of overflowing the
-     narrow column. */
   #lorebook-drawer .lb-editor-header {
     flex-wrap: wrap;
     row-gap: 6px;
@@ -354,11 +320,6 @@ body {
     margin-left: 0;
   }
 
-  /* ── Backup & Presets modal ──
-     The library row is a "title/meta on the left, action buttons on the
-     right" layout on desktop. On a phone the text buttons (Apply/Restore)
-     don't shrink and crowd — then overlap — the title, so stack each row:
-     title, meta and chips first, then a full-width action strip below. */
   #preset-top-actions {
     flex-wrap: wrap;
   }
@@ -374,13 +335,11 @@ body {
     gap: 8px;
   }
 
-  /* Let a long label wrap under the kind chip instead of overflowing. */
   .preset-item-title {
     flex-wrap: wrap;
     overflow-wrap: anywhere;
   }
 
-  /* Actions drop to their own row as even, comfortable tap targets. */
   .preset-item-actions {
     width: 100%;
     gap: 6px;
@@ -393,7 +352,6 @@ body {
   }
 }
 
-/* ── Small-phone compaction ── */
 @media (max-width: 480px) {
   #chat-header {
     padding: 10px 12px;
