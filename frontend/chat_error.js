@@ -1,19 +1,3 @@
-// The failed-turn card: what a generation failure leaves behind once the toast
-// is gone.
-//
-// A grey chip reading "Error: Generation failed; see server logs" that fades in
-// three seconds is worse than nothing in a self-hosted app, where the user *is*
-// the operator and the provider's actual sentence — "Reasoning is mandatory for
-// this endpoint and cannot be disabled." — is one settings-panel edit away from a
-// fix. `S.turnError` (set by chat_stream.js from the backend's `describe_failure`
-// payload) is painted here as a persistent card at the tail of the chat: the
-// provider's words inline and the full raw body behind Details. The card only
-// reports — rerunning the turn is the regenerate button's job, on the tail
-// message itself, where the user can see what they are about to replace.
-//
-// Painted from renderMessages() rather than from the stream handler, because
-// afterStream() unconditionally refetches and repaints — a card drawn by the
-// handler would be wiped a moment later.
 import { closeModal, showModal, switchTab } from "./modal.js";
 import { copyToButton } from "./notify.js";
 import { S } from "./state.js";
@@ -21,8 +5,6 @@ import { $, esc } from "./utils.js";
 
 const CARD_ID = "turn-error-card";
 
-// The failure object this card has already announced to assistive tech. Compared
-// by identity, never read for content.
 let _announced = null;
 
 function meta(err) {
@@ -34,9 +16,6 @@ function meta(err) {
   return bits;
 }
 
-// A failure card belongs to the conversation it happened in. Without this guard a
-// switch to another chat would leave the previous chat's failure hanging under
-// someone else's messages.
 function activeError() {
   const err = S.turnError;
   if (!err) return null;
@@ -68,12 +47,7 @@ function copyReport(err) {
   return lines.join("\n");
 }
 
-// showModal takes an HTML string, so every interpolated value goes through esc():
-// a provider response body is untrusted input.
 function showDetails(err) {
-  // err.at, not Date.now(): this pane is read minutes after the fact, and
-  // stamping it on open reported the time the user clicked Details as the time
-  // the turn failed. Older entries predate the field, hence the fallback.
   const when = err.at ? new Date(err.at).toLocaleString() : "";
   const rows = [
     ["When", when],
@@ -116,9 +90,6 @@ function showDetails(err) {
   $("turn-error-close").addEventListener("click", closeModal);
 }
 
-// Paint (or remove) the card inside *container*, the chat message list. Called at
-// the end of every renderMessages(), so it survives afterStream()'s repaint and
-// disappears the moment S.turnError is cleared.
 export function renderTurnError(container) {
   container?.querySelector(`#${CARD_ID}`)?.remove();
   const err = activeError();
@@ -127,10 +98,6 @@ export function renderTurnError(container) {
   const card = document.createElement("div");
   card.id = CARD_ID;
   card.className = "turn-error";
-  // role="alert" fires an announcement every time the node enters the DOM, and
-  // renderMessages() rebuilds this card on every repaint — switching branches or
-  // opening the inspector re-read the same failure aloud. S.turnError is a fresh
-  // object per failure, so identity marks the one paint that is actually news.
   if (err !== _announced) {
     _announced = err;
     card.setAttribute("role", "alert");
@@ -148,7 +115,6 @@ export function renderTurnError(container) {
   head.append(icon, headline);
   card.appendChild(head);
 
-  // textContent, never innerHTML: this string came from the provider.
   if (err.sentence) {
     const sentence = document.createElement("div");
     sentence.className = "turn-error-sentence";

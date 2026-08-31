@@ -1,20 +1,4 @@
-"""Dynamic Worlds: the Agent-facing catalog, and strict validation of what it proposes.
-
-Pure logic. The model never executes database CRUD — it returns a
-``propose_world_changes`` call, :func:`validate_proposal` turns that into a list
-of normalised operations the applier can execute (or rejects it), and only then
-does anything reach the database. Everything an operation is allowed to say is
-checked here against the *live* World, so a malformed or hostile call is a
-no-op rather than a corrupt overlay.
-
-The catalog (:func:`build_world_change_catalog`) is the other half of the
-contract: it is what makes ``target_entry_id`` meaningful. Ids are the stable
-``lorebook_entries`` row ids — no parallel UUID scheme — so a proposal points at
-exactly the row the drawer edits.
-
-Both halves take an optional *worlds*, since one turn may propose to several;
-:class:`_WorldScope` is where an operation resolves to the one it belongs in.
-"""
+"""Build and validate Dynamic Worlds proposals."""
 
 from __future__ import annotations
 
@@ -71,9 +55,6 @@ class ValidatedProposal:
     @property
     def is_empty(self) -> bool:
         return not self.operations
-
-
-# ── Catalog ───────────────────────────────────────────────────────────────────
 
 
 def _world_key(world_id: Any) -> str:
@@ -189,25 +170,7 @@ def build_world_change_catalog(
     worlds: Sequence[Mapping[str, Any]] = (),
     exchange_text: str = "",
 ) -> str:
-    """Render the World(s) for the proposal step: every entry, ids attached.
-
-    Dynamic entries always carry their full content — they are the rows the step
-    may revise, so it must see exactly what they currently say. Authored entries
-    are listed compactly unless they are *relevant to this exchange* (constant,
-    or a keyword hit in the user message + reply), which keeps a large authored
-    book from crowding out the exchange itself while still giving the step the
-    text of anything it might contradict; a long relevant one loses its middle
-    (:func:`_elide_middle`).
-
-    *entries* is the pooled row set of every World in *worlds*, each rendered
-    under its own ``## <name>`` heading, in the order given, so the step can name
-    one in ``target_world``. With no *worlds* the pool is rendered flat.
-
-    The step reasons about the World as it currently reads, so suppressed
-    authored entries, disabled rows and archived overlay rows are absent — bar
-    live suppression markers (:func:`_is_live_suppressor`). Returns ``""`` when
-    there is nothing at all to show.
-    """
+    """Build the proposal catalog for one or more Worlds."""
     effective = select_effective_entries(entries)
     effective_objects = {id(e) for e in effective}
     catalog_entries = [e for e in entries if id(e) in effective_objects or _is_live_suppressor(e)]
@@ -236,9 +199,6 @@ def build_world_change_catalog(
         title = f"{name} [world_id: {world_id}]"
         parts.extend(_world_section(grouped.get(world_id, []), relevant_ids, title=title))
     return "\n".join(parts)
-
-
-# ── Validation ────────────────────────────────────────────────────────────────
 
 
 def _clean_str(value: Any) -> str:
@@ -320,25 +280,7 @@ def validate_proposal(
     *,
     worlds: Sequence[Mapping[str, Any]] = (),
 ) -> ValidatedProposal:
-    """Vet a raw ``propose_world_changes`` argument dict against the live World(s).
-
-    Also where the model's three verbs become the table's five operations: a
-    ``revise``/``retract`` resolves to replace/suppress against an authored
-    target and to update/archive against a dynamic one (the Agent may never
-    modify or delete an authored row, so there is no operation that could). The
-    layer comes from the row, never from the call, so the returned ``op`` is
-    always one of the five stored operations whichever synonym came in.
-
-    Each check below carries the reason it rejects on. Only one is a *repair*
-    rather than a rejection: keyword activation with no keywords takes the
-    entry's own name as its key, because an operation the user would have
-    accepted should not be lost to a field the model can restate from another.
-
-    *entries* is the pooled row set of every World in *worlds*; when *worlds* is
-    empty the pool is one World's and operations come back unstamped (see
-    :class:`_WorldScope`). A proposal whose operations are all dropped is simply
-    an empty proposal.
-    """
+    """Validate raw Dynamic Worlds operations."""
     result = ValidatedProposal()
     if not isinstance(arguments, Mapping):
         return result

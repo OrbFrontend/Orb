@@ -1,18 +1,4 @@
-"""
-opening_monotony.py — Detect repetitive sentence openings in the assistant's response.
-
-Flags cases like a run of four narration sentences all starting with "He" or
-"She", which produces a drumbeat effect that reads as formulaic.
-
-Public API:
-    detect_opening_monotony(text, n_words=1, min_consecutive=4) -> MonotonyResult
-    MonotonyResult, FlaggedOpener  (dataclasses)
-
-Only narration sentences are checked — dialogue is stripped first so a
-character repeatedly saying "I..." inside quotes doesn't trigger the detector.
-Sentence splitting is paragraph-aware: a paragraph whose final sentence has no
-terminator won't bleed into the next paragraph.
-"""
+"""Detect repetitive openings in narration sentences."""
 
 from __future__ import annotations
 
@@ -24,7 +10,6 @@ from ..text.lexical import normalize_word
 from ..text.text_segmentation import split_narration_sentences
 
 DEBUG = "DEBUG_OPENING_MONOTONY" in os.environ
-# ---------- public dataclasses (unchanged) ----------
 
 
 @dataclass(slots=True)
@@ -44,14 +29,7 @@ class MonotonyResult:
     monotony_score: float
 
 
-# ---------- narration extraction ----------
-# Segmentation lives in text_segmentation so every detector splits text the
-# same way. _split_sentences strips dialogue before splitting into sentences.
-
 _split_sentences = split_narration_sentences
-
-
-# ---------- opener analysis (unchanged logic) ----------
 
 
 def _get_opener(sentence: str, n_words: int) -> str | None:
@@ -85,7 +63,6 @@ def detect_opening_monotony(
         if opener:
             counts[opener] = counts.get(opener, 0) + 1
 
-    # Longest consecutive run per opener, and the sentences in that run.
     max_runs: dict[str, int] = {}
     run_sentences: dict[str, list[str]] = {}
 

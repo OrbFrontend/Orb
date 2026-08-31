@@ -1,20 +1,4 @@
-"""
-passes/editor/feedback.py — Feedback step of the editor pass.
-
-Runs at the end of the editor pass and produces an out-of-character note for the
-user (not the writer). Calls ``give_feedback`` with the enabled
-``field_type='feedback'`` interactive fragments as parameters.
-
-This inverts the Interactive Fragment direction: ``direct_scene`` steers the
-writer (AI→AI), while ``give_feedback`` surfaces a note to the player (AI→user).
-
-The ``give_feedback`` schema rides the shared per-turn tool blob, so this step
-reuses the unchanged base and only forces ``tool_choice=give_feedback``. It also
-replays the writer's exact user message and reply (mirroring the editor) so the
-call extends the warm writer/editor KV-cached prefix rather than forking off the
-bare ``base.prefix`` — the latter would collapse the cache hit to just the
-system+tools block.
-"""
+"""Generate optional user-facing feedback after editing."""
 
 from __future__ import annotations
 
@@ -79,21 +63,7 @@ async def feedback_step(
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
 ) -> AsyncIterator[dict]:
-    """Yield reasoning chunks during the call, then a single done dict.
-
-    Yields:
-        ``{"type": "reasoning", "delta": str}``
-        ``{"type": "done", "result": FeedbackResult}``
-
-    *base* already carries ``give_feedback`` in its tool blob; we reuse it
-    unchanged and only force ``tool_choice=give_feedback``.
-
-    The trailing replays ``writer_user_msg + reply`` (as the editor does) so the
-    call extends the warm writer/editor prefix rather than forking off the bare
-    ``base.prefix`` — which would collapse the cache hit to just the system+tools
-    block. *writer_user_msg* must be the same value passed to the editor so both
-    share the same cached prefix.
-    """
+    """Yield call reasoning followed by one result event."""
     if not feedback_fragments:
         yield {"type": "done", "result": FeedbackResult()}
         return

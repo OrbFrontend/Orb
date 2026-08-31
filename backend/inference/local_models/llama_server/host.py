@@ -1,27 +1,4 @@
-"""The current child, and the only thing allowed to replace it.
-
-THE LOCK GUARDS THE SWAP, NOT THE GENERATION. Callers take a reference to the
-running client through :meth:`ManagedLlamaServerHost.use` and then talk to it
-without holding anything, which is what makes concurrent requests concurrent. A
-swap waits for the in-flight count to reach zero before it kills anything, so
-work in progress is never cut off by someone changing a selector in Settings.
-
-MODEL SWITCHING IS A RESTART. llama.cpp cannot swap weights inside a running
-server, so a different :class:`LaunchProfile` — another checkpoint, a GPU/CPU
-flip, a different lane count — stops the child and starts a new one. The host
-sets ``state = "loading"`` BEFORE draining in-flight work: new work has to stop
-arriving for the drain to end.
-
-ONE HOST IS ONE RESIDENT MODEL, so a host belongs to the feature that owns it
-rather than to this package. Two features sharing one would each drain and
-restart the other's model. What IS shared is the registry in :mod:`manager`,
-which exists only for the operations that touch every child at once: app
-shutdown, and replacing the binary underneath them.
-
-THE HOST HAS NO OPINION ABOUT WHAT IS IN THE PROFILE. Lane counts, context
-sizes and model paths are the feature's business, validated by the feature's
-own allowlist before the profile is constructed.
-"""
+"""Own the current llama-server child for one feature."""
 
 from __future__ import annotations
 
@@ -59,8 +36,6 @@ class ManagedLlamaServerHost:
         self._last_used = time.monotonic()
         if register:
             manager.register(self)
-
-    # ── loading ──────────────────────────────────────────────────────────────
 
     def mark_stale(self, profile: LaunchProfile | None) -> None:
         """Record a new selection without touching the running child.
@@ -149,20 +124,7 @@ class ManagedLlamaServerHost:
                     await asyncio.wait_for(self._idle.wait(), timeout=0.25)
 
     async def release(self) -> None:
-        """Let go of the files the child holds, and reload lazily on next use.
-
-        FOR THE FILE OPERATIONS THAT CANNOT RUN AROUND A LIVE CHILD. llama.cpp
-        mmaps the GGUF and Windows refuses to unlink a mapped file or a running
-        executable, so deleting a model or replacing the binary fails there
-        with a bare sharing violation and no exit but restarting Orb; elsewhere
-        the unlink succeeds and leaves the child serving weights that are gone.
-
-        Drains first, so work in flight finishes rather than being cut off
-        — the same courtesy ``ensure`` pays a profile swap; the lock holds new
-        work off meanwhile, which is why ``state`` still says ``ready`` until
-        the child is actually gone. Marks stale so the next ``ensure`` reloads
-        even though the selection has not changed.
-        """
+        """Release the current child and reload it on demand."""
         async with self._lock:
             if self.server is None:
                 self._stale = True
@@ -185,8 +147,6 @@ class ManagedLlamaServerHost:
             await self.server.stop()
             self.server = None
         self.state = "idle"
-
-    # ── idle unload ──────────────────────────────────────────────────────────
 
     def _start_idle_watch(self) -> None:
         if self._idle_task is None or self._idle_task.done():

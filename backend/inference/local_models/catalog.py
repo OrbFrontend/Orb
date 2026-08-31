@@ -1,19 +1,4 @@
-"""The complete built-in manifest of local model artifacts.
-
-WHAT LIVES HERE IS WHAT ORB CAN DOWNLOAD, and nothing about what any feature
-does with it. A spec names weights: the repo, the pinned revision, the size,
-the basename that lands under ``data/models/``, and which engine runs it.
-Prompt contracts, launch tuning and selection policy belong to the feature —
-see ``features/prose_rewriter/`` for the one that has all three.
-
-THE MANIFEST IS COMPLETE AT IMPORT TIME, deliberately. ``assets.prune_stale``
-deletes every ``.gguf`` under ``data/models/`` that no spec claims, so a spec
-registered lazily — only once its feature happened to be imported — is a
-multi-gigabyte checkpoint deleted the next time an unrelated Download button is
-pressed. If registration is ever introduced it needs an explicit
-register-then-seal bootstrap, and the destructive operations must refuse to run
-before the seal.
-"""
+"""Built-in manifest of downloadable local model artifacts."""
 
 from __future__ import annotations
 
@@ -55,20 +40,7 @@ class ModelVariantSpec:
 
 @dataclass(frozen=True)
 class ModelSpec:
-    """One local-ML feature's weights, and how they are run.
-
-    ``runtime`` names the engine, because the two differ in what they need
-    installed: ``llama_cpp`` features are in-process and want the full
-    ``requirements-ml.txt``; ``llama_server`` features (the prose rewriter)
-    drive a child ``llama-server`` over HTTP and need only ``huggingface_hub``,
-    for the download. ``deps_ok(feature)`` reads this — a stock install with
-    just ``huggingface_hub`` can run the rewriter and nothing else.
-
-    ``variants`` is non-empty when the feature ships several interchangeable
-    checkpoints the user picks between. The spec's own ``filename`` then names
-    the default one, so every path that predates variants (``resolve_path``,
-    ``download``) keeps working unchanged.
-    """
+    """Describe one local-ML feature and its artifacts."""
 
     repo_id: str
     filename: str  # path *inside the HF repo* — upstream's layout, not ours

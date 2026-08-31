@@ -1,18 +1,4 @@
-"""The render seam.
-
-One named function every render goes through, so a test can replace "what the
-backend did" without standing up a transport. Deliberately takes the adapter the
-caller already resolved rather than a config: `hooks.py` needs `resolve_target`
-and `label` off that adapter before this call, and looking one up again here made
-"which backend renders" a decision taken twice from the same config.
-
-It is also where a refused request is retried one rung down -- see
-`engine/degrade.py` for why that lives here rather than in a capability table. The
-seam is the right height for it: every backend passes through, and the decision
-reads only the shape of the error against what this attempt actually carried -- the
-declared `required` flag on its slots, and which optional fields are on it -- so no
-backend is named.
-"""
+"""Resolve image-generation targets and render images."""
 
 from __future__ import annotations
 

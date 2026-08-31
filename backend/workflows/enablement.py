@@ -1,17 +1,4 @@
-"""Pure predicates for whether a workflow is currently enabled.
-
-The ``settings`` row is the single source of truth: ``workflows_globally_enabled``
-(a master switch) and ``workflow_enabled`` (a per-workflow ``{id: bool}`` map).
-A missing global or local value defaults to enabled, so a fresh install and any
-future workflow start on. The registry's ``Workflow`` record carries no enabled
-flag -- it is rebuilt at import and would lose the state on restart.
-
-These take an already-loaded settings snapshot rather than reading the DB: every
-gate site already holds one, so the predicate stays pure and table-testable with
-no in-memory cache mirror to invalidate. The settings-column names live here, not
-in ``registry.py``, so the pure registry resolvers stay decoupled from the
-settings-row shape.
-"""
+"""Resolve workflow enablement from a settings snapshot."""
 
 from __future__ import annotations
 

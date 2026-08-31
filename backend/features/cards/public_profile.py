@@ -1,42 +1,4 @@
-"""The public-profile drafter — one LLM call, card-scoped or scene-scoped.
-
-A public profile is the short, scene-safe view of one cast member: what anyone
-else in the scene could observe or already knows, and what stays true for the
-whole scene. Two things ask for one:
-
-* the character editor, drafting the card-level ``extensions.orb.public_profile``
-  that travels with the card, and
-* Manage cast, drafting the per-scene ``group_members.public_profile_override``
-  that replaces it inside one conversation.
-
-Both land in the same rendered two-liner (``Appearance: …`` / ``Role: …`` — see
-``database.queries.character_cards.render_public_profile``), so an overridden
-member and a non-overridden one read identically once assembled into a prompt.
-They therefore share one tool schema, one no-secrets floor, one forced-call
-drain and one output contract; only the framing and the message differ.
-
-**Durable facts only.** A profile is rendered into the shared, cached body of
-every member's prompt (``inference/group_context._render_public_cast``), so
-anything volatile it asserts keeps asserting turn one for the life of the
-scene — a coat that burned in exchange three, hair cut in exchange nine. Stripping
-attire, gear and injuries out of it is what lets that body be written once and
-never revisited: the transcript is already the record of what changed, and the
-speaker's own sheet rides the uncached tail where it is free to update. The
-cost is that turn one no longer learns what anyone is wearing from the profile;
-that is the greeting's and the premise's job.
-
-**A scene draft is one call per member and is never batched.** The only card in
-a member's drafting context is its own; the rest of the cast reaches the prompt
-as names. Putting member B's card into member A's draft would write B's secret
-into a string every member reads under Private perspective and Classic card swap
-alike — precisely the leak both of those modes exist to
-prevent. ``test_scene_profile_draft_sends_only_the_target_card_and_other_names``
-is the executable form of that rule.
-
-Pure logic in the shape ``features/documents/audit.py`` uses: the route builds
-the client and hands ``(client, model, …)`` in, so this module depends only on
-``core`` + ``inference`` and needs no database or HTTP context to test.
-"""
+"""Draft durable, scene-safe public profiles for character cards."""
 
 from __future__ import annotations
 

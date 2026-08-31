@@ -1,9 +1,4 @@
-"""
-Tavern Cards, as defined by Character Card Spec V3:
-    https://github.com/kwaroran/character-card-spec-v3
-with V2 (``chara_card_v2``) and V1 (flat) accepted as fallbacks:
-    https://github.com/malfoyslastname/character-card-spec-v2
-"""
+"""Parse and serialize Tavern Card V1–V3 payloads."""
 
 from __future__ import annotations
 
@@ -20,8 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 logger = logging.getLogger(__name__)
 
 
-# extra="ignore" on the two card-data entry points: unknown fields are dropped
-# rather than rejected; nested models inherit pydantic's default (also ignore).
+# Unknown card fields are ignored for forward compatibility.
 class TavernCardV1(BaseModel):
     model_config = ConfigDict(extra="ignore")
 

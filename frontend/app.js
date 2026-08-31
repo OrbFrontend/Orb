@@ -215,14 +215,12 @@ import { $ } from "./utils.js";
 import { loadWorkflowModules } from "./workflow_loader.js";
 import { initWorkflowTextInteraction } from "./workflow_text_interaction.js";
 
-// ── Sidebar toggle
 function toggleSection(header) {
   header.querySelector(".arrow").classList.toggle("collapsed");
   header.nextElementSibling.classList.toggle("collapsed");
 }
 window.toggleSection = toggleSection;
 
-// ── Burger menu
 function toggleBurger() {
   $("burger-dropdown").classList.toggle("open");
 }
@@ -234,11 +232,6 @@ document.addEventListener("click", (e) => {
   if (!e.target.closest("#burger-btn") && !e.target.closest("#burger-dropdown")) closeBurger();
 });
 
-// ── Secondary scene actions
-// Menu items that must stay reachable without competing with the primary header
-// buttons. Items declare a data-chat-action and nothing else; the group actions
-// are handed to group_setup.js as events so the shell stays free of feature
-// imports. group_setup.js decides which items apply to this scene.
 document.addEventListener("click", (e) => {
   const item = e.target.closest("[data-chat-action]");
   if (!item) return;
@@ -248,9 +241,6 @@ document.addEventListener("click", (e) => {
   else document.dispatchEvent(new CustomEvent(`${item.dataset.chatAction}-request`));
 });
 
-// ── Image lightbox: click a generated image to pop it out full-screen; click
-// anywhere or press Escape to dismiss. Built as DOM nodes (not innerHTML) so the
-// data: src and alt need no escaping.
 document.addEventListener("click", (e) => {
   const src = e.target.closest(".workflow-artifact-image");
   if (!src) return;
@@ -272,18 +262,14 @@ document.addEventListener("click", (e) => {
   document.body.appendChild(box);
 });
 
-// ── Expose to inline handlers
 Object.assign(window, {
-  // modal
   closeModal,
   closeSubModal,
   switchTab,
   showConfirmModal,
   runConfirmCb,
   runSubConfirmCb,
-  // theme
   applyTheme,
-  // settings / user
   saveSetting,
   onHybridInput,
   showUserModal,
@@ -295,7 +281,6 @@ Object.assign(window, {
   activatePersona,
   setPersonaConversationLock,
   setPersonaCharacterLock,
-  // tools
   toggleToolsPanel,
   setAgentEnabled,
   toggleToolEnabled,
@@ -320,10 +305,8 @@ Object.assign(window, {
   toggleWorkflowsGlobal,
   toggleWorkflowEnabled,
   scoreSlop,
-  // phrase bank
   showPhraseBankModal,
   showAddPhraseGroupModal,
-  // presets / backups
   showPresetsModal,
   showSnapshotModal,
   onPresetDomainChange,
@@ -335,18 +318,15 @@ Object.assign(window, {
   restorePreset,
   deletePreset,
   refreshPresetLibrary,
-  // mood fragments
   showMoodFragmentModal,
   saveMoodFragment,
   deleteMoodFragment,
   toggleMoodFragmentEnabled,
-  // interactive fragments
   showInteractiveFragmentModal,
   saveInteractiveFragment,
   deleteInteractiveFragment,
   toggleInteractiveFragmentEnabled,
   updateInteractiveFragmentExample,
-  // characters
   selectChar,
   triggerImport,
   handleImportFile,
@@ -372,9 +352,7 @@ Object.assign(window, {
   importInternetChar,
   randomizeInternet,
   refreshCharacters,
-  // crop modal
   closeCropModal,
-  // conversations
   newConvForChar,
   newConversationHere,
   selectConversation,
@@ -385,12 +363,10 @@ Object.assign(window, {
   generateCompressionSummary,
   cancelCompression,
   applyCompression,
-  // title edit
   startEditTitle,
   saveTitleEdit,
   cancelTitleEdit,
   handleTitleEditKey,
-  // messages
   startEdit,
   cancelEdit,
   saveEdit,
@@ -411,7 +387,6 @@ Object.assign(window, {
   continueFromUser,
   sendMessage,
   stopGeneration,
-  // inspector
   toggleInspector,
   selectReasoningPass,
   toggleReasoningPass,
@@ -420,7 +395,6 @@ Object.assign(window, {
   setInspectorTab,
   setToolsTab,
   selectWorkflowPipelinePass,
-  // ui
   toggleSection,
   toggleMobileSidebar,
   toggleMobileHeaderActions,
@@ -430,7 +404,6 @@ Object.assign(window, {
   triggerAttachImage,
   showAvatarPopup,
   hideAvatarPopup,
-  // document mode
   toggleDocumentMode,
   setDocAssisted,
   setDocProbs,
@@ -446,7 +419,6 @@ Object.assign(window, {
   docStop,
   docUndo,
   docRedo,
-  // worlds / lorebook
   showCreateWorldModal,
   createWorld,
   showRenameWorldModal,
@@ -469,11 +441,9 @@ Object.assign(window, {
   lbDraftChange,
   lbToggleConstant,
   lbImportJson,
-  // state
   S,
 });
 
-// ── Init
 initTheme();
 initThemeList();
 initComposer();
@@ -486,13 +456,10 @@ initTabLock();
 initWorkflowMutationListener();
 initGroupSetup();
 
-// On a fresh load with no conversation selected, render the JS empty state so
-// the homepage stats grid appears (index.html ships a static empty state).
 if (!S.activeConvId) {
   renderMessages();
 }
 
-// Load data independently to prevent failures from blocking other loads
 async function initAll() {
   initMobileUi({ closeBurger });
 
@@ -512,12 +479,10 @@ async function initAll() {
     await loadMoodFragments();
   } catch (e) {
     console.error("Failed to load mood fragments:", e);
-    // Show empty state but don't crash
     $("frag-list").innerHTML =
       '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">Failed to load mood fragments</div>';
   }
 
-  // Load conversations before characters so we can filter by recent activity
   try {
     await loadConversations();
   } catch (e) {
@@ -530,13 +495,8 @@ async function initAll() {
     console.error("Failed to load characters:", e);
   }
 
-  // The proposal card lives under a chat reply but every world mutation is
-  // lorebooks.js's; hand it the chat's refetch rather than have it import up.
   setWorldProposalRefresh(refreshConversationMessages);
   initWorldProposalActions();
-  // Character-linked lorebooks are scoped to whoever is in play, and a fresh
-  // page has nobody in play yet — retire them before the sidebar paints. A
-  // floating lorebook is global lore and survives the reload untouched.
   try {
     await deactivateLinkedWorlds();
   } catch (e) {
@@ -568,5 +528,4 @@ async function initAll() {
   }
 }
 
-// Start initialization
 initAll();

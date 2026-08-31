@@ -1,28 +1,4 @@
-"""format_consistency.py — Keep RP markup style consistent across messages.
-
-RP output drifts between *formatting conventions*: one message wraps action in
-``*asterisks*`` and leaves speech bare, the next leaves action as bare prose and
-quotes its speech. This module detects the convention of recent messages and
-deterministically rewrites a new draft's markup to match — no LLM involved.
-
-The problem is modelled as two **independent axes**, each detected by coverage
-fraction rather than mere presence (so an occasional emphasized word or italic
-thought inside otherwise-bare prose does not flip a whole message):
-
-- Dialogue axis — is speech ``QUOTED`` ("…") or ``BARE``?
-- Narration axis — is action/narration ``ASTERISK`` (*…*) or ``BARE`` prose?
-
-A span's role (dialogue vs narration) is fixed by its markup plus the message's
-convention, so once the axes are known the rewrite is mechanical. When an axis
-can't be classified confidently — or the baseline window disagrees — that axis
-is left alone, so the safe failure mode is a byte-identical no-op.
-
-Public API:
-    classify_axes(text) -> AxisStyle
-    baseline_axes(messages) -> AxisStyle
-    normalize_format(draft, target) -> str
-    normalize_to_baseline(draft, baseline_messages, *, enabled) -> (str, FormatDriftReport)
-"""
+"""Keep roleplay markup consistent with recent messages."""
 
 from __future__ import annotations
 
@@ -88,14 +64,8 @@ class FormatDriftReport:
         return f"{src} -> {tgt}"
 
 
-# ---------- thresholds ----------
-# Coverage fractions for the narration axis. Between LOW and HIGH the message is
-# genuinely mixed, so we report UNKNOWN and leave it untouched.
 _NARR_HIGH = 0.6  # >= this fraction of narration chars inside *asterisks* -> ASTERISK
 _NARR_LOW = 0.25  # <= this -> BARE
-
-
-# ---------- inline emphasis vs block narration ----------
 
 
 def _emphasis_inner(raw: str) -> str:
@@ -110,23 +80,7 @@ _SENTENCE_END = ".!?…"
 
 
 def _is_inline_emphasis(spans: list[tuple[str, int, int]], i: int, para: str) -> bool:
-    """Is the emphasis span at index *i* inline word-emphasis (an emphasized word,
-    ``she was *really* nervous``) rather than block-level action narration
-    (``*she tilts her head*``)? Inline emphasis is preserved and never counts
-    toward the narration axis; block narration does.
-
-    The distinction is contextual, not lexical. An earlier casing/length heuristic
-    (single word, or lowercase first letter -> inline) misread the bulk of real RP
-    action beats — ``*smirks*``, ``*leans in close*``, ``*she tilts her head*`` are
-    short and/or lowercase yet are narration, not emphasis — so it left the
-    asterisk convention undetected and unrewritten.
-
-    Instead: an emphasized word is *embedded* in a run of bare narration prose, so
-    bare prose flows into it on the same line without an intervening sentence
-    boundary. A block action beat sits at a paragraph start or just after a closing
-    quote, so its left side is a boundary, whitespace, or a finished sentence. We
-    read that off the left neighbour: inline iff the preceding span is bare
-    narration with real text that does not end on a sentence terminator."""
+    """Return whether an emphasis span is inline rather than block narration."""
     if i == 0:
         return False
     ptyp, ps, pe = spans[i - 1]
@@ -138,17 +92,6 @@ def _is_inline_emphasis(spans: list[tuple[str, int, int]], i: int, para: str) ->
     return left[-1] not in _SENTENCE_END
 
 
-# ---------- protected spans (passed through, not reformatted) ----------
-# Some runs are verbatim content the normalizer must neither read as RP markup nor
-# rewrite — it just carries them through unchanged so they reappear in the output as
-# the author wrote them:
-#   - ```code``` fences — any ``*`` or quote inside is literal;
-#   - runs of 2+ asterisks/underscores (Markdown bold/bold-italic and scene
-#     rules) — not single-marker RP action markup. Carving them out keeps them
-#     intact instead of letting a rewrite strip or reinterpret their markers.
-# Protected spans are handled here, above the paragraph split, because a fence can
-# itself contain the blank lines that split would otherwise break it on.
-
 _PROTECTED = re.compile(
     r"```.*?```"  # fenced code (may span lines)
     r"|\*{2,}[^\n]*?\*{2,}"  # **bold** / ***bold-italic*** (one line)
@@ -159,8 +102,7 @@ _PROTECTED = re.compile(
 
 
 def _split_protected_segments(text: str) -> list[tuple[bool, str]]:
-    """Split *text* into ordered ``(protected, chunk)`` parts that rejoin to *text*
-    exactly, each protected run (see ``_PROTECTED``) flagged ``protected=True``."""
+    """Split text into protected and rewriteable chunks."""
     parts: list[tuple[bool, str]] = []
     idx = 0
     for m in _PROTECTED.finditer(text):
@@ -174,27 +116,17 @@ def _split_protected_segments(text: str) -> list[tuple[bool, str]]:
 
 
 def _map_prose(text: str, fn: Callable[[str], str]) -> str:
-    """Apply *fn* to each non-protected chunk of *text*, passing protected runs
-    through verbatim. The rewrite goes through this so it can never reach inside a
-    code block or a multi-marker Markdown run."""
+    """Apply *fn* outside protected runs."""
     return "".join(chunk if prot else fn(chunk) for prot, chunk in _split_protected_segments(text))
 
 
 def _strip_protected(text: str) -> str:
-    """Replace protected runs with a single space so their literal markup never sways
-    classification (the space keeps the surrounding words from fusing)."""
+    """Hide protected runs from classification."""
     return _PROTECTED.sub(" ", text)
 
 
-# ---------- classification ----------
-
-
 def classify_axes(text: str) -> AxisStyle:
-    """Classify *text* on the dialogue and narration axes by coverage fraction.
-
-    Protected runs (fenced code, multi-marker Markdown) are dropped first: their
-    contents are literal, so a ``*`` or quote inside one must not register as RP
-    markup."""
+    """Classify dialogue and narration markup by coverage."""
     text = _strip_protected(text)
     speech_chars = 0
     block_emph_chars = 0
@@ -228,9 +160,6 @@ def classify_axes(text: str) -> AxisStyle:
         else:
             narration = Narration.UNKNOWN
 
-    # Dialogue axis: quotes are unambiguous, so any real quoted span -> QUOTED.
-    # Otherwise dialogue can only be read as BARE when narration is asterisk-marked
-    # (the asterisk convention, where the bare runs are the spoken lines).
     if speech_chars > 0:
         dialogue = Dialogue.QUOTED
     elif narration == Narration.ASTERISK and bare_chars > 0:
@@ -242,10 +171,7 @@ def classify_axes(text: str) -> AxisStyle:
 
 
 def _stable(values: list[_StyleT], unknown: _StyleT) -> _StyleT:
-    """The agreed value across a baseline window, or *unknown* if it isn't stable.
-
-    Confident (non-unknown) classifications must form a clear majority. A single
-    prior message is trusted (early in a conversation there is nothing else)."""
+    """Return the stable majority value, or *unknown*."""
     confident = [v for v in values if v != unknown]
     if not confident:
         return unknown
@@ -264,8 +190,6 @@ def baseline_axes(messages: list[str]) -> AxisStyle:
         narration=_stable([s.narration for s in styles], Narration.UNKNOWN),
     )
 
-
-# ---------- rewriting ----------
 
 _TERMINATORS = ".!?…,;:"
 
@@ -315,9 +239,7 @@ def _wrap_asterisks(raw: str) -> str:
 
 
 def _strip_block_emphasis(raw: str) -> str:
-    """Drop the * / _ markers of a block-level emphasis span, turning it into bare
-    prose. A terminal period is added when the freed clause ends on a word so the
-    next segment doesn't fuse onto it."""
+    """Remove block-emphasis markers and close a bare clause."""
     lead, core, trail = _split_ws(raw)
     inner = _emphasis_inner(raw)
     if inner and inner[-1].isalnum():
@@ -331,11 +253,7 @@ def _rewrite_paragraph(
     target_dialogue: Dialogue | None,
     target_narration: Narration | None,
 ) -> str:
-    """Rewrite one paragraph. ``target_*`` is None for an axis that isn't changing.
-
-    ``wrap`` transforms (BARE -> marked) group consecutive same-role spans — plus
-    any inline emphasis between them — so a single utterance/clause becomes one
-    wrapped unit rather than several fragments."""
+    """Rewrite one paragraph for the selected markup axes."""
     spans = extract_block_spans(para)
     out: list[str] = []
     i = 0
@@ -373,8 +291,7 @@ def _rewrite_paragraph(
 
 
 def _group_run(spans: list[tuple[str, int, int]], i: int, src: AxisStyle, role: str, para: str) -> int:
-    """Index of the last span in the maximal run starting at *i* that has the
-    given role (inline emphasis is absorbed into the run)."""
+    """Return the last span in the same-role run starting at *i*."""
     j = i
     while j + 1 < len(spans):
         r2 = _role(spans, j + 1, src.dialogue, para)
@@ -386,27 +303,12 @@ def _group_run(spans: list[tuple[str, int, int]], i: int, src: AxisStyle, role: 
 
 
 def normalize_format(draft: str, target: AxisStyle) -> str:
-    """Rewrite *draft* so its markup matches *target*, changing only the axes that
-    differ and can be resolved safely. Returns *draft* unchanged when there is
-    nothing confident to do."""
+    """Rewrite draft markup to match *target* where classification is safe."""
     return _rewrite(draft, classify_axes(draft), target)
 
 
 def _governing_dialogue(src: AxisStyle, target: AxisStyle) -> Dialogue:
-    """Which dialogue convention to read the draft's *bare* spans under — are they
-    narration (quoted convention) or spoken lines (asterisk convention)?
-
-    A real quoted span in the draft is hard evidence of the quoted convention, so it
-    wins outright. With no quotes the draft is ambiguous on its own — a bare run could
-    be un-asterisked narration or bare dialogue — and ``classify_axes`` falls back to
-    BARE (asterisk convention) whenever there is asterisk narration beside bare text.
-    That guess misreads a *full-markup* draft (quoted dialogue + asterisk narration)
-    that simply has no dialogue this turn: its bare runs are narration that lost its
-    asterisks, not dialogue. So when the baseline establishes full markup and the
-    draft already shows the asterisk-narration half, read it as full markup too. The
-    narration axis is unaffected; only the bare-span role flips from dialogue to
-    narration, which is what lets a stray bare paragraph be re-wrapped in asterisks
-    rather than mistakenly wrapped in quotes."""
+    """Choose how bare spans should be interpreted during rewriting."""
     if src.dialogue == Dialogue.QUOTED:
         return Dialogue.QUOTED
     if target.dialogue == Dialogue.QUOTED and target.narration == Narration.ASTERISK and src.narration == Narration.ASTERISK:
@@ -415,27 +317,15 @@ def _governing_dialogue(src: AxisStyle, target: AxisStyle) -> Dialogue:
 
 
 def _rewrite(draft: str, src: AxisStyle, target: AxisStyle) -> str:
-    """Core rewrite, given *draft* already classified as *src*. Split out so the
-    ``normalize_to_baseline`` entry point reuses the source it computed for the
-    report instead of classifying the same draft twice."""
-    # Read the draft's bare spans under the convention the baseline establishes, not
-    # the draft's possibly-misleading self-read (see _governing_dialogue).
+    """Rewrite a draft using an existing source classification."""
     eff_dialogue = _governing_dialogue(src, target)
     eff_src = AxisStyle(dialogue=eff_dialogue, narration=src.narration)
 
     change_dialogue = (
         target.dialogue != Dialogue.UNKNOWN and eff_dialogue != Dialogue.UNKNOWN and target.dialogue != eff_dialogue
     )
-    # Enforce a confidently-classified target on *every* span, not only when the
-    # draft's dominant style differs. A draft can be dominantly asterisk narration yet
-    # still hide a stray bare beat ('"…," she whispered.') or a whole bare paragraph
-    # that forgot its asterisks. The rewrite is span-selective and idempotent on already-correct
-    # spans, so running it normalizes that within-message drift and leaves the rest
-    # byte-identical. The UNKNOWN guard still spares genuinely mixed drafts.
     change_narration = target.narration != Narration.UNKNOWN and src.narration != Narration.UNKNOWN
 
-    # Wrapping bare prose in asterisks means deciding which bare text is narration —
-    # only safe when the governing convention says dialogue is quoted.
     if change_narration and target.narration == Narration.ASTERISK and eff_dialogue != Dialogue.QUOTED:
         change_narration = False
 
@@ -445,15 +335,11 @@ def _rewrite(draft: str, src: AxisStyle, target: AxisStyle) -> str:
     td = target.dialogue if change_dialogue else None
     tn = target.narration if change_narration else None
 
-    # Rewrite prose only; fenced code blocks pass through verbatim.
     return _map_prose(draft, lambda seg: _rewrite_segment(seg, eff_src, td, tn))
 
 
 def _rewrite_segment(text: str, src: AxisStyle, td: Dialogue | None, tn: Narration | None) -> str:
-    """Rewrite one non-code text segment, paragraph by paragraph.
-
-    Split on paragraph breaks while keeping the original separators, so blank-line
-    spacing survives intact (quote/emphasis state already resets per paragraph)."""
+    """Rewrite a non-protected segment paragraph by paragraph."""
     pieces = re.split(r"(\n\s*\n)", text)
     rebuilt = [
         piece if (idx % 2 == 1 or not piece.strip()) else _rewrite_paragraph(piece, src, td, tn)
@@ -468,11 +354,7 @@ def normalize_to_baseline(
     *,
     enabled: bool,
 ) -> tuple[str, FormatDriftReport]:
-    """Entry point: hold *draft* to the convention of *baseline_messages*.
-
-    Returns the (possibly unchanged) text and a small report for logging. A no-op
-    — disabled, no baseline, ambiguous axes, or already consistent — returns the
-    draft byte-for-byte."""
+    """Normalize draft markup against recent assistant messages."""
     if not enabled:
         return draft, FormatDriftReport(None, None, False, "disabled")
     if not draft or not draft.strip() or not baseline_messages:
@@ -482,10 +364,6 @@ def normalize_to_baseline(
     if target.dialogue == Dialogue.UNKNOWN and target.narration == Narration.UNKNOWN:
         return draft, FormatDriftReport(None, target, False, "baseline unstable")
 
-    # Protected runs (fenced code, multi-marker Markdown) are excluded from the
-    # classification and carried through the rewrite verbatim, so a stray
-    # ``***``/``****`` neither corrupts the read nor gets dropped — it reappears in
-    # the output exactly as the author typed it.
     source = classify_axes(draft)
     new_text = _rewrite(draft, source, target)
     changed = new_text != draft

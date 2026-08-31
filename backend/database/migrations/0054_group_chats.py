@@ -1,44 +1,4 @@
-"""
-0054_group_chats -- group scenes: durable rosters, per-speaker identity, and the
-scene-local sheet review queue.
-
-Takes a pre-group-chats database to the shape ``schema.py`` ships, in one step.
-Group chat was built over several migrations, none of which ever reached an
-installed database, so their intermediate shapes are not history anybody has to
-replay. What follows is the end state only -- notably ``messages.exchange_id``,
-which spent part of that development called ``beat_id`` and is created here
-under its final name. (What the Director tells a single speaker to do, which
-also carried the name for a while, is now a *cue* -- see ``pipeline/cast.py``. An
-*exchange* is one group request, which is what this column groups.)
-
-The ``conversations`` columns are the per-scene policy: ``kind`` splits a group
-from a solo chat, ``group_turn_mode``/``group_max_speakers`` decide who speaks,
-``group_context_mode`` decides what each speaker sees, and
-``group_sheet_updates`` is the opt-in to the post-exchange sheet pass -- off for
-every existing scene, which is the honest default, since the pass costs one
-billed call per member an exchange touched. ``group_root_id`` names the
-conversation a family descends from, so a fork stops reading as a new group in
-the sidebar; NULL means the row *is* that root, which is why nothing is
-backfilled here: every conversation that exists at migration time is the origin
-of its own family, and NULL already says exactly that.
-
-``group_members`` carries two scene-local overrides that never write the card --
-``public_profile_override`` (what the rest of the cast sees) and
-``card_sheet_override`` (what the member reads about itself). NULL means "fall
-back to the card" for both, so there is nothing to backfill and the original is
-always recoverable by clearing the override.
-
-``member_sheet_proposals`` is where the post-exchange pass parks a proposed
-rewrite of one such sheet, pending, for the user to apply or reject. The pass
-does not apply its own proposal, for the two reasons Dynamic Worlds stages its
-changesets: it writes a field the user can also hand-edit, and a bookkeeping
-model can simply judge wrong. ``base_sheet`` is to a proposal what
-``worlds.content_revision`` is to a changeset -- the apply re-reads the member's
-current sheet and refuses when it has moved since the proposal was derived,
-rather than clobbering whichever writer got there second. Nothing is backfilled:
-no exchange has run under the pass, so no existing scene can have proposed
-anything.
-"""
+"""Add group conversations, rosters, and sheet proposals."""
 
 from __future__ import annotations
 

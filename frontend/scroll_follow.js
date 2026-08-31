@@ -1,16 +1,3 @@
-// Shared "stick to bottom unless the user scrolled up" scroll mechanics, used by
-// the chat area, the reasoning box(es), and Document mode's editor. Two shapes
-// of the same underlying idea:
-//   - createScrollFollow: a stateful controller for elements that get frequent,
-//     independent mutations (streamed tokens) — wheel/touch disarm the follow
-//     state, scrolling back to the bottom re-arms it.
-//   - preserveScroll / preserveScrollDistance: a snapshot-mutate-restore wrapper
-//     for elements whose content is rebuilt in one shot (innerHTML/outerHTML
-//     rewrites) — no listeners needed, since the current scrollTop already
-//     reflects whatever the user did.
-
-// Stateful follow controller. `el` is the scrollable element itself (not a
-// thunk — call sites construct this once the element exists).
 export function createScrollFollow(
   el,
   { threshold = 20, onScroll = null, debounceMs = 100, twoWayScroll = false } = {},
@@ -94,10 +81,6 @@ export function createScrollFollow(
   };
 }
 
-// Verbatim snapshot/mutate/restore: correct when content is only ever appended
-// at the tail (the box never grows above the visible area). `getEl` is a thunk,
-// re-invoked before AND after `mutate()`, since some callers replace the
-// element's DOM identity via an ancestor's innerHTML/outerHTML rewrite.
 export function preserveScroll(getEl, threshold, mutate) {
   const before = getEl();
   const snapshot = before
@@ -113,9 +96,6 @@ export function preserveScroll(getEl, threshold, mutate) {
   else after.scrollTop = snapshot.scrollTop;
 }
 
-// Distance-from-bottom-preserving snapshot/mutate/restore: needed when content
-// can be inserted ABOVE the viewport (e.g. windowed backfill), where a verbatim
-// scrollTop restore would leave the wrong messages in view.
 export function preserveScrollDistance(getEl, threshold, mutate, { forceBottom = false } = {}) {
   const before = getEl();
   if (!before) {

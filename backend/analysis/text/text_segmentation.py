@@ -1,10 +1,4 @@
-"""Analysis-specific prose segmentation built on the core lexical policy.
-
-The backend's generic sentence and quotation rules live in
-``backend.core.text_segmentation`` so inference and analysis cannot drift.
-This module adds analysis-only concepts: narration, OOC directives, emphasis,
-and typed speech/emphasis/narration blocks.
-"""
+"""Analysis-specific sentence, dialogue, and block segmentation."""
 
 from __future__ import annotations
 

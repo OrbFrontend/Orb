@@ -1,8 +1,4 @@
-"""Byte-level facts about a returned image, shared by every backend client.
-
-Both clients decide the same two things about bytes from a remote server -- is this
-an image, and is it small enough to store -- so the rule lives in one place.
-"""
+"""Shared image-byte helpers."""
 
 from __future__ import annotations
 

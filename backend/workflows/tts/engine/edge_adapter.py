@@ -1,15 +1,4 @@
-"""
-backend/tts/edge_adapter.py — Edge TTS backend adapter.
-
-Uses the edge-tts library (Microsoft Edge's online TTS service).
-Free, no API key required, 400+ voices, outputs MP3.
-
-Limitations:
-- No SSML support in user text (text is XML-escaped internally)
-- Pauses via punctuation only (periods, ellipses, commas)
-- Unofficial API — could break if Microsoft changes their endpoint
-- stream() can only be called once per Communicate instance
-"""
+"""Edge TTS adapter."""
 
 from __future__ import annotations
 

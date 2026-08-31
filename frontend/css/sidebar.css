@@ -1,6 +1,3 @@
-/* ═══════════════════════════════════════════
-   2. Sidebar
-   ═══════════════════════════════════════════ */
 .sidebar-header {
   padding: 16px 16px 10px;
   border-bottom: 1px solid var(--border);
@@ -28,20 +25,11 @@
 .sidebar-scroll {
   flex: 1;
   overflow-y: auto;
-  /* No scroll gutter here, unlike every other panel. The sidebar's rows line up
-     against .sidebar-header, which is pinned *outside* this box and so never
-     loses the gutter's width -- so the moment an expanded section overflows,
-     a bar would inset every row below the header and break that alignment.
-     Themes are free to ask for a fat bar (litestep does) which makes the jump
-     that much worse. Wheel, touch, drag-select and keyboard scrolling are all
-     untouched; only the bar itself is gone. */
   scrollbar-width: none;
 }
 
-/* Safari < 18.2, which has no `scrollbar-width`. */
 .sidebar-scroll::-webkit-scrollbar { width: 0; }
 
-/* Theme picker */
 .theme-row {
   display: flex;
   align-items: center;
@@ -75,7 +63,6 @@
   outline: none;
 }
 
-/* Sections */
 .sidebar-section {
   border-bottom: 1px solid var(--border);
 }
@@ -114,8 +101,6 @@
 
 .sidebar-section-body.collapsed { display: none; }
 
-/* Endpoint field groups (native <details>) -- styled to echo the section
-   headers one level up, but lighter so the nesting reads as nesting. */
 .ep-group {
   border-top: 1px solid var(--accent-dim);
   margin-top: 10px;
@@ -133,7 +118,6 @@
 
 .ep-group > summary:hover { color: var(--text-primary); }
 
-/* Conversation list items */
 .conv-item {
   display: flex;
   align-items: center;
@@ -171,9 +155,6 @@
 .conv-item:hover .delete-btn { opacity: 1; }
 .conv-item .delete-btn:hover { color: var(--red); }
 
-/* Group scenes need both their name and a glanceable cast. Keeping the delete
-   control outside the select button makes both actions usable by keyboard and
-   avoids an accidental scene switch while asking for confirmation. */
 .group-chat-item {
   display: flex;
   align-items: stretch;
@@ -184,8 +165,6 @@
 
 .group-chat-item:hover { background: var(--bg-hover); }
 
-/* A row stands for the whole group, so it lights up for any conversation in the
-   family — the checkpoint you are reading is still this group. */
 .group-chat-item.active {
   background: var(--accent-glow);
   border: 1px solid var(--accent-dim);
@@ -237,9 +216,6 @@
   font-weight: 600;
 }
 
-/* Grows to fill the row so the count badge is pinned to the trailing edge
-   rather than trailing the title — otherwise the badge sits at a different
-   place in every row, wherever that group's name happens to end. */
 .group-chat-details {
   min-width: 0;
   flex: 1;
@@ -262,10 +238,6 @@
   margin-top: 2px;
 }
 
-/* How many conversations the group holds. Only painted past one, so it reads as
-   "this scene has branched" rather than as a permanent decoration. Lives at the
-   row's trailing edge, just inside the delete control, which is where the eye
-   looks for a count and the one spot that does not move with the title. */
 .group-chat-count {
   align-self: center;
   flex: 0 0 auto;
@@ -291,7 +263,6 @@
 .group-chat-delete:focus-visible { opacity: 1; }
 .group-chat-delete:hover { color: var(--red); }
 
-/* Character list items */
 .char-item {
   display: flex;
   align-items: center;
@@ -328,12 +299,6 @@
 
 .char-avatar-sm img { width: 100%; height: 100%; object-fit: cover; }
 
-/* Halo marking an entity that carries a capability of its own, readable before
-   it is ever opened: a character with an expression pack (sidebar list + chat
-   header), or a Dynamic World the Agent may extend (worlds list). One rule for
-   every surface — the same promise must not read as three different marks.
-   `.world-avatar` is named a second time on purpose: lorebooks.css loads after
-   this file, so its `border` shorthand would otherwise win the specificity tie. */
 .avatar-halo,
 .world-avatar.avatar-halo {
   border-color: transparent;
@@ -417,7 +382,6 @@
   color: var(--accent);
 }
 
-/* Avatar popup */
 #sidebar {
   position: relative;
 }
@@ -479,7 +443,6 @@
   z-index: 101;
 }
 
-/* Fragment items */
 .fragment-item {
   display: flex;
   align-items: center;
@@ -495,8 +458,6 @@
 
 .fragment-item:hover { background: var(--bg-hover); }
 
-/* Interactive rows already gain visual inset from their drag handle. Keep the
-   row surface aligned with the section, but pull its contents in slightly. */
 #interactive-frag-list > .fragment-item {
   padding-left: 6px;
 }
@@ -506,15 +467,12 @@
   border: 1px dashed var(--accent);
 }
 
-/* Fragment whose backing agent feature (e.g. Editor Feedback) is disabled. */
 .fragment-item.frag-feature-disabled .frag-label,
 .fragment-item.frag-feature-disabled .frag-type-badge,
 .frag-card-list .frag-feature-disabled {
   opacity: 0.4;
 }
 
-/* Read-only inline list of the active character's card-embedded fragments:
-   deliberately NOT .fragment-item so the drag/reorder machinery never matches it. */
 .frag-card-list {
   display: flex;
   flex-wrap: wrap;
@@ -524,7 +482,6 @@
   font-weight: 500;
 }
 
-/* Divider between global fragments and the character's card-embedded ones. */
 .frag-divider {
   display: flex;
   align-items: center;
@@ -536,7 +493,6 @@
   margin: 10px 0 4px;
   padding: 0 10px;
 }
-/* Rules on both sides center the label within the line. */
 .frag-divider::before,
 .frag-divider::after {
   content: "";
@@ -545,8 +501,6 @@
   background: var(--border);
 }
 
-/* Stretches to the row instead of padding it: vertical padding here would make
-   interactive rows taller than the handle-less mood rows. */
 .frag-drag-handle {
   cursor: grab;
   user-select: none;
@@ -573,7 +527,6 @@
   font-weight: 500;
   padding-right: 8px;
 }
-/* Badge marking a fragment's field_type (e.g. feedback fragments → user-facing note). */
 .frag-type-badge {
   font-size: 10px;
   color: var(--accent);
@@ -582,7 +535,6 @@
   padding: 0 4px;
   vertical-align: middle;
 }
-/* Fragment toggle: layout only — the switch itself is .tog in forms.css */
 .frag-toggle-wrapper {
   display: flex;
   align-items: center;

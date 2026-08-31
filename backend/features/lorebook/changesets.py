@@ -1,27 +1,4 @@
-"""Dynamic Worlds: the changeset lifecycle — accept, reject, re-evaluate, undo, reset.
-
-Wiring, not logic: reads the World, hands validated operations to the
-transactional applier in ``database/queries/worlds.py``, and records the
-outcome. Three rules shape everything here.
-
-**Exactly one accept wins a race.** Every mutation takes the per-World process
-lock and then a ``BEGIN IMMEDIATE`` transaction that re-reads
-``content_revision`` and refuses unless it still matches the proposal's base.
-The loser is marked stale and told to re-evaluate; nothing is force-applied and
-nothing is silently rebased, because two changes that look unrelated can still
-contradict each other in meaning.
-
-**Every mutation is itself a changeset.** Undo and reset are not special-cased
-side doors — they build compensating operations, persist them as a changeset,
-and apply them through the same path, so they land in history and can themselves
-be undone. Deleting an entry by hand is recorded the same way, as an
-already-applied changeset — history is the account of what happened to the
-lorebook, not only of what the Agent did to it.
-
-**Undo never guesses.** A compensating operation carries the after-state its
-target must still be in; if a later change moved it, the undo conflicts instead
-of clobbering.
-"""
+"""Apply and track Dynamic Worlds changesets."""
 
 from __future__ import annotations
 

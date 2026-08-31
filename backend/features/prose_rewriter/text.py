@@ -1,18 +1,4 @@
-"""The prompt contract, and the text repairs applied on the way back out.
-
-THE PROMPT IS A PROPERTY OF THE WEIGHTS, not a setting. `serve_prompt` builds
-the exact three-block string the pool was written in, which is also what each
-model repo's `chat_template.jinja` produces; `tests/unit/test_prose_rewriter_text.py`
-pins it byte-for-byte, which is the only way a hand edit here would be noticed.
-The `edit` block is fixed at `match` -- the band that rewrites in place. Serving
-these weights with no block at all measured del:ins 19.0 against 2.8 at `match`,
-worse than a control trained without the block ever having existed.
-
-The REPAIRS are a property of the corpus rather than of the model. AO3's scrape
-drops inter-sentence spaces and whole paragraph breaks, so the targets carried
-welded dialogue and the model learned to emit some of it; the three functions
-below undo the specific defect each comment describes.
-"""
+"""Build the rewriter prompt and repair its output."""
 
 from __future__ import annotations
 
@@ -91,8 +77,6 @@ def trim_to_sentence(text: str) -> str:
     return text[:best].strip() if best > 0 else ""
 
 
-# ---------- whitespace and punctuation spacing ----------
-
 # Python and JSON preserve these separators as literal characters. Five corpus
 # rows carried U+2028 after the ordinary CR/LF cleanup, leaving an invisible
 # source artefact in both the target and the trained model's output.
@@ -110,8 +94,6 @@ def normalise_spacing(text: str) -> str:
     text = _HORIZONTAL_SPACE.sub(" ", text)
     return _SPACE_BEFORE_PUNCT.sub(r"\g<left>\g<mark>", text)
 
-
-# ---------- sentence-boundary spacing ----------
 
 # The BARE join demands a capital followed by a lowercase letter, and that is
 # not an oversight: measured on the 87,716-row screened build, `[.!?][a-z]` with
@@ -149,8 +131,6 @@ def restore_sentence_spacing(text: str) -> str:
     text = _QUOTED_SENTENCE_JOIN.sub(quoted, text)
     return _SENTENCE_JOIN.sub(r"\1 ", text)
 
-
-# ---------- lost paragraph breaks ----------
 
 # The AO3 scrape does not merely drop the space between two utterances, it drops
 # the PARAGRAPH BREAK, and the archive's own format is one paragraph per

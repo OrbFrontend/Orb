@@ -1,6 +1,4 @@
-"""
-audit.py — Run all programmatic scanners and produce a consolidated AuditReport.
-"""
+"""Run the prose audit scanners and collect their findings."""
 
 from __future__ import annotations
 
@@ -24,16 +22,7 @@ from .detectors.structural_repetition import (
 )
 from .detectors.template_repetition import TemplateResult, detect_template_repetition
 
-# Audit toggles
-#
-# Each key names one programmatic scanner that the Output Auditor can run. The
-# UI exposes a checkbox per type and persists the on/off state; the editor pass
-# passes the resulting dict to run_audit, which skips any disabled scanner.
-# Order here is the order the toggles render in the UI.
-#
-# Note: the deterministic RP format-consistency normalizer is intentionally NOT
-# listed here. It is a post-editor markup rewriter (not a flag-only scanner) and
-# is not user-toggleable — it always runs. See editor.editor_stage.
+# The format normalizer is a post-editor rewrite, not an audit scanner.
 AUDIT_TYPES = (
     "banned_phrases",
     "repetitive_openers",
@@ -46,25 +35,14 @@ AUDIT_TYPES = (
 
 
 def _on(toggles: dict | None, key: str) -> bool:
-    """Whether scanner *key* is enabled. Missing key / None toggles → enabled,
-    so callers (and older databases) default to the prior all-on behaviour."""
+    """Return whether scanner *key* is enabled."""
     return True if toggles is None else bool(toggles.get(key, True))
 
 
 def _merge_phrase_results(short: PhraseResult, long: PhraseResult) -> PhraseResult:
-    """Combine the short-phrase (high-threshold) and long-phrase (low-threshold)
-    phrase-repetition passes into a single result.
-
-    deduplicate_phrases drops any phrase that restates the same repeat as another
-    across the two passes — a sub-phrase of a longer one ("shadowed red" under
-    "shadowed red eyes"), a longer phrase that recurs less than its frequent core
-    ("for six centuries" under "six centuries"), or an overlapping fragment
-    ("the tight ring" beside "ring of muscle")."""
+    """Combine the short- and long-phrase repetition passes."""
     merged = deduplicate_phrases(long.flagged_phrases + short.flagged_phrases)
     return PhraseResult(flagged_phrases=merged, total_messages=short.total_messages)
-
-
-# Data container
 
 
 class AuditReport:
@@ -140,9 +118,6 @@ class AuditReport:
         )
 
 
-# Run all scanners
-
-
 def run_audit(
     text: str,
     phrase_bank: list[PhraseGroup],
@@ -164,25 +139,7 @@ def run_audit(
     user_message: str | None = None,
     audit_toggles: dict | None = None,
 ) -> AuditReport:
-    """Run the enabled audit scanners on the text.
-
-    Args:
-        text: The current text to audit (may be concatenated context for
-            cliche/opener/template detectors).
-        phrase_bank: List of banned phrase groups.
-        assistant_messages: Optional list of previous assistant messages for
-            structural repetition detection.
-        structural_text: The current draft message for structural repetition.
-            When provided, used instead of `text` so that callers that pass a
-            concatenated context blob as `text` still get correct per-message
-            comparison.  Defaults to `text` when omitted.
-        user_message: The user's immediately-preceding message, used by the
-            anti-echo scanner to detect the draft parroting it as a question.
-            Anti-echo is skipped when this is omitted.
-        audit_toggles: Optional per-scanner on/off map keyed by AUDIT_TYPES.
-            Disabled scanners are skipped and return an empty result. None (the
-            default) runs every scanner.
-    """
+    """Run enabled scanners on the current draft and return their findings."""
     current_msg = structural_text if structural_text is not None else text
     echo_result = None
     if user_message and _on(audit_toggles, "anti_echo"):
@@ -199,13 +156,7 @@ def run_audit(
                 min_complexity=structural_min_complexity,
             )
         if _on(audit_toggles, "phrase_repetition"):
-            # The draft must be last so require_last_message focuses flags on it.
             phrase_messages = assistant_messages + [current_msg]
-            # Two universal passes with different thresholds by phrase length:
-            #  - short phrases (up to phrase_short_max_n words) need phrase_min_messages
-            #    repeats, since a 2-word match is easily a coincidence.
-            #  - longer phrases are distinctive enough that phrase_long_min_messages
-            #    (a lower threshold) repeats are damning.
             short_phrases = detect_phrase_repetition(
                 phrase_messages,
                 min_n=phrase_min_n,
@@ -351,22 +302,7 @@ def format_report(report: AuditReport) -> str:
 
 
 def report_to_dict(report: AuditReport, draft: str = "") -> dict:
-    """JSON-shape *report* for API consumers — :func:`format_report`'s structural
-    twin for machine consumption.
-
-    Same grouping and snippet selection as the text report: one section per
-    scanner keyed by its AUDIT_TYPES name, present only when it has findings,
-    plus the ``total_issues`` / ``is_clean`` rollups. Snippets are
-    marker-stripped exactly like the text report so both surfaces show the
-    same strings.
-
-    Pass *draft* — the text the report was produced from — to attach the patch
-    ids each entry maps to, so a UI shows the same numbers the model addressed.
-    An entry can carry several ids (a duplicated sentence has one per copy) or
-    none (structural repetition has no span, and a finding the detectors
-    segmented differently from the draft is not addressable at all). Without a
-    draft the ``ids`` key is omitted rather than guessed.
-    """
+    """Return the report in the API's JSON shape."""
     # Imported here rather than at module scope: targets.py reads the report
     # shape this module defines, so a top-level import would cycle.
     from .targets import build_targets, target_ids_for

@@ -114,24 +114,7 @@ async def create_conversation(
 
 
 async def fork_conversation(source: ConversationRow, new_title: str) -> str:
-    """Create an empty conversation seeded from ``source``'s character framing.
-
-    Carries the title-independent identity fields (character name/scenario,
-    post-history instructions, card id, persona pin) that both the Compress
-    History and Checkpoint flows start a fork with, and returns the new
-    conversation id.
-    Messages, branches, director state and logs are *not* copied -- the caller
-    appends whatever slice of the source it intends to carry.
-
-    A group fork joins ``source``'s family rather than founding one: a
-    checkpoint is a branch of the group, not a second group, and the sidebar
-    reads that lineage to keep showing one entry per group.
-
-    The copy pins ``macro_seed`` to the source's effective seed so seeded
-    {{random}} picks in per-turn-rebuilt prompt fields (persona, scenario)
-    stay byte-identical to the history being carried, instead of re-rolling
-    under the new conversation id.
-    """
+    """Create a conversation seeded from the source framing."""
     new_cid = str(uuid.uuid4())
     if source.get("kind", "solo") == "group":
         from .group_members import create_group_conversation, get_group_members

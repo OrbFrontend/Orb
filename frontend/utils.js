@@ -12,18 +12,10 @@ export function esc(s) {
   return div.innerHTML;
 }
 
-// Escape a value for safe interpolation into a double-quoted HTML attribute.
-// esc() handles &, <, > but leaves quotes intact, so a " would break out of
-// the attribute — escape it (and ') explicitly here.
 export function escAttr(s) {
   return esc(s).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-// Escape a value embedded inside an inline handler's single-quoted JS string
-// that itself sits in a double-quoted HTML attribute, e.g.
-// onclick="fn('${escHandlerArg(v)}')". The browser decodes HTML entities
-// before the JS parser runs, so we JS-escape first, then HTML-escape — that
-// order yields a valid JS string literal after attribute decoding.
 export function escHandlerArg(s) {
   const js = String(s == null ? "" : s)
     .replace(/\\/g, "\\\\")
@@ -33,23 +25,12 @@ export function escHandlerArg(s) {
   return js.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// SQLite flag columns arrive as 0/1, while optimistic frontend updates commonly
-// store real booleans. Keep the accepted wire/local shapes explicit rather than
-// relying on truthiness (where "0" would incorrectly count as enabled).
 export function boolFlag(value) {
   return value === true || value === 1;
 }
 
-// The toast stack lives in notify.js; re-exported here so the 192 existing
-// `import { toast } from "./utils.js"` call sites (and the frozen plugin ABI)
-// keep working unchanged.
 export { notifyError, toast } from "./notify.js";
 
-// The chat area's follow controller. Constructed once by chat_messages.js's
-// initAutoscroll() (the element doesn't exist yet at module-eval time); this is
-// the one module every chat_*.js file that needs it can import from without
-// creating an import cycle (chat_workflow.js → chat_core.js already exists, so
-// the controller can't live in chat_messages.js or chat_core.js).
 let _chatFollow = null;
 
 export function initChatScrollFollow(el, { onScroll } = {}) {
@@ -72,9 +53,6 @@ function scrollChatTarget(el, align) {
   if (align === "center") {
     targetTop -= Math.max(0, (ct.clientHeight - el.offsetHeight) / 2);
   }
-  // Never manufacture scroll range to reach the ideal alignment. At the end
-  // of a conversation the browser must clamp to the real bottom; adding a
-  // spacer here leaves a large blank tail after regeneration or deletion.
   targetTop = Math.min(Math.max(0, targetTop), Math.max(0, ct.scrollHeight - ct.clientHeight));
   markChatProgrammaticScroll();
   ct.scrollTo({ top: targetTop, behavior: "instant" });
@@ -112,24 +90,13 @@ export function avatarUrl(charId) {
   return `/api/characters/${charId}/avatar`;
 }
 
-// A conversation's recency for list ordering: the most recent of when it was
-// last opened (last_accessed_at), last edited (updated_at), or created. ISO8601
-// sorts lexicographically, so string max is correct. Mirrors the backend's
-// ORDER BY in queries/conversations.py — keep the two in sync.
 export function convActivity(c) {
   return [c.last_accessed_at, c.updated_at, c.created_at].reduce((a, b) => (b && b > a ? b : a), "");
 }
 
-// Placeholder glyphs shown when an avatar image is missing or fails to load.
-// Two conventions: library cards fall back to a person, the chat header to a
-// scroll. Kept as named constants so the fallback can't drift between sites.
-export const NO_AVATAR_ICON = "👤"; // character library cards / lists
-export const CHAT_AVATAR_ICON = "📜"; // active chat header
+export const NO_AVATAR_ICON = "👤"; // character lists
+export const CHAT_AVATAR_ICON = "📜"; // active conversation header
 
-// Inner HTML for an avatar cell: an <img> that swaps to the placeholder glyph
-// if it fails to load, or the bare glyph when there's no image at all. `attrs`
-// appends extra <img> attributes (loading, decoding, onclick…). `src` must be
-// pre-escaped by the caller when it comes from untrusted data.
 export function avatarCell(src, { icon = NO_AVATAR_ICON, attrs = "" } = {}) {
   if (!src) return icon;
   return `<img src="${src}"${attrs ? ` ${attrs}` : ""} onerror="this.parentElement.textContent='${icon}'">`;
@@ -154,8 +121,6 @@ export function formatRelativeDate(iso) {
   return date.toLocaleDateString();
 }
 
-// ── Sentence-level diff
-
 function _sentenceDiffTokens(text) {
   const units = sentenceStream(text).map((unit) => unit.text);
   return units.length ? units : [text];
@@ -164,11 +129,6 @@ function _sentenceDiffTokens(text) {
 function _lcs(a, b) {
   const m = a.length,
     n = b.length;
-  // Restrict matches to a diagonal band to prevent greedy long-distance anchoring.
-  // A sentence at position i in `a` can only match a sentence at position j in `b`
-  // if they're within `band` slots of each other. Without this, a short sentence that
-  // appears in both texts but far apart in relative position would anchor the LCS and
-  // cause everything between the two occurrences to show as changed.
   const band = Math.max(2, Math.ceil(Math.max(m, n) * 0.4));
   const dp = Array.from({ length: m + 1 }, () => new Int32Array(n + 1));
   for (let i = 1; i <= m; i++) {
@@ -206,10 +166,6 @@ function _mergeOps(ops) {
   return result;
 }
 
-// Last `n` sentences of `text`, joined verbatim (tokens round-trip, see
-// _tokenizeSentences). With `dropFragment` (streaming), a trailing token that
-// doesn't end at a sentence boundary is discarded so the result only changes
-// when a sentence completes — callers deduping on it stay quiet mid-sentence.
 export function sentenceTail(text, n = 3, dropFragment = false) {
   if (!Number.isFinite(n) || n <= 0) return "";
   const units = sentenceStream(text);
@@ -232,9 +188,6 @@ export function sentenceTail(text, n = 3, dropFragment = false) {
     .trim();
 }
 
-// Returns merged diff ops: [{type: 'equal'|'insert'|'delete', text}]
-// Tokenises at sentence granularity so changed sentences appear as whole units
-// rather than fragmented word-level edits.
 export function sentenceDiff(oldText, newText) {
   if (!oldText || !newText) return [{ type: "equal", text: newText || "" }];
   return _mergeOps(_lcs(_sentenceDiffTokens(oldText), _sentenceDiffTokens(newText)));
@@ -248,10 +201,6 @@ function _applyInlineFormatting(escaped) {
   return escaped.replace(INLINE_QUOTE_RE, '<span class="quoted">$&</span>');
 }
 
-// Renders diff ops as HTML with change highlights.
-// For delete→insert pairs: shows the old sentence struck-through immediately before
-// the new highlighted sentence so both are readable in context.
-// Standalone deletes are shown as strikethrough; standalone inserts as highlighted.
 export function formatProseWithDiff(ops) {
   let html = "";
   for (let i = 0; i < ops.length; i++) {
@@ -261,35 +210,24 @@ export function formatProseWithDiff(ops) {
     } else if (op.type === "delete") {
       const next = ops[i + 1];
       if (next?.type === "insert") {
-        // Paired replacement: show old struck-through, new highlighted side-by-side
         html += `<span class="diff-deleted">${_applyInlineFormatting(esc(op.text))}</span>`;
         html += `<span class="diff-change">${_applyInlineFormatting(esc(next.text))}</span>`;
         i++; // consume the paired insert
       } else {
-        // Standalone deletion
         html += `<span class="diff-deleted">${_applyInlineFormatting(esc(op.text))}</span>`;
       }
     } else if (op.type === "insert") {
-      // Standalone insertion (not preceded by a delete)
       html += `<span class="diff-change">${_applyInlineFormatting(esc(op.text))}</span>`;
     }
   }
   return html.replace(/\n{2,}/g, '<br><span class="pbreak"></span>').replace(/\n/g, "<br>");
 }
 
-// Icons for the code-block toolbar (word-wrap toggle + copy). Inline SVG so the
-// markup stays a self-contained string; matches the stroke style of the message
-// toolbar icons in chat_core.js.
 const ICON_WRAP = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="3" y1="6" x2="21" y2="6"/><path d="M3 12h15a3 3 0 1 1 0 6h-4"/><polyline points="16 16 14 18 16 20"/><line x1="3" y1="18" x2="10" y2="18"/></svg>`;
 const ICON_COPY = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
 
-// Markdown image link to an image-extension URL, e.g. ![alt](https://host/x.jpg)
 const IMG_LINK_RE = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\)/i;
 
-// Render a markdown image link as a collapsed <details> wrapper. The image is
-// wrapped in an anchor so clicking it opens the source image in a new tab, and
-// falls back to a plain link if the image fails to load. The URL is matched as
-// http(s) only (no javascript: URIs); escAttr() prevents breaking out of attrs.
 function renderImageEmbed(url, alt) {
   const safeUrl = escAttr(url);
   const safeAlt = escAttr(alt || "");
@@ -306,9 +244,6 @@ function renderImageEmbed(url, alt) {
   );
 }
 
-// Memoize rendered prose. formatProse is pure for a given input string, so on
-// re-renders (editing, streaming ticks, branch switches) we can skip the regex
-// passes entirely. Bounded to keep memory in check; oldest entries are evicted.
 const _proseCache = new Map();
 const _PROSE_CACHE_MAX = 2000;
 
@@ -318,7 +253,6 @@ export function formatProse(text) {
   if (cached !== undefined) return cached;
   const html = _formatProse(text);
   if (_proseCache.size >= _PROSE_CACHE_MAX) {
-    // Evict the oldest insertion (Map preserves insertion order).
     _proseCache.delete(_proseCache.keys().next().value);
   }
   _proseCache.set(text, html);
@@ -326,22 +260,15 @@ export function formatProse(text) {
 }
 
 function _formatProse(text) {
-  // Split on fenced code blocks and image links before escaping so we can handle
-  // them separately (their content must bypass prose escaping/inline formatting).
   const parts = text.split(/(```[\w]*\n?[\s\S]*?```|!\[[^\]]*\]\((?:https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\))/gi);
   return parts
     .map((part, i) => {
-      // Captured segments (odd-indexed) are either image links or code blocks.
       const imgMatch = part.match(IMG_LINK_RE);
       if (imgMatch) {
         return renderImageEmbed(imgMatch[2], imgMatch[1]);
       }
       const codeMatch = part.match(/^```(\w*)(\n)?([\s\S]*?)```$/);
       if (codeMatch) {
-        // An info string is only a language when a newline follows the opening
-        // fence. A single-line fence (no newline) has no language — its first
-        // token is content, so ```This is a test``` must keep "This" as code
-        // rather than swallowing it as a language identifier.
         const hasNewline = !!codeMatch[2];
         const lang = hasNewline ? codeMatch[1] : "";
         const code = esc(hasNewline ? codeMatch[3] : codeMatch[1] + codeMatch[3]);
@@ -358,53 +285,32 @@ function _formatProse(text) {
           `</div>`
         );
       }
-      // Strip boundary newlines that would double-up spacing next to <pre> blocks
       let prose = part;
       if (i > 0) prose = prose.replace(/^\n/, ""); // after a code block
       if (i < parts.length - 1) prose = prose.replace(/\n$/, ""); // before a code block
-      // Normal prose: apply inline formatting
-      // esc() does not affect # or `, so all patterns are applied post-escape
       let escaped = _applyInlineFormatting(esc(prose));
       escaped = escaped.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
-      // Headers applied last so prior patterns don't corrupt the injected HTML attributes
       escaped = escaped.replace(
         /^(#{1,6}) (.+)$/gm,
         (_, hashes, content) => `<strong class="md-h${hashes.length}">${content}</strong>`,
       );
-      // Double+ linebreak: one <br> plus a half-line spacer so the paragraph gap
-      // is 1.5x a single break (not 2x). Single \n stays a plain <br>.
       return escaped.replace(/\n{2,}/g, '<br><span class="pbreak"></span>').replace(/\n/g, "<br>");
     })
     .join("");
 }
 
-/**
- * Replace {{user}} and {{char}} placeholders with actual names.
- * @param {string} text - Input text containing placeholders
- * @param {string} userName - User's name (from settings)
- * @param {string} charName - Character's name (from conversation)
- * @returns {string} Text with placeholders replaced
- */
 export function replacePlaceholders(text, userName, charName) {
   if (!text || typeof text !== "string") return text || "";
   let result = text;
-  // Replace {{user}} with userName (default "User")
   if (userName) {
     result = result.replace(/\{\{user\}\}/gi, userName);
   }
-  // Replace {{char}} with charName (default empty? but should be character name)
   if (charName) {
     result = result.replace(/\{\{char\}\}/gi, charName);
   }
   return result;
 }
 
-/**
- * Get resolved text for display or sending, using current state.
- * For use in chat messages and character card display.
- * @param {string} text - Raw text possibly containing placeholders
- * @returns {string} Resolved text
- */
 export function resolvePlaceholders(text) {
   let userName = S.settings?.user_name || "User";
   const personaId = effectivePersonaId();
@@ -421,11 +327,6 @@ export function resolvePlaceholders(text) {
   return cast ? resolved.replace(/\{\{cast\}\}/gi, cast) : resolved;
 }
 
-/**
- * The persona actually in force for the open conversation: conversation pin →
- * character pin → global default. Mirrors backend resolve_persona_id.
- * @returns {number|null} Persona id, or null when none applies
- */
 export function effectivePersonaId() {
   const conv = S.conversations?.find((c) => c.id === S.activeConvId);
   if (conv?.persona_lock_id) return conv.persona_lock_id;
@@ -442,10 +343,6 @@ export function formatBytes(bytes) {
   return `${parseFloat((bytes / k ** i).toFixed(1))} ${sizes[i]}`;
 }
 
-// Trigger a browser download of `source` (a URL string, or a Blob) as `filename`
-// via a transient anchor. Replaces the hand-rolled createElement("a") + append +
-// click + remove dance duplicated across export/download sites. A Blob source is
-// wrapped in an object URL and revoked after the click.
 export function downloadBlob(filename, source) {
   const isBlob = source instanceof Blob;
   const href = isBlob ? URL.createObjectURL(source) : source;

@@ -1,46 +1,4 @@
-"""Process-level asyncio locks crossed by more than one backend module.
-
-Locks confined to a single module (workflow-attachment root, conversation
-stream) live alongside that module; this file holds only the locks that
-are taken from both ``backend.api`` routes and the pipeline hook loops in
-``backend.pipeline.workflow_bridge``, so they need a neutral home to avoid a circular
-import.
-
-``workflow_state_lock(cid, workflow_id)`` is acquired around each
-pre/post pipeline hook callable's full lifetime, including the
-``async for`` yielding SSE events out of a post-pipeline hook. A
-concurrent ``/trigger`` on the same ``(cid, workflow_id)`` therefore
-waits for the in-flight stream to drain, not just for hook compute --
-this is deliberate, so the hook's ``workflow_state`` read-then-write
-window cannot be clobbered mid-stream. ``asyncio.Lock`` is non-reentrant,
-so a hook callable must not re-enter an HTTP route that takes this lock
-for the same pair.
-
-``workflow_character_state_lock(character_id, workflow_id)`` is the
-per-character analogue, keyed by ``character_id`` rather than ``cid``
-because one character card is referenced by many conversations
-(``conversations.character_card_id`` is nullable and non-FK), so two
-concurrent turns on different conversations of the same character would
-otherwise read-then-write the same ``character_cards.workflow_state``
-slot under different keys and clobber each other. It is acquired INSIDE
-``workflow_state_lock`` at every site (conversation lock outer, character
-lock inner) to fix one global acquisition order; the same non-reentrancy
-rule applies.
-
-``workflow_config_lock()`` serializes ALL ``workflow_config``
-read-then-write windows across the process regardless of workflow id,
-because every slot lives in one JSON blob on the global ``settings``
-row, so the read pulls from a single shared cell. Callers doing RMW
-against ``workflow_config[$.<wid>]`` must hold this lock from before
-``get_workflow_config`` until after ``set_workflow_config``. A single
-``set_workflow_config`` call with no prior read is safe at the SQL
-layer without the lock.
-
-``workflow_config_lock`` keys its dict by running event loop because
-``asyncio.Lock`` binds to its loop on first acquire and pytest-asyncio
-gives each test a fresh function-scope loop; without per-loop keying,
-the second test would acquire a Lock bound to a dead loop and crash.
-"""
+"""Process-level asyncio locks shared across backend layers."""
 
 from __future__ import annotations
 
@@ -83,19 +41,7 @@ _world_apply_locks: dict[tuple[asyncio.AbstractEventLoop, str], asyncio.Lock] = 
 
 @asynccontextmanager
 async def world_apply_lock(world_id: str):
-    """Serialize Dynamic Worlds mutations for one World across the process.
-
-    Applying a changeset is read-revision → write-entries → bump-revision. The
-    SQLite ``BEGIN IMMEDIATE`` in ``apply_changeset`` is what makes that atomic
-    against another *process*; this lock is what stops two request tasks in
-    *this* process from queueing on the write lock and turning a lost-update
-    into a serialized double-apply. The revision check is still the authority --
-    the loser gets a conflict either way -- so the lock is about avoiding
-    needless conflicts, not about correctness.
-
-    Keyed by running event loop as well as World id, for the same reason as
-    ``workflow_config_lock``.
-    """
+    """Serialize mutations for one World."""
     loop = asyncio.get_running_loop()
     lock = _world_apply_locks.setdefault((loop, world_id), asyncio.Lock())
     async with lock:
@@ -107,21 +53,7 @@ _maintenance_locks: dict[asyncio.AbstractEventLoop, asyncio.Lock] = {}
 
 @asynccontextmanager
 async def maintenance_lock():
-    """Serialize whole-database maintenance: preset export/import/apply,
-    snapshot create, and full-file restore.
-
-    These operations read the entire DB file (``VACUUM INTO``) or swap it on
-    disk, so two running concurrently -- or one running while another is
-    mid-swap -- would observe or produce a torn database. Keyed by running
-    event loop for the same reason as ``workflow_config_lock`` (a ``Lock``
-    binds to the loop of its first acquire; pytest-asyncio hands each test a
-    fresh loop).
-
-    Routine CRUD routes do NOT take this lock. On this single-user local app
-    these maintenance actions are deliberate, user-initiated, and not issued
-    concurrently with active generation, so gating only the maintenance side
-    is sufficient.
-    """
+    """Serialize whole-database maintenance."""
     loop = asyncio.get_running_loop()
     lock = _maintenance_locks.setdefault(loop, asyncio.Lock())
     async with lock:

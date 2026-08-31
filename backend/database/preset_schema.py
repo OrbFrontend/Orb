@@ -1,43 +1,4 @@
-"""Preset engine policy -- the human-decided facts the schema can't tell the engine.
-
-The merge engine in ``backend/features/presets/engine.py`` reads the live SQLite schema and derives
-every *mechanical* decision itself (merge order, id remapping, FK rewrite,
-child-replace scope), so most schema changes need **no edit here**. This file holds
-only the handful of facts no ``PRAGMA`` can reveal:
-
-    which domain a table belongs to    -> DOMAIN_ROOTS
-    which tables to ignore entirely     -> EXCLUDED_TABLES
-    which columns are secret/personal   -> SECRET_COLUMNS  (tripwire: SENSITIVE_*)
-    where a secret hides inside JSON    -> SECRET_JSON_PATHS
-    product rules layered on top         -> IMPLIED_DOMAINS, PRESERVED_COLUMNS
-
-You don't have to remember when to touch them: ``tests/integration/
-test_preset_schema_coverage.py`` fails the moment a migration adds a table or a
-secret-looking column that isn't accounted for, and names the constant to fix. Each
-section below opens with a "Touch when:" line saying exactly what to change.
-
-Three edits that once corrupted presets *silently* -- each now has a dedicated
-tripwire, so they fail loudly instead:
-  * Renaming a domain value. Domains are baked into every exported file
-    (``orb_preset_meta.included_domains``); a renamed domain no longer matches on
-    import, so that data is silently skipped for every preset already out there.
-    Add domains freely; never rename one. CAUGHT BY: a frozen-literal assertion on
-    ``presets.ALL_DOMAINS`` in the coverage test -- a rename fails CI; an addition
-    is a deliberate one-line test edit.
-  * Parking a real data table in ``EXCLUDED_TABLES`` to quiet the test -- excluded
-    tables are invisible to export *and* merge, so the data vanishes from backups.
-    CAUGHT BY: a runtime tripwire in ``build_preset`` that raises if any excluded
-    table other than the meta/migration bookkeeping holds rows, plus a test that
-    every excluded data table is empty in the fresh schema.
-  * Narrowing ``SENSITIVE_*`` to clear a flagged column -- declare the column in
-    ``SECRET_COLUMNS`` instead, or the secret ships in shared presets. CAUGHT BY:
-    a secret-canary test that seeds a unique sentinel into every secret column,
-    exports without ``configs`` (and with ``strip_keys``), and greps the produced
-    file's raw bytes for any surviving canary -- a generic leak check, not just the
-    declared columns' happy path. The same canary is derived from
-    ``SECRET_JSON_PATHS`` as well, so every declared path is proved to be *walked*
-    rather than merely declared.
-"""
+"""Define preset coverage and secret-column policy."""
 
 from __future__ import annotations
 

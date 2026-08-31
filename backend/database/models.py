@@ -1,11 +1,4 @@
-"""Domain data contracts owned by the database (the model layer).
-
-These describe the *shape* of persisted data and depend on nothing else in the
-codebase, so every other layer can point its dependencies inward, toward the
-data — never the reverse. Anything in backend/database/ that reaches "up" into
-the pipeline, analysis, or any other higher layer for a shared shape is an
-architectural inversion; put the shape here instead.
-"""
+"""Define database-owned data contracts."""
 
 from __future__ import annotations
 
@@ -49,7 +42,6 @@ class PhraseBankRow(TypedDict):
     pattern: str
 
 
-# ── Row contracts ──────────────────────────────────────────────────────────
 #
 # These TypedDicts label the plain dicts the query layer fetches from SQLite
 # (``dict(row)``), so callers' ``row["key"]`` access is checked against the
@@ -406,19 +398,7 @@ class WorldRow(TypedDict):
 
 
 class LorebookEntryRow(TypedDict):
-    """A row from ``lorebook_entries``. ``keywords`` and ``secondary_keys`` are
-    the JSON-*decoded* lists (every reader runs the row through
-    _parse_lorebook_entry / an inline decode).
-
-    The overlay columns describe an entry's *layer*, not its content:
-    ``entry_layer`` is ``authored`` (user-owned; the Agent may never modify or
-    delete one) or ``dynamic`` (Agent-owned). ``overlay_action`` is empty for
-    authored rows and one of ``add`` / ``replace`` / ``suppress`` for dynamic
-    ones; a ``replace``/``suppress`` names its authored target in
-    ``supersedes_entry_id``. ``archived`` retires a dynamic row without deleting
-    it, which re-exposes the authored entry it was hiding. ``entry_revision``
-    counts the mutations a dynamic row has taken.
-    """
+    """Persisted lorebook entry."""
 
     id: int
     world_id: str
@@ -608,23 +588,7 @@ class ConversationLogRow(TypedDict):
 
 
 class CharacterCardRow(TypedDict, total=False):
-    """A row from ``character_cards``.
-
-    ``total=False`` because the readers project different column subsets:
-    ``list_character_cards`` returns only the lightweight columns the library
-    list consumes — it drops ``avatar_mime`` (deriving ``has_avatar``) and also
-    omits the heavy text bodies (``description``, ``personality``, ``scenario``,
-    ``first_mes``, ``system_prompt``) that no list consumer reads, to keep a
-    large library's payload small; ``get_character_card`` returns the full row
-    (and includes ``avatar_b64`` only when ``include_avatar``).
-    ``tags`` and ``alternate_greetings`` are the JSON-*decoded* lists;
-    ``extensions`` is the JSON-*decoded* V2 card extensions dict (present only
-    on ``get_character_card``); ``has_avatar`` is a derived bool, not a column.
-    ``def_chars`` is derived and list-only for the same reason inverted: it is
-    the *measure* of the omitted bodies (description + personality +
-    mes_example, the fields the group context modes disagree about) so a list
-    consumer can weigh a card without being sent one.
-    """
+    """Persisted character-card row."""
 
     id: str
     name: str

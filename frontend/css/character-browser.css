@@ -1,6 +1,3 @@
-/* ═══════════════════════════════════════════
-   10. Character Browser Modal
-   ═══════════════════════════════════════════ */
 
 .char-browser-search-row {
   display: flex;
@@ -97,14 +94,6 @@
   padding-right: 4px;
 }
 
-/* Offscreen cards skip layout and paint — and hold back their loading="lazy"
-   avatars — until they are scrolled to. That is what makes it cheap to keep the
-   whole library resident, and keeping it resident is what lets search stay a
-   visibility toggle instead of a rebuild. Same trick .message uses in chat.css.
-   The intrinsic heights are the real ones (12 + 60 avatar + 8 + ~15 name + 12
-   for a card; 8 + 40 avatar + 8 for a list row), so a skipped card reserves the
-   space it will occupy and scrolling does not jump; `auto` swaps in the measured
-   size once a card has been rendered. */
 .char-browser-card {
   display: flex;
   flex-direction: column;
@@ -224,4 +213,3 @@
   color: var(--text-muted);
   font-size: 13px;
 }
-

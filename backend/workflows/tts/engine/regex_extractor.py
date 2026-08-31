@@ -1,25 +1,10 @@
-"""
-backend/tts/regex_extractor.py — Algorithmic dialogue extractor.
-
-Extracts speakable dialogue from RP text using a workflow-private scanner.
-Zero LLM calls, zero latency, zero cost. This is the only
-extraction path; model-backed expressive extraction is deferred.
-
-Pattern handling:
-- Quoted dialogue ("Hello") → extract
-- Action beats in asterisks (*she laughs*) → pause or skip
-- Thoughts in parentheses (hmm...) → skip entirely
-- Narrator/scene text between dialogue → skip
-- Emotion inferred from punctuation and nearby action beats
-"""
+"""Extract dialogue and narration for speech synthesis."""
 
 from __future__ import annotations
 
 from .base import SpeakableChunk
 
-# ---------------------------------------------------------------------------
 # Audible vs silent action beats
-# ---------------------------------------------------------------------------
 
 # Actions that produce sound → convert to pause + optional tag. The compact
 # string keeps this public set byte-for-byte stable; effect aliases below also
@@ -59,9 +44,7 @@ AUDIBLE_TAG_MAP = {alias: tag for aliases, tag, _ in _BEAT_EFFECTS if tag for al
 AUDIBLE_EMOTION_MAP = {alias: emotion for aliases, _, emotion in _BEAT_EFFECTS if emotion for alias in aliases}
 
 
-# ---------------------------------------------------------------------------
 # Workflow-private markup scanner
-# ---------------------------------------------------------------------------
 
 # This workflow intentionally owns its parser instead of importing application
 # lexical utilities. Keep its frontend twin independent too; shared adversarial
@@ -184,9 +167,7 @@ def _spoken_text(text: str) -> str:
     return " ".join(text.split())
 
 
-# ---------------------------------------------------------------------------
 # Emotion heuristics
-# ---------------------------------------------------------------------------
 
 
 def _infer_emotion(text: str) -> str:
@@ -228,9 +209,7 @@ def _extract_beat_action(beat_text: str) -> str:
     return ""
 
 
-# ---------------------------------------------------------------------------
 # Public API
-# ---------------------------------------------------------------------------
 
 
 def regex_extract(

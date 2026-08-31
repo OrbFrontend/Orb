@@ -1,18 +1,8 @@
-// Drives a transient visual effect over a message body's word units (karaoke
-// is the canonical case). One effect plays at a time across the whole chat:
-// starting a new one halts the previous. The framework owns the DOM and
-// applies a curated CSS class, so a workflow can never inject styling or
-// fight for screen space.
-
 const SANCTIONED_VARIANTS = new Set(["highlight", "underline", "pulse"]);
 
-// { token, msgId, variant, grain, lastUnit } | null
 let _active = null;
 let _seq = 0;
 
-// Returns a session whose `markActive(unitIndex)` the workflow calls from its
-// own audio events. A monotonic token makes a superseded session's late calls
-// no-ops, so a halted effect cannot repaint a message it no longer owns.
 export function startTextEffect({ msgId, effectId, grain = "word", variant = "highlight" } = {}) {
   clearTextEffect();
   if (!SANCTIONED_VARIANTS.has(variant)) {

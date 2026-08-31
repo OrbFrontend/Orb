@@ -1,23 +1,4 @@
-"""One llama-server child, and the three endpoints a caller asks it for.
-
-WHY A CHILD PROCESS RATHER THAN A BINDING. A feature that wants several
-requests decoded *together* needs continuous batching. Reaching it through
-``llama-cpp-python`` (the binding the in-process classifiers use) means driving
-``llama_decode`` and the KV cache by hand from Python; reaching it through
-``llama-server`` means ``--parallel N --cont-batching`` and an HTTP call. There
-is no third option that is less work than the second — which is also why a
-``llama_server`` feature needs none of ``requirements-ml.txt`` except
-``huggingface_hub`` for the download.
-
-THE CHILD IS BOUND TO LOOPBACK ON AN EPHEMERAL PORT and is not the thing anyone
-connects to. Its own web UI is off, and nothing here exposes the port, because
-it has no authentication and ``/slots`` will hand out other people's prompts.
-
-:class:`LaunchProfile` lives here rather than in :mod:`host` because ``_argv``
-is what reads nearly every field of it, and ``host`` imports this module — the
-other direction would be a cycle for one dataclass. It is the whole command
-line, and every number on it is an int this process owns.
-"""
+"""Run one supervised llama-server child and its HTTP client."""
 
 from __future__ import annotations
 
@@ -46,20 +27,7 @@ BOOT_TIMEOUT = 300.0
 
 @dataclass(frozen=True)
 class LaunchProfile:
-    """Everything one child is started with, and its identity as a load key.
-
-    THE NUMBERS ARE CODE-OWNED, and ``__post_init__`` says so at runtime. A
-    persisted or request-supplied value must first resolve through the calling
-    feature's own closed allowlist; what may reach argv is the literal that
-    comes back out of it, never the value that came in. That is the barrier
-    CodeQL asks for at a subprocess sink, and range-checking an int and passing
-    the original through would leave the taint attached even where the range is
-    safe.
-
-    Equality is the load key: two profiles built from the same selection
-    compare equal, and any change of model, placement or lane count does not.
-    ``ManagedLlamaServerHost`` swaps on exactly that comparison.
-    """
+    """Describe one llama-server launch."""
 
     model_id: str  # opaque identity for the caller's own registry
     model_path: str  # trusted absolute path, resolved by the caller's closed catalog
@@ -227,8 +195,6 @@ class LlamaServerClient:
         # boot failure — closing it first threw away the explanation.
         with contextlib.suppress(Exception):
             await child.aclose()
-
-    # ── requests ─────────────────────────────────────────────────────────────
 
     def _http(self) -> httpx.AsyncClient:
         if self._client is None:

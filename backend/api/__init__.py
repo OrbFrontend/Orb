@@ -1,17 +1,4 @@
-"""HTTP API layer: the FastAPI app factory.
-
-``build_app()`` assembles the application from its parts:
-  - the startup ``lifespan`` (DB init, pending migrations + VACUUM, schema
-    safety check),
-  - the ``no_cache_middleware``,
-  - every domain router under ``api/routes/`` (see ``routes.ROUTERS``), and
-  - the static ``frontend/`` mount, attached **last** so concrete routes match
-    before the ``/static`` catch-all.
-
-``backend.main`` calls this and exposes the result as ``app`` so the
-Dockerfiles' ``uvicorn backend.main:app`` and the integration conftest's
-``from backend.main import app`` keep working.
-"""
+"""FastAPI application factory and lifecycle."""
 
 from __future__ import annotations
 

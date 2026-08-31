@@ -1,27 +1,4 @@
-"""The review queue for scene-local sheet updates: stage, apply, reject.
-
-Sits beside ``group_members`` because it writes exactly one of its columns
-(``card_sheet_override``) and reads the same card fallback to decide whether it
-may. Kept out of that module so the roster's own resolution stays the small,
-hot, every-prefix-reads-it thing it is.
-
-**One writer wins.** ``base_sheet`` is what ``worlds.content_revision`` is to a
-Dynamic Worlds changeset: the apply takes ``BEGIN IMMEDIATE``, re-resolves the
-member's current effective sheet, and refuses when it no longer matches what the
-proposal was derived from. The proposal is marked ``stale`` rather than forced
-through, because a hand edit and a model's edit can contradict each other in
-meaning even when both look reasonable — the same reason nothing here rebases.
-
-**At most one pending proposal per member.** An exchange stages against the sheet as
-it stands, so two pending proposals for one member are necessarily derived from
-the same base: applying either one makes the other unapplyable, and the user is
-handed a pile of rows of which all but one can only 409. Regenerating a reply
-re-runs the exchange and would stack another. So a new proposal *replaces* the
-member's pending one in place, and the stage carries the replaced text forward
-(see ``pipeline/sheet_update``) so the changes accumulate instead of competing.
-The row keeps its id, which is also what lets an open review surface repaint
-rather than grow.
-"""
+"""Store and apply scene-local sheet proposals."""
 
 from __future__ import annotations
 

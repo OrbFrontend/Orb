@@ -48,14 +48,6 @@ import {
 
 const WORKFLOW_ID = "image_gen";
 
-// One source per style, and one reference image per character. `character` means the
-// people the render is a picture *of* — the speaker in a solo chat, everyone in frame in
-// a group — one image each and never the same person twice. Nothing here is positional:
-// which image lands in which slot is subject order, so there is no row to count.
-//
-// `character_and_previous` is the one choice that combines rather than falls back, and
-// it only means anything on a cloud provider's array; a ComfyUI graph's inputs are
-// structural, so they take the first kind and all get the same picture.
 const REFERENCE_SOURCES = [
   ["previous_or_character", "Previous image, else character references"],
   ["previous", "Previous image in the chat"],
@@ -67,9 +59,6 @@ const MAX_USER_GRAPHS = 32;
 const DEFAULT_EDGE = 1024;
 const styleSize = (style) => [Number(style?.width) || DEFAULT_EDGE, Number(style?.height) || DEFAULT_EDGE];
 
-// Nicer names for two of the pairs `CLOUD_SIZES` is built from; anything else,
-// including everything derived from a provider's own vocabulary, falls back to
-// plain orientation.
 const SIZE_LABELS = { "1024x1820": "Tall", "1820x1024": "Wide" };
 const CLOUD_QUALITIES = [
   ["", "Provider default"],
@@ -260,10 +249,6 @@ function resolutionField(style, { preset = null, comfy = false } = {}) {
   const current = styleSize(style).join("x");
   const choices = sizeChoices(preset, comfy);
   const pairs = choices.map(sizeOption);
-  // The rule the checkpoint and workflow pickers already follow: a stored value the
-  // menu does not contain is kept and named, never dropped for whatever sorts first.
-  // Without this the select renders with nothing selected, the browser picks row one,
-  // and `capturedSize` reads that back as the user's answer.
   if (!choices.includes(current))
     pairs.unshift([current, `${current} (${sizeIsExact(preset, comfy, current) ? "custom" : "not offered"})`]);
   return `<label>Resolution<select ${styleField("size")}>${optionList(pairs, current)}</select></label>`;
@@ -319,16 +304,11 @@ function cloudStyleFields(style, connection) {
     : "";
   const references =
     !preset || preset.supports_references ? `<label>Reference images${referenceSelect(source)}</label>` : "";
-  // The array's width is a provider fact and the only thing that can cut a group render
-  // short, so it is said before the render is paid for rather than disclosed after.
   const slots = maxCloudReferences(preset);
   const capacityNote =
     source && providerTakesReferences(preset)
       ? `<div class="image-gen-note">${esc(connection.label)} carries ${slots === 1 ? "one reference image" : `up to ${slots} reference images`}, one per character in the scene. ${slots === 1 ? "In a group chat only the speaker's likeness is sent; everyone else is described in the prompt." : "A scene with more characters than that sends the first few and describes the rest."}</div>`
       : "";
-  // An image-to-image model takes its output size from what it was handed, so the
-  // control above stops applying the moment a reference is on. Said here rather than
-  // left for the render note: this one is knowable before the render is paid for.
   const referenceSizeNote =
     preset?.reference_drives_size && source && providerTakesReferences(preset)
       ? `<div class="image-gen-note">${esc(connection.label)} sizes a reference render from the reference image, so Resolution does not apply while it is on.</div>`
@@ -341,8 +321,6 @@ function cloudStyleFields(style, connection) {
     </div>
     ${capacityNote}${referenceSizeNote}
     <div class="image-gen-note ig-style-backend">${
-      // True of one dimension mode only. Every other provider is sent the pixels
-      // themselves, so saying this there described a conversion that never happens.
       preset?.dimension_mode === "aspect_ratio" ? "Aspect ratio is chosen automatically from the resolution. " : ""
     }The API key for ${esc(connection.label)} lives on its connection.
       <button type="button" class="ig-link" data-wf-action="image_gen:connOpen" data-conn-id="${escAttr(connection.id)}">Edit connection</button></div>`;
@@ -368,13 +346,8 @@ function styleBody(style, index, connection) {
       <button class="btn btn-sm ig-danger" data-wf-action="image_gen:styleRemove" data-style-index="${index}">Remove style</button>`;
 }
 
-// What this style will actually render on, in the same slot for both backends --
-// two ComfyUI styles differing only by graph are otherwise identical rows, which is
-// exactly the case a list long enough to collapse is for.
 function styleTargetBadge(style, connection) {
   if (connection?.source === "cloud") return style.model || connection.preset?.default_model || "";
-  // Never the bare graph id: a missing workflow reads as `user_m3f2x` here while the
-  // row's own picker already says "(not found)" in words.
   return style.checkpoint || draft.graphs.find((g) => g.id === style.workflow)?.label || "";
 }
 
@@ -423,19 +396,12 @@ function captureStyles() {
       workflow: stored("workflow"),
       model: stored("model"),
       quality: stored("quality"),
-      // `stored`, not `get`: a row rendering no reference control at all — a workflow
-      // with no image inputs, a provider that takes none — keeps what it has rather
-      // than blanking it, the same way the other backend's fields survive a relink.
       reference_source: stored("reference_source"),
       ...capturedSize(row, s),
     };
   });
 }
 
-// Which control inside the styles list has the caret, as something that survives the
-// list being rebuilt. A model probe resolving mid-sentence must not cost the user
-// their place: `captureStyles` already keeps what they typed, but the element they
-// typed it into is about to be replaced by an equal one.
 function focusedStyleField() {
   const el = document.activeElement;
   const row = el?.closest?.("[data-style-index]");
@@ -450,8 +416,6 @@ function restoreStyleFocus(focused) {
   if (!focused) return;
   const el = document.querySelector(focused.selector);
   if (!el) return;
-  // The element was already on screen a moment ago -- restoring the caret must not
-  // also scroll the modal to it.
   el.focus({ preventScroll: true });
   if (focused.caret && typeof el.setSelectionRange === "function") el.setSelectionRange(...focused.caret);
 }
@@ -493,14 +457,8 @@ function removeStyle(index) {
     toast("Keep at least one style", "error");
     return;
   }
-  // Read before the splice: it resolves DOM row indices against `draft.styles`, and
-  // every index past `index` is about to mean a different style.
   const open = openStyleIds();
   const [removed] = draft.styles.splice(index, 1);
-  // Removing the style the card's picker points at is the one thing in here that can
-  // move it. The backend already repairs the dangling pointer by falling back to the
-  // first style; this is the same answer said out loud, at the only moment it is
-  // explainable -- otherwise the picker just reads differently next time it is opened.
   if (removed?.id === draft.default_style) {
     draft.default_style = draft.styles[0].id;
     toast(`${draft.styles[0].label || draft.styles[0].id} is now the default style`);
@@ -812,9 +770,6 @@ function configForConnection(id) {
 function applyModels(id, names) {
   const models = modelPickerState(names).models;
   const previous = modelsByConnection[id];
-  // A probe answering what the panel already holds changes no field on screen, and
-  // rebuilding the list for it is pure cost -- one modal open fires one probe per
-  // keyed connection, and every one of them lands while the user is reading.
   if (previous && previous.length === models.length && previous.every((name, i) => name === models[i])) return;
   const openStyles = openStyleIds();
   captureForm();
@@ -872,10 +827,6 @@ function openSettings(expandStyleId = "") {
     graphs: (Array.isArray(ext.user_graphs) ? ext.user_graphs : []).map((g) => ({ ...g })),
     comfy: { api_url: ext.api_url || "", api_key: ext.api_key || "" },
     connections: Object.fromEntries(Object.entries(cloud.providers || {}).map(([id, entry]) => [id, { ...entry }])),
-    // Carried, never edited. The style picker on the card owns this field, and every
-    // save from in here writes the whole config back -- so the panel has to hand the
-    // picker's answer through untouched or saving settings would silently re-point it.
-    // Only removing the style it names can move it, and that path says so out loud.
     default_style: cfg.default_style || "",
   };
   rebuildConnections();
@@ -894,9 +845,6 @@ function openSettings(expandStyleId = "") {
       </div>
     </details>
     ${
-      // Omitted outright with no conversation open: `populateProfile` returns early
-      // there, so the section could only ever be a heading over an apology for
-      // itself, in a modal reached from the tools card as often as from a chat.
       getActiveConvId()
         ? `<section class="ig-section">
       <div class="ig-heading">This Character Only</div>
@@ -922,7 +870,6 @@ function openSettings(expandStyleId = "") {
       </div>
     </details>
   </div><div class="modal-actions"><button class="btn" data-wf-action="image_gen:settingsClose">Close</button><button class="btn btn-accent" id="ig-save" data-wf-action="image_gen:save">Save</button></div>`);
-  // After showModal, which clears any guard the previous modal left behind.
   baseline = JSON.stringify(readConfig());
   setModalCloseGuard(() => !isDirty() || window.confirm(DISCARD_MESSAGE));
   populateProfile();
@@ -936,10 +883,6 @@ function openSettings(expandStyleId = "") {
 
 const DISCARD_MESSAGE = "Discard your unsaved image generation settings?";
 
-// The config as it stood when the modal opened. Everything in here is a draft until
-// Save, and all three ways out of a modal throw that draft away -- including the
-// overlay click, which is one slip of the mouse next to a list of API keys and style
-// prompts. `readConfig` is the comparison because it is exactly what Save sends.
 let baseline = "";
 
 function isDirty() {
@@ -950,10 +893,6 @@ function isDirty() {
 const MIN_TIMEOUT = 10;
 const MAX_TIMEOUT = 900;
 
-// The input declares the same bounds, but nothing enforces them: it is not inside a
-// form, so no constraint validation ever runs on it. Clamping beats the old
-// `|| DEFAULT` because 5 becomes the nearest thing the user can have rather than
-// silently becoming 180 -- three minutes away from what they typed.
 function readTimeout() {
   const value = Number(document.getElementById("ig-timeout")?.value);
   if (!Number.isFinite(value) || value <= 0) return 180;
@@ -966,8 +905,6 @@ function readConfig() {
   const styles = draft.styles;
   return {
     source: cfg.source || "external_comfy",
-    // A style removed in here takes the pointer with it, so the dangling case is
-    // resolved on the way out rather than left for the normalizer to repair silently.
     default_style: styles.some((s) => s.id === draft.default_style)
       ? draft.default_style
       : styles[0]?.id || cfg.default_style || "realistic",
@@ -1024,11 +961,6 @@ function dimensionRows(items) {
 }
 
 function referenceRows() {
-  // No source picker here: which inputs load an image is a fact about the graph and is
-  // all that gets stored, while where the picture they all receive comes from is a
-  // style's answer and is asked there. Listing them still matters — it is the confirmation that the importer saw
-  // the widget, which no later screen can prove once the file is gone. Listed off the
-  // same call that stores them, so the confirmation cannot name a slot that is dropped.
   const slots = declaredReferenceSlots();
   if (!slots.length) return "";
   const one = slots.length === 1;
@@ -1134,9 +1066,6 @@ async function saveSettings() {
         : "Image generation settings saved",
       droppedGraphs > 0 ? "error" : undefined,
     );
-    // The draft is the stored config now, so the guard has nothing left to protect --
-    // without this it compares against the baseline taken at open and asks the user
-    // to confirm discarding what was just saved.
     setModalCloseGuard(null);
     closeModal();
     refreshCardReadiness();

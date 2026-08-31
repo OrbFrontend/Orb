@@ -1,6 +1,3 @@
-/* ═══════════════════════════════════════════
-   4. Inspector Panel
-   ═══════════════════════════════════════════ */
 .inspector-inner {
   padding: 16px;
   overflow-y: auto;
@@ -8,7 +5,6 @@
   width: var(--inspector-width);
 }
 
-/* Safari < 18.2 fallback; every other engine takes base.css's standard props. */
 .inspector-inner::-webkit-scrollbar { width: 4px; }
 .inspector-inner::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
@@ -67,9 +63,6 @@
   overflow-y: auto;
 }
 
-/* ── Feedback callout ──
-   A note addressed to the user (e.g. "what you could do next"). Rendered as a
-   distinct accent-tinted card so it reads as advice rather than raw director data. */
 .feedback-card {
   background: var(--accent-glow);
   border: 1px solid var(--accent-dim);
@@ -103,7 +96,6 @@
 
 .feedback-row-value li { margin-bottom: 2px; }
 
-/* ── Reasoning stepper rail ── */
 .reasoning-section {
   margin-bottom: 16px;
   border: none;
@@ -141,7 +133,6 @@ details.inspector-block[open] .reasoning-summary-arrow {
   margin-bottom: 8px;
 }
 
-/* Wrapper that stacks the dot + enabled checkbox vertically */
 .reasoning-dot-col {
   display: flex;
   flex-direction: column;
@@ -190,14 +181,14 @@ details.inspector-block[open] .reasoning-summary-arrow {
   height: 2px;
   flex-shrink: 0;
   transition: background .3s;
-  margin-top: 9px; /* align with dot center (dot is 20px tall, so 10px - 1px border) */
+  margin-top: 9px;
 }
 
 .reasoning-pass-label {
   font-size: 10px;
   color: var(--text-muted);
   margin-left: 8px;
-  margin-top: 4px; /* optically align with dot center */
+  margin-top: 4px;
   letter-spacing: .04em;
   font-family: var(--font-mono);
 }
@@ -218,10 +209,6 @@ details.inspector-block[open] .reasoning-summary-arrow {
   scroll-behavior: auto;
 }
 
-/* The prefill input carries `.reasoning-box` too, so it picks up that block AND
-   any theme's override of it (litestep restyles .reasoning-box with !important)
-   — consistency with the read-only box above is structural, not copied. Only the
-   editable-field deltas live here; they win on source order. */
 .reasoning-prefill {
   display: block;
   width: 100%;
@@ -231,7 +218,6 @@ details.inspector-block[open] .reasoning-summary-arrow {
   resize: vertical;
 }
 
-/* Safari < 18.2 fallback; every other engine takes base.css's standard props. */
 .reasoning-box::-webkit-scrollbar { width: 3px; }
 .reasoning-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
@@ -283,15 +269,12 @@ details.inspector-block[open] .reasoning-summary-arrow {
   justify-content: flex-end;
 }
 
-/* User-authored notes carry the accent so the player tells their own notes apart from the
-   director's at a glance; the badge names the author for readers who don't parse by colour. */
 .notes-row.user-note {
   border-color: var(--accent-dim);
   border-left: 3px solid var(--accent);
   background: var(--accent-glow);
 }
 
-/* Same author tag in the Inspector's per-turn block, which reuses .feedback-row. */
 .feedback-row.user-note {
   border-left: 3px solid var(--accent);
   padding-left: 6px;
@@ -309,4 +292,3 @@ details.inspector-block[open] .reasoning-summary-arrow {
   padding: 0 5px;
   vertical-align: middle;
 }
-

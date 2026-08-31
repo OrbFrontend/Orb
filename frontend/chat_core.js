@@ -1,8 +1,3 @@
-// Core chat spine: message normalization, the message toolbar + icons, the
-// main renderMessages paint, and the context-size counter. These are the
-// low-level pieces the feature modules (workflow, inspector, stream, messages,
-// conversations) build on. Split out of chat.js; the public surface is
-// re-exported from chat.js.
 import { api } from "./api.js";
 import { renderTurnError } from "./chat_error.js";
 import {
@@ -31,11 +26,6 @@ import { segmentBody } from "./workflow_segmentation.js";
 import { markClickable } from "./workflow_text_interaction.js";
 import { messageProposalsHtml } from "./world_proposals.js";
 
-// Nothing about a group's turn mode belongs here. `Manual` used to block every
-// generation that arrived without a pick, which also blocked regenerate and
-// magic rewrite — turns that carry their own speaker off the message they
-// replace. A user message with nobody picked is a rest the backend answers with
-// an empty speaking plan, not a turn to suppress.
 export function canStartGeneration() {
   if (S.isStreaming || S.proseRewriteMsgId) return false;
   return requestSendPermission();
@@ -66,9 +56,6 @@ function normalizeMessages(msgs) {
   return msgs;
 }
 
-// Safe replacement for S.messages from a server response.
-// During streaming, local-pending entries (id: null) are preserved because the
-// server doesn't know about them yet — replacing blindly drops them from the DOM.
 export function setMessages(serverMsgs) {
   const normalized = normalizeMessages(serverMsgs);
   if (S.isStreaming) {
@@ -77,8 +64,6 @@ export function setMessages(serverMsgs) {
   } else {
     S.messages = normalized;
   }
-  // Drop rejection records whose message is no longer present (deleted
-  // message or conversation switch). Keeps the flat list bounded.
   const liveIds = new Set(S.messages.map((m) => m.id).filter((id) => id != null));
   S.rejectedWorkflowAtts = S.rejectedWorkflowAtts.filter((r) => liveIds.has(r.message_id));
 }
@@ -99,10 +84,6 @@ export const ICON_NOTE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentCo
 export function buildMsgToolbar(m, childByParent = null) {
   const isAssistant = m.role === "assistant";
   const isGreeting = isAssistant && !m.parent_id;
-  // childByParent is a precomputed Map(parent_id → assistant child) built once
-  // per render to avoid an O(N) scan of S.messages per user message (O(N²) total).
-  // Fall back to a direct find when called outside renderMessages (e.g. single
-  // toolbar repaint).
   const childAssistant = isAssistant
     ? null
     : childByParent
@@ -113,10 +94,6 @@ export function buildMsgToolbar(m, childByParent = null) {
 
   const editBtn = `<button onclick="${m.id ? `startEdit(${m.id})` : `startEditPending()`}" title="Edit">${ICON_EDIT}</button>`;
 
-  // Edit & Fork: only for persisted user messages. Forks the conversation by
-  // saving the edit as a new sibling and generating a fresh reply, leaving the
-  // original branch intact. The pending (unsaved) user bubble has no siblings
-  // to fork, so it's omitted there.
   const forkBtn =
     m.role === "user" && m.id
       ? `<button onclick="startForkEdit(${m.id})" title="Edit &amp; Fork">${ICON_FORK}</button>`
@@ -138,22 +115,6 @@ export function buildMsgToolbar(m, childByParent = null) {
       ? `<button class="msg-btn-magic" onclick="toggleMagicInput(${m.id})" title="Magic Rewrite">${ICON_MAGIC}</button>`
       : "";
 
-  // Unlike Magic Rewrite, this applies the configured local SLM to the original
-  // Writer draft saved for this reply — or to the reply itself, for one saved
-  // before drafts were retained. Offered on any assistant message that has
-  // text, because that is exactly what the backend can work from; gating it on
-  // `has_writer_draft` left the button missing from every message written
-  // before the feature shipped, which is most of them. The flag now only picks
-  // the wording, since which text is about to be replaced is not the same
-  // question in the two cases. Keep it on assistant text only: rewriting a
-  // user's words in place would be an unexpected ownership change. Disabled
-  // from state rather than from the clicked node, so the busy button survives a
-  // re-render mid-rewrite. Only one rewrite runs at a time, so every message's
-  // button goes down together.
-  // Also gated on a variant being selected: with nothing picked the route can
-  // only 503, and a button that is guaranteed to fail is worse than no button.
-  // The selection is now armed by the download itself, so this reads "a model
-  // is set up" rather than "someone remembered to click the radio".
   const canProseRewrite =
     isAssistant &&
     m.id &&
@@ -170,18 +131,11 @@ export function buildMsgToolbar(m, childByParent = null) {
       ? `<span class="magic-input-wrap" id="magic-wrap-${m.id}"><input class="magic-input" type="text" placeholder="Direction/Fix..." id="magic-input-${m.id}" onkeydown="handleMagicKey(event,${m.id})" autofocus><button class="magic-apply" onclick="submitMagicRewrite(${m.id})" title="Apply">${ICON_SEND}</button></span>`
       : "";
 
-  // Shows on any persisted, non-greeting message: a note anchors to its own message and both
-  // roles are valid anchors, so a note on a user message is as legitimate as one on a reply.
-  // Gated on the master recording switch -- the same switch that surfaces the Notes panel --
-  // so the panel the button opens is always reachable when the button shows.
   const noteBtn =
     m.id && !isGreeting && S.directionNotesRecord
       ? `<button onclick="addUserDirectionNote(${m.id})" title="Add direction note">${ICON_NOTE}</button>`
       : "";
 
-  // Read-only local classifier; no persistence, so multi-tab is fine. Shown on
-  // every assistant message (greeting included). Gated on the AI-slop toggle
-  // (default on) -- 503s to a helpful toast if the model isn't downloaded.
   const slopBtn =
     isAssistant && m.id && S.settings?.local_ml_enabled?.slop_classifier !== false
       ? `<button class="msg-btn-slop" onclick="scoreSlop(${m.id},this)" title="Score AI-slop">AI</button>`
@@ -216,7 +170,6 @@ function _renderExtraButtons(msg) {
   return html;
 }
 
-// ── Attachments rendering
 function renderUserAttachments(userAtts) {
   if (!userAtts || userAtts.length === 0) return "";
   const items = userAtts
@@ -239,7 +192,6 @@ function renderUserAttachments(userAtts) {
   return `<div class="attachments">${items}</div>`;
 }
 
-// ── Messages
 export function getCharName() {
   const c = S.conversations.find((c) => c.id === S.activeConvId);
   return c?.character_name || "Assistant";
@@ -258,11 +210,9 @@ async function renderHomeStats() {
   try {
     s = await api.get("/stats");
   } catch {
-    return; // fail silently — fall back to plain empty state
+    return;
   }
-  if ($("home-stats-grid") !== grid) return; // view changed while fetching
-  // Any prior conversation is a reliable, zero-cost sign this isn't a first
-  // run — drop the onboarding prompt so returning users get a cleaner home.
+  if ($("home-stats-grid") !== grid) return;
   if (s.total_conversations > 0) {
     $("home-greeting")?.remove();
     $("home-greeting-icon")?.remove();
@@ -291,12 +241,6 @@ async function renderHomeStats() {
   grid.innerHTML = renderSpotlightCard(s.character_spotlight) + numericCards;
 }
 
-// The character spotlight gets a portrait-led hero card rather than a number
-// slot: avatar, name, and a message/conversation tally, with a themed eyebrow so
-// the stat reads as a story beat instead of a bare value. The server picks the
-// theme (e.g. the most-messaged "favorite" or a random "misses you" character).
-// When the card still exists, the whole card is clickable and reopens it exactly
-// as the library panel would (selectChar).
 const SPOTLIGHT_EYEBROWS = {
   favorite: "★ Favorite character",
   missed: "💔 Misses you",
@@ -324,19 +268,12 @@ function renderSpotlightCard(sp) {
     </div>`;
 }
 
-// How many trailing messages the window starts with on a fresh open. Tall enough
-// to fill a viewport so the first paint looks complete; older messages backfill
-// on scroll-up (handled in initAutoscroll) and via the idle full-fill below.
 export const RENDER_WINDOW_SIZE = 30;
 
-// Reset the render window to the tail. Called on conversation switch and when a
-// new message is appended so newly-relevant content is always in view.
 export function resetRenderWindow() {
   S.renderWindowStart = Math.max(0, S.messages.length - RENDER_WINDOW_SIZE);
 }
 
-// Ensure a given message index is inside the render window (e.g. before editing
-// an off-window message). Returns true if the window was widened.
 export function ensureIndexInWindow(idx) {
   if (idx >= 0 && idx < S.renderWindowStart) {
     S.renderWindowStart = idx;
@@ -348,16 +285,6 @@ export function ensureIndexInWindow(idx) {
 export function renderMessages(forceBottom = false) {
   const ct = $("chat-messages");
   let renderedMsgs = null;
-  // preserveScrollDistance restores scroll position synchronously (instant,
-  // bypassing #chat-messages' CSS scroll-behavior:smooth) so the browser never
-  // paints a jump. Fresh conversation loads pass forceBottom so they land at the
-  // bottom on the first paint instead of relying on the prior conversation's
-  // scroll state. Otherwise: near-bottom → snap to bottom; else preserve
-  // distance from bottom (needed because the windowed render below can insert
-  // messages above the viewport during backfill).
-  // Newly-created content-visibility:auto nodes initially expose only their
-  // intrinsic fallback height. Make the replacement fully measurable through
-  // the synchronous restore, then re-enable off-screen layout skipping.
   ct.classList.add("measuring-render");
   try {
     preserveScrollDistance(
@@ -383,16 +310,9 @@ export function renderMessages(forceBottom = false) {
           if (S.isStreaming && S.streamCutoffIndex != null) {
             msgs = S.messages.slice(0, S.streamCutoffIndex);
           }
-          // Windowed render: only paint the trailing slice synchronously. The window
-          // always includes the tail, so the regular scroll-to-bottom behavior and all
-          // existing callers see the latest messages with no change. Older messages are
-          // backfilled lazily on scroll-up and fully filled during idle time below.
           const start = Math.min(Math.max(S.renderWindowStart | 0, 0), msgs.length);
           if (start > 0) msgs = msgs.slice(start);
           renderedMsgs = msgs;
-          // Precompute parent_id → assistant child once (was an O(N) find per user
-          // message → O(N²)). Built over the full list so a child just below the window
-          // edge is still found.
           const childByParent = new Map();
           for (const c of S.messages) {
             if (c.role === "assistant" && c.parent_id != null && !childByParent.has(c.parent_id)) {
@@ -440,13 +360,7 @@ export function renderMessages(forceBottom = false) {
               const attachmentsHtml = renderUserAttachments(m.user_attachments);
               const workflowArtifactsHtml = _renderWorkflowArtifacts(m);
               const rejectionHtml = _renderWorkflowRejection(m);
-              // Only the undecided ones: a pending proposal is never treated as
-              // active lore, and a decided one belongs in the world drawer's
-              // History rather than permanently under the reply.
               const proposalsHtml = messageProposalsHtml(m);
-              // The prose rewriter edits a saved bubble in place with no streaming
-              // box of its own, so the role line names the work and the bubble
-              // wears an accent rail until the stream ends.
               const isProseRewriting = !!m.id && m.id === S.proseRewriteMsgId;
               const rewritingHtml = isProseRewriting
                 ? `<span class="msg-rewriting"><span class="dot"></span>Rewriting prose…</span>`
@@ -459,19 +373,12 @@ export function renderMessages(forceBottom = false) {
             .join("");
         }
         if (badgeEl) ct.appendChild(badgeEl);
-        // Keep streaming box visible while editing; only hide if explicitly flagged
         if (streamingEl && !S.hideStreamingBox && !S.hideUntilBaked) ct.appendChild(streamingEl);
-        // After the last message and after the streaming bubble: a partial draft
-        // that did persist reads above the failure that cut it short.
         renderTurnError(ct);
       },
       { forceBottom },
     );
   } finally {
-    // Preserve the just-measured height as each new node's own intrinsic
-    // fallback. Once content-visibility:auto is restored, off-screen messages
-    // therefore keep byte-for-byte-equivalent geometry instead of all
-    // collapsing to the generic 300px estimate.
     for (const messageEl of ct.querySelectorAll(".message")) {
       messageEl.style.containIntrinsicSize = `auto ${messageEl.offsetHeight}px`;
     }
@@ -482,11 +389,6 @@ export function renderMessages(forceBottom = false) {
   _segmentRenderedMessages(renderedMsgs);
 }
 
-// Wraps body words in addressable `.seg` spans and marks the clickable ones for
-// messages a workflow effect or click handler can target. No-op when no
-// workflow registers either feature, and for a body shown in editor-diff review
-// (deleted text must not become addressable, and diff layout would shift the
-// unit numbering); such a message is segmented on the next clean render.
 export function _applyWorkflowTextSegments(bodyEl, msg) {
   segmentBody(bodyEl);
   markClickable(bodyEl, msg);
@@ -495,8 +397,6 @@ export function _applyWorkflowTextSegments(bodyEl, msg) {
 function _segmentRenderedMessages(renderedMsgs) {
   if (!S.workflowTextEffects.length && !S.workflowClickHandlers.length) return;
   if (!renderedMsgs) return;
-  // Index the rendered slice by id so each DOM node maps to its message without
-  // an O(N) scan of S.messages per element.
   const byId = new Map();
   for (const m of renderedMsgs) if (m.id) byId.set(m.id, m);
   for (const el of document.querySelectorAll("#chat-messages .message[data-msg-id]")) {
@@ -514,8 +414,6 @@ export function updateContextCounter() {
   fetchContextSize();
 }
 
-// Soft-fails to null instead of throwing: the context counter is a non-critical
-// HUD value, so a failed fetch should leave the display untouched, not error.
 async function getContextSize(convId) {
   const r = await fetch(`/api/conversations/${convId}/context-size`);
   if (!r.ok) return null;
@@ -530,9 +428,7 @@ async function fetchContextSize() {
       S.contextSize = data;
       renderContextSize();
     }
-  } catch (_e) {
-    /* ignore */
-  }
+  } catch (_e) {}
 }
 
 export function renderContextSize() {

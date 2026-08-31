@@ -1,27 +1,4 @@
-"""0027_rebuild_persona_lock_fks — give persona_lock_id a real foreign key on
-databases migrated through 0026.
-
-0026 added ``persona_lock_id`` to ``conversations`` and ``character_cards`` as a
-bare ``INTEGER`` (an ALTER-added column cannot carry an enforced REFERENCES
-clause), while fresh installs declare it
-``INTEGER REFERENCES user_personas(id) ON DELETE SET NULL``
-(see backend/database/schema.py). The preset engine builds its merge/FK model
-from the *live* ``PRAGMA foreign_key_list``, so on a migrated DB those columns
-were invisible to the FK machinery: the merge copied lock ids verbatim instead
-of remapping them through the personas id-map, and an export that drops the
-configs domain never SET-NULLed them. This rebuilds the two tables to the
-canonical DDL so the live schema matches a fresh install.
-
-Idempotent: a table whose ``persona_lock_id`` edge already exists (every fresh
-install, and any DB already through 0027) is skipped. Run with foreign keys
-OFF for the duration — the standard SQLite "other kinds of schema changes"
-recipe — so dropping the old table neither cascades into ``messages`` nor trips
-a constraint. Both tables have TEXT primary keys, so child references
-(``messages.conversation_id`` …) keep resolving across the drop/rename.
-
-The rebuilt DDL is derived from ``schema.table_create_sql`` rather than pasted,
-so this migration can never disagree with the schema-equivalence gate.
-"""
+"""Rebuild persona-lock tables with canonical foreign keys."""
 
 from __future__ import annotations
 

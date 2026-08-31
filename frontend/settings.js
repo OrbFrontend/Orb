@@ -1,8 +1,3 @@
-// Settings entrypoint. Endpoint/model configuration and persona management were
-// split into settings_models.js and settings_personas.js; this file keeps the
-// theme picker, the loadSettings orchestrator, the agent tools panel, the phrase
-// bank, and reset-to-defaults, and re-exports the two sub-modules so existing
-// importers (app.js, workflow_loader.js) keep working unchanged.
 import { api } from "./api.js";
 import { renderInspectorSecondary, renderMessages } from "./chat.js";
 import { renderInteractiveFragments } from "./library_fragments.js";
@@ -14,8 +9,6 @@ import { effectiveWorkflowEnabled, S } from "./state.js";
 import { $, esc, escAttr, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
-// Re-export the sub-module public surfaces so "./settings.js" remains the stable
-// import path for endpoint/model and persona functions.
 export {
   loadAgentModelConfigs,
   loadEndpoints,
@@ -40,12 +33,8 @@ export {
   updateUserBtn,
 } from "./settings_personas.js";
 
-// ── Theme
 let _themes = null;
 
-/* What a browser with no stored choice gets, and what an unknown stored name
-   falls back to. Keep it in sync with the <link id="theme-link"> in index.html,
-   which paints this same sheet before any of this module runs. */
 const DEFAULT_THEME = "camono";
 
 export function applyTheme(name) {
@@ -72,7 +61,6 @@ export async function initThemeList() {
   sel.value = _themes.includes(current) ? current : DEFAULT_THEME;
 }
 
-// ── Settings
 export async function loadSettings() {
   S.settings = await api.get("/settings");
   S.activePersonaId = S.settings.active_persona_id || null;
@@ -81,25 +69,13 @@ export async function loadSettings() {
   if (S.settings.enabled_tools) S.enabledTools = { ...S.enabledTools, ...S.settings.enabled_tools };
   if (typeof S.settings.enable_agent === "number") S.agentEnabled = S.settings.enable_agent !== 0;
 
-  // Per-local-ML-feature config (prose rewriter: variant + gpu + batch size). Kept on
-  // S.settings rather than promoted to a top-level S key: this panel and the
-  // message toolbar's rewrite-button gate are the only readers, and the panel
-  // re-fetches /local-ml/status for the disk facts anyway. Normalised here so a
-  // transcript painted before any local-ML write reads a missing selection as
-  // absent rather than throwing.
   if (!S.settings.local_ml_config || typeof S.settings.local_ml_config !== "object") S.settings.local_ml_config = {};
 
-  // Length guard is a feature flag, not a tool — its own settings columns, not enabled_tools.
   S.lengthGuardEnabled = Boolean(S.settings.length_guard_enabled);
   S.lengthGuardEnforce = Boolean(S.settings.length_guard_enforce);
 
-  // Agentic Lorebook: a feature flag (not a tool). When on, the Director picks
-  // relevant lorebook entries each turn instead of keyword matching. Depends on
-  // the Director (direct_scene) being enabled.
   S.agenticLorebookEnabled = Boolean(S.settings.agentic_lorebook_enabled);
 
-  // Editor Feedback: a feature flag (post-writer user-facing note). Gated here
-  // and again by at least one enabled feedback-type interactive fragment server-side.
   S.feedbackEnabled = Boolean(S.settings.feedback_enabled);
   S.directorIndividualFragments = Boolean(S.settings.director_individual_fragments);
   S.directionNotesRecord = Boolean(S.settings.direction_notes_record);
@@ -145,7 +121,6 @@ export async function loadSettings() {
     await loadAgentModelConfigs(S.agentEndpointId);
   }
 
-  // Expand Endpoints section if endpoint_url is empty
   const endpointsSection = $("endpoints-section");
   if (endpointsSection && (!S.settings.endpoint_url || S.settings.endpoint_url.trim() === "")) {
     const header = endpointsSection.previousElementSibling;
@@ -165,7 +140,6 @@ export async function loadSettings() {
   updateUserBtn();
 }
 
-// Labelled hairline separator used by the settings panel and its modals.
 const divider = (label) =>
   `<div style="display:flex;align-items:center;gap:12px;margin:16px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">${label}</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>`;
 
@@ -199,13 +173,10 @@ export function renderSettings() {
       <button class="btn btn-block btn-sm" onclick="showPresetsModal()">💾 Backup &amp; Presets</button>
     </div>
   `;
-  // Wired here rather than as inline on*= handlers: check_frontend_layers.py
-  // ratchets the inline-handler count and it is already at its ceiling.
   $("cleanup-btn").addEventListener("click", showCleanupModal);
   loadLocalMLSection();
 }
 
-// Human labels for local-ML features (keys match backend local_ml.MODELS).
 const LOCAL_ML_LABELS = {
   autocomplete: "Input Autocomplete",
   slop_classifier: "AI-Slop Classifier",
@@ -221,9 +192,6 @@ const LOCAL_ML_DESCS = {
   prose_rewriter: "Locally rewrite prose, automatically or on demand.",
 };
 
-// Tri-state per feature: deps missing → grayed Download + hint; deps ok & model
-// absent → active Download; model present → enable/disable toggle. Fetched fresh
-// (not from S.settings) because deps/present are server-filesystem facts.
 async function loadLocalMLSection({ expectLoad = false } = {}) {
   stopMlStateWatch();
   const el = $("local-ml-section");
@@ -235,8 +203,6 @@ async function loadLocalMLSection({ expectLoad = false } = {}) {
     el.innerHTML = '<div class="tool-card-desc">Could not load Local ML status.</div>';
     return;
   }
-  // Deps missing → one grouped opt-in card instead of repeating the install
-  // command on every feature.
   if (!st.deps_ok) {
     const names = Object.keys(st.features)
       .map((f) => `<li>${esc(LOCAL_ML_LABELS[f] || f)}</li>`)
@@ -254,8 +220,6 @@ async function loadLocalMLSection({ expectLoad = false } = {}) {
   watchMlStates(st.features, expectLoad);
 }
 
-// One enable toggle over one file: the shape every local-ML feature had before
-// the rewriter arrived.
 function simpleCard(f, info) {
   const name = esc(LOCAL_ML_LABELS[f] || f);
   if (!info.present) {
@@ -279,24 +243,11 @@ const enableToggle = (f, on) =>
     <span class="tog-slider"></span>
   </label>`;
 
-// A feature that ships several interchangeable checkpoints renders as one
-// hairline-separated table: a radio to pick, the size, one action, and the
-// blurb on its own line beneath the name — a wrapping blurb sharing a row with
-// the controls is what made this card ragged. The enable toggle appears only
-// once something is on disk: nothing to enable, nothing to say.
-//
-// The whole table is gated on the runtime, because a checkpoint without the
-// llama-server binary rewrites nothing: offering three multi-GB downloads
-// first, and the 100 MB that makes them work as a footnote underneath, had it
-// exactly backwards. `data-ml-selected` carries the stored pick for the writes
-// that happen while no radio is on screen (see `saveLocalMlConfig`).
 function variantCard(f, info) {
   const name = esc(LOCAL_ML_LABELS[f] || f);
   const desc = LOCAL_ML_DESCS[f] || "";
   const ready = Boolean(info.runtime_ok);
   const anyPresent = info.variants.some((v) => v.present);
-  // One exception to the gate: a checkpoint already on disk keeps its row so
-  // its delete button stays reachable — a removed binary must not strand 5 GB.
   const showVariants = ready || anyPresent;
   const rows = info.variants.map((v) => variantRow(f, v, info.selected, ready)).join("");
   return `<div class="tool-card ${ready && anyPresent && info.enabled ? "tool-on" : ""}"
@@ -311,19 +262,12 @@ function variantCard(f, info) {
   </div>`;
 }
 
-// One control, two homes: while the runtime is missing this box picks which
-// build to fetch (Vulkan or CPU-only, baked into the binary), and afterwards it
-// is the running model's own placement switch. Same setting either way, so it
-// is the same checkbox rather than two that could disagree.
 const gpuCheck = (f, info, title) =>
   `<label class="lg-enforce-label ml-check" title="${escAttr(title || "Offload the model to the GPU.")}">
     <input type="checkbox" ${info.gpu ? "checked" : ""} data-ml-act="gpu" data-ml-feature="${escAttr(f)}">
     Run on GPU
   </label>`;
 
-// llama.cpp calls these parallel slots; from the user's side it is the number
-// of paragraphs in one continuous batch. Each slot owns a full KV lane, so the
-// control names the workload and explains the memory consequence together.
 function batchSizeControl(f, info) {
   if (!Number.isInteger(info.batch_size)) return "";
   const id = escAttr(`ml-batch-size-${f}`);
@@ -345,10 +289,6 @@ function batchSizeControl(f, info) {
   </div>`;
 }
 
-// Every cell is placed explicitly by class, so a row missing its radio (an
-// undownloaded variant) still lines its name up with the rows that have one.
-// Without the runtime a row can only ever be deleted: there is nothing to pick
-// between and nothing worth fetching, so the radio goes and Download greys out.
 function variantRow(f, v, selected, ready) {
   const attrs = `data-ml-feature="${escAttr(f)}" data-ml-variant="${escAttr(v.id)}"`;
   const rid = escAttr(`ml-var-${f}-${v.id}`);
@@ -373,10 +313,6 @@ function variantRow(f, v, selected, ready) {
   </div>`;
 }
 
-// The card's whole content while the binary is missing, rather than a footnote
-// under the models it is a prerequisite for: it says what it is, why it is
-// wanted, and which build to fetch. An installed runtime is the expected state,
-// so the box vanishing is its own confirmation.
 function runtimeGate(f, info) {
   return `<div class="ml-gate">
     <div class="ml-gate-title">llama.cpp runtime required</div>
@@ -388,8 +324,6 @@ function runtimeGate(f, info) {
   </div>`;
 }
 
-// `state` is the host's own swap state, so "loading" here is a real model load
-// rather than a spinner this panel invented.
 function stateRow(f, info) {
   const cls = info.state === "loading" ? " ml-foot-loading" : info.error ? " ml-foot-error" : "";
   return `<span class="ml-foot-state${cls}" id="local-ml-state-${escAttr(f)}">${esc(mlStateText(info))}</span>`;
@@ -397,13 +331,6 @@ function stateRow(f, info) {
 
 const mlStateText = (info) => `${info.state || "idle"}${info.error ? `: ${info.error}` : ""}`;
 
-// Status is a snapshot, and one field in it is not settled when the snapshot is
-// taken: picking a variant, flipping GPU or enabling the feature kicks off a
-// background pre-warm that runs for as long as it takes to read 2-5 GB off
-// disk. The read that follows the write therefore always says "loading", and
-// with nothing re-reading it, that is what the card said forever. So poll while
-// a load is in flight — and patch only the state line, never re-render: a
-// re-render would wipe the busy row off a download running in the same card.
 const ML_STATE_POLL_MS = 1500;
 let mlStateTimer = null;
 
@@ -412,9 +339,6 @@ function stopMlStateWatch() {
   mlStateTimer = null;
 }
 
-// `expectLoad` covers the race the state field cannot: a pre-warm task that has
-// not reached the host yet still reads "idle", so the write paths ask for one
-// poll regardless and let its answer decide whether to keep going.
 function watchMlStates(features, expectLoad) {
   stopMlStateWatch();
   const loading = Object.values(features).some((info) => info.state === "loading");
@@ -441,12 +365,6 @@ async function pollMlStates() {
   watchMlStates(st.features, false);
 }
 
-// ONE delegated listener per section, not inline on*= handlers: a variant card
-// carries three rows of up to three controls each plus two checkboxes and two
-// buttons, and check_frontend_layers.py's inline-handler ratchet is already at
-// its ceiling (it may only decrease). Re-attached by marker rather than
-// unconditionally, because renderSettings() rebuilds this element from scratch
-// while a plain repaint reuses it.
 function wireLocalMLSection(el) {
   if (el.dataset.mlWired) return;
   el.dataset.mlWired = "1";
@@ -474,12 +392,6 @@ function onLocalMLChange(ev) {
   if (act === "batch-size") return saveLocalMlConfig(feature, { batchSize: Number(target.value) });
 }
 
-// Every local-ML write lands here. Four routes can now move what the message
-// toolbar's rewrite button is gated on — the enable toggle moves the flag, and
-// config, download and delete can all move the selected variant — so each hands
-// its map(s) back and this syncs whichever it was given. The repaint is the
-// point: nothing else re-reads S.settings, so without it the transcript keeps
-// whatever gate it was painted with until something unrelated re-renders it.
 function applyLocalMlResponse(res) {
   if (!res || typeof res !== "object") return;
   if (typeof res.local_ml_enabled === "object") S.settings.local_ml_enabled = res.local_ml_enabled;
@@ -487,11 +399,6 @@ function applyLocalMlResponse(res) {
   renderMessages();
 }
 
-// The config route takes the whole object, so a change to one field has to
-// carry the others: read the current values out of the rendered controls
-// rather than keeping a second copy of it in module state. The card's
-// `data-ml-selected` stands in for the radios while the runtime gate is up —
-// flipping GPU there must not silently clear a variant the user already picked.
 async function saveLocalMlConfig(feature, patch) {
   const root = $("local-ml-section");
   const card = root?.querySelector(`.tool-card[data-ml-feature="${feature}"]`);
@@ -514,8 +421,6 @@ async function saveLocalMlConfig(feature, patch) {
 function deleteLocalMlModel(feature, variant) {
   confirmDelete("Model", "Delete this downloaded model file? It can be downloaded again.", async () => {
     try {
-      // Deleting the selected checkpoint hands the selection to another one
-      // that is present, so the response carries the config back.
       applyLocalMlResponse(
         await api.del(`/local-ml/${feature}/model${variant ? `?variant=${encodeURIComponent(variant)}` : ""}`),
       );
@@ -526,13 +431,6 @@ function deleteLocalMlModel(feature, variant) {
   });
 }
 
-// A download is a progressless multi-minute POST, so "working" has to be a state
-// of the row rather than a longer word on the button: a "Downloading…" label
-// outgrew the fixed action column and printed over the size beside it. The row
-// (or the whole card, for a feature with no variant rows) takes the generation
-// bar's sliding sliver, and every action in the card goes inert — a second
-// multi-GB fetch queued behind the first is not a thing anyone means to ask for.
-// Returns the undo, for the failure path; success re-renders the section anyway.
 function beginMlBusy(btn) {
   const scope = btn?.closest(".ml-variant, .ml-gate, .tool-card");
   if (!scope) return () => {};
@@ -548,9 +446,6 @@ function beginMlBusy(btn) {
 }
 
 async function fetchLlamaRuntime(btn) {
-  // Scoped to the card the button is in, not the first GPU box in the section:
-  // which archive to fetch is that card's own question, and a second
-  // variant-bearing feature would otherwise silently answer it for this one.
   const gpu = btn.closest(".tool-card")?.querySelector('input[data-ml-act="gpu"]');
   const endBusy = beginMlBusy(btn);
   try {
@@ -565,8 +460,6 @@ async function fetchLlamaRuntime(btn) {
 async function downloadLocalMlModel(feature, variant, btn) {
   const endBusy = beginMlBusy(btn);
   try {
-    // A downloaded checkpoint arms the feature when nothing usable was
-    // selected, so the response carries the (possibly new) selection back.
     applyLocalMlResponse(await api.post(`/local-ml/${feature}/download`, variant ? { variant } : {}));
     await loadLocalMLSection(); // flips the card to a toggle
   } catch (e) {
@@ -577,8 +470,6 @@ async function downloadLocalMlModel(feature, variant, btn) {
 
 async function toggleLocalMlEnabled(feature, on) {
   try {
-    // Enabling also repairs a selection that points at nothing, so the response
-    // carries both maps back.
     applyLocalMlResponse(await api.post(`/local-ml/${feature}/enabled`, { enabled: on }));
   } catch (_e) {
     toast("Failed to toggle", true);
@@ -586,7 +477,6 @@ async function toggleLocalMlEnabled(feature, on) {
   loadLocalMLSection({ expectLoad: on }); // enabling pre-warms; disabling has nothing to wait for
 }
 
-// ── Agent Tools Panel
 const TOOL_DEFS = [
   {
     id: "direct_scene",
@@ -600,9 +490,6 @@ const TOOL_DEFS = [
   },
 ];
 
-// Individual scanners the Output Auditor can run; keys match backend AUDIT_TYPES.
-// Exported so the doc-mode pane (document_audit.js) reuses the same labels and
-// tooltips, filtered to its four doc-applicable keys.
 export const AUDIT_TYPE_DEFS = [
   { key: "banned_phrases", label: "Banned phrases", title: "Flag phrases from the Phrase Bank." },
   {
@@ -629,8 +516,6 @@ export const AUDIT_TYPE_DEFS = [
   },
 ];
 
-// The single settings-write path. Every toggle in the app funnels through here
-// so one failure story ("Failed to save setting") covers them all.
 export async function persistSettings(payload) {
   try {
     S.settings = await api.put("/settings", payload);
@@ -681,7 +566,6 @@ export async function toggleAgenticLorebook(on) {
 export async function toggleFeedbackEnabled(on) {
   S.feedbackEnabled = on;
   renderToolsPanel();
-  // Feedback fragments in the sidebar are greyed out when this feature is off.
   renderInteractiveFragments();
   await persistSettings({ feedback_enabled: on });
 }
@@ -695,9 +579,7 @@ export async function toggleDirectorIndividualFragments(on) {
 export async function setDirectionNotesRecord(on) {
   S.directionNotesRecord = on;
   renderToolsPanel();
-  // Direction-note fragments in the sidebar are greyed out when recording is off.
   renderInteractiveFragments();
-  // The per-message add-note button is gated on this switch, so repaint the messages too.
   renderMessages();
   updateDirectionNotesButton();
   await persistSettings({ direction_notes_record: on });
@@ -710,8 +592,6 @@ export async function setDirectionNotesInject(val) {
   await persistSettings({ direction_notes_inject: val });
 }
 
-// The Notes button and its panel only matter while notes are being recorded or injected;
-// with both off the feature is dormant, so hide the entry points and close the panel.
 function updateDirectionNotesButton() {
   const on = S.directionNotesRecord || S.directionNotesInject !== "off";
   for (const id of ["direction-notes-panel-btn", "mobile-direction-notes-btn"]) {
@@ -772,14 +652,6 @@ export async function saveLengthGuardConfig() {
   }
 }
 
-// -- Workflow enable/disable toggles (Agents panel, Secondary tab)
-//
-// Two storage columns back these: workflows_globally_enabled (master) and the
-// workflow_enabled {wid: bool} map. The master persists through the normal settings
-// PUT; each per-workflow flip goes through its dedicated per-key route (which writes
-// only that key), never the full-column settings PUT, so two tabs flipping different
-// workflows cannot clobber each other.
-
 export async function toggleWorkflowsGlobal(on) {
   await persistSettings({ workflows_globally_enabled: on });
   renderToolsPanel();
@@ -794,21 +666,11 @@ export async function toggleWorkflowEnabled(wid, on) {
   } catch (_e) {
     toast("Failed to toggle workflow", true);
   }
-  // Re-render regardless: on success the reassigned map drives the new state; on
-  // failure the unchanged stored value reverts the checkbox.
   renderToolsPanel();
   renderMessages();
   renderInspectorSecondary();
 }
 
-// One card per manifest workflow, under a master switch, in the Secondary tab.
-// Empty when no workflow exists so the panel's "no workflows" fallback still shows.
-// Each per-workflow checkbox reflects effective state -- so the master being off
-// shows every card unchecked, greyed, and disabled (the dependent-disable pattern)
-// while the stored per-workflow value is preserved (the master writes a separate
-// column). A workflow that ships a config panel folds it into the same card (one
-// entry, not a separate toggle and settings card) -- the registered renderer returns
-// the card body (description + any controls), shown only while the workflow is on.
 function buildWorkflowToggleRows() {
   if (!S.workflowManifest.length) return "";
   const g = S.settings?.workflows_globally_enabled;
@@ -862,9 +724,6 @@ export function renderToolsPanel() {
   $("agent-master-card").classList.toggle("tool-on", S.agentEnabled);
   $("tools-panel-btn").style.opacity = S.agentEnabled ? "1" : "0.5";
 
-  // Agentic Lorebook is independent of Direction (direct_scene): the picks run in
-  // their own select_lorebook call, so it works whenever the Agent is on with at
-  // least one non-constant lorebook entry.
   const alOn = S.agenticLorebookEnabled;
   const agenticLorebookCard = `<div class="tool-card ${alOn ? "tool-on" : ""}">
     <div class="tool-card-header">
@@ -984,7 +843,6 @@ export function renderToolsPanel() {
     <div class="tool-card-desc">Lets the AI keep lasting notes as the story unfolds. <b>Recording</b> saves them; <b>Injection</b> feeds saved notes back to the director, writer, or both.</div>
   </div>`;
 
-  // Grouped by pipeline stage: Director (before the writer) vs Editor (post-writing cleanup).
   const divider = (label) => `<div class="tools-divider"><span>${label}</span></div>`;
   $("tools-list").classList.toggle("workflows-off", !S.agentEnabled);
   $("tools-list").innerHTML =
@@ -1004,8 +862,6 @@ export function renderToolsPanel() {
       `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">No workflows registered.</div>`;
   }
 }
-
-// ── Phrase Bank
 
 export async function showPhraseBankModal() {
   const groups = await api.get("/phrase-bank");
@@ -1108,13 +964,11 @@ export function showAddPhraseGroupModal(editId = null, group = null) {
   _refreshPhraseSaveState();
 }
 
-// Current mode is whichever toggle button carries the `active` class.
 function _phraseMode() {
   const active = document.querySelector(".phrase-mode-btn.active");
   return active ? active.dataset.mode : "literal";
 }
 
-// Live-validate the regex field and gate the Save/Update button on it.
 function _refreshPhraseSaveState() {
   const saveBtn = document.getElementById("phrase-save-btn");
   const errEl = document.getElementById("phrase-regex-error");
@@ -1129,14 +983,12 @@ function _refreshPhraseSaveState() {
 
   const value = input ? input.value : "";
   const result = validate.validatePhraseRegex(value);
-  // Only surface an error once the user has actually typed something.
   const showError = !result.valid && value.trim().length > 0;
   if (errEl) errEl.textContent = showError ? result.error : "";
   if (input) input.classList.toggle("invalid", showError);
   if (saveBtn) saveBtn.disabled = !result.valid;
 }
 
-// Helper functions exposed to window
 window.addVariantRow = () => {
   const container = document.getElementById("variant-list");
   const row = document.createElement("div");
@@ -1146,10 +998,8 @@ window.addVariantRow = () => {
     <button class="btn btn-xs btn-danger" onclick="removeVariantRow(this)">×</button>
   `;
   container.appendChild(row);
-  // Focus the new input and scroll it into view
   const input = row.querySelector(".variant-input");
   input.focus();
-  // Scroll the modal to show the new row
   row.scrollIntoView({ behavior: "smooth", block: "nearest" });
 };
 
@@ -1158,7 +1008,6 @@ window.removeVariantRow = (btn) => {
   if (rows.length > 1) {
     btn.closest(".variant-row").remove();
   } else {
-    // If it's the last row, just clear it
     btn.closest(".variant-row").querySelector(".variant-input").value = "";
   }
 };
@@ -1214,7 +1063,6 @@ window.savePhraseGroup = async (editId) => {
     }
     payload = { kind: "regex", pattern, variants: [] };
   } else {
-    // Exclude the regex field, which shares the .variant-input class.
     const variantInputs = document.querySelectorAll(".variant-input:not(.phrase-regex-input)");
     const rawVariants = Array.from(variantInputs).map((input) => input.value);
     const variants = rawVariants.map((v) => v.trim()).filter((v) => v.length > 0);
@@ -1245,10 +1093,6 @@ window.savePhraseGroup = async (editId) => {
   }
 };
 
-// ── Data cleanup ──
-//
-// Two axes: which categories to clean, and how far back. Sizes are fetched per
-// cutoff so the age choice is made against real numbers rather than a guess.
 const CLEANUP_AGES = [
   [0, "Now (everything)"],
   [7, "7 days"],
@@ -1256,8 +1100,6 @@ const CLEANUP_AGES = [
   [90, "90 days"],
 ];
 
-// The cap the LRU-3 eviction in the backend already enforces on every artifact
-// write — setting it is what makes artifacts self-trim without pressing anything.
 async function saveAttachmentBudget(el) {
   const mb = Math.max(50, Math.round(Number(el.value) || 0));
   el.value = String(mb);
@@ -1299,16 +1141,10 @@ export async function showCleanupModal() {
     ${divider("Danger Zone")}
     <button class="btn btn-danger" id="cleanup-reset" style="width:100%;justify-content:center">⚠️ Reset to Defaults</button>`);
 
-  // e.target, not the bare handler: saveAttachmentBudget wants the input, and
-  // addEventListener hands it an Event (the old wiring silently saved 50 MB).
   $("attach-budget-mb").addEventListener("change", (e) => saveAttachmentBudget(e.target));
   $("cleanup-reset").addEventListener("click", showResetConfirmModal);
 
   const daysEl = $("cleanup-days");
-  // free_bytes is dead space *already* on the freelist, not what this run frees
-  // — right after a cleanup it is 0 while the checkboxes still show data, which
-  // read as a bug. The estimate is what the boxes select plus that freelist,
-  // since the cleanup VACUUMs either way.
   let stats = null;
   const paint = () => {
     if (!stats) return;
@@ -1345,8 +1181,6 @@ export async function showCleanupModal() {
         days: Number(daysEl.value),
       });
       closeModal();
-      // A lost VACUUM race still frees the pages, it just cannot hand them back
-      // to the OS until the next boot — say so rather than report a smaller win.
       const tail = r.compacted ? "" : " — disk space is returned on next restart";
       toast(`Freed ${formatBytes(r.bytes_reclaimed)}${tail}`);
       renderMessages();
@@ -1359,10 +1193,6 @@ export async function showCleanupModal() {
   await refresh();
 }
 
-// ── Reset to Defaults ──
-
-// Sub-modal layer: opened from inside Data Hygiene, so a cancel leaves that
-// modal standing instead of tearing it down.
 export async function showResetConfirmModal() {
   showSubConfirmModal(
     {

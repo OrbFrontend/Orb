@@ -1,19 +1,4 @@
-"""What the rewriter is configured to be, and how that becomes a child process.
-
-Three readings of one question. :class:`ProseRewriteConfig` is what the user
-chose, resolved out of ``settings.local_ml_config``; ``SLOT_ALLOCATION`` is the
-tuning that choice picks among; ``LaunchProfile`` is the command line that
-comes out the other end.
-
-EVERY NUMBER THAT REACHES ARGV IS A LITERAL FROM THIS MODULE. A stored or
-request-supplied batch size is used only as a key into ``SLOT_ALLOCATION``;
-what comes back is code-owned. Same barrier as a range check, minus the part
-where the tainted value itself survives to the subprocess sink.
-
-THE TWO ERRORS BELOW ARE THE FEATURE'S, NOT HTTP'S. A slice does not import
-FastAPI to say "404": it raises something specific and the route owns the
-mapping.
-"""
+"""Resolve prose-rewriter settings and llama-server launch profiles."""
 
 from __future__ import annotations
 

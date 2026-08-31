@@ -1,17 +1,4 @@
-"""Resolve a workflow's mapped `LoadImage` slots to actual reference bytes.
-
-Above `engine/` because this reads conversation state through the workflow
-toolkit; uploading and patching are the engine's half of the split.
-
-Two entry points, because the two render routes promise different things.
-`resolve_references` picks what a *fresh* render should use from the branch as it
-stands; `refetch_references` re-fetches strictly by recorded origin, so a reroll
-changes only the seed.
-
-Both answer against the slot list the *target* supplied, and every slot carries
-its own policy -- accepted mimes, byte budget, and whether it can render at all
-unfilled. Nothing here knows which backend is active.
-"""
+"""Resolve and replay image-generation reference slots."""
 
 from __future__ import annotations
 
@@ -254,30 +241,7 @@ def plan_slots(
     *,
     previous: Fetched | None,
 ) -> tuple[dict, ...]:
-    """The slots this render will actually try to fill, each carrying what to draw.
-
-    **Two backends, two shapes, one rule about which.** A backend either declares its
-    image inputs or declares only how many it can carry:
-
-    * A **ComfyUI graph declares them**, and they are structural and *not*
-      interchangeable -- an IPAdapter face input and an img2img init are different
-      questions, and nothing in the graph says which is which. So every declared input
-      is handed the same picture, exactly as the style's own source resolves it. That is
-      also what makes a two-`Load Image` graph work in a solo chat, where there is only
-      one person to draw.
-    * A **cloud provider declares a capacity**, and its reference array is homogeneous:
-      "here are pictures of the people in this scene". So the slots are *derived* -- one
-      per subject in frame, in `subjects.py`'s order, plus the chat image when the style
-      asks for it, truncated to what the provider carries.
-
-    That split is why nothing is positional any more. Under the old shape a style pinned
-    slot *i* to a source by hand, which forced every layer to agree on what slot *i*
-    meant; here position is subject order, and the only thing a style says is which
-    *kinds* of image may travel.
-
-    Each returned entry carries `draw`: an ordered `(kind, subject index)` list for the
-    resolver to try in turn. A one-entry `draw` is a slot with no fallback.
-    """
+    """Plan the reference slots for a render."""
     source = target.reference_source
     policy = REFERENCE_SOURCES.get(source)
     if policy is None:
@@ -309,24 +273,7 @@ def _derived_draw(
     capacity: int,
     has_previous: bool,
 ) -> list[tuple[tuple[str, int], ...]]:
-    """The ordered, **distinct** images a homogeneous array will carry, one entry per
-    slot, each entry the `(kind, subject index)` list that slot may try.
-
-    One per character and never the same character twice -- that is the whole of the
-    rule, and it is enforced here rather than asked of the user, because a subject
-    appears in this list exactly once by construction.
-
-    `all_of` is the difference between the two ways a style can combine kinds:
-    `character_and_previous` sends both, while `previous_or_character` sends the first
-    kind that has anything to send -- which is why the chat image has to be found before
-    this runs. A subject with no card can never fill a slot and so never claims one.
-
-    **A style that asked for something and got nothing still plans one slot.** It
-    resolves to nothing and the render discloses that (`hooks._unfilled_note`), which is
-    the whole reason the disclosure exists: a user who turned references on and received
-    a prompt-only render is owed the sentence. Planning zero slots would make the render
-    silently indistinguishable from one that never asked.
-    """
+    """Return distinct images for a homogeneous reference array."""
     drawable = [index for index, subject in enumerate(subjects) if subject.card_id]
     planned: list[tuple[tuple[str, int], ...]] = []
     for kind in policy.kinds:
@@ -348,20 +295,7 @@ async def resolve_references(
     subjects: Sequence[Subject] = (),
     previous: Fetched | None = None,
 ) -> tuple[ResolvedReference, ...]:
-    """Bytes for every slot `plan_slots` produced, for a fresh render.
-
-    Each entry states what it draws, so nothing here decides who is in the picture --
-    that was settled by `subjects.resolve` and the analyzer, above.
-
-    Each *source* resolves at most once per render: a graph with three image inputs
-    reads the branch once and uploads once, since the engine dedupes on the bytes'
-    digest. A cloud array asks for a different subject in each slot and so fetches each
-    likeness once.
-
-    An unresolvable *required* slot fails with a specific message rather than
-    substituting silently; an unresolvable optional one is simply absent, and the caller
-    discloses that on the attachment. See `_required`.
-    """
+    """Resolve bytes for a fresh render."""
     if not entries:
         return ()
     cache: dict[tuple[str, int], Fetched | None] = {}

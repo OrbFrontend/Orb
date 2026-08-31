@@ -1,16 +1,4 @@
-"""Pure helpers for LLMClient's text-completion transport (llama.cpp).
-
-Text mode renders messages via ``POST /apply-template`` then streams
-``POST /completion`` — llama.cpp's native endpoints, beside the OpenAI-compat
-``/v1`` surface. This module holds everything that needs no socket, so it is
-unit-testable without mocking HTTP: the reasoning think-tag splitter, the
-``/props`` template-tag sniff (+ a session cache), hyperparameter remapping,
-usage synthesis, forced-schema lookup, and image-part detection. ``client.py``
-owns the sockets, abort race, and SSE loop; this module owns the shapes.
-
-Mirrors the HTTP-free leaf pattern of ``gemma_tool_format.py`` /
-``endpoint_profiles.py``: no imports from ``client`` (no cycle).
-"""
+"""Pure helpers for llama.cpp text-completion transport."""
 
 from __future__ import annotations
 
@@ -22,13 +10,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Reasoning think-tag triple: (open, close, disable_suffix).
-#
-# ``open``/``close`` bound the reasoning span the model emits in the stream.
-# ``disable_suffix`` appended to the rendered prompt forces reasoning off (the
-# template's own "empty thought channel" bytes; probe-verified on llama.cpp).
-# ---------------------------------------------------------------------------
+# Reasoning tags: opening tag, closing tag, and the suffix that disables them.
 ThinkTags = tuple[str, str, str]
 
 # Gemma-4 emits reasoning inside a channel pair; the disable bytes are the
@@ -89,22 +71,7 @@ def think_tags_from_template(chat_template: str) -> ThinkTags:
 
 
 async def get_think_tags(server_root: str, fetch_template: Callable[[], Awaitable[str]]) -> ThinkTags:
-    """Sniff the tag triple from the server's live chat template, every call.
-
-    *fetch_template* is an async ``() -> chat_template str`` supplied by the
-    client (it owns the HTTP). On fetch failure the caller's callable returns
-    ``""`` and we fall back to :data:`_NONE` for this call.
-
-    Deliberately **not** cached per server root. The tags belong to the loaded
-    *model*, not the URL: swapping the GGUF behind a live endpoint left a
-    long-running backend parsing the old model's tags, so the close tag never
-    matched, the whole reply stayed classified as reasoning, and the turn
-    persisted an empty message. Text mode is llama.cpp-only and already makes
-    two round trips per call (/apply-template + /completion), so a third local
-    GET is noise next to being wrong until someone restarts the process.
-
-    *server_root* is kept in the signature for logging/call-site symmetry.
-    """
+    """Return reasoning tags reported by the server template."""
     return think_tags_from_template(await fetch_template())
 
 
@@ -141,31 +108,7 @@ def _scan(buf: str, target: str) -> tuple[str, str, bool]:
 
 
 class ThinkSplitter:
-    """Stateful reasoning/content splitter over a text-completion token stream.
-
-    ``feed(delta)`` returns a list of ``(kind, text)`` pairs where *kind* is
-    ``"reasoning"`` or ``"content"``. It holds back partial tag-prefixes at
-    chunk boundaries so a tag split across SSE chunks (llama.cpp streams
-    ``"<|channel>"`` ``"thought"`` ``"\\n"`` as three pieces) is not
-    misclassified. ``flush()`` drains any held tail at end of stream.
-
-    States: ``pre`` (before reasoning; provisionally content — a model that
-    never opens a thought channel stays here and everything is content),
-    ``reasoning`` (inside the span), ``content`` (after the span; no more tags).
-    A non-thinking model (empty open tag) starts in ``content``.
-
-    ``trim_lead=False`` disables the leading-whitespace trim below: on a
-    prefilled (open assistant turn) call the model is continuing a sentence, so
-    its first byte is usually the space that joins the two — trimming it welds
-    the words together (``He`` + ``saw`` -> ``Hesaw``).
-
-    ``already_open`` starts in ``reasoning`` instead of ``pre``: some chat
-    templates (Qwen3) emit the *opening* think tag in the generation prompt, so
-    the model's stream begins *inside* the span with no open tag to see. The
-    caller sets this by inspecting the rendered prompt (see ``_complete_text``).
-    Templates that leave the open tag to the model's output (Gemma 4) pass
-    ``False`` and the default ``pre`` scan catches it.
-    """
+    """Split streamed text into reasoning and content."""
 
     def __init__(self, tags: ThinkTags, already_open: bool = False, trim_lead: bool = True) -> None:
         self._open, self._close, _ = tags
@@ -310,23 +253,7 @@ def _tok_str(rec: Mapping[str, Any]) -> str | None:
 
 
 def normalize_prob_records(records: Any) -> list[dict]:
-    """Fold a list of per-token probability records into Orb's prob shape.
-
-    Output is ``[{"token", "prob", "top": [{"t","p"}]}]`` with linear
-    probabilities (logprob variants are ``math.exp``-ed). Accepts every record
-    shape the providers have shipped — llama.cpp's three
-    ``completion_probabilities`` variants and OpenAI-compat
-    ``logprobs.content`` records, which carry the same fields:
-
-    * ``{token, prob, top_probs:[{token, prob}]}``   — current (post_sampling_probs)
-    * ``{token, logprob, top_logprobs:[{token, logprob}]}`` — OpenAI-style logprobs
-    * ``{content, probs:[{tok_str, prob}]}``          — legacy
-
-    Never raises: a missing/garbage payload or an unknown shape drift degrades to
-    ``[]`` (no popup) rather than breaking the stream. Individual malformed
-    records are skipped, not fatal; a record with a valid token but no readable
-    probability falls back to its own entry in ``top`` (the legacy shape), then 0.0.
-    """
+    """Normalize per-token probability records."""
     if not isinstance(records, list):
         return []
     out: list[dict] = []

@@ -1,6 +1,3 @@
-/* ═══════════════════════════════════════════
-   8. Buttons & Form Elements
-   ═══════════════════════════════════════════ */
 button {
   font-family: var(--font-ui);
   cursor: pointer;
@@ -59,11 +56,6 @@ button {
 
 .btn-row { display: flex; gap: 4px; }
 
-/* Toggle switch */
-/* The switch is a control, not a field caption, so it opts out of the bare
-   `label` rule's margin-bottom below. Left in, that margin rides along in the
-   flex-item margin box and `align-items: center` centres the switch 2px high in
-   every row that holds one. */
 .tog {
   position: relative;
   display: inline-block;
@@ -107,13 +99,11 @@ button {
   background: #fff;
 }
 
-/* outline, not box-shadow: themes override .tog-slider's box-shadow with !important */
 .tog input:focus-visible + .tog-slider {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
-/* Form fields */
 input,
 textarea,
 select {
@@ -129,10 +119,6 @@ select {
   transition: border-color .15s, box-shadow .15s;
 }
 
-/* Boxes and bubbles opt out of the field styling above and take the theme's
-   accent for their checked fill — the hover/focus rules below already exempt
-   both, so the reset had simply missed the radio. One rule, so a checkbox in
-   Settings and one in a modal cannot drift apart. */
 input[type="checkbox"],
 input[type="radio"] {
   width: auto;
@@ -191,14 +177,7 @@ label {
 
 
 
-/* Toasts moved to css/notifications.css (loaded immediately after this file). */
 
-/* ═══════════════════════════════════════════
-   9.5 Tab Lock Banner
-   ═══════════════════════════════════════════ */
-/* All multi-tab visual locking hangs off `#main.tab-locked` (toggled by
-   tabLock.js). This is presentation only — enforcement lives in the handlers
-   via requestSendPermission(). */
 .tab-lock-banner {
   display: none;
   background: var(--red);
@@ -215,9 +194,6 @@ label {
   display: flex;
 }
 
-/* Composer, message toolbars, branch/workflow swipe navs, and workflow artifact
-   actions. Messages stay scrollable/readable; keyboard paths (Tab+Enter into the
-   composer) fall through to the functional guards, which toast. */
 #main.tab-locked
   :is(
     #chat-input-wrap,
@@ -232,7 +208,6 @@ label {
   opacity: 0.45;
 }
 
-/* Stop must stay reachable: a stream may already be running when a second tab opens. */
 #main.tab-locked #stop-btn {
   pointer-events: auto;
   opacity: 1;
@@ -241,4 +216,3 @@ label {
 .tab-lock-icon {
   font-size: 16px;
 }
-

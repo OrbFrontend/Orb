@@ -1,17 +1,4 @@
-"""Workflow registry, registration entry point, and per-workflow storage.
-
-The registry is a process-local mapping of workflow ids to ``Workflow``
-records. Iteration order matches registration order: the dict preserves
-insertion order, and reassignment to an existing key keeps the original
-position. Hooks are attached separately through ``subscribe`` and live
-on the owner record's ``subscriptions`` list.
-
-Storage wrappers (``get_workflow_state`` etc.) are thin awaiting wrappers
-over ``backend.database`` so the toolkit has a single namespace for both
-core reads and workflow-scoped reads. ``get_workflow_config`` is the one
-exception that adds behavior: it falls back to the workflow's
-``config_defaults`` when the DB slot is empty.
-"""
+"""Register workflows and expose their scoped storage helpers."""
 
 from __future__ import annotations
 
@@ -55,21 +42,7 @@ from .contracts import HookType, ToolSpec
 
 @dataclass
 class Workflow:
-    """Per-id workflow metadata.
-
-    ``produces_artifacts=True`` is a contract: the workflow MUST also
-    ``subscribe`` to both ``REGENERATE`` and ``REROLL_GEN`` -- ``subscribe``
-    blocks artifact-hook bindings on workflows that disclaim the contract,
-    and ``finalize_registry`` blocks the process from starting when one
-    side is declared without the other.
-
-    ``config_normalizer`` is the workflow's own strict normalization of its
-    global config slot, applied by the config GET/PUT routes. ``config_schema``
-    is UI metadata and enforces nothing, so without this the API would persist
-    and echo back a shape the workflow's own hooks then silently repair or drop
-    on read -- leaving a settings panel showing entries the backend ignores.
-    Optional: a workflow with no normalizer keeps the raw round-trip.
-    """
+    """Per-workflow metadata and subscriptions."""
 
     id: str
     display_name: str
@@ -127,24 +100,7 @@ def _declared_function_name(payload: object) -> object:
 
 
 def register_workflow(w: Workflow) -> None:
-    """Register or replace a workflow. Idempotent on ``w.id``.
-
-    Tool diff against any prior registration of the same id:
-      - names in new only -> ``register_tool`` is called fresh
-      - names in both -> ``register_tool`` overwrites schema/choice and
-        toggles the standalone bit symmetrically
-      - names in old only -> removed from ``TOOLS`` and
-        ``STANDALONE_TOOLS`` so the workflow's declaration stays the
-        single source of truth for what it owns
-
-    Validation order: declaration shape (id grammar, unique tool names,
-    schema/choice name symmetry), built-in name reservation, then
-    cross-workflow collision on names this registration is newly claiming.
-    Every check runs before state mutation, so a rejected call leaves the
-    registry, ``TOOLS``, and ``STANDALONE_TOOLS`` exactly as they were.
-    Re-registration preserves the original insertion position so manifest
-    ordering stays stable across reloads.
-    """
+    """Register or replace a workflow."""
     if not isinstance(w.id, str) or _WORKFLOW_ID_RE.fullmatch(w.id) is None:
         raise WorkflowDeclarationError(
             f"workflow id {w.id!r} must be 1-64 ASCII letters, digits, underscores, or hyphens and start with a letter or digit"

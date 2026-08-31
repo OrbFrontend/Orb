@@ -1,9 +1,4 @@
-"""HTTP route modules, one ``APIRouter`` per domain.
-
-``build_app()`` in :mod:`backend.api` includes the routers listed in
-``ROUTERS`` (in order) onto the FastAPI app. Adding a domain = drop a module
-here exposing ``router = APIRouter()`` and append it to ``ROUTERS``.
-"""
+"""HTTP route modules and router registration."""
 
 from __future__ import annotations
 

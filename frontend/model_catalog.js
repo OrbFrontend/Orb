@@ -1,7 +1,3 @@
-// Pure model-picker helpers. Discovery is intentionally separate from saved
-// model configs: choosing a discovered model promotes it through the existing
-// settings save path, while a saved config keeps its delete affordance.
-
 export function mergeModelChoices(configs, availableModels) {
   const choices = [];
   const seen = new Set();
@@ -34,15 +30,11 @@ export function filterModelChoices(choices, query) {
 }
 
 function normalizeSearchValue(value) {
-  // Identifiers should compare consistently regardless of the user's locale.
   return String(value ?? "")
     .normalize("NFKC")
     .toLowerCase();
 }
 
 function compactSearchValue(value) {
-  // Model ids use separators inconsistently across providers. Treat spaces,
-  // punctuation, and path delimiters as equivalent while retaining letters
-  // and numbers from every script.
   return value.replace(/[^\p{L}\p{N}]+/gu, "");
 }

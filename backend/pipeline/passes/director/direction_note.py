@@ -1,25 +1,4 @@
-"""
-passes/director/direction_note.py -- Direction-note step.
-
-Asks the model, via a forced ``record_direction_note`` call, whether anything from
-this turn should persist for the rest of the branch. Gated by the master Writing
-switch and the enabled ``field_type='direction_note'`` fragments whose timing matches
-this placement; each filled parameter becomes one labelled note (empty when nothing is
-worth recording). Issues one call for the whole timing group, or one per fragment when
-the per-fragment director toggle is on.
-
-The wire schema in the shared per-turn tool blob is the union of every direction-note
-fragment, held byte-stable so every call reuses the cached base and only forces the
-tool choice. A call narrows the request text and the extraction to its own fragments --
-the timing group, or a single fragment when the per-fragment toggle splits the group.
-The trailing depends on placement: the post-turn placement replays the writer's user
-message and reply to extend the warm writer/editor prefix; the pre-writer placement
-appends only the request, carrying this turn's scene direction inside it.
-
-Errors and aborts are swallowed into an empty result. The post-turn placement runs
-immediately before the turn's ``_result`` is emitted, so a propagating exception
-would skip persistence of the finished reply -- recording a note must never do that.
-"""
+"""Record optional direction notes for the current branch."""
 
 from __future__ import annotations
 

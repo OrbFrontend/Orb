@@ -1,17 +1,4 @@
-"""
-passes/director/progressive.py — Director-local owner of progressive-fragment logic.
-
-Progressive fragments (``field_type == "progressive"``) are director-controlled
-fields whose value evolves turn-over-turn. Their state is the sibling of
-``active_moods``: a *seed* from the prior turn, an *output* this turn, and a
-branch-aware reset. Both helpers here are pure.
-
-- :func:`select` is used symmetrically — to seed (filter ``director["progressive_fields"]``)
-  and to derive output (filter ``extra_fields``): keep only keys whose fragment
-  is progressive.
-- :func:`branch_baseline` resolves the reset value used when regenerating or
-  forking: the grandparent assistant message's progressive fields.
-"""
+"""Select and reset Director progressive-fragment state."""
 
 from __future__ import annotations
 

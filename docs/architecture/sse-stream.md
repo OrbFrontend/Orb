@@ -1,155 +1,128 @@
 # How a Turn Streams from Backend to Browser
 
-This doc explains, in plain English, how Orb sends a single chat turn from the backend to the frontend over **Server-Sent Events (SSE)** — what events cross the wire, in what order, and what the browser does with each one.
+Orb sends a chat turn over **Server-Sent Events (SSE)**. The browser makes one
+request; the backend keeps the connection open and sends events as the turn
+runs.
 
-Audience: someone who can read code but hasn't traced the chat stream end to end. The focus is the **contract between frontend and backend** — the events on the wire — not what happens *inside* the backend passes. For the internals (how the Director/Writer/Editor prompts are built and cached), see [KV Cache Reuse](kv-cache.md).
+This page describes the frontend/backend wire contract. For prompt construction
+and cache reuse, see [KV Cache Reuse](kv-cache.md).
 
-> **Animation:** [sse-stream-animation.html](https://orbfrontend.github.io/Orb/architecture/sse-stream-animation.html) is a stepped, self-contained walkthrough of one full turn on the wire — every event from the opening `POST` to the closing `done`, plus the stop/disconnect and error paths. Open it in a browser.
+> **Animation:** [SSE stream animation](https://orbfrontend.github.io/Orb/architecture/sse-stream-animation.html)
+> shows a complete turn and the main stop and error paths.
 
----
+## One long-lived request
 
-## 1. It's a stream, not a request/response
-
-A turn is **not** a normal request that returns a body. The browser sends **one** `POST` and the backend never closes it — instead it holds the connection open and *pushes* events as the turn unfolds. That's SSE: a one-way stream of `text/event-stream` frames from server to client.
-
+```text
+browser ── POST /conversations/{cid}/send ──▶ backend
+        ◀──── user_message_created
+        ◀──── director_start / director_done
+        ◀──── token (many)
+        ◀──── writer_done / editor_done
+        ◀──── done
 ```
-browser ──POST /conversations/{cid}/send──▶ backend
-        ◀──── event: user_message_created ─┐
-        ◀──── event: director_start ───────┤
-        ◀──── event: director_done ────────┤  one long-lived
-        ◀──── event: token (×N) ───────────┤  connection
-        ◀──── event: writer_done ──────────┤
-        ◀──── event: done ─────────────────┘
-```
 
-Everything for the turn travels down this single connection until the backend yields `done` and returns.
+The stream ends after `done`. Until then, all turn events use the same
+connection.
 
----
+## Frame format
 
-## 2. The frame format
+Each frame is plain text:
 
-The wire format is plain text. Each event is two lines plus a blank line:
-
-```
+```text
 event: <name>
 data: <payload>
-            ← blank line terminates the frame
+
 ```
 
-On the backend, `handle_turn` is an `async` generator that `yield`s `{"event": ..., "data": ...}` dicts. The `_sse_stream` wrapper in `backend/api/deps.py` serialises each one:
+The backend's `_sse_stream` wrapper serializes dictionary data as one-line JSON
+and escapes newlines in string data. Keepalive comments prevent an idle
+connection from being dropped.
 
-- `data` that is a `dict` is JSON-encoded (single-line `json.dumps`).
-- `data` that is a string has its newlines escaped to literal `\n` (so a multi-line frame can't break the parser).
-- Silent stretches emit a `: keepalive\n\n` comment frame so proxies don't drop the connection.
+`frontend/sse.js` parses frames and yields `{event, data}`. It does not decide
+what an event means or unescape the payload. `chat_stream.js` dispatches by event
+name; other streaming features use the same parser with their own handlers.
 
-Because string data is newline-escaped and dict data is single-line JSON, a payload **never contains a real newline** — which makes `\n\n` an unambiguous frame terminator and `\n` an unambiguous line terminator inside a frame.
+Only `token` is normally raw text. Other payloads are JSON, with `error` also
+accepting a legacy string.
 
-On the frontend, one module parses this wire format for **every** streaming route: `sse.js`. Its `sseEvents(body, {signal})` async generator splits the byte stream into frames, skips keepalive comments, and yields `{event, data}` pairs — where `data` is the **raw** payload string. It is transport-only: it knows the frame shape and nothing about event names, and it **never un-escapes** `data` (a string channel's `\n` escaping and a JSON channel's raw payload are opposite rules, so un-escaping is the consumer's call via `unescapeSSE`). The chat dispatcher (`processSSEStream` → `handleSSEEvent` in `chat_stream.js`) consumes `sseEvents` and routes each pair through one big `switch` keyed on the **event name**; the conversation-summary and document-generate readers consume the same `sseEvents` with their own tiny event handling. The name is the entire contract; the payload just fills in detail.
+## Turn events
 
----
+Events are conditional unless marked terminal. The frontend must tolerate a
+pass being skipped.
 
-## 3. The events, in the order they fire
-
-A typical `/send` turn with reasoning on (Director + Writer), an Editor pass, and a TTS workflow attached produces this sequence. Every event is independent — **the frontend must tolerate any of them being absent.**
-
-| # | Event | Dir | Data | What the frontend does |
-|---|-------|-----|------|------------------------|
-| 1 | `user_message_created` | BE→FE | `{ "id": 412, "content": "…" }` | Patches the optimistic user bubble (`id: null`) with the real DB id. `content` is the persisted text after inline-macro resolution (`{{roll}}`/`{{random}}`); the frontend syncs its local copy and repaints the bubble when it differs. `/send` only — `/continue` skips it. |
-| 2 | `director_start` | BE→FE | *(none)* | Phase → **directing**; clears stale inspector data. |
-| 3 | `reasoning` | BE→FE | `{ "pass": "director", "delta": "…" }` | Appends thinking tokens to the named pass's buffer; lights its dot. |
-| 4 | `director_done` | BE→FE | `{ "tool_calls": [...], ... }` | Stores director data for the inspector; advances dot to Writer. |
-| 5 | `token` (×N) | BE→FE | bare text `delta` | The visible reply. First token reveals the bubble + phase → **generating**; each one is appended and re-rendered. |
-| 6 | `writer_done` | BE→FE | `{ "editor_will_run": true }` | Authoritative end-of-writer marker; phase → **refining** if an editor pass follows. |
-| 6a | `draft_update` | BE→FE | `{ "draft": "…" }` | *Optional, repeatable.* A cosmetic mid-editor repaint of the whole working draft — one per applied patch batch, and one per paragraph the local prose rewriter finishes. Never authoritative: `writer_rewrite` below stays the sole authority over the final text. |
-| 7 | `writer_rewrite` | BE→FE | `{ "refined_text": "…" }` | *Optional.* Editor's final prose (patches and/or the local prose rewriter); FE diffs vs. the draft and swaps the bubble. |
-| 8 | `editor_done` | BE→FE | `{ "tool_calls": [...] }` | Merges editor tool calls into the inspector. |
-| 9 | `feedback` | BE→FE | `{ "values": {...} }` | *Optional.* User-facing notes; display-only, re-renders the inspector. |
-| 10 | `direction_notes` | BE→FE | `{ "notes": [...] }` | *Optional.* The Director's persistent notes recorded this turn; display-only, re-renders the inspector's Direction Notes block. |
-| 11 | `world_change_proposed` | BE→FE | `{ "message_id": 412, "changeset": {...} }` | *Optional, repeatable.* The Agent staged a **pending** Dynamic Worlds proposal against this reply. One event per changeset — the payload names a single World, and one turn may propose to several. Nothing is applied and nothing is lore yet; FE flags a full repaint so the review cards paint under the finished bubble. Emitted after the assistant row is persisted and before `done`. |
-| 12 | `phase_status`, `tts_autoplay`, … | BE→FE | varies | Secondary-workflow passthrough (see §6). |
-| 13 | `warning` | BE→FE | `{ "headline": "…", "sentence": "…", "kind": "workflow"\|"local_ml", "workflow_id": "…" }` | *Optional, non-terminal.* Something optional declined and the turn continues. `kind: "workflow"` is a secondary-workflow hook raising a `WorkflowUserFacingError` (and carries a `workflow_id`); `kind: "local_ml"` is the local prose rewriter declining to run, in which case the writer's prose is kept unchanged. FE shows a sticky error toast for both; `workflow_id` is not required. |
-| 14 | `error` | BE→FE | a JSON object (see §7), or a bare string from a legacy emitter | **Terminal.** FE stores it in `S.turnError` and paints the failure card. |
-| 15 | `done` | BE→FE | *(none)* | Terminal. Stream closes; FE runs `afterStream()`. |
-
-The only event whose `data` is **not** JSON is `token` — it's a raw text delta, with newlines escaped to `\n` and un-escaped on arrival. (`error` is the one dual-shape channel: JSON from the pipeline handlers, a bare string from the pre-pipeline guards listed in §7.)
-
-### Group-exchange envelope
-
-A group request wraps the ordinary per-reply events in three group-only JSON
-events:
-
-| Event | Data | Meaning |
+| Event | Payload | Purpose |
 |---|---|---|
-| `speaking_plan` | `{exchange_id, plan: [{member_id, card_id, name, cue}]}` | Emitted once for every group exchange, including pins, round-robin, and an intentional empty plan. |
-| `speaker_start` | `{exchange_id, member_id, card_id, name, index, total, cue}` | Makes this speaker the target of following token/editor/workflow events and mints the streaming bubble. |
-| `speaker_done` | `{exchange_id, message_id, parent_id, turn_index, member_id, card_id, name, content}` | Confirms persistence and finalizes that bubble before another speaker may start. |
+| `user_message_created` | `{id, content}` | Replaces the optimistic user row with its saved id and text. `/send` only. |
+| `director_start` | — | Starts the directing phase. |
+| `reasoning` | `{pass, delta}` | Adds thinking text to a pass's reasoning buffer. |
+| `director_done` | Director data | Updates the inspector. |
+| `token` | Text delta | Appends visible Writer output. |
+| `writer_done` | `{editor_will_run}` | Ends the Writer phase. |
+| `draft_update` | `{draft}` | Optional cosmetic Editor progress update. |
+| `writer_rewrite` | `{refined_text}` | Replaces the visible draft. |
+| `editor_done` | Editor data | Updates the inspector. |
+| `feedback` / `direction_notes` | Feature data | Updates feature panels. |
+| `world_change_proposed` | `{message_id, changeset}` | Shows a pending Dynamic Worlds proposal. |
+| `warning` | Warning data | Shows a non-terminal warning; the turn continues. |
+| `error` | JSON object or string | Terminal failure. |
+| `done` | — | Terminal success; the stream closes. |
 
-There is still exactly one request-level `done`. A later-speaker failure does
-not roll back earlier `speaker_done` rows. `afterStream()` refetches and fully
-renders a group exchange; `completedExchangeMessageIds` plus the in-flight speaker/exchange
-identify partial failure recovery.
+Workflow events such as `phase_status` and `tts_autoplay` use the same stream.
+See [Secondary Workflows](secondary-workflow.md).
 
----
+## Group exchanges
 
-## 4. Two events that never reach the browser
+A group request wraps those events in three group events:
 
-### `_result` (internal)
+| Event | Purpose |
+|---|---|
+| `speaking_plan` | Announces the speakers and their cues for the exchange. |
+| `speaker_start` | Starts the bubble and context for one speaker. |
+| `speaker_done` | Confirms that speaker's saved message. |
 
-The pipeline's last event is `_result`, carrying the fully assembled reply (final text, tool calls, reasoning). `_consume_pipeline` intercepts it, **persists the assistant message and the conversation log to disk**, and does *not* forward it. The underscore prefix marks it internal. The browser already has every token, so it doesn't need `_result` — but the backend needs it to commit the turn before the stream ends. (Other underscore-prefixed events like `_PipelineResult` follow the same convention.)
+The ordinary turn events between `speaker_start` and `speaker_done` belong to
+that speaker. There is still one request-level `done`. If a later speaker
+fails, earlier saved replies remain; the final refetch reconciles the group
+exchange.
 
-### Why the persist happens before `done`
+## Persistence and reconciliation
 
-`done` is yielded *after* `_result` has been persisted. So by the time the frontend sees end-of-stream, the turn is already durable on the server — which is exactly what lets `afterStream()` (§5) trust a refetch.
+The internal `_result` event carries the completed reply to the persistence
+layer. It is consumed by `_consume_pipeline` and never sent to the browser.
+Persistence happens before `done`, so the browser can trust the server when the
+stream closes.
 
----
+`afterStream()` then:
 
-## 5. After the stream closes: `afterStream()`
+- refetches messages and Director state;
+- finalizes the streaming bubble, or fully rerenders a group exchange;
+- applies edits that were queued behind the conversation stream lock;
+- clears phase indicators.
 
-The frontend renders **optimistically** during the stream (it shows tokens as they arrive, before anything is confirmed). Once the stream closes, `afterStream()` reconciles that optimistic UI against the server's truth:
+The stream is optimistic while it runs and authoritative after this refetch.
 
-- **Refetches** the message list and director state (`GET …/messages`, `GET …/director`).
-- **Finalizes** the streaming bubble in place for solo turns. Group exchanges use a full render because one request may have persisted several chained bubbles.
-- **Flushes queued edits.** A `/edit` issued mid-stream blocks on the per-conversation stream lock for the whole turn; `afterStream()` runs once the lock frees and persists them.
-- **Clears** the phase chip and any lingering workflow pills.
+## Stop, disconnect, and errors
 
-This is plain request/response — the stream is over.
+Stop and a client disconnect signal the same conversation abort token. The
+backend stops upstream generation and persists any prose it has already
+received. A per-conversation stream lock prevents two generations from running
+at once.
 
----
+`error` is terminal. `warning` is optional work that declined and does not stop
+the turn. Workflow hooks may emit custom events, but names owned by the core
+dispatcher or names beginning with `_` are reserved.
 
-## 6. Workflows extend the protocol without touching the core
+## Routes using the stream
 
-Secondary workflows `yield` their own SSE events (e.g. `phase_status` for a "Synthesizing…" pill, `tts_autoplay`, `workflow_attachments_rejected`, or custom ones). The orchestrator passes hook-emitted events straight through the stream. On the frontend, the `switch`'s `default` branch looks the event name up in `S.workflowEventHandlers` and dispatches there — so a workflow can add new events **without editing the core switch**. See [Secondary Workflows](secondary-workflow.md).
+`/send`, `/continue`, regenerate, fork-edit, super-regenerate, and Magic Rewrite
+all use the same SSE wrapper and event vocabulary. This keeps one frontend
+dispatcher responsible for generated turns.
 
-To prevent collisions, the orchestrator drops any hook attempt to emit a reserved internal event name (the underscore-prefixed ones).
+`/prose-rewrite` is the exception. It rewrites an already-saved assistant row
+without creating a message or branch. It emits optional `prose_rewrite_update`
+events and ends with `prose_rewrite_done`; its client loop is separate from the
+turn dispatcher.
 
----
-
-## 7. Edge cases: stop, disconnect, error, concurrency
-
-- **Stop.** Clicking Stop sends `POST …/stop`, which fires the conversation's `abort_token`. The backend breaks its LLM loop and closes the upstream connection cleanly — no task cancellation needed.
-- **Disconnect.** If the user closes the tab without clicking Stop, a background watcher polling `request.is_disconnected()` trips the same `abort_token` as a backstop.
-- **Partial persistence.** Whether the turn finishes, aborts, or errors, `_consume_pipeline`'s `finally` runs exactly once — persisting whatever prose streamed so far, so an interrupted turn is never lost.
-- **Errors** arrive as a single **terminal** `error` event. Its `data` is **a JSON object, or a bare string from a legacy emitter** — the frontend tries `JSON.parse` and falls back to treating the whole payload as the headline. The object is `pipeline/failures.py`'s `describe_failure(exc)`: `{headline, sentence, kind}` always, plus `status`/`host`/`model`/`body` when the failure was attributable to a provider call. `headline` is what Orb can assert from the status class alone; `sentence` is the provider's own words, credential-redacted and capped; `body` is the full raw response for the Details pane. `kind` is `provider` | `transport` | `workflow` | `internal`, where `internal` marks a defect (no `body`, and `sentence` is the exception repr). The bare-string emitters that stay as-is: `documents.py`, `conversations.py`, `deps.py`'s concurrency guard, `entrypoints.py`'s missing-conversation guard, and the on-demand routes in `workflows.py`.
-  A **JSON `error` payload must not be run through the frontend's `unescapeSSE`** — `json.dumps` already escaped the newlines *inside* the JSON, so un-escaping would corrupt it (the same trap `sse.js` documents for the document `probs` channel).
-- **Warnings** are the non-terminal sibling: a workflow hook whose `WorkflowUserFacingError` the pipeline legitimately swallows still emits `warning` with the same payload shape and `kind: "workflow"`. The local prose rewriter uses the same channel with `kind: "local_ml"` and no `workflow_id` — it declined, the writer's prose stands, and the turn is otherwise unaffected. `error` stays the single terminal channel; a mid-stream `error` would break that.
-- **Concurrency.** A per-conversation lock (`_conversation_stream_locks`) allows only one active stream per conversation. A second concurrent `/send` gets an immediate `error` ("Another generation is already running") rather than racing.
-
----
-
-## 8. Every generating route reuses this one stream
-
-`handle_turn` is the entry point for `/send` and `/continue`, but regenerate, fork-edit, super-regenerate, and magic-rewrite all stream through the **same** `_sse_stream` wrapper and emit the **same** event vocabulary. That's why the frontend dispatcher is written once: learn the events here and you've learned every chat route.
-
-### The one route that doesn't: `/prose-rewrite`
-
-`POST /api/conversations/{cid}/messages/{msg_id}/prose-rewrite` takes the same `_sse_stream` wrapper — same conversation lock, same `AbortToken`, so the ordinary Stop button cancels it — but it is **not** a generating route and deliberately does not speak the turn vocabulary. It runs no LLM pass, creates no message and no branch; it re-runs the local prose rewriter over one *already-saved* assistant reply — the retained `writer_draft` when the row has one, the saved content when it does not — and edits that row in place. There is no bubble to stream tokens into, so there are no `token`s, no `writer_done`, and no `done` — the terminal event is `prose_rewrite_done`. The frontend consumes it in its own loop in `chat_messages.js` rather than through the shared dispatcher.
-
-| # | Event | Payload | Meaning |
-|---|-------|---------|---------|
-| 1 | `prose_rewrite_update` | `{ "message_id": 412, "draft": "…" }` | *Optional, repeatable.* The whole draft as it stands, one per completed top-to-bottom run of paragraphs. Generation is concurrent, so there is no meaningful delta and the client repaints the bubble wholesale. **Nothing is saved yet** — a dropped stream leaves the row untouched and the frontend puts the stored text back. |
-| 2 | `prose_rewrite_done` | `{ "message_id": 412, "content": "…", "changed": true, "warning": "", "aborted": true? }` | **Terminal.** `content` is the text now in the row (on a warning or an abort, the text that was already there). `changed` says whether the row was written; the write happens just before this event and never earlier. `warning` carries the rewriter declining — same meaning as `kind: "local_ml"` on the turn stream. `aborted` is present only when Stop won the race. |
-| — | `error` | a bare string | **Terminal.** The message moved or was deleted between validation and the lock. |
-
-Applying a rewrite marks any still-pending World proposal inferred from that reply stale, exactly as a manual `/edit` does.
-
-The whole contract, in one sentence: **one `POST` opens an SSE stream; the backend pushes control (`user_message_created`, `done`, `error`), meta (`director_*`, `writer_done`, `writer_rewrite`, `editor_done`, `feedback`, `reasoning`, `world_change_proposed`, workflow events), and `token` events; the frontend routes each by name in one switch; underscore-prefixed events stay server-side.**
+In one sentence: one request opens the stream, named events carry progress and
+results, tokens carry the visible draft, internal events stay server-side, and
+`done` is followed by a server refetch.

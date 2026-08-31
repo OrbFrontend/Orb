@@ -1,9 +1,4 @@
-"""
-backend/tts/router.py — TTS adapter registry and routing.
-
-Maps backend names (e.g. 'edge', 'openai', 'fish') to adapter classes.
-Adapters are registered only if their dependencies are available.
-"""
+"""Route TTS requests to the configured adapter."""
 
 from __future__ import annotations
 
@@ -17,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 _REGISTRY: dict[str, type[TTSAdapter]] = {}
 
-# ── Register adapters (graceful — skip if dependency missing) ──────────────
 
 try:
     from .edge_adapter import EdgeTTSAdapter

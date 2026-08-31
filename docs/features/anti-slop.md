@@ -1,25 +1,28 @@
 # Anti-slop
 
-Remove overused words, phrases, and the rhetorical patterns commonly seen in LLM outputs.
+Anti-slop checks the Writer's reply for phrases and patterns you do not want.
+When it finds one, the **Editor** asks the Agent to rewrite only the affected
+sentences.
 
-- The user maintains a Slop Phrase Bank of words and phrases they're allergic to.
-- The final Editor pass checks the output for those phrases and prompts the Agent model to surgically rewrite only the sentences where they're found.
+## Phrase bank
 
-## Slop Phrase Bank
+The **Slop Phrase Bank** is a list you maintain. Add words, phrases, or regular
+expressions. Matching also catches close variants, while keeping each rewrite
+within the sentence that contains the match.
 
-A user-editable list of banned words and phrases. Entries can be literal variants or regex patterns, and matching is fuzzy enough to catch close paraphrases while staying contained to a single sentence so rewrites are surgical.
+## Built-in checks
 
-## Contrastive negation ("Not X; but Y")
+- **Phrase bank** entries you add
+- **Contrastive negation**, such as `Not X; but Y` or `isn't X, it's Y`
+- **Anti-echo**, which catches a reply that repeats the user's quoted dialogue as
+  an incredulous question
 
-Detect the `Not X; but Y` rhetorical pattern (and its kin, like `isn't X, it's Y`) and ask for a rewrite. Only works within a single sentence boundary.
+Anti-echo compares the assistant reply only with quoted dialogue in your previous
+message. It ignores narration and `[OOC: ...]` notes, and short questions made
+only of common function words do not trigger it.
 
-## Anti-echo
+The Editor applies these checks after the Writer finishes. You can review changes
+when the editor diff is enabled in **Settings → Agents**.
 
-Detect the habit some models have of parroting the user's own dialogue straight back as an incredulous question:
-
-> **H:** "I have absolutely no money."
-> **A:** "Absolutely no money?" she repeats.
-
-Unlike the other scanners (which look only at the assistant's text), anti-echo compares the draft against the user's immediately-preceding message. It flags a question in the draft — quoted *or* unquoted, ending in `?` — when its words are an **exact contiguous copy** of a run in the user's **dialogue**. The comparison pool is only what the character *said*: text inside the user's quote spans, with `[OOC: …]` asides removed first (their contents, inner quotes included, are directives rather than speech). The user's narration and out-of-character notes are therefore never echo bait, and a message with no quoted dialogue produces no flags. A content-word floor keeps bare function-word questions ("You?", "What?") from triggering, and a coverage check ignores longer questions that merely reuse one of the user's nouns. The flagged echo is added to the Editor audit report so the rewrite loop can recast it.
-
-For repeated structure, sentence openers, and phrase reuse, see [Anti-repetition](anti-repetition.md).
+For repeated structure, sentence openers, and phrase reuse, see
+[Anti-repetition](anti-repetition.md).

@@ -1,33 +1,4 @@
-"""The sheet updater — one LLM call per member, proposing a scene-local rewrite.
-
-A character card asserts turn one forever. A scene does not: hair is cut, a coat
-burns, a sword breaks. ``group_members.card_sheet_override`` is where a scene
-records that (see ``database.queries.group_members._private_sheet``); this module
-is what drafts the record from a finished exchange.
-
-The sibling of :mod:`.public_profile`, and deliberately shaped like it — same
-forced-call posture, same hardcoded summarization hyperparameters, same
-deterministic output contract, same "``LLMCallError`` propagates untouched"
-rule. Two things differ, and both follow from what a sheet *is*:
-
-**One call per member, never batched.** The same rule as the public-profile
-drafter and for a stronger reason: a sheet is the member's own private material
-under Private perspective, so member B's sheet entering member A's call would
-write B's secret into a string A reads. The exchange's prose is shared and goes into
-every call; the sheets do not. ``test_a_sheet_update_call_carries_only_its_own_
-members_sheet`` is the executable form of that rule.
-
-**Nothing is applied.** The drafter returns a proposal; the user applies it.
-That is the mitigation for the two failure modes a bookkeeping model has here —
-it disagrees with a sheet the user hand-edited, and it simply judges wrong — and
-it is the same posture Dynamic Worlds takes for the same reasons. The character
-card is never written under any path, so the blast radius of a bad update is one
-member in one scene and the original is always recoverable.
-
-Pure logic, like its sibling: the caller builds the client and hands
-``(client, model, …)`` in, so this module depends only on ``core`` +
-``inference``.
-"""
+"""Draft scene-local character-sheet updates for user review."""
 
 from __future__ import annotations
 
@@ -39,11 +10,7 @@ from ._drafting import BRACES, forced_draft, normalize
 
 SHEET_TOOL_NAME = "update_character_sheet"
 
-# The floor the prompt quotes. States the one thing that separates this call from
-# a rewrite: the transcript is the only evidence, and everything it did not touch
-# survives verbatim. A model given a character sheet and asked to "update" it will
-# otherwise improve the prose, and the user would be reviewing a restyled sheet
-# instead of a recorded change.
+# The prompt floor keeps unchanged sheet text verbatim.
 SHEET_FLOOR = (
     "Carry the sheet forward, changed only where the transcript shows it changed. "
     "Every sentence the transcript did not touch must survive word for word. "
@@ -142,20 +109,7 @@ class SheetUpdateUnavailable(RuntimeError):
 
 
 def _clean_sheet(value: Any, base: str) -> str:
-    """The parsed sheet, contract-checked against the sheet it replaces.
-
-    Four failures, and each one is something the reviewer could not recover from
-    by reading the proposal: a blank sheet silently deletes the character, a
-    brace mutates the prompt at turn time (the sheet is macro-resolved — see
-    ``inference.group_context``), an essay is billed to the member on every call
-    it speaks in, and a no-op proposal is a review row that asks the user to
-    decide nothing.
-
-    There is deliberately no *lower* bound beyond non-empty. A short sheet is a
-    legible proposal — the user is looking at it before it lands — and a length
-    floor would reject the legitimate case where a scene has stripped a
-    character down to very little.
-    """
+    """Validate and clean a proposed character sheet."""
     if not isinstance(value, str):
         raise SheetUpdateUnavailable("The model reported a change but returned no sheet.")
     text = value.strip()

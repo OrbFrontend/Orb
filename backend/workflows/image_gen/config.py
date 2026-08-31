@@ -206,24 +206,7 @@ def _render_target(
     workflow: str,
     legacy_slots: Sequence[str],
 ) -> dict:
-    """The five fields that decide what an image looks like, and where they inherit
-    from while a stored config is still on its way to the new shape.
-
-    `cloud` is the **raw** cloud block, where four of them lived before styles took
-    them over. A style declaring none of its own takes them from the entry its
-    `connection` names, then from that block's top level -- so a config migrates on
-    first read and persists migrated on first write, no DB migration. Raw rather than
-    normalized because `_cloud` runs *after* styles are parsed (it needs the default
-    style's connection), so reading the normalized block would close a cycle.
-
-    Membership at each step, not truthiness: "" is a real stored value for `quality`
-    ("the provider's default"), so a style that declares one must not silently inherit
-    the legacy global instead. `reference_source` has two older shapes of its own,
-    picked below and resolved in `_reference_source`.
-
-    **The inheritance is the whole of the migration.** Once no install predates it,
-    every field below reduces to reading `raw`.
-    """
+    """Resolve the fields that control one render."""
     # An unlinked style renders on `cloud.provider`, so that is the entry it inherits
     # from -- which is what makes the migration a no-op for what it next produces.
     # Guarded on a non-empty id: `""` is not a connection, and `_cloud` drops an entry
@@ -255,24 +238,7 @@ def _render_target(
 
 
 def _style(raw: Any, cloud: Mapping[str, Any], legacy_references: Mapping[str, Sequence[str]]) -> dict | None:
-    """One style entry, on the global style list.
-
-    `connection` is what renders this style -- `COMFY_CONNECTION` or a cloud provider
-    id. `""` means the style predates connection linking and follows the stored
-    `source`, which is what lets an install upgrade without a style silently
-    changing backend.
-
-    Both backends' render targets live here, and both halves are always present
-    whichever connection the style links to, so relinking cloud -> ComfyUI -> cloud
-    loses neither pin. `checkpoint`/`workflow` are the ComfyUI half; `model` and
-    `quality` the cloud half (see `_render_target`); `width`/`height` are read by both
-    -- by ComfyUI only once its pinned graph maps size slots -- and so is
-    `reference_source`, which is why a graph declares *which* of its inputs load an
-    image while the style alone says where the one picture they all receive comes from.
-
-    `legacy_references` is `{graph id: [source per declared slot]}` for the configs
-    that stored that on the graph; `_reference_source` migrates it onto the styles.
-    """
+    """Resolve one image style entry."""
     if not isinstance(raw, Mapping):
         return None
     sid = _text(raw.get("id"), 64)
@@ -464,20 +430,7 @@ def _cloud_provider_entry(raw: Any) -> dict:
 
 
 def _cloud(raw: Any, provider_override: str = "") -> dict:
-    """The cloud block, with every connection's credentials kept across a switch.
-
-    An entry whose provider id the preset table does not know is **retained**: this
-    normalizer runs on GET, the panel assigns that answer into its shared config, and
-    `readConfig()` spreads it back into the next PUT -- so dropping a row renamed in a
-    later release would silently erase the stored key on the next save. A retained
-    unknown id is inert: no preset means no client, the `unknown_provider` readiness
-    reason.
-
-    `provider_override` is the connection the style about to render links to, and it
-    wins over the stored `provider` -- which is now a record of the last routing
-    decision rather than something the user picks. It survives as the legacy fallback
-    for a style carrying no `connection` at all, and that path is live.
-    """
+    """Resolve cloud image provider settings."""
     raw = raw if isinstance(raw, Mapping) else {}
     defaults = CONFIG_DEFAULTS["cloud"]
     provider = _text(provider_override or raw.get("provider"), 64, defaults["provider"])
@@ -590,19 +543,7 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
 
 
 def style_source(config: Mapping[str, Any], style: Mapping[str, Any]) -> tuple[str, str]:
-    """`(source, provider_id)` for one style -- the one place routing is decided.
-
-    A style names its connection, so which backend renders it is a property of the
-    style rather than of the config. Routing on `config["source"]` instead was
-    survivable only while the cloud adapter ignored the style it was handed: a
-    rehydrate replays the style the *stored image* names, which need not be the
-    default one `source` was derived from.
-
-    `""` is a style that predates connection linking, and follows the stored global
-    so an existing install renders exactly where it always did. `source` is returned
-    unvalidated in that case -- the router degrades an unknown one, and a hand-edited
-    DB should not turn a page load into a 500.
-    """
+    """Return the provider source for one style."""
     connection = _text(style.get("connection"), 64) if isinstance(style, Mapping) else ""
     if connection == COMFY_CONNECTION:
         return "external_comfy", ""

@@ -1,30 +1,4 @@
-"""targets.py — Audit findings resolved into ID-addressable draft locations.
-
-The editor used to anchor each edit on a literal ``search`` string the model
-copied out of the draft. The audit already knows every flagged sentence
-byte-exactly, so this module numbers the findings instead: the report labels
-each one ``[N]``, the model answers ``{"id": N, "replace": "…"}``, and
-:func:`analysis.patching.apply_id_patches` splices the recorded offsets. No
-search, no fallback ladder, and a sentence that occurs twice stays addressable
-instead of being dropped as ambiguous.
-
-A **target** is one addressable location. It is not one finding: several
-detectors can land on the same sentence (a banned phrase that is also a
-repeated opener), and that is one edit, so their reasons merge.
-
-Two segmentation facts shape the rest of the module:
-
-* Most detectors match narration only, so occurrence resolution runs against a
-  narration mask — a verbatim copy sitting inside quoted speech must not
-  consume an occurrence slot, or the k-th-occurrence mapping drifts from what
-  the detector actually flagged.
-* The detectors do not agree on where a sentence ends. ``contrastive_negation``
-  keeps dialogue inline while openers and templates strip it, so one sentence
-  can yield two regions where one contains the other. Those **must** merge:
-  splicing back-to-front would apply the inner patch and then overwrite it with
-  the outer one, whose ``end`` offset is now stale — silent data loss, where
-  the old search path would at least have reported "not found".
-"""
+"""Resolve audit findings into id-addressable draft locations."""
 
 from __future__ import annotations
 
@@ -53,9 +27,6 @@ class Target:
         return self.n_occurrences > 1
 
 
-# ── Occurrence resolution ─────────────────────────────────────────────────────
-
-
 def _narration_mask(draft: str) -> list[bool]:
     """True at offsets that are narration (outside quoted speech)."""
     mask = [True] * len(draft)
@@ -73,12 +44,7 @@ def _narration_mask(draft: str) -> list[bool]:
 
 
 def _occurrences(draft: str, span: str, mask: list[bool]) -> list[int]:
-    """Offsets of every occurrence of *span*, narration preferred.
-
-    Anti-echo is the exception to the narration rule — it flags the dialogue
-    itself — so when the narration filter leaves nothing, fall back to the raw
-    hits rather than losing the finding.
-    """
+    """Return occurrences of *span*, preferring narration."""
     raw: list[int] = []
     pos = draft.find(span)
     while pos >= 0:
@@ -88,15 +54,8 @@ def _occurrences(draft: str, span: str, mask: list[bool]) -> list[int]:
     return narration or raw
 
 
-# ── Finding enumeration ───────────────────────────────────────────────────────
-
-
 def _raw_findings(report: AuditReport, draft: str) -> list[tuple[str, str, str]]:
-    """``(span, category, reason)`` triples, one per finding the model can fix.
-
-    Repeated openers/templates keep their first sentence as the anchor and flag
-    the rest. Structural repetition has no span — the rewrite path owns it.
-    """
+    """Return ``(span, category, reason)`` triples for actionable findings."""
     raw: list[tuple[str, str, str]] = []
     for fs in report.cliche_result.flagged_sentences:
         phrases = ", ".join(f'"{h.phrase}"' for h in fs.cliches)
@@ -120,13 +79,6 @@ def _raw_findings(report: AuditReport, draft: str) -> list[tuple[str, str, str]]
             )
     if report.phrase_result:
         for fp in report.phrase_result.flagged_phrases:
-            # example_sentences is ordered by message index and the draft is the
-            # last message, so the draft's own copy sits at the end. Scan from
-            # there: both report renderings show `example_sentences[-1]`
-            # (audit.format_report, audit.report_to_dict), so a target resolved
-            # from an earlier message's sentence — which can happen when that
-            # sentence is also a substring of the draft — would leave the panel
-            # showing a finding whose id it cannot name.
             for s in reversed(fp.example_sentences):
                 if s in draft:
                     raw.append(
@@ -144,13 +96,7 @@ def _raw_findings(report: AuditReport, draft: str) -> list[tuple[str, str, str]]
 
 
 def _merge_overlapping(targets: list[Target], draft: str) -> list[Target]:
-    """Fold targets whose draft regions overlap into one, document-ordered.
-
-    Two ids naming overlapping text is both a correctness hazard (see the module
-    docstring) and a genuine ambiguity for the model, so the union region becomes
-    a single id carrying every reason. Regions that merely abut do not merge:
-    disjoint splices stay independent.
-    """
+    """Merge overlapping targets in document order."""
     merged: list[Target] = []
     for target in sorted(targets, key=lambda t: (t.start, -t.end)):
         prev = merged[-1] if merged else None
@@ -167,13 +113,7 @@ def _merge_overlapping(targets: list[Target], draft: str) -> list[Target]:
 
 
 def build_targets(report: AuditReport, draft: str) -> list[Target]:
-    """Resolve an audit report into id-addressable, document-ordered targets.
-
-    Findings whose span the detectors segmented differently from the draft (so
-    it cannot be located) are dropped — a report can therefore be non-clean and
-    still produce no targets, which is the caller's cue to rewrite rather than
-    patch. Structural repetition always lands there: it has no span at all.
-    """
+    """Resolve an audit report into ordered, id-addressable targets."""
     mask = _narration_mask(draft)
 
     # Group findings by marker-stripped span text, preserving discovery order.
@@ -189,9 +129,6 @@ def build_targets(report: AuditReport, draft: str) -> list[Target]:
         offsets = _occurrences(draft, span, mask)
         if not offsets:
             continue
-        # Distinct detector categories flagging this span describe the *same*
-        # location. Repeats of one category (the cliché detector emits one
-        # FlaggedSentence per occurrence) are what indicate several locations.
         per_cat: dict[str, int] = {}
         for cat, _ in entries:
             per_cat[cat] = per_cat.get(cat, 0) + 1
@@ -218,9 +155,6 @@ def build_targets(report: AuditReport, draft: str) -> list[Target]:
 
     resolved = _merge_overlapping(targets, draft)
 
-    # Duplicate labelling is derived from the ids that actually exist, not from
-    # how often the text occurs: a span the detector reported once but that
-    # appears twice gets one id, and the report must not promise a second.
     groups: dict[str, list[Target]] = {}
     for target in resolved:
         groups.setdefault(target.span, []).append(target)
@@ -235,34 +169,15 @@ def build_targets(report: AuditReport, draft: str) -> list[Target]:
 
 
 def target_ids_for(targets: Sequence[Target], snippet: str) -> list[int]:
-    """Ids whose region covers *snippet* — the bridge from a sectioned report
-    entry back to the ids the model was given for it.
-
-    A merged target covers more than the snippet that produced it, so
-    containment (not equality) is the test; a duplicated span answers with
-    every id that names a copy.
-    """
+    """Return ids whose target region contains *snippet*."""
     core = _strip_markers(snippet)
     if not core:
         return []
     return [t.tid for t in targets if core in t.span]
 
 
-# ── Report rendering ──────────────────────────────────────────────────────────
-
-
 def format_numbered_report(targets: Sequence[Target]) -> str:
-    """The id-anchored twin of :func:`audit.format_report`.
-
-    A flat, document-ordered list rather than per-category sections: the model
-    patches locations, not categories, and a sentence flagged by three scanners
-    is one entry with three reasons.
-
-    An empty list renders as the clean report, which is only true when the audit
-    genuinely found nothing. Callers holding a non-clean report with no targets
-    must render :func:`audit.format_report` and take the rewrite path instead —
-    see ``pipeline.passes.editor._build_editor_request``.
-    """
+    """Format numbered targets for the editor."""
     if not targets:
         return CLEAN_REPORT
     lines = ["*** WRITING AUDIT REPORT ***\n", "Numbered findings — patch each by its [id].\n"]

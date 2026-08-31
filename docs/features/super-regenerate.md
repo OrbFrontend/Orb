@@ -1,7 +1,8 @@
 # Super-regenerate
 
-Normal regens may give samey outputs on some models. Super-regenerate asks for a genuinely different take.
+Super-regenerate asks the Writer for a substantially different version of the
+active reply. The current reply is supplied as a draft so the model can avoid
+repeating its structure and wording.
 
-The active message is sent to the Writer as the draft so it knows what to avoid repeating.
-
-This is a somewhat complex task for LLMs so mileage may vary. Use this as last resort.
+Use it when a normal **Regenerate** keeps producing similar results. Different
+models respond to the request with different levels of variation.

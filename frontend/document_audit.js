@@ -1,32 +1,14 @@
-// Document-mode Output Auditor — the doc-tailored Workflow pane (config +
-// findings) and the /audit + /patch API calls. Panel UI and HTTP only: this
-// module never touches #doc-page. All editor-DOM mutation stays in document.js,
-// which injects its callbacks at init (initDocAudit(ctx), mirroring
-// initDocProbs) so no import cycle forms.
-//
-// Results are session-only state (like the probs run store): S.docAuditResults
-// holds the latest generated run {docId, runStart, draft, …} plus its report;
-// a new generation replaces it. Patching revalidates that the run text still
-// tiles the document before splicing — an edited run disables the buttons.
-
 import { api } from "./api.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { AUDIT_TYPE_DEFS, persistSettings, showPhraseBankModal } from "./settings.js";
 import { S } from "./state.js";
 import { $, esc, escAttr, toast } from "./utils.js";
 
-// Doc-applicable scanner subset — keys mirror backend DOC_AUDIT_TYPES. The
-// three chat-context scanners (anti_echo, phrase_repetition,
-// structural_repetition) are hidden in doc mode; the server never runs them.
 const DOC_AUDIT_KEYS = ["banned_phrases", "repetitive_openers", "repetitive_templates", "contrastive_negation"];
 const DOC_AUDIT_DEFS = AUDIT_TYPE_DEFS.filter((d) => DOC_AUDIT_KEYS.includes(d.key));
 
 let _ctx = null; // { getContent, applyPatchedRun } injected by document.js
 
-// Wire the header button once (from initDocumentMode). *ctx* = { getContent,
-// applyPatchedRun }: getContent() returns the current serialized document
-// string; applyPatchedRun(runStart, oldText, newText) splices the patched run
-// into the editor and returns whether it applied.
 export function initDocAudit(ctx) {
   _ctx = ctx;
   $("doc-workflow-btn")?.addEventListener("click", toggleDocWorkflowPanel);
@@ -39,16 +21,12 @@ function docAuditEnabled() {
 
 export function toggleDocWorkflowPanel() {
   if (isUtilityPanelOpen("tools-panel")) {
-    // Clear both possible opener buttons: the panel may have been opened from
-    // the chat header before a mode switch, leaving that button active.
     closeUtilityPanel("tools-panel", "tools-panel-btn");
     closeUtilityPanel("tools-panel", "doc-workflow-btn");
   } else {
     openUtilityPanel("tools-panel", "doc-workflow-btn", renderDocAuditPane);
   }
 }
-
-// ── Pane render ───────────────────────────────────────────────────────────────
 
 export function renderDocAuditPane() {
   const pane = $("tools-pane-doc");
@@ -90,7 +68,6 @@ export function renderDocAuditPane() {
     </div>
     <div id="doc-audit-results"></div>`;
 
-  // Wired here, not inline — the layer-check ratchet forbids new on*= handlers.
   $("doc-audit-enable-chk").addEventListener("change", async (e) => {
     await persistSettings({ document_audit_enabled: e.target.checked });
     renderDocAuditPane();
@@ -108,8 +85,6 @@ export function renderDocAuditPane() {
 
   renderDocAuditResults();
 }
-
-// ── Results render ────────────────────────────────────────────────────────────
 
 function statusText(r) {
   if (r.status === "auditing") return "Auditing…";
@@ -130,9 +105,6 @@ function statusText(r) {
 
 const _snippets = (list) => (list || []).map((s) => `<span class="doc-audit-snippet">• ${esc(s)}</span>`).join("");
 
-// The finding numbers /patch hands the model (report_to_dict `ids`). Showing
-// them here is what makes the panel and the patch call describe the same thing;
-// an entry with no ids has no patchable span and /patch will leave it alone.
 const _ids = (list) => ((list || []).length ? `<span class="doc-audit-id">[${(list || []).join(", ")}]</span> ` : "");
 
 function sectionItemsHtml(key, items) {
@@ -153,7 +125,6 @@ function sectionItemsHtml(key, items) {
       )
       .join("");
   }
-  // contrastive_negation
   return items.map((it) => `<div class="doc-audit-item">${_ids(it.ids)}${esc(it.sentence)}</div>`).join("");
 }
 
@@ -199,25 +170,16 @@ export function renderDocAuditResults() {
   $("doc-audit-patch-btn")?.addEventListener("click", runPatch);
 }
 
-// ── Run tracking + API flows ─────────────────────────────────────────────────
-
-// The stored run is trustworthy only while its text still tiles the document
-// at the recorded offset (mirrors the probs store's validate-on-use).
 function runIsCurrent(r) {
   if (!r || !_ctx || S.activeDocId !== r.docId) return false;
   const content = _ctx.getContent();
   return content.slice(r.runStart, r.runStart + r.draft.length) === r.draft;
 }
 
-// The FULL document text before the run — the exact generation prompt. The
-// patch call byte-extends it to reuse the server's KV cache, so no client-side
-// windowing here; the server owns the (cheap, CPU-side) scanner cap.
 function fullContext(r) {
   return _ctx.getContent().slice(0, r.runStart);
 }
 
-// Called by document.js after finalizeGeneration commits a run. Skips are the
-// caller's non-cases: stream error (never called), empty commit, audit off.
 export function onGenerationEnd({ docId, runStart, draft, truncated, assisted }) {
   if (!docId || !draft || !docAuditEnabled()) return;
   const run = {
@@ -303,15 +265,11 @@ export async function runPatch() {
     });
     if (S.docAuditResults !== r) return;
     if (res.patch_count > 0 && res.patched_draft !== r.draft) {
-      // applyPatchedRun revalidates against the live editor before splicing;
-      // tracking the new text keeps the run current for further actions.
       if (_ctx.applyPatchedRun(r.runStart, r.draft, res.patched_draft)) r.draft = res.patched_draft;
     }
     r.report = res.report_after;
     r.patchedCount = res.patch_count;
     r.errors = res.errors || [];
-    // Carried so the status line can say why nothing was patched; it also
-    // disables the button for the two skips that would just repeat themselves.
     r.skipped = res.skipped;
     r.status = "done";
     if (r.errors.length) toast(`${r.errors.length} patch(es) did not apply`, true);

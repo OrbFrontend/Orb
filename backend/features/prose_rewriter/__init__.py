@@ -1,20 +1,4 @@
-"""Local prose rewriter: a purpose-trained SLM that humanises LLM prose.
-
-Three GGUF checkpoints (``prose-rewriter-1.7b/4b-v1.2``) served by a supervised
-``llama-server`` child, one paragraph per request, decoded together. Ported from
-ProseRewriterWebUI — the prompt contract and the output repairs in ``text.py``
-are that project's, verbatim, because they are properties of the weights and the
-training corpus rather than settings.
-
-The Editor pass runs this BEFORE its audit, so Orb's scanners see and patch the
-rewritten prose rather than text that no longer exists.
-
-WHAT IS NOT HERE: the child process, the binary, and the model files. Those are
-``inference/local_models/``, shared with anything else that ever wants a local
-model. This slice is the part that is only ever about the rewriter — its
-prompt, its paragraph algorithm, its selection, and the tuning its launch
-profile is built from.
-"""
+"""Local prose rewriter configuration, service, and text helpers."""
 
 from __future__ import annotations
 

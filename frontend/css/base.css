@@ -1,19 +1,5 @@
-/* ═══════════════════════════════════════════
-   0. Reset & Base
-   ═══════════════════════════════════════════ */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
-/* Scrollbars, app-wide. The standard properties are the only ones that reach
-   both engines: `::-webkit-scrollbar` has never done anything in Firefox, and
-   Chromium ignores *every* ::-webkit-scrollbar rule on an element whose
-   `scrollbar-width`/`scrollbar-color` is non-`auto`. Themes used to declare
-   both on `*` themselves, which silently voided the per-panel webkit widths
-   living below them -- the sidebar's intended 4px hairline was rendering as a
-   full ~15px native bar, insetting the rows away from the pinned header.
-   Themes now hand over the three tokens and this is the single applier.
-   `*`, not `:root`, because `scrollbar-width` does not inherit. The webkit
-   blocks still scattered around the sheets are the fallback for Safari < 18.2,
-   which predates `scrollbar-width`; there, these declarations drop out. */
 * {
   scrollbar-width: var(--scrollbar-width, thin);
   scrollbar-color: var(--scrollbar-thumb, var(--border)) var(--scrollbar-track, transparent);
@@ -23,7 +9,7 @@ body {
   font-family: var(--font-ui);
   background: var(--bg-deep);
   color: var(--text-primary);
-  height: var(--app-height, 100vh); /* mobile.js shrinks --app-height when the keyboard opens */
+  height: var(--app-height, 100vh);
   overflow: hidden;
 }
 
@@ -31,20 +17,13 @@ body {
   display: flex;
   height: var(--app-height, 100vh);
   position: relative;
-  top: var(--app-offset, 0px); /* re-align with the visual viewport when the browser pans it (iOS) */
+  top: var(--app-offset, 0px);
 }
 
 .hidden { display: none !important; }
 
-/* `[hidden] { display: none }` lives in the UA sheet, so *any* author `display`
-   rule outranks it — `label{display:block}`, `.burger-menu-item{display:flex}`,
-   `#group-cast-rail{display:flex}` all silently kept their element on screen.
-   Every `el.hidden = …` in the app leans on this line. */
 [hidden] { display: none !important; }
 
-/* ═══════════════════════════════════════════
-   1. Layout Shell
-   ═══════════════════════════════════════════ */
 #sidebar {
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
@@ -104,11 +83,8 @@ body {
   border-left: 1px solid var(--border);
 }
 
-/* Suppress the slide animation when swapping between panels;
-   closing a panel entirely still animates. */
 #inspector.no-anim,
 #tools-panel.no-anim,
 #direction-notes-panel.no-anim {
   transition: none;
 }
-

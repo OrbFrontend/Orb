@@ -1,32 +1,4 @@
-"""Workflow subsystem package.
-
-Public surface re-exported from this module:
-  - ``Workflow``, ``Subscription``, ``HookType``, ``ToolNameCollision``,
-    ``WorkflowDeclarationError``, ``WorkflowMandateError``
-  - ``register_workflow``, ``subscribe``, ``iter_subscriptions``,
-    ``get_subscription``, ``workflow_has_hook``, ``list_workflows``,
-    ``get_workflow``, ``finalize_registry``
-  - ``ToolSpec``, ``PreCtx``, ``PostCtx``, ``OnDemandCtx``, ``RegenCtx``,
-    ``RerollGenCtx``
-  - per-workflow storage wrappers and ``overlay_enable_tools``
-
-Workflow authors should import day-to-day helpers from
-``backend.workflows.toolkit`` instead -- that module is the
-stable import surface for LLM client, prompt assembly, DB readers, and
-the forced-call helper. This module is the registration / typing
-surface.
-
-First-party workflows live under ``backend/workflows/`` and
-are wired in here above the ``finalize_registry()`` call at the bottom
-of this file: each workflow's metadata is registered via
-``register_workflow``, then each of its hooks is attached via
-``subscribe`` with a per-hook priority. Import-time ordering of those
-calls determines the registry's iteration order and the manifest order
-surfaced to the frontend. The final ``finalize_registry()`` call
-validates that every ``produces_artifacts=True`` workflow has both
-``REGENERATE`` and ``REROLL_GEN`` subscriptions; a violation raises
-``WorkflowMandateError`` at import time.
-"""
+"""Workflow contracts, registry, storage, and built-in workflow bindings."""
 
 from __future__ import annotations
 

@@ -1,6 +1,5 @@
 import { $ } from "./utils.js";
 
-// ── Crop modal state
 let _cs = null; // { img, scale, onConfirm, aspect, cx, cy, cw, ch, drag }
 
 document.addEventListener("keydown", (e) => {
@@ -16,19 +15,11 @@ document.addEventListener("keydown", (e) => {
   if ($("modal-root")?.innerHTML) closeModal();
 });
 
-/**
- * Is any modal layer on screen? Crop, sub-modal, or the main one.
- *
- * The same three roots the Escape handler above walks. Anything that also binds
- * Escape has to yield while one of these is up, or a single keypress is handled
- * twice: once by the modal, once by the surface underneath it.
- */
 export function isModalOpen() {
   return !!($("modal-crop-root")?.innerHTML || $("modal-sub-root")?.innerHTML || $("modal-root")?.innerHTML);
 }
 
 export function showModal(html) {
-  // A guard belongs to the modal that set it, and this call replaces that modal.
   _modalCloseGuard = null;
   $("modal-root").innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
        <div class="modal">${html}</div>
@@ -36,11 +27,6 @@ export function showModal(html) {
 }
 
 let _modalCloseCallback = null;
-// Asked before the modal goes away; returning false keeps it open. All three exits
-// -- the Close button, the overlay click above and the Escape handler -- funnel
-// through closeModal, so this is the one place a modal holding an unsaved draft can
-// intercept them, rather than three places it has to remember. Cleared on both open
-// and close, so a guard can never outlive the DOM it was guarding.
 let _modalCloseGuard = null;
 
 export function closeModal() {
@@ -96,25 +82,9 @@ export function runConfirmCb() {
   closeModal();
 }
 
-// Thin wrapper over showConfirmModal for the common "Delete <thing>?" dialog: a
-// titled confirm with the default red Delete button. Collapses the copy-pasted
-// `{ title: "Delete X", message, confirmText: "Delete" }` bodies scattered across
-// features. For a delete that needs extra body markup (a checkbox, a count note,
-// a linked-item list), call showConfirmModal directly.
 export function confirmDelete(label, message, onOk) {
   showConfirmModal({ title: `Delete ${label}`, message, confirmText: "Delete" }, onOk);
 }
-
-// ── Secondary modal layer (#modal-sub-root)
-// A single second overlay rendered above the main modal, so a sub-modal or a
-// yes/no confirmation opened from within a modal does not tear down its parent.
-// Use this — not showModal/showConfirmModal — for anything launched while
-// another modal must stay open underneath.
-//
-// This is a fixed depth-2 layer, NOT an arbitrary stack: it holds one modal at
-// a time. Opening a second sub-modal while one is already up replaces it, so do
-// not nest (e.g. a confirmation launched from within a sub-modal would destroy
-// that sub-modal). The guard below makes such misuse loud instead of silent.
 
 export function showSubModal(html) {
   const root = $("modal-sub-root");
@@ -149,12 +119,6 @@ export function runSubConfirmCb() {
   if (cb) cb();
   closeSubModal();
 }
-
-// ── Image crop modal
-// Opens a file picker; on selection shows a canvas crop editor in #modal-crop-root
-// (a separate overlay so it stacks above the character create/edit modal).
-// onConfirm receives { b64, mime } where the cropped image is 400×600 PNG (2:3 ratio,
-// matching the character card standard).
 
 export function showCropModal(onConfirm, aspect = 2 / 3) {
   const input = document.createElement("input");
@@ -193,7 +157,6 @@ function _openCropEditor(dataUrl, onConfirm, aspect) {
     canvas.width = Math.round(img.naturalWidth * scale);
     canvas.height = Math.round(img.naturalHeight * scale);
 
-    // Initial crop box: largest 2:3 portrait box that fits, centred
     let cw, ch;
     if (canvas.width <= canvas.height * aspect) {
       cw = Math.round(canvas.width * 0.85);
@@ -230,14 +193,12 @@ function _drawCrop(canvas) {
 
   ctx.drawImage(img, 0, 0, W, H);
 
-  // Dark vignette outside the crop box (four rectangles around it)
   ctx.fillStyle = "rgba(0,0,0,0.6)";
   ctx.fillRect(0, 0, W, cy);
   ctx.fillRect(0, cy + ch, W, H - cy - ch);
   ctx.fillRect(0, cy, cx, ch);
   ctx.fillRect(cx + cw, cy, W - cx - cw, ch);
 
-  // Rule-of-thirds lines
   ctx.strokeStyle = "rgba(255,255,255,0.25)";
   ctx.lineWidth = 0.5;
   for (let i = 1; i < 3; i++) {
@@ -253,12 +214,10 @@ function _drawCrop(canvas) {
     ctx.stroke();
   }
 
-  // Crop border
   ctx.strokeStyle = "rgba(255,255,255,0.9)";
   ctx.lineWidth = 1.5;
   ctx.strokeRect(cx + 0.75, cy + 0.75, cw - 1.5, ch - 1.5);
 
-  // Corner handles
   const hs = 8;
   ctx.fillStyle = "white";
   [
@@ -285,7 +244,6 @@ function _attachCropEvents(canvas) {
     const { cx, cy, cw, ch } = _cs;
     const hs = 14; // hit-test radius for corner handles
 
-    // Corner order: TL, TR, BL, BR — anchor = opposite corner
     const corners = [
       [cx, cy, cx + cw, cy + ch],
       [cx + cw, cy, cx, cy + ch],
@@ -316,18 +274,15 @@ function _attachCropEvents(canvas) {
       _cs.cx = Math.max(0, Math.min(W - _cs.cw, x - drag.ox));
       _cs.cy = Math.max(0, Math.min(H - _cs.ch, y - drag.oy));
     } else {
-      // Keep the anchor corner fixed; maintain aspect ratio from mouse distance
       const { ax, ay } = drag;
       const dx = Math.abs(x - ax);
       const dy = Math.abs(y - ay);
-      // Drive by whichever axis is more constrained
       let cw = Math.max(40, Math.min(dx, dy * A));
       let ch = Math.round(cw / A);
 
       let nx = x < ax ? ax - cw : ax;
       let ny = y < ay ? ay - ch : ay;
 
-      // Clamp to canvas bounds then re-enforce ratio
       nx = Math.max(0, nx);
       ny = Math.max(0, ny);
       cw = Math.min(cw, W - nx);
@@ -366,7 +321,6 @@ function _confirmCrop(_canvas) {
   const out = document.createElement("canvas");
   out.width = OUT_W;
   out.height = OUT_H;
-  // Map display-space crop back to image-space source region
   out.getContext("2d").drawImage(img, cx / scale, cy / scale, cw / scale, ch / scale, 0, 0, OUT_W, OUT_H);
   const b64 = out.toDataURL("image/png").split(",")[1];
   closeCropModal();

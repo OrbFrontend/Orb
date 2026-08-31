@@ -1,69 +1,61 @@
 # Features
 
-Orb's notable features, grouped by where they sit in the Director → Writer → Editor pipeline.
+Orb's optional features fall into four areas. The **Writer** creates a reply;
+the **Director** can prepare scene direction before it; the **Editor** can check
+and revise it afterward.
 
 ## Scenes
 
-| Feature | Summary |
+| Feature | Description |
 |---|---|
-| [Group Chats](group-chats.md) | Several characters in one scene: who replies, and what each of them is told |
+| [Group Chats](group-chats.md) | Put several characters in one scene and choose who replies. |
 
 ## Direction
 
-Pre-writer steering: the Director reads the scene and assembles the injection block.
-
-| Feature | Summary |
+| Feature | Description |
 |---|---|
-| [Scene Direction](director.md) | Prompt injection automatically used by the Director model |
-| [Lorebooks](lorebooks.md) | Keyword and constant lore injection — and how it differs from SillyTavern |
-| [Agentic Lorebook](agentic-lorebook.md) | Let the Director pick which lorebook entries to inject |
-| [Dynamic Worlds](dynamic-worlds.md) | Let the Agent propose new lore from what happens in play |
-| [Feedback Fragments](feedback-fragments.md) | Out-of-character notes from the model, just for you |
-| [Direction Notes](direction-notes.md) | Lasting notes the Director (or you) keep across a branch |
+| [Scene Direction](director.md) | Have the Director choose mood, pacing, and other scene details. |
+| [Lorebooks](lorebooks.md) | Add World entries to the prompt when they are relevant. |
+| [Agentic Lorebook](agentic-lorebook.md) | Let the Director choose relevant lorebook entries. |
+| [Dynamic Worlds](dynamic-worlds.md) | Review lore entries proposed from what happens in a conversation. |
+| [Feedback Fragments](feedback-fragments.md) | Receive out-of-character notes after a reply. |
+| [Direction Notes](direction-notes.md) | Keep selected story facts on the active conversation branch. |
 
-## Editing & Quality
+## Editing and quality
 
-Post-writer audits that catch and rewrite low-quality output.
-
-| Feature | Summary |
+| Feature | Description |
 |---|---|
-| [Anti-slop](anti-slop.md) | Remove overused words, phrases, and LLM-pattern boilerplate |
-| [Anti-repetition](anti-repetition.md) | Detect and rewrite repeated structure, openers, and phrasing |
-| [Length Guard](length-guard.md) | Active or passive protection against length degradation |
-| [Prose Rewriter](prose-rewriter.md) | A local SLM rewrites each paragraph's texture before the Editor audits it |
+| [Anti-slop](anti-slop.md) | Rewrite phrases and patterns you do not want in replies. |
+| [Anti-repetition](anti-repetition.md) | Detect repeated structures, openers, and phrases. |
+| [Length Guard](length-guard.md) | Limit reply length or rewrite replies that exceed the limit. |
+| [Prose Rewriter](prose-rewriter.md) | Use a local model to revise the texture of each paragraph. |
 
-## Writing Tools
+## Writing tools
 
-User-initiated regeneration and context controls.
-
-| Feature | Summary |
+| Feature | Description |
 |---|---|
-| [Macros](macros.md) | Placeholders for names, dice rolls, and random picks in any text |
-| [Super-regenerate](super-regenerate.md) | Ask for a different take instead of a samey regen |
-| [Magic Rewrite](magic-rewrite.md) | Rewrite a message in a user-defined direction |
-| [Compress History](compress-history.md) | Summarize chat context into a new conversation |
-| [Document Mode](document-mode.md) | Distraction-free editor for freeform writing, outside any character chat |
+| [Macros](macros.md) | Insert names, dice rolls, random choices, dates, and times. |
+| [Super-regenerate](super-regenerate.md) | Ask for a substantially different version of a reply. |
+| [Magic Rewrite](magic-rewrite.md) | Rewrite a message using your instructions. |
+| [Compress History](compress-history.md) | Summarize a conversation and continue in a new one. |
+| [Document Mode](document-mode.md) | Write and continue freeform text outside a character chat. |
 
-## App & Data
+## App and data
 
-Content, data management, and platform features.
-
-| Feature | Summary |
+| Feature | Description |
 |---|---|
-| [Card-Embedded Fragments](card-fragments.md) | Ship mood and interactive fragments inside a character card |
-| [Fetch Cards from Internet](fetch-cards.md) | Browse and import character cards from online repositories |
-| [Backups & Presets](backups-presets.md) | Snapshot, share, and restore your data |
-| [Persona Pinning](persona-pinning.md) | Lock a persona to a chat or character |
-| [Character Expressions](character-expressions.md) | Swap the avatar to match the mood of a reply |
-| [Homepage Stats](homepage-stats.md) | Usage dashboard on the home screen |
-| [Mobile Compatibility](mobile.md) | UI built for mobile devices |
-| [Text Completion Mode](text-completion.md) | Faster, more reliable llama.cpp native transport |
+| [Card-Embedded Fragments](card-fragments.md) | Include scene-direction fragments in a character card. |
+| [Fetch Cards from Internet](fetch-cards.md) | Browse supported card repositories and import cards. |
+| [Backups and Presets](backups-presets.md) | Back up, share, merge, and restore Orb data. |
+| [Persona Pinning](persona-pinning.md) | Keep a persona attached to a conversation or character. |
+| [Character Expressions](character-expressions.md) | Change a character avatar based on the reply's emotion. |
+| [Homepage Stats](homepage-stats.md) | View writing and usage totals on the home screen. |
+| [Mobile Compatibility](mobile.md) | Use Orb on a mobile-sized screen. |
+| [Text Completion Mode](text-completion.md) | Use llama.cpp's native completion API for supported endpoints. |
 
 ## Multimedia
 
-Pictures and speech built from a reply.
-
-| Feature | Summary |
+| Feature | Description |
 |---|---|
-| [Image Generation](../multimedia/image-generation.md) | Make images from assistant replies, on ComfyUI or a cloud API |
-| [Integrated TTS](../multimedia/tts.md) | Text-to-speech with multiple provider backends |
+| [Image Generation](../multimedia/image-generation.md) | Generate a scene image with ComfyUI or a cloud provider. |
+| [Text-to-Speech](../multimedia/tts.md) | Read character dialogue aloud. |

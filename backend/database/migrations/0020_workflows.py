@@ -1,30 +1,4 @@
-"""
-0020_workflows -- schema + data migration for the workflows
-feature.
-
-Carries a 0019 -> final-shape delta and runs correctly on two entry shapes:
-  - Fresh install: schema.py already creates the final shape, so every guarded
-    ADD/CREATE below no-ops and only the legacy-source ports + drops do work.
-  - Pre-workflow upgrade (existing main-shaped DB): the guarded ADDs fire and
-    real user data is ported.
-
-Legacy data ports (mandatory -- a real upgrade carries this data; skipping it
-would silently drop user attachments and TTS configuration):
-  - message_attachments rows -> user_attachments. Every pre-split row is a user
-    upload, so all rows copy. message_attachments is then dropped. It is kept in
-    schema.py's base schema because migration 0002 deletes from it on fresh
-    install before any table-creating migration runs; removing that base
-    definition crashes a fresh boot.
-  - settings.tts_enabled / tts_auto_speak / tts_volume columns and the
-    voice_profiles table -> settings.workflow_config["tts"] = {auto_play, volume}
-    plus, per voice profile, character_cards.workflow_state["tts"] (the
-    endpoint_id field is dropped -- no runtime consumer reads it). The legacy
-    columns and table are then dropped.
-
-Idempotent: every column ADD is PRAGMA-guarded, every table CREATE/DROP is
-existence-guarded, and the TTS port short-circuits once the legacy sources are
-gone, so a re-run (or a run on an already-final DB) is a no-op.
-"""
+"""Apply the workflow schema migration and port legacy data."""
 
 from __future__ import annotations
 
@@ -64,15 +38,7 @@ def _add_settings_columns(conn: sqlite3.Connection) -> None:
 
 
 def _split_attachments(conn: sqlite3.Connection) -> None:
-    """Split message_attachments into user_attachments + workflow_attachments.
-
-    message_attachments may carry a `source` column on a dev DB that was migrated
-    incrementally; when present, only rows with source 'user' (or NULL) are user
-    uploads and copy. On any DB entering at the 0019 boundary there is no `source`
-    column and every row is a user upload, so all rows copy. The `source in cols`
-    branch exists solely to handle the former case; `source` is not part of the
-    final schema and is never added here.
-    """
+    """Move legacy message attachments into user attachments."""
     tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
 
     if "user_attachments" not in tables:

@@ -220,29 +220,7 @@ async def add_message(
     writer_draft: str | None = None,
     advance_leaf: bool = False,
 ) -> tuple[int, list[dict]]:
-    """Add a message. Returns ``(message_id, rejected_workflow_atts)``.
-
-    The rejected list is populated when the workflow batch dropped atts
-    for rehydratability reasons (oversize without seed+generation_metadata);
-    the message and user atts still commit in that case. Callers are
-    expected to surface the rejection -- the orchestrator emits a
-    ``workflow_attachments_rejected`` SSE event on the assistant-persist
-    path.
-
-    Each attachment dict is one of two shapes, distinguished by an
-    in-memory 'source' routing key on the dict (not a persisted column
-    -- table identity carries provenance):
-
-    - User uploads (no 'source' or 'source' == 'user'): expects
-      'mime_type' (str), 'data_b64' (str), and optional 'filename' /
-      'size'. Lands in `user_attachments` via a direct INSERT inside
-      this function's transaction.
-    - Workflow artifacts ('source' starts with 'workflow:'): expects
-      'mime' (str), 'data' (bytes), 'filename' (str), 'workflow_id'
-      (str), plus optional 'parent_attachment_id', 'annotation',
-      'seed', and 'generation_metadata'. Lands in `workflow_attachments`
-      through the cache module's batch entry point.
-    """
+    """Insert a message and return its id and rejected attachments."""
     # workflow atts are materialized into a fresh list[dict] the cache writer
     # owns and mutates (it tags rejects with a 'reason' and shallow-copies); the
     # read-only user atts stay as the caller's mappings.
@@ -440,25 +418,7 @@ async def get_workflow_message_state(message_id: int, workflow_id: str) -> dict 
 
 
 async def set_workflow_message_state(message_id: int, workflow_id: str, payload: dict | None) -> None:
-    """Atomic per-slot write via SQLite JSON1.
-
-    payload=None removes the slot. Empty dict stores {}. No-op if message
-    missing (UPDATE matches zero rows).
-
-    The slot id "macros" is reserved: it carries a greeting's raw inline-macro
-    template (``{"template": ...}``) for ``reroll_unfrozen_greetings``, not a
-    registered workflow's state. Don't register a workflow under that id.
-
-    Read-modify-write callers must hold
-    ``backend.core.locks.workflow_state_lock(conversation_id, workflow_id)`` (the
-    message's owning conversation) across the read-then-write the payload was
-    computed from, or a concurrent caller can clobber the read between read
-    and write. Acquisition sites: ``backend.api.routes.workflows.api_trigger_workflow`` and
-    the pre/post pipeline hook loops in ``backend.pipeline.workflow_bridge``. The blind
-    first write from ``_persist_result`` to a just-minted assistant message
-    is exempt: that row is not yet the active leaf and no other caller can
-    name its id, so there is nothing to serialize against.
-    """
+    """Update one workflow attachment state atomically."""
     async with get_db() as db:
         if payload is None:
             await db.execute(

@@ -1,11 +1,4 @@
-"""Presets slice — DB-facing preset library + snapshot/restore maintenance.
-
-Depends only downward on ``database/``. ``engine`` holds the logic; this facade
-re-exports the public API. Consumers that reach private internals (the schema
-model, ``_library_path``, ``_merge``, …) import ``features.presets.engine``
-directly — ``database/bootstrap.py`` needs only ``schema_safety_problems`` and
-uses this facade.
-"""
+"""Preset library and snapshot/restore helpers."""
 
 from __future__ import annotations
 

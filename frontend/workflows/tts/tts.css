@@ -1,11 +1,4 @@
-/* TTS workflow appearance. Loaded via a <link> injected by index.js so the
-   workflow ships its own styling without editing the core stylesheet. All
-   colors, radii, and fonts come from the active Orb theme's CSS variables, so
-   the widget tracks every theme. The playback widget reads as a voice-memo
-   pill: a round play/pause control and an accent waveform that ripples while
-   the clip plays. */
 
-/* ---- attachment playback widget ---- */
 
 .tts-clip {
   flex: 1 1 auto;
@@ -50,7 +43,6 @@
   display: block;
 }
 
-/* Play by default; swap to pause only while this clip is the playing one. */
 .tts-toggle .tts-ic-pause {
   display: none;
 }
@@ -86,8 +78,6 @@
   transition: opacity 0.2s ease;
 }
 
-/* Negative per-bar delay desynchronizes the bars so the wave travels rather
-   than pulsing in lockstep. */
 .tts-clip.is-playing .tts-bar {
   opacity: 0.85;
   animation: tts-wave 0.95s ease-in-out infinite;
@@ -115,7 +105,6 @@
   gap: 4px;
 }
 
-/* Toolbar "generate speech" button: matches the message toolbar's icon buttons. */
 .tts-create-btn {
   display: inline-flex;
   align-items: center;
@@ -137,7 +126,6 @@
   cursor: default;
 }
 
-/* ---- config panel (Tools "Secondary" tab) ---- */
 
 .tts-config {
   display: flex;

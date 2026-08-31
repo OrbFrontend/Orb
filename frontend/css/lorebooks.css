@@ -1,8 +1,4 @@
-/* ═══════════════════════════════════════════
-   Worlds & Lorebook
-   ═══════════════════════════════════════════ */
 
-/* ── Sidebar world items */
 .world-item {
   display: flex;
   align-items: center;
@@ -56,7 +52,6 @@
   text-overflow: ellipsis;
 }
 
-/* ── Sidebar world search + overflow hint */
 .worlds-search {
   width: 100%;
   box-sizing: border-box;
@@ -94,7 +89,6 @@
 
 .worlds-more:hover { background: var(--bg-hover); color: var(--text-primary); }
 
-/* ── Lorebook drawer — full overlay on #main */
 #main { position: relative; }
 
 #lorebook-drawer {
@@ -140,7 +134,6 @@
   overflow: hidden;
 }
 
-/* ── Entry list panel */
 .lb-entry-list {
   width: 300px;
   min-width: 300px;
@@ -170,8 +163,6 @@
   text-overflow: ellipsis;
 }
 
-/* The world header's tally. Never shrinks: a counter cut to "…" is worse than
-   no counter, and the name beside it is the thing that should give way. */
 .lb-active-count {
   font-size: 10px;
   color: var(--text-muted);
@@ -223,7 +214,6 @@
   padding: 4px 6px;
 }
 
-/* Safari < 18.2 fallback; every other engine takes base.css's standard props. */
 .lb-entries-scroll::-webkit-scrollbar { width: 4px; }
 .lb-entries-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
@@ -274,7 +264,6 @@
   flex-shrink: 0;
 }
 
-/* ── Editor panel */
 .lb-editor {
   flex: 1;
   display: flex;
@@ -308,7 +297,6 @@
   flex-shrink: 0;
 }
 
-/* Back-to-list button is a mobile-only affordance (master/detail nav). */
 .lb-back-btn {
   display: none;
   font-size: 18px;
@@ -375,7 +363,6 @@
   margin-bottom: 6px;
 }
 
-/* ── Keywords section */
 .lb-editor-keywords {
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
@@ -481,7 +468,6 @@
   opacity: 0.5;
 }
 
-/* ── Content section */
 .lb-editor-content {
   flex: 1;
   padding: 10px 16px;
@@ -506,7 +492,6 @@
 }
 .lb-content-textarea:focus { border-color: var(--accent-dim); }
 
-/* ── Actions bar */
 .lb-editor-actions {
   display: flex;
   align-items: center;
@@ -517,15 +502,7 @@
 }
 
 
-/* ══ Dynamic Worlds ═══════════════════════════════════════════════════════════
-   Two surfaces share these rules: the proposal card under a chat reply, and the
-   drawer's Pending / History lists. Both render the same operation rows, so a
-   change reads identically wherever it is reviewed. */
 
-/* ── Drawer: the per-world Dynamic switch + reset.
-   Label at the column's text margin, switch on its right rail — the same shape
-   as every entry row below and the world header above. Leading with the switch
-   pushed this one label 40px in from every other line in the column. */
 .lb-dynamic-row {
   display: flex;
   align-items: center;
@@ -545,7 +522,6 @@
 }
 .lb-reset-btn { flex-shrink: 0; }
 
-/* ── Layer marks. An Agent-managed entry must never read as one the user wrote. */
 .lb-layer {
   font-size: 9px;
   letter-spacing: .06em;
@@ -566,7 +542,6 @@
   padding: 6px 16px;
 }
 
-/* ── Drawer tabs (Entry / Pending / History) */
 .lb-tabs {
   display: flex;
   gap: 2px;
@@ -591,8 +566,6 @@
   color: var(--text-primary);
   border-bottom-color: var(--accent);
 }
-/* The awaiting-review count, on the drawer tab and on the sidebar row. One rule:
-   the same number in two places must not read as two different things. */
 .lb-tab-badge,
 .world-pending {
   background: var(--accent);
@@ -607,7 +580,6 @@
   flex-shrink: 0;
 }
 
-/* ── Proposal card + changeset rows */
 .wc-list {
   flex: 1;
   overflow-y: auto;
@@ -624,8 +596,6 @@
   padding: 8px 10px;
   font-size: 12px;
 }
-/* A stale proposal is not an error: it just needs judging again, so it steps
-   back to a neutral edge rather than shouting in red. */
 .wc-card.wc-stale { border-color: var(--border); }
 
 .wc-head {
@@ -642,8 +612,6 @@
   flex-shrink: 0;
 }
 .wc-stale .wc-badge { color: var(--text-muted); }
-/* Which lorebook this card is about — only rendered when a turn could have
-   proposed to more than one, so it reads as a label rather than a heading. */
 .wc-world {
   font-size: 10px;
   color: var(--text-secondary);
@@ -732,7 +700,6 @@
 }
 .wc-row-actions { margin-top: 0; }
 
-/* ── Edit-before-apply modal */
 .wc-edit-ops {
   max-height: 50vh;
   overflow-y: auto;

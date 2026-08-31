@@ -1,33 +1,4 @@
-"""
-slop_detector.py — Detect overused LLM phrases against a user-defined phrase bank.
-
-A phrase bank is a list of groups. Each group is one of two kinds:
-
-- literal — a set of equivalent variant phrases. Short variants (up to 3 tokens)
-  match by exact substring (comma-insensitive); longer variants (4+ tokens)
-  match by trigram containment scoring.
-- regex — a single regular expression checked against each segment
-  (case-insensitive). The matched text is reported verbatim. A match is always
-  scoped to a single segment — if a greedy pattern would bridge a sentence
-  boundary (e.g. via .*), it's rejected, so the reported phrase is never
-  multi-sentence.
-
-Matching runs per *segment*, not per grammatical sentence: dialogue, emphasis,
-and narration are separated first (split_segment_sentences), so a hit in the
-attribution tail of a dialogue line flags only the narration fragment — the
-quoted speech never appears in the report.
-
-Groups are accepted in three shapes (the bare list is the legacy literal form,
-kept for backward compatibility):
-
-    [                                     # phrase bank
-        ["a mix of", "a mixture of"],     # legacy literal group (list of str)
-        {"kind": "literal", "variants": ["tension in the air"]},
-        {"kind": "regex", "pattern": r"the air (is|was) (thick|heavy|charged)"},
-    ]
-
-    result = detect_cliches(text, phrase_bank)
-"""
+"""Detect overused phrases against the configured phrase bank."""
 
 from __future__ import annotations
 
@@ -67,8 +38,6 @@ class DetectionResult:
     flagged_count: int
 
 
-# slop_detector keeps its own tokenizer (case- and punctuation-sensitive phrase
-# matching), but n-gram extraction is a pure sequence op shared via lexical.
 def _tokenize(text: str) -> list[str]:
     return re.findall(r"[a-z0-9]+(?:'[a-z]+)?", text.lower())
 
@@ -85,9 +54,6 @@ def _containment(phrase_grams: set, window_grams: set) -> float:
     return len(phrase_grams & window_grams) / len(phrase_grams)
 
 
-# Dialogue is kept (cliché matching must see text inside quotes) but segmented
-# apart from narration, so a flagged snippet never drags quoted speech into the
-# audit report when the offending phrase sits in the attribution tail.
 _split_sentences = split_segment_sentences
 
 
@@ -114,12 +80,7 @@ def _group_pattern(group: PhraseGroup) -> str:
 
 
 def _compile_phrase_bank(phrase_bank: list[PhraseGroup]) -> list[tuple]:
-    """Normalize and pre-compile all phrase bank groups.
-
-    Returns a list of ('literal', variants) or ('regex', compiled_pattern) tuples.
-    Invalid regex patterns are silently skipped so a single bad entry can never
-    abort the whole audit — the UI validates patterns before saving them.
-    """
+    """Normalize and compile phrase-bank groups."""
     compiled: list[tuple] = []
     for group in phrase_bank:
         if _group_kind(group) == "regex":
@@ -138,11 +99,7 @@ def _compile_phrase_bank(phrase_bank: list[PhraseGroup]) -> list[tuple]:
 
 
 def _match_regex_group(rx: re.Pattern, sentence: str) -> ClicheHit | None:
-    """Search one sentence with a compiled regex; return the matched text as a hit.
-
-    Matching is scoped by the canonical sentence scanner before this function,
-    so a greedy expression cannot cross a real sentence boundary.
-    """
+    """Return a regex hit in one sentence, if present."""
     m = rx.search(sentence)
     if not m:
         return None
@@ -177,7 +134,6 @@ def _match_sentence(
         for variant in variant_group:
             var_tokens = _tokenize(variant)
 
-            # --- Short phrases: exact match (comma-insensitive) ---
             if len(var_tokens) <= _EXACT_MATCH_MAX_LEN:
                 if len(var_tokens) == 1:
                     # Single word: word-boundary check to avoid substrings
@@ -193,7 +149,6 @@ def _match_sentence(
                         best = ClicheHit(phrase=variant, score=1.0)
                 continue
 
-            # --- Longer phrases: trigram containment ---
             var_grams = _gram_set(var_tokens, _N)
             if not var_grams:
                 continue
@@ -217,11 +172,7 @@ def _match_sentence(
 
 
 def _deduplicate_hits(hits: list[ClicheHit]) -> list[ClicheHit]:
-    """Drop hits whose words substantially overlap with a higher-scored hit.
-
-    Prevents trigram-sharing variants (e.g. "tension in the air" and "hanging
-    in the air") from both firing when only one of them is present in the text.
-    """
+    """Drop lower-scored hits that substantially overlap a better hit."""
     if len(hits) <= 1:
         return hits
     kept: list[ClicheHit] = []

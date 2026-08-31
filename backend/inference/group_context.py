@@ -1,60 +1,4 @@
-"""
-group_context.py — The group character-context projection.
-
-One module decides which character fields each :data:`GroupContextMode` puts
-into the shared, cached system body and which stay in the speaker's trailing
-Writer message. :func:`build_prefix`, ``build_writer_content`` and the
-context-size estimator all read the answer from here, so no pass can decide
-card visibility on its own.
-
-The three modes, and what each one puts in the shared body:
-
-``private`` (default)
-    The ordered public cast -- confirmed ``public_profile`` material only. A
-    card's own description, personality and examples reach only that member's
-    own Writer/Editor call. This is the historical group behaviour.
-``shared``
-    A labelled identity dossier per active member: description + personality,
-    and examples. Nothing curated sits on top of that -- every member already
-    reads every other member's card, so a second, hand-written view of the same
-    member would only restate it. Every speaker reads the whole cast, so the
-    active speaker's identity fields move *out* of the trailing message --
-    nothing is repeated after history.
-``swap``
-    The same ordered public cast, plus the active speaker's identity fields in
-    the conventional single-character layout. The public block is written
-    without reference to the speaker, so it is byte-identical to the neutral
-    base and each speaker's body merely extends it (see
-    :func:`prefix_is_speaker_scoped`).
-
-``private`` and ``swap`` therefore project the *same information* and differ
-only in where the speaker's own card sits: after history in the trailing Writer
-message, or before it in the cached body. That is a caching decision, not a
-visibility one -- both hide every other member's card behind its public profile,
-and only ``shared`` opens the cards up. Keeping one renderer
-(:func:`_render_public_cast`) for both is what holds that equivalence true: a
-second, swap-shaped cast projection would drift from the mode it is supposed to
-mirror.
-
-Two rules hold in every mode and are deliberately not configurable:
-
-* A card's ``system_prompt`` is ignored and its ``scenario`` is never read. A
-  group has exactly one premise (``conversations.character_scenario``);
-  merging N card scenarios would create N competing ones. Swap therefore means
-  identity-field substitution, not control-instruction substitution.
-* A *card's* ``post_history_instructions`` is a directive, not a shared fact.
-  Merging several of them produces contradictory control instructions, so a
-  card's stays active-only in the trailing message -- still honouring
-  ``prevent_prompt_overrides``. The *scene's* own directive
-  (``conversations.post_history_instructions``) has no such conflict: there is
-  exactly one, it is the same for every speaker, and ``build_prefix`` puts it in
-  the shared cached body where a solo chat already carries it.
-
-Within a mode the rendered bytes are stable while the active roster and its
-cards are: canonical ``sort_order, id`` order, fixed headings, and macros
-resolved through the conversation seed. Changing the mode is intentionally a
-cache miss on the next request.
-"""
+"""Build the character context for group conversations."""
 
 from __future__ import annotations
 
@@ -124,19 +68,7 @@ def roster_names(cast: TurnCast) -> str:
 
 
 def macro_identity(conv: Mapping[str, Any], cast: TurnCast) -> tuple[str, str]:
-    """``({{char}}, {{cast}})`` for one conversation.
-
-    A group is a *scene*, not a character: ``{{char}}`` is its title (read live,
-    so a rename lands immediately, unlike ``character_name``, which keeps the
-    name the group was founded under) and ``{{cast}}`` is the roster. A solo
-    chat keeps its character and leaves ``{{cast}}`` empty.
-
-    The turn prefix, the size estimator, the summarizer and the off-turn
-    workflow prefix all resolve macros against the same two strings, so the one
-    answer lives here beside the projection that renders them. Callers that
-    want a display fallback (``"Character"``) apply it to the first value; this
-    returns what the row actually holds.
-    """
+    """Return identity macros for one conversation."""
     if not cast.grouped:
         return str(conv.get("character_name") or ""), ""
     return str(conv.get("title") or ""), roster_names(cast)
@@ -165,19 +97,7 @@ def _examples_block(text: str, heading: str) -> str:
 
 
 def _render_public_cast(cast: TurnCast, macros: Macros | None, roster: str) -> str:
-    """One heading per member, confirmed public profile only -- Private *and* Swap.
-
-    Ignores ``cast.speaker`` entirely, which is what lets Swap put this block in
-    the system prompt ahead of the active card: every speaker in an exchange,
-    and the Director before a speaker exists, renders these same bytes.
-
-    A member with no profile still gets its heading. That is the names-only
-    floor the cast list used to provide on its own -- every active member is
-    named, whether or not anyone wrote a profile for it.
-
-    Stays on group-title macro scoping -- a public profile is scene-facing
-    framing written about the character, not the card text speaking as it.
-    """
+    """Render confirmed public profiles for the cast."""
     resolve = _resolver(macros._replace(cast=roster) if macros else None)
     parts = [f"\n\n{CAST_HEADING}"]
     for member in cast.members:
@@ -188,20 +108,7 @@ def _render_public_cast(cast: TurnCast, macros: Macros | None, roster: str) -> s
 
 
 def render_dossier(member: CastMember, macros: Macros | None, roster: str) -> str:
-    """One member's identity dossier -- card text only -- or ``""`` when empty.
-
-    No curated profile is layered on top -- this is the one mode that drops it,
-    for the reason :func:`carries_public_cast` gives: every member already reads
-    every other member's card here, so a hand-written public profile would be a
-    second view of the same member, and it renders as a label on labels
-    (``Public profile: Appearance: …``).
-
-    A member with no card text therefore contributes no dossier and rides the
-    cast list as a name -- the same floor a bare narrator already gets. An empty
-    ``## Character dossier: …`` heading would be wasted prefix; the name still
-    reaches the model through the cast list, ``{{cast}}`` and the speaker labels
-    on history.
-    """
+    """Render one member's identity dossier."""
     resolve = _resolver(member_macros(macros, member, roster))
     body = []
     if member.private_sheet:

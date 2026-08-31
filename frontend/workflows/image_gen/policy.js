@@ -9,17 +9,9 @@ export function isLoopbackUrl(apiUrl) {
   return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1";
 }
 
-// What an acknowledged reference-image disclosure covers. Bumped only when the set of
-// bytes that can leave the machine **grows**, because consent is stored per key and a
-// stale "acknowledged" would silently cover an upload the user never read about.
-//
-// Deliberately still `v2` now that a render sends one likeness instead of the whole
-// cast: the set shrank, so every stored v2 acknowledgement already covers strictly more
-// than can now happen. Bumping would re-ask the entire installed base to consent to less.
+// Bump this only when a render can upload more image data.
 const IMAGE_DISCLOSURE_VERSION = "-images-v2";
 
-// The clause naming every likeness a reference can reach. One sentence for both
-// backends so neither can drift into under-describing what it uploads.
 const SENDS_IMAGES =
   "A reference image is turned on, so images from your conversations are uploaded there too — " +
   "the character reference photo or card art for the character each picture is of, or the previous " +
@@ -97,11 +89,6 @@ function stylesOn(config = {}, id) {
   return styles.filter((style) => styleConnectionId(style, config) === id);
 }
 
-// *pending* is any iterable of connection ids the user has added but not yet
-// filled in — the panel holds a Set, and asking a Set for `includes` throws
-// rather than answering false, which took the whole settings modal down as soon
-// as a configured-but-empty provider entry existed. Membership is this
-// function's question, so it owns the shape it is asked in.
 export function connectionList(config = {}, providers = [], pending = []) {
   const pendingIds = new Set(pending);
   const entries = config.cloud?.providers || {};
@@ -151,51 +138,26 @@ export function findConnection(connections, id) {
   return connections.find((c) => c.id === id) || null;
 }
 
-// The most images one render will ever carry: the ceiling on a cloud provider's
-// reference array, and the most image inputs Orb tracks on an imported graph.
 export const MAX_REFERENCE_SLOTS = 4;
 
-// The image slots one imported graph declares, as normalization stored them. A graph
-// that loads no image has no `references` key at all.
 export function graphReferenceSlots(graphs, workflowId) {
   const declared = (graphs || []).find((g) => g.id === workflowId)?.slots?.references;
   return Array.isArray(declared) ? declared.slice(0, MAX_REFERENCE_SLOTS) : [];
 }
 
-// How many reference images one cloud provider's wire dialect can carry. Derived
-// server-side from the reference encoding (`providers.reference_capacity`) rather than
-// hand-measured per provider, so there is no table here to fall behind. An unknown
-// provider is one, which is the safe floor rather than a claim.
 export function maxCloudReferences(preset) {
   const declared = Number(preset?.max_references);
   return Number.isFinite(declared) && declared >= 1 ? Math.min(declared, MAX_REFERENCE_SLOTS) : 1;
 }
 
-// Whether this style will actually send a picture to this target, which is never
-// simply whether it stores a source: a style keeps one answer across a relink, and the
-// target on the other side may have nowhere to put a reference — a provider whose
-// dialect has no field for one, a workflow with no image inputs, or no workflow at
-// all. Anything reading the stored source to decide what leaves the machine would ask
-// the user to approve an upload no adapter makes.
 export function sendsReference(style, { graphs = [], source = "", preset = null } = {}) {
   if (!style?.reference_source) return false;
   return source === "cloud" ? providerTakesReferences(preset) : graphReferenceSlots(graphs, style?.workflow).length > 0;
 }
 
-// ── resolution ───────────────────────────────────────────────────────────────
-// The fallback menu, offered to a cloud provider that publishes no size vocabulary
-// of its own. Its two 16:9-ish rows are why it is not shared with ComfyUI: 1820 is
-// not a multiple of 8, and a latent is the request divided by eight.
 export const CLOUD_SIZES = ["1024x1024", "1024x1536", "1536x1024", "1024x1820", "1820x1024"];
-// Multiples of 64, the grid the checkpoints Orb can drive are trained on -- SD 1.5
-// at 512, SDXL at 1024 and its native portrait/landscape pair. A ComfyUI style is
-// not limited to these: the backend takes any edge from 64 to 4096, which is why an
-// off-menu size already stored is kept rather than snapped to one of these.
 export const COMFY_SIZES = ["512x512", "768x768", "1024x1024", "832x1216", "1216x832", "1024x1536", "1536x1024"];
 
-// Every edge on the provider's own pixel grid. `width_height` is the only mode that
-// has one, and it is a hard contract rather than a rounding preference -- Together
-// 400s on a non-multiple of 16.
 function fitsGrid(preset, value) {
   const step = preset.dimension_step || 1;
   const low = preset.min_dimension || step;
@@ -206,13 +168,6 @@ function fitsGrid(preset, value) {
     .every((edge) => edge >= low && (!high || edge <= high) && edge % step === 0);
 }
 
-/** Whether this exact pair reaches the renderer intact.
- *
- * A menu provider snaps to its own list and a `width_height` one to its grid, both
- * server-side and both disclosed only after the render is paid for. ComfyUI, an
- * `aspect_ratio` provider (where nothing but the ratio is ever sent) and a `size`
- * provider that declares no menu all take what they are given.
- */
 export function sizeIsExact(preset, comfy, value) {
   if (comfy) return true;
   const declared = preset?.sizes || [];
@@ -221,15 +176,6 @@ export function sizeIsExact(preset, comfy, value) {
   return true;
 }
 
-/** What the resolution picker may offer for this target.
- *
- * A provider that names its own sizes gets exactly those: offering it anything else
- * is offering a row that renders as something its label does not say -- which is the
- * whole failure `size_for`'s disclosure exists to report afterwards, by which point
- * the bill has landed. The declared list is used verbatim rather than intersected
- * with `CLOUD_SIZES`, so a provider whose menu shares nothing with Orb's is still
- * fully offered instead of reduced to nothing.
- */
 export function sizeChoices(preset, comfy) {
   if (comfy) return COMFY_SIZES;
   const declared = Array.isArray(preset?.sizes) ? preset.sizes : [];
@@ -238,12 +184,6 @@ export function sizeChoices(preset, comfy) {
   return CLOUD_SIZES;
 }
 
-// Whether this provider has a reference field at all. Deliberately not asked of the
-// *model*: that was a hand-kept allowlist over catalogues of hundreds of models, so it
-// was always behind, and being behind was invisible -- the panel hid the control, and
-// the user never learned the capability existed. A model that will not take a
-// reference now refuses at render time, for free, and the render degrades one rung and
-// says so.
 export function providerTakesReferences(preset) {
   return Boolean(preset?.supports_references);
 }
@@ -259,11 +199,6 @@ export function pendingDisclosures(config = {}, connections = []) {
       apiUrl: external.api_url || "",
       providerId: connection.id,
       providerLabel: connection.label,
-      // One rule for both backends now that a style owns its reference source. The
-      // ComfyUI half used to ask whether *any* imported graph mapped a slot, which
-      // over-asked for a server no style pointed a reference at and — worse — went on
-      // asking after every style had turned them off. What the adapter will send is the
-      // question, not what the style stores.
       sendsImages: linked.some((style) =>
         sendsReference(style, {
           graphs: external.user_graphs,

@@ -10,7 +10,6 @@
   --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
 }
 
-/* Scrollbars */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
@@ -21,6 +20,5 @@
   --scrollbar-track: transparent;
 }
 
-/* Kill default textarea chrome */
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }

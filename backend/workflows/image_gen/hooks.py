@@ -233,28 +233,7 @@ def _consumption(
 
 
 def _referenced_subjects(subjects: Sequence[Subject], references: Sequence[ResolvedReference]) -> list[tuple[int, str]]:
-    """Which subject each sent image is of, as `(position, name)` pairs.
-
-    *position* is the reference's own 1-based index in the array the request carries --
-    **not** its index among the ones that named somebody. That distinction is the whole
-    contract: a provider handed an array is told nothing about which element is which,
-    so these numbers are the only attribution there is, and a render whose first slot is
-    the previous chat image must not tell the model that image 1 is Alice. A position
-    nobody can be named for is simply absent, which leaves a gap in the numbering rather
-    than a lie in it.
-
-    Matched on the reference's `character:<card id>` origin, the only thing that
-    survives both backends and both sources: a `cast` slot and a `character` slot
-    record the same shape, and a `previous` slot records none, so a chat image
-    correctly names nobody.
-
-    Repeats are kept rather than collapsed. Two `character` rows really do send one
-    person's likeness twice, and once the position is carried, saying so twice is
-    accurate -- where naming that card once would leave an element of the array
-    unattributed. Two members can also share a display name while holding different
-    cards; `subjects.resolve` has already made those names distinct, and the card is
-    what identifies a likeness either way.
-    """
+    """Return the subjects represented by sent images."""
     by_card = {subject.card_id: subject.name for subject in subjects if subject.card_id and subject.name}
     return [
         (position, name)
@@ -266,19 +245,7 @@ def _referenced_subjects(subjects: Sequence[Subject], references: Sequence[Resol
 
 
 def _referenced_cards(sent: Sequence[Mapping[str, Any]]) -> set[str]:
-    """The cards a likeness actually went out for, by `character:<card id>` origin.
-
-    The same match `_referenced_subjects` makes, as a set: that one answers "in what
-    order did the images travel" and this one answers "did this person's travel at
-    all", and only the second can be asked of somebody who got no slot.
-
-    Read off the render's **own record** of what it posted -- `backend_info["references"]`,
-    which both adapters build from the request they actually sent -- rather than off what
-    `resolve_references` produced. The refusal ladder (`engine/degrade.py`) may trim the
-    array between the two, and it drops from the end: exactly the cast members this
-    disclosure exists to name. Asking the resolved list made the note go silent in the
-    one case it was written for.
-    """
+    """Return the cards represented by sent likenesses."""
     return {
         card
         for entry in sent
@@ -305,30 +272,7 @@ def _uncovered_note(
     declared: int,
     capacity: int,
 ) -> str:
-    """What a scene holding more people than reference slots is disclosed as, or "".
-
-    *sent* is what the render **posted**, as the backend recorded it, not what
-    `resolve_references` resolved. Those differ whenever the refusal ladder degraded a
-    render, and the ladder drops from the end -- so reading the resolved list here
-    reported full coverage in precisely the case with the largest uncovered cast. See
-    `_referenced_cards`.
-
-    Only a **mixed** render says anything: somebody was pictured and somebody was
-    not. That is the case that reads as a bug rather than a setting -- one member
-    comes back looking like their card and the next comes back a stranger, with
-    nothing on screen to say why. A render where nobody was pictured is already
-    `_unfilled_note`'s to describe, or is a style pointed at the chat image on
-    purpose, and saying it twice teaches users to skip both.
-
-    Read off `addressable`, not the full cast: a member the analyzer left out of
-    frame contributes nothing to the prompt either, so naming them would report a
-    loss this render did not take. A subject with no card can never fill a slot --
-    a narrator member, or one whose card was deleted -- so it was never denied one.
-
-    The two phrasings are the two remedies. Below capacity is the style's own doing
-    and the user can switch another row on; at capacity is the backend's ceiling,
-    and the only move is a different provider, model or workflow.
-    """
+    """Describe subjects that exceed the available reference slots."""
     covered = _referenced_cards(sent)
     in_frame = [subject for subject in addressable if subject.card_id and subject.name]
     uncovered = [subject.name for subject in in_frame if subject.card_id not in covered]

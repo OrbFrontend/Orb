@@ -1,17 +1,3 @@
-// On-screen transport for the workflow audio engine: a channel selector plus one
-// shared control surface (play/pause, repeat, draggable seek, time readout,
-// volume, stop) bound to the selected channel. The bar floats just above the
-// composer, anchored inside #chat-input-area and out of the message flow so
-// #chat-messages keeps its full height and scrollbar; the chat re-render rebuilds
-// only #chat-messages's contents, so the bar survives it.
-//
-// The engine owns playback truth; this module renders it and forwards control
-// gestures back as engine calls. It repaints when the engine invokes the
-// registered change hook and animates the selected channel off channelState while
-// audio plays. It does not use the author-facing onChannel bus: that hook is
-// per-channel, so it cannot observe a never-seen channel's first play nor
-// enumerate channels, which is exactly what the selector needs.
-
 import {
   activeChannels,
   channelState,
@@ -50,8 +36,6 @@ function _mmss(sec) {
   return `${m}:${r < 10 ? `0${r}` : `${r}`}`;
 }
 
-// Whole-stream "m:ss / m:ss", plus the current chunk's index and timing when the
-// stream has more than one chunk.
 function _formatTime(st) {
   let out = `${_mmss(st.stream.elapsedSec)} / ${_mmss(st.stream.durationSec)}`;
   if (st.segmentCount > 1 && st.segmentIndex >= 0) {
@@ -80,23 +64,10 @@ function _anyAudible() {
   return false;
 }
 
-// Sync the floating bar against the message column. Two effects: (1) align its
-// side margins so its left meets the assistant bubbles' left edge (the scroller's
-// left padding) and its right meets the user bubbles' right edge (right padding
-// plus the vertical scrollbar's width -- the bar sits outside the scroller, so it
-// would otherwise overhang that gutter); (2) reserve bottom scroll space equal to
-// the bar's margin box so the newest message clears it instead of hiding behind
-// it. Cleared while the bar is hidden.
 function _syncBarLayout() {
   const cm = document.getElementById("chat-messages");
   if (!cm) return;
   if (!_barEl || _barEl.classList.contains("hidden")) {
-    // Closing: animate the reserved space away so the newest message settles to
-    // the new (higher) bottom smoothly -- the same feel as opening -- rather than
-    // snapping when the reserve drops. As padding-bottom shrinks the browser
-    // re-clamps scroll to the bottom each frame, so the view rides down with it
-    // (and stays put if the user had scrolled up, since then nothing clamps).
-    // Nothing reserved means nothing to animate.
     if (cm.style.paddingBottom) {
       cm.classList.add("audio-reserve-animating");
       cm.style.paddingBottom = "";
@@ -104,9 +75,6 @@ function _syncBarLayout() {
     }
     return;
   }
-  // Opening or resyncing while open: padding here must change instantly (open's
-  // smooth feel comes from scrollToBottom, not the padding), so drop the collapse
-  // transition first.
   cm.classList.remove("audio-reserve-animating");
   const ccs = getComputedStyle(cm);
   const padL = parseFloat(ccs.paddingLeft) || 0;
@@ -114,18 +82,11 @@ function _syncBarLayout() {
   const scrollbar = cm.offsetWidth - cm.clientWidth;
   _barEl.style.marginLeft = `${padL}px`;
   _barEl.style.marginRight = `${padR + scrollbar}px`;
-  // Read height after the side margins settle the bar's width (they drive control
-  // wrapping); top/bottom margins still come from the stylesheet.
   const bcs = getComputedStyle(_barEl);
   const my = (parseFloat(bcs.marginTop) || 0) + (parseFloat(bcs.marginBottom) || 0);
   cm.style.paddingBottom = `${_barEl.offsetHeight + my}px`;
 }
 
-// #chat-messages changes geometry from several sources -- window resize, the
-// sidebar or inspector panels toggling, and the scrollbar appearing or vanishing
-// as the conversation grows -- each shifting the bar's target margins and reserved
-// height. A ResizeObserver on the scroller catches them all; the rAF gate
-// coalesces bursts.
 function _onGeomChange() {
   if (_geomRaf != null) return;
   _geomRaf = requestAnimationFrame(() => {
@@ -134,9 +95,6 @@ function _onGeomChange() {
   });
 }
 
-// Build an inline icon via createElementNS (the module avoids innerHTML so a
-// channel name can never break out of an attribute; static icons follow the same
-// rule). children is a list of [tagName, attrs] for the svg's shapes.
 const _SVG_NS = "http://www.w3.org/2000/svg";
 function _icon(viewBox, children) {
   const svg = document.createElementNS(_SVG_NS, "svg");
@@ -158,10 +116,6 @@ function _setReopenVisible(on) {
   if (_reopenEl) _reopenEl.classList.toggle("hidden", !on);
 }
 
-// Rebuilds the selector and the selected channel's control surface. Built with
-// createElement/textContent (never innerHTML) so an arbitrary channel name cannot
-// break out of an attribute, and so the delegated listeners on the stable bar
-// element keep working.
 function _refreshBar() {
   if (!_barEl) return;
   const wasHidden = _barEl.classList.contains("hidden");
@@ -172,8 +126,6 @@ function _refreshBar() {
   _barEl.innerHTML = "";
   _barEl.classList.toggle("audio-transport-suspended", isContextSuspended());
 
-  // Nothing playing clears a prior dismissal, so the next audio session opens the
-  // bar normally instead of staying hidden behind the reopen button.
   if (!names.length) _dismissed = false;
   _setReopenVisible(names.length > 0 && _dismissed);
 
@@ -213,10 +165,6 @@ function _refreshBar() {
   if (st) _barEl.appendChild(_buildControls(_selectedChannel, st));
 
   _syncBarLayout();
-  // Opening the bar lengthens the scroll content (its reserved bottom space),
-  // which would leave the newest message tucked behind it; ride the scroll to the
-  // new bottom. Goes through the app's autoscroll, so a user who scrolled up to
-  // read history is left where they are.
   if (wasHidden) scrollToBottom();
   _syncRaf();
 }
@@ -230,8 +178,6 @@ function _buildControls(channel, st) {
   playpause.type = "button";
   playpause.className = "audio-transport-playpause";
   playpause.dataset.channel = channel;
-  // A finished channel offers Replay (a fresh life) in place of resume; a paused
-  // one offers Play; a live one offers Pause.
   if (!st.playing) {
     playpause.dataset.action = "replay";
     playpause.textContent = "Replay";
@@ -280,8 +226,6 @@ function _buildControls(channel, st) {
   stop.setAttribute("aria-label", `Stop ${channel}`);
   stop.textContent = "Stop";
 
-  // Seek bar on its own full-width line above a wrapping control strip, so the
-  // scrubber owns the width and the controls never push each other off-screen.
   const controls = document.createElement("div");
   controls.className = "audio-transport-controls";
   controls.append(playpause, repeat, time, vol, stop);
@@ -289,9 +233,6 @@ function _buildControls(channel, st) {
   return row;
 }
 
-// Animates the selected channel's progress fill and time readout. Runs only while
-// some channel is playing and not paused, so a paused channel shows a frozen fill;
-// a fill mid-drag is owned by the drag and left untouched here.
 function _tick() {
   const anyPlaying = _anyAudible();
   const st = _selectedChannel ? channelState(_selectedChannel) : null;
@@ -379,10 +320,6 @@ function _onBarPointerDown(e) {
   const prog = e.target.closest(".audio-transport-progress");
   if (!prog?.dataset.channel) return;
   const st = channelState(prog.dataset.channel);
-  // Scrubbable while playing, paused, or naturally ended: dragging an ended channel
-  // re-arms playback from the drop point (seekChannel). Only a channel with no
-  // retained plan -- never played or hard-stopped, so channelState is null -- has
-  // nothing to seek.
   if (!st) return;
   _dragging = true;
   _dragChannel = prog.dataset.channel;
@@ -400,9 +337,6 @@ function _onBarInput(e) {
   }
 }
 
-// Resumes a context that started suspended under the browser autoplay policy. A
-// bare unlock tap changes no engine state and fires no repaint, so the hint class
-// is cleared here directly when the resume resolves.
 function _bindResumeOnGesture() {
   const resume = () => {
     if (isContextSuspended()) {
@@ -416,9 +350,6 @@ function _bindResumeOnGesture() {
   }
 }
 
-// Runs once: the _inited guard makes a second call a no-op, so re-invoking at
-// boot or after a re-render cannot double-mount the bar or double-bind its
-// listeners.
 export function initAudioPlayer() {
   if (_inited) return;
   _inited = true;
@@ -428,19 +359,11 @@ export function initAudioPlayer() {
   _barEl.addEventListener("click", _onBarClick);
   _barEl.addEventListener("pointerdown", _onBarPointerDown);
   _barEl.addEventListener("input", _onBarInput);
-  // Float it just above the composer, anchored inside #chat-input-area
-  // (position:relative) so it stays out of the message flow -- #chat-messages
-  // keeps its full height and scrollbar. Inserted as the composer's first child
-  // so the burger menu, later in the DOM, still paints above it. Falls back to
-  // in-flow, then body, if the expected layout is absent.
   const main = document.getElementById("main");
   const inputArea = document.getElementById("chat-input-area");
   if (inputArea) inputArea.insertBefore(_barEl, inputArea.firstChild);
   else if (main) main.appendChild(_barEl);
   else document.body.appendChild(_barEl);
-  // Small reopen button, shown only while the bar is dismissed mid-play; clicking
-  // it restores the bar. Mounted beside the bar (same positioning context) so it
-  // floats in the same spot above the composer.
   _reopenEl = document.createElement("button");
   _reopenEl.type = "button";
   _reopenEl.id = "audio-reopen";

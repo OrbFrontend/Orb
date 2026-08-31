@@ -1,9 +1,4 @@
-"""Inference layer — LLM transport and prompt/tool assembly.
-
-Depends only on ``core``. Facade re-exports the public surface so callers
-write ``from .inference import X``. Private symbols are accessed via the
-submodule path directly.
-"""
+"""LLM transport and prompt/tool assembly."""
 
 from __future__ import annotations
 

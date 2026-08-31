@@ -1,18 +1,5 @@
-// Dynamic Worlds — the review surface, as pure functions.
-//
-// A world changeset is the Agent asking permission: it never touches the World
-// until the user acts on it. Everything in this module is string-in/string-out
-// so the same helpers paint the card under a reply, the drawer's Pending and
-// History lists, and the edit modal — and so they stay testable without a DOM.
-//
-// Actions live in lorebooks.js (which owns every world mutation). Buttons here
-// carry `data-wc-action` + `data-wc-id` + `data-wc-world` and are dispatched by
-// one delegated listener, so this module adds no inline handlers.
 import { esc, escAttr } from "./utils.js";
 
-// Every status the backend can put on a changeset, with the word the user sees.
-// `stale` is deliberately not called "failed": nothing went wrong, the world
-// simply moved on and the proposal has to be re-judged against it.
 export const STATUS_LABELS = {
   pending: "Proposed world change",
   stale: "Needs re-evaluation",
@@ -28,31 +15,20 @@ const OP_VERBS = {
   suppress: "Remove",
   update: "Revise",
   archive: "Retire",
-  // Never proposed — a hard delete from the drawer, recorded so History says
-  // what happened to the lorebook rather than only what the Agent did to it.
   delete: "Delete",
 };
 
-// Operations with no inverse. Everything the applier writes is an overlay row
-// it can archive or roll back; a deleted row is simply gone, so a changeset
-// made only of deletions is history to read, not a change to take back.
 const IRREVERSIBLE_OPS = new Set(["delete"]);
 
-// A pending proposal is decidable; a stale one must be re-evaluated first. Both
-// are "open", which is what the drawer's Pending section and the card's
-// actions-vs-status split key on.
 export const isOpen = (cs) => cs?.status === "pending" || cs?.status === "stale";
 export const isStale = (cs) => cs?.status === "stale";
 
-/** Whether an applied changeset has anything an undo could compensate for. */
 export const isUndoable = (cs) => (cs?.operations || []).some((op) => !IRREVERSIBLE_OPS.has(op?.op));
 
-/** The open changesets attached to a message, newest first. */
 export function openProposals(msg) {
   return (msg?.world_changesets || []).filter(isOpen);
 }
 
-/** How an operation's entry activates, phrased for a reader rather than a schema. */
 export function activationLabel(op) {
   if (op?.op === "suppress" || op?.op === "archive") return "";
   if (op?.activation === "constant") return "Always in context";
@@ -60,18 +36,12 @@ export function activationLabel(op) {
   return kws.length ? `On: ${kws.join(", ")}` : "Keyword-activated";
 }
 
-/** One line naming what an operation does and to what. */
 export function operationTitle(op) {
   const verb = OP_VERBS[op?.op] || op?.op || "Change";
   const subject = op?.op === "create" ? op?.name : op?.target_name || op?.name;
   return subject ? `${verb} “${subject}”` : verb;
 }
 
-/**
- * The before/after pair a reviewer needs. `before` is the target's text as it
- * read when the proposal was made, snapshotted on the operation itself; `after`
- * is empty for the two operations that remove rather than rewrite.
- */
 export function operationDiff(op) {
   const before = op?.op === "create" ? "" : op?.target_content || "";
   const after = op?.op === "suppress" || op?.op === "archive" ? "" : op?.content || "";
@@ -87,7 +57,6 @@ function _diffHtml(op) {
   return `<div class="wc-diff">${rows.join("")}</div>`;
 }
 
-/** One operation, rendered for review. */
 export function operationHtml(op) {
   const meta = [activationLabel(op)].filter(Boolean);
   return `
@@ -103,8 +72,6 @@ function _button(action, label, cls = "") {
   return `<button type="button" class="btn btn-sm ${cls}" data-wc-action="${escAttr(action)}">${esc(label)}</button>`;
 }
 
-/** The actions a changeset offers in its current state. A stale one offers
- * Re-evaluate and never Apply — nothing is force-applied or silently rebased. */
 export function actionsHtml(cs) {
   if (cs?.status === "pending") {
     return [
@@ -116,14 +83,10 @@ export function actionsHtml(cs) {
   if (cs?.status === "stale") {
     return [_button("re-evaluate", "Re-evaluate", "btn-accent"), _button("reject", "Dismiss", "wc-danger")].join("");
   }
-  // An Undo the server can only refuse is worse than no button at all.
   if (cs?.status === "applied") return isUndoable(cs) ? _button("undo", "Undo") : "";
   return "";
 }
 
-/** The compact proposal card shown beneath the assistant reply that produced it.
- * It names its own lorebook when the row carries a `world_name`, since stacked
- * cards from one turn would otherwise be indistinguishable. */
 export function proposalCardHtml(cs) {
   if (!cs) return "";
   const ops = cs.operations || [];
@@ -145,19 +108,11 @@ export function proposalCardHtml(cs) {
     </div>`;
 }
 
-/** Every open proposal attached to a message, stacked under it. */
 export function messageProposalsHtml(msg) {
   const open = openProposals(msg);
   return open.length ? open.map(proposalCardHtml).join("") : "";
 }
 
-/** A one-line summary of a changeset for the drawer's Pending / History lists.
- *
- * The status leads the meta line because it is the one thing the row cannot be
- * read without: History stacks applied, rejected, undone and superseded items
- * together, and every other field of an accepted change reads identically to a
- * discarded one. The buttons are not that signal — most decided states offer
- * none at all. */
 export function changesetRowHtml(cs) {
   const ops = cs.operations || [];
   const count = `${ops.length} change${ops.length === 1 ? "" : "s"}`;
@@ -174,9 +129,6 @@ export function changesetRowHtml(cs) {
     </div>`;
 }
 
-/** The edit form for one operation. Dropping one is unchecking Include rather
- * than a delete button: the whole batch commits together, so "which of these do
- * I still want" is one decision across the list, not a run of destructive clicks. */
 export function operationEditHtml(op, index) {
   const isBodyless = op?.op === "suppress" || op?.op === "archive";
   const keywords = (op?.keywords || []).join(", ");
@@ -203,9 +155,6 @@ export function operationEditHtml(op, index) {
     </div>`;
 }
 
-/** Read one edit form back into an operation, or `null` when it was excluded.
- * Spread over the original rather than built fresh, so what the form does not
- * expose (the target id, the rationale) survives the round trip. */
 export function readOperationEdit(op, values) {
   if (!values.include) return null;
   if (op.op === "suppress" || op.op === "archive") return { ...op };

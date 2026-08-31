@@ -1,10 +1,3 @@
-/* ═══════════════════════════════════════════
-   Notifications: the toast stack + the failed-turn card
-
-   Split out of forms.css §9 when the `#toast` singleton became a stack. Loaded
-   immediately after forms.css so the cascade order is unchanged for the plain
-   `.toast` rules that moved here verbatim.
-   ═══════════════════════════════════════════ */
 
 .toast-stack {
   position: fixed;
@@ -16,7 +9,7 @@
   align-items: flex-end;
   gap: 8px;
   max-width: min(420px, calc(100vw - 40px));
-  pointer-events: none; /* the gaps between entries must not eat clicks */
+  pointer-events: none;
 }
 
 .toast-stack > * { pointer-events: auto; }
@@ -31,9 +24,6 @@
   animation: toastIn .2s ease;
 }
 
-/* Only a transient entry self-fades. An error is sticky: it stays until the user
-   dismisses it, so it must never inherit the toastOut delay. Keep 2.7s+0.3s in
-   sync with TRANSIENT_MS in notify.js. */
 .toast-transient {
   animation: toastIn .2s ease, toastOut .3s ease 2.7s forwards;
 }
@@ -42,11 +32,6 @@
   animation: toastOut .2s ease forwards;
 }
 
-/* `!important` is not decoration here: five themes (litestep, litestep_dark,
-   dark_forest, ocean_depths, frutiger_aero) set `.toast { border/color: … !important }`,
-   which a plain `.toast.error` cannot beat. Higher specificity plus !important
-   wins in all thirteen. `--red` is defined in every theme; `--danger` is defined
-   in none, so it is never used here. */
 .toast.error {
   border-color: var(--red) !important;
   border-left: 3px solid var(--red) !important;
@@ -86,7 +71,6 @@
   font-size: 12px;
   color: var(--text-secondary);
   word-break: break-word;
-  /* Two lines, then ellipsis — Details has the rest. Precedent: css/sidebar.css. */
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
@@ -121,19 +105,7 @@
   to   { opacity: 0; }
 }
 
-/* ═══════════════════════════════════════════
-   The failed-turn card
-
-   Follows the inline-error idiom (css/workflows.css) and the tint precedent in
-   css/chat.css. Sized to match .message so it reads as part of the flow rather
-   than as chrome bolted on beneath it.
-   ═══════════════════════════════════════════ */
 .turn-error {
-  /* `width` must be explicit. #chat-messages is a flex column, and a flex item
-     with auto cross-axis margins is *not* stretched — it falls back to
-     fit-content, which rendered this as a small centered lozenge under a
-     full-width message: exactly the bolted-on look the sizing is meant to avoid.
-     Matches .message's 95% so the card sits in the column, not beside it. */
   width: 100%;
   max-width: 95%;
   margin: 12px auto;
@@ -178,7 +150,6 @@
   margin-top: 10px;
 }
 
-/* Details modal */
 .turn-error-rows {
   margin-top: 12px;
   font-size: 12px;

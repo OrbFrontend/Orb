@@ -1,7 +1,3 @@
-// Document mode — everything stateful: list/CRUD, mode toggle, autosave,
-// generation, shortcuts. Imports the pure editor model (document_editor.js) for
-// all DOM↔string work so the invariant-heavy core stays separable/testable.
-
 import { api } from "./api.js";
 import { initDocAudit, onGenerationEnd, renderDocAuditPane } from "./document_audit.js";
 import {
@@ -35,24 +31,23 @@ import { $, esc, escAttr, formatRelativeDate, toast } from "./utils.js";
 
 const LS_MODE = "orb-doc-mode";
 const LS_ACTIVE = "orb-active-doc";
-const LS_ASSISTED = "orb-doc-assisted"; // Raw (0) ⇄ Assisted (1) prompting strategy
-const LS_PROBS = "orb-doc-probs"; // capture per-token alternatives (0/1)
+const LS_ASSISTED = "orb-doc-assisted"; // Raw (0) or Assisted (1)
+const LS_PROBS = "orb-doc-probs"; // capture token alternatives
 const SAVE_DEBOUNCE_MS = 1500;
-const STREAM_FLUSH_MS = 5000; // interval flush while streaming → tab crash loses ≤5s
-const HISTORY_DEBOUNCE_MS = 800; // typing pause → one undo step per burst
+const STREAM_FLUSH_MS = 5000; // save interval during streaming
+const HISTORY_DEBOUNCE_MS = 800; // one undo step per typing burst
 const HISTORY_MAX = 100;
-const MOBILE = window.matchMedia("(max-width: 900px)"); // matches document.css breakpoint
-const DOC_LIMIT = 10; // documents shown before the list collapses behind "show all"
+const MOBILE = window.matchMedia("(max-width: 900px)"); // document breakpoint
+const DOC_LIMIT = 10; // documents shown before "show all"
 
 let _docSearch = "";
 let _docsExpanded = false;
 let saveTimer = null;
 let flushInterval = null;
-let anchorTextNode = null; // text node tokens stream into during generation
-let docAssisted = false; // false = Raw (verbatim), true = Assisted (### macros → chat template)
-let docProbsOn = false; // capture per-token alternatives (mikupad-style token swapping)
+let anchorTextNode = null; // text node receiving generated tokens
+let docAssisted = false; // Raw vs Assisted mode
+let docProbsOn = false; // capture token alternatives
 
-// ── Small DOM helpers ────────────────────────────────────────────────────────
 function setSaveState(text) {
   const el = $("doc-save-state");
   if (el) el.textContent = text;
@@ -69,12 +64,9 @@ function updateTokenCount() {
   const page = $("doc-page");
   const len = page ? serializeEditor(page).content.length : 0;
   const el = $("doc-token-count");
-  if (el) el.textContent = `~${Math.round(len / 4)} tokens`; // mirrors CHARS_PER_TOKEN=4
+  if (el) el.textContent = `~${Math.round(len / 4)} tokens`;
 }
 
-// ── Undo history. One chronological timeline for typing AND generation, since
-// native contenteditable undo can't survive renderEditor rebuilds and never sees
-// streamed tokens.
 let docHistory = [];
 let docHistoryIndex = -1;
 let docHistoryTimer = null;
@@ -91,7 +83,6 @@ function docHistoryReset() {
   updateUndoButton();
 }
 
-// Snapshot the current editor state; no-op if content/spans are unchanged.
 function docCheckpoint() {
   clearTimeout(docHistoryTimer);
   docHistoryTimer = null;
@@ -100,7 +91,7 @@ function docCheckpoint() {
   const { content, spans } = serializeEditor(page);
   const cur = docHistory[docHistoryIndex];
   if (!cur || cur.content !== content || JSON.stringify(cur.spans) !== JSON.stringify(spans)) {
-    docHistory.length = docHistoryIndex + 1; // truncate the redo tail
+    docHistory.length = docHistoryIndex + 1;
     docHistory.push({ content, spans });
     if (docHistory.length > HISTORY_MAX) docHistory.shift();
     docHistoryIndex = docHistory.length - 1;
@@ -110,18 +101,14 @@ function docCheckpoint() {
 
 function docRestore(snap) {
   const page = $("doc-page");
-  // Caret goes to where the current content diverges from the target — the edit
-  // being undone/redone — not a stored position (which drifted to end-of-doc for
-  // snapshots taken while focus was off the editor).
   const before = serializeEditor(page).content;
   let caret = 0;
   const max = Math.min(before.length, snap.content.length);
   while (caret < max && before[caret] === snap.content[caret]) caret++;
   renderEditor(page, snap.content, snap.spans);
-  if (S.activeDocId) syncContent(S.activeDocId, snap.content); // remap token-runs across the undo/redo jump
+  if (S.activeDocId) syncContent(S.activeDocId, snap.content);
   setCaretOffset(page, caret);
-  if (MOBILE.matches) page.blur(); // addRange refocuses the box → keyboard pops while reading; kill it on mobile
-  // Programmatic render fires no input event → same bookkeeping as onEditorInput.
+  if (MOBILE.matches) page.blur();
   S.docDirty = true;
   setSaveState("Unsaved…");
   updateTokenCount();
@@ -131,7 +118,7 @@ function docRestore(snap) {
 
 export function docUndo() {
   if (S.docStreaming || !S.activeDocId) return;
-  docCheckpoint(); // pending typing becomes its own (redoable) step
+  docCheckpoint();
   if (docHistoryIndex <= 0) return;
   docHistoryIndex--;
   docRestore(docHistory[docHistoryIndex]);
@@ -139,19 +126,17 @@ export function docUndo() {
 
 export function docRedo() {
   if (S.docStreaming || !S.activeDocId) return;
-  docCheckpoint(); // pending typing truncates the redo tail (standard behavior)
+  docCheckpoint();
   if (docHistoryIndex >= docHistory.length - 1) return;
   docHistoryIndex++;
   docRestore(docHistory[docHistoryIndex]);
 }
 
-// ── Mode toggle (class on #app; no router). ──────────────────────────────────
 function setDocumentMode(on) {
   S.documentMode = on;
   document.getElementById("app")?.classList.toggle("document-mode", on);
   localStorage.setItem(LS_MODE, on ? "1" : "0");
   if (on) {
-    // Documents is the primary section here; expand it (ships collapsed for chat).
     const body = $("documents-section");
     body?.classList.remove("collapsed");
     body?.previousElementSibling?.querySelector(".arrow")?.classList.remove("collapsed");
@@ -161,9 +146,6 @@ function setDocumentMode(on) {
     btn.textContent = on ? "📄" : "💬";
     btn.title = on ? "Switch to Chat mode" : "Switch to Document mode";
   }
-  // The shared #tools-panel slot swaps content by mode (CSS hides the inactive
-  // pane); if it's open across the switch, re-render the pane that just became
-  // visible so it reflects current state.
   if (isUtilityPanelOpen("tools-panel")) {
     if (on) renderDocAuditPane();
     else renderToolsPanel();
@@ -180,14 +162,9 @@ export function toggleDocumentMode() {
   setDocumentMode(entering);
 }
 
-// ── Prompting-strategy toggle (Raw ⇄ Assisted), persisted like documentMode. ──
-// Raw sends the document verbatim (text mode) — the user types chat-template
-// tokens. Assisted interprets ### SYSTEM/USER/ASSISTANT line macros and renders
-// through the model's own template. Sent as `assisted` in the generate POST.
 function reflectAssistedToggle() {
   $("doc-mode-raw")?.classList.toggle("active", !docAssisted);
   $("doc-mode-assisted")?.classList.toggle("active", docAssisted);
-  // Show only the help for the active mode + fill the real token cap.
   const assisted = $("doc-help-assisted");
   if (assisted) assisted.hidden = !docAssisted;
   const raw = $("doc-help-raw");
@@ -197,7 +174,7 @@ function reflectAssistedToggle() {
   const cap = $("doc-help-maxtok");
   if (cap) {
     const cfg = S.modelConfigs?.find((m) => m.id === S.activeModelConfigId);
-    cap.textContent = cfg?.max_tokens || 512; // 512 = server fallback in DocumentContinuer
+    cap.textContent = cfg?.max_tokens || 512;
   }
 }
 
@@ -207,9 +184,6 @@ export function setDocAssisted(on) {
   reflectAssistedToggle();
 }
 
-// ── Per-token alternatives toggle (mikupad-style token swapping), persisted. ──
-// Opt-in: logprobs cost generation speed on llama.cpp, and providers that can't
-// supply them degrade to no-popup. Sent as `token_probs` in the generate POST.
 function reflectProbsToggle() {
   $("doc-probs-btn")?.classList.toggle("active", docProbsOn);
 }
@@ -220,7 +194,6 @@ export function setDocProbs(on) {
   reflectProbsToggle();
 }
 
-// ── Documents list. ──────────────────────────────────────────────────────────
 const _docItemHtml = (
   d,
 ) => `<div class="doc-item${S.activeDocId === d.id ? " active" : ""}" onclick="openDocument('${d.id}')">
@@ -238,7 +211,6 @@ export function renderDocuments() {
   const list = $("documents-list");
   if (!list) return;
 
-  // Search box only appears once the list outgrows the default view (mirrors Worlds).
   const searchWrap = $("documents-search-wrap");
   if (searchWrap) {
     searchWrap.style.display = S.documents.length > DOC_LIMIT || _docSearch.trim() ? "" : "none";
@@ -286,8 +258,6 @@ export function collapseDocs() {
   renderDocuments();
 }
 
-// Upsert a document into the sidebar list and re-sort by updated_at DESC (mirrors
-// the backend order), from a full row returned by create/update.
 function updateDocInList(row) {
   const entry = { id: row.id, title: row.title, created_at: row.created_at, updated_at: row.updated_at };
   const i = S.documents.findIndex((d) => d.id === row.id);
@@ -300,7 +270,6 @@ function updateDocInList(row) {
 export async function loadDocuments() {
   S.documents = await api.get("/documents");
   renderDocuments();
-  // Restore persisted mode + active doc on boot.
   if (localStorage.getItem(LS_MODE) === "1") {
     const savedId = localStorage.getItem(LS_ACTIVE);
     if (savedId && S.documents.some((d) => d.id === savedId)) await openDocument(savedId);
@@ -323,7 +292,7 @@ export async function openDocument(id) {
     toast("Stop generation first", true);
     return;
   }
-  hideProbPopup(); // switching docs → drop any popup from the previous one
+  hideProbPopup();
   if (S.activeDocId && S.activeDocId !== id && S.docDirty) await flushSave();
   let doc;
   try {
@@ -334,17 +303,17 @@ export async function openDocument(id) {
   }
   S.activeDocId = id;
   localStorage.setItem(LS_ACTIVE, id);
-  $("app")?.classList.add("doc-open"); // gates empty-state text + rename button
+  $("app")?.classList.add("doc-open");
   if (!S.documentMode) setDocumentMode(true);
 
   const page = $("doc-page");
   renderEditor(page, doc.content, doc.generated_spans || []);
-  syncContent(id, doc.content); // realign any session token-runs to the loaded content
+  syncContent(id, doc.content);
   page.setAttribute("contenteditable", "true");
   $("doc-generate-btn").disabled = false;
   $("doc-title-text").textContent = doc.title;
   docHistoryReset();
-  docCheckpoint(); // baseline snapshot
+  docCheckpoint();
   S.docDirty = false;
   setSaveState("Saved");
   updateTokenCount();
@@ -416,7 +385,6 @@ export function deleteDocument(id) {
   });
 }
 
-// ── Autosave. Content + spans always travel together (backend validator). ────
 function scheduleSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => flushSave(), SAVE_DEBOUNCE_MS);
@@ -430,7 +398,6 @@ async function flushSave({ keepalive = false } = {}) {
   const { content, spans } = serializeEditor(page);
   S.docDirty = false;
   if (keepalive) {
-    // beforeunload: fire-and-forget so tokens/edits aren't lost on tab close.
     fetch(`/api/documents/${S.activeDocId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -445,24 +412,23 @@ async function flushSave({ keepalive = false } = {}) {
     setSaveState("Saved");
     updateDocInList(row);
   } catch {
-    S.docDirty = true; // let the next debounce retry
+    S.docDirty = true;
     setSaveState("Save failed");
   }
 }
 
 function onEditorInput() {
-  ensureTrailingFiller($("doc-page")); // keep a trailing "\n" visible (see the fn)
+  ensureTrailingFiller($("doc-page"));
   S.docDirty = true;
   setSaveState("Unsaved…");
   updateTokenCount();
-  if (S.activeDocId) syncContent(S.activeDocId, serializeEditor($("doc-page")).content); // keep token offsets aligned
+  if (S.activeDocId) syncContent(S.activeDocId, serializeEditor($("doc-page")).content);
   scheduleSave();
   clearTimeout(docHistoryTimer);
   docHistoryTimer = setTimeout(docCheckpoint, HISTORY_DEBOUNCE_MS);
-  updateUndoButton(); // pending burst is already undoable
+  updateUndoButton();
 }
 
-// ── Generation. ──────────────────────────────────────────────────────────────
 function startFlushInterval() {
   stopFlushInterval();
   flushInterval = setInterval(() => {
@@ -478,10 +444,6 @@ function stopFlushInterval() {
   }
 }
 
-// Smart autoscroll (mirrors chat's): follow the stream while the caret's at the
-// bottom; wheel/touch-up cuts it instantly, scrolling back to the bottom re-arms.
-// twoWayScroll: true because (unlike chat) a direct scrollbar drag away from the
-// bottom must also disarm following here, not just wheel/touch.
 let docScrollFollow = null;
 function initDocAutoscroll() {
   const scroll = $("doc-editor-scroll");
@@ -492,43 +454,37 @@ function scrollAnchorIntoView() {
   docScrollFollow?.toBottom();
 }
 
-// Generation-end facts for the Output Auditor: where the run began, whether the
-// user stopped it / the server hit the token budget, and whether the stream
-// errored. Module-level because docGenerate's finally calls finalizeGeneration
-// with no arguments.
 let genRunStart = 0;
 let stopRequested = false;
-let genFinish = ""; // finish_reason from the SSE done event ("stop" | "length" | "")
+let genFinish = ""; // finish reason from the SSE done event
 let genErrored = false;
 
 export async function docGenerate() {
   if (!S.activeDocId || S.docStreaming) return;
   const page = $("doc-page");
-  hideProbPopup(); // no stale alternatives popup over a regenerating region
+  hideProbPopup();
   if (S.docDirty) await flushSave();
-  docCheckpoint(); // pre-generation state — Ctrl+Z after gen lands here
+  docCheckpoint();
 
-  // Split in the string domain: caret offset → prompt is the prefix before it.
   const caret = computeCaretOffset(page);
   const { content, spans } = serializeEditor(page);
   const prompt = content.slice(0, caret);
-  beginRun(S.activeDocId, caret); // token records (if any) collect against this run
-  genRunStart = caret; // run start for the post-generation audit
+  beginRun(S.activeDocId, caret);
+  genRunStart = caret;
   stopRequested = false;
   genFinish = "";
   genErrored = false;
 
-  // Re-render with an empty streaming anchor at the caret (splits a straddling span).
   const anchor = renderEditor(page, content, spans, caret);
   anchorTextNode = anchor.firstChild;
 
   page.setAttribute("contenteditable", "false");
   page.classList.add("generating");
-  docScrollFollow?.setFollowing(true); // each generation starts by following the stream
+  docScrollFollow?.setFollowing(true);
   S.docStreaming = true;
   S.docAbortController = new AbortController();
   swapGenButtons(true);
-  updateUndoButton(); // greyed while streaming
+  updateUndoButton();
   startFlushInterval();
 
   try {
@@ -538,30 +494,22 @@ export async function docGenerate() {
       S.docAbortController.signal,
     );
     if (!resp.ok) throw new Error(await resp.text());
-    // Document mode keeps its own thin lifecycle over the shared sse.js parser:
-    // string channels (token/error) are un-escaped, but the `probs` channel is
-    // raw JSON and must NOT be un-escaped (json.dumps already escaped in-token
-    // newlines — un-escaping would corrupt it).
     for await (const { event, data } of sseEvents(resp.body, { signal: S.docAbortController.signal })) {
       if (event === "token") {
         const delta = unescapeSSE(data);
         anchorTextNode.appendData(delta);
-        addDelta(delta); // positions the chunk's probs records within the run
-        updateTokenCount(); // live count instead of a static "Generating" label
+        addDelta(delta);
+        updateTokenCount();
         scrollAnchorIntoView();
       } else if (event === "probs") {
         try {
-          addToken(JSON.parse(data)); // per-token alternatives → side-store
-        } catch {
-          /* malformed probs frame → skip, never break the text stream */
-        }
+          addToken(JSON.parse(data));
+        } catch {}
       } else if (event === "error") {
         genErrored = true;
         toast(unescapeSSE(data) || "Generation error", true);
         break;
       } else if (event === "done") {
-        // JSON dict like the probs channel (never unescapeSSE); older servers
-        // sent an empty string, which parses as "no finish info".
         try {
           genFinish = JSON.parse(data).finish || "";
         } catch {
@@ -595,7 +543,7 @@ function finalizeGeneration() {
   if (anchor) {
     anchor.classList.remove("gen-active");
     if (!anchor.textContent) {
-      anchor.remove(); // empty span (immediate EOS / abort before any token)
+      anchor.remove();
       clearPending();
       toast("No text was generated");
     } else {
@@ -605,21 +553,15 @@ function finalizeGeneration() {
   } else {
     clearPending();
   }
-  // Sync the side-store to the post-generation content FIRST (shifts any
-  // pre-existing runs for the inserted text), THEN commit the fresh run in those
-  // same coordinates — committing first would let the remap double-shift it.
   if (S.activeDocId) {
     syncContent(S.activeDocId, serializeEditor(page).content);
     if (committedText != null) commitRun(S.activeDocId, committedText);
   }
-  if (MOBILE.matches) $("doc-page").blur(); // no keyboard pop on Stop / gen-end while reading
+  if (MOBILE.matches) $("doc-page").blur();
   S.docDirty = true;
-  flushSave(); // immediate save at stream end
+  flushSave();
   updateTokenCount();
-  docCheckpoint(); // post-generation snapshot (no-op if nothing streamed)
-  // Output Auditor trigger: only for a committed, error-free run. Stop and a
-  // token-budget cutoff both mark the run truncated so the server trims the
-  // dangling half-sentence before scanning.
+  docCheckpoint();
   if (committedText != null && !genErrored && S.activeDocId) {
     onGenerationEnd({
       docId: S.activeDocId,
@@ -633,23 +575,17 @@ function finalizeGeneration() {
 
 export function docStop() {
   if (!S.docStreaming) return;
-  stopRequested = true; // the run will be truncated mid-sentence
+  stopRequested = true;
   S.docAbortController?.abort();
   fetch(`/api/documents/${S.activeDocId}/stop`, { method: "POST" }).catch(() => {});
 }
 
-// Splice the Output Auditor's patched text over the generated run — the editor
-// half of the patch flow (document_audit.js owns the panel + API). Revalidates
-// that the run still tiles the document, then rewrites it as one undo step:
-// the run range stays a single generated span, later spans shift by the length
-// delta, and stale probs runs self-invalidate via the syncContent remap.
-// Returns whether the splice applied.
 function applyPatchedRun(runStart, oldText, newText) {
   const page = $("doc-page");
   if (!page || !S.activeDocId || S.docStreaming) return false;
   const { content, spans } = serializeEditor(page);
   if (content.slice(runStart, runStart + oldText.length) !== oldText) return false;
-  docCheckpoint(); // pre-patch state — Ctrl+Z reverts the whole patch in one step
+  docCheckpoint();
 
   const oldEnd = runStart + oldText.length;
   const delta = newText.length - oldText.length;
@@ -659,8 +595,6 @@ function applyPatchedRun(runStart, oldText, newText) {
     if (s.end <= runStart) newSpans.push({ start: s.start, end: s.end });
     else if (s.start >= oldEnd) newSpans.push({ start: s.start + delta, end: s.end + delta });
     else {
-      // Overlaps the run range: keep the parts outside it; the run itself is
-      // re-added as one span below.
       if (s.start < runStart) newSpans.push({ start: s.start, end: runStart });
       if (s.end > oldEnd) newSpans.push({ start: runStart + newText.length, end: s.end + delta });
     }
@@ -669,7 +603,7 @@ function applyPatchedRun(runStart, oldText, newText) {
   newSpans.sort((a, b) => a.start - b.start);
 
   renderEditor(page, newContent, newSpans);
-  syncContent(S.activeDocId, newContent); // remap token-runs; the edited run's records drop
+  syncContent(S.activeDocId, newContent);
   setCaretOffset(page, runStart + newText.length);
   S.docDirty = true;
   setSaveState("Unsaved…");
@@ -678,31 +612,20 @@ function applyPatchedRun(runStart, oldText, newText) {
   return true;
 }
 
-// Swap a generated token for one of its alternatives (mikupad-style), then
-// auto-continue from that point. Passed to initDocProbs as ctx.requestSwap.
-// Everything after the swapped token is deleted — the continuation is being
-// rewritten from the swap point, so stale tail text (even user-typed) goes;
-// docCheckpoint makes the whole swap one Ctrl+Z step.
 function docSwapToken(run, tokenIndex, alt) {
   if (S.docStreaming || !S.activeDocId) return;
   const page = $("doc-page");
   const { content, spans } = serializeEditor(page);
 
-  // Token start = run start + the lengths of the tokens before it.
   let tokStart = run.start;
   for (let i = 0; i < tokenIndex; i++) tokStart += run.tokens[i].text.length;
-  // Revalidate: the run must still tile the current content (no edit since hover).
-  // runAt drops the run and returns null on a mismatch → bail without touching text.
   if (runAt(S.activeDocId, tokStart, content) !== run) {
     hideProbPopup();
     return;
   }
   hideProbPopup();
-  docCheckpoint(); // pre-swap undo step
+  docCheckpoint();
 
-  // Truncate at the swap point: keep content before the token, then the
-  // alternative; everything after is deleted. Spans clip at tokStart and the
-  // swapped token itself stays tinted as generated text.
   const newContent = content.slice(0, tokStart) + alt.t;
   const newSpans = spans
     .filter((s) => s.start < tokStart)
@@ -711,19 +634,14 @@ function docSwapToken(run, tokenIndex, alt) {
   swapRunToken(S.activeDocId, run, tokenIndex, alt, newContent);
 
   renderEditor(page, newContent, newSpans);
-  setCaretOffset(page, tokStart + alt.t.length); // caret right after the swapped token
+  setCaretOffset(page, tokStart + alt.t.length);
   S.docDirty = true;
   setSaveState("Unsaved…");
   updateTokenCount();
 
-  // Continue generation: docGenerate slices prompt = content up to the caret, so
-  // the swapped token is in the prompt and a fresh run begins exactly at the cut.
   docGenerate();
 }
 
-// ── Shortcuts: Ctrl/Cmd+Enter generates, Esc stops, Ctrl/Cmd+Z / +Shift+Z / +Y
-// undo/redo. Scoped to document mode and no open modal so they can't collide
-// with modal.js / mobile.js Esc handlers.
 function isOtherEditableTarget(t) {
   return t instanceof Element && t.id !== "doc-page" && (t.matches("input, textarea, select") || t.isContentEditable);
 }
@@ -739,7 +657,7 @@ function onDocKeydown(e) {
     e.preventDefault();
     docStop();
   } else if ((e.ctrlKey || e.metaKey) && !e.altKey && (key === "z" || key === "y")) {
-    if (isOtherEditableTarget(e.target)) return; // other text boxes keep native undo
+    if (isOtherEditableTarget(e.target)) return;
     e.preventDefault();
     if (key === "y" || e.shiftKey) docRedo();
     else docUndo();
@@ -753,25 +671,19 @@ export function initDocumentMode() {
   reflectAssistedToggle();
   docProbsOn = localStorage.getItem(LS_PROBS) === "1";
   reflectProbsToggle();
-  // Re-read the token cap on open — modelConfigs may load / change after init.
   $("doc-help")?.addEventListener("toggle", (e) => e.target.open && reflectAssistedToggle());
   installPlainTextGuards(page);
   initDocAutoscroll();
-  // Hover-to-inspect / click-to-swap per-token alternatives. Context is injected
-  // (S-free module): current doc, streaming guard, and the swap action.
   initDocProbs(page, {
     getDocId: () => S.activeDocId,
     isStreaming: () => S.docStreaming,
     requestSwap: docSwapToken,
   });
-  // Output Auditor panel: same injection pattern — document_audit.js owns the
-  // pane + API calls, all editor-DOM mutation stays here.
   initDocAudit({
     getContent: () => serializeEditor($("doc-page")).content,
     applyPatchedRun,
   });
   page.addEventListener("input", onEditorInput);
-  // Context-menu Undo/Redo must hit our history, never the orphaned native stack.
   page.addEventListener("beforeinput", (e) => {
     if (e.inputType === "historyUndo" || e.inputType === "historyRedo") {
       e.preventDefault();

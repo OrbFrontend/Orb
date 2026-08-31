@@ -1,9 +1,4 @@
-"""
-backend/tts/base.py — Abstract base class for TTS adapters.
-
-All TTS backends implement this interface. Speech extractors produce
-SpeakableChunks, which adapters translate into audio via their backend-specific API.
-"""
+"""Define the text-to-speech adapter protocol."""
 
 from __future__ import annotations
 

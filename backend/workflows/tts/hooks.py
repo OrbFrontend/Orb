@@ -1,23 +1,4 @@
-"""Pipeline and HTTP hooks binding the TTS engine to the workflow framework.
-
-Orchestration only: each function reads its context, calls the pure helpers in
-``synth``, and shapes the result for the framework. Five hooks, two of them
-action routers:
-
-- ``post_pipeline`` -- per-turn auto-generation, gated solely on an enabled
-  per-character voice profile.
-- ``regenerate`` -- full reprocess: re-read the character's current voice
-  profile and the message text, so an edit to the voice takes effect on the
-  next regenerate.
-- ``reroll_gen`` -- re-synthesize from the attachment's stored parameters;
-  also backs rehydrate.
-- ``on_demand`` -- the conversation-scoped trigger dispatched on
-  ``body['action']``: the per-message create affordance and the active
-  character's voice-profile read/write.
-- ``query`` -- the conversation-less config/discovery surface dispatched on
-  ``body['action']``: backend list, voice/model enumeration, and voice
-  preview, none of which need a conversation in scope.
-"""
+"""Bind TTS generation to workflow hooks."""
 
 from __future__ import annotations
 
@@ -191,7 +172,6 @@ async def _set_profile(ctx, body) -> dict:
     return {"ok": True, "profile": profile}
 
 
-# --- QUERY: conversation-less backend / voice discovery -----------------------
 # These back the config panel's Backend / Voice / Model selectors and the
 # Preview button. They answer from the static backend registry or by probing the
 # TTS backend named in the form's unsaved profile, with no conversation in scope,

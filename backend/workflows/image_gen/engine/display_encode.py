@@ -1,16 +1,4 @@
-"""Re-encode images on the way out (display) and on the way in (references).
-
-**Display.** A full-resolution PNG render is ~4.7 MB, so a chat holding eight of
-them inlines ~33 MB of base64 the browser parses on every open. WebP at q95 is
-visually identical and roughly 6x smaller. Resolution is preserved, so what shows
-inline is still the full-quality picture; the conversion is lossy and one-way, but
-reroll/rehydrate re-render from the backend, so replay fidelity is unaffected.
-
-**References.** A reference goes the other way, into a backend that has declared
-what it accepts. `normalize_reference` is where that contract is *enforced* -- see
-its docstring for the split between a destination that declared one and one that
-did not.
-"""
+"""Encode images for display and reference use."""
 
 from __future__ import annotations
 
@@ -111,22 +99,7 @@ def normalize_reference(
     allowed: tuple[str, ...] = (),
     max_bytes: int = _REFERENCE_MAX_BYTES,
 ) -> tuple[bytes, str]:
-    """Bound a reference image to what the backend about to receive it accepts.
-
-    Untouched unless it genuinely breaches the contract -- a 12 MP camera upload,
-    not a render. Two rules, split on whether the destination declared anything:
-
-    * **`allowed` given** -- a stated contract, enforced, raising
-      `ImageGenerationError` when it cannot be met. Shipping a WebP inside a JSON
-      body that tells the provider PNG is not a smaller failure than saying so.
-    * **`allowed` empty** -- nothing declared, so best effort and never raising: a
-      reference Orb cannot decode is still one the backend probably can.
-
-    A size gate alone would not do for the first rule: every render is stored as
-    WebP, so a reference resolving to the previous image sails under both ceilings
-    unconverted. A disallowed *input* mime therefore forces the re-encode
-    irrespective of size, and the byte budget is met by the ladder above.
-    """
+    """Normalize a reference for the target backend."""
     target = _target_mime(allowed)
     fmt = _FORMATS.get(target, "WEBP")
 

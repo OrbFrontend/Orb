@@ -1,5 +1,9 @@
 # Magic Rewrite
 
-Rewrite a target message in a user-defined direction — tone shift, pacing change, perspective swap, etc.
+Magic Rewrite replaces a message using an instruction you provide. Use it for a
+change in tone, pacing, point of view, tense, or formatting, or for a small fix
+such as unbalanced asterisks.
 
-This can also be used to fix small mistakes (e.g. fix tense, fix unbalanced asterisks, etc.)
+Select **Magic Rewrite** on the message, describe the change, review the result,
+and keep or discard it. The rewrite changes the selected message in its current
+branch.

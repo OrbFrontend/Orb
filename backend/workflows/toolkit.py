@@ -1,28 +1,4 @@
-"""Stable import surface for workflow authors.
-
-Workflows import from this module rather than reaching directly into
-``backend.inference.client``, ``backend.inference.prompt_builder``, etc. The set of
-re-exports is the workflow author's API: LLM client, tool-schema
-assembly, prompt assembly, macro resolution, read-only DB helpers for
-core state (including the character avatar, the single-attachment
-reader, for workflows that consume prior artifacts as input, and the
-resolved scene cast),
-workflow-scoped storage wrappers, the locks guarding
-read-modify-write on that storage, the forced-call helper,
-the tool-overlay helper, the ``local_ml`` scaffold (for workflows that
-run a small in-process classifier alongside their LLM calls), and the
-editor audit helpers (for workflows scoring their own outputs against
-the same audit logic the editor runs) in both renderings — ``format_report``
-for the sectioned text report and ``build_targets``/``format_numbered_report``
-for the id-addressable one the editor patches against.
-
-Workflows do not import orchestration symbols, the transactional DB
-helpers (``add_message``, etc.), director-state
-mutators, or pass internals. ``insert_workflow_attachment`` is exported
-as the only attachment writer -- the workflow byte cache wraps the raw
-row insert with budget + eviction, so all workflow byte writes flow
-through one chokepoint.
-"""
+"""Stable imports for workflow authors."""
 
 from __future__ import annotations
 
@@ -145,19 +121,7 @@ __all__ = [
 
 
 async def get_scene_cast(conversation_id: str) -> TurnCast:
-    """The conversation's resolved roster, through the one resolver the turn uses.
-
-    ``resolve_cast`` is already imported here for ``build_offturn_prefix``; this
-    exports it under a name a workflow may call, taking a conversation *id* rather
-    than a row so nothing above has to fetch one to ask who is in the scene. A
-    workflow asking who a render is *of* must get the same answer the prefix it
-    rides was built from -- two resolvers would mean a likeness sent for someone
-    the prompt never named.
-
-    A conversation that has gone missing answers as an empty solo cast rather than
-    raising: the caller degrades to "no subjects", which is what a narrator line
-    already resolves to.
-    """
+    """Return the conversation's resolved cast."""
     conv = await get_conversation(conversation_id)
     return await resolve_cast(conv) if conv is not None else TurnCast(False, ())
 
@@ -169,25 +133,7 @@ async def build_offturn_prefix(
     *,
     lane: AgentLane = "writer",
 ) -> list[Any]:
-    """Rebuild the character/persona prefix for a standalone off-turn call.
-
-    Workflow code cannot import ``pipeline.context`` without violating the
-    one-way layer rule. This helper keeps the shared resolution at the workflow
-    toolkit boundary and uses the same lower-layer primitives as the pipeline.
-
-    ``lane="writer"`` reproduces the writer prefix. ``lane="agent"`` reproduces
-    that same prefix in single-model mode and substitutes the agent shared
-    system prompt in dual-model mode, exactly like
-    ``pipeline.context._build_prefixes``.
-
-    The output must stay **byte-identical** to the corresponding pipeline prefix
-    for the same conversation state: off-turn LLM calls ride the server's cached
-    KV for the whole conversation prefix, and a single diverging byte evicts it
-    — both for this call and again for the next chat turn. That parity is pinned
-    by ``tests/integration/workflows/test_offturn_prefix_parity.py``; any field
-    added to one builder must be added to both. Pre-pipeline workflow system
-    blocks are the one accepted gap: no PRE_PIPELINE hook currently emits any.
-    """
+    """Build the character and persona prefix for an off-turn call."""
     if lane not in ("writer", "agent"):
         raise ValueError(f"unknown off-turn model lane {lane!r}")
     conv = await get_conversation(conversation_id)

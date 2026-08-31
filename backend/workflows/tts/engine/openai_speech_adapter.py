@@ -1,11 +1,4 @@
-"""OpenAI-compatible TTS adapter — hits POST /v1/audio/speech.
-
-Works with OpenAI, localai, llama.cpp server, and any endpoint exposing
-the /v1/audio/speech interface.
-
-Supports model listing via GET /v1/models.
-Voice list is static for OpenAI; compatible endpoints fall back to a generic set.
-"""
+"""OpenAI-compatible TTS adapter."""
 
 from __future__ import annotations
 

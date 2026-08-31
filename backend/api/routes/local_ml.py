@@ -1,15 +1,4 @@
-"""Local-ML scaffold routes: status, one-at-a-time model download, the
-per-feature enable toggle, and — for a feature that has one — its own config.
-
-Drives the Settings "Local ML" card, which is a tri-state per single-file
-feature and an expanded panel for a feature that reports ``variants``.
-
-WHAT THIS MODULE KNOWS is the shared artifact catalog: which features exist,
-whether their extras are installed, whether their weights are on disk. What it
-does NOT know is what any feature does with them. Feature behaviour — selection
-repair, pre-warming, releasing a mapped file — is asked for by name from the
-slice that owns it, and composed here.
-"""
+"""Generic local-ML status and management routes."""
 
 from __future__ import annotations
 

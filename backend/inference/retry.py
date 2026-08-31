@@ -1,22 +1,4 @@
-"""
-retry.py -- transient-error retry policy for the LLM transport.
-
-A completion that dies with a temporary server-side error (a 503, an overloaded
-529, a refused or dropped connection) otherwise wastes the whole turn's compute,
-and the later the pass fails the more is thrown away. :class:`RetryPolicy` lets
-:meth:`LLMClient.complete` re-issue such a request a bounded number of times with
-a fixed delay.
-
-Always on with the defaults below -- retrying a blip is never worse than dropping
-the turn, and users have no way to judge the trade-off. Each retry is logged at
-WARNING so the console shows what happened. Injected like ``timeout``, so tests
-can pass ``count=0`` for a single-attempt client.
-
-Retrying is only safe before the first streamed event -- once content has been
-emitted, re-issuing would double it. That guard lives in
-:meth:`LLMClient.complete`, not here; this module only decides *whether* an error
-is retryable and *how long* to wait.
-"""
+"""Retry policy for transient LLM transport errors."""
 
 from __future__ import annotations
 

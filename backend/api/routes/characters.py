@@ -299,9 +299,6 @@ async def api_export_character(card_id: str, world_view: Literal["authored", "ef
     )
 
 
-# ── Character expressions (expression packs) ──────────────────────────────────
-
-
 @router.post("/api/characters/{card_id}/expressions")
 async def api_upload_expressions(card_id: str, file: Annotated[UploadFile, File(...)]):
     """Upload a .zip of expression images; replaces the card's whole set."""

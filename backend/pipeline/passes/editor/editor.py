@@ -1,7 +1,4 @@
-"""
-editor.py — The editor pass: a ReAct-style loop that fixes audit issues in
-the writer's output.
-"""
+"""Audit and revise Writer output."""
 
 from __future__ import annotations
 
@@ -57,9 +54,6 @@ MAX_EDITOR_ITERATIONS = 3
 AUDIT_BASELINE_WINDOW = 20
 
 
-# ── Feedback gating + tool override ───────────────────────────────────────────
-
-
 def _feedback_active(
     settings: Mapping[str, Any],
     feedback_fragments: Sequence[Mapping[str, Any]],
@@ -84,9 +78,6 @@ def build_feedback_override(feedback_fragments: Sequence[Mapping[str, Any]]) -> 
     schema builder directly — symmetric to ``build_direct_scene_override``.
     """
     return build_feedback_tool(feedback_fragments)
-
-
-# ── Audit with multi-message context ─────────────────────────────────────────
 
 
 def _build_audit_text(draft: str, previous_assistant_msgs: list[str]) -> str:
@@ -155,9 +146,6 @@ async def _run_contextual_audit(
     return filtered, build_targets(filtered, draft)
 
 
-# ── Editor pass (ReAct loop) ─────────────────────────────────────────────────
-
-
 def _editor_done_event(
     draft: str | None,
     debug_parts: list[str],
@@ -193,30 +181,7 @@ async def editor_pass(
     feedback_fragments: Sequence[Mapping[str, Any]] | None = None,
     prose_rewrite: ProseRewriteConfig | None = None,
 ) -> AsyncIterator[dict]:
-    """Rewrite the prose locally (optional), run the ReAct edit loop, then feedback.
-
-    When *prose_rewrite* is set, a local SLM rewrites the draft's texture FIRST,
-    and everything after it — the audit, the targets, the length guard, the
-    feedback step — reads the rewritten string. That order is load-bearing:
-    ``build_targets`` anchors byte offsets into the exact draft it was given, so
-    the rewrite has to land before the audit rather than between the audit and
-    the patches. A rewrite that fails keeps the writer's prose and emits one
-    ``warning``; it never fails the turn.
-
-    The edit loop then fixes audit and length-guard issues in that draft. If any
-    ``field_type='feedback'`` fragments are provided, a feedback step runs
-    on the final text to produce an out-of-character note for the user.
-    Feedback shares the editor's reasoning toggle, reasoning channel, and
-    ``elapsed`` timing — only the user-facing note is surfaced separately.
-
-    Yields:
-        ``{"type": "reasoning", "delta": str, "pass": "editor"}``
-        ``{"type": "draft_update", "draft": str}``
-        ``{"type": "warning", "reason": str}`` — non-terminal; the local
-        rewriter declined. ``editor_stage`` translates it to the SSE channel.
-        ``{"type": "done", "draft": str|None, "debug": str, "elapsed": int,
-         "tool_calls": list, "feedback": dict}``
-    """
+    """Run local rewriting, the audit/edit loop, and feedback."""
     t0 = time.monotonic()
     # The writer's text, kept for the done-event fixup at the bottom: a rewrite
     # the edit loop then found nothing to patch still has to be announced.
@@ -823,9 +788,6 @@ async def _run_edit_loop(
         t0,
         all_calls,
     )
-
-
-# ── Helpers (private) ─────────────────────────────────────────────────────────
 
 
 def _structural_rewrite_needed(report: AuditReport) -> bool:

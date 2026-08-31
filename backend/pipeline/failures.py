@@ -1,28 +1,4 @@
-"""One description of a failed turn, shaped for the wire and for a human.
-
-``backend/workflows/errors.py`` names the principle: *"Hiding the first behind
-'see server logs' is the difference between a user who fixes it in the settings
-panel and a user who files a bug."* The chat pipeline is the generation path that
-never adopted it -- every exception became the constant string
-``"Generation failed; see server logs"``. :func:`describe_failure` is the
-adoption.
-
-It lives in ``pipeline/`` (L2) rather than ``inference/`` (L4) because it has to
-classify both an ``httpx`` transport error (L4's dependency) and a
-``WorkflowUserFacingError`` (L3), and L2 is the lowest layer allowed to see both.
-
-**Classification keys on the status class only.** No vocabulary matching against
-provider prose: a marker list over words no two providers share is wrong often
-enough that it replaces an actionable message with a confident wrong one
-(``workflows/image_gen/engine/openai_image_client.py:6-14`` argues the same trade
-at length). The headline says what Orb can be sure of; ``sentence`` carries what
-the provider actually said, unedited apart from the credential.
-
-``kind`` distinguishes a misconfiguration from a defect. ``"internal"`` means an
-exception nobody classified -- a bug, not something the user did -- so it ships no
-``body`` and does not pretend otherwise. It is still strictly more than "see
-server logs".
-"""
+"""Classify turn failures into user-facing responses."""
 
 from __future__ import annotations
 

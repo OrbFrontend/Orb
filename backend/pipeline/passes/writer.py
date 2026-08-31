@@ -1,6 +1,4 @@
-"""
-passes/writer.py — The writer pass: streams the main story response.
-"""
+"""Stream the main Writer response."""
 
 from __future__ import annotations
 
@@ -101,35 +99,7 @@ def build_writer_content(
     prevent_prompt_overrides: bool = False,
     context_mode: GroupContextMode = "private",
 ) -> str | list[ContentPart]:
-    """Build the writer's user-message content (string or multimodal list).
-
-    Built once and threaded into both the writer pass and the editor, which
-    replays it verbatim to extend the writer's KV-cached prefix. The length-guard
-    nudge (preventive arm) fires only in enforce mode; a non-None *length_guard*
-    already means the feature is enabled.
-
-    *context_mode* decides whether the speaker's identity fields belong here at
-    all: Shared dossier and Classic card swap have already put them in the
-    shared system body, so repeating them after history would bill the same
-    text twice. Its post-history instructions are active-only in every mode and
-    stay here regardless.
-
-    *macros* is the turn's own resolver, scoped to the speaker through the one
-    helper the cached body also uses (``group_context.member_macros``). It must be
-    that object rather than a rebuilt one: the same card text has to resolve
-    identically whether the mode routed it here or into the shared body, and the
-    conversation seed it carries is what keeps a ``{{roll}}`` in a card from
-    re-rolling every turn and busting this tail's bytes.
-
-    *tools_sent* gates the no-tools nudge. It is the strongest provider-neutral
-    signal Orb owns: a server may still narrow the supplied array based on
-    ``tool_choice``. The lane resolves it from the frozen schema tuple and the
-    call's actual transport shape.
-
-    *depth_block* (``at_depth`` lorebook entries) goes last, *after* the user
-    message — the ``@ Depth`` position, which is the whole point of the
-    flag: the directives sit at the generation boundary.
-    """
+    """Build Writer user-message content."""
     tail = ""
     if speaker is not None:
         speaker_macros = member_macros(macros, speaker, macros.cast if macros else "")

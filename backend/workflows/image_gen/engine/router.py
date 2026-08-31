@@ -1,8 +1,4 @@
-"""Image-backend adapter registry and routing.
-
-Maps the connection *a style names* to an adapter class. Adapters are registered
-only if their dependencies import, mirroring ``tts/engine/router.py``.
-"""
+"""Route image generation to a backend adapter."""
 
 from __future__ import annotations
 

@@ -1,26 +1,4 @@
-"""Parser for Gemma 4's native tool-call DSL.
-
-Gemma 4 emits tool calls as ``<|tool_call>call:NAME{key:value,...}<tool_call|>``
-built from dedicated vocabulary tokens. A server with a matching parser
-translates these into structured OpenAI ``tool_calls``; a server without one
-streams the raw token text as message content. This module recovers that
-second case, producing the same ``{"name", "arguments"}`` dicts a translating
-server would yield.
-
-Value forms: strings are wrapped in the symmetric ``<|"|>`` delimiter token,
-arrays in ``[]``, objects in ``{}`` (same ``key:value`` grammar as a call
-body), and bare scalars are int/float/true/false. Keys are unquoted and may
-contain hyphens.
-
-String values carry arbitrary prose, including the structural characters
-``, : { } [ ]``. Every scan therefore tracks whether it sits inside a ``<|"|>``
-span and treats those characters as structure only outside one -- a naive split
-would shred a string value on its own commas.
-
-All functions degrade rather than raise: malformed input yields a best-effort
-partial result (or ``[]``), never an exception, so one bad completion cannot
-break a turn.
-"""
+"""Parse Gemma's native tool-call format."""
 
 from __future__ import annotations
 

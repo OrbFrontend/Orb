@@ -1,15 +1,4 @@
-"""The database-aware management surface: selection repair, pre-warm, fetch.
-
-Separate from :mod:`service` on purpose. A rewrite call needs no database and
-``rewrite_events`` must stay importable without one; everything here reads or
-writes ``settings``, and folding the two together is how a slice grows a god
-module.
-
-The API layer composes these — it validates a feature id, maps an error to a
-status code, and serialises the result. What is *decided* here is behaviour:
-which checkpoint the selection should point at, when to pre-warm, and what has
-to let go of a file before it can be replaced.
-"""
+"""Persist prose-rewriter settings and manage its runtime."""
 
 from __future__ import annotations
 
@@ -82,25 +71,7 @@ async def status_extra(settings: Mapping[str, Any]) -> dict:
 
 
 async def sync_selection(*, prefer: str | None = None) -> dict:
-    """Keep the stored variant pointing at a checkpoint that is actually on disk.
-
-    Downloading a GGUF did not select it and deleting one did not deselect it,
-    so both ends of the obvious workflow landed in the same silent state: the
-    feature enabled, ``resolve_config`` returning ``None`` because the
-    selection names nothing, and every turn skipping the rewriter with no cue
-    in the card or the log. The radio was the only thing that armed it, and
-    nothing said so.
-
-    This only ever *fills a hole* — a live pick whose file is on disk is user
-    data and is never overridden, which is what keeps ``catalog``'s rule intact
-    (there is still no implicit default; the choice is written down, and the
-    radio the user is looking at agrees with it). *prefer* is the file that
-    just arrived, and it wins only among candidates when the current pick has
-    nothing behind it.
-
-    Returns the whole ``local_ml_config`` blob so the caller can hand the
-    client its new copy in the same response.
-    """
+    """Keep the stored variant pointed at an installed checkpoint."""
     settings = await get_settings()
     stored = _stored(settings)
     current = catalog.resolve(str(stored.get("variant") or ""))

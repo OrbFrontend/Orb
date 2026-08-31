@@ -1,11 +1,3 @@
-// Routes clicks on message-body word units to the workflows that claim them.
-// Framework owns the single delegated listener and the popover; workflows
-// register `{claims, onClick}` and receive plain descriptors, never a DOM node
-// -- the boundary that lets a workflow act on text without touching the DOM.
-// Disambiguation is reached by hover caret on desktop and long-press on touch
-// specifically so a quick tap stays a single action and a horizontal drag stays
-// branch-swipe (the gesture this UI must not collide with).
-
 import { S } from "./state.js";
 import { segDescriptor } from "./workflow_segmentation.js";
 
@@ -13,7 +5,7 @@ const HOLD_MS = 500;
 const MOVE_CANCEL_PX = 10;
 
 let _delegated = false;
-let _swallowClick = false; // drops the synthetic click a touch long-press emits on lift
+let _swallowClick = false; // ignore the click after a touch long-press
 let _holdTimer = null;
 let _holdStart = null;
 let _holdSpan = null;
@@ -32,7 +24,6 @@ function _claimantsFor(ctx) {
       console.error("workflow click claims() threw for handler", h.id, e);
     }
   }
-  // Stable sort keeps registration (manifest) order for equal priorities.
   return matched.sort((a, b) => b.priority - a.priority);
 }
 
@@ -48,14 +39,12 @@ function _ctxFromSpan(span) {
   const msgEl = span.closest(".message[data-msg-id]");
   if (!msgEl) return null;
   const msgId = Number(msgEl.dataset.msgId);
-  if (!Number.isInteger(msgId) || msgId <= 0) return null; // a pending message renders data-msg-id="null"
+  if (!Number.isInteger(msgId) || msgId <= 0) return null;
   const msg = S.messages.find((m) => m.id === msgId);
   if (!msg) return null;
   return segDescriptor(span, { msgId, role: msg.role });
 }
 
-// `.seg-multi` marks units more than one workflow claims; the touch and hover
-// disambiguation handlers key off this class, so it must be set here at render.
 export function markClickable(bodyEl, msg) {
   if (!bodyEl || !S.workflowClickHandlers.length) return;
   for (const span of bodyEl.querySelectorAll(".seg")) {
@@ -72,7 +61,7 @@ function _onClick(e) {
     _swallowClick = false;
     return;
   }
-  if (e.target.closest(".wf-seg-caret")) return; // the caret has its own handler
+  if (e.target.closest(".wf-seg-caret")) return;
   const span = e.target.closest(".seg.seg-clickable");
   if (!span) return;
   const ctx = _ctxFromSpan(span);
@@ -92,7 +81,7 @@ function _onTouchStart(e) {
   clearTimeout(_holdTimer);
   _holdTimer = setTimeout(() => {
     _holdTimer = null;
-    _swallowClick = true; // the popover open must not also fire the top claimant
+    _swallowClick = true;
     const ctx = _ctxFromSpan(span);
     if (ctx) _openPopover(_claimantsFor(ctx), ctx, span.getBoundingClientRect());
   }, HOLD_MS);
@@ -186,7 +175,6 @@ function _openPopover(claimants, ctx, anchorRect) {
   }
   document.body.appendChild(pop);
   _popoverEl = pop;
-  // Flip above the unit when it would overflow the bottom edge.
   const pr = pop.getBoundingClientRect();
   let left = anchorRect.left;
   let top = anchorRect.bottom + 4;
@@ -194,7 +182,6 @@ function _openPopover(claimants, ctx, anchorRect) {
   if (top + pr.height > window.innerHeight - 8) top = anchorRect.top - pr.height - 4;
   pop.style.left = `${Math.max(8, left)}px`;
   pop.style.top = `${Math.max(8, top)}px`;
-  // Defer the outside-click listener so the opening interaction does not close it.
   _onDocClick = (e) => {
     if (_popoverEl && !_popoverEl.contains(e.target)) _closePopover();
   };
@@ -212,8 +199,6 @@ function _closePopover() {
   }
 }
 
-// Listeners live on the stable `#chat-messages` container so they survive the
-// per-render rebuild, which replaces all `.message` children via innerHTML.
 export function initWorkflowTextInteraction() {
   if (_delegated) return;
   const ct = document.getElementById("chat-messages");

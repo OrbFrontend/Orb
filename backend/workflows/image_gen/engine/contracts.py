@@ -52,32 +52,7 @@ class ImageBackendCapabilities(TypedDict):
 
 @dataclass(frozen=True)
 class RenderTarget:
-    """What will actually execute one render -- the dynamic tier.
-
-    `ImageBackendCapabilities` above is the static tier ("can this backend
-    ever?"); this is "what will this one do?", a per-graph question for ComfyUI.
-    There is no `supports_references` -- it collapses into "`reference_slots` is
-    non-empty".
-
-    `notes` carries user-facing disclosure for a replay that could not be honoured
-    exactly: substituting silently is the thing to avoid, and refusing outright is
-    not the alternative.
-
-    A backend answers about references in one of two shapes, and which one it uses is
-    the difference between structural inputs and a homogeneous array:
-
-    * `reference_slots` is a **ComfyUI graph's declared image inputs**. They are not
-      interchangeable -- an IPAdapter face input and an img2img init are different
-      questions -- so the style feeds them all one picture and nothing derives them.
-    * `reference_capacity` + `reference_template` is a **cloud provider's array**: how
-      many images its dialect can carry, and the per-slot policy each would get. The
-      slots themselves are derived per render from who is in the picture
-      (`references.plan_slots`), because only the render knows that.
-
-    Zero capacity means the provider's dialect has no field to put a reference in at
-    all. Whether the *model* behind it reads what it was sent is the model's to answer
-    at render time, by refusing (`engine/degrade.py`).
-    """
+    """Dynamic settings for one image render."""
 
     source: str
     target_id: str
@@ -97,19 +72,7 @@ class RenderTarget:
 
 @dataclass(frozen=True)
 class ResolvedReference:
-    """One reference image, already fetched, for one mapped `LoadImage` widget.
-
-    `origin` names where the bytes came from in a form a later replay can re-fetch
-    by (``"attachment:<id>"``, ``"character:<card id>"``). `digest` identifies the
-    bytes *as sent*, so a graph with several image inputs uploads its one picture once.
-
-    `source_digest` identifies them *as fetched*, before the destination's mime/size
-    policy touched them, and is the only one comparable across renders: a replay
-    re-keyed onto another backend's slot converts differently and would fail a
-    `digest` comparison for a reason that has nothing to do with the picture. It is
-    what lets replay notice an origin's content changed underneath it -- a rehydrate
-    on a seedless provider rewrites a row's bytes in place, under the same id.
-    """
+    """A fetched image for one mapped LoadImage widget."""
 
     slot: tuple[str, str]
     source: str
@@ -156,19 +119,6 @@ class ImageResult:
 
 
 class ImageGenerationError(WorkflowUserFacingError):
-    """One caller-facing failure funnel for every render error, on any backend.
-
-    User-facing by inheritance, which is what stops a provider's own explanation
-    from being replaced with "see server logs" on the regenerate, reroll and
-    rehydrate routes -- the streaming path already relayed it, so the same failed
-    render used to read two different ways depending on which button was pressed.
-
-    `kind` is the backend-independent shape of the failure -- was this about the
-    credential, the rate limit, the server, or *what we sent*. `engine/degrade.py`
-    reads it to decide whether a refusal is worth retrying one rung down, and it is
-    declared here rather than on the cloud subclass so that question can be asked of
-    any backend's error without knowing which backend raised it. A backend that does
-    not classify leaves it "", which degrades to "do not retry".
-    """
+    """Caller-facing error for image generation."""
 
     kind: str = ""

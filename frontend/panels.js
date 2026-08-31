@@ -1,6 +1,5 @@
 import { $ } from "./utils.js";
 
-// The right rail hosts three mutually-exclusive utility panels sharing one slot.
 const UTILITY_PANELS = [
   ["tools-panel", "tools-panel-btn"],
   ["inspector", "inspector-toggle"],
@@ -12,8 +11,6 @@ function clearActive(btnId) {
   if (btn) btn.classList.remove("btn-active");
 }
 
-// Open one panel and close the others. When another panel was already open the
-// two swap in place with no slide -- they share width and position in the slot.
 export function openUtilityPanel(panelId, btnId, render) {
   const target = $(panelId);
   const others = UTILITY_PANELS.filter(([p]) => p !== panelId);

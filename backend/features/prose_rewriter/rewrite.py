@@ -1,19 +1,4 @@
-"""One draft in, one rewritten draft out.
-
-``plan`` splits the draft into slots BEFORE anything runs. Paragraphs generate
-simultaneously for throughput, but progress is published in document order:
-the reader should see the top of the draft settle before a later paragraph
-changes. The layout puts each rewrite back where it belongs and lets a partial
-assembly be emitted while the rest are still decoding.
-
-EVERY LIMIT HERE CLAMPS RATHER THAN RAISES — see :func:`_admissible`. A rewrite
-that declines part of a draft is a worse rewrite; one that fails the turn is a
-bug.
-
-SAMPLING IS FIXED at the reference defaults. ``temperature`` and ``top_p`` are
-properties of how these weights were tuned, not preferences, and exposing them
-is an invitation to degrade the model in a way nothing reports.
-"""
+"""Plan, run, and assemble paragraph-level prose rewrites."""
 
 from __future__ import annotations
 
@@ -65,20 +50,7 @@ async def arewrite(
     host: ManagedLlamaServerHost,
     on_progress: Callable[[str], Awaitable[None]] | None = None,
 ) -> str:
-    """Rewrite *draft* paragraph-by-paragraph and return the reassembled text.
-
-    *on_progress* is awaited with the whole current assembly after each
-    contiguous top-to-bottom run of completed paragraphs — never a delta, which
-    would be meaningless when generation is concurrent.
-
-    Raises on anything that stops the rewrite happening at all (no binary, no
-    GGUF, boot failure, HTTP error). ``service.rewrite_events`` turns that into
-    a pass-through plus a warning; this layer does not decide policy.
-
-    *host* is passed in rather than defaulted to the feature's singleton: the
-    service owns that object, and reaching back up for it from here would mean
-    a deferred import, which is the shape this whole split removed.
-    """
+    """Rewrite the draft paragraph by paragraph."""
     layout = T.plan(draft)
     jobs = _admissible(layout)
     if not jobs:

@@ -1,14 +1,4 @@
-"""
-orchestrator.py — Sequences the three passes for one turn.
-
-:func:`_run_pipeline` resolves the per-turn config, threads a mutable
-:class:`TurnState` through the director, writer, and editor stages, runs
-POST_PIPELINE workflow hooks, and emits the terminal ``_result`` event.
-
-Context loading lives in ``context``, persistence in ``persistence``, and the
-public entry points in ``entrypoints``. ``_run_pipeline`` is called by
-``_generate_reply`` (and directly by tests).
-"""
+"""Sequence the Director, Writer, Editor, and post-pipeline stages."""
 
 from __future__ import annotations
 
@@ -41,25 +31,8 @@ logger = logging.getLogger(__name__)
 _Ev = TypeVar("_Ev")
 
 
-# ── Core pipeline ─────────────────────────────────────────────────────────────
-
-
 async def _staged(stage: str, gen: AsyncIterator[_Ev]) -> AsyncIterator[_Ev]:
-    """Pass *gen*'s events through, labelling anything that escapes it with *stage*.
-
-    The sequence below is the only code that knows which pass is running, and a
-    failure is classified two layers up in ``entrypoints._run_turn_handler``. So
-    the label rides the exception (see ``failures.mark_stage``).
-
-    Worth the wrapper because the alternative was a frontend guess keyed on the
-    last phase event, and the phases do not line up with the passes: nothing moves
-    the frontend off ``"directing"`` until the writer's first token, so every
-    writer *rejection* -- which by definition arrives before any token -- used to
-    be reported against the director.
-
-    ``except Exception`` deliberately excludes ``GeneratorExit`` and
-    ``CancelledError``: a stop is not a failed stage and must stay untouched.
-    """
+    """Pass events through and label uncategorized failures."""
     try:
         async for ev in gen:
             yield ev
@@ -187,7 +160,6 @@ async def _run_pipeline(
     if director_seed is not None:
         state.seed_from(director_seed)
 
-    # --- Director pass (+ rewrite, style injection, agentic-lorebook block) ---
     if run_director:
         async for ev in _staged(
             STAGE_DIRECTOR,
@@ -210,7 +182,6 @@ async def _run_pipeline(
     if client.is_aborted:
         return
 
-    # --- Direction-note step (pre-writer placement) ---
     # Reflects on the scene direction the director just set, so it requires
     # direct_scene (which is what produces that direction).
     if (
@@ -239,7 +210,6 @@ async def _run_pipeline(
         ):
             yield ev
 
-    # --- Writer pass ---
     async for ev in _staged(
         STAGE_WRITER,
         writer_stage(
@@ -263,7 +233,6 @@ async def _run_pipeline(
         kv_tracker.log_summary()
         return
 
-    # --- Editor pass (edit loop + post-writer feedback step) ---
     async for ev in _staged(
         STAGE_EDITOR,
         editor_stage(
@@ -287,7 +256,6 @@ async def _run_pipeline(
             state.resp_text = stripped_draft
             yield {"event": "writer_rewrite", "data": {"refined_text": stripped_draft}}
 
-    # --- Post-pipeline workflow iteration ---
     # director_output is a plain dict (PostCtx expects a read-only mapping).
     director_output = state.as_director_output()
     post: _PostPipelineResult | None = None
@@ -319,7 +287,6 @@ async def _run_pipeline(
     # Fold any hook-rewritten draft back into state before emitting _result.
     state.resp_text = post.draft
 
-    # --- Direction-note step (post-turn placement) ---
     # Sees the finished reply. Skipped on an empty draft (no message to anchor notes
     # to) and on a stop arriving after the last pre-editor abort check.
     if (
@@ -350,7 +317,6 @@ async def _run_pipeline(
         ):
             yield ev
 
-    # --- Dynamic Worlds proposal step ---
     # Last, deliberately: it judges the prose that will actually be persisted, so
     # it has to sit after the editor and after any draft-rewriting post-pipeline
     # hook. Same skip conditions as the post-turn notes step -- an empty draft has
@@ -368,7 +334,6 @@ async def _run_pipeline(
         ):
             yield ev
 
-    # --- Scene-local sheet update step ---
     # Last of the post-turn steps, and for the same reason the world stage is
     # second-to-last: it judges the prose that will actually be persisted, so it
     # has to sit after the editor and after any draft-rewriting post-pipeline

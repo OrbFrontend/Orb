@@ -1,11 +1,4 @@
-"""Post-pipeline hook binding the format-consistency normalizer to the turn.
-
-Orchestration only: reconstruct the recent assistant-message baseline from the
-turn's history and call the pure ``normalize_to_baseline`` from the analysis
-layer. On an actual rewrite, yield one ``draft_replaced`` event -- the bridge
-validates it and emits the ``writer_rewrite`` SSE itself (the same payload the
-old editor-pass stage sent).
-"""
+"""Bind format normalization to the post-pipeline hook."""
 
 from __future__ import annotations
 

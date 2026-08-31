@@ -1,26 +1,4 @@
-"""
-kv_tracker.py — Per-turn KV cache hit/miss tracker, shared across passes.
-
-Reports two views per LLM call:
-
-  1. Provider — ground truth from the ``usage`` field, parsed with fallbacks
-     across OpenAI / Anthropic / DeepSeek / vLLM naming. This is the only
-     number that reconciles with your provider's billing dashboard.
-
-  2. Local estimate — a debugging aid, not a prediction of the provider
-     number. Two numbers reported separately:
-       - ``msgs_overlap``: char-prefix overlap of the serialised messages.
-         High means the system prompt + history were likely reused.
-       - ``tools_match``: whether the tools blob is byte-identical to the
-         previous same-model call.
-
-     These are kept separate because where the chat template renders tools
-     determines whether a tools diff actually breaks the wire-level cache,
-     and the tracker cannot know that. Use them to spot failure modes:
-       - msgs_overlap high, tools_match False → cache may or may not hold
-         (check provider number).
-       - msgs_overlap low → cache is broken regardless.
-"""
+"""Track provider and local KV-cache signals for each turn."""
 
 from __future__ import annotations
 
@@ -156,19 +134,7 @@ class _KVCacheTracker:
         logger.debug("record_usage: no prior record() for label=%r, dropping", label)
 
     def _find_prev(self, i: int, model: str, label: str) -> tuple[dict | None, bool]:
-        """Find the previous entry to compare against.
-
-        Prefers the nearest same-model entry within this turn; falls back to
-        the *latest* same-(label, model) entry from the previous turn.
-        Returns ``(entry, is_cross_turn)``.
-
-        Both scans run backwards, and the second one has to: a request can leave
-        several entries under one label — every speaker of a group exchange logs
-        a ``writer``, and the editor's ReAct loop logs an ``editor`` per iteration
-        — and only the last of them holds the history this call actually extends.
-        Comparing against the first understated ``msgs_overlap`` by a whole
-        exchange's worth of replies.
-        """
+        """Find the previous cache entry to compare against."""
         for j in range(i - 1, -1, -1):
             if self._entries[j].get("model", "") == model:
                 return self._entries[j], False

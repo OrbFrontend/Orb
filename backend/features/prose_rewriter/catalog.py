@@ -1,17 +1,4 @@
-"""The prose-rewriter GGUFs, as seen from inside the feature.
-
-``local_models.catalog.MODELS`` owns the artifact facts — repo id, pinned
-revision, on-disk basename, ``prune_stale``'s claim list — and knows nothing
-about llama-server. This module is the other half: which of the three is
-selected, and where the selected one is. Both read the *same*
-``ModelVariantSpec`` rows off the spec, so a fourth checkpoint is one entry in
-the shared manifest and reaches both at once.
-
-THERE IS NO ``resolve_default()`` HERE, unlike the reference. Orb persists the
-choice in ``settings.local_ml_config`` and passes it in; a feature that silently
-booted "the largest one on disk" would disagree with the radio button the user
-is looking at.
-"""
+"""Resolve prose-rewriter variants from the shared model manifest."""
 
 from __future__ import annotations
 

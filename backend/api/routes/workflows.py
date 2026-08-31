@@ -1,6 +1,4 @@
-"""Secondary-workflow routes: manifest, config, on-demand trigger, and the
-workflow-attachment lifecycle (regenerate / reroll-gen / rehydrate / activate /
-delete / access)."""
+"""Secondary-workflow configuration and attachment routes."""
 
 from __future__ import annotations
 
@@ -119,19 +117,7 @@ def _gate_workflow_sub(
 
 @contextmanager
 def _hook_failures(label: str, wid: Any, aid: int | None = None, *, defect: str) -> Iterator[None]:
-    """The one distinction every hook call site has to make, drawn once.
-
-    A render failure is not an Orb defect: the provider rejected it, the model was
-    retired, the key is out of credits. Those arrive as ``WorkflowUserFacingError``,
-    whose message is the hook's own already-sanitized sentence (see
-    ``workflows/errors.py``), and go out as 502 -- the backend Orb depends on is what
-    did not deliver. Everything else is a bug: 500, traceback in the log, `defect` on
-    the wire and nothing else, since an unexpected traceback is where internals leak.
-
-    Shared so the five hook routes cannot drift: the streaming path already relays
-    the provider's own words, and the same failed render must not read differently
-    because the user pressed Reroll instead of Visualize.
-    """
+    """Map workflow hook failures to the API response shape."""
 
     def where() -> str:
         # Built on the failing path only, so the happy path pays nothing for it.
@@ -200,19 +186,7 @@ async def api_get_workflow_config(workflow_id: str):
 
 @router.post("/api/workflows/{workflow_id}/query")
 async def api_query_workflow(workflow_id: str, body: dict = Body(default={})):  # noqa: B008
-    """Run a workflow's conversation-less QUERY hook: global config / discovery.
-
-    The off-turn counterpart to ``/trigger`` for operations with no conversation
-    in scope -- readiness, capability discovery, external-backend probing.
-    Ungated by enablement, the same policy and reason as the config routes: these
-    answer setup and capability questions that must work *before* a workflow is
-    enabled (an artifact backend is configured, then switched on). Single-dispatch
-    by workflow id; 404 when the workflow declares no QUERY handler. No lock -- the
-    contract is read-only (queries never mutate workflow state). The handler's dict
-    is returned verbatim; it reports its own failures in-band as ``{"error": ...}``,
-    so a probe failure is a 200 the caller can degrade on, not an HTTP error. An
-    *unexpected* raise still becomes a 500, mirroring ``/trigger``.
-    """
+    """Run a workflow's conversation-free query hook."""
     if get_workflow(workflow_id) is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
     sub = get_subscription(workflow_id, HookType.QUERY)
@@ -439,21 +413,7 @@ def _decode_generation_params(att: Mapping[str, Any]) -> dict:
 
 
 def _apply_param_overrides(params: dict, body: Mapping[str, Any] | None) -> None:
-    """Merge caller-supplied overrides into an attachment's stored generation params.
-
-    Replaces only keys the artifact already recorded, and only string-for-string, so a
-    client can retarget a render it can see (an edited prompt, today's style) without
-    inventing parameters the workflow never wrote. Reached only from /reroll-gen:
-    /rehydrate must replay its row exactly to recover the bytes it lost.
-
-    What *sticks* is narrower than what is accepted, and deliberately so. The hook
-    receives this dict and may amend it in place, so a workflow that records what its
-    render actually did will overwrite any key describing the render itself. An
-    override therefore survives into the sibling only where it names the *subject* --
-    the prompt, the style -- rather than the machinery. Overriding a key the workflow
-    rewrites is accepted and then lost, which is the honest outcome: a stored record
-    has to describe the render that happened, not the one a client asked for.
-    """
+    """Merge request overrides into stored generation parameters."""
     overrides = body.get("params") if isinstance(body, Mapping) else None
     if not isinstance(overrides, Mapping):
         return

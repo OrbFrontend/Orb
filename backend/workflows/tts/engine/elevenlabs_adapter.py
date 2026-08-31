@@ -1,9 +1,4 @@
-"""ElevenLabs TTS adapter — cloud API.
-
-Requires an API key (passed via voice profile or endpoint config).
-Supports 300+ voices, voice cloning, emotion control, streaming.
-Output: MP3.
-"""
+"""ElevenLabs TTS adapter."""
 
 from __future__ import annotations
 

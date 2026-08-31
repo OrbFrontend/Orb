@@ -1,26 +1,4 @@
-"""In-process local-ML inference: the ``llama-cpp-python`` half.
-
-THE OTHER HALF IS :mod:`backend.inference.local_models`, one letter away and
-genuinely different: that package owns model *artifacts* (the manifest, the
-download, the prune) and the supervised ``llama-server`` child. This module
-owns the calls Orb makes into a GGUF loaded inside this process, and it
-re-exports the artifact surface because ``workflows/toolkit.py`` hands this
-module to workflow authors under this name.
-
-Opt-in: needs the ``requirements-ml.txt`` extras (``llama-cpp-python`` +
-``huggingface_hub``) and a GGUF on disk. Base Orb never imports either — the
-imports live inside functions so a stock install runs fine and each local-ML
-route just 503s.
-
-``autocomplete`` is a text-generation model (``create_completion``); the rest
-are ModernBERT sequence classifiers read through ``_head_logits`` and differing
-only in how they interpret those logits — ``ascore`` softmaxes two,
-``aclassify`` argmaxes 28, ``aclassify_pov`` marginalizes a 4x3 grid. A new
-model reuses the download/toggle/path plumbing for free, but its *inference*
-path is its own — generation and classification don't share a call. The
-``available`` / ``complete`` / ``build_prompt`` / ``ascore`` names are the
-routes' stable surface.
-"""
+"""In-process local-ML inference through llama-cpp-python."""
 
 from __future__ import annotations
 
@@ -235,7 +213,6 @@ async def complete(
     return completion.lstrip() if trimmed != prompt else completion
 
 
-# --- Sequence classification (slop scorer) -------------------------------------
 # A separate Llama mode from generation: the GGUF carries a 2-class head, scored
 # with RANK pooling. `embed()` then returns a buffer whose first two floats are
 # the class logits (rest is uninitialized) — softmax them, class 1 is "slop".
@@ -289,7 +266,6 @@ async def ascore(feature: str, sentences: Sequence[str]) -> list[float]:
         return await asyncio.to_thread(_score_blocking, feature, list(sentences))
 
 
-# --- Emotion classification (character expressions) ----------------------------
 # Same RANK-pooling embed() path as the scorer, but a 28-class go-emotions head:
 # argmax over the head's logits → GO_EMOTIONS[i]. The tail slice below is purely an n_ctx=512 guard, NOT a
 # recency heuristic: the model (DistilBERT/go-emotions, trained on short comments)
@@ -330,7 +306,6 @@ async def aclassify(feature: str, text: str) -> str:
         return await asyncio.to_thread(_classify_blocking, feature, text)
 
 
-# --- POV classification (image generation camera) ------------------------------
 # The model card asks for "roughly 1-4 sentences without prior context", not a
 # whole reply: the encoder's trained context is 256 tokens, and a raw tail slice of
 # that size is 5-10 sentences that usually starts mid-word. So `pov_input` shapes

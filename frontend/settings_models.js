@@ -1,7 +1,3 @@
-// Endpoint + model-configuration settings: the writer/agent endpoint forms, the
-// combobox engine, and the unified (WRITER_CTX / AGENT_CTX) sync helpers that
-// persist endpoint + model records. Split out of settings.js; the public
-// surface is re-exported from settings.js.
 import { api } from "./api.js";
 import { renderInspector } from "./chat.js";
 import { showConfirmModal } from "./modal.js";
@@ -26,13 +22,8 @@ const MODEL_HYPERPARAM_KEYS = [
   "extra_body",
 ];
 
-// Standard OpenAI reasoning_effort levels: the union across current models
-// (minimal since GPT-5, none since GPT-5.1, xhigh since GPT-5.1-codex-max).
 const STANDARD_REASONING_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh"];
 
-// Additive UX hints only: extra provider-specific levels offered in the
-// dropdown when the endpoint URL (and optional model substring) match. Never
-// gates what can be sent -- "Other..." covers providers this list doesn't know.
 const REASONING_LEVEL_HINTS = [{ url: "nano-gpt.com", model: "glm", levels: ["max"] }];
 
 const SETTING_FIELDS = [
@@ -67,8 +58,6 @@ const SETTING_FIELDS = [
   },
 ];
 
-// Field grouping for both forms (agent keys derived by prefixing). Keys not
-// listed here render flat at the top -- the connection basics you always need.
 const FIELD_GROUPS = [
   { l: "Prompts", cls: " ep-chat-only", keys: ["shared_system_prompt", "system_prompt"] },
   { l: "Sampling", open: true, keys: ["temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty"] },
@@ -115,7 +104,6 @@ const AGENT_SETTING_FIELDS = [
   },
 ];
 
-// Descriptor objects that parameterise all writer vs. agent differences.
 const WRITER_CTX = {
   role: "writer",
   configsKey: "modelConfigs",
@@ -173,7 +161,6 @@ export function renderEndpoints() {
     const saveFn = isAgent ? "saveAgentSetting" : "saveSetting";
     if (f.t === "textarea") {
       const rows = f.k === "system_prompt" || f.k === "agent_system_prompt" ? ' rows="2"' : "";
-      // System-prompt fields are chat-only: hidden in document mode (see document.css).
       const cls = f.k === "system_prompt" || f.k === "shared_system_prompt" ? " ep-chat-only" : "";
       const ph = f.ph ? ` placeholder="${escAttr(f.ph)}"` : "";
       return `<div class="field${cls}"><label>${f.l}</label>
@@ -218,9 +205,6 @@ export function renderEndpoints() {
               </div>`;
     }
     if (f.t === "reasoning_effort") {
-      // Options and change handlers are wired by updateReasoningEffortFields
-      // (standard levels + per-provider hints); the chosen value survives
-      // rebuilds via data-desired.
       const p = isAgent ? "agent_" : "";
       const paramV = S.settings[`${p}reasoning_effort_param`] ?? "";
       const valueV = S.settings[`${p}reasoning_effort_value`] ?? "";
@@ -264,7 +248,6 @@ export function renderEndpoints() {
 
   const agentHidden = S.agentSameAsWriter ? ' style="display:none"' : "";
 
-  // The whole Agent block is chat-only: hidden in document mode (see document.css).
   $("endpoints-form").innerHTML = `
     ${renderForm(SETTING_FIELDS, false)}
     <div class="ep-chat-only">
@@ -304,12 +287,6 @@ function _reasoningLevelExtras(prefix) {
   return extras;
 }
 
-// Rebuild both reasoning-effort dropdowns (standard levels + provider hints for
-// the current endpoint/model), show/hide their custom param/value fields, and
-// (re)wire change handlers -- programmatic, not inline, per the layer-check
-// ratchet on inline on*= handlers. The authoritative value rides data-desired
-// so an option list rebuild -- or a value the current hint set doesn't offer --
-// never silently drops it.
 function updateReasoningEffortFields() {
   for (const prefix of ["", "agent_"]) {
     const sel = document.querySelector(`[data-key="${prefix}reasoning_effort"]`);
@@ -339,13 +316,9 @@ function updateReasoningEffortFields() {
   }
 }
 
-// Show the current model name on the Endpoints section header, falling back to
-// "Endpoints" when it's empty or "default". Long names are middle-truncated.
 export function updateEndpointsLabel() {
   const el = document.getElementById("endpoints-label");
   if (!el) return;
-  // Prefer the live input value so the label tracks what's shown even before
-  // S.settings round-trips (e.g. switching endpoints or picking from the dropdown).
   const input = document.querySelector('[data-key="model_name"]');
   const model = (input ? input.value : S.settings.model_name || "").trim();
   if (!model || model.toLowerCase() === "default") {
@@ -380,16 +353,12 @@ function updateAgentModelWarning() {
   el.style.display = same ? "" : "none";
 }
 
-// ── Combobox engine
-
 let _comboboxCleanups = [];
 const _availableModels = new Map();
 const _availableModelRequests = new Map();
 
 function _invalidateAvailableModels(endpointId) {
   _availableModels.delete(endpointId);
-  // A request started with the old connection settings may still complete.
-  // Removing it here makes its result ineligible to repopulate the cache.
   _availableModelRequests.delete(endpointId);
 }
 
@@ -458,7 +427,6 @@ export function initComboboxes() {
     });
 }
 
-// Global delete function for combobox items
 window.deleteComboboxItem = (_btn, type, id, isAgent = false) => {
   const typeName = type === "endpoint" ? "endpoint" : "model configuration";
   showConfirmModal(
@@ -603,7 +571,6 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
         activeIdx = i;
         render();
       };
-      // Fix for mobile tap never landing
       const delBtn = el.querySelector(".cb-delete-btn");
       if (delBtn) {
         delBtn.addEventListener(
@@ -695,14 +662,11 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
     }
   };
   const onControlDown = (e) => {
-    // Only toggle when clicking the arrow (cb-arrow), not the input or control background
     if (!e.target.closest(".cb-arrow")) return;
     e.preventDefault();
-    // Toggle dropdown
     const opening = !isOpen;
     if (opening) void openDropdown();
     else closeDropdown();
-    // Focus input
     input.focus();
     if (opening && searchable) input.select();
   };
@@ -739,13 +703,10 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
   });
 }
 
-// ── Endpoint / Model Config helpers
-
 export async function loadEndpoints() {
   try {
     S.endpoints = await api.get("/endpoints");
     S.activeEndpointId = S.settings.active_endpoint_id || null;
-    // active_model_config_id lives on the endpoint row, not settings
     const activeEp = S.endpoints.find((e) => e.id === S.activeEndpointId);
     S.activeModelConfigId = activeEp?.active_model_config_id || null;
     const agentEp = S.endpoints.find((e) => e.id === S.agentEndpointId);
@@ -765,8 +726,6 @@ function populateEndpointDatalist() {
   if (!dl) return;
   dl.innerHTML = S.endpoints.map((e) => `<option value="${esc(e.url)}"></option>`).join("");
 }
-
-// ── Unified endpoint / model-config helpers (parameterised by WRITER_CTX / AGENT_CTX)
 
 async function _loadConfigs(ctx, endpointId) {
   if (!endpointId) {
@@ -791,9 +750,6 @@ function _fillConfigFields(ctx, config) {
     const configKey = p ? k.replace(p, "") : k;
     if (el && config[configKey] !== undefined) el.value = config[configKey];
   });
-  // The generic loop can't set a select to an option it doesn't offer yet
-  // (provider-hint level from another endpoint); route the value through
-  // data-desired and rebuild the dropdowns.
   const reSel = document.querySelector(`[data-key="${p}reasoning_effort"]`);
   if (reSel) {
     reSel.dataset.desired = config.reasoning_effort ?? "";
@@ -887,10 +843,6 @@ async function _syncModelConfigRecord(ctx, modelName, hyperparams) {
   }
 }
 
-// Serialize endpoint-related saves. When a user fills endpoint_url + api_key + model_name and
-// clicks outside, the three change events fire near-simultaneously and run concurrently. The
-// model save reads S[ctx.endpointIdKey], which is only populated after the endpoint POST resolves
-// — so without serialization the model save sees a null id and silently no-ops.
 let _endpointSaveQueue = Promise.resolve();
 
 function _saveEndpointSetting(ctx, el) {
@@ -919,9 +871,6 @@ async function _doSaveEndpointSetting(ctx, el) {
       const fieldEl = document.querySelector(`[data-key="${k}"]`);
       if (!fieldEl) return;
       if (fieldEl.type === "number") {
-        // Empty number inputs would parseFloat to NaN, which JSON-serializes as null and is
-        // rejected by the backend's Pydantic float fields. Skip them so the model-create POST
-        // can fall back to its defaults.
         if (fieldEl.value.trim() === "") return;
         const parsed = parseFloat(fieldEl.value);
         if (Number.isNaN(parsed)) return;
@@ -945,28 +894,17 @@ async function _doSaveEndpointSetting(ctx, el) {
       await api.put(`/endpoints/${S[ctx.endpointIdKey]}`, { api_key: v });
       _invalidateAvailableModels(S[ctx.endpointIdKey]);
     } else if (baseKey === "completion_mode" && S[ctx.endpointIdKey]) {
-      // Endpoint-scoped like api_key; the /settings PUT above is a harmless
-      // no-op (not in the settings allowlist — it lives on the endpoint row).
       await api.put(`/endpoints/${S[ctx.endpointIdKey]}`, { completion_mode: v });
-      // Keep the cached row in sync: the inspector reads completion_mode off
-      // S.endpoints, and nothing else refetches it until a reload.
       const row = S.endpoints.find((e) => e.id === S[ctx.endpointIdKey]);
       if (row) row.completion_mode = v;
     } else if (baseKey === "proxy" && S[ctx.endpointIdKey]) {
-      // Endpoint-scoped like completion_mode; the /settings PUT above is a
-      // harmless no-op (proxy lives on the endpoint row, not settings).
       await api.put(`/endpoints/${S[ctx.endpointIdKey]}`, { proxy: v });
       _invalidateAvailableModels(S[ctx.endpointIdKey]);
     } else if (key === ctx.modelField) {
       await _syncModelConfigRecord(ctx, v, payload);
     } else if (ctx.hyperparamKeys.includes(key) && S[ctx.configIdKey]) {
-      // Pinned across the await: a combobox model switch runs outside the save
-      // queue and can repoint S[ctx.configIdKey] mid-flight.
       const configId = S[ctx.configIdKey];
       await api.put(`/models/${configId}`, { [baseKey]: v });
-      // The /settings response above predates this write, so keys the server
-      // serves from the model-config overlay come back one save behind. The
-      // cached row is read outside this module without a refetch.
       S.settings[key] = v;
       const cfg = S[ctx.configsKey].find((m) => m.id === configId);
       if (cfg) cfg[baseKey] = v;
@@ -977,8 +915,6 @@ async function _doSaveEndpointSetting(ctx, el) {
   }
   updateAgentModelWarning();
   updateEndpointsLabel();
-  // The reasoning-prefill box is gated on the lane's endpoint being in text
-  // mode, so an endpoint/mode switch has to repaint it.
   renderInspector();
 }
 
@@ -1032,12 +968,8 @@ async function _onHybridInputCtx(ctx, el) {
   }
   updateAgentModelWarning();
   updateEndpointsLabel();
-  // The reasoning-prefill box is gated on the lane's endpoint being in text
-  // mode, so an endpoint/mode switch has to repaint it.
   renderInspector();
 }
-
-// ── Public API
 
 function populateModelDatalist() {
   const dl = document.getElementById("model-datalist");
@@ -1071,7 +1003,6 @@ export async function onHybridInput(el) {
   }
 }
 
-// Expose to global scope for inline onclick handlers
 window.saveAgentSetting = saveAgentSetting;
 window.toggleAgentSameAsWriter = toggleAgentSameAsWriter;
 

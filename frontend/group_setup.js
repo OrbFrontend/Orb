@@ -21,22 +21,15 @@ import { SIDEBAR_CLOSE_ICON } from "./sidebar_icons.js";
 import { charactersView, notify, S } from "./state.js";
 import { $, avatarCell, avatarUrl, convUrl, esc, escAttr, toast } from "./utils.js";
 
-// What every mode shares, so no per-mode blurb has to repeat it. Kept separate
-// from the mode wording in group_cast.js: that table describes the differences,
-// this sentence describes the floor under all three.
+// Both group setup views use this shared context explanation.
+
 const CONTEXT_COMMON =
   "In every mode, the scene premise, user persona, cast names, and the cast's linked Worlds are shared with the whole scene. A card's system-prompt override is always ignored, and its post-history instructions are sent only on that member's turn. Per-member private lore isn't supported yet.";
 
-// One sentence a group surface can afford to show permanently, stating *that
-// mode's* contract — under Shared dossier the old blanket privacy claim would
-// simply be false. For the Cast tab, which is edited under a mode it does not
-// itself offer; a surface that owns the dropdown points at `contextHelp` instead.
 function contextLine(mode) {
   return `${contextMode(mode).label}: ${contextMode(mode).detail}`;
 }
 
-// The full comparison, always all three modes — this is the only place either
-// modal explains them, so it carries every mode's consequence and cost.
 function contextHelp() {
   const modes = Object.values(CONTEXT_MODES)
     .map((item) => `<p class="modal-hint"><b>${esc(item.label)}</b> — ${esc(item.detail)} ${esc(item.billing)}</p>`)
@@ -56,9 +49,6 @@ function modeOptions(selected) {
     .join("");
 }
 
-// Label only — unlike TURN_MODES, whose one-line hint fits in an option. A
-// context mode's consequence takes a sentence, so the option stays short and
-// the disclosure below carries the explanation for all three at once.
 function contextModeOptions(selected) {
   return Object.entries(CONTEXT_MODES)
     .map(
@@ -67,22 +57,7 @@ function contextModeOptions(selected) {
     .join("");
 }
 
-// Creation's dropdown label — sparse on purpose; the disclosure sitting right
-// below it carries the explanation, so the label itself doesn't have to. Group
-// settings doesn't reuse this: a "Character context" h3 already sits above
-// that select, so it labels the control itself with just "Mode" instead.
 const CONTEXT_LABEL = "Character context";
-
-// ── Context-mode recommendation ─────────────────────────────────────────────
-// The panel sits under the cast picker rather than beside the select it sets,
-// because the picker is what the advice depends on: the cast is chosen in the
-// open, while the control lives under a collapsed Advanced. Advice nobody
-// expands to read is not advice, so the recommendation comes to the cast.
-//
-// It only ever offers — `recommendContextMode` decides, the user applies. When
-// the recommendation already matches the current selection (the common case,
-// since both default to Private) there is nothing to apply and the panel says
-// so instead of growing a button that would do nothing.
 
 function recommendHtml(rec, current) {
   if (!rec) return "";
@@ -96,9 +71,6 @@ function recommendHtml(rec, current) {
     <p class="modal-hint ctx-rec-trade">${esc(rec.cost)}</p>`;
 }
 
-// Recomputed on every event that can change the answer: a pick toggling, and
-// the select being driven by hand (which only changes whether "Use this" is
-// still on offer).
 function syncContextRecommendation() {
   const host = $("group-create-recommend");
   if (!host) return;
@@ -111,39 +83,21 @@ function syncContextRecommendation() {
   host.innerHTML = recommendHtml(rec, $("group-create-context")?.value);
 }
 
-// Max replies is a Director-only bound: the other two strategies schedule exactly
-// one speaker per turn, so the field is meaningless there.
 function syncMaxRepliesRow(selectId, rowId) {
   const row = $(rowId);
   if (row) row.hidden = $(selectId)?.value !== "director";
 }
 
-// Sheet updates are a Private-perspective instrument, for the same reason the
-// public-profile override is one: Private is the only mode that sends a member's
-// own sheet in the trailing message, *after* the history, so rewriting it every
-// exchange costs no prefix rebuild. Shared and Swap park that same sheet in the
-// cached body ahead of the history, where a per-exchange rewrite bills the whole
-// prefix again — and the blurb's "goes in the tail" would be false besides. So
-// the row goes away with the mode rather than offering a setting that quietly
-// fights the cache. Hidden, not disabled: unlike the override textarea there is
-// no user text here to silently drop, and `save` writes false while it is out of
-// sight, so nobody is billed per exchange for a box they cannot see.
 function syncSheetUpdatesRow(selectId, rowId) {
   const row = $(rowId);
   if (row) row.hidden = $(selectId)?.value !== "private";
 }
 
-// "Artus", "Artus & Assistant", "Artus, Assistant & 2 more" — a scene name, not
-// a sentence, so it stays short enough for the header.
 function titleFromNames(names) {
   if (!names.length) return "New Group";
   if (names.length <= 2) return names.join(" & ");
   return `${names[0]}, ${names[1]} & ${names.length - 2} more`;
 }
-
-// ── Creation ────────────────────────────────────────────────────────────────
-// Asks for the cast, optionally the premise, and nothing else. Title, reply
-// behavior and instructions all have defaults and live under Advanced.
 
 function pickCardHtml(card) {
   return `<button type="button" class="cast-pick" data-group-card-id="${escAttr(card.id)}" aria-pressed="false">
@@ -198,9 +152,6 @@ function showGroupCreate() {
     const select = $("group-create-context");
     if (!select) return;
     select.value = apply.dataset.ctxApply;
-    // Open Advanced on the way through: the setting has just been changed on
-    // the user's behalf, and a control they cannot see saying something they
-    // did not type is how a form loses their trust.
     const advanced = select.closest("details");
     if (advanced) advanced.open = true;
     syncContextRecommendation();
@@ -237,19 +188,6 @@ function showGroupCreate() {
   });
 }
 
-// ── Scene setup ─────────────────────────────────────────────────────────────
-// The cast and the scene's durable settings, in one two-tab modal opened from
-// the rail. They were two modals behind a header ••• nobody opened, and they
-// were never really two subjects: the context mode chosen under Group settings
-// decides what half the Cast tab's boxes even do, and configuring a scene means
-// moving between them. One Save writes both, so a title typed on one tab cannot
-// be lost by saving from the other.
-
-// ── Group settings pane ─────────────────────────────────────────────────────
-
-// Every setting here is per-scene, the title included — but the sidebar names
-// the group after the scene it started as, so a fork has to say where its own
-// name will and won't show up rather than letting the rename look broken.
 function lineageHint(conv, rootId) {
   const root = rootId === conv?.id ? null : S.conversations.find((item) => item.id === rootId);
   return root
@@ -282,22 +220,6 @@ function settingsPaneHtml(conv, rootId) {
     </div>`;
 }
 
-// ── Cast pane ───────────────────────────────────────────────────────────────
-// One compact row per member; everything else is progressive disclosure.
-
-// One string, one meaning — the override is always the same stored field, so
-// the box never repoints at a different slot. Only what the scene *does* with it
-// changes, and two of the three modes send it: Private perspective and Classic
-// card swap both keep a member's card away from everyone else, so the curated
-// view is the only thing the rest of the cast reads about them, and both render
-// it into the system prompt through the same projection
-// (`inference/group_context.carries_public_cast`). They therefore share one
-// placeholder rather than two that would have to be kept saying the same thing.
-//
-// Shared dossier is the one mode that drops it, and it says so instead of
-// silently accepting text that never ships. Its `placeholder` doubles as the
-// one-line reason its disabled controls show, so there is one sentence for the
-// box and the Draft buttons alike and not two.
 const OVERRIDE_PLACEHOLDER = "Public profile override — how the rest of the cast sees them";
 const OVERRIDE_COPY = {
   private: { placeholder: OVERRIDE_PLACEHOLDER, disabled: false },
@@ -305,23 +227,10 @@ const OVERRIDE_COPY = {
   swap: { placeholder: OVERRIDE_PLACEHOLDER, disabled: false },
 };
 
-// Every copy lookup below takes the mode rather than reading `S.groupCast`: the
-// mode select sits on the other tab of the same modal, so the answer this pane
-// needs is the *pending* one, which is not in `S` until Save.
 function overrideCopy(mode) {
   return OVERRIDE_COPY[mode] || OVERRIDE_COPY.private;
 }
 
-// The sheet override ships under every mode — unlike the public profile, it is
-// never a slot that silently drops what is typed into it, so it is never
-// disabled. What *does* change per mode is who reads it, and that is the whole
-// reason this table exists: under Shared dossier a member's own sheet **is** its
-// dossier, so the box the other two modes can honestly label "what they read
-// about themselves" is, there, what the entire cast reads. Labelling it
-// self-only under Shared put the scene's only cross-member disclosure behind the
-// most private-sounding words on the screen. Swap keeps it self-only for real:
-// only the active speaker's card is sent, so no other member ever sees it —
-// what they see is that member's public profile, which is the box above.
 const SHEET_COPY = {
   private: {
     label: "What they read about themselves",
@@ -341,11 +250,6 @@ function sheetCopy(mode) {
   return SHEET_COPY[mode] || SHEET_COPY.private;
 }
 
-// A staged sheet update, waiting on the user. The pass proposes and never
-// applies, for the reason Dynamic Worlds stages its changesets: it writes a
-// field the user can also hand-edit, and a bookkeeping model can judge wrong.
-// So the row shows the whole proposed sheet — a summary alone would ask the
-// user to approve text they have not read.
 function proposalsFor(memberId) {
   return (S.groupCast?.sheet_proposals || []).filter((item) => item.member_id === memberId);
 }
@@ -363,17 +267,10 @@ function proposalRow(proposal) {
   </div>`;
 }
 
-// One definition of "this row can be drafted", read by the row button, the
-// cast-wide filter and the per-row guard alike — three places that would
-// otherwise each re-derive the rule and eventually disagree. A member with no
-// card has nothing to draft *from*; a mode that never sends the override has
-// nothing to draft *for*.
 function canDraftProfile(member, mode) {
   return !overrideCopy(mode).disabled && Boolean(member.character_card_id);
 }
 
-// Why a Draft button is off, in one line — the same sentence the disabled
-// textarea shows, so a row never gives two different reasons.
 function draftBlockedReason(member, mode) {
   if (overrideCopy(mode).disabled) return overrideCopy(mode).placeholder;
   return member.character_card_id ? "" : "This member has no character card to draft from";
@@ -383,10 +280,6 @@ function castRow(member, mode) {
   const name = member.display_name || "Narrator";
   const override = overrideCopy(mode);
   const draftable = canDraftProfile(member, mode);
-  // Opened, and counted on the summary, when this member has something waiting.
-  // The cast rail's badge sends the user here to "review N sheet updates"; with
-  // every review row behind a closed disclosure, what they arrived to do was the
-  // one thing the screen did not show.
   const proposals = proposalsFor(member.id);
   return `<div class="cast-row" data-roster-member-id="${escAttr(member.id || "")}" data-roster-card-id="${escAttr(member.character_card_id || "")}" data-roster-kind="${escAttr(member.member_kind || "character")}">
     <button type="button" class="cast-drag" data-roster-drag title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(name)}">⠿</button>
@@ -412,10 +305,6 @@ function castRow(member, mode) {
   </div>`;
 }
 
-// The characters still on offer, given the cards the list already holds. Takes
-// the taken ids rather than reading the roster, because the list is the live
-// answer once the modal is open: a row removed in the modal has to put its
-// character back on the menu, and only the DOM knows that happened yet.
 function addOptions(takenCardIds) {
   const taken = new Set(takenCardIds);
   const characters = charactersView()
@@ -425,7 +314,6 @@ function addOptions(takenCardIds) {
   return `<option value="">+ Add cast member…</option><option value="__narrator">✒️ Narrator</option>${characters ? `<optgroup label="Characters">${characters}</optgroup>` : ""}`;
 }
 
-// Reply order is only an order under round-robin; every other strategy picks.
 function orderHint(turnMode) {
   return turnMode === "round_robin" ? "Drag to set the reply order." : "Drag to reorder the cast.";
 }
@@ -457,8 +345,6 @@ function moveRow(row, delta) {
   row.querySelector("[data-roster-drag]")?.focus();
 }
 
-// ── The modal ───────────────────────────────────────────────────────────────
-
 function showGroupConfig(initialTab = "cast") {
   if (!S.groupCast || !S.activeConvId) return;
   const conv = S.conversations.find((item) => item.id === S.activeConvId);
@@ -474,22 +360,13 @@ function showGroupConfig(initialTab = "cast") {
   const list = $("group-roster-list");
   if (!list) return;
 
-  // Drafting state is closure-local to this modal — nothing here outlives it,
-  // so nothing here belongs in `S`. Explicitly *not* `S.castSetupBusy`: four
-  // other surfaces read that flag, and overloading it would couple drafting
-  // here to saving elsewhere.
   const drafting = new Set();
   let draftingAll = false;
   let cancelAll = false;
   const anyDrafting = () => drafting.size > 0;
 
-  // The mode the Cast tab is being edited under: the select on the other tab,
-  // not the saved value, because one Save writes both and the rows have to mean
-  // what they will mean once it lands.
   const currentMode = () => $("group-settings-context")?.value || S.groupCast.context_mode;
 
-  // The roster exactly as Save would send it. One reader of the rows, so the
-  // dirty check below and the PUT can never disagree about what is in the form.
   function collectMembers() {
     return [...list.querySelectorAll(".cast-row")].map((row) => ({
       id: row.dataset.rosterMemberId || null,
@@ -502,7 +379,6 @@ function showGroupConfig(initialTab = "cast") {
     }));
   }
 
-  // The settings tab as Save would send it — same rule, same reason.
   function collectSettings() {
     const mode = currentMode();
     return {
@@ -510,18 +386,12 @@ function showGroupConfig(initialTab = "cast") {
       group_turn_mode: $("group-settings-mode").value,
       group_max_speakers: Math.max(1, Math.min(8, Number($("group-settings-max").value) || 3)),
       group_context_mode: mode,
-      // A mode change is the same click as the save, so the box is read through
-      // the mode it is being saved under: leaving Private turns the per-exchange
-      // pass off rather than leaving it billing out of sight.
       group_sheet_updates: mode === "private" && $("group-settings-sheet-updates").checked,
       character_scenario: $("group-settings-scenario").value.trim(),
       post_history_instructions: $("group-settings-instructions").value.trim(),
     };
   }
 
-  // Re-derive what the add menu offers from the rows on screen. One rule, run
-  // after every add and every remove, instead of two mutations of the option
-  // list that drift apart the first time a member is taken back out.
   function syncAddOptions() {
     const select = $("group-roster-add");
     if (!select) return;
@@ -531,10 +401,6 @@ function showGroupConfig(initialTab = "cast") {
     select.value = "";
   }
 
-  // The Cast tab's boxes are defined by a control on the Group settings tab, so
-  // a mode picked there has to reach across before Save — otherwise the user
-  // types into a box still labelled for the mode they just left. Attributes
-  // only, never a re-render: every row here is an unsaved form.
   function syncCastForMode() {
     const mode = currentMode();
     const override = overrideCopy(mode);
@@ -545,8 +411,6 @@ function showGroupConfig(initialTab = "cast") {
         profile.disabled = override.disabled;
         profile.placeholder = override.placeholder;
       }
-      // A row mid-draft owns its own button ("Drafting…", disabled); draftRow
-      // restores it when the call lands.
       const draft = row.querySelector("[data-roster-draft]");
       if (draft && !drafting.has(row)) {
         const member = { character_card_id: row.dataset.rosterCardId };
@@ -573,25 +437,12 @@ function showGroupConfig(initialTab = "cast") {
     if (hint) hint.textContent = orderHint($("group-settings-mode")?.value);
   }
 
-  // This modal is the app's largest unsaved form — names, both overrides, mute
-  // state, reply order, adds and removes, plus every scene setting — and the
-  // profiles in it cost a billed call each. Escape and a backdrop click both
-  // route through `closeModal`, so one guard covers every exit. Save clears it
-  // before closing, since a saved form has nothing to warn about.
   const castBaseline = collectMembers();
   let settingsBaseline = JSON.stringify(collectSettings());
   const castDirty = () => JSON.stringify(collectMembers()) !== JSON.stringify(castBaseline);
   const settingsDirty = () => JSON.stringify(collectSettings()) !== settingsBaseline;
   setModalCloseGuard(() => (!castDirty() && !settingsDirty()) || window.confirm("Discard the changes to this scene?"));
 
-  // Apply / Dismiss on one staged sheet update. Unlike everything else in this
-  // modal these write immediately — a proposal is server state the roster PUT
-  // does not carry, so deferring them to Save would mean Save had to reconcile
-  // two writers for one field.
-  //
-  // Applying therefore also overwrites the textarea: the database now holds the
-  // proposed sheet, and a Save that shipped the box's older text would silently
-  // undo the apply the user just watched happen.
   async function decideProposal(button, row) {
     const card = button.closest("[data-sheet-proposal]");
     const id = card?.dataset.sheetProposal;
@@ -603,14 +454,8 @@ function showGroupConfig(initialTab = "cast") {
       if (applying) {
         const box = row.querySelector("[data-roster-sheet]");
         if (box) box.value = updated.proposed_sheet;
-        // The cached roster has to move with the database, or reopening this
-        // modal would paint the pre-apply sheet back into the box.
         const member = (S.groupCast.members || []).find((item) => item.id === updated.member_id);
         if (member) member.card_sheet_override = updated.proposed_sheet;
-        // And so does the dirty baseline, for one field only: this write already
-        // landed, so it is not a change the close guard should offer to discard
-        // — but re-snapshotting the whole form here would swallow every *other*
-        // edit the user has open.
         const before = castBaseline.find((item) => item.id === updated.member_id);
         if (before) before.card_sheet_override = (updated.proposed_sheet || "").trim() || null;
       }
@@ -619,27 +464,16 @@ function showGroupConfig(initialTab = "cast") {
       );
       card.remove();
     } catch (error) {
-      // A 409 means the sheet moved under the proposal, which the server has now
-      // marked stale. Re-read and repaint this one card rather than leaving an
-      // Apply button that can only fail again.
       await refreshSheetProposals();
       const fresh = (S.groupCast.sheet_proposals || []).find((item) => String(item.id) === String(id));
       if (fresh) card.outerHTML = proposalRow(fresh);
       else card.remove();
       throw error;
     } finally {
-      // The rail's badge counts this queue, and it is the only thing that makes
-      // the sheet-update pass visible at all. Without this a user who reviewed
-      // every proposal and then pressed Cancel would be told there were still
-      // three waiting. Both exits, since the 409 path also moves the count.
       renderGroupCast();
     }
   }
 
-  // A late draft must not land after Save has already sent the roster, and a
-  // save must not race a request whose result would then have nowhere to go.
-  // Gated on the request count, not on the cast-wide loop: a single row draft
-  // is just as losable.
   function syncSaveGate() {
     const save = $("group-config-save");
     if (!save) return;
@@ -647,17 +481,11 @@ function showGroupConfig(initialTab = "cast") {
     save.title = anyDrafting() ? "Wait for the scene profiles to finish drafting" : "";
   }
 
-  // One row's draft. Rethrows, so the caller decides whether to toast — the
-  // cast-wide loop reports once with its progress instead of once per row.
   async function draftRow(row, btn) {
     const cardId = row.dataset.rosterCardId;
     const box = row.querySelector("[data-roster-profile]");
     const nameInput = row.querySelector("[data-roster-name]");
     if (!cardId || !box || !nameInput || !btn || drafting.has(row)) return;
-    // Snapshotted before the POST. A result may only land on the row it was
-    // asked about, still holding the text the user had when they asked: the
-    // modal is client-side until Save, so an edit made while the request was in
-    // flight is the newer answer.
     const asked = { name: nameInput.value, text: box.value };
     drafting.add(row);
     btn.disabled = true;
@@ -673,9 +501,6 @@ function showGroupConfig(initialTab = "cast") {
         display_name: asked.name.trim(),
         cast_names: others,
       });
-      // `closeModal()` empties #modal-root, so a result landing after the modal
-      // closed has nowhere to write. Same for a row that has since been
-      // repointed at another card or edited by hand.
       if (!row.isConnected || row.dataset.rosterCardId !== cardId) return;
       if (nameInput.value !== asked.name || box.value !== asked.text) return;
       box.value = draft.profile || "";
@@ -689,8 +514,6 @@ function showGroupConfig(initialTab = "cast") {
     }
   }
 
-  // A row is only draggable while its handle is held, so the name field keeps
-  // normal text selection.
   let dragging = null;
   list.addEventListener("pointerdown", (event) => {
     const handle = event.target.closest("[data-roster-drag]");
@@ -702,7 +525,6 @@ function showGroupConfig(initialTab = "cast") {
     if (!dragging) return;
     dragging.classList.add("dragging");
     event.dataTransfer.effectAllowed = "move";
-    // Firefox refuses to start a drag without payload.
     event.dataTransfer.setData("text/plain", "");
   });
   list.addEventListener("dragover", (event) => {
@@ -720,15 +542,11 @@ function showGroupConfig(initialTab = "cast") {
     dragging = null;
   };
   list.addEventListener("dragend", endDrag);
-  // A press that never became a drag must not leave the row draggable, or the
-  // name field loses text selection for the rest of the modal's life.
   list.addEventListener("pointerup", endDrag);
   list.addEventListener("drop", (event) => {
     event.preventDefault();
     endDrag();
   });
-  // Keyboard equivalent of the handle drag — the up/down buttons this replaced
-  // were the only accessible reorder path.
   list.addEventListener("keydown", (event) => {
     const handle = event.target.closest("[data-roster-drag]");
     if (!handle) return;
@@ -755,8 +573,6 @@ function showGroupConfig(initialTab = "cast") {
     }
     const draft = event.target.closest("[data-roster-draft]");
     if (draft) {
-      // The standalone path owns its own error reporting; the cast-wide loop
-      // reports once, with a count.
       draftRow(row, draft).catch((error) => toast(error.message, true));
       return;
     }
@@ -784,9 +600,6 @@ function showGroupConfig(initialTab = "cast") {
     list.lastElementChild?.scrollIntoView({ block: "nearest" });
   });
 
-  // Fills every empty scene profile in sequence, one call per member — never a
-  // batch. A batched prompt would have to carry every member's card, which is
-  // exactly the leak Private perspective exists to prevent.
   $("group-roster-draft-all")?.addEventListener("click", async (event) => {
     const button = event.currentTarget;
     if (draftingAll) {
@@ -812,8 +625,6 @@ function showGroupConfig(initialTab = "cast") {
       for (const row of rows) {
         if (cancelAll || !row.isConnected) break;
         button.textContent = `Stop (${done + 1}/${rows.length})`;
-        // Each row opens and scrolls as its turn comes, so the run is visibly
-        // a sequence of members rather than one opaque wait.
         row.querySelector(".cast-row-custom")?.setAttribute("open", "");
         row.scrollIntoView({ block: "nearest" });
         await draftRow(row, row.querySelector("[data-roster-draft]"));
@@ -821,9 +632,6 @@ function showGroupConfig(initialTab = "cast") {
       }
       toast(`Drafted ${done} scene profile${done === 1 ? "" : "s"} — review, then Save`);
     } catch (error) {
-      // Stop rather than press on. A drafting failure is almost always systemic
-      // — a dead endpoint, a bad key — so continuing buys N-1 more sticky
-      // toasts and N-1 more billed calls.
       toast(`Drafted ${done} of ${rows.length} before stopping — ${error.message}`, true);
     } finally {
       draftingAll = false;
@@ -834,7 +642,6 @@ function showGroupConfig(initialTab = "cast") {
     }
   });
 
-  // ── Tabs
   const tabs = [...document.querySelectorAll("[data-scene-tab]")];
   function openTab(name) {
     const tab = tabs.find((item) => item.dataset.sceneTab === name) || tabs[0];
@@ -852,7 +659,6 @@ function showGroupConfig(initialTab = "cast") {
   }
   if (initialTab !== "cast") openTab(initialTab);
 
-  // ── Group settings tab
   syncMaxRepliesRow("group-settings-mode", "group-settings-max-row");
   $("group-settings-mode")?.addEventListener("change", () => {
     syncMaxRepliesRow("group-settings-mode", "group-settings-max-row");
@@ -864,16 +670,11 @@ function showGroupConfig(initialTab = "cast") {
     syncCastForMode();
   });
   $("group-settings-delete")?.addEventListener("click", () => {
-    // The guard goes first: offering to discard edits to a scene the user is
-    // deleting is noise, and `showConfirmModal` replaces this modal anyway.
     setModalCloseGuard(null);
     closeModal();
-    // The whole group, not just the scene in front of us — so the request
-    // carries the family's root, exactly as the sidebar's × does.
     document.dispatchEvent(new CustomEvent("group-delete-request", { detail: rootId }));
   });
 
-  // ── Save
   async function saveSettings() {
     const updated = await api.put(`/conversations/${S.activeConvId}`, collectSettings());
     const local = S.conversations.find((item) => item.id === S.activeConvId);
@@ -882,25 +683,16 @@ function showGroupConfig(initialTab = "cast") {
     S.groupCast.max_speakers = updated.group_max_speakers;
     S.groupCast.context_mode = updated.group_context_mode;
     S.groupCast.sheet_updates = Boolean(updated.group_sheet_updates);
-    // The header title is a plain div except while it is being renamed inline.
     const titleEl = $("chat-title-text");
     if (titleEl) titleEl.textContent = updated.title;
   }
 
   async function saveCast(members) {
     const updated = await api.put(convUrl(S.activeConvId, "members"), { members });
-    // A member the save removed took its staged proposals with it (the roster
-    // sync rejects them in the same transaction as the tombstone), so drop them
-    // here too or the rail keeps counting review rows nothing can render.
     const live = new Set(updated.map((member) => member.id));
     S.groupCast = {
       ...S.groupCast,
       members: updated,
-      // Merged, not replaced: the PUT answers with the *active* roster, so
-      // rebuilding from it alone would forget every member this save (or an
-      // earlier one) retired, and their lines would go back to reading
-      // "Unknown speaker". New ids and renames arrive here and win; the
-      // retired names carry over untouched.
       speakerNames: new Map([...(S.groupCast.speakerNames || []), ...speakerNameMap(updated)]),
       sheet_proposals: (S.groupCast.sheet_proposals || []).filter((item) => live.has(item.member_id)),
     };
@@ -915,12 +707,6 @@ function showGroupConfig(initialTab = "cast") {
   $("group-config-cancel")?.addEventListener("click", closeModal);
   $("group-config-save")?.addEventListener("click", async () => {
     if (S.castSetupBusy) return;
-    // One guard for both halves, because one click writes both.
-    // `group_context_mode` decides what every prefix in the exchange contains,
-    // and under `swap` it decides the cache lineage too, so it may not move
-    // between one exchange's speakers. A roster written mid-exchange lands under
-    // a pipeline that already resolved its cast: the member being removed may be
-    // queued to speak two speakers from now.
     if (S.isStreaming) {
       toast("Stop generation before changing the scene", true);
       return;
@@ -937,10 +723,6 @@ function showGroupConfig(initialTab = "cast") {
     const castChanged = castDirty();
     S.castSetupBusy = true;
     try {
-      // Settings first, and each half re-baselines as it lands: if the roster
-      // PUT then fails, the modal stays open on a form that already agrees with
-      // the database about everything the first call wrote, so a retry sends
-      // only what is still unsaved.
       if (settingsDirty()) {
         await saveSettings();
         settingsBaseline = JSON.stringify(collectSettings());
@@ -952,8 +734,6 @@ function showGroupConfig(initialTab = "cast") {
       renderGroupList();
       if (castChanged) {
         notify("cast", S.groupCast);
-        // The cast owns the scene's card-embedded fragments; whoever holds them
-        // re-reads on this rather than watching the roster.
         document.dispatchEvent(new CustomEvent("group-cast-updated", { detail: S.activeConvId }));
       }
     } catch (error) {
@@ -964,12 +744,6 @@ function showGroupConfig(initialTab = "cast") {
   });
 }
 
-// ── Chat surface ────────────────────────────────────────────────────────────
-
-// Which secondary actions the menus offer. Scene setup is reached from the cast
-// rail on desktop, so only the mobile ⋯ menu still carries an entry for it;
-// convert is a solo-only capability and must never appear inside a group, even
-// mid-switch.
 function renderChatActionMenus() {
   const grouped = Boolean(S.groupCast);
   const visible = {
@@ -982,19 +756,12 @@ function renderChatActionMenus() {
   }
 }
 
-// Whether the composer is holding something that wants an answer. A drafted
-// message is the difference between "queue X" and "X, speak now", so the rail
-// has to know — but group_cast.js stays DOM-free, hence the read lives here.
 function composerHasDraft() {
   return Boolean($("chat-input")?.value.trim()) || (S.attachments?.length || 0) > 0;
 }
 
-// Last draft state the rail was painted for, so a keystroke only repaints when
-// it flips the chips' meaning rather than on every character typed.
 let railDrafted = false;
 
-// Called by the composer on every input and whenever attachments change; cheap
-// enough to run per keystroke because it exits before touching the DOM.
 export function refreshCastRailIntent() {
   if (!S.groupCast) return;
   if (composerHasDraft() === railDrafted) return;
@@ -1017,10 +784,6 @@ export function renderGroupCast() {
   if (input) input.placeholder = grouped ? "Write what happens next…" : "Write your message...";
 }
 
-// A speaker override is a one-shot instruction outside `manual` mode: it names
-// who replies next, then gets out of the way so the configured strategy resumes.
-// Only the pick this exchange actually consumed is cleared — a chip clicked *during*
-// the exchange queued someone for the next one and must survive it.
 export function consumeSpeakerOverride() {
   if (!S.groupCast || !overrideIsOneShot()) return;
   if (!S.pinnedSpeakerId || S.pinnedSpeakerId !== S.consumedSpeakerId) return;
@@ -1028,17 +791,10 @@ export function consumeSpeakerOverride() {
   renderGroupCast();
 }
 
-// Sidebar list state. Lives here rather than in `S`: it is how this one panel
-// is being looked at, not part of the scene, and nothing outside reads it.
 let _groupSearch = "";
 let _groupsExpanded = false;
 
-// One row per group, not per conversation. A checkpoint is a branch of the
-// scene, so it belongs *inside* its group's row — reachable through the
-// conversations modal — rather than beside it as a second group.
 function _groupItemHtml({ rootId, root, shown, open, members }) {
-  // Title from the root (the group's stable name), cast from the conversation
-  // the row stands for (the one the click opens — the open one, or the newest).
   const names = (shown.group_member_names || []).filter(Boolean);
   const memberLine = names.length ? names.join(" · ") : "No active cast members";
   const cardIds = shown.group_card_ids || [];
@@ -1054,8 +810,6 @@ function _groupItemHtml({ rootId, root, shown, open, members }) {
     .join("");
   const remaining = cardIds.length - shownCardIds.length;
   const avatarStack = avatars || `<span class="group-chat-avatar group-chat-narrator">✒️</span>`;
-  // Silent at one conversation: the count is only news once the group has
-  // branched, and every group starts with exactly one.
   const countBadge =
     members.length > 1
       ? `<span class="group-chat-count" title="${escAttr(`${members.length} conversations in this group`)}">${members.length}</span>`
@@ -1074,12 +828,8 @@ function _groupItemHtml({ rootId, root, shown, open, members }) {
 export function renderGroupList() {
   const list = $("group-chat-list");
   if (!list) return;
-  // Passing the open conversation is what makes selecting a checkpoint repaint
-  // its group's row: the cast line then names that checkpoint's speakers rather
-  // than a sibling's.
   const families = groupFamilies(S.conversations, S.activeConvId);
 
-  // The search box only earns its space once the list outgrows the default view.
   const searchWrap = $("group-search-wrap");
   if (searchWrap) {
     searchWrap.style.display = families.length > GROUP_LIMIT || _groupSearch.trim() ? "" : "none";
@@ -1104,8 +854,6 @@ export function renderGroupList() {
   list.innerHTML = html;
 }
 
-// Never fatal: a scene whose proposals cannot be read is still a scene the user
-// can play and manage, so the cast loads without them rather than not at all.
 async function fetchSheetProposals(cid) {
   try {
     return await api.get(convUrl(cid, "sheet-proposals"));
@@ -1119,9 +867,6 @@ export async function refreshSheetProposals() {
   S.groupCast.sheet_proposals = await fetchSheetProposals(S.activeConvId);
 }
 
-// Member id → display name, over whatever rows it is given. Kept beside the two
-// callers rather than in `group_cast.js`: that module *reads* the map to label
-// history, and building it is a property of how the roster was fetched.
 function speakerNameMap(rows) {
   return new Map((rows || []).map((member) => [member.id, member.display_name]));
 }
@@ -1135,17 +880,10 @@ export async function loadGroupCast(conv) {
     notify("cast", null);
     return;
   }
-  // One fetch, two views. `include_inactive` is what makes the transcript
-  // survive a roster edit (see `speakerNames` below and `state.js`); the roster
-  // itself is the active slice of the same rows, so asking twice would only
-  // give two answers that can disagree. Parallel with the proposals: neither
-  // needs the other, and a scene switch should not pay two serial round trips.
   const [roster, proposals] = await Promise.all([
     api.get(`${convUrl(conv.id, "members")}?include_inactive=true`),
     fetchSheetProposals(conv.id),
   ]);
-  // A switch that landed while these were in flight owns the screen now, and
-  // this answer is about a conversation nobody is looking at.
   if (S.activeConvId !== conv.id) return;
   const members = roster.filter((member) => member.active !== 0);
   S.groupCast = {
@@ -1155,15 +893,6 @@ export async function loadGroupCast(conv) {
     max_speakers: conv.group_max_speakers,
     context_mode: conv.group_context_mode,
     sheet_updates: Boolean(conv.group_sheet_updates),
-    // Staged, never applied. Fetched with the cast because the Cast tab is where
-    // they are reviewed, and a round trip on modal open would leave the rows
-    // painting in after the user is already reading.
-    //
-    // Not gated on the opt-in: turning the pass off stops it *staging*, and must
-    // not also hide what it already staged. Leaving Private perspective turns the
-    // opt-in off as a side effect, so gating here meant a mode change silently
-    // swallowed a queue the user had never seen — with no way to reach or dismiss
-    // it short of switching back.
     sheet_proposals: proposals,
   };
   if (!members.some((m) => m.id === S.pinnedSpeakerId && !m.muted)) S.pinnedSpeakerId = null;
@@ -1192,14 +921,6 @@ async function convertToGroup() {
   }
 }
 
-// A cast chip is the whole reply control now that the strategy line is gone.
-// On a resting scene the click hands the member the floor immediately; while a
-// exchange runs or a draft waits to be sent it only names them as the next speaker,
-// and clicking whoever is already named there takes the pick back.
-//
-// The pin is set on the speak path too, not just the queue path: it is what the
-// chip lights up, and afterStream's one-shot cleanup then clears it for us
-// outside `Manual` mode, where the pick is the strategy and should persist.
 function onCastChipClick(memberId) {
   if (castClickSpeaksNow(composerHasDraft())) {
     S.pinnedSpeakerId = memberId;
@@ -1212,9 +933,6 @@ function onCastChipClick(memberId) {
 }
 
 export function initGroupSetup() {
-  // The header avatar. A solo chat carries its own handler on the portrait
-  // inside; a group's frame holds only the scene glyph, so the listener lives
-  // here — and stays inert in a solo chat, where the inner one already fired.
   $("chat-avatar")?.addEventListener("click", (event) => {
     if (S.groupCast && event.target === event.currentTarget) showAvatarPopup();
   });
@@ -1254,14 +972,10 @@ export function initGroupSetup() {
       showGroupConfig();
       return;
     }
-    // Mid-stream clicks are allowed now — they queue rather than speak, which is
-    // the one thing a user watching an exchange run actually wants to do.
     const button = event.target.closest("[data-cast-member-id]");
     if (!button || button.disabled) return;
     onCastChipClick(button.dataset.castMemberId);
   });
-  // Empty-scene starters. "Describe the opening" hands the user the composer;
-  // "Let a character begin" opens the scene with the first eligible member.
   $("chat-messages")?.addEventListener("click", (event) => {
     const starter = event.target.closest("[data-scene-starter]")?.dataset.sceneStarter;
     if (!starter || !S.groupCast) return;

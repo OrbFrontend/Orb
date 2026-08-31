@@ -1,22 +1,4 @@
-"""Lorebook feature slice — activation/rendering facade plus Dynamic Worlds.
-
-**Activation and rendering** live in ``backend/inference/lorebook.py``. All of it
-is prompt assembly, and the workflow toolkit's off-turn prefix builder
-(``workflows/toolkit.py``) must render it byte-identically to the pipeline's —
-``workflows`` sits below ``features``, so the logic sits at the ``inference``
-layer both consumers may import. This facade keeps the established import path
-for the layers above (``pipeline.context``, ``pipeline.state``,
-``api.routes.conversations``).
-
-**Dynamic Worlds** is local: :mod:`.proposals` is the pure catalog + validation
-half (what the Agent may propose, checked against the live World) and
-:mod:`.changesets` is the lifecycle half (accept, reject, undo, reset, and the
-recorded hand delete), which persists through ``database/`` rather than owning
-SQL of its own.
-
-The per-turn threading bundle ``LorebookTurn`` is **not** here — it is a pipeline
-concern and lives with the other per-turn contracts in ``pipeline/state.py``.
-"""
+"""Lorebook activation, rendering, and Dynamic Worlds helpers."""
 
 from __future__ import annotations
 

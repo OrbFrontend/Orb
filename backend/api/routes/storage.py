@@ -1,16 +1,4 @@
-"""Storage inspection and age-based data cleanup.
-
-Two axes, deliberately kept orthogonal: *what* to clean (artifacts, Agent
-logs) and *how old* it has to be. The GET route previews both against the same
-cutoff the POST route will use, so the size shown is the size freed.
-
-Artifacts are evicted, not deleted -- the row and its recovery metadata survive
-so the image comes back through the normal rehydrate button. Agent logs are
-wiped: the payload columns (raw output, reasoning, tool calls, injection block)
-are blanked while the row itself stays, because the pipeline reads mood state
-back off old rows. Which columns those are is the database layer's business --
-see LOG_KEEP_COLUMNS -- not something the user is asked to pick through.
-"""
+"""Storage inspection and age-based cleanup routes."""
 
 from __future__ import annotations
 
@@ -44,13 +32,7 @@ def _cutoff(days: int) -> str | None:
 
 
 def free_bytes(db_path: str = DB_PATH) -> int:
-    """Bytes sitting on the SQLite freelist -- deleted data not yet returned to
-    the OS. The db runs ``auto_vacuum=NONE``, so this only shrinks on VACUUM.
-
-    Sync on purpose: two PRAGMA header reads, cheap enough that offloading them
-    would cost more than it saves, and it keeps one implementation usable from
-    both the request path and the (pre-``yield``, sync) startup gate.
-    """
+    """Return free bytes for the storage volume."""
     if not os.path.exists(db_path):
         return 0
     conn = sqlite3.connect(db_path)
@@ -63,15 +45,7 @@ def free_bytes(db_path: str = DB_PATH) -> int:
 
 
 def vacuum_sync(db_path: str = DB_PATH) -> bool:
-    """Rewrite the db file, returning freed pages to the OS. True if it ran.
-
-    Best-effort by design: VACUUM needs the whole file to itself, so a reader
-    that happens to be mid-query makes it SQLITE_BUSY. Losing that race is not
-    an error -- the startup gate reclaims the same pages on the next boot.
-
-    Synchronous and slow (it rewrites every page), so request-path callers must
-    hand this to a thread rather than block the event loop on it.
-    """
+    """Vacuum a SQLite database synchronously."""
     vac = sqlite3.connect(db_path, isolation_level=None)
     try:
         vac.execute("PRAGMA busy_timeout = 5000")

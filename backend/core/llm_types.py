@@ -1,14 +1,4 @@
-"""LLM wire-format contracts: the shape of the OpenAI-style chat messages the
-pipeline assembles and ships to the model.
-
-Like ``backend/database/models.py`` (the data layer's contracts) and
-``backend/workflows/contracts.py`` (the workflow layer's), this module is a
-dependency-free leaf -- it describes a *shape* and imports nothing else in the
-codebase, so every layer that builds or consumes messages (the prompt builder,
-the three passes, the orchestrator, the summarizer) can point its dependency
-inward at the contract rather than at the client implementation or the ``utils``
-catch-all.
-"""
+"""Wire-format contracts for LLM chat messages."""
 
 from __future__ import annotations
 

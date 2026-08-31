@@ -1,32 +1,4 @@
-"""
-lorebook.py — Lorebook activation: one pipeline, three sources.
-
-A lorebook entry activates from any of three sources:
-  * ``constant`` — always active; rides the cached system-prompt prefix
-    (:func:`compute_constant_lorebook_block`), never the trailing block. Unless
-    it also sets ``at_depth``, in which case it rides the per-turn tail instead
-    (:func:`compute_depth_lorebook_block`) — the ``@ Depth`` placement.
-  * keyword scan — a keyword appears (substring) within the last ``scan_depth`` messages.
-  * director pick — the agentic Director named the entry.
-
-The trailing block carries only the per-turn sources: substring mode uses
-{keyword@6}; agentic mode adds the director-pick source and scans shallower
-({keyword@2, director-pick}) since the Director already saw the history. Both
-modes funnel through :func:`select_active_entries` → :func:`render_lorebook_block`,
-so the two named entry points below (:func:`compute_lorebook_injection_block`,
-:func:`compute_agentic_lorebook_block`) are thin wrappers over one core.
-
-**Two layers, one effective view.** A World's rows are the user's *authored*
-lore plus the Agent-managed *dynamic* overlay (see
-``database/queries/worlds.py``). Nothing downstream of this module should ever
-see the raw pool: :func:`select_effective_entries` resolves it — an active
-replacement or suppression hides its authored target, a suppression itself
-injects nothing, archived rows are gone. Every activation and rendering entry
-point here applies it *for itself* (:func:`select_active_entries`,
-:func:`build_lorebook_catalog`, the two constant builders), so a caller cannot
-forget to project and no two callers can disagree — which is also what keeps the
-pipeline's prefix bytes and the workflow toolkit's off-turn prefix identical.
-"""
+"""Select and render effective lorebook entries for prompts."""
 
 from __future__ import annotations
 
@@ -48,9 +20,6 @@ AGENTIC_LOREBOOK_SCAN_DEPTH = 2
 # from the authored heading so the model (and the user reading a prompt dump)
 # can always tell established lore from state the roleplay itself produced.
 DYNAMIC_SECTION_TITLE = "Dynamic World State"
-
-
-# ── Layer projection ──────────────────────────────────────────────────────────
 
 
 def is_dynamic(entry: Mapping[str, Any]) -> bool:
@@ -78,9 +47,6 @@ def select_effective_entries(entries: Sequence[Mapping[str, Any]]) -> list[Mappi
     return [e for e in live if not (is_dynamic(e) and e.get("overlay_action") == "suppress") and e.get("id") not in hidden]
 
 
-# ── Activation gating ─────────────────────────────────────────────────────────
-
-
 def agentic_lorebook_active(
     settings: Mapping[str, Any],
     lorebook_entries: Sequence[Mapping[str, Any]],
@@ -104,9 +70,6 @@ def agentic_lorebook_active(
     if not agent_on:
         return False
     return any(not e.get("constant") for e in lorebook_entries)
-
-
-# ── Director-facing catalog (agentic mode) ────────────────────────────────────
 
 
 def build_lorebook_catalog(entries: Sequence[Mapping[str, Any]]) -> str:
@@ -142,9 +105,6 @@ def build_lorebook_catalog(entries: Sequence[Mapping[str, Any]]) -> str:
             kws = ", ".join(keywords[:3])
             parts.append(f"- [{name}] — {kws}" if kws else f"- [{name}]")
     return "\n".join(parts)
-
-
-# ── Activation sources + selection ────────────────────────────────────────────
 
 
 def _any_keyword_hit(
@@ -242,25 +202,7 @@ def _unwrap_catalog_delimiters(text: str) -> str | None:
 
 
 def normalize_director_pick(pick: str) -> str:
-    """Fold one Director pick into the key :func:`select_active_entries` matches on.
-
-    :func:`build_lorebook_catalog` renders every candidate as ``- [The Ashen
-    Seal] — wax seal, raven crest``, and models routinely copy the delimiters
-    along with the name. ``.strip()`` removes whitespace, not brackets, so a
-    *correct* relevance judgment arriving as ``[The Ashen Seal]`` matched
-    nothing: no entry activated, no lore was injected, and nothing was logged.
-
-    Only one matched outer pair is removed, and only from the *pick*. Entry
-    names are folded as they are stored: the catalog is the side that added the
-    delimiter, so the pick is the side that undoes it, and an entry whose name
-    genuinely contains a bracket keeps it.
-
-    Trailing catalog metadata is deliberately **not** undone — ``The Ashen Seal
-    — wax seal`` stays unmatched. That em dash belongs to the catalog line, but
-    a name may contain one too, and a pick with keywords glued on is a model
-    copying a whole catalog row rather than a name: a prompt defect worth seeing
-    unmatched in the logs, not one worth guessing through.
-    """
+    """Normalize one Director lorebook pick."""
     trimmed = (pick or "").strip()
     inner = _unwrap_catalog_delimiters(trimmed)
     return (inner.strip() if inner is not None else trimmed).casefold()
@@ -347,9 +289,6 @@ def select_active_entries(
     return [e for e in candidates if is_active(e)]
 
 
-# ── Rendering ─────────────────────────────────────────────────────────────────
-
-
 def _render_section(entries: Sequence[Mapping[str, Any]], resolve, header: str) -> list[str]:
     """Render one layer's entries under *header*, or nothing when it is empty."""
     if not entries:
@@ -391,9 +330,6 @@ def render_lorebook_block(
     parts = _render_section([e for e in entries if not is_dynamic(e)], resolve, header)
     parts += _render_section([e for e in entries if is_dynamic(e)], resolve, dynamic_header)
     return "\n\n".join(parts)
-
-
-# ── Block builders ────────────────────────────────────────────────────────────
 
 
 def compute_lorebook_block(
@@ -460,20 +396,7 @@ def compute_constant_lorebook_block(
     entries: Sequence[Mapping[str, Any]],
     macros: Macros | None = None,
 ) -> str:
-    """Prefix path: render the ``constant`` entries as a system-prompt section.
-
-    Constant entries are byte-identical every turn, so they live in the cached
-    system-prompt prefix (``## Lorebook``, matching the prefix's ``##`` section
-    register) instead of the per-turn trailing block. The canonical sort in
-    :func:`render_lorebook_block` keeps the bytes stable across turns (KV cache);
-    like other prefix fields, entry text should avoid ``{{roll}}`` — it re-rolls
-    per resolution and would silently change prefix bytes (that is what
-    ``at_depth`` is for; see :func:`compute_depth_lorebook_block`). Returns
-    ``""`` when there are no prefix-bound constant entries.
-
-    Projects the overlay first, so a dynamic entry the user accepted as
-    ``constant`` joins the prefix under its own ``## Dynamic World State``.
-    """
+    """Render constant lorebook entries for the prompt prefix."""
     prefix_bound = [e for e in select_effective_entries(entries) if e.get("constant") and not e.get("at_depth")]
     return render_lorebook_block(prefix_bound, macros, header="## Lorebook", dynamic_header=f"## {DYNAMIC_SECTION_TITLE}")
 
@@ -482,20 +405,7 @@ def compute_depth_lorebook_block(
     entries: Sequence[Mapping[str, Any]],
     macros: Macros | None = None,
 ) -> str:
-    """Depth path: render the ``constant`` + ``at_depth`` entries for the tail.
-
-    The ``@ Depth`` placement (``position: 4`` in a World Info file): always
-    injected, but into the per-turn tail after the user message rather than
-    the cached prefix. Two
-    things follow from that placement, and both are the point of it —
-    instructions land next to the generation boundary, and inline macros are
-    resolved *unseeded*, so ``{{roll}}`` yields fresh dice every turn instead of
-    freezing for the conversation. Unseeding happens here rather than at the
-    call site so no caller can accidentally hand this block a frozen RNG.
-
-    Costs no KV cache: the tail is rebuilt every turn regardless. Returns ``""``
-    when no constant entry is depth-bound.
-    """
+    """Render depth-positioned lorebook entries for the prompt tail."""
     depth_bound = [e for e in select_effective_entries(entries) if e.get("constant") and e.get("at_depth")]
     fresh = macros._replace(seed="") if macros else None
     return render_lorebook_block(

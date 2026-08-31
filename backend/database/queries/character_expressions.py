@@ -1,5 +1,4 @@
-"""Per-character expression images (go-emotions label -> image), stored base64
-in the ``character_expressions`` table. Replace-all semantics on upload."""
+"""Store per-character expression images."""
 
 from __future__ import annotations
 

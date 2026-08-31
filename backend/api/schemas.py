@@ -1,9 +1,4 @@
-"""Pydantic request/response models for the HTTP API.
-
-These are the wire-shape contracts for the route modules under
-``api/routes/``. Kept in one module so a route file imports only the models
-it needs and the shapes stay discoverable in one place.
-"""
+"""Pydantic request and response models for the HTTP API."""
 
 from __future__ import annotations
 
@@ -129,15 +124,7 @@ _HEADER_NAME_RE = re.compile(r"[A-Za-z0-9!#$%&'*+.^_`|~-]+")
 
 
 def _check_extra_headers(v: str) -> str:
-    """Validate an extra-headers field's ``Name: value`` lines.
-
-    Blank lines and '#' comments are allowed so the field can be annotated.
-    Name and value are checked after stripping, matching what the client parser
-    sends -- the separator whitespace is discarded before the header exists, so
-    a non-breaking space pasted from a docs page is harmless. Rejecting a
-    malformed line here means a typo fails at save time rather than on every
-    turn, where it surfaces only as a generic failure.
-    """
+    """Validate optional extra request headers."""
     v = v.strip()
     if not v:
         return ""

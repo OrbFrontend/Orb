@@ -1,20 +1,4 @@
-"""Worlds, lorebook entries (authored + dynamic overlay), and world changesets.
-
-Two layers share the ``lorebook_entries`` table. **Authored** rows are the
-user's own lore and the only rows the drawer edits or deletes. **Dynamic** rows
-are the Agent-managed overlay: an ``add`` injects new lore, a ``replace`` hides
-its authored target and injects itself instead, a ``suppress`` hides its target
-and injects nothing. Because the overlay never touches an authored row, the
-authored rows *are* the recoverable original -- archiving the overlay restores
-the authored view deterministically, with no snapshot table.
-
-``worlds.content_revision`` is the optimistic-concurrency stamp. It advances
-once per atomic mutation that changes what the lore *says* -- authored entry
-create/update/delete, a bulk import, and a changeset apply/undo/reset -- and
-never for a rename or an ``enabled``/``dynamic_enabled`` toggle, so the
-character-switch flow (which toggles ``worlds.enabled``) cannot invalidate a
-pending proposal.
-"""
+"""Store Worlds, lorebook entries, and changesets."""
 
 from __future__ import annotations
 
@@ -90,9 +74,6 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-# ── Worlds ────────────────────────────────────────────────────────────────────
-
-
 async def get_worlds() -> list[WorldRow]:
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT * FROM worlds ORDER BY created_at ASC"))
@@ -155,20 +136,7 @@ async def update_world(world_id: str, data: dict) -> WorldRow | None:
 
 
 async def disable_character_linked_worlds() -> list[str]:
-    """Turn off every enabled World some character card links to; return the ids turned off.
-
-    A linked World belongs to the character that owns it — the client enables it
-    when that character comes into play and disables it on the way out. A page
-    load has nobody in play, so a linked World left enabled by the last session
-    would keep injecting its lore into whatever is opened next, including a chat
-    with a different character. Floating Worlds (no card points at them) are the
-    user's own global lore and are left exactly as they were.
-
-    Neither ``updated_at`` nor ``content_revision`` is stamped: an ``enabled``
-    toggle is not a lore-content mutation (see the module docstring), and a boot
-    sweep is not user activity — flattening every linked World's ``updated_at``
-    to one instant would scramble the sidebar's recency order.
-    """
+    """Disable Worlds linked to character cards."""
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -234,9 +202,6 @@ async def get_content_revision(world_id: str) -> int | None:
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT content_revision FROM worlds WHERE id = ?", (world_id,)))
         return int(rows[0][0]) if rows else None
-
-
-# ── Lorebook entries ──────────────────────────────────────────────────────────
 
 
 def _parse_lorebook_entry(row) -> LorebookEntryRow:
@@ -392,19 +357,7 @@ async def update_lorebook_entry(entry_id: int, data: dict) -> LorebookEntryRow |
 
 
 async def delete_lorebook_entry(entry_id: int, *, record_as: Mapping[str, Any] | None = None) -> bool:
-    """Delete one entry, optionally filing the deletion as applied history.
-
-    *record_as* is the changeset metadata the caller wants it recorded under
-    (origin, summary, operations). Everything the record has to agree with the
-    delete about -- the before-snapshot, the revision it moved the World from
-    and to, the timestamps -- is filled in here, on the same transaction as the
-    DELETE, so a history row claiming a delete that did not happen (or a delete
-    with no history) is not a state this can reach.
-
-    The record is terminal ``applied``: the row is gone, so there is nothing for
-    a compensating operation to restore, and :func:`invert_operations` finds no
-    inverse for an operation whose after-state is ``None``.
-    """
+    """Delete one lorebook entry and record its history."""
     async with immediate_tx() as db:
         existing = await _fetch_entry(db, entry_id)
         cur = await db.execute("DELETE FROM lorebook_entries WHERE id = ?", (entry_id,))
@@ -457,9 +410,6 @@ async def get_active_lorebook_entries() -> list[ActiveLorebookEntryRow]:
             )
         )
         return [cast(ActiveLorebookEntryRow, _parse_lorebook_entry(r)) for r in rows]
-
-
-# ── World changesets ──────────────────────────────────────────────────────────
 
 
 def _parse_changeset(row) -> WorldChangesetRow:
@@ -696,19 +646,7 @@ async def update_world_changeset(
 
 
 async def mark_orphaned_changesets_stale() -> int:
-    """Mark every *pending* proposal whose source messages are gone stale.
-
-    Deleting a message (or a whole conversation) NULLs the changeset's source
-    pointers through ``ON DELETE SET NULL`` before any application code could
-    match on them, so orphanhood -- not a list of doomed ids -- is what this
-    reads. A pending proposal always had a source assistant message when it was
-    staged; a NULL one therefore means the evidence is gone and the proposal can
-    neither be judged nor re-evaluated.
-
-    Applied history is untouched by design: an accepted change is shared canon
-    regardless of what happened to the chat that produced it, which is exactly
-    why the denormalised labels exist.
-    """
+    """Mark proposals stale when their source messages are gone."""
     async with get_db() as db:
         cur = await db.execute(
             "UPDATE world_changesets SET status = 'stale', decided_at = ?"
@@ -738,9 +676,6 @@ async def mark_changesets_stale_for_messages(message_ids: Sequence[int]) -> int:
         )
         await db.commit()
         return cur.rowcount
-
-
-# ── Transactional overlay mutation ────────────────────────────────────────────
 
 
 class RevisionConflict(RuntimeError):
