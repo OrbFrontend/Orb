@@ -1,560 +1,181 @@
 # Group Chats
 
-Group chats are durable cast conversations. `conversations.kind = 'group'`
-switches prompt construction and turn execution from the legacy scalar card to
-the ordered `group_members` roster. Assistant messages store a member identity
-(`speaker_member_id`) and request identity (`exchange_id`); the card is resolved
-through the member only when current card data, an avatar, or a workflow profile
-is needed.
+Group chats are durable conversations with a cast. When
+`conversations.kind = 'group'`, the ordered `group_members` roster replaces the
+single character card used by a solo chat.
 
-The user-facing side of this is
-[Group Chats](../features/group-chats.md).
+Each assistant message records its `speaker_member_id`. The current card is
+resolved through that member only when a card, avatar, or workflow profile is
+needed.
 
----
+The user-facing feature is [Group Chats](../features/group-chats.md).
 
-## Three units, three words
+## The vocabulary
 
-Group chats measure time two ways and direct it a third, and the words are not
-interchangeable:
+These terms describe different things:
 
-- An **exchange** is one group request — `messages.exchange_id`. Every reply a
-  single `/send`, `/speak` or regenerate produced shares it. It is what the
-  Director plans once for, and what the sheet-update pass is billed per.
-- A **round** is the user's last message and every reply since
-  (`entrypoints._round_prefix`, `subjects._round_speakers`). Under **Manual** —
-  and for any cast-chip click on a resting scene — one round is several
-  exchanges, because each click is its own request answering the same message.
-- A **cue** is what the Director tells a *single speaker* to do in one reply —
-  one line inside the plan (`pipeline/cast.py`), in the theatrical sense. It is
-  not a unit of time at all. It reaches the writer
-  as the `## Your cue` tail section and the client as the `cue` field on
-  `speaking_plan`/`speaker_start`. It was called a *beat* until the word began
-  surfacing in the writer's own prose — "paused a beat" is idiomatic narration,
-  so a header naming it reinforced a word the model already reaches for.
+| Term | Meaning | Stored or used as |
+|---|---|---|
+| **Exchange** | One group request and all of its replies | `messages.exchange_id` |
+| **Round** | The user's message and every reply since it | Used by history and image prompts |
+| **Cue** | One speaker's instruction in a Director plan | `speaking_plan` and `speaker_start` |
+
+Under **Manual**, one round can contain several exchanges because each cast
+selection is its own request.
 
 ## Group families
 
-A group is one *family* of conversations, not one conversation.
-`conversations.group_root_id` names the conversation a family descends from;
-NULL means the row **is** that root, so a plain group needs no write there and
-only forks carry a value. `group_root_of()` (backend) and `groupRootId()`
-(`group_cast.js`) are the only places that fallback is expressed.
+A group is a family of conversations, not a single row. The root conversation
+has a null `group_root_id`; forks point directly to that root. Checkpoints,
+compression, and fork-edit stay in the same flat family.
 
-Checkpoint and Compress History both fork a group, so without lineage each one
-produced a second entry under **Groups** and the roster looked like a property of
-the conversation rather than of the group. Every fork now joins the source's
-family instead, and the family is **flat**: a checkpoint of a checkpoint points
-at the root, never at its parent, so the grouping stays a single key rather than
-a chain to walk. Rosters are still per-conversation and are copied at fork time
-with new member UUIDs — a checkpoint is a snapshot of the cast as well as of the
-history, and editing one scene's cast never reaches back into its siblings.
+Rosters are copied at fork time with new member ids. This makes each conversation
+a cast snapshot: changing one conversation does not change its siblings.
 
-Deleting a conversation keeps its family together: `delete_conversation`
-promotes the oldest survivor to root and re-points the others first, because the
-FK's `ON DELETE SET NULL` would otherwise scatter the forks back into one sidebar
-entry each. `DELETE …/group` is the other direction — the whole family at once,
-which is what the sidebar's × means now that one row stands for the group.
-Unlike a character card, which outlives its chats as a reusable asset, a group
-has no existence apart from its conversations.
+If the root is deleted, the oldest remaining conversation becomes the root and
+the family is relinked before deletion. `DELETE …/group` removes the whole
+family. Solo conversations have no family; converting one creates a family of
+one.
 
-Solo conversations never carry a family; a solo fork leaves the column NULL, and
-converting a solo chat to a group founds a family of one.
+`group_root_of()` in the backend and `groupRootId()` in `group_cast.js` are the
+shared helpers for resolving a family's root.
 
-## Character context modes
+## Character context
 
-`conversations.group_context_mode` decides which character information every
-generation in the scene carries. It is separate from reply behaviour, which
-decides *who* speaks. The UI calls it **Character context** and lives in Group
-settings; the stored values are internal. `group_cast.js:CONTEXT_MODES` owns the
-per-mode wording — label, one-line hint, description and cache/billing note —
-and is the only place that differs per mode. `group_setup.js` owns the two
-mode-independent strings beside it: `CONTEXT_COMMON` (the floor all three modes
-share) and `OVERRIDE_COPY` (how Manage cast labels the override box per mode).
+`group_context_mode` controls what card information each generation receives.
+It is separate from reply behavior, which controls who speaks. The UI labels
+the setting **Character context**.
 
-| Stored | UI label | What the shared cached body carries | What the speaker's trailing message carries |
-|---|---|---|---|
-| `private` (default) | Private perspective | Every member's confirmed public profile | That speaker's `description`/`personality`, examples, and post-history instructions |
-| `shared` | Shared dossier | A labelled dossier per member: `description`/`personality` and examples | That speaker's post-history instructions only |
-| `swap` | Classic card swap | Every member's confirmed public profile, plus the active speaker's `description`/`personality` and examples | That speaker's post-history instructions only |
+| Mode | Shared cached body | Active speaker's trailing message |
+|---|---|---|
+| `private` (default) | Every member's public profile | That member's description, personality, examples, and post-history instructions |
+| `shared` | A dossier for every member, including card text and examples | That member's post-history instructions |
+| `swap` | Every member's public profile plus the active member's card text and examples | That member's post-history instructions |
 
-`backend/inference/group_context.py` is the single owner of that table. Every
-consumer — `build_prefix`, `build_writer_content`, and the context-size
-estimator — reads the projection from there, so no pass decides card visibility
-on its own.
+`backend/inference/group_context.py` owns this projection. Prompt construction
+and context-size reporting use it rather than deciding card visibility locally.
 
-Three rules hold in **every** mode:
+The following rules apply in every mode:
 
-- A card's `system_prompt` override is ignored and its `scenario` is never read.
-  A group has exactly one premise (`conversations.character_scenario`); merging
-  N card scenarios would create N competing ones. Swap is therefore
-  identity-field substitution, not control-instruction substitution — a
-  deliberate divergence from SillyTavern.
-- A *card's* `post_history_instructions` stays active-only, in the speaker's own
-  trailing message, and still honours `prevent_prompt_overrides`. Concatenating
-  several members' directives produces contradictory control instructions. The
-  *scene's* own directive (`conversations.post_history_instructions`, the
-  "How should this scene be written?" box in Group settings) has no such
-  conflict — there is exactly one and it is the same for every speaker — so it
-  rides the shared cached body, as it does in a solo chat.
-- Member names stay available through `{{cast}}`, the cast section, and the
-  speaker labels on history. Card-linked Worlds and card-embedded fragments are
-  scene-wide in all three modes, so no mode provides private per-character lore.
+- A group has one premise, `character_scenario`. Card `system_prompt` overrides
+  and card `scenario` fields are ignored.
+- A card's post-history instructions belong only to the active speaker. The
+  scene's own post-history instructions are shared by every speaker.
+- `{{cast}}` is always the roster. `{{char}}` is the group title outside member
+  card text and the member's name inside that member's context.
+- Card-linked Worlds and card fragments are scene-wide. Context mode does not
+  make lore private.
 
-`private` and `swap` are both privacy boundaries, and the same one: a card's
-own text reaches nobody but the member it belongs to, and the rest of the cast
-knows that member through its public profile. They project the *same
-information* and differ only in where the speaker's own card sits — after
-history in the trailing message, or before it in the cached body. That is a
-caching decision, not a visibility one, which is why `recommendContextMode`
-weighs the two on cost alone. `shared` is the mode that opens the cards up, by
-design.
+Private and Swap protect the same information: a member's full card is visible
+only to that member. They differ in placement. Private puts it after history;
+Swap puts it before history so it can cache per speaker. Shared deliberately
+opens the cards to the whole cast.
 
-One renderer serves both boundaries: `render_cast_section` calls
-`_render_public_cast` whenever `carries_public_cast(mode)` — every mode but
-`shared` — and only then appends the active card under `swap`. A second,
-swap-shaped cast projection would drift from the mode it mirrors.
+The roster is ordered by `sort_order, id`. Muted members remain in the cast but
+cannot speak; removed members are tombstoned so old messages keep their names.
 
-The dossier/cast set is the **active** roster in canonical `sort_order, id`
-order — muted members included (a muted member is in scene but never speaks),
-tombstoned members excluded. A narrator or cardless member with nothing to say
-about itself contributes no dossier; its name still rides the cast list.
+## Turn flow
 
-A dossier is card text and nothing else. Under `shared` every member already
-reads every other member's card, so a curated profile layered on top would be a
-second view of the same member — and it rendered as a label on labels
-(`Public profile: Appearance: …`). The accepted consequence: a member with no
-card text contributes no dossier and rides the cast list as a name, the same
-floor a bare narrator already gets.
+Reply behavior has three modes:
 
-The public-profile override is therefore a field of **both** boundary modes,
-and Manage cast enables the box and its Draft buttons under Private perspective
-and Classic card swap alike — the two modes where a curated view of a member is
-the only thing the rest of the cast is told about it. **Shared dossier** is the
-one mode that disables them, with a one-line reason.
+- `manual` answers the pinned active member. With no pin, the scene rests and no
+  model call is made.
+- `round_robin` chooses the next eligible member.
+- `director` asks the Director for a bounded `speaking_plan`. `[]` means rest;
+  a missing or invalid plan falls back to round-robin.
 
-Both halves of the field are mode-independent on the server and always were:
-`PUT …/members` stores an override under every mode, and
-`POST …/members/scene-profile/generate` drafts one under every mode
-(`api/routes/conversations.py` says so in as many words — a generate route that
-refused would leave the two halves of one field disagreeing about whether the
-mode is a server rule). The enable/disable is a UI judgement about whether the
-text would ship, nothing more.
+A user pin overrides the plan and selects one member. Outside Manual it is a
+one-exchange override; in Manual it remains until used or cleared. Regenerate,
+super-regenerate, and Magic Rewrite follow the speaker already recorded on the
+message and do not consume a pin.
 
-One reader sees the override even under Shared: compression forces
-`context_mode="private"` (`api/routes/conversations.py`), so an override typed
-before a mode switch still reaches the *summary* prompt. The disabled copy talks
-about the turn for that reason — the string is not sent on a turn, rather than
-never read.
+The Director and pre-pipeline setup run once per exchange. Each planned speaker
+then runs the Writer, Editor, feedback, and post-workflow path. Messages form
 
-Compression is the one place the mode deliberately does not apply: summary
-prompts always use the public-cast projection, whatever the scene is set to.
-Scene-wide narration gains nothing from every dossier, or from one arbitrary
-swapped-in card, on the longest call in the app.
+```text
+user → speaker 1 → speaker 2 → …
+```
 
-`{{cast}}` always means the roster names. `{{char}}` is **mode-dependent**: it
-means the group title everywhere outside a member's own card text, and that
-member's name inside a dossier (`shared`), a swapped active card (`swap`), or a
-private speaker tail (`private`). Without that scoping a card reading
-"{{char}} never lies" would silently start describing the scene title. Group
-chats use the conversation persona pin or the global persona; card persona locks
-and card system-prompt overrides do not compete.
+All replies share the exchange id and receive increasing turn indices. Later
+speakers see earlier replies in history, but lore selection is frozen for the
+exchange. Post-turn notes and Dynamic Worlds run after the last successful
+speaker.
 
-## Turn policy and message tree
-
-- `manual`: answers the pinned member, who must be active and unmuted. No pin
-  at all is a **rest** — the user's message stands and nobody answers it yet —
-  decided before any prompt is built, so a rest never pays for a Director call.
-- `round_robin`: selects one next eligible member.
-- `director`: validates a bounded `speaking_plan`; explicit `[]` rests the
-  scene, while a missing or malformed plan falls back to round-robin.
-- A user pin overrides the plan and selects exactly that member.
-
-The `speaking_plan` field is split across the two halves of a call, and has to
-be. Its *schema* rides the shared tools blob — the cached prefix — so it names
-the field and never the cast (`director.SPEAKING_PLAN_SCHEMA_DESCRIPTION`);
-muting a member is otherwise entirely prefix-neutral, since a muted member still
-renders in the cast section in every context mode, and a schema that listed the
-unmuted keys turned one mute toggle into a full re-prefill of every lane on the
-backends that render tool declarations ahead of the conversation. The live
-roster ships on the Director's *trailing request* instead
-(`director.speaking_plan_instruction`), the same shape the editor's numbered
-finding ids take: volatile list stated in prose, validated server-side by
-`cast.parse_speaking_plan`. That placement also reaches strictly more of the
-pipeline — text mode never renders tool schemas at all, and the per-fragment
-step prompt echoes a stage's own description rather than the schema property's,
-so before the split neither path was ever told which keys were castable.
-
-The stored mode names are internal. The UI calls them `Auto — Director
-chooses`, `Rotate — Cast replies in order` and `Manual — Select every reply`
-(`group_cast.js:TURN_MODES` is the only place that wording lives).
-
-A pin is a *temporary override*, not a mode: outside `manual` the client clears
-it once the exchange it named has produced a reply, so the configured strategy
-resumes by itself rather than being silently suppressed. In `manual` the pick is
-the strategy, so it survives until it is used or cleared. An aborted or failed
-exchange keeps the override to retry with. Only the pin the finished exchange actually
-ran on is cleared — the client latches it at request time (`consumedSpeakerId`),
-read off the request body rather than off state, so a chip clicked *while* the
-exchange streams queues that member for the next turn and survives the cleanup.
-The pin rides only the three routes that start a new exchange and can honour it:
-`/send`, `/continue` and `/fork-edit` (`chat_stream.js:turnPayload`). Regenerate,
-super-regenerate and magic rewrite replace an assistant row whose speaker is
-already recorded on it, so they carry no pick and consume none.
-
-The Director and pre-pipeline setup run once. Each planned speaker then runs the
-Writer, Editor, feedback, and post-workflow path with the shared Director state.
-Rows form `user -> speaker 1 -> speaker 2 -> …`, share one exchange ID, and receive
-incrementing turn indices. Post-turn notes and Dynamic Worlds run only after the
-last successful speaker. Keyword/agentic lore selection is frozen for the exchange;
-later speakers see earlier prose in history, but that prose activates new lore
-only on the next exchange.
-
-Regenerating a group reply creates a same-speaker sibling under the original
-parent. It does not replay downstream speakers. Fork-edit instead creates a new
-user sibling and runs a fresh group exchange. Removed roster members are tombstoned
-so old messages keep their names; re-adding the same card creates a new member
-identity.
+A group regenerate creates a same-speaker sibling and does not replay later
+speakers. Fork-edit creates a new user branch and starts a fresh exchange.
 
 ## Scene-local sheets
 
-`group_members` carries two scene-local overrides, and they answer different
-questions. `public_profile_override` is what the *rest of the cast* sees;
-`card_sheet_override` is what the member reads about *itself*, standing in for
-the card's `description` + `personality` join. Both resolve on `is not None`, so
-a stored `""` blanks the field rather than falling back, and neither ever writes
-the card — a card is a reusable asset that outlives the scene, and a scene that
-edited it would change every other chat the card is in.
+`group_members` has two scene-local overrides:
 
-The sheet exists because a card asserts turn one forever and a scene does not:
-hair is cut, a coat burns, a sword breaks. It can be typed by hand in Manage
-cast, and — when the scene opts in — proposed from the played prose.
+- `public_profile_override`: what the rest of the cast sees;
+- `card_sheet_override`: what the member reads about itself, replacing the
+  card's description and personality.
 
-### The post-exchange pass
+They never modify the reusable character card. A stored empty string is a real
+override, not a fallback.
 
-`conversations.group_sheet_updates` is the per-scene opt-in, **off by default**:
-one billed call per member an exchange touched is not something a scene should start
-paying for by existing, and staleness is a property of a *long* scene.
+Optional sheet updates are proposed after an exchange. The feature is off by
+default and is offered under **Private perspective**, where updating a sheet
+does not rebuild the shared prefix. The pass makes one call per member that
+spoke, using the round as evidence. It stages a proposal; the user applies it
+from Manage cast.
 
-`pipeline/sheet_update.py` drives it in the `world_change` slot, gated on
-`run_exchange_final` so it runs **once per exchange** on the members that actually spoke
-— not cast-wide, which would bill a call per member per exchange to tell a silent
-member nothing happened to them. `features/cards/sheet_update.py` owns the call:
-one forced tool call per member, **never batched**, because a sheet is that
-member's own material and B's sheet entering A's call would write B's secret
-into a string A reads. The exchange's prose is shared evidence and goes into every
-call; the sheets do not. Failures are swallowed at both levels — one member's
-failed call never drops another's proposal, and the stage never costs the user
-their reply.
+`member_sheet_proposals` uses `pending`, `applied`, `rejected`, and `stale`
+states. Applying compares the proposal's `base_sheet` with the current sheet
+inside a transaction and returns `409` on a conflict. There is at most one
+pending proposal per member, and a new proposal replaces the old one. Turning
+the feature off stops new proposals but does not hide existing ones.
 
-Three rules shape what the pass is allowed to be:
+## Feature scope
 
-- **It is offered under Private perspective only**, and the gate is the *turn
-  driver's*, not the form's. Private is the one mode that reads a member's sheet
-  from the trailing message, after history, where rewriting it every exchange costs
-  no prefix rebuild. Under Shared and Swap the same text sits in the cached body
-  ahead of the history, so an applied update rebuilds the whole scene prefix —
-  the exact cost the opt-in is priced on avoiding. Leaving that invariant to the
-  client alone meant a `PUT` changing only the mode left the pass running.
-- **The evidence is the round, not the request.** An exchange is request-scoped, so
-  under `Manual` — and for any cast-chip click on a resting scene — one round is
-  several requests. The transcript is therefore the user's last message and every
-  reply since (`entrypoints._round_prefix`), the same round
-  `workflows/image_gen/subjects.py` reads. Only the *evidence* widens: the
-  members proposed **about** stay this request's speakers, since an earlier
-  request already billed a call for the ones it ran.
-- **Nothing is applied.** The pass proposes; the user decides, in Manage cast.
-  Same posture as Dynamic Worlds, for the same two failure modes: a bookkeeping
-  model can disagree with a hand edit, and it can simply judge wrong.
+When a feature needs a member, the feature uses the speaker recorded on the
+message or an explicit member selected by the user. It does not infer a member
+from unrelated conversation state.
 
-### The review queue
+| Scope | Examples |
+|---|---|
+| Scene | Worlds, persona, macros, compression, checkpoints, fragments, context size |
+| Exchange | Director, agentic lore selection, direction notes, Dynamic World proposals |
+| Speaker | Editor, feedback, regenerate, image generation, TTS, character expressions |
 
-`member_sheet_proposals` holds the staged rewrites — `pending` | `applied` |
-`rejected` | `stale`. `base_sheet` is to a proposal what `worlds.content_revision`
-is to a changeset: the apply takes `BEGIN IMMEDIATE`, re-resolves the member's
-current effective sheet, and refuses (409) when it no longer matches. There is
-no force-apply and no rebase, because a hand edit and a model's edit can
-contradict each other in meaning even when both look reasonable.
-
-**At most one pending proposal per member.** Every exchange stages against the sheet
-as it stands, so two pending proposals for one member are necessarily derived
-from the same base — applying either makes the other unapplyable, and regenerate
-runs the exchange again and would stack a third. A new proposal therefore *replaces*
-the member's pending one in place, keeping its row id, and the stage builds that
-exchange's call on the replaced text so the drift accumulates into one reviewable
-sheet instead of competing ones. A pending proposal whose `base_sheet` no longer
-matches the stored sheet is not carried forward: the user hand-edited underneath
-it, and resurrecting text they overwrote is the one thing staging must not do.
-
-The listing route's default is the **review set** — `pending` plus `stale` — not
-`pending` alone. A `stale` proposal is one the apply just refused, and it is
-precisely the row that owes the user an explanation; fetching only `pending` made
-it vanish at the moment of refusal. `?status=all` is the history view, and any
-single status name is accepted.
-
-Two lifecycle edges keep the queue honest. Removing a member from the scene
-retires its undecided proposals in the same transaction as the tombstone —
-Manage cast renders rows only for the active roster, so one left pending would
-sit in the review count forever with no row to dismiss it from. And the client
-fetches the queue whether or not the scene is currently opted in: turning the
-pass off stops it *staging*, and must not also hide what it already staged.
-
-### Where it surfaces
-
-Manage cast is the review surface. Each member's row carries both overrides under
-`Customize for this scene`, and its staged proposal below them — shown in full,
-because the user is approving text rather than a label. A row with something
-waiting opens by default and counts itself on its summary, and the cast rail's
-`+ Manage cast` button carries the scene-wide count; a proposal nobody notices
-never gets applied.
-
-The override boxes are labelled by what they *reach*, which is mode-dependent for
-the sheet: under Shared dossier a member's own sheet **is** its dossier, so the
-words "what they read about themselves" would put the scene's only cross-member
-disclosure behind the most private-sounding label on the screen. Under Swap it is
-self-only for real — only the active speaker's card is sent, and what the rest of
-the cast reads about it is the public profile in the box above.
-
-## The rest of Orb in a group
-
-A group is a conversation, so every feature that reads a conversation keeps
-working; the ones that read *a character* have to be told which. Three answers
-cover all of them, and which one applies is never the feature's own choice:
-
-- **Scene-wide** — the feature belongs to the conversation, and the cast changes
-  only what it reads. Lorebooks and Dynamic Worlds (every member's linked World
-  is activated), the persona pin, macros, compression and checkpoints, the
-  context-size counter, and card-embedded fragments, which merge across the whole
-  cast (a global fragment still wins an id clash, and between two cards the first
-  member in the roster keeps it).
-- **Per exchange** — the feature belongs to the request, which is one Director
-  decision and N replies. The Director, agentic lore selection, both
-  direction-note placements and the Dynamic Worlds proposal run once per exchange
-  rather than once per speaker (the two that read the finished prose — the
-  end-of-turn note and the proposal — after the last one); a user's image upload
-  is answered by every speaker in the exchange, not only the first.
-- **Per speaker** — the feature belongs to a member, and the member is resolved
-  from the reply it acts on. Editor passes (anti-slop, anti-repetition, length
-  guard), feedback fragments, regenerate / super-regenerate / magic rewrite,
-  image generation and TTS all run against the speaker of their own message.
-  Their off-turn LLM calls still build the *scene's* prefix — the cast section
-  and speaker-labelled history, resolved through the same `resolve_cast` the
-  turn used — so the image prompter reads a transcript that says who did what,
-  and rides the conversation's warm cache instead of evicting it.
-
-Where a per-member setting has no message to resolve from — the image-generation
-appearance profile, the TTS voice — the panel names the member instead: both open
-on a **Cast member** selector, defaulting to the first member with a card, and
-switching member reloads the form rather than writing to whoever spoke last.
-`getGroupCast()` (workflow ABI v3) is how a workflow plugin reads the roster, and
-`speaker_member_id` on the trigger route is how it addresses one member.
-
-Image generation is per-speaker in *which member it is of* and per-round in *who
-else it describes*. The speaker of the reply being visualized is the picture's
-primary subject; the other members who spoke in the same **round** - the user's
-last message and every reply since - **up to that reply** follow, in cast order. A
-render never reads past its own anchor, so the first reply of a round has a shorter
-cast than the last. It is the round, not the request: under **Manual** you give one
-member the floor per click, and each click is its own request but the same round. Both halves of the render read
-that one list. **One reference image per character** (see
-[Reference images](../multimedia/image-generation.md#reference-images-in-a-group-chat)):
-a cloud provider's reference field is one array, so it carries one likeness per
-character in the shot, in cast order and never the same person twice; a ComfyUI
-workflow's image inputs are structural and all get the speaker's. Whoever gets no
-picture is described in full instead, and the prompter is told which image is whom,
-so an unpictured character still comes out as themselves rather than as a generic
-person. The camera does not change who is in the scene: first-person looks through
-the *user's* eyes, and the user is a persona rather than a cast member, so every
-character in the round is in front of the lens and none is dropped.
-
-Character expressions follow the floor: the header's 👥 avatar opens the popup on
-the member currently streaming, or the last one to have spoken, and switches face
-mid-exchange as the floor moves.
-
-The composer's local-model typeahead reads the scene the same way the turn does:
-`{{char}}` is the title, its one-line summary is the roster, and each replayed
-line is labelled with the member who said it rather than with the group.
+Off-turn calls use the same scene prefix as the turn: speaker-labelled history,
+the cast section, and the same `resolve_cast` helper. Image prompts use the
+round up to the message being rendered, with the active speaker as the primary
+subject.
 
 ## HTTP and SSE
 
-Roster creation, conversion, and synchronization are transactional. The main
-group routes are:
+The main group routes are:
 
-- `GET|PUT /api/conversations/{cid}/members`
-- `POST /api/conversations/{cid}/convert-to-group`
-- `POST /api/conversations/{cid}/group-conversation`
-- `DELETE /api/conversations/{cid}/group`
-- `POST /api/conversations/{cid}/speak`
-- `POST /api/conversations/{cid}/activate`
-- `POST /api/conversations/{cid}/members/scene-profile/generate`
-- `PUT /api/characters/{card_id}/public-profile`
-- `POST /api/characters/{card_id}/public-profile/generate`
+```text
+GET|PUT /api/conversations/{cid}/members
+POST    /api/conversations/{cid}/convert-to-group
+POST    /api/conversations/{cid}/group-conversation
+DELETE  /api/conversations/{cid}/group
+POST    /api/conversations/{cid}/speak
+POST    /api/conversations/{cid}/activate
+POST    /api/conversations/{cid}/members/scene-profile/generate
+```
 
-Every group request emits one `speaking_plan`, then a
-`speaker_start`/`speaker_done` pair per persisted reply, and exactly one
-request-level `done`. The frontend creates and finalizes a bubble per speaker,
-stops the previous audio channel at every `speaker_start`, and performs a full
-message refetch/render after the exchange.
+Every group request emits one `speaking_plan`, a `speaker_start` and
+`speaker_done` pair for each persisted reply, and one request-level `done`.
+The frontend creates a bubble per speaker and refetches the exchange after it
+closes.
 
 ## Chat surface
 
-The group screen shows four things: scene identity, conversation, cast and
-composer. Everything else lives in **Scene setup**, the two-tab modal the cast
-rail's `+ Manage cast` opens. Its **Group settings** tab owns the durable
-configuration — title, character context, reply behavior, max replies per turn,
-scene premise, style instructions, and the group delete — through
-`PUT /api/conversations/{cid}`. Its **Cast** tab owns membership, order, reply
-eligibility, both scene-local overrides and the staged sheet updates
-(`PUT …/members`). The override box is one string with one meaning in every
-mode; only its label changes, and under Shared dossier alone it is disabled with
-a one-line reason rather than accepting text that would never ship on a turn.
+The screen has the scene, conversation, cast rail, and composer. Scene setup is
+one modal with two tabs:
 
-They are one modal because they are one subject: the context mode chosen on the
-settings tab decides what half the cast tab's boxes even do, so a mode picked
-there repaints the other tab's labels, placeholders and Draft buttons before
-anything is saved. **One Save writes both**, sending only the halves that are
-dirty and re-baselining each as it lands — so a title typed on one tab can never
-be lost by saving from the other, and one close guard covers the whole form. The
-scene has no header `•••`: two modals behind an overflow menu were two clicks
-into a place nobody looked, and Group settings was the half that stayed unfound.
+- **Group settings** owns title, context mode, reply behavior, speaker limit,
+  premise, style instructions, and group deletion.
+- **Cast** owns members, order, mute state, scene-local overrides, and sheet
+  proposals.
 
-Manage cast can also **generate** an override rather than have it hand-typed:
-per row (`Draft` / `Redraft`) and cast-wide (`Draft scene profiles`, which fills
-every empty one in sequence, opening each row as it lands and counting up so a
-second click can stop it). Both go through
-`POST /api/conversations/{cid}/members/scene-profile/generate`.
+One Save writes both tabs. The cast rail is also the reply control: selecting a
+member speaks immediately in a resting scene, or queues that member while an
+exchange is busy. In Manual mode, Send stays disabled until a member is picked.
 
-**One LLM call per member, never batched.** The context carries that member's
-own card, its card-level `extensions.orb.public_profile` as the default to
-adjust, the scene premise, and the other members' **names only** — bounded to
-the first 16 in roster order, with `Other cast members omitted from this draft:
-N` appended when there are more (a prompt-size guard, not a roster limit).
-Putting member B's card into member A's draft would write B's secret into a
-string every member reads under Private perspective *and* Classic card swap,
-which is the one thing both boundary modes promise cannot happen;
-`test_scene_profile_draft_sends_only_the_target_card_and_other_names` is the
-executable form of the rule. Names arrive from the client because the modal is
-client-side until Save — a member added seconds ago exists only in the DOM — and
-are treated as untrusted display text: stripped and capped, never sorted or
-deduplicated.
-
-The output is the same `Appearance: …` / `Role: …` two-liner
-`database.queries.character_cards.render_public_profile` renders from a card, so
-an overridden member and a non-overridden one read identically in the assembled
-prompt. The endpoint is deliberately **mode-blind** — `PUT …/members` accepts an
-override under every mode, so a generate route that refused would leave the two
-halves of one field disagreeing about whether the mode is a server rule; the
-gating is the UI's. Nothing is persisted: Save cast is still what writes it.
-Failures raise (502/500) rather than degrading to a plausible-looking draft,
-because a loop that writes N overrides the user saves in one click cannot afford
-a fabricated one.
-
-The cast rail sits on top of the composer and is the only reply control there is
-— there is no separate strategy line. One click on a chip does one of two
-things, and the scene decides which (`group_cast.js:castClickSpeaksNow` is the
-only definition):
-
-- **Resting scene** — nothing streaming, nothing drafted or attached: the member
-  takes the floor immediately via `POST …/speak`. There is no toggle here; the
-  click resolves the pick by using it, and the one-shot cleanup drops the pin
-  afterwards outside `Manual`.
-- **Busy or drafted**: the click only queues that member as the next speaker.
-  Clicking whoever is already queued takes the pick back.
-
-Muted members render disabled. In `Manual` mode the send button stays disabled
-until a member is picked and says so in its tooltip, since nothing else on
-screen explains the block.
-
-Convert-to-group does not offer the context control: it starts on Private
-perspective and the setting is one click away afterwards. New group chat keeps
-the control under **Advanced**, still defaulted to Private, and adds a
-**recommendation** under the cast picker.
-
-`group_cast.js:recommendContextMode` is the only place that rule lives. It is a
-choice between two modes — Shared dossier is never recommended, being a
-deliberate privacy decision rather than a cost one — and it turns on the two
-things creation already knows: how many characters are picked, and how heavy
-their cards are. Both carry the same public cast in the shared body, so that
-block cancels out; what is left is where the *speaking* card lands, and there the
-two fail in opposite directions:
-
-- **Private perspective** puts the speaking card in the trailing message, *after*
-  history — the one place a prefix cache can never reach, so that card is re-read
-  on every writer and editor call. Its cost tracks **card size** and is flat in
-  cast size.
-- **Classic card swap** parks the speaking card *before* history where it caches,
-  but makes each character its own cache lineage. Its cost tracks **cast size**
-  and is nearly flat in card size.
-
-So swap wins only when the cast is narrow enough to keep a branch per character
-warm *and* the cards are heavy enough to be worth caching: `mean card tokens >=
-500 x (cast - 1)`, capped at three members, where a server holding several
-prefix lanes starts thrashing (swap needs roughly 2.5 lanes per member — 5 at
-two, 8 at three, 10 at four — so a fourth member is a 4-6x jump, not a drift).
-The mean is the right statistic because both modes bill per speaking turn: one
-2000-token card beside two 500s costs what three 1000s cost, to within a token.
-
-Nothing is recommended below **two** members. The threshold is zero at one
-member, so every card cleared it and an eight-token stub was told it was heavy
-enough to cache; there is also no second card to weigh it against. And the panel
-recomputes on every pick, so advising at one member means answering for a cast
-the user is still assembling. A genuine one-member group does leave measured
-savings unclaimed — it is also a solo chat with extra steps. From two members up
-the threshold is never below 500, so a cast of empty or narrator-shaped cards
-falls to Private on the comparison itself and needs no separate floor.
-
-The rule is deliberately asymmetric, and every case it gets wrong it gets wrong
-toward Private — recommending swap on a cast too wide for the cache costs
-multiples, while recommending private where swap was marginally better costs at
-most ~1.3x. Nothing but cost is on the table: the two modes show the cast the
-same thing, so the panel weighs tokens and cache lanes and Private is simply the
-cheaper side to be wrong on. Shared dossier is never recommended — dropping the
-privacy boundary is a decision about the scene, not an optimisation. The panel
-states the trade as well as the recommendation, and only ever offers — the user applies it, and applying it
-opens Advanced so the control is never seen to disagree with itself.
-
-The weight comes from `def_chars` on the library list: `description +
-personality + mes_example` summed server-side, one integer per card, so the list
-path can answer "how heavy is this card" without shipping the bodies it
-deliberately omits. A card's `post_history_instructions` is excluded because
-every mode keeps it in the speaker's trailing message and it therefore cannot
-discriminate.
-
-The speaking-plan rail is painted only while an exchange with two or more speakers is
-planned or streaming; a single speaker is announced by its cast chip, and a rest
-(`[]`) is reported as a toast. `Convert to group` is a solo-conversation action
-and never renders inside a group.
-
-The sidebar paints **one row per group**, not per conversation. The row takes its
-name from the family's root — a checkpoint renaming itself must not rename the
-group — while the avatars, cast line and the conversation a click opens all come
-from the family's most recently active member, whose roster is the one currently
-in play. A count appears only once a group has branched, since every group starts
-at one. The row highlights for any conversation in the family, so a checkpoint
-still reads as "this group".
-
-The composer's `☰` is conversation-scoped and asks the *scene* what it is:
-`New conversation` starts an empty scene with the same cast in the same family
-(`POST …/group-conversation`), and `Conversations` lists the family rather than a
-character's chats. Both fall back to the character scope in a solo chat; a group
-has no `activeCharId` to key on.
-
-Checkpoint and compression copy the full active/historical roster with new
-member UUIDs, remap copied message identities, and keep the copy in the source's
-group family. Compression summaries have no
-speaker member and render as `Summary`; the summary prompt itself receives
-speaker-labelled history. Both forks carry `group_context_mode`, exactly as they
-carry the turn mode and speaker cap.
-
-Context-size reporting is the maximum group call, never a sum, and its component
-keys follow the mode: `cast_public` + `largest_speaker_tail` under Private,
-`cast_dossiers` + `largest_speaker_tail` under Shared, and `cast_public` +
-`largest_active_card` + `largest_speaker_tail` under Swap. The shared-body key is
-derived from `carries_public_cast`, not tabulated, so a mode cannot be measured
-under a heading its prefix no longer renders — Private and Swap share
-`cast_public` because they render the same block. `renderContextSize`
-title-cases whatever keys it is handed, so the split needs no frontend work.
-
-The two `largest_*` components measure only members that can actually take the
-turn: the shared body covers the whole roster, but a muted member is never
-scheduled, so counting its card would overstate the call. An all-muted scene
-generates nothing and measures zero there.
+The sidebar shows one row per group family. New conversation, Conversations,
+checkpoints, and compression all preserve the family and its roster snapshot.
