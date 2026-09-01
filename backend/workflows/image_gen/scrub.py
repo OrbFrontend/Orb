@@ -279,23 +279,28 @@ def clean_scene(scene: str, *, prompt_format: str, pov: str) -> str:
     *that* the scene is cleaned without owning a list of regexes -- and so the whole
     pass can be asserted against a literal string with no model in the loop.
     """
-    normalized_format = normalize_prompt_format(prompt_format)
-    if normalized_format == "prose":
-        # Defense in depth: the prose tail forbids count tags, but a model copies
-        # the old convention from context or habit.
-        scene = strip_prose_count_prefix(scene)
-    else:
-        # A count block ended with a period ("1boy, 1girl. Gon eats...") would hide
-        # the tags from the comma-based peeling and pinning below.
-        scene = re.sub(rf"\b({_COUNT_TOKEN})\.", r"\1,", scene, flags=re.IGNORECASE)
-    # Every mode: encoders draw "no longer wearing X" as X, a booru-trained composer
-    # writes "pov" unprompted, and "camera" puts a literal one in the frame. Comma
-    # splitting works on prose too -- it drops the clause and keeps the sentence.
+    if normalize_prompt_format(prompt_format) == "prose":
+        # Prose goes to a natural-language encoder, and every rewrite below answers a
+        # booru/CLIP failure that encoder does not have: it reads negation, it takes
+        # "camera" as the framing word every photo caption uses, and it parses
+        # grammar. Scrubbing it there only costs the model its wording -- and because
+        # a comma bounds nothing in prose, the comma-chunk cut took whole sentences
+        # back to the previous comma, or the entire scene when it had no commas.
+        # So prose keeps what the composer wrote, the call `rewrite_viewer_contact`
+        # already makes. Leaked booru count tags still go: those are the tail's own
+        # format rule broken, not a choice of words.
+        return strip_prose_count_prefix(scene)
+    # A count block ended with a period ("1boy, 1girl. Gon eats...") would hide
+    # the tags from the comma-based peeling and pinning below.
+    scene = re.sub(rf"\b({_COUNT_TOKEN})\.", r"\1,", scene, flags=re.IGNORECASE)
+    # Tags and hybrid are comma-delimited by contract, so a chunk is one tag or one
+    # bound clause and dropping it stays surgical. Their encoders draw "no longer
+    # wearing X" as X, a booru-trained composer writes "pov" unprompted, and
+    # "camera" puts a literal one in the frame.
     scene = strip_chunks(scene, _NEGATION_CHUNK_RE, whole=False)
     scene = strip_chunks(scene, _POV_CHUNK_RE)
     scene = strip_chunks(scene, _CAMERA_CHUNK_RE, whole=False)
-    # Only first-person has a viewer to touch, and only the tag formats have a tag
-    # vocabulary to swap in.
-    if pov == FIRST and normalized_format != "prose":
+    # Only first-person has a viewer to touch.
+    if pov == FIRST:
         scene = rewrite_viewer_contact(scene)
     return scene

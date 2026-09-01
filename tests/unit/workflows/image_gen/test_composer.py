@@ -365,6 +365,68 @@ async def test_single_call_strips_negation_from_scene(monkeypatch):
     assert mode == "single_call"
 
 
+async def test_prose_keeps_the_composer_wording(monkeypatch):
+    # The regression this guards: the booru scrubs ran on prose too, and cut it on
+    # commas -- which bound nothing in prose. One "camera lens" in the second
+    # sentence took the first three with it, back to the start of the string, and
+    # the shot went with them. A prose encoder wants exactly these words.
+    scene = (
+        "Camila straddles the frame. "
+        "Camila's denim-clad crotch is pressed firmly against the camera lens. "
+        "Camila's two hands are positioned at the sides of the frame, pressing down onto the mattress. "
+        "Camila wears a tank top without straps."
+    )
+    composed, _, _ = await _compose(
+        monkeypatch,
+        {"compose_image_prompt": {"scene": scene, "avoid": None}},
+        pov=FIRST,
+        prompt_format="prose",
+    )
+    assert composed == scene
+
+
+async def test_prose_without_commas_is_not_swallowed_whole(monkeypatch):
+    # The severe shape of the same bug: no comma anywhere made the scene one chunk,
+    # so a single banned word emptied it and the composer raised "couldn't compose
+    # an image prompt" on a scene that was entirely usable.
+    scene = "Cara sits. The camera is low. Cara wears boots."
+    composed, _, _ = await _compose(
+        monkeypatch,
+        {"compose_image_prompt": {"scene": scene, "avoid": None}},
+        prompt_format="prose",
+    )
+    assert composed == scene
+
+
+async def test_prose_still_drops_leaked_count_tags(monkeypatch):
+    # Wording is the model's; format is not. A booru count tag at the head is the
+    # prose tail's own rule broken, and a prose encoder reads "1girl" literally.
+    composed, _, _ = await _compose(
+        monkeypatch,
+        {"compose_image_prompt": {"scene": "1girl, solo, Mara leans on the rail.", "avoid": None}},
+        prompt_format="prose",
+    )
+    assert composed == "Mara leans on the rail."
+
+
+@pytest.mark.parametrize("prompt_format", ["tags", "hybrid"])
+async def test_comma_formats_keep_their_booru_hygiene(monkeypatch, prompt_format):
+    # Freeing prose must not free the formats whose encoders really do draw the
+    # negated item and the literal camera. Hybrid is comma-delimited by contract
+    # ("Separate tags and clauses with commas"), so the chunk cut stays surgical.
+    composed, _, _ = await _compose(
+        monkeypatch,
+        {
+            "compose_image_prompt": {
+                "scene": "1boy, 1girl. Gon eats a sandwich, camera above, not wearing shoes, garden",
+                "avoid": None,
+            }
+        },
+        prompt_format=prompt_format,
+    )
+    assert composed == "1boy, 1girl, Gon eats a sandwich, garden"
+
+
 @pytest.mark.parametrize(
     ("mode_pov", "prompt_format", "expected"),
     [
