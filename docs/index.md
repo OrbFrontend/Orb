@@ -6,16 +6,6 @@ Orb is a roleplay and writing app that connects your characters and conversation
 to an LLM. It can also use optional local or cloud tools for scene direction,
 editing, images, and speech.
 
-## How a reply is made
-
-The **Writer** creates the reply. When enabled, the **Director** reads the scene
-first and gives the Writer short instructions about mood, pacing, and focus. The
-**Editor** can then check the reply for repetition, unwanted phrases, and length.
-You can enable these passes separately in **Settings**.
-
-Orb stores characters, conversations, Worlds, settings, and other data in a local
-SQLite database.
-
 ## Start here
 
 <div class="grid cards" markdown>

@@ -9,10 +9,10 @@ Open the character browser and select **🌐 Internet**.
 
 | Source | Format |
 |---|---|
-| **CharacterHub** (`chub.ai`) | V2 PNG cards |
-| **Character Archive** (`chararc.bernkastel.pictures`) | V2 JSON cards and separate avatars |
+| **CharacterHub** (`chub.ai`) | PNG cards |
+| **Character Archive** (`chararc.bernkastel.pictures`) | JSON cards and separate avatars |
 | **Botbooru** (`botbooru.com`) | Tavern PNG cards |
-| **Wyvern** (`wyvern.chat`) | V2 JSON cards and merged embedded Worlds |
+| **Wyvern** (`wyvern.chat`) | JSON cards and merged embedded Worlds |
 
 ## Browse
 
@@ -26,7 +26,7 @@ are one batch, so **Load More** is hidden for that view.
 ## Import
 
 Select **Import** on a result. Orb downloads and parses the card, then opens the
-character editor. Nothing is added until you save it.
+character editor for preview. Nothing is added until you save it.
 
 The card receives a stable ID. Importing the same card again updates the existing
 character identity and keeps conversations linked to it instead of creating a

@@ -16,6 +16,14 @@ Agentic selection adds to the normal rules. Constant entries stay active, and th
 keyword scan still runs. The Director cannot remove a constant entry or cancel a
 keyword match.
 
+## What the agent sees
+
+How does the agent decide which entries are relevant? These info will be sent to it:
+
+- The lorebook's name
+- The entries' names
+- Each entry' activation keywords (capped to 5 max)
+
 ## Enable it
 
 Open **Settings → Agents** and turn on **Agentic Lorebook**. The global **Agent**

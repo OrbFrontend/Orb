@@ -11,16 +11,16 @@ you can add, edit, reorder, or disable them.
 ## Mood fragments
 
 A mood fragment is an instruction that the Director turns on or off for a turn.
-For example, a `Terse` mood can tell the Writer to use short sentences during a
-tense scene.
+Think dynamic prompt management. For example, a `Terse` mood can tell the Writer
+to use short sentences during a tense scene.
 
 Each mood has:
 
 - **ID**: an internal name using letters, numbers, underscores, or hyphens
-- **Label**: the name shown in Orb
+- **Label**: the display name shown in the sidepanel
 - **Description**: when the Director should use the mood
 - **Prompt text**: instructions sent to the Writer while it is active
-- **Negative prompt**: optional instructions sent when the mood is turned off
+- **Negative prompt**: optional instructions sent to the Writer when the mood is turned off
 
 ## Interactive fragments
 

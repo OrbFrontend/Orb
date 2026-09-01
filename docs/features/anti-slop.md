@@ -7,8 +7,8 @@ sentences.
 ## Phrase bank
 
 The **Slop Phrase Bank** is a list you maintain. Add words, phrases, or regular
-expressions. Matching also catches close variants, while keeping each rewrite
-within the sentence that contains the match.
+expressions. Literal matching also catches close variants, while keeping each rewrite
+within the sentence that contains the match. Python Regex is supported.
 
 ## Built-in checks
 
