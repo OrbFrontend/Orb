@@ -58,3 +58,23 @@ async def maintenance_lock():
     lock = _maintenance_locks.setdefault(loop, asyncio.Lock())
     async with lock:
         yield
+
+
+_wal_anchor_locks: dict[asyncio.AbstractEventLoop, asyncio.Lock] = {}
+
+
+@asynccontextmanager
+async def wal_anchor_lock():
+    """Serialize the WAL anchor's open/close.
+
+    Opening awaits ``aiosqlite.connect``, which yields the loop between the
+    "is one already open?" check and the assignment -- wide enough for two
+    callers to both connect, the second to overwrite the global, and the first
+    to be left unreachable. A leaked ``aiosqlite`` connection is not merely a
+    stray file handle: its worker thread is non-daemon, so it keeps the process
+    from exiting.
+    """
+    loop = asyncio.get_running_loop()
+    lock = _wal_anchor_locks.setdefault(loop, asyncio.Lock())
+    async with lock:
+        yield

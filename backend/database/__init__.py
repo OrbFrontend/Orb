@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from .bootstrap import init_db, reset_to_defaults
-from .connection import DB_PATH, get_db, immediate_tx
+from .connection import (
+    DB_PATH,
+    checkpoint_wal,
+    close_wal_anchor,
+    get_db,
+    immediate_tx,
+    open_wal_anchor,
+)
 from .queries.character_cards import (
     card_embedded_fragments,
     cast_embedded_fragments,
@@ -223,7 +230,9 @@ __all__ = [
     "apply_sheet_proposal",
     "card_embedded_fragments",
     "cast_embedded_fragments",
+    "checkpoint_wal",
     "clear_writer_draft",
+    "close_wal_anchor",
     "convert_to_group",
     "count_pending_changesets",
     "create_and_apply_changeset",
@@ -331,6 +340,7 @@ __all__ = [
     "mark_changesets_stale_for_messages",
     "mark_orphaned_changesets_stale",
     "merge_fragments_by_id",
+    "open_wal_anchor",
     "reject_sheet_proposal",
     "render_public_profile",
     "reroll_unfrozen_greetings",

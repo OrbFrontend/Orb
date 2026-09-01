@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter
 
 from ...core.locks import maintenance_lock
-from ...database import DB_PATH, logs_size_before, wipe_logs_older_than
+from ...database import DB_PATH, checkpoint_wal, logs_size_before, wipe_logs_older_than
 from ...workflows.attachment_cache import aged_artifact_size, evict_older_than
 from ..schemas import CleanupRequest
 
@@ -50,11 +50,16 @@ def vacuum_sync(db_path: str = DB_PATH) -> bool:
     try:
         vac.execute("PRAGMA busy_timeout = 5000")
         vac.execute("VACUUM")
-        return True
     except sqlite3.OperationalError:
         return False
     finally:
         vac.close()
+    # VACUUM rewrites every page through the WAL, and the lifespan anchor means
+    # no last-close checkpoint follows this connection out. Reclaim it here, or
+    # the compaction the user just asked for hands the space straight back to a
+    # database-sized WAL.
+    checkpoint_wal(db_path)
+    return True
 
 
 @router.get("/api/storage")

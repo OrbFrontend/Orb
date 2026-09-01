@@ -11,6 +11,7 @@ from .llm_types import (
 )
 from .locks import (
     maintenance_lock,
+    wal_anchor_lock,
     workflow_character_state_lock,
     workflow_config_lock,
     workflow_state_lock,
@@ -41,6 +42,7 @@ __all__ = [
     "TurnCast",
     # locks — process-level asyncio locks
     "maintenance_lock",
+    "wal_anchor_lock",
     "workflow_character_state_lock",
     "workflow_config_lock",
     "workflow_state_lock",

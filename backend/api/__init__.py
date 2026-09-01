@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
-from ..database import DB_PATH, init_db
+from ..database import DB_PATH, close_wal_anchor, init_db, open_wal_anchor
 from ..database.migrations import run_pending, stamp_all
 from ..features.presets import schema_safety_problems as preset_schema_safety_problems
 from ..inference.local_models.llama_server import manager
@@ -75,15 +75,26 @@ async def lifespan(app: FastAPI):
             "will be refused until this is fixed:\n  - " + "\n  - ".join(problems)
         )
     logger.info("Database initialized")
+    # One idle connection held for the life of the process, so the transient
+    # per-query connections are never the last WAL connection and stop paying
+    # 32 KiB of wal-index teardown each (see open_wal_anchor). Opened last:
+    # migrations, init_db and the VACUUM above all want the file to themselves,
+    # and the anchor is only useful once requests start.
+    await open_wal_anchor()
     try:
         yield
     finally:
-        # Every supervised llama-server child. These are Orb's only managed
-        # subprocesses, and without this teardown an orphan keeps its model
-        # resident and holds the GPU after Orb exits. A process that never
-        # imported a feature that owns one has an empty registry and nothing
-        # to do.
-        await manager.shutdown_all()
+        try:
+            # Every supervised llama-server child. These are Orb's only managed
+            # subprocesses, and without this teardown an orphan keeps its model
+            # resident and holds the GPU after Orb exits. A process that never
+            # imported a feature that owns one has an empty registry and nothing
+            # to do.
+            await manager.shutdown_all()
+        finally:
+            # Nested so a child that refuses to die still releases the anchor,
+            # whose close is what performs the final WAL checkpoint.
+            await close_wal_anchor()
 
 
 def build_app() -> FastAPI:

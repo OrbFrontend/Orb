@@ -12,6 +12,7 @@ import sqlite3
 import time
 
 from ...database import preset_schema as ps
+from ...database.connection import checkpoint_wal
 from ...database.migrations import MIGRATIONS, run_pending
 from ...database.schema import CREATE_TABLES_SQL
 
@@ -951,6 +952,9 @@ def apply_preset(preset_path: str, *, replace: bool = False) -> dict:
             except sqlite3.OperationalError:
                 pass
             conn.close()
+        # A replacing merge (restore_partial) rewrites whole domains in one
+        # transaction -- the same database-sized WAL write as a full restore.
+        checkpoint_wal(_db_path())
         return summary
     finally:
         for sfx in ("", "-wal", "-shm"):
@@ -1093,6 +1097,11 @@ def restore_full(name: str) -> None:
         finally:
             chk.close()
         _copy_over_live(tmp, live)
+        # The backup copies every page of the prepared file into the live
+        # database as one transaction, so all of it lands in the WAL. With the
+        # lifespan anchor open no last-close checkpoint follows, and the WAL
+        # would keep the whole database's size; reclaim it here instead.
+        checkpoint_wal(live)
     finally:
         # Unlike the old rename, the copy leaves the temp file behind on success
         # as well as on failure -- plus any journal our own connections created.
