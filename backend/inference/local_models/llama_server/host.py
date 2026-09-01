@@ -63,7 +63,14 @@ class ManagedLlamaServerHost:
         """``ensure`` with the swap lock already held."""
         if self.profile == profile and self.healthy and self.server is not None:
             return self.server
-        executable = binary.find_binary()
+        # THE GPU SWITCH IS THIS LINE, not `--n-gpu-layers` alone. Every build
+        # accepts that flag and a CPU-only one then offloads nothing, silently
+        # and with a zero exit status, so asking for the build that can honour
+        # it is what makes the setting real.
+        wants_gpu = profile.gpu_layers > 0
+        executable = binary.find_binary(gpu=wants_gpu)
+        if wants_gpu and binary.gpu_capable(executable) is False:
+            logger.warning("%s was asked for GPU but %s reports no GPU device; it will run on CPU.", self.name, executable)
         # The flag goes up BEFORE the drain, not after it: new work has to
         # stop arriving for the drain to end, and `state` is what callers
         # read to turn themselves away with a message.
@@ -77,7 +84,7 @@ class ManagedLlamaServerHost:
             os.path.basename(profile.model_path),
             profile.size_mb,
             profile.parallel,
-            profile.gpu_layers > 0,
+            wants_gpu,
         )
         server = LlamaServerClient(profile, executable)
         try:

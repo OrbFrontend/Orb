@@ -109,6 +109,16 @@ async def apply_config(body: Mapping[str, Any]) -> dict:
     return settings.get("local_ml_config", {})
 
 
+async def _stored_profile(settings: Mapping[str, Any]) -> LaunchProfile | None:
+    """The profile the stored settings currently describe, if it can be loaded."""
+    stored = _stored(settings)
+    return config.profile_for_selection(
+        catalog.resolve(str(stored.get("variant") or "")),
+        bool(stored.get("gpu", True)),
+        config.resolve_batch_size(stored.get("batch_size")),
+    )
+
+
 async def on_enabled(enabled: bool) -> None:
     """Switching the feature on means "make this work".
 
@@ -122,15 +132,7 @@ async def on_enabled(enabled: bool) -> None:
     if not enabled:
         return
     await sync_selection()
-    settings = await get_settings()
-    stored = _stored(settings)
-    _apply(
-        config.profile_for_selection(
-            catalog.resolve(str(stored.get("variant") or "")),
-            bool(stored.get("gpu", True)),
-            config.resolve_batch_size(stored.get("batch_size")),
-        )
-    )
+    _apply(await _stored_profile(await get_settings()))
 
 
 async def release_host() -> None:
@@ -145,15 +147,23 @@ async def release_host() -> None:
     await HOST.release()
 
 
-async def fetch_runtime(backend: str) -> str:
-    """Download and unpack a llama-server, after every host lets go of the old one.
+async def fetch_runtime() -> str:
+    """Install both llama-server builds, after every host lets go of the old one.
 
-    A re-fetch replaces ``backend/data/llama-bin/`` wholesale, and on Windows a
+    A fetch replaces ``backend/data/llama-bin/`` wholesale, and on Windows a
     running executable cannot be unlinked. Every registered host is released
-    first — not just this feature's — because the binary is shared: each
-    reloads on next use against the binary that just landed rather than the one
-    it was started from, which is what someone switching CPU↔Vulkan is asking
-    for. Blocking; run it in a thread.
+    first — not just this feature's — because the binaries are shared: each
+    reloads on next use against what just landed rather than what it was
+    started from. Blocking; run it in a thread.
     """
     await llama_server.manager.release_all()
-    return await asyncio.to_thread(llama_server.binary.fetch, backend)
+    path = await asyncio.to_thread(llama_server.binary.fetch)
+    # The selection did not move, the binaries under it did — so the reload the
+    # config route would have triggered has to be triggered here too, or the
+    # first rewrite after the fetch pays for the load. Skipped while the feature
+    # is off: warming gigabytes for something switched off is not what pressing
+    # Download asked for.
+    settings = await get_settings()
+    if (settings.get("local_ml_enabled") or {}).get(catalog.FEATURE, True):
+        _apply(await _stored_profile(settings))
+    return path

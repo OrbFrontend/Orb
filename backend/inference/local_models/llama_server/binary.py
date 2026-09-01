@@ -42,10 +42,27 @@ class LlamaServerMissing(RuntimeError):
     """No usable llama-server binary. Carries the message the panel shows."""
 
 
+#: The two builds kept side by side. A fetch installs BOTH, because the GPU
+#: setting is a runtime switch between them: one download, then flipping the
+#: toggle relaunches against the other directory with nothing to wait for.
+FLAVOURS = ("cpu", "gpu")
+
+
 def bin_dir() -> str:
     d = os.path.join(_ROOT, "backend", "data", "llama-bin")
     os.makedirs(d, exist_ok=True)
     return d
+
+
+def flavour_dir(gpu: bool) -> str:
+    """Where one build lives: ``llama-bin/gpu/`` or ``llama-bin/cpu/``.
+
+    Kept apart rather than swapped in place because swapping is what made the
+    GPU setting a lie — the panel wrote ``--n-gpu-layers 999`` onto whichever
+    single binary had last been unpacked, and a CPU build accepts that flag and
+    ignores it, silently and with a zero exit status.
+    """
+    return os.path.join(bin_dir(), "gpu" if gpu else "cpu")
 
 
 def _executable(path: Path) -> bool:
@@ -75,13 +92,20 @@ def _named(path: Path) -> tuple[Path, ...]:
     return (path,)
 
 
-def find_binary() -> Path:
-    """The llama-server to run: env override → PATH → ``data/llama-bin/``.
+def find_binary(gpu: bool = True) -> Path:
+    """The llama-server to run: env override → PATH → ``data/llama-bin/<flavour>/``.
 
-    An explicit ``ORB_LLAMA_SERVER`` that does not resolve is a hard error, not
-    a fallthrough — someone who set it wants *that* binary, and quietly running
-    a different one is how a Vulkan build gets swapped for a CPU one without
-    anybody noticing.
+    *gpu* picks which of the two fetched builds to run, and it is the entire
+    GPU switch — the caller passes ``profile.gpu_layers > 0`` and gets a binary
+    that can honour it.
+
+    An override and a PATH binary answer for both flavours: somebody who
+    supplied their own llama-server gets that one either way, and their toggle
+    then moves ``--n-gpu-layers`` alone, which is the right meaning for a build
+    this code did not choose. An explicit ``ORB_LLAMA_SERVER`` that does not
+    resolve stays a hard error rather than a fallthrough — someone who set it
+    wants *that* binary, and quietly running a different one is how a Vulkan
+    build gets swapped for a CPU one without anybody noticing.
     """
     explicit = os.environ.get("ORB_LLAMA_SERVER")
     if explicit:
@@ -93,7 +117,7 @@ def find_binary() -> Path:
     found = shutil.which("llama-server")
     if found:
         return Path(found)
-    local = Path(bin_dir()) / BINARY_NAME
+    local = Path(flavour_dir(gpu)) / BINARY_NAME
     if _executable(local):
         return local
     # NAMES A FEATURE, DELIBERATELY, in shared code. This is panel text, the
@@ -108,9 +132,18 @@ def find_binary() -> Path:
 
 
 def runtime_ok() -> bool:
-    """Whether a llama-server binary resolves. The panel's runtime row."""
+    """Whether the runtime is installed. The panel's runtime gate.
+
+    BOTH flavours have to resolve, because the GPU toggle switches between them
+    with no download in the way: half a pair is a toggle that works in one
+    direction and silently does nothing in the other. An install from before
+    the split has a flat ``llama-bin/`` and reads as missing here, which puts
+    the Download button back on screen — one press installs the pair, and that
+    is the whole migration.
+    """
     try:
-        find_binary()
+        for gpu in (False, True):
+            find_binary(gpu=gpu)
     except LlamaServerMissing:
         return False
     return True
@@ -143,6 +176,93 @@ def supports_flag(binary: Path, flag: str) -> bool:
     return flag in _help_text(binary)
 
 
+#: Devices per binary path. ``None`` is "this build could not be asked", which
+#: is not the same answer as "this build found nothing".
+_DEVICE_CACHE: dict[str, tuple[str, ...] | None] = {}
+
+_DEVICES_HEADER = "available devices:"
+
+
+def _forget_probes() -> None:
+    """Drop every cached probe. Called after a fetch.
+
+    A re-fetch writes the SAME path, so a cache keyed by path would keep
+    answering for the build that was just replaced — the CPU one, in the case
+    somebody swapping to Vulkan is trying to get out of.
+    """
+    _HELP_CACHE.clear()
+    _DEVICE_CACHE.clear()
+
+
+def _parse_devices(text: str) -> tuple[str, ...] | None:
+    """The device names under llama-server's ``Available devices:`` header.
+
+    Everything above the header is backend chatter — a Vulkan build narrates
+    its own enumeration before it answers — so the header is the anchor, and
+    the indented lines under it are the answer. ``(none)`` is what a build with
+    no non-CPU backend prints: a device list of length zero, not a device. The
+    CPU never appears in this list, which is what makes "non-empty" mean "can
+    offload".
+
+    ``None`` when there is no header at all: a build too old to know the flag
+    has not said it has no GPU, it has said nothing.
+    """
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip().lower() != _DEVICES_HEADER:
+            continue
+        names = []
+        for entry in lines[index + 1 :]:
+            if not entry.strip() or not entry.startswith((" ", "\t")):
+                break
+            if entry.strip() != "(none)":
+                names.append(entry.strip())
+        return tuple(names)
+    return None
+
+
+def _probe_devices(binary: Path) -> tuple[str, ...] | None:
+    if not supports_flag(binary, "--list-devices"):
+        return None
+    try:
+        done = subprocess.run(  # noqa: S603 — binary resolved by find_binary
+            [str(binary), "--list-devices"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+    except Exception:  # a build that will not enumerate fails properly at boot
+        return None
+    return _parse_devices((done.stdout or "") + (done.stderr or ""))
+
+
+def devices(binary: Path) -> tuple[str, ...] | None:
+    """The non-CPU devices this build can offload to; ``None`` if unknowable.
+
+    Cached per path: the Settings panel polls status every 1.5 s while a model
+    loads, and enumerating Vulkan adapters is not free.
+    """
+    key = str(binary)
+    if key not in _DEVICE_CACHE:
+        _DEVICE_CACHE[key] = _probe_devices(binary)
+    return _DEVICE_CACHE[key]
+
+
+def gpu_capable(binary: Path) -> bool | None:
+    """Whether ``--n-gpu-layers`` means anything to this build. Tri-state.
+
+    THE FLAG IS NOT THE CAPABILITY. Every build parses ``--n-gpu-layers`` and
+    documents it in ``--help``; a CPU-only build then has nowhere to put the
+    layers and offloads none of them, silently and with a zero exit status.
+    Asking the binary what devices it found is the only honest answer, and it
+    is what stops the panel offering a GPU switch that cannot do anything.
+    """
+    found = devices(binary)
+    return None if found is None else bool(found)
+
+
 def _arch() -> str:
     import platform  # noqa: PLC0415 — only needed on the fetch path
 
@@ -154,22 +274,35 @@ def _arch() -> str:
     raise LlamaServerMissing(f"No prebuilt llama.cpp binary for {machine}; build one and set ORB_LLAMA_SERVER.")
 
 
+def gpu_build_published(*, system: str, arch: str) -> bool:
+    """Whether a GPU-capable archive exists for this platform at all.
+
+    macOS carries Metal inside the one asset per arch, so the answer is yes and
+    the choice never reaches the archive. Windows on arm64 publishes no Vulkan
+    build — its GPU assets are OpenCL for Adreno and CUDA for Grace, both
+    narrower than "any card" — so the answer is no.
+
+    Split out of :func:`asset_name` because the panel has to ask it WITHOUT
+    fetching anything: "ticking this box cannot help you here" is a different
+    message from "the build you have cannot help you", and a platform that has
+    no GPU build to offer must not be shown a button offering one.
+    """
+    if system == "windows":
+        return arch == "x64"
+    return True
+
+
 def asset_name(tag: str, backend: str, *, system: str, arch: str) -> str:
     """The release asset for this platform, GPU flavour and architecture.
 
-    macOS builds carry Metal already, so there is one asset per arch and the
-    GPU/CPU choice does not reach the archive — only ``--n-gpu-layers``.
-    Windows on arm64 publishes no Vulkan build (its GPU assets are OpenCL for
-    Adreno and CUDA for Grace, both narrower than "any card"), so the honest
-    default there is the CPU build rather than a 404.
+    A ``gpu`` request on a platform with no GPU build degrades to the CPU
+    archive rather than 404ing on an asset the release does not carry.
     """
-    gpu = backend == "gpu"
+    gpu = backend == "gpu" and gpu_build_published(system=system, arch=arch)
     if system == "darwin":
         return f"llama-{tag}-bin-macos-{arch}.tar.gz"
     if system == "windows":
-        if gpu and arch == "x64":
-            return f"llama-{tag}-bin-win-vulkan-x64.zip"
-        return f"llama-{tag}-bin-win-cpu-{arch}.zip"
+        return f"llama-{tag}-bin-win-vulkan-x64.zip" if gpu else f"llama-{tag}-bin-win-cpu-{arch}.zip"
     if gpu:
         return f"llama-{tag}-bin-ubuntu-vulkan-{arch}.tar.gz"
     return f"llama-{tag}-bin-ubuntu-{arch}.tar.gz"
@@ -250,45 +383,95 @@ def _flatten(unpacked: Path, dest: Path) -> Path:
     return dest / BINARY_NAME
 
 
-def fetch(backend: str = "gpu") -> str:
-    """Download and unpack a llama-server into ``data/llama-bin/``. Blocking.
-
-    Returns the binary's path, having proved it runs with ``--version``: an
-    archive for the wrong glibc or a Vulkan build with no loader present fails
-    there, which is a message, rather than at the first turn, which is a hang.
-    """
-    release = resolve_release()
-    tag = release["tag_name"]
-    system, arch = _system(), _arch()
-    wanted = asset_name(tag, backend, system=system, arch=arch)
+def _download(release: dict, wanted: str, into: Path) -> Path:
+    """One release asset onto disk, or the message naming what the tag does have."""
     asset = next((a for a in release.get("assets", []) if a.get("name") == wanted), None)
     if asset is None:
         published = ", ".join(sorted(a["name"] for a in release.get("assets", []))) or "nothing"
-        raise LlamaServerMissing(f"{tag} does not publish {wanted}. It publishes: {published}")
+        raise LlamaServerMissing(f"{release['tag_name']} does not publish {wanted}. It publishes: {published}")
     logger.info("Fetching %s (%.0f MB)", wanted, asset.get("size", 0) / 1e6)
-    dest = Path(bin_dir())
-    with tempfile.TemporaryDirectory(prefix="orb-llama-") as tmp:
-        archive = Path(tmp) / wanted
-        request = urllib.request.Request(asset["browser_download_url"], headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(request, timeout=120) as response, open(archive, "wb") as fh:  # noqa: S310 — github release URL
-            shutil.copyfileobj(response, fh)
-        unpacked = Path(tmp) / "unpacked"
-        _unpack(archive, unpacked)
-        binary = _flatten(unpacked, dest)
-    if not IS_WINDOWS:
-        # Windows has no execute bit; everywhere else the archive's mode may not
-        # have survived, and a binary nobody may execute is not a binary.
-        for entry in dest.iterdir():
-            if entry.is_file():
-                entry.chmod(entry.stat().st_mode | 0o755)
+    archive = into / wanted
+    request = urllib.request.Request(asset["browser_download_url"], headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(request, timeout=120) as response, open(archive, "wb") as fh:  # noqa: S310 — github release URL
+        shutil.copyfileobj(response, fh)
+    return archive
+
+
+def _prove(binary: Path) -> None:
+    """Run ``--version`` before calling a binary installed.
+
+    An archive for the wrong glibc, or a Vulkan build on a machine with no
+    loader, fails here — which is a message — rather than at the first turn,
+    which is a hang.
+    """
     proof = subprocess.run(  # noqa: S603 — path we just wrote, fixed argv
         [str(binary), "--version"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60
     )
     if proof.returncode != 0:
         detail = ((proof.stderr or "") + (proof.stdout or "")).strip()[-400:]
         raise LlamaServerMissing(f"{binary} was unpacked but will not run:\n{detail}")
-    logger.info("llama-server %s ready at %s", tag, binary)
-    return str(binary)
+
+
+def _clear_legacy_builds() -> None:
+    """Remove a pre-split flat install from ``llama-bin/``.
+
+    Before the CPU and GPU builds were kept apart, the binary and its ~40
+    shared objects sat loose at this level. Nothing resolves them any more and
+    they are a couple of hundred MB that ``bin_bytes`` would still report on
+    the storage row.
+    """
+    root = Path(bin_dir())
+    for entry in root.iterdir():
+        if entry.is_dir() and entry.name in FLAVOURS:
+            continue
+        shutil.rmtree(entry, ignore_errors=True) if entry.is_dir() else entry.unlink(missing_ok=True)
+
+
+def fetch() -> str:
+    """Download and unpack BOTH llama-server builds. Blocking.
+
+    Both in one press, because the GPU setting is a switch between them: paying
+    for a second download at the moment somebody ticks a checkbox is the reason
+    that checkbox used to do nothing instead. Each is proved with ``--version``
+    before it counts as installed. Returns the GPU build's path.
+
+    Platforms that publish one archive for both — macOS carries Metal inside
+    it — download once and unpack it into each directory, so every caller
+    downstream can assume the pair exists.
+    """
+    release = resolve_release()
+    tag = release["tag_name"]
+    system, arch = _system(), _arch()
+    _clear_legacy_builds()
+    installed: dict[str, Path] = {}
+    with tempfile.TemporaryDirectory(prefix="orb-llama-") as tmp:
+        archives: dict[str, Path] = {}
+        for flavour in FLAVOURS:
+            wanted = asset_name(tag, flavour, system=system, arch=arch)
+            if wanted not in archives:
+                archives[wanted] = _download(release, wanted, Path(tmp))
+            # Unpacked per flavour even when the archive is shared: `_flatten`
+            # MOVES what it finds, so a second pass over one unpack directory
+            # would find it empty.
+            unpacked = Path(tmp) / f"unpacked-{flavour}"
+            _unpack(archives[wanted], unpacked)
+            dest = Path(flavour_dir(flavour == "gpu"))
+            binary = _flatten(unpacked, dest)
+            if not IS_WINDOWS:
+                # Windows has no execute bit; everywhere else the archive's mode
+                # may not have survived, and a binary nobody may execute is not
+                # a binary.
+                for entry in dest.iterdir():
+                    if entry.is_file():
+                        entry.chmod(entry.stat().st_mode | 0o755)
+            _prove(binary)
+            installed[flavour] = binary
+    # The paths did not change, so every cached answer about them is now about
+    # a build that is gone. Dropped wholesale rather than per key: `_flatten`
+    # replaced directories, not files inside them.
+    _forget_probes()
+    logger.info("llama-server %s ready: %s", tag, ", ".join(f"{k} at {v}" for k, v in installed.items()))
+    return str(installed["gpu"])
 
 
 def bin_bytes() -> int:

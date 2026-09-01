@@ -123,3 +123,50 @@ async def test_release_with_no_child_still_forces_the_next_load(host):
     ``ensure`` must not trust a 'healthy' it inherited from before."""
     await host.release()
     assert host.healthy is False
+
+
+async def test_the_gpu_setting_selects_which_build_is_launched(host, monkeypatch):
+    """The switch, at the seam that performs it.
+
+    ``--n-gpu-layers`` alone was never the switch: every build parses it and a
+    CPU-only one then offloads nothing, silently and with a zero exit status.
+    The host asks for the build that can honour the number it is about to send.
+    """
+    from backend.inference.local_models.llama_server import host as H
+
+    asked: list[bool] = []
+    monkeypatch.setattr(H.binary, "find_binary", lambda gpu=True: (asked.append(gpu), "/bin/llama-server")[1])
+    monkeypatch.setattr(H.binary, "gpu_capable", lambda _binary: True)
+    monkeypatch.setattr(H, "LlamaServerClient", lambda profile, executable: _StoppableServer(profile))
+
+    async def _boom(*_args, **_kwargs):
+        raise RuntimeError("stop here — resolution is what this test is about")
+
+    monkeypatch.setattr(_StoppableServer, "start", _boom, raising=False)
+
+    for gpu_layers in (999, 0):
+        with pytest.raises(RuntimeError):
+            await host.ensure(_profile(gpu_layers=gpu_layers))
+
+    assert asked == [True, False]
+
+
+async def test_a_gpu_request_a_build_cannot_honour_is_logged(host, monkeypatch, caplog):
+    """The silence this whole change exists to break. Nothing raises — a
+    self-supplied binary is allowed to be CPU-only — but it stops being
+    invisible."""
+    from backend.inference.local_models.llama_server import host as H
+
+    monkeypatch.setattr(H.binary, "find_binary", lambda gpu=True: "/bin/llama-server")
+    monkeypatch.setattr(H.binary, "gpu_capable", lambda _binary: False)
+    monkeypatch.setattr(H, "LlamaServerClient", lambda profile, executable: _StoppableServer(profile))
+
+    async def _boom(*_args, **_kwargs):
+        raise RuntimeError("not the point of this test")
+
+    monkeypatch.setattr(_StoppableServer, "start", _boom, raising=False)
+
+    with caplog.at_level("WARNING"), pytest.raises(RuntimeError):
+        await host.ensure(_profile(gpu_layers=999))
+
+    assert "reports no GPU device" in caplog.text

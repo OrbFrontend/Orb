@@ -205,7 +205,7 @@ async def test_the_runtime_fetch_is_never_reached_by_accident(client, monkeypatc
     Status reads the binary's *presence*; nothing on the ordinary paths may
     decide to go and get one.
     """
-    monkeypatch.setattr(llama_binary, "fetch", lambda backend="gpu": (_ for _ in ()).throw(AssertionError("must not fetch")))
+    monkeypatch.setattr(llama_binary, "fetch", lambda: (_ for _ in ()).throw(AssertionError("must not fetch")))
     assert (await client.get("/api/local-ml/status")).status_code == 200
     assert (await client.post("/api/local-ml/prose_rewriter/config", json={"variant": None})).status_code == 200
     assert (await client.post("/api/local-ml/prose_rewriter/enabled", json={"enabled": True})).status_code == 200
@@ -319,24 +319,24 @@ async def test_the_runtime_fetch_lives_on_its_own_router(client, monkeypatch):
     holding a second one: two routers, one home connection, and the fetch
     replaces a directory a model load may be reading from.
     """
-    monkeypatch.setattr(llama_binary, "fetch", lambda backend="gpu": f"/bin/llama-server-{backend}")
+    monkeypatch.setattr(llama_binary, "fetch", lambda: "/bin/llama-bin/gpu/llama-server")
 
-    resp = await client.post("/api/local-ml/prose_rewriter/runtime", json={"backend": "cpu"})
+    resp = await client.post("/api/local-ml/prose_rewriter/runtime", json={})
 
     assert resp.status_code == 200
-    assert resp.json() == {"ok": True, "path": "/bin/llama-server-cpu"}
+    assert resp.json() == {"ok": True, "path": "/bin/llama-bin/gpu/llama-server"}
 
 
 async def test_a_failed_runtime_fetch_reports_what_went_wrong(client, monkeypatch):
     """``LlamaServerMissing`` carries the message the panel shows; anything else
     is a 500 with the detail in the server log rather than in the response."""
 
-    def _boom(backend="gpu"):
+    def _boom():
         raise llama_binary.LlamaServerMissing("b10549 does not publish that asset.")
 
     monkeypatch.setattr(llama_binary, "fetch", _boom)
 
-    resp = await client.post("/api/local-ml/prose_rewriter/runtime", json={"backend": "gpu"})
+    resp = await client.post("/api/local-ml/prose_rewriter/runtime", json={})
 
     assert resp.status_code == 500
     assert resp.json()["detail"] == "b10549 does not publish that asset."

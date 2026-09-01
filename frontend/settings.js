@@ -262,8 +262,8 @@ function variantCard(f, info) {
   </div>`;
 }
 
-const gpuCheck = (f, info, title) =>
-  `<label class="lg-enforce-label ml-check" title="${escAttr(title || "Offload the model to the GPU.")}">
+const gpuCheck = (f, info) =>
+  `<label class="lg-enforce-label ml-check" title="Offload the model to the GPU. Switches the running model over.">
     <input type="checkbox" ${info.gpu ? "checked" : ""} data-ml-act="gpu" data-ml-feature="${escAttr(f)}">
     Run on GPU
   </label>`;
@@ -318,8 +318,7 @@ function runtimeGate(f, info) {
     <div class="ml-gate-title">llama.cpp runtime required</div>
     <div class="ml-gate-desc">Rewrites run in a local llama-server. Fetch it to unlock the models.</div>
     <div class="ml-gate-act">
-      ${gpuCheck(f, info, "Ticked fetches the Vulkan build; unticked fetches the CPU-only one.")}
-      <button class="btn btn-sm" data-ml-act="runtime">Download · 100 MB</button>
+      <button class="btn btn-sm" data-ml-act="runtime">Download · 150 MB</button>
     </div>
   </div>`;
 }
@@ -445,16 +444,21 @@ function beginMlBusy(btn) {
   };
 }
 
+/** Fetch the runtime: both builds, so the GPU toggle never waits on a download.
+ *
+ * `expectLoad` because the fetch re-warms the model on what just landed —
+ * without it the state poller stops and the card sits on a stale line while the
+ * new runtime loads behind it.
+ */
 async function fetchLlamaRuntime(btn) {
-  const gpu = btn.closest(".tool-card")?.querySelector('input[data-ml-act="gpu"]');
   const endBusy = beginMlBusy(btn);
   try {
-    await api.post("/local-ml/prose_rewriter/runtime", { backend: gpu?.checked === false ? "cpu" : "gpu" });
+    await api.post("/local-ml/prose_rewriter/runtime", {});
   } catch (e) {
     toast(e.message || "Runtime download failed", true);
     endBusy();
   }
-  loadLocalMLSection();
+  loadLocalMLSection({ expectLoad: true });
 }
 
 async function downloadLocalMlModel(feature, variant, btn) {
