@@ -354,6 +354,8 @@ function updateAgentModelWarning() {
 }
 
 let _comboboxCleanups = [];
+// Finger travel allowed before a touch counts as a scroll rather than a tap.
+const TAP_SLOP_PX = 10;
 const _availableModels = new Map();
 const _availableModelRequests = new Map();
 
@@ -516,6 +518,7 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
   let valueBeforeInput = input.value;
   let valueBeforeSearch = input.value;
   let searchQuery = "";
+  let touchTap = null;
 
   function getFiltered() {
     const items = getItems();
@@ -553,15 +556,6 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
       statusHtml = `<div class="cb-empty">${searchable ? (q ? "No matching models" : "No available models") : "No saved options"}</div>`;
     list.innerHTML = optionHtml + statusHtml;
     list.querySelectorAll(".cb-option").forEach((el, i) => {
-      el.addEventListener(
-        "touchstart",
-        (e) => {
-          if (e.target.classList.contains("cb-delete-btn")) return;
-          e.preventDefault();
-          selectVal(el.dataset.value);
-        },
-        { passive: false },
-      );
       el.onmousedown = (e) => {
         if (e.target.classList.contains("cb-delete-btn")) return;
         e.preventDefault();
@@ -571,18 +565,6 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
         activeIdx = i;
         render();
       };
-      const delBtn = el.querySelector(".cb-delete-btn");
-      if (delBtn) {
-        delBtn.addEventListener(
-          "touchstart",
-          (e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            window.deleteComboboxItem(delBtn, el.dataset.type, Number(el.dataset.id), isAgent);
-          },
-          { passive: false },
-        );
-      }
     });
   }
 
@@ -676,6 +658,43 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
     if (isOpen) closeDropdown();
     else void openDropdown();
   };
+  // Touch selects on touchend, not touchstart: a finger landing on an option is
+  // usually the start of a scroll, and preventDefault-on-touchstart kills it.
+  const onListTouchStart = (e) => {
+    const touch = e.touches[0];
+    const option = e.target.closest(".cb-option");
+    touchTap =
+      touch && option
+        ? {
+            x: touch.clientX,
+            y: touch.clientY,
+            scrollTop: list.scrollTop,
+            option,
+            deleteBtn: e.target.closest(".cb-delete-btn"),
+          }
+        : null;
+  };
+  const onListTouchMove = (e) => {
+    if (!touchTap) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    if (Math.abs(touch.clientX - touchTap.x) > TAP_SLOP_PX || Math.abs(touch.clientY - touchTap.y) > TAP_SLOP_PX)
+      touchTap = null;
+  };
+  const onListTouchCancel = () => {
+    touchTap = null;
+  };
+  const onListTouchEnd = (e) => {
+    const tap = touchTap;
+    touchTap = null;
+    if (!tap || list.scrollTop !== tap.scrollTop) return;
+    e.preventDefault();
+    if (tap.deleteBtn) {
+      window.deleteComboboxItem(tap.deleteBtn, tap.option.dataset.type, Number(tap.option.dataset.id), isAgent);
+      return;
+    }
+    void selectVal(tap.option.dataset.value);
+  };
   const onDocDown = (e) => {
     if (!rootEl.contains(e.target)) closeDropdown();
   };
@@ -687,6 +706,10 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
   input.addEventListener("keydown", onKeydown);
   control.addEventListener("mousedown", onControlDown);
   control.addEventListener("touchstart", onControlTouch, { passive: false });
+  list.addEventListener("touchstart", onListTouchStart, { passive: true });
+  list.addEventListener("touchmove", onListTouchMove, { passive: true });
+  list.addEventListener("touchcancel", onListTouchCancel, { passive: true });
+  list.addEventListener("touchend", onListTouchEnd, { passive: false });
   document.addEventListener("mousedown", onDocDown);
   document.addEventListener("touchstart", onDocTouch, { passive: true });
   _comboboxCleanups.push(() => {
@@ -696,6 +719,10 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
     input.removeEventListener("keydown", onKeydown);
     control.removeEventListener("mousedown", onControlDown);
     control.removeEventListener("touchstart", onControlTouch);
+    list.removeEventListener("touchstart", onListTouchStart);
+    list.removeEventListener("touchmove", onListTouchMove);
+    list.removeEventListener("touchcancel", onListTouchCancel);
+    list.removeEventListener("touchend", onListTouchEnd);
     document.removeEventListener("mousedown", onDocDown);
     document.removeEventListener("touchstart", onDocTouch);
     control.classList.remove("open");

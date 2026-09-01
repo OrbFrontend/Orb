@@ -371,8 +371,6 @@
   content: "";
   position: absolute;
   inset: 0;
-  /* Inherit the bubble's radius so the accent line is clipped by the rounded
-     corners instead of running straight past them (themes round heavily). */
   border-radius: inherit;
   background: linear-gradient(to right, var(--accent) 0, var(--accent) 2px, transparent 2px);
   pointer-events: none;
