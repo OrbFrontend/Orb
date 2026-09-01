@@ -31,29 +31,37 @@ def invalidate_object_info(api_url: str | None = None) -> None:
         _object_info_cache.pop(api_url.rstrip("/"), None)
 
 
+def _first_input_name(node_errors: Any) -> str | None:
+    """The first non-empty input name named by any node error, or None.
+
+    ``extra_info.input_name`` is the precise field and wins over the free-text
+    ``details`` when an error carries both.
+    """
+    if not isinstance(node_errors, Mapping):
+        return None
+    for value in node_errors.values():
+        errors = value.get("errors") if isinstance(value, Mapping) else None
+        for item in errors if isinstance(errors, list) else []:
+            if not isinstance(item, Mapping):
+                continue
+            name = None
+            details = item.get("details")
+            if isinstance(details, str):
+                name = details
+            extra = item.get("extra_info")
+            if isinstance(extra, Mapping) and isinstance(extra.get("input_name"), str):
+                name = extra["input_name"]
+            if name:
+                return name
+    return None
+
+
 def _validation_message(payload: Any) -> str:
     if not isinstance(payload, Mapping):
         return "ComfyUI rejected the workflow"
     error = payload.get("error")
     error_type = error.get("type") if isinstance(error, Mapping) else None
-    node_errors = payload.get("node_errors")
-    input_name = None
-    if isinstance(node_errors, Mapping):
-        for value in node_errors.values():
-            errors = value.get("errors") if isinstance(value, Mapping) else None
-            for item in errors if isinstance(errors, list) else []:
-                if isinstance(item, Mapping):
-                    details = item.get("details")
-                    if isinstance(details, str):
-                        input_name = details
-                    extra = item.get("extra_info")
-                    if isinstance(extra, Mapping) and isinstance(extra.get("input_name"), str):
-                        input_name = extra["input_name"]
-                    if input_name:
-                        break
-            if input_name:
-                break
-    if input_name == "ckpt_name":
+    if _first_input_name(payload.get("node_errors")) == "ckpt_name":
         return "The selected checkpoint is no longer on the ComfyUI server"
     if error_type:
         return f"ComfyUI rejected the workflow ({error_type})"

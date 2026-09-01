@@ -29,11 +29,6 @@ def direction_note_recording_active(
     return agent_on and bool(settings.get("direction_notes_record", 0)) and bool(direction_note_fragments)
 
 
-def direction_note_injection_active(settings: Mapping[str, Any]) -> bool:
-    """Return whether stored direction notes should be injected."""
-    return (settings.get("direction_notes_inject", "off") or "off") != "off"
-
-
 def direction_note_to_director(settings: Mapping[str, Any]) -> bool:
     """Return whether the Director should see stored direction notes."""
     return (settings.get("direction_notes_inject", "off") or "off") in ("director", "both")

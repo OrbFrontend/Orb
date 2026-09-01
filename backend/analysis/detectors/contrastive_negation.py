@@ -57,32 +57,31 @@ _CLAUSE_SIGNALS = (
 )
 
 
+# Ordered ``(members, suffixes, blocked_suffixes, tag)`` rules; the first match
+# wins, so closed-class membership stays ahead of the suffix heuristics that
+# would otherwise shadow it ("does" is a VERB before "s" makes it one, "only" is
+# an ADV before "ly" does). A word matching no rule is a NOUN.
+_TAG_RULES: tuple[tuple[frozenset[str], tuple[str, ...], tuple[str, ...], str], ...] = (
+    (_BE_VERBS | _DO_VERBS, (), (), "VERB"),
+    (frozenset({"a", "an", "the"}), (), (), "DET"),
+    (frozenset({"not"}), ("n't",), (), "NEG"),
+    (_CONJUNCTIONS, (), (), "CONJ"),
+    (_PRONOUNS, (), (), "PRON"),
+    (frozenset(), ("ly",), (), "ADV"),
+    (frozenset(), ("tion", "ment", "ness", "ity", "ure"), (), "NOUN"),
+    (frozenset(), ("ing", "ed"), (), "VERB"),
+    # Plural/3rd-person "s", minus the endings that are simply part of the stem.
+    (frozenset(), ("s", "es"), ("ss", "us", "is", "as", "os"), "VERB"),
+    (frozenset(), ("ful", "ous", "ive", "ble", "al", "ent", "ant"), (), "ADJ"),
+    (_COMMON_VERBS, (), (), "VERB"),
+)
+
+
 def _tag_word(word: str) -> str:
     low = word.lower()
-    if low in _BE_VERBS:
-        return "VERB"
-    if low in _DO_VERBS:
-        return "VERB"
-    if low in ("a", "an", "the"):
-        return "DET"
-    if low in ("not", "n't") or low.endswith("n't"):
-        return "NEG"
-    if low in _CONJUNCTIONS:
-        return "CONJ"
-    if low in _PRONOUNS:
-        return "PRON"
-    if low.endswith("ly"):
-        return "ADV"
-    if low.endswith(("tion", "ment", "ness", "ity", "ure")):
-        return "NOUN"
-    if low.endswith(("ing", "ed")):
-        return "VERB"
-    if low.endswith(("s", "es")) and not low.endswith(("ss", "us", "is", "as", "os")):
-        return "VERB"
-    if low.endswith(("ful", "ous", "ive", "ble", "al", "ent", "ant")):
-        return "ADJ"
-    if low in _COMMON_VERBS:
-        return "VERB"
+    for members, suffixes, blocked, tag in _TAG_RULES:
+        if low in members or (low.endswith(suffixes) and not low.endswith(blocked)):
+            return tag
     return "NOUN"
 
 

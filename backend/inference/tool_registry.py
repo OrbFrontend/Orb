@@ -214,21 +214,20 @@ _GIVE_FEEDBACK_DESCRIPTION = (
 )
 
 
-def build_feedback_tool(feedback_fragments: Sequence[Mapping[str, Any]]) -> dict:
-    """Build the ``give_feedback`` tool schema from the enabled feedback fragments.
+def _build_fragment_tool(name: str, description: str, fragments: Sequence[Mapping[str, Any]]) -> dict:
+    """Build a tool schema whose parameters are exactly one string per fragment.
 
-    Each ``field_type="feedback"`` fragment contributes one string parameter
-    (keyed by fragment id); there are no fixed parameters. Returns an OpenAI
-    function-calling format dict.
+    Shared by the fragment-driven tools: each fragment contributes one string
+    parameter keyed by its id, and there are no fixed parameters. Returns an
+    OpenAI function-calling format dict.
 
-    The schema rides the shared per-turn tools blob (via ``schema_overrides``)
-    so the post-writer feedback step can force ``tool_choice=give_feedback``
-    without a cache miss.
+    These schemas ride the shared per-turn tools blob (via ``schema_overrides``)
+    so their step can force ``tool_choice`` on the tool without a cache miss.
     """
     properties: dict = {}
     required: list[str] = []
 
-    for df in feedback_fragments:
+    for df in fragments:
         fid = df["id"]
         properties[fid] = {"type": "string", "description": df["description"]}
         if df.get("required"):
@@ -237,8 +236,8 @@ def build_feedback_tool(feedback_fragments: Sequence[Mapping[str, Any]]) -> dict
     return {
         "type": "function",
         "function": {
-            "name": "give_feedback",
-            "description": _GIVE_FEEDBACK_DESCRIPTION,
+            "name": name,
+            "description": description,
             "parameters": {
                 "type": "object",
                 "properties": properties,
@@ -246,6 +245,11 @@ def build_feedback_tool(feedback_fragments: Sequence[Mapping[str, Any]]) -> dict
             },
         },
     }
+
+
+def build_feedback_tool(feedback_fragments: Sequence[Mapping[str, Any]]) -> dict:
+    """Build the ``give_feedback`` tool schema from the enabled feedback fragments."""
+    return _build_fragment_tool("give_feedback", _GIVE_FEEDBACK_DESCRIPTION, feedback_fragments)
 
 
 GIVE_FEEDBACK_CHOICE = {"type": "function", "function": {"name": "give_feedback"}}
@@ -260,37 +264,8 @@ _RECORD_DIRECTION_NOTE_DESCRIPTION = (
 
 
 def build_direction_note_tool(direction_note_fragments: Sequence[Mapping[str, Any]]) -> dict:
-    """Build the ``record_direction_note`` tool schema from the enabled direction-note fragments.
-
-    Each ``field_type="direction_note"`` fragment contributes one string parameter
-    (keyed by fragment id); there are no fixed parameters. Returns an OpenAI
-    function-calling format dict.
-
-    The schema rides the shared per-turn tools blob (via ``schema_overrides``) so
-    the direction-note step can force ``tool_choice=record_direction_note`` without
-    a cache miss.
-    """
-    properties: dict = {}
-    required: list[str] = []
-
-    for df in direction_note_fragments:
-        fid = df["id"]
-        properties[fid] = {"type": "string", "description": df["description"]}
-        if df.get("required"):
-            required.append(fid)
-
-    return {
-        "type": "function",
-        "function": {
-            "name": "record_direction_note",
-            "description": _RECORD_DIRECTION_NOTE_DESCRIPTION,
-            "parameters": {
-                "type": "object",
-                "properties": properties,
-                "required": required,
-            },
-        },
-    }
+    """Build the ``record_direction_note`` tool schema from the enabled direction-note fragments."""
+    return _build_fragment_tool("record_direction_note", _RECORD_DIRECTION_NOTE_DESCRIPTION, direction_note_fragments)
 
 
 RECORD_DIRECTION_NOTE_CHOICE = {"type": "function", "function": {"name": "record_direction_note"}}

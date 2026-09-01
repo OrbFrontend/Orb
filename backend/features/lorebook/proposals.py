@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, NamedTuple
 
 from ...inference.lorebook import (
     DYNAMIC_SECTION_TITLE,
@@ -274,6 +274,176 @@ class _WorldScope:
         return resolved, ""
 
 
+class _Resolved(NamedTuple):
+    """What a raw operation resolves to once its target and layer are known."""
+
+    op: str
+    target: int | None
+    world_id: str
+    target_row: Mapping[str, Any]
+
+
+def _resolve_operation(
+    raw: Mapping[str, Any],
+    scope: _WorldScope,
+    by_id: Mapping[int, Mapping[str, Any]],
+    live_by_id: Mapping[int, Mapping[str, Any]],
+    claimed_targets: set[int],
+) -> _Resolved | str:
+    """Resolve one raw operation's verb, target row and World.
+
+    Returns the resolution, or a human-readable reason the operation is rejected.
+    """
+    op = _clean_str(raw.get("op")).lower()
+    if op != "create" and op not in _TARGETING_OPS:
+        return f"unknown op {op!r}"
+
+    target = _target_id(raw)
+    if op == "create":
+        if target is not None:
+            return "create must not name a target entry"
+        # The only operation whose World is not implied by a row, so the only
+        # one that has to be told which lorebook it is writing to.
+        world_id, reason = scope.resolve_create(raw)
+        if world_id is None:
+            return reason
+        return _Resolved(op, None, world_id, {})
+
+    if target is None:
+        return f"{op} needs a target_entry_id"
+    row = live_by_id.get(target)
+    if row is None:
+        return f"target entry {target} is not a live entry of any world here"
+    # The layer of the row decides which stored operation this becomes, so a
+    # proposal never has to name the layer and can never name it wrongly. An
+    # authored target must additionally still be *in effect*: one already hidden
+    # by a live replace or suppress has nothing left to revise or retract. (A
+    # dynamic row is legal while it is live, including a suppression marker,
+    # which is not in effect by design.)
+    dynamic_target = is_dynamic(row)
+    if not dynamic_target and target not in by_id:
+        return f"target entry {target} is already hidden by an overlay row"
+    if target in claimed_targets:
+        return f"entry {target} is already targeted by an earlier operation"
+    if op in _REVISE_OPS:
+        # A suppression marker injects nothing *by construction* -- the
+        # projection drops it whatever it says -- so rewriting one would bump the
+        # revision, retire nothing and publish nothing, while leaving its
+        # authored target hidden. The catalog lists live markers so the Agent can
+        # *retract* one, which is what brings the authored entry back; a revise
+        # of one is always a no-op.
+        if row.get("overlay_action") == "suppress":
+            return f"entry {target} is a suppression marker; it can only be retracted"
+        op = "update" if dynamic_target else "replace"
+    else:
+        op = "archive" if dynamic_target else "suppress"
+    # A targeted operation lands wherever its row already lives: entry ids are
+    # globally unique, so this cannot be misdirected.
+    return _Resolved(op, target, _world_key(row.get("world_id")), row)
+
+
+def _operation_body(
+    resolved: _Resolved,
+    raw: Mapping[str, Any],
+    taken_names: dict[str, set[str]],
+) -> dict | str:
+    """Build the lore-carrying fields of a create/revise operation.
+
+    Returns the fields to merge into the stored operation, or a human-readable
+    reason it is rejected. Mutates ``taken_names`` to claim the entry's name.
+    """
+    op, target_row = resolved.op, resolved.target_row
+    name = _clean_str(raw.get("name"))
+    content = _clean_str(raw.get("content"))
+    if op == "update":
+        # An update may revise either field; whatever it omits keeps its current
+        # value, so only a wholly empty update is meaningless.
+        if not name and not content and "activation" not in raw and "keywords" not in raw:
+            return "update changes nothing"
+        name = name or _clean_str(target_row.get("name"))
+        content = content or _clean_str(target_row.get("content"))
+    if not name or not content:
+        return f"{op} needs both a name and content"
+
+    # A revise inherits from the row it targets whatever it does not restate --
+    # `update` against a dynamic row, `replace` against an authored one. Both are
+    # the model's single `revise` verb, and *when* an entry shows is a property of
+    # the lore being revised rather than of the layer it happens to sit in: a
+    # replacement that quietly dropped its target's `constant` would take a fact
+    # the World knew every turn and make it conditional, and one that dropped its
+    # keywords would stop answering to the words that used to summon it. A
+    # `create` stands on its own, so its fallback is the default.
+    fallback: Mapping[str, Any] = target_row if op in ("update", "replace") else {}
+    activation = _clean_str(raw.get("activation")).lower()
+    if activation not in ACTIVATIONS:
+        activation = "constant" if fallback.get("constant") else "keywords"
+    keywords = _clean_keywords(raw["keywords"] if "keywords" in raw else fallback.get("keywords"))
+    if activation == "keywords" and not keywords:
+        # An entry that can never trigger is dead weight -- but the name is almost
+        # always the thing the entry is *about*, so it is a usable key and a
+        # better answer than dropping a reviewed proposal on the floor.
+        keywords = [name]
+    if activation == "constant":
+        keywords = []
+
+    folded = name.casefold()
+    # An update keeping (or restoring) its own name is not a collision with itself.
+    own_name = _clean_str(target_row.get("name")).casefold() if op == "update" else None
+    taken = taken_names.setdefault(resolved.world_id, set())
+    if folded in taken and folded != own_name:
+        return f"a dynamic entry named {name!r} already exists in this world"
+    if own_name:
+        taken.discard(own_name)
+    taken.add(folded)
+    return {"name": name, "content": content, "activation": activation, "keywords": keywords}
+
+
+def _validate_operation(
+    raw: Any,
+    scope: _WorldScope,
+    by_id: Mapping[int, Mapping[str, Any]],
+    live_by_id: Mapping[int, Mapping[str, Any]],
+    taken_names: dict[str, set[str]],
+    claimed_targets: set[int],
+) -> dict | str:
+    """Vet one raw operation into a stored operation, or a rejection reason."""
+    if not isinstance(raw, Mapping):
+        return "operation is not an object"
+    resolved = _resolve_operation(raw, scope, by_id, live_by_id, claimed_targets)
+    if isinstance(resolved, str):
+        return resolved
+
+    item: dict[str, Any] = {"op": resolved.op, "rationale": _clean_str(raw.get("rationale"))}
+    if scope.stamped:
+        item["world_id"] = resolved.world_id
+    if resolved.target is not None:
+        item["target_entry_id"] = resolved.target
+        # Snapshot what the target says *now*, so the review card can show a
+        # before/after without a second query — and so applied history still reads
+        # correctly once the live row has moved on. A proposal whose World changed
+        # underneath it goes stale before it can be applied, so the snapshot can
+        # never silently misrepresent what will happen.
+        item["target_name"] = _clean_str(resolved.target_row.get("name"))
+        item["target_content"] = _clean_str(resolved.target_row.get("content"))
+
+    # `suppress` and `archive` carry no body: one hides an authored entry and
+    # injects nothing, the other retires an overlay row it does not rewrite. Both
+    # read their target's name off the row, which is why the schema tells the
+    # model to omit `name` and `content` for a retract.
+    if resolved.op in ("suppress", "archive"):
+        if resolved.op == "suppress":
+            # The marker inherits its target's name so the drawer and the review
+            # card can say *what* was suppressed without a join.
+            item["name"] = _clean_str(raw.get("name")) or _clean_str(resolved.target_row.get("name"))
+        return item
+
+    body = _operation_body(resolved, raw, taken_names)
+    if isinstance(body, str):
+        return body
+    item.update(body)
+    return item
+
+
 def validate_proposal(
     arguments: Mapping[str, Any] | None,
     entries: Sequence[Mapping[str, Any]],
@@ -313,139 +483,12 @@ def validate_proposal(
     claimed_targets: set[int] = set()
 
     for index, raw in enumerate(raw_ops):
-        if not isinstance(raw, Mapping):
-            result.rejected.append((index, "operation is not an object"))
+        item = _validate_operation(raw, scope, by_id, live_by_id, taken_names, claimed_targets)
+        if isinstance(item, str):
+            result.rejected.append((index, item))
             continue
-        op = _clean_str(raw.get("op")).lower()
-        if op != "create" and op not in _TARGETING_OPS:
-            result.rejected.append((index, f"unknown op {op!r}"))
-            continue
-
-        target = _target_id(raw)
-        # The row a targeted operation names, once resolved; empty for a create.
-        target_row: Mapping[str, Any] = {}
-        if op == "create":
-            if target is not None:
-                result.rejected.append((index, "create must not name a target entry"))
-                continue
-            # The only operation whose World is not implied by a row, so the only
-            # one that has to be told which lorebook it is writing to.
-            world_id, reason = scope.resolve_create(raw)
-            if world_id is None:
-                result.rejected.append((index, reason))
-                continue
-        else:
-            if target is None:
-                result.rejected.append((index, f"{op} needs a target_entry_id"))
-                continue
-            row = live_by_id.get(target)
-            if row is None:
-                result.rejected.append((index, f"target entry {target} is not a live entry of any world here"))
-                continue
-            # The layer of the row decides which stored operation this becomes,
-            # so a proposal never has to name the layer and can never name it
-            # wrongly. An authored target must additionally still be *in effect*:
-            # one already hidden by a live replace or suppress has nothing left
-            # to revise or retract. (A dynamic row is legal while it is live,
-            # including a suppression marker, which is not in effect by design.)
-            dynamic_target = is_dynamic(row)
-            if not dynamic_target and target not in by_id:
-                result.rejected.append((index, f"target entry {target} is already hidden by an overlay row"))
-                continue
-            if target in claimed_targets:
-                result.rejected.append((index, f"entry {target} is already targeted by an earlier operation"))
-                continue
-            if op in _REVISE_OPS:
-                # A suppression marker injects nothing *by construction* -- the
-                # projection drops it whatever it says -- so rewriting one would
-                # bump the revision, retire nothing and publish nothing, while
-                # leaving its authored target hidden. The catalog lists live
-                # markers so the Agent can *retract* one, which is what brings
-                # the authored entry back; a revise of one is always a no-op.
-                if row.get("overlay_action") == "suppress":
-                    result.rejected.append((index, f"entry {target} is a suppression marker; it can only be retracted"))
-                    continue
-                op = "update" if dynamic_target else "replace"
-            else:
-                op = "archive" if dynamic_target else "suppress"
-            target_row = row
-            # A targeted operation lands wherever its row already lives: entry
-            # ids are globally unique, so this cannot be misdirected.
-            world_id = _world_key(row.get("world_id"))
-
-        item: dict[str, Any] = {"op": op, "rationale": _clean_str(raw.get("rationale"))}
-        if scope.stamped:
-            item["world_id"] = world_id
-        if target is not None:
-            item["target_entry_id"] = target
-            # Snapshot what the target says *now*, so the review card can show a
-            # before/after without a second query — and so applied history still
-            # reads correctly once the live row has moved on. A proposal whose
-            # World changed underneath it goes stale before it can be applied, so
-            # the snapshot can never silently misrepresent what will happen.
-            item["target_name"] = _clean_str(target_row.get("name"))
-            item["target_content"] = _clean_str(target_row.get("content"))
-
-        # `suppress` and `archive` carry no body: one hides an authored entry and
-        # injects nothing, the other retires an overlay row it does not rewrite.
-        # Both read their target's name off the row, which is why the schema
-        # tells the model to omit `name` and `content` for a retract.
-        if op in ("suppress", "archive"):
-            if op == "suppress":
-                # The marker inherits its target's name so the drawer and the
-                # review card can say *what* was suppressed without a join.
-                item["name"] = _clean_str(raw.get("name")) or _clean_str(target_row.get("name"))
-        else:
-            name = _clean_str(raw.get("name"))
-            content = _clean_str(raw.get("content"))
-            if op == "update":
-                # An update may revise either field; whatever it omits keeps its
-                # current value, so only a wholly empty update is meaningless.
-                if not name and not content and "activation" not in raw and "keywords" not in raw:
-                    result.rejected.append((index, "update changes nothing"))
-                    continue
-                name = name or _clean_str(target_row.get("name"))
-                content = content or _clean_str(target_row.get("content"))
-            if not name or not content:
-                result.rejected.append((index, f"{op} needs both a name and content"))
-                continue
-
-            # A revise inherits from the row it targets whatever it does not
-            # restate -- `update` against a dynamic row, `replace` against an
-            # authored one. Both are the model's single `revise` verb, and *when*
-            # an entry shows is a property of the lore being revised rather than
-            # of the layer it happens to sit in: a replacement that quietly
-            # dropped its target's `constant` would take a fact the World knew
-            # every turn and make it conditional, and one that dropped its
-            # keywords would stop answering to the words that used to summon it.
-            # A `create` stands on its own, so its fallback is the default.
-            fallback: Mapping[str, Any] = target_row if op in ("update", "replace") else {}
-            activation = _clean_str(raw.get("activation")).lower()
-            if activation not in ACTIVATIONS:
-                activation = "constant" if fallback.get("constant") else "keywords"
-            keywords = _clean_keywords(raw["keywords"] if "keywords" in raw else fallback.get("keywords"))
-            if activation == "keywords" and not keywords:
-                # An entry that can never trigger is dead weight -- but the name
-                # is almost always the thing the entry is *about*, so it is a
-                # usable key and a better answer than dropping a reviewed
-                # proposal on the floor.
-                keywords = [name]
-            if activation == "constant":
-                keywords = []
-
-            folded = name.casefold()
-            # An update keeping (or restoring) its own name is not a collision with itself.
-            own_name = _clean_str(target_row.get("name")).casefold() if op == "update" else None
-            taken = taken_names.setdefault(world_id, set())
-            if folded in taken and folded != own_name:
-                result.rejected.append((index, f"a dynamic entry named {name!r} already exists in this world"))
-                continue
-            if own_name:
-                taken.discard(own_name)
-            taken.add(folded)
-            item.update({"name": name, "content": content, "activation": activation, "keywords": keywords})
-
         result.operations.append(item)
+        target = item.get("target_entry_id")
         if target is not None:
             claimed_targets.add(target)
 

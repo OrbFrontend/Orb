@@ -10,7 +10,12 @@ from typing import Any, cast
 import aiosqlite
 
 from ...core import TurnCast, has_inline_macros, resolve_inline
-from ..connection import _build_set_clause, get_db
+from ..connection import (
+    _build_set_clause,
+    _get_workflow_slot,
+    _set_workflow_slot,
+    get_db,
+)
 from ..models import CharacterCardRow, InteractiveFragmentRow, MoodFragmentRow
 
 
@@ -518,19 +523,7 @@ async def get_character_avatar(card_id: str) -> tuple[bytes, str] | None:
 
 async def get_workflow_character_state(character_id: str, workflow_id: str) -> dict | None:
     """Return the workflow's slot on this character, or None if card missing or slot empty."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT json_extract(workflow_state, '$.' || ?) AS slot FROM character_cards WHERE id = ?",
-                (workflow_id, character_id),
-            )
-        )
-        if not rows:
-            return None
-        slot = rows[0]["slot"]
-        if slot is None:
-            return None
-        return json.loads(slot)
+    return await _get_workflow_slot("character_cards", "id", character_id, workflow_id)
 
 
 async def set_workflow_character_state(character_id: str, workflow_id: str, payload: dict | None) -> None:
@@ -540,19 +533,4 @@ async def set_workflow_character_state(character_id: str, workflow_id: str, payl
     Caller must hold backend.core.locks.workflow_character_state_lock(character_id,
     workflow_id) across the read-then-write the payload was computed from.
     """
-    async with get_db() as db:
-        if payload is None:
-            await db.execute(
-                "UPDATE character_cards "
-                "SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.' || ?) "
-                "WHERE id = ?",
-                (workflow_id, character_id),
-            )
-        else:
-            await db.execute(
-                "UPDATE character_cards "
-                "SET workflow_state = json_set(COALESCE(workflow_state, '{}'), '$.' || ?, json(?)) "
-                "WHERE id = ?",
-                (workflow_id, json.dumps(payload), character_id),
-            )
-        await db.commit()
+    await _set_workflow_slot("character_cards", "id", character_id, workflow_id, payload)

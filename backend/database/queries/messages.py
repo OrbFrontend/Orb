@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol, cast
 
 from ...core.domain_types import MessageRole
-from ..connection import get_db
+from ..connection import _get_workflow_slot, _set_workflow_slot, get_db
 from ..models import (
     MessageRow,
     MessageWithAttachments,
@@ -402,37 +402,12 @@ async def switch_to_branch(cid: str, message_id: int) -> bool:
 
 async def get_workflow_message_state(message_id: int, workflow_id: str) -> dict | None:
     """Return the workflow's slot on this message, or None if message missing or slot empty."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT json_extract(workflow_state, '$.' || ?) AS slot FROM messages WHERE id = ?",
-                (workflow_id, message_id),
-            )
-        )
-        if not rows:
-            return None
-        slot = rows[0]["slot"]
-        if slot is None:
-            return None
-        return json.loads(slot)
+    return await _get_workflow_slot("messages", "id", message_id, workflow_id)
 
 
 async def set_workflow_message_state(message_id: int, workflow_id: str, payload: dict | None) -> None:
     """Update one workflow attachment state atomically."""
-    async with get_db() as db:
-        if payload is None:
-            await db.execute(
-                "UPDATE messages SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.' || ?) WHERE id = ?",
-                (workflow_id, message_id),
-            )
-        else:
-            await db.execute(
-                "UPDATE messages "
-                "SET workflow_state = json_set(COALESCE(workflow_state, '{}'), '$.' || ?, json(?)) "
-                "WHERE id = ?",
-                (workflow_id, json.dumps(payload), message_id),
-            )
-        await db.commit()
+    await _set_workflow_slot("messages", "id", message_id, workflow_id, payload)
 
 
 async def delete_message_with_descendants(cid: str, msg_id: int) -> bool:

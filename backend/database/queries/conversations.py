@@ -5,7 +5,13 @@ import uuid
 from datetime import UTC, datetime
 from typing import cast
 
-from ..connection import _build_set_clause, get_db, immediate_tx
+from ..connection import (
+    _build_set_clause,
+    _get_workflow_slot,
+    _set_workflow_slot,
+    get_db,
+    immediate_tx,
+)
 from ..models import ConversationListRow, ConversationRow
 
 
@@ -254,19 +260,7 @@ async def update_conversation(cid: str, data: dict) -> ConversationRow | None:
 
 async def get_workflow_state(conv_id: str, workflow_id: str) -> dict | None:
     """Return the workflow's slot, or None if conversation missing or slot empty."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT json_extract(workflow_state, '$.' || ?) AS slot FROM conversations WHERE id = ?",
-                (workflow_id, conv_id),
-            )
-        )
-        if not rows:
-            return None
-        slot = rows[0]["slot"]
-        if slot is None:
-            return None
-        return json.loads(slot)
+    return await _get_workflow_slot("conversations", "id", conv_id, workflow_id)
 
 
 async def set_workflow_state(conv_id: str, workflow_id: str, payload: dict | None) -> None:
@@ -281,17 +275,4 @@ async def set_workflow_state(conv_id: str, workflow_id: str, payload: dict | Non
     hook loops in ``backend.pipeline.workflow_bridge``. Direct use outside those paths
     re-introduces the read-modify-write clobber.
     """
-    async with get_db() as db:
-        if payload is None:
-            await db.execute(
-                "UPDATE conversations SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.' || ?) WHERE id = ?",
-                (workflow_id, conv_id),
-            )
-        else:
-            await db.execute(
-                "UPDATE conversations "
-                "SET workflow_state = json_set(COALESCE(workflow_state, '{}'), '$.' || ?, json(?)) "
-                "WHERE id = ?",
-                (workflow_id, json.dumps(payload), conv_id),
-            )
-        await db.commit()
+    await _set_workflow_slot("conversations", "id", conv_id, workflow_id, payload)

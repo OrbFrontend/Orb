@@ -57,3 +57,50 @@ def _build_set_clause(
             sets.append(f"{k} = ?")
             vals.append(json.dumps(data[k]) if k in json_fields else data[k])
     return sets, vals
+
+
+# Per-workflow JSON slot accessors, shared by the three tables that carry a
+# ``workflow_state`` column (conversations, messages, character_cards). The
+# read/write pair is identical across them, so only the table and its id column
+# vary; both are module-private constants at the call sites and never reach here
+# from user input, which is what makes the interpolation below safe (a table
+# name cannot be a bound parameter).
+async def _get_workflow_slot(table: str, id_col: str, row_id, workflow_id: str) -> dict | None:
+    """Return the workflow's slot on this row, or None if the row is missing or the slot empty."""
+    async with get_db() as db:
+        rows = list(
+            await db.execute_fetchall(
+                f"SELECT json_extract(workflow_state, '$.' || ?) AS slot FROM {table} WHERE {id_col} = ?",
+                (workflow_id, row_id),
+            )
+        )
+        if not rows:
+            return None
+        slot = rows[0]["slot"]
+        if slot is None:
+            return None
+        return json.loads(slot)
+
+
+async def _set_workflow_slot(table: str, id_col: str, row_id, workflow_id: str, payload: dict | None) -> None:
+    """Atomic per-slot write via SQLite JSON1.
+
+    payload=None removes the slot. Empty dict stores {}. No-op if the row is
+    missing (UPDATE matches zero rows).
+    """
+    async with get_db() as db:
+        if payload is None:
+            await db.execute(
+                f"UPDATE {table} "
+                "SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.' || ?) "
+                f"WHERE {id_col} = ?",
+                (workflow_id, row_id),
+            )
+        else:
+            await db.execute(
+                f"UPDATE {table} "
+                "SET workflow_state = json_set(COALESCE(workflow_state, '{}'), '$.' || ?, json(?)) "
+                f"WHERE {id_col} = ?",
+                (workflow_id, json.dumps(payload), row_id),
+            )
+        await db.commit()
