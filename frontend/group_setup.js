@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { showAvatarPopup } from "./chat_inspector.js";
+import { initDragReorder } from "./drag_reorder.js";
 import {
   CONTEXT_MODES,
   castClickSpeaksNow,
@@ -337,14 +338,6 @@ function closeRowMenus(except = null) {
   }
 }
 
-function moveRow(row, delta) {
-  const sibling = delta < 0 ? row.previousElementSibling : row.nextElementSibling;
-  if (!sibling) return;
-  if (delta < 0) row.parentNode.insertBefore(row, sibling);
-  else row.parentNode.insertBefore(sibling, row);
-  row.querySelector("[data-roster-drag]")?.focus();
-}
-
 function showGroupConfig(initialTab = "cast") {
   if (!S.groupCast || !S.activeConvId) return;
   const conv = S.conversations.find((item) => item.id === S.activeConvId);
@@ -514,47 +507,9 @@ function showGroupConfig(initialTab = "cast") {
     }
   }
 
-  let dragging = null;
-  list.addEventListener("pointerdown", (event) => {
-    const handle = event.target.closest("[data-roster-drag]");
-    const row = handle?.closest(".cast-row");
-    if (row) row.draggable = true;
-  });
-  list.addEventListener("dragstart", (event) => {
-    dragging = event.target.closest(".cast-row");
-    if (!dragging) return;
-    dragging.classList.add("dragging");
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", "");
-  });
-  list.addEventListener("dragover", (event) => {
-    if (!dragging) return;
-    event.preventDefault();
-    const over = event.target.closest(".cast-row");
-    if (!over || over === dragging) return;
-    const box = over.getBoundingClientRect();
-    const after = event.clientY - box.top > box.height / 2;
-    list.insertBefore(dragging, after ? over.nextElementSibling : over);
-  });
-  const endDrag = () => {
-    dragging?.classList.remove("dragging");
-    for (const row of list.querySelectorAll(".cast-row")) row.draggable = false;
-    dragging = null;
-  };
-  list.addEventListener("dragend", endDrag);
-  list.addEventListener("pointerup", endDrag);
-  list.addEventListener("drop", (event) => {
-    event.preventDefault();
-    endDrag();
-  });
-  list.addEventListener("keydown", (event) => {
-    const handle = event.target.closest("[data-roster-drag]");
-    if (!handle) return;
-    const delta = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
-    if (!delta) return;
-    event.preventDefault();
-    moveRow(handle.closest(".cast-row"), delta);
-  });
+  // Order is read back off the DOM in collectMembers(), so a reorder needs no
+  // commit of its own; the dirty check picks it up.
+  initDragReorder(list, { itemSelector: ".cast-row", handleSelector: "[data-roster-drag]" });
 
   list.addEventListener("click", (event) => {
     const row = event.target.closest(".cast-row");

@@ -513,6 +513,17 @@
   line-height: 1;
   padding: 0 6px;
   border-radius: 3px;
+  background: none;
+  border: none;
+  font-family: inherit;
+  /* See .cast-drag: a pointer drag needs the gesture, not a scroll. */
+  touch-action: none;
+}
+
+@media (pointer: coarse) {
+  .frag-drag-handle {
+    padding: 0 14px;
+  }
 }
 .frag-drag-handle:hover {
   color: var(--text-secondary);

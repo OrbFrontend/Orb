@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { initDragReorder } from "./drag_reorder.js";
 import { closeModal, closeSubModal, confirmDelete, showModal, showSubModal } from "./modal.js";
 import { S } from "./state.js";
 import { $, boolFlag, esc, escAttr, escHandlerArg, toast } from "./utils.js";
@@ -169,8 +170,8 @@ export function renderInteractiveFragments() {
       const userBadge = _interactiveTypeBadge(f);
       const { disabled: featureDisabled, title: itemTitle } = _featureGate(f);
       return `
-    <div class="fragment-item${featureDisabled ? " frag-feature-disabled" : ""}" draggable="true" data-id="${escAttr(f.id)}" title="${escAttr(itemTitle)}" onclick="showInteractiveFragmentModal('${escHandlerArg(f.id)}')">
-      <div class="frag-drag-handle" onclick="event.stopPropagation()">⋮⋮</div>
+    <div class="fragment-item${featureDisabled ? " frag-feature-disabled" : ""}" data-id="${escAttr(f.id)}" title="${escAttr(itemTitle)}" onclick="showInteractiveFragmentModal('${escHandlerArg(f.id)}')">
+      <button type="button" class="frag-drag-handle" title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(f.label)}" onclick="event.stopPropagation()">⋮⋮</button>
       <div style="flex:1; min-width:0;">
         <span class="frag-label">${esc(f.label)}</span>${userBadge}
       </div>
@@ -191,82 +192,31 @@ export function renderInteractiveFragments() {
 function setupDragAndDrop(container) {
   if (_dragAndDropContainers.has(container)) return;
   _dragAndDropContainers.add(container);
-  let dragged = null;
-
-  container.addEventListener("dragstart", (e) => {
-    if (!e.target.classList.contains("fragment-item") && !e.target.closest(".fragment-item")) return;
-    const item = e.target.classList.contains("fragment-item") ? e.target : e.target.closest(".fragment-item");
-    dragged = item;
-    item.classList.add("dragging");
-    e.dataTransfer.setData("text/plain", item.dataset.id);
-    e.dataTransfer.effectAllowed = "move";
+  initDragReorder(container, {
+    itemSelector: ".fragment-item",
+    handleSelector: ".frag-drag-handle",
+    onReorder: updateFragmentOrder,
   });
+}
 
-  container.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    const afterElement = getDragAfterElement(container, e.clientY);
-    const draggable = document.querySelector(".dragging");
-    if (draggable) {
-      if (afterElement == null) {
-        container.appendChild(draggable);
-      } else {
-        container.insertBefore(draggable, afterElement);
-      }
-    }
+function updateFragmentOrder(container) {
+  const items = container.querySelectorAll(".fragment-item");
+  const updatedOrder = Array.from(items).map((item, index) => ({
+    id: item.dataset.id,
+    sort_order: index,
+  }));
+  updatedOrder.forEach(({ id, sort_order }) => {
+    const frag = S.interactiveFragments.find((f) => f.id === id);
+    if (frag) frag.sort_order = sort_order;
   });
-
-  container.addEventListener("drop", (e) => {
-    e.preventDefault();
-    if (dragged) {
-      dragged.classList.remove("dragging");
-      dragged = null;
-      updateFragmentOrder(container);
-    }
-  });
-
-  container.addEventListener("dragend", (_e) => {
-    if (dragged) {
-      dragged.classList.remove("dragging");
-      dragged = null;
-    }
-  });
-
-  function getDragAfterElement(container, y) {
-    const draggableElements = [...container.querySelectorAll(".fragment-item:not(.dragging)")];
-    return draggableElements.reduce(
-      (closest, child) => {
-        const box = child.getBoundingClientRect();
-        const offset = y - box.top - box.height / 2;
-        if (offset < 0 && offset > closest.offset) {
-          return { offset: offset, element: child };
-        } else {
-          return closest;
-        }
-      },
-      { offset: Number.NEGATIVE_INFINITY },
-    ).element;
-  }
-
-  function updateFragmentOrder(container) {
-    const items = container.querySelectorAll(".fragment-item");
-    const updatedOrder = Array.from(items).map((item, index) => ({
-      id: item.dataset.id,
-      sort_order: index,
-    }));
-    updatedOrder.forEach(({ id, sort_order }) => {
-      const frag = S.interactiveFragments.find((f) => f.id === id);
-      if (frag) frag.sort_order = sort_order;
+  Promise.all(updatedOrder.map(({ id, sort_order }) => api.put(`/interactive-fragments/${id}`, { sort_order })))
+    .then(() => {
+      toast("Interactive fragments reordered");
+    })
+    .catch((e) => {
+      console.error("Reorder failed", e);
+      toast("Failed to save order", true);
     });
-    Promise.all(updatedOrder.map(({ id, sort_order }) => api.put(`/interactive-fragments/${id}`, { sort_order })))
-      .then(() => {
-        toast("Interactive fragments reordered");
-      })
-      .catch((e) => {
-        console.error("Reorder failed", e);
-        toast("Failed to save order", true);
-      });
-  }
 }
 
 const INTERACTIVE_FRAGMENT_EXAMPLES = {

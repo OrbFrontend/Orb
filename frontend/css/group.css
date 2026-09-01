@@ -173,10 +173,22 @@
   cursor: grab;
   padding: 2px 4px;
   line-height: 1;
+  user-select: none;
+  /* The drag is pointer-driven; without this the browser claims the touch for
+     scrolling and no pointermove ever arrives. */
+  touch-action: none;
 }
 
 .cast-drag:active {
   cursor: grabbing;
+}
+
+@media (pointer: coarse) {
+  .cast-drag {
+    padding: 10px 12px;
+    margin: -8px -4px;
+    font-size: 15px;
+  }
 }
 
 .cast-reply-toggle {
