@@ -36,6 +36,17 @@ echo "Running frontend layer + plugin-boundary check..."
 python scripts/check_frontend_layers.py
 
 echo ""
+echo "Running frontend Biome check..."
+if [ -x "node_modules/.bin/biome" ]; then
+    node_modules/.bin/biome check frontend/
+elif command -v biome >/dev/null 2>&1; then
+    biome check frontend/
+else
+    echo "Biome not found. Run npm install first." >&2
+    exit 1
+fi
+
+echo ""
 echo "Running frontend unit tests (node --test)..."
 # Let bash expand the glob so node receives explicit file paths. Node's own
 # handling of positionals is not portable across versions: patterns need v22+,

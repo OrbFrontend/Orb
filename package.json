@@ -10,7 +10,7 @@
     "prepare": "lefthook install",
     "format:frontend": "biome format frontend/ --write",
     "format:backend": "bash scripts/format_backend.sh",
-    "lint": "bash scripts/lint.sh && biome check frontend/",
+    "lint": "bash scripts/lint.sh",
     "test": "python3 -m pytest tests/"
   }
 }

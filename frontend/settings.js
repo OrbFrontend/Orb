@@ -255,7 +255,7 @@ function variantCard(f, info) {
     <div class="tool-card-header"><span class="tool-card-name">${name}</span>
       ${ready && anyPresent ? enableToggle(f, info.enabled) : ""}</div>
     ${desc ? `<div class="tool-card-desc">${desc}</div>` : ""}
-    ${ready ? "" : runtimeGate(f, info)}
+    ${ready ? "" : runtimeGate()}
     ${showVariants ? `<div class="ml-variants">${rows}</div>` : ""}
     ${ready ? batchSizeControl(f, info) : ""}
     ${ready ? `<div class="ml-foot">${gpuCheck(f, info)}${stateRow(f, info)}</div>` : ""}
@@ -313,7 +313,7 @@ function variantRow(f, v, selected, ready) {
   </div>`;
 }
 
-function runtimeGate(f, info) {
+function runtimeGate() {
   return `<div class="ml-gate">
     <div class="ml-gate-title">llama.cpp runtime required</div>
     <div class="ml-gate-desc">Rewrites run in a local llama-server. Fetch it to unlock the models.</div>
