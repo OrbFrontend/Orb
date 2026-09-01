@@ -4,7 +4,8 @@
   --band:#e4d0b3;          /* titlebar beige — headers and docks */
   --mint:#c8e3ab;
   --mint-deep:#7fae63;
-  --rose-deep:#a8506a;     /* dialogue: dark enough to read as prose */
+  --rose-deep:#8c3552;     /* dialogue — the darker, saturated voice */
+  --narration:#7a6552;     /* *asides* — the lighter, near-neutral tone */
   --lilac:#cbb6e8;
   --apricot-deep:#bd6b32;
   --coral:#f0a186;
@@ -238,7 +239,8 @@ textarea:focus, select:focus, #chat-input:focus {
 .message.user .msg-body { background: #e7f1d7 !important; border-color: var(--ink) !important; }
 
 .message .msg-body .quoted { color: var(--rose-deep) !important; }
-.message .msg-body em { color: #7d6857 !important; }
+.message .msg-body em { color: var(--narration) !important; }
+.message .msg-body .quoted em { color: inherit !important; }
 
 .message .msg-body pre,
 .message .msg-body code.inline-code,
