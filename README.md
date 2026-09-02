@@ -1,4 +1,4 @@
-# Orb - Agentic RP Frontend
+# Orb - Dynamic RP Frontend
 
 [![CodeQL](https://github.com/OrbFrontend/Orb/actions/workflows/codeql.yml/badge.svg)](https://github.com/OrbFrontend/Orb/actions/workflows/codeql.yml)
 
