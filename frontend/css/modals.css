@@ -365,10 +365,6 @@
   margin-bottom: 4px;
 }
 
-.persona-modal:has(.persona-item:not(:last-child) .persona-actions[open]) {
-  padding-bottom: 40px;
-}
-
 .persona-item {
   position: relative;
   display: flex;
@@ -455,12 +451,14 @@
   white-space: nowrap;
 }
 
-.persona-actions {
-  position: relative;
+.persona-actions-direct {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   flex-shrink: 0;
 }
 
-.persona-actions > summary {
+.persona-action-btn {
   position: relative;
   display: grid;
   place-items: center;
@@ -469,96 +467,43 @@
   padding: 0;
   color: var(--text-secondary);
   background: transparent;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: var(--radius);
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
-  list-style: none;
-  user-select: none;
+  opacity: .5;
+  transition: opacity .1s, color .1s, background .1s, border-color .1s;
 }
 
-.persona-actions > summary::-webkit-details-marker { display: none; }
-.persona-actions > summary::marker { content: ""; }
+.persona-item:hover .persona-action-btn,
+.persona-action-btn:focus-visible,
+.persona-action-btn.locked {
+  opacity: 1;
+}
 
-.persona-actions > summary:hover,
-.persona-actions[open] > summary {
+.persona-action-btn:hover,
+.persona-action-btn:focus-visible {
   color: var(--text-primary);
   background: var(--bg-hover);
   border-color: var(--border-light);
 }
 
-.persona-actions-pinned > summary::after {
-  content: "";
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
+.persona-action-btn.locked {
+  color: var(--accent);
+  background: var(--accent-glow);
+  border-color: var(--accent-dim);
 }
 
-.persona-actions-menu {
-  position: absolute;
-  top: calc(100% + 5px);
-  right: 0;
-  z-index: 20;
-  width: max-content;
-  min-width: 210px;
-  padding: 6px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.22);
-}
-
-.persona-item:last-child .persona-actions-menu {
-  top: auto;
-  bottom: calc(100% + 5px);
-}
-
-.persona-actions-label {
-  padding: 4px 8px 5px;
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: .5px;
-}
-
-.persona-menu-item {
-  display: grid;
-  grid-template-columns: 20px 1fr;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  padding: 7px 8px;
-  color: var(--text-secondary);
-  border-radius: var(--radius);
-  font-size: 12px;
-  text-align: left;
-}
-
-.persona-menu-item:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
-}
-
-.persona-menu-item.active { color: var(--accent); }
-
-.persona-menu-item:disabled {
-  opacity: .35;
+.persona-action-btn:disabled {
+  opacity: .18;
   cursor: default;
+  color: var(--text-muted);
   background: transparent;
+  border-color: transparent;
 }
 
-.persona-actions-separator {
-  height: 1px;
-  margin: 5px 4px;
-  background: var(--border);
-}
+.persona-action-edit { font-size: 16px; }
 
 .persona-empty {
   padding: 22px 12px;

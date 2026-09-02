@@ -68,7 +68,6 @@ export function showUserModal() {
           ? `Unpin from ${escAttr(charName)}`
           : `Pin to ${escAttr(charName)}`
         : "Only available for saved characters";
-      const menuClass = convLocked || charLocked ? " persona-actions-pinned" : "";
       return `
       <div class="persona-item${isActive ? " persona-item-active" : ""}" onclick="activatePersona(${p.id})">
         <div class="persona-avatar" style="background:${avatarBg};color:${avatarTextColor}">${initials}</div>
@@ -79,29 +78,16 @@ export function showUserModal() {
           </div>
           <span class="persona-desc">${esc(p.description || "")}</span>
         </div>
-        <details class="persona-actions${menuClass}" name="persona-actions" onclick="event.stopPropagation()">
-          <summary title="Persona actions" aria-label="Actions for ${escAttr(p.name)}">⋯</summary>
-          <div class="persona-actions-menu">
-            <div class="persona-actions-label">Pinning</div>
-            <button class="persona-menu-item${convLocked ? " active" : ""}" ${conv ? "" : "disabled"}
-              title="${convTitle}" aria-pressed="${convLocked}"
-              onclick="event.stopPropagation();setPersonaConversationLock(${p.id}, ${!convLocked})">
-              <span aria-hidden="true">${CONV_LOCK_ICON}</span>
-              <span>${convLocked ? "Unpin from this chat" : "Pin to this chat"}</span>
-            </button>
-            <button class="persona-menu-item${charLocked ? " active" : ""}" ${card ? "" : "disabled"}
-              title="${charTitle}" aria-pressed="${charLocked}"
-              onclick="event.stopPropagation();setPersonaCharacterLock(${p.id}, ${!charLocked})">
-              <span aria-hidden="true">${CHAR_LOCK_ICON}</span>
-              <span>${charLocked ? `Unpin from ${esc(charName)}` : `Pin to ${esc(charName || "character")}`}</span>
-            </button>
-            <div class="persona-actions-separator"></div>
-            <button class="persona-menu-item" onclick="event.stopPropagation();editPersona(${p.id})">
-              <span aria-hidden="true">✎</span>
-              <span>Edit persona</span>
-            </button>
-          </div>
-        </details>
+        <div class="persona-actions-direct">
+          <button class="persona-action-btn${convLocked ? " locked" : ""}" ${conv ? "" : "disabled"}
+            title="${convTitle}" aria-label="${convTitle}" aria-pressed="${convLocked}"
+            onclick="event.stopPropagation();setPersonaConversationLock(${p.id}, ${!convLocked})">${CONV_LOCK_ICON}</button>
+          <button class="persona-action-btn${charLocked ? " locked" : ""}" ${card ? "" : "disabled"}
+            title="${charTitle}" aria-label="${charTitle}" aria-pressed="${charLocked}"
+            onclick="event.stopPropagation();setPersonaCharacterLock(${p.id}, ${!charLocked})">${CHAR_LOCK_ICON}</button>
+          <button class="persona-action-btn persona-action-edit" title="Edit ${escAttr(p.name)}" aria-label="Edit ${escAttr(p.name)}"
+            onclick="event.stopPropagation();editPersona(${p.id})">✎</button>
+        </div>
       </div>
     `;
     })
