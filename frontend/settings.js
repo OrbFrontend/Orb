@@ -302,7 +302,7 @@ function variantRow(f, v, selected, ready) {
       : `<span class="ml-variant-name">${label}</span>`;
   const act = v.present
     ? `<button class="btn btn-xs btn-danger ml-variant-act" title="Delete" aria-label="Delete ${label}"
-               data-ml-act="delete" ${attrs}>×</button>`
+               data-ml-act="delete" ${attrs}><span aria-hidden="true">×</span></button>`
     : `<button class="btn btn-xs ml-variant-act" data-ml-act="download" ${attrs}
                ${ready ? "" : 'disabled title="Download the llama.cpp runtime first"'}>Download</button>`;
   return `<div class="ml-variant${on ? " ml-variant-on" : ""}">

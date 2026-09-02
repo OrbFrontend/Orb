@@ -68,45 +68,64 @@ export function showUserModal() {
           ? `Unpin from ${escAttr(charName)}`
           : `Pin to ${escAttr(charName)}`
         : "Only available for saved characters";
+      const menuClass = convLocked || charLocked ? " persona-actions-pinned" : "";
       return `
       <div class="persona-item${isActive ? " persona-item-active" : ""}" onclick="activatePersona(${p.id})">
         <div class="persona-avatar" style="background:${avatarBg};color:${avatarTextColor}">${initials}</div>
         <div class="persona-info">
-          <div style="display:flex;align-items:center;gap:6px">
+          <div class="persona-name-row">
             <span class="persona-name">${esc(p.name)}</span>
             ${isActive ? '<span class="persona-active-badge">Default</span>' : ""}
           </div>
           <span class="persona-desc">${esc(p.description || "")}</span>
         </div>
-        <div class="persona-lock-btns">
-          <button class="persona-lock-btn${convLocked ? " locked" : ""}" ${conv ? "" : "disabled"} title="${convTitle}"
-            onclick="event.stopPropagation();setPersonaConversationLock(${p.id}, ${!convLocked})">${CONV_LOCK_ICON}</button>
-          <button class="persona-lock-btn${charLocked ? " locked" : ""}" ${card ? "" : "disabled"} title="${charTitle}"
-            onclick="event.stopPropagation();setPersonaCharacterLock(${p.id}, ${!charLocked})">${CHAR_LOCK_ICON}</button>
-        </div>
-        <button class="btn btn-sm" onclick="event.stopPropagation();editPersona(${p.id})">Edit</button>
+        <details class="persona-actions${menuClass}" name="persona-actions" onclick="event.stopPropagation()">
+          <summary title="Persona actions" aria-label="Actions for ${escAttr(p.name)}">⋯</summary>
+          <div class="persona-actions-menu">
+            <div class="persona-actions-label">Pinning</div>
+            <button class="persona-menu-item${convLocked ? " active" : ""}" ${conv ? "" : "disabled"}
+              title="${convTitle}" aria-pressed="${convLocked}"
+              onclick="event.stopPropagation();setPersonaConversationLock(${p.id}, ${!convLocked})">
+              <span aria-hidden="true">${CONV_LOCK_ICON}</span>
+              <span>${convLocked ? "Unpin from this chat" : "Pin to this chat"}</span>
+            </button>
+            <button class="persona-menu-item${charLocked ? " active" : ""}" ${card ? "" : "disabled"}
+              title="${charTitle}" aria-pressed="${charLocked}"
+              onclick="event.stopPropagation();setPersonaCharacterLock(${p.id}, ${!charLocked})">
+              <span aria-hidden="true">${CHAR_LOCK_ICON}</span>
+              <span>${charLocked ? `Unpin from ${esc(charName)}` : `Pin to ${esc(charName || "character")}`}</span>
+            </button>
+            <div class="persona-actions-separator"></div>
+            <button class="persona-menu-item" onclick="event.stopPropagation();editPersona(${p.id})">
+              <span aria-hidden="true">✎</span>
+              <span>Edit persona</span>
+            </button>
+          </div>
+        </details>
       </div>
     `;
     })
     .join("");
 
   const note = pinned
-    ? `<p class="persona-lock-warning">${CONV_LOCK_ICON} ${esc(pinnedStatusText(conv, card, charName))}</p>`
+    ? `<div class="persona-lock-warning"><span aria-hidden="true">${CONV_LOCK_ICON}</span><span>${esc(pinnedStatusText(conv, card, charName))}</span></div>`
     : "";
 
   showModal(`
-    <div class="modal-title-row">
-      <div>
-        <h2>User personas</h2>
-        <p class="modal-subtitle">${CONV_LOCK_ICON} pin to conversation, ${CHAR_LOCK_ICON} to character — pins override the default persona.</p>
+    <div class="persona-modal">
+      <div class="modal-title-row persona-modal-header">
+        <div>
+          <h2>User personas</h2>
+          <p class="modal-subtitle">Choose your default identity. Chat and character pins can override it.</p>
+        </div>
+        <div class="modal-title-actions">
+          <button class="btn btn-sm" onclick="showPersonaEditModal(null)">+ New persona</button>
+        </div>
       </div>
-      <div class="modal-title-actions">
-        <button class="btn" onclick="showPersonaEditModal(null)">+ New persona</button>
+      ${note}
+      <div class="persona-list">
+        ${personaItems.length ? personaItems : '<p class="persona-empty">No personas yet. Create one to get started.</p>'}
       </div>
-    </div>
-    ${note}
-    <div class="persona-list">
-      ${personaItems.length ? personaItems : '<p class="modal-subtitle" style="text-align:center;padding:1rem 0">No personas yet. Create one to get started.</p>'}
     </div>
   `);
 }
@@ -121,7 +140,8 @@ function pinnedStatusText(conv, card, charName) {
   else if (convId && cardId) scope = `${named(convId)} is pinned to this chat and ${named(cardId)} to ${where}`;
   else if (convId) scope = `${named(convId)} is pinned to this chat`;
   else scope = `${named(cardId)} is pinned to ${where}`;
-  return `${scope} — selecting another persona re-pins this chat.`;
+  if (!convId) return `${scope}. Choosing another persona will pin this chat instead.`;
+  return `${scope}. Choosing another persona will move this chat pin.`;
 }
 
 export async function saveUserProfile() {

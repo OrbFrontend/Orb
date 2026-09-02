@@ -290,9 +290,6 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       </div>
     </div>
     <div id="${prefix}-ta" class="tab-content">
-      <div class="field"><label>Group chat - Public cast appearance</label><textarea id="${prefix}-public-appearance" rows="2" placeholder="${escAttr(PUBLIC_APPEARANCE_PLACEHOLDER)}">${esc(publicProfile.appearance || "")}</textarea></div>
-      <div class="field"><label>Group chat - Public cast role</label><textarea id="${prefix}-public-role" rows="2" placeholder="${escAttr(PUBLIC_ROLE_PLACEHOLDER)}">${esc(publicProfile.role || "")}</textarea></div>
-      ${d.id ? `<button type="button" class="btn btn-sm" id="${prefix}-generate-public-profile">Generate editable draft</button><div class="modal-hint">Only these confirmed public fields enter a group's shared cast prompt.</div>` : ""}
       <div class="field">
         <label>Tags</label>
         <div class="lb-chip-wrap" id="${prefix}-tag-wrap" onclick="document.getElementById('${prefix}-tag-text')?.focus()"></div>
@@ -307,10 +304,14 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       <div class="field"><label>Creator's Note</label><textarea id="${prefix}-creator-notes" rows="1">${esc(d.creator_notes || "")}</textarea></div>
       <div class="field"><label>System Prompt Override</label><textarea id="${prefix}-sysprompt" rows="1">${esc(d.system_prompt || "")}</textarea></div>
       <div class="field"><label>Post-History Instructions</label><textarea id="${prefix}-posthist" rows="1">${esc(d.post_history_instructions || "")}</textarea></div>
+      <div class="form-divider">Group chat</div>
+      <div class="field"><label>Public cast appearance</label><textarea id="${prefix}-public-appearance" rows="2" placeholder="${escAttr(PUBLIC_APPEARANCE_PLACEHOLDER)}">${esc(publicProfile.appearance || "")}</textarea></div>
+      <div class="field"><label>Public cast role</label><textarea id="${prefix}-public-role" rows="2" placeholder="${escAttr(PUBLIC_ROLE_PLACEHOLDER)}">${esc(publicProfile.role || "")}</textarea></div>
+      ${d.id ? `<button type="button" class="btn btn-sm" id="${prefix}-generate-public-profile">Generate editable draft</button><div class="modal-hint">Only these confirmed public fields enter a group's shared cast prompt.</div>` : ""}
       ${
         d.id
-          ? `<div class="field">
-        <label>Expression Images</label>
+          ? `<div class="form-divider">Expression images</div>
+      <div class="field">
         <input type="file" id="${prefix}-expr-zip" accept=".zip" style="display:none" onchange="handleExpressionsZip(this, '${d.id}')">
         <div>
           <button class="btn btn-sm" onclick="document.getElementById('${prefix}-expr-zip').click()">Upload .zip</button>

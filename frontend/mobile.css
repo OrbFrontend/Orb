@@ -210,6 +210,28 @@ body {
     justify-content: flex-start;
   }
 
+  .persona-modal-header {
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
+  .persona-modal-header .modal-title-actions {
+    width: auto;
+    justify-content: flex-end;
+  }
+
+  .persona-item {
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .persona-desc {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
   .view-toggle-btn {
     padding: 7px 12px;
     font-size: 12px;
