@@ -30,6 +30,16 @@ from .image_gen.hooks import on_demand as _image_gen_on_demand
 from .image_gen.hooks import regenerate as _image_gen_regenerate
 from .image_gen.hooks import reroll_gen as _image_gen_reroll_gen
 from .image_gen.queries import query as _image_gen_query
+from .prose_format_llm import prose_format_llm_workflow
+from .prose_format_llm.hooks import (
+    on_demand as _pf_on_demand,
+)
+from .prose_format_llm.hooks import (
+    post_pipeline as _pf_post_pipeline,
+)
+from .prose_format_llm.hooks import (
+    pre_pipeline as _pf_pre_pipeline,
+)
 from .registry import (
     Subscription,
     ToolNameCollision,
@@ -132,6 +142,16 @@ subscribe(image_gen_workflow.id, HookType.ON_DEMAND, _image_gen_on_demand)
 subscribe(image_gen_workflow.id, HookType.QUERY, _image_gen_query)
 subscribe(image_gen_workflow.id, HookType.REGENERATE, _image_gen_regenerate)
 subscribe(image_gen_workflow.id, HookType.REROLL_GEN, _image_gen_reroll_gen)
+
+# Priority -5 runs the LLM enforcer after the deterministic normalizer (-10) and
+# before any artifact consumer like TTS (0), so an artifact is built from the
+# corrected draft. Ships enabled-but-dormant: nothing runs until a conversation's
+# prose format is analyzed. Replaces format_consistency operationally (disable
+# that one), but the two coexist safely if both stay on.
+register_workflow(prose_format_llm_workflow)
+subscribe(prose_format_llm_workflow.id, HookType.PRE_PIPELINE, _pf_pre_pipeline)
+subscribe(prose_format_llm_workflow.id, HookType.POST_PIPELINE, _pf_post_pipeline, priority=-5)
+subscribe(prose_format_llm_workflow.id, HookType.ON_DEMAND, _pf_on_demand)
 
 
 finalize_registry()

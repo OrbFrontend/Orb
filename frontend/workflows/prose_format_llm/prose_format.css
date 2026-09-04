@@ -1,0 +1,99 @@
+/* Prose-format workflow appearance. Loaded via a <link> injected by index.js so
+   the workflow ships its own styling without editing the core stylesheet. Buttons,
+   inputs, fields, and the modal frame come from Orb's shared classes (.btn, .field,
+   .modal-*); only the per-conversation spec editor's two-column rows and section
+   dividers are defined here, all in theme variables so they track every theme. */
+
+.pf-settings-btn {
+  margin-top: 6px;
+}
+
+/* Section divider inside the settings modal -- mirrors the look of Orb's other
+   in-modal sub-headings (uppercase, muted, hairline rule). */
+.pf-section-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 5px;
+  margin: 18px 0 10px;
+}
+
+/* Tighter than the shared .modal-checkbox-label default so the two behavior
+   toggles don't leave a large gap before the spec editor. */
+.pf-check {
+  margin-bottom: 8px;
+}
+
+.pf-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pf-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* Element-name column: the editable input and the read-only label share a width
+   so the description and value columns line up across the two sections. */
+.pf-name {
+  flex: 0 0 34%;
+  min-width: 0;
+}
+
+.pf-elem {
+  flex: 0 0 34%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 38px;
+}
+
+.pf-del {
+  flex: 0 0 auto;
+}
+
+.pf-add {
+  margin-top: 8px;
+}
+
+.pf-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* Push the status text + Save to the right, leaving Analyze/Reset at the left. */
+.pf-status {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.pf-note {
+  padding: 8px 0;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-muted);
+}
