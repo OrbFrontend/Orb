@@ -72,10 +72,10 @@ class ModelSpec:
 # share them and a half-updated pin is a silently different model. The two
 # lines version independently — upstream releases the sizes on their own
 # cadence, so a mismatched pair of version numbers here is not a typo.
-_PROSE_1_7B_REPO = "chartreuse-verte/prose-rewriter-1.7b-v1.5"
-_PROSE_1_7B_REV = "53d478919f8356dba81e543556f970a2545f5441"
-_PROSE_4B_REPO = "chartreuse-verte/prose-rewriter-4b-v1.4"
-_PROSE_4B_REV = "de46c5586d35bf5ed7543c6843ba9b048a0d06f0"
+_PROSE_1_7B_REPO = "chartreuse-verte/prose-rewriter-1.7b-v1.6"
+_PROSE_1_7B_REV = "3497f8966949420a9de68068d2fd262997138aa7"
+_PROSE_4B_REPO = "chartreuse-verte/prose-rewriter-4b-v1.6"
+_PROSE_4B_REV = "a92a6cbb4e7a8fe487cee5e2a2c3829020967713"
 
 MODELS: dict[str, ModelSpec] = {
     "autocomplete": ModelSpec(
@@ -109,7 +109,7 @@ MODELS: dict[str, ModelSpec] = {
     # here must also be claimed by prune_stale.
     "prose_rewriter": ModelSpec(
         repo_id=_PROSE_4B_REPO,
-        filename="GGUF/prose-rewriter-4b-v1.4-Q8_0.gguf",
+        filename="GGUF/prose-rewriter-4b-v1.6-Q8_0.gguf",
         size_mb=4694,
         revision=_PROSE_4B_REV,
         runtime="llama_server",
@@ -119,7 +119,7 @@ MODELS: dict[str, ModelSpec] = {
                 label="1.7B · Q8_0",
                 detail="Fastest, good enough.",
                 repo_id=_PROSE_1_7B_REPO,
-                path="GGUF/prose-rewriter-1.7b-v1.5-Q8_0.gguf",
+                path="GGUF/prose-rewriter-1.7b-v1.6-Q8_0.gguf",
                 revision=_PROSE_1_7B_REV,
                 size_mb=2165,
             ),
@@ -128,7 +128,7 @@ MODELS: dict[str, ModelSpec] = {
                 label="4B · Q4_K_M",
                 detail="Medium quality.",
                 repo_id=_PROSE_4B_REPO,
-                path="GGUF/prose-rewriter-4b-v1.4-Q4_K_M.gguf",
+                path="GGUF/prose-rewriter-4b-v1.6-Q4_K_M.gguf",
                 revision=_PROSE_4B_REV,
                 size_mb=2716,
             ),
@@ -137,7 +137,7 @@ MODELS: dict[str, ModelSpec] = {
                 label="4B · Q8_0",
                 detail="Best quality, invents the least.",
                 repo_id=_PROSE_4B_REPO,
-                path="GGUF/prose-rewriter-4b-v1.4-Q8_0.gguf",
+                path="GGUF/prose-rewriter-4b-v1.6-Q8_0.gguf",
                 revision=_PROSE_4B_REV,
                 size_mb=4694,
             ),
