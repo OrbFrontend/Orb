@@ -28,7 +28,7 @@ _ACTIVE_LOREBOOK_PROPERTY = {
 }
 
 _DIRECT_SCENE_DESCRIPTION = (
-    "Call this to direct the scene. Deduce what the user wants to see and show them. "
+    "Call this to direct the scene. "
     "Be very specific and intentional with the direction. Aim to keep things fresh, may churn if need to."
 )
 
@@ -102,9 +102,8 @@ SELECT_LOREBOOK_CHOICE = {"type": "function", "function": {"name": "select_loreb
 
 
 _PROPOSE_WORLD_CHANGES_DESCRIPTION = (
-    "Propose entries to add or change in the lorebooks, from what just happened. Nothing is "
-    "written until the user reviews and accepts the proposal, so propose only what is worth "
-    "their attention. Leave the operations list empty when there is nothing to record."
+    "Propose changes to a World's long-term memory based on the exchange. Nothing is written until review; "
+    "leave operations empty when no durable change occurred."
 )
 
 # The Dynamic Worlds proposal tool. Like `select_lorebook`, a fixed schema
@@ -142,7 +141,7 @@ PROPOSE_WORLD_CHANGES_TOOL = {
                         "properties": {
                             "rationale": {
                                 "type": "string",
-                                "description": "Why this belongs in the lorebook rather than only in the chat history.",
+                                "description": "Why this belongs in long-term memory rather than only in the chat history.",
                             },
                             "op": {
                                 "type": "string",
@@ -163,8 +162,8 @@ PROPOSE_WORLD_CHANGES_TOOL = {
                             "target_world": {
                                 "type": "string",
                                 "description": (
-                                    "For create only: the stable world_id shown in the destination lorebook's "
-                                    "catalog heading. Required when the catalog lists more than one lorebook. "
+                                    "For create only: the stable world_id shown in the destination World's "
+                                    "catalog heading. Required when the catalog lists more than one World. "
                                     "Omit for every other op -- those go wherever the entry they name already is."
                                 ),
                             },
@@ -209,8 +208,8 @@ PROPOSE_WORLD_CHANGES_CHOICE = {"type": "function", "function": {"name": "propos
 
 
 _GIVE_FEEDBACK_DESCRIPTION = (
-    "Step out of character and give the user an out-of-character note about the reply that was "
-    "just written. This note is shown to the user, not used to write the story."
+    "Step out of character and give the user an OOC note about the reply that was "
+    "just written. This note will be shown to the user."
 )
 
 
@@ -256,7 +255,7 @@ GIVE_FEEDBACK_CHOICE = {"type": "function", "function": {"name": "give_feedback"
 
 
 _RECORD_DIRECTION_NOTE_DESCRIPTION = (
-    "Record lasting director notes that persist for the rest of the roleplay -- once recorded, a "
+    "Record lasting director notes that persist for the rest of the roleplay - once recorded, a "
     "note returns on every later reply and steers the story from here on. Each parameter is one "
     "category of note; fill only the categories that have something genuinely new and lasting to "
     "record this turn, and leave the rest empty."
@@ -294,9 +293,8 @@ EDITOR_APPLY_PATCH_TOOL = {
     "function": {
         "name": "editor_apply_patch",
         "description": (
-            "Apply one or more replacements to the draft. Each patch names a numbered finding from the "
-            "Writing Audit Report by its id and supplies the replacement text for that sentence. "
-            "Returns an updated Audit Report."
+            "Apply one or more replacements to the draft. Each patch identifies a numbered finding from the "
+            "Writing Audit Report by its id number and supplies the replacement text for that sentence."
         ),
         "parameters": {
             "type": "object",
@@ -308,7 +306,7 @@ EDITOR_APPLY_PATCH_TOOL = {
                         "properties": {
                             "id": {
                                 "type": "integer",
-                                "description": "The number of the finding being fixed, as shown in [brackets] in the report.",
+                                "description": "The number of the sentence being fixed, as shown in [brackets] in the report.",
                             },
                             "replace": {
                                 "type": "string",

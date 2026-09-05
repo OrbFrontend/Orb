@@ -202,9 +202,9 @@ def _tool_call_instruction(
 # system prompt plus a bare instruction and wastes tokens reasoning
 # about context.
 DIRECTOR_PREAMBLE = (
-    "[OOC: Let's pause to enhance the roleplay. Use tool calls to accomplish your task "
+    "[OOC: Pause to direct the scene. Use tool calls to accomplish your task "
     "accurately and creatively. Your output will directly influence the scenario. "
-    "Think outside the box, be decisive."
+    "Think outside the box, be intentional."
 )
 
 EDITOR_PREAMBLE = (
@@ -214,10 +214,9 @@ EDITOR_PREAMBLE = (
 )
 
 FEEDBACK_PREAMBLE = (
-    "[OOC: Let's pause the roleplay. Step out of character and act as a helpful "
+    "[OOC: Pause the scene. Step out of character and act as a "
     "game master speaking directly to the user. Based on the reply that was just written, "
-    "give the user a short, concrete out-of-character note. Use the give_feedback tool. "
-    "This note is for the user only — it will NOT be shown to the writer or affect the story."
+    "give the user a short, concrete out-of-character note. Use the give_feedback tool."
 )
 
 # Only sent to LLM if reasoning is enabled.
@@ -226,7 +225,7 @@ REASONING_GUIDANCE = " Avoid overthinking."
 # Sent when only audit issues are flagged (banned phrases, repetitive
 # openers/templates) — no length guard.  Directs the model to patch only.
 #
-# The findings in the accompanying report are numbered (analysis.targets), and a
+# The issues in the accompanying report are numbered (analysis.targets), and a
 # patch names one by its id rather than re-printing the sentence as a `search`
 # string. In text mode the tool schema is never rendered into the prompt, so
 # these lines plus the numbered report are the whole contract the model sees.
@@ -237,8 +236,8 @@ REASONING_GUIDANCE = " Avoid overthinking."
 EDITOR_PATCH_INSTRUCTIONS = (
     "Use `editor_apply_patch` to apply a patch to fix ALL flagged issues.\n\n"
     "PATCHING RULES:\n"
-    "- Each finding in the report below is numbered. The `id` field must be the number of the finding you are fixing.\n"
-    "- Emit one patch per finding — do not skip any, and do not patch the same id twice.\n"
+    "- Each issue in the report below is numbered. The `id` field must be the number of the issue you are fixing.\n"
+    "- Emit one patch per issue — do not skip any, and do not patch the same id twice.\n"
     "- `replace` is the new text for that sentence. Do not copy the old sentence into it.\n"
     "- For banned phrases: completely rewrite the sentence to eliminate the banned phrase. Make a creative and bold effort; do not just substitute with similar, related words.\n"
     "- For repetitive openers: rewrite and replace flagged sentences so they no longer begin with the same opening words. Vary the sentence structure.\n"
@@ -269,7 +268,7 @@ EDITOR_BOTH_INSTRUCTIONS = "Call `editor_rewrite` to address both concerns in a 
 # offsets are meaningless), and the structured replay is the one place the model
 # can see both numberings at once — so the rule has to be stated, not inferred.
 EDITOR_RENUMBER_NOTICE = (
-    "The draft has changed and the findings below have been renumbered. Ignore the ids from your previous "
+    "The draft has changed and the issues below have been renumbered. Ignore the ids from your previous "
     "call and patch only the ids listed in this report."
 )
 
@@ -296,7 +295,7 @@ def build_director_tool_prompt(
 
     *cast_instruction* is the group speaking-plan line (``director.speaking_plan_
     instruction``): the roster is volatile and rides this per-call tail rather than
-    the shared tool blob, exactly like the editor's numbered finding ids. Empty on
+    the shared tool blob, exactly like the editor's numbered issue ids. Empty on
     a solo turn.
     """
     tool = TOOLS.get(tool_name)
@@ -508,14 +507,12 @@ def build_direction_note_prompt(
 
 
 WORLD_CHANGE_PREAMBLE = (
-    "[OOC: Pause the roleplay and step out of character. You look after the lorebooks below. Read the "
-    "exchange above and decide whether it established anything that belongs in one of them -- each "
-    "lorebook's name says what it is for. leave the operations list empty when the turn gave you nothing to file."
+    "[OOC: Pause the roleplay and step out of character. Review the exchange above and decide whether it "
+    "added anything to a World's long-term memory. Use the World catalog below. Leave operations empty "
+    "when nothing durable was established."
 )
 
-# A lorebook is whatever its owner named it -- a setting, a cast, a file of facts
-# about the user -- so these say what an *entry* is, never what a world is. The
-# exclusions still carry the weight: without them a model files every gesture and
+# The exclusions carry the weight: without them a model files every gesture and
 # intention, and the review queue becomes noise.
 #
 # Two of them answer observed failures rather than theory. The reply is the
@@ -525,22 +522,22 @@ WORLD_CHANGE_PREAMBLE = (
 # one after this step runs. And an entry is worth more the less it churns, so
 # "already covered" has to resolve to silence, not to a reworded revision.
 WORLD_CHANGE_RULES = (
-    "An entry is something that stays true once the moment has passed -- what would still need to be "
-    "known by someone who never saw this exchange. The chat history already keeps the rest, and most "
-    "turns establish nothing: proposing nothing is the ordinary answer, not a failure.\n"
-    "- Record it only if the exchange established it -- not a plan, a guess, or something merely "
-    "considered. The reply above is your own: what you offered, suggested or supposed in it is not "
-    "established until the user takes it up.\n"
-    "- Keep a claim a claim: what was rumoured, doubted or asserted by one character is filed as that.\n"
-    "- State it plainly in a sentence or two. This is a note, not prose.\n"
-    "- Revise an entry only when it has become wrong. Never to reword it, to top it up with detail, or "
-    "to restate what it already covers -- leave it alone and propose nothing."
+    "Record only durable facts established by the exchange for long-term memory. Most turns add nothing; "
+    "leave operations empty when nothing qualifies.\n"
+    "- Do not record plans, guesses, possibilities, or facts introduced only in the assistant's reply "
+    "until the user takes them up.\n"
+    "- Preserve uncertainty and attribution: record rumors, beliefs, and disputed claims as such.\n"
+    "- Write concise factual notes, not narrative prose.\n"
+    "- Create only new information. Revise or retract only when an existing entry is no longer accurate; "
+    "never duplicate, reword, or add detail to a correct entry."
 )
 
 WORLD_CHANGE_CATALOG_HEADER = (
-    "**The lorebooks** -- each `## heading` is one lorebook, and shows the stable `world_id` a new entry "
-    "puts in `target_world` when more than one is listed. Entry ids are stable too: name one exactly when "
-    "revising or retracting it."
+    "**Current World memory** -- each `##` heading is a World and its current entries. Headings use "
+    "`## <name> [world_id: <id>]`; for a `create` with more than one World, copy that id into "
+    "`target_world`. Each entry's stable numeric id appears in brackets, `[id]`; use it as "
+    "`target_entry_id` for `revise` or `retract`. `Authored` is user-written memory; `Dynamic World "
+    "State` is accepted Agent-managed memory."
 )
 
 
@@ -578,9 +575,9 @@ def build_editor_prompt(
 ) -> str:
     """Assemble the editor's request message.
 
-    *patchable* says whether the findings resolved to numbered targets. They
+    *patchable* says whether the issues resolved to numbered targets. They
     normally do; when they do not — structural repetition has no span, and a
-    finding the detectors segmented differently from the draft cannot be
+    issue the detectors segmented differently from the draft cannot be
     located — there is nothing to address by id, so the request falls through
     to the rewrite path rather than shipping a report the model cannot act on.
     Callers must render *report_text* to match: the numbered report only when
