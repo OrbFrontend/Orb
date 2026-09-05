@@ -61,3 +61,32 @@ async def test_list_models_rejects_non_openai_response(monkeypatch):
 
     with pytest.raises(ValueError, match="data list"):
         await LLMClient("https://models.test/v1").list_models()
+
+
+@pytest.mark.asyncio
+async def test_anthropic_models_use_sibling_resource_and_native_auth(monkeypatch):
+    _CatalogClient.payload = {"data": [{"id": "claude-opus-5"}]}
+    _CatalogClient.seen = {}
+    monkeypatch.setattr(client_module.httpx, "AsyncClient", _CatalogClient)
+
+    models = await LLMClient("https://api.anthropic.com/v1/messages", "secret-key").list_models()
+
+    assert models == ["claude-opus-5"]
+    assert _CatalogClient.seen["url"] == "https://api.anthropic.com/v1/models"
+    assert _CatalogClient.seen["headers"] == {
+        "x-api-key": "secret-key",
+        "anthropic-version": "2023-06-01",
+    }
+
+
+@pytest.mark.asyncio
+async def test_gemini_models_use_normalized_surface_and_strip_models_prefix(monkeypatch):
+    _CatalogClient.payload = {"data": [{"id": "models/gemini-3-pro"}, {"id": "gemini-3-flash"}]}
+    _CatalogClient.seen = {}
+    monkeypatch.setattr(client_module.httpx, "AsyncClient", _CatalogClient)
+
+    models = await LLMClient("https://generativelanguage.googleapis.com", "gemini-key").list_models()
+
+    assert models == ["gemini-3-flash", "gemini-3-pro"]
+    assert _CatalogClient.seen["url"] == "https://generativelanguage.googleapis.com/v1beta/openai/models"
+    assert _CatalogClient.seen["headers"] == {"Authorization": "Bearer gemini-key"}

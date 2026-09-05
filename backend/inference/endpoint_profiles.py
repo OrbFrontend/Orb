@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
+from urllib.parse import urlsplit, urlunsplit
 
 # Body keys always sent; never subject to allowlist filtering.
 ALWAYS_ALLOWED: frozenset[str] = frozenset({"model", "messages", "stream", "tools", "tool_choice"})
@@ -50,6 +51,11 @@ class ModelProfile:
     # ``response_format: {"type": "json_schema", "strict": true}``.
     structured_tool_calls: bool = False
 
+    # If True, every value except ``"auto"`` is rewritten to ``"auto"``.
+    # Some routed providers reject not only forced choices but also ``"none"``;
+    # this is deliberately separate from allow_forced_tool_choice.
+    auto_tool_choice_only: bool = False
+
     # Bespoke transforms applied after typed knobs, in order. Each callable
     # mutates body in place and may return a log line (or None for silent).
     custom: tuple[Transform, ...] = field(default_factory=tuple)
@@ -71,6 +77,12 @@ class ModelProfile:
             if is_forced_tool_choice(tc):
                 body["tool_choice"] = "auto"
                 actions.append(f"tool_choice {tc!r} -> 'auto'")
+
+        if self.auto_tool_choice_only:
+            tc = body.get("tool_choice")
+            if tc is not None and tc != "auto":
+                body["tool_choice"] = "auto"
+                actions.append(f"tool_choice {tc!r} -> 'auto' (auto-only endpoint)")
 
         for fn in self.custom:
             log = fn(body)
@@ -149,16 +161,6 @@ PROFILES: dict[str, dict[str | None, ModelProfile]] = {
             allow_forced_tool_choice=False,
         ),
     },
-    # No None-key default: unlisted OpenRouter models stay pass-through (most
-    # honor forcing). List only models known to reject a forced-function
-    # tool_choice; add a one-liner per newly-found one. llm_client self-heals
-    # the first hit of an unlisted model and logs a reminder to add it here.
-    "openrouter.ai": {
-        "minimax/minimax-m3": ModelProfile(
-            allow_extra=None,  # OpenRouter is lenient; drop nothing
-            allow_forced_tool_choice=False,  # forced -> "auto"
-        ),
-    },
     # NanoGPT is a *proxy*: each model id it fronts sits behind a different
     # upstream engine with its own config, so no endpoint-wide statement about
     # decoding is true of every model. Its own tool-argument decoding is
@@ -175,7 +177,183 @@ PROFILES: dict[str, dict[str | None, ModelProfile]] = {
             structured_tool_calls=True,
         ),
     },
+    # Google's OpenAI compatibility API accepts ordinary OpenAI request fields
+    # (unknown additions are ignored) and honors strict json_schema output.
+    "generativelanguage.googleapis.com": {
+        None: ModelProfile(
+            allow_extra=None,
+            structured_tool_calls=True,
+        ),
+    },
 }
+
+
+Protocol = Literal["openai", "anthropic"]
+AuthFamily = Literal["bearer", "anthropic"]
+
+
+@dataclass(frozen=True)
+class EndpointRoute:
+    """One concrete transport resource resolved from a configured endpoint."""
+
+    protocol: Protocol
+    url: str
+    models_url: str
+    auth_family: AuthFamily
+    authoritative: bool = False
+
+
+# A successful route is remembered per configured URL and model because client
+# objects are per-turn. Stored URLs are never rewritten.
+_RESOLVED_ROUTES: dict[tuple[str, str], EndpointRoute] = {}
+
+
+def _clean_url(url: str) -> str:
+    return url.strip().rstrip("/")
+
+
+def _parsed_http_url(url: str):
+    parsed = urlsplit(_clean_url(url))
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return None
+    return parsed
+
+
+def _replace_path(parsed, path: str) -> str:
+    return urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, ""))
+
+
+def _resource_route(protocol: Protocol, url: str, *, authoritative: bool) -> EndpointRoute:
+    parsed = _parsed_http_url(url)
+    clean = _clean_url(url)
+    path = parsed.path.rstrip("/") if parsed is not None else clean
+    resource = "/messages" if protocol == "anthropic" else "/chat/completions"
+    if path.endswith(resource):
+        models_path = f"{path[: -len(resource)]}/models"
+    else:
+        models_path = f"{path}/models"
+    models_url = _replace_path(parsed, models_path) if parsed is not None else f"{clean}/models"
+    return EndpointRoute(
+        protocol=protocol,
+        url=clean,
+        models_url=models_url,
+        auth_family="anthropic" if protocol == "anthropic" else "bearer",
+        authoritative=authoritative,
+    )
+
+
+def _base_route(protocol: Protocol, base_url: str, *, authoritative: bool = False) -> EndpointRoute:
+    clean = _clean_url(base_url)
+    suffix = "/messages" if protocol == "anthropic" else "/chat/completions"
+    parsed = _parsed_http_url(clean)
+    if parsed is None:
+        url = f"{clean}{suffix}"
+    else:
+        url = _replace_path(parsed, f"{parsed.path.rstrip('/')}{suffix}")
+    return _resource_route(protocol, url, authoritative=authoritative)
+
+
+def _deterministic_route(endpoint_url: str) -> EndpointRoute:
+    """Resolve explicit resources and strong provider hints without probing."""
+    clean = _clean_url(endpoint_url)
+    parsed = _parsed_http_url(clean)
+    low = clean.lower()
+    path = parsed.path.rstrip("/").lower() if parsed is not None else low
+
+    # Full resource URLs are user intent and win over host heuristics.
+    if path.endswith("/chat/completions"):
+        return _resource_route("openai", clean, authoritative=True)
+    if path.endswith("/messages"):
+        return _resource_route("anthropic", clean, authoritative=True)
+
+    host = (parsed.hostname or "").lower() if parsed is not None else ""
+    if host == "generativelanguage.googleapis.com" or host.endswith(".generativelanguage.googleapis.com"):
+        base = _replace_path(parsed, "/v1beta/openai") if parsed is not None else clean
+        return _base_route("openai", base, authoritative=True)
+
+    segments = [segment for segment in path.split("/") if segment]
+    if host == "api.anthropic.com" or host.endswith(".api.anthropic.com"):
+        if not segments:
+            base = _replace_path(parsed, "/v1") if parsed is not None else f"{clean}/v1"
+        else:
+            base = clean
+        return _base_route("anthropic", base, authoritative=True)
+
+    # Proxy prefixes such as /anthropic or /providers/anthropic/v1 are strong
+    # enough to select native Messages without replaying a prompt elsewhere.
+    if "anthropic" in segments:
+        base = f"{clean}/v1" if segments[-1] == "anthropic" else clean
+        return _base_route("anthropic", base, authoritative=True)
+
+    return _base_route("openai", clean)
+
+
+def resolve_endpoint(endpoint_url: str, model: str = "") -> EndpointRoute:
+    """Return the cached or deterministic route for one configured endpoint."""
+    return _RESOLVED_ROUTES.get((endpoint_url, model)) or _deterministic_route(endpoint_url)
+
+
+def endpoint_candidates(endpoint_url: str, model: str = "") -> list[EndpointRoute]:
+    """Return bounded same-host routes in request order.
+
+    Explicit resources and provider hints are authoritative. Ambiguous URLs keep
+    Orb's historical ``{configured}/chat/completions`` request first, followed
+    by the conventional host-root OpenAI and Anthropic v1 resources. Candidates
+    are only attempted when :func:`should_probe_route` recognizes the response
+    body as a route mismatch.
+    """
+    primary = resolve_endpoint(endpoint_url, model)
+    if primary.authoritative or (endpoint_url, model) in _RESOLVED_ROUTES:
+        return [primary]
+    parsed = _parsed_http_url(endpoint_url)
+    if parsed is None:
+        return [primary]
+    root = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+    candidates = [
+        primary,
+        _base_route("openai", f"{root}/v1"),
+        _base_route("anthropic", f"{root}/v1"),
+    ]
+    out: list[EndpointRoute] = []
+    seen: set[tuple[str, str]] = set()
+    for route in candidates:
+        key = (route.protocol, route.url)
+        if key not in seen:
+            seen.add(key)
+            out.append(route)
+    return out
+
+
+def note_successful_route(endpoint_url: str, model: str, route: EndpointRoute) -> None:
+    """Cache a route after its stream completes successfully."""
+    _RESOLVED_ROUTES[(endpoint_url, model)] = route
+
+
+def should_probe_route(status: int, text: str) -> bool:
+    """Whether an error body specifically identifies an HTTP route mismatch."""
+    del status  # Deliberately a body fact; status-only routing is unsafe.
+    low = text.lower()
+    markers = (
+        "cannot post /",
+        "route not found",
+        "unknown endpoint",
+        "unrecognized request url",
+        "unsupported endpoint",
+        "invalid url (post",
+    )
+    return any(marker in low for marker in markers)
+
+
+def auth_families(route: EndpointRoute, endpoint_url: str, model: str, status: int | None = None) -> tuple[AuthFamily, ...]:
+    """Return primary auth and, on supported 401/403 evidence, its peer."""
+    primary = route.auth_family
+    if status not in {401, 403}:
+        return (primary,)
+    evidence = "claude" in model.lower() or "anthropic" in endpoint_url.lower() or route.protocol == "anthropic"
+    if not evidence:
+        return (primary,)
+    other: AuthFamily = "bearer" if primary == "anthropic" else "anthropic"
+    return (primary, other)
 
 
 # (endpoint_url, model) pairs observed to answer a forced tool_choice with a
@@ -266,22 +444,31 @@ def profile_for(endpoint_url: str, model: str = "") -> ModelProfile | None:
 # front instead of paying the round-trip + retry again.
 _TOOL_CHOICE_UNSUPPORTED: set[tuple[str, str]] = set()
 
+# Pairs observed to accept only the literal ``"auto"`` value. Unlike
+# _TOOL_CHOICE_UNSUPPORTED, these endpoints still need the field so forced and
+# writer ``"none"`` requests are coerced rather than dropped.
+_TOOL_CHOICE_AUTO_ONLY: set[tuple[str, str]] = set()
+
 
 def _is_openrouter(endpoint_url: str) -> bool:
     return "openrouter.ai" in endpoint_url.lower()
 
 
 def _is_tool_choice_unsupported(status: int, text: str) -> bool:
-    """Return ``True`` for OpenRouter's ``tool_choice``-unsupported 404.
+    """Return ``True`` when the body says no ``tool_choice`` value is routed.
 
     Matches "No endpoints found that support the provided 'tool_choice'
     value." — meaning the routed provider rejects all ``tool_choice`` values.
     Kept narrow so genuine 404s (bad model id, etc.) don't match.
     """
-    if status != 404:
-        return False
     low = text.lower()
-    return "tool_choice" in low and "no endpoints found" in low
+    return status in {400, 404} and "tool_choice" in low and "no endpoints found" in low
+
+
+def _is_tool_choice_auto_only(status: int, text: str) -> bool:
+    """Return True when the body states that only ``auto`` is accepted."""
+    low = text.lower()
+    return status in {400, 404} and "tool_choice" in low and "only" in low and "auto" in low and "support" in low
 
 
 def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]:
@@ -301,6 +488,12 @@ def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]
         tc = body.pop("tool_choice")
         actions.append(f"tool_choice {tc!r} dropped (session-learned unsupported)")
 
+    if "tool_choice" in body and (endpoint_url, model) in _TOOL_CHOICE_AUTO_ONLY:
+        tc = body["tool_choice"]
+        if tc != "auto" and tc != {"type": "auto"}:
+            body["tool_choice"] = "auto"
+            actions.append(f"tool_choice {tc!r} -> 'auto' (session-learned auto-only)")
+
     return actions
 
 
@@ -311,16 +504,33 @@ def recover_from_error(endpoint_url: str, model: str, body: dict, status: int, t
 
     Currently handles one quirk: an OpenRouter model whose routed provider
     rejects ``tool_choice`` entirely. Recovery is to drop the param and retry;
-    the 404 lands before any SSE event so the retry is clean. Add such models
-    to ``PROFILES['openrouter.ai']`` for a zero-retry fix.
+    the 404 lands before any SSE event so the retry is clean. Model catalog ids
+    are deliberately never recorded here; learned capability facts expire with
+    the backend process.
     """
+    tc = body.get("tool_choice")
+    low = text.lower()
+    native_forced_rejected = (
+        status == 400
+        and isinstance(tc, Mapping)
+        and tc.get("type") in {"any", "tool"}
+        and "tool_choice" in low
+        and any(marker in low for marker in ("not supported", "unsupported", "not allowed"))
+    )
+    if native_forced_rejected:
+        _TOOL_CHOICE_AUTO_ONLY.add((endpoint_url, model))
+        note_forced_tool_choice_ignored(endpoint_url, model)
+        body["tool_choice"] = {"type": "auto"}
+        return f"Model {model} rejected forced Anthropic tool choice; retrying with auto."
+    if "tool_choice" in body and _is_tool_choice_auto_only(status, text):
+        _TOOL_CHOICE_AUTO_ONLY.add((endpoint_url, model))
+        tc = body["tool_choice"]
+        body["tool_choice"] = {"type": "auto"} if isinstance(tc, dict) and "function" not in tc else "auto"
+        return f"Model {model} accepts only tool_choice='auto'; retrying with auto."
     if not _is_openrouter(endpoint_url):
         return None
     if "tool_choice" in body and _is_tool_choice_unsupported(status, text):
         _TOOL_CHOICE_UNSUPPORTED.add((endpoint_url, model))
         tc = body.pop("tool_choice")
-        return (
-            f"Model {model} rejected tool_choice={tc!r}; retrying without it. "
-            f"Add it to endpoint_profiles.PROFILES['openrouter.ai'] for a zero-retry fix."
-        )
+        return f"Model {model} rejected tool_choice={tc!r}; retrying without it."
     return None
