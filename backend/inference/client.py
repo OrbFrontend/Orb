@@ -9,10 +9,11 @@ from typing import Any
 
 import httpx
 
-from . import endpoint_profiles, text_completion
-from .errors import llm_call_error
+from . import anthropic, endpoint_profiles, text_completion
+from .errors import LLMCallError, llm_call_error, llm_stream_error
 from .gemma_tool_format import parse_gemma_tool_calls
 from .retry import RetryPolicy
+from .tool_registry import strictify_schema
 
 logger = logging.getLogger(__name__)
 
@@ -139,37 +140,6 @@ def parse_extra_body(text: str) -> dict:
     return parsed
 
 
-def strictify_schema(schema: dict) -> dict:
-    """Copy *schema* into OpenAI strict-mode shape, recursively.
-
-    Strict structured output requires every object to list all properties in
-    ``required`` and set ``additionalProperties: false``. Originally-optional
-    properties are made nullable so "may omit" survives as "may be null" --
-    the passes' unpackers already discard empty/null argument values.
-    """
-    node = dict(schema)
-    props = node.get("properties")
-    if isinstance(props, dict):
-        required = set(node.get("required") or [])
-        out_props: dict = {}
-        for key, prop in props.items():
-            sub = strictify_schema(prop) if isinstance(prop, dict) else prop
-            if key not in required and isinstance(sub, dict) and "type" in sub:
-                t = sub["type"]
-                if isinstance(t, list):
-                    t = t if "null" in t else [*t, "null"]
-                elif t != "null":
-                    t = [t, "null"]
-                sub = {**sub, "type": t}
-            out_props[key] = sub
-        node["properties"] = out_props
-        node["required"] = list(props.keys())
-        node["additionalProperties"] = False
-    if isinstance(node.get("items"), dict):
-        node["items"] = strictify_schema(node["items"])
-    return node
-
-
 def _parse_chat_logprobs(choice: Mapping[str, Any]) -> list[dict]:
     """Normalize an OpenAI-compat ``choice.logprobs`` block to Orb's prob shape.
 
@@ -291,36 +261,73 @@ class LLMClient:
         headers.update(self.extra_headers)
         return headers
 
-    def _url(self) -> str:
-        return f"{self.base_url}/chat/completions"
+    def _headers_for(self, auth_family: endpoint_profiles.AuthFamily) -> dict:
+        """Return transport auth defaults with case-insensitive user overrides."""
+        base: dict[str, str] = {}
+        if self.api_key:
+            if auth_family == "anthropic":
+                base["x-api-key"] = self.api_key
+            else:
+                base["Authorization"] = f"Bearer {self.api_key}"
+        if auth_family == "anthropic":
+            base["anthropic-version"] = "2023-06-01"
+        configured = {key.lower() for key in self.extra_headers}
+        headers = {key: value for key, value in base.items() if key.lower() not in configured}
+        headers.update(self.extra_headers)
+        return headers
 
     async def list_models(self) -> list[str]:
-        """Return model ids advertised by an OpenAI-compatible ``GET /models``.
+        """Return model ids advertised by a compatible ``GET /models``.
 
-        Discovery uses the same bearer authentication and endpoint proxy as
-        generation, but a short finite timeout: unlike a completion, this is a
-        small non-streaming settings request and should fail back to Orb's
-        editable model-name field promptly.
+        Explicit resource shapes have one sibling catalogue. For an ambiguous
+        base, discovery walks the same bounded route/auth candidates as
+        generation and caches the first catalogue that satisfies the shared
+        ``data[].id`` contract. It uses a short finite timeout so failure still
+        falls back to Orb's editable model-name field promptly.
         """
-        url = f"{self.base_url}/models"
+        routes = endpoint_profiles.endpoint_candidates(self.base_url)
+        seen: set[tuple[str, endpoint_profiles.AuthFamily]] = set()
+        contract_error: ValueError | None = None
+        last_response: httpx.Response | None = None
         async with httpx.AsyncClient(timeout=20.0, proxy=self.proxy, follow_redirects=True) as client:
-            response = await client.get(url, headers=self._headers())
-        response.raise_for_status()
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise ValueError("Endpoint returned a non-JSON models response") from exc
+            for route in routes:
+                candidate = (route.models_url, route.auth_family)
+                if candidate in seen:
+                    continue
+                seen.add(candidate)
+                response = await client.get(route.models_url, headers=self._headers_for(route.auth_family))
+                if response.status_code >= 400:
+                    last_response = response
+                    continue
+                try:
+                    payload = response.json()
+                except ValueError:
+                    contract_error = ValueError("Endpoint returned a non-JSON models response")
+                    continue
 
-        data = payload.get("data") if isinstance(payload, dict) else None
-        if not isinstance(data, list):
-            raise ValueError("Endpoint models response does not contain a data list")
+                data = payload.get("data") if isinstance(payload, dict) else None
+                if not isinstance(data, list):
+                    contract_error = ValueError("Endpoint models response does not contain a data list")
+                    continue
 
-        model_ids: set[str] = set()
-        for item in data:
-            model_id = item.get("id") if isinstance(item, dict) else None
-            if isinstance(model_id, str) and model_id.strip():
-                model_ids.add(model_id.strip())
-        return sorted(model_ids, key=str.casefold)
+                endpoint_profiles.note_successful_route(self.base_url, "", route)
+                model_ids: set[str] = set()
+                for item in data:
+                    model_id = item.get("id") if isinstance(item, dict) else None
+                    if isinstance(model_id, str) and model_id.strip():
+                        normalized = model_id.strip()
+                        # This compatibility resource lists ids with a
+                        # ``models/`` prefix that generation does not need.
+                        if normalized.startswith("models/") and endpoint_profiles.is_gemini_openai_surface(route.url):
+                            normalized = normalized.removeprefix("models/")
+                        model_ids.add(normalized)
+                return sorted(model_ids, key=str.casefold)
+
+        if contract_error is not None:
+            raise contract_error
+        if last_response is not None:
+            last_response.raise_for_status()
+        raise ValueError("Endpoint did not expose a models response")
 
     def _server_root(self) -> str:
         """Server root for llama.cpp native endpoints (/completion, /apply-template,
@@ -420,7 +427,14 @@ class LLMClient:
                     yield event
                 return
             except httpx.HTTPError as exc:
-                if produced or self.is_aborted or attempt >= self.retry.count or not self.retry.should_retry(exc):
+                stream_event = isinstance(exc, LLMCallError) and exc.stream_event
+                if (
+                    produced
+                    or stream_event
+                    or self.is_aborted
+                    or attempt >= self.retry.count
+                    or not self.retry.should_retry(exc)
+                ):
                     raise
                 attempt += 1
                 detail = f"HTTP {exc.response.status_code}" if isinstance(exc, httpx.HTTPStatusError) else type(exc).__name__
@@ -562,19 +576,6 @@ class LLMClient:
 
             apply_reasoning_effort(body, self.reasoning_effort, self.reasoning_effort_param, self.reasoning_effort_value)
 
-            # Same ordering as apply_reasoning_effort above, for the reason its
-            # docstring gives. Chat-only by design: the text transport builds its
-            # params from an allowlist.
-            if self.extra_body:
-                body.update(self.extra_body)
-                logger.info("LLM extra body fields: %s", sorted(self.extra_body))
-
-            # Provider-specific body translation (profiles + session-learned
-            # workarounds) lives entirely in endpoint_profiles; the client just
-            # applies whatever it returns.
-            for action in endpoint_profiles.prepare_request_body(self.base_url, model, body):
-                logger.info("LLM profile: %s", action)
-
             logger.info(
                 "LLM complete: model=%s, tools=%s, tool_choice=%s",
                 model,
@@ -583,6 +584,29 @@ class LLMClient:
             )
             logger.debug(messages)
             return body, forced_name, structured
+
+        # The body is re-derived on every recovery, auth retry and route probe, so
+        # its INFO lines would otherwise repeat once per attempt. Keyed on the
+        # rendered line, not on "first attempt only": a recovery that learns a new
+        # quirk adds an action, and that line is exactly the one worth surfacing.
+        logged_lines: set[str] = set()
+
+        def _log_once(line: str) -> None:
+            if line not in logged_lines:
+                logged_lines.add(line)
+                logger.info("%s", line)
+
+        def _outbound_body(body: dict, route: endpoint_profiles.EndpointRoute) -> dict:
+            """Copy the canonical OpenAI body into one route's wire dialect."""
+            outbound = dict(body)
+            if route.protocol == "openai" and self.extra_body:
+                outbound.update(self.extra_body)
+                _log_once(f"LLM extra body fields: {sorted(self.extra_body)}")
+            for action in endpoint_profiles.prepare_request_body(self.base_url, model, outbound):
+                _log_once(f"LLM profile: {action}")
+            if route.protocol == "anthropic":
+                return anthropic.build_request_body(outbound, self.base_url, model, self.extra_body)
+            return outbound
 
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
@@ -606,112 +630,223 @@ class LLMClient:
             finish_reason = None
             usage = None
 
-            # At most one retry, solely to self-heal a provider quirk that
-            # endpoint_profiles.recover_from_error() recognises (e.g. an OpenRouter
-            # model rejecting tool_choice). The error lands before any SSE event,
-            # so the retry is clean.
-            for attempt in range(2):
-                # No read timeout on streaming calls: the server sends zero bytes
-                # while prefilling a large prompt (or queueing behind another
-                # request), and a long silence is normal there — a flat read
-                # timeout intermittently killed long turns. Abort/stop and the
-                # disconnect watcher remain the recovery paths.
-                async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, read=None), proxy=self.proxy) as client:
-                    async with client.stream("POST", self._url(), json=body, headers=self._headers()) as resp:
-                        if resp.status_code >= 400:
-                            # Concern 1: surface the error body.
-                            err_text = await _read_error_body(resp, self._url())
+            def tool_entry(index: int) -> dict:
+                if index not in tool_calls_acc:
+                    tool_calls_acc[index] = {
+                        "id": "",
+                        "type": "function",
+                        "function": {"name": "", "arguments": ""},
+                    }
+                return tool_calls_acc[index]
 
-                            # Concern 2: ask the provider layer whether this is a
-                            # recognised quirk worth one retry. It mutates body in
-                            # place and returns a log line, or None to propagate.
-                            if attempt == 0:
-                                fix = endpoint_profiles.recover_from_error(
-                                    self.base_url, model, body, resp.status_code, err_text
+            async def consume_openai(resp) -> AsyncIterator[dict]:
+                nonlocal finish_reason, usage
+                # Slot last handed to an index-less delta; -1 before the first.
+                unindexed = -1
+
+                def slot_for(tc_delta: Mapping[str, Any]) -> int:
+                    """Resolve one tool-call delta to an accumulator slot.
+
+                    Google's OpenAI-compatible surface omits ``index`` from
+                    ``delta.tool_calls`` entirely, so keying on ``index`` with a
+                    default of 0 merged every parallel call into one entry --
+                    names concatenated, all but the first argument payload lost.
+                    Without an index, a delta that STARTS a call (it carries an
+                    ``id`` or a function ``name``, which the OpenAI contract
+                    sends only on a call's first chunk) opens the next free
+                    slot; a bare argument continuation appends to the newest.
+                    """
+                    nonlocal unindexed
+                    index = tc_delta.get("index")
+                    if isinstance(index, int) and not isinstance(index, bool):
+                        return index
+                    function = tc_delta.get("function")
+                    starts = bool(tc_delta.get("id")) or bool(isinstance(function, Mapping) and function.get("name"))
+                    if starts or unindexed < 0:
+                        unindexed = max([*tool_calls_acc, unindexed], default=-1) + 1
+                    return unindexed
+
+                async for payload in self._iter_sse_payloads(resp):
+                    try:
+                        chunk = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    u = chunk.get("usage")
+                    if isinstance(u, dict):
+                        usage = u
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    try:
+                        choice = choices[0]
+                        delta = choice.get("delta", {})
+                        rc = delta.get("reasoning_content") or delta.get("reasoning")
+                        if rc:
+                            reasoning_parts.append(rc)
+                            yield {"type": "reasoning", "delta": rc}
+                        content = delta.get("content")
+                        if content:
+                            content_parts.append(content)
+                            if forced_name is None:
+                                yield {"type": "content", "delta": content}
+                        for rec in _parse_chat_logprobs(choice):
+                            yield {"type": "token_probs", **rec}
+                        for tc_delta in delta.get("tool_calls") or []:
+                            entry = tool_entry(slot_for(tc_delta))
+                            if tc_delta.get("id"):
+                                entry["id"] = tc_delta["id"]
+                            fn = tc_delta.get("function", {})
+                            if fn.get("name"):
+                                entry["function"]["name"] += fn["name"]
+                            if fn.get("arguments"):
+                                entry["function"]["arguments"] += fn["arguments"]
+                        if choice.get("finish_reason"):
+                            finish_reason = choice["finish_reason"]
+                    except (KeyError, IndexError):
+                        continue
+
+            async def consume_anthropic(resp, url: str) -> AsyncIterator[dict]:
+                nonlocal finish_reason, usage
+                stopped = False
+                async for payload in self._iter_sse_payloads(resp):
+                    try:
+                        event = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    event_type = event.get("type")
+                    if event_type == "ping":
+                        continue
+                    if event_type == "error":
+                        raise llm_stream_error(payload=event, url=url, model=model, api_key=self.api_key)
+                    if event_type == "message_start":
+                        initial = (event.get("message") or {}).get("usage")
+                        if isinstance(initial, dict):
+                            usage = dict(initial)
+                    elif event_type == "content_block_start":
+                        index = event.get("index", 0)
+                        block = event.get("content_block") or {}
+                        if block.get("type") == "tool_use":
+                            entry = tool_entry(index)
+                            entry["id"] = block.get("id", "")
+                            entry["function"]["name"] = block.get("name", "")
+                            if block.get("input"):
+                                entry["function"]["arguments"] = json.dumps(block["input"], separators=(",", ":"))
+                        elif block.get("type") == "text" and block.get("text"):
+                            content_parts.append(block["text"])
+                            if forced_name is None:
+                                yield {"type": "content", "delta": block["text"]}
+                        elif block.get("type") == "thinking" and block.get("thinking"):
+                            reasoning_parts.append(block["thinking"])
+                            yield {"type": "reasoning", "delta": block["thinking"]}
+                    elif event_type == "content_block_delta":
+                        index = event.get("index", 0)
+                        delta = event.get("delta") or {}
+                        delta_type = delta.get("type")
+                        if delta_type == "text_delta" and delta.get("text"):
+                            content_parts.append(delta["text"])
+                            # Same gate as consume_openai: a forced pass buffers its
+                            # text as the tool-arguments payload instead of streaming
+                            # it, so the caller never sees a half-built JSON body.
+                            if forced_name is None:
+                                yield {"type": "content", "delta": delta["text"]}
+                        elif delta_type == "thinking_delta" and delta.get("thinking"):
+                            reasoning_parts.append(delta["thinking"])
+                            yield {"type": "reasoning", "delta": delta["thinking"]}
+                        elif delta_type == "input_json_delta" and delta.get("partial_json"):
+                            tool_entry(index)["function"]["arguments"] += delta["partial_json"]
+                    elif event_type == "message_delta":
+                        delta = event.get("delta") or {}
+                        stop_reason = delta.get("stop_reason")
+                        if stop_reason:
+                            finish_reason = {
+                                "end_turn": "stop",
+                                "stop_sequence": "stop",
+                                "tool_use": "tool_calls",
+                                "max_tokens": "length",
+                            }.get(stop_reason, stop_reason)
+                        update = event.get("usage")
+                        if isinstance(update, dict):
+                            usage = {**(usage or {}), **update}
+                    elif event_type == "message_stop":
+                        stopped = True
+                        break
+                if not stopped and not self.is_aborted:
+                    raise llm_stream_error(
+                        payload={"error": {"message": "Anthropic stream ended before message_stop"}},
+                        url=url,
+                        model=model,
+                        api_key=self.api_key,
+                    )
+
+            routes = endpoint_profiles.endpoint_candidates(self.base_url, model)
+            route_index = 0
+            while route_index < len(routes):
+                route = routes[route_index]
+                recovery_count = 0
+                auth_family = route.auth_family
+                auth_retried = False
+                while True:
+                    outbound = _outbound_body(body, route)
+                    # No read timeout on streaming calls: a long prefill silence
+                    # is normal; abort and disconnect close the stream instead.
+                    async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, read=None), proxy=self.proxy) as client:
+                        async with client.stream(
+                            "POST", route.url, json=outbound, headers=self._headers_for(auth_family)
+                        ) as resp:
+                            if resp.status_code >= 400:
+                                err_text = await _read_error_body(resp, route.url)
+                                # One attempt per independent quirk class: the profile
+                                # rules, a refused reasoning_effort level, Anthropic
+                                # sampling controls, and the 4.6+ reasoning fields can
+                                # each need their own rejection before a body this
+                                # endpoint accepts is reached. No route reaches more
+                                # than three of them -- reasoning_effort is an
+                                # OpenAI-body field the Anthropic translation drops.
+                                if recovery_count < 3:
+                                    fix = endpoint_profiles.recover_from_error(
+                                        self.base_url, model, outbound, resp.status_code, err_text
+                                    )
+                                    if fix is None and route.protocol == "anthropic":
+                                        fix = anthropic.recover_sampling_error(
+                                            self.base_url, model, outbound, resp.status_code, err_text
+                                        ) or anthropic.recover_thinking_error(
+                                            self.base_url, model, outbound, resp.status_code, err_text
+                                        )
+                                    if fix is not None:
+                                        recovery_count += 1
+                                        logger.warning("LLM recovery: %s", fix)
+                                        continue
+                                auths = endpoint_profiles.auth_families(route, resp.status_code, err_text)
+                                if not auth_retried and len(auths) > 1:
+                                    auth_family = auths[1]
+                                    auth_retried = True
+                                    logger.warning("LLM auth recovery: retrying %s with %s auth", route.url, auth_family)
+                                    continue
+                                if route_index + 1 < len(routes) and endpoint_profiles.should_probe_route(
+                                    resp.status_code, err_text
+                                ):
+                                    logger.warning(
+                                        "LLM endpoint probe: %s rejected the route; trying %s",
+                                        route.url,
+                                        routes[route_index + 1].url,
+                                    )
+                                    route_index += 1
+                                    break
+                                raise llm_call_error(
+                                    response=resp,
+                                    body=err_text,
+                                    url=route.url,
+                                    model=model,
+                                    api_key=self.api_key,
                                 )
-                                if fix is not None:
-                                    logger.warning("LLM recovery: %s", fix)
-                                    continue  # leave async-with cleanly, then retry
-
-                            # Concern 3: keep the body. raise_for_status() would
-                            # replace the provider's own sentence with httpx's canned
-                            # status line, and it is the only part the user can act on.
-                            raise llm_call_error(
-                                response=resp,
-                                body=err_text,
-                                url=self._url(),
-                                model=model,
-                                api_key=self.api_key,
-                            )
-                        async for payload in self._iter_sse_payloads(resp):
-                            try:
-                                chunk = json.loads(payload)
-                            except json.JSONDecodeError:
-                                continue
-
-                            # Usage may appear in a terminal chunk (choices=[]) or on the final content chunk; last-write-wins since totals are monotonic.
-                            u = chunk.get("usage")
-                            if isinstance(u, dict):
-                                usage = u
-
-                            choices = chunk.get("choices") or []
-                            if not choices:
-                                # Pure usage/metadata chunk — nothing else to do.
-                                continue
-
-                            try:
-                                choice = choices[0]
-                                delta = choice.get("delta", {})
-
-                                # Reasoning delta (field name varies by server)
-                                rc = delta.get("reasoning_content") or delta.get("reasoning")
-                                if rc:
-                                    reasoning_parts.append(rc)
-                                    yield {"type": "reasoning", "delta": rc}
-
-                                # Content delta. A structured forced call buffers
-                                # instead of yielding: the content is the tool's
-                                # arguments JSON, and chat mode never surfaces
-                                # argument streams as content (they arrive as
-                                # tool_calls deltas, which the pipeline hides).
-                                c = delta.get("content")
-                                if c:
-                                    content_parts.append(c)
-                                    if forced_name is None:
-                                        yield {"type": "content", "delta": c}
-
-                                # Per-token alternatives (Document mode steering) —
-                                # present only when the caller passed logprobs and the
-                                # provider honoured them; otherwise a no-op.
-                                for rec in _parse_chat_logprobs(choice):
-                                    yield {"type": "token_probs", **rec}
-
-                                # Tool call argument deltas — accumulate by index
-                                for tc_delta in delta.get("tool_calls") or []:
-                                    idx = tc_delta.get("index", 0)
-                                    if idx not in tool_calls_acc:
-                                        tool_calls_acc[idx] = {
-                                            "id": "",
-                                            "type": "function",
-                                            "function": {"name": "", "arguments": ""},
-                                        }
-                                    entry = tool_calls_acc[idx]
-                                    if tc_delta.get("id"):
-                                        entry["id"] = tc_delta["id"]
-                                    fn = tc_delta.get("function", {})
-                                    if fn.get("name"):
-                                        entry["function"]["name"] += fn["name"]
-                                    if fn.get("arguments"):
-                                        entry["function"]["arguments"] += fn["arguments"]
-
-                                if choice.get("finish_reason"):
-                                    finish_reason = choice["finish_reason"]
-
-                            except (KeyError, IndexError):
-                                continue
-                # Streamed to completion (or aborted) without a retry-triggering
-                # error -- done, no second attempt.
-                break
+                            if route.protocol == "anthropic":
+                                async for event in consume_anthropic(resp, route.url):
+                                    yield event
+                            else:
+                                async for event in consume_openai(resp):
+                                    yield event
+                    endpoint_profiles.note_successful_route(self.base_url, model, route)
+                    return
 
         body, forced_name, structured = _plan()
         async for _ev in _issue(body, forced_name):

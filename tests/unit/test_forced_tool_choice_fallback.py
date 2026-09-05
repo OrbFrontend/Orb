@@ -2,7 +2,7 @@
 
 Covers:
   - ModelProfile.allow_extra=None disables drop-filtering entirely.
-  - The OpenRouter PROFILES entry coerces forced tool_choice proactively.
+  - OpenRouter catalog models are not encoded as permanent profiles.
   - LLMClient.complete()'s provider-gated, error-specific retry: drops
     tool_choice once for the matching OpenRouter 404 (regardless of its value),
     raises immediately for unrelated 404s, and never retries when no
@@ -59,20 +59,6 @@ def test_allow_extra_frozenset_still_drops():
     assert "weird" not in body
 
 
-def test_openrouter_minimax_profile_coerces_forced_tool_choice():
-    prof = profile_for("https://openrouter.ai/api/v1", "minimax/minimax-m3")
-    assert prof is not None
-    body = {
-        "model": "minimax/minimax-m3",
-        "messages": [],
-        "tool_choice": {"type": "function", "function": {"name": "direct_scene"}},
-        "temperature": 0.7,
-    }
-    prof.apply(body)
-    assert body["tool_choice"] == "auto"
-    assert body["temperature"] == 0.7  # nothing dropped
-
-
 def test_openrouter_unlisted_model_is_passthrough():
     assert profile_for("https://openrouter.ai/api/v1", "some/other-model") is None
 
@@ -83,7 +69,7 @@ def test_openrouter_unlisted_model_is_passthrough():
 def test_is_tool_choice_unsupported_signature():
     txt = "No endpoints found that support the provided 'tool_choice' value."
     assert _is_tool_choice_unsupported(404, txt)
-    assert not _is_tool_choice_unsupported(400, txt)
+    assert _is_tool_choice_unsupported(400, txt)
     assert not _is_tool_choice_unsupported(404, "model not found")
 
 

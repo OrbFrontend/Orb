@@ -67,6 +67,7 @@ nav:
   - Home: index.md
   - Getting Started: getting-started.md
   - Architecture:
+      - LLM Endpoint Routing: architecture/endpoints.md
       - KV Cache Reuse: architecture/kv-cache.md
       - SSE Turn Stream: architecture/sse-stream.md
       - Secondary Workflows: architecture/secondary-workflow.md

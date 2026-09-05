@@ -445,3 +445,34 @@ def enabled_schemas(
     if enabled_tools is not None:
         eligible = [n for n in eligible if enabled_tools.get(n, False)]
     return [s for n in eligible if (s := overrides.get(n, TOOLS[n]["schema"])) is not None]
+
+
+def strictify_schema(schema: dict) -> dict:
+    """Copy *schema* into OpenAI strict-mode shape, recursively.
+
+    Strict structured output requires every object to list all properties in
+    ``required`` and set ``additionalProperties: false``. Originally-optional
+    properties are made nullable so "may omit" survives as "may be null" --
+    the passes' unpackers already discard empty/null argument values.
+    """
+    node = dict(schema)
+    props = node.get("properties")
+    if isinstance(props, dict):
+        required = set(node.get("required") or [])
+        out_props: dict = {}
+        for key, prop in props.items():
+            sub = strictify_schema(prop) if isinstance(prop, dict) else prop
+            if key not in required and isinstance(sub, dict) and "type" in sub:
+                t = sub["type"]
+                if isinstance(t, list):
+                    t = t if "null" in t else [*t, "null"]
+                elif t != "null":
+                    t = [t, "null"]
+                sub = {**sub, "type": t}
+            out_props[key] = sub
+        node["properties"] = out_props
+        node["required"] = list(props.keys())
+        node["additionalProperties"] = False
+    if isinstance(node.get("items"), dict):
+        node["items"] = strictify_schema(node["items"])
+    return node
