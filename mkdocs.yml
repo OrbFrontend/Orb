@@ -109,6 +109,6 @@ nav:
               - ComfyUI Setup: multimedia/comfyui-setup.md
               - Cloud Image Setup: multimedia/cloud-image-setup.md
               - Image Generation: multimedia/image-generation.md
-              - Reference Image Setup: multimedia/reference-images.md
+              - Krea 2 Edit Workflow: multimedia/krea2-edit-workflow.md
           - Text-to-Speech: multimedia/tts.md
   - Contributing: contributing.md

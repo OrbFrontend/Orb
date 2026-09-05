@@ -1,7 +1,8 @@
-# Reference Image Setup
+# Krea 2 Edit Workflow
 
-This guide adds a ComfyUI edit workflow that can preserve a character's likeness.
-For general reference-image behavior, see
+This guide adds an optional ComfyUI edit workflow that can preserve a character's
+likeness. It builds on the Krea 2 setup and is only one way to use a reference
+image. For how reference images behave everywhere else, see
 [Reference images](image-generation.md#reference-images).
 
 ## Before you start

@@ -101,8 +101,8 @@ the realistic model, use [RealDream_Default.png](../assets/RealDream_Default.png
   [text encoder](https://civitai.red/models/2731465/qwen3-vl-4b-abliterated-comfyui-krea-2-text-encoder-bf16-fp8?modelVersionId=3070870),
   and the [Qwen VAE](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/blob/main/split_files/vae/qwen_image_vae.safetensors).
 
-For image editing with a reference image, see
-[Reference Image Setup](reference-images.md).
+For image editing with a reference image, see the optional
+[Krea 2 Edit Workflow](krea2-edit-workflow.md).
 
 ## Connect Orb to ComfyUI
 

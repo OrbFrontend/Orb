@@ -112,7 +112,7 @@ Reference images are off by default. Set the source on a style.
 |---|---|---|
 | **Previous image, else character references** | Latest image in the chat; otherwise character references | Latest image in the chat; otherwise the reply speaker's character reference |
 | **Previous image in the chat** | Latest image in the chat | Latest image in the chat |
-| **Character references** | One image per character in the scene | The reply speaker's reference copied to each `Load Image` node |
+| **Character references** | One image per character in the current round | The reply speaker's reference copied to each `Load Image` node |
 | **Character references and the previous image** | Character references, then the latest chat image | Speaker's reference, then the previous image as fallback |
 
 ### Character reference images
@@ -137,7 +137,8 @@ workflow. Those files must exist on the ComfyUI server.
 ### References in a group chat
 
 For a cloud provider, Orb sends at most one reference per character in the current
-round, in cast order. The reply's speaker is included first. The provider may
+round, in cast order. The reply's speaker is included first, and the other
+speakers are included when the scene describes them as present. The provider may
 limit the number of images; remaining characters are described in the prompt.
 
 For ComfyUI, every Load Image node receives the reply speaker's reference. Orb
