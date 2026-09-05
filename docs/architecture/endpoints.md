@@ -22,6 +22,14 @@ An `anthropic` path segment is also a strong native-protocol hint. For example,
 `messages` resource. Full `chat/completions` and `messages` resource URLs are
 authoritative even when their host would normally imply another protocol.
 
+Gemini is recognized by dialect, not by hostname. Google's host and any URL on
+the `/v1beta/openai` resource path — a compatibility proxy, an AI gateway —
+take the same request policy, reasoning translation, and catalogue
+normalization. A bare `gemini` or `google` path segment deliberately does not
+qualify: those appear on gateways whose route is an ordinary OpenAI one where
+native tool calls work. Vertex AI's `endpoints/openapi` surface is a separate
+compatibility layer and is treated as a plain OpenAI endpoint.
+
 Model discovery uses the sibling `models` resource and the matching auth family.
 OpenAI and Gemini routes use Bearer authentication. Native Anthropic routes use
 `x-api-key` and `anthropic-version`. Extra headers may replace those defaults
@@ -36,7 +44,11 @@ on the same host, these conventional resources:
 
 1. the configured base plus `chat/completions`;
 2. host-root `/v1/chat/completions`;
-3. host-root `/v1/messages`.
+3. host-root `/v1/messages`;
+4. host-root `/v1beta/openai/chat/completions`.
+
+The last is Google's compatibility resource, which a Gemini-compat proxy
+configured at its bare root exposes and the two `/v1` guesses cannot reach.
 
 The HTTP status alone never starts probing: a 400 or 404 can describe a bad
 model, schema, or tool choice rather than a bad route. Known request recovery
@@ -44,10 +56,16 @@ runs first. No route is changed after the first streamed delta, and local
 text-completion calls do not enter this chat probing path.
 
 Probing replays the complete POST, so a first request can upload the prompt up
-to three times. Orb chooses that trade-off because native compatibility proxies
+to four times. Orb chooses that trade-off because native compatibility proxies
 do not expose a reliable discovery contract. A successful protocol and path is
 cached per configured URL and model for the life of the backend process;
 configured settings are never rewritten.
+
+A rejected `reasoning_effort` value is recovered on any OpenAI-protocol route:
+Orb offers a superset of levels (`xhigh` is not a Gemini value), so a body that
+names the field as invalid drops it for one retry and for the rest of the
+session. Providers' accepted sets move, so this is learned from the response
+rather than held as a per-provider list.
 
 A 401 or 403 can trigger one alternate Anthropic/Bearer auth attempt only when
 the model name, path, or resolved protocol supplies Claude/Anthropic evidence.
@@ -80,6 +98,23 @@ Gemini uses Google's official OpenAI-compatible beta surface, Bearer auth, the
 existing OpenAI stream parser, and strict structured output for forced calls.
 Documented OpenAI fields, including `reasoning_effort`, remain intact. Native
 Gemini features such as grounding and Files APIs are outside this version.
+
+Structured output is what carries a forced call, so `tools` and `tool_choice`
+are withheld from *every* Gemini request, not only the forced ones — the
+argument-fidelity and prefix-stability reasons are the same ones set out for
+any structured-output endpoint above. A pass that offers tools under
+`tool_choice="auto"` therefore has none on the wire and answers as prose; the
+Editor's unforced iteration is the one such pass, and it stops as it would for
+any model that declined to call a tool.
+
+Reasoning-off is translated. Orb's `reasoning`, `chat_template_kwargs`, and
+`thinking` fields mean nothing to the compatibility layer and are silently
+ignored, so reasoning-off calls carry `reasoning_effort: "none"` — the control
+the layer actually reads. Families that cannot disable thinking reject that
+value; the rejection is learned per model like any other capability fact.
+
+`logprobs` is not supported on this surface, so Document mode's per-token
+steering is unavailable on Gemini for the same reason it is on Anthropic.
 
 ## Stable external contracts
 

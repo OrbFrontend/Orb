@@ -303,7 +303,9 @@ class LLMClient:
             model_id = item.get("id") if isinstance(item, dict) else None
             if isinstance(model_id, str) and model_id.strip():
                 normalized = model_id.strip()
-                if "generativelanguage.googleapis.com" in route.url.lower() and normalized.startswith("models/"):
+                # Google lists ids as ``models/gemini-...``; the generation
+                # resource takes either form, so strip it for the picker.
+                if normalized.startswith("models/") and endpoint_profiles.is_gemini_openai_surface(route.url):
                     normalized = normalized.removeprefix("models/")
                 model_ids.add(normalized)
         return sorted(model_ids, key=str.casefold)
@@ -620,6 +622,31 @@ class LLMClient:
 
             async def consume_openai(resp) -> AsyncIterator[dict]:
                 nonlocal finish_reason, usage
+                # Slot last handed to an index-less delta; -1 before the first.
+                unindexed = -1
+
+                def slot_for(tc_delta: Mapping[str, Any]) -> int:
+                    """Resolve one tool-call delta to an accumulator slot.
+
+                    Google's OpenAI-compatible surface omits ``index`` from
+                    ``delta.tool_calls`` entirely, so keying on ``index`` with a
+                    default of 0 merged every parallel call into one entry --
+                    names concatenated, all but the first argument payload lost.
+                    Without an index, a delta that STARTS a call (it carries an
+                    ``id`` or a function ``name``, which the OpenAI contract
+                    sends only on a call's first chunk) opens the next free
+                    slot; a bare argument continuation appends to the newest.
+                    """
+                    nonlocal unindexed
+                    index = tc_delta.get("index")
+                    if isinstance(index, int) and not isinstance(index, bool):
+                        return index
+                    function = tc_delta.get("function")
+                    starts = bool(tc_delta.get("id")) or bool(isinstance(function, Mapping) and function.get("name"))
+                    if starts or unindexed < 0:
+                        unindexed = max([*tool_calls_acc, unindexed], default=-1) + 1
+                    return unindexed
+
                 async for payload in self._iter_sse_payloads(resp):
                     try:
                         chunk = json.loads(payload)
@@ -646,7 +673,7 @@ class LLMClient:
                         for rec in _parse_chat_logprobs(choice):
                             yield {"type": "token_probs", **rec}
                         for tc_delta in delta.get("tool_calls") or []:
-                            entry = tool_entry(tc_delta.get("index", 0))
+                            entry = tool_entry(slot_for(tc_delta))
                             if tc_delta.get("id"):
                                 entry["id"] = tc_delta["id"]
                             fn = tc_delta.get("function", {})
@@ -750,9 +777,12 @@ class LLMClient:
                             if resp.status_code >= 400:
                                 err_text = await _read_error_body(resp, route.url)
                                 # One attempt per independent quirk class: the profile
-                                # rules, Anthropic sampling controls, and the 4.6+
-                                # reasoning fields can each need their own rejection
-                                # before a body this endpoint accepts is reached.
+                                # rules, a refused reasoning_effort level, Anthropic
+                                # sampling controls, and the 4.6+ reasoning fields can
+                                # each need their own rejection before a body this
+                                # endpoint accepts is reached. No route reaches more
+                                # than three of them -- reasoning_effort is an
+                                # OpenAI-body field the Anthropic translation drops.
                                 if recovery_count < 3:
                                     fix = endpoint_profiles.recover_from_error(
                                         self.base_url, model, outbound, resp.status_code, err_text

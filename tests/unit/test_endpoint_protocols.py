@@ -33,12 +33,14 @@ def _clear_learned_state():
     ep._RESOLVED_ROUTES.clear()
     ep._TOOL_CHOICE_AUTO_ONLY.clear()
     ep._TOOL_CHOICE_UNSUPPORTED.clear()
+    ep._REASONING_EFFORT_UNSUPPORTED.clear()
     anthropic._SAMPLING_UNSUPPORTED.clear()
     anthropic._THINKING_UNSUPPORTED.clear()
     yield
     ep._RESOLVED_ROUTES.clear()
     ep._TOOL_CHOICE_AUTO_ONLY.clear()
     ep._TOOL_CHOICE_UNSUPPORTED.clear()
+    ep._REASONING_EFFORT_UNSUPPORTED.clear()
     anthropic._SAMPLING_UNSUPPORTED.clear()
     anthropic._THINKING_UNSUPPORTED.clear()
 
@@ -98,6 +100,7 @@ def test_ambiguous_candidates_preserve_old_request_then_same_host_v1():
         ("openai", "https://custom.test/prefix/chat/completions"),
         ("openai", "https://custom.test/v1/chat/completions"),
         ("anthropic", "https://custom.test/v1/messages"),
+        ("openai", "https://custom.test/v1beta/openai/chat/completions"),
     ]
 
 
@@ -112,6 +115,83 @@ def test_route_probe_is_body_based():
     assert ep.should_probe_route(404, "Cannot POST /chat/completions")
     assert not ep.should_probe_route(404, '{"error":"model not found"}')
     assert not ep.should_probe_route(400, '{"error":"Unknown model"}')
+
+
+@pytest.mark.parametrize(
+    ("url", "gemini"),
+    [
+        ("https://generativelanguage.googleapis.com", True),
+        ("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", True),
+        # A proxy mirroring Google's compatibility resource is the same dialect.
+        ("https://gateway.ai.cloudflare.com/v1/a/g/google-ai-studio/v1beta/openai", True),
+        ("https://keys.example/v1beta/openai/chat/completions", True),
+        # Not Google's dialect: a bare vendor path segment could front an
+        # ordinary OpenAI route, and Vertex is a separate compatibility layer.
+        ("https://proxy.test/gemini/v1", False),
+        ("https://proxy.test/google/v1beta", False),
+        ("https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/l/endpoints/openapi", False),
+        ("https://openai.test/v1", False),
+    ],
+)
+def test_gemini_surface_predicate_covers_proxies_without_over_matching(url, gemini):
+    assert ep.is_gemini_openai_surface(url) is gemini
+    # The request policy follows the predicate, not the host string, so a proxy
+    # user gets the same structured-output posture as Google's own host.
+    assert ep.supports_structured_tool_calls(url, "gemini-3-pro") is gemini
+
+
+def test_ambiguous_candidates_reach_the_gemini_compatibility_resource():
+    # A Gemini-compat proxy configured at its bare root exposes /v1beta/openai
+    # and nothing the two /v1 guesses can reach.
+    routes = ep.endpoint_candidates("https://gemini-proxy.test", "gemini-3-pro")
+    assert ("openai", "https://gemini-proxy.test/v1beta/openai/chat/completions") in [
+        (route.protocol, route.url) for route in routes
+    ]
+
+
+def test_reasoning_off_asks_gemini_to_stop_thinking():
+    # reasoning/chat_template_kwargs/thinking are all silently ignored by the
+    # compatibility layer; reasoning_effort is the control it actually reads.
+    body = {"model": "gemini-3-pro", **reasoning_cfg(False)}
+    ep.prepare_request_body("https://generativelanguage.googleapis.com", "gemini-3-pro", body)
+    assert body["reasoning_effort"] == "none"
+
+    # An explicit effort means the call asked for thinking; leave it alone.
+    on = {"model": "gemini-3-pro", "reasoning_effort": "high", **reasoning_cfg(True)}
+    ep.prepare_request_body("https://generativelanguage.googleapis.com", "gemini-3-pro", on)
+    assert on["reasoning_effort"] == "high"
+
+    # Non-Gemini endpoints keep Orb's historical reasoning-off shape untouched.
+    other = {"model": "m", **reasoning_cfg(False)}
+    ep.prepare_request_body("https://openai.test/v1", "m", other)
+    assert "reasoning_effort" not in other
+
+
+def test_rejected_reasoning_effort_is_learned_and_dropped_for_the_session():
+    url, model = "https://generativelanguage.googleapis.com", "gemini-3-pro"
+    body = {"model": model, "reasoning_effort": "xhigh"}
+    rejection = '{"error":{"code":400,"message":"Invalid reasoning_effort: xhigh. Valid values are: high, low, medium, none","status":"INVALID_ARGUMENT"}}'
+
+    fix = ep.recover_from_error(url, model, body, 400, rejection)
+    assert fix is not None and "reasoning_effort" not in body
+
+    # The recovery persists through the set, not the in-place pop: the client
+    # rebuilds the outbound body from scratch on every retry.
+    rebuilt = {"model": model, "reasoning_effort": "xhigh"}
+    ep.prepare_request_body(url, model, rebuilt)
+    assert "reasoning_effort" not in rebuilt
+
+    # A learned rejection also wins over the profile's reasoning-off transform,
+    # which is how a model that cannot disable thinking at all settles down.
+    off = {"model": model, **reasoning_cfg(False)}
+    ep.prepare_request_body(url, model, off)
+    assert "reasoning_effort" not in off
+
+
+def test_generic_400_does_not_cost_a_working_reasoning_effort():
+    body = {"model": "m", "reasoning_effort": "high"}
+    assert ep.recover_from_error("https://openai.test/v1", "m", body, 400, '{"error":"model not found"}') is None
+    assert body["reasoning_effort"] == "high"
 
 
 def test_tool_schema_predicate_tracks_anthropic_and_gemini_wire_shapes():
@@ -373,6 +453,152 @@ async def test_gemini_uses_normalized_openai_route_structured_output_and_effort(
     assert parse_tool_calls(events[-1]["message"]) == [{"name": "direct_scene", "arguments": {"mood": "bright"}}]
 
 
+async def test_indexless_tool_call_deltas_stay_separate_calls():
+    """Google's compatibility surface omits ``index`` from tool-call deltas.
+
+    Reached on any Gemini-compat route that still sends ``tools`` -- a proxy the
+    profile does not claim, or a pair demoted by ``note_structured_output_ignored``.
+    Keying on a 0 default merged both calls into one entry whose name was the two
+    names concatenated and whose arguments were unparseable.
+    """
+    lines = [
+        _line(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "id": "0",
+                                    "type": "function",
+                                    "function": {"name": "direct_scene", "arguments": '{"mood":"eerie"}'},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ),
+        _line(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "id": "1",
+                                    "type": "function",
+                                    "function": {"name": "editor_rewrite", "arguments": '{"text":"hi"}'},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ),
+        _line({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}),
+        "data: [DONE]",
+    ]
+    events = await _run(
+        LLMClient("https://gemini-proxy.test/v1/chat/completions"),
+        _HTTP([_Response(lines=lines)]),
+        model="gemini-3-pro",
+        tools=[TOOL],
+        tool_choice="auto",
+    )
+    assert parse_tool_calls(events[-1]["message"]) == [
+        {"name": "direct_scene", "arguments": {"mood": "eerie"}},
+        {"name": "editor_rewrite", "arguments": {"text": "hi"}},
+    ]
+
+
+async def test_indexless_argument_fragments_append_to_the_open_call():
+    """Only a delta that STARTS a call opens a slot; continuations append.
+
+    The OpenAI contract sends ``id``/``name`` on a call's first chunk alone, so
+    a bare ``arguments`` fragment must not be mistaken for a second call.
+    """
+    lines = [
+        _line(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {"id": "0", "type": "function", "function": {"name": "direct_scene", "arguments": '{"mood"'}}
+                            ]
+                        }
+                    }
+                ]
+            }
+        ),
+        _line({"choices": [{"delta": {"tool_calls": [{"function": {"arguments": ':"eerie"}'}}]}}]}),
+        _line({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}),
+        "data: [DONE]",
+    ]
+    events = await _run(
+        LLMClient("https://gemini-proxy.test/v1/chat/completions"),
+        _HTTP([_Response(lines=lines)]),
+        model="gemini-3-pro",
+        tools=[TOOL],
+        tool_choice="auto",
+    )
+    assert parse_tool_calls(events[-1]["message"]) == [{"name": "direct_scene", "arguments": {"mood": "eerie"}}]
+
+
+async def test_indexed_tool_call_deltas_are_unaffected():
+    """The ordinary OpenAI shape must still be keyed by its own index."""
+    lines = [
+        _line(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 1,
+                                    "id": "b",
+                                    "type": "function",
+                                    "function": {"name": "editor_rewrite", "arguments": "{}"},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ),
+        _line(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "a",
+                                    "type": "function",
+                                    "function": {"name": "direct_scene", "arguments": "{}"},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ),
+        _line({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}),
+        "data: [DONE]",
+    ]
+    events = await _run(
+        LLMClient("https://openai.test/v1/chat/completions"),
+        _HTTP([_Response(lines=lines)]),
+        model="openai-model",
+        tools=[TOOL],
+        tool_choice="auto",
+    )
+    # Sorted by index, so the late index-0 chunk still leads.
+    assert [call["name"] for call in parse_tool_calls(events[-1]["message"])] == ["direct_scene", "editor_rewrite"]
+
+
 async def test_anthropic_midstream_error_uses_sanitized_llm_error():
     lines = [
         _line({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "partial"}}),
@@ -464,6 +690,51 @@ async def test_auto_only_tool_choice_recovery_and_process_memory(choice):
     assert again.requests[0]["body"]["tool_choice"] == "auto"
 
 
+async def test_reasoning_effort_rejection_retries_and_is_remembered():
+    """A level Orb offers but the endpoint refuses must self-heal, not fail the turn.
+
+    Orb's picker spans none/minimal/low/medium/high/xhigh; Gemini's set is
+    high/low/medium/none. Learning the refusal from the body beats a hard-coded
+    per-provider list, which would have wrongly clamped ``minimal`` for the
+    months Google rejected a value its own table documented.
+    """
+    rejection = (
+        '{"error":{"code":400,"message":"Invalid reasoning_effort: xhigh. '
+        'Valid values are: high, low, medium, none","status":"INVALID_ARGUMENT"}}'
+    )
+    openai_done = ['data: {"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}', "data: [DONE]"]
+    fake = _HTTP([_Response(400, error=rejection), _Response(lines=openai_done)])
+    client = LLMClient("https://generativelanguage.googleapis.com", "key", reasoning_effort="xhigh")
+
+    events = await _run(fake=fake, client=client, model="gemini-3-pro", **reasoning_cfg(True))
+
+    assert fake.requests[0]["body"]["reasoning_effort"] == "xhigh"
+    assert "reasoning_effort" not in fake.requests[1]["body"]
+    assert events[-1]["message"]["content"] == "hi"
+
+    # Learned for the session: the next call skips the failing round-trip.
+    again = _HTTP([_Response(lines=openai_done)])
+    await _run(client, again, model="gemini-3-pro", **reasoning_cfg(True))
+    assert "reasoning_effort" not in again.requests[0]["body"]
+
+
+async def test_gemini_model_that_cannot_disable_thinking_settles_after_one_rejection():
+    """``reasoning_effort='none'`` is right for 2.5 Flash and refused by the 3 series.
+
+    The profile asks anyway and lets the rejection teach it, the same posture as
+    the Anthropic sampling and thinking fields.
+    """
+    rejection = '{"error":{"code":400,"message":"Invalid reasoning_effort: none. Valid values are: high, low, medium","status":"INVALID_ARGUMENT"}}'
+    openai_done = ['data: {"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}', "data: [DONE]"]
+    fake = _HTTP([_Response(400, error=rejection), _Response(lines=openai_done)])
+    client = LLMClient("https://generativelanguage.googleapis.com", "key")
+
+    await _run(client, fake, model="gemini-3-pro", **reasoning_cfg(False))
+
+    assert fake.requests[0]["body"]["reasoning_effort"] == "none"
+    assert "reasoning_effort" not in fake.requests[1]["body"]
+
+
 async def test_unrelated_failure_does_not_probe():
     fake = _HTTP([_Response(404, error='{"error":"model not found"}')])
     with pytest.raises(LLMCallError):
@@ -479,6 +750,7 @@ def test_v1_base_url_collapses_the_duplicate_openai_candidate():
     assert [(route.protocol, route.url) for route in routes] == [
         ("openai", "http://localhost:1234/v1/chat/completions"),
         ("anthropic", "http://localhost:1234/v1/messages"),
+        ("openai", "http://localhost:1234/v1beta/openai/chat/completions"),
     ]
 
 

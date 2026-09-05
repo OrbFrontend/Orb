@@ -177,15 +177,72 @@ PROFILES: dict[str, dict[str | None, ModelProfile]] = {
             structured_tool_calls=True,
         ),
     },
-    # Google's OpenAI compatibility API accepts ordinary OpenAI request fields
-    # (unknown additions are ignored) and honors strict json_schema output.
-    "generativelanguage.googleapis.com": {
-        None: ModelProfile(
-            allow_extra=None,
-            structured_tool_calls=True,
-        ),
-    },
 }
+
+
+# Google's OpenAI compatibility surface. Matched by a predicate rather than a
+# PROFILES substring because the same wire dialect is reached through more than
+# one host: Google's own, and any proxy that mirrors the ``/v1beta/openai``
+# resource shape (Cloudflare AI Gateway, self-hosted key-pool proxies). Matching
+# on the host string alone left every proxy user without the request policy,
+# the reasoning translation and the catalogue normalization below.
+#
+# Deliberately NOT matched: a bare ``gemini`` or ``google`` path segment. Those
+# appear on gateways whose route is an ordinary OpenAI one where native tool
+# calls work, and ``structured_tool_calls`` would withhold ``tools`` from them
+# for no reason. Vertex's ``endpoints/openapi`` surface is likewise excluded --
+# it is a different compatibility layer with its own tool behavior.
+_GEMINI_HOST = "generativelanguage.googleapis.com"
+_GEMINI_OPENAI_PATH = "/v1beta/openai"
+
+
+def is_gemini_openai_surface(url: str) -> bool:
+    """Whether *url* addresses Google's OpenAI-compatible Gemini dialect."""
+    parsed = _parsed_http_url(url)
+    if parsed is None:
+        return _GEMINI_OPENAI_PATH in _clean_url(url).lower()
+    host = (parsed.hostname or "").lower()
+    if host == _GEMINI_HOST or host.endswith(f".{_GEMINI_HOST}"):
+        return True
+    path = parsed.path.rstrip("/").lower()
+    return path == _GEMINI_OPENAI_PATH or f"{_GEMINI_OPENAI_PATH}/" in f"{path}/"
+
+
+def _gemini_reasoning_off(body: dict) -> str | None:
+    """Ask Gemini to stop thinking when the call turned reasoning off.
+
+    Orb's reasoning-off shape is three fields none of which Gemini's
+    compatibility layer reads (``reasoning``, ``chat_template_kwargs``,
+    ``thinking``); they are silently ignored, so the model kept thinking on its
+    default budget and the user paid for tokens they had disabled. The layer's
+    own control is ``reasoning_effort``, whose accepted set includes ``none``.
+
+    Families that cannot disable thinking at all (2.5 Pro, the 3 series) answer
+    400 to ``none``; :func:`recover_from_error` learns that from the rejection
+    and drops the field for the rest of the session, the same posture as every
+    other capability fact here. An explicit effort already in the body wins --
+    that call asked for thinking.
+    """
+    if "reasoning_effort" in body:
+        return None
+    reasoning = body.get("reasoning")
+    thinking = body.get("thinking")
+    disabled = (isinstance(reasoning, Mapping) and reasoning.get("enabled") is False) or (
+        isinstance(thinking, Mapping) and thinking.get("type") == "disabled"
+    )
+    if not disabled:
+        return None
+    body["reasoning_effort"] = "none"
+    return "reasoning_effort='none' (reasoning off)"
+
+
+# Google's OpenAI compatibility API accepts ordinary OpenAI request fields
+# (unknown additions are ignored) and honors strict json_schema output.
+_GEMINI_PROFILE = ModelProfile(
+    allow_extra=None,
+    structured_tool_calls=True,
+    custom=(_gemini_reasoning_off,),
+)
 
 
 Protocol = Literal["openai", "anthropic"]
@@ -267,8 +324,8 @@ def _deterministic_route(endpoint_url: str) -> EndpointRoute:
         return _resource_route("anthropic", clean, authoritative=True)
 
     host = (parsed.hostname or "").lower() if parsed is not None else ""
-    if host == "generativelanguage.googleapis.com" or host.endswith(".generativelanguage.googleapis.com"):
-        base = _replace_path(parsed, "/v1beta/openai") if parsed is not None else clean
+    if host == _GEMINI_HOST or host.endswith(f".{_GEMINI_HOST}"):
+        base = _replace_path(parsed, _GEMINI_OPENAI_PATH) if parsed is not None else clean
         return _base_route("openai", base, authoritative=True)
 
     segments = [segment for segment in path.split("/") if segment]
@@ -298,9 +355,15 @@ def endpoint_candidates(endpoint_url: str, model: str = "") -> list[EndpointRout
 
     Explicit resources and provider hints are authoritative. Ambiguous URLs keep
     Orb's historical ``{configured}/chat/completions`` request first, followed
-    by the conventional host-root OpenAI and Anthropic v1 resources. Candidates
-    are only attempted when :func:`should_probe_route` recognizes the response
-    body as a route mismatch.
+    by the conventional host-root OpenAI and Anthropic v1 resources, then
+    Google's ``/v1beta/openai`` compatibility resource. Candidates are only
+    attempted when :func:`should_probe_route` recognizes the response body as a
+    route mismatch.
+
+    The Gemini candidate is last because it is the narrowest guess of the four
+    and costs a further prompt upload; it is still worth making, because a
+    Gemini-compat proxy configured at its bare root exposes that resource and
+    no other, and the two ``/v1`` guesses ahead of it cannot reach it.
     """
     primary = resolve_endpoint(endpoint_url, model)
     if primary.authoritative or (endpoint_url, model) in _RESOLVED_ROUTES:
@@ -313,6 +376,7 @@ def endpoint_candidates(endpoint_url: str, model: str = "") -> list[EndpointRout
         primary,
         _base_route("openai", f"{root}/v1"),
         _base_route("anthropic", f"{root}/v1"),
+        _base_route("openai", f"{root}{_GEMINI_OPENAI_PATH}"),
     ]
     out: list[EndpointRoute] = []
     seen: set[tuple[str, str]] = set()
@@ -418,9 +482,15 @@ def profile_for(endpoint_url: str, model: str = "") -> ModelProfile | None:
 
     A blank *model* falls through to the endpoint default. An unmatched URL
     returns ``None`` — the body is sent unchanged (local / unknown backends).
+
+    Gemini is resolved by :func:`is_gemini_openai_surface` rather than by a
+    ``PROFILES`` substring so that a proxy mirroring Google's compatibility
+    resource is given the same request policy as Google's own host.
     """
     if not endpoint_url:
         return None
+    if is_gemini_openai_surface(endpoint_url):
+        return _GEMINI_PROFILE
     haystack = endpoint_url.lower()
     for needle, models in PROFILES.items():
         if needle in haystack:
@@ -449,6 +519,14 @@ _TOOL_CHOICE_UNSUPPORTED: set[tuple[str, str]] = set()
 # writer ``"none"`` requests are coerced rather than dropped.
 _TOOL_CHOICE_AUTO_ONLY: set[tuple[str, str]] = set()
 
+# Pairs whose reply rejected the ``reasoning_effort`` VALUE Orb sent. Orb offers
+# a superset of levels (``xhigh`` is an Anthropic/OpenAI-ism; Gemini's set is
+# high/low/medium/none) and a provider that validates the field answers 400 to
+# anything outside its own. Learning the rejection rather than hard-coding each
+# provider's accepted set is deliberate: those sets move under us, and a static
+# list rots into wrongly clamping a level the provider has since added.
+_REASONING_EFFORT_UNSUPPORTED: set[tuple[str, str]] = set()
+
 
 def _is_openrouter(endpoint_url: str) -> bool:
     return "openrouter.ai" in endpoint_url.lower()
@@ -471,6 +549,20 @@ def _is_tool_choice_auto_only(status: int, text: str) -> bool:
     return status in {400, 404} and "tool_choice" in low and "only" in low and "auto" in low and "support" in low
 
 
+def _is_reasoning_effort_rejected(status: int, text: str) -> bool:
+    """Return True when the body names ``reasoning_effort`` as the bad field.
+
+    Matches Google's "Invalid reasoning_effort: xhigh. Valid values are: high,
+    low, medium, none" and the equivalent from any provider that validates the
+    field. Kept to bodies that name the field so a generic 400 (bad model,
+    oversized prompt) never costs a reasoning setting the endpoint accepts.
+    """
+    low = text.lower()
+    if status != 400 or "reasoning_effort" not in low:
+        return False
+    return any(marker in low for marker in ("invalid", "unsupported", "not supported", "not allowed", "valid values"))
+
+
 def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]:
     """Apply the matching profile and any session-learned workarounds to *body* in place.
 
@@ -481,6 +573,10 @@ def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]
     profile = profile_for(endpoint_url, model)
     if profile is not None:
         actions.extend(profile.apply(body))
+
+    if "reasoning_effort" in body and (endpoint_url, model) in _REASONING_EFFORT_UNSUPPORTED:
+        effort = body.pop("reasoning_effort")
+        actions.append(f"reasoning_effort {effort!r} dropped (session-learned unsupported)")
 
     # A model we already learned rejects tool_choice this session: drop it up
     # front so we skip the failing round-trip entirely.
@@ -527,6 +623,10 @@ def recover_from_error(endpoint_url: str, model: str, body: dict, status: int, t
         tc = body["tool_choice"]
         body["tool_choice"] = {"type": "auto"} if isinstance(tc, dict) and "function" not in tc else "auto"
         return f"Model {model} accepts only tool_choice='auto'; retrying with auto."
+    if "reasoning_effort" in body and _is_reasoning_effort_rejected(status, text):
+        _REASONING_EFFORT_UNSUPPORTED.add((endpoint_url, model))
+        effort = body.pop("reasoning_effort")
+        return f"Model {model} rejected reasoning_effort={effort!r}; retrying without it."
     if not _is_openrouter(endpoint_url):
         return None
     if "tool_choice" in body and _is_tool_choice_unsupported(status, text):

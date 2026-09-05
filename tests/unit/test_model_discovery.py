@@ -90,3 +90,27 @@ async def test_gemini_models_use_normalized_surface_and_strip_models_prefix(monk
     assert models == ["gemini-3-flash", "gemini-3-pro"]
     assert _CatalogClient.seen["url"] == "https://generativelanguage.googleapis.com/v1beta/openai/models"
     assert _CatalogClient.seen["headers"] == {"Authorization": "Bearer gemini-key"}
+
+
+@pytest.mark.asyncio
+async def test_gemini_proxy_catalogue_is_normalized_like_googles_own(monkeypatch):
+    # The prefix is a property of the dialect, not of Google's hostname: a proxy
+    # mirroring /v1beta/openai relays the same ``models/``-prefixed ids, and
+    # leaving them in put an unusable-looking id in the picker.
+    _CatalogClient.payload = {"data": [{"id": "models/gemini-3-pro"}]}
+    _CatalogClient.seen = {}
+    monkeypatch.setattr(client_module.httpx, "AsyncClient", _CatalogClient)
+
+    models = await LLMClient("https://keys.example/v1beta/openai", "k").list_models()
+
+    assert models == ["gemini-3-pro"]
+    assert _CatalogClient.seen["url"] == "https://keys.example/v1beta/openai/models"
+
+
+@pytest.mark.asyncio
+async def test_non_gemini_catalogue_keeps_a_models_prefixed_id(monkeypatch):
+    _CatalogClient.payload = {"data": [{"id": "models/local-thing"}]}
+    _CatalogClient.seen = {}
+    monkeypatch.setattr(client_module.httpx, "AsyncClient", _CatalogClient)
+
+    assert await LLMClient("http://localhost:8080/v1", "").list_models() == ["models/local-thing"]
