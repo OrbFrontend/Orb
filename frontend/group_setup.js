@@ -748,6 +748,15 @@ export function consumeSpeakerOverride() {
 
 let _groupSearch = "";
 let _groupsExpanded = false;
+// The Groups section ships collapsed; it opens itself once for anyone who has groups.
+let _groupsSectionSettled = false;
+
+function setGroupsSectionCollapsed(collapsed) {
+  const header = $("groups-section-toggle");
+  if (!header) return;
+  header.querySelector(".arrow")?.classList.toggle("collapsed", collapsed);
+  header.nextElementSibling?.classList.toggle("collapsed", collapsed);
+}
 
 function _groupItemHtml({ rootId, root, shown, open, members }) {
   const names = (shown.group_member_names || []).filter(Boolean);
@@ -784,6 +793,11 @@ export function renderGroupList() {
   const list = $("group-chat-list");
   if (!list) return;
   const families = groupFamilies(S.conversations, S.activeConvId);
+
+  if (!_groupsSectionSettled && families.length) {
+    _groupsSectionSettled = true;
+    setGroupsSectionCollapsed(false);
+  }
 
   const searchWrap = $("group-search-wrap");
   if (searchWrap) {
@@ -892,6 +906,7 @@ export function initGroupSetup() {
     if (S.groupCast && event.target === event.currentTarget) showAvatarPopup();
   });
   $("groups-section-toggle")?.addEventListener("click", (event) => {
+    _groupsSectionSettled = true;
     event.currentTarget.querySelector(".arrow")?.classList.toggle("collapsed");
     event.currentTarget.nextElementSibling?.classList.toggle("collapsed");
   });
