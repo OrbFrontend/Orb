@@ -8,6 +8,7 @@ very little; proving the app can render them is the actual contract.
 
 from __future__ import annotations
 
+import base64
 import json
 import sqlite3
 from datetime import UTC, datetime
@@ -67,6 +68,11 @@ CARD_BOOK = {
 }
 
 
+PERSONA_AVATAR_BYTES = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+
 def _chat_line(**kwargs) -> str:
     return json.dumps(kwargs)
 
@@ -74,8 +80,11 @@ def _chat_line(**kwargs) -> str:
 def build_st_install(base: Path) -> Path:
     """Write a small but representative ST data directory. Returns the ST root."""
     user = base / "data" / "default-user"
-    for folder in ("characters", "chats", "worlds", "groups", "group chats"):
+    for folder in ("characters", "chats", "worlds", "groups", "group chats", "User Avatars"):
         (user / folder).mkdir(parents=True, exist_ok=True)
+
+    (user / "User Avatars" / "mariner.png").write_bytes(PERSONA_AVATAR_BYTES)
+    (user / "User Avatars" / "huge.png").write_bytes(PERSONA_AVATAR_BYTES + b"\x00" * (2 * 1024 * 1024))
 
     # The card's *name* and its avatar *filename* differ on purpose: ST keys
     # sprite folders by name and chat folders by filename stem.
@@ -196,7 +205,7 @@ def build_st_install(base: Path) -> Path:
                 "user_avatar": "mariner.png",
                 "world_info_settings": {"world_info": {"globalSelect": ["Testworld"]}},
                 "power_user": {
-                    "personas": {"mariner.png": "Mariner", "quiet.png": "Quiet One"},
+                    "personas": {"mariner.png": "Mariner", "quiet.png": "Quiet One", "huge.png": "Huge"},
                     "persona_descriptions": {
                         "mariner.png": {"description": "Sails the coast."},
                         "quiet.png": {"description": ""},
@@ -232,7 +241,7 @@ async def test_migrates_every_dataset(st_install: Path, db_path: Path):
     assert report.tally("characters", "created") == 2
     assert report.tally("chats", "created") == 1
     assert report.tally("groups", "created") == 1
-    assert report.tally("personas", "created") == 2
+    assert report.tally("personas", "created") == 3
     # Testworld from the standalone file, Harbour Lore from the card's book.
     assert report.tally("worlds", "created") == 2
     # The empty standalone world is skipped, and so is the card-less chat.
@@ -347,6 +356,12 @@ async def test_personas_are_created_and_pinned_to_their_chat(st_install: Path, d
     personas = {p["name"]: p for p in (await client.get("/api/user-personas")).json()}
     assert {"Mariner", "Quiet One"} <= set(personas)
     assert personas["Mariner"]["description"] == "Sails the coast."
+    assert personas["Mariner"]["has_avatar"] is True
+    assert personas["Quiet One"]["has_avatar"] is False
+    assert personas["Huge"]["has_avatar"] is False
+    avatar = await client.get(f"/api/user-personas/{personas['Mariner']['id']}/avatar")
+    assert avatar.status_code == 200
+    assert avatar.content == PERSONA_AVATAR_BYTES
 
     solo = [c for c in (await client.get("/api/conversations")).json() if c["kind"] == "solo"][0]
     assert solo["persona_lock_id"] == personas["Mariner"]["id"]

@@ -101,6 +101,9 @@ export async function loadSettings() {
   if (typeof S.settings.show_editor_diff === "number") S.showEditorDiff = S.settings.show_editor_diff !== 0;
   else if (typeof S.settings.show_editor_diff === "boolean") S.showEditorDiff = S.settings.show_editor_diff;
 
+  if (typeof S.settings.show_chat_avatars === "number") S.showChatAvatars = S.settings.show_chat_avatars !== 0;
+  else if (typeof S.settings.show_chat_avatars === "boolean") S.showChatAvatars = S.settings.show_chat_avatars;
+
   if (S.settings.editor_audit_toggles && typeof S.settings.editor_audit_toggles === "object")
     S.editorAuditToggles = { ...S.editorAuditToggles, ...S.settings.editor_audit_toggles };
 
@@ -149,18 +152,28 @@ export function renderSettings() {
     <div class="tool-card ${S.hideUntilBaked ? "tool-on" : ""}">
       <div class="tool-card-header">
         <span class="tool-card-name">Hide until baked</span>
-        <label class="tog" onclick="event.stopPropagation()">
-          <input type="checkbox" ${S.hideUntilBaked ? "checked" : ""} onchange="toggleHideUntilBaked(this.checked)">
+        <label class="tog" data-setting-stop>
+          <input type="checkbox" ${S.hideUntilBaked ? "checked" : ""} data-setting-toggle="hideUntilBaked">
           <span class="tog-slider"></span>
         </label>
       </div>
       <div class="tool-card-desc">Hide replies until completion.</div>
     </div>
+    <div class="tool-card ${S.showChatAvatars ? "tool-on" : ""}">
+      <div class="tool-card-header">
+        <span class="tool-card-name">Show avatars in chat</span>
+        <label class="tog" data-setting-stop>
+          <input type="checkbox" ${S.showChatAvatars ? "checked" : ""} data-setting-toggle="showChatAvatars">
+          <span class="tog-slider"></span>
+        </label>
+      </div>
+      <div class="tool-card-desc">Show the speaker's portrait beside each message.</div>
+    </div>
     <div class="tool-card ${S.preventPromptOverrides ? "tool-on" : ""}">
       <div class="tool-card-header">
         <span class="tool-card-name">Prevent prompt overrides</span>
-        <label class="tog" onclick="event.stopPropagation()">
-          <input type="checkbox" ${S.preventPromptOverrides ? "checked" : ""} onchange="togglePreventPromptOverrides(this.checked)">
+        <label class="tog" data-setting-stop>
+          <input type="checkbox" ${S.preventPromptOverrides ? "checked" : ""} data-setting-toggle="preventPromptOverrides">
           <span class="tog-slider"></span>
         </label>
       </div>
@@ -175,7 +188,26 @@ export function renderSettings() {
     </div>
   `;
   $("cleanup-btn").addEventListener("click", showCleanupModal);
+  wireSettingsToggles($("settings-form"));
   loadLocalMLSection();
+}
+
+const SETTING_TOGGLES = {
+  hideUntilBaked: toggleHideUntilBaked,
+  showChatAvatars: toggleShowChatAvatars,
+  preventPromptOverrides: togglePreventPromptOverrides,
+};
+
+function wireSettingsToggles(el) {
+  if (el.dataset.togglesWired) return;
+  el.dataset.togglesWired = "1";
+  el.addEventListener("click", (ev) => {
+    if (ev.target.closest("[data-setting-stop]")) ev.stopPropagation();
+  });
+  el.addEventListener("change", (ev) => {
+    const input = ev.target.closest("[data-setting-toggle]");
+    if (input) SETTING_TOGGLES[input.dataset.settingToggle]?.(input.checked);
+  });
 }
 
 const LOCAL_ML_LABELS = {
@@ -626,6 +658,13 @@ export async function toggleHideUntilBaked(on) {
   renderMessages();
   renderSettings();
   await persistSettings({ hide_streaming_until_baked: on });
+}
+
+export async function toggleShowChatAvatars(on) {
+  S.showChatAvatars = on;
+  renderMessages();
+  renderSettings();
+  await persistSettings({ show_chat_avatars: on });
 }
 
 export async function togglePreventPromptOverrides(on) {

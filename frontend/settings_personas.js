@@ -1,7 +1,19 @@
 import { api } from "./api.js";
-import { closeModal, confirmDelete, showModal } from "./modal.js";
+import { renderMessages } from "./chat_core.js";
+import { EDIT_ICON } from "./icons.js";
+import { closeModal, confirmDelete, showCropModal, showModal } from "./modal.js";
 import { charactersView, S } from "./state.js";
-import { $, effectivePersonaId, esc, escAttr, toast } from "./utils.js";
+import {
+  $,
+  avatarCell,
+  effectivePersonaId,
+  esc,
+  escAttr,
+  escHandlerArg,
+  personaAvatarSrc,
+  safePersonaColour,
+  toast,
+} from "./utils.js";
 import { validate } from "./validate.js";
 
 export async function loadPersonas() {
@@ -11,7 +23,18 @@ export async function loadPersonas() {
     console.error("Failed to load personas:", e);
     S.personas = [];
   }
+  repaintUserAvatars();
 }
+
+/** Repaint the chat gutter when persona state changes. */
+export function repaintUserAvatars() {
+  if (S.showChatAvatars) renderMessages();
+}
+
+// The image chosen in the crop modal, held until savePersona() posts it.
+// `null` means "leave whatever is stored alone"; `REMOVE_AVATAR` clears it.
+const REMOVE_AVATAR = Symbol("remove-avatar");
+let _pendingPersonaAvatar = null;
 
 const PERSONA_ICON = "👤";
 const CONV_LOCK_ICON = "💬";
@@ -52,10 +75,12 @@ export function showUserModal() {
   const personaItems = S.personas
     .map((p) => {
       const isActive = p.id === S.activePersonaId;
-      const avatarColor = p.avatar_color || "#E1F5EE";
+      const avatarColor = safePersonaColour(p.avatar_color) || "#E1F5EE";
       const avatarTextColor = isActive ? "var(--accent)" : "#085041";
       const avatarBg = isActive ? "var(--accent-glow)" : avatarColor;
       const initials = p.name.charAt(0).toUpperCase();
+      const avatarSrc = personaAvatarSrc(p);
+      const avatarInner = avatarSrc ? avatarCell(escAttr(avatarSrc), { icon: escHandlerArg(initials) }) : esc(initials);
       const convLocked = !!conv && conv.persona_lock_id === p.id;
       const charLocked = !!card && card.persona_lock_id === p.id;
       const convTitle = conv
@@ -70,7 +95,7 @@ export function showUserModal() {
         : "Only available for saved characters";
       return `
       <div class="persona-item${isActive ? " persona-item-active" : ""}" onclick="activatePersona(${p.id})">
-        <div class="persona-avatar" style="background:${avatarBg};color:${avatarTextColor}">${initials}</div>
+        <div class="persona-avatar" style="background:${avatarBg};color:${avatarTextColor}">${avatarInner}</div>
         <div class="persona-info">
           <div class="persona-name-row">
             <span class="persona-name">${esc(p.name)}</span>
@@ -86,7 +111,7 @@ export function showUserModal() {
             title="${charTitle}" aria-label="${charTitle}" aria-pressed="${charLocked}"
             onclick="event.stopPropagation();setPersonaCharacterLock(${p.id}, ${!charLocked})">${CHAR_LOCK_ICON}</button>
           <button class="persona-action-btn persona-action-edit" title="Edit ${escAttr(p.name)}" aria-label="Edit ${escAttr(p.name)}"
-            onclick="event.stopPropagation();editPersona(${p.id})">✎</button>
+            onclick="event.stopPropagation();editPersona(${p.id})">${EDIT_ICON}</button>
         </div>
       </div>
     `;
@@ -151,8 +176,16 @@ export async function saveUserProfile() {
 export function showPersonaEditModal(personaId) {
   const persona = personaId ? S.personas.find((p) => p.id === personaId) : null;
   const isEdit = persona !== null;
+  _pendingPersonaAvatar = null;
   showModal(`
     <h2>${isEdit ? "Edit persona" : "New persona"}</h2>
+    <div class="persona-edit-avatar" id="persona-avatar-controls">
+      <div class="persona-avatar persona-avatar-lg" id="persona-avatar-preview">${personaPreviewHtml(persona)}</div>
+      <div class="persona-avatar-actions">
+        <button type="button" class="btn btn-sm" data-action="choose">Choose image</button>
+        <button type="button" class="btn btn-sm" data-action="remove"${persona?.has_avatar ? "" : " disabled"}>Remove</button>
+      </div>
+    </div>
     <div class="field">
       <label>Name</label>
       <input id="persona-name-input" type="text" placeholder="e.g. Kai" value="${esc(persona?.name || "")}">
@@ -172,6 +205,41 @@ export function showPersonaEditModal(personaId) {
       <button class="btn btn-accent" onclick="savePersona(${personaId || "null"})">${isEdit ? "Update" : "Create"}</button>
     </div>
   `);
+  wirePersonaAvatarControls(persona);
+}
+
+function personaPreviewHtml(persona) {
+  if (_pendingPersonaAvatar && _pendingPersonaAvatar !== REMOVE_AVATAR) {
+    const { b64, mime } = _pendingPersonaAvatar;
+    return `<img src="data:${escAttr(mime)};base64,${escAttr(b64)}">`;
+  }
+  if (_pendingPersonaAvatar === REMOVE_AVATAR) return PERSONA_ICON;
+  const src = personaAvatarSrc(persona);
+  return src ? avatarCell(escAttr(src), { icon: PERSONA_ICON }) : PERSONA_ICON;
+}
+
+/** Wire the avatar controls. */
+function wirePersonaAvatarControls(persona) {
+  const box = $("persona-avatar-controls");
+  if (!box || box.dataset.wired) return;
+  box.dataset.wired = "1";
+  box.addEventListener("click", (e) => {
+    const action = e.target.closest("[data-action]")?.dataset.action;
+    if (action === "choose") {
+      showCropModal(({ b64, mime }) => {
+        _pendingPersonaAvatar = { b64, mime };
+        const preview = $("persona-avatar-preview");
+        if (preview) preview.innerHTML = personaPreviewHtml(persona);
+        const removeBtn = box.querySelector('[data-action="remove"]');
+        if (removeBtn) removeBtn.disabled = false;
+      }, 1);
+    } else if (action === "remove") {
+      _pendingPersonaAvatar = REMOVE_AVATAR;
+      const preview = $("persona-avatar-preview");
+      if (preview) preview.innerHTML = personaPreviewHtml(persona);
+      e.target.closest("[data-action]").disabled = true;
+    }
+  });
 }
 
 export async function savePersona(personaId) {
@@ -183,21 +251,34 @@ export async function savePersona(personaId) {
     toast(validation.error, true);
     return;
   }
+  const payload = { name, description };
+  if (_pendingPersonaAvatar === REMOVE_AVATAR) {
+    payload.avatar_b64 = null;
+    payload.avatar_mime = null;
+  } else if (_pendingPersonaAvatar) {
+    payload.avatar_b64 = _pendingPersonaAvatar.b64;
+    payload.avatar_mime = _pendingPersonaAvatar.mime;
+  }
+  const pending = _pendingPersonaAvatar;
+  const avatarChanged = pending !== null;
+  _pendingPersonaAvatar = null;
   try {
     let newId;
     if (personaId && personaId !== "null") {
-      await api.put(`/user-personas/${personaId}`, { name, description });
+      await api.put(`/user-personas/${personaId}`, payload);
       newId = parseInt(personaId, 10);
     } else {
-      const result = await api.post("/user-personas", { name, description });
+      const result = await api.post("/user-personas", payload);
       newId = result.id;
     }
+    if (avatarChanged) S.personaAvatarVersion++;
     await loadPersonas();
     if (setActive) await activatePersona(newId);
     updateUserBtn();
     showUserModal();
     toast("Persona saved");
   } catch (e) {
+    _pendingPersonaAvatar = pending;
     toast(`Failed: ${e.message}`, true);
   }
 }
@@ -235,6 +316,7 @@ export async function activatePersona(personaId) {
       toast(`Re-pinned this chat to "${name}"`);
     }
     updateUserBtn();
+    repaintUserAvatars();
     showUserModal();
   } catch (e) {
     toast(`Failed: ${e.message}`, true);
@@ -254,6 +336,7 @@ export async function setPersonaConversationLock(personaId, locked) {
     await api.put(`/conversations/${conv.id}`, { persona_lock_id: val });
     conv.persona_lock_id = val;
     updateUserBtn();
+    repaintUserAvatars();
     toast(
       locked ? (replacing ? "Re-pinned this chat" : "Pinned to this conversation") : "Unpinned from this conversation",
     );
@@ -285,6 +368,7 @@ export async function setPersonaCharacterLock(personaId, locked) {
     await api.put(`/characters/${card.id}`, { persona_lock_id: val });
     card.persona_lock_id = val;
     updateUserBtn();
+    repaintUserAvatars();
     toast(
       locked ? (replacing ? "Re-pinned this character" : "Pinned to this character") : "Unpinned from this character",
     );

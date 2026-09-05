@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -13,7 +14,7 @@ from typing import Any, cast
 
 import httpx
 from fastapi import Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from ..database import (
     get_conversation,
@@ -326,6 +327,15 @@ def _pipeline_sse_response(
 
 # What a transport failure says when the provider gave us no words of its own.
 _PROFILE_UPSTREAM = "The model endpoint did not answer the profile request."
+
+
+def cached_image_response(image_bytes: bytes, mime: str | None, request: Request) -> Response:
+    """Return a privately cacheable image response with ETag support."""
+    etag = '"' + hashlib.md5(image_bytes, usedforsecurity=False).hexdigest() + '"'
+    cache_headers = {"Cache-Control": "private, max-age=300", "ETag": etag}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=cache_headers)
+    return Response(content=image_bytes, media_type=mime or "image/png", headers=cache_headers)
 
 
 async def require_conversation(cid: str) -> ConversationRow:

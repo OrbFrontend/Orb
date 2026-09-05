@@ -202,6 +202,7 @@ DEFAULT_SETTINGS = {
     "character_library_view": "grid",
     "character_library_sort": "time-added",
     "show_editor_diff": 1,
+    "show_chat_avatars": 0,
     "editor_audit_toggles": {
         "banned_phrases": True,
         "repetitive_openers": True,

@@ -99,6 +99,37 @@ export function avatarUrl(charId) {
   return `/api/characters/${charId}/avatar`;
 }
 
+export function personaAvatarUrl(personaId) {
+  return `/api/user-personas/${personaId}/avatar`;
+}
+
+/** Return a versioned persona portrait URL, or "" when absent. */
+export function personaAvatarSrc(persona) {
+  return persona?.has_avatar ? `${personaAvatarUrl(persona.id)}?v=${S.personaAvatarVersion}` : "";
+}
+
+const HEX_COLOUR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+/** Return a safe literal hex colour, or "". */
+export function safePersonaColour(colour) {
+  return typeof colour === "string" && HEX_COLOUR.test(colour) ? colour : "";
+}
+
+/** Return readable ink for a validated hex colour. */
+export function readableInk(hex) {
+  const h =
+    hex.length === 4
+      ? hex
+          .slice(1)
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : hex.slice(1);
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+  const lin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b) > 0.36 ? "#14201c" : "#f2f5f4";
+}
+
 export function convActivity(c) {
   return [c.last_accessed_at, c.updated_at, c.created_at].reduce((a, b) => (b && b > a ? b : a), "");
 }

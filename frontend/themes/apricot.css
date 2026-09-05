@@ -96,10 +96,12 @@ body {
     border-radius: 16px !important;
     box-shadow: var(--shadow-card) !important;
   }
-  #chat-header, #doc-header { margin-bottom: 12px; }
-  #chat-input-area, #doc-footer { margin-top: 12px; }
+  #doc-header { margin-bottom: 12px; }
+  #doc-footer { margin-top: 12px; }
+  #chat-header { margin-bottom: 4px; }
+  #chat-input-area { margin-top: 4px; }
 
-  #chat-messages { padding: 10px 12px 14px !important; }
+  #chat-messages { padding: 2px 12px 6px !important; }
 }
 
 .btn {
@@ -155,7 +157,7 @@ body {
 #burger-btn:hover { background: var(--bg-hover) !important; color: var(--ink) !important; }
 
 .chat-avatar, .char-avatar-sm, .char-avatar-lg, .card-pick-avatar,
-.cast-avatar, .cast-pick-avatar, .persona-avatar, .world-avatar,
+.cast-avatar, .cast-pick-avatar, .persona-avatar, .msg-avatar, .world-avatar,
 .char-browser-avatar, .char-browser-list-avatar, .stat-fav-avatar {
   border: 2px solid var(--ink) !important;
   background: var(--bg-elevated) !important;

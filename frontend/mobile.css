@@ -192,6 +192,10 @@ body {
 }
 
 @media (max-width: 700px) {
+  #chat-messages[data-avatars="on"] {
+    --msg-avatar-size: 26px;
+  }
+
   .modal {
     width: 100%;
     max-width: calc(100vw - 16px);

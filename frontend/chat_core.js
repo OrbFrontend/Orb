@@ -6,7 +6,7 @@ import {
   _renderWorkflowRejection,
 } from "./chat_workflow.js";
 import { reconcileChildren } from "./dom_reconcile.js";
-import { sceneEmptyStateHtml, speakerLabel } from "./group_cast.js";
+import { sceneEmptyStateHtml, speakerAvatarCell, speakerLabel } from "./group_cast.js";
 import { CHEVRON_LEFT_ICON, CHEVRON_RIGHT_ICON, EDIT_ICON_PATHS } from "./icons.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, S, subscribe } from "./state.js";
@@ -296,7 +296,7 @@ export function swipeNavHtml(m) {
         </span>`;
 }
 
-function _messageHtml(m, childByParent) {
+function _messageHtml(m, childByParent, avatars) {
   const isForkEditing = S.forkEditMsgId !== null && S.forkEditMsgId === m.id;
   const isEditing =
     (S.editingMsgId !== null && S.editingMsgId === m.id) || (!m.id && S.editingPendingUserMsg) || isForkEditing;
@@ -332,9 +332,19 @@ function _messageHtml(m, childByParent) {
     ? `<span class="msg-rewriting"><span class="dot"></span>Rewriting prose…</span>`
     : "";
   return `<div class="message ${m.role}${isProseRewriting ? " prose-rewriting" : ""}" data-msg-id="${m.id}">
-        <div class="msg-role">${esc(speakerLabel(m))} ${branchHtml}${rewritingHtml}</div>
+        ${avatars ? speakerAvatarCell(m) : ""}<div class="msg-role">${esc(speakerLabel(m))} ${branchHtml}${rewritingHtml}</div>
         ${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${proposalsHtml}${toolbar}
       </div>`;
+}
+
+function syncStreamingAvatar(el, avatars) {
+  const cell = el.querySelector(":scope > .msg-avatar");
+  if (avatars && !cell) {
+    const msg = { role: "assistant", speaker_member_id: S.currentSpeaker?.member_id ?? null };
+    el.insertAdjacentHTML("afterbegin", speakerAvatarCell(msg));
+  } else if (!avatars && cell) {
+    cell.remove();
+  }
 }
 
 // content-visibility hides an off-screen bubble's real height, so a node has to
@@ -356,6 +366,8 @@ function _measureIntrinsicSizes(nodes) {
 export function renderMessages(forceBottom = false) {
   const ct = $("chat-messages");
   let renderedMsgs = null;
+  const avatars = S.showChatAvatars;
+  ct.dataset.avatars = avatars ? "on" : "off";
   preserveScrollDistance(
     () => ct,
     50,
@@ -395,7 +407,7 @@ export function renderMessages(forceBottom = false) {
           ct,
           // An aborted turn can leave two id-less rows in the list (the pending user
           // message and the unpersisted reply), so they key by position, not by role.
-          msgs.map((m, i) => ({ key: m.id ? `m${m.id}` : `p${i}`, html: _messageHtml(m, childByParent) })),
+          msgs.map((m, i) => ({ key: m.id ? `m${m.id}` : `p${i}`, html: _messageHtml(m, childByParent, avatars) })),
           "msg-swap",
         );
         // Seed the new bubbles' intrinsic sizes before the scroll math below
@@ -404,7 +416,10 @@ export function renderMessages(forceBottom = false) {
         _measureIntrinsicSizes(fresh);
       }
       if (badgeEl) ct.appendChild(badgeEl);
-      if (streamingEl && !S.hideStreamingBox && !S.hideUntilBaked) ct.appendChild(streamingEl);
+      if (streamingEl && !S.hideStreamingBox && !S.hideUntilBaked) {
+        syncStreamingAvatar(streamingEl, avatars);
+        ct.appendChild(streamingEl);
+      }
       renderTurnError(ct);
     },
     { forceBottom },

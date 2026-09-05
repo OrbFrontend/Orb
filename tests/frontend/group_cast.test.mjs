@@ -41,12 +41,15 @@ import {
   overrideIsOneShot,
   recommendContextMode,
   sceneEmptyStateHtml,
+  speakerAvatar,
+  speakerAvatarCell,
   speakerLabel,
   speakingPlanHtml,
   TURN_MODES,
   visibleGroups,
 } from "../../frontend/group_cast.js";
 import { S } from "../../frontend/state.js";
+import { readableInk, safePersonaColour } from "../../frontend/utils.js";
 
 const ARTUS = { id: "m1", display_name: "Artus", character_card_id: "c1" };
 const ASSISTANT = { id: "m2", display_name: "Assistant", character_card_id: "c2" };
@@ -485,4 +488,145 @@ test("search matches the group name or its cast, and ignores the cap", () => {
 
 test("search never reports a hidden remainder, so no “show all” is offered", () => {
   assert.equal(visibleGroups(families(GROUP_LIMIT + 4), { query: "Group" }).hidden, 0);
+});
+
+function withPersona({ personas = [], activeId = null, conv = null } = {}) {
+  S.personas = personas;
+  S.activePersonaId = activeId;
+  S.conversations = conv ? [conv] : [];
+  S.activeConvId = conv?.id ?? null;
+  S.personaAvatarVersion = 0;
+}
+
+test("a user message shows the active persona's picture", () => {
+  solo();
+  withPersona({ personas: [{ id: 7, name: "Kai", has_avatar: true }], activeId: 7 });
+  const html = speakerAvatar({ role: "user" });
+  assert.match(html, /<img src="\/api\/user-personas\/7\/avatar\?v=0"/);
+  assert.match(html, /alt=""/);
+});
+
+test("a user message with no persona picture falls back to the initial", () => {
+  solo();
+  withPersona({ personas: [{ id: 7, name: "Kai", has_avatar: false }], activeId: 7 });
+  assert.equal(speakerAvatar({ role: "user" }), "K");
+});
+
+test("a user message with no persona at all falls back to a glyph", () => {
+  solo();
+  withPersona();
+  assert.equal(speakerAvatar({ role: "user" }), "\u{1F464}");
+});
+
+test("a conversation pin outranks the global default for the user's picture", () => {
+  solo();
+  withPersona({
+    personas: [
+      { id: 7, name: "Kai", has_avatar: true },
+      { id: 8, name: "Bex", has_avatar: true },
+    ],
+    activeId: 7,
+    conv: { id: "cv1", persona_lock_id: 8 },
+  });
+  assert.match(speakerAvatar({ role: "user" }), /user-personas\/8\/avatar/);
+});
+
+test("a fresh persona save busts the portrait's cached URL", () => {
+  solo();
+  withPersona({ personas: [{ id: 7, name: "Kai", has_avatar: true }], activeId: 7 });
+  S.personaAvatarVersion = 3;
+  assert.match(speakerAvatar({ role: "user" }), /\?v=3"/);
+});
+
+test("a group reply shows its own speaker's card, not the scene's", () => {
+  scene();
+  withPersona();
+  assert.match(speakerAvatar({ role: "assistant", speaker_member_id: "m2" }), /\/api\/characters\/c2\/avatar/);
+});
+
+test("a narrator line and a summary fall back to their own glyphs", () => {
+  scene({ members: [ARTUS, NARRATOR] });
+  withPersona();
+  assert.equal(speakerAvatar({ role: "assistant", speaker_member_id: "m3" }), "\u2712\uFE0F");
+  assert.equal(speakerAvatar({ role: "assistant", speaker_member_id: null }), "\u{1F464}");
+});
+
+test("a solo reply shows the conversation's character", () => {
+  solo();
+  withPersona({ conv: { id: "cv1", character_card_id: "c9" } });
+  assert.match(speakerAvatar({ role: "assistant" }), /\/api\/characters\/c9\/avatar/);
+});
+
+test("a user message with no picture wears the persona's own colour", () => {
+  solo();
+  withPersona({ personas: [{ id: 7, name: "Kai", has_avatar: false, avatar_color: "#E1F5EE" }], activeId: 7 });
+  const cell = speakerAvatarCell({ role: "user" });
+  assert.match(cell, /background:#E1F5EE/);
+  assert.match(cell, />K</);
+});
+
+test("the chip's ink flips with the colour's luminance, so it stays readable", () => {
+  assert.equal(readableInk("#ffffff"), "#14201c");
+  assert.equal(readableInk("#000000"), "#f2f5f4");
+  assert.equal(readableInk("#E1F5EE"), "#14201c");
+  assert.equal(readableInk("#2b1d0e"), "#f2f5f4");
+  assert.equal(readableInk("#fff"), readableInk("#ffffff"));
+});
+
+test("a non-hex avatar_color never reaches the style attribute", () => {
+  solo();
+  withPersona({
+    personas: [{ id: 7, name: "Kai", has_avatar: false, avatar_color: "red;background-image:url(x)" }],
+    activeId: 7,
+  });
+  const cell = speakerAvatarCell({ role: "user" });
+  assert.ok(!cell.includes("style="), cell);
+  assert.ok(!cell.includes("url("), cell);
+});
+
+test("a picture fills the chip, so it is never tinted", () => {
+  solo();
+  withPersona({ personas: [{ id: 7, name: "Kai", has_avatar: true, avatar_color: "#E1F5EE" }], activeId: 7 });
+  assert.ok(!speakerAvatarCell({ role: "user" }).includes("style="));
+});
+
+test("a character's chip is never given a persona colour", () => {
+  scene();
+  withPersona({ personas: [{ id: 7, name: "Kai", has_avatar: false, avatar_color: "#E1F5EE" }], activeId: 7 });
+  assert.ok(!speakerAvatarCell({ role: "assistant", speaker_member_id: "m1" }).includes("style="));
+});
+
+test("safePersonaColour passes a literal hex colour and nothing else", () => {
+  for (const ok of ["#fff", "#FFF", "#2b6f4e", "#E1F5EE"]) {
+    assert.equal(safePersonaColour(ok), ok);
+  }
+  for (const bad of [
+    '#fff"><img src=x onerror="alert(1)">', // attribute break-out into a tag
+    '#fff" onmouseover="alert(1)', // attribute break-out into a handler
+    "red;background-image:url(https://evil.example/x)", // in-attribute CSS injection
+    "var(--accent)",
+    "#12345",
+    "#gggggg",
+    "",
+    null,
+    undefined,
+    123,
+    {},
+  ]) {
+    assert.equal(safePersonaColour(bad), "", `let through: ${String(bad)}`);
+  }
+});
+
+test("a break-out payload in avatar_color never reaches the rendered chip", () => {
+  solo();
+  withPersona({
+    personas: [
+      { id: 7, name: "Kai", has_avatar: false, avatar_color: '#fff"><img src=x onerror="alert(1)">' },
+    ],
+    activeId: 7,
+  });
+  const cell = speakerAvatarCell({ role: "user" });
+  assert.ok(!cell.includes("onerror"), cell);
+  assert.ok(!cell.includes("<img"), cell);
+  assert.ok(!cell.includes("style="), cell);
 });

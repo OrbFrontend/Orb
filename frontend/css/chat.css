@@ -1084,3 +1084,48 @@
   color: var(--text-muted);
   margin-top: 2px;
 }
+
+/* Message avatar gutter. */
+
+#chat-messages[data-avatars="on"] .message {
+  display: grid;
+  grid-template-columns: var(--msg-avatar-size, 34px) 1fr;
+  column-gap: 10px;
+}
+
+#chat-messages[data-avatars="on"] .message > .msg-avatar {
+  grid-column: 1;
+  grid-row: 1 / span 10;
+  align-self: start;
+}
+
+#chat-messages[data-avatars="on"] .message > *:not(.msg-avatar) {
+  grid-column: 2;
+}
+
+#chat-messages[data-avatars="on"] .message.user { margin-left: 0; }
+#chat-messages[data-avatars="on"] .message.user .msg-role { justify-content: flex-start; }
+#chat-messages[data-avatars="on"] .message.user .msg-toolbar { justify-content: flex-start; }
+
+.msg-avatar {
+  width: var(--msg-avatar-size, 34px);
+  height: var(--msg-avatar-size, 34px);
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.msg-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}

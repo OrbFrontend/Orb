@@ -1,5 +1,15 @@
 import { S } from "./state.js";
-import { avatarCell, avatarUrl, esc, escAttr } from "./utils.js";
+import {
+  avatarCell,
+  avatarUrl,
+  effectivePersonaId,
+  esc,
+  escAttr,
+  escHandlerArg,
+  personaAvatarSrc,
+  readableInk,
+  safePersonaColour,
+} from "./utils.js";
 
 export const TURN_MODES = {
   director: { label: "Auto", hint: "Director chooses" },
@@ -146,6 +156,44 @@ export function speakerLabel(msg) {
   if (!S.groupCast) return S.conversations.find((c) => c.id === S.activeConvId)?.character_name || "Character";
   if (!msg?.speaker_member_id) return "Summary";
   return S.groupCast.speakerNames?.get(msg.speaker_member_id) || "Unknown speaker";
+}
+
+const AVATAR_IMG_ATTRS = 'loading="lazy" decoding="async" alt=""';
+
+const NARRATOR_AVATAR = "\u2712\ufe0f";
+const GENERIC_AVATAR = "\ud83d\udc64";
+
+/** Return a message's avatar markup. */
+function messagePersona() {
+  return S.personas?.find((p) => p.id === effectivePersonaId()) || null;
+}
+
+export function speakerAvatar(msg) {
+  if (msg?.role === "user") {
+    const persona = messagePersona();
+    const src = personaAvatarSrc(persona);
+    const initial = persona?.name?.charAt(0).toUpperCase() || "";
+    if (src)
+      return avatarCell(escAttr(src), { icon: escHandlerArg(initial) || GENERIC_AVATAR, attrs: AVATAR_IMG_ATTRS });
+    return initial ? esc(initial) : GENERIC_AVATAR;
+  }
+  const cardId = S.groupCast
+    ? S.groupCast.members?.find((m) => m.id === msg?.speaker_member_id)?.character_card_id
+    : S.conversations?.find((c) => c.id === S.activeConvId)?.character_card_id;
+  if (cardId) return avatarCell(escAttr(avatarUrl(cardId)), { icon: GENERIC_AVATAR, attrs: AVATAR_IMG_ATTRS });
+  const member = S.groupCast?.members?.find((m) => m.id === msg?.speaker_member_id);
+  return member?.member_kind === "narrator" ? NARRATOR_AVATAR : GENERIC_AVATAR;
+}
+
+/** Wrap a message avatar in its gutter cell. */
+export function speakerAvatarCell(msg) {
+  const inner = speakerAvatar(msg);
+  let style = "";
+  if (msg?.role === "user" && !inner.startsWith("<img")) {
+    const colour = safePersonaColour(messagePersona()?.avatar_color);
+    if (colour) style = ` style="background:${colour};color:${readableInk(colour)}"`;
+  }
+  return `<div class="msg-avatar"${style}>${inner}</div>`;
 }
 
 export function eligibleMembers() {
