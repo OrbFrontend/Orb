@@ -21,6 +21,7 @@ import {
   swapRunToken,
   syncContent,
 } from "./document_probs.js";
+import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
 import { confirmDelete, showConfirmModal } from "./modal.js";
 import { isUtilityPanelOpen } from "./panels.js";
 import { createScrollFollow } from "./scroll_follow.js";
@@ -202,8 +203,8 @@ const _docItemHtml = (
         <div class="doc-item-meta">${formatRelativeDate(d.updated_at)}</div>
       </div>
       <div class="doc-item-actions">
-        <button onclick="event.stopPropagation();renameDocument('${d.id}')" title="Rename">✏</button>
-        <button class="del-btn" onclick="event.stopPropagation();deleteDocument('${d.id}')" title="Delete">✕</button>
+        <button onclick="event.stopPropagation();renameDocument('${d.id}')" title="Rename" aria-label="Rename document">${EDIT_ICON}</button>
+        <button class="del-btn" onclick="event.stopPropagation();deleteDocument('${d.id}')" title="Delete" aria-label="Delete document">${CLOSE_ICON}</button>
       </div>
     </div>`;
 

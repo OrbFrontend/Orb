@@ -167,6 +167,7 @@
 }
 
 .cast-drag {
+  --ui-icon-size: 16px;
   background: none;
   border: none;
   color: var(--text-muted);

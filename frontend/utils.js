@@ -1,3 +1,4 @@
+import { CHEVRON_RIGHT_ICON } from "./icons.js";
 import { createScrollFollow } from "./scroll_follow.js";
 import { charactersView, S } from "./state.js";
 import { endsWithSentenceTerminator, sentenceStream } from "./text_segmentation.js";
@@ -233,7 +234,7 @@ function renderImageEmbed(url, alt) {
   const safeAlt = escAttr(alt || "");
   return (
     `<details class="msg-image-embed">` +
-    `<summary><span class="reasoning-summary-arrow">▶</span>` +
+    `<summary><span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>` +
     `<span class="msg-image-label">🖼️ Image</span></summary>` +
     `<a class="msg-image-link" href="${safeUrl}" target="_blank" rel="noopener">` +
     `<img class="msg-image" src="${safeUrl}" alt="${safeAlt}" loading="lazy" ` +

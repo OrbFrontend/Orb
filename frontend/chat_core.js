@@ -6,8 +6,8 @@ import {
   _renderWorkflowRejection,
 } from "./chat_workflow.js";
 import { sceneEmptyStateHtml, speakerLabel } from "./group_cast.js";
+import { CHEVRON_LEFT_ICON, CHEVRON_RIGHT_ICON, EDIT_ICON_PATHS } from "./icons.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
-import { EDIT_ICON_PATHS } from "./sidebar_icons.js";
 import { effectiveWorkflowEnabled, S, subscribe } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
 import {
@@ -332,9 +332,9 @@ export function renderMessages(forceBottom = false) {
                 bc > 1
                   ? `
         <span class="swipe-nav">
-          <button onclick="event.stopPropagation();switchBranch(${m.prev_branch_id})" ${!m.prev_branch_id ? "disabled" : ""}>◀</button>
+          <button onclick="event.stopPropagation();switchBranch(${m.prev_branch_id})" ${!m.prev_branch_id ? "disabled" : ""} title="Previous branch" aria-label="Previous branch">${CHEVRON_LEFT_ICON}</button>
           <span class="swipe-counter">${bi + 1}/${bc}</span>
-          <button onclick="event.stopPropagation();switchBranch(${m.next_branch_id})" ${!m.next_branch_id ? "disabled" : ""}>▶</button>
+          <button onclick="event.stopPropagation();switchBranch(${m.next_branch_id})" ${!m.next_branch_id ? "disabled" : ""} title="Next branch" aria-label="Next branch">${CHEVRON_RIGHT_ICON}</button>
         </span>`
                   : "";
               const toolbar = isEditing ? "" : `<div class="msg-toolbar">${buildMsgToolbar(m, childByParent)}</div>`;
@@ -456,7 +456,7 @@ export function renderContextSize() {
   const openAttr = S.contextSizeOpen ? " open" : "";
   el.outerHTML = `<details class="inspector-block ctx-section" id="inspector-context-size"${openAttr} ontoggle="S.contextSizeOpen=this.open;saveInspectorOpenStates()">
     <summary class="ctx-summary">
-      <span class="reasoning-summary-arrow">▶</span>
+      <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
       <span class="ctx-total">~${total.toLocaleString()} tokens <span class="ctx-msgs">(${data.message_count} msgs)</span></span>
     </summary>
     <div class="ctx-rows">${rows}</div>

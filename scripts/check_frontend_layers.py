@@ -39,7 +39,7 @@ LAYERS = {
     "validate.js": 0,
     "scroll_follow.js": 0,
     "text_segmentation.js": 0,
-    "sidebar_icons.js": 0,
+    "icons.js": 0,
     "drag_reorder.js": 0,
     # L1 state + shared pure helpers.
     "state.js": 1,

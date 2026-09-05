@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { renderInspectorSecondary, renderMessages } from "./chat.js";
+import { CLOSE_ICON } from "./icons.js";
 import { renderInteractiveFragments } from "./library_fragments.js";
 import { closeModal, confirmDelete, showModal, showSubConfirmModal } from "./modal.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
@@ -301,8 +302,8 @@ function variantRow(f, v, selected, ready) {
        <label class="ml-variant-name" for="${rid}">${label}</label>`
       : `<span class="ml-variant-name">${label}</span>`;
   const act = v.present
-    ? `<button class="btn btn-xs btn-danger ml-variant-act" title="Delete" aria-label="Delete ${label}"
-               data-ml-act="delete" ${attrs}><span aria-hidden="true">×</span></button>`
+    ? `<button class="btn btn-xs btn-danger btn-square ml-variant-act" title="Delete" aria-label="Delete ${label}"
+               data-ml-act="delete" ${attrs}>${CLOSE_ICON}</button>`
     : `<button class="btn btn-xs ml-variant-act" data-ml-act="download" ${attrs}
                ${ready ? "" : 'disabled title="Download the llama.cpp runtime first"'}>Download</button>`;
   return `<div class="ml-variant${on ? " ml-variant-on" : ""}">
@@ -912,7 +913,7 @@ export function showAddPhraseGroupModal(editId = null, group = null) {
   const variantRow = (v = "") => `
     <div class="variant-row">
       <input type="text" class="variant-input" value="${escAttr(v)}" placeholder="e.g., a mix of">
-      <button class="btn btn-xs btn-danger" onclick="removeVariantRow(this)">×</button>
+      <button class="btn btn-xs btn-danger btn-square" onclick="removeVariantRow(this)" title="Remove" aria-label="Remove variant">${CLOSE_ICON}</button>
     </div>`;
 
   const variantsHtml = variants.map((v) => variantRow(v)).join("");
@@ -999,7 +1000,7 @@ window.addVariantRow = () => {
   row.className = "variant-row";
   row.innerHTML = `
     <input type="text" class="variant-input" placeholder="e.g., a mix of">
-    <button class="btn btn-xs btn-danger" onclick="removeVariantRow(this)">×</button>
+    <button class="btn btn-xs btn-danger btn-square" onclick="removeVariantRow(this)" title="Remove" aria-label="Remove variant">${CLOSE_ICON}</button>
   `;
   container.appendChild(row);
   const input = row.querySelector(".variant-input");

@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { CLOSE_ICON, DOWNLOAD_ICON } from "./icons.js";
 import { closeSubModal, showModal, showSubConfirmModal, showSubModal } from "./modal.js";
 import { $, downloadBlob, esc, escHandlerArg, toast } from "./utils.js";
 
@@ -242,10 +243,10 @@ function presetRow(it) {
           <div class="preset-item-meta">${fmtDate(it.created_at)} · ${fmtSize(it.size)}</div>
         </div>
         <div class="preset-item-actions">
-          <button class="btn btn-sm" onclick="downloadPreset('${escHandlerArg(it.name)}')" title="Download">⬇</button>
+          <button class="btn btn-sm btn-square" onclick="downloadPreset('${escHandlerArg(it.name)}')" title="Download" aria-label="Download preset">${DOWNLOAD_ICON}</button>
           <button class="btn btn-sm" onclick="applyPreset('${escHandlerArg(it.name)}')" title="Merge into current data">Apply</button>
           <button class="btn btn-sm" onclick="restorePreset('${escHandlerArg(it.name)}')" title="Replace everything">Restore</button>
-          <button class="btn btn-sm btn-danger" onclick="deletePreset('${escHandlerArg(it.name)}')" title="Delete">✕</button>
+          <button class="btn btn-sm btn-danger btn-square" onclick="deletePreset('${escHandlerArg(it.name)}')" title="Delete" aria-label="Delete preset">${CLOSE_ICON}</button>
         </div>
       </div>
       <div class="preset-chips">${chips}</div>

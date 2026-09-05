@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import { renderContextSize, renderMessages } from "./chat_core.js";
 import { USER_NOTE_ID } from "./direction_notes_panel.js";
+import { CHEVRON_RIGHT_ICON } from "./icons.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { preserveScroll } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, interactiveFragmentsView, moodFragmentsView, S } from "./state.js";
@@ -83,7 +84,7 @@ function _buildReasoningHtml() {
 
   return `<details class="inspector-block reasoning-section" id="reasoning-section"${openAttr} ontoggle="S.reasoningOpen=this.open;saveInspectorOpenStates()">
     <summary class="reasoning-summary">
-      <span class="reasoning-summary-arrow">▶</span>
+      <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
       <h4 style="margin:0;display:inline">Reasoning</h4>
     </summary>
     <div style="margin-top:8px">
@@ -334,7 +335,7 @@ function _buildToolCallsHtml(tc) {
   const openAttr = S.toolCallsOpen ? " open" : "";
   return `<details class="inspector-block"${openAttr} ontoggle="S.toolCallsOpen=this.open;saveInspectorOpenStates()">
     <summary class="reasoning-summary">
-      <span class="reasoning-summary-arrow">▶</span>
+      <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
       <h4 style="margin:0;display:inline">Tool Calls</h4>
     </summary>
     <div class="injection-box" style="margin-top:8px">${esc(tc.map((c) => JSON.stringify(c)).join("\n\n"))}</div>
@@ -395,7 +396,7 @@ function _buildInjectionBlockHtml(inj) {
   const openAttr = S.injectionBlockOpen ? " open" : "";
   return `<details class="inspector-block"${openAttr} ontoggle="S.injectionBlockOpen=this.open;saveInspectorOpenStates()">
     <summary class="reasoning-summary">
-      <span class="reasoning-summary-arrow">▶</span>
+      <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
       <h4 style="margin:0;display:inline">Injection Block</h4>
     </summary>
     <div class="injection-box" style="margin-top:8px">${esc(inj)}</div>

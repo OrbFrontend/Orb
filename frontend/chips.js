@@ -1,3 +1,4 @@
+import { CLOSE_ICON } from "./icons.js";
 import { esc } from "./utils.js";
 
 export function createChipInput({
@@ -48,7 +49,9 @@ export function createChipInput({
     const disabled = isDisabled ? isDisabled() : false;
     const chips = items
       .map((c, i) => {
-        const rm = disabled ? "" : `<button type="button" class="lb-chip-remove" data-chip-index="${i}">×</button>`;
+        const rm = disabled
+          ? ""
+          : `<button type="button" class="lb-chip-remove" data-chip-index="${i}">${CLOSE_ICON}</button>`;
         return `<span class="lb-chip">${esc(c)}${rm}</span>`;
       })
       .join("");

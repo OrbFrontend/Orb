@@ -33,6 +33,7 @@ import {
 } from "./direction_notes_panel.js";
 import { restNotice, unansweredHint } from "./group_cast.js";
 import { consumeSpeakerOverride, refreshSheetProposals, renderGroupCast } from "./group_setup.js";
+import { CHEVRON_LEFT_ICON, CHEVRON_RIGHT_ICON } from "./icons.js";
 import { refreshCharacters } from "./library.js";
 import { isUtilityPanelOpen } from "./panels.js";
 import { ensurePersonaPinned } from "./settings_personas.js";
@@ -147,9 +148,9 @@ function finalizeStreamingDiv(lastMsg) {
       roleEl.insertAdjacentHTML(
         "beforeend",
         `<span class="swipe-nav">
-        <button onclick="event.stopPropagation();switchBranch(${lastMsg.prev_branch_id})" ${!lastMsg.prev_branch_id ? "disabled" : ""}>◀</button>
+        <button onclick="event.stopPropagation();switchBranch(${lastMsg.prev_branch_id})" ${!lastMsg.prev_branch_id ? "disabled" : ""} title="Previous branch" aria-label="Previous branch">${CHEVRON_LEFT_ICON}</button>
         <span class="swipe-counter">${bi + 1}/${bc}</span>
-        <button onclick="event.stopPropagation();switchBranch(${lastMsg.next_branch_id})" ${!lastMsg.next_branch_id ? "disabled" : ""}>▶</button>
+        <button onclick="event.stopPropagation();switchBranch(${lastMsg.next_branch_id})" ${!lastMsg.next_branch_id ? "disabled" : ""} title="Next branch" aria-label="Next branch">${CHEVRON_RIGHT_ICON}</button>
       </span>`,
       );
     }

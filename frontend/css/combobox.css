@@ -137,6 +137,8 @@
 }
 
 .cb-delete-btn {
+  --ui-icon-size: 12px;
+  --ui-icon-stroke: 2.6;
   opacity: 0.5;
   background: none;
   border: none;

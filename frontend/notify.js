@@ -1,3 +1,5 @@
+import { CLOSE_ICON } from "./icons.js";
+
 const MAX_VISIBLE = 4; // maximum visible notifications
 const TRANSIENT_MS = 3000; // match notifications.css
 const FADE_MS = 200;
@@ -121,7 +123,8 @@ export function notifyError(headline, { sentence = "", onDetails = null } = {}) 
   title.className = "toast-headline";
   title.textContent = head;
 
-  const close = button("×", "toast-close", () => dismiss(el), { title: "Dismiss" });
+  const close = button("", "toast-close", () => dismiss(el), { title: "Dismiss" });
+  close.innerHTML = CLOSE_ICON;
   close.setAttribute("aria-label", "Dismiss");
 
   top.append(icon, title, close);
