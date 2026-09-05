@@ -90,6 +90,54 @@ export function avatarUrl(charId) {
   return `/api/characters/${charId}/avatar`;
 }
 
+export function personaAvatarUrl(personaId) {
+  return `/api/user-personas/${personaId}/avatar`;
+}
+
+/** A persona's portrait URL, or "" when it has none.
+ *
+ * Version-stamped because the route serves `private, max-age=300`: without the
+ * buster a freshly saved image keeps losing to the copy already in the browser
+ * cache, in the picker chip and the chat gutter alike. */
+export function personaAvatarSrc(persona) {
+  return persona?.has_avatar ? `${personaAvatarUrl(persona.id)}?v=${S.personaAvatarVersion}` : "";
+}
+
+// `user_personas.avatar_color` is an unvalidated free-form string on the API,
+// and it is only ever *set* by a seed, the SillyTavern importer, or a preset
+// import -- never by the persona editor. A preset is a file people share, so
+// this value can arrive from someone else and must be treated as hostile.
+const HEX_COLOUR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+/** A persona colour that is safe to interpolate into markup, or "".
+ *
+ * Callers put this inside a `style` attribute, where an unescaped `"` would
+ * close the attribute and let the rest of the value inject attributes or tags
+ * of its own. Allowing only a literal hex colour through closes that off at the
+ * source, rather than relying on every call site to escape correctly. */
+export function safePersonaColour(colour) {
+  return typeof colour === "string" && HEX_COLOUR.test(colour) ? colour : "";
+}
+
+/** Ink that stays legible on `hex`.
+ *
+ * Persona colours are arbitrary -- the SillyTavern importer derives one from a
+ * hash of the name, so they span the whole range -- and a fixed ink would go
+ * unreadable on half of them. Standard sRGB relative luminance, thresholded. */
+export function readableInk(hex) {
+  const h =
+    hex.length === 4
+      ? hex
+          .slice(1)
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : hex.slice(1);
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+  const lin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b) > 0.36 ? "#14201c" : "#f2f5f4";
+}
+
 export function convActivity(c) {
   return [c.last_accessed_at, c.updated_at, c.created_at].reduce((a, b) => (b && b > a ? b : a), "");
 }

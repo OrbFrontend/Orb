@@ -31,7 +31,7 @@ import {
   optimisticDropDirectionNotesFrom,
   renderDirectionNotesPanel,
 } from "./direction_notes_panel.js";
-import { restNotice, unansweredHint } from "./group_cast.js";
+import { restNotice, speakerAvatarCell, unansweredHint } from "./group_cast.js";
 import { consumeSpeakerOverride, refreshSheetProposals, renderGroupCast } from "./group_setup.js";
 import { refreshCharacters } from "./library.js";
 import { isUtilityPanelOpen } from "./panels.js";
@@ -175,10 +175,14 @@ export function stopGeneration() {
   }
 }
 
-export function createStreamingDiv(name = null) {
+export function createStreamingDiv(name = null, memberId = null) {
   const div = document.createElement("div");
   div.className = "message assistant";
-  div.innerHTML = `<div class="msg-role">${esc(name || getCharName())}</div>
+  // The portrait is painted with the bubble, before the first token, so the
+  // gutter does not appear under the reply and shove it sideways mid-stream.
+  // finalizeStreamingDiv mutates this node in place and leaves it alone.
+  const avatar = S.showChatAvatars ? speakerAvatarCell({ role: "assistant", speaker_member_id: memberId }) : "";
+  div.innerHTML = `${avatar}<div class="msg-role">${esc(name || getCharName())}</div>
     <div class="msg-body" id="streaming-body">
       <span class="typing-indicator"><span></span><span></span><span></span></span>
     </div>
@@ -407,7 +411,7 @@ export async function processSSEStream(resp, container, holder, signal) {
         S.currentExchangeId = parsed.exchange_id;
         S.currentSpeaker = parsed;
         resetSpeakerTurnState();
-        holder.el = createStreamingDiv(parsed.name);
+        holder.el = createStreamingDiv(parsed.name, parsed.member_id);
         if (!S.hideUntilBaked) container.appendChild(holder.el);
         onTurnStart();
         renderGroupCast();

@@ -40,6 +40,8 @@ export const S = {
   hideUntilBaked: false, // keep the streaming reply out of the DOM until final
   preventPromptOverrides: false, // ignore character-card prompt overrides
   showEditorDiff: true, // show editor-pass diff highlights
+  showChatAvatars: false, // portrait gutter on chat messages
+  personaAvatarVersion: 0, // bumped on a persona avatar save; busts the image URL
   reasoningEnabled: { director: false, writer: false, editor: false, scripter: false },
   reasoningPrefill: { director: "", writer: "", editor: "" },
   editorAuditToggles: {

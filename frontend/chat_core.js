@@ -5,7 +5,7 @@ import {
   _renderWorkflowArtifacts,
   _renderWorkflowRejection,
 } from "./chat_workflow.js";
-import { sceneEmptyStateHtml, speakerLabel } from "./group_cast.js";
+import { sceneEmptyStateHtml, speakerAvatarCell, speakerLabel } from "./group_cast.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
 import { EDIT_ICON_PATHS } from "./sidebar_icons.js";
 import { effectiveWorkflowEnabled, S, subscribe } from "./state.js";
@@ -282,9 +282,31 @@ export function ensureIndexInWindow(idx) {
   return false;
 }
 
+/** Keep an in-flight bubble's gutter in step with the toggle.
+ *
+ * The streaming node is carried across re-renders rather than rebuilt from the
+ * template above, so flipping "Show avatars in chat" mid-turn would otherwise
+ * leave it the one message with no portrait -- and leave it that way for good,
+ * since finalizeStreamingDiv patches the node in place instead of re-rendering.
+ */
+function syncStreamingAvatar(el, avatars) {
+  const cell = el.querySelector(":scope > .msg-avatar");
+  if (avatars && !cell) {
+    const msg = { role: "assistant", speaker_member_id: S.currentSpeaker?.member_id ?? null };
+    el.insertAdjacentHTML("afterbegin", speakerAvatarCell(msg));
+  } else if (!avatars && cell) {
+    cell.remove();
+  }
+}
+
 export function renderMessages(forceBottom = false) {
   const ct = $("chat-messages");
   let renderedMsgs = null;
+  // An attribute rather than a body class: the gutter's rules all hang off
+  // `#chat-messages[data-avatars="on"]`, where no theme selector can collide
+  // with them. Read once per render -- every message resolves the same toggle.
+  const avatars = S.showChatAvatars;
+  ct.dataset.avatars = avatars ? "on" : "off";
   ct.classList.add("measuring-render");
   try {
     preserveScrollDistance(
@@ -365,15 +387,23 @@ export function renderMessages(forceBottom = false) {
               const rewritingHtml = isProseRewriting
                 ? `<span class="msg-rewriting"><span class="dot"></span>Rewriting prose…</span>`
                 : "";
+              // First child of .message and a sibling of .msg-role, not inside
+              // it: finalizeStreamingDiv, patchPendingUserMessage,
+              // patchParentUserMessage and the user_message_created handler all
+              // rebuild .msg-role, and would each have to learn about the
+              // portrait if it lived in there.
               return `<div class="message ${m.role}${isProseRewriting ? " prose-rewriting" : ""}" data-msg-id="${m.id}">
-        <div class="msg-role">${esc(speakerLabel(m))} ${branchHtml}${rewritingHtml}</div>
+        ${avatars ? speakerAvatarCell(m) : ""}<div class="msg-role">${esc(speakerLabel(m))} ${branchHtml}${rewritingHtml}</div>
         ${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${proposalsHtml}${toolbar}
       </div>`;
             })
             .join("");
         }
         if (badgeEl) ct.appendChild(badgeEl);
-        if (streamingEl && !S.hideStreamingBox && !S.hideUntilBaked) ct.appendChild(streamingEl);
+        if (streamingEl && !S.hideStreamingBox && !S.hideUntilBaked) {
+          syncStreamingAvatar(streamingEl, avatars);
+          ct.appendChild(streamingEl);
+        }
         renderTurnError(ct);
       },
       { forceBottom },

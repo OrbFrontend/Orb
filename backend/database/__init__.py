@@ -159,6 +159,7 @@ from .queries.stats import add_generated_chars, get_generated_chars, get_global_
 from .queries.user_personas import (
     create_user_persona,
     delete_user_persona,
+    get_persona_avatar,
     get_user_persona,
     get_user_personas,
     update_user_persona,
@@ -314,6 +315,7 @@ __all__ = [
     "get_sheet_proposals",
     "get_speaker_names",
     "get_user_attachments_for_message",
+    "get_persona_avatar",
     "get_user_persona",
     "get_user_personas",
     "get_workflow_attachment_by_id",

@@ -292,6 +292,7 @@ async def update_settings(data: dict) -> SettingsRow:
             "character_library_sort",
             "active_endpoint_id",
             "show_editor_diff",
+            "show_chat_avatars",
             "editor_audit_toggles",
             "document_audit_enabled",
             "document_audit_autopatch",

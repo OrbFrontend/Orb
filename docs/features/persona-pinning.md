@@ -13,6 +13,18 @@ Open the user menu with the **👤** button. Each persona can be pinned to:
 The conversation option requires an open conversation. The character option
 requires a saved character.
 
+## Persona avatars
+
+Edit a persona to give it a picture. **Choose image** opens the same crop editor
+character avatars use; **Remove** drops back to the coloured circle holding the
+persona's initial. The picture appears beside the persona in the user menu, and
+in the chat gutter when avatars are turned on.
+
+Turn the gutter on under **Settings -> Show avatars in chat**. It is off by
+default. With it on, every message carries a portrait on the left: the speaking
+character's for a reply, and the persona in force for your own messages -- so
+switching or pinning a persona changes what your messages show.
+
 ## Which persona is used
 
 Orb resolves the persona in this order:

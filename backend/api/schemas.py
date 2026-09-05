@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 from typing import Any, Literal
@@ -42,6 +43,7 @@ class SettingsUpdate(BaseModel):
     character_library_sort: str | None = None
     active_endpoint_id: int | None = None
     show_editor_diff: bool | None = None
+    show_chat_avatars: bool | None = None
     editor_audit_toggles: dict | None = None
     # Document-mode Output Auditor (doc-owned columns; deliberately not shared
     # with editor_audit_toggles so a doc-mode save can't perturb chat scanners).
@@ -676,16 +678,50 @@ class PhraseGroupUpdate(BaseModel):
     pattern: str = ""
 
 
+# A persona avatar is produced by the same crop modal as a character's, which
+# re-encodes to a 400x400 PNG (~100-300 KB). 2 MB leaves room for a hand-crafted
+# upload without letting an arbitrary blob into a column the list path reads past.
+MAX_PERSONA_AVATAR_BYTES = 2 * 1024 * 1024
+
+
+def _validate_persona_avatar_b64(v: str | None) -> str | None:
+    if v is None:
+        return v
+    try:
+        raw = base64.b64decode(v, validate=True)
+    except Exception:
+        raise ValueError("Invalid base64 string") from None
+    if len(raw) > MAX_PERSONA_AVATAR_BYTES:
+        raise ValueError("Avatar exceeds 2 MB limit")
+    return v
+
+
 class UserPersonaCreate(BaseModel):
     name: str
     description: str = ""
     avatar_color: str | None = None
+    avatar_b64: str | None = None
+    avatar_mime: str | None = None
+
+    @field_validator("avatar_b64")
+    @classmethod
+    def validate_avatar_b64(cls, v):
+        return _validate_persona_avatar_b64(v)
 
 
 class UserPersonaUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     avatar_color: str | None = None
+    # An explicit null on either clears the image; the route restores that
+    # through model_fields_set, since it drops Nones before writing.
+    avatar_b64: str | None = None
+    avatar_mime: str | None = None
+
+    @field_validator("avatar_b64")
+    @classmethod
+    def validate_avatar_b64(cls, v):
+        return _validate_persona_avatar_b64(v)
 
 
 class ResetConfirm(BaseModel):

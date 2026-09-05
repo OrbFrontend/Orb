@@ -19,7 +19,6 @@ Deliberately NOT migrated, because Orb has nothing to map them onto:
     Director/Writer/Editor pipeline with a cache-stable prefix
   * endpoints and API keys (secrets.json) -- configure those in Orb
   * UI chrome (themes/, backgrounds/, movingUI/, assets/, thumbnails/, backups/)
-  * persona avatars -- user_personas stores a colour, not an image
   * per-message generation metadata (reasoning traces, token counts, gen ids)
   * author's notes, and the ST tag taxonomy
   * ST-only lorebook knobs: recursion, probability, sticky/cooldown/delay,
@@ -75,7 +74,7 @@ REQUIRED_COLUMNS = {
     "character_cards": ("extensions", "world_id", "avatar_b64", "avatar_mime", "source_format"),
     "lorebook_entries": ("entry_layer", "overlay_action", "use_regex", "selective", "secondary_keys"),
     "group_members": ("speaker_key", "card_sheet_override", "public_profile_override", "member_kind"),
-    "user_personas": ("name", "description", "avatar_color"),
+    "user_personas": ("name", "description", "avatar_color", "avatar_b64", "avatar_mime"),
     "worlds": ("content_revision", "dynamic_enabled"),
     "character_expressions": ("character_card_id", "label", "data_b64", "mime"),
     "director_state": ("conversation_id", "active_moods", "keywords"),
@@ -150,6 +149,51 @@ def card_id_from_png(png_bytes: bytes) -> str:
 def persona_color(name: str) -> str:
     digest = hashlib.sha256(name.encode("utf-8")).digest()
     return f"#{digest[0]:02x}{digest[1]:02x}{digest[2]:02x}"
+
+
+# The image formats ST will have written into User Avatars/, mapped to the mime
+# Orb stores alongside the blob. Anything else is left behind for the colour.
+_PERSONA_AVATAR_MIMES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+
+
+# Same ceiling the API enforces on an uploaded persona avatar
+# (``schemas.MAX_PERSONA_AVATAR_BYTES``). Kept in step by hand rather than
+# imported: this is a decoded-size cap on a file, not on a request body, and a
+# script that quietly wrote rows the API would reject is worse than one that
+# skips an oversized picture and says so.
+MAX_PERSONA_AVATAR_BYTES = 2 * 1024 * 1024
+
+
+def read_persona_avatar(paths: STPaths, avatar: str) -> tuple[str, str] | None:
+    """(base64 image, mime) for an ST persona, or None when there is no usable file.
+
+    ``power_user.personas`` is keyed by the avatar's filename under
+    ``User Avatars/``, so the key *is* the lookup. Resolved under that directory
+    and rejected if it escapes, since the key comes out of a user-supplied JSON
+    file rather than from a directory listing.
+    """
+    name = str(avatar or "").strip()
+    if not name:
+        return None
+    mime = _PERSONA_AVATAR_MIMES.get(Path(name).suffix.lower())
+    if mime is None:
+        return None
+    try:
+        root = paths.user_avatars.resolve()
+        path = (root / name).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            return None
+        if path.stat().st_size > MAX_PERSONA_AVATAR_BYTES:
+            return None
+        return base64.b64encode(path.read_bytes()).decode("ascii"), mime
+    except OSError:
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -326,6 +370,7 @@ class STPaths:
     groups: Path
     group_chats: Path
     settings: Path
+    user_avatars: Path
 
     @classmethod
     def locate(cls, st_dir: Path, user: str) -> STPaths:
@@ -340,6 +385,7 @@ class STPaths:
             groups=base / "groups",
             group_chats=base / "group chats",
             settings=base / "settings.json",
+            user_avatars=base / "User Avatars",
         )
 
 
@@ -799,25 +845,26 @@ def import_personas(conn: sqlite3.Connection, tx: Tx, paths: STPaths, report: Re
         entry = descriptions.get(avatar)
         if isinstance(entry, dict):
             description = str(entry.get("description") or "")
+        # The image is the persona's portrait when ST has one on disk; the
+        # generated colour stays on the row either way, since it is still the
+        # fallback chip Orb draws when no image loads.
+        image = read_persona_avatar(paths, str(avatar))
+        why_no_image = "colour only -- no usable avatar file under User Avatars/"
         try:
             tx.begin()
             cursor = conn.execute(
-                """INSERT INTO user_personas (name, description, avatar_color, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (label, description, persona_color(label), now, now),
+                """INSERT INTO user_personas (name, description, avatar_color, avatar_b64, avatar_mime, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (label, description, persona_color(label), image[0] if image else None, image[1] if image else None, now, now),
             )
             tx.commit()
             persona_id = cursor.lastrowid
             assert persona_id is not None
             by_name[label.casefold()] = persona_id
-            # Orb personas carry a colour, not an image, so the ST avatar PNG
-            # has nowhere to land. Noted once below rather than per persona.
-            report.add("personas", "created")
+            report.add("personas", "created", "with its avatar image" if image else why_no_image)
         except sqlite3.Error as exc:
             tx.rollback()
             report.add("personas", "failed", problem=f"persona {label}: {exc}")
-    if report.tally("personas", "created"):
-        report.notes[("personas", "created", "avatar images dropped -- Orb personas store a colour")] += 1
     return by_name
 
 
@@ -1166,7 +1213,7 @@ def main() -> int:
         description="Migrate SillyTavern characters, lorebooks, chats, personas and groups into Orb.",
         epilog=(
             "Not migrated: prompts and generation settings, endpoints and API keys, themes and "
-            "backgrounds, persona avatars, per-message generation metadata, author's notes, ST tags, "
+            "backgrounds, per-message generation metadata, author's notes, ST tags, "
             "and the lorebook knobs Orb has no equivalent for (recursion, probability, sticky/cooldown, "
             "inclusion groups, per-entry scan depth)."
         ),

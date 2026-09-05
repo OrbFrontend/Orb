@@ -100,6 +100,9 @@ export async function loadSettings() {
   if (typeof S.settings.show_editor_diff === "number") S.showEditorDiff = S.settings.show_editor_diff !== 0;
   else if (typeof S.settings.show_editor_diff === "boolean") S.showEditorDiff = S.settings.show_editor_diff;
 
+  if (typeof S.settings.show_chat_avatars === "number") S.showChatAvatars = S.settings.show_chat_avatars !== 0;
+  else if (typeof S.settings.show_chat_avatars === "boolean") S.showChatAvatars = S.settings.show_chat_avatars;
+
   if (S.settings.editor_audit_toggles && typeof S.settings.editor_audit_toggles === "object")
     S.editorAuditToggles = { ...S.editorAuditToggles, ...S.settings.editor_audit_toggles };
 
@@ -154,6 +157,16 @@ export function renderSettings() {
         </label>
       </div>
       <div class="tool-card-desc">Hide replies until completion.</div>
+    </div>
+    <div class="tool-card ${S.showChatAvatars ? "tool-on" : ""}">
+      <div class="tool-card-header">
+        <span class="tool-card-name">Show avatars in chat</span>
+        <label class="tog" onclick="event.stopPropagation()">
+          <input type="checkbox" ${S.showChatAvatars ? "checked" : ""} onchange="toggleShowChatAvatars(this.checked)">
+          <span class="tog-slider"></span>
+        </label>
+      </div>
+      <div class="tool-card-desc">Show the speaker's portrait beside each message.</div>
     </div>
     <div class="tool-card ${S.preventPromptOverrides ? "tool-on" : ""}">
       <div class="tool-card-header">
@@ -625,6 +638,13 @@ export async function toggleHideUntilBaked(on) {
   renderMessages();
   renderSettings();
   await persistSettings({ hide_streaming_until_baked: on });
+}
+
+export async function toggleShowChatAvatars(on) {
+  S.showChatAvatars = on;
+  renderMessages();
+  renderSettings();
+  await persistSettings({ show_chat_avatars: on });
 }
 
 export async function togglePreventPromptOverrides(on) {

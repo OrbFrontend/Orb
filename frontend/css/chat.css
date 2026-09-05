@@ -1070,3 +1070,65 @@
   color: var(--text-muted);
   margin-top: 2px;
 }
+
+/* ── Message avatar gutter ──────────────────────────────────────────────────
+   Everything here is gated on `#chat-messages[data-avatars="on"]`, which
+   renderMessages() sets from the "Show avatars in chat" setting. The gutter is
+   off by default, so an install that never turns it on gets none of these
+   rules and keeps the layout it had. */
+
+#chat-messages[data-avatars="on"] .message {
+  display: grid;
+  grid-template-columns: var(--msg-avatar-size, 34px) 1fr;
+  column-gap: 10px;
+}
+
+/* The portrait sits in column 1 and spans the message's rows. The span is a
+   count rather than `1 / -1`: negative line numbers resolve against the
+   *explicit* grid, which has no rows here, so `-1` would collapse to a single
+   row and strand the portrait beside the role label. 10 comfortably covers the
+   most children a message ever renders (role, body, attachments, artifacts,
+   rejection, proposals, toolbar); the surplus rows are empty and 0-high. */
+#chat-messages[data-avatars="on"] .message > .msg-avatar {
+  grid-column: 1;
+  grid-row: 1 / span 10;
+  align-self: start;
+}
+
+#chat-messages[data-avatars="on"] .message > *:not(.msg-avatar) {
+  grid-column: 2;
+}
+
+/* User messages give up their right alignment: with a fixed left gutter the
+   bubble has to start at the same x as every other. `.message.user .msg-body`
+   still carries --accent-glow, which is what actually distinguishes it. */
+#chat-messages[data-avatars="on"] .message.user { margin-left: 0; }
+#chat-messages[data-avatars="on"] .message.user .msg-role { justify-content: flex-start; }
+#chat-messages[data-avatars="on"] .message.user .msg-toolbar { justify-content: flex-start; }
+
+/* Same chip as .chat-avatar. The box is fixed in both axes on purpose: .message
+   carries content-visibility with a contain-intrinsic-size estimate that
+   renderMessages() measures per node, and a portrait that resized on load would
+   invalidate the estimate and fight preserveScrollDistance. */
+.msg-avatar {
+  width: var(--msg-avatar-size, 34px);
+  height: var(--msg-avatar-size, 34px);
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.msg-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}

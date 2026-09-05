@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -13,7 +14,7 @@ from typing import Any, cast
 
 import httpx
 from fastapi import Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from ..database import (
     get_conversation,
@@ -326,6 +327,25 @@ def _pipeline_sse_response(
 
 # What a transport failure says when the provider gave us no words of its own.
 _PROFILE_UPSTREAM = "The model endpoint did not answer the profile request."
+
+
+def cached_image_response(image_bytes: bytes, mime: str | None, request: Request) -> Response:
+    """A stored image with a private cache window and a conditional-GET escape.
+
+    Shared by character avatars, character expressions, and persona avatars: all
+    three are large, change only on an explicit edit, and are re-requested on
+    every list re-render. The frontend busts the URL (``?v=``) when it edits one
+    in-session; the ETag corrects a cross-session edit once max-age lapses, for
+    the cost of a 304. ``no_cache_middleware`` sets its headers with
+    ``setdefault``, so the Cache-Control chosen here survives.
+
+    usedforsecurity=False: this is a cache validator, not a security hash.
+    """
+    etag = '"' + hashlib.md5(image_bytes, usedforsecurity=False).hexdigest() + '"'
+    cache_headers = {"Cache-Control": "private, max-age=300", "ETag": etag}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=cache_headers)
+    return Response(content=image_bytes, media_type=mime or "image/png", headers=cache_headers)
 
 
 async def require_conversation(cid: str) -> ConversationRow:

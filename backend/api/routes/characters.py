@@ -44,6 +44,7 @@ from ...features.cards import parsing as tavern_cards
 from ...inference import agent_lane_from_settings, client_from_settings
 from ..deps import (
     _normalise_lorebook_entry,
+    cached_image_response,
     lorebook_to_book,
     profile_draft_failures,
     project_lorebook_view,
@@ -240,17 +241,10 @@ async def api_get_avatar(card_id: str, request: Request):
     if not result:
         raise HTTPException(status_code=404, detail="No avatar found")
     image_bytes, mime_type = result
-    # Avatars are large (a card's full PNG) and change only on edit. Let the
+    # Avatars are large (a card's full PNG) and change only on edit; let the
     # browser cache them so the library grid doesn't re-download every avatar on
-    # each re-render/search/sort. The frontend already busts the URL (?v=) when
-    # an avatar is edited in-session; the ETag corrects cross-session edits once
-    # max-age lapses via a cheap conditional GET. usedforsecurity=False: this is
-    # a cache validator, not a security hash.
-    etag = '"' + hashlib.md5(image_bytes, usedforsecurity=False).hexdigest() + '"'
-    cache_headers = {"Cache-Control": "private, max-age=300", "ETag": etag}
-    if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304, headers=cache_headers)
-    return Response(content=image_bytes, media_type=mime_type or "image/png", headers=cache_headers)
+    # each re-render/search/sort.
+    return cached_image_response(image_bytes, mime_type, request)
 
 
 @router.get("/api/characters/{card_id}/export")
@@ -328,13 +322,10 @@ async def api_get_expression(card_id: str, label: str, request: Request):
     if not result:
         raise HTTPException(status_code=404, detail="No expression found")
     image_bytes, mime = result
-    # Same private-cache + conditional-GET block as avatars: expressions change
-    # only on re-upload, and the popup swaps src on label change without a buster.
-    etag = '"' + hashlib.md5(image_bytes, usedforsecurity=False).hexdigest() + '"'
-    cache_headers = {"Cache-Control": "private, max-age=300", "ETag": etag}
-    if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304, headers=cache_headers)
-    return Response(content=image_bytes, media_type=mime or "image/png", headers=cache_headers)
+    # Same private-cache + conditional-GET treatment as avatars: expressions
+    # change only on re-upload, and the popup swaps src on label change without
+    # a buster.
+    return cached_image_response(image_bytes, mime, request)
 
 
 @router.delete("/api/characters/{card_id}/expressions")

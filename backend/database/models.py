@@ -85,6 +85,7 @@ class _SettingsBase(TypedDict):
     character_library_view: str
     character_library_sort: str
     show_editor_diff: int
+    show_chat_avatars: int
     editor_audit_toggles: dict  # decoded to its in-memory shape by get_settings()
     document_audit_enabled: int
     document_audit_autopatch: int
@@ -494,12 +495,20 @@ class ActiveLorebookEntryRow(LorebookEntryRow):
 
 
 class UserPersonaRow(TypedDict):
-    """A row from ``user_personas`` (the queries select these six columns)."""
+    """A row from ``user_personas`` as the readers project it.
+
+    ``avatar_b64`` is deliberately absent: both readers select ``avatar_mime``
+    and derive ``has_avatar`` from it, so the blob never rides along on
+    ``GET /api/user-personas``. The bytes are fetched on their own by
+    ``get_persona_avatar()``, the way character avatars work.
+    """
 
     id: int
     name: str
     description: str
     avatar_color: str | None
+    avatar_mime: str | None
+    has_avatar: bool
     created_at: str
     updated_at: str
 

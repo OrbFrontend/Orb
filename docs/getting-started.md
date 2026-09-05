@@ -75,12 +75,12 @@ repository root.
 | `worlds/*.json` | Worlds, with their global enabled state |
 | `chats/**/*.jsonl` | Conversations and their original dates |
 | Swipes | Message branches, including the selected branch |
-| Personas | Personas and descriptions |
+| Personas | Personas, descriptions and avatar images |
 | Groups and group chats | Group scenes and speaker attribution |
 
 Orb does not import prompts, context templates, instruct sequences, generation
-presets, endpoints or API keys, themes, backgrounds, persona avatars, reasoning
-traces, token counts, author's notes, or SillyTavern's tag list. Chats whose
+presets, endpoints or API keys, themes, backgrounds, reasoning traces, token
+counts, author's notes, or SillyTavern's tag list. Chats whose
 character card was deleted are skipped unless you add `--include-orphans`.
 
 Use `--help` to see options such as `--only`, `--db`, and `--limit`.

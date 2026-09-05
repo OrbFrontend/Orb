@@ -155,7 +155,7 @@ body {
 #burger-btn:hover { background: var(--bg-hover) !important; color: var(--ink) !important; }
 
 .chat-avatar, .char-avatar-sm, .char-avatar-lg, .card-pick-avatar,
-.cast-avatar, .cast-pick-avatar, .persona-avatar, .world-avatar,
+.cast-avatar, .cast-pick-avatar, .persona-avatar, .msg-avatar, .world-avatar,
 .char-browser-avatar, .char-browser-list-avatar, .stat-fav-avatar {
   border: 2px solid var(--ink) !important;
   background: var(--bg-elevated) !important;

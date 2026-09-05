@@ -10,6 +10,7 @@ that drives the generic engine across every domain at once.
 
 from __future__ import annotations
 
+import base64
 import importlib
 import json
 import sqlite3
@@ -961,3 +962,27 @@ async def test_no_secret_canary_leaks_in_exports(client, db_path):
     blob = open(presets._library_path(name), "rb").read()
     leaked_keys = [c.decode() for c in api_key_canaries if c in blob]
     assert leaked_keys == [], leaked_keys
+
+
+async def test_persona_avatar_never_ships_without_the_configs_domain(client, db_path):
+    """A persona's picture is personal data on a ``configs``-domain table.
+
+    ``user_personas`` is non-singleton, so it has no ``SECRET_COLUMNS`` entry --
+    the whole row is dropped by the cascade when ``configs`` is not exported.
+    This asserts that actually happens for the avatar blob, the way
+    ``test_no_secret_canary_leaks_in_exports`` does for the declared columns.
+    """
+    # The column holds base64, and the field now validates as such, so the
+    # sentinel has to be the *encoded* form -- which is also what an export
+    # would carry verbatim.
+    canary = base64.b64encode(b"LEAK-CANARY-user_personas-avatar_b64").decode().encode()
+    resp = await client.post(
+        "/api/user-personas",
+        json={"name": "Pictured", "avatar_b64": canary.decode(), "avatar_mime": "image/png"},
+    )
+    assert resp.status_code == 200
+
+    for domain in [d for d in presets.ALL_DOMAINS if d != "configs"]:
+        name = (await client.post("/api/presets/export", json={"domains": [domain], "strip_keys": False})).json()["name"]
+        blob = open(presets._library_path(name), "rb").read()
+        assert canary not in blob, domain
