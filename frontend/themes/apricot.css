@@ -96,10 +96,12 @@ body {
     border-radius: 16px !important;
     box-shadow: var(--shadow-card) !important;
   }
-  #chat-header, #doc-header { margin-bottom: 12px; }
-  #chat-input-area, #doc-footer { margin-top: 12px; }
+  #doc-header { margin-bottom: 12px; }
+  #doc-footer { margin-top: 12px; }
+  #chat-header { margin-bottom: 4px; }
+  #chat-input-area { margin-top: 4px; }
 
-  #chat-messages { padding: 10px 12px 14px !important; }
+  #chat-messages { padding: 2px 12px 6px !important; }
 }
 
 .btn {
