@@ -67,6 +67,10 @@ pass being skipped.
 | `error` | JSON object or string | Terminal failure. |
 | `done` | — | Terminal success; the stream closes. |
 
+Each pass shares one reasoning buffer across repeated calls and sub-steps. The
+backend inserts one blank line at each call boundary in both the stream and the
+persisted text, so the frontend appends deltas verbatim.
+
 Workflow events such as `phase_status` and `tts_autoplay` use the same stream.
 See [Secondary Workflows](secondary-workflow.md).
 

@@ -139,6 +139,8 @@ class FakeLLMClient:
         # {"content": str, "probs": list} so a test can attach per-token probs.
         self._raw_queue: list[dict] = []
         self.raw_calls: list[dict] = []
+        # Queued reasoning, FIFO by pass.
+        self._reasoning: dict[str, list[str]] = {}
         # render_prompt captures (doc-mode text+assisted patch re-render).
         self.render_calls: list[dict] = []
         self.completion_mode = "chat"
@@ -213,6 +215,10 @@ class FakeLLMClient:
     def enqueue_workflow(self, message: dict) -> None:
         self._queues["workflow"].append({"message": message})
 
+    def enqueue_reasoning(self, pass_name: str, text: str) -> None:
+        """Queue reasoning for the next call of *pass_name*."""
+        self._reasoning.setdefault(pass_name, []).append(text)
+
     def enqueue_raw(self, text: str, probs: list[dict] | None = None) -> None:
         """Queue a raw text-completion response (``complete_raw``, doc text mode).
 
@@ -278,6 +284,15 @@ class FakeLLMClient:
 
         if self.abort_token.is_aborted:
             return
+
+        thoughts = self._reasoning.get(pass_name)
+        if thoughts:
+            # Split into two deltas to exercise intra-call streaming.
+            text = thoughts.pop(0)
+            head, tail = text[: len(text) // 2], text[len(text) // 2 :]
+            for delta in (head, tail):
+                if delta:
+                    yield {"type": "reasoning", "delta": delta}
 
         if pass_name == "writer":
             payload = self._queues["writer"].pop(0) if self._queues["writer"] else {"content": ""}

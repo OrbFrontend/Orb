@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from types import MappingProxyType
 from typing import Any
 
+from ..core import ReasoningChannel, mark_call_start
 from ..inference import (
     STANDALONE_TOOLS,
     TOOLS,
@@ -123,26 +124,30 @@ async def forced_tool_call(
         )
 
     resp: dict = {}
+    # Keep retries in the same workflow buffer so their reasoning is separated.
+    reasoning = ReasoningChannel()
 
     async def _attempt(tool_array: list[dict]) -> AsyncIterator[dict]:
         nonlocal resp
         resp = {}
-        async for event in client.complete(
-            messages=messages,
-            model=resolved_model,
-            tools=tool_array,
-            tool_choice=TOOLS[tool_name]["choice"],
-            temperature=temperature,
-            max_tokens=max_tokens,
-            tools_in_prompt=tools_in_prompt,
-            **reasoning_params,
+        async for event in mark_call_start(
+            client.complete(
+                messages=messages,
+                model=resolved_model,
+                tools=tool_array,
+                tool_choice=TOOLS[tool_name]["choice"],
+                temperature=temperature,
+                max_tokens=max_tokens,
+                tools_in_prompt=tools_in_prompt,
+                **reasoning_params,
+            )
         ):
             etype = event.get("type")
             if etype == "reasoning":
                 if pass_id is not None:
                     yield {
                         "event": "reasoning",
-                        "data": {"pass": pass_id, "delta": event.get("delta", "")},
+                        "data": {"pass": pass_id, "delta": reasoning.push(event)},
                     }
             elif etype == "done":
                 resp = event.get("message", {}) or {}

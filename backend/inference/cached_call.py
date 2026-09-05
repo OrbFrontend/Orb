@@ -7,6 +7,8 @@ from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from ..core import mark_call_start, reasoning_delta_event
+
 if TYPE_CHECKING:
     from .kv_tracker import _KVCacheTracker
 
@@ -43,20 +45,21 @@ async def cached_complete(
 ) -> AsyncIterator[dict]:
     """Run ``client.complete`` and snapshot the KV tracker from the same args.
 
-    Every pass funnels through here so the tracker always sees exactly what
-    was sent. ``record=True`` (default) snapshots before the call; each
-    iteration of a multi-call loop (e.g. the editor's ReAct loop) adds its own
-    entry. Provider usage from the terminal ``done`` event is attached to the
-    latest entry for *label*. All events are yielded through unchanged.
+    Every pass funnels through here so the tracker sees exactly what was sent.
+    ``record=True`` snapshots before the call, and provider usage from ``done``
+    is attached to the latest entry. The first reasoning delta is marked with
+    the call boundary used by downstream buffers.
     """
     if kv_tracker is not None and record:
         kv_tracker.record(label, messages, tools, model=model)
-    async for event in client.complete(
-        messages=messages,
-        model=model,
-        tools=tools,
-        tool_choice=tool_choice,
-        **params,
+    async for event in mark_call_start(
+        client.complete(
+            messages=messages,
+            model=model,
+            tools=tools,
+            tool_choice=tool_choice,
+            **params,
+        )
     ):
         if event["type"] == "done" and kv_tracker is not None:
             kv_tracker.record_usage(label, event.get("usage"))
@@ -67,7 +70,7 @@ async def _relay_reasoning(stream: AsyncIterator[dict], reply: dict) -> AsyncIte
     """Forward *stream*'s reasoning deltas; collect its ``done`` message in *reply*."""
     async for event in stream:
         if event["type"] == "reasoning":
-            yield {"type": "reasoning", "delta": event["delta"]}
+            yield reasoning_delta_event(event)
         elif event["type"] == "done":
             reply.update(event["message"])
 

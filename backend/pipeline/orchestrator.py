@@ -61,7 +61,7 @@ async def _consume_direction_note_step(gen: AsyncIterator[dict], state: TurnStat
     """
     async for ev in gen:
         if ev["type"] == "reasoning":
-            yield {"event": "reasoning", "data": {"pass": pass_label, "delta": ev["delta"]}}
+            yield {"event": "reasoning", "data": {"pass": pass_label, "delta": state.add_reasoning(pass_label, ev)}}
         elif ev["type"] == "done":
             if ev["result"].notes:
                 state.direction_notes.extend(ev["result"].notes)

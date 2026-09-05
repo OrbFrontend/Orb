@@ -472,10 +472,9 @@ async def director_stage(
             speaker_keys=speaker_keys,
         ):
             if event["type"] == "reasoning":
-                state.reasoning_director += event["delta"]
                 yield {
                     "event": "reasoning",
-                    "data": {"pass": "director", "delta": event["delta"]},
+                    "data": {"pass": "director", "delta": state.add_reasoning("director", event)},
                 }
             elif event["type"] == "done":
                 result: DirectorResult = event["result"]
@@ -509,8 +508,7 @@ async def director_stage(
             reasoning_prefill=cfg.director_reasoning_prefill,
         ):
             if event["type"] == "reasoning":
-                state.reasoning_director += event["delta"]
-                yield {"event": "reasoning", "data": {"pass": "director", "delta": event["delta"]}}
+                yield {"event": "reasoning", "data": {"pass": "director", "delta": state.add_reasoning("director", event)}}
             elif event["type"] == "done":
                 sel: LorebookSelectResult = event["result"]
                 state.selected_lorebook_entries = sel.selected

@@ -240,10 +240,9 @@ async def writer_stage(
         reasoning_prefill=cfg.writer_reasoning_prefill,
     ):
         if item["type"] == "reasoning":
-            state.reasoning_writer += item["delta"]
             yield {
                 "event": "reasoning",
-                "data": {"pass": "writer", "delta": item["delta"]},
+                "data": {"pass": "writer", "delta": state.add_reasoning("writer", item)},
             }
         else:
             delta = item["delta"]

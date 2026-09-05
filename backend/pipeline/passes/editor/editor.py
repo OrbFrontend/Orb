@@ -30,7 +30,13 @@ from ....analysis.patching import (
     apply_id_patches,
     filter_audit_report_to_text,
 )
-from ....core import AssistantToolMessage, ContentPart, WireMessage, extract_hyperparams
+from ....core import (
+    AssistantToolMessage,
+    ContentPart,
+    WireMessage,
+    extract_hyperparams,
+    reasoning_delta_event,
+)
 from ....features.prose_rewriter import ProseRewriteConfig, rewrite_events
 from ....inference import (
     EDITOR_RENUMBER_NOTICE,
@@ -217,7 +223,7 @@ async def editor_pass(
         writer_user_msg=writer_user_msg,
     ):
         if ev["type"] == "reasoning":
-            yield {"type": "reasoning", "delta": ev["delta"], "pass": "editor"}
+            yield {**reasoning_delta_event(ev), "pass": "editor"}
         elif ev["type"] == "draft_update":
             yield ev
         elif ev["type"] == "done":
@@ -245,7 +251,7 @@ async def editor_pass(
             reasoning_prefill=reasoning_prefill,
         ):
             if ev["type"] == "reasoning":
-                yield {"type": "reasoning", "delta": ev["delta"], "pass": "editor"}
+                yield {**reasoning_delta_event(ev), "pass": "editor"}
             elif ev["type"] == "done":
                 fb: FeedbackResult = ev["result"]
                 feedback_values = fb.values
@@ -337,10 +343,9 @@ async def editor_stage(
             if event["type"] == "reasoning":
                 # Feedback reasoning is folded into the editor channel (it is an
                 # editor sub-step, so it shares the Editor reasoning toggle and box).
-                state.reasoning_editor += event["delta"]
                 yield {
                     "event": "reasoning",
-                    "data": {"pass": "editor", "delta": event["delta"]},
+                    "data": {"pass": "editor", "delta": state.add_reasoning("editor", event)},
                 }
             elif event["type"] == "draft_update":
                 # Cosmetic intermediate paint; the done→writer_rewrite block below

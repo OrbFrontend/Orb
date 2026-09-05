@@ -101,7 +101,7 @@ async def world_proposal_stage(
         if ev["type"] == "reasoning":
             yield {
                 "event": "reasoning",
-                "data": {"pass": "editor", "delta": ev["delta"]},
+                "data": {"pass": "editor", "delta": state.add_reasoning("editor", ev)},
             }
         elif ev["type"] == "done":
             result = ev["result"]

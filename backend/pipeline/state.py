@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..core import ChatMessage, ContentPart, Macros
+from ..core import ChatMessage, ContentPart, Macros, joined_delta
 from ..features.lorebook import (
     AGENTIC_LOREBOOK_SCAN_DEPTH,
     LOREBOOK_SCAN_DEPTH,
@@ -159,6 +159,13 @@ class TurnState:
             elif isinstance(value, dict):
                 value = dict(value)
             setattr(self, name, value)
+
+    def add_reasoning(self, pass_name: str, event: Mapping[str, Any]) -> str:
+        """Append one pass delta and return the exact text to stream."""
+        buffer = f"reasoning_{pass_name}"
+        delta = joined_delta(getattr(self, buffer), event)
+        setattr(self, buffer, getattr(self, buffer) + delta)
+        return delta
 
     def as_result_event_data(self) -> dict:
         """Return the stable field subset for the ``_result`` SSE event."""
