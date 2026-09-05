@@ -4,6 +4,7 @@ import {
   splitTightSentenceChunks,
   tokenEndsSentence,
 } from "./text_segmentation.js";
+import { messageBody } from "./utils.js";
 
 // Word and sentence indices are shared by text effects and click handlers.
 
@@ -166,7 +167,7 @@ export function segDescriptor(spanEl, extra) {
 }
 
 export function messageSegments(msgId) {
-  const bodyEl = document.querySelector(`#chat-messages .message[data-msg-id="${msgId}"] .msg-body`);
+  const bodyEl = messageBody(msgId);
   if (!bodyEl) return [];
   const out = [];
   let last = null;

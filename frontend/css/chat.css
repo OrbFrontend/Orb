@@ -127,8 +127,17 @@
   overflow-clip-margin: 8px;
 }
 
-#chat-messages.measuring-render .message {
+/* A bubble's real height is unreadable while content-visibility skips it, so the
+   render pass forces just the nodes it rebuilt visible for one measurement. */
+.message.msg-measuring {
   content-visibility: visible;
+}
+
+/* A bubble that replaced one already on screen (a branch swipe, an edit, a
+   toolbar update) is an update, not an arrival: swapping it in silently keeps
+   the list still. Genuinely new messages still animate. */
+.message.msg-swap {
+  animation: none;
 }
 
 @keyframes msgIn {
@@ -472,6 +481,8 @@
 }
 
 .swipe-nav button {
+  --ui-icon-size: 12px;
+  --ui-icon-stroke: 2.6;
   padding: 1px 4px;
   font-size: 12px;
   color: var(--text-muted);
@@ -740,6 +751,7 @@
 }
 
 .attachment-remove {
+  --ui-icon-size: 13px;
   margin-left: 4px;
   padding: 2px 6px;
   background: transparent;
@@ -768,9 +780,11 @@
 }
 
 .burger-icon {
+  --ui-icon-size: 14px;
   flex: 0 0 auto;
+  display: grid;
+  place-items: center;
   width: 18px;
-  text-align: center;
   font-size: 14px;
   line-height: 1;
 }

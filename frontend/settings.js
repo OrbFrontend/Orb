@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { renderInspectorSecondary, renderMessages } from "./chat.js";
+import { CLOSE_ICON } from "./icons.js";
 import { renderInteractiveFragments } from "./library_fragments.js";
 import { closeModal, confirmDelete, showModal, showSubConfirmModal } from "./modal.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
@@ -151,8 +152,8 @@ export function renderSettings() {
     <div class="tool-card ${S.hideUntilBaked ? "tool-on" : ""}">
       <div class="tool-card-header">
         <span class="tool-card-name">Hide until baked</span>
-        <label class="tog" onclick="event.stopPropagation()">
-          <input type="checkbox" ${S.hideUntilBaked ? "checked" : ""} onchange="toggleHideUntilBaked(this.checked)">
+        <label class="tog" data-setting-stop>
+          <input type="checkbox" ${S.hideUntilBaked ? "checked" : ""} data-setting-toggle="hideUntilBaked">
           <span class="tog-slider"></span>
         </label>
       </div>
@@ -161,8 +162,8 @@ export function renderSettings() {
     <div class="tool-card ${S.showChatAvatars ? "tool-on" : ""}">
       <div class="tool-card-header">
         <span class="tool-card-name">Show avatars in chat</span>
-        <label class="tog" onclick="event.stopPropagation()">
-          <input type="checkbox" ${S.showChatAvatars ? "checked" : ""} onchange="toggleShowChatAvatars(this.checked)">
+        <label class="tog" data-setting-stop>
+          <input type="checkbox" ${S.showChatAvatars ? "checked" : ""} data-setting-toggle="showChatAvatars">
           <span class="tog-slider"></span>
         </label>
       </div>
@@ -171,8 +172,8 @@ export function renderSettings() {
     <div class="tool-card ${S.preventPromptOverrides ? "tool-on" : ""}">
       <div class="tool-card-header">
         <span class="tool-card-name">Prevent prompt overrides</span>
-        <label class="tog" onclick="event.stopPropagation()">
-          <input type="checkbox" ${S.preventPromptOverrides ? "checked" : ""} onchange="togglePreventPromptOverrides(this.checked)">
+        <label class="tog" data-setting-stop>
+          <input type="checkbox" ${S.preventPromptOverrides ? "checked" : ""} data-setting-toggle="preventPromptOverrides">
           <span class="tog-slider"></span>
         </label>
       </div>
@@ -187,7 +188,33 @@ export function renderSettings() {
     </div>
   `;
   $("cleanup-btn").addEventListener("click", showCleanupModal);
+  wireSettingsToggles($("settings-form"));
   loadLocalMLSection();
+}
+
+// The toggle cards above are identical but for which flag they flip, so they
+// delegate off the form rather than each naming its handler inline (the same
+// shape as wireLocalMLSection below).
+const SETTING_TOGGLES = {
+  hideUntilBaked: toggleHideUntilBaked,
+  showChatAvatars: toggleShowChatAvatars,
+  preventPromptOverrides: togglePreventPromptOverrides,
+};
+
+function wireSettingsToggles(el) {
+  if (el.dataset.togglesWired) return;
+  el.dataset.togglesWired = "1";
+  // Flipping a switch is not a click "outside" anything. The form sits below the
+  // document-level dismiss handlers (burger, mobile header actions, cast menus)
+  // in the bubble path, so stopping here keeps them shut, as the inline
+  // stopPropagation these labels used to carry did.
+  el.addEventListener("click", (ev) => {
+    if (ev.target.closest("[data-setting-stop]")) ev.stopPropagation();
+  });
+  el.addEventListener("change", (ev) => {
+    const input = ev.target.closest("[data-setting-toggle]");
+    if (input) SETTING_TOGGLES[input.dataset.settingToggle]?.(input.checked);
+  });
 }
 
 const LOCAL_ML_LABELS = {
@@ -314,8 +341,8 @@ function variantRow(f, v, selected, ready) {
        <label class="ml-variant-name" for="${rid}">${label}</label>`
       : `<span class="ml-variant-name">${label}</span>`;
   const act = v.present
-    ? `<button class="btn btn-xs btn-danger ml-variant-act" title="Delete" aria-label="Delete ${label}"
-               data-ml-act="delete" ${attrs}><span aria-hidden="true">×</span></button>`
+    ? `<button class="btn btn-xs btn-danger btn-square ml-variant-act" title="Delete" aria-label="Delete ${label}"
+               data-ml-act="delete" ${attrs}>${CLOSE_ICON}</button>`
     : `<button class="btn btn-xs ml-variant-act" data-ml-act="download" ${attrs}
                ${ready ? "" : 'disabled title="Download the llama.cpp runtime first"'}>Download</button>`;
   return `<div class="ml-variant${on ? " ml-variant-on" : ""}">
@@ -932,7 +959,7 @@ export function showAddPhraseGroupModal(editId = null, group = null) {
   const variantRow = (v = "") => `
     <div class="variant-row">
       <input type="text" class="variant-input" value="${escAttr(v)}" placeholder="e.g., a mix of">
-      <button class="btn btn-xs btn-danger" onclick="removeVariantRow(this)">×</button>
+      <button class="btn btn-xs btn-danger btn-square" onclick="removeVariantRow(this)" title="Remove" aria-label="Remove variant">${CLOSE_ICON}</button>
     </div>`;
 
   const variantsHtml = variants.map((v) => variantRow(v)).join("");
@@ -1019,7 +1046,7 @@ window.addVariantRow = () => {
   row.className = "variant-row";
   row.innerHTML = `
     <input type="text" class="variant-input" placeholder="e.g., a mix of">
-    <button class="btn btn-xs btn-danger" onclick="removeVariantRow(this)">×</button>
+    <button class="btn btn-xs btn-danger btn-square" onclick="removeVariantRow(this)" title="Remove" aria-label="Remove variant">${CLOSE_ICON}</button>
   `;
   container.appendChild(row);
   const input = row.querySelector(".variant-input");

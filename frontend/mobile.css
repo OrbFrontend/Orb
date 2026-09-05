@@ -41,6 +41,7 @@ body {
 
 #mobile-sidebar-toggle,
 #mobile-chat-actions-toggle {
+  --ui-icon-size: 18px;
   display: none;
   width: var(--mobile-header-button-size);
   height: var(--mobile-header-button-size);

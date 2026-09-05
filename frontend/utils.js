@@ -1,3 +1,4 @@
+import { CHEVRON_RIGHT_ICON } from "./icons.js";
 import { createScrollFollow } from "./scroll_follow.js";
 import { charactersView, S } from "./state.js";
 import { endsWithSentenceTerminator, sentenceStream } from "./text_segmentation.js";
@@ -79,6 +80,14 @@ export function scrollToMessage(msgId) {
   const ct = $("chat-messages");
   const el = ct?.querySelector(`.message[data-msg-id="${msgId}"]`);
   if (el) scrollChatTarget(el, "center");
+}
+
+// Four modules paint into a message's body (prose rewrites, segmentation, text
+// effects, slop marks). The render pass hands them back the same node whenever
+// the markup is unchanged, so the way to reach one lives here rather than as a
+// selector string copied into each of them.
+export function messageBody(msgId) {
+  return $("chat-messages")?.querySelector(`.message[data-msg-id="${msgId}"] .msg-body`) ?? null;
 }
 
 export function pinStreamingMessage(el) {
@@ -281,7 +290,7 @@ function renderImageEmbed(url, alt) {
   const safeAlt = escAttr(alt || "");
   return (
     `<details class="msg-image-embed">` +
-    `<summary><span class="reasoning-summary-arrow">▶</span>` +
+    `<summary><span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>` +
     `<span class="msg-image-label">🖼️ Image</span></summary>` +
     `<a class="msg-image-link" href="${safeUrl}" target="_blank" rel="noopener">` +
     `<img class="msg-image" src="${safeUrl}" alt="${safeAlt}" loading="lazy" ` +

@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { createChipInput } from "./chips.js";
+import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
 import { closeModal, isModalOpen, showConfirmModal, showModal } from "./modal.js";
 import { charactersView } from "./state.js";
 import { $, boolFlag, downloadBlob, esc, toast } from "./utils.js";
@@ -481,13 +482,13 @@ function renderLorebookDrawer() {
   drawer.innerHTML = `
     <div class="lb-header">
       <span class="lb-header-title">Lorebook</span>
-      <button class="btn btn-sm lb-close-btn" onclick="closeLorebook()">✕</button>
+      <button class="btn btn-sm btn-square lb-close-btn" onclick="closeLorebook()" title="Close" aria-label="Close lorebook">${CLOSE_ICON}</button>
     </div>
     <div class="lb-body">
       <div class="lb-entry-list">
         <div class="lb-world-header">
           <span class="lb-world-name" title="${esc(world.name)}">${esc(world.name)}</span>
-          <button class="btn btn-sm lb-rename-btn" onclick="showRenameWorldModal('${_focusWorldId}')" title="Rename lorebook">✏</button>
+          <button class="btn btn-sm lb-rename-btn" onclick="showRenameWorldModal('${_focusWorldId}')" title="Rename lorebook" aria-label="Rename lorebook">${EDIT_ICON}</button>
           <span class="lb-active-count">${activeCount} active</span>
         </div>
         <div class="lb-dynamic-row">

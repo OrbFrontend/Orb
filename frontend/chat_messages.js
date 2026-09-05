@@ -19,6 +19,7 @@ import {
   convUrl,
   formatProse,
   initChatScrollFollow,
+  messageBody,
   resolvePlaceholders,
   scrollToBottom,
   scrollToMessage,
@@ -206,13 +207,18 @@ export async function rewriteMessageProse(msgId) {
 function applyProseRewriteSnapshot(msgId, content) {
   const message = S.messages.find((m) => m.id === msgId);
   if (message) message.content = content;
-  const body = document.querySelector(`#chat-messages .message[data-msg-id="${msgId}"] .msg-body`);
+  const body = messageBody(msgId);
   if (body) body.innerHTML = formatProse(resolvePlaceholders(content));
 }
+
+// Swipes arrive faster than the round trip they start, so responses can land out
+// of order. Only the newest switch is allowed to touch the DOM.
+let _branchSwitchSeq = 0;
 
 export async function switchBranch(msgId) {
   if (!msgId || S.isStreaming) return;
   if (!requestSendPermission()) return;
+  const seq = ++_branchSwitchSeq;
   try {
     const currentBranchMsg = S.messages.find((m) => m.next_branch_id === msgId || m.prev_branch_id === msgId);
     const anchorMsgId = currentBranchMsg?.parent_id ?? null;
@@ -222,13 +228,14 @@ export async function switchBranch(msgId) {
     const anchorOffset = anchorEl ? anchorEl.offsetTop - ct.scrollTop : null;
     const scrollTop = ct ? ct.scrollTop : 0;
 
-    setMessages(await api.post(convUrl(S.activeConvId, "messages", msgId, "switch-branch"), {}));
-    S.lastDirectorData = null;
-    S.directorState = await api.get(convUrl(S.activeConvId, "director"));
-    renderMessages();
-    await inspectMessage(msgId);
-    if (isUtilityPanelOpen("direction-notes-panel")) await renderDirectionNotesPanel();
+    const switched = await api.post(convUrl(S.activeConvId, "messages", msgId, "switch-branch"), {});
+    if (seq !== _branchSwitchSeq) return;
 
+    // Paint the new branch and settle the scroll in one task. Awaiting anything
+    // in between lets the browser paint the rebuilt list at the pre-restore
+    // offset first, which is what reads as a jump.
+    setMessages(switched);
+    renderMessages();
     if (anchorMsgId && anchorOffset !== null) {
       const newAnchorEl = ct.querySelector(`[data-msg-id="${anchorMsgId}"]`);
       if (newAnchorEl) ct.scrollTop = newAnchorEl.offsetTop - anchorOffset;
@@ -236,6 +243,15 @@ export async function switchBranch(msgId) {
     } else if (ct) {
       ct.scrollTop = scrollTop;
     }
+
+    // Inspector-only state. It never feeds the message list, so it trails the
+    // paint instead of holding it behind another round trip.
+    S.lastDirectorData = null;
+    const directorState = await api.get(convUrl(S.activeConvId, "director"));
+    if (seq !== _branchSwitchSeq) return;
+    S.directorState = directorState;
+    await inspectMessage(msgId);
+    if (isUtilityPanelOpen("direction-notes-panel")) await renderDirectionNotesPanel();
   } catch (e) {
     toast(e.message, true);
   }

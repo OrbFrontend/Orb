@@ -54,6 +54,7 @@
 }
 
 .toast-close {
+  --ui-icon-size: 13px;
   flex-shrink: 0;
   border: none;
   background: none;

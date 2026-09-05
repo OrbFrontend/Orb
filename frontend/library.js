@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import { loadConversations, refreshSceneCardFragments, resetChatUI, stashCardFragments } from "./chat.js";
 import { createChipInput } from "./chips.js";
+import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
 import {
   initCardFragments,
   readCardFragments,
@@ -10,7 +11,6 @@ import {
 } from "./library_fragments.js";
 import { loadWorlds } from "./lorebooks.js";
 import { closeModal, showConfirmModal, showCropModal, showModal, switchTab } from "./modal.js";
-import { SIDEBAR_CLOSE_ICON, SIDEBAR_EDIT_ICON } from "./sidebar_icons.js";
 import { charactersView, S } from "./state.js";
 import {
   $,
@@ -120,8 +120,8 @@ export function renderCharacters() {
         <div class="char-item-meta">${meta}</div>
       </div>
       <div class="char-item-actions">
-        <button class="char-action-edit" onclick="event.stopPropagation();showCharEditModal('${c.id}')" title="Edit character" aria-label="Edit ${escAttr(c.name)}">${SIDEBAR_EDIT_ICON}</button>
-        <button class="char-action-delete" onclick="event.stopPropagation();deleteCharacter('${c.id}')" title="Delete character" aria-label="Delete ${escAttr(c.name)}">${SIDEBAR_CLOSE_ICON}</button>
+        <button class="char-action-edit" onclick="event.stopPropagation();showCharEditModal('${c.id}')" title="Edit character" aria-label="Edit ${escAttr(c.name)}">${EDIT_ICON}</button>
+        <button class="char-action-delete" onclick="event.stopPropagation();deleteCharacter('${c.id}')" title="Delete character" aria-label="Delete ${escAttr(c.name)}">${CLOSE_ICON}</button>
       </div>
     </div>`;
     })
@@ -188,7 +188,7 @@ export function addAltGreeting(prefix) {
   if (!container) return;
   const row = document.createElement("div");
   row.className = "alt-greeting-row";
-  row.innerHTML = `<textarea rows="3"></textarea><button class="btn btn-sm" onclick="this.parentElement.remove()" title="Remove">✕</button>`;
+  row.innerHTML = `<textarea rows="3"></textarea><button class="btn btn-sm btn-square" onclick="this.parentElement.remove()" title="Remove" aria-label="Remove">${CLOSE_ICON}</button>`;
   container.appendChild(row);
 }
 
@@ -244,7 +244,7 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       (g) => `
     <div class="alt-greeting-row">
       <textarea rows="3">${esc(g)}</textarea>
-      <button class="btn btn-sm" onclick="this.parentElement.remove()" title="Remove">✕</button>
+      <button class="btn btn-sm btn-square" onclick="this.parentElement.remove()" title="Remove" aria-label="Remove">${CLOSE_ICON}</button>
     </div>`,
     )
     .join("");

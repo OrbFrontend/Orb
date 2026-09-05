@@ -86,7 +86,7 @@
 .doc-item-meta { font-size: 10px; color: var(--text-muted); margin-top: 1px; }
 .doc-item-actions { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
 .doc-item:hover .doc-item-actions { opacity: 1; }
-.doc-item-actions button { font-size: 18px; padding: 2px 6px; color: var(--text-muted); }
+.doc-item-actions button { --ui-icon-size: 14px; padding: 2px 6px; color: var(--text-muted); }
 .doc-item-actions button:hover { color: var(--text-primary); }
 .doc-item-actions .del-btn:hover { color: var(--red); }
 
@@ -128,6 +128,7 @@
 }
 .doc-title-edit:hover { color: var(--text-primary); }
 #doc-mobile-sidebar-toggle {
+  --ui-icon-size: 18px;
   display: none;
   background: none;
   border: none;
@@ -137,6 +138,7 @@
   padding: 0 4px;
 }
 #doc-workflow-mobile-btn {
+  --ui-icon-size: 18px;
   display: none;
   width: var(--mobile-header-button-size);
   height: var(--mobile-header-button-size);

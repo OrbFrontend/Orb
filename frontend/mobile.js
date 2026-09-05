@@ -1,3 +1,4 @@
+import { ARROW_LEFT_ICON } from "./icons.js";
 import { closeCropModal, closeModal } from "./modal.js";
 import { $ } from "./utils.js";
 
@@ -336,7 +337,7 @@ export function initMobileUi(deps) {
     btn.className = "btn btn-sm lb-back-btn";
     btn.title = "Back to entries";
     btn.setAttribute("aria-label", "Back to entries");
-    btn.textContent = "←";
+    btn.innerHTML = ARROW_LEFT_ICON;
     btn.onclick = () => {
       if (typeof lbBackToList === "function") lbBackToList();
     };

@@ -84,8 +84,11 @@
 .sidebar-section-header:hover { color: var(--text-primary); }
 
 .sidebar-section-header .arrow {
+  --ui-icon-size: 11px;
+  --ui-icon-stroke: 3;
   transition: transform .2s;
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
 }
 
 .sidebar-section-header .arrow.collapsed { transform: rotate(-90deg); }
@@ -354,12 +357,6 @@
 .char-item-actions button:hover { color: var(--text-primary); }
 .char-item-actions .char-action-delete:hover { color: var(--red); }
 
-.sidebar-action-icon {
-  display: block;
-  width: 16px;
-  height: 16px;
-}
-
 .char-tags {
   display: flex;
   flex-wrap: wrap;
@@ -426,6 +423,7 @@
 }
 
 .avatar-popup-close {
+  --ui-icon-size: 13px;
   position: absolute;
   top: 8px;
   right: 8px;
@@ -502,6 +500,7 @@
 }
 
 .frag-drag-handle {
+  --ui-icon-size: 16px;
   cursor: grab;
   user-select: none;
   display: flex;

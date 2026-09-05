@@ -1,5 +1,6 @@
 import { sendMessage } from "./chat_stream.js";
 import { refreshCastRailIntent } from "./group_setup.js";
+import { CLOSE_ICON } from "./icons.js";
 import { S } from "./state.js";
 import { $, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
@@ -66,7 +67,7 @@ export function updateAttachmentPreview() {
     info.appendChild(size);
     const removeBtn = document.createElement("button");
     removeBtn.className = "attachment-remove";
-    removeBtn.innerHTML = "×";
+    removeBtn.innerHTML = CLOSE_ICON;
     removeBtn.title = "Remove";
     removeBtn.onclick = () => {
       S.attachments.splice(idx, 1);

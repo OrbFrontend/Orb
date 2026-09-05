@@ -5,6 +5,7 @@ import { api } from "./api.js";
 // import cycle for nothing. Six paths here change which portrait user messages
 // carry, and none of them go through renderChat.
 import { renderMessages } from "./chat_core.js";
+import { EDIT_ICON } from "./icons.js";
 import { closeModal, confirmDelete, showCropModal, showModal } from "./modal.js";
 import { charactersView, S } from "./state.js";
 import {
@@ -126,7 +127,7 @@ export function showUserModal() {
             title="${charTitle}" aria-label="${charTitle}" aria-pressed="${charLocked}"
             onclick="event.stopPropagation();setPersonaCharacterLock(${p.id}, ${!charLocked})">${CHAR_LOCK_ICON}</button>
           <button class="persona-action-btn persona-action-edit" title="Edit ${escAttr(p.name)}" aria-label="Edit ${escAttr(p.name)}"
-            onclick="event.stopPropagation();editPersona(${p.id})">✎</button>
+            onclick="event.stopPropagation();editPersona(${p.id})">${EDIT_ICON}</button>
         </div>
       </div>
     `;

@@ -49,6 +49,33 @@ button {
 .btn-icon:hover { color: var(--text-primary); }
 .btn-xs { padding: 2px 6px; font-size: 10px; }
 
+/* Icon-only buttons: a fixed square box with the icon centred by geometry.
+   The icon must be an SVG (see icons.js) -- a text "×" is centred against the
+   font's metrics rather than its own ink, so it drifts by a different amount in
+   every theme that swaps --font-ui, and inherits any theme text-shadow with it.
+   Override --btn-square-size / --ui-icon-size per call site; never nudge with a
+   transform. */
+.btn-square {
+  --ui-icon-size: calc(var(--btn-square-size, 22px) * .6);
+  --ui-icon-stroke: 2.4;
+  flex: 0 0 auto;
+  width: var(--btn-square-size, 22px);
+  height: var(--btn-square-size, 22px);
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+}
+
+/* The stroke is in viewBox units, so it thins as the icon shrinks: 2 units is
+   1.3px at 16px but only 0.8px at 10px, which antialiases away to a smudge.
+   Small icons raise --ui-icon-stroke to keep the rendered weight constant. */
+.ui-icon {
+  display: block;
+  width: var(--ui-icon-size, 16px);
+  height: var(--ui-icon-size, 16px);
+  stroke-width: var(--ui-icon-stroke, 2);
+}
+
 .btn-danger { color: var(--red); }
 .btn-danger:hover { background: rgba(196, 93, 93, .15); }
 

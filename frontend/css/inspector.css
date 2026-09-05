@@ -116,10 +116,12 @@ details.inspector-block > summary {
 details.inspector-block > summary::-webkit-details-marker { display: none; }
 
 .reasoning-summary-arrow {
-  font-size: 9px;
+  --ui-icon-size: 10px;
+  --ui-icon-stroke: 3.2;
   color: var(--text-muted);
   transition: transform .2s;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
 }
 
 .reasoning-section[open] .reasoning-summary-arrow,

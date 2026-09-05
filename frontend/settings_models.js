@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { renderInspector } from "./chat.js";
+import { CLOSE_ICON } from "./icons.js";
 import { showConfirmModal } from "./modal.js";
 import { filterModelChoices, mergeModelChoices } from "./model_catalog.js";
 import { S } from "./state.js";
@@ -540,7 +541,7 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
         const deleteHtml =
           id == null
             ? ""
-            : `<button class="cb-delete-btn" title="Delete" onclick="event.stopPropagation(); deleteComboboxItem(this, '${type}', ${id}${agentArg})">×</button>`;
+            : `<button class="cb-delete-btn" title="Delete" onclick="event.stopPropagation(); deleteComboboxItem(this, '${type}', ${id}${agentArg})">${CLOSE_ICON}</button>`;
         return `
               <div class="cb-option${i === activeIdx ? " active" : ""}" data-value="${escAttr(value)}"${idAttrs} data-type="${escAttr(type)}">
                 <span class="cb-option-text">${highlightMatch(value, q)}</span>

@@ -11,6 +11,7 @@ import {
   ICON_REGEN,
   renderMessages,
   setMessages,
+  swipeNavHtml,
   updateContextCounter,
 } from "./chat_core.js";
 import { renderTurnError } from "./chat_error.js";
@@ -139,21 +140,9 @@ function finalizeStreamingDiv(lastMsg) {
     tb.innerHTML = buildMsgToolbar(lastMsg);
   }
 
-  const bc = lastMsg.branch_count || 1;
-  if (bc > 1) {
-    const bi = lastMsg.branch_index || 0;
-    const roleEl = div.querySelector(".msg-role");
-    if (roleEl && !roleEl.querySelector(".swipe-nav")) {
-      roleEl.insertAdjacentHTML(
-        "beforeend",
-        `<span class="swipe-nav">
-        <button onclick="event.stopPropagation();switchBranch(${lastMsg.prev_branch_id})" ${!lastMsg.prev_branch_id ? "disabled" : ""}>◀</button>
-        <span class="swipe-counter">${bi + 1}/${bc}</span>
-        <button onclick="event.stopPropagation();switchBranch(${lastMsg.next_branch_id})" ${!lastMsg.next_branch_id ? "disabled" : ""}>▶</button>
-      </span>`,
-      );
-    }
-  }
+  const nav = swipeNavHtml(lastMsg);
+  const roleEl = nav ? div.querySelector(".msg-role") : null;
+  if (roleEl && !roleEl.querySelector(".swipe-nav")) roleEl.insertAdjacentHTML("beforeend", nav);
 
   return true;
 }
@@ -203,14 +192,23 @@ function patchParentUserMessage(assistantMsg) {
   if (regenBtn) regenBtn.setAttribute("onclick", `regenerate(${assistantMsg.id})`);
 }
 
-function patchPendingUserMessage(pendingMsg) {
-  const freshMsg = S.messages.find((m) => m.role === "user" && m.id && m.content === pendingMsg.content);
-  if (!freshMsg) return;
+// The user's bubble is on screen before the server has an id for it. The SSE ack
+// and the post-stream sync both promote that same node, so the promotion — id,
+// toolbar, and any content the server rewrote — is written once.
+function adoptPendingUserMessage(msg, content = null) {
   const div = document.querySelector('.message.user[data-msg-id="null"]');
   if (!div) return;
-  div.setAttribute("data-msg-id", freshMsg.id);
+  div.setAttribute("data-msg-id", msg.id);
   const tb = div.querySelector(".msg-toolbar");
-  if (tb) tb.innerHTML = buildMsgToolbar(freshMsg);
+  if (tb) tb.innerHTML = buildMsgToolbar(msg);
+  if (content === null) return;
+  const body = div.querySelector(".msg-body");
+  if (body) body.innerHTML = formatProse(resolvePlaceholders(content));
+}
+
+function patchPendingUserMessage(pendingMsg) {
+  const freshMsg = S.messages.find((m) => m.role === "user" && m.id && m.content === pendingMsg.content);
+  if (freshMsg) adoptPendingUserMessage(freshMsg);
 }
 
 export async function afterStream() {
@@ -638,16 +636,8 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
             ta.selectionStart = ta.selectionEnd = ta.value.length;
           }
         } else {
-          const div = document.querySelector('.message.user[data-msg-id="null"]');
-          if (div) {
-            div.setAttribute("data-msg-id", realId);
-            const tb = div.querySelector(".msg-toolbar");
-            if (tb) tb.innerHTML = buildMsgToolbar({ id: realId, role: "user" });
-            if (resolved !== null && resolved !== prevContent) {
-              const body = div.querySelector(".msg-body");
-              if (body) body.innerHTML = formatProse(resolvePlaceholders(resolved));
-            }
-          }
+          const rewritten = resolved !== null && resolved !== prevContent ? resolved : null;
+          adoptPendingUserMessage({ id: realId, role: "user" }, rewritten);
         }
       } catch (_) {}
       break;

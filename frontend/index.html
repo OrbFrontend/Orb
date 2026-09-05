@@ -24,7 +24,7 @@
     </div>
     <div class="sidebar-scroll">
       <div class="sidebar-section chat-only">
-        <div class="sidebar-section-header" onclick="toggleSection(this)">Worlds<span id="worlds-active-count" style="display:none;margin-left:6px;font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-muted,color-mix(in srgb,var(--accent) 18%,transparent));padding:1px 6px;border-radius:8px;"></span> <span class="arrow collapsed">▼</span></div>
+        <div class="sidebar-section-header" onclick="toggleSection(this)">Worlds<span id="worlds-active-count" style="display:none;margin-left:6px;font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-muted,color-mix(in srgb,var(--accent) 18%,transparent));padding:1px 6px;border-radius:8px;"></span> <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></div>
         <div class="sidebar-section-body collapsed" id="worlds-section">
           <div class="btn-row" style="margin-bottom:8px;gap:8px">
             <button class="btn btn-sm" style="flex:1;justify-content:center" onclick="showCreateWorldModal()">+ Create</button>
@@ -37,7 +37,7 @@
         </div>
       </div>
       <div class="sidebar-section chat-only">
-        <div class="sidebar-section-header" onclick="toggleSection(this)">Characters <span class="arrow">▼</span></div>
+        <div class="sidebar-section-header" onclick="toggleSection(this)">Characters <span class="arrow"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></div>
         <div class="sidebar-section-body" id="char-section">
           <div class="btn-row" style="margin-bottom:8px;gap:8px">
             <button class="btn btn-sm" style="flex:1;justify-content:center" onclick="showCharCreateModal()">+ Create</button>
@@ -49,7 +49,7 @@
         </div>
       </div>
       <div class="sidebar-section chat-only">
-        <div class="sidebar-section-header" id="groups-section-toggle">Groups <span class="arrow">▼</span></div>
+        <div class="sidebar-section-header" id="groups-section-toggle">Groups <span class="arrow"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></div>
         <div class="sidebar-section-body" id="groups-section">
           <button type="button" class="btn btn-block btn-sm" id="new-group-btn" style="margin-bottom:8px">+ New group</button>
           <div id="group-search-wrap" style="display:none;margin-bottom:8px">
@@ -59,7 +59,7 @@
         </div>
       </div>
       <div class="sidebar-section doc-only">
-        <div class="sidebar-section-header" onclick="toggleSection(this)">Documents <span class="arrow collapsed">▼</span></div>
+        <div class="sidebar-section-header" onclick="toggleSection(this)">Documents <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></div>
         <div class="sidebar-section-body collapsed" id="documents-section">
           <button class="btn btn-block btn-sm" style="margin-bottom:8px" onclick="createDocument()">+ New Document</button>
           <div id="documents-search-wrap" style="display:none;margin-bottom:8px">
@@ -69,23 +69,23 @@
         </div>
       </div>
       <div class="sidebar-section chat-only">
-        <div class="sidebar-section-header" onclick="toggleSection(this)">Interactive Fragments <span class="arrow collapsed">▼</span></div>
+        <div class="sidebar-section-header" onclick="toggleSection(this)">Interactive Fragments <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></div>
         <div class="sidebar-section-body collapsed" id="interactive-frag-section">
           <div id="interactive-frag-list"></div>
         </div>
       </div>
       <div class="sidebar-section chat-only">
-        <div class="sidebar-section-header" onclick="toggleSection(this)">Mood Fragments <span class="arrow collapsed">▼</span></div>
+        <div class="sidebar-section-header" onclick="toggleSection(this)">Mood Fragments <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></div>
         <div class="sidebar-section-body collapsed" id="frag-section">
           <div id="frag-list"></div>
         </div>
       </div>
       <div class="sidebar-section">
-        <div class="sidebar-section-header" onclick="toggleSection(this)"><span id="endpoints-label">Endpoints</span> <span class="arrow collapsed">▼</span></div>
+        <div class="sidebar-section-header" onclick="toggleSection(this)"><span id="endpoints-label">Endpoints</span> <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></div>
         <div class="sidebar-section-body collapsed" id="endpoints-section"><div id="endpoints-form"></div></div>
       </div>
       <div class="sidebar-section chat-only">
-        <div class="sidebar-section-header" onclick="toggleSection(this)">Settings <span class="arrow collapsed">▼</span></div>
+        <div class="sidebar-section-header" onclick="toggleSection(this)">Settings <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></div>
         <div class="sidebar-section-body collapsed" id="settings-section">
           <div id="settings-form"></div>
         </div>
@@ -100,7 +100,7 @@
     </div>
     <div id="chat-header">
       <div class="chat-title-area">
-        <button id="mobile-sidebar-toggle" onclick="toggleMobileSidebar()" title="Toggle sidebar">☰</button>
+        <button id="mobile-sidebar-toggle" onclick="toggleMobileSidebar()" title="Toggle sidebar" aria-label="Toggle sidebar"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
         <div class="chat-avatar" id="chat-avatar">📜</div>
         <div class="chat-title" id="chat-title-text">Select a character</div>
         <button class="chat-title-edit" id="chat-title-edit-btn" onclick="startEditTitle()" title="Edit title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M12 20H5a1 1 0 0 1-1-1v-7"/><path d="m16.5 3.5 4 4L11 17l-4 1 1-4 9.5-9.5z"/></svg></button>
@@ -110,7 +110,7 @@
         <button class="btn btn-sm" id="tools-panel-btn" onclick="toggleToolsPanel()" title="Agentic Tools & Workflows">✨ Workflow</button>
         <button class="btn btn-sm hidden" id="direction-notes-panel-btn" onclick="toggleDirectionNotesPanel()" title="Direction Notes">📝 Notes</button>
         <button class="btn btn-sm" id="inspector-toggle" data-chat-action="inspector" title="Inspector" aria-label="Inspector">🔍 Inspector</button>
-        <button id="mobile-chat-actions-toggle" onclick="toggleMobileHeaderActions()" title="Quick actions">⋯</button>
+        <button id="mobile-chat-actions-toggle" onclick="toggleMobileHeaderActions()" title="Quick actions" aria-label="Quick actions"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg></button>
         <div id="mobile-chat-actions-menu">
           <div class="burger-menu-item" id="mobile-user-profile-btn" onclick="closeMobileHeaderActions();showUserModal()">👤 User</div>
           <div class="burger-menu-item" onclick="closeMobileHeaderActions();toggleToolsPanel()">✨ Workflow</div>
@@ -130,7 +130,7 @@
     </div>
     <div id="chat-input-area">
       <div id="burger-dropdown">
-        <div class="burger-menu-item" onclick="closeBurger();newConversationHere()"><span class="burger-icon">✚</span>New conversation</div>
+        <div class="burger-menu-item" onclick="closeBurger();newConversationHere()"><span class="burger-icon"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg></span>New conversation</div>
         <div class="burger-menu-item" data-chat-action="convert-to-group" hidden><span class="burger-icon">👥</span>Convert to group</div>
         <div class="burger-menu-item" onclick="closeBurger();showConvHistoryModal()"><span class="burger-icon">📋</span>Conversations</div>
         <div class="burger-menu-item" onclick="closeBurger();showCompressModal()"><span class="burger-icon">📦</span>Compress History</div>
@@ -154,7 +154,7 @@
   </div>
   <div id="document-main">
     <div id="doc-header">
-      <button id="doc-mobile-sidebar-toggle" onclick="event.stopPropagation();toggleMobileSidebar()" title="Toggle sidebar">☰</button>
+      <button id="doc-mobile-sidebar-toggle" onclick="event.stopPropagation();toggleMobileSidebar()" title="Toggle sidebar" aria-label="Toggle sidebar"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
       <div class="doc-title" id="doc-title-text">No document</div>
       <button class="doc-title-edit" id="doc-title-edit-btn" onclick="renameActiveDocument()" title="Rename document"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M12 20H5a1 1 0 0 1-1-1v-7"/><path d="m16.5 3.5 4 4L11 17l-4 1 1-4 9.5-9.5z"/></svg></button>
       <div class="doc-header-status">
@@ -162,7 +162,7 @@
         <span id="doc-save-state" class="doc-save-state"></span>
       </div>
       <button class="btn btn-sm" id="doc-workflow-btn" title="Output Auditor &amp; Phrase Bank">✨ Workflow</button>
-      <button id="doc-workflow-mobile-btn" title="Output Auditor &amp; Phrase Bank" aria-label="Workflow">⋯</button>
+      <button id="doc-workflow-mobile-btn" title="Output Auditor &amp; Phrase Bank" aria-label="Workflow"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg></button>
     </div>
     <details id="doc-help">
       <summary id="doc-help-summary">How to prompt</summary>
@@ -249,7 +249,7 @@ Write a haiku about the sea.&lt;|im_end|&gt;
   <div id="avatar-popup" class="avatar-popup hidden" onclick="if(event.target===this)hideAvatarPopup()">
     <div class="avatar-popup-content">
       <img id="avatar-popup-image" src="" alt="Character avatar">
-      <button class="btn btn-sm avatar-popup-close" onclick="hideAvatarPopup()">✕</button>
+      <button class="btn btn-sm avatar-popup-close" onclick="hideAvatarPopup()" title="Close" aria-label="Close"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
     </div>
   </div>
 </div>

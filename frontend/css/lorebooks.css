@@ -123,6 +123,7 @@
 }
 
 .lb-close-btn {
+  --btn-square-size: 26px;
   margin-left: auto;
   opacity: .6;
 }
@@ -171,6 +172,7 @@
 }
 
 .lb-rename-btn {
+  --ui-icon-size: 13px;
   background: none;
   border: none;
   box-shadow: none;
@@ -298,6 +300,7 @@
 }
 
 .lb-back-btn {
+  --ui-icon-size: 15px;
   display: none;
   font-size: 18px;
   line-height: 1;
@@ -399,6 +402,8 @@
 }
 
 .lb-chip-remove {
+  --ui-icon-size: 11px;
+  --ui-icon-stroke: 2.8;
   font-size: 12px;
   line-height: 1;
   color: var(--text-muted);
