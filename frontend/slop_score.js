@@ -1,12 +1,8 @@
 import { api } from "./api.js";
-import { toast } from "./utils.js";
+import { messageBody, toast } from "./utils.js";
 import { segmentBody } from "./workflow_segmentation.js";
 
 const SLOP_THRESHOLD = 0.65; // matches the backend's intended cutoff; display-side only
-
-function bodyEl(msgId) {
-  return document.querySelector(`#chat-messages .message[data-msg-id="${msgId}"] .msg-body`);
-}
 
 function sentenceSpans(body) {
   const bySent = new Map();
@@ -58,7 +54,7 @@ function paint(body, sentIndices, bySent, scores) {
 }
 
 export async function scoreSlop(msgId, btn) {
-  const body = bodyEl(msgId);
+  const body = messageBody(msgId);
   if (!body) return;
   if (body.dataset.slopScored === "1") {
     clearSlop(body);

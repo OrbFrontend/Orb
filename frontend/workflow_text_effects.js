@@ -1,3 +1,5 @@
+import { messageBody } from "./utils.js";
+
 const SANCTIONED_VARIANTS = new Set(["highlight", "underline", "pulse"]);
 
 let _active = null;
@@ -32,7 +34,7 @@ export function clearTextEffect() {
 
 function _paint(unitIndex, on) {
   if (unitIndex == null || !_active) return;
-  const body = document.querySelector(`#chat-messages .message[data-msg-id="${_active.msgId}"] .msg-body`);
+  const body = messageBody(_active.msgId);
   if (!body) return;
   const attr = _active.grain === "sentence" ? "data-sent" : "data-seg";
   const cls = `fx-${_active.variant}`;

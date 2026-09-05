@@ -82,6 +82,14 @@ export function scrollToMessage(msgId) {
   if (el) scrollChatTarget(el, "center");
 }
 
+// Four modules paint into a message's body (prose rewrites, segmentation, text
+// effects, slop marks). The render pass hands them back the same node whenever
+// the markup is unchanged, so the way to reach one lives here rather than as a
+// selector string copied into each of them.
+export function messageBody(msgId) {
+  return $("chat-messages")?.querySelector(`.message[data-msg-id="${msgId}"] .msg-body`) ?? null;
+}
+
 export function pinStreamingMessage(el) {
   el.classList.add("stream-scroll-target");
   if (el.isConnected) scrollChatTarget(el, "start");

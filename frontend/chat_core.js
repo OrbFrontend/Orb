@@ -5,6 +5,7 @@ import {
   _renderWorkflowArtifacts,
   _renderWorkflowRejection,
 } from "./chat_workflow.js";
+import { reconcileChildren } from "./dom_reconcile.js";
 import { sceneEmptyStateHtml, speakerLabel } from "./group_cast.js";
 import { CHEVRON_LEFT_ICON, CHEVRON_RIGHT_ICON, EDIT_ICON_PATHS } from "./icons.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
@@ -282,108 +283,132 @@ export function ensureIndexInWindow(idx) {
   return false;
 }
 
-export function renderMessages(forceBottom = false) {
-  const ct = $("chat-messages");
-  let renderedMsgs = null;
-  ct.classList.add("measuring-render");
-  try {
-    preserveScrollDistance(
-      () => ct,
-      50,
-      () => {
-        let streamingEl = null;
-        let badgeEl = null;
-        if (S.isStreaming) {
-          streamingEl = S.streamingBodyEl?.closest(".message") ?? null;
-          badgeEl = document.getElementById("active-director-badge");
-        }
-        if (!S.activeConvId) {
-          ct.innerHTML =
-            '<div class="empty-state"><div class="icon" id="home-greeting-icon">📜</div><div id="home-greeting">Select a character to begin</div><div class="stats-grid" id="home-stats-grid"></div></div>';
-          renderHomeStats();
-        } else if (!S.messages.length) {
-          ct.innerHTML = S.groupCast
-            ? sceneEmptyStateHtml()
-            : '<div class="empty-state"><div class="icon">📜</div><div>Start writing to begin the scene</div></div>';
-        } else {
-          let msgs = S.messages;
-          if (S.isStreaming && S.streamCutoffIndex != null) {
-            msgs = S.messages.slice(0, S.streamCutoffIndex);
-          }
-          const start = Math.min(Math.max(S.renderWindowStart | 0, 0), msgs.length);
-          if (start > 0) msgs = msgs.slice(start);
-          renderedMsgs = msgs;
-          const childByParent = new Map();
-          for (const c of S.messages) {
-            if (c.role === "assistant" && c.parent_id != null && !childByParent.has(c.parent_id)) {
-              childByParent.set(c.parent_id, c);
-            }
-          }
-          ct.innerHTML = msgs
-            .map((m) => {
-              const isForkEditing = S.forkEditMsgId !== null && S.forkEditMsgId === m.id;
-              const isEditing =
-                (S.editingMsgId !== null && S.editingMsgId === m.id) ||
-                (!m.id && S.editingPendingUserMsg) ||
-                isForkEditing;
-              const bc = m.branch_count || 1;
-              const bi = m.branch_index || 0;
-              const branchHtml =
-                bc > 1
-                  ? `
-        <span class="swipe-nav">
+// The branch pager. finalizeStreamingDiv grafts this onto the bubble it just
+// baked instead of repainting the list, so both paths build it from here.
+export function swipeNavHtml(m) {
+  const bc = m.branch_count || 1;
+  if (bc <= 1) return "";
+  const bi = m.branch_index || 0;
+  return `<span class="swipe-nav">
           <button onclick="event.stopPropagation();switchBranch(${m.prev_branch_id})" ${!m.prev_branch_id ? "disabled" : ""} title="Previous branch" aria-label="Previous branch">${CHEVRON_LEFT_ICON}</button>
           <span class="swipe-counter">${bi + 1}/${bc}</span>
           <button onclick="event.stopPropagation();switchBranch(${m.next_branch_id})" ${!m.next_branch_id ? "disabled" : ""} title="Next branch" aria-label="Next branch">${CHEVRON_RIGHT_ICON}</button>
-        </span>`
-                  : "";
-              const toolbar = isEditing ? "" : `<div class="msg-toolbar">${buildMsgToolbar(m, childByParent)}</div>`;
-              const taId = m.id ? `edit-textarea-${m.id}` : `edit-textarea-pending`;
-              const editActions = isForkEditing
-                ? `<button class="btn btn-sm" onclick="cancelForkEdit()">Cancel</button>
-            <button class="btn btn-sm btn-accent" onclick="saveForkEdit(${m.id})">Fork</button>`
-                : `<button class="btn btn-sm" onclick="${m.id ? `cancelEdit()` : `cancelEditPending()`}">Cancel</button>
-            <button class="btn btn-sm btn-accent" onclick="${m.id ? `saveEdit(${m.id},'${m.role}')` : `saveEditPending()`}">Save</button>`;
-              const body = isEditing
-                ? `
+        </span>`;
+}
+
+function _messageHtml(m, childByParent) {
+  const isForkEditing = S.forkEditMsgId !== null && S.forkEditMsgId === m.id;
+  const isEditing =
+    (S.editingMsgId !== null && S.editingMsgId === m.id) || (!m.id && S.editingPendingUserMsg) || isForkEditing;
+  const branchHtml = swipeNavHtml(m);
+  const toolbar = isEditing ? "" : `<div class="msg-toolbar">${buildMsgToolbar(m, childByParent)}</div>`;
+  const taId = m.id ? `edit-textarea-${m.id}` : `edit-textarea-pending`;
+  const [cancelCall, commitCall, commitLabel] = isForkEditing
+    ? [`cancelForkEdit()`, `saveForkEdit(${m.id})`, "Fork"]
+    : m.id
+      ? [`cancelEdit()`, `saveEdit(${m.id},'${m.role}')`, "Save"]
+      : [`cancelEditPending()`, `saveEditPending()`, "Save"];
+  const editActions = `<button class="btn btn-sm" onclick="${cancelCall}">Cancel</button>
+            <button class="btn btn-sm btn-accent" onclick="${commitCall}">${commitLabel}</button>`;
+  const body = isEditing
+    ? `
         <div class="msg-edit-area">
           <textarea id="${taId}" rows="5">${esc(m.content)}</textarea>
           <div class="msg-edit-actions">
             ${editActions}
           </div>
         </div>`
-                : `<div class="msg-body">${
-                    S.pendingRefineDiff?.msgId && m.id === S.pendingRefineDiff.msgId && S.showEditorDiff
-                      ? formatProseWithDiff(S.pendingRefineDiff.ops)
-                      : formatProse(resolvePlaceholders(m.content))
-                  }</div>`;
-              const attachmentsHtml = renderUserAttachments(m.user_attachments);
-              const workflowArtifactsHtml = _renderWorkflowArtifacts(m);
-              const rejectionHtml = _renderWorkflowRejection(m);
-              const proposalsHtml = messageProposalsHtml(m);
-              const isProseRewriting = !!m.id && m.id === S.proseRewriteMsgId;
-              const rewritingHtml = isProseRewriting
-                ? `<span class="msg-rewriting"><span class="dot"></span>Rewriting prose…</span>`
-                : "";
-              return `<div class="message ${m.role}${isProseRewriting ? " prose-rewriting" : ""}" data-msg-id="${m.id}">
+    : `<div class="msg-body">${
+        S.pendingRefineDiff?.msgId && m.id === S.pendingRefineDiff.msgId && S.showEditorDiff
+          ? formatProseWithDiff(S.pendingRefineDiff.ops)
+          : formatProse(resolvePlaceholders(m.content))
+      }</div>`;
+  const attachmentsHtml = renderUserAttachments(m.user_attachments);
+  const workflowArtifactsHtml = _renderWorkflowArtifacts(m);
+  const rejectionHtml = _renderWorkflowRejection(m);
+  const proposalsHtml = messageProposalsHtml(m);
+  const isProseRewriting = !!m.id && m.id === S.proseRewriteMsgId;
+  const rewritingHtml = isProseRewriting
+    ? `<span class="msg-rewriting"><span class="dot"></span>Rewriting prose…</span>`
+    : "";
+  return `<div class="message ${m.role}${isProseRewriting ? " prose-rewriting" : ""}" data-msg-id="${m.id}">
         <div class="msg-role">${esc(speakerLabel(m))} ${branchHtml}${rewritingHtml}</div>
         ${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${proposalsHtml}${toolbar}
       </div>`;
-            })
-            .join("");
-        }
-        if (badgeEl) ct.appendChild(badgeEl);
-        if (streamingEl && !S.hideStreamingBox && !S.hideUntilBaked) ct.appendChild(streamingEl);
-        renderTurnError(ct);
-      },
-      { forceBottom },
-    );
-  } finally {
-    for (const messageEl of ct.querySelectorAll(".message")) {
-      messageEl.style.containIntrinsicSize = `auto ${messageEl.offsetHeight}px`;
-    }
-    ct.classList.remove("measuring-render");
+}
+
+// content-visibility hides an off-screen bubble's real height, so a node has to
+// be forced visible before it can be measured. Batch the whole set: add the
+// class to every node, read every height, then write. Interleaving a read and a
+// write per node costs one forced layout per message instead of one in total.
+function _measureIntrinsicSizes(nodes) {
+  if (!nodes.length) return;
+  for (const el of nodes) el.classList.add("msg-measuring");
+  const heights = nodes.map((el) => el.offsetHeight);
+  for (let i = 0; i < nodes.length; i++) {
+    // A render while the chat pane is hidden measures everything as 0. Leave the
+    // stylesheet's placeholder in place rather than pinning the bubble to zero.
+    if (heights[i] > 0) nodes[i].style.containIntrinsicSize = `auto ${heights[i]}px`;
+    nodes[i].classList.remove("msg-measuring");
   }
+}
+
+export function renderMessages(forceBottom = false) {
+  const ct = $("chat-messages");
+  let renderedMsgs = null;
+  preserveScrollDistance(
+    () => ct,
+    50,
+    () => {
+      let streamingEl = null;
+      let badgeEl = null;
+      if (S.isStreaming) {
+        streamingEl = S.streamingBodyEl?.closest(".message") ?? null;
+        badgeEl = document.getElementById("active-director-badge");
+      }
+      if (!S.activeConvId) {
+        ct.innerHTML =
+          '<div class="empty-state"><div class="icon" id="home-greeting-icon">📜</div><div id="home-greeting">Select a character to begin</div><div class="stats-grid" id="home-stats-grid"></div></div>';
+        renderHomeStats();
+      } else if (!S.messages.length) {
+        ct.innerHTML = S.groupCast
+          ? sceneEmptyStateHtml()
+          : '<div class="empty-state"><div class="icon">📜</div><div>Start writing to begin the scene</div></div>';
+      } else {
+        let msgs = S.messages;
+        if (S.isStreaming && S.streamCutoffIndex != null) {
+          msgs = S.messages.slice(0, S.streamCutoffIndex);
+        }
+        const start = Math.min(Math.max(S.renderWindowStart | 0, 0), msgs.length);
+        if (start > 0) msgs = msgs.slice(start);
+        renderedMsgs = msgs;
+        const childByParent = new Map();
+        for (const c of S.messages) {
+          if (c.role === "assistant" && c.parent_id != null && !childByParent.has(c.parent_id)) {
+            childByParent.set(c.parent_id, c);
+          }
+        }
+        // Reuse the bubbles whose markup did not change. A branch swipe or a
+        // mid-stream repaint then rebuilds only the rows that actually differ,
+        // instead of replaying the whole list's entrance animation and layout.
+        const fresh = reconcileChildren(
+          ct,
+          // An aborted turn can leave two id-less rows in the list (the pending user
+          // message and the unpersisted reply), so they key by position, not by role.
+          msgs.map((m, i) => ({ key: m.id ? `m${m.id}` : `p${i}`, html: _messageHtml(m, childByParent) })),
+          "msg-swap",
+        );
+        // Seed the new bubbles' intrinsic sizes before the scroll math below
+        // reads scrollHeight, or a node that has never been rendered still
+        // counts as the 300px placeholder and the restore lands short.
+        _measureIntrinsicSizes(fresh);
+      }
+      if (badgeEl) ct.appendChild(badgeEl);
+      if (streamingEl && !S.hideStreamingBox && !S.hideUntilBaked) ct.appendChild(streamingEl);
+      renderTurnError(ct);
+    },
+    { forceBottom },
+  );
   if (!S.isStreaming) updateContextCounter();
   _refreshWorkflowViewportObserver();
   _segmentRenderedMessages(renderedMsgs);
@@ -410,8 +435,18 @@ function _segmentRenderedMessages(renderedMsgs) {
   }
 }
 
+let _contextCounterTimer = null;
+
+// Every repaint asks for this, and the endpoint re-renders the whole prompt to
+// estimate it — a burst of swipes would otherwise queue one of the most
+// expensive requests in the app behind each click. Coalesce them; the counter
+// is a display, so only the last answer matters.
 export function updateContextCounter() {
-  fetchContextSize();
+  if (_contextCounterTimer) clearTimeout(_contextCounterTimer);
+  _contextCounterTimer = setTimeout(() => {
+    _contextCounterTimer = null;
+    fetchContextSize();
+  }, 250);
 }
 
 async function getContextSize(convId) {

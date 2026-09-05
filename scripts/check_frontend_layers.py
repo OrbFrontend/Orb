@@ -41,6 +41,7 @@ LAYERS = {
     "text_segmentation.js": 0,
     "icons.js": 0,
     "drag_reorder.js": 0,
+    "dom_reconcile.js": 0,
     # L1 state + shared pure helpers.
     "state.js": 1,
     "model_catalog.js": 1,
@@ -110,7 +111,7 @@ ALLOWED_UPWARD: set[tuple[str, str]] = {
 }
 
 # ── 2. Ratchets (may only decrease) ──────────────────────────────────────────
-MAX_INLINE_ON = 263  # inline on*= handlers across frontend/ (js + index.html)
+MAX_INLINE_ON = 256  # inline on*= handlers across frontend/ (js + index.html)
 MAX_UNDERSCORE_IMPORTS = 10  # underscore-prefixed names imported cross-module
 
 # ── 4. Frozen ABI ────────────────────────────────────────────────────────────
