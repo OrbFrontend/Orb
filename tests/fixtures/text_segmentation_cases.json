@@ -1,15 +1,147 @@
 [
-  {"name": "lowercase continuation", "text": "He left. she stayed.", "sentences": ["He left.", "she stayed."]},
-  {"name": "title and initials", "text": "Dr. Rivera met J. R. Hart. They spoke.", "sentences": ["Dr. Rivera met J. R. Hart.", "They spoke."]},
-  {"name": "acronym", "text": "U.S. Army officers waited. Then left.", "sentences": ["U.S. Army officers waited.", "Then left."]},
-  {"name": "time lowercase continuation", "text": "At 5 p.m. before dusk, she left.", "sentences": ["At 5 p.m. before dusk, she left."]},
-  {"name": "time sentence end", "text": "It was 5 p.m. She left.", "sentences": ["It was 5 p.m.", "She left."]},
-  {"name": "numbered abbreviation", "text": "See Fig. 2 now. Done.", "sentences": ["See Fig. 2 now.", "Done."]},
-  {"name": "decimal", "text": "Version 3.14 is here. Next.", "sentences": ["Version 3.14 is here.", "Next."]},
-  {"name": "closing quote", "text": "He said “Stop.” Then left.", "sentences": ["He said “Stop.”", "Then left."]},
-  {"name": "german closing quote", "text": "Er sagte „Bleib.“ Dann ging er.", "sentences": ["Er sagte „Bleib.“", "Dann ging er."]},
-  {"name": "unicode questions", "text": "真的？ نعم؟ Fine.", "sentences": ["真的？", "نعم؟", "Fine."]},
-  {"name": "tight cjk", "text": "彼は帰った。彼女は残った。", "sentences": ["彼は帰った。", "彼女は残った。"]},
-  {"name": "missing ascii space", "text": "He left.She stayed.", "sentences": ["He left.", "She stayed."]},
-  {"name": "every hard line break", "text": "A\nB\r\nC\u000bD\u000cE\u001cF\u001dG\u001eH\u0085I\u2028J\u2029K", "sentences": ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"]}
+  {
+    "name": "lowercase continuation",
+    "text": "He left. she stayed.",
+    "sentences": [
+      "He left.",
+      "she stayed."
+    ]
+  },
+  {
+    "name": "title and initials",
+    "text": "Dr. Rivera met J. R. Hart. They spoke.",
+    "sentences": [
+      "Dr. Rivera met J. R. Hart.",
+      "They spoke."
+    ]
+  },
+  {
+    "name": "acronym",
+    "text": "U.S. Army officers waited. Then left.",
+    "sentences": [
+      "U.S. Army officers waited.",
+      "Then left."
+    ]
+  },
+  {
+    "name": "time lowercase continuation",
+    "text": "At 5 p.m. before dusk, she left.",
+    "sentences": [
+      "At 5 p.m. before dusk, she left."
+    ]
+  },
+  {
+    "name": "time sentence end",
+    "text": "It was 5 p.m. She left.",
+    "sentences": [
+      "It was 5 p.m.",
+      "She left."
+    ]
+  },
+  {
+    "name": "numbered abbreviation",
+    "text": "See Fig. 2 now. Done.",
+    "sentences": [
+      "See Fig. 2 now.",
+      "Done."
+    ]
+  },
+  {
+    "name": "decimal",
+    "text": "Version 3.14 is here. Next.",
+    "sentences": [
+      "Version 3.14 is here.",
+      "Next."
+    ]
+  },
+  {
+    "name": "closing quote",
+    "text": "He said “Stop.” Then left.",
+    "sentences": [
+      "He said “Stop.”",
+      "Then left."
+    ]
+  },
+  {
+    "name": "german closing quote",
+    "text": "Er sagte „Bleib.“ Dann ging er.",
+    "sentences": [
+      "Er sagte „Bleib.“",
+      "Dann ging er."
+    ]
+  },
+  {
+    "name": "unicode questions",
+    "text": "真的？ نعم؟ Fine.",
+    "sentences": [
+      "真的？",
+      "نعم؟",
+      "Fine."
+    ]
+  },
+  {
+    "name": "tight cjk",
+    "text": "彼は帰った。彼女は残った。",
+    "sentences": [
+      "彼は帰った。",
+      "彼女は残った。"
+    ]
+  },
+  {
+    "name": "missing ascii space",
+    "text": "He left.She stayed.",
+    "sentences": [
+      "He left.",
+      "She stayed."
+    ]
+  },
+  {
+    "name": "every hard line break",
+    "text": "A\nB\r\nC\u000bD\fE\u001cF\u001dG\u001eHI J K",
+    "sentences": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E",
+      "F",
+      "G",
+      "H",
+      "I",
+      "J",
+      "K"
+    ]
+  },
+  {
+    "name": "ellipsis beat resumed lowercase",
+    "text": "Her eyes seem a bit... more still than usual. She waits.",
+    "sentences": [
+      "Her eyes seem a bit... more still than usual.",
+      "She waits."
+    ]
+  },
+  {
+    "name": "unicode ellipsis beat resumed lowercase",
+    "text": "She hesitated… then spoke. He nodded.",
+    "sentences": [
+      "She hesitated… then spoke.",
+      "He nodded."
+    ]
+  },
+  {
+    "name": "ellipsis sentence end",
+    "text": "I don't know... Maybe later.",
+    "sentences": [
+      "I don't know...",
+      "Maybe later."
+    ]
+  },
+  {
+    "name": "ellipsis before quote",
+    "text": "He paused... \"Fine.\"",
+    "sentences": [
+      "He paused...",
+      "\"Fine.\""
+    ]
+  }
 ]

@@ -67,6 +67,10 @@ const NUMBER_ABBREVIATIONS = new Set([
 const LETTER = /\p{L}/u;
 const ALNUM = /[\p{L}\p{N}]/u;
 const ABBREVIATION = /(?:\p{L}+\.)+$/u;
+// Parity with backend/core/text_segmentation.py: a trailing-off ellipsis is
+// only a sentence end when what follows starts one. `a bit... more still than
+// usual` is one sentence, and splitting it manufactures a fragment.
+const ELLIPSIS_RUN = /^(?:\.{2,}|…+)$/u;
 
 export function isHardLineBreak(c) {
   return (
@@ -87,6 +91,10 @@ export function isSentenceWhitespace(c) {
 
 function _isUpper(c) {
   return Boolean(c && LETTER.test(c) && c === c.toUpperCase() && c !== c.toLowerCase());
+}
+
+function _isLower(c) {
+  return Boolean(c && LETTER.test(c) && c === c.toLowerCase() && c !== c.toUpperCase());
 }
 
 function _periodIsNonterminal(text, period, nextIndex) {
@@ -135,6 +143,12 @@ export function sentenceBoundaryEnds(text) {
       [...terminals].some((c) => TIGHT_TERMINATORS.has(c)) ||
       (markerEnd < text.length && _isUpper(text[markerEnd]) && [...terminals].some((c) => ".!?".includes(c)));
     if (!hasSeparator && !(allowsTight && markerEnd < text.length)) {
+      i = terminalEnd;
+      continue;
+    }
+    // The abbreviation check below only ever guarded a SINGLE period, so a run
+    // of terminators reached the push unconditionally.
+    if (_isLower(text[boundaryEnd]) && ELLIPSIS_RUN.test(terminals)) {
       i = terminalEnd;
       continue;
     }

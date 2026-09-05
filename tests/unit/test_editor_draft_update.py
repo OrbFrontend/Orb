@@ -24,6 +24,7 @@ from backend.analysis.detectors.slop_detector import (
     FlaggedSentence,
 )
 from backend.analysis.detectors.template_repetition import TemplateResult
+from backend.analysis.patching import apply_id_patches
 from backend.inference import (
     EDITOR_RENUMBER_NOTICE,
     CachedBase,
@@ -402,3 +403,70 @@ async def test_non_thinking_mode_still_stops_quietly():
 
     assert len(seen) == 1
     assert events[-1]["draft"] == GUARDED_DRAFT.replace(GUARDED_CLOSER, "Nobody spoke.")
+
+
+async def test_the_rewriter_output_is_what_gets_audited():
+    # The local prose rewriter runs BEFORE the audit, so every span the editor is
+    # handed has to come from the rewritten prose. Auditing the writer's text and
+    # patching the rewriter's would address offsets into a draft that no longer
+    # exists. The ordering lives in editor_pass and had no test.
+    writer = "Monika doesn't flinch. Her eyes seem a bit... more still than usual."
+    rewritten = "Monika doesn't flinch. Her stare seems a bit... more fixed than usual."
+    audited: list[str] = []
+
+    async def fake_rewrite_events(draft, cfg):
+        assert draft == writer  # the rewriter is the one pass that sees the writer's text
+        yield {"type": "draft_update", "draft": rewritten}
+        yield {"type": "rewritten", "draft": rewritten}
+
+    async def spy_audit(draft, phrase_bank, prev_msgs, audit_toggles=None, user_message=""):
+        audited.append(draft)
+        report = _make_report([])
+        return report, build_targets(report, draft)
+
+    client = LLMClient("http://localhost:9999")
+    seen: list[list] = []
+    client.complete = _scripted([], seen)
+
+    with (
+        patch("backend.pipeline.passes.editor.editor.rewrite_events", new=fake_rewrite_events),
+        patch("backend.pipeline.passes.editor.editor._run_contextual_audit", new=spy_audit),
+    ):
+        events = [
+            e
+            async for e in editor_pass(
+                client,
+                _make_base(),
+                effective_msg="user msg",
+                draft=writer,
+                settings=SETTINGS,
+                phrase_bank=[],
+                audit_enabled=True,
+                length_guard=None,
+                prose_rewrite={"variant_id": "test", "gpu": True, "batch_size": 2},
+            )
+        ]
+
+    assert audited == [rewritten]
+    # A clean audit exits before the LLM loop, but the rewrite still has to be
+    # announced as the absolute draft rather than the "unchanged" None.
+    assert not seen
+    assert events[-1]["draft"] == rewritten
+
+
+async def test_patching_an_ellipsis_beat_does_not_strand_its_continuation():
+    # The reported failure: `a bit... more still than usual` is ONE sentence, and
+    # splitting at the ellipsis made its first half an addressable target. The
+    # model's replacement ends in a full stop, so patching the fragment left
+    # `. more still than usual.` -- a lowercase orphan -- in the saved reply.
+    draft = "Monika doesn't flinch. Her expression still open, although her emerald eyes seem a bit... more still than usual."
+    beat = "Her expression still open, although her emerald eyes seem a bit... more still than usual."
+
+    report = _make_report([beat])
+    targets = build_targets(report, draft)
+
+    assert [t.span for t in targets] == [beat]  # the whole beat, not the half before the ellipsis
+
+    patched, errors = apply_id_patches(draft, targets, [{"id": 1, "replace": "Her face stays open and inviting."}])
+    assert not errors
+    assert patched == "Monika doesn't flinch. Her face stays open and inviting."
