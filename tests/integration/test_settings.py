@@ -188,7 +188,6 @@ async def test_editor_audit_toggles_default_and_roundtrip(client, db):
 async def test_show_chat_avatars_default_and_roundtrip(client, db):
     resp = await client.get("/api/settings")
     assert resp.status_code == 200
-    # Off by default: an upgrading install must not change appearance.
     assert resp.json()["show_chat_avatars"] == 0
 
     resp = await client.put("/api/settings", json={"show_chat_avatars": True})

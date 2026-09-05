@@ -678,9 +678,7 @@ class PhraseGroupUpdate(BaseModel):
     pattern: str = ""
 
 
-# A persona avatar is produced by the same crop modal as a character's, which
-# re-encodes to a 400x400 PNG (~100-300 KB). 2 MB leaves room for a hand-crafted
-# upload without letting an arbitrary blob into a column the list path reads past.
+# Keep avatar blobs bounded before they reach SQLite.
 MAX_PERSONA_AVATAR_BYTES = 2 * 1024 * 1024
 
 
@@ -713,8 +711,6 @@ class UserPersonaUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     avatar_color: str | None = None
-    # An explicit null on either clears the image; the route restores that
-    # through model_fields_set, since it drops Nones before writing.
     avatar_b64: str | None = None
     avatar_mime: str | None = None
 

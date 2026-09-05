@@ -331,23 +331,12 @@ function _messageHtml(m, childByParent, avatars) {
   const rewritingHtml = isProseRewriting
     ? `<span class="msg-rewriting"><span class="dot"></span>Rewriting prose…</span>`
     : "";
-  // First child of .message and a sibling of .msg-role, not inside it:
-  // finalizeStreamingDiv, patchPendingUserMessage, patchParentUserMessage and
-  // the user_message_created handler all rebuild .msg-role, and would each have
-  // to learn about the portrait if it lived in there.
   return `<div class="message ${m.role}${isProseRewriting ? " prose-rewriting" : ""}" data-msg-id="${m.id}">
         ${avatars ? speakerAvatarCell(m) : ""}<div class="msg-role">${esc(speakerLabel(m))} ${branchHtml}${rewritingHtml}</div>
         ${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${proposalsHtml}${toolbar}
       </div>`;
 }
 
-/** Keep an in-flight bubble's gutter in step with the toggle.
- *
- * The streaming node is carried across re-renders rather than rebuilt from the
- * template above, so flipping "Show avatars in chat" mid-turn would otherwise
- * leave it the one message with no portrait -- and leave it that way for good,
- * since finalizeStreamingDiv patches the node in place instead of re-rendering.
- */
 function syncStreamingAvatar(el, avatars) {
   const cell = el.querySelector(":scope > .msg-avatar");
   if (avatars && !cell) {
@@ -377,9 +366,6 @@ function _measureIntrinsicSizes(nodes) {
 export function renderMessages(forceBottom = false) {
   const ct = $("chat-messages");
   let renderedMsgs = null;
-  // An attribute rather than a body class: the gutter's rules all hang off
-  // `#chat-messages[data-avatars="on"]`, where no theme selector can collide
-  // with them. Read once per render -- every message resolves the same toggle.
   const avatars = S.showChatAvatars;
   ct.dataset.avatars = avatars ? "on" : "off";
   preserveScrollDistance(

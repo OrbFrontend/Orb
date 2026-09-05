@@ -241,9 +241,6 @@ async def api_get_avatar(card_id: str, request: Request):
     if not result:
         raise HTTPException(status_code=404, detail="No avatar found")
     image_bytes, mime_type = result
-    # Avatars are large (a card's full PNG) and change only on edit; let the
-    # browser cache them so the library grid doesn't re-download every avatar on
-    # each re-render/search/sort.
     return cached_image_response(image_bytes, mime_type, request)
 
 
@@ -322,9 +319,6 @@ async def api_get_expression(card_id: str, label: str, request: Request):
     if not result:
         raise HTTPException(status_code=404, detail="No expression found")
     image_bytes, mime = result
-    # Same private-cache + conditional-GET treatment as avatars: expressions
-    # change only on re-upload, and the popup swaps src on label change without
-    # a buster.
     return cached_image_response(image_bytes, mime, request)
 
 

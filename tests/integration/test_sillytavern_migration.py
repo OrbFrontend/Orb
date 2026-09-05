@@ -68,7 +68,6 @@ CARD_BOOK = {
 }
 
 
-# A 1x1 PNG, stood up as a real persona avatar file under User Avatars/.
 PERSONA_AVATAR_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 )
@@ -84,10 +83,7 @@ def build_st_install(base: Path) -> Path:
     for folder in ("characters", "chats", "worlds", "groups", "group chats", "User Avatars"):
         (user / folder).mkdir(parents=True, exist_ok=True)
 
-    # One persona has a picture on disk and one does not, so the import covers
-    # both the image path and the colour-only fallback.
     (user / "User Avatars" / "mariner.png").write_bytes(PERSONA_AVATAR_BYTES)
-    # A persona whose file is past the cap: it must import, minus the picture.
     (user / "User Avatars" / "huge.png").write_bytes(PERSONA_AVATAR_BYTES + b"\x00" * (2 * 1024 * 1024))
 
     # The card's *name* and its avatar *filename* differ on purpose: ST keys
@@ -360,12 +356,8 @@ async def test_personas_are_created_and_pinned_to_their_chat(st_install: Path, d
     personas = {p["name"]: p for p in (await client.get("/api/user-personas")).json()}
     assert {"Mariner", "Quiet One"} <= set(personas)
     assert personas["Mariner"]["description"] == "Sails the coast."
-    # The picture under User Avatars/ lands on the persona; the persona with no
-    # file keeps the generated colour and no image.
     assert personas["Mariner"]["has_avatar"] is True
     assert personas["Quiet One"]["has_avatar"] is False
-    # Past the size cap the persona still lands, just without its picture --
-    # the script must not write a row the API itself would reject.
     assert personas["Huge"]["has_avatar"] is False
     avatar = await client.get(f"/api/user-personas/{personas['Mariner']['id']}/avatar")
     assert avatar.status_code == 200

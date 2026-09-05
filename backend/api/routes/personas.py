@@ -30,12 +30,9 @@ async def api_create_user_persona(data: UserPersonaCreate):
 @router.put("/api/user-personas/{persona_id}")
 async def api_update_user_persona(persona_id: int, data: UserPersonaUpdate):
     update_data = data.model_dump(exclude_none=True)
-    # exclude_none drops the one payload that clears an image, so restore an
-    # explicitly-sent null for both avatar halves (same idiom as world_id on
-    # api_update_character).
-    for field in ("avatar_b64", "avatar_mime"):
-        if field in data.model_fields_set:
-            update_data[field] = getattr(data, field)
+    update_data.update(
+        {field: getattr(data, field) for field in ("avatar_b64", "avatar_mime") if field in data.model_fields_set}
+    )
     result = await update_user_persona(persona_id, update_data)
     if not result:
         raise HTTPException(status_code=404, detail="User persona not found")

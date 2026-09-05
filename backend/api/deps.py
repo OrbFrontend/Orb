@@ -330,17 +330,7 @@ _PROFILE_UPSTREAM = "The model endpoint did not answer the profile request."
 
 
 def cached_image_response(image_bytes: bytes, mime: str | None, request: Request) -> Response:
-    """A stored image with a private cache window and a conditional-GET escape.
-
-    Shared by character avatars, character expressions, and persona avatars: all
-    three are large, change only on an explicit edit, and are re-requested on
-    every list re-render. The frontend busts the URL (``?v=``) when it edits one
-    in-session; the ETag corrects a cross-session edit once max-age lapses, for
-    the cost of a 304. ``no_cache_middleware`` sets its headers with
-    ``setdefault``, so the Cache-Control chosen here survives.
-
-    usedforsecurity=False: this is a cache validator, not a security hash.
-    """
+    """Return a privately cacheable image response with ETag support."""
     etag = '"' + hashlib.md5(image_bytes, usedforsecurity=False).hexdigest() + '"'
     cache_headers = {"Cache-Control": "private, max-age=300", "ETag": etag}
     if request.headers.get("if-none-match") == etag:

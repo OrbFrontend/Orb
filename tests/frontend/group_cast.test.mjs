@@ -490,11 +490,6 @@ test("search never reports a hidden remainder, so no “show all” is offered",
   assert.equal(visibleGroups(families(GROUP_LIMIT + 4), { query: "Group" }).hidden, 0);
 });
 
-// ── speakerAvatar ────────────────────────────────────────────────────────────
-// The gutter's resolution order, which mirrors speakerLabel's: the persona in
-// force for a user message, the speaking member's card in a group, the
-// conversation's card solo, and a glyph when nothing has a card behind it.
-
 function withPersona({ personas = [], activeId = null, conv = null } = {}) {
   S.personas = personas;
   S.activePersonaId = activeId;
@@ -508,7 +503,6 @@ test("a user message shows the active persona's picture", () => {
   withPersona({ personas: [{ id: 7, name: "Kai", has_avatar: true }], activeId: 7 });
   const html = speakerAvatar({ role: "user" });
   assert.match(html, /<img src="\/api\/user-personas\/7\/avatar\?v=0"/);
-  // Decorative: the speaker's name is already in .msg-role beside it.
   assert.match(html, /alt=""/);
 });
 
@@ -525,8 +519,6 @@ test("a user message with no persona at all falls back to a glyph", () => {
 });
 
 test("a conversation pin outranks the global default for the user's picture", () => {
-  // The gutter must agree with effectivePersonaId(), which is what the backend
-  // actually builds the prompt from.
   solo();
   withPersona({
     personas: [
@@ -556,7 +548,6 @@ test("a narrator line and a summary fall back to their own glyphs", () => {
   scene({ members: [ARTUS, NARRATOR] });
   withPersona();
   assert.equal(speakerAvatar({ role: "assistant", speaker_member_id: "m3" }), "\u2712\uFE0F");
-  // No speaker at all is the group summary.
   assert.equal(speakerAvatar({ role: "assistant", speaker_member_id: null }), "\u{1F464}");
 });
 
@@ -565,8 +556,6 @@ test("a solo reply shows the conversation's character", () => {
   withPersona({ conv: { id: "cv1", character_card_id: "c9" } });
   assert.match(speakerAvatar({ role: "assistant" }), /\/api\/characters\/c9\/avatar/);
 });
-
-// ── the initials chip carries the persona's colour ───────────────────────────
 
 test("a user message with no picture wears the persona's own colour", () => {
   solo();
@@ -577,19 +566,14 @@ test("a user message with no picture wears the persona's own colour", () => {
 });
 
 test("the chip's ink flips with the colour's luminance, so it stays readable", () => {
-  // Persona colours are arbitrary — the SillyTavern importer hashes the name —
-  // so a fixed ink would vanish on half of them.
   assert.equal(readableInk("#ffffff"), "#14201c");
   assert.equal(readableInk("#000000"), "#f2f5f4");
   assert.equal(readableInk("#E1F5EE"), "#14201c");
   assert.equal(readableInk("#2b1d0e"), "#f2f5f4");
-  // Shorthand hex resolves the same as its expanded form.
   assert.equal(readableInk("#fff"), readableInk("#ffffff"));
 });
 
 test("a non-hex avatar_color never reaches the style attribute", () => {
-  // avatar_color is free-form on the API, and this one is interpolated into a
-  // style attribute rather than escaped text.
   solo();
   withPersona({
     personas: [{ id: 7, name: "Kai", has_avatar: false, avatar_color: "red;background-image:url(x)" }],
@@ -611,13 +595,6 @@ test("a character's chip is never given a persona colour", () => {
   withPersona({ personas: [{ id: 7, name: "Kai", has_avatar: false, avatar_color: "#E1F5EE" }], activeId: 7 });
   assert.ok(!speakerAvatarCell({ role: "assistant", speaker_member_id: "m1" }).includes("style="));
 });
-
-// ── avatar_color is hostile input ────────────────────────────────────────────
-// It is never set by the persona editor: it arrives from a seed, the
-// SillyTavern importer, or a *preset* — a file people share with each other.
-// Both surfaces that paint it interpolate it into a style attribute, so a value
-// carrying a double quote would close that attribute and inject markup. These
-// pin the gate shut at the one helper both call sites go through.
 
 test("safePersonaColour passes a literal hex colour and nothing else", () => {
   for (const ok of ["#fff", "#FFF", "#2b6f4e", "#E1F5EE"]) {

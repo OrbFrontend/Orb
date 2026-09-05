@@ -158,21 +158,12 @@ export function speakerLabel(msg) {
   return S.groupCast.speakerNames?.get(msg.speaker_member_id) || "Unknown speaker";
 }
 
-// The attributes renderUserAttachments already puts on images inside .message.
-// The portrait is decorative -- the speaker's name is in .msg-role right beside
-// it -- so alt stays empty rather than repeating that name to a screen reader.
 const AVATAR_IMG_ATTRS = 'loading="lazy" decoding="async" alt=""';
 
 const NARRATOR_AVATAR = "\u2712\ufe0f";
 const GENERIC_AVATAR = "\ud83d\udc64";
 
-/** The portrait for one rendered message, as the inner HTML of `.msg-avatar`.
- *
- * Resolution follows speakerLabel(): a user message shows the persona that is
- * actually in force (conversation pin -> card pin -> global default, the order
- * the backend's predicates use), a group reply shows its own speaker's card,
- * and a solo reply shows the conversation's card. Anything with no card behind
- * it -- a narrator line, a group summary -- falls back to a glyph. */
+/** Return a message's avatar markup. */
 function messagePersona() {
   return S.personas?.find((p) => p.id === effectivePersonaId()) || null;
 }
@@ -190,22 +181,11 @@ export function speakerAvatar(msg) {
     ? S.groupCast.members?.find((m) => m.id === msg?.speaker_member_id)?.character_card_id
     : S.conversations?.find((c) => c.id === S.activeConvId)?.character_card_id;
   if (cardId) return avatarCell(escAttr(avatarUrl(cardId)), { icon: GENERIC_AVATAR, attrs: AVATAR_IMG_ATTRS });
-  // No card: a narrator member speaking, or a group summary with no speaker.
   const member = S.groupCast?.members?.find((m) => m.id === msg?.speaker_member_id);
   return member?.member_kind === "narrator" ? NARRATOR_AVATAR : GENERIC_AVATAR;
 }
 
-/** The gutter cell itself.
- *
- * Emitted for every theme, since a theme is one swapped stylesheet and cannot
- * add DOM of its own -- what it can do is restyle `.msg-avatar`. The callers
- * gate it on the "Show avatars in chat" setting rather than always emitting it,
- * so an install with the gutter off issues no portrait requests at all;
- * `#chat-messages[data-avatars="on"]` carries the matching layout rules.
- *
- * A user message falling back to its initial wears the persona's own colour, so
- * the chip reads as the same identity the persona picker shows. An image fills
- * the chip and a glyph has no persona behind it, so neither is tinted. */
+/** Wrap a message avatar in its gutter cell. */
 export function speakerAvatarCell(msg) {
   const inner = speakerAvatar(msg);
   let style = "";

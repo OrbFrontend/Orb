@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 
-# A 1x1 PNG; small enough to compare byte-for-byte against what the route serves.
 PNG_BYTES = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
 PNG_B64 = base64.b64encode(PNG_BYTES).decode()
 
@@ -96,7 +95,6 @@ async def test_create_persona_with_avatar_stores_and_serves_it(client, db):
     etag = resp.headers["etag"]
     assert etag
 
-    # The conditional GET the private max-age window relies on.
     resp = await client.get(f"/api/user-personas/{persona_id}/avatar", headers={"If-None-Match": etag})
     assert resp.status_code == 304
     assert resp.headers["etag"] == etag
@@ -111,7 +109,6 @@ async def test_list_personas_reports_has_avatar_without_the_blob(client, db):
     by_name = {p["name"]: p for p in resp.json()}
     assert by_name["Pictured"]["has_avatar"] is True
     assert by_name["Plain"]["has_avatar"] is False
-    # The blob must never ride along on the list payload.
     assert "avatar_b64" not in by_name["Pictured"]
     assert PNG_B64 not in resp.text
 
@@ -141,7 +138,6 @@ async def test_explicit_null_clears_a_persona_avatar(client, db):
 
 
 async def test_update_without_avatar_keys_leaves_the_image_alone(client, db):
-    """exclude_none drops absent fields; only an explicitly-sent null clears."""
     persona_id = (
         await client.post(
             "/api/user-personas",

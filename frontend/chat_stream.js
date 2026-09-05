@@ -167,9 +167,6 @@ export function stopGeneration() {
 export function createStreamingDiv(name = null, memberId = null) {
   const div = document.createElement("div");
   div.className = "message assistant";
-  // The portrait is painted with the bubble, before the first token, so the
-  // gutter does not appear under the reply and shove it sideways mid-stream.
-  // finalizeStreamingDiv mutates this node in place and leaves it alone.
   const avatar = S.showChatAvatars ? speakerAvatarCell({ role: "assistant", speaker_member_id: memberId }) : "";
   div.innerHTML = `${avatar}<div class="msg-role">${esc(name || getCharName())}</div>
     <div class="msg-body" id="streaming-body">

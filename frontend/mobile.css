@@ -192,9 +192,6 @@ body {
 }
 
 @media (max-width: 700px) {
-  /* The avatar gutter costs its own width plus the 10px column gap out of an
-     already narrow message column, so shrink the chip. One custom property:
-     chat.css sizes both the grid track and the box from it. */
   #chat-messages[data-avatars="on"] {
     --msg-avatar-size: 26px;
   }

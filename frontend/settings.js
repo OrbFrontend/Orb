@@ -192,9 +192,6 @@ export function renderSettings() {
   loadLocalMLSection();
 }
 
-// The toggle cards above are identical but for which flag they flip, so they
-// delegate off the form rather than each naming its handler inline (the same
-// shape as wireLocalMLSection below).
 const SETTING_TOGGLES = {
   hideUntilBaked: toggleHideUntilBaked,
   showChatAvatars: toggleShowChatAvatars,
@@ -204,10 +201,6 @@ const SETTING_TOGGLES = {
 function wireSettingsToggles(el) {
   if (el.dataset.togglesWired) return;
   el.dataset.togglesWired = "1";
-  // Flipping a switch is not a click "outside" anything. The form sits below the
-  // document-level dismiss handlers (burger, mobile header actions, cast menus)
-  // in the bubble path, so stopping here keeps them shut, as the inline
-  // stopPropagation these labels used to carry did.
   el.addEventListener("click", (ev) => {
     if (ev.target.closest("[data-setting-stop]")) ev.stopPropagation();
   });

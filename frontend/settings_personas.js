@@ -1,9 +1,4 @@
 import { api } from "./api.js";
-// Peer L5 import, the same edge settings.js already has. Taken straight from
-// chat_core.js rather than the chat.js barrel: chat_conversations.js imports
-// updateUserBtn from this module, so going through the barrel would close an
-// import cycle for nothing. Six paths here change which portrait user messages
-// carry, and none of them go through renderChat.
 import { renderMessages } from "./chat_core.js";
 import { EDIT_ICON } from "./icons.js";
 import { closeModal, confirmDelete, showCropModal, showModal } from "./modal.js";
@@ -31,11 +26,7 @@ export async function loadPersonas() {
   repaintUserAvatars();
 }
 
-/** Repaint the chat gutter after anything that changes which persona speaks.
- *
- * `speakerAvatar()` resolves a user message's portrait live from `S`, so every
- * persona edit, activation, and pin silently invalidates what is on screen.
- * Cheap no-op while the gutter is off. */
+/** Repaint the chat gutter when persona state changes. */
 export function repaintUserAvatars() {
   if (S.showChatAvatars) renderMessages();
 }
@@ -84,18 +75,11 @@ export function showUserModal() {
   const personaItems = S.personas
     .map((p) => {
       const isActive = p.id === S.activePersonaId;
-      // Validated, not merely escaped: this lands in a style attribute below,
-      // and avatar_color is unvalidated free-form text that reaches this
-      // install through a *shared* preset. Left raw, a value carrying a double
-      // quote closes the attribute and injects markup of its own.
       const avatarColor = safePersonaColour(p.avatar_color) || "#E1F5EE";
       const avatarTextColor = isActive ? "var(--accent)" : "#085041";
       const avatarBg = isActive ? "var(--accent-glow)" : avatarColor;
       const initials = p.name.charAt(0).toUpperCase();
       const avatarSrc = personaAvatarSrc(p);
-      // avatarCell returns its icon verbatim for an empty src, so the coloured
-      // initial chip stays the fallback -- both when no image is stored and when
-      // a stored one fails to load.
       const avatarInner = avatarSrc ? avatarCell(escAttr(avatarSrc), { icon: escHandlerArg(initials) }) : esc(initials);
       const convLocked = !!conv && conv.persona_lock_id === p.id;
       const charLocked = !!card && card.persona_lock_id === p.id;
@@ -234,10 +218,7 @@ function personaPreviewHtml(persona) {
   return src ? avatarCell(escAttr(src), { icon: PERSONA_ICON }) : PERSONA_ICON;
 }
 
-/** Wire the avatar row with one delegated listener rather than inline handlers,
- * which the frontend layer check ratchets down (check_frontend_layers.py). The
- * `wired` guard is belt-and-braces: showModal replaces #modal-root's innerHTML,
- * so this container is a fresh node on every open. */
+/** Wire the avatar controls. */
 function wirePersonaAvatarControls(persona) {
   const box = $("persona-avatar-controls");
   if (!box || box.dataset.wired) return;
@@ -245,8 +226,6 @@ function wirePersonaAvatarControls(persona) {
   box.addEventListener("click", (e) => {
     const action = e.target.closest("[data-action]")?.dataset.action;
     if (action === "choose") {
-      // aspect 1: showCropModal re-encodes to a 400x400 PNG, so a persona chip
-      // gets a square the same way a character card gets a 2:3 portrait.
       showCropModal(({ b64, mime }) => {
         _pendingPersonaAvatar = { b64, mime };
         const preview = $("persona-avatar-preview");
@@ -274,8 +253,6 @@ export async function savePersona(personaId) {
   }
   const payload = { name, description };
   if (_pendingPersonaAvatar === REMOVE_AVATAR) {
-    // Explicit nulls, not omissions: the route restores them past
-    // exclude_none via model_fields_set, which is what actually clears the row.
     payload.avatar_b64 = null;
     payload.avatar_mime = null;
   } else if (_pendingPersonaAvatar) {
@@ -294,9 +271,6 @@ export async function savePersona(personaId) {
       const result = await api.post("/user-personas", payload);
       newId = result.id;
     }
-    // Bump before reloading: the picker chips and the chat gutter both read the
-    // version through personaAvatarSrc(), and the old image is still inside the
-    // browser's max-age window.
     if (avatarChanged) S.personaAvatarVersion++;
     await loadPersonas();
     if (setActive) await activatePersona(newId);
@@ -304,9 +278,6 @@ export async function savePersona(personaId) {
     showUserModal();
     toast("Persona saved");
   } catch (e) {
-    // The modal stays open on failure, still showing the chosen image. Put the
-    // pending choice back so pressing Update again retries the whole save --
-    // without this the retry silently posts name and description only.
     _pendingPersonaAvatar = pending;
     toast(`Failed: ${e.message}`, true);
   }
@@ -321,7 +292,6 @@ export async function deletePersona(personaId) {
         S.activePersonaId = null;
         updateUserBtn();
       }
-      // loadPersonas() repaints the gutter itself.
       await loadPersonas();
       showUserModal();
       toast("Persona deleted");

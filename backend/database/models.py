@@ -495,13 +495,7 @@ class ActiveLorebookEntryRow(LorebookEntryRow):
 
 
 class UserPersonaRow(TypedDict):
-    """A row from ``user_personas`` as the readers project it.
-
-    ``avatar_b64`` is deliberately absent: both readers select ``avatar_mime``
-    and derive ``has_avatar`` from it, so the blob never rides along on
-    ``GET /api/user-personas``. The bytes are fetched on their own by
-    ``get_persona_avatar()``, the way character avatars work.
-    """
+    """A user persona without avatar bytes."""
 
     id: int
     name: str

@@ -7,10 +7,7 @@ from typing import Any, cast
 from ..connection import _build_set_clause, get_db
 from ..models import UserPersonaRow
 
-# Every column the readers project, minus the blob. ``avatar_b64`` is fetched on
-# its own by get_persona_avatar() so a persona's image never rides along on the
-# list payload -- same split list_character_cards() makes for cards.
-_PERSONA_COLS = "id, name, description, avatar_color, avatar_mime, created_at, updated_at"
+_PERSONA_SELECT = "SELECT id, name, description, avatar_color, avatar_mime, created_at, updated_at FROM user_personas"
 
 
 def _project(row: Any) -> UserPersonaRow:
@@ -21,7 +18,7 @@ def _project(row: Any) -> UserPersonaRow:
 
 async def get_user_personas() -> list[UserPersonaRow]:
     async with get_db() as db:
-        rows = list(await db.execute_fetchall(f"SELECT {_PERSONA_COLS} FROM user_personas ORDER BY name ASC"))  # nosec B608 -- hardcoded column list
+        rows = list(await db.execute_fetchall(_PERSONA_SELECT + " ORDER BY name ASC"))
         return [_project(r) for r in rows]
 
 
@@ -29,7 +26,7 @@ async def get_user_persona(persona_id: int) -> UserPersonaRow | None:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                f"SELECT {_PERSONA_COLS} FROM user_personas WHERE id = ?",  # nosec B608 -- hardcoded column list
+                _PERSONA_SELECT + " WHERE id = ?",
                 (persona_id,),
             )
         )
@@ -37,7 +34,7 @@ async def get_user_persona(persona_id: int) -> UserPersonaRow | None:
 
 
 async def get_persona_avatar(persona_id: int) -> tuple[bytes, str] | None:
-    """Returns (image_bytes, mime_type) or None."""
+    """Return decoded avatar bytes and MIME type, if present."""
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -92,8 +89,6 @@ async def update_user_persona(persona_id: int, data: dict) -> UserPersonaRow | N
 
 async def delete_user_persona(persona_id: int) -> bool:
     async with get_db() as db:
-        # Clear dangling locks explicitly: an ALTER-added persona_lock_id column
-        # can't rely on ON DELETE SET NULL on already-migrated SQLite DBs.
         await db.execute("UPDATE conversations  SET persona_lock_id = NULL WHERE persona_lock_id = ?", (persona_id,))
         await db.execute("UPDATE character_cards SET persona_lock_id = NULL WHERE persona_lock_id = ?", (persona_id,))
         cur = await db.execute("DELETE FROM user_personas WHERE id = ?", (persona_id,))

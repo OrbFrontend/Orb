@@ -1,16 +1,4 @@
-"""
-0057_persona_avatars -- give user personas an image, and add the chat-avatar
-gutter toggle.
-
-``user_personas`` previously stored only ``avatar_color``; the two new columns
-hold the same base64/mime pair ``character_cards`` uses. ``show_chat_avatars``
-defaults to 0 so an upgrading install looks exactly as it did: no persona has an
-image yet, and the message gutter stays off until the user asks for it.
-
-Both tables are guarded on existence, not just on their columns: a database
-restored from a partial dump reaches the chain without every table, and an
-unguarded ALTER would abort the run for everything after it.
-"""
+"""Add persona avatars and the chat-avatar setting."""
 
 from __future__ import annotations
 
@@ -18,7 +6,6 @@ import sqlite3
 
 
 def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
-    """The table's column names, or an empty set when it does not exist."""
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is None:
         return set()
     return {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}  # nosec B608 -- literal table names
