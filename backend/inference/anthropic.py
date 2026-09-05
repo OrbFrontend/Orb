@@ -7,6 +7,8 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from .tool_registry import strictify_schema
+
 # Anthropic rejects unknown top-level fields. These are the only user-provided
 # extra_body keys accepted on a native Messages route; OpenAI-shaped escape
 # hatches therefore cannot turn an otherwise-valid request into a hard 400.
@@ -26,6 +28,12 @@ _NO_SAMPLING_MARKERS = (
 )
 
 _SAMPLING_UNSUPPORTED: set[tuple[str, str]] = set()
+
+# Adaptive thinking and ``output_config.effort`` are 4.6-and-later fields. An
+# older family behind a proxy (Haiku 4.5 and earlier want the retired
+# ``budget_tokens`` shape) rejects them outright, so -- as with sampling --
+# they go out once and are learned from the provider's rejection.
+_THINKING_UNSUPPORTED: set[tuple[str, str]] = set()
 
 
 def _text_parts(content: object) -> list[dict[str, Any]]:
@@ -152,7 +160,11 @@ def translate_tools(tools: object) -> list[dict[str, Any]]:
             continue
         translated: dict[str, Any] = {
             "name": function["name"],
-            "input_schema": dict(function.get("parameters") or {"type": "object", "properties": {}}),
+            # ``strict`` obliges the schema to close every object and mark every
+            # property required; Orb's own tools ship partial ``required`` lists,
+            # so shape them the way the OpenAI forced path already does rather
+            # than sending a schema the API will reject.
+            "input_schema": strictify_schema(dict(function.get("parameters") or {"type": "object", "properties": {}})),
             "strict": True,
         }
         if isinstance(function.get("description"), str):
@@ -214,7 +226,7 @@ def build_request_body(
     reasoning_on = (isinstance(reasoning, Mapping) and reasoning.get("enabled") is True) or (
         isinstance(thinking, Mapping) and thinking.get("type") == "enabled"
     )
-    if reasoning_on:
+    if reasoning_on and (endpoint_url, model) not in _THINKING_UNSUPPORTED:
         body["thinking"] = {"type": "adaptive", "display": "summarized"}
         effort = openai_body.get("reasoning_effort")
         if effort in {"low", "medium", "high", "xhigh", "max"}:
@@ -231,6 +243,24 @@ def build_request_body(
             if key in extra_body:
                 body[key] = extra_body[key]
     return body
+
+
+def recover_thinking_error(endpoint_url: str, model: str, body: dict[str, Any], status: int, text: str) -> str | None:
+    """Learn a rejection of the 4.6+ reasoning fields and drop them once."""
+    if status != 400:
+        return None
+    low = text.lower()
+    present = [key for key in ("thinking", "output_config") if key in body]
+    if not present:
+        return None
+    if not any(key in low for key in (*present, "effort", "budget_tokens")):
+        return None
+    if not any(marker in low for marker in ("unsupported", "not supported", "not allowed", "extra inputs")):
+        return None
+    _THINKING_UNSUPPORTED.add((endpoint_url, model))
+    for key in present:
+        body.pop(key, None)
+    return f"Model {model} rejected Anthropic reasoning fields {present}; retrying without them."
 
 
 def recover_sampling_error(endpoint_url: str, model: str, body: dict[str, Any], status: int, text: str) -> str | None:

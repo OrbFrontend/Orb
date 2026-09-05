@@ -34,11 +34,13 @@ def _clear_learned_state():
     ep._TOOL_CHOICE_AUTO_ONLY.clear()
     ep._TOOL_CHOICE_UNSUPPORTED.clear()
     anthropic._SAMPLING_UNSUPPORTED.clear()
+    anthropic._THINKING_UNSUPPORTED.clear()
     yield
     ep._RESOLVED_ROUTES.clear()
     ep._TOOL_CHOICE_AUTO_ONLY.clear()
     ep._TOOL_CHOICE_UNSUPPORTED.clear()
     anthropic._SAMPLING_UNSUPPORTED.clear()
+    anthropic._THINKING_UNSUPPORTED.clear()
 
 
 @pytest.mark.parametrize(
@@ -186,7 +188,13 @@ def test_anthropic_body_allowlist_tools_choices_reasoning_and_sampling():
     )
     assert body["max_tokens"] == anthropic.DEFAULT_MAX_TOKENS
     assert body["tools"][0]["strict"] is True
-    assert body["tools"][0]["input_schema"] == TOOL["function"]["parameters"]
+    # ``strict`` obliges the schema to close and require everything.
+    assert body["tools"][0]["input_schema"] == {
+        "type": "object",
+        "properties": {"mood": {"type": "string"}},
+        "required": ["mood"],
+        "additionalProperties": False,
+    }
     assert body["tool_choice"] == {"type": "tool", "name": "direct_scene"}
     assert body["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert body["output_config"] == {"effort": "xhigh"}
@@ -461,3 +469,87 @@ async def test_unrelated_failure_does_not_probe():
     with pytest.raises(LLMCallError):
         await _run(LLMClient("https://custom.test/prefix"), fake, model="missing")
     assert len(fake.requests) == 1
+
+
+def test_v1_base_url_collapses_the_duplicate_openai_candidate():
+    # The common local-server shape: the configured URL already ends in /v1, so
+    # the historical request and the host-root OpenAI guess are the same URL.
+    # Without the dedupe the probe loop would re-POST an identical request.
+    routes = ep.endpoint_candidates("http://localhost:1234/v1", "m")
+    assert [(route.protocol, route.url) for route in routes] == [
+        ("openai", "http://localhost:1234/v1/chat/completions"),
+        ("anthropic", "http://localhost:1234/v1/messages"),
+    ]
+
+
+def test_partial_required_tool_schema_is_closed_before_strict_goes_out():
+    partial = {
+        "type": "function",
+        "function": {
+            "name": "direct_scene",
+            "parameters": {
+                "type": "object",
+                "properties": {"mood": {"type": "string"}, "moods": {"type": "array"}},
+                "required": [],
+            },
+        },
+    }
+    schema = anthropic.translate_tools([partial])[0]["input_schema"]
+    assert schema["additionalProperties"] is False
+    assert sorted(schema["required"]) == ["mood", "moods"]
+    # Optional survives as nullable rather than as an omittable key.
+    assert schema["properties"]["mood"]["type"] == ["string", "null"]
+
+
+def test_reasoning_fields_are_dropped_and_learned_on_rejection():
+    url = "https://proxy.test/v1/messages"
+    body = anthropic.build_request_body(
+        {"messages": [], "reasoning": {"enabled": True}, "reasoning_effort": "high"},
+        url,
+        "haiku-4-5-via-proxy",
+    )
+    assert body["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert body["output_config"] == {"effort": "high"}
+
+    rejection = '{"error":{"message":"thinking: Extra inputs are not permitted"}}'
+    fix = anthropic.recover_thinking_error(url, "haiku-4-5-via-proxy", body, 400, rejection)
+    assert fix is not None
+    assert "thinking" not in body and "output_config" not in body
+
+    # Learned for the rest of the session, so the rebuilt body omits them too.
+    again = anthropic.build_request_body(
+        {"messages": [], "reasoning": {"enabled": True}, "reasoning_effort": "high"},
+        url,
+        "haiku-4-5-via-proxy",
+    )
+    assert "thinking" not in again and "output_config" not in again
+
+
+def test_unrelated_400_does_not_strip_reasoning_fields():
+    url = "https://proxy.test/v1/messages"
+    body = anthropic.build_request_body({"messages": [], "reasoning": {"enabled": True}}, url, "some-model")
+    assert anthropic.recover_thinking_error(url, "some-model", body, 400, '{"error":"model not found"}') is None
+    assert body["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert (url, "some-model") not in anthropic._THINKING_UNSUPPORTED
+
+
+async def test_doc_mode_on_anthropic_buffers_text_instead_of_streaming_it():
+    # tools_in_prompt=False makes _plan force a name, but the Anthropic allowlist
+    # drops response_format, so the endpoint answers with plain text. That text is
+    # the forced payload -- it must not reach the caller as content deltas.
+    lines = [
+        _line({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": '{"mood"'}}),
+        _line({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": ':"eerie"}'}}),
+        _line({"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 3}}),
+        _line({"type": "message_stop"}),
+    ]
+    fake = _HTTP([_Response(lines=lines)])
+    events = await _run(
+        LLMClient("https://api.anthropic.com/v1/messages", "sk-test"),
+        fake,
+        tools=[TOOL],
+        tool_choice=FORCED,
+        tools_in_prompt=False,
+    )
+    assert not [event for event in events if event["type"] == "content"]
+    assert parse_tool_calls(events[-1]["message"]) == [{"name": "direct_scene", "arguments": {"mood": "eerie"}}]

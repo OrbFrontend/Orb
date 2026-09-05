@@ -13,6 +13,7 @@ from . import anthropic, endpoint_profiles, text_completion
 from .errors import LLMCallError, llm_call_error, llm_stream_error
 from .gemma_tool_format import parse_gemma_tool_calls
 from .retry import RetryPolicy
+from .tool_registry import strictify_schema
 
 logger = logging.getLogger(__name__)
 
@@ -137,37 +138,6 @@ def parse_extra_body(text: str) -> dict:
         logger.warning("Ignoring extra body: expected a JSON object, got %s", type(parsed).__name__)
         return {}
     return parsed
-
-
-def strictify_schema(schema: dict) -> dict:
-    """Copy *schema* into OpenAI strict-mode shape, recursively.
-
-    Strict structured output requires every object to list all properties in
-    ``required`` and set ``additionalProperties: false``. Originally-optional
-    properties are made nullable so "may omit" survives as "may be null" --
-    the passes' unpackers already discard empty/null argument values.
-    """
-    node = dict(schema)
-    props = node.get("properties")
-    if isinstance(props, dict):
-        required = set(node.get("required") or [])
-        out_props: dict = {}
-        for key, prop in props.items():
-            sub = strictify_schema(prop) if isinstance(prop, dict) else prop
-            if key not in required and isinstance(sub, dict) and "type" in sub:
-                t = sub["type"]
-                if isinstance(t, list):
-                    t = t if "null" in t else [*t, "null"]
-                elif t != "null":
-                    t = [t, "null"]
-                sub = {**sub, "type": t}
-            out_props[key] = sub
-        node["properties"] = out_props
-        node["required"] = list(props.keys())
-        node["additionalProperties"] = False
-    if isinstance(node.get("items"), dict):
-        node["items"] = strictify_schema(node["items"])
-    return node
 
 
 def _parse_chat_logprobs(choice: Mapping[str, Any]) -> list[dict]:
@@ -305,9 +275,6 @@ class LLMClient:
         headers = {key: value for key, value in base.items() if key.lower() not in configured}
         headers.update(self.extra_headers)
         return headers
-
-    def _url(self) -> str:
-        return endpoint_profiles.resolve_endpoint(self.base_url).url
 
     async def list_models(self) -> list[str]:
         """Return model ids advertised by an OpenAI-compatible ``GET /models``.
@@ -597,14 +564,25 @@ class LLMClient:
             logger.debug(messages)
             return body, forced_name, structured
 
+        # The body is re-derived on every recovery, auth retry and route probe, so
+        # its INFO lines would otherwise repeat once per attempt. Keyed on the
+        # rendered line, not on "first attempt only": a recovery that learns a new
+        # quirk adds an action, and that line is exactly the one worth surfacing.
+        logged_lines: set[str] = set()
+
+        def _log_once(line: str) -> None:
+            if line not in logged_lines:
+                logged_lines.add(line)
+                logger.info("%s", line)
+
         def _outbound_body(body: dict, route: endpoint_profiles.EndpointRoute) -> dict:
             """Copy the canonical OpenAI body into one route's wire dialect."""
             outbound = dict(body)
             if route.protocol == "openai" and self.extra_body:
                 outbound.update(self.extra_body)
-                logger.info("LLM extra body fields: %s", sorted(self.extra_body))
+                _log_once(f"LLM extra body fields: {sorted(self.extra_body)}")
             for action in endpoint_profiles.prepare_request_body(self.base_url, model, outbound):
-                logger.info("LLM profile: %s", action)
+                _log_once(f"LLM profile: {action}")
             if route.protocol == "anthropic":
                 return anthropic.build_request_body(outbound, self.base_url, model, self.extra_body)
             return outbound
@@ -709,7 +687,8 @@ class LLMClient:
                                 entry["function"]["arguments"] = json.dumps(block["input"], separators=(",", ":"))
                         elif block.get("type") == "text" and block.get("text"):
                             content_parts.append(block["text"])
-                            yield {"type": "content", "delta": block["text"]}
+                            if forced_name is None:
+                                yield {"type": "content", "delta": block["text"]}
                         elif block.get("type") == "thinking" and block.get("thinking"):
                             reasoning_parts.append(block["thinking"])
                             yield {"type": "reasoning", "delta": block["thinking"]}
@@ -719,7 +698,11 @@ class LLMClient:
                         delta_type = delta.get("type")
                         if delta_type == "text_delta" and delta.get("text"):
                             content_parts.append(delta["text"])
-                            yield {"type": "content", "delta": delta["text"]}
+                            # Same gate as consume_openai: a forced pass buffers its
+                            # text as the tool-arguments payload instead of streaming
+                            # it, so the caller never sees a half-built JSON body.
+                            if forced_name is None:
+                                yield {"type": "content", "delta": delta["text"]}
                         elif delta_type == "thinking_delta" and delta.get("thinking"):
                             reasoning_parts.append(delta["thinking"])
                             yield {"type": "reasoning", "delta": delta["thinking"]}
@@ -766,12 +749,18 @@ class LLMClient:
                         ) as resp:
                             if resp.status_code >= 400:
                                 err_text = await _read_error_body(resp, route.url)
-                                if recovery_count < 2:
+                                # One attempt per independent quirk class: the profile
+                                # rules, Anthropic sampling controls, and the 4.6+
+                                # reasoning fields can each need their own rejection
+                                # before a body this endpoint accepts is reached.
+                                if recovery_count < 3:
                                     fix = endpoint_profiles.recover_from_error(
                                         self.base_url, model, outbound, resp.status_code, err_text
                                     )
                                     if fix is None and route.protocol == "anthropic":
                                         fix = anthropic.recover_sampling_error(
+                                            self.base_url, model, outbound, resp.status_code, err_text
+                                        ) or anthropic.recover_thinking_error(
                                             self.base_url, model, outbound, resp.status_code, err_text
                                         )
                                     if fix is not None:
