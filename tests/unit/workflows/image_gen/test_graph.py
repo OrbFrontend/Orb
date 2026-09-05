@@ -295,9 +295,9 @@ def test_a_dangling_reference_slot_is_caught_at_test_connection():
 
 
 def test_one_source_switches_every_declared_slot_on_or_none_of_them():
-    """A character has one reference image, so a workflow built around two `Load Image`
-    nodes is handed that same picture in both -- which is what such a workflow wanted.
-    There is no per-slot answer left to fall out of alignment with the declared list."""
+    """The source policy enables the whole declared list. Which character fills each
+    slot is planned later from the round, so no per-slot setting can drift out of
+    alignment with the graph."""
     _, slots = _with_reference()
     slots["references"].append({"slot": ["12", "image"], "label": "Load Image (#12)"})
 

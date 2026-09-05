@@ -83,8 +83,7 @@ def _upload(att_id: int, data: bytes, mime: str = "image/jpeg") -> dict:
 
 def _entries(source: str = "previous", node: str = "72") -> list[dict]:
     """One structural slot, as `plan_slots` hands it to the resolver: the graph's own
-    input, plus the ordered `(kind, subject index)` list the style's source resolves to.
-    Every declared input of one graph carries the same `draw`."""
+    input, plus the ordered `(kind, subject index)` list the style's source resolves to."""
     draw = tuple((kind, 0) for kind in REFERENCE_SOURCES[source].kinds) if source in REFERENCE_SOURCES else ()
     return [{"slot": [node, "image"], "source": source, "label": f"Load Image (#{node})", "draw": draw}]
 
@@ -336,16 +335,22 @@ def test_the_fallback_source_asks_for_one_kind_or_the_other_never_both():
     assert [slot["draw"] for slot in without] == [(("character", 0),), (("character", 1),)]
 
 
-def test_a_graph_feeds_every_declared_input_the_same_picture():
-    """Structural inputs are not interchangeable -- an IPAdapter face input and an
-    img2img init are different questions and the graph does not say which is which -- so
-    they all get one answer. It is also what makes a two-`Load Image` graph work in a
-    solo chat, where there is only one person to draw."""
+def test_a_graph_assigns_each_declared_input_to_a_different_subject():
+    """A multi-reference ComfyUI graph follows the same reply-first subject order as
+    a cloud reference array, while retaining each graph node's structural slot id."""
     cast = (_subject("card-a"), _subject("card-b"))
 
     slots = refs.plan_slots(_comfy_target("character", ("41", "58")), cast, previous=None)
 
     assert [slot["slot"] for slot in slots] == [["41", "image"], ["58", "image"]]
+    assert [slot["draw"] for slot in slots] == [(("character", 0),), (("character", 1),)]
+
+
+def test_a_graph_reuses_the_primary_for_surplus_required_inputs():
+    """A two-input edit graph remains usable in a solo chat: ComfyUI image widgets
+    are required, so inputs beyond the in-frame cast reuse the reply speaker."""
+    slots = refs.plan_slots(_comfy_target("character", ("41", "58")), (_subject("card-a"),), previous=None)
+
     assert [slot["draw"] for slot in slots] == [(("character", 0),)] * 2
 
 
@@ -375,6 +380,20 @@ async def test_each_array_slot_resolves_its_own_subject(_avatars):
 
     resolved = await refs.resolve_references(slots, subjects=cast, previous=None)
 
+    assert [r.origin for r in resolved] == ["character:card-a", "character:card-b"]
+    assert len({r.digest for r in resolved}) == 2
+
+
+@pytest.mark.asyncio
+async def test_two_group_speakers_resolve_to_two_comfy_references(_avatars):
+    """The regression: two round speakers plus two Load Image nodes must upload two
+    different likenesses, not patch both nodes with the reply speaker's digest."""
+    cast = (_subject("card-a"), _subject("card-b"))
+    slots = refs.plan_slots(_comfy_target("character", ("41", "84")), cast, previous=None)
+
+    resolved = await refs.resolve_references(slots, subjects=cast, previous=None)
+
+    assert [r.slot for r in resolved] == [("41", "image"), ("84", "image")]
     assert [r.origin for r in resolved] == ["character:card-a", "character:card-b"]
     assert len({r.digest for r in resolved}) == 2
 

@@ -247,9 +247,17 @@ def plan_slots(
     if policy is None:
         return ()
     if target.reference_slots:
-        # Structural: the graph's own inputs, every one of them fed the same answer.
-        draw = tuple((kind, 0) for kind in policy.kinds)
-        return tuple({**dict(entry), "draw": draw} for entry in target.reference_slots)
+        # Structural: the graph owns the inputs, while the round owns whose likeness
+        # each input carries. `_derived_draw` puts the reply speaker first and then
+        # assigns one distinct in-frame character per remaining slot. A graph may
+        # still declare more required inputs than a solo round can fill, so surplus
+        # slots deliberately reuse the first image instead of submitting the stale
+        # filenames exported with the workflow.
+        draws = _derived_draw(policy, subjects, len(target.reference_slots), previous is not None)
+        return tuple(
+            {**dict(entry), "draw": draws[index] if index < len(draws) else draws[0]}
+            for index, entry in enumerate(target.reference_slots)
+        )
     template = target.reference_template
     capacity = max(0, int(target.reference_capacity))
     if not capacity or not template:

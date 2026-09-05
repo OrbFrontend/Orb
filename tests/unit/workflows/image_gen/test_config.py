@@ -346,9 +346,8 @@ def test_a_styles_render_settings_are_bounded_and_default_to_off():
     # provider with a different one needs no rewrite here.
     assert _style()["model"] == ""
     assert _style(model="black-forest-labs/FLUX.1-kontext-pro")["model"] == "black-forest-labs/FLUX.1-kontext-pro"
-    # Sending conversation images anywhere is opt-in, and it is one answer per style:
-    # a character has one reference image, and every image input the target declares is
-    # handed that same picture.
+    # Sending conversation images anywhere is opt-in, and it is one source policy per
+    # style. A multi-input target can apply that policy to several round speakers.
     assert _style()["reference_source"] == ""
     assert _style(reference_source="previous")["reference_source"] == "previous"
     assert _style(reference_source="whatever")["reference_source"] == ""
@@ -358,8 +357,8 @@ def test_a_styles_render_settings_are_bounded_and_default_to_off():
     # rather than silently reading as prompt-only.
     assert _style(reference_source="cast")["reference_source"] == "character"
     assert _style(reference_source="cast_or_character")["reference_source"] == "character"
-    # The combining choice a homogeneous cloud array can honour: every character, then
-    # the chat image. A structural backend takes the first kind and feeds it everywhere.
+    # The combining choice targets can honour positionally: every character, then the
+    # chat image, bounded by the available reference inputs.
     assert _style(reference_source="character_and_previous")["reference_source"] == "character_and_previous"
 
 
@@ -446,8 +445,8 @@ def test_a_graphs_own_per_slot_sources_hoist_onto_every_style_that_names_it():
             {"slot": ["31", "image"], "source": "character", "label": "IPAdapter (#31)"},
         ],
     )
-    # One answer now, so the slot every target has -- the first -- is the one that
-    # survives; the second `Load Image` is handed that same picture.
+    # One source policy now, so the slot every target has -- the first -- is the one
+    # that survives. At render time it is applied positionally across the round cast.
     assert style["reference_source"] == "previous"
 
 

@@ -21,7 +21,7 @@ from backend.workflows.image_gen.config import CONFIG_DEFAULTS
 from backend.workflows.image_gen.engine import ImageResult
 
 
-def _avatar() -> str:
+def _avatar(red: int = 30) -> str:
     """A real 64x64 PNG, base64'd: a card avatar is the reference fallback, and the
     slot policy re-encodes it, which needs bytes PIL can actually open."""
     import base64
@@ -30,11 +30,12 @@ def _avatar() -> str:
     from PIL import Image
 
     buf = io.BytesIO()
-    Image.new("RGB", (64, 64), (30, 30, 40)).save(buf, format="PNG")
+    Image.new("RGB", (64, 64), (red, 30, 40)).save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode()
 
 
 _AVATAR = _avatar()
+_OTHER_AVATAR = _avatar(90)
 
 
 def _image(**info) -> ImageResult:
@@ -408,7 +409,7 @@ async def _two_hander(client, *, source, connection="comfy"):
     anchor on either and say what the difference is worth.
     """
     aria = (await client.post("/api/characters", json={"name": "Aria", "avatar_b64": _AVATAR})).json()["id"]
-    kael = (await client.post("/api/characters", json={"name": "Kael", "avatar_b64": _AVATAR})).json()["id"]
+    kael = (await client.post("/api/characters", json={"name": "Kael", "avatar_b64": _OTHER_AVATAR})).json()["id"]
     conv = (
         await client.post(
             "/api/conversations",
@@ -480,11 +481,9 @@ async def _two_hander(client, *, source, connection="comfy"):
 
 
 @pytest.mark.asyncio
-async def test_a_comfy_graph_feeds_every_input_the_speaker_and_nobody_else(client, monkeypatch):
-    """Structural inputs are not interchangeable, so a graph gets one answer in all of
-    them -- the character the picture is *of*. ad-chan's face is not uploaded into an
-    IPAdapter slot on the strength of her being in the round; she is described instead.
-    """
+async def test_a_comfy_graph_carries_one_image_per_person_in_the_round(client, monkeypatch):
+    """Two round speakers and two mapped Load Image nodes produce two references in
+    reply-first order, just like a cloud reference array."""
     ids = await _two_hander(client, source="character")
     captured: dict = {}
 
@@ -508,11 +507,10 @@ async def test_a_comfy_graph_feeds_every_input_the_speaker_and_nobody_else(clien
     assert "event: image_gen_error" not in response.text
     assert [(r.slot, r.origin) for r in captured["request"].references] == [
         (("r", "image"), f"character:{ids['aria']}"),
-        (("r2", "image"), f"character:{ids['aria']}"),
+        (("r2", "image"), f"character:{ids['kael']}"),
     ]
-    # One upload, two patches: the engine dedupes on the bytes' digest.
-    assert len({r.digest for r in captured["request"].references}) == 1
-    assert captured["compose"]["referenced_subjects"] == [(1, "Aria"), (2, "Aria")]
+    assert len({r.digest for r in captured["request"].references}) == 2
+    assert captured["compose"]["referenced_subjects"] == [(1, "Aria"), (2, "Kael")]
     assert [s.name for s in captured["compose"]["subjects"]] == ["Aria", "Kael"]
 
 
@@ -623,9 +621,9 @@ async def test_two_members_with_one_name_are_still_told_apart_in_the_prompt(clie
     assert response.status_code == 200
     assert "event: image_gen_error" not in response.text
     assert [s.name for s in captured["compose"]["subjects"]] == ["Guard", "Guard 2"]
-    # The numbered roster is what attributes an array of images, so the two must not
-    # collapse onto one name.
-    assert captured["compose"]["referenced_subjects"] == [(1, "Guard"), (2, "Guard")]
+    # The numbered roster attributes each image, so the two must not collapse onto
+    # one name or one card.
+    assert captured["compose"]["referenced_subjects"] == [(1, "Guard"), (2, "Guard 2")]
 
 
 async def _forbidden_render(adapter, request, **kwargs):

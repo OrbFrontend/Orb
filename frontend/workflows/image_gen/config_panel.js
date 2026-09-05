@@ -282,7 +282,7 @@ function comfyReferenceFields(style) {
   if (!slots.length) return "";
   const one = slots.length === 1;
   return `<div class="ig-heading ig-reference-heading">Reference image</div>
-    <div class="image-gen-note">This workflow loads ${one ? "one image" : `${slots.length} images`}. Choose what Orb loads for each style, or leave this off to keep the ${one ? "image" : "images"} exported with the workflow.${one ? "" : " All image slots receive the same image."}</div>
+    <div class="image-gen-note">This workflow loads ${one ? "one image" : `${slots.length} images`}. Choose what Orb loads for each style, or leave this off to keep the ${one ? "image" : "images"} exported with the workflow.${one ? "" : " With character references, Orb uses separate character images when available and reuses one when the workflow requires more."}</div>
     <div class="ig-grid"><label>Reference image${referenceSelect(styleSource(style))}</label></div>`;
 }
 
@@ -307,7 +307,7 @@ function cloudStyleFields(style, connection) {
   const slots = maxCloudReferences(preset);
   const capacityNote =
     source && providerTakesReferences(preset)
-      ? `<div class="image-gen-note">${esc(connection.label)} accepts ${slots === 1 ? "one reference image" : `up to ${slots} reference images`}, one for each character in the scene. ${slots === 1 ? "In a group chat, only the speaker's image is sent; the other characters are described in the prompt." : "If the scene has more characters than that, the first few get reference images and the rest are described in the prompt."}</div>`
+      ? `<div class="image-gen-note">${esc(connection.label)} accepts ${slots === 1 ? "one reference image" : `up to ${slots} reference images`}, one for each character in the scene. If the scene has more characters than available reference slots, the rest are described in the prompt.</div>`
       : "";
   const referenceSizeNote =
     preset?.reference_drives_size && source && providerTakesReferences(preset)
@@ -965,7 +965,7 @@ function referenceRows() {
   if (!slots.length) return "";
   const one = slots.length === 1;
   return `<div class="ig-heading ig-reference-heading">Reference images</div>
-    <div class="image-gen-note">This workflow loads ${one ? "one image" : `${slots.length} images`}. Choose what Orb loads for each style under <strong>Styles</strong> above, or leave this off to keep the ${one ? "image" : "images"} exported with the workflow.${one ? "" : " All image slots receive the same image."}</div>
+    <div class="image-gen-note">This workflow loads ${one ? "one image" : `${slots.length} images`}. Choose what Orb loads for each style under <strong>Styles</strong> above, or leave this off to keep the ${one ? "image" : "images"} exported with the workflow.${one ? "" : " With character references, Orb uses separate character images when available and reuses one when the workflow requires more."}</div>
     <ul class="ig-slot-list">${slots.map((item) => `<li>${esc(item.label)}</li>`).join("")}</ul>`;
 }
 

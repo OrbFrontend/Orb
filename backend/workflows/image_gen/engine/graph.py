@@ -48,9 +48,9 @@ def reference_slots(slots: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 def enabled_references(slots: Mapping[str, Any], source: str) -> list[Mapping[str, Any]]:
     """The slots this render will fill: all of them, or none.
 
-    One source for the whole graph, because a character has one reference image. Every
-    `LoadImage` the graph declares is handed that same picture -- which is what a
-    workflow built around two of them was always for.
+    One source policy for the whole graph. The render planner assigns separate
+    characters to separate `LoadImage` slots in a group round, while reusing the
+    primary character for surplus required slots in a smaller scene.
 
     A style with no source is the same render as the old "Not used": each `LoadImage`
     keeps whatever filename the workflow was exported with, and nothing about the
