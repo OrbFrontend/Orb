@@ -2,9 +2,9 @@
   --bg-deep:#1e2326;--bg-primary:#272e33;--bg-surface:#2e383c;--bg-elevated:#374145;
   --bg-hover:#414b50;--border:#414b50;--border-light:#4f5b58;
 
-  --text-primary:#d3c6aa;
-  --text-secondary:#9da9a0;
-  --text-muted:#7a8478;
+  --text-primary:#d7e9f0;
+  --text-secondary:#a6c1cc;
+  --text-muted:#7d949e;
 
   --accent:#a7c080;
   --accent-dim:#6e7f54;
@@ -16,7 +16,7 @@
   --font-ui:'Fira Code','Cascadia Code','Courier New',Consolas,monospace;
   --font-mono:'Fira Code','Cascadia Code','Courier New',Consolas,monospace;
   --radius:0px;
-  --font-prose-size:15px;
+  --font-prose-size:14px;
   --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
 }
 
@@ -62,7 +62,7 @@ textarea::-webkit-resizer { background: transparent; }
 }
 
 .message .msg-body em {
-  color: #859289 !important;
+  color: #8ba7b3 !important;
 }
 
 .sidebar-section-header .arrow {
