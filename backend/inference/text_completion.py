@@ -6,7 +6,8 @@ import logging
 import math
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,33 @@ _THINK: ThinkTags = ("<think>", "</think>", "<think>\n\n</think>\n\n")
 _MINIMAX: ThinkTags = ("<mm:think>", "</mm:think>", "<mm:think>\n\n</mm:think>\n\n")
 # Non-thinking model: no span, no-op suffix (reasoning toggle does nothing).
 _NONE: ThinkTags = ("", "", "")
+
+# Onyx ATEM/Muse Glimmer routes reasoning through a message addressed to self.
+_ONYX_ROUTE_SELF = "to=self"
+_ONYX_MESSAGE = "<|message|>"
+_ONYX_SELF = " to=self<|message|>"
+_ONYX_USER = " to=user<|message|>"
+_ONYX_BREAKS = ("<|start|>", "<|eom|>", "<|eot|>")
+_RECIPIENT_RE = re.compile(r"to=(\S+)")
+
+
+@dataclass(frozen=True)
+class ReasoningFormat:
+    """How a chat template marks reasoning in a raw completion stream."""
+
+    tags: ThinkTags = _NONE
+    channel: bool = False
+
+    @property
+    def open_bytes(self) -> str:
+        """Prompt bytes that open a reasoning span."""
+        return _ONYX_SELF if self.channel else self.tags[0]
+
+    @property
+    def disable_bytes(self) -> str:
+        """Prompt bytes that select the non-reasoning channel, if needed."""
+        return _ONYX_USER if self.channel else ""
+
 
 # An (optionally namespaced) reasoning tag pair: <think>, <thinking>,
 # <thought>, <reason>, <reasoning>, <mm:think> (MiniMax M3),
@@ -70,9 +98,21 @@ def think_tags_from_template(chat_template: str) -> ThinkTags:
     return _NONE
 
 
-async def get_think_tags(server_root: str, fetch_template: Callable[[], Awaitable[str]]) -> ThinkTags:
-    """Return reasoning tags reported by the server template."""
-    return think_tags_from_template(await fetch_template())
+def reasoning_format_from_template(chat_template: str) -> ReasoningFormat:
+    """Sniff the reasoning format from *chat_template*."""
+    if _ONYX_ROUTE_SELF in chat_template and _ONYX_MESSAGE in chat_template:
+        return ReasoningFormat(channel=True)
+    return ReasoningFormat(tags=think_tags_from_template(chat_template))
+
+
+async def get_reasoning_format(fetch_template: Callable[[], Awaitable[str]]) -> ReasoningFormat:
+    """Fetch and sniff the reasoning format."""
+    return reasoning_format_from_template(await fetch_template())
+
+
+def opens_reply_channel(fmt: ReasoningFormat, *, reasoning: bool, prefill: bool) -> bool:
+    """Whether a bare, non-reasoning call needs a reply-channel header."""
+    return bool(fmt.disable_bytes) and not reasoning and not prefill
 
 
 def _max_overlap(buf: str, target: str) -> int:
@@ -89,55 +129,76 @@ def _max_overlap(buf: str, target: str) -> int:
     return 0
 
 
-def _scan(buf: str, target: str) -> tuple[str, str, bool]:
-    """Split *buf* against *target*.
-
-    Returns ``(emit, remainder, matched)``:
-      - *target* found: ``emit`` is the text before it, ``remainder`` the text
-        after it, ``matched=True``.
-      - else: hold back the longest tail of *buf* that could be a split *target*;
-        ``emit`` is the rest, ``remainder`` the held tail, ``matched=False``.
-    """
-    i = buf.find(target)
-    if i != -1:
-        return buf[:i], buf[i + len(target) :], True
-    k = _max_overlap(buf, target)
+def _scan_any(buf: str, targets: Sequence[str]) -> tuple[str, str, bool]:
+    """Split *buf* at the earliest target, retaining a possible split prefix."""
+    best_i, best_len = -1, 0
+    for target in targets:
+        i = buf.find(target)
+        if i == -1:
+            continue
+        if best_i == -1 or i < best_i or (i == best_i and len(target) > best_len):
+            best_i, best_len = i, len(target)
+    if best_i != -1:
+        return buf[:best_i], buf[best_i + best_len :], True
+    k = max((_max_overlap(buf, t) for t in targets), default=0)
     if k:
         return buf[:-k], buf[-k:], False
     return buf, "", False
 
 
-class ThinkSplitter:
-    """Split streamed text into reasoning and content."""
+def _scan(buf: str, target: str) -> tuple[str, str, bool]:
+    """:func:`_scan_any` against a single *target*."""
+    return _scan_any(buf, (target,))
 
-    def __init__(self, tags: ThinkTags, already_open: bool = False, trim_lead: bool = True) -> None:
-        self._open, self._close, _ = tags
+
+def _routes_to_self(header: str) -> bool:
+    """Whether a routing header addresses the model's thought channel."""
+    m = _RECIPIENT_RE.search(header)
+    return m is not None and m.group(1) == "self"
+
+
+class Splitter(Protocol):
+    """Reasoning/content split contract used by the text transport."""
+
+    def feed(self, delta: str) -> list[tuple[str, str]]:
+        """Classify one stream delta into ``(kind, text)`` pieces."""
+        ...
+
+    def flush(self) -> list[tuple[str, str]]:
+        """Release whatever was held back when the stream ended."""
+        ...
+
+
+class _SplitBase:
+    """Shared path for trimming padding at the start of a content run."""
+
+    def __init__(self, trim_lead: bool) -> None:
         self._buf = ""
         self._trim_lead = trim_lead
         self._trim_pending = trim_lead
-        if not self._open:
-            self._state = "content"
-        elif already_open:
-            self._state = "reasoning"
-        else:
-            self._state = "pre"
 
     def _emit(self, out: list[tuple[str, str]], kind: str, text: str) -> None:
-        """Append one classified piece, trimming the run's leading whitespace.
-
-        Templates pad the close tag (Qwen renders ``</think>\\n\\n``), so the
-        first content byte after the span is a blank line that would otherwise
-        be stored, replayed into the next turn's prefix, and painted as an empty
-        first line in the reply. Only the *start* of a content run is trimmed —
-        newlines inside the reply are untouched — and a whitespace-only first
-        piece is dropped entirely so the trim carries to the next one.
-        """
+        """Append a classified piece, trimming leading content whitespace."""
         if kind == "content" and self._trim_pending:
             text = text.lstrip()
             if not text:
                 return
             self._trim_pending = False
         out.append((kind, text))
+
+
+class ThinkSplitter(_SplitBase):
+    """Split streamed text into reasoning and content on a literal tag pair."""
+
+    def __init__(self, tags: ThinkTags, already_open: bool = False, trim_lead: bool = True) -> None:
+        super().__init__(trim_lead)
+        self._open, self._close, _ = tags
+        if not self._open:
+            self._state = "content"
+        elif already_open:
+            self._state = "reasoning"
+        else:
+            self._state = "pre"
 
     def feed(self, delta: str) -> list[tuple[str, str]]:
         out: list[tuple[str, str]] = []
@@ -165,7 +226,7 @@ class ThinkSplitter:
         return out
 
     def flush(self) -> list[tuple[str, str]]:
-        """Emit any held tail as the current state's kind (reasoning if mid-span)."""
+        """Emit any held tail using the current state."""
         if not self._buf:
             return []
         kind = "reasoning" if self._state == "reasoning" else "content"
@@ -173,6 +234,64 @@ class ThinkSplitter:
         self._emit(out, kind, self._buf)
         self._buf = ""
         return out
+
+
+SplitterStart = Literal["auto", "reasoning", "content"]
+
+
+class ChannelSplitter(_SplitBase):
+    """Split routed-channel messages into reasoning and content."""
+
+    def __init__(self, *, start: SplitterStart = "auto", trim_lead: bool = True) -> None:
+        super().__init__(trim_lead)
+        self._state: str = "header" if start == "auto" else start
+        self._header = ""
+        self._resolved = start != "auto"
+
+    def feed(self, delta: str) -> list[tuple[str, str]]:
+        out: list[tuple[str, str]] = []
+        self._buf += delta
+        while self._buf:
+            if self._state == "header":
+                emit, rem, matched = _scan(self._buf, _ONYX_MESSAGE)
+                self._header += emit
+                self._buf = rem
+                if not matched:
+                    break
+                self._state = "reasoning" if _routes_to_self(self._header) else "content"
+                self._header, self._resolved = "", True
+                if self._state == "content":
+                    self._trim_pending = self._trim_lead
+                continue
+            emit, rem, matched = _scan_any(self._buf, _ONYX_BREAKS)
+            if emit:
+                self._emit(out, self._state, emit)
+            self._buf = rem
+            if not matched:
+                break
+            self._state = "header"
+        return out
+
+    def flush(self) -> list[tuple[str, str]]:
+        """Emit a held body; drop incomplete headers after the first message."""
+        buf, header, self._buf, self._header = self._buf, self._header, "", ""
+        kind = self._state
+        if kind == "header":
+            if self._resolved:
+                return []
+            buf, kind = header + buf, "content"
+        if not buf:
+            return []
+        out: list[tuple[str, str]] = []
+        self._emit(out, kind, buf)
+        return out
+
+
+def make_splitter(fmt: ReasoningFormat, *, start: SplitterStart = "auto", trim_lead: bool = True) -> Splitter:
+    """Build a splitter primed by the prompt's current channel."""
+    if fmt.channel:
+        return ChannelSplitter(start=start, trim_lead=trim_lead)
+    return ThinkSplitter(fmt.tags, already_open=start == "reasoning", trim_lead=trim_lead)
 
 
 def reasoning_enabled(params: Mapping[str, Any]) -> bool:

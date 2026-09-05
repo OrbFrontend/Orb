@@ -972,11 +972,7 @@ class LLMClient:
             return resp.json()["prompt"]
 
     async def _fetch_chat_template(self, server_root: str) -> str:
-        """Fetch the server's ``chat_template`` text via ``GET /props`` (for tag sniff).
-
-        Returns ``""`` on any failure so the caller falls back to a no-op reasoning
-        toggle without caching the miss (see text_completion.get_think_tags).
-        """
+        """Fetch the server's chat template, returning empty text on failure."""
         try:
             async with httpx.AsyncClient(timeout=self.timeout, proxy=self.proxy) as client:
                 resp = await client.get(f"{server_root}/props", headers=self._headers())
@@ -985,6 +981,10 @@ class LLMClient:
         except (httpx.HTTPError, ValueError, KeyError) as e:
             logger.warning("text mode: /props fetch failed (%r); reasoning toggle disabled this call", e)
             return ""
+
+    async def _reasoning_format(self, server_root: str) -> text_completion.ReasoningFormat:
+        """Sniff the loaded model's reasoning format for this call."""
+        return await text_completion.get_reasoning_format(lambda: self._fetch_chat_template(server_root))
 
     async def _stream_completion(self, url: str, body: dict) -> AsyncIterator[dict]:
         """POST *body* to llama.cpp ``/completion`` and yield each parsed SSE chunk.
@@ -1013,7 +1013,12 @@ class LLMClient:
                         continue
 
     async def render_prompt(
-        self, messages: Sequence[Mapping[str, Any]], *, prefill: str | None = None, reasoning: bool = False
+        self,
+        messages: Sequence[Mapping[str, Any]],
+        *,
+        prefill: str | None = None,
+        reasoning: bool = False,
+        fmt: text_completion.ReasoningFormat | None = None,
     ) -> str:
         """Render *messages* to the exact prompt string ``_complete_text`` sends.
 
@@ -1024,12 +1029,23 @@ class LLMClient:
         doc-mode auditor's KV-parity hook. Template quirks (e.g. Qwen injecting
         ``<think></think>`` into the generation prompt) are reproduced for free
         because it is the same render, not a reconstruction.
+
+        For routed-channel models, *fmt* also reproduces the non-reasoning
+        header written by the transport. Only the unconstrained render is
+        reproduced; a grammar-forced call takes one further tail in
+        ``_complete_text``, and nothing re-derives such a prompt.
         """
+        server_root = self._server_root()
         render_msgs: list[Mapping[str, Any]] = list(messages)
         if prefill:
             render_msgs = [*render_msgs, {"role": "assistant", "content": prefill}]
         ctk = None if prefill else {"enable_thinking": reasoning, "thinking": reasoning}
-        return await self._apply_template(self._server_root(), render_msgs, ctk)
+        prompt = await self._apply_template(server_root, render_msgs, ctk)
+        if not reasoning and not prefill:
+            fmt = fmt or await self._reasoning_format(server_root)
+            if text_completion.opens_reply_channel(fmt, reasoning=reasoning, prefill=bool(prefill)):
+                prompt += fmt.disable_bytes
+        return prompt
 
     async def _complete_text(
         self,
@@ -1057,36 +1073,27 @@ class LLMClient:
         params.pop("tools_in_prompt", None)
         server_root = self._server_root()
         reasoning_on = text_completion.reasoning_enabled(params)
-        # render_prompt appends *prefill* as a trailing open assistant turn (F9)
-        # and lets the chat template own reasoning on/off via ``enable_thinking``
-        # rather than hand-appending disable bytes: templates disagree on where
-        # the think tag lives (Qwen3 pre-opens ``<think>`` in the generation
-        # prompt and closes it for enable_thinking=false; Gemma 4 leaves the open
-        # tag to the model's output). Hand-appending double-opened Qwen's tag and
-        # leaked its CoT as content. The kwargs are skipped for prefill: the
-        # trailing assistant turn, not the generation prompt, governs thinking.
+        fmt = await self._reasoning_format(server_root)
+        # Let the chat template control tag-pair reasoning; prefills own their
+        # trailing assistant turn.
         try:
-            prompt = await self.render_prompt(messages, prefill=prefill, reasoning=reasoning_on)
+            prompt = await self.render_prompt(messages, prefill=prefill, reasoning=reasoning_on, fmt=fmt)
         except httpx.HTTPError as e:
             logger.warning("text mode: /apply-template failed (%r); falling back to chat transport", e)
             async for event in self._complete_chat(messages, model, tools, tool_choice, tools_in_prompt=False, **params):
                 yield event
             return
 
-        tags = await text_completion.get_think_tags(server_root, lambda: self._fetch_chat_template(server_root))
-        # Prime the splitter from what the template ACTUALLY rendered, not from the
-        # requested reasoning flag.
-        pre_opened = bool(tags[0]) and prompt.rstrip().endswith(tags[0].rstrip())
+        open_bytes = fmt.open_bytes
+        # Prime the splitter from the rendered prompt, not the requested flag.
+        pre_opened = bool(open_bytes) and prompt.rstrip().endswith(open_bytes.rstrip())
+        content_open = text_completion.opens_reply_channel(fmt, reasoning=reasoning_on, prefill=bool(prefill))
 
-        # Reasoning prefill: open the thought channel (unless the template already
-        # did) and seed it with the user's words. Prompt tail only — the shared KV
-        # prefix is untouched. Never closed: a grammar-forced pass emits its JSON
-        # inside the span, which is what a forced call with reasoning on already
-        # does. ``not prefill``: an assistant prefill already owns the tail via a
-        # trailing assistant turn in render_prompt, and the two cannot both.
-        if rprefill and reasoning_on and tags[0] and not prefill:
+        # Seed a reasoning prefill in the prompt tail; assistant prefills already
+        # own that tail.
+        if rprefill and reasoning_on and open_bytes and not prefill:
             if not pre_opened:
-                prompt += tags[0]
+                prompt += open_bytes
                 pre_opened = True
             prompt += rprefill
         else:
@@ -1103,6 +1110,17 @@ class LLMClient:
         forced_name: str | None = None
         if schema is not None and isinstance(tool_choice, dict):
             forced_name = (tool_choice.get("function") or {}).get("name")
+
+        # A constrained pass cannot route: the grammar owns every sampled token,
+        # so the channel shape's routing header is not among the tokens the model
+        # may emit and its JSON would open where the template expects that header.
+        # Write the reply channel's header for it. Reasoning off already did so in
+        # render_prompt, and an open thought span is free text where the JSON is
+        # as fine as it is on a tag-pair model -- hence ``not pre_opened``.
+        if (grammar is not None or schema is not None) and reasoning_on and not prefill and not pre_opened:
+            if fmt.disable_bytes:
+                prompt += fmt.disable_bytes
+                content_open = True
 
         body = text_completion.build_completion_params(params)
         body["prompt"] = prompt
@@ -1126,7 +1144,8 @@ class LLMClient:
 
         # trim_lead off on a prefilled call: the stream continues an open assistant
         # turn, so a leading space is the word separator, not template padding.
-        splitter = text_completion.ThinkSplitter(tags, already_open=pre_opened, trim_lead=not prefill)
+        start: text_completion.SplitterStart = "reasoning" if pre_opened else "content" if prefill or content_open else "auto"
+        splitter = text_completion.make_splitter(fmt, start=start, trim_lead=not prefill)
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         forced_buf: list[str] = []

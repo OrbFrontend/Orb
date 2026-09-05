@@ -351,7 +351,7 @@ class FakeLLMClient:
             },
         }
 
-    async def render_prompt(self, messages, *, prefill=None, reasoning=False) -> str:
+    async def render_prompt(self, messages, *, prefill=None, reasoning=False, fmt=None) -> str:
         """Deterministic /apply-template stand-in (doc-mode text+assisted patch).
 
         Captures the render inputs and returns a marker string so tests can

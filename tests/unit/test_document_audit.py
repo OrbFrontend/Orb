@@ -232,7 +232,7 @@ class _StubPatchClient:
         self._patches = patches
         self._raw_content = raw_content
 
-    async def render_prompt(self, messages, *, prefill=None, reasoning=False):
+    async def render_prompt(self, messages, *, prefill=None, reasoning=False, fmt=None):
         self.render_calls.append({"messages": messages, "prefill": prefill, "reasoning": reasoning})
         return f"<render:{len(messages)}:{prefill or ''}>"
 
