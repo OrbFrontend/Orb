@@ -134,7 +134,7 @@ async def _complete(client: LLMClient, model: str, choice: dict | str) -> list[d
     [
         ("openai", "https://openai.test/v1/chat/completions", "openai-model"),
         ("anthropic", "https://api.anthropic.com/v1/messages", "claude-haiku-4-5"),
-        ("gemini", "https://generativelanguage.googleapis.com", "gemini-3-pro"),
+        ("gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3-pro"),
     ],
 )
 async def test_director_writer_editor_calls_cross_protocol_boundary(provider, endpoint, model):

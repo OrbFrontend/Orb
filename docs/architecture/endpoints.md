@@ -14,41 +14,38 @@ A configured endpoint may be a versioned base or a full generation resource.
 | `https://host/v1` | `https://host/v1/chat/completions` |
 | `https://host/v1/chat/completions` | Used exactly as entered |
 | `https://host/v1/messages` | Used exactly as entered with Anthropic Messages |
-| `https://api.anthropic.com` | `https://api.anthropic.com/v1/messages` |
-| `https://generativelanguage.googleapis.com` | `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` |
+| `https://host/v1beta/openai` | `https://host/v1beta/openai/chat/completions` |
 
-An `anthropic` path segment is also a strong native-protocol hint. For example,
-`https://gateway.example/providers/anthropic/v1` resolves to the sibling
-`messages` resource. Full `chat/completions` and `messages` resource URLs are
-authoritative even when their host would normally imply another protocol.
+Full `chat/completions` and `messages` resource URLs are authoritative. Bare and
+versioned bases remain ambiguous: provider names in a hostname or path, and
+family names in a model id, never select a protocol.
 
-Gemini is recognized by dialect, not by hostname. Google's host and any URL on
-the `/v1beta/openai` resource path — a compatibility proxy, an AI gateway —
-take the same request policy, reasoning translation, and catalogue
-normalization. A bare `gemini` or `google` path segment deliberately does not
-qualify: those appear on gateways whose route is an ordinary OpenAI one where
-native tool calls work. Vertex AI's `endpoints/openapi` surface is a separate
-compatibility layer and is treated as a plain OpenAI endpoint.
+The `/v1beta/openai` compatibility dialect is likewise recognized from its
+resource path, not its hostname. Any proxy or gateway exposing that shape takes
+the same request policy, reasoning translation, and catalogue normalization.
 
 Model discovery uses the sibling `models` resource and the matching auth family.
+For an ambiguous base it walks the same route candidates until a catalogue
+satisfies the shared `data[].id` contract, then caches that route for generation.
 OpenAI and Gemini routes use Bearer authentication. Native Anthropic routes use
 `x-api-key` and `anthropic-version`. Extra headers may replace those defaults
 case-insensitively.
 
 ## Automatic detection and probing
 
-Official hosts and path hints are deterministic and do not probe. An ambiguous
-custom URL preserves Orb's historical OpenAI request first. Only when the
+Explicit resource shapes are deterministic and do not probe. An ambiguous URL
+preserves Orb's historical OpenAI request first. Only when the
 pre-stream response body specifically identifies a route mismatch does Orb try,
-on the same host, these conventional resources:
+on the same host, these candidate resources:
 
 1. the configured base plus `chat/completions`;
-2. host-root `/v1/chat/completions`;
-3. host-root `/v1/messages`;
-4. host-root `/v1beta/openai/chat/completions`.
+2. the configured base plus `messages`;
+3. host-root `/v1/chat/completions`;
+4. host-root `/v1/messages`;
+5. host-root `/v1beta/openai/chat/completions`.
 
-The last is Google's compatibility resource, which a Gemini-compat proxy
-configured at its bare root exposes and the two `/v1` guesses cannot reach.
+The last is the beta OpenAI compatibility resource, which some proxies expose
+at their bare root and the two `/v1` guesses cannot reach.
 
 The HTTP status alone never starts probing: a 400 or 404 can describe a bad
 model, schema, or tool choice rather than a bad route. Known request recovery
@@ -56,7 +53,7 @@ runs first. No route is changed after the first streamed delta, and local
 text-completion calls do not enter this chat probing path.
 
 Probing replays the complete POST, so a first request can upload the prompt up
-to four times. Orb chooses that trade-off because native compatibility proxies
+to five times. Orb chooses that trade-off because native compatibility proxies
 do not expose a reliable discovery contract. A successful protocol and path is
 cached per configured URL and model for the life of the backend process;
 configured settings are never rewritten.
@@ -67,9 +64,10 @@ names the field as invalid drops it for one retry and for the rest of the
 session. Providers' accepted sets move, so this is learned from the response
 rather than held as a per-provider list.
 
-A 401 or 403 can trigger one alternate Anthropic/Bearer auth attempt only when
-the model name, path, or resolved protocol supplies Claude/Anthropic evidence.
-This retry is independently bounded and never changes hosts.
+A 401 or 403 can trigger one alternate native/Bearer auth attempt for a Messages
+route or an ambiguous route. An explicit OpenAI resource only retries when the
+response names the native `x-api-key` header. This retry is independently
+bounded and never changes hosts; provider and model names are not evidence.
 
 ## Provider request behavior
 
@@ -82,11 +80,11 @@ that escape hatch. A missing `max_tokens` defaults to 4096.
 
 Reasoning-on maps to adaptive thinking with summarized display, and supported
 effort levels map to `output_config.effort`. Reasoning-off omits `thinking`.
-Current Claude families that reject temperature, top-p, and top-k omit them;
-unknown proxy model names try them once, learn from a specific rejection, and
-omit them for later calls. `min_p`, repetition penalties, and logprobs are never
-sent to Anthropic. Consequently, Document mode's per-token steering is not
-available on native Anthropic endpoints.
+Sampling controls are sent optimistically. A specific rejection teaches Orb to
+omit them for later calls to that endpoint/model pair; names never stand in for
+capability evidence. `min_p`, repetition penalties, and logprobs are never sent
+to Anthropic. Consequently, Document mode's per-token steering is not available
+on native Anthropic endpoints.
 
 Some routed models accept only `tool_choice="auto"`. This is distinct from a
 provider that rejects `tool_choice` entirely: Orb rewrites `none`, `required`,

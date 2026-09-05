@@ -61,22 +61,16 @@ def _clear_learned_state():
             "https://proxy.test/prefix/v1/models",
         ),
         (
-            "https://api.anthropic.com",
-            "anthropic",
-            "https://api.anthropic.com/v1/messages",
-            "https://api.anthropic.com/v1/models",
-        ),
-        (
-            "https://proxy.test/providers/anthropic/v1",
-            "anthropic",
-            "https://proxy.test/providers/anthropic/v1/messages",
-            "https://proxy.test/providers/anthropic/v1/models",
-        ),
-        (
-            "https://generativelanguage.googleapis.com/v99/wrong",
+            "https://proxy.test/prefix/v1beta/openai",
             "openai",
-            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-            "https://generativelanguage.googleapis.com/v1beta/openai/models",
+            "https://proxy.test/prefix/v1beta/openai/chat/completions",
+            "https://proxy.test/prefix/v1beta/openai/models",
+        ),
+        (
+            "https://native.test/v1/messages",
+            "anthropic",
+            "https://native.test/v1/messages",
+            "https://native.test/v1/models",
         ),
     ],
 )
@@ -88,16 +82,31 @@ def test_deterministic_resolution(configured, protocol, url, models):
     assert route.authoritative
 
 
-def test_explicit_resource_is_authoritative_even_on_provider_host():
+def test_explicit_resource_is_authoritative_regardless_of_host_name():
     route = ep.resolve_endpoint("https://api.anthropic.com/v1/chat/completions")
     assert route.protocol == "openai"
     assert route.url.endswith("/v1/chat/completions")
+
+
+@pytest.mark.parametrize(
+    "configured",
+    [
+        "https://api.anthropic.com",
+        "https://proxy.test/providers/anthropic/v1",
+        "https://claude.example/v1",
+    ],
+)
+def test_provider_and_model_names_do_not_select_a_protocol(configured):
+    route = ep.resolve_endpoint(configured, "claude-opus-999")
+    assert route.protocol == "openai"
+    assert not route.authoritative
 
 
 def test_ambiguous_candidates_preserve_old_request_then_same_host_v1():
     routes = ep.endpoint_candidates("https://custom.test/prefix", "m")
     assert [(route.protocol, route.url) for route in routes] == [
         ("openai", "https://custom.test/prefix/chat/completions"),
+        ("anthropic", "https://custom.test/prefix/messages"),
         ("openai", "https://custom.test/v1/chat/completions"),
         ("anthropic", "https://custom.test/v1/messages"),
         ("openai", "https://custom.test/v1beta/openai/chat/completions"),
@@ -113,14 +122,17 @@ def test_malformed_url_degrades_without_probe_candidates():
 def test_route_probe_is_body_based():
     assert ep.should_probe_route(400, '{"error":"Unknown endpoint"}')
     assert ep.should_probe_route(404, "Cannot POST /chat/completions")
+    assert ep.should_probe_route(404, '{"type":"error","error":{"type":"not_found_error"}}')
     assert not ep.should_probe_route(404, '{"error":"model not found"}')
+    assert not ep.should_probe_route(404, '{"error":{"type":"not_found_error","message":"model not found"}}')
     assert not ep.should_probe_route(400, '{"error":"Unknown model"}')
 
 
 @pytest.mark.parametrize(
     ("url", "gemini"),
     [
-        ("https://generativelanguage.googleapis.com", True),
+        # A hostname alone is not protocol evidence.
+        ("https://generativelanguage.googleapis.com", False),
         ("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", True),
         # A proxy mirroring Google's compatibility resource is the same dialect.
         ("https://gateway.ai.cloudflare.com/v1/a/g/google-ai-studio/v1beta/openai", True),
@@ -153,12 +165,12 @@ def test_reasoning_off_asks_gemini_to_stop_thinking():
     # reasoning/chat_template_kwargs/thinking are all silently ignored by the
     # compatibility layer; reasoning_effort is the control it actually reads.
     body = {"model": "gemini-3-pro", **reasoning_cfg(False)}
-    ep.prepare_request_body("https://generativelanguage.googleapis.com", "gemini-3-pro", body)
+    ep.prepare_request_body("https://compat.test/v1beta/openai", "gemini-3-pro", body)
     assert body["reasoning_effort"] == "none"
 
     # An explicit effort means the call asked for thinking; leave it alone.
     on = {"model": "gemini-3-pro", "reasoning_effort": "high", **reasoning_cfg(True)}
-    ep.prepare_request_body("https://generativelanguage.googleapis.com", "gemini-3-pro", on)
+    ep.prepare_request_body("https://compat.test/v1beta/openai", "gemini-3-pro", on)
     assert on["reasoning_effort"] == "high"
 
     # Non-Gemini endpoints keep Orb's historical reasoning-off shape untouched.
@@ -168,7 +180,7 @@ def test_reasoning_off_asks_gemini_to_stop_thinking():
 
 
 def test_rejected_reasoning_effort_is_learned_and_dropped_for_the_session():
-    url, model = "https://generativelanguage.googleapis.com", "gemini-3-pro"
+    url, model = "https://compat.test/v1beta/openai", "gemini-3-pro"
     body = {"model": model, "reasoning_effort": "xhigh"}
     rejection = '{"error":{"code":400,"message":"Invalid reasoning_effort: xhigh. Valid values are: high, low, medium, none","status":"INVALID_ARGUMENT"}}'
 
@@ -196,8 +208,8 @@ def test_generic_400_does_not_cost_a_working_reasoning_effort():
 
 def test_tool_schema_predicate_tracks_anthropic_and_gemini_wire_shapes():
     messages = [{"role": "user", "content": "hi"}]
-    assert LLMClient("https://api.anthropic.com").sends_tool_schemas(messages, "claude-opus-5")
-    assert not LLMClient("https://generativelanguage.googleapis.com").sends_tool_schemas(messages, "gemini-3-pro")
+    assert LLMClient("https://native.test/v1/messages").sends_tool_schemas(messages, "opaque-model")
+    assert not LLMClient("https://compat.test/v1beta/openai").sends_tool_schemas(messages, "opaque-model")
 
 
 def test_translate_messages_system_images_tools_and_coalescing():
@@ -293,7 +305,7 @@ def test_anthropic_body_allowlist_tools_choices_reasoning_and_sampling():
         assert forbidden not in body
 
 
-def test_current_claude_sampling_is_withheld_and_reasoning_off_omits_thinking():
+def test_sampling_support_is_not_inferred_from_model_name():
     body = anthropic.build_request_body(
         {
             "messages": [],
@@ -305,7 +317,7 @@ def test_current_claude_sampling_is_withheld_and_reasoning_off_omits_thinking():
         "https://api.anthropic.com",
         "claude-opus-5-20260801",
     )
-    assert "temperature" not in body and "top_p" not in body and "top_k" not in body
+    assert body["temperature"] == 0.8 and body["top_p"] == 0.95 and body["top_k"] == 40
     assert "thinking" not in body and "output_config" not in body
 
 
@@ -435,7 +447,7 @@ async def test_gemini_uses_normalized_openai_route_structured_output_and_effort(
         "data: [DONE]",
     ]
     fake = _HTTP([_Response(lines=lines)])
-    client = LLMClient("https://generativelanguage.googleapis.com", "key", reasoning_effort="high")
+    client = LLMClient("https://generativelanguage.googleapis.com/v1beta/openai", "key", reasoning_effort="high")
     events = await _run(
         client,
         fake,
@@ -613,16 +625,24 @@ async def test_anthropic_midstream_error_uses_sanitized_llm_error():
 
 async def test_ambiguous_endpoint_probes_bounded_routes_and_caches_success():
     wrong = '{"error":"Cannot POST /prefix/chat/completions"}'
-    wrong_v1 = '{"error":"route not found"}'
+    wrong_route = '{"error":"route not found"}'
     success = [
         _line({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "hi"}}),
         _line({"type": "message_stop"}),
     ]
-    fake = _HTTP([_Response(404, error=wrong), _Response(404, error=wrong_v1), _Response(lines=success)])
+    fake = _HTTP(
+        [
+            _Response(404, error=wrong),
+            _Response(404, error=wrong_route),
+            _Response(404, error=wrong_route),
+            _Response(lines=success),
+        ]
+    )
     client = LLMClient("https://custom.test/prefix")
     events = await _run(client, fake, model="claude-proxy")
     assert [request["url"] for request in fake.requests] == [
         "https://custom.test/prefix/chat/completions",
+        "https://custom.test/prefix/messages",
         "https://custom.test/v1/chat/completions",
         "https://custom.test/v1/messages",
     ]
@@ -643,10 +663,35 @@ async def test_auth_family_retry_is_evidence_gated_and_bounded():
     assert "x-api-key" not in fake.requests[1]["headers"]
 
 
-async def test_openai_auth_rejection_without_claude_evidence_is_not_retried():
+async def test_ambiguous_endpoint_detects_messages_dialect_without_name_hints():
+    not_found = '{"type":"error","error":{"type":"not_found_error","message":"Not Found"}}'
+    success = [_line({"type": "message_stop"})]
+    fake = _HTTP(
+        [
+            _Response(401, error='{"error":"authentication required"}'),
+            _Response(404, error=not_found),
+            _Response(lines=success),
+        ]
+    )
+    client = LLMClient("https://opaque.test", "key")
+
+    await _run(client, fake, model="model-7")
+
+    assert [request["url"] for request in fake.requests] == [
+        "https://opaque.test/chat/completions",
+        "https://opaque.test/chat/completions",
+        "https://opaque.test/messages",
+    ]
+    assert fake.requests[0]["headers"] == {"Authorization": "Bearer key"}
+    assert fake.requests[1]["headers"]["x-api-key"] == "key"
+    assert fake.requests[2]["headers"]["x-api-key"] == "key"
+    assert ep.resolve_endpoint(client.base_url, "model-7").protocol == "anthropic"
+
+
+async def test_authoritative_openai_auth_rejection_without_header_evidence_is_not_retried():
     fake = _HTTP([_Response(401, error='{"error":"bad auth"}')])
     with pytest.raises(LLMCallError):
-        await _run(LLMClient("https://custom.test/v1", "key"), fake, model="ordinary-model")
+        await _run(LLMClient("https://custom.test/v1/chat/completions", "key"), fake, model="ordinary-model")
     assert len(fake.requests) == 1
 
 
@@ -704,7 +749,7 @@ async def test_reasoning_effort_rejection_retries_and_is_remembered():
     )
     openai_done = ['data: {"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}', "data: [DONE]"]
     fake = _HTTP([_Response(400, error=rejection), _Response(lines=openai_done)])
-    client = LLMClient("https://generativelanguage.googleapis.com", "key", reasoning_effort="xhigh")
+    client = LLMClient("https://generativelanguage.googleapis.com/v1beta/openai", "key", reasoning_effort="xhigh")
 
     events = await _run(fake=fake, client=client, model="gemini-3-pro", **reasoning_cfg(True))
 
@@ -727,7 +772,7 @@ async def test_gemini_model_that_cannot_disable_thinking_settles_after_one_rejec
     rejection = '{"error":{"code":400,"message":"Invalid reasoning_effort: none. Valid values are: high, low, medium","status":"INVALID_ARGUMENT"}}'
     openai_done = ['data: {"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}', "data: [DONE]"]
     fake = _HTTP([_Response(400, error=rejection), _Response(lines=openai_done)])
-    client = LLMClient("https://generativelanguage.googleapis.com", "key")
+    client = LLMClient("https://generativelanguage.googleapis.com/v1beta/openai", "key")
 
     await _run(client, fake, model="gemini-3-pro", **reasoning_cfg(False))
 

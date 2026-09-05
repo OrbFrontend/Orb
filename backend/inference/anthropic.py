@@ -15,24 +15,14 @@ from .tool_registry import strictify_schema
 EXTRA_BODY_ALLOWED: frozenset[str] = frozenset({"metadata", "service_tier"})
 DEFAULT_MAX_TOKENS = 4096
 
-# Current families whose Messages endpoints reject the old sampling controls.
-# Unknown proxy model names are tried once and learned from a provider rejection.
-_NO_SAMPLING_MARKERS = (
-    "opus-5",
-    "opus-4-8",
-    "opus-4.8",
-    "opus-4-7",
-    "opus-4.7",
-    "sonnet-5",
-    "fable-5",
-)
-
+# Sampling support is a capability of the concrete endpoint/model pair, not
+# something that can be inferred from a provider-owned model id. Send the
+# caller's controls optimistically and remember an explicit rejection.
 _SAMPLING_UNSUPPORTED: set[tuple[str, str]] = set()
 
-# Adaptive thinking and ``output_config.effort`` are 4.6-and-later fields. An
-# older family behind a proxy (Haiku 4.5 and earlier want the retired
-# ``budget_tokens`` shape) rejects them outright, so -- as with sampling --
-# they go out once and are learned from the provider's rejection.
+# Some Messages implementations accept an older ``budget_tokens`` shape and
+# reject adaptive thinking or ``output_config.effort``. As with sampling, the
+# modern fields go out once and an explicit rejection is remembered.
 _THINKING_UNSUPPORTED: set[tuple[str, str]] = set()
 
 
@@ -194,8 +184,7 @@ def translate_tool_choice(choice: object) -> dict[str, Any] | None:
 
 
 def _sampling_allowed(endpoint_url: str, model: str) -> bool:
-    low = model.lower().replace("_", "-")
-    return (endpoint_url, model) not in _SAMPLING_UNSUPPORTED and not any(marker in low for marker in _NO_SAMPLING_MARKERS)
+    return (endpoint_url, model) not in _SAMPLING_UNSUPPORTED
 
 
 def build_request_body(

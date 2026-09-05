@@ -180,30 +180,17 @@ PROFILES: dict[str, dict[str | None, ModelProfile]] = {
 }
 
 
-# Google's OpenAI compatibility surface. Matched by a predicate rather than a
-# PROFILES substring because the same wire dialect is reached through more than
-# one host: Google's own, and any proxy that mirrors the ``/v1beta/openai``
-# resource shape (Cloudflare AI Gateway, self-hosted key-pool proxies). Matching
-# on the host string alone left every proxy user without the request policy,
-# the reasoning translation and the catalogue normalization below.
-#
-# Deliberately NOT matched: a bare ``gemini`` or ``google`` path segment. Those
-# appear on gateways whose route is an ordinary OpenAI one where native tool
-# calls work, and ``structured_tool_calls`` would withhold ``tools`` from them
-# for no reason. Vertex's ``endpoints/openapi`` surface is likewise excluded --
-# it is a different compatibility layer with its own tool behavior.
-_GEMINI_HOST = "generativelanguage.googleapis.com"
+# This OpenAI compatibility dialect is identified by its resource shape, not a
+# provider hostname or a model id. Any proxy exposing the same path therefore
+# receives the same request policy and catalogue normalization.
 _GEMINI_OPENAI_PATH = "/v1beta/openai"
 
 
 def is_gemini_openai_surface(url: str) -> bool:
-    """Whether *url* addresses Google's OpenAI-compatible Gemini dialect."""
+    """Whether *url* has the ``/v1beta/openai`` compatibility shape."""
     parsed = _parsed_http_url(url)
     if parsed is None:
         return _GEMINI_OPENAI_PATH in _clean_url(url).lower()
-    host = (parsed.hostname or "").lower()
-    if host == _GEMINI_HOST or host.endswith(f".{_GEMINI_HOST}"):
-        return True
     path = parsed.path.rstrip("/").lower()
     return path == _GEMINI_OPENAI_PATH or f"{_GEMINI_OPENAI_PATH}/" in f"{path}/"
 
@@ -311,62 +298,49 @@ def _base_route(protocol: Protocol, base_url: str, *, authoritative: bool = Fals
 
 
 def _deterministic_route(endpoint_url: str) -> EndpointRoute:
-    """Resolve explicit resources and strong provider hints without probing."""
+    """Resolve explicit resource shapes without provider/model-name guesses."""
     clean = _clean_url(endpoint_url)
     parsed = _parsed_http_url(clean)
     low = clean.lower()
     path = parsed.path.rstrip("/").lower() if parsed is not None else low
 
-    # Full resource URLs are user intent and win over host heuristics.
+    # Full resource URLs are user intent.
     if path.endswith("/chat/completions"):
         return _resource_route("openai", clean, authoritative=True)
     if path.endswith("/messages"):
         return _resource_route("anthropic", clean, authoritative=True)
 
-    host = (parsed.hostname or "").lower() if parsed is not None else ""
-    if host == _GEMINI_HOST or host.endswith(f".{_GEMINI_HOST}"):
-        base = _replace_path(parsed, _GEMINI_OPENAI_PATH) if parsed is not None else clean
-        return _base_route("openai", base, authoritative=True)
-
-    segments = [segment for segment in path.split("/") if segment]
-    if host == "api.anthropic.com" or host.endswith(".api.anthropic.com"):
-        if not segments:
-            base = _replace_path(parsed, "/v1") if parsed is not None else f"{clean}/v1"
-        else:
-            base = clean
-        return _base_route("anthropic", base, authoritative=True)
-
-    # Proxy prefixes such as /anthropic or /providers/anthropic/v1 are strong
-    # enough to select native Messages without replaying a prompt elsewhere.
-    if "anthropic" in segments:
-        base = f"{clean}/v1" if segments[-1] == "anthropic" else clean
-        return _base_route("anthropic", base, authoritative=True)
+    if is_gemini_openai_surface(clean):
+        return _base_route("openai", clean, authoritative=True)
 
     return _base_route("openai", clean)
 
 
 def resolve_endpoint(endpoint_url: str, model: str = "") -> EndpointRoute:
     """Return the cached or deterministic route for one configured endpoint."""
-    return _RESOLVED_ROUTES.get((endpoint_url, model)) or _deterministic_route(endpoint_url)
+    return (
+        _RESOLVED_ROUTES.get((endpoint_url, model))
+        or _RESOLVED_ROUTES.get((endpoint_url, ""))
+        or _deterministic_route(endpoint_url)
+    )
 
 
 def endpoint_candidates(endpoint_url: str, model: str = "") -> list[EndpointRoute]:
     """Return bounded same-host routes in request order.
 
-    Explicit resources and provider hints are authoritative. Ambiguous URLs keep
-    Orb's historical ``{configured}/chat/completions`` request first, followed
-    by the conventional host-root OpenAI and Anthropic v1 resources, then
-    Google's ``/v1beta/openai`` compatibility resource. Candidates are only
+    Explicit resource shapes are authoritative. Ambiguous URLs keep Orb's
+    historical ``{configured}/chat/completions`` request first, followed by its
+    Messages sibling and the conventional host-root resources. Candidates are only
     attempted when :func:`should_probe_route` recognizes the response body as a
     route mismatch.
 
-    The Gemini candidate is last because it is the narrowest guess of the four
+    The ``/v1beta/openai`` candidate is last because it is the narrowest guess
     and costs a further prompt upload; it is still worth making, because a
     Gemini-compat proxy configured at its bare root exposes that resource and
     no other, and the two ``/v1`` guesses ahead of it cannot reach it.
     """
     primary = resolve_endpoint(endpoint_url, model)
-    if primary.authoritative or (endpoint_url, model) in _RESOLVED_ROUTES:
+    if primary.authoritative or (endpoint_url, model) in _RESOLVED_ROUTES or (endpoint_url, "") in _RESOLVED_ROUTES:
         return [primary]
     parsed = _parsed_http_url(endpoint_url)
     if parsed is None:
@@ -374,6 +348,7 @@ def endpoint_candidates(endpoint_url: str, model: str = "") -> list[EndpointRout
     root = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
     candidates = [
         primary,
+        _base_route("anthropic", endpoint_url),
         _base_route("openai", f"{root}/v1"),
         _base_route("anthropic", f"{root}/v1"),
         _base_route("openai", f"{root}{_GEMINI_OPENAI_PATH}"),
@@ -395,7 +370,6 @@ def note_successful_route(endpoint_url: str, model: str, route: EndpointRoute) -
 
 def should_probe_route(status: int, text: str) -> bool:
     """Whether an error body specifically identifies an HTTP route mismatch."""
-    del status  # Deliberately a body fact; status-only routing is unsafe.
     low = text.lower()
     markers = (
         "cannot post /",
@@ -405,16 +379,20 @@ def should_probe_route(status: int, text: str) -> bool:
         "unsupported endpoint",
         "invalid url (post",
     )
-    return any(marker in low for marker in markers)
+    native_not_found = status == 404 and "not_found_error" in low and "model" not in low
+    return any(marker in low for marker in markers) or native_not_found
 
 
-def auth_families(route: EndpointRoute, endpoint_url: str, model: str, status: int | None = None) -> tuple[AuthFamily, ...]:
-    """Return primary auth and, on supported 401/403 evidence, its peer."""
+def auth_families(route: EndpointRoute, status: int | None = None, text: str = "") -> tuple[AuthFamily, ...]:
+    """Return primary auth and a bounded, evidence-based alternative."""
     primary = route.auth_family
     if status not in {401, 403}:
         return (primary,)
-    evidence = "claude" in model.lower() or "anthropic" in endpoint_url.lower() or route.protocol == "anthropic"
-    if not evidence:
+    # A Messages route defines its auth default. Ambiguous routes may need the
+    # other family before the server will reveal that the resource is wrong;
+    # an explicit OpenAI route only retries when the response names the native
+    # API-key header. None of these signals depends on provider or model names.
+    if route.protocol != "anthropic" and route.authoritative and "x-api-key" not in text.lower():
         return (primary,)
     other: AuthFamily = "bearer" if primary == "anthropic" else "anthropic"
     return (primary, other)
@@ -483,13 +461,14 @@ def profile_for(endpoint_url: str, model: str = "") -> ModelProfile | None:
     A blank *model* falls through to the endpoint default. An unmatched URL
     returns ``None`` — the body is sent unchanged (local / unknown backends).
 
-    Gemini is resolved by :func:`is_gemini_openai_surface` rather than by a
-    ``PROFILES`` substring so that a proxy mirroring Google's compatibility
-    resource is given the same request policy as Google's own host.
+    The ``/v1beta/openai`` dialect is resolved by
+    :func:`is_gemini_openai_surface` rather than by a ``PROFILES`` substring,
+    so every proxy mirroring the resource gets the same request policy.
     """
     if not endpoint_url:
         return None
-    if is_gemini_openai_surface(endpoint_url):
+    resolved_url = resolve_endpoint(endpoint_url, model).url
+    if is_gemini_openai_surface(endpoint_url) or is_gemini_openai_surface(resolved_url):
         return _GEMINI_PROFILE
     haystack = endpoint_url.lower()
     for needle, models in PROFILES.items():

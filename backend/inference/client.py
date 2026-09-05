@@ -277,38 +277,57 @@ class LLMClient:
         return headers
 
     async def list_models(self) -> list[str]:
-        """Return model ids advertised by an OpenAI-compatible ``GET /models``.
+        """Return model ids advertised by a compatible ``GET /models``.
 
-        Discovery uses the same bearer authentication and endpoint proxy as
-        generation, but a short finite timeout: unlike a completion, this is a
-        small non-streaming settings request and should fail back to Orb's
-        editable model-name field promptly.
+        Explicit resource shapes have one sibling catalogue. For an ambiguous
+        base, discovery walks the same bounded route/auth candidates as
+        generation and caches the first catalogue that satisfies the shared
+        ``data[].id`` contract. It uses a short finite timeout so failure still
+        falls back to Orb's editable model-name field promptly.
         """
-        route = endpoint_profiles.resolve_endpoint(self.base_url)
-        url = route.models_url
+        routes = endpoint_profiles.endpoint_candidates(self.base_url)
+        seen: set[tuple[str, endpoint_profiles.AuthFamily]] = set()
+        contract_error: ValueError | None = None
+        last_response: httpx.Response | None = None
         async with httpx.AsyncClient(timeout=20.0, proxy=self.proxy, follow_redirects=True) as client:
-            response = await client.get(url, headers=self._headers_for(route.auth_family))
-        response.raise_for_status()
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise ValueError("Endpoint returned a non-JSON models response") from exc
+            for route in routes:
+                candidate = (route.models_url, route.auth_family)
+                if candidate in seen:
+                    continue
+                seen.add(candidate)
+                response = await client.get(route.models_url, headers=self._headers_for(route.auth_family))
+                if response.status_code >= 400:
+                    last_response = response
+                    continue
+                try:
+                    payload = response.json()
+                except ValueError:
+                    contract_error = ValueError("Endpoint returned a non-JSON models response")
+                    continue
 
-        data = payload.get("data") if isinstance(payload, dict) else None
-        if not isinstance(data, list):
-            raise ValueError("Endpoint models response does not contain a data list")
+                data = payload.get("data") if isinstance(payload, dict) else None
+                if not isinstance(data, list):
+                    contract_error = ValueError("Endpoint models response does not contain a data list")
+                    continue
 
-        model_ids: set[str] = set()
-        for item in data:
-            model_id = item.get("id") if isinstance(item, dict) else None
-            if isinstance(model_id, str) and model_id.strip():
-                normalized = model_id.strip()
-                # Google lists ids as ``models/gemini-...``; the generation
-                # resource takes either form, so strip it for the picker.
-                if normalized.startswith("models/") and endpoint_profiles.is_gemini_openai_surface(route.url):
-                    normalized = normalized.removeprefix("models/")
-                model_ids.add(normalized)
-        return sorted(model_ids, key=str.casefold)
+                endpoint_profiles.note_successful_route(self.base_url, "", route)
+                model_ids: set[str] = set()
+                for item in data:
+                    model_id = item.get("id") if isinstance(item, dict) else None
+                    if isinstance(model_id, str) and model_id.strip():
+                        normalized = model_id.strip()
+                        # This compatibility resource lists ids with a
+                        # ``models/`` prefix that generation does not need.
+                        if normalized.startswith("models/") and endpoint_profiles.is_gemini_openai_surface(route.url):
+                            normalized = normalized.removeprefix("models/")
+                        model_ids.add(normalized)
+                return sorted(model_ids, key=str.casefold)
+
+        if contract_error is not None:
+            raise contract_error
+        if last_response is not None:
+            last_response.raise_for_status()
+        raise ValueError("Endpoint did not expose a models response")
 
     def _server_root(self) -> str:
         """Server root for llama.cpp native endpoints (/completion, /apply-template,
@@ -797,7 +816,7 @@ class LLMClient:
                                         recovery_count += 1
                                         logger.warning("LLM recovery: %s", fix)
                                         continue
-                                auths = endpoint_profiles.auth_families(route, self.base_url, model, resp.status_code)
+                                auths = endpoint_profiles.auth_families(route, resp.status_code, err_text)
                                 if not auth_retried and len(auths) > 1:
                                     auth_family = auths[1]
                                     auth_retried = True
