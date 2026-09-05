@@ -23,7 +23,7 @@ function renderRows() {
   const el = $("direction-notes-panel-content");
   if (!el) return;
   if (!notes.length) {
-    el.innerHTML = `<div class="notes-empty">No direction notes on this branch yet. The director records them when Direction Notes is on.</div>`;
+    el.innerHTML = `<div class="notes-empty">No direction notes on this branch yet. Turn on Direction Notes to record them.</div>`;
     return;
   }
   el.innerHTML = notes

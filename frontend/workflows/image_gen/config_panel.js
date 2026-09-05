@@ -160,7 +160,7 @@ function refreshCard() {
 }
 
 export function configPanelRenderer() {
-  return `<div class="tool-card-desc">Generate images on demand with ComfyUI or a cloud API.</div>
+  return `<div class="tool-card-desc">Generate images on demand with ComfyUI on your machine or through a cloud API.</div>
     <div id="ig-card-config">${configPanelBody()}</div>`;
 }
 
@@ -235,7 +235,7 @@ function styleModelField(style, connectionId) {
   return modelField(modelPickerState(modelsByConnection[connectionId], style.model || ""), {
     attrs: styleField("model"),
     emptyLabel: preset?.default_model ? `Default — ${preset.default_model}` : "Choose a model",
-    placeholder: preset?.default_model || "model id",
+    placeholder: preset?.default_model || "model name or ID",
   });
 }
 
@@ -282,7 +282,7 @@ function comfyReferenceFields(style) {
   if (!slots.length) return "";
   const one = slots.length === 1;
   return `<div class="ig-heading ig-reference-heading">Reference image</div>
-    <div class="image-gen-note">This workflow loads ${one ? "an image" : `${slots.length} images`}. Point ${one ? "it" : "them"} at what Orb should feed ${one ? "it" : "them — all of them get the same picture"}, or leave ${one ? "it" : "them"} off to keep the ${one ? "file" : "files"} this workflow was exported with.</div>
+    <div class="image-gen-note">This workflow loads ${one ? "one image" : `${slots.length} images`}. Choose what Orb loads for each style, or leave this off to keep the ${one ? "image" : "images"} exported with the workflow.${one ? "" : " All image slots receive the same image."}</div>
     <div class="ig-grid"><label>Reference image${referenceSelect(styleSource(style))}</label></div>`;
 }
 
@@ -307,11 +307,11 @@ function cloudStyleFields(style, connection) {
   const slots = maxCloudReferences(preset);
   const capacityNote =
     source && providerTakesReferences(preset)
-      ? `<div class="image-gen-note">${esc(connection.label)} carries ${slots === 1 ? "one reference image" : `up to ${slots} reference images`}, one per character in the scene. ${slots === 1 ? "In a group chat only the speaker's likeness is sent; everyone else is described in the prompt." : "A scene with more characters than that sends the first few and describes the rest."}</div>`
+      ? `<div class="image-gen-note">${esc(connection.label)} accepts ${slots === 1 ? "one reference image" : `up to ${slots} reference images`}, one for each character in the scene. ${slots === 1 ? "In a group chat, only the speaker's image is sent; the other characters are described in the prompt." : "If the scene has more characters than that, the first few get reference images and the rest are described in the prompt."}</div>`
       : "";
   const referenceSizeNote =
     preset?.reference_drives_size && source && providerTakesReferences(preset)
-      ? `<div class="image-gen-note">${esc(connection.label)} sizes a reference render from the reference image, so Resolution does not apply while it is on.</div>`
+      ? `<div class="image-gen-note">${esc(connection.label)} uses the reference image to determine the output size, so Resolution is ignored when references are enabled.</div>`
       : "";
   return `<div class="ig-grid">
       <label>Model${styleModelField(style, connection.id)}</label>
@@ -322,14 +322,14 @@ function cloudStyleFields(style, connection) {
     ${capacityNote}${referenceSizeNote}
     <div class="image-gen-note ig-style-backend">${
       preset?.dimension_mode === "aspect_ratio" ? "Aspect ratio is chosen automatically from the resolution. " : ""
-    }The API key for ${esc(connection.label)} lives on its connection.
+    }The API key for ${esc(connection.label)} is stored in its connection settings.
       <button type="button" class="ig-link" data-wf-action="image_gen:connOpen" data-conn-id="${escAttr(connection.id)}">Edit connection</button></div>`;
 }
 
 function negativeNote(connection) {
   if (connection?.source !== "cloud") return "";
   if (connection.preset?.supports_negative_prompt !== false) return "";
-  return `<div class="image-gen-note">${esc(connection.label)} has no negative prompt field — this text is not sent.</div>`;
+  return `<div class="image-gen-note">${esc(connection.label)} does not support negative prompts, so this text will not be sent.</div>`;
 }
 
 function styleBody(style, index, connection) {
@@ -338,10 +338,10 @@ function styleBody(style, index, connection) {
         <label>Connection<select data-ig-field="connection" data-wf-action="image_gen:styleConnection" data-wf-on="change">${styleConnectionOptions(styleConnectionId(style, cfg))}</select></label>
         <label>Prompt format<select ${styleField("prompt_format")}>${promptFormatOptions(style.prompt_format)}</select></label>
       </div>
-      <label>Positive style prompt<textarea ${styleField("prompt")} placeholder="No positive style prompt">${esc(style.prompt || "")}</textarea></label>
-      <label>Negative style prompt<textarea ${styleField("negative_prompt")} placeholder="No negative style prompt">${esc(style.negative_prompt || "")}</textarea></label>
+      <label>Positive style prompt<textarea ${styleField("prompt")} placeholder="Optional style prompt">${esc(style.prompt || "")}</textarea></label>
+      <label>Negative style prompt<textarea ${styleField("negative_prompt")} placeholder="Optional negative prompt">${esc(style.negative_prompt || "")}</textarea></label>
       ${negativeNote(connection)}
-      <label>Extra instructions<textarea ${styleField("extra_instructions")} placeholder="Extra guidance for the prompter model (e.g. emphasize hand placement and use full-body framing).">${esc(style.extra_instructions || "")}</textarea></label>
+      <label>Extra instructions<textarea ${styleField("extra_instructions")} placeholder="Optional guidance for the prompter model (e.g. emphasize hand placement and use full-body framing).">${esc(style.extra_instructions || "")}</textarea></label>
       ${backendFields(style, connection)}
       <button class="btn btn-sm ig-danger" data-wf-action="image_gen:styleRemove" data-style-index="${index}">Remove style</button>`;
 }
@@ -506,7 +506,7 @@ function relinkStyle(el) {
 
 function workflowField(selected) {
   if (!draft.graphs.length) {
-    return `<span class="image-gen-note ig-workflow-empty">No workflows detected. Import one in <strong>Imported ComfyUI workflows</strong> below.</span>`;
+    return `<span class="image-gen-note ig-workflow-empty">No workflows found. Import one below under <strong>Imported ComfyUI workflows</strong>.</span>`;
   }
   return `<select data-ig-field="workflow" data-wf-action="image_gen:styleChange" data-wf-on="change">${workflowOptions(selected)}</select>`;
 }
@@ -520,7 +520,7 @@ function workflowOptions(selected) {
 }
 
 function graphRows() {
-  if (!draft.graphs.length) return `<div class="image-gen-note">No imported workflows.</div>`;
+  if (!draft.graphs.length) return `<div class="image-gen-note">No workflows imported yet.</div>`;
   return draft.graphs
     .map(
       (g) => `<div class="ig-graph-row">
@@ -585,7 +585,7 @@ function comfyFields() {
       <label>Server URL<input ${connField("api_url")} value="${escAttr(comfy.api_url || "http://127.0.0.1:8188")}"></label>
       <label>API key<input type="password" ${connField("api_key")} value="${escAttr(comfy.api_key || "")}"></label>
     </div>
-    <div class="image-gen-note">Orb's local backend. It cannot be removed — a style whose cloud connection is deleted falls back to it.</div>`;
+    <div class="image-gen-note">ComfyUI is the built-in local connection and cannot be removed. Styles using a removed cloud connection fall back to ComfyUI.</div>`;
 }
 
 function cloudFields(connection) {
@@ -598,7 +598,7 @@ function cloudFields(connection) {
       : "";
   const unknown = preset
     ? ""
-    : `<div class="image-gen-note ig-unready">Orb has no preset for "${esc(id)}". Its credentials are kept, but nothing can render on it — this is usually a provider that was renamed in a later release.</div>`;
+    : `<div class="image-gen-note ig-unready">Orb no longer recognizes "${esc(id)}". Its credentials are kept, but it cannot generate images. The provider may have been renamed in a later release.</div>`;
   const docs = preset?.docs_url
     ? `<div class="image-gen-note"><a href="${escAttr(preset.docs_url)}" target="_blank" rel="noopener noreferrer">${esc(preset.label)} API documentation</a></div>`
     : "";
@@ -606,7 +606,7 @@ function cloudFields(connection) {
       <label>API key<input type="password" ${connField("api_key")} value="${escAttr(entry.api_key || "")}" placeholder="Paste your key"></label>
       ${baseUrl}
     </div>
-    <div class="image-gen-note">Model, resolution and the reference image are chosen per style, under <strong>Styles</strong> above.</div>
+    <div class="image-gen-note">Choose the model, resolution, and reference image for each style under <strong>Styles</strong> above.</div>
     ${capabilityLine(preset)}${docs}`;
 }
 
@@ -642,7 +642,7 @@ function connectionRows(expandIds = []) {
 
 function addRowHtml() {
   const options = addableProviders(connections, backends.providers);
-  if (!options.length) return `<span class="image-gen-note">Every provider Orb knows already has a connection.</span>`;
+  if (!options.length) return `<span class="image-gen-note">All available providers are already connected.</span>`;
   return `<select id="ig-conn-add">${optionList(options.map((p) => [p.id, p.label]))}</select>
     <button class="btn btn-sm" data-wf-action="image_gen:connAdd">Add connection</button>`;
 }
@@ -839,7 +839,7 @@ function openSettings(expandStyleId = "") {
     <details class="ig-advanced" id="ig-connections"${cardReadiness.ready ? "" : " open"}>
       <summary>Connections<span class="ig-summary-note" id="ig-conn-summary">${esc(connectionSummaryText())}</span></summary>
       <div class="ig-advanced-body">
-        <div class="image-gen-note">Where images render. Every style links to one, so a local checkpoint and a commercial API can sit side by side. ComfyUI is always available and cannot be removed.</div>
+        <div class="image-gen-note">Where images render. Every style links to a connection, which can be local or cloud-based. ComfyUI is always available and cannot be removed.</div>
         <div id="ig-conn-list" class="ig-conn-list">${connectionRows(setupTargets())}</div>
         <div id="ig-conn-add-row" class="image-gen-row">${addRowHtml()}</div>
       </div>
@@ -863,7 +863,7 @@ function openSettings(expandStyleId = "") {
     <details class="ig-advanced">
       <summary>Imported ComfyUI workflows<span class="ig-summary-note">${draft.graphs.length || "none"}</span></summary>
       <div class="ig-advanced-body">
-        <div class="image-gen-note">Use a PNG generated by ComfyUI or a dev-mode Export (API) JSON file. Imported workflows run only on the ComfyUI connection, and are kept whichever connection a style links to.</div>
+        <div class="image-gen-note">Import a PNG from ComfyUI or an API-format JSON export. Imported workflows run through ComfyUI and remain available no matter which connection a style uses.</div>
         <div id="ig-graph-list" class="ig-graph-list">${graphRows()}</div>
         <input type="file" accept=".json,.png,application/json,image/png" data-wf-action="image_gen:graphFile" data-wf-on="change">
         <div id="ig-graph-picker"></div>
@@ -955,7 +955,7 @@ function dimensionRows(items) {
   return edges
     .map(
       ([edge, label, found]) =>
-        `<label>${label}<select id="ig-slot-${edge}">${candidateOptions(found, -1, "None — the workflow decides")}</select></label>`,
+        `<label>${label}<select id="ig-slot-${edge}">${candidateOptions(found, -1, "None — use the workflow's setting")}</select></label>`,
     )
     .join("");
 }
@@ -965,7 +965,7 @@ function referenceRows() {
   if (!slots.length) return "";
   const one = slots.length === 1;
   return `<div class="ig-heading ig-reference-heading">Reference images</div>
-    <div class="image-gen-note">This workflow loads ${one ? "an image" : `${slots.length} images`}. Choose what Orb feeds ${one ? "it" : "them"} per style, under <strong>Styles</strong> above — including leaving ${one ? "it" : "them"} as the ${one ? "file" : "files"} this workflow was exported with.</div>
+    <div class="image-gen-note">This workflow loads ${one ? "one image" : `${slots.length} images`}. Choose what Orb loads for each style under <strong>Styles</strong> above, or leave this off to keep the ${one ? "image" : "images"} exported with the workflow.${one ? "" : " All image slots receive the same image."}</div>
     <ul class="ig-slot-list">${slots.map((item) => `<li>${esc(item.label)}</li>`).join("")}</ul>`;
 }
 
@@ -975,13 +975,13 @@ async function importGraphFile(input) {
   if (!file || !picker) return;
   try {
     if (draft.graphs.length >= MAX_USER_GRAPHS)
-      throw new Error(`Orb stores at most ${MAX_USER_GRAPHS} imported workflows. Remove one before importing another.`);
+      throw new Error(`You can save up to ${MAX_USER_GRAPHS} imported workflows. Remove one before importing another.`);
     const graph = file.name.toLowerCase().endsWith(".png")
       ? graphFromPng(await file.arrayBuffer())
       : graphFromApiJson(await file.text());
     const candidates = slotCandidates(graph, await graphNodeTypes(graph));
     const missing = missingRoles(candidates);
-    if (missing.length) throw new Error(`This workflow has no ${missing.join(", no ")}.`);
+    if (missing.length) throw new Error(`This workflow is missing: ${missing.join(", ")}.`);
     pendingGraph = { graph, label: file.name.replace(/\.(json|png)$/i, ""), candidates };
     const negative = candidates.text.length > 1 ? 1 : -1;
     const model = candidates.checkpoint.length ? 0 : -1;
@@ -992,7 +992,7 @@ async function importGraphFile(input) {
         <label>Negative prompt<select id="ig-slot-negative">${candidateOptions(candidates.text, negative, "None — this workflow has no negative prompt")}</select></label>
         <label>Seed<select id="ig-slot-seed">${candidateOptions(candidates.seed)}</select></label>
         <label>Image output<select id="ig-slot-output">${candidateOptions(candidates.output)}</select></label>
-        <label>Model<select id="ig-slot-model">${candidateOptions(candidates.checkpoint, model, "None — keep the workflow's own model")}</select></label>
+        <label>Model<select id="ig-slot-model">${candidateOptions(candidates.checkpoint, model, "None — keep the workflow's model")}</select></label>
         ${dimensionRows(candidates.dimension)}
       </div>
       ${referenceRows()}
@@ -1041,14 +1041,14 @@ function addPendingGraph() {
   renderStyles();
   const picker = document.getElementById("ig-graph-picker");
   if (picker)
-    picker.innerHTML = `<div class="image-gen-note">Added ${esc(label)}. Test the connection, then save settings.</div>`;
+    picker.innerHTML = `<div class="image-gen-note">Added ${esc(label)}. Test the connection, then save your settings.</div>`;
   pendingGraph = null;
 }
 
 async function saveSettings() {
   const next = readConfig();
   if (!confirmRemotePrivacy(next)) {
-    toast("Nothing was saved — the connection needs approval before it can render", "error");
+    toast("Nothing was saved — approve the connection before generating images", "error");
     return;
   }
   const button = document.getElementById("ig-save");
@@ -1062,7 +1062,7 @@ async function saveSettings() {
     await saveProfile();
     toast(
       droppedGraphs > 0
-        ? `Saved, but ${droppedGraphs} imported workflow${droppedGraphs > 1 ? "s" : ""} could not be stored`
+        ? `Saved, but ${droppedGraphs} imported workflow${droppedGraphs > 1 ? "s" : ""} could not be saved`
         : "Image generation settings saved",
       droppedGraphs > 0 ? "error" : undefined,
     );

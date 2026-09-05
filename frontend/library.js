@@ -280,8 +280,8 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
         ? `
     <div id="${prefix}-tf" class="tab-content">
       <div class="card-frag-hint">
-        These fragments travel with the card (and its exported PNG). Merged into the Interactive and Mood fragment lists; 
-        global fragments win on ID collision.
+        These fragments are stored with the card and its exported PNG. On import, they are merged into the Interactive and Mood fragment lists.
+        If IDs collide, global fragments take precedence.
       </div>
       <div id="ce-card-frag-list"></div>
       <div class="card-frag-actions">

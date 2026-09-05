@@ -58,7 +58,7 @@ function _moodFragFormHtml(d, isEdit) {
       <div class="field"><label>Label <span style="font-size:10px;color:var(--text-muted)">(For display only)</span></label>
         <input id="frag-label" value="${escAttr(d.label)}" placeholder="Terse"></div>
     </div>
-    <div class="field"><label>Description <span style="font-size:10px;color:var(--text-muted)">(tells the Director when to activate — sent in its tool schema)</span></label>
+    <div class="field"><label>Description <span style="font-size:10px;color:var(--text-muted)">(tells the Director when to activate)</span></label>
       <input id="frag-desc" value="${escAttr(d.description)}" placeholder="Short, clipped sentences. Minimal description."></div>
     <div class="field"><label>Prompt Text <span style="font-size:10px;color:var(--text-muted)">(injected into the writer context when this mood is active)</span></label>
       <textarea id="frag-text" rows="4" placeholder="Write tersely. Short sentences. No flowery language.">${esc(d.prompt_text)}</textarea></div>
@@ -227,7 +227,7 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
     injection_label: "e.g. Pacing",
     description: "Set the pace of the narration, e.g. 'slow', 'fast', 'time-skip'",
     inj_hint: "sent to the writer",
-    desc_hint: "tells the Director what to set — sent in its tool schema",
+    desc_hint: "tells the Director what this is about",
   },
   array: {
     id: "e.g. plot_threads",
@@ -235,7 +235,7 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
     injection_label: "e.g. Active Threads",
     description: "List the active plot threads, e.g. 'unresolved rivalry', 'looming deadline'",
     inj_hint: "sent to the writer",
-    desc_hint: "tells the Director what to list — sent in its tool schema",
+    desc_hint: "tells the Director what this is about",
   },
   progressive: {
     id: "e.g. trust",
@@ -253,7 +253,7 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
     description:
       "A lasting note the director records and keeps on this branch, e.g. 'where the story is heading and the established facts that pin it'",
     inj_hint: "sent to the writer",
-    desc_hint: "tells the Director what to record — sent in its tool schema",
+    desc_hint: "tells the Director what to record",
   },
   feedback: {
     id: "e.g. next_actions",
@@ -262,7 +262,7 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
     description:
       "A short out-of-character note shown to you after each reply, e.g. 'suggest what the player could do or say next'",
     inj_hint: "shown to you",
-    desc_hint: "tells the model what to write — sent in its tool schema",
+    desc_hint: "tells the Editor what this is about",
   },
 };
 

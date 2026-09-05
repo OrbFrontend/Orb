@@ -75,7 +75,7 @@ function memberPickerHtml(cast) {
   return `<label class="ig-profile-member">Cast member
       <select id="ig-profile-member" data-wf-action="image_gen:profileMember" data-wf-on="change">${options}</select>
     </label>
-    <span class="image-gen-note">Each member of the scene keeps its own appearance, negative prompt and reference image.</span>`;
+    <span class="image-gen-note">Each character in the scene has its own appearance, negative prompt, and reference image.</span>`;
 }
 
 function referenceImageHtml() {
@@ -153,7 +153,7 @@ export async function populateProfile() {
     el.innerHTML = `<div class="ig-profile-fields">
         ${cast ? memberPickerHtml(cast) : ""}
         <label>Positive prompt<textarea id="ig-appearance" placeholder="Permanent tags, fill with permanent traits (e.g. Hatsune Miku, black and white)">${esc(res.profile.appearance_prompt || "")}</textarea></label>
-        <label>Negative prompt<textarea id="ig-profile-negative" placeholder="Things to never render (e.g. 3D, colored, color). Quality and scene negatives are already handled.">${esc(res.profile.negative_prompt || "")}</textarea></label>
+        <label>Negative prompt<textarea id="ig-profile-negative" placeholder="Describe what to avoid (e.g. 3D, color). Quality and scene-specific negatives are handled automatically.">${esc(res.profile.negative_prompt || "")}</textarea></label>
         <div class="ig-profile-reference">
           <span class="ig-profile-reference-label">Reference image</span>
           <span class="image-gen-note">Used by workflows with reference image slots.</span>

@@ -848,7 +848,7 @@ export function renderToolsPanel() {
         <span class="tog-slider"></span>
       </label>
     </div>
-    <div class="tool-card-desc">Reigns the model's response length by word count. MAX PARAGRAPHS is suggested to the AI in rewrite pass.</div>
+    <div class="tool-card-desc">Reigns the final response length by word count. MAX PARAGRAPHS is suggested to the Writer in rewrite pass.</div>
     ${lgConfig}
   </div>`;
 
@@ -884,7 +884,7 @@ export function renderToolsPanel() {
         <option value="both" ${dnInject === "both" ? "selected" : ""}>Director and writer</option>
       </select>
     </div>
-    <div class="tool-card-desc">Lets the AI keep lasting notes as the story unfolds. <b>Recording</b> saves them; <b>Injection</b> feeds saved notes back to the director, writer, or both.</div>
+    <div class="tool-card-desc">Lets the Agent keep lasting notes as the story unfolds. <b>Recording</b> saves them; <b>Injection</b> feeds saved notes back to the director, writer, or both.</div>
   </div>`;
 
   const divider = (label) => `<div class="tools-divider"><span>${label}</span></div>`;

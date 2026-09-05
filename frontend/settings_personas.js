@@ -127,7 +127,7 @@ export function showUserModal() {
       <div class="modal-title-row persona-modal-header">
         <div>
           <h2>User personas</h2>
-          <p class="modal-subtitle">Choose your default identity. Chat and character pins can override it.</p>
+          <p class="modal-subtitle">Choose the identity to use by default. Override it with a different persona for a specific chat or character.</p>
         </div>
         <div class="modal-title-actions">
           <button class="btn btn-sm" onclick="showPersonaEditModal(null)">+ New persona</button>
