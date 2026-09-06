@@ -308,6 +308,15 @@ def _recorded_references(params: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return [entry for entry in recorded if isinstance(entry, Mapping)]
 
 
+def _rendered_seed(requested: int, result) -> int:
+    """The seed the backend drew with, which is not always the one it was handed: a
+    ComfyUI graph's seed node can declare a range smaller than the seed Orb picked,
+    and the render folds into it. Record what rendered, so the number shown next to
+    the image is the one that reproduces it."""
+    reported = result.backend_info.get("seed")
+    return reported if isinstance(reported, int) and not isinstance(reported, bool) else requested
+
+
 def _attachment(seed: int, result, metadata: dict, consumption: dict) -> dict:
     ext = MIME_EXTENSIONS.get(result.mime, "img")
     return {
@@ -315,7 +324,7 @@ def _attachment(seed: int, result, metadata: dict, consumption: dict) -> dict:
         "filename": f"generated-image.{ext}",
         "mime": result.mime,
         "data": result.image_bytes,
-        "seed": str(seed),
+        "seed": str(_rendered_seed(seed, result)),
         "generation_metadata": metadata,
         "consumption_metadata": consumption,
     }

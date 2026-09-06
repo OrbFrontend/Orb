@@ -398,3 +398,68 @@ async def test_a_sized_graph_submits_the_styles_resolution_and_records_it(monkey
 
     assert (submitted["prompt"]["5"]["inputs"]["width"], submitted["prompt"]["5"]["inputs"]["height"]) == (1024, 1536)
     assert (result.backend_info["width"], result.backend_info["height"]) == (1024, 1536)
+
+
+# A graph sampling through a custom seed node. rgthree's tops out at 2**50 where the
+# core sampler takes the whole 2**64, and ComfyUI rejects the entire prompt over the
+# difference -- "Value 18257206749444865874 bigger than max of 1125899906842624".
+SEED_NODE_GRAPH = {
+    **USER_GRAPH,
+    "id": "user_seeded",
+    "graph": {**USER_GRAPH["graph"], "12": {"class_type": "Seed (rgthree)", "inputs": {"seed": 0}}},
+    "slots": {**USER_GRAPH["slots"], "seed": ["12", "seed"]},
+}
+SEED_NODE_INFO = {"input": {"required": {"seed": ["INT", {"default": 0, "min": -(2**50), "max": 2**50}]}}}
+
+
+def _render_handler(submitted: dict, *, node_info: dict | None = None):
+    """A server that renders whatever it is sent, recording the submission."""
+    responses = {
+        "/prompt": httpx.Response(200, json={"prompt_id": "p1", "number": 1}),
+        "/queue": httpx.Response(200, json={"queue_running": [], "queue_pending": []}),
+        "/history/p1": httpx.Response(
+            200,
+            json={
+                "p1": {
+                    "status": {"completed": True},
+                    "outputs": {"4": {"images": [{"filename": "x.png", "subfolder": "", "type": "output"}]}},
+                }
+            },
+        ),
+        "/view": httpx.Response(200, content=b"\x89PNG\r\n\x1a\n" + b"out", headers={"content-type": "image/png"}),
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/prompt":
+            submitted.update(json.loads(request.content))
+        if request.url.path.startswith("/object_info/"):
+            return httpx.Response(200, json={"Seed (rgthree)": node_info} if node_info else {})
+        return responses.get(request.url.path, httpx.Response(404))
+
+    return handler
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("node_info", "expected"),
+    [
+        (SEED_NODE_INFO, 739759991701499),
+        # A server that will not describe the class renders with the seed as asked --
+        # the same prompt this adapter submitted before it started asking.
+        (None, 18257206749444865874),
+    ],
+    ids=["folded to what the node takes", "undescribed class degrades"],
+)
+async def test_a_seed_too_large_for_the_graphs_seed_node_is_folded_before_submission(monkeypatch, node_info, expected):
+    submitted: dict = {}
+    _install_client(monkeypatch, _render_handler(submitted, node_info=node_info))
+    invalidate_object_info()
+    config = _config(user_graphs=[SEED_NODE_GRAPH], styles=[{"id": "s", "label": "S", "workflow": "user_seeded"}])
+    adapter = _bound(config, "s")
+    request = ImageRequest(prompt="p", negative_prompt="", seed=18257206749444865874, style_id="s", timeout_seconds=5)
+
+    result = await adapter.generate(request, target=adapter.resolve_target(None))
+
+    assert submitted["prompt"]["12"]["inputs"]["seed"] == expected
+    # Recorded too, so the seed shown beside the image is the one that reproduces it.
+    assert result.backend_info["seed"] == expected

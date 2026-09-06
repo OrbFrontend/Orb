@@ -6,7 +6,9 @@ from backend.workflows.image_gen.engine.contracts import ImageGenerationError
 from backend.workflows.image_gen.engine.graph import (
     describe_render_params,
     enabled_references,
+    fit_seed,
     patch_graph,
+    seed_input,
     validate_graph_structure,
 )
 
@@ -360,3 +362,59 @@ def test_the_mapped_size_slots_win_over_the_positional_scan():
     dangling = describe_render_params(graph, {**slots, "width": ["999", "width"], "height": ["999", "height"]})
     assert dangling["width"] == 512
     assert dangling["size_measured"] is False
+
+
+# A custom seed node that stops far short of the sampler's 2**64. rgthree's is the
+# one users hit, because ComfyUI rejects the whole prompt over it -- "Value
+# 18257206749444865874 bigger than max of 1125899906842624" -- naming a number
+# nobody typed.
+RGTHREE_SEED = {"input": {"required": {"seed": ["INT", {"default": 0, "min": -(2**50), "max": 2**50}]}}}
+
+
+def test_the_seed_slot_names_the_class_that_declares_its_bound():
+    graph, slots = _core()
+    assert seed_input(graph, slots) == ("KSampler", "seed")
+    # Read-only: a slot that no longer resolves is "no answer", not an error, because
+    # the render it degrades to is the one Orb submitted before it started asking.
+    assert seed_input(graph, {**slots, "seed": ["999", "seed"]}) is None
+    assert seed_input(graph, {**slots, "seed": None}) is None
+
+
+@pytest.mark.parametrize(
+    ("seed", "expected"),
+    [
+        (18257206749444865874, 739759991701499),
+        # Inside the range already: untouched, so the common case records the seed
+        # the user sees on the image.
+        (12345, 12345),
+        (2**50, 2**50),
+        (2**50 + 1, 0),
+    ],
+    ids=["oversized", "in range", "the boundary itself", "one past it"],
+)
+def test_an_oversized_seed_is_folded_into_what_the_node_accepts(seed, expected):
+    assert fit_seed(seed, RGTHREE_SEED, "seed") == expected
+    # Idempotent, which is what lets Orb record the folded seed and still reproduce
+    # this render when it is replayed.
+    assert fit_seed(expected, RGTHREE_SEED, "seed") == expected
+
+
+def test_the_fold_stays_off_the_negative_half_a_node_offers():
+    """rgthree declares min=-2**50. Folding across the whole declared span would hand
+    ComfyUI a legal but negative seed for a seed the user never sees as negative."""
+    assert 0 <= fit_seed(18257206749444865874, RGTHREE_SEED, "seed") <= 2**50
+
+
+@pytest.mark.parametrize(
+    ("info", "name"),
+    [
+        (OBJECT_INFO["KSampler"], "seed"),  # declares no bound at all
+        ({}, "seed"),  # a class this server does not know
+        (RGTHREE_SEED, "noise_seed"),  # the slot names an input this class does not declare
+        ({"input": {"required": {"seed": ["INT", {"min": 10, "max": 1}]}}}, "seed"),  # inverted
+        ({"input": {"required": {"seed": ["INT", {"min": 0, "max": "big"}]}}}, "seed"),  # not a number
+    ],
+    ids=["unbounded", "unknown class", "undeclared input", "inverted range", "non-numeric bound"],
+)
+def test_a_node_that_declares_no_usable_bound_leaves_the_seed_alone(info, name):
+    assert fit_seed(2**63, info, name) == 2**63

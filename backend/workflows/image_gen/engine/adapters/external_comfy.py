@@ -20,11 +20,13 @@ from ..graph import (
     declared_inputs,
     describe_render_params,
     enabled_references,
+    fit_seed,
     has_graph,
     is_image_upload,
     patch_graph,
     reference_slots,
     resolve_graph,
+    seed_input,
     validate_graph_structure,
 )
 from .base import ImageAdapter, replayed_reference_source, replayed_target
@@ -248,6 +250,25 @@ class ExternalComfyAdapter(ImageAdapter):
             }
         return roles
 
+    async def _accepted_seed(self, client: ComfyClient, graph: Mapping[str, Any], slots: Mapping[str, Any], seed: int) -> int:
+        """`seed` narrowed to what this graph's seed node will take.
+
+        Asked per render rather than stored at import, because the bound belongs to
+        the node class installed on the server: a workflow imported months ago can be
+        rendering against a node that has since changed its mind. A server that will
+        not answer degrades to the seed as asked -- exactly the prompt this adapter
+        submitted before it started asking.
+        """
+        declaration = seed_input(graph, slots)
+        if declaration is None:
+            return seed
+        class_type, input_name = declaration
+        try:
+            info = await client.node_info(class_type)
+        except ImageGenerationError:
+            return seed
+        return fit_seed(seed, info, input_name)
+
     async def generate(
         self,
         request: ImageRequest,
@@ -270,12 +291,13 @@ class ExternalComfyAdapter(ImageAdapter):
                     timeout=min(120.0, request.timeout_seconds),
                     progress=progress,
                 )
+        seed = await self._accepted_seed(client, graph, slots, request.seed)
         patched, output_node = patch_graph(
             graph,
             slots,
             prompt=request.prompt,
             negative_prompt=request.negative_prompt,
-            seed=request.seed,
+            seed=seed,
             checkpoint=target.model,
             width=target.width,
             height=target.height,
@@ -297,6 +319,7 @@ class ExternalComfyAdapter(ImageAdapter):
                 "workflow_id": target.target_id,
                 "references": [{**r.record(), "comfy_name": uploaded[r.digest]} for r in request.references],
                 "backend_model": target.model if "checkpoint" in slots else None,
+                "seed": seed,
                 "seed_honored": True,
                 "notes": list(notes),
             },

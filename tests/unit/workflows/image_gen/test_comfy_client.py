@@ -3,7 +3,10 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from backend.workflows.image_gen.engine.comfy_client import ComfyClient
+from backend.workflows.image_gen.engine.comfy_client import (
+    ComfyClient,
+    invalidate_object_info,
+)
 from backend.workflows.image_gen.engine.contracts import ImageGenerationError
 
 
@@ -194,3 +197,29 @@ async def test_malformed_queue_entries_are_ignored():
     )
     assert await client.queue_ahead(5) == 1
     assert await client.queue_ahead("5") is None
+
+
+@pytest.mark.asyncio
+async def test_one_node_class_is_read_without_pulling_the_whole_catalogue():
+    """`/object_info` is tens of megabytes and cached for a minute; a render that
+    needs one widget's declared bounds must not pay for it on every miss."""
+    paths: list[str] = []
+    catalogue = {"Seed (rgthree)": {"input": {"required": {"seed": ["INT", {"max": 2**50}]}}}}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.raw_path.decode())  # the on-the-wire form, not the decoded one
+        return httpx.Response(200, json=catalogue if request.url.path == "/object_info" else {})
+
+    invalidate_object_info()
+    client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(handler))
+
+    assert await client.node_info("Seed (rgthree)") == {}
+    # Spaces and parentheses are ordinary in custom node class names, and the path
+    # has to carry them encoded or the lookup 404s on the nodes that need it most.
+    assert paths == ["/object_info/Seed%20%28rgthree%29"]
+
+    # Warm catalogue: served from it, no second request of either shape.
+    await client.object_info()
+    assert await client.node_info("Seed (rgthree)") == catalogue["Seed (rgthree)"]
+    assert paths == ["/object_info/Seed%20%28rgthree%29", "/object_info"]
+    invalidate_object_info()

@@ -136,6 +136,47 @@ def declared_inputs(info: Mapping[str, Any]) -> dict[str, Any]:
     return declared
 
 
+def seed_input(graph: Mapping[str, Any], slots: Mapping[str, Any]) -> tuple[str, str] | None:
+    """The node class and input name the seed slot points at, or None when it does
+    not resolve. Read-only, like `_slot_inputs`: a graph that cannot answer this
+    renders with the seed exactly as asked."""
+    slot = slots.get("seed")
+    if not isinstance(slot, (list, tuple)) or len(slot) != 2:
+        return None
+    node = graph.get(str(slot[0]))
+    class_type = node.get("class_type") if isinstance(node, Mapping) else None
+    return (class_type, str(slot[1])) if isinstance(class_type, str) and class_type else None
+
+
+def fit_seed(seed: int, info: Mapping[str, Any], input_name: str) -> int:
+    """`seed` folded into the range the seed node declares, or unchanged where it
+    declares none.
+
+    Seed nodes disagree about how large a seed may be -- KSampler takes the whole
+    2**64, rgthree's Seed node stops at 2**50 -- and ComfyUI rejects the entire
+    prompt over one out-of-range widget, naming a number the user never chose. Each
+    node class declares its own bound in `/object_info`, so read it from there rather
+    than keeping a list of which nodes are small.
+
+    Folded rather than clamped: clamping would draw every oversized seed as the same
+    image, and folding is idempotent, so the seed Orb records still reproduces this
+    render.
+    """
+    spec = declared_inputs(info).get(input_name)
+    options = spec[1] if isinstance(spec, (list, tuple)) and len(spec) > 1 else None
+    if not isinstance(options, Mapping):
+        return seed
+    low, high = options.get("min"), options.get("max")
+    if any(isinstance(bound, bool) or not isinstance(bound, int) for bound in (low, high)) or high < low:
+        return seed
+    # Negative seeds are legal where a node offers them and nobody wants them, so the
+    # fold starts at zero wherever that is still inside the declared range.
+    low = max(low, 0) if high >= 0 else low
+    if low <= seed <= high:
+        return seed
+    return low + (seed - low) % (high - low + 1)
+
+
 def _input_slot(graph: Mapping[str, Any], slot: Any, role: str) -> tuple[dict, str]:
     if not isinstance(slot, (list, tuple)) or len(slot) != 2:
         raise ImageGenerationError(f"The {role} slot is invalid")

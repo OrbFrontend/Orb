@@ -238,6 +238,26 @@ async def test_a_render_failure_reaches_the_user_and_still_terminates(client, mo
 
 
 @pytest.mark.asyncio
+async def test_the_attachment_records_the_seed_the_backend_actually_drew_with(client, monkeypatch):
+    """Orb picks a seed out of 2**64, and a ComfyUI graph's seed node can declare a
+    smaller range and fold it. The number stored beside the image is the one a user
+    types back into ComfyUI, so it has to be the one that rendered."""
+    mid = await _seed("ig-seed")
+    asked: dict = {}
+
+    async def narrowing_render(adapter, request, **kwargs):
+        asked["seed"] = request.seed
+        return _image(seed=739759991701499)
+
+    _stub(monkeypatch, render=narrowing_render)
+
+    await _trigger(client, "ig-seed", {"action": "generate", "message_id": mid})
+
+    rows = await get_workflow_attachments_for_message(mid)
+    assert rows[0]["seed"] == "739759991701499" != str(asked["seed"])
+
+
+@pytest.mark.asyncio
 async def test_two_concurrent_triggers_on_one_message_stay_separate_roots(client, monkeypatch):
     """The stream body runs after the trigger route drops its locks, so nothing
     serializes these two. What must hold is that each lands as its own flat
