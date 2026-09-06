@@ -28,17 +28,6 @@ from backend.database import init_db
 from ._llm_mock import FakeLLMClient, llm_factory, verify_kv_prefix_invariants
 
 
-@pytest.fixture
-async def isolated_db(db_path: Path, monkeypatch):
-    """A seeded per-test database for tests that call backend code directly.
-
-    What ``client`` does minus the HTTP layer. Anything that reaches the database
-    without going through a route needs this, or it has no database of its own.
-    """
-    monkeypatch.setattr(db_connection, "DB_PATH", str(db_path))
-    return db_path
-
-
 @pytest.fixture(autouse=True)
 def _reset_module_locks():
     """Clear the process-global asyncio.Lock dicts between tests.

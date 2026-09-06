@@ -154,13 +154,7 @@ _DISCLOSED_FACTS = ("steps", "cfg", "sampler", "scheduler")
 
 
 async def _rendered(adapter, request, *, config, style, target, progress=None):
-    """One render, with whatever earlier refusals already taught us about this target.
-
-    The recall and the store bracket the call here rather than inside the engine: the
-    engine is pure over an adapter, and persistence is this layer's job. Both render
-    paths go through it so a reroll cannot rediscover, at the cost of a refusal, what
-    the render it is rerolling already paid to find out.
-    """
+    """Render with learned bounds and persist any new ones."""
     key = target_key(adapter.source_id, style_source(config, style)[1], target.model)
     result = await resolve_and_generate(adapter, request, target=target, progress=progress, known=await recall(key))
     await remember(key, result.backend_info.get("learned"))
@@ -428,11 +422,6 @@ async def _generate_fresh(
     )
     prompt, negative, style = assemble_prompts(config, style_id, profile, scene, avoid)
     if not prompt.strip():
-        # The composer guards the scene it could not write at all; this guards the one
-        # that survived and still came out empty -- a style with no prompt of its own
-        # and a scene the prose scrub reduced to nothing. Same reason as the reroll
-        # guard: left alone, the first thing to notice is a provider 400 that names the
-        # parameter and not the cause.
         raise ImageGenerationError("the composed image prompt came out empty; try generating again")
     seed = _fresh_seed()
     result = await _rendered(
@@ -610,13 +599,6 @@ async def reroll_gen(ctx, params, seed):
     if not style_id:
         raise ValueError("stored image parameters are incomplete")
     if not prompt.strip():
-        # Blank, not merely empty. The prompt on a reroll may be the one edited in the
-        # render details, and a field cleared to a single space is truthy -- so an
-        # emptiness check hands the provider a request only it can complain about, in
-        # its own words and at the cost of a round trip: Together's is *"Positive prompt
-        # must be a non-empty, non-whitespace string value"*, which says nothing about
-        # the edit that caused it. User-facing, because a person did this and a person
-        # can undo it, unlike the malformed-metadata cases above.
         raise ImageGenerationError("this image has no prompt to render; edit the prompt and reroll again")
     config = normalize_config(await get_workflow_config(WORKFLOW_ID))
     style = resolve_style(config, style_id)

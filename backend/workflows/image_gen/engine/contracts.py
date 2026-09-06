@@ -58,18 +58,7 @@ def fold_seed_into(seed: int, low: int, high: int) -> int:
 
 
 def ratio_distance(target: float, ratio: float | None) -> float:
-    """How far apart two aspect ratios are, the one metric every size picker shares.
-
-    Log space, so 2:1 and 1:2 are equally far from 1:1 -- a linear metric would call
-    "twice as wide" four times the error of "twice as tall". A candidate that does
-    not parse is infinitely far rather than excluded, so a menu of nothing but
-    unparseable rows still yields a deterministic pick instead of an empty one.
-
-    Shared here rather than owned by the preset table, because a size menu now reaches
-    Orb two ways -- declared on the preset, or quoted in a refusal -- and the two must
-    rank identically or the same request lands on different sizes depending on which
-    way the provider happened to say it.
-    """
+    """Return logarithmic distance between two aspect ratios."""
     return abs(math.log(target) - math.log(ratio)) if ratio and ratio > 0 else math.inf
 
 

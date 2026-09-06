@@ -174,19 +174,7 @@ def test_no_preset_emits_a_field_it_does_not_declare(preset):
     assert "moderation" not in body
     assert "user" not in body
     assert "style" not in body
-    # `n` is the field that silently multiplies the bill, and one image is both what
-    # Orb asks for and what every provider returns unasked -- so it is not sent at all.
-    assert body.get("n", 1) == 1
-
-
-@pytest.mark.parametrize("preset", PRESETS, ids=[preset.id for preset in PRESETS])
-def test_the_default_count_is_not_sent_at_all(preset):
-    """One image is what every provider returns unasked, so asking is a field that can
-    only lose. `google/gemini-3-pro-image` answers *"n is not supported for this model"*
-    to `n: 1` -- a 400 for requesting exactly what it was going to do -- and no rung can
-    answer it: a bare `n` is not a name that could be matched in a refusal without
-    misreading prose. A model unrenderable over a field nobody needs is not a trade."""
-    assert "n" not in build_generation_body(preset, model="m", prompt="p").body
+    assert "n" not in body
     assert build_generation_body(preset, model="m", prompt="p", n=2).body["n"] == 2
 
 

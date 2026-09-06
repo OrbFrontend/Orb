@@ -200,12 +200,7 @@ PRESETS: tuple[ProviderPreset, ...] = (
         # a 1024x576 request came back 1024x1024. The picker cannot win that, so the
         # render says so instead of quietly handing back a different shape.
         reference_drives_size=True,
-        # A pick, not a table -- and one that rots, which is why it is the only model id
-        # here. `FLUX.1-schnell` held this slot until Together stopped serving it
-        # serverless: measured 2026-09-06, it answers *"Unable to access non-serverless
-        # model ... create and start a new dedicated endpoint"*, so every style linked to
-        # this connection without a model of its own failed on a name nobody had chosen.
-        # Verified reachable the same day, and what a style names always wins.
+        # Keep the default on a currently serverless model.
         default_model="black-forest-labs/FLUX.2-dev",
         docs_url="https://docs.together.ai/reference/post-images-generations",
         verified=True,
@@ -610,11 +605,6 @@ def build_generation_body(
     notes = list(built.notes)
 
     if n != 1:
-        # Sent only when it is not the one image every provider returns by default.
-        # `google/gemini-3-pro-image` answers *"n is not supported for this model"* --
-        # a 400 for asking for exactly what it was going to do anyway, and one no rung
-        # can answer, since a bare `n` is not a name that could be matched in a refusal
-        # without misreading prose. A field nobody needs is not worth a dead model.
         body["n"] = n
 
     dimensions = _dimension_fields(preset, width, height)

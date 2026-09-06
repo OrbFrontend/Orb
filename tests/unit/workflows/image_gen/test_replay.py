@@ -20,19 +20,14 @@ from backend.workflows.image_gen.references import replay_slots
 
 @pytest.fixture(autouse=True)
 def _no_learned_store(monkeypatch):
-    """These are unit tests with no database, and the render path reads one.
+    async def recall(_key):
+        return {}
 
-    `hooks._rendered` brackets every render with the learned-bounds store, which is a
-    real settings read and write. Stubbed here for the same reason `get_workflow_config`
-    is stubbed in each test below: what is under test is replay routing, not
-    persistence. Without this the tests reach whatever `DB_PATH` points at.
-    """
-    monkeypatch.setattr(hooks, "recall", lambda _key: _resolved({}))
-    monkeypatch.setattr(hooks, "remember", lambda _key, _learned: _resolved(None))
+    async def remember(_key, _learned):
+        return None
 
-
-async def _resolved(value):
-    return value
+    monkeypatch.setattr(hooks, "recall", recall)
+    monkeypatch.setattr(hooks, "remember", remember)
 
 
 GRAPH = {
