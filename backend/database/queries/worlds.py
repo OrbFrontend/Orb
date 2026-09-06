@@ -270,7 +270,7 @@ async def get_lorebook_entries(world_id: str) -> list[LorebookEntryRow]:
     """Every row in the World, both layers, archived included.
 
     The drawer labels the layers and shows archived overlay rows, and the
-    projection (``inference.lorebook.select_effective_entries``) filters from
+    projection (``prompting.lorebook.select_effective_entries``) filters from
     this same superset -- so this reader stays deliberately unfiltered.
     """
     async with get_db() as db:
@@ -395,7 +395,7 @@ async def get_active_lorebook_entries() -> list[ActiveLorebookEntryRow]:
 
     This is the raw overlay pool, not the effective lore: an authored entry
     hidden by a replacement is still in here, and so is the suppression marker
-    that hides it. Resolving that is ``inference.lorebook`` -- the projection
+    that hides it. Resolving that is ``prompting.lorebook`` -- the projection
     lives in the lore layer, which ``database/`` sits below and may not import.
     """
     async with get_db() as db:

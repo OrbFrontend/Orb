@@ -4,7 +4,8 @@ from collections.abc import AsyncGenerator, Mapping, Sequence
 from typing import Any
 
 from ...core import ChatMessage, Macros, TurnCast, extract_hyperparams
-from ...inference import LLMClient, prompt_builder
+from ...inference import LLMClient
+from ...prompting import build_prefix
 
 DEFAULT_SUMMARY_INSTRUCTIONS = (
     "[OOC: Write a rich prose narrative summary of the story so far. "
@@ -34,7 +35,7 @@ class ConversationSummarizer:
         cast: TurnCast | None = None,
         speaker_names: Mapping[str, str] | None = None,
     ) -> list[ChatMessage]:
-        prefix = prompt_builder.build_prefix(
+        prefix = build_prefix(
             system_prompt,
             char_persona,
             char_scenario,

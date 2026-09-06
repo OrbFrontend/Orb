@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 
-from backend.inference import local_ml as lc
+from backend.features import autocomplete as lc
 
 
 def test_build_prompt_ends_at_draft_and_excludes_injection():
@@ -50,7 +50,7 @@ def test_complete_reconciles_trailing_space(monkeypatch):
         seen["prompt"] = prompt
         return " hands"  # model re-emits a leading word separator
 
-    monkeypatch.setattr(lc, "acomplete", fake_acomplete)
+    monkeypatch.setattr("backend.inference.local_ml.acomplete", fake_acomplete)
 
     # Trailing space: prompt trimmed before generation, leading space dropped
     # (the user already typed the separator).

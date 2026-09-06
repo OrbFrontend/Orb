@@ -13,8 +13,8 @@ from ..inference import (
     CachedBase,
     agent_lane_from_settings,
     client_from_settings,
-    enabled_schemas,
 )
+from ..prompting.tool_catalog import enabled_schemas
 from ..workflows.toolkit import build_offturn_prefix
 from .context import conversation_macro_seed, persona_macros, resolve_card_and_persona
 from .passes.world_change import world_change_step

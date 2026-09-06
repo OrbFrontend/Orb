@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from backend.core import CastMember, Macros, TurnCast
 from backend.database.queries.group_members import allocate_speaker_key
-from backend.inference.prompt_builder import build_prefix
 from backend.pipeline.cast import parse_speaking_plan, plan_cue, round_robin_member
 from backend.pipeline.passes.director import (
     build_direct_scene_override,
@@ -10,6 +9,7 @@ from backend.pipeline.passes.director import (
 )
 from backend.pipeline.passes.writer import build_writer_content, strip_speaker_label
 from backend.pipeline.state import _DIRECTOR_SEED_FIELDS, TurnState
+from backend.prompting import build_prefix
 
 
 def _member(mid: str, name: str, public: str, private: str) -> CastMember:

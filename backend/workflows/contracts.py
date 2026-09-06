@@ -36,7 +36,7 @@ EV_SET_MESSAGE_STATE = "set_message_state"  # post-pipeline
 
 @dataclass
 class ToolSpec:
-    """A tool a workflow contributes to the global tool registry.
+    """A tool a workflow contributes to the global tool catalog.
 
     ``name`` must equal ``schema["function"]["name"]``. ``choice`` is the
     pre-built ``tool_choice`` payload (almost always

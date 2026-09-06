@@ -25,7 +25,7 @@ async def test_autocomplete_returns_completion(client, monkeypatch):
         assert prompt.endswith("I walk into the")  # draft is the trailing line
         return " tavern and look around."
 
-    monkeypatch.setattr("backend.inference.local_ml.complete", fake_complete)
+    monkeypatch.setattr("backend.features.autocomplete.complete", fake_complete)
     await dbmod.create_conversation("conv-ac2", "Chat", "Nova", "")
     mid, _ = await dbmod.add_message("conv-ac2", "assistant", "You arrive at the gate.", 0, parent_id=None)
     await dbmod.set_active_leaf("conv-ac2", mid)
@@ -41,7 +41,7 @@ async def test_autocomplete_blank_draft_skips_model(client, monkeypatch):
     async def boom(*a, **k):
         raise AssertionError("model must not be called for a blank draft")
 
-    monkeypatch.setattr("backend.inference.local_ml.complete", boom)
+    monkeypatch.setattr("backend.features.autocomplete.complete", boom)
     await dbmod.create_conversation("conv-ac3", "Chat", "Nova", "")
 
     resp = await client.post("/api/conversations/conv-ac3/autocomplete", json={"draft": "   "})
@@ -59,7 +59,7 @@ async def test_autocomplete_in_a_group_names_the_speaker_and_the_cast(client, mo
         captured["prompt"] = prompt
         return " toward the fire."
 
-    monkeypatch.setattr("backend.inference.local_ml.complete", fake_complete)
+    monkeypatch.setattr("backend.features.autocomplete.complete", fake_complete)
     aria = (await client.post("/api/characters", json={"name": "Aria"})).json()["id"]
     kael = (await client.post("/api/characters", json={"name": "Kael"})).json()["id"]
     conv = (
@@ -95,7 +95,7 @@ async def test_autocomplete_leaves_the_cast_macro_alone_in_a_solo_chat(client, m
         captured["prompt"] = prompt
         return " ..."
 
-    monkeypatch.setattr("backend.inference.local_ml.complete", fake_complete)
+    monkeypatch.setattr("backend.features.autocomplete.complete", fake_complete)
     await dbmod.create_conversation("conv-ac-solo-cast", "Chat", "Nova", "")
 
     resp = await client.post("/api/conversations/conv-ac-solo-cast/autocomplete", json={"draft": "I ask {{cast}} about"})

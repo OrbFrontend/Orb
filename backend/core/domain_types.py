@@ -10,7 +10,7 @@ MessageRole: TypeAlias = Literal["user", "assistant"]
 
 # Which character information every group generation carries. Stored on
 # ``conversations.group_context_mode``; the projection each value selects lives
-# in ``inference/group_context.py`` and nowhere else.
+# in ``prompting/group_context.py`` and nowhere else.
 GroupContextMode: TypeAlias = Literal["private", "shared", "swap"]
 
 

@@ -52,7 +52,7 @@ the setting **Character context**.
 | `shared` | A dossier for every member, including card text and examples | That member's post-history instructions |
 | `swap` | Every member's public profile plus the active member's card text and examples | That member's post-history instructions |
 
-`backend/inference/group_context.py` owns this projection. Prompt construction
+`backend/prompting/group_context.py` owns this projection. Prompt construction
 and context-size reporting use it rather than deciding card visibility locally.
 
 The following rules apply in every mode:

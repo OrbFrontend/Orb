@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from ..core import ChatMessage, workflow_character_state_lock, workflow_state_lock
-from ..inference import TOOLS, LLMClient, _KVCacheTracker
+from ..inference import LLMClient, _KVCacheTracker
+from ..prompting.tool_catalog import has_tool
 from ..workflows import (
     EV_ATTACH_ARTIFACT,
     EV_DRAFT_REPLACED,
@@ -381,7 +382,7 @@ async def _iterate_pre_pipeline_hooks(
                                     val,
                                 )
                                 continue
-                            if name not in TOOLS:
+                            if not has_tool(name):
                                 logger.warning(
                                     "workflow %r enabled unregistered tool %r; dropping",
                                     sub.workflow_id,

@@ -32,6 +32,7 @@ from ...database import (
     update_message_content,
 )
 from ...database.models import ConversationRow
+from ...features import autocomplete
 from ...features.prose_rewriter import (
     ProseRewriteConfig,
     resolve_config,
@@ -496,7 +497,7 @@ async def api_autocomplete(
         for m in messages[-4:]
     ]
     summary = macros.resolve_prompt(summary_source)
-    prompt = local_ml.build_prompt(char_name, user_name, summary, recent, macros.resolve_prompt(data.draft))
+    prompt = autocomplete.build_prompt(char_name, user_name, summary, recent, macros.resolve_prompt(data.draft))
 
-    completion = await local_ml.complete(prompt)
+    completion = await autocomplete.complete(prompt)
     return {"completion": completion}

@@ -8,17 +8,19 @@ Orb is an agentic roleplay and writing application with a Python/FastAPI backend
 
 ## Backend layout
 
-The backend is split into layers. Dependencies point downward only:
+The backend is split into layers with explicit allowed dependency edges:
 
 1. `api/` — HTTP routes and schemas
 2. `pipeline/` — conversation turn orchestration
-3. `features/` — self-contained application features
-4. `workflows/` — pluggable secondary workflows
-5. `inference/` and `analysis/` — model access, prompt assembly, and pure text analysis
+3. `features/` and `workflows/` — sibling product composition inputs
+4. `prompting/` — deterministic, provider-independent model-facing construction
+5. `inference/` and `analysis/` — model execution and pure text analysis
 6. `database/` — schema, migrations, queries, and row models
 7. `core/` — dependency-free shared utilities and types
 
 Lower layers must not import higher layers or peer feature slices. Use dependency inversion when a lower layer needs higher-layer behavior. Keep pure logic separate from integration code and persistence.
+
+See `docs/architecture/prompting.md` for the exact allowed-edge matrix, the prompting ownership test, and prompt/tool ordering contracts. `scripts/check_backend_layers.py` is the executable source of truth for dependency edges.
 
 Feature slices should expose a small facade, keep local contracts near their logic, and persist through the database layer rather than reaching into unrelated features.
 

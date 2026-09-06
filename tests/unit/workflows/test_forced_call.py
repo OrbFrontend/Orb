@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
 
-from backend.inference import STANDALONE_TOOLS, TOOLS
+from backend.prompting.tool_catalog import TOOLS, register_tool, require_tool
 from backend.workflows._forced_call import forced_tool_call
 
 _TOOL_NAME = "editor_rewrite"
@@ -240,7 +240,8 @@ class TestToolsAssembly:
         assert names == ["editor_apply_patch", "editor_rewrite"]
 
     async def test_standalone_forced_tool_appended_to_array(self):
-        STANDALONE_TOOLS.add(_TOOL_NAME)
+        tool = require_tool(_TOOL_NAME)
+        register_tool(_TOOL_NAME, tool["schema"], tool["choice"], standalone=True)
         try:
             client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
             await _collect(
@@ -257,7 +258,7 @@ class TestToolsAssembly:
             assert _TOOL_NAME in names
             assert "editor_apply_patch" in names
         finally:
-            STANDALONE_TOOLS.discard(_TOOL_NAME)
+            register_tool(_TOOL_NAME, tool["schema"], tool["choice"], standalone=False)
 
     async def test_force_tool_missing_from_enabled_dict_appended(self):
         client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])

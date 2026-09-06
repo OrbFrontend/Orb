@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.inference import build_prefix, format_message_with_attachments
+from backend.prompting import build_prefix, format_message_with_attachments
 
 _BASE_KWARGS = dict(
     system_prompt="You are an assistant.",

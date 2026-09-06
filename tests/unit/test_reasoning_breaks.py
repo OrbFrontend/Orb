@@ -19,9 +19,10 @@ from backend.core import (
     mark_call_start,
     reasoning_delta_event,
 )
-from backend.inference import CachedBase, LLMClient, enabled_schemas
+from backend.inference import CachedBase, LLMClient
 from backend.pipeline.passes.editor.editor import editor_pass
 from backend.pipeline.state import TurnState
+from backend.prompting.tool_catalog import enabled_schemas
 
 
 def _start(delta: str) -> dict:

@@ -39,17 +39,16 @@ from ....core import (
 )
 from ....features.prose_rewriter import ProseRewriteConfig, rewrite_events
 from ....inference import (
-    EDITOR_RENUMBER_NOTICE,
-    TOOLS,
     CachedBase,
     LLMClient,
     _KVCacheTracker,
-    build_editor_prompt,
-    build_feedback_tool,
     parse_tool_calls,
     reasoning_cfg,
 )
+from ....prompting.tool_catalog import require_tool
+from ....prompting.tool_schemas import build_feedback_tool
 from .length_guard import LengthGuard, evaluate_length_guard
+from .prompts import EDITOR_RENUMBER_NOTICE, build_editor_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -809,7 +808,7 @@ def _pick_tool_choice(length_guard_triggered: bool, report: AuditReport, audit_e
     if length_guard_triggered or _rewrite_only(report, targets):
         return {"type": "function", "function": {"name": "editor_rewrite"}}
     if audit_enabled:
-        return TOOLS["editor_apply_patch"]["choice"]
+        return require_tool("editor_apply_patch")["choice"]
     return "auto"
 
 

@@ -29,7 +29,7 @@ from backend.features.documents.continuation import (
     DOC_CHAT_INSTRUCTION,
     build_generation_messages,
 )
-from backend.inference import TOOLS
+from backend.prompting.tool_catalog import TOOLS
 
 _BANNED = "shivers down her spine"
 _BANK = [[_BANNED]]  # one literal phrase group, detector-facing shape

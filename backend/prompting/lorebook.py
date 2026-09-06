@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import logging
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ..core import Macros
-
-logger = logging.getLogger(__name__)
 
 LOREBOOK_SCAN_DEPTH = 6
 # The agentic fallback scan only looks at the current turn (previous assistant
@@ -45,31 +42,6 @@ def select_effective_entries(entries: Sequence[Mapping[str, Any]]) -> list[Mappi
             if target is not None:
                 hidden.add(int(target))
     return [e for e in live if not (is_dynamic(e) and e.get("overlay_action") == "suppress") and e.get("id") not in hidden]
-
-
-def agentic_lorebook_active(
-    settings: Mapping[str, Any],
-    lorebook_entries: Sequence[Mapping[str, Any]],
-    *,
-    agent_on: bool,
-) -> bool:
-    """Return True when the director should pick lorebook entries this turn.
-
-    Requires the feature flag, the global agent on, and at least one non-constant
-    entry. It is independent of ``direct_scene``: the picks run in their own
-    forced ``select_lorebook`` call, so agentic lorebook works whether or not the
-    Director's scene-direction tool is enabled. Constant entries are always
-    injected and never managed by the director, so a pool of only constants does
-    not enable agentic mode.
-
-    *agent_on* is passed in (rather than recomputed) so ``agent_enabled`` stays
-    the single source of truth — mirroring ``resolve_length_guard``.
-    """
-    if not bool(settings.get("agentic_lorebook_enabled", 0)):
-        return False
-    if not agent_on:
-        return False
-    return any(not e.get("constant") for e in lorebook_entries)
 
 
 def build_lorebook_catalog(entries: Sequence[Mapping[str, Any]]) -> str:
@@ -217,8 +189,8 @@ def _resolve_director_picks(
     picks: Sequence[str],
     selectable: set[str],
     known: set[str],
-) -> set[str]:
-    """Normalized picks that name a *selectable* entry, logging what needed undoing.
+) -> tuple[set[str], list[str], list[str]]:
+    """Return matched, delimiter-recovered, and unknown Director picks.
 
     Two numbers fall out of this and both matter. A pick counted as *recovered*
     would have activated nothing before delimiter stripping, so its rate is the
@@ -240,19 +212,22 @@ def _resolve_director_picks(
                 recovered.append(raw)
         elif key not in known:
             unmatched.append(raw)
-    if recovered:
-        logger.warning(
-            "Lorebook: %d director pick(s) matched only after stripping catalog delimiters: %s",
-            len(recovered),
-            ", ".join(repr(p) for p in recovered),
-        )
-    if unmatched:
-        logger.info(
-            "Lorebook: %d director pick(s) named no entry: %s",
-            len(unmatched),
-            ", ".join(repr(p) for p in unmatched),
-        )
-    return matched
+    return matched, recovered, unmatched
+
+
+def director_pick_diagnostics(
+    entries: Sequence[Mapping[str, Any]],
+    picks: Sequence[str],
+) -> tuple[list[str], list[str]]:
+    """Return delimiter-recovered and unknown picks for upper-layer logging."""
+    effective = select_effective_entries(entries)
+    candidates = [entry for entry in effective if not entry.get("constant")]
+    _, recovered, unmatched = _resolve_director_picks(
+        picks,
+        {_fold_name(entry) for entry in candidates},
+        {_fold_name(entry) for entry in effective},
+    )
+    return recovered, unmatched
 
 
 def select_active_entries(
@@ -276,7 +251,7 @@ def select_active_entries(
     """
     effective = select_effective_entries(entries)
     candidates = [e for e in effective if not e.get("constant")]
-    director_named = _resolve_director_picks(
+    director_named, _, _ = _resolve_director_picks(
         director_selected,
         {_fold_name(e) for e in candidates},
         {_fold_name(e) for e in effective},

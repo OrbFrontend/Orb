@@ -22,15 +22,15 @@ from backend.features.lorebook import (
     split_by_world,
     validate_proposal,
 )
-from backend.inference.lorebook import (
+from backend.pipeline.state import TurnState, WorldProposalTurn
+from backend.pipeline.world_proposal import world_proposal_stage
+from backend.prompting.lorebook import (
     compute_constant_lorebook_block,
     compute_depth_lorebook_block,
     compute_lorebook_injection_block,
     render_lorebook_block,
     select_effective_entries,
 )
-from backend.pipeline.state import TurnState, WorldProposalTurn
-from backend.pipeline.world_proposal import world_proposal_stage
 
 
 def _authored(entry_id: int, name: str, content: str = "body", **kw) -> dict:

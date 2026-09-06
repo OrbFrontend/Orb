@@ -115,7 +115,7 @@ async def test_update_enabled_tools_json_field(client, db):
 
 async def test_enabled_tools_sanitized_to_registered_tools(client, db):
     # Non-tool keys (the former length_guard* feature flags, or anything else not
-    # in the tool registry) must never be persisted back into enabled_tools.
+    # in the tool catalog) must never be persisted back into enabled_tools.
     resp = await client.put(
         "/api/settings",
         json={"enabled_tools": {"direct_scene": True, "length_guard": True, "not_a_tool": True}},

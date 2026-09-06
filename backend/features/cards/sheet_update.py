@@ -27,10 +27,9 @@ SHEET_SYSTEM_PROMPT = (
     "character's sheet or display name. Call the requested tool, reporting no change when there is none."
 )
 
-# Deliberately not registered in ``inference.tool_registry.TOOLS``, for the same
-# reason ``DRAFT_PROFILE_TOOL`` is not: that module partitions its tools by turn
-# phase, and this call is bookkeeping about a finished exchange rather than a phase
-# of one.
+# Deliberately not registered in ``prompting.tool_catalog``, for the same reason
+# ``DRAFT_PROFILE_TOOL`` is not: this call is bookkeeping about a finished
+# exchange, not part of the stable pipeline tool blob.
 UPDATE_SHEET_TOOL = {
     "type": "function",
     "function": {

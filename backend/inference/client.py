@@ -13,7 +13,7 @@ from . import anthropic, endpoint_profiles, text_completion
 from .errors import LLMCallError, llm_call_error, llm_stream_error
 from .gemma_tool_format import parse_gemma_tool_calls
 from .retry import RetryPolicy
-from .tool_registry import strictify_schema
+from .schema import strictify_schema
 
 logger = logging.getLogger(__name__)
 

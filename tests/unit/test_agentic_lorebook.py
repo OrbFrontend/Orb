@@ -23,15 +23,16 @@ from backend.features.lorebook import (
     select_active_entries,
     select_keyword_entries,
 )
-from backend.inference import (
-    TOOLS,
-    CachedBase,
-    build_direct_scene_tool,
-    build_lorebook_select_prompt,
-)
+from backend.inference import CachedBase
 from backend.pipeline import LorebookTurn
 from backend.pipeline.passes.director import lorebook_select_step
+from backend.pipeline.passes.director.lorebook_select import (
+    _log_director_pick_diagnostics,
+)
+from backend.pipeline.passes.director.prompts import build_lorebook_select_prompt
 from backend.pipeline.passes.writer import build_writer_content
+from backend.prompting.tool_catalog import TOOLS
+from backend.prompting.tool_schemas import build_direct_scene_tool
 
 
 def _entry(
@@ -361,21 +362,21 @@ class TestDirectorPickDelimiters:
 
     def test_a_recovered_pick_is_logged_as_a_warning(self, caplog):
         # That warning count is the per-model rate of this failure.
-        with caplog.at_level(logging.WARNING, logger="backend.inference.lorebook"):
-            assert self._names("[The Ashen Seal]") == ["The Ashen Seal"]
+        with caplog.at_level(logging.WARNING, logger="backend.pipeline.passes.director.lorebook_select"):
+            _log_director_pick_diagnostics(self._entries, ["[The Ashen Seal]"])
         assert "matched only after stripping catalog delimiters" in caplog.text
 
     def test_a_clean_pick_logs_nothing(self, caplog):
-        with caplog.at_level(logging.INFO, logger="backend.inference.lorebook"):
-            assert self._names("The Ashen Seal") == ["The Ashen Seal"]
+        with caplog.at_level(logging.INFO, logger="backend.pipeline.passes.director.lorebook_select"):
+            _log_director_pick_diagnostics(self._entries, ["The Ashen Seal"])
         assert caplog.text == ""
 
     def test_a_pick_naming_a_constant_entry_stays_silent(self, caplog):
         # Constant entries ride the cached prefix; excluding them here is by
         # design, so it must not read as a failed pick.
         entries = [_entry("Const", constant=True)]
-        with caplog.at_level(logging.INFO, logger="backend.inference.lorebook"):
-            assert select_active_entries(entries, [], scan_depth=2, director_selected=["[Const]"]) == []
+        with caplog.at_level(logging.INFO, logger="backend.pipeline.passes.director.lorebook_select"):
+            _log_director_pick_diagnostics(entries, ["[Const]"])
         assert caplog.text == ""
 
     def test_the_block_renders_from_a_bracketed_pick(self):

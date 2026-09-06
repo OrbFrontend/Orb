@@ -49,6 +49,11 @@ The system prompt and history are assembled once in
 `backend/inference/cached_call.py`. Passes call `base.complete(...)`; they do
 not assemble their own prefix.
 
+Deterministic message and context construction lives in `backend/prompting/`.
+Pass-specific instruction prose lives beside its pass under
+`backend/pipeline/passes/`; provider and cache execution remain in
+`backend/inference/`.
+
 The system prompt includes stable card, persona, scenario, constant lore, and
 scene instructions. History is shared byte-for-byte, including attachment
 encoding. A macro that changes those bytes, such as an unseeded `{{roll}}`,
@@ -78,6 +83,11 @@ not call a tool. The pass selects its behavior with `tool_choice`:
 - Director and Editor force one tool.
 - Writer uses `tool_choice="none"` so it writes prose.
 - Workflow tools add their schemas to the same per-turn list.
+
+`backend/prompting/tool_catalog.py` owns the list. Built-ins are emitted in the
+explicit `BUILTIN_TOOL_ORDER`; workflow tools append in registration order, and
+re-registering one preserves its position. Schema property order and compact,
+insertion-order-preserving JSON bytes are part of the cache contract.
 
 Inference servers may render only the forced tool, or no tools for `none`. As a
 result, the three passes can share the conversation body without sharing the

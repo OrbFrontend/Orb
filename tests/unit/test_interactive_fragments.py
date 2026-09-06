@@ -3,20 +3,25 @@
 from __future__ import annotations
 
 from backend.database import SEED_INTERACTIVE_FRAGMENTS
-from backend.inference import (
-    build_direct_scene_tool,
+from backend.pipeline.passes.director import apply_tool_calls
+from backend.pipeline.passes.director.direction_note_prompts import (
     build_direction_note_prompt,
-    build_direction_note_tool,
+)
+from backend.pipeline.passes.director.prompts import (
     build_director_scene_step_prompt,
     build_director_tool_prompt,
+)
+from backend.pipeline.passes.editor import extract_feedback_values
+from backend.pipeline.passes.editor.prompts import (
     build_editor_prompt,
     build_feedback_prompt,
-    build_feedback_tool,
-    build_style_injection,
-    compute_style_injection_block,
 )
-from backend.pipeline.passes.director import apply_tool_calls
-from backend.pipeline.passes.editor import extract_feedback_values
+from backend.prompting import build_style_injection, compute_style_injection_block
+from backend.prompting.tool_schemas import (
+    build_direct_scene_tool,
+    build_direction_note_tool,
+    build_feedback_tool,
+)
 
 # ── build_direct_scene_tool ──────────────────────────────────────────────────
 

@@ -9,14 +9,12 @@ from typing import Any
 
 from ..core import ReasoningChannel, agent_lane_max_tokens, mark_call_start
 from ..inference import (
-    STANDALONE_TOOLS,
-    TOOLS,
-    enabled_schemas,
     honors_forced_tool_choice,
     note_forced_tool_choice_ignored,
     parse_tool_calls,
     reasoning_cfg,
 )
+from ..prompting.tool_catalog import enabled_schemas, is_standalone_tool, require_tool
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +65,8 @@ async def forced_tool_call(
     constant: a forced call fills a schema, so a roleplay preset would only add
     flourish to it -- the same split ``features.cards._drafting`` documents.
     """
-    schema = TOOLS[tool_name]["schema"]
+    tool = require_tool(tool_name)
+    schema = tool["schema"]
     resolved_model = model_name or settings["model_name"]
     reasoning_params = reasoning_cfg(reasoning_on)
     base_url = getattr(client, "base_url", "")
@@ -99,7 +98,7 @@ async def forced_tool_call(
         # and the loss where it doesn't is bounded to the blob -- a few hundred
         # tokens per image, not a prefix bust. Do not infer from a working forced
         # call that the sibling reuse is happening.
-        tools = [TOOLS[n]["schema"] for n in offer_tools]
+        tools = [require_tool(name)["schema"] for name in offer_tools]
         if schema not in tools:
             tools.append(schema)
         # ...unless the wire won't carry the forcing. Then a rival schema in the
@@ -117,7 +116,7 @@ async def forced_tool_call(
         overrides_arg = _plain(schema_overrides) if schema_overrides else None
         tools = list(enabled_schemas(dict(enabled_tools), overrides_arg))
         canonical = (overrides_arg or {}).get(tool_name, schema)
-        if canonical is not None and (tool_name in STANDALONE_TOOLS or canonical not in tools):
+        if canonical is not None and (is_standalone_tool(tool_name) or canonical not in tools):
             tools.append(canonical)
 
     messages = [_plain(m) for m in prefix] + [_plain(m) for m in tail_messages]
@@ -143,7 +142,7 @@ async def forced_tool_call(
                 messages=messages,
                 model=resolved_model,
                 tools=tool_array,
-                tool_choice=TOOLS[tool_name]["choice"],
+                tool_choice=tool["choice"],
                 temperature=temperature,
                 max_tokens=agent_lane_max_tokens(settings, floor=token_floor),
                 tools_in_prompt=tools_in_prompt,

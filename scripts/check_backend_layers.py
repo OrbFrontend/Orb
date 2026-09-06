@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-"""Backend layering guardrail — the import direction AGENTS.md describes.
+"""Backend layering guardrail — the import graph AGENTS.md describes.
 
-The layer stack is a convention, and until now nothing enforced it: Ruff and
-Pyright are both perfectly happy with ``inference/`` reaching up into
-``features/``. This parses every backend module's imports, resolves the
-relative ones, and fails on an edge that points the wrong way.
+This parses every backend module's imports, resolves relative imports, and
+fails on an edge that is absent from the explicit allowed-edge matrix.
 
-Two rules:
+Three rules:
 
-  1. **Rank order.** Every top-level backend package has a rank; a module may
-     import its own rank or lower. ``database`` may import ``core``; ``api``
-     may import anything; ``inference`` may import neither ``features`` nor
-     ``pipeline``.
-  2. **Slices never import peers.** ``features/<a>`` may not import
+  1. **Explicit edges.** Each top-level Python package has a complete set of
+     backend packages it may import. Same-package imports are always allowed.
+  2. **Every layer is classified.** A new Python-bearing top-level package or
+     module must be classified rather than silently becoming a composition
+     root.
+  3. **Slices never import peers.** ``features/<a>`` may not import
      ``features/<b>``. A slice is self-contained by definition — a peer edge is
      how two features quietly become one.
 
@@ -33,49 +32,49 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BACKEND = ROOT / "backend"
 
-# Lower number = lower layer. A module may import its own rank or lower.
-# `analysis` and `inference` are peers by design: neither imports the other.
-RANKS = {
-    "core": 0,
-    "database": 1,
-    "analysis": 2,
-    "inference": 2,
-    "workflows": 3,
-    "features": 4,
-    "pipeline": 5,
-    "api": 6,
+# The source of truth for cross-package imports. Same-package imports are
+# allowed implicitly. Features and workflows deliberately remain siblings.
+ALLOWED_EDGES: dict[str, frozenset[str]] = {
+    "core": frozenset(),
+    "database": frozenset({"core"}),
+    "inference": frozenset({"core"}),
+    "prompting": frozenset({"core"}),
+    "analysis": frozenset({"database", "core"}),
+    "workflows": frozenset({"prompting", "inference", "analysis", "database", "core"}),
+    "features": frozenset({"prompting", "inference", "analysis", "database", "core"}),
+    "pipeline": frozenset({"features", "workflows", "prompting", "inference", "analysis", "database", "core"}),
+    "api": frozenset({"pipeline", "features", "workflows", "prompting", "inference", "analysis", "database", "core"}),
 }
-#: backend/main.py and backend/__init__.py are the composition root; they sit
-#: above everything and are ranked accordingly.
-ROOT_RANK = max(RANKS.values())
+ROOT_ALLOWED = frozenset(ALLOWED_EDGES)
+ROOT_LAYER = "root"
 
 
-def _module_parts(path: Path) -> list[str]:
+def _module_parts(path: Path, *, root: Path = ROOT) -> list[str]:
     """``backend/api/routes/local_ml.py`` -> ``['backend', 'api', 'routes', 'local_ml']``."""
-    rel = path.relative_to(ROOT).with_suffix("")
+    rel = path.relative_to(root).with_suffix("")
     parts = list(rel.parts)
     if parts[-1] == "__init__":
         parts.pop()
     return parts
 
 
-def _exists(parts: list[str]) -> bool:
+def _exists(parts: list[str], *, root: Path = ROOT) -> bool:
     """Whether *parts* names a real module or package under the repo."""
-    base = ROOT.joinpath(*parts)
+    base = root.joinpath(*parts)
     return base.with_suffix(".py").is_file() or (base / "__init__.py").is_file()
 
 
-def _package_parts(path: Path) -> list[str]:
+def _package_parts(path: Path, *, root: Path = ROOT) -> list[str]:
     """The package a file lives in — the base a relative import counts up from.
 
     The same for ``cards/parsing.py`` and ``cards/__init__.py``: an
     ``__init__`` IS its package, so deriving this from the module path would
     count one level too many and report every intra-slice import as a peer edge.
     """
-    return list(path.relative_to(ROOT).parent.parts)
+    return list(path.relative_to(root).parent.parts)
 
 
-def _targets(node: ast.AST, package: list[str]) -> list[list[str]]:
+def _targets(node: ast.AST, package: list[str], *, root: Path = ROOT) -> list[list[str]]:
     """Every backend module *node* imports, as absolute part lists.
 
     A ``from .. import database`` resolves to the package ``backend``, and the
@@ -102,7 +101,7 @@ def _targets(node: ast.AST, package: list[str]) -> list[list[str]]:
     out.append(base)
     for alias in node.names:  # `from .. import database` — the name is the module
         candidate = [*base, alias.name]
-        if _exists(candidate) and candidate not in out:
+        if _exists(candidate, root=root) and candidate not in out:
             out.append(candidate)
     return out
 
@@ -111,33 +110,68 @@ def _slice_of(parts: list[str]) -> tuple[str, str] | None:
     """``('features', 'cards')`` for a backend module, or ``None`` for anything else."""
     if len(parts) < 2 or parts[0] != "backend":
         return None
+    if len(parts) == 2 and parts[1] == "main":
+        return ROOT_LAYER, ""
     return parts[1], (parts[2] if len(parts) > 2 else "")
 
 
-def check() -> list[str]:
+def _python_packages(backend: Path) -> set[str]:
+    return {
+        path.name
+        for path in backend.iterdir()
+        if path.is_dir() and any("__pycache__" not in module.parts for module in path.rglob("*.py"))
+    }
+
+
+def _unclassified_top_level_modules(backend: Path) -> set[str]:
+    """Root modules other than the two explicit composition-root modules."""
+    return {
+        path.name
+        for path in backend.glob("*.py")
+        if path.name not in {"__init__.py", "main.py"}
+    }
+
+
+def check(*, root: Path = ROOT, backend: Path | None = None) -> list[str]:
+    backend = backend or root / "backend"
     problems: list[str] = []
-    for path in sorted(BACKEND.rglob("*.py")):
+    for package in sorted(_python_packages(backend) - ALLOWED_EDGES.keys()):
+        problems.append(
+            f"backend/{package}/: unclassified Python package (add it to ALLOWED_EDGES)"
+        )
+    for module in sorted(_unclassified_top_level_modules(backend)):
+        problems.append(f"backend/{module}: unclassified top-level Python module")
+    for path in sorted(backend.rglob("*.py")):
         if "__pycache__" in path.parts:
             continue
-        parts = _module_parts(path)
-        package = _package_parts(path)
+        parts = _module_parts(path, root=root)
+        package = _package_parts(path, root=root)
         own_layer, own_slice = _slice_of(parts) or ("", "")
-        own_rank = RANKS.get(own_layer, ROOT_RANK)
+        allowed = (
+            ROOT_ALLOWED
+            if own_layer in ("", ROOT_LAYER)
+            else ALLOWED_EDGES.get(own_layer, frozenset())
+        )
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError as exc:  # a file that will not parse is its own failure
-            problems.append(f"{path.relative_to(ROOT)}: {exc}")
+            problems.append(f"{path.relative_to(root)}: {exc}")
             continue
         for node in ast.walk(tree):
             if not isinstance(node, ast.Import | ast.ImportFrom):
                 continue
-            where = f"{path.relative_to(ROOT)}:{node.lineno}"
+            where = f"{path.relative_to(root)}:{node.lineno}"
             # One import statement resolves to both the package and the name
             # beside it (`from ..features import cards`), which is the same
             # edge said twice; report each layer and each peer slice once.
-            edges = {e for t in _targets(node, package) if (e := _slice_of(t)) and e[0] in RANKS}
-            for layer in sorted({layer for layer, _ in edges if RANKS[layer] > own_rank}):
-                problems.append(f"{where}: {own_layer or 'backend'} imports upward into {layer}/")
+            edges = {
+                edge
+                for target in _targets(node, package, root=root)
+                if (edge := _slice_of(target))
+                and edge[0] in {*ALLOWED_EDGES, ROOT_LAYER}
+            }
+            for layer in sorted({layer for layer, _ in edges if layer != own_layer and layer not in allowed}):
+                problems.append(f"{where}: {own_layer or 'backend'} may not import {layer}")
             if own_layer == "features":
                 peers = {s for layer, s in edges if layer == "features" and s and s != own_slice}
                 for peer in sorted(peers):
@@ -150,7 +184,7 @@ def main() -> int:
     if problems:
         print("Backend layer violations:\n  - " + "\n  - ".join(problems))
         return 1
-    print(f"Backend layers OK ({len(RANKS)} ranked packages).")
+    print(f"Backend layers OK ({len(ALLOWED_EDGES)} classified packages).")
     return 0
 
 

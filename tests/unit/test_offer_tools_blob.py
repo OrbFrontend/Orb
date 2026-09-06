@@ -7,7 +7,7 @@ the array is byte-identical regardless of which member is forced — the sole
 difference between the two requests must be `tool_choice`.
 
 Nothing else pins this. `enabled_schemas()` ordering is covered by
-test_tool_registry.py, but the `offer_tools` path bypasses `enabled_schemas`
+test_tool_catalog.py, but the `offer_tools` path bypasses `enabled_schemas`
 entirely: it builds the array from the caller's tuple, so a reordered
 OFFER_TOOLS or an append-on-miss regression would silently split the two calls
 onto different prefixes with no test failing.
@@ -24,7 +24,7 @@ import json
 
 import pytest
 
-from backend.inference.tool_registry import TOOLS
+from backend.prompting.tool_catalog import TOOLS
 from backend.workflows._forced_call import forced_tool_call
 from backend.workflows.image_gen.prompts import OFFER_TOOLS
 

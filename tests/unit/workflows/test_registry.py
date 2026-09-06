@@ -8,7 +8,12 @@ from types import MappingProxyType
 
 import pytest
 
-from backend.inference import STANDALONE_TOOLS, TOOLS
+from backend.prompting.tool_catalog import (
+    STANDALONE_TOOLS,
+    TOOLS,
+    restore_catalog,
+    snapshot_catalog,
+)
 from backend.workflows import (
     HookType,
     Subscription,
@@ -60,8 +65,7 @@ def _tool_spec(name: str, *, standalone: bool = True) -> ToolSpec:
 @pytest.fixture(autouse=True)
 def _restore_globals():
     by_id_snapshot = {k: deepcopy(v) for k, v in registry_module._WORKFLOWS_BY_ID.items()}
-    tools_snapshot = dict(TOOLS)
-    standalone_snapshot = set(STANDALONE_TOOLS)
+    catalog_snapshot = snapshot_catalog()
     # Tests below assert exact registry contents, so start from an empty
     # workflow registry rather than the first-party workflows registered at
     # import time. Built-in tools in TOOLS are left intact.
@@ -69,10 +73,7 @@ def _restore_globals():
     yield
     registry_module._WORKFLOWS_BY_ID.clear()
     registry_module._WORKFLOWS_BY_ID.update(by_id_snapshot)
-    TOOLS.clear()
-    TOOLS.update(tools_snapshot)
-    STANDALONE_TOOLS.clear()
-    STANDALONE_TOOLS.update(standalone_snapshot)
+    restore_catalog(catalog_snapshot)
 
 
 class TestFreshRegistration:
@@ -149,7 +150,7 @@ class TestBuiltinCollision:
         clash = _tool_spec("editor_rewrite")
         with pytest.raises(ToolNameCollision):
             register_workflow(Workflow(id="ws_clash", display_name="X", tools=[clash]))
-        assert TOOLS["editor_rewrite"] is before
+        assert TOOLS["editor_rewrite"] == before
         assert get_workflow("ws_clash") is None
 
     def test_built_in_check_fires_before_cross_workflow_check(self):

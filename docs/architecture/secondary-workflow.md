@@ -30,6 +30,7 @@ chrome. The workflow owns its feature logic.
 | `backend/workflows/registry.py` | Workflow records, subscriptions, lookups, and state access |
 | `backend/workflows/contracts.py` | Hook types, context dataclasses, and `ToolSpec` |
 | `backend/workflows/toolkit.py` | Stable imports for workflow authors |
+| `backend/prompting/tool_catalog.py` | Ordered tool lookup and workflow-tool registration |
 | `backend/workflows/attachment_cache.py` | Attachment storage, variants, budget, and eviction |
 | `backend/workflows/__init__.py` | Built-in registration and hook subscriptions |
 | `backend/pipeline/workflow_bridge.py` | Pipeline hook dispatch and attachment staging |
@@ -70,6 +71,11 @@ Workflow(
 `id` is the boundary key used in URLs, JSON, tools, and static module paths.
 Tool names must be unique and must agree across `ToolSpec.name`, the schema,
 and `tool_choice`.
+
+Workflow tools append after the fixed built-in tool order. Re-registering an
+existing tool replaces its contract without changing its position; removing a
+tool on workflow replacement removes it through the catalog API. The toolkit's
+`TOOLS` and `STANDALONE_TOOLS` exports are live, read-only compatibility views.
 
 Registration follows this shape:
 

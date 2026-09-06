@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from ...inference.lorebook import (
+from ...prompting.lorebook import (
     AGENTIC_LOREBOOK_SCAN_DEPTH,
     DYNAMIC_SECTION_TITLE,
     LOREBOOK_SCAN_DEPTH,
-    agentic_lorebook_active,
     build_lorebook_catalog,
     compute_agentic_lorebook_block,
     compute_constant_lorebook_block,
@@ -29,6 +28,7 @@ from .changesets import (
     stage_proposal,
     undo_changeset,
 )
+from .enablement import agentic_lorebook_active
 from .proposals import (
     ValidatedProposal,
     build_world_change_catalog,

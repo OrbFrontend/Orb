@@ -396,7 +396,7 @@ def _profile_call(**arguments) -> dict:
 
     ``_llm_mock._pass_from_tool_choice`` routes any forced tool name it does not
     recognise as a core pass tool to the ``workflow`` queue, and this schema is
-    deliberately not in ``inference.tool_registry.TOOLS`` — so this is the queue
+    deliberately not in ``prompting.tool_catalog.TOOLS`` — so this is the queue
     the public-profile drafter reads from.
     """
     return {"tool_calls": [{"type": "function", "function": {"name": "draft_public_profile", "arguments": arguments}}]}

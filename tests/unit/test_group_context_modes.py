@@ -11,13 +11,13 @@ from __future__ import annotations
 import pytest
 
 from backend.core import CastMember, Macros, TurnCast
-from backend.inference.group_context import (
+from backend.pipeline.passes.writer import SHEET_FRAMING, build_writer_content
+from backend.prompting import build_prefix
+from backend.prompting.group_context import (
     context_size_components,
     render_active_card,
     render_cast_section,
 )
-from backend.inference.prompt_builder import build_prefix
-from backend.pipeline.passes.writer import SHEET_FRAMING, build_writer_content
 
 MODES = ("private", "shared", "swap")
 

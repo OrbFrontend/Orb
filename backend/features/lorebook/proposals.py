@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
-from ...inference.lorebook import (
+from ...prompting.lorebook import (
     DYNAMIC_SECTION_TITLE,
     is_dynamic,
     select_effective_entries,

@@ -76,15 +76,19 @@ from ...inference import (
     AbortToken,
     agent_lane_from_settings,
     client_from_settings,
-    group_context,
-    macro_identity,
-    prompt_builder,
 )
 from ...pipeline import (
     agent_enabled,
     conversation_macro_seed,
     persona_macros,
     resolve_card_and_persona,
+)
+from ...prompting import (
+    compute_style_injection_block,
+    group_context,
+    group_speaker_label,
+    macro_identity,
+    resolve_mood_fragment_randoms,
 )
 from ..deps import (
     _active_aborts,
@@ -729,7 +733,7 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
         for message in messages:
             if message.get("role") != "assistant":
                 continue
-            label = prompt_builder.group_speaker_label(names, message.get("speaker_member_id"))
+            label = group_speaker_label(names, message.get("speaker_member_id"))
             msg_chars += len(f"{label}: ")
 
     # Director injection — fragment {{random}} resolves against a throwaway
@@ -737,8 +741,8 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     # real turn would inject, without recording new picks.
     active_moods = director.get("active_moods", []) if director else []
     est_choices = dict(director.get("macro_choices", {}) if director else {})
-    est_mood_frags = prompt_builder.resolve_mood_fragment_randoms(mood_frags, active_moods, est_choices)
-    inj_block = prompt_builder.compute_style_injection_block(
+    est_mood_frags = resolve_mood_fragment_randoms(mood_frags, active_moods, est_choices)
+    inj_block = compute_style_injection_block(
         active_moods,
         active_moods,
         est_mood_frags,

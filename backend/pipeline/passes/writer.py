@@ -23,10 +23,9 @@ from ...inference import (
     CachedBase,
     LLMClient,
     _KVCacheTracker,
-    member_macros,
     reasoning_cfg,
-    tail_carries_identity,
 )
+from ...prompting import member_macros, tail_carries_identity
 from .editor.length_guard import LengthGuard, writer_nudge
 
 if TYPE_CHECKING:

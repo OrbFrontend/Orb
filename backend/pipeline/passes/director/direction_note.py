@@ -10,14 +10,16 @@ from typing import Any
 
 from ....core import ChatMessage, ContentPart, extract_hyperparams
 from ....inference import (
-    RECORD_DIRECTION_NOTE_CHOICE,
     CachedBase,
     LLMClient,
-    build_direction_note_prompt,
-    build_direction_note_tool,
     parse_tool_calls,
     reasoning_cfg,
 )
+from ....prompting.tool_schemas import (
+    RECORD_DIRECTION_NOTE_CHOICE,
+    build_direction_note_tool,
+)
+from .direction_note_prompts import build_direction_note_prompt
 
 logger = logging.getLogger(__name__)
 

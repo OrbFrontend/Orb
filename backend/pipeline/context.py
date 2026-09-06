@@ -22,20 +22,21 @@ from ..database.models import (
 )
 from ..features.lorebook import (
     agentic_lorebook_active,
-    build_lorebook_catalog,
-    compute_constant_lorebook_block,
-    compute_depth_lorebook_block,
-    compute_lorebook_injection_block,
 )
 from ..inference import (
     AbortToken,
     LLMClient,
     _KVCacheTracker,
     agent_client_from_settings,
-    build_prefix,
     client_from_settings,
-    macro_identity,
     separate_agent_lane_configured,
+)
+from ..prompting import build_prefix, macro_identity
+from ..prompting.lorebook import (
+    build_lorebook_catalog,
+    compute_constant_lorebook_block,
+    compute_depth_lorebook_block,
+    compute_lorebook_injection_block,
 )
 from .config import _build_writer_tools_blob
 from .predicates import agent_enabled, resolve_persona_id, world_proposal_active

@@ -10,14 +10,13 @@ from typing import Any
 
 from ....core import ChatMessage, ContentPart, extract_hyperparams
 from ....inference import (
-    GIVE_FEEDBACK_CHOICE,
     CachedBase,
     LLMClient,
-    build_feedback_prompt,
-    build_feedback_tool,
     parse_tool_calls,
     reasoning_cfg,
 )
+from ....prompting.tool_schemas import GIVE_FEEDBACK_CHOICE, build_feedback_tool
+from .prompts import build_feedback_prompt
 
 logger = logging.getLogger(__name__)
 

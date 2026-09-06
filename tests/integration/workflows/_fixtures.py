@@ -1,7 +1,7 @@
 """Test helpers for workflow hook coverage and workflow_attachments rows.
 
-``register_for_test`` snapshots ``_registry._WORKFLOWS_BY_ID``, ``TOOLS``,
-and ``STANDALONE_TOOLS`` with ``deepcopy`` on enter and restores them on
+``register_for_test`` snapshots ``_registry._WORKFLOWS_BY_ID`` and the tool
+catalog on enter and restores them through catalog-owned operations on
 exit, so a failed assertion inside the ``with`` block cannot leak
 registry mutations into adjacent tests. The same ``Workflow`` instance is
 held by both the test and the registry (see clear at end of
@@ -24,7 +24,10 @@ from backend.database.queries.conversations import (
     set_workflow_state,
 )
 from backend.database.queries.workflow_attachments import get_workflow_attachment_by_id
-from backend.inference import STANDALONE_TOOLS, TOOLS
+from backend.prompting.tool_catalog import (
+    restore_catalog,
+    snapshot_catalog,
+)
 from backend.workflows import (
     HookType,
     ToolSpec,
@@ -80,15 +83,11 @@ def _restore_registry():
     activates it.
     """
     by_id_snapshot = {k: deepcopy(v) for k, v in _registry._WORKFLOWS_BY_ID.items()}
-    tools_snapshot = {n: dict(spec) for n, spec in TOOLS.items()}
-    standalone_snapshot = set(STANDALONE_TOOLS)
+    catalog_snapshot = snapshot_catalog()
     yield
     _registry._WORKFLOWS_BY_ID.clear()
     _registry._WORKFLOWS_BY_ID.update(by_id_snapshot)
-    TOOLS.clear()
-    TOOLS.update(tools_snapshot)
-    STANDALONE_TOOLS.clear()
-    STANDALONE_TOOLS.update(standalone_snapshot)
+    restore_catalog(catalog_snapshot)
 
 
 def make_workflow(
@@ -147,13 +146,12 @@ def register_for_test(workflow: Workflow, *, finalize: bool = True) -> Iterator[
     that exercise the mandate's raise path pass ``finalize=False`` to skip
     the validation.
 
-    On exit: restores the registry, ``TOOLS``, and ``STANDALONE_TOOLS`` to
+    On exit: restores the workflow registry and tool catalog to
     a deep-copied snapshot captured before enter so subscription mutations
     inside the block cannot leak across teardown.
     """
     by_id_snapshot = {k: deepcopy(v) for k, v in _registry._WORKFLOWS_BY_ID.items()}
-    tools_snapshot = {n: dict(spec) for n, spec in TOOLS.items()}
-    standalone_snapshot = set(STANDALONE_TOOLS)
+    catalog_snapshot = snapshot_catalog()
 
     register_workflow(workflow)
     for hook_type, fn, priority in getattr(workflow, "_pending_hooks", []):
@@ -165,10 +163,7 @@ def register_for_test(workflow: Workflow, *, finalize: bool = True) -> Iterator[
     finally:
         _registry._WORKFLOWS_BY_ID.clear()
         _registry._WORKFLOWS_BY_ID.update(by_id_snapshot)
-        TOOLS.clear()
-        TOOLS.update(tools_snapshot)
-        STANDALONE_TOOLS.clear()
-        STANDALONE_TOOLS.update(standalone_snapshot)
+        restore_catalog(catalog_snapshot)
         # register_workflow stores the same Workflow instance the test holds,
         # so workflow.subscriptions is identity-shared with the registry's
         # record. Restoring the dict to the deepcopied snapshot above does

@@ -40,19 +40,15 @@ from ..database import (
     resolve_char_context,
 )
 from ..inference import (
-    STANDALONE_TOOLS,
-    TOOLS,
     LLMClient,
-    build_prefix,
-    compute_constant_lorebook_block,
-    enabled_schemas,
-    format_message_with_attachments,
     local_ml,
-    macro_identity,
     parse_tool_calls,
     reasoning_cfg,
     separate_agent_lane_configured,
 )
+from ..prompting import build_prefix, format_message_with_attachments, macro_identity
+from ..prompting.lorebook import compute_constant_lorebook_block
+from ..prompting.tool_catalog import STANDALONE_TOOLS, TOOLS, enabled_schemas
 from ._forced_call import forced_tool_call
 from .attachment_cache import EVICTED_MARKER, insert_workflow_attachment
 from .registry import (

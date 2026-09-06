@@ -9,8 +9,9 @@ import pytest
 
 import backend.inference.client as llm_mod
 import backend.inference.endpoint_profiles as ep_mod
-from backend.inference.client import LLMClient, parse_tool_calls, strictify_schema
+from backend.inference.client import LLMClient, parse_tool_calls
 from backend.inference.endpoint_profiles import supports_structured_tool_calls
+from backend.inference.schema import strictify_schema
 
 
 @pytest.fixture(autouse=True)
