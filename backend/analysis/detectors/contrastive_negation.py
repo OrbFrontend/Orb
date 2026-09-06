@@ -110,9 +110,17 @@ _PERSONAL_PRONOUNS = frozenset("i me he him she her we us they them you".split()
 _OBJECT_PRONOUNS = frozenset("me him her it us them".split())
 
 
+# "to" opens an infinitive only when a bare verb follows: "to my surprise" and
+# "to her" are prepositional.
+_NON_VERB_AFTER_TO = frozenset({"a", "an", "the"}) | _PRONOUNS
+# Hedges tolerated before "to"; "only" stays out, it belongs to _is_not_only.
+_FRAME_ADVERBS = frozenset("just simply merely rather instead purely solely".split())
+_SUBJECT_STARTERS = frozenset("i he she we they you it there".split())
+
+
 def _strip_trailing_punct(tokens: list[str], tags: list[str]):
     """Strip sentence-ending punctuation from the token and tag lists in-place."""
-    while tokens and tokens[-1] in ".!?,;:":
+    while tokens and tokens[-1] in ".!?,;:\u2014\u2013":
         tokens.pop()
         tags.pop()
 
@@ -123,6 +131,19 @@ def _is_not_only(lowers: list[str], not_idx: int) -> bool:
 
 def _is_infinitive_not(lowers: list[str], not_idx: int) -> bool:
     return not_idx + 1 < len(lowers) and lowers[not_idx + 1] == "to"
+
+
+def _opens_infinitive(lowers: list[str], i: int) -> bool:
+    """True when a to-infinitive starts at ``i``, skipping any framing adverb."""
+    while i < len(lowers) and lowers[i] != "only" and (lowers[i] in _FRAME_ADVERBS or lowers[i].endswith("ly")):
+        i += 1
+    return i + 1 < len(lowers) and lowers[i] == "to" and lowers[i + 1].isalpha() and lowers[i + 1] not in _NON_VERB_AFTER_TO
+
+
+def _arm_carries_clause(tokens: list[str]) -> bool:
+    """True when a comma inside an arm is followed by a subject: "to be fair, he
+    had no choice" is a fronted adverbial plus its own clause, not a contrast."""
+    return any(t == "," and i + 1 < len(tokens) and tokens[i + 1].lower() in _SUBJECT_STARTERS for i, t in enumerate(tokens))
 
 
 def _x_looks_like_clause(x_tokens: list[str], ignore: frozenset[str] = frozenset()) -> bool:
@@ -327,7 +348,11 @@ def _find_not_but_pattern(lowers: list[str], words: list[str], tags: list[str]) 
 
     if _is_not_only(lowers, not_idx):
         return None
-    if _is_infinitive_not(lowers, not_idx):
+
+    # Two parallel infinitives are the one "not to" shape that contrasts; every
+    # other "but" opens a clause ("told him not to go, but he went anyway").
+    infinitive_frame = _opens_infinitive(lowers, not_idx + 1) and _opens_infinitive(lowers, but_idx + 1)
+    if _is_infinitive_not(lowers, not_idx) and not infinitive_frame:
         return None
 
     x_tokens = words[not_idx + 1 : but_idx]
@@ -340,10 +365,16 @@ def _find_not_but_pattern(lowers: list[str], words: list[str], tags: list[str]) 
 
     if not x_tags or not y_tags:
         return None
-    if _x_looks_like_clause(x_tokens):
-        return None
-    if _y_looks_like_clause(y_tokens):
-        return None
+    if infinitive_frame:
+        # An arm opening "to" + verb is no clause, so the heuristics below don't
+        # apply: "you" in "not to push you away" is an object, not a subject.
+        if _arm_carries_clause(x_tokens) or _arm_carries_clause(y_tokens):
+            return None
+    else:
+        if _x_looks_like_clause(x_tokens):
+            return None
+        if _y_looks_like_clause(y_tokens):
+            return None
 
     return {
         "x_template": " ".join(x_tags),

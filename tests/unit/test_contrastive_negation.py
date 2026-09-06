@@ -2,6 +2,9 @@
 
 2026-07-18: curly-apostrophe contractions ("doesn’t") and do-support clauses
 whose verb the suffix tagger can't see ("we time it") were missed.
+
+2026-09-06: the "not to X, but to Y" frame was missed wholesale — "not to"
+bailed out early, and "not to push you away" read its object as a subject.
 """
 
 from __future__ import annotations
@@ -18,6 +21,14 @@ HITS = [
     "It's not a bug, but a feature.",
     "This isn't a setback, it is an opportunity.",
     "He doesn't just give up; he breaks down.",
+    # "not to X, but to Y": both arms are infinitives, so neither is a clause.
+    "Her fingers tighten around your wrist, not to push you away, but to ground herself.",
+    "She reached out not to comfort him but to stop him.",  # no commas
+    "He speaks not to inform you, but rather to unsettle you.",  # hedged arm
+    "She moved not merely to escape, but to warn them.",
+    "It's important not to rush, but to be careful.",
+    # A coordinate clause tacked on the end doesn't undo the contrast.
+    "She wanted not to leave, but to be asked to stay, and he knew it.",
 ]
 
 MISSES = [
@@ -28,6 +39,11 @@ MISSES = [
     "He isn't tall, she is short.",
     "Isn't that odd?",
     "I don't like rain, but I brought an umbrella.",
+    # "not to" shapes whose "but" opens a clause instead of a second infinitive.
+    "She tried not to laugh, but the joke was too good.",
+    "I told him not to go, but to my surprise he went anyway.",  # PP, not infinitive
+    "I told him not to go, but to be fair, he had no choice.",  # parenthetical + clause
+    "It is not only there to help but also to hinder.",  # correlative, not contrastive
 ]
 
 
