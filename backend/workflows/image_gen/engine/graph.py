@@ -148,6 +148,13 @@ def seed_input(graph: Mapping[str, Any], slots: Mapping[str, Any]) -> tuple[str,
     return (class_type, str(slot[1])) if isinstance(class_type, str) and class_type else None
 
 
+def _declared_bound(value: Any) -> int | None:
+    """One declared `min`/`max` as an int, or None where the node declares something
+    else. `bool` is an `int` at runtime but is never a seed bound, so it reads as
+    "undeclared" rather than as 0 or 1."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
 def fit_seed(seed: int, info: Mapping[str, Any], input_name: str) -> int:
     """`seed` folded into the range the seed node declares, or unchanged where it
     declares none.
@@ -166,8 +173,8 @@ def fit_seed(seed: int, info: Mapping[str, Any], input_name: str) -> int:
     options = spec[1] if isinstance(spec, (list, tuple)) and len(spec) > 1 else None
     if not isinstance(options, Mapping):
         return seed
-    low, high = options.get("min"), options.get("max")
-    if any(isinstance(bound, bool) or not isinstance(bound, int) for bound in (low, high)) or high < low:
+    low, high = _declared_bound(options.get("min")), _declared_bound(options.get("max"))
+    if low is None or high is None or high < low:
         return seed
     # Negative seeds are legal where a node offers them and nobody wants them, so the
     # fold starts at zero wherever that is still inside the declared range.
