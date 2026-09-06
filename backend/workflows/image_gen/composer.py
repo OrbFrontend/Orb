@@ -28,7 +28,16 @@ from .subjects import Subject
 logger = logging.getLogger(__name__)
 
 
-async def _forced_args(*, client, model_name, prefix, tail, tool_name, settings, max_tokens, reasoning_on) -> dict:
+# What each call needs to answer in full: a compact JSON argument object, plus room
+# for the reasoning that precedes it when `prompter_reasoning` is on. Composition
+# writes the prompt itself, so it gets the larger of the two. The agent endpoint's
+# configured max_tokens raises these when it is higher; a writer preset kept short
+# for brief replies never lowers them (see `agent_lane_max_tokens`).
+_ANALYZE_TOKENS = 2_048
+_COMPOSE_TOKENS = 4_096
+
+
+async def _forced_args(*, client, model_name, prefix, tail, tool_name, settings, token_floor, reasoning_on) -> dict:
     logger.info("[image_gen] %s tail:\n%s", tool_name, "\n--\n".join(m["content"] for m in tail))
     args: dict = {}
     async for event in forced_tool_call(
@@ -41,7 +50,7 @@ async def _forced_args(*, client, model_name, prefix, tail, tool_name, settings,
         # One workflow-owned mode for both calls, so they share a reasoning-forked lane.
         reasoning_on=reasoning_on,
         temperature=0.2,
-        max_tokens=max_tokens,
+        token_floor=token_floor,
         offer_tools=OFFER_TOOLS,
     ):
         if event.get("type") == "result" and isinstance(event.get("args"), dict):
@@ -238,7 +247,7 @@ async def analyze_scene(
         tail=[{"role": "user", "content": analyze_ooc(pov, supports_negative, _sheets(subjects))}],
         tool_name="analyze_scene",
         settings=settings,
-        max_tokens=2_048,
+        token_floor=_ANALYZE_TOKENS,
         reasoning_on=reasoning_on,
     )
     # First-person view is the user looking at the subject: keep only the subject
@@ -308,7 +317,7 @@ async def compose_scene(
         tail=tail,
         tool_name="compose_image_prompt",
         settings=settings,
-        max_tokens=4_096,
+        token_floor=_COMPOSE_TOKENS,
         reasoning_on=reasoning_on,
     )
 

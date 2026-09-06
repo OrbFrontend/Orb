@@ -69,6 +69,20 @@ route or an ambiguous route. An explicit OpenAI resource only retries when the
 response names the native `x-api-key` header. This retry is independently
 bounded and never changes hosts; provider and model names are not evidence.
 
+## Lane presets
+
+Each lane sends the sampler preset of the endpoint it is calling. Director,
+Editor, and workflow tool calls read the Agent model config's temperature,
+budget, and samplers; they fall back to the Writer's whenever the Agent lane does
+not resolve, which is what one endpoint serving both lanes means.
+
+Agent-lane forced tool calls raise the configured budget to what their answer
+needs and never lower it, because the whole reply has to fit inside one call and
+a truncated one reaches the user as the pass doing nothing. A short-reply budget
+therefore shapes prose without breaking a tool call. The document Output Auditor
+takes the same floor from the other lane: it patches on the Writer endpoint, to
+keep byte parity with the prompt that generated the draft.
+
 ## Provider request behavior
 
 Native Anthropic requests are built from an allowlist. System messages are

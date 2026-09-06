@@ -177,7 +177,9 @@ the main reply and other workflows can continue.
 
 Use `forced_tool_call` for a one-shot tool call. Pass the context's prefix,
 enabled tools, schema overrides, client, and cache tracker so the call follows
-the same prompt and cache rules as the main turn.
+the same prompt and cache rules as the main turn. Its `token_floor` is what the
+call needs to answer in full; the Agent lane's configured `max_tokens` raises it
+when that endpoint has more room, and never lowers it below the floor.
 
 Public hook events pass through to SSE. Core events and names beginning with
 `_` are reserved. A useful custom event is `phase_status` with a channel that
