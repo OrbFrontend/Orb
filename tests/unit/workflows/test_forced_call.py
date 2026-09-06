@@ -166,6 +166,43 @@ class TestReasoningForwarding:
         assert out == [{"type": "result", "args": {"rewritten_text": "x"}}]
 
 
+class TestTokenBudget:
+    """`token_floor` is the call's requirement; the endpoint's config may raise it."""
+
+    async def _sent_budget(self, settings: dict, floor: int = 4096) -> int:
+        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "x"})])
+        await _collect(
+            forced_tool_call(
+                client=client,
+                prefix=[],
+                tail_messages=[],
+                tool_name=_TOOL_NAME,
+                settings=settings,
+                token_floor=floor,
+            )
+        )
+        assert client.complete_kwargs is not None
+        return client.complete_kwargs["max_tokens"]
+
+    async def test_a_roomier_endpoint_budget_is_the_one_sent(self):
+        assert await self._sent_budget({**_SETTINGS, "max_tokens": 16384}) == 16384
+
+    async def test_a_short_reply_preset_never_shrinks_the_call(self):
+        # 600 tokens is a normal setting for brief prose replies. Honoring it here
+        # would truncate the tool call mid-arguments, which reaches the user as the
+        # workflow failing rather than as the shorter reply they asked for.
+        assert await self._sent_budget({**_SETTINGS, "max_tokens": 600}) == 4096
+
+    async def test_the_agent_lanes_own_budget_wins_when_it_resolves(self):
+        # Present only when a separate agent endpoint overlaid its model config;
+        # the forced call runs on that lane, so its budget outranks the writer's.
+        settings = {**_SETTINGS, "max_tokens": 600, "agent_max_tokens": 32768}
+        assert await self._sent_budget(settings) == 32768
+
+    async def test_settings_without_a_budget_fall_back_to_the_floor(self):
+        assert await self._sent_budget(_SETTINGS) == 4096
+
+
 class TestToolsAssembly:
     async def test_enabled_tools_none_single_schema(self):
         client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])

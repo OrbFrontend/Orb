@@ -539,7 +539,7 @@ async def _run_edit_loop(
             report.total_issues,
         )
         try:
-            hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
+            hyperparams = extract_hyperparams(settings, lane="agent", token_floor=8192, defaults={"temperature": 0.25})
             reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
             if not reasoning_params["reasoning"].get("enabled", True):
                 logger.info("Editor iteration %d: reasoning disabled", iteration + 1)

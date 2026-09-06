@@ -58,7 +58,7 @@ async def lorebook_select_step(
 
     request = build_lorebook_select_prompt(catalog, user_message, reasoning_on=reasoning_on)
     trailing = [{"role": "user", "content": request}]
-    hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 2048})
+    hyperparams = extract_hyperparams(settings, lane="agent", token_floor=2048, defaults={"temperature": 0.25})
 
     resp: dict = {}
     try:

@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from types import MappingProxyType
 from typing import Any
 
-from ..core import ReasoningChannel, mark_call_start
+from ..core import ReasoningChannel, agent_lane_max_tokens, mark_call_start
 from ..inference import (
     STANDALONE_TOOLS,
     TOOLS,
@@ -55,10 +55,18 @@ async def forced_tool_call(
     model_name: str | None = None,
     reasoning_on: bool = True,
     temperature: float = 0.25,
-    max_tokens: int = 8192,
+    token_floor: int = 8192,
     tools_in_prompt: bool = True,
 ) -> AsyncIterator[dict]:
-    """Run one forced tool call and yield its parsed arguments."""
+    """Run one forced tool call and yield its parsed arguments.
+
+    ``token_floor`` is what this call needs to answer in full; the agent lane's
+    configured ``max_tokens`` raises it when the user has given that endpoint more
+    room (see :func:`~backend.core.agent_lane_max_tokens`), the same floor the
+    Director and Editor forced calls apply. ``temperature`` stays a caller
+    constant: a forced call fills a schema, so a roleplay preset would only add
+    flourish to it -- the same split ``features.cards._drafting`` documents.
+    """
     schema = TOOLS[tool_name]["schema"]
     resolved_model = model_name or settings["model_name"]
     reasoning_params = reasoning_cfg(reasoning_on)
@@ -137,7 +145,7 @@ async def forced_tool_call(
                 tools=tool_array,
                 tool_choice=TOOLS[tool_name]["choice"],
                 temperature=temperature,
-                max_tokens=max_tokens,
+                max_tokens=agent_lane_max_tokens(settings, floor=token_floor),
                 tools_in_prompt=tools_in_prompt,
                 **reasoning_params,
             )
@@ -159,7 +167,7 @@ async def forced_tool_call(
 
         The second flag is the only sound evidence that tool selection was left
         to the model: a reply with no call at all proves nothing (truncated at
-        max_tokens mid-reasoning, a content-only answer, a provider-side
+        the token budget mid-reasoning, a content-only answer, a provider-side
         finish_reason=error), and treating it as evidence would drop the shared
         blob for the whole session over one flaky reply.
         """

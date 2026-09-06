@@ -95,7 +95,7 @@ async def direction_note_step(
     per_fragment_on = bool(settings.get("director_individual_fragments", 0))
     groups = [[df] for df in direction_note_fragments] if per_fragment_on else [list(direction_note_fragments)]
 
-    hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.4, "max_tokens": 2048})
+    hyperparams = extract_hyperparams(settings, lane="agent", token_floor=2048, defaults={"temperature": 0.4})
 
     notes: list[dict] = []
     raws: list[str] = []

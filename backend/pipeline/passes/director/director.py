@@ -263,7 +263,7 @@ async def director_pass(
         plans_speakers = SPEAKING_PLAN_FIELD in scene_fields
         if name == "direct_scene" and per_fragment_on and (interactive_fragments or plans_speakers):
             reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
-            hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
+            hyperparams = extract_hyperparams(settings, lane="agent", token_floor=8192, defaults={"temperature": 0.25})
 
             # One forced call per fragment, each shown the values already chosen
             # this turn so later fragments build on earlier ones. Moods are
@@ -362,7 +362,7 @@ async def director_pass(
         # direction-note steps. Aborting the turn here would also skip
         # persisting the finished reply.
         reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
-        hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
+        hyperparams = extract_hyperparams(settings, lane="agent", token_floor=8192, defaults={"temperature": 0.25})
         try:
             async for event in base.complete_into(
                 client,
