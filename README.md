@@ -9,7 +9,7 @@ LLM Roleplaying and Creative Writing have a low floor and a high ceiling. Common
 
 ## Solution Overview
 
-A **Director** sits between the user and the model. It intercepts each user message, runs a short analytical pass to "read the room," then dynamically assembles prompt directives that shape the model's writing before the actual roleplay generation happens.
+A **Director** sits between the user and the model. It intercepts each user message, runs a short analytical pass to "read the room," then dynamically assembles prompt directives that shape the **Writer** model's writing before the actual roleplay generation happens.
 
 We essentially break the RP task into smaller, more focused tasks before the final response is generated.
 
@@ -58,7 +58,6 @@ For optimal KV cache reuse, the following will remain consistent across passes:
 
 #### 1. System Prompt
 - The system prompt (character card, instructions, etc.) is identical across all passes
-- Built once and reused forever
 - Includes character description, scenario, example dialogue, and additional instructions
 
 #### 2. Tool Schemas
@@ -89,7 +88,7 @@ For a visual walkthrough of the cache mechanism across all three passes and the 
 
 ## Requirements
 1. A model with solid tool/function calling capabilities (recommended: Gemma 4)
-2. OpenAI-compatible LLM inference backend API that supports prompt-caching
+2. Anthropic, Gemini, or OpenAI-compatible LLM inference backend API
 3. Python 3.11+
 
 ## Wiki
