@@ -8,8 +8,8 @@ import secrets
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from ..contracts import WorkflowEventStream
 from ..toolkit import (
+    WorkflowEventStream,
     build_offturn_prefix,
     get_message_by_id,
     get_workflow_character_state,

@@ -4,20 +4,40 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from ....core import extract_hyperparams
 from ....inference import (
-    SELECT_LOREBOOK_CHOICE,
     CachedBase,
     LLMClient,
-    build_lorebook_select_prompt,
     parse_tool_calls,
     reasoning_cfg,
 )
+from ....prompting.lorebook import director_pick_diagnostics
+from ....prompting.tool_schemas import SELECT_LOREBOOK_CHOICE
+from .prompts import build_lorebook_select_prompt
 
 logger = logging.getLogger(__name__)
+
+
+def _log_director_pick_diagnostics(
+    entries: Sequence[Mapping[str, object]],
+    picks: Sequence[str],
+) -> None:
+    recovered, unmatched = director_pick_diagnostics(entries, picks)
+    if recovered:
+        logger.warning(
+            "Lorebook: %d director pick(s) matched only after stripping catalog delimiters: %s",
+            len(recovered),
+            ", ".join(repr(pick) for pick in recovered),
+        )
+    if unmatched:
+        logger.info(
+            "Lorebook: %d director pick(s) named no entry: %s",
+            len(unmatched),
+            ", ".join(repr(pick) for pick in unmatched),
+        )
 
 
 @dataclass(slots=True)
@@ -40,6 +60,7 @@ async def lorebook_select_step(
     settings: Mapping[str, object],
     catalog: str,
     user_message: str,
+    entries: Sequence[Mapping[str, object]] | None = None,
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
@@ -58,7 +79,7 @@ async def lorebook_select_step(
 
     request = build_lorebook_select_prompt(catalog, user_message, reasoning_on=reasoning_on)
     trailing = [{"role": "user", "content": request}]
-    hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 2048})
+    hyperparams = extract_hyperparams(settings, lane="agent", token_floor=2048, defaults={"temperature": 0.25})
 
     resp: dict = {}
     try:
@@ -88,5 +109,8 @@ async def lorebook_select_step(
             picks = tc.get("arguments", {}).get("selected_lorebook_entries")
             if isinstance(picks, list):
                 selected = [str(x) for x in picks]
+
+    if entries is not None:
+        _log_director_pick_diagnostics(entries, selected)
 
     yield {"type": "done", "result": LorebookSelectResult(selected=selected, calls=calls)}

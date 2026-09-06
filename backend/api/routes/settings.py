@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from ...database import get_settings, reset_to_defaults, update_settings
-from ...inference import TOOLS
+from ...prompting.tool_catalog import has_tool
 from ..schemas import ResetConfirm, SettingsUpdate
 
 router = APIRouter()
@@ -22,7 +22,7 @@ async def api_update_settings(data: SettingsUpdate):
     # enabled_tools holds only model-callable tools. Drop any key that is not a
     # registered tool so non-tool feature flags can never be persisted into it.
     if isinstance(payload.get("enabled_tools"), dict):
-        payload["enabled_tools"] = {k: v for k, v in payload["enabled_tools"].items() if k in TOOLS}
+        payload["enabled_tools"] = {k: v for k, v in payload["enabled_tools"].items() if has_tool(k)}
     return await update_settings(payload)
 
 

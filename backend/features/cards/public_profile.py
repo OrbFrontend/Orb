@@ -15,7 +15,7 @@ PROFILE_TOOL_NAME = "draft_public_profile"
 # output contract below has something to be the enforcement of.
 #
 # Braces are on the list because a profile is macro-resolved at turn time
-# (``inference/group_context._render_public_cast``): a generated ``{{user}}``
+# (``prompting/group_context._render_public_cast``): a generated ``{{user}}``
 # would quietly substitute months later, in a string the user already reviewed
 # and approved.
 PROFILE_FLOOR = (
@@ -43,10 +43,8 @@ SCENE_SYSTEM_PROMPT = (
     "a character's card fields or display name. Call the requested tool."
 )
 
-# Deliberately not registered in ``inference.tool_registry.TOOLS``: that module
-# asserts ``PRE_WRITER_TOOLS | POST_WRITER_TOOLS == BUILTIN_TOOL_NAMES`` at
-# import, so registering here would force a turn-phase partition onto a tool that
-# has nothing to do with a turn.
+# Deliberately not registered in ``prompting.tool_catalog``: this card-only
+# schema is a one-shot contract, not part of the stable pipeline tool blob.
 DRAFT_PROFILE_TOOL = {
     "type": "function",
     "function": {

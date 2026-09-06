@@ -39,23 +39,21 @@ from ..database import (
     resolve_cast,
     resolve_char_context,
 )
+from ..inference import local_ml as _local_ml
 from ..inference import (
-    STANDALONE_TOOLS,
-    TOOLS,
-    LLMClient,
-    build_prefix,
-    compute_constant_lorebook_block,
-    enabled_schemas,
-    format_message_with_attachments,
-    local_ml,
-    macro_identity,
-    parse_tool_calls,
-    reasoning_cfg,
-    separate_agent_lane_configured,
+    separate_agent_lane_configured as _separate_agent_lane_configured,
+)
+from ..prompting import build_prefix as _build_prefix
+from ..prompting import macro_identity as _macro_identity
+from ..prompting.lorebook import (
+    compute_constant_lorebook_block as _compute_constant_lorebook_block,
 )
 from ._forced_call import forced_tool_call
 from .attachment_cache import EVICTED_MARKER, insert_workflow_attachment
+from .contracts import EV_DRAFT_REPLACED, ToolSpec, WorkflowEventStream
+from .errors import WorkflowUserFacingError
 from .registry import (
+    Workflow,
     get_workflow_character_state,
     get_workflow_config,
     get_workflow_message_state,
@@ -70,16 +68,16 @@ from .registry import (
 __all__ = [
     "CastMember",
     "EVICTED_MARKER",
+    "EV_DRAFT_REPLACED",
     "FormatDriftReport",
-    "LLMClient",
     "Macros",
-    "STANDALONE_TOOLS",
-    "TOOLS",
+    "ToolSpec",
     "TurnCast",
-    "build_prefix",
-    "enabled_schemas",
+    "Workflow",
+    "WorkflowEventStream",
+    "WorkflowUserFacingError",
+    "classify_pov",
     "forced_tool_call",
-    "format_message_with_attachments",
     "build_targets",
     "format_numbered_report",
     "format_report",
@@ -103,11 +101,9 @@ __all__ = [
     "get_workflow_message_state",
     "get_workflow_state",
     "insert_workflow_attachment",
-    "local_ml",
+    "local_feature_available",
     "normalize_to_baseline",
     "overlay_enable_tools",
-    "parse_tool_calls",
-    "reasoning_cfg",
     "run_audit",
     "build_offturn_prefix",
     "set_workflow_character_state",
@@ -118,6 +114,16 @@ __all__ = [
     "workflow_config_lock",
     "workflow_state_lock",
 ]
+
+
+def local_feature_available(feature: str) -> tuple[bool, str]:
+    """Return whether a host-provided local classifier is ready."""
+    return _local_ml.available(feature)
+
+
+async def classify_pov(text: str) -> str:
+    """Classify narrative point of view through the host inference service."""
+    return await _local_ml.aclassify_pov(text)
 
 
 async def get_scene_cast(conversation_id: str) -> TurnCast:
@@ -148,7 +154,7 @@ async def build_offturn_prefix(
     # runs on in every mode, Classic card swap included.
     turn_cast = await resolve_cast(conv)
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
-    dual_agent = lane == "agent" and separate_agent_lane_configured(settings)
+    dual_agent = lane == "agent" and _separate_agent_lane_configured(settings)
     if dual_agent:
         system_prompt, _, _ = await resolve_char_context(
             conv,
@@ -160,13 +166,13 @@ async def build_offturn_prefix(
         conv.get("persona_lock_id") or (card.get("persona_lock_id") if card else None) or settings.get("active_persona_id")
     )
     persona = await get_user_persona(persona_id) if persona_id else None
-    macro_char, cast_names = macro_identity(conv, turn_cast)
+    macro_char, cast_names = _macro_identity(conv, turn_cast)
     macros = Macros.from_settings(
         settings, macro_char, persona, seed=conv.get("macro_seed") or conv.get("id", ""), cast=cast_names
     )
     speaker_names = await get_speaker_names(conversation_id) if turn_cast.grouped else {}
     user_description = persona.get("description", "") if persona else settings.get("user_description", "")
-    return build_prefix(
+    return _build_prefix(
         system_prompt,
         char_persona,
         conv.get("character_scenario", ""),
@@ -175,7 +181,7 @@ async def build_offturn_prefix(
         history,
         macros,
         user_description,
-        constant_lorebook_block=compute_constant_lorebook_block(await get_active_lorebook_entries(), macros),
+        constant_lorebook_block=_compute_constant_lorebook_block(await get_active_lorebook_entries(), macros),
         cast=turn_cast,
         speaker_names=speaker_names,
     )

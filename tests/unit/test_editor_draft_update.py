@@ -26,12 +26,12 @@ from backend.analysis.detectors.slop_detector import (
 from backend.analysis.detectors.template_repetition import TemplateResult
 from backend.analysis.patching import apply_id_patches
 from backend.inference import (
-    EDITOR_RENUMBER_NOTICE,
     CachedBase,
     LLMClient,
-    enabled_schemas,
 )
 from backend.pipeline.passes.editor.editor import editor_pass
+from backend.pipeline.passes.editor.prompts import EDITOR_RENUMBER_NOTICE
+from backend.prompting.tool_catalog import enabled_schemas
 
 SETTINGS = {
     "model_name": "test-model",

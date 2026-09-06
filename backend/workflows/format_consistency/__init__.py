@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..registry import Workflow
+from ..toolkit import Workflow
 
 format_consistency_workflow = Workflow(
     id="format_consistency",

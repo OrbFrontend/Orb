@@ -19,8 +19,9 @@ from backend.analysis.detectors.slop_detector import (
     FlaggedSentence,
 )
 from backend.analysis.detectors.template_repetition import TemplateResult
-from backend.inference import CachedBase, LLMClient, enabled_schemas
+from backend.inference import CachedBase, LLMClient
 from backend.pipeline.passes.editor.editor import editor_pass
+from backend.prompting.tool_catalog import enabled_schemas
 
 
 def _make_client() -> LLMClient:

@@ -31,11 +31,10 @@ from ..database import (
 from ..database import (
     set_workflow_state as _db_set_workflow_state,
 )
-from ..inference import (
+from ..prompting.tool_catalog import (
     BUILTIN_TOOL_NAMES,
-    STANDALONE_TOOLS,
-    TOOLS,
     register_tool,
+    remove_tool,
 )
 from .contracts import HookType, ToolSpec
 
@@ -146,8 +145,7 @@ def register_workflow(w: Workflow) -> None:
         register_tool(spec.name, spec.schema, spec.choice, standalone=spec.standalone)
 
     for orphan in old_tool_names - new_tool_names:
-        TOOLS.pop(orphan, None)
-        STANDALONE_TOOLS.discard(orphan)
+        remove_tool(orphan)
 
     _WORKFLOWS_BY_ID[w.id] = w
 

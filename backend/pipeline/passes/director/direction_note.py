@@ -10,14 +10,16 @@ from typing import Any
 
 from ....core import ChatMessage, ContentPart, extract_hyperparams
 from ....inference import (
-    RECORD_DIRECTION_NOTE_CHOICE,
     CachedBase,
     LLMClient,
-    build_direction_note_prompt,
-    build_direction_note_tool,
     parse_tool_calls,
     reasoning_cfg,
 )
+from ....prompting.tool_schemas import (
+    RECORD_DIRECTION_NOTE_CHOICE,
+    build_direction_note_tool,
+)
+from .direction_note_prompts import build_direction_note_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +97,7 @@ async def direction_note_step(
     per_fragment_on = bool(settings.get("director_individual_fragments", 0))
     groups = [[df] for df in direction_note_fragments] if per_fragment_on else [list(direction_note_fragments)]
 
-    hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.4, "max_tokens": 2048})
+    hyperparams = extract_hyperparams(settings, lane="agent", token_floor=2048, defaults={"temperature": 0.4})
 
     notes: list[dict] = []
     raws: list[str] = []

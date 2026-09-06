@@ -23,7 +23,8 @@ from ...analysis.text.text_segmentation import (
     sentence_boundary_ends,
 )
 from ...core import ChatMessage, extract_hyperparams
-from ...inference import TOOLS, LLMClient, parse_tool_calls, reasoning_cfg
+from ...inference import LLMClient, parse_tool_calls, reasoning_cfg
+from ...prompting.tool_catalog import require_tool
 from .continuation import _MACRO_RE, build_generation_messages
 
 if TYPE_CHECKING:
@@ -265,8 +266,13 @@ async def patch_document(
     # generation prompt is what keeps the KV prefix warm); only the scanners
     # see the cleaned/capped ctx above.
     report_text = format_numbered_report(targets)
-    params = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
-    schema = TOOLS["editor_apply_patch"]["schema"]
+    # Writer lane on purpose (the route serves this call from the writer endpoint,
+    # for byte parity with the prompt that generated the draft), but floored like
+    # the agent-lane forced calls: the whole patch set has to fit in one reply, and
+    # a document preset kept short for brief continuations would truncate it.
+    params = extract_hyperparams(settings, token_floor=8192, defaults={"temperature": 0.25})
+    editor_patch = require_tool("editor_apply_patch")
+    schema = editor_patch["schema"]
     if client.completion_mode == "text":
         # Both text shapes byte-extend the generation prompt as a raw
         # continuation: verbatim document (raw) or the re-run /apply-template
@@ -291,7 +297,7 @@ async def patch_document(
             messages,
             model,
             tools=[schema],
-            tool_choice=TOOLS["editor_apply_patch"]["choice"],
+            tool_choice=editor_patch["choice"],
             tools_in_prompt=False,
             **params,
             **reasoning_cfg(False),

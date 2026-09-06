@@ -7,13 +7,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..core import ChatMessage, ContentPart, Macros, joined_delta
-from ..features.lorebook import (
+from ..features.prose_rewriter import ProseRewriteConfig
+from ..inference import CachedBase, LLMClient
+from ..prompting.lorebook import (
     AGENTIC_LOREBOOK_SCAN_DEPTH,
     LOREBOOK_SCAN_DEPTH,
     compute_lorebook_block,
 )
-from ..features.prose_rewriter import ProseRewriteConfig
-from ..inference import CachedBase, LLMClient
 from .passes.editor.length_guard import LengthGuard
 
 

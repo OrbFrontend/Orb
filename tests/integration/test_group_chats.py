@@ -848,7 +848,7 @@ async def test_compression_never_re_asserts_a_members_sheet_into_the_summary(cli
 # ── The post-exchange sheet-update pass ─────────────────────────────────────────
 # One call per member the exchange touched, staged pending, never applied. Routed
 # through the mock's `workflow` queue for the reason `_profile_call` states: the
-# schema is deliberately absent from `inference.tool_registry.TOOLS`.
+# schema is deliberately absent from `prompting.tool_catalog.TOOLS`.
 
 
 def _sheet_call(**arguments) -> dict:
@@ -1429,7 +1429,7 @@ def _profile_call(**arguments) -> dict:
 
     ``_pass_from_tool_choice`` routes any forced tool name it does not recognise
     as a core pass tool to the ``workflow`` queue, and this schema is
-    deliberately absent from ``inference.tool_registry.TOOLS``.
+    deliberately absent from ``prompting.tool_catalog.TOOLS``.
     """
     return {"tool_calls": [{"type": "function", "function": {"name": "draft_public_profile", "arguments": arguments}}]}
 

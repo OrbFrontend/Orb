@@ -15,14 +15,16 @@ from ...features.lorebook import (
     validate_proposal,
 )
 from ...inference import (
-    PROPOSE_WORLD_CHANGES_CHOICE,
     CachedBase,
     LLMClient,
-    build_world_change_prompt,
     parse_tool_calls,
     reasoning_cfg,
 )
-from ...inference.tool_registry import PROPOSE_WORLD_CHANGES_TOOL
+from ...prompting.tool_schemas import (
+    PROPOSE_WORLD_CHANGES_CHOICE,
+    PROPOSE_WORLD_CHANGES_TOOL,
+)
+from .world_change_prompt import build_world_change_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +89,7 @@ async def world_change_step(
         {"role": "assistant", "content": reply_text},
         {"role": "user", "content": request},
     ]
-    hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.3, "max_tokens": 2048})
+    hyperparams = extract_hyperparams(settings, lane="agent", token_floor=2048, defaults={"temperature": 0.3})
 
     resp: dict = {}
     try:

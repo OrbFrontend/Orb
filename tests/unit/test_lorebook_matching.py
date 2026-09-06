@@ -7,7 +7,7 @@ system prefix, so this path must never change which constants are selected
 
 from __future__ import annotations
 
-from backend.inference.lorebook import select_active_entries, select_keyword_entries
+from backend.prompting.lorebook import select_active_entries, select_keyword_entries
 
 
 def _entry(**kw):

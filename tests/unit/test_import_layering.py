@@ -1,131 +1,140 @@
-"""Static guard for the backend's one-way layered architecture.
-
-The dependency direction is strictly downward (see ``agents-md-analyze-the-file``
-and each layer's ``__init__`` docstring):
-
-    api -> {pipeline, features} -> workflows -> {inference, analysis} -> core
-                                                      \\-> database -> core
-
-A layer may import only from the layers below it (same-layer imports are fine),
-and a ``features`` slice may never import a *peer* slice. This test parses every
-``backend`` module with the AST and fails on any forbidden edge.
-
-It walks *all* AST nodes, so it also catches lazy ``import`` statements buried
-inside functions -- the form the historical ``database -> features`` back-edge
-took before it was relocated to the ``api`` composition root.
-"""
+"""Focused fixtures for the shared backend dependency checker."""
 
 from __future__ import annotations
 
-import ast
+import importlib.util
+import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
-BACKEND = REPO_ROOT / "backend"
-
-# What each layer MAY import (internal layers only). Same-layer imports are
-# always allowed and are not listed here.
-ALLOWED: dict[str, set[str]] = {
-    "core": set(),
-    "database": {"core"},
-    "inference": {"core"},
-    "analysis": {"core", "database"},
-    "workflows": {"core", "database", "inference", "analysis"},
-    "features": {"core", "database", "inference", "analysis"},
-    "pipeline": {"core", "database", "inference", "analysis", "workflows", "features"},
-    "api": {"core", "database", "inference", "analysis", "workflows", "features", "pipeline"},
-    # ``main.py`` / ``__init__.py`` sitting directly in ``backend/`` -- the
-    # composition root; may wire anything below it.
-    "root": {"core", "database", "inference", "analysis", "workflows", "features", "pipeline", "api"},
-}
-LAYERS = set(ALLOWED) - {"root"}
-
-FEATURE_SLICES = {p.name for p in (BACKEND / "features").iterdir() if p.is_dir() and p.name != "__pycache__"}
 
 
-def _iter_modules():
-    """Yield (path, dotted_parts, is_init) for every backend .py module.
-
-    Skips ``__pycache__`` and one-shot migration scripts (which use dynamic
-    intra-package imports and are not living application surface)."""
-    for path in BACKEND.rglob("*.py"):
-        rel = path.relative_to(REPO_ROOT)
-        if "__pycache__" in rel.parts or "migrations" in rel.parts:
-            continue
-        parts = rel.with_suffix("").parts  # ("backend", "database", "bootstrap")
-        is_init = path.name == "__init__.py"
-        if is_init:
-            parts = parts[:-1]  # the module IS the package
-        yield path, parts, is_init
-
-
-def _layer_of(parts: tuple[str, ...]) -> str | None:
-    if len(parts) < 2 or parts[0] != "backend":
-        return None
-    if parts[1] in ("main", "__init__"):
-        return "root"
-    return parts[1]
-
-
-def _resolve(parts: tuple[str, ...], is_init: bool, level: int, module: str) -> list[str]:
-    """Resolve an import to absolute dotted parts, handling relative imports."""
-    if level == 0:
-        return module.split(".") if module else []
-    pkg = list(parts) if is_init else list(parts[:-1])
-    base = pkg[: len(pkg) - (level - 1)]
-    return base + (module.split(".") if module else [])
-
-
-def _imports(path: Path, parts: tuple[str, ...], is_init: bool):
-    """Yield (target_parts, lineno, source_text) for every backend-targeting import."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            target = _resolve(parts, is_init, node.level, node.module or "")
-            if target and target[0] == "backend":
-                names = ", ".join(a.name for a in node.names)
-                yield target, node.lineno, f"from {'.' * node.level}{node.module or ''} import {names}"
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                target = alias.name.split(".")
-                if target and target[0] == "backend":
-                    yield target, node.lineno, f"import {alias.name}"
-
-
-def test_no_upward_layer_imports():
-    violations = []
-    for path, parts, is_init in _iter_modules():
-        src = _layer_of(parts)
-        if src is None:
-            continue
-        for target, lineno, text in _imports(path, parts, is_init):
-            dst = _layer_of(tuple(target))
-            if dst is None or dst == src:
-                continue
-            if dst not in ALLOWED.get(src, set()):
-                rel = path.relative_to(REPO_ROOT)
-                violations.append(f"  {src} -> {dst}   {rel}:{lineno}   ({text})")
-    assert not violations, "Forbidden cross-layer imports (a layer reached up to one it may not import):\n" + "\n".join(
-        sorted(violations)
+def _checker():
+    spec = importlib.util.spec_from_file_location(
+        "check_backend_layers_fixtures", REPO_ROOT / "scripts" / "check_backend_layers.py"
     )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
-def test_no_peer_slice_imports():
-    violations = []
-    for path, parts, is_init in _iter_modules():
-        if _layer_of(parts) != "features" or len(parts) < 3:
-            continue
-        own_slice = parts[2]
-        for target, lineno, text in _imports(path, parts, is_init):
-            if (
-                len(target) >= 3
-                and target[0] == "backend"
-                and target[1] == "features"
-                and target[2] in FEATURE_SLICES
-                and target[2] != own_slice
-            ):
-                rel = path.relative_to(REPO_ROOT)
-                violations.append(f"  {own_slice} -> {target[2]}   {rel}:{lineno}   ({text})")
-    assert not violations, "A features slice imported a peer slice (slices must stay isolated):\n" + "\n".join(
-        sorted(violations)
+def _fixture(tmp_path: Path, source: str, statement: str) -> tuple[Path, Path]:
+    checker = _checker()
+    root = tmp_path / "repo"
+    backend = root / "backend"
+    for package in checker.ALLOWED_EDGES:
+        directory = backend / package
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "__init__.py").write_text("", encoding="utf-8")
+    (backend / "main.py").write_text("app = object()\n", encoding="utf-8")
+    (backend / "workflows" / "toolkit.py").write_text("__all__ = ['forced_tool_call']\n", encoding="utf-8")
+    source_path = backend / f"{source}.py"
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    source_path.write_text(statement, encoding="utf-8")
+    return root, backend
+
+
+@pytest.mark.parametrize(
+    ("source", "statement", "message"),
+    [
+        ("inference/bad", "from backend.prompting import base\n", "inference may not import prompting"),
+        ("inference/bad", "from backend.main import app\n", "inference may not import root"),
+        ("prompting/bad", "from backend.inference import client\n", "prompting may not import inference"),
+        ("features/alpha/bad", "from backend.workflows import toolkit\n", "features may not import workflows"),
+        ("workflows/bad", "from backend.features import cards\n", "workflows may not import features"),
+    ],
+)
+def test_forbidden_edges_use_the_shared_matrix(tmp_path: Path, source: str, statement: str, message: str):
+    root, backend = _fixture(tmp_path, source, statement)
+    problems = _checker().check(root=root, backend=backend)
+    assert any(message in problem for problem in problems), problems
+
+
+def test_feature_slices_cannot_import_peers(tmp_path: Path):
+    root, backend = _fixture(tmp_path, "features/alpha/bad", "from backend.features.beta import value\n")
+    beta = backend / "features" / "beta"
+    beta.mkdir()
+    (beta / "__init__.py").write_text("value = 1\n", encoding="utf-8")
+    problems = _checker().check(root=root, backend=backend)
+    assert any("feature slice 'alpha' imports peer slice 'beta'" in problem for problem in problems), problems
+
+
+@pytest.mark.parametrize(
+    ("statement", "target"),
+    [
+        ("from backend.prompting import build_prefix\n", "backend.prompting"),
+        ("from backend.inference import LLMClient\n", "backend.inference"),
+        ("from backend.database import get_settings\n", "backend.database"),
+        ("from backend.workflows.peer import workflow\n", "backend.workflows.peer"),
+        ("from backend.workflows.registry import Workflow\n", "backend.workflows.registry"),
+        ("from backend.workflows.contracts import ToolSpec\n", "backend.workflows.contracts"),
+        (
+            "from backend.workflows.attachment_cache import insert_workflow_attachment\n",
+            "backend.workflows.attachment_cache",
+        ),
+    ],
+)
+def test_workflow_slices_import_only_their_api(tmp_path: Path, statement: str, target: str):
+    root, backend = _fixture(tmp_path, "workflows/plugin/bad", statement)
+    problems = _checker().check(root=root, backend=backend)
+    assert any(
+        f"workflow slice 'plugin' may import only its own package or workflow APIs, not {target}" in problem
+        for problem in problems
+    ), problems
+
+
+def test_workflow_slices_may_import_own_package_and_public_apis(tmp_path: Path):
+    root, backend = _fixture(
+        tmp_path,
+        "workflows/plugin/good",
+        """from backend.workflows.toolkit import forced_tool_call
+from backend.workflows.plugin.local import helper
+""",
     )
+    assert _checker().check(root=root, backend=backend) == []
+
+
+def test_workflow_framework_modules_remain_host_adapters(tmp_path: Path):
+    root, backend = _fixture(
+        tmp_path,
+        "workflows/toolkit",
+        "__all__ = []\nfrom backend.prompting import build_prefix\n",
+    )
+    assert _checker().check(root=root, backend=backend) == []
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "from backend.workflows.toolkit import _local_ml\n",
+        "from backend.workflows.toolkit import *\n",
+        "import backend.workflows.toolkit as toolkit\n",
+        "from backend.workflows import toolkit\n",
+        "import backend.workflows as workflows\n",
+        "from backend import workflows\n",
+    ],
+)
+def test_workflow_slices_use_only_named_public_toolkit_exports(tmp_path: Path, statement: str):
+    root, backend = _fixture(tmp_path, "workflows/plugin/bad", statement)
+    problems = _checker().check(root=root, backend=backend)
+    assert any("workflow slice 'plugin'" in problem for problem in problems), problems
+
+
+def test_python_packages_must_be_classified(tmp_path: Path):
+    root, backend = _fixture(tmp_path, "inference/good", "from backend.core import value\n")
+    unknown = backend / "mystery"
+    unknown.mkdir()
+    (unknown / "module.py").write_text("", encoding="utf-8")
+    problems = _checker().check(root=root, backend=backend)
+    assert any("backend/mystery/: unclassified Python package" in problem for problem in problems), problems
+
+
+def test_top_level_python_modules_must_be_classified(tmp_path: Path):
+    root, backend = _fixture(tmp_path, "inference/good", "from backend.core import value\n")
+    (backend / "mystery.py").write_text("", encoding="utf-8")
+    problems = _checker().check(root=root, backend=backend)
+    assert any("backend/mystery.py: unclassified top-level Python module" in problem for problem in problems), problems

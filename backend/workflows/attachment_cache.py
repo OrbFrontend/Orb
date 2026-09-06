@@ -830,7 +830,7 @@ async def delete_workflow_attachments(
             "UPDATE workflow_attachments SET parent_attachment_id = ? WHERE parent_attachment_id = ? AND id != ?",
             (new_root, root_id, new_root),
         )
-        # Only a root row's annotation reaches the LLM prefix (prompt_builder), so
+        # Only a root row's annotation reaches the LLM prefix (prompting.base), so
         # the promoted root inherits the deleted root's annotation; otherwise
         # deleting the root variant would silently change the message's
         # model-visible text.

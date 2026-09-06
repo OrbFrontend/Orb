@@ -6,7 +6,7 @@ import asyncio
 import atexit
 import math
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Any
 
 from ..core.text_segmentation import remove_quoted_spans, split_sentences
@@ -30,8 +30,8 @@ from .local_models import (
 )
 
 #: Re-exported from :mod:`local_models` for callers that address this module by
-#: name — ``workflows/toolkit.py`` publishes it as the workflow author's API,
-#: and the Local ML routes and tests import from here. NOTE FOR TESTS: these
+#: name. The workflow toolkit wraps the small capabilities plug-ins need; Local
+#: ML routes and tests import this implementation module directly. NOTE FOR TESTS: these
 #: are second bindings. Production code calls ``local_models``' own copies, so
 #: a monkeypatch belongs on the module that OWNS the name (``assets.download``,
 #: ``dependencies.deps_ok``), not on the re-export.
@@ -46,8 +46,6 @@ __all__ = [
     "aclassify_pov",
     "ascore",
     "available",
-    "build_prompt",
-    "complete",
     "delete_model",
     "deps_ok",
     "download",
@@ -190,27 +188,6 @@ async def acomplete(
     """
     async with _lock(feature):
         return await asyncio.to_thread(_complete_blocking, feature, prompt, n_predict, stop, temperature)
-
-
-async def complete(
-    prompt: str,
-    n_predict: int = 12,
-    stop: Sequence[str] = ("\n",),
-    temperature: float = 0.25,
-) -> str:
-    """Autocomplete continuation over ``acomplete('autocomplete', ...)``.
-
-    Works around a tokenization quirk of the typeahead model: a prompt ending in
-    whitespace generates garbage ("I hold up both " fails where "I hold up both"
-    works). rstrip the prompt before generating; build_prompt guarantees the only
-    trailing whitespace is the user's draft tail, so this trims exactly the draft.
-    When we did trim, the user already typed the word separator, so lstrip the
-    model's re-emitted leading space back off — the frontend appends the completion
-    to the untrimmed draft, and "...both " + " hands" would double the space.
-    """
-    trimmed = prompt.rstrip()
-    completion = await acomplete("autocomplete", trimmed, n_predict, stop, temperature)
-    return completion.lstrip() if trimmed != prompt else completion
 
 
 # A separate Llama mode from generation: the GGUF carries a 2-class head, scored
@@ -363,80 +340,3 @@ async def aclassify_pov(text: str) -> str:
     """
     async with _lock("pov_classifier"):
         return await asyncio.to_thread(_classify_pov_blocking, "pov_classifier", text)
-
-
-def build_prompt(
-    char_name: str,
-    user_name: str,
-    char_summary: str,
-    recent: Sequence[Mapping[str, str]],
-    draft: str,
-    *,
-    max_msg_chars: int = 500,
-    max_summary_chars: int = 400,
-) -> str:
-    """Assemble a short raw-continuation prompt ending at the user's draft.
-
-    *recent* is oldest→newest ``{"role": "user"|"assistant", "content": str}``,
-    each entry optionally carrying a ``"name"`` that labels that line instead of
-    *char_name* — how a group scene names the member who actually spoke, since
-    there every reply would otherwise be attributed to the scene itself.
-    Deliberately excludes the Director/pipeline injection block — this is a
-    lightweight typeahead, not a full turn. The model continues the final line.
-    """
-    lines: list[str] = []
-    summary = (char_summary or "").strip()
-    if summary:
-        lines.append(summary[:max_summary_chars])
-        lines.append("***Roleplay chat below***")
-    for m in recent:
-        name = (m.get("name") or "").strip() or (user_name if m.get("role") == "user" else char_name)
-        content = (m.get("content") or "").strip()[
-            -max_msg_chars:
-        ]  # keep the tail: typeahead reacts to the latest action, which is at the END of the message
-        if content:
-            lines.append(f"{name}: {content}")
-    # No trailing newline: the model continues this exact line.
-    lines.append(f"{user_name}: {draft}")
-    return "\n".join(lines)
-
-
-if __name__ == "__main__":
-    # Self-check for the pure trimmer (no model needed).
-    p = build_prompt(
-        "Aria",
-        "Sam",
-        "Aria is a wry tavern keeper.",
-        [{"role": "assistant", "content": "You look lost."}, {"role": "user", "content": "Maybe I am."}],
-        "I walk into the",
-    )
-    assert p.endswith("Sam: I walk into the"), p
-    assert "Aria: You look lost." in p
-    assert "Aria is a wry tavern keeper." in p
-    assert "Director" not in p and "Scene Direction" not in p
-    print("build_prompt OK")
-
-    # Self-check for the povtense grid layout (no model needed). One hot cell per
-    # case, placed row-major: index = row * 3 + tense column.
-    for row, label in enumerate(POV_ROWS):
-        for col in range(_POV_TENSES):
-            grid = [0.0] * (len(POV_ROWS) * _POV_TENSES)
-            grid[row * _POV_TENSES + col] = 9.0
-            assert pov_from_logits(grid) == label, (row, col, label)
-    # A POV spread across all three tenses still beats a single taller cell in another row.
-    spread = [0.0] * 12
-    spread[6] = spread[7] = spread[8] = 2.0  # "third", split across tenses
-    spread[0] = 3.0  # "first", one tense only
-    assert pov_from_logits(spread) == "third", spread
-    print("pov_from_logits OK")
-
-    # Self-check for what the POV model is actually shown (no model needed).
-    reply = 'She turned. "I will go," she said. He waited by the door. Rain hit the glass.'
-    shaped = pov_input(reply)
-    assert "I will go" not in shaped, shaped  # dialogue is not narration
-    assert shaped.endswith("Rain hit the glass."), shaped  # tail-anchored
-    assert len(split_sentences(shaped)) <= _POV_SENTENCES, shaped
-    assert pov_input('"All of it." "Every word."') == ""  # all dialogue -> caller walks back
-    assert pov_input("") == "" and pov_input("   ") == ""
-    assert pov_input("no terminal punctuation here") == "no terminal punctuation here"
-    print("pov_input OK")

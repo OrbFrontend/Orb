@@ -12,9 +12,9 @@ from ..features.prose_rewriter import resolve_config as resolve_prose_rewrite
 from ..inference import (
     CachedBase,
     LLMClient,
-    build_direction_note_tool,
-    enabled_schemas,
 )
+from ..prompting.tool_catalog import enabled_schemas
+from ..prompting.tool_schemas import build_direction_note_tool
 from ..workflows.enablement import disabled_workflow_tool_names
 from .passes.director import build_direct_scene_override
 from .passes.editor import _feedback_active, build_feedback_override

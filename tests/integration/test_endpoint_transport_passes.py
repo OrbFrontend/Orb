@@ -7,14 +7,18 @@ stream translation run for OpenAI, Anthropic, and Gemini transports.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from unittest.mock import patch
 
+import httpx
 import pytest
 
+from backend.inference import anthropic
 from backend.inference import client as llm_mod
 from backend.inference import endpoint_profiles as ep
 from backend.inference.client import LLMClient, parse_tool_calls
+from backend.prompting.tool_catalog import BUILTIN_TOOL_ORDER, enabled_schemas
 
 
 def _tool(name: str) -> dict:
@@ -177,3 +181,56 @@ async def test_director_writer_editor_calls_cross_protocol_boundary(provider, en
         assert "tools" not in bodies[1] and "tool_choice" not in bodies[1]
     else:
         assert [body["tool_choice"] for body in bodies] == [DIRECTOR, "none", EDITOR]
+
+
+@pytest.mark.parametrize("provider", ["openai", "anthropic"])
+async def test_builtin_tool_order_reaches_raw_http_transport_byte_exact(provider):
+    """Pin object-key and tool-array order at the actual HTTP request boundary."""
+    ep._RESOLVED_ROUTES.clear()
+    model = "claude-haiku-4-5" if provider == "anthropic" else "openai-model"
+    endpoint = "https://api.anthropic.com/v1/messages" if provider == "anthropic" else "https://openai.test/v1/chat/completions"
+    messages = [
+        {"role": "system", "content": "system"},
+        {"role": "user", "content": "turn"},
+    ]
+    tools = enabled_schemas({name: True for name in BUILTIN_TOOL_ORDER})
+    choice = {"type": "function", "function": {"name": "direct_scene"}}
+    captured: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request.content.decode())
+        lines = _anthropic_tool("direct_scene") if provider == "anthropic" else _openai_tool("direct_scene")
+        return httpx.Response(
+            200,
+            content="\n".join(lines),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    transport_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = LLMClient(endpoint, "secret")
+    with patch.object(llm_mod.httpx, "AsyncClient", lambda *args, **kwargs: transport_client):
+        async for _ in client.complete(
+            messages,
+            model,
+            tools=tools,
+            tool_choice=choice,
+            max_tokens=100,
+        ):
+            pass
+
+    openai_body = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+        "max_tokens": 100,
+        "tools": tools,
+        "tool_choice": choice,
+        "stream_options": {"include_usage": True},
+    }
+    expected = anthropic.build_request_body(openai_body, endpoint, model) if provider == "anthropic" else openai_body
+    assert captured == [json.dumps(expected, separators=(",", ":"), ensure_ascii=False)]
+    expected_bytes = {
+        "openai": (5064, "1893a6046f145ca17758c4e7f7f86813a47792247d52655e10b8edd351bac5b8"),
+        "anthropic": (5393, "a73b312db3d6a3bbfb7e7c325c3e15e476ff28ae1102162ea7fa5d65625abc28"),
+    }
+    assert (len(captured[0]), hashlib.sha256(captured[0].encode()).hexdigest()) == expected_bytes[provider]

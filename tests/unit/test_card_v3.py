@@ -17,7 +17,7 @@ from PIL import Image, PngImagePlugin
 
 from backend.api.deps import _normalise_lorebook_entry, lorebook_to_book
 from backend.features.cards.parsing import card_to_dict, parse, to_png
-from backend.inference.lorebook import select_keyword_entries
+from backend.prompting.lorebook import select_keyword_entries
 
 
 def _b64(payload: dict) -> str:

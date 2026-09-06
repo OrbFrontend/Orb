@@ -7,7 +7,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .tool_registry import strictify_schema
+from .schema import strictify_schema
 
 # Anthropic rejects unknown top-level fields. These are the only user-provided
 # extra_body keys accepted on a native Messages route; OpenAI-shaped escape

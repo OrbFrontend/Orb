@@ -9,7 +9,7 @@ waiting on a per-pass ``asyncio.Event`` so a test can hold a stream
 mid-pipeline while another concurrent action arrives.
 
 Pass dispatch is by ``tool_choice`` rather than a call counter, because
-director may be skipped entirely (gated behind ``has_pre_writer_tools``
+director may be skipped entirely (gated behind ``has_director_loop_tools``
 in the orchestrator) and editor iterates multiple times per turn -- a
 positional scheme would mis-bind queued responses.
 """

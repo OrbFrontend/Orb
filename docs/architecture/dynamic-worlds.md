@@ -31,7 +31,7 @@ delete its overlay; an orphaned replacement becomes standalone lore.
 
 ### The effective view
 
-Callers must use `inference/lorebook.select_effective_entries`, never the raw
+Callers must use `prompting/lorebook.select_effective_entries`, never the raw
 pool. It:
 
 1. removes disabled and archived rows;

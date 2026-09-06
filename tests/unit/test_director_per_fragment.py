@@ -9,12 +9,10 @@ from __future__ import annotations
 
 import json
 
-from backend.inference import (
-    CachedBase,
-    build_direct_scene_tool,
-    build_director_scene_step_prompt,
-)
+from backend.inference import CachedBase
 from backend.pipeline.passes.director.director import director_pass
+from backend.pipeline.passes.director.prompts import build_director_scene_step_prompt
+from backend.prompting.tool_schemas import build_direct_scene_tool
 
 _MOODS = [{"id": "tense", "description": "suspenseful"}]
 _FRAGMENTS = [

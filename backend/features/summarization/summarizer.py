@@ -3,23 +3,15 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator, Mapping, Sequence
 from typing import Any
 
-from ...core import ChatMessage, Macros, TurnCast
-from ...inference import LLMClient, prompt_builder
+from ...core import ChatMessage, Macros, TurnCast, extract_hyperparams
+from ...inference import LLMClient
+from ...prompting import build_prefix
 
 DEFAULT_SUMMARY_INSTRUCTIONS = (
     "[OOC: Write a rich prose narrative summary of the story so far. "
     "Preserve significant dialogue verbatim in quotes. "
     "Record key story beats, milestones, and relationship developments. "
     "Be thorough — this will be the sole context for the story's continuation.]"
-)
-
-_LLM_PARAMS = (
-    "temperature",
-    "max_tokens",
-    "top_p",
-    "min_p",
-    "top_k",
-    "repetition_penalty",
 )
 
 
@@ -43,7 +35,7 @@ class ConversationSummarizer:
         cast: TurnCast | None = None,
         speaker_names: Mapping[str, str] | None = None,
     ) -> list[ChatMessage]:
-        prefix = prompt_builder.build_prefix(
+        prefix = build_prefix(
             system_prompt,
             char_persona,
             char_scenario,
@@ -61,7 +53,9 @@ class ConversationSummarizer:
         return prefix + [{"role": "user", "content": instructions}]
 
     async def stream(self, llm_messages: Sequence[Mapping[str, Any]], model: str) -> AsyncGenerator[str, None]:
-        params = {k: v for k in _LLM_PARAMS if (v := self.settings.get(k)) is not None}
+        # Writer lane: the summary is prose in the user's own preset, and it is
+        # written with the model that writes the story.
+        params = extract_hyperparams(self.settings)
         async for chunk in self.client.complete(llm_messages, model, **params):
             if chunk["type"] == "content":
                 yield chunk["delta"]

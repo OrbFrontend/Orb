@@ -9,7 +9,8 @@ from typing import Any
 
 from .. import database as db
 from ..core import resolve_inline
-from ..inference import AbortToken, prefix_is_speaker_scoped, tail_carries_identity
+from ..inference import AbortToken
+from ..prompting import prefix_is_speaker_scoped, tail_carries_identity
 from .cast import parse_speaking_plan, plan_cue, round_robin_member
 from .config import _resolve_pipeline_config, _split_interactive_fragments
 from .context import (

@@ -97,8 +97,8 @@ class TestAbortPropagation:
             editor_calls[0] += 1
             yield {"type": "done", "draft": "edited"}
 
-        # editor_apply_patch is a POST_WRITER_TOOL, so has_pre_writer_tools=False
-        # (director pass skipped). phrase_bank not None makes do_edit=True.
+        # editor_apply_patch is not a Director-loop tool, so the Director is skipped.
+        # phrase_bank being non-None makes do_edit=True.
         settings = {
             "model_name": "test",
             "enable_agent": 1,
@@ -181,8 +181,8 @@ class TestErrorAborts:
             raise RuntimeError("editor endpoint exploded")
             yield  # pragma: no cover — makes this an async generator
 
-        # editor_apply_patch is a POST_WRITER_TOOL → director skipped; phrase_bank
-        # not None makes do_edit=True so the editor runs over the writer draft.
+        # editor_apply_patch is not a Director-loop tool, so the Director is skipped;
+        # phrase_bank being non-None makes do_edit=True over the Writer draft.
         settings = {
             "model_name": "test",
             "enable_agent": 1,

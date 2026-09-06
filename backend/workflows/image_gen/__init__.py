@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..registry import Workflow
+from ..toolkit import Workflow
 from .config import CONFIG_DEFAULTS, SOURCES, normalize_config
 from .pov import POV_MODES
 from .prompts import ANALYZE_TOOL, COMPOSE_TOOL

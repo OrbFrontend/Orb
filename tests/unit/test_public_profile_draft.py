@@ -10,7 +10,7 @@ Three rejections, each for a failure a later reader cannot recover from:
 
 * a blank field silently publishes nothing about that member;
 * a brace survives into a string that is macro-resolved at *turn* time
-  (``inference/group_context._render_public_cast``), so an approved profile
+  (``prompting/group_context._render_public_cast``), so an approved profile
   would mutate months later;
 * an overlong field is billed to every member of the cast on every call.
 """
