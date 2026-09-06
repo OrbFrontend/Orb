@@ -24,12 +24,25 @@ _UNKNOWN_MODEL_MARKERS = (
     "invalid image model",
     "no such model",
     "does not exist",
+    # A model in the catalogue that has no endpoint to serve it is unreachable in every
+    # way the ones above are, and Together says so with a 400 rather than a 404:
+    # *"Unable to access non-serverless model ..."*. Without this it reads as an
+    # ordinary refusal, so the ladder degrades a request whose model was never there --
+    # and a replay never reaches the fallback that would re-render it on the configured
+    # model instead.
+    "unable to access",
 )
 
 _URL_RE = re.compile(r"https?://\S+")
 _PATH_RE = re.compile(r"(?<![\w.])/[\w.\-/]+")
 _WHITESPACE_RE = re.compile(r"\s+")
-_EXCERPT_LIMIT = 240
+# Wide enough for a refusal that answers itself. This was 240 when the excerpt was only
+# ever displayed; `engine/degrade.py` now reads seed bounds and size menus back out of
+# it, and 240 cut Together's own menu at nine of the fourteen sizes it offered --
+# leaving the ladder to pick from a list the provider did not finish saying. Still a
+# hard cap: a provider that returns a page of prose is not going to be quoted in a
+# toast.
+_EXCERPT_LIMIT = 600
 
 
 class CloudImageError(ImageGenerationError):

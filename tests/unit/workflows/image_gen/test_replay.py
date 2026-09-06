@@ -17,6 +17,24 @@ from backend.workflows.image_gen.config import normalize_config, resolve_style
 from backend.workflows.image_gen.engine import ImageGenerationError, get_adapter
 from backend.workflows.image_gen.references import replay_slots
 
+
+@pytest.fixture(autouse=True)
+def _no_learned_store(monkeypatch):
+    """These are unit tests with no database, and the render path reads one.
+
+    `hooks._rendered` brackets every render with the learned-bounds store, which is a
+    real settings read and write. Stubbed here for the same reason `get_workflow_config`
+    is stubbed in each test below: what is under test is replay routing, not
+    persistence. Without this the tests reach whatever `DB_PATH` points at.
+    """
+    monkeypatch.setattr(hooks, "recall", lambda _key: _resolved({}))
+    monkeypatch.setattr(hooks, "remember", lambda _key, _learned: _resolved(None))
+
+
+async def _resolved(value):
+    return value
+
+
 GRAPH = {
     "0": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
     "s": {"class_type": "KSampler", "inputs": {"seed": 0}},
@@ -227,7 +245,7 @@ async def test_a_two_reference_render_replays_both_origins_byte_identically(monk
 
     captured: dict = {}
 
-    async def fake_generate(_adapter, request, *, target=None, progress=None):
+    async def fake_generate(_adapter, request, *, target=None, progress=None, known=None):
         captured["request"] = request
         return ImageResult(image_bytes=b"rendered", mime="image/webp", backend_info={"source": "external_comfy"})
 
@@ -268,6 +286,24 @@ async def test_rerolling_onto_a_style_needing_an_unrecorded_reference_is_refused
 
     with pytest.raises(ImageGenerationError, match="needs a reference image the stored image did not record"):
         await hooks.reroll_gen(_RerollCtx("plain"), params, "1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prompt", ["", " ", "\n\t "])
+async def test_a_reroll_with_nothing_to_draw_is_refused_before_the_provider_is_asked(prompt):
+    """The prompt on a reroll may be the one edited in the render details, so blank is
+    a state a person can reach -- and `" "` is truthy, which is how it used to sail past
+    an emptiness check and reach the provider.
+
+    What came back was a paid round trip and a 400 about a parameter: Together's is
+    *"Positive prompt must be a non-empty, non-whitespace string value between 1 and
+    10000 characters"*, which names the field and not the edit that emptied it. Both
+    spellings of blank are refused here, in words that say what to do about it.
+    """
+    params = {"prompt": prompt, "negative_prompt": "", "style_id": "anime"}
+
+    with pytest.raises(ImageGenerationError, match="no prompt to render"):
+        await hooks.reroll_gen(_RerollCtx("anime"), params, "1")
 
 
 # ── which configuration a reroll renders on ──────────────────────────────────
@@ -320,7 +356,7 @@ def _sized_comfy(monkeypatch, request):
     )
     captured: dict = {}
 
-    async def fake_generate(_adapter, request, *, target=None, progress=None):
+    async def fake_generate(_adapter, request, *, target=None, progress=None, known=None):
         captured["target"] = target
         # As the real adapter reports it: read back off the render that executed.
         return ImageResult(
@@ -444,7 +480,7 @@ async def test_a_replay_routes_on_its_own_style_not_the_configs_default(monkeypa
 
     captured: dict = {}
 
-    async def fake_generate(_adapter, request, *, target=None, progress=None):
+    async def fake_generate(_adapter, request, *, target=None, progress=None, known=None):
         captured["target"] = target
         return ImageResult(image_bytes=b"rendered", mime="image/png", backend_info={"notes": []})
 
@@ -508,7 +544,7 @@ def _cloud_reroll(monkeypatch):
     monkeypatch.setattr(refs, "get_workflow_attachment_by_id", by_id)
     captured: dict = {}
 
-    async def fake_generate(_adapter, request, *, target=None, progress=None):
+    async def fake_generate(_adapter, request, *, target=None, progress=None, known=None):
         captured["request"] = request
         captured["target"] = target
         # Mirrors what the real cloud adapter reports about itself, which is the half

@@ -28,6 +28,17 @@ from backend.database import init_db
 from ._llm_mock import FakeLLMClient, llm_factory, verify_kv_prefix_invariants
 
 
+@pytest.fixture
+async def isolated_db(db_path: Path, monkeypatch):
+    """A seeded per-test database for tests that call backend code directly.
+
+    What ``client`` does minus the HTTP layer. Anything that reaches the database
+    without going through a route needs this, or it has no database of its own.
+    """
+    monkeypatch.setattr(db_connection, "DB_PATH", str(db_path))
+    return db_path
+
+
 @pytest.fixture(autouse=True)
 def _reset_module_locks():
     """Clear the process-global asyncio.Lock dicts between tests.
@@ -65,7 +76,7 @@ def _reset_module_locks():
 
 
 @pytest.fixture(scope="session")
-def _fresh_db_template(tmp_path_factory) -> Path:
+def _fresh_db_template(tmp_path_factory, _never_the_real_database) -> Path:
     """A fresh-install database, built once and copied per test.
 
     ``init_db`` runs the whole CREATE TABLES script plus every seed insert. At
@@ -79,6 +90,9 @@ def _fresh_db_template(tmp_path_factory) -> Path:
     template = tmp_path_factory.mktemp("db_template") / "template.db"
 
     async def _build() -> None:
+        # `_never_the_real_database` is depended on above, not for a value but for
+        # ordering: without it this can run first, and `original` is then the real
+        # database path, which the restore below would reinstate for the whole session.
         original = db_connection.DB_PATH
         db_connection.DB_PATH = str(template)
         try:

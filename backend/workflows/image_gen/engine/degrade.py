@@ -2,16 +2,29 @@
 
 from __future__ import annotations
 
+import math
 import re
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Any
 
-from .contracts import ImageGenerationError, ResolvedReference, fold_seed_into
+from .contracts import (
+    ImageGenerationError,
+    ResolvedReference,
+    fold_seed_into,
+    ratio_distance,
+)
 
 # The failure kind that means "the provider read the request and would not take it".
-# `auth`, `rate_limit` and `server` are all about something other than what we sent,
-# and a model that is simply gone is the adapter's own retry, not this one.
+# `auth` and `server` are about something other than what we sent, and a model that is
+# simply gone is the adapter's own retry, not this one.
 REQUEST_REFUSED = "request"
+
+# The one failure that is not about the request and is still worth another call: the
+# provider asking to be asked more slowly. Named beside its opposite because the ladder
+# reads both kinds, and answering this one by *degrading* would give up a reference or
+# a resolution to fix something that was never about either.
+RATE_LIMITED = "rate_limit"
 
 # The domain word, in the spellings a JSON error body uses. Matched against the
 # message rather than any error code, because the codes are the part that differs
@@ -48,6 +61,33 @@ _SEED_CEILING = re.compile(
 # picture rather than fail.
 _SEED_TOKEN = re.compile(r"(?<![a-z0-9_])seed(?![a-z0-9_])")
 
+# The pixel-area window a refusal quotes, as two `AxB` corners bounding a range.
+# Measured on Together AI 2026-09-06: *"Invalid dimensions. The total area (width ×
+# height) must be within the range of 1265×1265 to 1440×1440. The aspect ratio must
+# be between 1:4 and 4:1."* -- which refuses a perfectly ordinary 1024x1536 request
+# at 1,572,864 px, 1.7% under the floor.
+#
+# An *area* window is not something the preset grid can express: `min_dimension`,
+# `max_dimension` and `dimension_step` bound each edge on its own, and every edge here
+# is legal. Nor is it a provider fact -- it belongs to the model, which is exactly the
+# per-model table this module refuses to keep. So the model states it, in the refusal.
+#
+# Both separators are live: the message writes U+00D7 between the edges of a corner
+# and the plain letter elsewhere.
+_AREA_RANGE = re.compile(r"(\d+)\s*[x×*]\s*(\d+)\s*(?:to|and|-|–)\s*(\d+)\s*[x×*]\s*(\d+)")
+
+# Every `AxB` pair a refusal lists, for the *other* way a model says "not that size":
+# a menu. One Together model quotes the area window above; another answers *"Supported
+# values are: '1024x1024', '1264x848', ... '384x3072'."* -- fourteen fixed sizes. Same
+# provider, same endpoint, same day, two incompatible grammars. Which is the argument
+# for reading it here rather than keeping a column: a column would have to be right
+# about every model in a catalogue that grows without us, and these two disagree.
+_SIZE_PAIR = re.compile(r"(?<![\d.])(\d{2,5})\s*[x×*]\s*(\d{2,5})(?![\d.])")
+
+# Anchored the way the seed bounds are, and for the same reason: without this, a
+# refusal that merely happened to contain two `AxB` pairs would resize the render.
+_SIZE_WORDS = ("dimension", "area", "resolution", "width", "height", "pixel", "size")
+
 # Beyond this, an integer in a refusal is a byte count, a pixel bound or an id --
 # never a number of reference images. Bounded rather than clever: the point is to
 # refuse to read "10485760" as a slot count, not to parse English.
@@ -78,26 +118,49 @@ DROPPABLE_FIELDS: dict[str, str] = {
 _FIELD_TOKENS = {name: re.compile(rf"(?<![a-z0-9_]){re.escape(name)}(?![a-z0-9_])") for name in DROPPABLE_FIELDS}
 
 
+# What may be remembered about a render target between calls, and nothing else.
+#
+# `seed_high`/`seed_low` bound the seed; `sizes` maps one requested `WxH` to the `WxH`
+# the target actually rendered. Both are **bounds**: replaying one can only produce a
+# request the provider already said it would take. Deliberately absent is anything of
+# the form "this model does not support X" -- that is a capability, it goes stale in
+# the direction that silently withholds what the user paid for, and the refusal is
+# there to answer it fresh every time.
+#
+# Nothing here is keyed by a model *in the codebase*. The keys are written at runtime
+# from what a provider said about a model nobody enumerated.
+LEARNABLE = ("seed_high", "seed_low", "sizes")
+
+
 @dataclass(frozen=True)
 class Rung:
     """One step down: what the next attempt sends, and what the user is told about it.
 
     `keep` is how many references it may carry; `drop` names an optional request field
-    it stops sending; `seed` replaces the seed. A rung changes exactly one of those --
-    when a field is dropped or the seed is refit, `keep` is left at what was just sent,
-    because the references were not what was refused.
+    it stops sending; `seed` replaces the seed and `size` the resolution. A rung changes
+    exactly one of those -- when anything else is refit, `keep` is left at what was just
+    sent, because the references were not what was refused.
 
     `note` is empty on a seed refit alone, which is the one step that costs the render
     nothing: the picture is still the one asked for, and the number that reproduces it
     is recorded on the attachment. A note here would fire on every render against a
     provider whose bound is narrower than Orb's seed, which is how the disclosures
     that do matter stop being read.
+
+    `learned` is what this refusal revealed about the target, in the shape
+    `LEARNABLE` describes -- **bounds, never capabilities**. A stored bound can only
+    make the next request valid; a stored *capability* would decide a feature is
+    unavailable and withhold something the user configured and is paying for, with
+    nothing on screen to say so. The first is worth remembering and the second is the
+    table this module exists to not keep.
     """
 
     keep: int
     note: str = ""
     drop: str = ""
     seed: int | None = None
+    size: tuple[int, int] | None = None
+    learned: Mapping[str, Any] = field(default_factory=dict)
 
 
 def _mentions_image(message: str) -> bool:
@@ -132,6 +195,17 @@ def _named_limit(message: str, *, sent: int) -> int | None:
     return max(candidates) if candidates else None
 
 
+def _size_key(size: tuple[int, int]) -> str:
+    return f"{size[0]}x{size[1]}"
+
+
+def resized_note(size: tuple[int, int], fitted: tuple[int, int]) -> str:
+    """The one disclosure both routes to a resize share -- the ladder's, and a replay
+    of what the ladder learned earlier. Shared so a remembered resize cannot describe
+    itself differently from the refusal that first discovered it."""
+    return f"this model does not render at {_size_key(size)}, so it was rendered at {_size_key(fitted)}"
+
+
 def _seed_range(message: str) -> tuple[int, int] | None:
     """The seed range this refusal names, if it names one, as an inclusive pair."""
     pair = _SEED_BETWEEN.search(message)
@@ -164,7 +238,85 @@ def _refit_seed(message: str, seed: int) -> int | None:
     return folded if folded != seed else None
 
 
-def next_rung(exc: Exception, *, sent: int, droppable: int, seed: int = 0, sending: Sequence[str] = ()) -> Rung | None:
+def _refit_size(message: str, size: tuple[int, int]) -> tuple[int, int] | None:
+    """`size` refit to whatever this refusal says it will render, or None to leave it.
+
+    Two grammars, because providers use both: a pixel-**area window**, which is
+    answered by rescaling, and a **menu** of fixed sizes, which is answered by picking
+    the nearest. Nothing here knows which model speaks which -- the refusal does.
+
+    The aspect ratio survives: both edges move by one factor, the way `pixels_for`
+    scales an over-large request. The composition is what the user actually chose,
+    and the pixel count is the part they are unlikely to have meant precisely.
+
+    Aimed at the **geometric middle** of the window rather than at the nearer bound.
+    The request is snapped to the provider's own step grid afterwards, on the way back
+    through `pixels_for`, and a size fitted flush against a bound can be snapped
+    straight back out of it -- refused a second time, with the refit no longer able to
+    change anything and so no rung left to answer. The middle is the point furthest
+    from both bounds in the multiplicative sense that a rescale moves in.
+
+    None when the area is already inside the window, which is how an *aspect* refusal
+    -- the other half of the sentence Together quotes -- declines to be answered here:
+    rescaling cannot change an aspect ratio, so the refusal is left to stand and say so
+    in the user's own words.
+    """
+    lowered = message.lower()
+    if not any(word in lowered for word in _SIZE_WORDS):
+        return None
+    window = _AREA_RANGE.search(message)
+    if window is not None:
+        # A range wins outright, and its verdict is final even when it declines. The
+        # message that quotes a window also quotes example corners, so falling through
+        # to the menu reader would offer those corners as though they were a menu.
+        return _rescaled(size, int(window.group(1)) * int(window.group(2)), int(window.group(3)) * int(window.group(4)))
+    return _nearest_offered(message, size)
+
+
+def _rescaled(size: tuple[int, int], low: int, high: int) -> tuple[int, int] | None:
+    """`size` scaled into the pixel-area window `[low, high]`, or None to leave it."""
+    width, height = size
+    area = width * height
+    if low > high or area <= 0 or low <= area <= high:
+        return None
+    scale = math.sqrt(math.sqrt(low * high) / area)
+    fitted = (max(1, round(width * scale)), max(1, round(height * scale)))
+    return fitted if fitted != size else None
+
+
+def _nearest_offered(message: str, size: tuple[int, int]) -> tuple[int, int] | None:
+    """The size nearest `size` among those this refusal lists, or None if it lists none.
+
+    Ranked exactly as `size_for` ranks a menu declared on a preset -- aspect ratio
+    first, in log space, then total pixels -- so a menu learned from a refusal and one
+    read off the preset table land on the same answer. A model that states its sizes
+    only when refused must not get a worse pick than one that published them.
+
+    **Two offers minimum.** A lone pair in a refusal is as likely to be the request
+    being quoted back at us, or a maximum upload edge, as it is an offer; a menu is
+    plural by nature. This is what keeps the reader off messages that merely mention a
+    resolution in passing.
+    """
+    offered = [(int(w), int(h)) for w, h in _SIZE_PAIR.findall(message)]
+    choices = [(w, h) for w, h in offered if w > 0 and h > 0]
+    if len(choices) < 2 or size[1] <= 0 or size in choices:
+        # `size in choices` is the same guard the seed and the window use: a menu that
+        # already contains what was sent is a refusal about something else, and moving
+        # to a *different* offered size would answer a question nobody asked.
+        return None
+    target = size[0] / size[1]
+    return min(choices, key=lambda c: (ratio_distance(target, c[0] / c[1]), abs(c[0] * c[1] - size[0] * size[1])))
+
+
+def next_rung(
+    exc: Exception,
+    *,
+    sent: int,
+    droppable: int,
+    seed: int = 0,
+    size: tuple[int, int] | None = None,
+    sending: Sequence[str] = (),
+) -> Rung | None:
     """The next degradation to try, or None to let the failure stand.
 
     `droppable` is how many of the references may be left out at all. A ComfyUI
@@ -174,8 +326,8 @@ def next_rung(exc: Exception, *, sent: int, droppable: int, seed: int = 0, sendi
     slots already carry the fact.
 
     `sending` is the droppable optional fields this attempt is carrying, in the sense
-    of `DROPPABLE_FIELDS`. `seed` is the seed it sent, for a provider that refuses the
-    one it was given and quotes the range it wanted instead.
+    of `DROPPABLE_FIELDS`. `seed` and `size` are what this attempt sent, for a provider
+    that refuses either and quotes the range it wanted instead.
     """
     if not isinstance(exc, ImageGenerationError) or getattr(exc, "kind", "") != REQUEST_REFUSED:
         return None
@@ -187,7 +339,23 @@ def next_rung(exc: Exception, *, sent: int, droppable: int, seed: int = 0, sendi
     # refusal has to name `seed` *and* quote a range the current seed falls outside.
     refit = _refit_seed(message, seed)
     if refit is not None:
-        return Rung(keep=sent, seed=refit)
+        bounds = _seed_range(message) or (0, refit)
+        return Rung(keep=sent, seed=refit, learned={"seed_low": bounds[0], "seed_high": bounds[1]})
+    # Before the references, because a size refusal is free to mention an "image" and
+    # would otherwise cost the user a likeness to answer a complaint about pixels.
+    # Unlike the seed this one is disclosed: the resolution is a setting they chose.
+    fitted = _refit_size(message, size) if size is not None else None
+    if fitted is not None and size is not None:
+        return Rung(
+            keep=sent,
+            note=resized_note(size, fitted),
+            size=fitted,
+            # The mapping, not the window or the menu it came from: a style renders at
+            # one size over and over, so remembering the answer for the size actually
+            # asked for is both smaller and exactly right, and it cannot be wrong the
+            # way a re-derived constraint can.
+            learned={"sizes": {_size_key(size): _size_key(fitted)}},
+        )
     # Asked before the references, and before the reference guards: a refusal that names
     # one of Orb's own fields is the most specific thing a provider can say, and it is
     # answerable on a render that carries no references at all -- which is exactly the

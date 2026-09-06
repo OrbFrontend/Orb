@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from .contracts import ResolvedReference
+from .contracts import ResolvedReference, ratio_distance
 
 # How far a mapped aspect ratio may sit from the requested one before the user is
 # told. ~2%: below that the difference is a few pixels of crop on a 1024px edge.
@@ -191,8 +191,8 @@ PRESETS: tuple[ProviderPreset, ...] = (
         # reference frame, while `image`, `images` and `image_urls` are accepted and
         # ignored. Off the allowlist the provider is inconsistent, which is why the
         # model decides whether a slot is offered at all: FLUX.2 and Seedream answer
-        # *"Unsupported use of 'image_url' parameter"*, but the FLUX.1-schnell default
-        # answers 200 and renders the prompt alone.
+        # *"Unsupported use of 'image_url' parameter"*, but FLUX.1-schnell answered 200
+        # and rendered the prompt alone.
         supports_references=True,
         reference_field="image_url",
         reference_encoding="string",
@@ -200,7 +200,13 @@ PRESETS: tuple[ProviderPreset, ...] = (
         # a 1024x576 request came back 1024x1024. The picker cannot win that, so the
         # render says so instead of quietly handing back a different shape.
         reference_drives_size=True,
-        default_model="black-forest-labs/FLUX.1-schnell",
+        # A pick, not a table -- and one that rots, which is why it is the only model id
+        # here. `FLUX.1-schnell` held this slot until Together stopped serving it
+        # serverless: measured 2026-09-06, it answers *"Unable to access non-serverless
+        # model ... create and start a new dedicated endpoint"*, so every style linked to
+        # this connection without a model of its own failed on a name nobody had chosen.
+        # Verified reachable the same day, and what a style names always wins.
+        default_model="black-forest-labs/FLUX.2-dev",
         docs_url="https://docs.together.ai/reference/post-images-generations",
         verified=True,
         gaps=(
@@ -458,23 +464,12 @@ def _parse_ratio(candidate: str) -> float | None:
     return numerator / denominator if denominator else None
 
 
-def _ratio_distance(target: float, ratio: float | None) -> float:
-    """How far apart two aspect ratios are, the one metric both pickers below share.
-
-    Log space, so 2:1 and 1:2 are equally far from 1:1 -- a linear metric would call
-    "twice as wide" four times the error of "twice as tall". A candidate that does
-    not parse is infinitely far rather than excluded, so a menu of nothing but
-    unparseable rows still yields a deterministic pick instead of an empty one.
-    """
-    return abs(math.log(target) - math.log(ratio)) if ratio and ratio > 0 else math.inf
-
-
 def aspect_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, str | None]:
     """The declared aspect ratio nearest to `width`x`height`, and any disclosure."""
     if not preset.aspect_ratios or width <= 0 or height <= 0:
         return "", None
     target = width / height
-    best = min(preset.aspect_ratios, key=lambda candidate: _ratio_distance(target, _parse_ratio(candidate)))
+    best = min(preset.aspect_ratios, key=lambda candidate: ratio_distance(target, _parse_ratio(candidate)))
     chosen = _parse_ratio(best)
     if chosen is None or chosen <= 0:
         # Nothing usable on this row, so there is no ratio to send and nothing
@@ -504,7 +499,7 @@ def size_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, str 
         except ValueError:
             return (math.inf, math.inf)
         ratio = candidate_w / candidate_h if candidate_h else None
-        return (_ratio_distance(target, ratio), abs(candidate_w * candidate_h - width * height))
+        return (ratio_distance(target, ratio), abs(candidate_w * candidate_h - width * height))
 
     best = min(preset.sizes, key=distance)
     return best, f"{preset.label} accepts fixed sizes; {requested} was rendered as {best}"
@@ -611,8 +606,16 @@ def build_generation_body(
     sending both double-applies it).
     """
     built = _prompt_field(preset, prompt)
-    body: dict[str, Any] = {"model": model, **built.body, "n": n}
+    body: dict[str, Any] = {"model": model, **built.body}
     notes = list(built.notes)
+
+    if n != 1:
+        # Sent only when it is not the one image every provider returns by default.
+        # `google/gemini-3-pro-image` answers *"n is not supported for this model"* --
+        # a 400 for asking for exactly what it was going to do anyway, and one no rung
+        # can answer, since a bare `n` is not a name that could be matched in a refusal
+        # without misreading prose. A field nobody needs is not worth a dead model.
+        body["n"] = n
 
     dimensions = _dimension_fields(preset, width, height)
     body.update(dimensions.body)

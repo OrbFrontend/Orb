@@ -33,6 +33,7 @@ from .config import (
     normalize_config,
     normalize_profile,
     resolve_style,
+    style_source,
 )
 from .engine import (
     ImageGenerationError,
@@ -44,6 +45,7 @@ from .engine import (
     resolve_and_generate,
 )
 from .engine.contracts import ResolvedReference
+from .learned import recall, remember, target_key
 from .references import (
     plan_slots,
     previous_image,
@@ -149,6 +151,20 @@ def _history_through(history: Sequence[Mapping[str, Any]], message_id: int) -> l
 
 _REPLAYED_FACTS = ("workflow_id", "backend_model", "width", "height", "quality", "reference_source")
 _DISCLOSED_FACTS = ("steps", "cfg", "sampler", "scheduler")
+
+
+async def _rendered(adapter, request, *, config, style, target, progress=None):
+    """One render, with whatever earlier refusals already taught us about this target.
+
+    The recall and the store bracket the call here rather than inside the engine: the
+    engine is pure over an adapter, and persistence is this layer's job. Both render
+    paths go through it so a reroll cannot rediscover, at the cost of a refusal, what
+    the render it is rerolling already paid to find out.
+    """
+    key = target_key(adapter.source_id, style_source(config, style)[1], target.model)
+    result = await resolve_and_generate(adapter, request, target=target, progress=progress, known=await recall(key))
+    await remember(key, result.backend_info.get("learned"))
+    return result
 
 
 def _render_record(result, *, source: str) -> dict:
@@ -411,8 +427,15 @@ async def _generate_fresh(
         profile_negative_prompt=str(profile.get("negative_prompt") or ""),
     )
     prompt, negative, style = assemble_prompts(config, style_id, profile, scene, avoid)
+    if not prompt.strip():
+        # The composer guards the scene it could not write at all; this guards the one
+        # that survived and still came out empty -- a style with no prompt of its own
+        # and a scene the prose scrub reduced to nothing. Same reason as the reroll
+        # guard: left alone, the first thing to notice is a provider 400 that names the
+        # parameter and not the cause.
+        raise ImageGenerationError("the composed image prompt came out empty; try generating again")
     seed = _fresh_seed()
-    result = await resolve_and_generate(
+    result = await _rendered(
         adapter,
         ImageRequest(
             prompt=prompt,
@@ -422,6 +445,8 @@ async def _generate_fresh(
             timeout_seconds=config["timeout_seconds"],
             references=references,
         ),
+        config=config,
+        style=style,
         target=target,
         progress=progress,
     )
@@ -582,8 +607,17 @@ async def reroll_gen(ctx, params, seed):
     prompt, negative, style_id = params.get("prompt"), params.get("negative_prompt"), params.get("style_id")
     if not isinstance(prompt, str) or not isinstance(negative, str) or not isinstance(style_id, str):
         raise ValueError("stored image parameters are incomplete")
-    if not prompt or not style_id:
+    if not style_id:
         raise ValueError("stored image parameters are incomplete")
+    if not prompt.strip():
+        # Blank, not merely empty. The prompt on a reroll may be the one edited in the
+        # render details, and a field cleared to a single space is truthy -- so an
+        # emptiness check hands the provider a request only it can complain about, in
+        # its own words and at the cost of a round trip: Together's is *"Positive prompt
+        # must be a non-empty, non-whitespace string value"*, which says nothing about
+        # the edit that caused it. User-facing, because a person did this and a person
+        # can undo it, unlike the malformed-metadata cases above.
+        raise ImageGenerationError("this image has no prompt to render; edit the prompt and reroll again")
     config = normalize_config(await get_workflow_config(WORKFLOW_ID))
     style = resolve_style(config, style_id)
     prior_style = (ctx.prior_consumption_metadata or {}).get("style_id")
@@ -611,7 +645,7 @@ async def reroll_gen(ctx, params, seed):
     if recorded_references or references:
         params["references"] = [reference.record() for reference in references]
     resolved_seed = fold_seed(seed)
-    result = await resolve_and_generate(
+    result = await _rendered(
         adapter,
         ImageRequest(
             prompt=prompt,
@@ -621,6 +655,8 @@ async def reroll_gen(ctx, params, seed):
             timeout_seconds=config["timeout_seconds"],
             references=references,
         ),
+        config=config,
+        style=style,
         target=target,
     )
     params.update(_render_record(result, source=adapter.source_id))

@@ -23,7 +23,7 @@ let cfg;
 
 const inFlight = new Map(); // msgId -> AbortController
 
-const pendingEdits = new Map(); // attId -> {prompt, negative_prompt}
+const pendingEdits = new Map(); // attId -> only the fields actually edited
 
 export function initWidget(sharedConfig) {
   cfg = sharedConfig;
@@ -46,11 +46,21 @@ function editPrompt(el) {
 function savePrompt(el) {
   const attId = Number(el.dataset.attId);
   const fields = document.querySelectorAll(`.image-gen-edit[data-att-id="${attId}"]`);
-  const edit = { prompt: "", negative_prompt: "" };
+  // Only the fields actually on screen, merged over what was already pending: seeding
+  // both with "" recorded a blank edit whenever the panel had been repainted out from
+  // under the change event, and a blank prompt is not a render anyone asked for.
+  const edit = { ...(pendingEdits.get(attId) || {}) };
   for (const t of fields) edit[t.dataset.field] = t.value;
-  pendingEdits.set(attId, edit);
+  // A cleared prompt is rejected here rather than saved and sent: the provider would
+  // answer it with a 400 naming the parameter, and the reroll is where that lands.
+  // Dropping the key repaints the box back to the prompt the image was made with.
+  const blanked = typeof edit.prompt === "string" && !edit.prompt.trim();
+  if (blanked) delete edit.prompt;
+  if (Object.keys(edit).length) pendingEdits.set(attId, edit);
+  else pendingEdits.delete(attId);
   if (!document.activeElement?.classList.contains("image-gen-edit")) requestRepaint();
-  toast("Prompt edited — reroll to render");
+  if (blanked) toast("A prompt is required — the previous one was kept", "error");
+  else toast("Prompt edited — reroll to render");
 }
 
 function rerollParams(_msgId, attId) {
@@ -145,7 +155,11 @@ export function attachmentRenderer(ctx) {
     buttons.reroll || buttons.regen ? `<div class="image-gen-actions">${buttons.reroll}${buttons.regen}</div>` : "";
   const pend = pendingEdits.get(att.id);
   const cm = att.consumption_metadata || {};
-  const pending = pend && (pend.prompt !== cm.prompt || pend.negative_prompt !== cm.negative_prompt) ? pend : undefined;
+  // Only the fields the edit actually carries, against the stored value normalized to
+  // "": an entry may hold one field alone -- a blanked prompt is dropped from it -- and
+  // an absent key is not an edit to announce.
+  const edited = (key) => pend && key in pend && pend[key] !== (cm[key] ?? "");
+  const pending = edited("prompt") || edited("negative_prompt") ? pend : undefined;
   const details = attachmentDetailsHtml(att, { esc, escAttr, pending });
   return `<div class="image-gen-attachment"><div class="image-gen-media">${media}${actions}</div>${details}</div>`;
 }

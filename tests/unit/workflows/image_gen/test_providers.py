@@ -124,7 +124,7 @@ def test_openai_declares_no_response_format_because_it_rejects_the_field():
     assert OPENAI.response_formats == ()
     built = build_generation_body(OPENAI, model="gpt-image-1", prompt="p", quality="high", width=1024, height=1024)
     # The fields it does take, so an empty tuple is not read as "send nothing".
-    assert (built.body["size"], built.body["quality"], built.body["n"]) == ("1024x1024", "high", 1)
+    assert (built.body["size"], built.body["quality"]) == ("1024x1024", "high")
 
 
 def test_openai_takes_a_reference_under_its_own_element_key():
@@ -174,8 +174,20 @@ def test_no_preset_emits_a_field_it_does_not_declare(preset):
     assert "moderation" not in body
     assert "user" not in body
     assert "style" not in body
-    # `n` is the field that silently multiplies the bill.
-    assert body["n"] == 1
+    # `n` is the field that silently multiplies the bill, and one image is both what
+    # Orb asks for and what every provider returns unasked -- so it is not sent at all.
+    assert body.get("n", 1) == 1
+
+
+@pytest.mark.parametrize("preset", PRESETS, ids=[preset.id for preset in PRESETS])
+def test_the_default_count_is_not_sent_at_all(preset):
+    """One image is what every provider returns unasked, so asking is a field that can
+    only lose. `google/gemini-3-pro-image` answers *"n is not supported for this model"*
+    to `n: 1` -- a 400 for requesting exactly what it was going to do -- and no rung can
+    answer it: a bare `n` is not a name that could be matched in a refusal without
+    misreading prose. A model unrenderable over a field nobody needs is not a trade."""
+    assert "n" not in build_generation_body(preset, model="m", prompt="p").body
+    assert build_generation_body(preset, model="m", prompt="p", n=2).body["n"] == 2
 
 
 def test_a_declaring_provider_does_receive_the_optional_fields():
@@ -395,8 +407,8 @@ def test_every_reference_encoding_sends_a_data_uri(preset):
     else:
         uri = carried["url"]
     assert uri.startswith("data:image/png;base64,"), preset.id
-    # An edit body is still one image: `n` is the field that multiplies the bill.
-    assert built.body["n"] == 1
+    # An edit body is still one image: `n` multiplies the bill, so it is never asked for.
+    assert "n" not in built.body
 
 
 def test_reference_support_is_asked_of_the_provider_and_never_of_the_model():
