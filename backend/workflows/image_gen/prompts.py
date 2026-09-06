@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from ..contracts import ToolSpec
+from ..toolkit import ToolSpec
 from .pov import FIRST, THIRD
 from .scrub import SubjectAppearance, bounded, normalize_prompt_format
 

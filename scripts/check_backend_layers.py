@@ -4,7 +4,7 @@
 This parses every backend module's imports, resolves relative imports, and
 fails on an edge that is absent from the explicit allowed-edge matrix.
 
-Three rules:
+Four rules:
 
   1. **Explicit edges.** Each top-level Python package has a complete set of
      backend packages it may import. Same-package imports are always allowed.
@@ -14,6 +14,9 @@ Three rules:
   3. **Slices never import peers.** ``features/<a>`` may not import
      ``features/<b>``. A slice is self-contained by definition — a peer edge is
      how two features quietly become one.
+  4. **Workflow plug-ins use their API.** ``workflows/<id>`` may import only its
+     own package and the public workflow framework modules, never application
+     layers or peer workflow plug-ins.
 
 DO NOT SPELL THIS AS A GREP. ``inference/local_models/llama_server/binary.py``
 contains the literal ``https://api.github.com/repos/...``, so a grep for
@@ -47,6 +50,7 @@ ALLOWED_EDGES: dict[str, frozenset[str]] = {
 }
 ROOT_ALLOWED = frozenset(ALLOWED_EDGES)
 ROOT_LAYER = "root"
+WORKFLOW_PLUGIN_API_MODULES = frozenset({"toolkit"})
 
 
 def _module_parts(path: Path, *, root: Path = ROOT) -> list[str]:
@@ -74,6 +78,14 @@ def _package_parts(path: Path, *, root: Path = ROOT) -> list[str]:
     return list(path.relative_to(root).parent.parts)
 
 
+def _import_from_base(node: ast.ImportFrom, package: list[str]) -> list[str]:
+    """Resolve an ``ImportFrom`` node's module without its imported names."""
+    if node.level == 0:
+        return node.module.split(".") if node.module else []
+    base = package[: len(package) - (node.level - 1)]
+    return [*base, *node.module.split(".")] if node.module else base
+
+
 def _targets(node: ast.AST, package: list[str], *, root: Path = ROOT) -> list[list[str]]:
     """Every backend module *node* imports, as absolute part lists.
 
@@ -89,13 +101,8 @@ def _targets(node: ast.AST, package: list[str], *, root: Path = ROOT) -> list[li
         return out
     if not isinstance(node, ast.ImportFrom):
         return out
-    if node.level == 0:
-        base = (node.module or "").split(".")
-    else:
-        # level 1 is the containing package, level 2 its parent, and so on.
-        base = package[: len(package) - (node.level - 1)]
-        if node.module:
-            base = [*base, *node.module.split(".")]
+    # level 1 is the containing package, level 2 its parent, and so on.
+    base = _import_from_base(node, package)
     if not base:
         return out
     out.append(base)
@@ -132,9 +139,94 @@ def _unclassified_top_level_modules(backend: Path) -> set[str]:
     }
 
 
+def _workflow_plugin_slice(path: Path, backend: Path) -> str:
+    """Return the workflow plug-in directory containing *path*, if any."""
+    parts = path.relative_to(backend).parts
+    return parts[1] if len(parts) >= 3 and parts[0] == "workflows" else ""
+
+
+def _forbidden_workflow_plugin_targets(
+    targets: list[list[str]],
+    plugin: str,
+) -> set[str]:
+    """Backend imports outside a workflow plug-in's supported host surface."""
+    forbidden: set[str] = set()
+    for target in targets:
+        if not target or target[0] != "backend" or len(target) == 1:
+            continue
+        if target[:2] != ["backend", "workflows"]:
+            forbidden.add(".".join(target))
+            continue
+        own_package = len(target) >= 3 and target[2] == plugin
+        public_api = len(target) == 3 and target[2] in WORKFLOW_PLUGIN_API_MODULES
+        if not own_package and not public_api:
+            forbidden.add(".".join(target))
+    return forbidden
+
+
+def _literal_all(path: Path) -> frozenset[str] | None:
+    """Return a module's literal ``__all__``, without importing the module."""
+    if not path.is_file():
+        return None
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except SyntaxError:
+        return None
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or not any(
+            isinstance(target, ast.Name) and target.id == "__all__"
+            for target in node.targets
+        ):
+            continue
+        try:
+            value = ast.literal_eval(node.value)
+        except (ValueError, TypeError):
+            return None
+        if isinstance(value, (list, tuple)) and all(
+            isinstance(name, str) for name in value
+        ):
+            return frozenset(value)
+        return None
+    return None
+
+
+def _nonpublic_toolkit_imports(
+    node: ast.AST,
+    package: list[str],
+    public_names: frozenset[str],
+) -> set[str]:
+    if not isinstance(node, ast.ImportFrom):
+        return set()
+    if _import_from_base(node, package) != ["backend", "workflows", "toolkit"]:
+        return set()
+    return {
+        alias.name
+        for alias in node.names
+        if alias.name == "*" or alias.name not in public_names
+    }
+
+
+def _imports_toolkit_module(node: ast.AST, package: list[str]) -> bool:
+    """Whether a plug-in imports the toolkit module instead of public names."""
+    toolkit = ["backend", "workflows", "toolkit"]
+    if isinstance(node, ast.Import):
+        return any(alias.name.split(".")[:3] == toolkit for alias in node.names)
+    if not isinstance(node, ast.ImportFrom):
+        return False
+    return _import_from_base(node, package) == toolkit[:2] and any(
+        alias.name == "toolkit" for alias in node.names
+    )
+
+
 def check(*, root: Path = ROOT, backend: Path | None = None) -> list[str]:
     backend = backend or root / "backend"
     problems: list[str] = []
+    toolkit_path = backend / "workflows" / "toolkit.py"
+    toolkit_exports = _literal_all(toolkit_path)
+    if toolkit_path.is_file() and toolkit_exports is None:
+        problems.append(
+            "backend/workflows/toolkit.py: workflow plug-in API must declare a literal __all__"
+        )
     for package in sorted(_python_packages(backend) - ALLOWED_EDGES.keys()):
         problems.append(
             f"backend/{package}/: unclassified Python package (add it to ALLOWED_EDGES)"
@@ -147,6 +239,7 @@ def check(*, root: Path = ROOT, backend: Path | None = None) -> list[str]:
         parts = _module_parts(path, root=root)
         package = _package_parts(path, root=root)
         own_layer, own_slice = _slice_of(parts) or ("", "")
+        workflow_plugin = _workflow_plugin_slice(path, backend)
         allowed = (
             ROOT_ALLOWED
             if own_layer in ("", ROOT_LAYER)
@@ -161,12 +254,13 @@ def check(*, root: Path = ROOT, backend: Path | None = None) -> list[str]:
             if not isinstance(node, ast.Import | ast.ImportFrom):
                 continue
             where = f"{path.relative_to(root)}:{node.lineno}"
+            targets = _targets(node, package, root=root)
             # One import statement resolves to both the package and the name
             # beside it (`from ..features import cards`), which is the same
             # edge said twice; report each layer and each peer slice once.
             edges = {
                 edge
-                for target in _targets(node, package, root=root)
+                for target in targets
                 if (edge := _slice_of(target))
                 and edge[0] in {*ALLOWED_EDGES, ROOT_LAYER}
             }
@@ -176,6 +270,24 @@ def check(*, root: Path = ROOT, backend: Path | None = None) -> list[str]:
                 peers = {s for layer, s in edges if layer == "features" and s and s != own_slice}
                 for peer in sorted(peers):
                     problems.append(f"{where}: feature slice {own_slice!r} imports peer slice {peer!r}")
+            if workflow_plugin:
+                for target in sorted(
+                    _forbidden_workflow_plugin_targets(targets, workflow_plugin)
+                ):
+                    problems.append(
+                        f"{where}: workflow slice {workflow_plugin!r} may import only its own package or workflow APIs, not {target}"
+                    )
+                if toolkit_exports is not None:
+                    for name in sorted(
+                        _nonpublic_toolkit_imports(node, package, toolkit_exports)
+                    ):
+                        problems.append(
+                            f"{where}: workflow slice {workflow_plugin!r} imports non-public toolkit name {name!r}"
+                        )
+                if _imports_toolkit_module(node, package):
+                    problems.append(
+                        f"{where}: workflow slice {workflow_plugin!r} must import public toolkit names, not the toolkit module"
+                    )
     return problems
 
 

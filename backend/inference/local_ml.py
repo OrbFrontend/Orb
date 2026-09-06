@@ -30,8 +30,8 @@ from .local_models import (
 )
 
 #: Re-exported from :mod:`local_models` for callers that address this module by
-#: name — ``workflows/toolkit.py`` publishes it as the workflow author's API,
-#: and the Local ML routes and tests import from here. NOTE FOR TESTS: these
+#: name. The workflow toolkit wraps the small capabilities plug-ins need; Local
+#: ML routes and tests import this implementation module directly. NOTE FOR TESTS: these
 #: are second bindings. Production code calls ``local_models``' own copies, so
 #: a monkeypatch belongs on the module that OWNS the name (``assets.download``,
 #: ``dependencies.deps_ok``), not on the re-export.

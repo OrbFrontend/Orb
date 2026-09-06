@@ -44,6 +44,13 @@ Before changing prompt assembly, pass ordering, tool schemas, or streaming behav
 - Use registered actions and `data-*` attributes for UI events. Do not add globals or inline event handlers.
 - Keep frontend layer checks passing.
 
+Backend workflow plug-ins under `backend/workflows/<id>/` follow the same rule:
+import only their own package and `backend.workflows.toolkit`. Root modules
+directly under `backend/workflows/` are host adapters and may bridge to lower
+application layers. Import named toolkit exports explicitly; wildcard,
+module-object, and non-`__all__` toolkit imports are not part of the plug-in API.
+The backend layer checker enforces this distinction.
+
 ## Validation
 
 Use the repository scripts from the project root:

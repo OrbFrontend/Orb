@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from ..contracts import EV_DRAFT_REPLACED
-from ..toolkit import normalize_to_baseline
+from ..toolkit import EV_DRAFT_REPLACED, normalize_to_baseline
 
 logger = logging.getLogger(__name__)
 

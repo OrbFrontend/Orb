@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, TypedDict
 
-from ...errors import WorkflowUserFacingError
+from ...toolkit import WorkflowUserFacingError
 
 ProgressCallback = Callable[[str, Mapping[str, Any]], Awaitable[None] | None]
 

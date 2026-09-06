@@ -38,6 +38,15 @@ chrome. The workflow owns its feature logic.
 
 Each workflow has a directory such as `backend/workflows/tts/`.
 
+Code under `backend/workflows/<id>/` is a plug-in slice. It may import its own
+package and `backend.workflows.toolkit`, but not other framework modules,
+application layers, or peer workflows. Root modules directly under
+`backend/workflows/` are host adapters and own the integration with prompting,
+inference, persistence, and the pipeline. The toolkit must be consumed through
+explicit names in its literal `__all__`; wildcard imports, importing the module
+object, and private names are rejected. The backend layer checker enforces this
+boundary.
+
 ### Frontend
 
 | Path | Purpose |
@@ -74,8 +83,8 @@ and `tool_choice`.
 
 Workflow tools append after the fixed built-in tool order. Re-registering an
 existing tool replaces its contract without changing its position; removing a
-tool on workflow replacement removes it through the catalog API. The toolkit's
-`TOOLS` and `STANDALONE_TOOLS` exports are live, read-only compatibility views.
+tool on workflow replacement removes it through the framework-owned catalog
+API. The catalog itself is not part of the plug-in API.
 
 Registration follows this shape:
 
@@ -154,10 +163,12 @@ read-modify-write operations.
 | `workflow_config` | Workflow | `workflow_config_lock()` |
 | Attachments | Root attachment group | Framework's root lock |
 
-The required import surface is `backend.workflows.toolkit`. It provides the LLM
-client and prompt helpers, read-only database queries, state getters/setters,
-`forced_tool_call`, attachment insertion, and the workflow locks. Mutating core
-database helpers are intentionally not exposed to workflows.
+The primary runtime import surface is `backend.workflows.toolkit`. Hook contexts
+carry the LLM clients; the toolkit provides semantic host operations, read-only
+database queries, state getters/setters, `forced_tool_call`, attachment
+insertion, and workflow locks. Raw prompting, inference, and tool-catalog
+objects are intentionally not exposed to plug-ins. Mutating core database
+helpers are also excluded.
 
 ## A workflow inside a turn
 

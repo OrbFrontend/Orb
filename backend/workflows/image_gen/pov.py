@@ -6,7 +6,7 @@ import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from ..toolkit import get_settings, local_ml
+from ..toolkit import classify_pov, get_settings, local_feature_available
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ def normalize_mode(value: Any) -> str:
 
 async def classifier_ready() -> bool:
     """Extras installed, model on disk, and the feature toggle left on."""
-    ok, _reason = local_ml.available(FEATURE)
+    ok, _reason = local_feature_available(FEATURE)
     if not ok:
         return False
     settings = await get_settings()
@@ -67,7 +67,7 @@ async def _classify(history: Sequence[Mapping[str, Any]]) -> str | None:
     """
     for text in _assistant_texts(history):
         try:
-            label = await local_ml.aclassify_pov(text)
+            label = await classify_pov(text)
         except Exception:
             logger.exception("[image_gen] POV classification failed; falling back")
             return None

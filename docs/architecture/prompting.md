@@ -28,9 +28,12 @@ core       -> (nothing)
 ```
 
 `features/` and `workflows/` are siblings and do not import one another.
-Feature slices do not import peer slices. The exact matrix is enforced by
-`scripts/check_backend_layers.py`; every Python-bearing top-level backend
-package must be classified there.
+Feature slices do not import peer slices. The `workflows` row applies to the
+host framework modules directly under `backend/workflows/`; plug-in slices
+under `backend/workflows/<id>/` may import only their own package and the public
+workflow toolkit, never these lower layers, host internals, or peer plug-ins. The exact rules are
+enforced by `scripts/check_backend_layers.py`; every Python-bearing top-level
+backend package must be classified there.
 
 ## Byte and order contracts
 
