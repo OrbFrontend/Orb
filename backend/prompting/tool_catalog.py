@@ -123,9 +123,7 @@ def is_standalone_tool(name: str) -> bool:
     return name in _standalone_tools
 
 
-def register_tool(
-    name: str, schema: dict, choice: dict, *, standalone: bool = False
-) -> None:
+def register_tool(name: str, schema: dict, choice: dict, *, standalone: bool = False) -> None:
     """Register or replace a tool while preserving an existing position."""
     _tools[name] = {"schema": deepcopy(schema), "choice": deepcopy(choice)}
     if standalone:
@@ -166,8 +164,4 @@ def enabled_schemas(
     eligible = [name for name in _tools if name not in _standalone_tools]
     if enabled_tools is not None:
         eligible = [name for name in eligible if enabled_tools.get(name, False)]
-    return [
-        deepcopy(schema)
-        for name in eligible
-        if (schema := overrides.get(name, _tools[name]["schema"])) is not None
-    ]
+    return [deepcopy(schema) for name in eligible if (schema := overrides.get(name, _tools[name]["schema"])) is not None]

@@ -181,9 +181,7 @@ async def build_offturn_prefix(
         history,
         macros,
         user_description,
-        constant_lorebook_block=_compute_constant_lorebook_block(
-            await get_active_lorebook_entries(), macros
-        ),
+        constant_lorebook_block=_compute_constant_lorebook_block(await get_active_lorebook_entries(), macros),
         cast=turn_cast,
         speaker_names=speaker_names,
     )

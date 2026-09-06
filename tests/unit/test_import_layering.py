@@ -31,9 +31,7 @@ def _fixture(tmp_path: Path, source: str, statement: str) -> tuple[Path, Path]:
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "__init__.py").write_text("", encoding="utf-8")
     (backend / "main.py").write_text("app = object()\n", encoding="utf-8")
-    (backend / "workflows" / "toolkit.py").write_text(
-        "__all__ = ['forced_tool_call']\n", encoding="utf-8"
-    )
+    (backend / "workflows" / "toolkit.py").write_text("__all__ = ['forced_tool_call']\n", encoding="utf-8")
     source_path = backend / f"{source}.py"
     source_path.parent.mkdir(parents=True, exist_ok=True)
     source_path.write_text(statement, encoding="utf-8")
@@ -120,9 +118,7 @@ def test_workflow_framework_modules_remain_host_adapters(tmp_path: Path):
         "from backend import workflows\n",
     ],
 )
-def test_workflow_slices_use_only_named_public_toolkit_exports(
-    tmp_path: Path, statement: str
-):
+def test_workflow_slices_use_only_named_public_toolkit_exports(tmp_path: Path, statement: str):
     root, backend = _fixture(tmp_path, "workflows/plugin/bad", statement)
     problems = _checker().check(root=root, backend=backend)
     assert any("workflow slice 'plugin'" in problem for problem in problems), problems
