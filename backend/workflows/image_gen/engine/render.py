@@ -15,12 +15,16 @@ from .contracts import (
 )
 from .degrade import DROPPABLE_FIELDS, next_rung, trim
 
-# Every rung strictly reduces what the request carries, so the ladder is finite on its
-# own: two for the references -- the count the provider named, then none at all -- and
-# one apiece for the optional fields, each of which can only be given up once. Derived
-# rather than written down so adding a droppable field cannot silently cost the ladder
-# a rung it needs.
-MAX_DEGRADATIONS = 2 + len(DROPPABLE_FIELDS)
+# Two for the references -- the count the provider named, then none at all -- one
+# apiece for the optional fields, each of which can only be given up once, and one for
+# a seed the provider refused. Derived rather than written down so adding a droppable
+# field cannot silently cost the ladder a rung it needs.
+#
+# Every rung but the seed strictly reduces what the request carries, which is what
+# makes the ladder finite on its own; the seed refit instead only fires when it moves
+# the seed into the range the refusal quoted, so the same refusal cannot ask twice.
+# This count is the hard bound either way.
+MAX_DEGRADATIONS = 3 + len(DROPPABLE_FIELDS)
 
 
 def _optional_flags(request: ImageRequest, target: RenderTarget) -> list[bool]:
@@ -76,8 +80,10 @@ async def resolve_and_generate(
     A provider that refuses the request is asked once more with less of it -- fewer
     references, or without an optional field it named -- rather than failing the
     render, bounded by `MAX_DEGRADATIONS` and disclosed on the attachment. A refusal
-    that is about neither, or a backend whose slots cannot be dropped, raises
-    untouched.
+    that quotes a seed range instead is answered by refitting the seed into it, which
+    gives up nothing and so discloses nothing; the adapter records the seed it ended
+    up sending. A refusal that is about none of those, or a backend whose slots
+    cannot be dropped, raises untouched.
     """
     attempt = request
     notes: list[str] = []
@@ -90,7 +96,13 @@ async def resolve_and_generate(
         except ImageGenerationError as exc:
             optional = _optional_flags(attempt, target)
             rung = (
-                next_rung(exc, sent=len(attempt.references), droppable=sum(optional), sending=_sending(attempt))
+                next_rung(
+                    exc,
+                    sent=len(attempt.references),
+                    droppable=sum(optional),
+                    seed=attempt.seed,
+                    sending=_sending(attempt),
+                )
                 if remaining
                 else None
             )
@@ -99,5 +111,8 @@ async def resolve_and_generate(
             attempt = replace(attempt, references=trim(attempt.references, optional, rung.keep))
             if rung.drop:
                 attempt = replace(attempt, **{rung.drop: ""})
-            notes.append(rung.note)
+            if rung.seed is not None:
+                attempt = replace(attempt, seed=rung.seed)
+            if rung.note:
+                notes.append(rung.note)
     raise AssertionError("unreachable: the final pass re-raises")  # pragma: no cover

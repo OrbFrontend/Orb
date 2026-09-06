@@ -45,6 +45,22 @@ NO_NEGATIVE = (
 )
 
 
+# Together AI, handed the 64-bit seed Orb draws for every render. Measured live
+# 2026-09-06 on `Wan-AI/Wan2.6-image`, and free like the rest: the 400 arrives before
+# anything is rendered. The bound is inclusive at both ends -- 0 and 2147483647 got
+# through to the next check, -1 and 2147483648 came back with this same message -- and
+# it is reached only *after* the model resolves, so it is the model's answer and not
+# something a preset column could have declared in advance.
+OOB_SEED = (
+    "Together AI rejected the request (HTTP 400): Invalid value for 'seed' parameter. "
+    "Seed must be an integer value between 0 and 2147483647. Default: Random."
+)
+# The seed Orb had drawn when this was measured -- larger than the whole range, which
+# is the ordinary case rather than an edge one.
+BIG_SEED = 12297829382473034410
+TOGETHER_MAX = 2147483647
+
+
 def _reference(index: int = 0) -> ResolvedReference:
     return ResolvedReference(
         slot=("cloud", f"image_{index}"),
@@ -182,9 +198,9 @@ def _target(count: int, *, required: bool = False) -> RenderTarget:
     )
 
 
-def _request(count: int, *, negative: str = "") -> ImageRequest:
+def _request(count: int, *, negative: str = "", seed: int = 1) -> ImageRequest:
     return ImageRequest(
-        prompt="p", negative_prompt=negative, seed=1, style_id="s", references=tuple(_reference(i) for i in range(count))
+        prompt="p", negative_prompt=negative, seed=seed, style_id="s", references=tuple(_reference(i) for i in range(count))
     )
 
 
@@ -195,10 +211,12 @@ class _Adapter:
         self.script = list(script)
         self.seen: list[int] = []
         self.negatives: list[str] = []
+        self.seeds: list[int] = []
 
     async def generate(self, request, *, target, progress=None):
         self.seen.append(len(request.references))
         self.negatives.append(request.negative_prompt)
+        self.seeds.append(request.seed)
         message = self.script.pop(0) if self.script else None
         if message is not None:
             raise _refused(message)
@@ -286,3 +304,105 @@ async def test_a_render_that_never_refuses_is_untouched():
 
     assert adapter.seen == [2]
     assert result.backend_info["notes"] == ["rendered"]
+
+
+# ── a seed the provider will not take ────────────────────────────────────────
+
+
+def test_a_quoted_seed_range_is_taken_at_its_word():
+    """The whole fix in one call: Together names its range, Orb folds into it.
+
+    Nothing else about the request moves -- the references it was handed are still
+    the references it sends -- because a seed is not what was refused *for*.
+    """
+    rung = next_rung(_refused(OOB_SEED), sent=2, droppable=2, seed=BIG_SEED)
+    assert rung is not None and rung.seed is not None
+    assert 0 <= rung.seed <= TOGETHER_MAX
+    assert rung.keep == 2 and rung.drop == ""
+
+
+def test_the_refit_seed_is_disclosed_by_the_number_and_not_by_a_note():
+    """A note here would fire on every single render against this provider, and a
+    disclosure that always fires is one users stop reading. What the user gets instead
+    is the seed that actually rendered, recorded on the attachment."""
+    rung = next_rung(_refused(OOB_SEED), sent=0, droppable=0, seed=BIG_SEED)
+    assert rung is not None and rung.note == ""
+
+
+def test_the_refit_is_idempotent_so_the_recorded_seed_reproduces_the_image():
+    """Folded, not clamped, and folded once: replaying the recorded seed through the
+    same refusal has to land on the same number, or the seed shown next to the image
+    is a number that draws a different picture."""
+    first = next_rung(_refused(OOB_SEED), sent=0, droppable=0, seed=BIG_SEED)
+    assert first is not None and first.seed is not None
+    assert next_rung(_refused(OOB_SEED), sent=0, droppable=0, seed=first.seed) is None
+
+
+def test_a_seed_already_inside_the_quoted_range_leaves_the_failure_standing():
+    """The refusal names a range this seed is already in, so it is talking about
+    something else. Resending the same number would spend a rung to be told the same
+    thing -- the ladder must not walk in place."""
+    assert next_rung(_refused(OOB_SEED), sent=0, droppable=0, seed=7) is None
+
+
+def test_a_seed_refusal_that_quotes_no_range_is_raised_untouched():
+    """Nothing to fold into. Guessing a bound would be the per-provider table this
+    module exists to avoid, so the provider's own words reach the user instead."""
+    vague = "Together AI rejected the request (HTTP 400): Invalid value for 'seed' parameter."
+    assert next_rung(_refused(vague), sent=0, droppable=0, seed=BIG_SEED) is None
+
+
+def test_orbs_own_http_status_is_never_read_as_a_seed_bound():
+    """`_say` puts "(HTTP 400)" in front of every provider message, so a rule that
+    scavenged bare integers would fold a good seed into [0, 400] and render the wrong
+    picture rather than fail. Both readings are anchored on words instead."""
+    assert next_rung(_refused(BAD_SIZE + " seed"), sent=0, droppable=0, seed=BIG_SEED) is None
+
+
+def test_an_exclusive_ceiling_stops_one_short_of_the_number_it_names():
+    """`less than N` is not `at most N`, and landing exactly on N would be refused
+    again with no rung left to answer it."""
+    message = "Provider rejected the request (HTTP 400): seed must be less than 1000"
+    rung = next_rung(_refused(message), sent=0, droppable=0, seed=BIG_SEED)
+    assert rung is not None and rung.seed is not None and rung.seed <= 999
+
+    inclusive = "Provider rejected the request (HTTP 400): seed must be less than or equal to 1000"
+    rung = next_rung(_refused(inclusive), sent=0, droppable=0, seed=1000)
+    assert rung is None  # 1000 is already inside [0, 1000]
+
+
+def test_a_reference_limit_is_never_mistaken_for_a_seed_bound():
+    """The two readings share a message space, so the guard runs both ways: a refusal
+    that quotes a count and never says `seed` is a reference rung, unchanged."""
+    rung = next_rung(_refused(TOO_MANY), sent=5, droppable=5, seed=BIG_SEED)
+    assert rung is not None and rung.seed is None and rung.keep == 3
+
+
+async def test_the_ladder_refits_the_seed_and_keeps_everything_the_user_configured():
+    """End to end on the reported failure: one refusal, one retry, the render lands.
+
+    The references and the negative prompt both survive -- this is the one rung that
+    gives up nothing -- and there is nothing to disclose, so the notes are the
+    render's own.
+    """
+    adapter = _Adapter([OOB_SEED, None])
+    result = await resolve_and_generate(adapter, _request(2, negative="blurry", seed=BIG_SEED), target=_target(2))
+
+    assert adapter.seen == [2, 2]
+    assert adapter.negatives == ["blurry", "blurry"]
+    assert adapter.seeds[0] == BIG_SEED
+    assert 0 <= adapter.seeds[1] <= TOGETHER_MAX
+    assert result.backend_info["notes"] == ["rendered"]
+
+
+async def test_a_refused_seed_and_a_refused_reference_are_answered_one_at_a_time():
+    """The rungs compose: Together refuses the seed first, then the model refuses the
+    reference. Only the second costs the user something, and only it is disclosed."""
+    adapter = _Adapter([OOB_SEED, UNSUPPORTED, None])
+    result = await resolve_and_generate(adapter, _request(2, seed=BIG_SEED), target=_target(2))
+
+    assert adapter.seen == [2, 2, 0]
+    assert adapter.seeds[1] == adapter.seeds[2] <= TOGETHER_MAX
+    notes = result.backend_info["notes"]
+    assert "rendered from the prompt alone" in notes[0]
+    assert len(notes) == 2 and notes[-1] == "rendered"

@@ -32,6 +32,30 @@ def recorded_edge(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
 
+def fold_seed_into(seed: int, low: int, high: int) -> int:
+    """`seed` folded into the inclusive range `[low, high]`, or unchanged where that
+    is not a range at all.
+
+    Backends disagree about how large a seed may be, and each says so in its own way:
+    a ComfyUI node declares `min`/`max` in `/object_info`, while a cloud provider
+    quotes its bound in the refusal. *How* the bound is learned differs; "make this
+    seed fit" does not, so it lives here rather than once per caller -- the copy that
+    drifted first would be the one whose recorded seed no longer reproduces its image.
+
+    Folded rather than clamped: clamping would draw every out-of-range seed as the
+    same image, and folding is idempotent, so the seed Orb records still reproduces
+    this render when it is replayed through the same bound.
+    """
+    if high < low:
+        return seed
+    # Negative seeds are legal where a backend offers them and nobody wants them, so
+    # the fold starts at zero wherever that is still inside the range.
+    low = max(low, 0) if high >= 0 else low
+    if low <= seed <= high:
+        return seed
+    return low + (seed - low) % (high - low + 1)
+
+
 class ImageBackendCapabilities(TypedDict):
     """What a backend *can ever* do -- static, per adapter class.
 

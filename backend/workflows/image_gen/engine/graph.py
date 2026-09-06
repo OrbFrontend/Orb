@@ -6,7 +6,7 @@ import copy
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .contracts import ImageGenerationError
+from .contracts import ImageGenerationError, fold_seed_into
 
 OPTIONAL_SLOTS = ("negative", "width", "height")
 
@@ -165,23 +165,18 @@ def fit_seed(seed: int, info: Mapping[str, Any], input_name: str) -> int:
     node class declares its own bound in `/object_info`, so read it from there rather
     than keeping a list of which nodes are small.
 
-    Folded rather than clamped: clamping would draw every oversized seed as the same
-    image, and folding is idempotent, so the seed Orb records still reproduces this
-    render.
+    Declaring the bound is what makes this the *cheap* half of the problem: a cloud
+    provider has no `/object_info` to ask, and `engine/degrade.py` has to read its
+    bound out of a refusal instead. Both end in `fold_seed_into`.
     """
     spec = declared_inputs(info).get(input_name)
     options = spec[1] if isinstance(spec, (list, tuple)) and len(spec) > 1 else None
     if not isinstance(options, Mapping):
         return seed
     low, high = _declared_bound(options.get("min")), _declared_bound(options.get("max"))
-    if low is None or high is None or high < low:
+    if low is None or high is None:
         return seed
-    # Negative seeds are legal where a node offers them and nobody wants them, so the
-    # fold starts at zero wherever that is still inside the declared range.
-    low = max(low, 0) if high >= 0 else low
-    if low <= seed <= high:
-        return seed
-    return low + (seed - low) % (high - low + 1)
+    return fold_seed_into(seed, low, high)
 
 
 def _input_slot(graph: Mapping[str, Any], slot: Any, role: str) -> tuple[dict, str]:

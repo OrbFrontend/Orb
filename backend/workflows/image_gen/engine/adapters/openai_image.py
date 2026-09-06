@@ -299,6 +299,12 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
                 "cfg": None,
                 "sampler": None,
                 "scheduler": None,
+                # The seed this render *sent*, which is not always the one it was
+                # handed: a provider that refuses an oversized seed quotes its range,
+                # and the ladder folds into it and asks again. Record what rendered, so
+                # the number shown next to the image is the one that reproduces it --
+                # the same contract the ComfyUI adapter keeps for a small seed node.
+                "seed": request.seed if target.supports_seed else None,
                 "seed_honored": target.supports_seed,
                 "cost": image.cost,
                 "references": [reference.record() for reference in request.references],

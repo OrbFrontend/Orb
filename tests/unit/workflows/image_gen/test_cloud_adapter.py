@@ -315,6 +315,24 @@ async def test_the_attachment_records_real_pixels_and_an_unhonoured_seed():
     assert result.backend_info["seed_honored"] is False
     assert result.backend_info["cost"] == {"provider": "xai", "unit": "usd_ticks", "value": 900}
     assert result.backend_info["steps"] is None
+    # xAI takes no seed, so there is no seed to claim one rendered with.
+    assert result.backend_info["seed"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_seed_provider_records_the_seed_the_request_actually_sent():
+    """Read off the request rather than echoed from the caller's, because the two can
+    differ: a provider that refuses an oversized seed quotes its range and the ladder
+    folds into it, and the number shown next to the image has to be the one that
+    reproduces it. Same contract the ComfyUI adapter keeps for a small seed node."""
+    record: dict = {}
+    config = _config("togetherai")
+    adapter = _adapter(config, _generation_handler(record))
+    result = await adapter.generate(_request(seed=99), target=_target(adapter, config))
+
+    assert record["body"]["seed"] == 99
+    assert result.backend_info["seed"] == 99
+    assert result.backend_info["seed_honored"] is True
 
 
 # ── readiness ────────────────────────────────────────────────────────────────

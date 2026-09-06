@@ -6,7 +6,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .contracts import ImageGenerationError, ResolvedReference
+from .contracts import ImageGenerationError, ResolvedReference, fold_seed_into
 
 # The failure kind that means "the provider read the request and would not take it".
 # `auth`, `rate_limit` and `server` are all about something other than what we sent,
@@ -20,6 +20,33 @@ REQUEST_REFUSED = "request"
 _IMAGE_WORDS = ("image", "images", "image_url", "imagedataurls", "reference")
 
 _INTEGERS = re.compile(r"\d+")
+
+# What a refusal has to say before Orb will refit the seed and ask again.
+#
+# The seed is the one thing in a request that Orb chose arbitrarily, so a provider
+# that names its own bound has said everything needed to answer -- there is no
+# `/object_info` out here to declare it in advance, and a `max_seed` column on the
+# preset table would be the per-model allowlist this module exists to avoid. It is
+# also genuinely per-model: Together AI reaches its seed check only after resolving
+# the model, and two of its models answered differently about everything else.
+#
+# Measured on Together AI 2026-09-06: *"Invalid value for 'seed' parameter. Seed must
+# be an integer value between 0 and 2147483647."* -- inclusive at both ends, verified
+# by watching 0 and 2147483647 reach the next check while -1 and 2147483648 did not.
+_SEED_BETWEEN = re.compile(r"between\s+(-?\d+)\s+and\s+(-?\d+)")
+
+# The same fact in the other spelling a machine-generated validator uses. Ordered so
+# the inclusive phrasings match before `less than`, whose bound is one lower.
+_SEED_CEILING = re.compile(
+    r"(?:less than or equal to|at most|no (?:greater|larger|more) than|maximum(?: of)?"
+    r"|(?P<exclusive>less than|below|under))\s+(?P<bound>-?\d+)"
+)
+
+# Both bounds are anchored on the words around the number, never on a bare integer:
+# the message carries Orb's own "(HTTP 400)" prefix, and reading a status code as a
+# seed bound would fold a perfectly good seed into [0, 400] and render the wrong
+# picture rather than fail.
+_SEED_TOKEN = re.compile(r"(?<![a-z0-9_])seed(?![a-z0-9_])")
 
 # Beyond this, an integer in a refusal is a byte count, a pixel bound or an id --
 # never a number of reference images. Bounded rather than clever: the point is to
@@ -35,11 +62,12 @@ _PLAUSIBLE_COUNT = 64
 # Two things put a field here, and both keep the list short on purpose. It has to clear
 # to a value the request builders already omit, so the step is `replace(request,
 # field="")` and no absent-sentinel is invented -- which is why `seed` is not here:
-# `ImageRequest.seed` is an `int` a ComfyUI graph needs structurally, and no measured
-# provider refuses one outright. And its name has to be unmistakable in a sentence, so
-# that matching it cannot misread prose -- `negative_prompt` can only be a provider
-# naming the parameter, while a refusal that happens to say "quality" or "seed" may be
-# talking about anything at all.
+# `ImageRequest.seed` is an `int` a ComfyUI graph needs structurally, so a provider
+# that refuses one is answered by `_refit_seed` instead, which changes the number
+# rather than dropping the field. And its name has to be unmistakable in a sentence,
+# so that matching it cannot misread prose -- `negative_prompt` can only be a provider
+# naming the parameter, while a refusal that happens to say "quality" may be talking
+# about anything at all.
 DROPPABLE_FIELDS: dict[str, str] = {
     "negative_prompt": "this model does not take a negative prompt, so it was rendered without one",
 }
@@ -55,13 +83,21 @@ class Rung:
     """One step down: what the next attempt sends, and what the user is told about it.
 
     `keep` is how many references it may carry; `drop` names an optional request field
-    it stops sending. A rung changes one or the other -- when a field is dropped `keep`
-    is left at what was just sent, because the references were not what was refused.
+    it stops sending; `seed` replaces the seed. A rung changes exactly one of those --
+    when a field is dropped or the seed is refit, `keep` is left at what was just sent,
+    because the references were not what was refused.
+
+    `note` is empty on a seed refit alone, which is the one step that costs the render
+    nothing: the picture is still the one asked for, and the number that reproduces it
+    is recorded on the attachment. A note here would fire on every render against a
+    provider whose bound is narrower than Orb's seed, which is how the disclosures
+    that do matter stop being read.
     """
 
     keep: int
-    note: str
+    note: str = ""
     drop: str = ""
+    seed: int | None = None
 
 
 def _mentions_image(message: str) -> bool:
@@ -96,7 +132,39 @@ def _named_limit(message: str, *, sent: int) -> int | None:
     return max(candidates) if candidates else None
 
 
-def next_rung(exc: Exception, *, sent: int, droppable: int, sending: Sequence[str] = ()) -> Rung | None:
+def _seed_range(message: str) -> tuple[int, int] | None:
+    """The seed range this refusal names, if it names one, as an inclusive pair."""
+    pair = _SEED_BETWEEN.search(message)
+    if pair:
+        low, high = int(pair.group(1)), int(pair.group(2))
+        return (low, high) if low <= high else None
+    ceiling = _SEED_CEILING.search(message)
+    if ceiling is None:
+        return None
+    high = int(ceiling.group("bound"))
+    # No lower bound is ever quoted alongside a ceiling, and zero is the floor every
+    # measured backend accepts -- ComfyUI's own nodes included, via `fit_seed`.
+    return (0, high - 1 if ceiling.group("exclusive") else high)
+
+
+def _refit_seed(message: str, seed: int) -> int | None:
+    """`seed` folded into the range this refusal names, or None to leave it alone.
+
+    None when the refusal does not name the seed, when it names no range, and -- the
+    one that keeps the ladder honest -- when the fold changes nothing. A refusal
+    quoting a range the seed is already inside is talking about something else, and a
+    rung that resent the same number would spend an attempt to be told the same thing.
+    """
+    if not _SEED_TOKEN.search(message.lower()):
+        return None
+    bounds = _seed_range(message)
+    if bounds is None:
+        return None
+    folded = fold_seed_into(seed, *bounds)
+    return folded if folded != seed else None
+
+
+def next_rung(exc: Exception, *, sent: int, droppable: int, seed: int = 0, sending: Sequence[str] = ()) -> Rung | None:
     """The next degradation to try, or None to let the failure stand.
 
     `droppable` is how many of the references may be left out at all. A ComfyUI
@@ -106,11 +174,20 @@ def next_rung(exc: Exception, *, sent: int, droppable: int, sending: Sequence[st
     slots already carry the fact.
 
     `sending` is the droppable optional fields this attempt is carrying, in the sense
-    of `DROPPABLE_FIELDS`.
+    of `DROPPABLE_FIELDS`. `seed` is the seed it sent, for a provider that refuses the
+    one it was given and quotes the range it wanted instead.
     """
     if not isinstance(exc, ImageGenerationError) or getattr(exc, "kind", "") != REQUEST_REFUSED:
         return None
     message = str(exc)
+    # Asked first, because a refit is the only rung that costs the render nothing. The
+    # seed is a number Orb drew at random, so folding it into the range the provider
+    # named gives back the picture the user actually asked for, while every rung below
+    # gives up something they configured. It cannot race the rungs below either: a
+    # refusal has to name `seed` *and* quote a range the current seed falls outside.
+    refit = _refit_seed(message, seed)
+    if refit is not None:
+        return Rung(keep=sent, seed=refit)
     # Asked before the references, and before the reference guards: a refusal that names
     # one of Orb's own fields is the most specific thing a provider can say, and it is
     # answerable on a render that carries no references at all -- which is exactly the
