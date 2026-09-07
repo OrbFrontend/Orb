@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter
 
 from ...core.locks import maintenance_lock
-from ...database import DB_PATH, checkpoint_wal, logs_size_before, wipe_logs_older_than
+from ...database import checkpoint_wal, logs_size_before, wipe_logs_older_than
 from ...workflows.attachment_cache import aged_artifact_size, evict_older_than
 from ..schemas import CleanupRequest
 
@@ -24,6 +24,20 @@ router = APIRouter()
 VACUUM_FREE_BYTES = 32 * 1024 * 1024
 
 
+def _db_path() -> str:
+    # Resolved dynamically so tests that monkeypatch connection.DB_PATH work.
+    # A frozen ``DB_PATH`` default here vacuumed the real database from the
+    # test suite, which patches the connection module rather than this one.
+    from ...database import connection
+
+    return connection.DB_PATH
+
+
+def _db_bytes() -> int:
+    path = _db_path()
+    return os.path.getsize(path) if os.path.exists(path) else 0
+
+
 def _cutoff(days: int) -> str | None:
     """ISO-8601 UTC cutoff for ``days`` back; None (= no age limit) for 0."""
     if days <= 0:
@@ -31,8 +45,9 @@ def _cutoff(days: int) -> str | None:
     return (datetime.now(UTC) - timedelta(days=days)).isoformat()
 
 
-def free_bytes(db_path: str = DB_PATH) -> int:
+def free_bytes(db_path: str | None = None) -> int:
     """Return free bytes for the storage volume."""
+    db_path = _db_path() if db_path is None else db_path
     if not os.path.exists(db_path):
         return 0
     conn = sqlite3.connect(db_path)
@@ -44,8 +59,9 @@ def free_bytes(db_path: str = DB_PATH) -> int:
     return pages * size
 
 
-def vacuum_sync(db_path: str = DB_PATH) -> bool:
+def vacuum_sync(db_path: str | None = None) -> bool:
     """Vacuum a SQLite database synchronously."""
+    db_path = _db_path() if db_path is None else db_path
     vac = sqlite3.connect(db_path, isolation_level=None)
     try:
         vac.execute("PRAGMA busy_timeout = 5000")
@@ -71,7 +87,7 @@ async def api_storage(days: int = 0):
     return {
         "artifacts": {"count": art_count, "bytes": art_bytes},
         "logs": {"count": log_count, "bytes": log_bytes},
-        "db_bytes": os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0,
+        "db_bytes": _db_bytes(),
         "free_bytes": free_bytes(),
     }
 
@@ -88,9 +104,9 @@ async def api_storage_cleanup(data: CleanupRequest):
             artifacts_evicted, bytes_freed = await evict_older_than(cutoff)
         if data.logs:
             logs_wiped = await wipe_logs_older_than(cutoff)
-        before = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+        before = _db_bytes()
         compacted = await asyncio.to_thread(vacuum_sync)
-        after = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+        after = _db_bytes()
     return {
         "artifacts_evicted": artifacts_evicted,
         "logs_wiped": logs_wiped,

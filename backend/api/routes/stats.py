@@ -8,11 +8,19 @@ import random
 from fastapi import APIRouter
 
 from ...core import estimate_tokens
-from ...database import DB_PATH, get_generated_chars, get_global_stats
+from ...database import get_generated_chars, get_global_stats
 from ...inference.local_models.assets import model_dir
 from ...inference.local_models.llama_server.binary import bin_bytes as llama_bin_bytes
 
 router = APIRouter()
+
+
+def _db_bytes() -> int:
+    # Resolved dynamically so tests that monkeypatch connection.DB_PATH work.
+    from ...database import connection
+
+    path = connection.DB_PATH
+    return os.path.getsize(path) if os.path.exists(path) else 0
 
 
 @router.get("/api/stats")
@@ -28,7 +36,7 @@ async def api_global_stats():
     # plus any downloaded local-ML weights (data/models/*.gguf) and the
     # llama-server runtime a local-model feature may have fetched (~100 MB
     # unpacked, which is enough to be a visible surprise if it went uncounted).
-    storage_bytes = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+    storage_bytes = _db_bytes()
     models_dir = model_dir()
     for name in os.listdir(models_dir):
         p = os.path.join(models_dir, name)

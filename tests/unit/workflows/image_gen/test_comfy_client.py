@@ -3,11 +3,20 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from backend.workflows.image_gen.engine import comfy_client
 from backend.workflows.image_gen.engine.comfy_client import (
     ComfyClient,
     invalidate_object_info,
 )
 from backend.workflows.image_gen.engine.contracts import ImageGenerationError
+
+
+@pytest.fixture(autouse=True)
+def _no_poll_sleep(monkeypatch):
+    """Collapse the inter-poll wait. The loop's behaviour is driven by the
+    mocked responses, not by elapsed time, so the real 1s sleep only made the
+    multi-poll cases wait in real time."""
+    monkeypatch.setattr(comfy_client, "_POLL_INTERVAL", 0.0)
 
 
 @pytest.mark.asyncio

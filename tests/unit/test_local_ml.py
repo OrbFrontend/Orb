@@ -27,11 +27,18 @@ def test_present_reflects_disk(monkeypatch):
     assert assets.present("autocomplete") is False
 
 
-def test_deps_ok_reports_missing_extra():
-    # ML extras aren't in the base test env; deps_ok is a cheap, honest (bool, reason).
+def test_deps_ok_reports_missing_extra(monkeypatch):
+    # The missing-extra branch is the one with a contract: the reason has to name
+    # the requirements file the user is meant to install. Forced rather than
+    # inferred from the environment -- when the extras happen to be present this
+    # asserted nothing at all, and paid a real llama_cpp import (~1s) to do it.
+    def _boom():
+        raise ModuleNotFoundError("No module named 'llama_cpp'")
+
+    monkeypatch.setattr(dependencies, "import_llama", _boom)
     ok, reason = dependencies.deps_ok()
-    if not ok:
-        assert "requirements-ml.txt" in reason
+    assert ok is False
+    assert "requirements-ml.txt" in reason
 
 
 def test_install_cmd_paths_are_absolute():
