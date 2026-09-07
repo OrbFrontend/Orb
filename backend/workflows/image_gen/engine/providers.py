@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from .contracts import ResolvedReference
+from .contracts import ResolvedReference, ratio_distance
 
 # How far a mapped aspect ratio may sit from the requested one before the user is
 # told. ~2%: below that the difference is a few pixels of crop on a 1024px edge.
@@ -97,10 +97,9 @@ class ProviderPreset:
     # Deliberately absent: a per-model reference allowlist. It was a hand-measured table
     # over catalogues that grow without us -- NanoGPT alone ships 202 image models -- so
     # it was permanently unfinished, and an unfinished allowlist silently withholds a
-    # capability the user is paying for. A model that will not take what it was sent says
-    # so itself: `engine/degrade.py` reads the refusal and re-renders without it.
-    # Rejections are free on every provider measured, so asking costs latency, not
-    # money.
+    # capability the user is paying for. A model that will not take what it was sent
+    # says so itself; Orb relays that message and the existing reference control lets
+    # the user turn the field off deliberately.
     # True when a reference render takes its size from the reference rather than
     # from the request. An image-to-image model generally follows its input, so the
     # resolution picker silently stops applying the moment references are on.
@@ -191,8 +190,8 @@ PRESETS: tuple[ProviderPreset, ...] = (
         # reference frame, while `image`, `images` and `image_urls` are accepted and
         # ignored. Off the allowlist the provider is inconsistent, which is why the
         # model decides whether a slot is offered at all: FLUX.2 and Seedream answer
-        # *"Unsupported use of 'image_url' parameter"*, but the FLUX.1-schnell default
-        # answers 200 and renders the prompt alone.
+        # *"Unsupported use of 'image_url' parameter"*, but FLUX.1-schnell answered 200
+        # and rendered the prompt alone.
         supports_references=True,
         reference_field="image_url",
         reference_encoding="string",
@@ -200,7 +199,8 @@ PRESETS: tuple[ProviderPreset, ...] = (
         # a 1024x576 request came back 1024x1024. The picker cannot win that, so the
         # render says so instead of quietly handing back a different shape.
         reference_drives_size=True,
-        default_model="black-forest-labs/FLUX.1-schnell",
+        # Keep the default on a currently serverless model.
+        default_model="black-forest-labs/FLUX.2-dev",
         docs_url="https://docs.together.ai/reference/post-images-generations",
         verified=True,
         gaps=(
@@ -288,7 +288,7 @@ PRESETS: tuple[ProviderPreset, ...] = (
         # posted a reference alongside a deliberately invalid `size`, and each got as far
         # as its own size check, which is only reached once the model and the field have
         # been accepted. (`chatgpt-image-latest` 403s on org verification before any of
-        # it, which the refusal ladder degrades on like any other.)
+        # it, and that refusal is shown to the user.)
         supports_references=True,
         # NOT `image: {"url": ...}`. The field is `images` (an array) and its element
         # is `{"image_url": "<data uri>"}`; every other spelling is rejected by name,
@@ -343,9 +343,9 @@ PRESETS: tuple[ProviderPreset, ...] = (
         # bare-string array that carries four references onto `nano-banana` in order,
         # and takes a *single* element just as happily -- so it replaces `image` outright
         # rather than adding a second code path for the multi case. Over-capacity is
-        # refused by name (`IMAGE_INPUT_TOO_MANY`, quoting the model's limit) and the
-        # refusal is free, which is what makes asking cheaper than tabulating: capacity
-        # here is genuinely per-model, from 1 to 14 across the catalogue.
+        # refused by name (`IMAGE_INPUT_TOO_MANY`, quoting the model's limit), so the
+        # remote message identifies the mismatch: capacity here is genuinely per-model,
+        # from 1 to 14 across the catalogue.
         reference_field="imageDataUrls",
         reference_encoding="string_list",
         default_model="cyberrealistic-xl",
@@ -458,23 +458,12 @@ def _parse_ratio(candidate: str) -> float | None:
     return numerator / denominator if denominator else None
 
 
-def _ratio_distance(target: float, ratio: float | None) -> float:
-    """How far apart two aspect ratios are, the one metric both pickers below share.
-
-    Log space, so 2:1 and 1:2 are equally far from 1:1 -- a linear metric would call
-    "twice as wide" four times the error of "twice as tall". A candidate that does
-    not parse is infinitely far rather than excluded, so a menu of nothing but
-    unparseable rows still yields a deterministic pick instead of an empty one.
-    """
-    return abs(math.log(target) - math.log(ratio)) if ratio and ratio > 0 else math.inf
-
-
 def aspect_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, str | None]:
     """The declared aspect ratio nearest to `width`x`height`, and any disclosure."""
     if not preset.aspect_ratios or width <= 0 or height <= 0:
         return "", None
     target = width / height
-    best = min(preset.aspect_ratios, key=lambda candidate: _ratio_distance(target, _parse_ratio(candidate)))
+    best = min(preset.aspect_ratios, key=lambda candidate: ratio_distance(target, _parse_ratio(candidate)))
     chosen = _parse_ratio(best)
     if chosen is None or chosen <= 0:
         # Nothing usable on this row, so there is no ratio to send and nothing
@@ -504,7 +493,7 @@ def size_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, str 
         except ValueError:
             return (math.inf, math.inf)
         ratio = candidate_w / candidate_h if candidate_h else None
-        return (_ratio_distance(target, ratio), abs(candidate_w * candidate_h - width * height))
+        return (ratio_distance(target, ratio), abs(candidate_w * candidate_h - width * height))
 
     best = min(preset.sizes, key=distance)
     return best, f"{preset.label} accepts fixed sizes; {requested} was rendered as {best}"
@@ -527,8 +516,6 @@ def pixels_for(preset: ProviderPreset, width: int, height: int) -> tuple[int, in
 
     def snap(value: float) -> int:
         stepped = int(round(value / step)) * step
-        # Rounding a 70px edge down to 64 is fine; rounding it to 0 is not, and the
-        # provider would answer with a 400 rather than an image.
         stepped = max(stepped, low)
         return min(stepped, high) if high else stepped
 
@@ -611,8 +598,11 @@ def build_generation_body(
     sending both double-applies it).
     """
     built = _prompt_field(preset, prompt)
-    body: dict[str, Any] = {"model": model, **built.body, "n": n}
+    body: dict[str, Any] = {"model": model, **built.body}
     notes = list(built.notes)
+
+    if n != 1:
+        body["n"] = n
 
     dimensions = _dimension_fields(preset, width, height)
     body.update(dimensions.body)
@@ -709,8 +699,8 @@ def takes_references(preset: ProviderPreset) -> bool:
     hand-kept allowlist over catalogues that grow without us, and being wrong in the
     withholding direction is invisible: the user configured a likeness, paid for the
     render, and got neither the picture nor a word about it. A model that will not
-    take what it was sent refuses, the refusal is free, and `engine/degrade.py`
-    re-renders without the references and says so.
+    take what it was sent refuses, and the remote message tells the user to adjust
+    the existing reference control.
     """
     return preset.supports_references
 

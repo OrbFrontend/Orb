@@ -165,9 +165,8 @@ def fit_seed(seed: int, info: Mapping[str, Any], input_name: str) -> int:
     node class declares its own bound in `/object_info`, so read it from there rather
     than keeping a list of which nodes are small.
 
-    Declaring the bound is what makes this the *cheap* half of the problem: a cloud
-    provider has no `/object_info` to ask, and `engine/degrade.py` has to read its
-    bound out of a refusal instead. Both end in `fold_seed_into`.
+    A cloud provider has no `/object_info` equivalent. Its bound is entered explicitly
+    on the style after the provider reports it; both paths end in `fold_seed_into`.
     """
     spec = declared_inputs(info).get(input_name)
     options = spec[1] if isinstance(spec, (list, tuple)) and len(spec) > 1 else None

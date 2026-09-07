@@ -270,6 +270,24 @@ async def test_rerolling_onto_a_style_needing_an_unrecorded_reference_is_refused
         await hooks.reroll_gen(_RerollCtx("plain"), params, "1")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prompt", ["", " ", "\n\t "])
+async def test_a_reroll_with_nothing_to_draw_is_refused_before_the_provider_is_asked(prompt):
+    """The prompt on a reroll may be the one edited in the render details, so blank is
+    a state a person can reach -- and `" "` is truthy, which is how it used to sail past
+    an emptiness check and reach the provider.
+
+    What came back was a paid round trip and a 400 about a parameter: Together's is
+    *"Positive prompt must be a non-empty, non-whitespace string value between 1 and
+    10000 characters"*, which names the field and not the edit that emptied it. Both
+    spellings of blank are refused here, in words that say what to do about it.
+    """
+    params = {"prompt": prompt, "negative_prompt": "", "style_id": "anime"}
+
+    with pytest.raises(ImageGenerationError, match="no prompt to render"):
+        await hooks.reroll_gen(_RerollCtx("anime"), params, "1")
+
+
 # ── which configuration a reroll renders on ──────────────────────────────────
 #
 # The one thing the two routes backed by this hook disagree about. /rehydrate owes

@@ -263,27 +263,21 @@ async def test_an_untagged_catalogue_falls_back_to_the_whole_list():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "status, payload, expected",
+    "status, payload, expected, kind",
     [
-        (401, {"error": {"message": "bad key"}}, "The API key for xAI (Grok) was rejected (HTTP 401): bad key"),
-        # 403 is the loose status -- providers spend it on content refusals and plan
-        # restrictions too -- so the excerpt is what keeps Orb's guess from hiding
-        # the reason when the guess is wrong.
-        (403, {"error": "forbidden"}, "The API key for xAI (Grok) was rejected (HTTP 403): forbidden"),
-        # No bespoke sentence for 429: it is not always a per-minute rate limit, and
-        # "try again in a moment" was the wrong advice for a key out of quota.
-        (429, {"error": {"message": "daily quota exhausted"}}, "rejected the request (HTTP 429): daily quota exhausted"),
-        # Not "could not communicate": the exchange succeeded, and the provider
-        # explained its own failure.
-        (500, {"error": {"message": "upstream overloaded"}}, "failed to render this request (HTTP 500): upstream overloaded"),
+        (401, {"error": {"message": "bad key"}}, "bad key", "auth"),
+        (403, {"error": "forbidden"}, "forbidden", "auth"),
+        (429, {"error": {"message": "daily quota exhausted"}}, "daily quota exhausted", "rate_limit"),
+        (500, {"error": {"message": "upstream overloaded"}}, "upstream overloaded", "server"),
     ],
-    ids=["401", "403", "429 is not advice", "5xx is not a network failure"],
+    ids=["401", "403", "429", "5xx"],
 )
-async def test_every_status_carries_the_code_and_what_the_provider_said(status, payload, expected):
+async def test_every_status_shows_only_what_the_provider_said(status, payload, expected, kind):
     handler = lambda _request: httpx.Response(status, json=payload)  # noqa: E731
     with pytest.raises(CloudImageError) as exc:
         await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="xai", timeout=10)
-    assert expected in str(exc.value)
+    assert str(exc.value) == expected
+    assert exc.value.kind == kind
 
 
 @pytest.mark.asyncio
@@ -394,28 +388,28 @@ async def test_a_200_that_is_not_json_is_named_as_such():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("status", "message", "model", "kind", "expected"),
-    [
-        # Flagged so the adapter can re-render on the configured model and disclose.
-        (404, "no such model", "grok-imagine-legacy", MODEL_NOT_FOUND, "grok-imagine-legacy"),
-        # The providers do not agree on the status: NanoGPT answers 400 for a model
-        # it does not have, so a branch gated on 404 alone leaves the degrade path
-        # dead there and a rehydrate of a retired model dying as a bare rejection.
-        (400, "Invalid image model specified.", "retired-model", MODEL_NOT_FOUND, "retired-model"),
-        # OpenAI: also a 400, and its `code` is `invalid_value` -- which it also
-        # spends on a bad `size` and a bad `quality`. The sentence is the only thing
-        # that separates a retired model from a rejected parameter here.
-        (400, "The model 'gpt-image-0' does not exist.", "gpt-image-0", MODEL_NOT_FOUND, "gpt-image-0"),
-    ],
-    ids=["model gone", "model gone on a 400", "model gone on OpenAI"],
-)
-async def test_a_refusal_carries_the_kind_the_caller_degrades_on(status, message, model, kind, expected):
-    handler = lambda _request: httpx.Response(status, json={"error": {"message": message}})  # noqa: E731
+async def test_a_404_is_classified_without_rewriting_the_remote_message():
+    message = "no such model"
+    handler = lambda _request: httpx.Response(404, json={"error": {"message": message}})  # noqa: E731
     with pytest.raises(CloudImageError) as exc:
-        await _client(handler).create_image("/images/generations", {"model": model}, provider_id="xai", timeout=10)
-    assert exc.value.kind == kind
-    assert expected in str(exc.value)
+        await _client(handler).create_image(
+            "/images/generations", {"model": "grok-imagine-legacy"}, provider_id="xai", timeout=10
+        )
+    assert exc.value.kind == MODEL_NOT_FOUND
+    assert str(exc.value) == message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message",
+    ["Invalid image model specified.", "The model 'gpt-image-0' does not exist.", "Unable to access the supplied image."],
+)
+async def test_human_facing_prose_never_classifies_a_model_failure(message):
+    handler = lambda _request: httpx.Response(400, json={"error": {"message": message}})  # noqa: E731
+    with pytest.raises(CloudImageError) as exc:
+        await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="xai", timeout=10)
+    assert exc.value.kind == "request"
+    assert str(exc.value) == message
 
 
 @pytest.mark.asyncio
@@ -436,15 +430,7 @@ async def test_an_unknown_model_is_recognised_from_the_code_when_the_message_is_
 
 
 @pytest.mark.asyncio
-async def test_a_broker_names_the_upstream_that_actually_refused():
-    """The live body from a geo-blocked render. OpenRouter routes one model id to
-    several upstreams and names the one that answered in `error.metadata`; without it
-    "User location is not supported" reads as Orb or OpenRouter refusing the user.
-
-    It is also the fact that makes the failure *actionable*: the same request routed
-    to a different upstream minutes later and rendered, so the fix is picking another
-    model, not filing a bug.
-    """
+async def test_a_broker_refusal_is_not_decorated_with_metadata():
     handler = lambda _request: httpx.Response(  # noqa: E731
         400,
         json={
@@ -457,18 +443,7 @@ async def test_a_broker_names_the_upstream_that_actually_refused():
     )
     with pytest.raises(CloudImageError) as exc:
         await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="openrouter", timeout=10)
-    assert "Google AI Studio: User location is not supported" in str(exc.value)
-
-
-@pytest.mark.asyncio
-async def test_an_upstream_already_named_in_the_message_is_not_named_twice():
-    handler = lambda _request: httpx.Response(  # noqa: E731
-        400,
-        json={"error": {"message": "Google AI Studio returned an error", "metadata": {"provider_name": "Google AI Studio"}}},
-    )
-    with pytest.raises(CloudImageError) as exc:
-        await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="openrouter", timeout=10)
-    assert str(exc.value).count("Google AI Studio") == 1
+    assert str(exc.value) == "User location is not supported for the API use."
 
 
 @pytest.mark.asyncio

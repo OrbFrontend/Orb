@@ -65,7 +65,7 @@ def _reset_module_locks():
 
 
 @pytest.fixture(scope="session")
-def _fresh_db_template(tmp_path_factory) -> Path:
+def _fresh_db_template(tmp_path_factory, _never_the_real_database) -> Path:
     """A fresh-install database, built once and copied per test.
 
     ``init_db`` runs the whole CREATE TABLES script plus every seed insert. At
@@ -79,6 +79,9 @@ def _fresh_db_template(tmp_path_factory) -> Path:
     template = tmp_path_factory.mktemp("db_template") / "template.db"
 
     async def _build() -> None:
+        # `_never_the_real_database` is depended on above, not for a value but for
+        # ordering: without it this can run first, and `original` is then the real
+        # database path, which the restore below would reinstate for the whole session.
         original = db_connection.DB_PATH
         db_connection.DB_PATH = str(template)
         try:

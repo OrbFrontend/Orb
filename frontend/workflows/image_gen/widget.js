@@ -23,7 +23,7 @@ let cfg;
 
 const inFlight = new Map(); // msgId -> AbortController
 
-const pendingEdits = new Map(); // attId -> {prompt, negative_prompt}
+const pendingEdits = new Map(); // attId -> edited fields
 
 export function initWidget(sharedConfig) {
   cfg = sharedConfig;
@@ -46,11 +46,15 @@ function editPrompt(el) {
 function savePrompt(el) {
   const attId = Number(el.dataset.attId);
   const fields = document.querySelectorAll(`.image-gen-edit[data-att-id="${attId}"]`);
-  const edit = { prompt: "", negative_prompt: "" };
+  const edit = { ...(pendingEdits.get(attId) || {}) };
   for (const t of fields) edit[t.dataset.field] = t.value;
-  pendingEdits.set(attId, edit);
+  const blanked = typeof edit.prompt === "string" && !edit.prompt.trim();
+  if (blanked) delete edit.prompt;
+  if (Object.keys(edit).length) pendingEdits.set(attId, edit);
+  else pendingEdits.delete(attId);
   if (!document.activeElement?.classList.contains("image-gen-edit")) requestRepaint();
-  toast("Prompt edited — reroll to render");
+  if (blanked) toast("A prompt is required — the previous one was kept", "error");
+  else toast("Prompt edited — reroll to render");
 }
 
 function rerollParams(_msgId, attId) {
@@ -145,7 +149,8 @@ export function attachmentRenderer(ctx) {
     buttons.reroll || buttons.regen ? `<div class="image-gen-actions">${buttons.reroll}${buttons.regen}</div>` : "";
   const pend = pendingEdits.get(att.id);
   const cm = att.consumption_metadata || {};
-  const pending = pend && (pend.prompt !== cm.prompt || pend.negative_prompt !== cm.negative_prompt) ? pend : undefined;
+  const edited = (key) => pend && key in pend && pend[key] !== (cm[key] ?? "");
+  const pending = edited("prompt") || edited("negative_prompt") ? pend : undefined;
   const details = attachmentDetailsHtml(att, { esc, escAttr, pending });
   return `<div class="image-gen-attachment"><div class="image-gen-media">${media}${actions}</div>${details}</div>`;
 }

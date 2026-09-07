@@ -425,8 +425,8 @@ test("reference support is a provider fact and is never asked of the model", () 
   // The per-model allowlist is gone, and its absence is the point: it was a hand-kept
   // table over catalogues of hundreds of models, so it was always behind, and being
   // behind hid the control entirely — the user never learned the capability existed.
-  // A model that will not take a reference refuses at render time, for free, and the
-  // render degrades one rung and says so.
+  // A model that will not take a reference says so in the remote message; the user
+  // can then turn the existing reference control off.
   assert.equal(providerTakesReferences({ supports_references: true }), true);
   assert.equal(providerTakesReferences({ supports_references: true, default_model: "flux-schnell" }), true);
 

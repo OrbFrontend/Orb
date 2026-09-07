@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, TypedDict
@@ -36,11 +37,9 @@ def fold_seed_into(seed: int, low: int, high: int) -> int:
     """`seed` folded into the inclusive range `[low, high]`, or unchanged where that
     is not a range at all.
 
-    Backends disagree about how large a seed may be, and each says so in its own way:
-    a ComfyUI node declares `min`/`max` in `/object_info`, while a cloud provider
-    quotes its bound in the refusal. *How* the bound is learned differs; "make this
-    seed fit" does not, so it lives here rather than once per caller -- the copy that
-    drifted first would be the one whose recorded seed no longer reproduces its image.
+    Backends disagree about how large a seed may be. A ComfyUI node declares
+    `min`/`max` in `/object_info`; a cloud style can carry a ceiling the user entered
+    after reading a provider's refusal. "Make this seed fit" is shared by both.
 
     Folded rather than clamped: clamping would draw every out-of-range seed as the
     same image, and folding is idempotent, so the seed Orb records still reproduces
@@ -54,6 +53,11 @@ def fold_seed_into(seed: int, low: int, high: int) -> int:
     if low <= seed <= high:
         return seed
     return low + (seed - low) % (high - low + 1)
+
+
+def ratio_distance(target: float, ratio: float | None) -> float:
+    """Return logarithmic distance between two aspect ratios."""
+    return abs(math.log(target) - math.log(ratio)) if ratio and ratio > 0 else math.inf
 
 
 class ImageBackendCapabilities(TypedDict):
@@ -92,6 +96,7 @@ class RenderTarget:
     reference_source: str = ""
     reference_capacity: int = 0
     reference_template: Mapping[str, Any] = field(default_factory=dict)
+    seed_max: int | None = None
 
 
 @dataclass(frozen=True)

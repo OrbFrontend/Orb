@@ -342,6 +342,18 @@ def test_a_styles_render_settings_are_bounded_and_default_to_off():
     assert _style(quality="HIGH")["quality"] == "high"
     assert _style(quality="ultra")["quality"] == ""
     assert _style()["quality"] == ""
+    # Compatibility controls are opt-outs so an existing configuration keeps its
+    # request shape until the user changes it.
+    assert _style()["send_seed"] is True
+    assert _style()["seed_max"] == ""
+    assert _style()["send_negative_prompt"] is True
+    manual = _style(send_seed=False, seed_max="2147483647", send_negative_prompt=False)
+    assert manual["send_seed"] is False
+    assert manual["seed_max"] == str(2**31 - 1)
+    assert manual["send_negative_prompt"] is False
+    assert _style(seed_max="not a number")["seed_max"] == ""
+    assert _style(seed_max=True)["seed_max"] == ""
+    assert _style(seed_max=2**64 - 1)["seed_max"] == "18446744073709551615"
     # "" resolves to the provider's own default at the adapter, so relinking to a
     # provider with a different one needs no rewrite here.
     assert _style()["model"] == ""

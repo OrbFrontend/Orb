@@ -654,8 +654,9 @@ async def test_a_cloud_generate_runs_the_whole_stack_end_to_end(client, monkeypa
     assert submitted["auth"] == "Bearer sk-live-canary"
     # 1536x1024 is 3:2 exactly, and `size` is the spelling xAI rejects outright.
     assert submitted["body"]["aspect_ratio"] == "3:2"
-    assert submitted["body"]["n"] == 1
-    for absent in ("size", "negative_prompt", "seed"):
+    # `n` joins them: one image is what the provider returns unasked, and asking cost
+    # `gemini-3-pro-image` the ability to render at all.
+    for absent in ("size", "negative_prompt", "seed", "n"):
         assert absent not in submitted["body"]
 
     rows = await get_workflow_attachments_for_message(mid)

@@ -24,6 +24,7 @@ from backend.workflows.image_gen.engine.adapters.openai_image import (
 from backend.workflows.image_gen.engine.contracts import ImageRequest, ResolvedReference
 from backend.workflows.image_gen.engine.openai_image_client import OpenAIImageClient
 from backend.workflows.image_gen.engine.providers import get_preset
+from backend.workflows.image_gen.engine.render import resolve_and_generate
 
 XAI = get_preset("xai")
 assert XAI is not None
@@ -213,6 +214,51 @@ def test_a_fresh_target_reads_the_configured_model_and_resolution():
     assert target.supports_seed is False
 
 
+def test_a_style_can_turn_off_supported_optional_fields_and_set_a_seed_ceiling():
+    config = _config("togetherai", send_seed=False, seed_max=2**31 - 1, send_negative_prompt=False)
+    target = _target(_bound(config), config)
+
+    assert target.supports_seed is False
+    assert target.seed_max == 2**31 - 1
+    assert target.supports_negative_prompt is False
+
+
+def test_a_replay_keeps_the_optional_fields_recorded_by_the_original_render():
+    config = _config("togetherai", send_seed=False, seed_max=10, send_negative_prompt=False)
+    replay = {"seed_honored": True, "negative_prompt_sent": True}
+
+    target = _target(_bound(config), config, replay)
+
+    assert target.supports_seed is True
+    assert target.supports_negative_prompt is True
+    assert target.seed_max is None
+
+
+@pytest.mark.asyncio
+async def test_manual_optional_field_settings_control_the_request_body():
+    record: dict = {}
+    config = _config("togetherai", send_seed=False, send_negative_prompt=False)
+    adapter = _adapter(config, _generation_handler(record))
+
+    await resolve_and_generate(adapter, _request(seed=2**63, negative_prompt="blurry"), target=_target(adapter, config))
+
+    assert "seed" not in record["body"]
+    assert "negative_prompt" not in record["body"]
+
+
+@pytest.mark.asyncio
+async def test_manual_seed_ceiling_controls_the_seed_that_is_sent_and_recorded():
+    record: dict = {}
+    maximum = 2**31 - 1
+    config = _config("togetherai", seed_max=maximum)
+    adapter = _adapter(config, _generation_handler(record))
+
+    result = await resolve_and_generate(adapter, _request(seed=2**63), target=_target(adapter, config))
+
+    assert 0 <= record["body"]["seed"] <= maximum
+    assert result.backend_info["seed"] == record["body"]["seed"]
+
+
 def test_a_replay_pins_the_resolution_it_was_generated_at_not_todays():
     """The exact silent substitution rehydrate exists to avoid: an image made at
     1024x1024 must not come back 1536x1024 because the picker moved since."""
@@ -321,10 +367,7 @@ async def test_the_attachment_records_real_pixels_and_an_unhonoured_seed():
 
 @pytest.mark.asyncio
 async def test_a_seed_provider_records_the_seed_the_request_actually_sent():
-    """Read off the request rather than echoed from the caller's, because the two can
-    differ: a provider that refuses an oversized seed quotes its range and the ladder
-    folds into it, and the number shown next to the image has to be the one that
-    reproduces it. Same contract the ComfyUI adapter keeps for a small seed node."""
+    """The number shown next to the image must be the one that reproduces it."""
     record: dict = {}
     config = _config("togetherai")
     adapter = _adapter(config, _generation_handler(record))
@@ -597,9 +640,9 @@ def test_the_model_is_not_consulted_about_references_any_more():
 
     Withholding it was a hand-kept allowlist over catalogues that grow without us, and
     being behind was invisible -- the user configured a likeness, paid for the render,
-    and got neither the picture nor a word about it. A model that cannot use one
-    refuses at render time, for free, and `engine/degrade.py` re-renders without it and
-    says so. `FLUX.1-schnell` is the model that used to be denied a slot here.
+    and got neither the picture nor a word about it. A model that cannot use one says
+    so in the refusal, and the user can turn references off. `FLUX.1-schnell` is the
+    model that used to be denied a slot here.
     """
     config = _config("togetherai", "black-forest-labs/FLUX.1-schnell", reference_source="character")
     target = _target(_bound(config), config)

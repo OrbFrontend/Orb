@@ -39,6 +39,7 @@ MAX_REFERENCE_SLOTS = 4
 # The picker's 10 MB raw cap plus base64's 4/3. Bounded because the profile lives
 # on `character_cards.workflow_state` and is read on every generate.
 MAX_REFERENCE_IMAGE_B64 = 13_400_000
+MAX_SEED = 2**64 - 1
 PROMPT_FORMATS = ("tags", "hybrid", "prose")
 DEFAULT_PROMPT_FORMAT = "hybrid"
 # The three formats Orb carries end to end, each mapped to the extension it is named
@@ -158,6 +159,22 @@ def _edge(value: Any, default: int) -> int:
     return min(MAX_CLOUD_EDGE, max(MIN_CLOUD_EDGE, pixels))
 
 
+def _enabled(value: Any) -> bool:
+    """An opt-out setting that keeps existing configurations enabled."""
+    return value if isinstance(value, bool) else True
+
+
+def _seed_max(value: Any) -> str:
+    """An optional inclusive ceiling, stored as decimal text for JS precision."""
+    if value is None or value == "" or isinstance(value, bool):
+        return ""
+    try:
+        ceiling = int(value)
+    except (TypeError, ValueError):
+        return ""
+    return str(min(MAX_SEED, max(0, ceiling)))
+
+
 def _source_name(value: Any) -> str:
     """One stored source name, or "" when it names nothing this build resolves."""
     name = _text(value, 32)
@@ -233,6 +250,11 @@ def _render_target(
         "width": _edge(inherited("width"), DEFAULT_CLOUD_EDGE),
         "height": _edge(inherited("height"), DEFAULT_CLOUD_EDGE),
         "quality": quality if quality in CLOUD_QUALITIES else "",
+        # Compatibility is user-owned. Provider refusals are never parsed to mutate
+        # these fields behind the user's back.
+        "send_seed": _enabled(raw.get("send_seed")),
+        "seed_max": _seed_max(raw.get("seed_max")),
+        "send_negative_prompt": _enabled(raw.get("send_negative_prompt")),
         "reference_source": _reference_source(raw, legacy_slots, None if workflow else inherited("reference_source")),
     }
 

@@ -9,6 +9,14 @@ from __future__ import annotations
 
 import pytest
 
+import backend.database.connection as db_connection
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _never_the_real_database(tmp_path_factory):
+    """Make an unisolated database access fail instead of touching a real install."""
+    db_connection.DB_PATH = str(tmp_path_factory.mktemp("db_guard") / "unisolated-see-tests-conftest.db")
+
 
 @pytest.fixture
 def base_settings() -> dict:

@@ -17,7 +17,8 @@ For general image settings, see [Image Generation](image-generation.md).
 4. Select a provider and enter its API key.
 5. Select **Test connection**.
 6. Under **Styles**, assign the connection to a style.
-7. Choose a **Model** and **Resolution**. Set **Quality** or **Reference images**
+7. Choose a **Model** and **Resolution**. Resolution offers known presets and also
+   accepts a typed `widthxheight` value. Set **Quality** or **Reference images**
    when the provider supports them.
 8. Select **Save** and accept the privacy confirmation.
 
@@ -41,6 +42,23 @@ quality, and reference-image settings, so several styles can share one key.
 
 The settings panel shows the capabilities Orb applies to the selected provider
 and model. Check the first image's **Render details** as well.
+
+## Fix a rejected request
+
+Orb shows the message returned by the provider and does not parse that prose to
+change rejected request parameters or retry a request-parameter refusal. Open the
+affected style's **Compatibility** section when the provider says an optional field
+is invalid:
+
+- Turn off **Send a seed**, or enter the inclusive **Maximum seed** from the
+  provider's documentation or error message.
+- Turn off **Send negative prompts** while keeping the saved negative style text
+  available for another model.
+- Enter a supported **Resolution**, or choose one of the offered presets.
+
+Reference images already have their own **Off — send prompts only** choice. Quality
+is shown only where the provider exposes it, so neither setting is duplicated under
+Compatibility.
 
 ## Custom endpoints
 

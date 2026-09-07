@@ -124,7 +124,7 @@ def test_openai_declares_no_response_format_because_it_rejects_the_field():
     assert OPENAI.response_formats == ()
     built = build_generation_body(OPENAI, model="gpt-image-1", prompt="p", quality="high", width=1024, height=1024)
     # The fields it does take, so an empty tuple is not read as "send nothing".
-    assert (built.body["size"], built.body["quality"], built.body["n"]) == ("1024x1024", "high", 1)
+    assert (built.body["size"], built.body["quality"]) == ("1024x1024", "high")
 
 
 def test_openai_takes_a_reference_under_its_own_element_key():
@@ -174,8 +174,8 @@ def test_no_preset_emits_a_field_it_does_not_declare(preset):
     assert "moderation" not in body
     assert "user" not in body
     assert "style" not in body
-    # `n` is the field that silently multiplies the bill.
-    assert body["n"] == 1
+    assert "n" not in body
+    assert build_generation_body(preset, model="m", prompt="p", n=2).body["n"] == 2
 
 
 def test_a_declaring_provider_does_receive_the_optional_fields():
@@ -333,9 +333,9 @@ def test_capacity_is_derived_from_the_encoding_and_nobody_maintains_a_count():
     thing that genuinely constrains it -- can the field hold a list.
 
     Whether the *model* reads every element is deliberately not answered here. A model
-    that will not take what it was sent refuses, for free, and `degrade.py` re-renders
-    one rung down. Guessing high costs an upload; guessing low used to cost the user a
-    capability with nothing on screen to say so.
+    that will not take what it was sent says so in its refusal, which Orb surfaces for
+    the user to act on. Guessing low used to cost the user a capability with nothing on
+    screen to say so.
     """
     for preset in PRESETS:
         capacity = reference_capacity(preset, 4)
@@ -395,8 +395,8 @@ def test_every_reference_encoding_sends_a_data_uri(preset):
     else:
         uri = carried["url"]
     assert uri.startswith("data:image/png;base64,"), preset.id
-    # An edit body is still one image: `n` is the field that multiplies the bill.
-    assert built.body["n"] == 1
+    # An edit body is still one image: `n` multiplies the bill, so it is never asked for.
+    assert "n" not in built.body
 
 
 def test_reference_support_is_asked_of_the_provider_and_never_of_the_model():
