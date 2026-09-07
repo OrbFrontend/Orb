@@ -60,8 +60,8 @@ export function renderLibraryManager(container, callbacks = {}) {
             <label class="lib-manager-toggle">
               <input type="checkbox" id="lib-run-reasoning">
               <span class="lib-manager-toggle-text">
-                <span class="lib-manager-toggle-label">Use thinking</span>
-                <span class="lib-manager-note">Slower, and billed per character. Worth it for a nuanced vocabulary.</span>
+                <span class="lib-manager-toggle-label">Enable tagger thinking</span>
+                <span class="lib-manager-note">Slower and more expensive, but more nuanced results.</span>
               </span>
             </label>
             <div class="lib-manager-actions">
@@ -72,9 +72,6 @@ export function renderLibraryManager(container, callbacks = {}) {
               <div class="lib-progress-track"><div class="lib-progress-fill" id="lib-progress-fill"></div></div>
               <div class="lib-progress-line" id="lib-progress-line"></div>
             </div>
-            <p class="lib-manager-note">
-              Runs while this window is open. Closing it stops there; pressing again resumes.
-            </p>
           </div>
         </div>
       </section>
