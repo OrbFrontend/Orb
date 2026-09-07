@@ -42,7 +42,6 @@ import {
   promptFormatLabel,
   providerTakesReferences,
   sizeChoices,
-  sizeIsExact,
   styleConnectionId,
 } from "./policy.js";
 
@@ -103,11 +102,14 @@ export function initConfigPanel(sharedConfig) {
   registerAction(WORKFLOW_ID, "styleRemove", (el) => removeStyle(Number(el.dataset.styleIndex)));
   registerAction(WORKFLOW_ID, "styleChange", (el) => refreshStyleState(el));
   registerAction(WORKFLOW_ID, "styleConnection", (el) => relinkStyle(el));
+  registerAction(WORKFLOW_ID, "resolutionToggle", (el, event) => toggleResolutionMenu(el, event));
+  registerAction(WORKFLOW_ID, "resolutionPick", (el) => pickResolution(el));
   registerAction(WORKFLOW_ID, "connAdd", () => addConnection());
   registerAction(WORKFLOW_ID, "connRemove", (el) => removeConnection(el.dataset.connId));
   registerAction(WORKFLOW_ID, "connChange", (el) => refreshConnectionState(el));
   registerAction(WORKFLOW_ID, "connTest", (el) => testConnection(el.dataset.connId));
   registerAction(WORKFLOW_ID, "connOpen", (el) => revealConnection(el.dataset.connId));
+  wireResolutionMenus();
   initCharacterProfile();
 }
 
@@ -248,10 +250,136 @@ function sizeOption(value) {
 function resolutionField(style, { preset = null, comfy = false } = {}) {
   const current = styleSize(style).join("x");
   const choices = sizeChoices(preset, comfy);
-  const pairs = choices.map(sizeOption);
-  if (!choices.includes(current))
-    pairs.unshift([current, `${current} (${sizeIsExact(preset, comfy, current) ? "custom" : "not offered"})`]);
-  return `<label>Resolution<select ${styleField("size")}>${optionList(pairs, current)}</select></label>`;
+  const inputId = `ig-size-${style.id}`;
+  const options = choices
+    .map((value) => {
+      const [, label] = sizeOption(value);
+      return `<div class="cb-option" role="option" data-wf-action="image_gen:resolutionPick" data-value="${escAttr(value)}"><span class="cb-option-text">${esc(label)}</span></div>`;
+    })
+    .join("");
+  return `<div class="ig-field"><label for="${escAttr(inputId)}">Resolution</label>
+    <div class="cb-root ig-resolution" data-ig-resolution>
+      <div class="cb-control">
+        <input id="${escAttr(inputId)}" type="text" class="cb-input" ${styleField("size")} value="${escAttr(current)}" placeholder="1024x1024" autocomplete="off" aria-autocomplete="list" aria-controls="${escAttr(inputId)}-list">
+        <button type="button" class="cb-arrow ig-resolution-arrow" data-wf-action="image_gen:resolutionToggle" aria-label="Show resolution presets" aria-expanded="false"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4 6,8 10,4"></polyline></svg></button>
+      </div>
+      <div class="cb-dropdown" hidden><div id="${escAttr(inputId)}-list" class="cb-list" role="listbox">${options}<div class="cb-empty" hidden>No matching resolutions</div></div></div>
+    </div>
+  </div>`;
+}
+
+function resolutionOptions(root) {
+  return [...root.querySelectorAll(".cb-option")].filter((option) => !option.hidden);
+}
+
+function setResolutionMenuOpen(root, open) {
+  root.querySelector(".cb-control")?.classList.toggle("open", open);
+  const dropdown = root.querySelector(".cb-dropdown");
+  if (dropdown) dropdown.hidden = !open;
+  root.querySelector(".ig-resolution-arrow")?.setAttribute("aria-expanded", String(open));
+  if (!open) root.querySelector(".cb-option.active")?.classList.remove("active");
+}
+
+function closeResolutionMenus(except = null) {
+  document.querySelectorAll("[data-ig-resolution]").forEach((root) => {
+    if (root !== except) setResolutionMenuOpen(root, false);
+  });
+}
+
+function filterResolutionMenu(input) {
+  const root = input.closest("[data-ig-resolution]");
+  if (!root) return;
+  const query = input.value.trim().toLowerCase();
+  let visible = 0;
+  root.querySelectorAll(".cb-option").forEach((option) => {
+    option.classList.remove("active");
+    option.hidden = !String(option.dataset.value || "")
+      .toLowerCase()
+      .includes(query);
+    if (!option.hidden) visible += 1;
+  });
+  const empty = root.querySelector(".cb-empty");
+  if (empty) empty.hidden = visible > 0;
+  closeResolutionMenus(root);
+  setResolutionMenuOpen(root, true);
+}
+
+function showAllResolutions(root) {
+  root.querySelectorAll(".cb-option").forEach((option) => {
+    option.hidden = false;
+  });
+  const empty = root.querySelector(".cb-empty");
+  if (empty) empty.hidden = true;
+}
+
+function toggleResolutionMenu(el, event) {
+  event?.preventDefault();
+  const root = el.closest("[data-ig-resolution]");
+  const dropdown = root?.querySelector(".cb-dropdown");
+  if (!root || !dropdown) return;
+  const opening = dropdown.hidden;
+  closeResolutionMenus(root);
+  if (opening) showAllResolutions(root);
+  setResolutionMenuOpen(root, opening);
+  root.querySelector(".cb-input")?.focus();
+}
+
+function pickResolution(el) {
+  const root = el.closest("[data-ig-resolution]");
+  const input = root?.querySelector(".cb-input");
+  if (!root || !input) return;
+  input.value = el.dataset.value || "";
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  setResolutionMenuOpen(root, false);
+  input.focus();
+}
+
+let resolutionMenusWired = false;
+
+function wireResolutionMenus() {
+  if (resolutionMenusWired) return;
+  resolutionMenusWired = true;
+  document.addEventListener("input", (event) => {
+    if (event.target.matches?.("[data-ig-resolution] .cb-input")) filterResolutionMenu(event.target);
+  });
+  document.addEventListener("keydown", (event) => {
+    const input = event.target.closest?.("[data-ig-resolution] .cb-input");
+    if (!input) return;
+    const root = input.closest("[data-ig-resolution]");
+    if (event.key === "Escape") {
+      setResolutionMenuOpen(root, false);
+      return;
+    }
+    if (!["ArrowDown", "ArrowUp"].includes(event.key) && event.key !== "Enter") return;
+    const dropdown = root.querySelector(".cb-dropdown");
+    if (dropdown.hidden) {
+      if (event.key === "Enter") return;
+      showAllResolutions(root);
+      closeResolutionMenus(root);
+      setResolutionMenuOpen(root, true);
+    }
+    const options = resolutionOptions(root);
+    if (!options.length) return;
+    const active = options.findIndex((option) => option.classList.contains("active"));
+    if (event.key === "Enter") {
+      if (active >= 0) {
+        event.preventDefault();
+        pickResolution(options[active]);
+      }
+      return;
+    }
+    event.preventDefault();
+    options.forEach((option) => {
+      option.classList.remove("active");
+    });
+    const next =
+      event.key === "ArrowDown" ? (active + 1) % options.length : (active - 1 + options.length) % options.length;
+    options[next].classList.add("active");
+    options[next].scrollIntoView({ block: "nearest" });
+  });
+  document.addEventListener("mousedown", (event) => {
+    if (!event.target.closest?.("[data-ig-resolution]")) closeResolutionMenus();
+  });
 }
 
 function graphTakesSize(workflowId) {
@@ -320,10 +448,24 @@ function cloudStyleFields(style, connection) {
       ${references}
     </div>
     ${capacityNote}${referenceSizeNote}
+    ${compatibilityFields(style, connection)}
     <div class="image-gen-note ig-style-backend">${
       preset?.dimension_mode === "aspect_ratio" ? "Aspect ratio is chosen automatically from the resolution. " : ""
     }The API key for ${esc(connection.label)} is stored in its connection settings.
       <button type="button" class="ig-link" data-wf-action="image_gen:connOpen" data-conn-id="${escAttr(connection.id)}">Edit connection</button></div>`;
+}
+
+function compatibilityFields(style, connection) {
+  const preset = connection.preset;
+  const seed = preset?.supports_seed
+    ? `<label class="ig-toggle"><input type="checkbox" ${styleField("send_seed")}${style.send_seed === false ? "" : " checked"}><span class="ig-toggle-label">Seed</span></label>
+      <input class="ig-seed-max" ${styleField("seed_max")} inputmode="numeric" value="${escAttr(style.seed_max ?? "")}" placeholder="Max seed (optional)" aria-label="Maximum seed"${style.send_seed === false ? " disabled" : ""}>`
+    : "";
+  const negative = preset?.supports_negative_prompt
+    ? `<label class="ig-toggle"><input type="checkbox" ${styleField("send_negative_prompt")}${style.send_negative_prompt === false ? "" : " checked"}><span class="ig-toggle-label">Negative prompt</span></label>`
+    : "";
+  if (!seed && !negative) return "";
+  return `<details class="ig-advanced ig-compatibility"><summary>Compatibility</summary><div class="ig-compatibility-body">${seed}${negative}</div></details>`;
 }
 
 function negativeNote(connection) {
@@ -374,8 +516,8 @@ function styleRows(expandIds = "") {
 
 function capturedSize(row, style) {
   const [storedW, storedH] = styleSize(style);
-  const [width, height] = String(row.querySelector('[data-ig-field="size"]')?.value ?? "").split("x");
-  return { width: Number(width) || storedW, height: Number(height) || storedH };
+  const match = String(row.querySelector('[data-ig-field="size"]')?.value ?? "").match(/^\s*(\d+)\s*[x×]\s*(\d+)\s*$/i);
+  return { width: Number(match?.[1]) || storedW, height: Number(match?.[2]) || storedH };
 }
 
 function captureStyles() {
@@ -384,6 +526,10 @@ function captureStyles() {
     if (!row) return s;
     const get = (name) => row.querySelector(`[data-ig-field="${name}"]`)?.value ?? "";
     const stored = (name) => row.querySelector(`[data-ig-field="${name}"]`)?.value ?? s[name] ?? "";
+    const enabled = (name) => {
+      const field = row.querySelector(`[data-ig-field="${name}"]`);
+      return field ? field.checked : s[name] !== false;
+    };
     return {
       ...s,
       label: get("label").trim() || s.label || s.id,
@@ -396,6 +542,9 @@ function captureStyles() {
       workflow: stored("workflow"),
       model: stored("model"),
       quality: stored("quality"),
+      send_seed: enabled("send_seed"),
+      seed_max: stored("seed_max"),
+      send_negative_prompt: enabled("send_negative_prompt"),
       reference_source: stored("reference_source"),
       ...capturedSize(row, s),
     };
@@ -446,6 +595,9 @@ function addStyle() {
     width: previous.width || DEFAULT_EDGE,
     height: previous.height || DEFAULT_EDGE,
     quality: previous.quality || "",
+    send_seed: previous.send_seed !== false,
+    seed_max: previous.seed_max ?? "",
+    send_negative_prompt: previous.send_negative_prompt !== false,
     reference_source: styleSource(previous),
   });
   renderStyles(id);
@@ -496,6 +648,10 @@ function refreshStyleState(el) {
     return;
   }
   captureStyles();
+  if (el.dataset.igField === "send_seed") {
+    const maximum = row?.querySelector('[data-ig-field="seed_max"]');
+    if (maximum) maximum.disabled = !el.checked;
+  }
   refreshStyleSummary(row);
 }
 

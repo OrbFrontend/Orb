@@ -113,3 +113,18 @@ test("cloud qualities agree, or the panel offers one the normalizer blanks", () 
   const offered = [...panel.matchAll(/^\s{2}\["(low|medium|high)",/gm)].map((x) => x[1]);
   assert.deepEqual(offered, pyStrTuple(config, "CLOUD_QUALITIES"));
 });
+
+test("resolution keeps its one field while accepting presets or a typed value", () => {
+  assert.match(panel, /class="cb-root ig-resolution"/);
+  assert.match(panel, /class="cb-input" \$\{styleField\("size"\)\}/);
+  assert.match(panel, /image_gen:resolutionPick/);
+  assert.doesNotMatch(panel, /<datalist/);
+  assert.doesNotMatch(panel, /<label>Resolution<select/);
+});
+
+test("compatibility adds only the two optional-field controls", () => {
+  assert.match(panel, />Seed</);
+  assert.match(panel, />Negative prompt</);
+  assert.match(panel, /placeholder="Max seed \(optional\)"/);
+  assert.doesNotMatch(panel, />Send (?:a seed|negative prompts)</);
+});

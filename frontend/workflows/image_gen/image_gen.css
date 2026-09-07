@@ -1,5 +1,6 @@
 .image-gen-settings{display:grid;gap:20px}
 .image-gen-settings label{display:grid;gap:5px}
+.image-gen-settings .ig-field{display:grid;gap:5px}
 .image-gen-settings input,.image-gen-settings select,.image-gen-settings textarea{width:100%}
 .image-gen-settings textarea{min-height:54px;resize:vertical}
 .image-gen-row{display:flex;align-items:center;gap:10px}
@@ -65,6 +66,10 @@
 
 .ig-advanced{border:1px solid var(--border);border-radius:var(--radius);color:var(--text-secondary)}
 .ig-advanced-body{display:grid;gap:10px;padding:10px;border-top:1px solid var(--border)}
+.ig-resolution-arrow{width:auto;border:0;background:transparent;color:inherit}
+.ig-compatibility-body{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;padding:8px 10px;border-top:1px solid var(--border)}
+.ig-compatibility-body .ig-toggle{align-items:center;flex:none}
+.ig-compatibility-body .ig-seed-max{flex:1 1 170px;max-width:260px}
 .image-gen-graph-picker{display:grid;gap:10px}
 .image-gen-graph-picker button{justify-self:start}
 .ig-reference-heading{margin-top:2px}

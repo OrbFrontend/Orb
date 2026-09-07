@@ -140,6 +140,15 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             replay, model=self._model(), width=int(style["width"]), height=int(style["height"])
         )
         quality = replayed_text(replay, "quality", str(style.get("quality") or ""))
+        supports_negative = bool(preset and preset.supports_negative_prompt and style.get("send_negative_prompt") is not False)
+        supports_seed = bool(preset and preset.supports_seed and style.get("send_seed") is not False)
+        raw_seed_max = style.get("seed_max")
+        seed_max = int(raw_seed_max) if isinstance(raw_seed_max, str) and raw_seed_max.isdigit() else None
+        if replay:
+            if isinstance(replay.get("negative_prompt_sent"), bool):
+                supports_negative = bool(preset and preset.supports_negative_prompt and replay["negative_prompt_sent"])
+            if isinstance(replay.get("seed_honored"), bool):
+                supports_seed = bool(preset and preset.supports_seed and replay["seed_honored"])
         notes: list[str] = []
         source = style_reference_source(style)
         if replay:
@@ -181,8 +190,8 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             source=self.source_id,
             target_id="",
             model=model,
-            supports_negative_prompt=bool(preset and preset.supports_negative_prompt),
-            supports_seed=bool(preset and preset.supports_seed),
+            supports_negative_prompt=supports_negative,
+            supports_seed=supports_seed,
             supports_dimensions=bool(preset and preset.dimension_mode != "none"),
             width=width,
             height=height,
@@ -194,6 +203,9 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             reference_source=source,
             reference_capacity=capacity,
             reference_template=template,
+            # A replay already stores the exact seed that rendered. Refitting it to a
+            # ceiling configured later would silently recreate a different image.
+            seed_max=seed_max if not replay else None,
         )
 
     def _client(self, timeout: float) -> OpenAIImageClient:
@@ -299,13 +311,11 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
                 "cfg": None,
                 "sampler": None,
                 "scheduler": None,
-                # The seed this render *sent*, which is not always the one it was
-                # handed: a provider that refuses an oversized seed quotes its range,
-                # and the ladder folds into it and asks again. Record what rendered, so
-                # the number shown next to the image is the one that reproduces it --
-                # the same contract the ComfyUI adapter keeps for a small seed node.
+                # The shared render seam applies the style's explicit ceiling before
+                # this call. Record what rendered so the displayed seed reproduces it.
                 "seed": request.seed if target.supports_seed else None,
                 "seed_honored": target.supports_seed,
+                "negative_prompt_sent": bool(target.supports_negative_prompt and request.negative_prompt.strip()),
                 "cost": image.cost,
                 "references": [reference.record() for reference in request.references],
                 "notes": notes,
@@ -329,7 +339,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         common = {
             "model": model,
             "prompt": request.prompt,
-            "negative_prompt": request.negative_prompt,
+            "negative_prompt": request.negative_prompt if target.supports_negative_prompt else "",
             "seed": request.seed if target.supports_seed else None,
             "width": target.width,
             "height": target.height,

@@ -17,19 +17,6 @@ from backend.workflows.image_gen.config import normalize_config, resolve_style
 from backend.workflows.image_gen.engine import ImageGenerationError, get_adapter
 from backend.workflows.image_gen.references import replay_slots
 
-
-@pytest.fixture(autouse=True)
-def _no_learned_store(monkeypatch):
-    async def recall(_key):
-        return {}
-
-    async def remember(_key, _learned):
-        return None
-
-    monkeypatch.setattr(hooks, "recall", recall)
-    monkeypatch.setattr(hooks, "remember", remember)
-
-
 GRAPH = {
     "0": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
     "s": {"class_type": "KSampler", "inputs": {"seed": 0}},
@@ -240,7 +227,7 @@ async def test_a_two_reference_render_replays_both_origins_byte_identically(monk
 
     captured: dict = {}
 
-    async def fake_generate(_adapter, request, *, target=None, progress=None, known=None):
+    async def fake_generate(_adapter, request, *, target=None, progress=None):
         captured["request"] = request
         return ImageResult(image_bytes=b"rendered", mime="image/webp", backend_info={"source": "external_comfy"})
 
@@ -351,7 +338,7 @@ def _sized_comfy(monkeypatch, request):
     )
     captured: dict = {}
 
-    async def fake_generate(_adapter, request, *, target=None, progress=None, known=None):
+    async def fake_generate(_adapter, request, *, target=None, progress=None):
         captured["target"] = target
         # As the real adapter reports it: read back off the render that executed.
         return ImageResult(
@@ -475,7 +462,7 @@ async def test_a_replay_routes_on_its_own_style_not_the_configs_default(monkeypa
 
     captured: dict = {}
 
-    async def fake_generate(_adapter, request, *, target=None, progress=None, known=None):
+    async def fake_generate(_adapter, request, *, target=None, progress=None):
         captured["target"] = target
         return ImageResult(image_bytes=b"rendered", mime="image/png", backend_info={"notes": []})
 
@@ -539,7 +526,7 @@ def _cloud_reroll(monkeypatch):
     monkeypatch.setattr(refs, "get_workflow_attachment_by_id", by_id)
     captured: dict = {}
 
-    async def fake_generate(_adapter, request, *, target=None, progress=None, known=None):
+    async def fake_generate(_adapter, request, *, target=None, progress=None):
         captured["request"] = request
         captured["target"] = target
         # Mirrors what the real cloud adapter reports about itself, which is the half

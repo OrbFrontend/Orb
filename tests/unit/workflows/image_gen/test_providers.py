@@ -333,9 +333,9 @@ def test_capacity_is_derived_from_the_encoding_and_nobody_maintains_a_count():
     thing that genuinely constrains it -- can the field hold a list.
 
     Whether the *model* reads every element is deliberately not answered here. A model
-    that will not take what it was sent refuses, for free, and `degrade.py` re-renders
-    one rung down. Guessing high costs an upload; guessing low used to cost the user a
-    capability with nothing on screen to say so.
+    that will not take what it was sent says so in its refusal, which Orb surfaces for
+    the user to act on. Guessing low used to cost the user a capability with nothing on
+    screen to say so.
     """
     for preset in PRESETS:
         capacity = reference_capacity(preset, 4)

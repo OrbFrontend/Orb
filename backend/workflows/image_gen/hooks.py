@@ -33,7 +33,6 @@ from .config import (
     normalize_config,
     normalize_profile,
     resolve_style,
-    style_source,
 )
 from .engine import (
     ImageGenerationError,
@@ -45,7 +44,6 @@ from .engine import (
     resolve_and_generate,
 )
 from .engine.contracts import ResolvedReference
-from .learned import recall, remember, target_key
 from .references import (
     plan_slots,
     previous_image,
@@ -149,16 +147,21 @@ def _history_through(history: Sequence[Mapping[str, Any]], message_id: int) -> l
     raise ValueError("that message is not on this conversation's active branch")
 
 
-_REPLAYED_FACTS = ("workflow_id", "backend_model", "width", "height", "quality", "reference_source")
+_REPLAYED_FACTS = (
+    "workflow_id",
+    "backend_model",
+    "width",
+    "height",
+    "quality",
+    "reference_source",
+    "negative_prompt_sent",
+)
 _DISCLOSED_FACTS = ("steps", "cfg", "sampler", "scheduler")
 
 
-async def _rendered(adapter, request, *, config, style, target, progress=None):
-    """Render with learned bounds and persist any new ones."""
-    key = target_key(adapter.source_id, style_source(config, style)[1], target.model)
-    result = await resolve_and_generate(adapter, request, target=target, progress=progress, known=await recall(key))
-    await remember(key, result.backend_info.get("learned"))
-    return result
+async def _rendered(adapter, request, *, target, progress=None):
+    """Render through the shared seam used by fresh images and rerolls."""
+    return await resolve_and_generate(adapter, request, target=target, progress=progress)
 
 
 def _render_record(result, *, source: str) -> dict:
@@ -434,8 +437,6 @@ async def _generate_fresh(
             timeout_seconds=config["timeout_seconds"],
             references=references,
         ),
-        config=config,
-        style=style,
         target=target,
         progress=progress,
     )
@@ -452,8 +453,8 @@ async def _generate_fresh(
     consumption = _consumption(style, prompt, negative, result, md, source_label=adapter.label)
     if unfilled > 0:
         consumption.setdefault("notes", []).append(_unfilled_note(unfilled, len(references)))
-    # `md["references"]` rather than `references`: the ladder above may have dropped some
-    # of what was resolved, and this note is about what the image model was given.
+    # Read the adapter's record rather than the plan: it is the authoritative list of
+    # what the image model was given.
     uncovered = _uncovered_note(addressable, md["references"], len(slots), target.reference_capacity)
     if uncovered:
         consumption.setdefault("notes", []).append(uncovered)
@@ -637,8 +638,6 @@ async def reroll_gen(ctx, params, seed):
             timeout_seconds=config["timeout_seconds"],
             references=references,
         ),
-        config=config,
-        style=style,
         target=target,
     )
     params.update(_render_record(result, source=adapter.source_id))

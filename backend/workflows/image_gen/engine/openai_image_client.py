@@ -17,14 +17,9 @@ from .image_bytes import MAX_IMAGE_BYTES, image_mime
 
 MODEL_NOT_FOUND = "model_not_found"
 
-_UNKNOWN_MODEL_MARKERS = (
+_UNKNOWN_MODEL_CODES = (
     "invalid_model",
     "model_not_found",
-    "unknown model",
-    "invalid image model",
-    "no such model",
-    "does not exist",
-    "unable to access",
 )
 
 _URL_RE = re.compile(r"https?://\S+")
@@ -44,11 +39,6 @@ class CloudImageError(ImageGenerationError):
     def __init__(self, message: str, kind: str = "") -> None:
         super().__init__(message)
         self.kind = kind
-
-
-def _say(named: str, status: int, excerpt: str) -> str:
-    """What Orb can name, the status, and whatever the provider said about it."""
-    return f"{named} (HTTP {status}): {excerpt}" if excerpt else f"{named} (HTTP {status})"
 
 
 @dataclass(frozen=True)
@@ -124,24 +114,8 @@ def _body_text(payload: Any) -> str:
     return _string_leaves(payload)
 
 
-def _upstream(payload: Any) -> str:
-    """Which upstream a *broker* is relaying a refusal from, when it names one.
-
-    OpenRouter routes one model id to several providers and puts whichever answered
-    in `error.metadata.provider_name`. Worth carrying in front of the message: *"User
-    location is not supported for the API use"* reads as Orb or OpenRouter refusing
-    the user until you know Google AI Studio said it -- and that the same catalogue
-    holds models that route elsewhere and work from here. Without it the one
-    actionable fact in the response is the one fact dropped.
-    """
-    error = payload.get("error") if isinstance(payload, Mapping) else None
-    metadata = error.get("metadata") if isinstance(error, Mapping) else None
-    name = metadata.get("provider_name") if isinstance(metadata, Mapping) else None
-    return name if isinstance(name, str) and name else ""
-
-
-def _body_codes(payload: Any) -> str:
-    """Every machine-readable code in an error body, lowercased and joined.
+def _body_codes(payload: Any) -> set[str]:
+    """Every machine-readable code in an error body, lowercased.
 
     Separate from `_body_text` because the two answer different questions: the text
     is what the user is shown, the codes are what the funnel branches on. NanoGPT
@@ -149,14 +123,14 @@ def _body_codes(payload: Any) -> str:
     reading only the human message would leave the branch resting on prose.
     """
     if not isinstance(payload, Mapping):
-        return ""
-    return " ".join(
+        return set()
+    return {
         value.lower()
         for source in (payload, payload.get("error"))
         if isinstance(source, Mapping)
         for key in ("code", "type")
         if isinstance(value := source.get(key), str) and value
-    )
+    }
 
 
 class OpenAIImageClient:
@@ -193,32 +167,22 @@ class OpenAIImageClient:
         """
         return CloudImageError(f"{self.label} {said}", kind)
 
-    def _failure(self, status: int, payload: Any, *, model: str = "") -> CloudImageError:
-        """One provider rejection, named as far as Orb can name it and quoted the
-        rest of the way.
+    def _failure(self, status: int, payload: Any) -> CloudImageError:
+        """Return the provider's sanitized message without interpreting its prose.
 
-        The status code rides every message. It costs nothing, it means the same
-        thing on every provider, and it is what lets a user tell "out of credits"
-        (402) from "model gone" (404) without Orb having to recognise either.
+        Status and machine-readable codes may classify the exception for callers,
+        but they never rewrite the message shown to the user.
         """
-        text = _body_text(payload)
-        lowered = text.lower()
+        excerpt = _scrub(_body_text(payload), self.api_key)
         codes = _body_codes(payload)
-        upstream = _upstream(payload)
-        if upstream and upstream.lower() not in lowered:
-            text = f"{upstream}: {text}"
-        excerpt = _scrub(text, self.api_key)
+        message = excerpt or f"{self.label} returned HTTP {status}"
         if status in (401, 403):
-            return CloudImageError(_say(f"The API key for {self.label} was rejected", status, excerpt), "auth")
-        if status == 404 or any(marker in codes or marker in lowered for marker in _UNKNOWN_MODEL_MARKERS):
-            named = f" the model {model!r}" if model else " that model"
-            return CloudImageError(_say(f"{self.label} does not have{named}", status, excerpt), MODEL_NOT_FOUND)
+            return CloudImageError(message, "auth")
+        if status == 404 or codes.intersection(_UNKNOWN_MODEL_CODES):
+            return CloudImageError(message, MODEL_NOT_FOUND)
         if status >= 500:
-            return CloudImageError(_say(f"{self.label} failed to render this request", status, excerpt), "server")
-        return CloudImageError(
-            _say(f"{self.label} rejected the request", status, excerpt),
-            "rate_limit" if status == 429 else "request",
-        )
+            return CloudImageError(message, "server")
+        return CloudImageError(message, "rate_limit" if status == 429 else "request")
 
     async def _send(
         self,
@@ -227,7 +191,6 @@ class OpenAIImageClient:
         *,
         timeout: float,
         body: Mapping[str, Any] | None = None,
-        model: str = "",
     ) -> Any:
         """One request, decoded, with every failure routed through `_failure`."""
         try:
@@ -238,7 +201,7 @@ class OpenAIImageClient:
                         payload: Any = response.json()
                     except ValueError:
                         payload = response.text
-                    raise self._failure(response.status_code, payload, model=model)
+                    raise self._failure(response.status_code, payload)
                 try:
                     return response.json()
                 except ValueError as exc:
@@ -293,7 +256,7 @@ class OpenAIImageClient:
     ) -> CloudImage:
         """One synchronous generation call. No polling loop -- these APIs answer on
         the same request, so the adapter emits a single progress event at submit."""
-        payload = await self._send("POST", path, timeout=timeout, body=body, model=str(body.get("model") or ""))
+        payload = await self._send("POST", path, timeout=timeout, body=body)
         if not isinstance(payload, Mapping):
             raise self._bad("returned a malformed response")
         entries = payload.get("data")

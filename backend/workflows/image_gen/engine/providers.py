@@ -97,10 +97,9 @@ class ProviderPreset:
     # Deliberately absent: a per-model reference allowlist. It was a hand-measured table
     # over catalogues that grow without us -- NanoGPT alone ships 202 image models -- so
     # it was permanently unfinished, and an unfinished allowlist silently withholds a
-    # capability the user is paying for. A model that will not take what it was sent says
-    # so itself: `engine/degrade.py` reads the refusal and re-renders without it.
-    # Rejections are free on every provider measured, so asking costs latency, not
-    # money.
+    # capability the user is paying for. A model that will not take what it was sent
+    # says so itself; Orb relays that message and the existing reference control lets
+    # the user turn the field off deliberately.
     # True when a reference render takes its size from the reference rather than
     # from the request. An image-to-image model generally follows its input, so the
     # resolution picker silently stops applying the moment references are on.
@@ -289,7 +288,7 @@ PRESETS: tuple[ProviderPreset, ...] = (
         # posted a reference alongside a deliberately invalid `size`, and each got as far
         # as its own size check, which is only reached once the model and the field have
         # been accepted. (`chatgpt-image-latest` 403s on org verification before any of
-        # it, which the refusal ladder degrades on like any other.)
+        # it, and that refusal is shown to the user.)
         supports_references=True,
         # NOT `image: {"url": ...}`. The field is `images` (an array) and its element
         # is `{"image_url": "<data uri>"}`; every other spelling is rejected by name,
@@ -344,9 +343,9 @@ PRESETS: tuple[ProviderPreset, ...] = (
         # bare-string array that carries four references onto `nano-banana` in order,
         # and takes a *single* element just as happily -- so it replaces `image` outright
         # rather than adding a second code path for the multi case. Over-capacity is
-        # refused by name (`IMAGE_INPUT_TOO_MANY`, quoting the model's limit) and the
-        # refusal is free, which is what makes asking cheaper than tabulating: capacity
-        # here is genuinely per-model, from 1 to 14 across the catalogue.
+        # refused by name (`IMAGE_INPUT_TOO_MANY`, quoting the model's limit), so the
+        # remote message identifies the mismatch: capacity here is genuinely per-model,
+        # from 1 to 14 across the catalogue.
         reference_field="imageDataUrls",
         reference_encoding="string_list",
         default_model="cyberrealistic-xl",
@@ -517,8 +516,6 @@ def pixels_for(preset: ProviderPreset, width: int, height: int) -> tuple[int, in
 
     def snap(value: float) -> int:
         stepped = int(round(value / step)) * step
-        # Rounding a 70px edge down to 64 is fine; rounding it to 0 is not, and the
-        # provider would answer with a 400 rather than an image.
         stepped = max(stepped, low)
         return min(stepped, high) if high else stepped
 
@@ -702,8 +699,8 @@ def takes_references(preset: ProviderPreset) -> bool:
     hand-kept allowlist over catalogues that grow without us, and being wrong in the
     withholding direction is invisible: the user configured a likeness, paid for the
     render, and got neither the picture nor a word about it. A model that will not
-    take what it was sent refuses, the refusal is free, and `engine/degrade.py`
-    re-renders without the references and says so.
+    take what it was sent refuses, and the remote message tells the user to adjust
+    the existing reference control.
     """
     return preset.supports_references
 
