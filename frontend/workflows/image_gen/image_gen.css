@@ -6,7 +6,7 @@
 .image-gen-row{display:flex;align-items:center;gap:10px}
 .image-gen-row>.btn{flex:none;white-space:nowrap}
 .image-gen-row>select{min-width:0}
-.image-gen-settings label.ig-toggle{display:flex;align-items:center;gap:8px;cursor:pointer}
+.image-gen-settings label.ig-toggle{display:flex;align-items:center;gap:8px;margin-bottom:0;cursor:pointer}
 .image-gen-settings label.ig-toggle input{width:auto;flex:none}
 .image-gen-settings label.ig-toggle:has(.ig-toggle-body){align-items:flex-start}
 .ig-toggle-body{display:grid;gap:3px}
@@ -25,7 +25,7 @@
 
 .ig-section{display:grid;gap:10px}
 .ig-section>.btn{justify-self:start}
-.image-gen-settings :is(.ig-section,.ig-grid,.ig-style-body,.ig-styles,.ig-conn-list,.ig-conn-body,.ig-profile-fields,.image-gen-graph-picker)>*{min-width:0}
+.image-gen-settings :is(.ig-section,.ig-grid,.ig-style-body,.ig-styles,.ig-drawers,.ig-conn-list,.ig-conn-body,.ig-profile-fields,.image-gen-graph-picker)>*{min-width:0}
 .ig-heading{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);padding-bottom:5px;border-bottom:1px solid var(--border)}
 .ig-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
 .ig-profile-fields{display:grid;gap:10px;margin-bottom:10px}
@@ -65,6 +65,7 @@
 .ig-graph-row{display:flex;align-items:center;gap:10px;justify-content:space-between}
 .ig-graph-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
 
+.ig-drawers{display:grid;gap:6px}
 .ig-advanced{border:1px solid var(--border);border-radius:var(--radius);color:var(--text-secondary)}
 .ig-advanced-body{display:grid;gap:10px;padding:10px;border-top:1px solid var(--border)}
 .ig-resolution-arrow{width:auto;border:0;background:transparent;color:inherit}

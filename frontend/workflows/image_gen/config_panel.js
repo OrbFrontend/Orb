@@ -995,14 +995,6 @@ function openSettings(expandStyleId = "") {
       <div class="ig-styles">${styleRows(expandStyleId)}</div>
       <button class="btn btn-sm" data-wf-action="image_gen:styleAdd">Add style</button>
     </section>
-    <details class="ig-advanced" id="ig-connections"${cardReadiness.ready ? "" : " open"}>
-      <summary>Connections<span class="ig-summary-note" id="ig-conn-summary">${esc(connectionSummaryText())}</span></summary>
-      <div class="ig-advanced-body">
-        <div class="image-gen-note">Where images render. Every style links to a connection, which can be local or cloud-based. ComfyUI is always available and cannot be removed.</div>
-        <div id="ig-conn-list" class="ig-conn-list">${connectionRows(setupTargets())}</div>
-        <div id="ig-conn-add-row" class="image-gen-row">${addRowHtml()}</div>
-      </div>
-    </details>
     ${
       getActiveConvId()
         ? `<section class="ig-section">
@@ -1019,15 +1011,25 @@ function openSettings(expandStyleId = "") {
       <label class="ig-toggle"><input id="ig-scene-analysis" type="checkbox"${cfg.scene_analysis === true ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Analyze complex scenes</span><span class="image-gen-note">More accurate outfits and positions for scenes; one extra model call.</span></span></label>
       <label class="ig-toggle"><input id="ig-prompter-reasoning" type="checkbox"${cfg.prompter_reasoning === true ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Enable prompter thinking</span><span class="image-gen-note">Uses thinking for scene analysis and prompt composition. For best prompt-cache reuse, match Editor reasoning config.</span></span></label>
     </section>
-    <details class="ig-advanced">
-      <summary>Imported ComfyUI workflows<span class="ig-summary-note">${draft.graphs.length || "none"}</span></summary>
-      <div class="ig-advanced-body">
-        <div class="image-gen-note">Import a PNG from ComfyUI or an API-format JSON export. Imported workflows run through ComfyUI and remain available no matter which connection a style uses.</div>
-        <div id="ig-graph-list" class="ig-graph-list">${graphRows()}</div>
-        <input type="file" accept=".json,.png,application/json,image/png" data-wf-action="image_gen:graphFile" data-wf-on="change">
-        <div id="ig-graph-picker"></div>
-      </div>
-    </details>
+    <div class="ig-drawers">
+      <details class="ig-advanced" id="ig-connections"${cardReadiness.ready ? "" : " open"}>
+        <summary>Connections<span class="ig-summary-note" id="ig-conn-summary">${esc(connectionSummaryText())}</span></summary>
+        <div class="ig-advanced-body">
+          <div class="image-gen-note">Where images render. Every style links to a connection, which can be local or cloud-based. ComfyUI is always available and cannot be removed.</div>
+          <div id="ig-conn-list" class="ig-conn-list">${connectionRows(setupTargets())}</div>
+          <div id="ig-conn-add-row" class="image-gen-row">${addRowHtml()}</div>
+        </div>
+      </details>
+      <details class="ig-advanced">
+        <summary>Imported ComfyUI workflows<span class="ig-summary-note">${draft.graphs.length || "none"}</span></summary>
+        <div class="ig-advanced-body">
+          <div class="image-gen-note">Import a PNG from ComfyUI or an API-format JSON export. Imported workflows run through ComfyUI and remain available no matter which connection a style uses.</div>
+          <div id="ig-graph-list" class="ig-graph-list">${graphRows()}</div>
+          <input type="file" accept=".json,.png,application/json,image/png" data-wf-action="image_gen:graphFile" data-wf-on="change">
+          <div id="ig-graph-picker"></div>
+        </div>
+      </details>
+    </div>
   </div><div class="modal-actions"><button class="btn" data-wf-action="image_gen:settingsClose">Close</button><button class="btn btn-accent" id="ig-save" data-wf-action="image_gen:save">Save</button></div>`);
   baseline = JSON.stringify(readConfig());
   setModalCloseGuard(() => !isDirty() || window.confirm(DISCARD_MESSAGE));
