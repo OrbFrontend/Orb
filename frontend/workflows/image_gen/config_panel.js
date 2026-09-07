@@ -488,9 +488,12 @@ function styleBody(style, index, connection) {
       <button class="btn btn-sm ig-danger" data-wf-action="image_gen:styleRemove" data-style-index="${index}">Remove style</button>`;
 }
 
+const CHECKPOINT_EXTENSION = /\.(safetensors|ckpt|sft|pt|gguf)$/i;
+
 function styleTargetBadge(style, connection) {
   if (connection?.source === "cloud") return style.model || connection.preset?.default_model || "";
-  return style.checkpoint || draft.graphs.find((g) => g.id === style.workflow)?.label || "";
+  if (style.checkpoint) return style.checkpoint.replace(CHECKPOINT_EXTENSION, "");
+  return draft.graphs.find((g) => g.id === style.workflow)?.label || "";
 }
 
 function styleSummary(style, connection) {
