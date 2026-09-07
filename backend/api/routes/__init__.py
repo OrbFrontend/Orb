@@ -8,6 +8,7 @@ from . import (
     documents,
     endpoints,
     fragments,
+    library,
     local_ml,
     messages,
     misc,
@@ -36,6 +37,9 @@ ROUTERS = [
     storage.router,
     conversations.router,
     characters.router,
+    # Library-wide maintenance tools. /api/library/* collides with no other
+    # pattern; placed beside characters because it is the same modal's surface.
+    library.router,
     presets.router,
     messages.router,
     workflows.router,

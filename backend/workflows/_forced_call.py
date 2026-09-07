@@ -63,7 +63,7 @@ async def forced_tool_call(
     room (see :func:`~backend.core.agent_lane_max_tokens`), the same floor the
     Director and Editor forced calls apply. ``temperature`` stays a caller
     constant: a forced call fills a schema, so a roleplay preset would only add
-    flourish to it -- the same split ``features.cards._drafting`` documents.
+    flourish to it -- the same split ``inference.drafting`` documents.
     """
     tool = require_tool(tool_name)
     schema = tool["schema"]

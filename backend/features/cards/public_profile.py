@@ -5,8 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, TypedDict
 
-from ...inference import LLMClient
-from ._drafting import BRACES, forced_draft, normalize
+from ...inference import BRACES, LLMClient, forced_draft, normalize
 
 PROFILE_TOOL_NAME = "draft_public_profile"
 
@@ -201,7 +200,19 @@ async def _draft(client: LLMClient, model: str, system: str, user: str) -> Publi
     ``LLMCallError`` propagates untouched — it already carries the provider's own
     sentence, and the routes turn it into a 502 verbatim.
     """
-    args = await forced_draft(client, model, system=system, user=user, tool=DRAFT_PROFILE_TOOL, max_tokens=512)
+    # Thinking pinned off, not left to the endpoint's default. The whole answer
+    # is two phrases under 30 words each, on a fixed 512-token budget that
+    # reasoning is spent from — a thinking model left unpinned can exhaust it
+    # before the tool call and turn a draft the user is waiting on into an error.
+    args = await forced_draft(
+        client,
+        model,
+        system=system,
+        user=user,
+        tool=DRAFT_PROFILE_TOOL,
+        max_tokens=512,
+        reasoning_on=False,
+    )
     if args is None:
         raise ProfileDraftUnavailable("The model did not return a usable profile.")
     return PublicProfileDraft(

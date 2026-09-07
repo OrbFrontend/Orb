@@ -1,12 +1,19 @@
-"""Shared forced-call helpers for card profile and sheet drafts."""
+"""One-shot forced tool call, drained and parsed.
+
+Lives here rather than in the slice that first needed it: draining a forced
+call and parsing its arguments *is* model execution, and the consumers are now
+peers (``features/cards`` drafts profiles and sheets, ``features/library_tags``
+tags the library). A slice may not import a peer slice, so the lowest layer all
+of them reach is the only home that does not fork this into a third copy.
+"""
 
 from __future__ import annotations
 
 import re
 from typing import Any
 
-from ...core import ChatMessage
-from ...inference import LLMClient, parse_tool_calls
+from ..core import ChatMessage
+from .client import LLMClient, parse_tool_calls, reasoning_cfg
 
 _WHITESPACE_RE = re.compile(r"\s+")
 
@@ -27,6 +34,7 @@ async def forced_draft(
     user: str,
     tool: dict[str, Any],
     max_tokens: int,
+    reasoning_on: bool,
 ) -> dict[str, Any] | None:
     """One forced call to *tool*, drained. Returns its arguments, or ``None``.
 
@@ -38,6 +46,18 @@ async def forced_draft(
     ``core.extract_hyperparams``: that path exists for prose the user asked to
     be rewritten and wants their writing preset applied to, while a roleplay
     preset at ``temperature: 1.15`` would embellish a summarization call.
+
+    *reasoning_on* is required, and has no "leave it alone" value on purpose.
+    Sending no reasoning params is *not* the same as sending "off": both
+    transports read an absent hint as thinking ON (``text_completion``'s
+    ``reasoning_enabled`` says so in as many words, and a chat template's default
+    render does the same). So a caller that simply never mentioned reasoning was
+    silently opting into it -- and reasoning is spent from the very
+    ``max_tokens`` the answer needs, so a budget consumed thinking returns no
+    tool call at all, which each caller reports as its own ``*Unavailable``.
+    Every forced call here is a schema to fill, on a budget sized for the answer;
+    making the decision unskippable is what keeps the next call site from
+    inheriting that bug by omission.
     """
     name = tool["function"]["name"]
     messages: list[ChatMessage] = [
@@ -52,6 +72,7 @@ async def forced_draft(
         tool_choice={"type": "function", "function": {"name": name}},
         temperature=0.2,
         max_tokens=max_tokens,
+        **reasoning_cfg(reasoning_on),
     ):
         if event.get("type") == "done":
             response = event.get("message") or {}

@@ -130,6 +130,10 @@ async def test_the_call_is_forced_and_not_at_the_writing_preset():
     call = client.calls[0]
     assert call["tool_choice"] == {"type": "function", "function": {"name": SHEET_TOOL_NAME}}
     assert call["temperature"] == 0.2 and call["max_tokens"] == sheet_reply_budget(SHEET)
+    # Pinned off for the same reason the budget is computed rather than flat:
+    # reasoning comes out of the allowance sized to restate this exact sheet.
+    assert call["chat_template_kwargs"] == {"enable_thinking": False, "thinking": False}
+    assert call["thinking"] == {"type": "disabled"}
 
 
 async def test_the_reply_budget_can_always_restate_the_sheet_it_was_given():

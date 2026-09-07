@@ -5,8 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, TypedDict
 
-from ...inference import LLMClient
-from ._drafting import BRACES, forced_draft, normalize
+from ...inference import BRACES, LLMClient, forced_draft, normalize
 
 SHEET_TOOL_NAME = "update_character_sheet"
 
@@ -174,7 +173,7 @@ async def propose_sheet_update(
     call will invent a change to fill it.
 
     Hyperparameters are hardcoded rather than read from the user's preset — see
-    :func:`._drafting.forced_draft`.
+    :func:`backend.inference.drafting.forced_draft`.
     """
     args = await forced_draft(
         client,
@@ -183,6 +182,12 @@ async def propose_sheet_update(
         user=build_update_message(member_name=member_name, sheet=sheet, transcript=transcript),
         tool=UPDATE_SHEET_TOOL,
         max_tokens=sheet_reply_budget(sheet),
+        # Pinned off for the same reason as the budget itself is computed:
+        # ``sheet_reply_budget`` is sized to restate *this* sheet and little
+        # more, and reasoning comes out of that same allowance. The task is to
+        # carry unchanged sentences forward verbatim, which thinking does not
+        # help and a truncated reply actively breaks.
+        reasoning_on=False,
     )
     if args is None:
         raise SheetUpdateUnavailable("The model did not return a usable sheet update.")
