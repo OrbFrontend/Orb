@@ -37,7 +37,6 @@ import {
   maxCloudReferences,
   normalizePromptFormat,
   PROMPT_FORMATS,
-  pendingDisclosures,
   povChoices,
   promptFormatLabel,
   providerTakesReferences,
@@ -1208,10 +1207,6 @@ function addPendingGraph() {
 
 async function saveSettings() {
   const next = readConfig();
-  if (!confirmRemotePrivacy(next)) {
-    toast("Nothing was saved — approve the connection before generating images", "error");
-    return;
-  }
   const button = document.getElementById("ig-save");
   if (button?.disabled) return;
   if (button) button.disabled = true;
@@ -1236,13 +1231,4 @@ async function saveSettings() {
   } finally {
     if (button) button.disabled = false;
   }
-}
-
-function confirmRemotePrivacy(next) {
-  for (const disclosure of pendingDisclosures(next, connectionList(next, backends.providers))) {
-    if (localStorage.getItem(disclosure.key) === "acknowledged") continue;
-    if (!window.confirm(disclosure.message)) return false;
-    localStorage.setItem(disclosure.key, "acknowledged");
-  }
-  return true;
 }

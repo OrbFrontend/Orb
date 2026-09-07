@@ -56,7 +56,7 @@ and image files. A ComfyUI connection without an imported workflow cannot render
 3. Select **Test connection** to load the provider's models.
 4. Assign the connection to a style.
 5. Choose a model, resolution, and any supported quality or reference-image options.
-6. Select **Save** and accept the privacy confirmation.
+6. Select **Save**.
 
 Testing does not generate an image or charge for one. The provider's model,
 resolution, quality, and reference-image settings belong to the style, so styles

@@ -1,54 +1,3 @@
-export function isLoopbackUrl(apiUrl) {
-  let parsed;
-  try {
-    parsed = new URL(apiUrl);
-  } catch {
-    return true;
-  }
-  const host = parsed.hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
-  return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1";
-}
-
-// Bump this only when a render can upload more image data.
-const IMAGE_DISCLOSURE_VERSION = "-images-v2";
-
-const SENDS_IMAGES =
-  "A reference image is turned on, so images from your conversations are uploaded there too — " +
-  "the character reference photo or card art for the character each picture is of, or the previous " +
-  "image in the chat. ";
-
-export function privacyDisclosure({ source, apiUrl, providerId, providerLabel, sendsImages }) {
-  const scope = sendsImages ? IMAGE_DISCLOSURE_VERSION : "";
-  if (source === "cloud") {
-    const who = providerLabel || providerId || "this provider";
-    const key = `orb:image-gen-privacy-cloud${scope}:${providerId || "unknown"}`;
-    return {
-      key,
-      message:
-        `Your scene prompts will be sent to ${who}, a third-party commercial API. ` +
-        `Each image is billed to your account there, and ${who} may retain what you send under its own ` +
-        "retention policy. " +
-        (sendsImages ? SENDS_IMAGES : "") +
-        "Save this connection?",
-    };
-  }
-  if (isLoopbackUrl(apiUrl)) return null;
-  let origin;
-  try {
-    origin = new URL(apiUrl).origin;
-  } catch {
-    return null;
-  }
-  return {
-    key: `orb:image-gen-privacy${scope}:${origin}`,
-    message:
-      "This ComfyUI server is not on this machine. Your scene prompts leave Orb, other clients may read queued " +
-      "prompts, and generated files remain on that server. " +
-      (sendsImages ? SENDS_IMAGES : "") +
-      "Save this connection?",
-  };
-}
-
 export const COMFY_CONNECTION = "comfy";
 
 export function connectionLabel(id, providers = []) {
@@ -150,11 +99,6 @@ export function maxCloudReferences(preset) {
   return Number.isFinite(declared) && declared >= 1 ? Math.min(declared, MAX_REFERENCE_SLOTS) : 1;
 }
 
-export function sendsReference(style, { graphs = [], source = "", preset = null } = {}) {
-  if (!style?.reference_source) return false;
-  return source === "cloud" ? providerTakesReferences(preset) : graphReferenceSlots(graphs, style?.workflow).length > 0;
-}
-
 export const CLOUD_SIZES = ["1024x1024", "1024x1536", "1536x1024", "1024x1820", "1820x1024"];
 export const COMFY_SIZES = ["512x512", "768x768", "1024x1024", "832x1216", "1216x832", "1024x1536", "1536x1024"];
 
@@ -186,30 +130,6 @@ export function sizeChoices(preset, comfy) {
 
 export function providerTakesReferences(preset) {
   return Boolean(preset?.supports_references);
-}
-
-export function pendingDisclosures(config = {}, connections = []) {
-  const external = config.external_comfy || {};
-  const notices = [];
-  for (const connection of connections) {
-    const linked = stylesOn(config, connection.id);
-    if (!linked.length) continue;
-    const notice = privacyDisclosure({
-      source: connection.source,
-      apiUrl: external.api_url || "",
-      providerId: connection.id,
-      providerLabel: connection.label,
-      sendsImages: linked.some((style) =>
-        sendsReference(style, {
-          graphs: external.user_graphs,
-          source: connection.source,
-          preset: connection.preset,
-        }),
-      ),
-    });
-    if (notice) notices.push(notice);
-  }
-  return notices;
 }
 
 export const PROMPT_FORMATS = [

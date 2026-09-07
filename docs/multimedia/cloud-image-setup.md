@@ -20,7 +20,7 @@ For general image settings, see [Image Generation](image-generation.md).
 7. Choose a **Model** and **Resolution**. Resolution offers known presets and also
    accepts a typed `widthxheight` value. Set **Quality** or **Reference images**
    when the provider supports them.
-8. Select **Save** and accept the privacy confirmation.
+8. Select **Save**.
 
 Testing checks the key and loads the provider's models. It does not generate an
 image or charge for a render.
