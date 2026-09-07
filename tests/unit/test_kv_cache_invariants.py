@@ -759,7 +759,7 @@ async def test_editor_react_iterations_preserve_cached_bottom(reasoning_on):
     default flat mode (``reasoning_on=False``, which rewrites the top two pancakes
     in place) and the append mode (``reasoning_on=True``)."""
     prefix = _make_prefix("You are the editor's bench.", n_pairs=3)
-    writer_user = "<lorebook>\n**Scene Direction**: tense\n\nI strike the anvil."
+    writer_user = "<lorebook>\n**Scene Guidance**: tense\n\nI strike the anvil."
     # Four occurrences → the count can strictly decrease across ≥2 iterations.
     draft = (
         "The shiver ran down her spine. "

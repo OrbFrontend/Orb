@@ -1,7 +1,7 @@
 # Scene Direction
 
 The **Director** is an optional model pass that runs before the Writer. It reads
-the conversation and prepares a **Scene Direction** block with guidance about
+the conversation and prepares a **Scene Guidance** block with guidance about
 mood, pacing, focus, or other details. The Writer sees the block; it is hidden
 from the conversation view and available in the Inspector.
 

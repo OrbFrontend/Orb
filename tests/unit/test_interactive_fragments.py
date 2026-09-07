@@ -369,7 +369,7 @@ class TestBuildStyleInjection:
     def test_deactivated_mood_without_negative_prompt_skipped(self):
         deactivated = [{"id": "grounded", "prompt_text": "Be realistic.", "negative_prompt": ""}]
         result = build_style_injection([], deactivated=deactivated, interactive_fragments=[], extra_fields={})
-        assert result == "**Scene Direction**"
+        assert result == "**Scene Guidance**"
 
     def test_sort_order_respected(self):
         frags = [

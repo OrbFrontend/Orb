@@ -73,7 +73,7 @@ def build_style_injection(
     prior_progressive_state: dict | None = None,
 ) -> str:
     """Render the Scene Direction block for the Writer pass."""
-    parts = ["**Scene Direction**"]
+    parts = ["**Scene Guidance**"]
     for fragment in active:
         parts.append(fragment["prompt_text"])
     for fragment in deactivated or []:
