@@ -439,7 +439,6 @@ SIGNATURE_TABLES = frozenset(
     {
         "character_cards",
         "character_expressions",
-        "character_auto_tags",
         "library_tags",
         "user_personas",
         "conversations",
@@ -540,14 +539,11 @@ def _signature(path: str) -> dict:
                 "SELECT wc.summary, m.content, wc.source_conversation_id, wc.source_character_label "
                 "FROM world_changesets wc LEFT JOIN messages m ON wc.source_assistant_message_id = m.id"
             ),
-            # The library's curated vocabulary and what the tagger assigned from it.
-            # Compared through the card's name, like expressions above, because the
-            # assignment is keyed on a card id the round-trip is free to renumber.
+            # The library's curated vocabulary, plus the tags and tagger stamps
+            # that live on the cards themselves. Compared through the card's name,
+            # like expressions above, because the round-trip is free to renumber ids.
             "library_tags": q("SELECT name, position FROM library_tags"),
-            "auto_tags": q(
-                "SELECT cc.name, at.tags, at.vocab_hash FROM character_auto_tags at "
-                "JOIN character_cards cc ON at.character_card_id = cc.id"
-            ),
+            "auto_tags": q("SELECT name, tags, auto_tag_vocab_hash, auto_tag_card_updated_at FROM character_cards"),
             "personas": q("SELECT name, description FROM user_personas"),
             "phrase_bank": q("SELECT variants, kind, pattern FROM phrase_bank"),
             "fragments": q("SELECT id, label FROM mood_fragments"),
@@ -644,13 +640,13 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
             "INSERT INTO documents (id, title, content, generated_spans, created_at, updated_at) "
             "VALUES ('doc-1', 'Draft', 'once upon a time', '[[10,16]]', '2026-01-01', '2026-01-01')"
         )
-        # The library's tag vocabulary and one card's auto-tag assignment: a root
-        # in the characters domain plus a cascade child keyed on a card id, so the
-        # round-trip has to carry both and rewrite the reference.
+        # The library's tag vocabulary plus one card carrying a tagger answer: a
+        # root in the characters domain whose names the cards' own tags column
+        # references, so the round-trip has to carry both halves.
         seed.execute("INSERT INTO library_tags (name, position) VALUES ('Fantasy', 0), ('Romance', 1)")
         seed.execute(
-            "INSERT INTO character_auto_tags (character_card_id, tags, vocab_hash, card_updated_at, tagged_at) "
-            "VALUES (?, '[\"Fantasy\"]', 'hash-1', '2026-01-01', '2026-01-01')",
+            "UPDATE character_cards SET tags = '[\"Fantasy\"]', auto_tag_vocab_hash = 'hash-1', "
+            "auto_tag_card_updated_at = '2026-01-01' WHERE id = ?",
             (locked,),
         )
         seed.commit()
@@ -684,8 +680,8 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
     after = _signature(path)
     assert after == before, {k: (before[k], after[k]) for k in before if before[k] != after[k]}
     # "characters" sums the row counts of every root in the domain: two cards plus
-    # the two curated vocabulary tags (character_auto_tags rides along as a cascade
-    # child and is not counted, the same as character_expressions).
+    # the two curated vocabulary tags (character_expressions rides along as a
+    # cascade child and is not counted).
     assert summary["chats"] == 1 and summary["characters"] == 4 and summary["configs"] == 1
 
     # And the committed state has no dangling foreign keys.

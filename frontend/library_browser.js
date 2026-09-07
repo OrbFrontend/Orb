@@ -1,6 +1,6 @@
 import { api } from "./api.js";
-import { _avatarBust, showCharEditModal } from "./library.js";
-import { matchesFilter, tagsAttrFor } from "./library_filter.js";
+import { _avatarBust, loadCharacters, showCharEditModal } from "./library.js";
+import { matchesFilter, tagsAttrFor, topTags } from "./library_filter.js";
 import { renderLibraryManager } from "./library_manager.js";
 import { setModalCloseCallback, showModal } from "./modal.js";
 import { charactersView, S } from "./state.js";
@@ -33,9 +33,7 @@ let _browserSortBy = "time-added"; // name, time-added, most-recent-chat, or mos
 let _browserConversations = [];
 let _browserLoading = false; // true while the cache is loading
 const _browserSelectedTags = new Set();
-let _browserTopTags = []; // the chip row: the curated vocabulary, or derived
-let _browserVocabulary = []; // the user's curated tags, empty until they add some
-let _browserAssignments = {}; // card id -> auto-assigned tags
+let _browserTopTags = []; // the chip row: the library's most-used tags
 let _filterApplied = false;
 
 let _openToken = 0;
@@ -43,6 +41,12 @@ let _openToken = 0;
 let _hydration = null;
 
 const BROWSER_CHUNK = 60;
+
+// How many chips the tag row shows. Enough to be a useful shortcut into a large
+// library, few enough to stay one wrapped row in a 600px modal. The ranking
+// itself is in library_filter.js, beside the predicate whose case-folding it
+// has to agree with.
+const TOP_TAGS = 15;
 
 const IDLE_RESERVE_MS = 8;
 
@@ -103,13 +107,6 @@ export async function showCharacterBrowserModal() {
   wireBrowserChrome();
   renderCharacterBrowser();
 
-  // The vocabulary is fetched on every open, even when the card cache is warm:
-  // a run may have finished since, and it is one small request.
-  const tagState = api.get("/library/tags").catch((e) => {
-    console.error("Failed to load library tags:", e);
-    return null;
-  });
-
   let characters = _browserCharacters;
   let conversations = _browserConversations;
   if (_browserLoading) {
@@ -121,7 +118,6 @@ export async function showCharacterBrowserModal() {
       conversations = [];
     }
   }
-  applyTagState(await tagState);
   if (token !== _openToken) return;
   _browserLoading = false;
   _browserCharacters = characters;
@@ -133,13 +129,6 @@ export async function showCharacterBrowserModal() {
   const tagsEl = $("char-browser-tags");
   if (tagsEl) tagsEl.innerHTML = browserTagsHtml();
   renderCharacterBrowser();
-}
-
-/** Adopt a ``GET /library/tags`` payload. Tolerates a failed fetch. */
-function applyTagState(state) {
-  if (!state) return;
-  _browserVocabulary = Array.isArray(state.vocabulary) ? state.vocabulary : [];
-  _browserAssignments = state.assignments && typeof state.assignments === "object" ? state.assignments : {};
 }
 
 function browserCountLabel() {
@@ -196,20 +185,29 @@ function renderManagerPanel() {
   const container = $("char-browser-content");
   if (!container) return;
   _hydration = null;
-  renderLibraryManager(container, { onVocabularyChange: applyTagState, onRunComplete: refreshAfterRun });
+  renderLibraryManager(container, { onRunComplete: refreshAfterRun });
 }
 
-/** Re-read the tag state after a run and repaint everything that shows tags. */
+/** Re-read the cards after a run and repaint everything that shows tags.
+ *
+ * The card cache is what went stale: a run rewrote ``tags`` on every card it
+ * touched, and the sidebar reads the same cache, so this reloads it rather than
+ * patching the browser's private copy. */
 async function refreshAfterRun() {
   try {
-    applyTagState(await api.get("/library/tags"));
+    await loadCharacters();
   } catch (e) {
-    console.error("Failed to refresh library tags:", e);
+    console.error("Failed to refresh characters after tagging:", e);
     return;
   }
+  _browserCharacters = charactersView();
   computeTopTags();
+  reconcileSelectedTags();
   const tagsEl = $("char-browser-tags");
   if (tagsEl) tagsEl.innerHTML = browserTagsHtml();
+  // No re-render: the Manager tab owns the content area while a run is on, and
+  // repainting it here would remount the panel out from under its own callback.
+  // Switching back to a card view renders from the refreshed cache.
 }
 
 function setCharBrowserView(mode) {
@@ -264,42 +262,24 @@ function toggleTagSelection(tag) {
   applyBrowserFilter();
 }
 
-/** The chip row: the curated vocabulary when there is one, else the old
- * derivation from whatever the imported cards happened to carry.
- *
- * The fallback is what keeps the library unchanged until the user opts in.
- * The derived row is a frequency count over importer noise — that is the
- * problem the Manager tab exists to fix, not a behaviour to take away from
- * someone who has not used it yet.
- */
 function computeTopTags() {
-  if (_browserVocabulary.length) {
-    _browserTopTags = [..._browserVocabulary];
-    return;
-  }
-  const counts = new Map();
-  for (const c of _browserCharacters) {
-    const tags = c.tags || [];
-    for (const tag of tags) {
-      counts.set(tag, (counts.get(tag) || 0) + 1);
-    }
-  }
-  const sorted = Array.from(counts.entries()).sort((a, b) => {
-    if (b[1] !== a[1]) return b[1] - a[1];
-    return a[0].localeCompare(b[0]);
-  });
-  _browserTopTags = sorted.slice(0, 15).map((entry) => entry[0]);
+  _browserTopTags = topTags(
+    _browserCharacters.map((c) => c.tags),
+    TOP_TAGS,
+  );
 }
 
-/** A card's own tags plus whatever the tagger assigned it.
+/** Keep the selection pointing at chips that still exist.
  *
- * Merged here rather than joined in ``list_character_cards``: that query also
- * feeds the sidebar, group setup and personas, and a LEFT JOIN there would make
- * removing this feature a surgery on the shared card query and its row model.
- */
-function mergedTagsFor(c) {
-  const auto = _browserAssignments[c.id];
-  return auto?.length ? [...(c.tags || []), ...auto] : c.tags || [];
+ * A run rewrites tags, so the recomputed row can drop a chip that is still
+ * selected — which would go on hiding cards with nothing on screen to explain
+ * it — or keep the tag under a different spelling than the one that was
+ * clicked, leaving the chip looking unselected while it filters. */
+function reconcileSelectedTags() {
+  const byKey = new Map(_browserTopTags.map((tag) => [tag.toLowerCase(), tag]));
+  const kept = [..._browserSelectedTags].map((tag) => byKey.get(tag.toLowerCase())).filter(Boolean);
+  _browserSelectedTags.clear();
+  for (const tag of kept) _browserSelectedTags.add(tag);
 }
 
 function computeConversationStats() {
@@ -441,7 +421,7 @@ function flushHydration() {
 }
 
 function charItemMatchAttrs(c) {
-  return `data-char-item data-name="${escAttr((c.name || "").toLowerCase())}" data-tags="${escAttr(tagsAttrFor(mergedTagsFor(c)))}"`;
+  return `data-char-item data-name="${escAttr((c.name || "").toLowerCase())}" data-tags="${escAttr(tagsAttrFor(c.tags || []))}"`;
 }
 
 function renderCharBrowserCard(c) {
@@ -457,8 +437,8 @@ function renderCharBrowserCard(c) {
 function renderCharBrowserListItem(c) {
   const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : "";
   const av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "", { attrs: 'loading="lazy"' });
-  const merged = mergedTagsFor(c);
-  const notes = c.creator_notes || (merged.length ? merged.slice(0, 6).join(", ") : "");
+  const cardTags = c.tags || [];
+  const notes = c.creator_notes || (cardTags.length ? cardTags.slice(0, 6).join(", ") : "");
   const tags = notes ? `<div class="char-browser-list-tags">${esc(notes)}</div>` : "";
   return `
     <div class="char-browser-list-item" ${charItemMatchAttrs(c)} onclick="selectChar('${c.id}', 'library');closeModal()">

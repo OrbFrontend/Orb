@@ -6,7 +6,7 @@
 // card already reads as one of several.
 //
 // It imports no chat module and not the browser it is mounted into: the browser
-// hands it a container and two callbacks, so there is no cycle.
+// hands it a container and a callback, so there is no cycle.
 
 import { api } from "./api.js";
 import { createChipInput } from "./chips.js";
@@ -24,9 +24,10 @@ let _callbacks = {};
 
 /** Mount the Manager panel into *container*.
  *
- * *onVocabularyChange* receives each fresh ``/library/tags`` payload so the
- * browser's chip row and filter stay in step; *onRunComplete* fires once a run
- * terminates, so the cards themselves get repainted.
+ * *onRunComplete* fires once a run terminates, so the card cache the run just
+ * rewrote gets reloaded. The vocabulary needs no callback of its own: it is the
+ * tagger's input, and the browser's chip row is counted off the cards a run
+ * writes, so saving one changes nothing outside this panel until a run happens.
  */
 export function renderLibraryManager(container, callbacks = {}) {
   _callbacks = callbacks;
@@ -40,8 +41,8 @@ export function renderLibraryManager(container, callbacks = {}) {
           <div class="lib-tool-heading">
             <h3 class="lib-tool-name">Auto-tagging</h3>
             <p class="lib-manager-note">
-              The Agent model reads every character and applies the tags that fit.
-              Imported tags are left untouched.
+              The Agent model reads every character and replaces its tags with the
+              ones that fit. Tags a card was imported with are overwritten.
             </p>
           </div>
         </header>
@@ -122,7 +123,6 @@ function adopt(state) {
   _vocabulary = Array.isArray(state?.vocabulary) ? state.vocabulary : [];
   _total = Number(state?.total) || 0;
   _pending = Number(state?.pending) || 0;
-  _callbacks.onVocabularyChange?.(state);
 }
 
 /** Repaint the counts and the run button. The button's label *is* the

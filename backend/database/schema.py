@@ -118,7 +118,9 @@ CREATE TABLE IF NOT EXISTS character_cards (
     updated_at TEXT NOT NULL,
     workflow_state TEXT DEFAULT NULL,
     persona_lock_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL,
-    extensions TEXT DEFAULT NULL
+    extensions TEXT DEFAULT NULL,
+    auto_tag_vocab_hash TEXT NOT NULL DEFAULT '',
+    auto_tag_card_updated_at TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS character_expressions (
@@ -381,14 +383,6 @@ CREATE TABLE IF NOT EXISTS documents (
 CREATE TABLE IF NOT EXISTS library_tags (
     name TEXT PRIMARY KEY,
     position INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS character_auto_tags (
-    character_card_id TEXT PRIMARY KEY REFERENCES character_cards(id) ON DELETE CASCADE,
-    tags TEXT NOT NULL DEFAULT '[]',
-    vocab_hash TEXT NOT NULL,
-    card_updated_at TEXT NOT NULL,
-    tagged_at TEXT NOT NULL
 );
 
 """

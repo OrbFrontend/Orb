@@ -53,6 +53,11 @@ async def _vocab(client, names: list[str]) -> dict:
     return (await client.put("/api/library/tags", json={"vocabulary": names})).json()
 
 
+async def _tags(client, card_id: str) -> list[str]:
+    """A card's tags as the rest of the app sees them — there is only one list."""
+    return (await client.get(f"/api/characters/{card_id}")).json()["tags"]
+
+
 async def _run(client, llm_mock, answers: list[list[str]] | None = None, **body) -> list[dict]:
     """Drive one full run, queuing *answers* (one per expected call)."""
     for tags in answers or []:
@@ -70,7 +75,7 @@ def _auto_tag_calls(llm_mock) -> int:
 
 
 async def test_a_run_tags_every_card_and_a_second_run_costs_nothing(client, llm_mock):
-    await _cards(client, "Lira", "Rook", "Zara")
+    ids = await _cards(client, "Lira", "Rook", "Zara")
     state = await _vocab(client, ["Fantasy", "Romance"])
     assert state["pending"] == 3 and state["total"] == 3
 
@@ -79,12 +84,11 @@ async def test_a_run_tags_every_card_and_a_second_run_costs_nothing(client, llm_
     assert json.loads(done[0]["data"]) == {"tagged": 3, "failed": 0}
     assert _auto_tag_calls(llm_mock) == 3
 
-    state = (await client.get("/api/library/tags")).json()
-    assert state["pending"] == 0
-    assert len(state["assignments"]) == 3
-    # The empty answer was stored, not skipped — otherwise that card is pending
-    # forever and re-billed on every run.
-    assert sorted(state["assignments"].values(), key=len) == [[], ["Fantasy"], ["Fantasy", "Romance"]]
+    assert (await client.get("/api/library/tags")).json()["pending"] == 0
+    # Newest card first, so the answers land in reverse creation order. The empty
+    # one was stored, not skipped — otherwise that card is pending forever and
+    # re-billed on every run.
+    assert [await _tags(client, cid) for cid in ids] == [[], ["Fantasy", "Romance"], ["Fantasy"]]
 
     # Second press: nothing pending, so nothing reaches the model.
     events = await _run(client, llm_mock)
@@ -102,8 +106,8 @@ async def test_a_new_card_is_the_only_pending_one(client, llm_mock):
 
     await _run(client, llm_mock, [["Fantasy"]])
     assert _auto_tag_calls(llm_mock) == 2
-    state = (await client.get("/api/library/tags")).json()
-    assert state["pending"] == 0 and new_id in state["assignments"]
+    assert (await client.get("/api/library/tags")).json()["pending"] == 0
+    assert await _tags(client, new_id) == ["Fantasy"]
 
 
 async def test_editing_a_card_makes_exactly_that_card_pending(client, llm_mock):
@@ -111,24 +115,24 @@ async def test_editing_a_card_makes_exactly_that_card_pending(client, llm_mock):
     await _vocab(client, ["Fantasy", "Romance"])
     await _run(client, llm_mock, [["Fantasy"], ["Fantasy"]])
 
-    # updated_at is the content fingerprint: only the PUT route writes it, and a
-    # tagging run writes to a different table, so an edit is the one thing that
-    # can invalidate a card's tags.
+    # updated_at is the content fingerprint: only the PUT route writes it — a
+    # tagging run writes tags and its two stamps but deliberately leaves
+    # updated_at alone — so an edit is the one thing that can invalidate a card's
+    # tags. A run that bumped it would make every card it just tagged pending.
     await client.put(f"/api/characters/{lira}", json={"description": "Lira has taken up the sword."})
     assert (await client.get("/api/library/tags")).json()["pending"] == 1
 
     await _run(client, llm_mock, [["Fantasy", "Romance"]])
     assert _auto_tag_calls(llm_mock) == 3
-    state = (await client.get("/api/library/tags")).json()
-    assert state["pending"] == 0
-    assert state["assignments"][lira] == ["Fantasy", "Romance"]
-    assert state["assignments"][rook] == ["Fantasy"]
+    assert (await client.get("/api/library/tags")).json()["pending"] == 0
+    assert await _tags(client, lira) == ["Fantasy", "Romance"]
+    assert await _tags(client, rook) == ["Fantasy"]
 
 
 async def test_deleting_a_tag_strips_it_everywhere_with_no_model_calls(client, llm_mock):
-    await _cards(client, "Lira", "Rook")
+    lira, rook = await _cards(client, "Lira", "Rook")
     await _vocab(client, ["Fantasy", "Romance"])
-    await _run(client, llm_mock, [["Fantasy", "Romance"], ["Romance"]])
+    await _run(client, llm_mock, [["Romance"], ["Fantasy", "Romance"]])
     assert _auto_tag_calls(llm_mock) == 2
 
     state = await _vocab(client, ["Fantasy"])
@@ -136,8 +140,25 @@ async def test_deleting_a_tag_strips_it_everywhere_with_no_model_calls(client, l
     # was never offered, so every stored answer is still correct.
     assert state["vocabulary"] == ["Fantasy"]
     assert state["pending"] == 0
-    assert sorted(state["assignments"].values()) == [[], ["Fantasy"]]
+    assert await _tags(client, lira) == ["Fantasy"]
+    assert await _tags(client, rook) == []
     assert _auto_tag_calls(llm_mock) == 2
+
+
+async def test_deleting_a_tag_leaves_an_untagged_card_alone(client, llm_mock):
+    """Pruning is scoped to cards a run has written.
+
+    A card the tagger has never touched still carries whatever it was imported
+    with, and removing a vocabulary name that happens to collide with one of
+    those must not reach in and delete it.
+    """
+    r = await client.post("/api/characters", json={"name": "Lira", "tags": ["Fantasy", "tavern"]})
+    card_id = r.json()["id"]
+    await _vocab(client, ["Fantasy", "Romance"])
+    await _vocab(client, ["Romance"])
+
+    assert await _tags(client, card_id) == ["Fantasy", "tavern"]
+    assert _auto_tag_calls(llm_mock) == 0
 
 
 async def test_reordering_the_vocabulary_costs_nothing(client, llm_mock):
@@ -149,6 +170,29 @@ async def test_reordering_the_vocabulary_costs_nothing(client, llm_mock):
     assert state["vocabulary"] == ["Romance", "Fantasy"]
     assert state["pending"] == 0
     assert _auto_tag_calls(llm_mock) == 1
+
+
+# Reordering the vocabulary rewrites the system prompt, so the second run's
+# prefix legitimately differs from the first's — the same class as
+# ``test_adding_a_tag_makes_every_card_pending`` below. Within each run the
+# prefix is still constant.
+@pytest.mark.kv_divergence_expected
+async def test_a_reorder_does_not_mark_an_untagged_card_current(client, llm_mock):
+    """The hash bump restamps tagged cards only.
+
+    Restamping every row would mark a card that was never sent to the model as
+    up to date against the new vocabulary, and it would never be tagged.
+    """
+    await _cards(client, "Lira", "Rook")
+    await _vocab(client, ["Fantasy", "Romance"])
+    await _run(client, llm_mock, [["Fantasy"], ["Romance"]])
+
+    (untagged,) = await _cards(client, "Zara")
+    assert (await _vocab(client, ["Romance", "Fantasy"]))["pending"] == 1
+
+    await _run(client, llm_mock, [["Romance"]])
+    assert _auto_tag_calls(llm_mock) == 3
+    assert await _tags(client, untagged) == ["Romance"]
 
 
 # Two runs against two different vocabularies, so the run's shared prefix
@@ -174,8 +218,8 @@ async def test_a_mid_run_failure_keeps_earlier_work_and_leaves_that_card_pending
     await _cards(client, "Lira", "Rook", "Zara")
     await _vocab(client, ["Fantasy"])
 
-    # An answer with no tool call: the endpoint replied, but not with tags. No
-    # row is written, so the card stays pending and the next press retries it.
+    # An answer with no tool call: the endpoint replied, but not with tags.
+    # Nothing is written, so the card stays pending and the next press retries it.
     llm_mock.enqueue_auto_tag(_tag_call(["Fantasy"]))
     llm_mock.enqueue_auto_tag([])
     llm_mock.enqueue_auto_tag(_tag_call([]))
@@ -184,7 +228,7 @@ async def test_a_mid_run_failure_keeps_earlier_work_and_leaves_that_card_pending
     assert [e["event"] for e in events if e["event"] == "card_error"] == ["card_error"]
     assert json.loads([e for e in events if e["event"] == "done"][0]["data"]) == {"tagged": 2, "failed": 1}
 
-    async with db.execute("SELECT COUNT(*) AS n FROM character_auto_tags") as cur:
+    async with db.execute("SELECT COUNT(*) AS n FROM character_cards WHERE auto_tag_vocab_hash != ''") as cur:
         assert (await cur.fetchone())["n"] == 2
     assert (await client.get("/api/library/tags")).json()["pending"] == 1
 
@@ -216,24 +260,26 @@ async def test_a_run_with_no_vocabulary_is_refused_before_any_call(client, llm_m
 # ── Storage ──────────────────────────────────────────────────────────────────
 
 
-async def test_deleting_a_card_cascades_its_auto_tags(client, llm_mock, db):
+async def test_a_run_writes_the_cards_own_tags_column(client, llm_mock, db):
+    """One store, not two: the tagger writes the column every other reader uses."""
     (card_id,) = await _cards(client, "Lira")
     await _vocab(client, ["Fantasy"])
     await _run(client, llm_mock, [["Fantasy"]])
 
-    await client.delete(f"/api/characters/{card_id}")
-    async with db.execute("SELECT COUNT(*) AS n FROM character_auto_tags WHERE character_card_id = ?", (card_id,)) as cur:
-        assert (await cur.fetchone())["n"] == 0
+    async with db.execute("SELECT tags, auto_tag_vocab_hash FROM character_cards WHERE id = ?", (card_id,)) as cur:
+        row = await cur.fetchone()
+    assert json.loads(row["tags"]) == ["Fantasy"]
+    assert row["auto_tag_vocab_hash"]
 
 
-async def test_imported_card_tags_are_never_touched(client, llm_mock, db):
+async def test_tagging_a_card_overwrites_the_tags_it_was_imported_with(client, llm_mock):
+    """The accepted cost of one tag store. Importer noise is what the vocabulary replaces."""
     r = await client.post("/api/characters", json={"name": "Lira", "tags": ["TAVERN", "anypov"]})
     card_id = r.json()["id"]
     await _vocab(client, ["Fantasy"])
     await _run(client, llm_mock, [["Fantasy"]])
 
-    async with db.execute("SELECT tags FROM character_cards WHERE id = ?", (card_id,)) as cur:
-        assert json.loads((await cur.fetchone())["tags"]) == ["TAVERN", "anypov"]
+    assert await _tags(client, card_id) == ["Fantasy"]
 
 
 async def test_the_vocabulary_is_normalized_on_save(client):

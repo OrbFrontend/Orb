@@ -1,14 +1,13 @@
-"""Add the Character Library's curated tag vocabulary and its auto-tag store.
-
-Both tables belong to the auto-tagger and nothing else reads them, so they are
-created here rather than bolted onto ``character_cards``: an imported card's own
-``tags`` column is never touched by a tagging run, and removing the feature is a
-matter of dropping these two tables.
+"""Add the Character Library's curated tag vocabulary.
 
 ``table_create_sql`` sources the DDL from ``schema.py`` so an upgraded database
-gets byte-identical shapes to a fresh install (the equivalence gate in
+gets a byte-identical shape to a fresh install (the equivalence gate in
 ``test_migration_chain_completeness``). ``CREATE TABLE IF NOT EXISTS`` makes the
-whole migration idempotent without a ``PRAGMA table_info`` guard.
+migration idempotent without a ``PRAGMA table_info`` guard.
+
+This originally also created a ``character_auto_tags`` side table holding the
+tagger's answers. 0059 folds those into ``character_cards.tags`` and drops it, so
+there is nothing left here to create — see that migration for the reasoning.
 """
 
 from __future__ import annotations
@@ -19,8 +18,7 @@ from ..schema import table_create_sql
 
 
 def migrate(conn: sqlite3.Connection) -> None:
-    for table in ("library_tags", "character_auto_tags"):
-        existed = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
-        conn.execute(table_create_sql(table))
-        if not existed:
-            print(f"[migrations] 0058: created {table}")
+    existed = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='library_tags'").fetchone()
+    conn.execute(table_create_sql("library_tags"))
+    if not existed:
+        print("[migrations] 0058: created library_tags")

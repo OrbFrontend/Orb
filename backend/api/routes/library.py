@@ -1,9 +1,9 @@
 """Library-wide maintenance: the curated tag vocabulary and the auto-tag run.
 
 Deliberately not part of the conversation plumbing. The run is a batch job over
-the card table with its own storage, its own prefix, and its own single-flight
-lock — no conversation id, no pipeline import, nothing registered in the shared
-tool catalog. See ``features/library_tags`` for the same standing constraint.
+the card table with its own prefix and its own single-flight lock — no
+conversation id, no pipeline import, nothing registered in the shared tool
+catalog. See ``features/library_tags`` for the same standing constraint.
 """
 
 from __future__ import annotations
@@ -15,17 +15,16 @@ from fastapi import APIRouter, Request
 
 from ...core import agent_lane_max_tokens, scrub_log
 from ...database import (
+    apply_auto_tags,
     bump_auto_tag_vocab_hash,
     count_library_cards,
     count_pending_auto_tags,
-    get_auto_tag_assignments,
     get_character_card,
     get_settings,
     get_vocabulary,
     list_pending_auto_tag_ids,
     prune_auto_tags,
     set_vocabulary,
-    upsert_auto_tags,
 )
 from ...features.library_tags import (
     AutoTagUnavailable,
@@ -64,19 +63,17 @@ _MAX_TOKENS_FLOOR = 512
 
 
 async def _tag_state() -> dict:
-    """The one shape both the Manager panel and the library filter read.
+    """The one shape both the Manager panel and the library browser read.
 
-    One endpoint for both because they are one fact: the panel needs the counts
-    to label its button, and the browser needs the vocabulary and the assignments
-    to build its chip row and its filter. Splitting them would cost the modal a
-    second round trip to learn the same thing.
+    The vocabulary is here because the browser builds its chip row from it. The
+    assignments are not: a run writes ``character_cards.tags``, so the card list
+    the browser already has is the only tag source there is.
     """
     vocabulary = await get_vocabulary()
     return {
         "vocabulary": vocabulary,
         "total": await count_library_cards(),
         "pending": await count_pending_auto_tags(vocabulary_hash(vocabulary)),
-        "assignments": await get_auto_tag_assignments(),
     }
 
 
@@ -90,9 +87,10 @@ async def api_put_library_tags(data: LibraryTagVocabulary):
     """Persist the vocabulary and turn the diff into exactly the right work.
 
     Deleting a tag is free: no card can have gained a tag it was never offered,
-    so the stored answers stay correct once the deleted name is stripped, and the
-    hash bump marks them current. Adding one leaves every row on its old hash,
-    which is what makes every card pending — a full re-pass, as it must be.
+    so the stored answers stay correct once the deleted name is stripped from the
+    cards the tagger wrote, and the hash bump marks them current. Adding one
+    leaves every card on its old hash, which is what makes every card pending —
+    a full re-pass, as it must be.
     """
     old = await get_vocabulary()
     new = normalize_vocabulary(data.vocabulary)
@@ -153,7 +151,7 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
                 if abort_token.is_aborted:
                     return
                 card = await get_character_card(card_id)
-                if card is None:  # deleted mid-run; its row cascaded away with it
+                if card is None:  # deleted mid-run
                     continue
                 try:
                     tags = await tag_card(
@@ -167,9 +165,9 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
                         reasoning_on=data.reasoning,
                     )
                 except (AutoTagUnavailable, LLMCallError) as e:
-                    # No row is written, so the card stays pending and the next
-                    # run retries it. Non-fatal: one bad card must not end a run
-                    # the user is watching make progress.
+                    # Nothing is written, so the card keeps its old tags, stays
+                    # pending, and the next run retries it. Non-fatal: one bad
+                    # card must not end a run the user is watching make progress.
                     failed += 1
                     consecutive += 1
                     logger.warning("Auto-tag failed for card %s: %s", scrub_log(card_id), e)
@@ -186,7 +184,7 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
                     continue
 
                 consecutive = 0
-                await upsert_auto_tags(card_id, tags, vocab_hash, str(card.get("updated_at") or ""))
+                await apply_auto_tags(card_id, tags, vocab_hash, str(card.get("updated_at") or ""))
                 tagged += 1
                 yield {
                     "event": "progress",

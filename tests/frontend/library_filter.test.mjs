@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { matchesFilter, tagsAttrFor } from "../../frontend/library_filter.js";
+import { matchesFilter, tagsAttrFor, topTags } from "../../frontend/library_filter.js";
 
 test("tagsAttrFor delimits and lowercases", () => {
   assert.equal(tagsAttrFor(["Fantasy", "Romance"]), "|fantasy|romance|");
@@ -81,4 +81,53 @@ test("more than 31 tags still filter correctly", () => {
 test("tag matching is not confused by numeric prefixes", () => {
   // |tag4| must not match |tag40|, the same class as elf/self.
   assert.ok(!matchesFilter("lira", tagsAttrFor(["Tag40"]), "", ["Tag4"]));
+});
+
+// ── the chip row ─────────────────────────────────────────────────────────────
+//
+// One derivation over the cards' own tags, since the auto-tagger writes the
+// curated vocabulary onto them. What matters is that it folds casing the same
+// way the predicate above does, and that a chip it emits always selects
+// something.
+
+test("topTags ranks by use and caps the row", () => {
+  const cards = [["Fantasy", "Romance"], ["Fantasy"], ["Fantasy", "Sci-Fi"], ["Romance"]];
+  assert.deepEqual(topTags(cards, 15), ["Fantasy", "Romance", "Sci-Fi"]);
+  assert.deepEqual(topTags(cards, 2), ["Fantasy", "Romance"]);
+});
+
+test("topTags merges spellings the filter cannot tell apart", () => {
+  // Two chips here would be one tag drawn twice: selecting either matches both
+  // cards, because the predicate lowercases.
+  const cards = [["Fantasy"], ["fantasy"], ["  FANTASY "]];
+  assert.deepEqual(topTags(cards, 15), ["Fantasy"]);
+});
+
+test("topTags labels a merged tag with its most common spelling", () => {
+  // A tagging run's canonical casing takes the label once it is in the majority.
+  assert.deepEqual(topTags([["fantasy"], ["Fantasy"], ["Fantasy"]], 15), ["Fantasy"]);
+  // Ties go to the spelling seen first, so the row does not flicker.
+  assert.deepEqual(topTags([["fantasy"], ["Fantasy"]], 15), ["fantasy"]);
+});
+
+test("topTags breaks count ties by name, so the row is stable", () => {
+  assert.deepEqual(topTags([["Romance"], ["Fantasy"]], 15), ["Fantasy", "Romance"]);
+});
+
+test("topTags tolerates a library with nothing to count", () => {
+  assert.deepEqual(topTags([], 15), []);
+  assert.deepEqual(topTags(null, 15), []);
+  assert.deepEqual(topTags([null, [], ["", "  "]], 15), []);
+});
+
+test("every chip topTags emits selects at least one card", () => {
+  // The invariant the old vocabulary-sourced row could not hold: a curated tag
+  // no card carried was a chip that filtered the library to nothing.
+  const cards = [["Fantasy", "romance"], ["FANTASY"], ["Sci|Fi"]];
+  for (const tag of topTags(cards, 15)) {
+    assert.ok(
+      cards.some((tags) => matchesFilter("lira", tagsAttrFor(tags), "", [tag])),
+      `chip ${tag} matches no card`,
+    );
+  }
 });

@@ -1,16 +1,16 @@
-"""The Character Library's curated tag vocabulary and its auto-tag assignments.
+"""The Character Library's curated tag vocabulary and the auto-tagger's writes.
 
-Both tables are owned by the auto-tagger slice and read by nothing else, so the
-read and the write path live together here instead of splitting across the
-shared settings cascade. Imported ``character_cards.tags`` are never written by
-anything in this module — an auto tag is a separate, regenerable assertion about
-a card, and conflating the two would make a tagging run destroy authored data.
+A card has one set of tags. The tagger writes ``character_cards.tags``, the same
+column an import fills and the card editor shows, so nothing downstream has to
+merge two lists — and a tagged card loses whatever tags it was imported with.
+The two ``auto_tag_*`` columns beside it are bookkeeping, not a second opinion:
+they say which vocabulary produced the current contents and what the card looked
+like at the time.
 """
 
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 
 from ..connection import get_db
 
@@ -39,15 +39,18 @@ async def set_vocabulary(names: list[str]) -> None:
         await db.commit()
 
 
-# A card needs (re-)tagging when it has never been evaluated, was evaluated
-# against a different vocabulary, or has been edited since. ``updated_at`` is a
-# free content fingerprint: ``update_character_card`` is its only writer, and a
-# tagging run writes to ``character_auto_tags`` instead, so a run never
-# invalidates its own work.
-_PENDING_WHERE = """
-    LEFT JOIN character_auto_tags a ON a.character_card_id = c.id
-    WHERE a.vocab_hash IS NULL OR a.vocab_hash != ? OR a.card_updated_at != c.updated_at
-"""
+# A card needs (re-)tagging when it was tagged against a different vocabulary or
+# has been edited since. A never-tagged card falls out of the same test for free:
+# its hash defaults to '', which no sha256 digest equals.
+#
+# ``updated_at`` is the content fingerprint, and ``apply_auto_tags`` deliberately
+# does not bump it — a run that touched it would invalidate its own work on the
+# next comparison and reshuffle a library sorted by recency into tagging order.
+#
+# Hand-editing a card's tags in the card editor therefore makes it pending like
+# any other edit, and the next run overwrites what was typed. That follows from
+# there being one tag list rather than two, and it is the intended trade.
+_PENDING_WHERE = "WHERE auto_tag_vocab_hash != ? OR auto_tag_card_updated_at != updated_at"
 
 
 async def count_library_cards() -> int:
@@ -66,7 +69,7 @@ async def count_pending_auto_tags(vocab_hash: str) -> int:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                f"SELECT COUNT(*) AS n FROM character_cards c {_PENDING_WHERE}",  # nosec B608 -- literal fragment
+                f"SELECT COUNT(*) AS n FROM character_cards {_PENDING_WHERE}",  # nosec B608 -- literal fragment
                 (vocab_hash,),
             )
         )
@@ -82,54 +85,43 @@ async def list_pending_auto_tag_ids(vocab_hash: str) -> list[str]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                f"SELECT c.id FROM character_cards c {_PENDING_WHERE} ORDER BY c.created_at DESC",  # nosec B608
+                f"SELECT id FROM character_cards {_PENDING_WHERE} ORDER BY created_at DESC",  # nosec B608
                 (vocab_hash,),
             )
         )
         return [str(r["id"]) for r in rows]
 
 
-async def get_auto_tag_assignments() -> dict[str, list[str]]:
-    """``{card_id: [tags]}`` for every tagged card, for the library's filter."""
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT character_card_id, tags FROM character_auto_tags"))
-        out: dict[str, list[str]] = {}
-        for r in rows:
-            try:
-                tags = json.loads(r["tags"]) if r["tags"] else []
-            except json.JSONDecodeError:
-                continue
-            if isinstance(tags, list):
-                out[str(r["character_card_id"])] = [str(t) for t in tags]
-        return out
+async def apply_auto_tags(card_id: str, tags: list[str], vocab_hash: str, card_updated_at: str) -> None:
+    """Commit one card's answer over its tags. Called per card so a cancelled run keeps its work.
 
-
-async def upsert_auto_tags(card_id: str, tags: list[str], vocab_hash: str, card_updated_at: str) -> None:
-    """Commit one card's answer. Called per card so a cancelled run keeps its work."""
+    *card_updated_at* is the value the caller already read off the card, written
+    back verbatim: pairing the stamp with the row's own ``updated_at`` is what
+    makes a later edit — and only a later edit — pending again.
+    """
     async with get_db() as db:
         await db.execute(
-            "INSERT INTO character_auto_tags (character_card_id, tags, vocab_hash, card_updated_at, tagged_at) "
-            "VALUES (?, ?, ?, ?, ?) "
-            "ON CONFLICT(character_card_id) DO UPDATE SET "
-            "tags = excluded.tags, vocab_hash = excluded.vocab_hash, "
-            "card_updated_at = excluded.card_updated_at, tagged_at = excluded.tagged_at",
-            (card_id, json.dumps(tags), vocab_hash, card_updated_at, datetime.now(UTC).isoformat()),
+            "UPDATE character_cards SET tags = ?, auto_tag_vocab_hash = ?, auto_tag_card_updated_at = ? WHERE id = ?",
+            (json.dumps(tags), vocab_hash, card_updated_at, card_id),
         )
         await db.commit()
 
 
 async def prune_auto_tags(removed: set[str]) -> int:
-    """Strip deleted vocabulary tags from every assignment. No model calls.
+    """Strip deleted vocabulary tags from every tagged card. No model calls.
 
     Returns the number of rows changed. Matching is case-insensitive because the
     vocabulary itself dedupes that way, so a tag deleted as ``Fantasy`` must also
     remove a stored ``fantasy``.
+
+    Scoped to cards the tagger has written, so deleting a vocabulary tag cannot
+    reach into the imported tags of a card no run has ever touched.
     """
     if not removed:
         return 0
     lowered = {t.lower() for t in removed}
     async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT character_card_id, tags FROM character_auto_tags"))
+        rows = list(await db.execute_fetchall("SELECT id, tags FROM character_cards WHERE auto_tag_vocab_hash != ''"))
         updates: list[tuple[str, str]] = []
         for r in rows:
             try:
@@ -140,20 +132,21 @@ async def prune_auto_tags(removed: set[str]) -> int:
                 tags = []
             kept = [str(t) for t in tags if str(t).lower() not in lowered]
             if len(kept) != len(tags):
-                updates.append((json.dumps(kept), str(r["character_card_id"])))
+                updates.append((json.dumps(kept), str(r["id"])))
         if updates:
-            await db.executemany("UPDATE character_auto_tags SET tags = ? WHERE character_card_id = ?", updates)
+            await db.executemany("UPDATE character_cards SET tags = ? WHERE id = ?", updates)
             await db.commit()
         return len(updates)
 
 
 async def bump_auto_tag_vocab_hash(new_hash: str) -> None:
-    """Mark every assignment current against *new_hash* without re-running.
+    """Mark every tagged card current against *new_hash* without re-running.
 
     The edit that earns this is one that removed or reordered tags: no card can
     gain a tag it was never offered, so every stored answer is still the answer
-    the new vocabulary would produce.
+    the new vocabulary would produce. Never-tagged cards are excluded, or the
+    stamp would claim work that was never done.
     """
     async with get_db() as db:
-        await db.execute("UPDATE character_auto_tags SET vocab_hash = ?", (new_hash,))
+        await db.execute("UPDATE character_cards SET auto_tag_vocab_hash = ? WHERE auto_tag_vocab_hash != ''", (new_hash,))
         await db.commit()

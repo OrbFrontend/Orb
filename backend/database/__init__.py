@@ -103,15 +103,14 @@ from .queries.interactive_fragments import (
     update_interactive_fragment,
 )
 from .queries.library_tags import (
+    apply_auto_tags,
     bump_auto_tag_vocab_hash,
     count_library_cards,
     count_pending_auto_tags,
-    get_auto_tag_assignments,
     get_vocabulary,
     list_pending_auto_tag_ids,
     prune_auto_tags,
     set_vocabulary,
-    upsert_auto_tags,
 )
 from .queries.member_sheets import (
     PROPOSAL_STATUSES,
@@ -238,6 +237,7 @@ __all__ = [
     "add_message",
     "add_phrase_group",
     "allocate_speaker_key",
+    "apply_auto_tags",
     "apply_changeset",
     "apply_sheet_proposal",
     "bump_auto_tag_vocab_hash",
@@ -286,7 +286,6 @@ __all__ = [
     "fork_conversation",
     "get_active_dynamic_entries",
     "get_active_lorebook_entries",
-    "get_auto_tag_assignments",
     "get_changesets_for_messages",
     "get_character_avatar",
     "get_character_card",
@@ -399,7 +398,6 @@ __all__ = [
     "update_user_persona",
     "update_world",
     "update_world_changeset",
-    "upsert_auto_tags",
     "user_attachment_payloads",
     "wipe_logs_older_than",
 ]
