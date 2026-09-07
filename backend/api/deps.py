@@ -59,6 +59,21 @@ async def _workflow_root_lock(root_id: int):
         yield
 
 
+def workflow_group_in_flight(root_id: int) -> bool:
+    """Whether a request currently holds this group's root lock.
+
+    Every operation that can add or remove a sibling holds the lock for its
+    whole duration and releases it only after its write commits, so False means
+    nothing in flight can still change this group -- the question a client is
+    left with when its own request dies on the wire mid-render.
+
+    False also covers "queued, but not yet at the lock", so a caller must see it
+    more than once before treating an operation as over.
+    """
+    lock = _workflow_root_locks.get(root_id)
+    return lock is not None and lock.locked()
+
+
 @asynccontextmanager
 async def locked_attachment_group(aid: int, expected_message_id: int) -> AsyncIterator[tuple[Mapping[str, Any], int]]:
     """Hold the attachment group lock for aid."""

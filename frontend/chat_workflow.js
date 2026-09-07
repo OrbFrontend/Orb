@@ -331,8 +331,26 @@ function _rootSiblingIds(msg, rootId) {
   return new Set(atts.filter((a) => (a.parent_attachment_id || a.id) === rootId).map((a) => a.id));
 }
 
+async function _workflowGroupInFlight(convId, msgId, rootId) {
+  try {
+    const r = await api.get(convUrl(convId, "messages", msgId, "workflow-attachments", rootId, "in-flight"));
+    return !!r?.in_flight;
+  } catch (e) {
+    // A status means the server answered, just not with a state (404 once the
+    // row is gone, 5xx): nothing is running. Only a transport failure leaves
+    // the question open, and there waiting is still the right answer.
+    return e?.status === undefined;
+  }
+}
+
 async function _recoverWorkflowSibling(convId, msgId, rootId, before) {
   const deadline = Date.now() + 200_000;
+  // Our request died on the wire, so its outcome has to be read off the server:
+  // a new sibling means it landed, two consecutive "nothing running" answers
+  // mean it failed. Two, not one -- a single sample can fall in the window
+  // before the route reaches the lock, and the second pass re-checks for the
+  // sibling first, which also covers a render that finished mid-poll.
+  let idle = 0;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 3000));
     if (S.activeConvId !== convId) return true;
@@ -355,12 +373,18 @@ async function _recoverWorkflowSibling(convId, msgId, rootId, before) {
       broadcastWorkflowMutation({ convId, msgId });
       return true;
     }
+    if (await _workflowGroupInFlight(convId, msgId, rootId)) idle = 0;
+    else if (++idle >= 2) return false;
   }
   return false;
 }
 
 async function _recoverWorkflowDeletion(convId, msgId, rootId, aid) {
   const deadline = Date.now() + 200_000;
+  // Same shape as _recoverWorkflowSibling: the row still being there is not a
+  // failure while some request holds the group, but two consecutive "nothing
+  // running" answers mean the delete is not coming.
+  let idle = 0;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 3000));
     if (S.activeConvId !== convId) return true;
@@ -371,7 +395,11 @@ async function _recoverWorkflowDeletion(convId, msgId, rootId, aid) {
       continue;
     }
     const msg = msgs.find((m) => m.id === msgId);
-    if ((msg?.workflow_attachments || []).some((a) => a.id === aid)) continue;
+    if ((msg?.workflow_attachments || []).some((a) => a.id === aid)) {
+      if (await _workflowGroupInFlight(convId, msgId, rootId)) idle = 0;
+      else if (++idle >= 2) return false;
+      continue;
+    }
     if (S.activeConvId !== convId) return true;
     setMessages(msgs);
     if (!_rootSiblingIds(msg, rootId).size) {

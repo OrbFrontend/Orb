@@ -63,6 +63,7 @@ from ..deps import (
     _workflow_event_stream_response,
     locked_attachment_group,
     require_conversation,
+    workflow_group_in_flight,
 )
 from ..schemas import WorkflowConfigUpdate, WorkflowEnabledUpdate
 
@@ -545,6 +546,34 @@ async def api_reroll_gen_attachment(
             "attachment_id": new_id,
             "rejected_workflow_atts": ([project_rejected_attachment(rejected, root_id)] if rejected is not None else []),
         }
+
+
+@router.get("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/in-flight")
+async def api_workflow_attachment_in_flight(
+    cid: str,
+    mid: int,
+    aid: int,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
+    """Report whether an operation on this attachment's group is still running.
+
+    Regenerate and reroll-gen hold their connection open for the whole render --
+    minutes, for image gen. A client whose connection dies mid-render has no
+    other way to tell a render still in progress from one the server has already
+    failed: both look like "no new sibling yet".
+
+    ``aid`` may be any member of the group; the canonical root is resolved here
+    the way `locked_attachment_group` resolves it, so a client can ask with the
+    root id it already holds.
+    """
+    att = await get_workflow_attachment_by_id(aid)
+    if att is None or att["message_id"] != mid:
+        raise HTTPException(status_code=404, detail="Attachment not found on this message")
+    anchor = await get_message_by_id(mid)
+    if anchor is None or anchor["conversation_id"] != cid:
+        raise HTTPException(status_code=404, detail="Message not found in conversation")
+    root_id = att["parent_attachment_id"] or att["id"]
+    return {"in_flight": workflow_group_in_flight(root_id)}
 
 
 @router.post("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate")

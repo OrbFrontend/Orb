@@ -241,8 +241,18 @@ POST /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-g
 POST /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate
 POST /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/activate
 POST /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/delete
+GET  /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/in-flight
 POST /api/conversations/{cid}/workflow-attachments/access
 ```
+
+`in-flight` reports `{"in_flight": bool}` for the attachment's canonical root:
+whether a request still holds the group's lock. Regenerate, reroll-gen,
+rehydrate, and delete hold that lock for their whole duration and release it
+only after their write commits, so `false` means nothing in flight can still
+change the group. It exists for a client whose own connection died mid-render,
+which otherwise cannot tell a running render from one the server already failed.
+A single `false` does not prove failure -- a queued request has not reached the
+lock yet -- so clients confirm it across consecutive polls.
 
 The manifest returns workflow identity and config form metadata. Config is a
 full replacement; a workflow's `config_normalizer` owns its valid shape and is
