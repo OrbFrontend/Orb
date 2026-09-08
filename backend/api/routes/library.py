@@ -19,6 +19,7 @@ from ...database import (
     bump_auto_tag_vocab_hash,
     count_library_cards,
     count_pending_auto_tags,
+    count_tagged_cards,
     get_character_card,
     get_settings,
     get_vocabulary,
@@ -52,6 +53,10 @@ router = APIRouter()
 # no conversation, and registering it in ``_active_aborts`` would put a batch job
 # in the registry ``/stop`` walks. One run at a time across the whole process,
 # because two concurrent runs would race the same rows and double the bill.
+#
+# A vocabulary save takes it too, for a handful of statements. The two writers of
+# ``character_cards.tags`` have to exclude each other in both directions: a save
+# that lands mid-run prunes tags the run then writes back.
 _run_lock = asyncio.Lock()
 
 # A dead endpoint should cost a handful of calls, not four hundred. Consecutive,
@@ -65,9 +70,13 @@ _MAX_TOKENS_FLOOR = 512
 async def _tag_state() -> dict:
     """The one shape both the Manager panel and the library browser read.
 
-    The vocabulary is here because the browser builds its chip row from it. The
-    assignments are not: a run writes ``character_cards.tags``, so the card list
-    the browser already has is the only tag source there is.
+    The vocabulary is here because the panel edits it. The assignments are not: a
+    run writes ``character_cards.tags``, so the card list the browser already has
+    is the only tag source there is, and its chip row is counted off that.
+
+    ``tagged`` is how many cards a run has written, which is exactly the reach of
+    ``prune_auto_tags`` — the panel needs it to know whether deleting a tag from
+    the vocabulary destroys anything before it offers to.
     """
     vocabulary = await get_vocabulary()
     # No vocabulary, no work. Counted against a hash the cards cannot match, an
@@ -78,6 +87,7 @@ async def _tag_state() -> dict:
         "vocabulary": vocabulary,
         "total": await count_library_cards(),
         "pending": pending,
+        "tagged": await count_tagged_cards(),
     }
 
 
@@ -100,18 +110,28 @@ async def api_put_library_tags(data: LibraryTagVocabulary):
     # run is still writing, and the hash bump would mark that half-old library
     # current. The panel disables the button while its own run is on; this is the
     # other tab, the phone, and the reload.
+    #
+    # Then *held*, not merely tested. Every line below is an await, and a run
+    # that took the lock after the test would keep writing answers from the
+    # vocabulary it read at its start — putting a tag this save just deleted
+    # back onto every card it had already pruned, where no later diff will ever
+    # list it as removed again. Testing and taking are one step because
+    # ``Lock.acquire()`` on a free lock returns without suspending: nothing can
+    # run between them. Keep them adjacent — an await in between reopens the
+    # window this comment is about.
     if _run_lock.locked():
         raise HTTPException(status_code=409, detail="A tagging run is in progress")
-    old = await get_vocabulary()
-    new = normalize_vocabulary(data.vocabulary)
-    added, removed = diff_vocabulary(old, new)
+    async with _run_lock:
+        old = await get_vocabulary()
+        new = normalize_vocabulary(data.vocabulary)
+        added, removed = diff_vocabulary(old, new)
 
-    await set_vocabulary(new)
-    if removed:
-        await prune_auto_tags(removed)
-    if not added:
-        await bump_auto_tag_vocab_hash(vocabulary_hash(new))
-    return await _tag_state()
+        await set_vocabulary(new)
+        if removed:
+            await prune_auto_tags(removed)
+        if not added:
+            await bump_auto_tag_vocab_hash(vocabulary_hash(new))
+        return await _tag_state()
 
 
 @router.post("/api/library/auto-tag/run")
@@ -132,7 +152,10 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
 
     async def _gen():
         if _run_lock.locked():
-            yield {"event": "error", "data": "A tagging run is already in progress"}
+            yield {
+                "event": "error",
+                "data": "The library is busy — a tagging run or a vocabulary save is already under way",
+            }
             return
         async with _run_lock:
             vocabulary = await get_vocabulary()

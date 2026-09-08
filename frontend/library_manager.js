@@ -15,11 +15,13 @@ import { sseEvents, streamPost } from "./sse.js";
 import { $, esc, toast } from "./utils.js";
 
 const MAX_VOCABULARY = 64; // mirrors features/library_tags/vocabulary.py
+const MAX_TAG_LENGTH = 40; // ditto
 
 let _vocabulary = []; // the saved vocabulary, as the server last told us
 let _draft = []; // what the chip editor currently holds
 let _total = 0;
 let _pending = 0;
+let _tagged = 0; // cards a run has written — exactly what a delete can reach
 let _controller = null; // the in-flight run's AbortController, if any
 let _callbacks = {};
 
@@ -125,6 +127,30 @@ function adopt(state) {
   _vocabulary = Array.isArray(state?.vocabulary) ? state.vocabulary : [];
   _total = Number(state?.total) || 0;
   _pending = Number(state?.pending) || 0;
+  _tagged = Number(state?.tagged) || 0;
+}
+
+/** One tag name, folded the way the server folds it.
+ *
+ * Mirrors `normalize_vocabulary` (strip the `|` the filter delimits on, collapse
+ * whitespace, cap the length) and then `diff_vocabulary`'s case-insensitive
+ * compare. Both halves matter: retyping `Slow  burn` over `Slow burn`, or `NSFW`
+ * as `Nsfw`, deletes nothing on the server, so it must not raise a deletion
+ * warning here either. */
+function fold(tag) {
+  return String(tag ?? "")
+    .replace(/\|/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_TAG_LENGTH)
+    .trim()
+    .toLowerCase();
+}
+
+/** The saved tags this draft drops, in their saved spelling. */
+function removedTags() {
+  const kept = new Set(_draft.map(fold));
+  return _vocabulary.filter((tag) => !kept.has(fold(tag)));
 }
 
 /** Repaint the counts and the run button. The button's label *is* the
@@ -162,7 +188,42 @@ function paint() {
   if (reasoningBox) reasoningBox.disabled = running;
 }
 
-async function saveVocabulary() {
+/** Save the vocabulary, gated when the save is a deletion.
+ *
+ * Deleting a tag is not an edit to a list, it is a write across the library: the
+ * name is stripped from every card a run has tagged, and nothing keeps a copy.
+ * Adding it back does not restore those assignments — it puts the whole library
+ * back to pending and re-buys the same answers from the model. That earns the
+ * same dialog the run gets, and for the same reasons: destructive, immediate, no
+ * undo.
+ *
+ * Skipped while nothing is tagged, which is the whole point of asking the server
+ * for `tagged`: during the minutes a user spends assembling a first vocabulary,
+ * a deleted chip reaches no card, and a dialog in front of that is one people
+ * learn to dismiss without reading — which is how the run's dialog stops working
+ * too.
+ */
+function saveVocabulary() {
+  const removed = removedTags();
+  if (!removed.length || !_tagged) return commitVocabulary();
+  const n = removed.length;
+  const names = removed.map((tag) => `“${esc(tag)}”`).join(", ");
+  const it = n === 1 ? "it" : "them";
+  showSubConfirmModal(
+    {
+      title: n === 1 ? "Delete this tag?" : `Delete these ${n} tags?`,
+      message:
+        `${names} ${n === 1 ? "is" : "are"} removed from every tagged character carrying ${it}, ` +
+        `across ${_tagged} card${_tagged === 1 ? "" : "s"} a run has written. Adding ${it} back later ` +
+        `does not bring the assignments back — it makes the whole library pending and tags it again ` +
+        `from scratch.`,
+      confirmText: n === 1 ? "Delete tag" : `Delete ${n} tags`,
+    },
+    commitVocabulary,
+  );
+}
+
+async function commitVocabulary() {
   try {
     // The response is the authoritative normalized form — trimmed, deduped,
     // capped — so the chips are rebuilt from it rather than from what was typed.

@@ -70,6 +70,22 @@ async def count_library_cards() -> int:
         return int(rows[0]["n"]) if rows else 0
 
 
+async def count_tagged_cards() -> int:
+    """How many cards a run has written, i.e. how many a prune can reach.
+
+    The panel asks so it can tell a destructive save from a harmless one: while
+    nothing has been tagged, deleting a vocabulary tag strips it from no card at
+    all, and a confirmation in front of that is a dialog that means nothing.
+
+    Not derivable from ``total - pending``: a tagged card whose vocabulary moved
+    on is counted as pending too, so right after a tag is added — every card
+    pending, every card tagged — that subtraction reads zero.
+    """
+    async with get_db() as db:
+        rows = list(await db.execute_fetchall("SELECT COUNT(*) AS n FROM character_cards WHERE auto_tag_vocab_hash != ''"))
+        return int(rows[0]["n"]) if rows else 0
+
+
 async def count_pending_auto_tags(vocab_hash: str) -> int:
     async with get_db() as db:
         rows = list(

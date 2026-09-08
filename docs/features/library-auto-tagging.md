@@ -30,8 +30,13 @@ Pressing it again then costs nothing, because a card is only re-tagged when:
 - it has been edited since it was tagged, or
 - you added a tag to the vocabulary.
 
-Deleting or reordering vocabulary tags costs no model calls at all. A deleted tag
-is stripped from the cards that carry it.
+Reordering vocabulary tags costs nothing at all.
+
+Deleting one costs no model calls either, but it is a write across the library:
+the tag is stripped from every card a run has tagged, and nothing keeps a copy.
+Orb confirms first, once anything is tagged. Adding the tag back later does not
+bring those assignments back — it makes the whole library pending and tags it
+again from scratch, at the same price as the first time.
 
 **Enable tagger thinking** asks the model to reason before answering. It is
 slower and more expensive per card, and worth it only for a vocabulary with

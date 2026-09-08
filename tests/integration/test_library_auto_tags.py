@@ -9,9 +9,12 @@ model calls*, not just on the rows that came out.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
+
+import backend.api.routes.library as library_routes
 
 
 def _tag_call(tags: list[str]) -> list[dict]:
@@ -394,3 +397,93 @@ async def test_an_empty_vocabulary_reports_no_work(client):
     state = (await client.get("/api/library/tags")).json()
     assert state["vocabulary"] == [] and state["total"] == 2
     assert state["pending"] == 0
+
+
+async def test_tagged_counts_the_cards_a_run_has_written(client, llm_mock):
+    """The panel's gate on the delete confirmation, and not ``total - pending``.
+
+    After a tag is added every card is pending *and* every card is tagged, so the
+    subtraction reads zero exactly when a delete would destroy the most.
+    """
+    await _cards(client, "Lira", "Rook")
+    await _vocab(client, ["Fantasy", "Romance"])
+    assert (await client.get("/api/library/tags")).json()["tagged"] == 0
+
+    await _run(client, llm_mock, [["Fantasy"], ["Romance"]])
+    state = (await client.get("/api/library/tags")).json()
+    assert state["tagged"] == 2 and state["pending"] == 0
+
+    state = await _vocab(client, ["Fantasy", "Romance", "Sci-fi"])
+    assert state["pending"] == 2, "an add makes every card pending"
+    assert state["tagged"] == 2, "and leaves every one of them tagged"
+
+
+# ── Two writers, one tags column ─────────────────────────────────────────────
+
+
+async def test_a_save_is_refused_while_a_run_holds_the_lock(client, llm_mock):
+    ids = await _cards(client, "Lira", "Rook")
+    await _vocab(client, ["Fantasy", "Romance"])
+    for _ in range(2):
+        llm_mock.enqueue_auto_tag(_tag_call(["Fantasy", "Romance"]))
+    gate = llm_mock.gate("auto_tag")
+
+    async def run():
+        async with client.stream("POST", "/api/library/auto-tag/run", json={}) as r:
+            async for _ in r.aiter_lines():
+                pass
+
+    task = asyncio.create_task(run())
+    await asyncio.wait_for(gate.reached.wait(), 5)
+    r = await client.put("/api/library/tags", json={"vocabulary": ["Fantasy"]})
+    assert r.status_code == 409
+    gate.release.set()
+    await asyncio.wait_for(task, 10)
+
+    assert (await client.get("/api/library/tags")).json()["vocabulary"] == ["Fantasy", "Romance"]
+    for card_id in ids:
+        assert await _tags(client, card_id) == ["Fantasy", "Romance"]
+
+
+async def test_a_run_cannot_start_underneath_a_save(client, llm_mock):
+    """The other direction of the same exclusion.
+
+    A save that only *tested* the lock could be overtaken between the test and
+    its first write, and the run would then put the tag it deleted back onto
+    every card it had just pruned — where no later diff would ever list it as
+    removed again. The save takes the lock instead, so the run is the one that
+    gives way. Forced deterministically by parking the save at its first await.
+    """
+    ids = await _cards(client, "Lira", "Rook")
+    await _vocab(client, ["Fantasy", "Romance"])
+    await _run(client, llm_mock, [["Fantasy", "Romance"], ["Fantasy", "Romance"]])
+
+    real_get_vocabulary = library_routes.get_vocabulary
+    parked = asyncio.Event()
+    release = asyncio.Event()
+    armed = {"on": True}
+
+    async def parking_get_vocabulary():
+        if armed["on"]:
+            armed["on"] = False
+            parked.set()
+            await release.wait()
+        return await real_get_vocabulary()
+
+    library_routes.get_vocabulary = parking_get_vocabulary
+    try:
+        save = asyncio.create_task(client.put("/api/library/tags", json={"vocabulary": ["Fantasy"]}))
+        await asyncio.wait_for(parked.wait(), 5)
+
+        llm_mock.enqueue_auto_tag(_tag_call(["Fantasy", "Romance"]))
+        events = _parse_sse((await client.post("/api/library/auto-tag/run", json={})).text)
+        assert [e["event"] for e in events] == ["error"], "the run must give way to the save"
+
+        release.set()
+        assert (await asyncio.wait_for(save, 5)).status_code == 200
+    finally:
+        library_routes.get_vocabulary = real_get_vocabulary
+
+    assert (await client.get("/api/library/tags")).json()["vocabulary"] == ["Fantasy"]
+    for card_id in ids:
+        assert await _tags(client, card_id) == ["Fantasy"], "the deleted tag stays deleted"
