@@ -1,4 +1,4 @@
-import { BLOCK_TAGS } from "./message_html.js";
+import { BLOCK_TAGS, NON_PROSE_TAGS } from "./message_html.js";
 import {
   isHardLineBreak,
   isSentenceWhitespace,
@@ -94,23 +94,15 @@ function _wrapTextNode(node, words) {
   node.parentNode.replaceChild(frag, node);
 }
 
-// Subtrees whose text is data rather than prose. A message body can now hold
-// arbitrary card markup, so wrapping these in .seg spans would not just
-// mis-index words — inside <style> it would destroy the CSS.
-const UNSEGMENTED_TAGS = new Set(["PRE", "CODE", "STYLE", "SCRIPT", "TEXTAREA", "TITLE", "SVG"]);
-
 export function segmentBody(bodyEl) {
-  // The flag alone is not proof: a body whose innerHTML was replaced in place —
-  // an edit save, a stream finalise — keeps the attribute and loses the spans.
+  // Re-rendered bodies keep the flag but lose their spans, so check both.
   if (!bodyEl || (bodyEl.dataset.segApplied === "1" && bodyEl.querySelector(".seg"))) return;
   const walker = document.createTreeWalker(bodyEl, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
     acceptNode(node) {
       if (node.nodeType === Node.ELEMENT_NODE) {
         const tag = node.tagName.toUpperCase();
-        if (UNSEGMENTED_TAGS.has(tag)) return NodeFilter.FILTER_REJECT;
-        // A block element starts a new line as surely as a <br> does, so the
-        // caller's breakBefore path has to see it or sentence indices run
-        // straight across <p> and <li> boundaries.
+        if (NON_PROSE_TAGS.has(tag)) return NodeFilter.FILTER_REJECT;
+        // Treat block elements like line breaks for sentence indices.
         if (tag === "BR" || BLOCK_TAGS.has(tag)) return NodeFilter.FILTER_ACCEPT;
         return NodeFilter.FILTER_SKIP;
       }

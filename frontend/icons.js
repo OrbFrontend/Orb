@@ -32,10 +32,7 @@ export const GRIP_ICON = icon(
   [dot(9, 5, 1.5), dot(15, 5, 1.5), dot(9, 12, 1.5), dot(15, 12, 1.5), dot(9, 19, 1.5), dot(15, 19, 1.5)].join(""),
 );
 
-// Code-block toolbar. Drawn at 14px with a lighter stroke than `icon()` above:
-// they sit inside a message bubble, where the 16px/2 UI weight reads as chrome
-// competing with the prose. message_html.js rebuilds this toolbar after
-// sanitising, so these strings never pass through DOMPurify.
+// Code-block toolbar icons are rebuilt after sanitising by message_html.js.
 const codeIcon = (paths) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true" focusable="false">${paths}</svg>`;
 

@@ -258,12 +258,7 @@
   padding: .1em .4em;
 }
 
-/* Message bodies render the HTML a character card ships, so elements that used
-   to be unreachable from prose now need a base look. Everything here is built
-   from theme tokens: the twelve theme files override .msg-body selectors with
-   !important and know nothing about these tags, so inheriting the tokens is the
-   only way they stay legible across themes. Card CSS still wins — its rules are
-   rewritten to .msg-body .custom-* and land later in the cascade. */
+/* Base styling for HTML supplied by character cards. */
 .message .msg-body h1,
 .message .msg-body h2,
 .message .msg-body h3,

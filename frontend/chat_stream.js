@@ -88,15 +88,7 @@ export function setGenerationPhase(phase) {
   el.querySelector(".gen-dot").className = `gen-dot${S.generationPhase === "refining" ? " spin" : ""}`;
 }
 
-// ── Streaming paint ─────────────────────────────────────────────────────────
-// One render per frame, not one per token. renderMessageHtml reparses the whole
-// accumulated reply every time it is called — regex passes, DOMPurify, CSS
-// containment, tree walks, serialise, innerHTML — so a token-for-token repaint
-// is quadratic over a long turn, and it tears down selection, `<details>` state
-// and media elements at whatever rate the model happens to emit at. Coalescing
-// caps that at the display's rate, and dropping an identical render skips the
-// teardown entirely when a token changed nothing visible (a half-written tag,
-// say, which trimIncompleteMarkup hides until it closes).
+// Coalesce expensive full-body renders to one paint per animation frame.
 
 let _paintFrame = 0;
 let _paintPending = null;
@@ -120,7 +112,7 @@ function paintStreamingBody(text) {
   });
 }
 
-/** Drop a queued frame, so nothing repaints a body some later pass has baked. */
+/** Cancel a queued streaming paint. */
 function cancelStreamingPaint() {
   if (_paintFrame) cancelAnimationFrame(_paintFrame);
   _paintFrame = 0;

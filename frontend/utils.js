@@ -272,11 +272,7 @@ export function sentenceDiff(oldText, newText) {
 
 const INLINE_QUOTE_RE = /"[^"]+"|“[^”]+”|‘[^’]+’|«[^»]+»|‹[^›]+›|「[^」]+」|『[^』]+』|„[^“]+“|‚[^‘]+‘/g;
 
-// Message bodies carry model-written markup, and a tag's interior is not prose:
-// INLINE_QUOTE_RE would turn <img src="x.png"> into
-// <img src=<span class="quoted">"x.png"</span>>, and a *, ` or # in an attribute
-// value is just as corruptible. Lift every tag into a numbered slot before the
-// inline passes run, then put them back untouched.
+// Protect tags from the inline formatting passes; their attributes are not prose.
 const TAG_SLOT_OPEN = "\uFFFC";
 const TAG_SLOT_CLOSE = "\uFFFD";
 const TAG_SLOT_RE = /\uFFFC(\d+)\uFFFD/g;
@@ -285,11 +281,7 @@ const CODE_SLOT_CLOSE = "\uFFFB";
 const CODE_SLOT_RE = /\uFFF9(\d+)\uFFFB/g;
 const SLOT_CHARS_RE = /[\uFFF9\uFFFB\uFFFC\uFFFD]/g;
 
-/**
- * Drop every slot character the input carries, so model text cannot forge a
- * slot and have a tag or a code span substituted into it. Runs once, before the
- * first protection pass; the passes after it rely on their own markers.
- */
+/** Remove marker characters supplied by model text. */
 function _stripSlots(text) {
   return text.replace(SLOT_CHARS_RE, "");
 }
@@ -304,14 +296,7 @@ function _restoreTags(html, tags) {
   return tags.length ? html.replace(TAG_SLOT_RE, (slot, i) => tags[i] ?? slot) : html;
 }
 
-/**
- * Lift `` `code` `` spans out before anything else touches the text.
- *
- * Order is the whole point. A code span's interior is *data*: escaped here, it
- * can never be a tag, and it never meets the emphasis pass either — so
- * `` `<img src=x onerror=alert(1)>` `` stays a printed tag rather than a live
- * one inside `<code>`, and `` `*x*` `` keeps its asterisks.
- */
+/** Protect and escape inline code before applying prose formatting. */
 function _protectInlineCode(text) {
   const codes = [];
   const body = text.replace(
@@ -338,12 +323,7 @@ function _formatSpan(text) {
   return _restoreTags(_applyInlineFormatting(body), tags);
 }
 
-/**
- * The full inline phase: inline code, then emphasis, quotes and ATX headings.
- *
- * Code comes first and comes out escaped, so a span's contents reach the page as
- * the characters the model typed rather than as markup or emphasis.
- */
+/** Apply inline code, emphasis, quotes and ATX headings. */
 function _formatInline(text) {
   const { body: prose, codes } = _protectInlineCode(_stripSlots(text));
   const { body, tags } = _protectTags(prose);
@@ -355,11 +335,7 @@ function _formatInline(text) {
   return _restoreInlineCode(_restoreTags(out, tags), codes);
 }
 
-/**
- * Render an editor diff. Like {@link formatProse}, the result still contains
- * model markup and newlines: pass it through `renderMessageDiffHtml`
- * (message_html.js) rather than assigning it to `innerHTML`.
- */
+/** Format an editor diff; the result still requires the message HTML pipeline. */
 export function formatProseWithDiff(ops) {
   let html = "";
   for (let i = 0; i < ops.length; i++) {
@@ -398,27 +374,15 @@ function renderImageEmbed(url, alt) {
   );
 }
 
-// The parts formatProse handles whole rather than as prose: fenced code, a
-// <style> block, and an image embed. One capture group, so split() keeps them.
-//
-// The second alternative is a fence that never closes. CommonMark reads one as
-// running to the end of the document, and so does this — a fence left open by a
-// cut-off generation then renders as escaped code rather than leaving whatever
-// follows it live on the page, mid-stream and permanently after.
+// Split out fenced code, style blocks and image embeds before formatting prose.
+// An open fence runs to the end so its contents remain escaped code.
 const PROSE_PART_RE =
   /(```[\w]*\n?[\s\S]*?```|```[\w]*\n?[\s\S]*$|<style\b[^>]*>[\s\S]*?<\/style\s*>|!\[[^\]]*\]\((?:https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\))/gi;
 const STYLE_BLOCK_RE = /^<style\b[^>]*>([\s\S]*?)<\/style\s*>$/i;
 const CLOSED_FENCE_RE = /^```(\w*)(\n)?([\s\S]*?)```$/;
 const OPEN_FENCE_RE = /^```(\w*)(\n)?([\s\S]*)$/;
 
-/**
- * Format one message body's text into HTML.
- *
- * The result deliberately still contains the markup the model wrote, and leaves
- * newlines as newlines for the DOM layout pass — it is NOT safe to assign to
- * `innerHTML`. Every call site goes through `renderMessageHtml`
- * (message_html.js), which sanitises it, lays it out and scopes its styles.
- */
+/** Format message text for the browser-side sanitise/layout pipeline. */
 export function formatProse(text) {
   if (!text) return "";
   const parts = text.split(PROSE_PART_RE);
@@ -430,9 +394,7 @@ export function formatProse(text) {
       }
       const styleMatch = part.match(STYLE_BLOCK_RE);
       if (styleMatch) {
-        // DOMPurify keeps the <style> element but deletes its contents, so the
-        // CSS rides across the sanitise boundary percent-encoded inside a tag
-        // that survives, and message_html.js unpacks and rescopes it.
+        // Preserve CSS as encoded text until message_html.js can scope it.
         return `<custom-style>${encodeURIComponent(styleMatch[1])}</custom-style>`;
       }
       const codeMatch = part.match(CLOSED_FENCE_RE) || part.match(OPEN_FENCE_RE);
@@ -441,9 +403,7 @@ export function formatProse(text) {
         const lang = hasNewline ? codeMatch[1] : "";
         const code = esc(hasNewline ? codeMatch[3] : codeMatch[1] + codeMatch[3]);
         const langAttr = lang ? ` class="language-${escAttr(lang)}"` : "";
-        // No toolbar here: its buttons carry `data-orb-action`, and the
-        // sanitiser strips every data attribute so a card cannot forge one.
-        // message_html.js rebuilds the bar on the far side of that pass.
+        // The sanitiser strips data attributes; message_html.js rebuilds the bar.
         return `<div class="code-block"><pre><code${langAttr}>${code}</code></pre></div>`;
       }
       let prose = part;
