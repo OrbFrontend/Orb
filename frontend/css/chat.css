@@ -500,6 +500,9 @@
 
 .message:hover .msg-toolbar { opacity: 1; }
 .message:last-child .msg-toolbar { opacity: 1; }
+/* The toolbar stays in the tab order at opacity 0, so tabbing into a message
+   would otherwise move focus to a control nobody can see. */
+.msg-toolbar:focus-within { opacity: 1; }
 
 .msg-toolbar button {
   padding: 5px;

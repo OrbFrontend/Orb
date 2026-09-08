@@ -12,7 +12,17 @@ import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, S, subscribe } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
-import { $, avatarCell, avatarUrl, esc, escAttr, escHandlerArg, formatBytes, resolvePlaceholders } from "./utils.js";
+import {
+  $,
+  attachmentDataUrl,
+  avatarCell,
+  avatarUrl,
+  esc,
+  escAttr,
+  escHandlerArg,
+  formatBytes,
+  resolvePlaceholders,
+} from "./utils.js";
 import { segmentBody } from "./workflow_segmentation.js";
 import { markClickable } from "./workflow_text_interaction.js";
 import { messageProposalsHtml } from "./world_proposals.js";
@@ -165,15 +175,18 @@ function renderUserAttachments(userAtts) {
   if (!userAtts || userAtts.length === 0) return "";
   const items = userAtts
     .map((att) => {
-      const b64 = att.b64 || att.data_b64 || "";
-      const mime = att.mime || att.mime_type || "image/jpeg";
-      const filename = att.filename || "image";
-      const size = att.size || 0;
+      // The API takes the filename and MIME the client sent, so both are
+      // untrusted and both land inside an attribute: escAttr, never esc. A
+      // filename that closes the attribute early would otherwise write an
+      // event handler onto the image.
+      const src = escAttr(attachmentDataUrl(att.mime || att.mime_type || "image/jpeg", att.b64 || att.data_b64 || ""));
+      const filename = escAttr(att.filename || "image");
+      const size = Number.isFinite(att.size) && att.size > 0 ? att.size : 0;
       return `
     <div class="attachment-item">
-      <img loading="lazy" decoding="async" src="data:${mime};base64,${b64}" alt="${esc(filename)}">
+      <img loading="lazy" decoding="async" src="${src}" alt="${filename}">
       <div class="attachment-info">
-        <div class="attachment-name">${esc(filename)}</div>
+        <div class="attachment-name">${filename}</div>
         <div class="attachment-size">${formatBytes(size)}</div>
       </div>
     </div>
@@ -420,6 +433,14 @@ export function renderMessages(forceBottom = false) {
 }
 
 export function _applyWorkflowTextSegments(bodyEl, msg) {
+  // Segmentation wraps every word of the message in its own span, so it is only
+  // worth paying for where something will use one. A *registered* text effect is
+  // not that: TTS registers karaoke at boot and may never play a clip, and until
+  // it does the spans are pure weight on every bubble on screen. Effects segment
+  // their own target when they start (workflow_text_effects.js). Click handlers
+  // are the exception — the affordance has to be painted before the click — so
+  // they still segment up front.
+  if (!S.workflowClickHandlers.length && bodyEl.dataset.segApplied !== "1") return;
   segmentBody(bodyEl);
   markClickable(bodyEl, msg);
 }

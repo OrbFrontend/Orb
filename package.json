@@ -4,7 +4,8 @@
   "type": "module",
   "devDependencies": {
     "@biomejs/biome": "^2.0.0",
-    "@evilmartians/lefthook": "^2.1.9"
+    "@evilmartians/lefthook": "^2.1.9",
+    "jsdom": "^29.1.1"
   },
   "scripts": {
     "prepare": "lefthook install",

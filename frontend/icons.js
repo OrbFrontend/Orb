@@ -31,3 +31,17 @@ export const ELLIPSIS_ICON = icon(dot(5, 12) + dot(12, 12) + dot(19, 12));
 export const GRIP_ICON = icon(
   [dot(9, 5, 1.5), dot(15, 5, 1.5), dot(9, 12, 1.5), dot(15, 12, 1.5), dot(9, 19, 1.5), dot(15, 19, 1.5)].join(""),
 );
+
+// Code-block toolbar. Drawn at 14px with a lighter stroke than `icon()` above:
+// they sit inside a message bubble, where the 16px/2 UI weight reads as chrome
+// competing with the prose. message_html.js rebuilds this toolbar after
+// sanitising, so these strings never pass through DOMPurify.
+const codeIcon = (paths) =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true" focusable="false">${paths}</svg>`;
+
+export const CODE_WRAP_ICON = codeIcon(
+  '<line x1="3" y1="6" x2="21" y2="6"/><path d="M3 12h15a3 3 0 1 1 0 6h-4"/><polyline points="16 16 14 18 16 20"/><line x1="3" y1="18" x2="10" y2="18"/>',
+);
+export const CODE_COPY_ICON = codeIcon(
+  '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+);

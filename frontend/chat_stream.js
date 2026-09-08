@@ -88,6 +88,46 @@ export function setGenerationPhase(phase) {
   el.querySelector(".gen-dot").className = `gen-dot${S.generationPhase === "refining" ? " spin" : ""}`;
 }
 
+// ── Streaming paint ─────────────────────────────────────────────────────────
+// One render per frame, not one per token. renderMessageHtml reparses the whole
+// accumulated reply every time it is called — regex passes, DOMPurify, CSS
+// containment, tree walks, serialise, innerHTML — so a token-for-token repaint
+// is quadratic over a long turn, and it tears down selection, `<details>` state
+// and media elements at whatever rate the model happens to emit at. Coalescing
+// caps that at the display's rate, and dropping an identical render skips the
+// teardown entirely when a token changed nothing visible (a half-written tag,
+// say, which trimIncompleteMarkup hides until it closes).
+
+let _paintFrame = 0;
+let _paintPending = null;
+let _paintedHtml = "";
+
+function paintStreamingBody(text) {
+  _paintPending = text;
+  if (_paintFrame) return;
+  _paintFrame = requestAnimationFrame(() => {
+    _paintFrame = 0;
+    const pending = _paintPending;
+    _paintPending = null;
+    const body = S.streamingBodyEl;
+    if (!body || pending === null) return;
+    const html = renderMessageHtml(pending, { streaming: true });
+    if (html !== _paintedHtml) {
+      _paintedHtml = html;
+      body.innerHTML = html;
+    }
+    scrollToBottom();
+  });
+}
+
+/** Drop a queued frame, so nothing repaints a body some later pass has baked. */
+function cancelStreamingPaint() {
+  if (_paintFrame) cancelAnimationFrame(_paintFrame);
+  _paintFrame = 0;
+  _paintPending = null;
+  _paintedHtml = "";
+}
+
 function smoothUpdateBody(el, newHtml, onComplete) {
   if (!el || el.innerHTML === newHtml) return;
   const prev = el.offsetHeight;
@@ -116,6 +156,7 @@ function smoothUpdateBody(el, newHtml, onComplete) {
 }
 
 function finalizeStreamingDiv(lastMsg) {
+  cancelStreamingPaint();
   const body = S.streamingBodyEl;
   if (!body) return false;
   const div = body.closest(".message");
@@ -164,6 +205,7 @@ export function stopGeneration() {
 }
 
 export function createStreamingDiv(name = null, memberId = null) {
+  cancelStreamingPaint();
   const div = document.createElement("div");
   div.className = "message assistant";
   const avatar = S.showChatAvatars ? speakerAvatarCell({ role: "assistant", speaker_member_id: memberId }) : "";
@@ -208,6 +250,7 @@ function patchPendingUserMessage(pendingMsg) {
 }
 
 export async function afterStream() {
+  cancelStreamingPaint();
   const wasGroupExchange = S.currentExchangeId != null;
   const groupExchangeId = S.currentExchangeId;
   const inFlightSpeaker = S.currentSpeaker;
@@ -433,12 +476,11 @@ export async function processSSEStream(resp, container, holder, signal) {
       }
       fullResponse += unescapeSSE(data);
       S.streamingContent = rewrittenResponse || fullResponse;
-      if (S.streamingBodyEl) {
-        S.streamingBodyEl.innerHTML = renderMessageHtml(rewrittenResponse || fullResponse, { streaming: true });
-      }
-      scrollToBottom();
+      if (S.streamingBodyEl) paintStreamingBody(rewrittenResponse || fullResponse);
+      else scrollToBottom();
     };
     const onRewrite = (text) => {
+      cancelStreamingPaint(); // the rewrite replaces the body outright
       rewrittenResponse = text;
       S.streamingContent = text;
       if (S.streamingBodyEl) {

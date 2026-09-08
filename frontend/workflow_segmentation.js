@@ -100,7 +100,9 @@ function _wrapTextNode(node, words) {
 const UNSEGMENTED_TAGS = new Set(["PRE", "CODE", "STYLE", "SCRIPT", "TEXTAREA", "TITLE", "SVG"]);
 
 export function segmentBody(bodyEl) {
-  if (!bodyEl || bodyEl.dataset.segApplied === "1") return;
+  // The flag alone is not proof: a body whose innerHTML was replaced in place —
+  // an edit save, a stream finalise — keeps the attribute and loses the spans.
+  if (!bodyEl || (bodyEl.dataset.segApplied === "1" && bodyEl.querySelector(".seg"))) return;
   const walker = document.createTreeWalker(bodyEl, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
     acceptNode(node) {
       if (node.nodeType === Node.ELEMENT_NODE) {
@@ -179,6 +181,9 @@ export function segDescriptor(spanEl, extra) {
 export function messageSegments(msgId) {
   const bodyEl = messageBody(msgId);
   if (!bodyEl) return [];
+  // Bodies are no longer segmented on render, so the first caller to ask for a
+  // message's words is the one that pays for them.
+  segmentBody(bodyEl);
   const out = [];
   let last = null;
   for (const span of bodyEl.querySelectorAll(".seg")) {

@@ -121,7 +121,11 @@
       </div>
     </div>
     <div id="group-speaking-plan" class="group-speaking-plan" hidden></div>
-        <div id="chat-messages"><div class="empty-state"><div class="icon">📜</div><div>Select a character to begin</div></div></div>
+        <!-- role="log" so a screen reader announces arriving replies as they
+             land. aria-live="polite" waits for a pause rather than cutting in,
+             and aria-relevant="additions" keeps a mid-stream repaint from
+             re-reading the whole conversation. -->
+        <div id="chat-messages" role="log" aria-live="polite" aria-relevant="additions" aria-label="Conversation"><div class="empty-state"><div class="icon">📜</div><div>Select a character to begin</div></div></div>
     <div id="generation-status" class="gen-status hidden">
       <div class="gen-bar"></div>
       <span class="gen-dot"></span>

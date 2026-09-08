@@ -30,6 +30,29 @@ export function boolFlag(value) {
   return value === true || value === 1;
 }
 
+// An attachment's MIME type and payload arrive from the API, which accepts what
+// the client sent — so both are attacker-controlled, and both land in an
+// attribute *value* rather than in text. `esc` does not escape quotes, so
+// interpolating either one raw is how a filename ending the attribute early
+// turns into an event handler on the element.
+// Building the URL here means no call site has to remember that.
+const ATTACHMENT_MIME_RE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;
+const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/** A `data:` URL for an attachment, or "" when the metadata is not usable. */
+export function attachmentDataUrl(mime, b64) {
+  const type = typeof mime === "string" ? mime.trim() : "";
+  const data = typeof b64 === "string" ? b64.replace(/\s+/g, "") : "";
+  if (!ATTACHMENT_MIME_RE.test(type) || !BASE64_RE.test(data)) return "";
+  return `data:${type};base64,${data}`;
+}
+
+/** The attachment's declared MIME type, or "" when it is not a well-formed one. */
+export function attachmentMime(mime) {
+  const type = typeof mime === "string" ? mime.trim() : "";
+  return ATTACHMENT_MIME_RE.test(type) ? type.toLowerCase() : "";
+}
+
 export { notifyError, toast } from "./notify.js";
 
 let _chatFollow = null;
@@ -88,6 +111,20 @@ export function scrollToMessage(msgId) {
 // selector string copied into each of them.
 export function messageBody(msgId) {
   return $("chat-messages")?.querySelector(`.message[data-msg-id="${msgId}"] .msg-body`) ?? null;
+}
+
+/**
+ * True when `el` sits inside a message body — i.e. inside markup a model wrote.
+ *
+ * The app's global dispatchers select on attributes (`[data-chat-action]`,
+ * `[data-wf-action]`) anywhere in the document, which is fine for chrome the app
+ * built and wrong for a bubble. message_html.js already strips every `data-*`
+ * from message markup, so nothing should ever reach those dispatchers from in
+ * here; this is the second lock, and the one that does not depend on a
+ * sanitiser config staying right.
+ */
+export function fromMessageBody(el) {
+  return !!el?.closest?.(".msg-body");
 }
 
 export function pinStreamingMessage(el) {
@@ -243,19 +280,50 @@ const INLINE_QUOTE_RE = /"[^"]+"|“[^”]+”|‘[^’]+’|«[^»]+»|‹[^›
 const TAG_SLOT_OPEN = "\uFFFC";
 const TAG_SLOT_CLOSE = "\uFFFD";
 const TAG_SLOT_RE = /\uFFFC(\d+)\uFFFD/g;
+const CODE_SLOT_OPEN = "\uFFF9";
+const CODE_SLOT_CLOSE = "\uFFFB";
+const CODE_SLOT_RE = /\uFFF9(\d+)\uFFFB/g;
+const SLOT_CHARS_RE = /[\uFFF9\uFFFB\uFFFC\uFFFD]/g;
+
+/**
+ * Drop every slot character the input carries, so model text cannot forge a
+ * slot and have a tag or a code span substituted into it. Runs once, before the
+ * first protection pass; the passes after it rely on their own markers.
+ */
+function _stripSlots(text) {
+  return text.replace(SLOT_CHARS_RE, "");
+}
 
 function _protectTags(text) {
   const tags = [];
-  // Drop the slot characters from the input first, so model text cannot forge
-  // a slot and have an arbitrary tag substituted into it.
-  const body = text
-    .replace(/[\uFFFC\uFFFD]/g, "")
-    .replace(/<[^>]*>/g, (tag) => `${TAG_SLOT_OPEN}${tags.push(tag) - 1}${TAG_SLOT_CLOSE}`);
+  const body = text.replace(/<[^>]*>/g, (tag) => `${TAG_SLOT_OPEN}${tags.push(tag) - 1}${TAG_SLOT_CLOSE}`);
   return { body, tags };
 }
 
 function _restoreTags(html, tags) {
   return tags.length ? html.replace(TAG_SLOT_RE, (slot, i) => tags[i] ?? slot) : html;
+}
+
+/**
+ * Lift `` `code` `` spans out before anything else touches the text.
+ *
+ * Order is the whole point. A code span's interior is *data*: escaped here, it
+ * can never be a tag, and it never meets the emphasis pass either — so
+ * `` `<img src=x onerror=alert(1)>` `` stays a printed tag rather than a live
+ * one inside `<code>`, and `` `*x*` `` keeps its asterisks.
+ */
+function _protectInlineCode(text) {
+  const codes = [];
+  const body = text.replace(
+    /`([^`]+)`/g,
+    (_, code) =>
+      `${CODE_SLOT_OPEN}${codes.push(`<code class="inline-code">${esc(code)}</code>`) - 1}${CODE_SLOT_CLOSE}`,
+  );
+  return { body, codes };
+}
+
+function _restoreInlineCode(html, codes) {
+  return codes.length ? html.replace(CODE_SLOT_RE, (slot, i) => codes[i] ?? slot) : html;
 }
 
 function _applyInlineFormatting(protectedText) {
@@ -266,20 +334,25 @@ function _applyInlineFormatting(protectedText) {
 
 /** Emphasis and quotes only — the pass the diff renderer shares with prose. */
 function _formatSpan(text) {
-  const { body, tags } = _protectTags(text);
+  const { body, tags } = _protectTags(_stripSlots(text));
   return _restoreTags(_applyInlineFormatting(body), tags);
 }
 
-/** The full inline phase: emphasis, quotes, inline code, ATX headings. */
+/**
+ * The full inline phase: inline code, then emphasis, quotes and ATX headings.
+ *
+ * Code comes first and comes out escaped, so a span's contents reach the page as
+ * the characters the model typed rather than as markup or emphasis.
+ */
 function _formatInline(text) {
-  const { body, tags } = _protectTags(text);
+  const { body: prose, codes } = _protectInlineCode(_stripSlots(text));
+  const { body, tags } = _protectTags(prose);
   let out = _applyInlineFormatting(body);
-  out = out.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
   out = out.replace(
     /^(#{1,6}) (.+)$/gm,
     (_, hashes, content) => `<strong class="md-h${hashes.length}">${content}</strong>`,
   );
-  return _restoreTags(out, tags);
+  return _restoreInlineCode(_restoreTags(out, tags), codes);
 }
 
 /**
@@ -309,9 +382,6 @@ export function formatProseWithDiff(ops) {
   return html;
 }
 
-const ICON_WRAP = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="3" y1="6" x2="21" y2="6"/><path d="M3 12h15a3 3 0 1 1 0 6h-4"/><polyline points="16 16 14 18 16 20"/><line x1="3" y1="18" x2="10" y2="18"/></svg>`;
-const ICON_COPY = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
-
 const IMG_LINK_RE = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\)/i;
 
 function renderImageEmbed(url, alt) {
@@ -330,9 +400,16 @@ function renderImageEmbed(url, alt) {
 
 // The parts formatProse handles whole rather than as prose: fenced code, a
 // <style> block, and an image embed. One capture group, so split() keeps them.
+//
+// The second alternative is a fence that never closes. CommonMark reads one as
+// running to the end of the document, and so does this — a fence left open by a
+// cut-off generation then renders as escaped code rather than leaving whatever
+// follows it live on the page, mid-stream and permanently after.
 const PROSE_PART_RE =
-  /(```[\w]*\n?[\s\S]*?```|<style\b[^>]*>[\s\S]*?<\/style\s*>|!\[[^\]]*\]\((?:https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\))/gi;
+  /(```[\w]*\n?[\s\S]*?```|```[\w]*\n?[\s\S]*$|<style\b[^>]*>[\s\S]*?<\/style\s*>|!\[[^\]]*\]\((?:https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\))/gi;
 const STYLE_BLOCK_RE = /^<style\b[^>]*>([\s\S]*?)<\/style\s*>$/i;
+const CLOSED_FENCE_RE = /^```(\w*)(\n)?([\s\S]*?)```$/;
+const OPEN_FENCE_RE = /^```(\w*)(\n)?([\s\S]*)$/;
 
 /**
  * Format one message body's text into HTML.
@@ -358,23 +435,16 @@ export function formatProse(text) {
         // that survives, and message_html.js unpacks and rescopes it.
         return `<custom-style>${encodeURIComponent(styleMatch[1])}</custom-style>`;
       }
-      const codeMatch = part.match(/^```(\w*)(\n)?([\s\S]*?)```$/);
+      const codeMatch = part.match(CLOSED_FENCE_RE) || part.match(OPEN_FENCE_RE);
       if (codeMatch) {
         const hasNewline = !!codeMatch[2];
         const lang = hasNewline ? codeMatch[1] : "";
         const code = esc(hasNewline ? codeMatch[3] : codeMatch[1] + codeMatch[3]);
         const langAttr = lang ? ` class="language-${escAttr(lang)}"` : "";
-        return (
-          `<div class="code-block">` +
-          `<div class="code-block-bar">` +
-          `<button type="button" class="code-block-btn" data-orb-action="wrap" title="Toggle word wrap" ` +
-          `aria-label="Toggle word wrap" aria-pressed="false">${ICON_WRAP}</button>` +
-          `<button type="button" class="code-block-btn" data-orb-action="copy" title="Copy" ` +
-          `aria-label="Copy code">${ICON_COPY}</button>` +
-          `</div>` +
-          `<pre><code${langAttr}>${code}</code></pre>` +
-          `</div>`
-        );
+        // No toolbar here: its buttons carry `data-orb-action`, and the
+        // sanitiser strips every data attribute so a card cannot forge one.
+        // message_html.js rebuilds the bar on the far side of that pass.
+        return `<div class="code-block"><pre><code${langAttr}>${code}</code></pre></div>`;
       }
       let prose = part;
       if (i > 0) prose = prose.replace(/^\n/, ""); // after a code block
