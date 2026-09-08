@@ -85,16 +85,16 @@ _SHOT_PROSE_THIRD = (
 
 _SCENE_FORMAT_TAIL = (
     "Order the scene by visual importance. Give each character's pose and action first. Then give their build, current "
-    "clothing, hair, and other visible traits. Keep one character's facts together. Then describe the interaction and "
+    "clothing, hair, facial expressions (if available), and other visible traits. Keep one character's facts together. Then describe the interaction and "
     "spatial relationships, followed by the setting (place/time), lighting, and framing (height, angle, distance from viewer). "
-    "Use as much detail as the visible constraints need, but state each fact once and omit filler. "
+    "Use as much detail as the visible constraints need. "
     "Use the word 'own' when a character acts on their own body or belongings. Use explicit quantities such as 'one' or "
     "'two' when they disambiguate limbs, hands, objects, or contacts. Always use possessive adjectives. "
     "Use direct, honest, active language - for example, use 'pulling' with ownership over an ambiguous passive word such as 'pulled'. "
     "Describe only concrete visual details. Exclude dialogue, thoughts, sounds, motives, sensations, "
     "analogies, or a narrative explanation. Describe the current visible state affirmatively. Exclude occluded or "
     "absent items from the positive scene. "
-    "Ignore facial traits or an expression when the face is not visible; describe the visible head orientation instead. "
+    "Ignore facial traits or expressions when the face is not visible; describe the visible head orientation instead. "
     "Be extremely meticulous and as lengthy as needed with the fine details. "
 )
 
@@ -149,13 +149,13 @@ _SCENE_FORMAT_STRUCTURED_HEAD = (
 _SCENE_FORMAT_STRUCTURED_TAIL = (
     "Render it in the requested prompt format and keep its order: pose and action, visible traits and current clothing, "
     "interaction and spatial relationships, then setting, lighting, and framing (height, angle, distance from viewer). Keep one character's facts together. "
-    "Use as much detail as the visible constraints need, but state each fact once and omit filler. Be extremely meticulous and as lengthy as needed. "
+    "Use as much detail as the visible constraints need. Be extremely meticulous and as lengthy as needed. "
     "Use the word 'own' when a character acts on their own body or belongings. Use explicit quantities such as 'one' or "
     "'two' when they disambiguate limbs, hands, objects, or contacts. Always use possessive adjectives. "
     "Use direct, honest, active language - for example, use 'pulling' with ownership over an ambiguous passive word such as 'pulled'. "
     "Describe only concrete visual details. Exclude include dialogue, thoughts, sounds, motives, sensations, "
     "analogies, or narrative explanation. Describe the current visible state affirmatively. Exclude occluded or "
-    "absent items from the positive scene. Exclude facial traits or an expression when the face is not visible. "
+    "absent items from the positive scene. Exclude facial traits or expressions when the face is not visible. "
     "Leave `avoid` empty."
 )
 
