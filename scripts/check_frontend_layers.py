@@ -46,6 +46,10 @@ LAYERS = {
     # filter is the one piece of the browser worth testing directly, and
     # library_browser.js drags in the whole L5 chat chain.
     "library_filter.js": 0,
+    # The card-CSS policy: a tokenizer, an allowlist and the per-message scoper.
+    # A leaf so it can be tested without a DOM, which is the whole point of it
+    # being a string pass rather than a trip through the CSSOM.
+    "message_css.js": 0,
     # L1 state + shared pure helpers.
     "state.js": 1,
     "model_catalog.js": 1,

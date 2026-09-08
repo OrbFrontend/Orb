@@ -4,6 +4,7 @@
 // contain styles -> block layout -> serialise.
 
 import { CODE_COPY_ICON, CODE_WRAP_ICON } from "./icons.js";
+import { compileCss, cssScope, emptyNames, filterDeclarations, scopeClassName } from "./message_css.js";
 import { formatProse, formatProseWithDiff } from "./utils.js";
 import DOMPurify from "./vendor/purify.js";
 
@@ -192,8 +193,10 @@ const SANITIZE_CONFIG = {
   RETURN_DOM_FRAGMENT: true,
 };
 
-// Sanitising is synchronous, so hooks can read the current CSS scope here.
-let _activeScope = "";
+// Sanitising is synchronous, so the hooks read this render's CSS context here:
+// the message's scope, the sheet's rename table, and whether any inline style
+// survived -- which decides whether the containment wrapper is needed.
+let _css = { scope: "", names: emptyNames(), used: false };
 
 let _hooksInstalled = false;
 
@@ -227,8 +230,9 @@ function installHooks() {
       return;
     }
     if (data.attrName === "style") {
-      data.attrValue = data.attrValue ? filterDeclarations(data.attrValue, _activeScope) : "";
-      if (!data.attrValue) data.keepAttr = false;
+      data.attrValue = data.attrValue ? filterDeclarations(data.attrValue, _css.scope, _css.names) : "";
+      if (data.attrValue) _css.used = true;
+      else data.keepAttr = false;
     }
   });
 
@@ -245,433 +249,40 @@ function scopeClassAttr(token) {
   return scopeClassName(token);
 }
 
-// Selectors are always rewritten; card CSS must not target Orb's own classes.
-function scopeClassName(token) {
-  return token.startsWith("custom-") ? token : `custom-${token}`;
-}
+// ── Card CSS ──────────────────────────────────────────────────────────────────
+// message_css.js owns the policy; this half only has to give it the message's
+// scope and hand the same rename table to the sheet and to the style attributes.
 
-// ── CSS containment ─────────────────────────────────────────────────────────
-// Re-emit only scoped, allowlisted CSS. This string parser is deterministic and
-// testable without depending on a browser CSSOM.
+const CUSTOM_STYLE_RE = /<custom-style>([^<]*)<\/custom-style>/gi;
 
-/** Properties allowed verbatim. Longhands matter: engines expand shorthands. */
-const CSS_PROP_EXACT = new Set([
-  "animation",
-  "aspect-ratio",
-  "backdrop-filter",
-  "background",
-  "block-size",
-  "bottom",
-  "box-shadow",
-  "box-sizing",
-  "caret-color",
-  "clear",
-  "clip-path",
-  "color",
-  "color-scheme",
-  "columns",
-  "content",
-  "counter-increment",
-  "counter-reset",
-  "cursor",
-  "direction",
-  "display",
-  "empty-cells",
-  "filter",
-  "float",
-  "font",
-  "gap",
-  "height",
-  "hyphens",
-  "inline-size",
-  "inset",
-  "isolation",
-  "left",
-  "letter-spacing",
-  "line-break",
-  "line-height",
-  "max-block-size",
-  "max-height",
-  "max-inline-size",
-  "max-width",
-  "min-block-size",
-  "min-height",
-  "min-inline-size",
-  "min-width",
-  "mix-blend-mode",
-  "object-fit",
-  "object-position",
-  "opacity",
-  "order",
-  "perspective",
-  "perspective-origin",
-  "pointer-events",
-  "position",
-  "quotes",
-  "resize",
-  "right",
-  "rotate",
-  "scale",
-  "tab-size",
-  "table-layout",
-  "top",
-  "touch-action",
-  "transform",
-  "transform-box",
-  "transform-origin",
-  "transform-style",
-  "transition",
-  "translate",
-  "unicode-bidi",
-  "user-select",
-  "vertical-align",
-  "visibility",
-  "white-space",
-  "width",
-  "word-break",
-  "word-spacing",
-  "writing-mode",
-  "z-index",
-]);
-
-/** Families allowed wholesale, longhands and shorthands alike. */
-const CSS_PROP_PREFIXES = [
-  "align-",
-  "animation-",
-  "background-",
-  "border",
-  "column-",
-  "flex",
-  "font-",
-  "grid",
-  "inset-",
-  "justify-",
-  "list-style",
-  "margin",
-  "mask",
-  "outline",
-  "overflow",
-  "padding",
-  "place-",
-  "row-gap",
-  "scroll-margin",
-  "scroll-padding",
-  "text-",
-  "transition-",
-];
-
-// Block network loads, escapes and values that can break the declaration body.
-const CSS_VALUE_DENY = /url\s*\(|image-set|cross-fade|element\s*\(|expression|behavior|[\\@<>{};]/i;
-
-// Keep positioning inside the bubble and below the app's chrome.
-const CSS_VALUE_RULES = {
-  position: /^(static|relative|absolute)$/i,
-  "z-index": /^(auto|-?\d{1,2})$/,
-};
-
-const CSS_AT_CONDITIONAL = new Set(["media", "supports", "container"]);
-
-// Animation shorthand keywords are not keyframe names.
-const CSS_ANIMATION_KEYWORDS = new Set([
-  "alternate",
-  "alternate-reverse",
-  "backwards",
-  "both",
-  "ease",
-  "ease-in",
-  "ease-in-out",
-  "ease-out",
-  "forwards",
-  "infinite",
-  "inherit",
-  "initial",
-  "linear",
-  "none",
-  "normal",
-  "paused",
-  "reverse",
-  "revert",
-  "running",
-  "step-end",
-  "step-start",
-  "unset",
-]);
-
-/** Return the index after a quoted string. */
-function _skipString(css, at) {
-  const quote = css[at];
-  for (let i = at + 1; i < css.length; i++) {
-    if (css[i] === "\\") i++;
-    else if (css[i] === quote) return i + 1;
-  }
-  return css.length;
-}
-
-/** Return the index after a parenthesized or bracketed group. */
-function _skipGroup(css, at) {
-  const close = css[at] === "(" ? ")" : "]";
-  let depth = 0;
-  for (let i = at; i < css.length; i++) {
-    const ch = css[i];
-    if (ch === '"' || ch === "'") i = _skipString(css, i) - 1;
-    else if (ch === css[at]) depth++;
-    else if (ch === close && --depth === 0) return i + 1;
-  }
-  return css.length;
-}
-
-function _stripCssComments(css) {
-  let out = "";
-  for (let i = 0; i < css.length; ) {
-    if (css[i] === "/" && css[i + 1] === "*") {
-      const end = css.indexOf("*/", i + 2);
-      i = end === -1 ? css.length : end + 2;
-      out += " ";
-    } else if (css[i] === '"' || css[i] === "'") {
-      const end = _skipString(css, i);
-      out += css.slice(i, end);
-      i = end;
-    } else {
-      out += css[i++];
-    }
-  }
-  return out;
-}
-
-/** Split one nesting level into `{ prelude, block }` statements. */
-function parseCssBlocks(css) {
-  const out = [];
-  let start = 0;
-  for (let i = 0; i < css.length; ) {
-    const ch = css[i];
-    if (ch === '"' || ch === "'") {
-      i = _skipString(css, i);
-    } else if (ch === "(" || ch === "[") {
-      i = _skipGroup(css, i);
-    } else if (ch === ";") {
-      const prelude = css.slice(start, i).trim();
-      if (prelude) out.push({ prelude, block: null });
-      start = ++i;
-    } else if (ch === "{") {
-      let depth = 0;
-      let end = css.length;
-      for (let j = i; j < css.length; j++) {
-        const c = css[j];
-        if (c === '"' || c === "'") j = _skipString(css, j) - 1;
-        else if (c === "(" || c === "[") j = _skipGroup(css, j) - 1;
-        else if (c === "{") depth++;
-        else if (c === "}" && --depth === 0) {
-          end = j;
-          break;
-        }
-      }
-      out.push({ prelude: css.slice(start, i).trim(), block: css.slice(i + 1, end) });
-      start = end + 1;
-      i = start;
-    } else if (ch === "}") {
-      start = ++i; // a stray close: whatever preceded it is not a rule we can trust
-    } else {
-      i++;
-    }
-  }
-  const tail = css.slice(start).trim();
-  if (tail) out.push({ prelude: tail, block: null });
-  return out;
-}
-
-/** Split on `sep` outside strings and bracket groups. */
-function splitTopLevel(text, sep) {
-  const parts = [];
-  let start = 0;
-  for (let i = 0; i < text.length; ) {
-    const ch = text[i];
-    if (ch === '"' || ch === "'") i = _skipString(text, i);
-    else if (ch === "(" || ch === "[") i = _skipGroup(text, i);
-    else if (ch === sep) {
-      parts.push(text.slice(start, i));
-      start = ++i;
-    } else i++;
-  }
-  parts.push(text.slice(start));
-  return parts;
-}
-
-/** Split a selector list on top-level commas. */
-function splitSelectorList(selector) {
-  const parts = [];
-  let depth = 0;
-  let quote = null;
-  let current = "";
-  for (const ch of selector) {
-    if (quote) {
-      current += ch;
-      if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'") quote = ch;
-    else if (ch === "(" || ch === "[") depth++;
-    else if (ch === ")" || ch === "]") depth--;
-    else if (ch === "," && depth === 0) {
-      parts.push(current);
-      current = "";
-      continue;
-    }
-    current += ch;
-  }
-  parts.push(current);
-  return parts;
-}
-
-const SELECTOR_TOKEN_RE = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\.(-?[_a-zA-Z][\w-]*)|#(-?[_a-zA-Z][\w-]*)/g;
-
-/** Prefix a selector with this message's scope and rewrite classes and ids. */
-function scopeSelector(selector, scope) {
-  return splitSelectorList(selector)
-    .map((part) => {
-      const trimmed = part.trim();
-      if (!trimmed || /[{}@;]/.test(trimmed)) return "";
-      const scoped = trimmed.replace(SELECTOR_TOKEN_RE, (match, cls, id) => {
-        if (cls !== undefined) return `.${scopeClassName(cls)}`;
-        if (id !== undefined) return `#user-content-${id}`;
-        return match;
-      });
-      return `.msg-body .${scope} ${scoped}`;
-    })
-    .filter(Boolean)
-    .join(", ");
-}
-
-function isAllowedCssProp(prop) {
-  if (prop.startsWith("--")) return /^--[\w-]+$/.test(prop);
-  if (!/^-?[a-z][a-z0-9-]*$/.test(prop)) return false;
-  return CSS_PROP_EXACT.has(prop) || CSS_PROP_PREFIXES.some((p) => prop.startsWith(p));
-}
-
-/** Point animation references at this message's renamed keyframes. */
-function rewriteAnimationValue(value, scope) {
-  return splitTopLevel(value, ",")
-    .map((group) =>
-      group.replace(/[-\w]+/g, (token) => {
-        if (!/^-?[_a-zA-Z][\w-]*$/.test(token)) return token;
-        if (CSS_ANIMATION_KEYWORDS.has(token.toLowerCase())) return token;
-        return `${scope}-${token}`;
-      }),
-    )
-    .join(",");
-}
-
-/** Re-emit only declarations allowed by the CSS policy. */
-function filterDeclarations(block, scope) {
-  const kept = [];
-  for (const raw of splitTopLevel(_stripCssComments(block), ";")) {
-    const decl = raw.trim();
-    // A `{` here is a nested rule, not a declaration. Nothing rewrites selectors
-    // at this depth, so it goes rather than escaping the scope unrewritten.
-    if (!decl || decl.includes("{") || decl.includes("}")) continue;
-    const colon = decl.indexOf(":");
-    if (colon <= 0) continue;
-    const prop = decl.slice(0, colon).trim().toLowerCase();
-    let value = decl.slice(colon + 1).trim();
-    if (!value || !isAllowedCssProp(prop)) continue;
-    if (CSS_VALUE_DENY.test(value)) continue;
-    const bare = value.replace(/\s*!important$/i, "").trim();
-    const rule = CSS_VALUE_RULES[prop];
-    if (rule && !rule.test(bare)) continue;
-    if (scope && (prop === "animation" || prop === "animation-name")) {
-      value = rewriteAnimationValue(value, scope);
-    }
-    kept.push(`${prop}: ${value}`);
-  }
-  return kept.join("; ");
-}
-
-const KEYFRAMES_NAME_RE = /^@(?:-webkit-)?keyframes\s+(-?[_a-zA-Z][\w-]*)$/i;
-const KEYFRAME_SELECTOR_RE = /^(from|to|[+-]?\d+(?:\.\d+)?%)$/i;
-
-function renderKeyframes(prelude, block, scope) {
-  const name = KEYFRAMES_NAME_RE.exec(prelude.trim())?.[1];
-  if (!name) return "";
-  let body = "";
-  for (const { prelude: stop, block: decls } of parseCssBlocks(block)) {
-    if (decls === null) continue;
-    const stops = splitTopLevel(stop, ",").map((s) => s.trim());
-    if (!stops.every((s) => KEYFRAME_SELECTOR_RE.test(s))) continue;
-    const kept = filterDeclarations(decls, scope);
-    if (kept) body += `  ${stops.join(", ")} { ${kept} }\n`;
-  }
-  // Renamed, so a card's `pulse` is its own and the app's stays the app's.
-  return body ? `@keyframes ${scope}-${name} {\n${body}}\n` : "";
-}
-
-// Conditional preludes are copied only when they cannot escape the rule.
-const AT_PRELUDE_DENY = /url\s*\(|[\\{};]|@[-\w]+[\s\S]*@/i;
-
-function renderRules(css, scope, depth) {
-  if (depth > 8) return "";
-  let out = "";
-  for (const { prelude, block } of parseCssBlocks(css)) {
-    if (block === null) continue; // a bare `@import`/`@charset`, or a truncated tail
-    if (prelude.startsWith("@")) {
-      const name = /^@(?:-webkit-)?([-\w]+)/.exec(prelude)?.[1]?.toLowerCase();
-      if (name === "keyframes") {
-        out += renderKeyframes(prelude, block, scope);
-      } else if (CSS_AT_CONDITIONAL.has(name) && !AT_PRELUDE_DENY.test(prelude)) {
-        const inner = renderRules(block, scope, depth + 1);
-        if (inner) out += `${prelude} {\n${inner}}\n`;
-      }
-      // Other at-rules are global by construction and are dropped.
-      continue;
-    }
-    const selector = scopeSelector(prelude, scope);
-    const decls = filterDeclarations(block, scope);
-    if (selector && decls) out += `${selector} { ${decls} }\n`;
-  }
-  return out;
-}
-
-/** Return card CSS scoped to one message. */
-export function sanitizeCss(cssText, scope) {
-  if (!cssText || !scope) return "";
-  try {
-    const css = renderRules(_stripCssComments(cssText), scope, 0);
-    // The fragment is serialised before it reaches innerHTML, and `</style` is
-    // the one token that ends a style element's raw text on the way back in.
-    return css.replace(/<\/style/gi, "\\3c /style");
-  } catch {
-    return "";
-  }
-}
-
-/** Return a stable scope for a message source. */
-export function cssScope(source) {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < source.length; i++) {
-    h ^= source.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return `msg-s${h.toString(36)}`;
-}
-
-/** Replace encoded custom styles with scoped styles. */
-function applyCustomStyles(root, scope) {
-  let applied = false;
-  for (const node of Array.from(root.querySelectorAll("custom-style"))) {
-    let css = "";
+/** Pull the encoded sheets out before sanitising, so inline styles see those names. */
+function compileMessageCss(html, scope) {
+  // Most messages carry no sheet at all, and this runs on every streaming frame.
+  if (!html.includes("<custom-style>")) return compileCss("", scope);
+  let source = "";
+  for (const match of html.matchAll(CUSTOM_STYLE_RE)) {
     try {
-      css = sanitizeCss(decodeURIComponent(node.textContent || ""), scope);
+      source += `${decodeURIComponent(match[1])}\n`;
     } catch {
-      css = "";
+      // A payload formatProse did not write; there is nothing to recover from it.
     }
-    if (!css) {
+  }
+  return compileCss(source, scope);
+}
+
+/** Replace the encoded custom styles with the one compiled sheet. */
+function applyCustomStyles(root, css) {
+  let placed = false;
+  for (const node of Array.from(root.querySelectorAll("custom-style"))) {
+    if (!css || placed) {
       node.remove();
       continue;
     }
     const style = document.createElement("style");
     style.textContent = css;
     node.replaceWith(style);
-    applied = true;
+    placed = true;
   }
-  return applied;
 }
 
 // ── Orb's own chrome ────────────────────────────────────────────────────────
@@ -813,20 +424,27 @@ function wrapTables(root) {
 
 function finish(html, scope) {
   installHooks();
-  _activeScope = scope;
+  // The sheet is compiled first: its rename table has to be in hand before the
+  // sanitiser reaches a `style` attribute that names one of the sheet's fonts.
+  const sheet = compileMessageCss(html, scope);
+  _css = { scope, names: sheet.names, used: false };
   let fragment;
+  let inlineStyled = false;
   try {
     // Adopt the sanitised fragment before walking it.
     fragment = document.adoptNode(DOMPurify.sanitize(html, SANITIZE_CONFIG));
   } finally {
-    _activeScope = "";
+    inlineStyled = _css.used;
+    _css = { scope: "", names: emptyNames(), used: false };
   }
-  const styled = applyCustomStyles(fragment, scope);
+  applyCustomStyles(fragment, sheet.css);
   restoreCodeBlockChrome(fragment);
   wrapTables(fragment);
   applyBlockLayout(fragment);
-  if (styled) {
-    // Card CSS is scoped below this message-specific wrapper.
+  if (sheet.css || inlineStyled) {
+    // Card CSS is scoped below this wrapper, and contained by it: chat.css gives
+    // `.msg-css-scope` paint containment, which is what keeps a card's
+    // `position: fixed` and its `z-index` inside this one message.
     const box = document.createElement("div");
     box.className = `msg-css-scope ${scope}`;
     while (fragment.firstChild) box.appendChild(fragment.firstChild);

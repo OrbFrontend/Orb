@@ -117,18 +117,20 @@ it("a forged code-block gets Orb's toolbar, and the forged button gets nothing",
   assert.equal(root.querySelectorAll(".custom-code-block-btn").length, 1);
 });
 
-it("card CSS arrives scoped, with nothing global and nothing remote left in it", () => {
+it("card CSS arrives scoped, with nothing global left in it", () => {
   const html = render(
     '<style>@import url(https://evil.test/x.css); @keyframes pulse { to { opacity: 1 } }' +
-      ".card { color: red; background: url(https://evil.test/p.png) }</style>" +
+      ".card { color: red; background: url(https://cdn.test/p.png) }</style>" +
       '<div class="card">hi</div>',
   );
   const root = reparse(html);
   const style = root.querySelector("style");
   assert.ok(style, `no <style> survived: ${html}`);
   const css = style.textContent;
-  assert.ok(!/@import|url\s*\(/i.test(css), css);
+  assert.ok(!/@import/i.test(css), css);
   assert.ok(!/@keyframes pulse\b/.test(css), css);
+  // The card's own art is fetched; the sheet it tried to pull in is not.
+  assert.match(css, /url\("https:\/\/cdn\.test\/p\.png"\)/);
   assert.match(css, /@keyframes msg-s[0-9a-z]+-pulse/);
   // Every rule reaches this message and no other.
   const scope = root.querySelector(".msg-css-scope");
@@ -153,10 +155,33 @@ it("a message with no CSS is not wrapped, so ordinary prose renders unchanged", 
 });
 
 it("an inline style goes through the same allowlist as a stylesheet", () => {
-  const html = render('<div style="color: red; background: url(https://evil.test/p.png); position: fixed">x</div>');
+  const html = render('<div style="color: red; background: url(javascript:alert(1)); font-weight: bold">x</div>');
   assert.match(html, /style="[^"]*color: red/);
+  assert.match(html, /font-weight: bold/);
   assert.ok(!/url\s*\(/i.test(html), html);
-  assert.ok(!/fixed/.test(html), html);
+});
+
+it("an inline style alone is enough to earn the containment wrapper", () => {
+  // `position: fixed` is only safe because .msg-css-scope contains it, and a
+  // message can reach for it without ever writing a <style> block.
+  const root = reparse(render('<div style="position: fixed; z-index: 9999">x</div>'));
+  const scope = root.querySelector(".msg-css-scope");
+  assert.ok(scope, root.innerHTML);
+  assert.ok(scope.querySelector('[style*="position: fixed"]'), root.innerHTML);
+});
+
+it("a web font is scoped to the message that shipped it", () => {
+  const root = reparse(
+    render(
+      '<style>@font-face { font-family: "Card"; src: url(https://cdn.test/c.woff2) format("woff2") }' +
+        '.t { font-family: "Card", serif }</style><div class="t">hi</div>',
+    ),
+  );
+  const css = root.querySelector("style").textContent;
+  // The family is renamed, so a card cannot redefine a family the app uses.
+  assert.match(css, /@font-face \{[^}]*font-family: "msg-s[0-9a-z]+-Card"/);
+  assert.ok(!/font-family: "Card"/.test(css), css);
+  assert.match(css, /\.custom-t \{ font-family: "msg-s[0-9a-z]+-Card", serif \}/);
 });
 
 it("an inline animation cannot reach one of the app's own keyframes", () => {

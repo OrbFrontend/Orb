@@ -326,6 +326,23 @@
   padding-bottom: .3em;
 }
 
+/* Card CSS and card inline styles both land inside this wrapper, and it is the
+   one place their reach is bounded. Paint containment makes the wrapper the
+   containing block for `position: fixed` and clips what overflows it, so a card
+   overlay covers its own bubble rather than the app; it also opens a stacking
+   context, which is what keeps a card's `z-index` under Orb's chrome however
+   large it is. Style containment keeps a card's counters out of the app's, and
+   is a second declaration so an engine without it still gets the first.
+   `!important` because card CSS can write `!important` too: this is the
+   invariant the CSS policy rests on, not a look. Card rules are always
+   `.msg-body .msg-s… <descendant>`, so none of them can name this element. */
+.msg-css-scope {
+  position: relative !important;
+  isolation: isolate !important;
+  contain: layout paint !important;
+  contain: layout paint style !important;
+}
+
 /* .msg-image keeps its own viewport-aware sizing further down this file. */
 .message .msg-body img:not(.msg-image) { max-width: 100%; height: auto; }
 .message .msg-body a { color: var(--accent); }
