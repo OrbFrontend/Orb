@@ -147,6 +147,7 @@ import {
   showRenameWorldModal,
   toggleWorldEnabled,
 } from "./lorebooks.js";
+import { initMessageHtmlActions } from "./message_html.js";
 import { closeMobileHeaderActions, initMobileUi, toggleMobileHeaderActions, toggleMobileSidebar } from "./mobile.js";
 import {
   closeCropModal,
@@ -444,6 +445,7 @@ Object.assign(window, {
 
 initTheme();
 initThemeList();
+initMessageHtmlActions();
 initComposer();
 initChatKeyNav();
 initAutoscroll();

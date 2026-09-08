@@ -35,6 +35,7 @@ import {
 import { restNotice, speakerAvatarCell, unansweredHint } from "./group_cast.js";
 import { consumeSpeakerOverride, refreshSheetProposals, renderGroupCast } from "./group_setup.js";
 import { refreshCharacters } from "./library.js";
+import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
 import { isUtilityPanelOpen } from "./panels.js";
 import { ensurePersonaPinned } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
@@ -43,8 +44,6 @@ import {
   $,
   convUrl,
   esc,
-  formatProse,
-  formatProseWithDiff,
   notifyError,
   pinStreamingMessage,
   resolvePlaceholders,
@@ -128,8 +127,8 @@ function finalizeStreamingDiv(lastMsg) {
 
   const bodyHtml =
     S.pendingRefineDiff && S.showEditorDiff
-      ? formatProseWithDiff(S.pendingRefineDiff.ops)
-      : formatProse(resolvePlaceholders(lastMsg.content));
+      ? renderMessageDiffHtml(S.pendingRefineDiff.ops)
+      : renderMessageHtml(resolvePlaceholders(lastMsg.content));
   smoothUpdateBody(body, bodyHtml, () => scrollToBottom(true));
   if ((S.workflowTextEffects.length || S.workflowClickHandlers.length) && !(S.pendingRefineDiff && S.showEditorDiff)) {
     _applyWorkflowTextSegments(body, lastMsg);
@@ -200,7 +199,7 @@ function adoptPendingUserMessage(msg, content = null) {
   if (tb) tb.innerHTML = buildMsgToolbar(msg);
   if (content === null) return;
   const body = div.querySelector(".msg-body");
-  if (body) body.innerHTML = formatProse(resolvePlaceholders(content));
+  if (body) body.innerHTML = renderMessageHtml(resolvePlaceholders(content));
 }
 
 function patchPendingUserMessage(pendingMsg) {
@@ -434,7 +433,9 @@ export async function processSSEStream(resp, container, holder, signal) {
       }
       fullResponse += unescapeSSE(data);
       S.streamingContent = rewrittenResponse || fullResponse;
-      if (S.streamingBodyEl) S.streamingBodyEl.innerHTML = formatProse(rewrittenResponse || fullResponse);
+      if (S.streamingBodyEl) {
+        S.streamingBodyEl.innerHTML = renderMessageHtml(rewrittenResponse || fullResponse, { streaming: true });
+      }
       scrollToBottom();
     };
     const onRewrite = (text) => {
@@ -442,7 +443,9 @@ export async function processSSEStream(resp, container, holder, signal) {
       S.streamingContent = text;
       if (S.streamingBodyEl) {
         const html =
-          S.pendingRefineDiff && S.showEditorDiff ? formatProseWithDiff(S.pendingRefineDiff.ops) : formatProse(text);
+          S.pendingRefineDiff && S.showEditorDiff
+            ? renderMessageDiffHtml(S.pendingRefineDiff.ops)
+            : renderMessageHtml(text);
         smoothUpdateBody(S.streamingBodyEl, html, scrollToBottom);
       } else {
         scrollToBottom();

@@ -8,21 +8,11 @@ import {
 import { reconcileChildren } from "./dom_reconcile.js";
 import { sceneEmptyStateHtml, speakerAvatarCell, speakerLabel } from "./group_cast.js";
 import { CHEVRON_LEFT_ICON, CHEVRON_RIGHT_ICON, EDIT_ICON_PATHS } from "./icons.js";
+import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, S, subscribe } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
-import {
-  $,
-  avatarCell,
-  avatarUrl,
-  esc,
-  escAttr,
-  escHandlerArg,
-  formatBytes,
-  formatProse,
-  formatProseWithDiff,
-  resolvePlaceholders,
-} from "./utils.js";
+import { $, avatarCell, avatarUrl, esc, escAttr, escHandlerArg, formatBytes, resolvePlaceholders } from "./utils.js";
 import { segmentBody } from "./workflow_segmentation.js";
 import { markClickable } from "./workflow_text_interaction.js";
 import { messageProposalsHtml } from "./world_proposals.js";
@@ -320,8 +310,8 @@ function _messageHtml(m, childByParent, avatars) {
         </div>`
     : `<div class="msg-body">${
         S.pendingRefineDiff?.msgId && m.id === S.pendingRefineDiff.msgId && S.showEditorDiff
-          ? formatProseWithDiff(S.pendingRefineDiff.ops)
-          : formatProse(resolvePlaceholders(m.content))
+          ? renderMessageDiffHtml(S.pendingRefineDiff.ops)
+          : renderMessageHtml(resolvePlaceholders(m.content))
       }</div>`;
   const attachmentsHtml = renderUserAttachments(m.user_attachments);
   const workflowArtifactsHtml = _renderWorkflowArtifacts(m);

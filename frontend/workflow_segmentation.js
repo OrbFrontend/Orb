@@ -1,3 +1,4 @@
+import { BLOCK_TAGS } from "./message_html.js";
 import {
   isHardLineBreak,
   isSentenceWhitespace,
@@ -93,13 +94,22 @@ function _wrapTextNode(node, words) {
   node.parentNode.replaceChild(frag, node);
 }
 
+// Subtrees whose text is data rather than prose. A message body can now hold
+// arbitrary card markup, so wrapping these in .seg spans would not just
+// mis-index words — inside <style> it would destroy the CSS.
+const UNSEGMENTED_TAGS = new Set(["PRE", "CODE", "STYLE", "SCRIPT", "TEXTAREA", "TITLE", "SVG"]);
+
 export function segmentBody(bodyEl) {
   if (!bodyEl || bodyEl.dataset.segApplied === "1") return;
   const walker = document.createTreeWalker(bodyEl, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
     acceptNode(node) {
       if (node.nodeType === Node.ELEMENT_NODE) {
-        if (node.tagName === "BR") return NodeFilter.FILTER_ACCEPT;
-        if (node.tagName === "PRE" || node.tagName === "CODE") return NodeFilter.FILTER_REJECT;
+        const tag = node.tagName.toUpperCase();
+        if (UNSEGMENTED_TAGS.has(tag)) return NodeFilter.FILTER_REJECT;
+        // A block element starts a new line as surely as a <br> does, so the
+        // caller's breakBefore path has to see it or sentence indices run
+        // straight across <p> and <li> boundaries.
+        if (tag === "BR" || BLOCK_TAGS.has(tag)) return NodeFilter.FILTER_ACCEPT;
         return NodeFilter.FILTER_SKIP;
       }
       return NodeFilter.FILTER_ACCEPT;

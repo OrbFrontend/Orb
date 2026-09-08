@@ -52,6 +52,10 @@ LAYERS = {
     "workflow_registry.js": 1,
     "utils.js": 1,
     "notify.js": 1,
+    # The browser half of prose rendering: DOMPurify, block layout and <style>
+    # scoping. Sits beside utils.js because it is what makes utils.js output
+    # safe to hand to innerHTML, and imports nothing above it.
+    "message_html.js": 1,
     # Pure render/state helpers for the Dynamic Worlds review surface; imports
     # only utils.js, so it sits alongside it rather than with the features.
     "world_proposals.js": 1,

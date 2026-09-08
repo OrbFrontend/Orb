@@ -235,32 +235,78 @@ export function sentenceDiff(oldText, newText) {
 
 const INLINE_QUOTE_RE = /"[^"]+"|“[^”]+”|‘[^’]+’|«[^»]+»|‹[^›]+›|「[^」]+」|『[^』]+』|„[^“]+“|‚[^‘]+‘/g;
 
-function _applyInlineFormatting(escaped) {
-  escaped = escaped.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  escaped = escaped.replace(/\*([^*]+?)\*/g, "<em>$1</em>");
-  return escaped.replace(INLINE_QUOTE_RE, '<span class="quoted">$&</span>');
+// Message bodies carry model-written markup, and a tag's interior is not prose:
+// INLINE_QUOTE_RE would turn <img src="x.png"> into
+// <img src=<span class="quoted">"x.png"</span>>, and a *, ` or # in an attribute
+// value is just as corruptible. Lift every tag into a numbered slot before the
+// inline passes run, then put them back untouched.
+const TAG_SLOT_OPEN = "\uFFFC";
+const TAG_SLOT_CLOSE = "\uFFFD";
+const TAG_SLOT_RE = /\uFFFC(\d+)\uFFFD/g;
+
+function _protectTags(text) {
+  const tags = [];
+  // Drop the slot characters from the input first, so model text cannot forge
+  // a slot and have an arbitrary tag substituted into it.
+  const body = text
+    .replace(/[\uFFFC\uFFFD]/g, "")
+    .replace(/<[^>]*>/g, (tag) => `${TAG_SLOT_OPEN}${tags.push(tag) - 1}${TAG_SLOT_CLOSE}`);
+  return { body, tags };
 }
 
+function _restoreTags(html, tags) {
+  return tags.length ? html.replace(TAG_SLOT_RE, (slot, i) => tags[i] ?? slot) : html;
+}
+
+function _applyInlineFormatting(protectedText) {
+  let out = protectedText.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  out = out.replace(/\*([^*]+?)\*/g, "<em>$1</em>");
+  return out.replace(INLINE_QUOTE_RE, '<span class="quoted">$&</span>');
+}
+
+/** Emphasis and quotes only — the pass the diff renderer shares with prose. */
+function _formatSpan(text) {
+  const { body, tags } = _protectTags(text);
+  return _restoreTags(_applyInlineFormatting(body), tags);
+}
+
+/** The full inline phase: emphasis, quotes, inline code, ATX headings. */
+function _formatInline(text) {
+  const { body, tags } = _protectTags(text);
+  let out = _applyInlineFormatting(body);
+  out = out.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+  out = out.replace(
+    /^(#{1,6}) (.+)$/gm,
+    (_, hashes, content) => `<strong class="md-h${hashes.length}">${content}</strong>`,
+  );
+  return _restoreTags(out, tags);
+}
+
+/**
+ * Render an editor diff. Like {@link formatProse}, the result still contains
+ * model markup and newlines: pass it through `renderMessageDiffHtml`
+ * (message_html.js) rather than assigning it to `innerHTML`.
+ */
 export function formatProseWithDiff(ops) {
   let html = "";
   for (let i = 0; i < ops.length; i++) {
     const op = ops[i];
     if (op.type === "equal") {
-      html += _applyInlineFormatting(esc(op.text));
+      html += _formatSpan(op.text);
     } else if (op.type === "delete") {
       const next = ops[i + 1];
       if (next?.type === "insert") {
-        html += `<span class="diff-deleted">${_applyInlineFormatting(esc(op.text))}</span>`;
-        html += `<span class="diff-change">${_applyInlineFormatting(esc(next.text))}</span>`;
+        html += `<span class="diff-deleted">${_formatSpan(op.text)}</span>`;
+        html += `<span class="diff-change">${_formatSpan(next.text)}</span>`;
         i++; // consume the paired insert
       } else {
-        html += `<span class="diff-deleted">${_applyInlineFormatting(esc(op.text))}</span>`;
+        html += `<span class="diff-deleted">${_formatSpan(op.text)}</span>`;
       }
     } else if (op.type === "insert") {
-      html += `<span class="diff-change">${_applyInlineFormatting(esc(op.text))}</span>`;
+      html += `<span class="diff-change">${_formatSpan(op.text)}</span>`;
     }
   }
-  return html.replace(/\n{2,}/g, '<br><span class="pbreak"></span>').replace(/\n/g, "<br>");
+  return html;
 }
 
 const ICON_WRAP = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="3" y1="6" x2="21" y2="6"/><path d="M3 12h15a3 3 0 1 1 0 6h-4"/><polyline points="16 16 14 18 16 20"/><line x1="3" y1="18" x2="10" y2="18"/></svg>`;
@@ -276,36 +322,41 @@ function renderImageEmbed(url, alt) {
     `<summary><span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>` +
     `<span class="msg-image-label">🖼️ Image</span></summary>` +
     `<a class="msg-image-link" href="${safeUrl}" target="_blank" rel="noopener">` +
-    `<img class="msg-image" src="${safeUrl}" alt="${safeAlt}" loading="lazy" ` +
-    `onerror="this.replaceWith(Object.assign(document.createElement('span'),` +
-    `{className:'msg-image-broken',textContent:this.src}))">` +
+    `<img class="msg-image" src="${safeUrl}" alt="${safeAlt}" loading="lazy">` +
     `</a>` +
     `</details>`
   );
 }
 
-const _proseCache = new Map();
-const _PROSE_CACHE_MAX = 2000;
+// The parts formatProse handles whole rather than as prose: fenced code, a
+// <style> block, and an image embed. One capture group, so split() keeps them.
+const PROSE_PART_RE =
+  /(```[\w]*\n?[\s\S]*?```|<style\b[^>]*>[\s\S]*?<\/style\s*>|!\[[^\]]*\]\((?:https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\))/gi;
+const STYLE_BLOCK_RE = /^<style\b[^>]*>([\s\S]*?)<\/style\s*>$/i;
 
+/**
+ * Format one message body's text into HTML.
+ *
+ * The result deliberately still contains the markup the model wrote, and leaves
+ * newlines as newlines for the DOM layout pass — it is NOT safe to assign to
+ * `innerHTML`. Every call site goes through `renderMessageHtml`
+ * (message_html.js), which sanitises it, lays it out and scopes its styles.
+ */
 export function formatProse(text) {
   if (!text) return "";
-  const cached = _proseCache.get(text);
-  if (cached !== undefined) return cached;
-  const html = _formatProse(text);
-  if (_proseCache.size >= _PROSE_CACHE_MAX) {
-    _proseCache.delete(_proseCache.keys().next().value);
-  }
-  _proseCache.set(text, html);
-  return html;
-}
-
-function _formatProse(text) {
-  const parts = text.split(/(```[\w]*\n?[\s\S]*?```|!\[[^\]]*\]\((?:https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\))/gi);
+  const parts = text.split(PROSE_PART_RE);
   return parts
     .map((part, i) => {
       const imgMatch = part.match(IMG_LINK_RE);
       if (imgMatch) {
         return renderImageEmbed(imgMatch[2], imgMatch[1]);
+      }
+      const styleMatch = part.match(STYLE_BLOCK_RE);
+      if (styleMatch) {
+        // DOMPurify keeps the <style> element but deletes its contents, so the
+        // CSS rides across the sanitise boundary percent-encoded inside a tag
+        // that survives, and message_html.js unpacks and rescopes it.
+        return `<custom-style>${encodeURIComponent(styleMatch[1])}</custom-style>`;
       }
       const codeMatch = part.match(/^```(\w*)(\n)?([\s\S]*?)```$/);
       if (codeMatch) {
@@ -316,10 +367,10 @@ function _formatProse(text) {
         return (
           `<div class="code-block">` +
           `<div class="code-block-bar">` +
-          `<button type="button" class="code-block-btn" title="Toggle word wrap" aria-label="Toggle word wrap" aria-pressed="false" ` +
-          `onclick="this.setAttribute('aria-pressed', this.closest('.code-block').classList.toggle('wrap'))">${ICON_WRAP}</button>` +
-          `<button type="button" class="code-block-btn" title="Copy" aria-label="Copy code" ` +
-          `onclick="navigator.clipboard.writeText(this.closest('.code-block').querySelector('code').textContent).then(() => { this.classList.add('copied'); setTimeout(() => this.classList.remove('copied'), 1200); })">${ICON_COPY}</button>` +
+          `<button type="button" class="code-block-btn" data-orb-action="wrap" title="Toggle word wrap" ` +
+          `aria-label="Toggle word wrap" aria-pressed="false">${ICON_WRAP}</button>` +
+          `<button type="button" class="code-block-btn" data-orb-action="copy" title="Copy" ` +
+          `aria-label="Copy code">${ICON_COPY}</button>` +
           `</div>` +
           `<pre><code${langAttr}>${code}</code></pre>` +
           `</div>`
@@ -328,13 +379,7 @@ function _formatProse(text) {
       let prose = part;
       if (i > 0) prose = prose.replace(/^\n/, ""); // after a code block
       if (i < parts.length - 1) prose = prose.replace(/\n$/, ""); // before a code block
-      let escaped = _applyInlineFormatting(esc(prose));
-      escaped = escaped.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
-      escaped = escaped.replace(
-        /^(#{1,6}) (.+)$/gm,
-        (_, hashes, content) => `<strong class="md-h${hashes.length}">${content}</strong>`,
-      );
-      return escaped.replace(/\n{2,}/g, '<br><span class="pbreak"></span>').replace(/\n/g, "<br>");
+      return _formatInline(prose);
     })
     .join("");
 }
