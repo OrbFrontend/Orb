@@ -33,8 +33,7 @@ export function renderLibraryManager(container, callbacks = {}) {
             <h3 class="lib-tool-name">Auto-tagging</h3>
             <p class="lib-manager-note">
               The Agent model reads every character and replaces its tags with the
-              ones that fit. A card has one set of tags, so the tags it was
-              imported with are overwritten — in the library and in its exports.
+              appropriate ones in the vocabulary. Tags that came with the characters will be overwritten.
             </p>
           </div>
         </header>
@@ -234,7 +233,7 @@ function confirmRun() {
   showSubConfirmModal(
     {
       title: `${verb} ${n} character${n === 1 ? "" : "s"}?`,
-      message: `The tags ${n === 1 ? "this card" : "these cards"} already carry — the creator's, or your own — are replaced by your vocabulary. This cannot be undone, and exports carry the new tags.`,
+      message: `The tags ${n === 1 ? "this card" : "these cards"} already carry will be replaced by your vocabulary. This cannot be undone, and exported cards will carry the new tags.`,
       confirmText: `${verb} ${n} character${n === 1 ? "" : "s"}`,
     },
     () => startRun(force),
