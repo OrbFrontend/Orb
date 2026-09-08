@@ -1,12 +1,15 @@
 """The Character Library's curated tag vocabulary and the auto-tagger's writes.
 
-A card has one set of tags. The tagger writes ``character_cards.tags``, the same
-column an import fills and the card editor shows, so nothing downstream has to
-merge two lists. The columns beside it are bookkeeping, not a second opinion:
-the two ``auto_tag_*`` stamps say which vocabulary produced the current contents
-and what the card looked like at the time, and ``imported_tags`` holds what the
-card arrived with so the rewrite is recoverable — see 0060, and the export in
-``routes/characters.py`` that reads it.
+A card has one set of tags, and a run overwrites it. ``character_cards.tags`` is
+the same column an import fills, the card editor shows, and an export ships, so
+there is nothing downstream to merge and nothing that reads a different list
+than the one the user is looking at. The tags a card was imported with are gone
+once a run has touched it — see 0061, and the confirmation the Manager panel
+puts in front of the run.
+
+The two ``auto_tag_*`` stamps beside the column are bookkeeping, not a second
+opinion: they say which vocabulary produced the current contents and what the
+card looked like at the time.
 """
 
 from __future__ import annotations
@@ -51,8 +54,7 @@ async def set_vocabulary(names: list[str]) -> None:
 # Hand-editing a card's tags in the card editor therefore makes it pending like
 # any other edit, and the next run overwrites what was typed. That follows from
 # there being one tag list rather than two, and it is the intended trade — the
-# way back is Restore, which is library-wide rather than per-card because the
-# stash is what the card was *imported* with, not what was last typed into it.
+# run announces it up front rather than keeping a copy nobody asked for.
 _PENDING_WHERE = "WHERE auto_tag_vocab_hash != ? OR auto_tag_card_updated_at != updated_at"
 
 
@@ -103,14 +105,8 @@ async def apply_auto_tags(card_id: str, tags: list[str], vocab_hash: str, card_u
     makes a later edit — and only a later edit — pending again.
     """
     async with get_db() as db:
-        # The CASE stashes the tags the card arrived with, once. Every right-hand
-        # side is evaluated against the pre-update row, so ``tags`` there is the
-        # old list; the guard is the never-tagged stamp, so a second run stashes
-        # nothing and the original survives every later pass.
         await db.execute(
-            "UPDATE character_cards SET "
-            "imported_tags = CASE WHEN auto_tag_vocab_hash = '' THEN tags ELSE imported_tags END, "
-            "tags = ?, auto_tag_vocab_hash = ?, auto_tag_card_updated_at = ? WHERE id = ?",
+            "UPDATE character_cards SET tags = ?, auto_tag_vocab_hash = ?, auto_tag_card_updated_at = ? WHERE id = ?",
             (json.dumps(tags), vocab_hash, card_updated_at, card_id),
         )
         await db.commit()
@@ -124,7 +120,8 @@ async def prune_auto_tags(removed: set[str]) -> int:
     remove a stored ``fantasy``.
 
     Scoped to cards the tagger has written, so deleting a vocabulary tag cannot
-    reach into the imported tags of a card no run has ever touched.
+    reach into the tags of a card no run has ever touched — those are still the
+    creator's, and only a run is allowed to replace them.
     """
     if not removed:
         return 0
@@ -159,35 +156,3 @@ async def bump_auto_tag_vocab_hash(new_hash: str) -> None:
     async with get_db() as db:
         await db.execute("UPDATE character_cards SET auto_tag_vocab_hash = ? WHERE auto_tag_vocab_hash != ''", (new_hash,))
         await db.commit()
-
-
-async def count_restorable_cards() -> int:
-    """How many cards still hold the tags they were imported with.
-
-    Drives the undo button's label the way ``count_pending_auto_tags`` drives the
-    run's: a control that names its own blast radius, and hides when there is
-    nothing to undo.
-    """
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT COUNT(*) AS n FROM character_cards WHERE imported_tags != ''"))
-        return int(rows[0]["n"]) if rows else 0
-
-
-async def restore_imported_tags() -> int:
-    """Undo the tagger across the library: every card back to what it was imported with.
-
-    Returns the number of cards restored. The stamps are cleared with the tags,
-    so a restored card is pending again — pressing Run re-tags it, which makes
-    this a toggle rather than a trapdoor.
-
-    Cards tagged before ``imported_tags`` existed have ``''`` and are left alone:
-    there is nothing to restore, and writing ``[]`` would call that a card with
-    no tags rather than a card whose originals were already lost.
-    """
-    async with get_db() as db:
-        cur = await db.execute(
-            "UPDATE character_cards SET tags = imported_tags, imported_tags = '', "
-            "auto_tag_vocab_hash = '', auto_tag_card_updated_at = '' WHERE imported_tags != ''"
-        )
-        await db.commit()
-        return int(cur.rowcount or 0)

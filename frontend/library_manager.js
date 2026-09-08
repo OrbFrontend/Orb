@@ -10,6 +10,7 @@
 
 import { api } from "./api.js";
 import { createChipInput } from "./chips.js";
+import { showSubConfirmModal } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { $, esc, toast } from "./utils.js";
 
@@ -19,7 +20,6 @@ let _vocabulary = []; // the saved vocabulary, as the server last told us
 let _draft = []; // what the chip editor currently holds
 let _total = 0;
 let _pending = 0;
-let _restorable = 0; // cards still holding the tags they were imported with
 let _controller = null; // the in-flight run's AbortController, if any
 let _callbacks = {};
 
@@ -43,8 +43,8 @@ export function renderLibraryManager(container, callbacks = {}) {
             <h3 class="lib-tool-name">Auto-tagging</h3>
             <p class="lib-manager-note">
               The Agent model reads every character and replaces its tags with the
-              ones that fit. The tags a card was imported with are kept aside, so
-              exports still carry the creator's and Restore puts them back.
+              ones that fit. A card has one set of tags, so the tags it was
+              imported with are overwritten — in the library and in its exports.
             </p>
           </div>
         </header>
@@ -70,7 +70,6 @@ export function renderLibraryManager(container, callbacks = {}) {
             <div class="lib-manager-actions">
               <button class="btn btn-accent" data-action="run"></button>
               <button class="btn" data-action="cancel" hidden>Cancel</button>
-              <button class="btn" data-action="restore" hidden></button>
             </div>
             <div class="lib-manager-progress" id="lib-run-progress" hidden>
               <div class="lib-progress-track"><div class="lib-progress-fill" id="lib-progress-fill"></div></div>
@@ -89,9 +88,8 @@ export function renderLibraryManager(container, callbacks = {}) {
 function onPanelClick(e) {
   const action = e.target.closest("[data-action]")?.dataset.action;
   if (action === "save-vocab") saveVocabulary();
-  else if (action === "run") startRun();
+  else if (action === "run") confirmRun();
   else if (action === "cancel") _controller?.abort();
-  else if (action === "restore") restoreTags();
 }
 
 function chipInput() {
@@ -127,7 +125,6 @@ function adopt(state) {
   _vocabulary = Array.isArray(state?.vocabulary) ? state.vocabulary : [];
   _total = Number(state?.total) || 0;
   _pending = Number(state?.pending) || 0;
-  _restorable = Number(state?.restorable) || 0;
 }
 
 /** Repaint the counts and the run button. The button's label *is* the
@@ -159,11 +156,6 @@ function paint() {
   }
   const cancelBtn = document.querySelector('[data-action="cancel"]');
   if (cancelBtn) cancelBtn.hidden = !running;
-  const restoreBtn = document.querySelector('[data-action="restore"]');
-  if (restoreBtn) {
-    restoreBtn.hidden = !_restorable || running;
-    restoreBtn.textContent = `Restore imported tags on ${_restorable}`;
-  }
   const saveBtn = document.querySelector('[data-action="save-vocab"]');
   if (saveBtn) saveBtn.disabled = running;
   const reasoningBox = $("lib-run-reasoning");
@@ -185,19 +177,28 @@ async function saveVocabulary() {
   toast(_pending ? `Saved — ${_pending} characters need tagging` : "Saved — nothing to re-tag");
 }
 
-/** Undo the tagger library-wide. Restored cards go back to pending, so this is
- * a toggle: the run is destructive, and this is the way out of it. */
-async function restoreTags() {
-  try {
-    const state = await api.post("/library/auto-tag/restore", {});
-    adopt(state);
-    toast(`Restored imported tags on ${state.restored} character${state.restored === 1 ? "" : "s"}`);
-  } catch (e) {
-    toast(`Failed to restore tags: ${e.message}`, true);
-    return;
-  }
-  paint();
-  await _callbacks.onRunComplete?.();
+/** The one gate in front of a destructive, library-wide rewrite.
+ *
+ * There is no undo: a card has one tag list, and the run overwrites it. So the
+ * warning names the count and the cards' own tags rather than talking about the
+ * feature, and it is here rather than in the panel's prose because a note above
+ * a button is read once and a dialog is read at the moment it matters.
+ *
+ * The *sub*-modal layer, because the Manager panel is mounted inside the library
+ * browser's modal — a plain confirm would replace the panel it is asking about,
+ * and closing it would leave the run painting into a modal that no longer exists.
+ */
+function confirmRun() {
+  if (_controller) return;
+  const n = _pending;
+  showSubConfirmModal(
+    {
+      title: `Tag ${n} character${n === 1 ? "" : "s"}?`,
+      message: `The tags ${n === 1 ? "this card" : "these cards"} already carry — the creator's, or your own — are replaced by your vocabulary. This cannot be undone, and exports carry the new tags.`,
+      confirmText: `Tag ${n} character${n === 1 ? "" : "s"}`,
+    },
+    startRun,
+  );
 }
 
 async function startRun() {

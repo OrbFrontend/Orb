@@ -19,13 +19,11 @@ from ...database import (
     bump_auto_tag_vocab_hash,
     count_library_cards,
     count_pending_auto_tags,
-    count_restorable_cards,
     get_character_card,
     get_settings,
     get_vocabulary,
     list_pending_auto_tag_ids,
     prune_auto_tags,
-    restore_imported_tags,
     set_vocabulary,
 )
 from ...features.library_tags import (
@@ -80,7 +78,6 @@ async def _tag_state() -> dict:
         "vocabulary": vocabulary,
         "total": await count_library_cards(),
         "pending": pending,
-        "restorable": await count_restorable_cards(),
     }
 
 
@@ -115,21 +112,6 @@ async def api_put_library_tags(data: LibraryTagVocabulary):
     if not added:
         await bump_auto_tag_vocab_hash(vocabulary_hash(new))
     return await _tag_state()
-
-
-@router.post("/api/library/auto-tag/restore")
-async def api_restore_imported_tags():
-    """Put every card back to the tags it was imported with, and forget the run.
-
-    The counterpart to the run being destructive. Restored cards are pending
-    again, so this is a toggle rather than a trapdoor — and it is the reason the
-    panel can offer a library-wide rewrite without a confirmation dialog in front
-    of it: the way out is a button, not a backup.
-    """
-    if _run_lock.locked():
-        raise HTTPException(status_code=409, detail="A tagging run is in progress")
-    restored = await restore_imported_tags()
-    return {"restored": restored, **await _tag_state()}
 
 
 @router.post("/api/library/auto-tag/run")

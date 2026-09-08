@@ -120,8 +120,7 @@ CREATE TABLE IF NOT EXISTS character_cards (
     persona_lock_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL,
     extensions TEXT DEFAULT NULL,
     auto_tag_vocab_hash TEXT NOT NULL DEFAULT '',
-    auto_tag_card_updated_at TEXT NOT NULL DEFAULT '',
-    imported_tags TEXT NOT NULL DEFAULT ''
+    auto_tag_card_updated_at TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS character_expressions (

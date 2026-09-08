@@ -17,8 +17,9 @@ you nothing.
 
 ## Tagging
 
-Select **Tag N characters**. Orb sends each card to the Agent model in turn and
-writes back the tags it chose. Progress shows a card at a time, and each card is
+Select **Tag N characters** and confirm — the run replaces tags and cannot be
+undone. Orb then sends each card to the Agent model in turn and writes back the
+tags it chose. Progress shows a card at a time, and each card is
 saved as it finishes, so cancelling or closing the modal keeps the work already
 done. Press again to pick up the rest.
 
@@ -36,23 +37,24 @@ is stripped from the cards that carry it.
 slower and more expensive per card, and worth it only for a vocabulary with
 distinctions a quick read would miss.
 
-## What it overwrites, and how to get it back
+## What it overwrites
 
-A card has one set of tags. Tagging **replaces** the tags a card was imported
-with — they are not merged and not kept in a second list.
+A card has one set of tags, and tagging **replaces** it. The tags a card was
+imported with are not merged, not kept in a second list, and not recoverable —
+the run asks you to confirm before it starts, and that is the only gate.
 
-The originals are not lost. Orb stashes them the first time a run touches a card,
-which means:
+One tag list is the point rather than a shortcut: the tags you see in the browser
+are the card's tags, so a card you export carries what the browser showed you,
+and nothing downstream has to choose between two answers.
 
-- **Exports still carry the creator's tags.** A card you export or share carries
-  what its author wrote, never your private vocabulary.
-- **Restore imported tags on N** appears in the Manager panel once a run has
-  taken any. It puts every card back and makes them pending again, so it is a
-  toggle rather than a one-way door.
+What follows from that:
 
-Two things it does not cover. Tags you type by hand in the character editor are
-not stashed — editing a card also marks it for re-tagging, so the next run will
-replace them. And cards tagged before this stash existed have nothing to restore.
+- **Exports carry your vocabulary,** not the creator's. Export a card before
+  tagging it if you want to keep the tags its author wrote.
+- **Hand-typed tags go too.** Editing a card also marks it for re-tagging, so
+  tags you type in the character editor are replaced by the next run.
+
+To undo a run, restore a backup, or re-import the cards.
 
 ## Requirements
 

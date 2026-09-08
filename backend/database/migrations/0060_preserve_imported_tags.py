@@ -1,5 +1,10 @@
 """Keep the tags a card was imported with, so a run is recoverable.
 
+Superseded by 0061, which drops this column: the two-list design below lost to a
+single visible tag list plus a confirmation in front of the run. Kept in the
+chain because it ran, and because a database upgrading through it still needs
+the column to exist before 0061 can drop it.
+
 0059 made the tagger rewrite ``character_cards.tags`` — the same column the card
 editor shows and, crucially, the one ``to_png`` writes into an exported card's
 V2/V3 chunk. That made a run destroy creator metadata in a file the user may go

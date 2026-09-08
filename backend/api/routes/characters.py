@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import json
 import logging
 import os
 import tempfile
@@ -273,20 +272,6 @@ async def api_export_character(card_id: str, world_view: Literal["authored", "ef
             avatar_bytes = None
 
     export_card["id"] = card_id
-
-    # A card carries the creator's tags out, never the library's. The auto-tagger
-    # overwrites ``tags`` in place with the owner's private vocabulary; shipping
-    # that would replace the author's metadata with a taxonomy that means nothing
-    # outside this install. ``imported_tags`` is set only once a run has taken
-    # them, so its presence is exactly the case that needs undoing here.
-    #
-    # Readable because the fetch above is ``include_avatar=True``, which is the
-    # only branch that selects ``*``. The column is deliberately not in the
-    # narrow column list: it is bookkeeping, and every other reader of a card
-    # wants the one tag list, not a raw JSON string beside it.
-    stashed = card.get("imported_tags")
-    if stashed:
-        export_card["tags"] = json.loads(stashed)
 
     # If the character is linked to a lorebook, embed it as character_book
     world_id = export_card.get("world_id")

@@ -6,10 +6,9 @@ deleting this package, ``queries/library_tags.py``, ``api/routes/library.py``
 and the Manager panel removes the feature whole.
 
 What it does not own is the tags: a run writes ``character_cards.tags``, the
-card's one tag list, rather than keeping a parallel set beside it. The tags the
-card was imported with move to ``imported_tags`` on the first run that touches
-it — one stash, never overwritten — which is what an export reads and what the
-Restore button puts back.
+card's one tag list, rather than keeping a parallel set beside it. That makes a
+run destructive — the tags the card was imported with are overwritten and not
+kept anywhere — so the Manager panel confirms before starting one.
 """
 
 from __future__ import annotations
