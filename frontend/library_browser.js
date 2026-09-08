@@ -1,5 +1,7 @@
 import { api } from "./api.js";
-import { _avatarBust, showCharEditModal } from "./library.js";
+import { _avatarBust, loadCharacters, showCharEditModal } from "./library.js";
+import { matchesFilter, tagsAttrFor, topTags } from "./library_filter.js";
+import { renderLibraryManager } from "./library_manager.js";
 import { setModalCloseCallback, showModal } from "./modal.js";
 import { charactersView, S } from "./state.js";
 import {
@@ -15,15 +17,23 @@ import {
 } from "./utils.js";
 import { validate } from "./validate.js";
 
-let _browserViewMode = "grid"; // grid, list, or internet
+// The view toggle, in order. Manager is the home for library-wide maintenance
+// tools; today it holds the auto-tagger, and further tools land beside it.
+const VIEWS = [
+  { mode: "grid", label: "⊞ Grid" },
+  { mode: "list", label: "☰ List" },
+  { mode: "internet", label: "🌐 Internet" },
+  { mode: "manager", label: "🛠 Manager" },
+];
+
+let _browserViewMode = "grid"; // grid, list, internet, or manager
 let _browserSearchQuery = "";
 let _browserCharacters = [];
 let _browserSortBy = "time-added"; // name, time-added, most-recent-chat, or most-chats
 let _browserConversations = [];
 let _browserLoading = false; // true while the cache is loading
 const _browserSelectedTags = new Set();
-let _browserTopTags = []; // most-used tags
-const _tagBit = new Map(); // tag -> data-tagmask bit
+let _browserTopTags = []; // the chip row: the library's most-used tags
 let _filterApplied = false;
 
 let _openToken = 0;
@@ -31,6 +41,12 @@ let _openToken = 0;
 let _hydration = null;
 
 const BROWSER_CHUNK = 60;
+
+// How many chips the tag row shows. Enough to be a useful shortcut into a large
+// library, few enough to stay one wrapped row in a 600px modal. The ranking
+// itself is in library_filter.js, beside the predicate whose case-folding it
+// has to agree with.
+const TOP_TAGS = 15;
 
 const IDLE_RESERVE_MS = 8;
 
@@ -68,9 +84,7 @@ export async function showCharacterBrowserModal() {
       </div>
       <div class="modal-title-actions">
         <div class="view-toggle" id="char-browser-view-toggle">
-          <button class="view-toggle-btn${_browserViewMode === "grid" ? " active" : ""}" data-view="grid" onclick="setCharBrowserView('grid')">⊞ Grid</button>
-          <button class="view-toggle-btn${_browserViewMode === "list" ? " active" : ""}" data-view="list" onclick="setCharBrowserView('list')">☰ List</button>
-          <button class="view-toggle-btn${_browserViewMode === "internet" ? " active" : ""}" data-view="internet" onclick="setCharBrowserView('internet')">🌐 Internet</button>
+          ${VIEWS.map((v) => viewButtonHtml(v)).join("")}
         </div>
       </div>
     </div>
@@ -90,15 +104,19 @@ export async function showCharacterBrowserModal() {
       <div class="char-tags" id="char-browser-tags">${browserTagsHtml()}</div>
     </div>
     <div id="char-browser-content"></div>`);
+  wireBrowserChrome();
   renderCharacterBrowser();
 
-  if (!_browserLoading) return;
-  let characters = [];
-  let conversations = [];
-  try {
-    [characters, conversations] = await Promise.all([api.get("/characters"), api.get("/conversations")]);
-  } catch (e) {
-    console.error("Failed to load characters for browser:", e);
+  let characters = _browserCharacters;
+  let conversations = _browserConversations;
+  if (_browserLoading) {
+    try {
+      [characters, conversations] = await Promise.all([api.get("/characters"), api.get("/conversations")]);
+    } catch (e) {
+      console.error("Failed to load characters for browser:", e);
+      characters = [];
+      conversations = [];
+    }
   }
   if (token !== _openToken) return;
   _browserLoading = false;
@@ -123,25 +141,84 @@ function browserTagsHtml() {
   return _browserTopTags
     .map(
       (tag) =>
-        `<button class="char-tag ${_browserSelectedTags.has(tag) ? "active" : ""}" data-tag="${escAttr(tag)}" onclick="toggleTagSelection('${escHandlerArg(tag)}')">${esc(tag)}</button>`,
+        `<button class="char-tag ${_browserSelectedTags.has(tag) ? "active" : ""}" data-tag="${escAttr(tag)}">${esc(tag)}</button>`,
     )
     .join("");
 }
 
+function viewButtonHtml({ mode, label }) {
+  return `<button class="view-toggle-btn${_browserViewMode === mode ? " active" : ""}" data-view="${mode}">${label}</button>`;
+}
+
+/** Delegated listeners for the two controls the modal rebuilds on every open.
+ *
+ * Both containers outlive their contents (the chip row's innerHTML is replaced
+ * once the card cache lands), so one listener each is enough — and it keeps the
+ * handlers off the ``window`` bridge, which is the direction the inline-handler
+ * ratchet only moves in.
+ */
+function wireBrowserChrome() {
+  $("char-browser-view-toggle")?.addEventListener("click", (e) => {
+    const mode = e.target.closest("[data-view]")?.dataset.view;
+    if (mode) setCharBrowserView(mode);
+  });
+  $("char-browser-tags")?.addEventListener("click", (e) => {
+    const tag = e.target.closest("[data-tag]")?.dataset.tag;
+    if (tag !== undefined) toggleTagSelection(tag);
+  });
+}
+
 function renderCharacterBrowser() {
-  const isInternet = _browserViewMode === "internet";
+  // Search and tags belong to the card list; the other two views own the whole
+  // content area.
+  const isCardList = _browserViewMode === "grid" || _browserViewMode === "list";
   const searchRow = document.querySelector(".char-browser-search-row");
   const tagsRow = document.querySelector(".char-browser-tags-row");
-  if (searchRow) searchRow.style.display = isInternet ? "none" : "";
-  if (tagsRow) tagsRow.style.display = isInternet ? "none" : "";
-  if (isInternet) renderInternetPanel();
+  if (searchRow) searchRow.style.display = isCardList ? "" : "none";
+  if (tagsRow) tagsRow.style.display = isCardList ? "" : "none";
+  if (_browserViewMode === "internet") renderInternetPanel();
+  else if (_browserViewMode === "manager") renderManagerPanel();
   else renderCharBrowserItems();
 }
 
-export function setCharBrowserView(mode) {
+function renderManagerPanel() {
+  const container = $("char-browser-content");
+  if (!container) return;
+  _hydration = null;
+  renderLibraryManager(container, { onRunComplete: refreshAfterRun });
+}
+
+/** Re-read the cards after a run and repaint everything that shows tags.
+ *
+ * The card cache is what went stale: a run rewrote ``tags`` on every card it
+ * touched, and the sidebar reads the same cache, so this reloads it rather than
+ * patching the browser's private copy. */
+async function refreshAfterRun() {
+  try {
+    await loadCharacters();
+  } catch (e) {
+    console.error("Failed to refresh characters after tagging:", e);
+    return;
+  }
+  _browserCharacters = charactersView();
+  computeTopTags();
+  reconcileSelectedTags();
+  const tagsEl = $("char-browser-tags");
+  if (tagsEl) tagsEl.innerHTML = browserTagsHtml();
+  // No re-render: the Manager tab owns the content area while a run is on, and
+  // repainting it here would remount the panel out from under its own callback.
+  // Switching back to a card view renders from the refreshed cache.
+}
+
+function setCharBrowserView(mode) {
   _browserViewMode = mode;
-  S.characterBrowserView = mode;
-  api.put("/settings", { character_library_view: mode }).catch((e) => console.error("Failed to save view mode", e));
+  // Only the two card views are sticky. Internet and Manager are somewhere you
+  // go on purpose, not where you want the library to open next time — which
+  // also settles the long-standing quirk of Internet persisting itself.
+  if (mode === "grid" || mode === "list") {
+    S.characterBrowserView = mode;
+    api.put("/settings", { character_library_view: mode }).catch((e) => console.error("Failed to save view mode", e));
+  }
   document.querySelectorAll("#char-browser-view-toggle .view-toggle-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === mode);
   });
@@ -172,7 +249,7 @@ export function setCharBrowserSort(sortBy) {
   renderCharBrowserItems();
 }
 
-export function toggleTagSelection(tag) {
+function toggleTagSelection(tag) {
   if (_browserSelectedTags.has(tag)) {
     _browserSelectedTags.delete(tag);
   } else {
@@ -186,31 +263,23 @@ export function toggleTagSelection(tag) {
 }
 
 function computeTopTags() {
-  const counts = new Map();
-  for (const c of _browserCharacters) {
-    const tags = c.tags || [];
-    for (const tag of tags) {
-      counts.set(tag, (counts.get(tag) || 0) + 1);
-    }
-  }
-  const sorted = Array.from(counts.entries()).sort((a, b) => {
-    if (b[1] !== a[1]) return b[1] - a[1];
-    return a[0].localeCompare(b[0]);
-  });
-  _browserTopTags = sorted.slice(0, 15).map((entry) => entry[0]);
-  _tagBit.clear();
-  _browserTopTags.forEach((tag, i) => {
-    _tagBit.set(tag, 1 << i);
-  });
+  _browserTopTags = topTags(
+    _browserCharacters.map((c) => c.tags),
+    TOP_TAGS,
+  );
 }
 
-function tagMaskFor(tags) {
-  let mask = 0;
-  for (const tag of tags) {
-    const bit = _tagBit.get(tag);
-    if (bit !== undefined) mask |= bit;
-  }
-  return mask;
+/** Keep the selection pointing at chips that still exist.
+ *
+ * A run rewrites tags, so the recomputed row can drop a chip that is still
+ * selected — which would go on hiding cards with nothing on screen to explain
+ * it — or keep the tag under a different spelling than the one that was
+ * clicked, leaving the chip looking unselected while it filters. */
+function reconcileSelectedTags() {
+  const byKey = new Map(_browserTopTags.map((tag) => [tag.toLowerCase(), tag]));
+  const kept = [..._browserSelectedTags].map((tag) => byKey.get(tag.toLowerCase())).filter(Boolean);
+  _browserSelectedTags.clear();
+  for (const tag of kept) _browserSelectedTags.add(tag);
 }
 
 function computeConversationStats() {
@@ -261,8 +330,8 @@ function applySort(characters) {
 
 function applyBrowserFilter() {
   const query = _browserSearchQuery;
-  const selectedMask = tagMaskFor(_browserSelectedTags);
-  const filterOn = !!query || selectedMask !== 0;
+  const selected = [..._browserSelectedTags];
+  const filterOn = !!query || selected.length > 0;
   if (filterOn) flushHydration();
   if (!filterOn && !_filterApplied) return;
 
@@ -273,9 +342,7 @@ function applyBrowserFilter() {
 
   let visible = 0;
   for (const el of items) {
-    const show =
-      (!query || (el.dataset.name || "").includes(query)) &&
-      (selectedMask === 0 || (Number(el.dataset.tagmask) & selectedMask) === selectedMask);
+    const show = matchesFilter(el.dataset.name, el.dataset.tags, query, selected);
     const next = show ? "" : "none";
     if (el.style.display !== next) el.style.display = next;
     if (show) visible++;
@@ -354,7 +421,7 @@ function flushHydration() {
 }
 
 function charItemMatchAttrs(c) {
-  return `data-char-item data-name="${escAttr((c.name || "").toLowerCase())}" data-tagmask="${tagMaskFor(c.tags || [])}"`;
+  return `data-char-item data-name="${escAttr((c.name || "").toLowerCase())}" data-tags="${escAttr(tagsAttrFor(c.tags || []))}"`;
 }
 
 function renderCharBrowserCard(c) {
@@ -370,7 +437,8 @@ function renderCharBrowserCard(c) {
 function renderCharBrowserListItem(c) {
   const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : "";
   const av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "", { attrs: 'loading="lazy"' });
-  const notes = c.creator_notes || (c.tags?.length ? c.tags.slice(0, 6).join(", ") : "");
+  const cardTags = c.tags || [];
+  const notes = c.creator_notes || (cardTags.length ? cardTags.slice(0, 6).join(", ") : "");
   const tags = notes ? `<div class="char-browser-list-tags">${esc(notes)}</div>` : "";
   return `
     <div class="char-browser-list-item" ${charItemMatchAttrs(c)} onclick="selectChar('${c.id}', 'library');closeModal()">

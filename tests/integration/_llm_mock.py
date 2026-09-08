@@ -29,6 +29,11 @@ _DIRECTOR_FUNCTION_NAMES = {"direct_scene"}
 _FEEDBACK_FUNCTION_NAMES = {"give_feedback"}
 _DIRECTION_NOTE_FUNCTION_NAMES = {"record_direction_note"}
 _WORLD_CHANGE_FUNCTION_NAMES = {"propose_world_changes"}
+# The library auto-tagger. Named here rather than left to the "workflow"
+# catch-all below because that branch is also the one *exempted* from the
+# tools-blob check — falling into it would mislabel the pass and under-check
+# it at the same time.
+_AUTO_TAG_FUNCTION_NAMES = {"assign_character_tags"}
 
 
 def _validate_tool_calls(tool_calls: Any) -> None:
@@ -93,6 +98,8 @@ def _pass_from_tool_choice(tool_choice: Any) -> str:
             return "direction_note"
         if name in _WORLD_CHANGE_FUNCTION_NAMES:
             return "world_change"
+        if name in _AUTO_TAG_FUNCTION_NAMES:
+            return "auto_tag"
         # Any other forced function name belongs to a workflow tool: the
         # toolkit's forced_tool_call helper passes the same dict shape via
         # TOOLS[<wid_registered_name>]["choice"], but the name is not one of
@@ -131,6 +138,7 @@ class FakeLLMClient:
             "feedback": [],
             "direction_note": [],
             "world_change": [],
+            "auto_tag": [],
             "workflow": [],
         }
         # Raw text-completion queue (complete_raw, document text mode) — separate
@@ -151,6 +159,7 @@ class FakeLLMClient:
             "feedback": [],
             "direction_note": [],
             "world_change": [],
+            "auto_tag": [],
             "workflow": [],
         }
         # Mirror LLMClient: the turn's clients share one abort token, so an
@@ -211,6 +220,11 @@ class FakeLLMClient:
         """Queue a Dynamic Worlds response (the ``propose_world_changes`` forced call)."""
         _validate_tool_calls(tool_calls)
         self._queues["world_change"].append({"tool_calls": tool_calls})
+
+    def enqueue_auto_tag(self, tool_calls: list[dict]) -> None:
+        """Queue a library auto-tag response (the ``assign_character_tags`` forced call)."""
+        _validate_tool_calls(tool_calls)
+        self._queues["auto_tag"].append({"tool_calls": tool_calls})
 
     def enqueue_workflow(self, message: dict) -> None:
         self._queues["workflow"].append({"message": message})
@@ -329,7 +343,7 @@ class FakeLLMClient:
             }
             return
 
-        if pass_name in ("direction_note", "world_change"):
+        if pass_name in ("direction_note", "world_change", "auto_tag"):
             payload = self._queues[pass_name].pop(0) if self._queues[pass_name] else {"tool_calls": []}
             yield {
                 "type": "done",
@@ -385,6 +399,13 @@ def _wire(obj: Any) -> str:
     return json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
 
 
+# Passes that issue one call per item over a shared prefix, rather than one
+# call per conversation turn. See the grouping note in
+# ``verify_kv_prefix_invariants``. Add a pass here only when its system message
+# and tools blob are meant to be constant for the whole batch.
+_BATCH_PASSES = {"auto_tag"}
+
+
 def verify_kv_prefix_invariants(captured: list[dict]) -> list[str]:
     """Cross-call KV-cache invariants over every chat ``complete()`` call a
     test made. Returns human-readable violations; empty list means clean.
@@ -413,6 +434,18 @@ def verify_kv_prefix_invariants(captured: list[dict]) -> list[str]:
     diverges deliberately (persona/settings switch mid-conversation — a
     user-driven cache invalidation) opts out with
     ``@pytest.mark.kv_divergence_expected``.
+
+    **Batch lanes** (``_BATCH_PASSES``) are grouped differently, because that
+    identity rule is blind to them. A batch pass sends one call per item with
+    the item in ``messages[1]``, so N calls land in N groups of one and every
+    check above is skipped — precisely the "new call site nobody registered"
+    failure this function exists to catch. Those passes group by
+    ``(endpoint, model, pass)`` instead: the whole point of such a lane is that
+    the system message and the tools blob are constant across the batch while
+    only the user message moves, which is exactly what the two checks assert.
+    An allowlist rather than a blanket rule, because a genuinely per-item call
+    site may legitimately vary its system message (``sheet_update`` builds one
+    per cast member).
     """
     groups: dict[tuple[str, str, str], list[dict]] = {}
     for call in captured:
@@ -422,7 +455,11 @@ def verify_kv_prefix_invariants(captured: list[dict]) -> list[str]:
         # Lane = (server, model): dual-model runs writer and agent on different
         # servers with independent KV caches, and both auto-provisioned model
         # configs may share a name — the endpoint is what separates the lanes.
-        key = (call.get("endpoint", ""), call.get("model", ""), _wire(msgs[1]))
+        # The third element is the group's identity within that lane: a
+        # conversation for a chat pass, the pass itself for a batch lane.
+        pass_name = call.get("pass", "")
+        identity = f"batch:{pass_name}" if pass_name in _BATCH_PASSES else _wire(msgs[1])
+        key = (call.get("endpoint", ""), call.get("model", ""), identity)
         groups.setdefault(key, []).append(call)
 
     violations: list[str] = []

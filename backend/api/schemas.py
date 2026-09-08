@@ -737,6 +737,20 @@ class ImportUrlRequest(BaseModel):
     full_path: str
 
 
+class AutoTagRunRequest(BaseModel):
+    """Options for one auto-tagging run."""
+
+    reasoning: bool = False
+    force: bool = False
+
+
+class LibraryTagVocabulary(BaseModel):
+    """The curated tag vocabulary submitted by the Manager panel."""
+
+    vocabulary: list[str] = Field(default_factory=list)
+    base_revision: str
+
+
 class PresetExportRequest(BaseModel):
     domains: list[str]
     strip_keys: bool = True

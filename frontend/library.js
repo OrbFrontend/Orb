@@ -33,10 +33,8 @@ export {
   randomizeInternet,
   searchInternet,
   setCharBrowserSort,
-  setCharBrowserView,
   setInternetSource,
   showCharacterBrowserModal,
-  toggleTagSelection,
 } from "./library_browser.js";
 export {
   deleteInteractiveFragment,

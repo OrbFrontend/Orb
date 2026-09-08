@@ -13,6 +13,11 @@ from __future__ import annotations
 DOMAIN_ROOTS: dict[str, str] = {
     "conversations": "chats",
     "character_cards": "characters",
+    # The Character Library's curated tag vocabulary. In "characters" rather than
+    # "configs" because the cards carry its names in their own tags column:
+    # exporting cards without the vocabulary would ship tags that match no chip,
+    # leaving an empty chip row and every card stale.
+    "library_tags": "characters",
     "worlds": "lorebooks",
     "mood_fragments": "fragments",
     "interactive_fragments": "fragments",

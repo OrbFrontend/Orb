@@ -72,3 +72,44 @@ def test_different_conversations_and_singletons_are_skipped():
     assert (
         verify_kv_prefix_invariants([{"pass": "writer", "model": "m", "messages": [_SYS], "tools": _TOOLS, "params": {}}]) == []
     )
+
+
+# ── Batch lanes ──────────────────────────────────────────────────────────────
+# A batch pass sends one call per item, so ``messages[1]`` differs on every one.
+# Under the conversation-identity rule each lands in its own group of one and is
+# skipped — the hole the auto-tagger would otherwise have shipped through.
+
+
+def _batch_call(system=_SYS, tools=_TOOLS_SINGLE, user="card A"):
+    return {
+        "pass": "auto_tag",
+        "model": "m",
+        "endpoint": "http://one",
+        "messages": [system, {"role": "user", "content": user}],
+        "tools": tools,
+        "params": {},
+    }
+
+
+def test_batch_lane_with_one_prefix_passes():
+    calls = [_batch_call(user=f"card {i}") for i in range(4)]
+    assert verify_kv_prefix_invariants(calls) == []
+
+
+def test_batch_lane_system_drift_is_flagged():
+    # The failure the grouping exists to catch: a per-item byte (the card's own
+    # name, say) leaking into the run's shared instruction block.
+    violations = verify_kv_prefix_invariants([_batch_call(user="card A"), _batch_call(system=_SYS_DRIFTED, user="card B")])
+    assert len(violations) == 1 and "system" in violations[0]
+
+
+def test_batch_lane_tools_drift_is_flagged():
+    # A schema rebuilt per card rather than once per run.
+    violations = verify_kv_prefix_invariants([_batch_call(user="card A"), _batch_call(tools=_TOOLS, user="card B")])
+    assert len(violations) == 1 and "tools" in violations[0]
+
+
+def test_batch_lane_does_not_group_with_chat_calls():
+    # A chat turn on the same lane keeps its own conversation grouping, so a run
+    # alongside it is neither checked against it nor hidden by it.
+    assert verify_kv_prefix_invariants([_call(), _call(), _batch_call(), _batch_call(user="card B")]) == []

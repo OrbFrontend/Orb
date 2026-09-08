@@ -149,6 +149,10 @@ async def test_the_drafting_call_is_forced_and_not_at_the_writing_preset():
     call = client.calls[0]
     assert call["tool_choice"] == {"type": "function", "function": {"name": PROFILE_TOOL_NAME}}
     assert call["temperature"] == 0.2 and call["max_tokens"] == 512
+    # Thinking is pinned, not merely unmentioned: an absent hint reads as
+    # thinking ON, and reasoning is spent from that same 512-token budget.
+    assert call["chat_template_kwargs"] == {"enable_thinking": False, "thinking": False}
+    assert call["thinking"] == {"type": "disabled"}
 
 
 def test_the_scene_message_labels_its_sections_and_omits_the_empty_ones():

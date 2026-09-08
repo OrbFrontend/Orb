@@ -42,6 +42,10 @@ LAYERS = {
     "icons.js": 0,
     "drag_reorder.js": 0,
     "dom_reconcile.js": 0,
+    # The Character Library's search + tag predicate. A leaf on purpose: the
+    # filter is the one piece of the browser worth testing directly, and
+    # library_browser.js drags in the whole L5 chat chain.
+    "library_filter.js": 0,
     # L1 state + shared pure helpers.
     "state.js": 1,
     "model_catalog.js": 1,
@@ -85,6 +89,7 @@ LAYERS = {
     "document_audit.js": 5,
     "library.js": 5,
     "library_browser.js": 5,
+    "library_manager.js": 5,
     "library_fragments.js": 5,
     "lorebooks.js": 5,
     "settings.js": 5,
@@ -111,7 +116,7 @@ ALLOWED_UPWARD: set[tuple[str, str]] = {
 }
 
 # ── 2. Ratchets (may only decrease) ──────────────────────────────────────────
-MAX_INLINE_ON = 256  # inline on*= handlers across frontend/ (js + index.html)
+MAX_INLINE_ON = 248  # inline on*= handlers across frontend/ (js + index.html)
 MAX_UNDERSCORE_IMPORTS = 10  # underscore-prefixed names imported cross-module
 
 # ── 4. Frozen ABI ────────────────────────────────────────────────────────────
