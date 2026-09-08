@@ -1,10 +1,4 @@
-"""Library-wide maintenance: the curated tag vocabulary and the auto-tag run.
-
-Deliberately not part of the conversation plumbing. The run is a batch job over
-the card table with its own prefix and its own single-flight lock — no
-conversation id, no pipeline import, nothing registered in the shared tool
-catalog. See ``features/library_tags`` for the same standing constraint.
-"""
+"""Routes for library tag vocabulary management and auto-tagging."""
 
 from __future__ import annotations
 
@@ -49,39 +43,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Module-local single-flight, NOT the conversation stream lock: a tagging run has
-# no conversation, and registering it in ``_active_aborts`` would put a batch job
-# in the registry ``/stop`` walks. One run at a time across the whole process,
-# because two concurrent runs would race the same rows and double the bill.
-#
-# A vocabulary save takes it too, for a handful of statements. The two writers of
-# ``character_cards.tags`` have to exclude each other in both directions: a save
-# that lands mid-run prunes tags the run then writes back.
+# A vocabulary save and a tagging run both write character-card tags.
 _run_lock = asyncio.Lock()
 
-# A dead endpoint should cost a handful of calls, not four hundred. Consecutive,
-# so a library with a few cards the model chokes on still finishes.
 _MAX_CONSECUTIVE_FAILURES = 5
 
-# Enough for a dozen short tag strings plus a reasoning model's preamble.
 _MAX_TOKENS_FLOOR = 512
 
 
 async def _tag_state() -> dict:
-    """The one shape both the Manager panel and the library browser read.
-
-    The vocabulary is here because the panel edits it. The assignments are not: a
-    run writes ``character_cards.tags``, so the card list the browser already has
-    is the only tag source there is, and its chip row is counted off that.
-
-    ``tagged`` is how many cards a run has written, which is exactly the reach of
-    ``prune_auto_tags`` — the panel needs it to know whether deleting a tag from
-    the vocabulary destroys anything before it offers to.
-    """
+    """Return the vocabulary and counts used by the manager panel."""
     vocabulary = await get_vocabulary()
-    # No vocabulary, no work. Counted against a hash the cards cannot match, an
-    # empty vocabulary reports the whole library as pending, and the panel offers
-    # a "Tag 406 characters" button whose only outcome is the refusal below.
     pending = await count_pending_auto_tags(vocabulary_hash(vocabulary)) if vocabulary else 0
     return {
         "vocabulary": vocabulary,
@@ -98,27 +70,7 @@ async def api_get_library_tags():
 
 @router.put("/api/library/tags")
 async def api_put_library_tags(data: LibraryTagVocabulary):
-    """Persist the vocabulary and turn the diff into exactly the right work.
-
-    Deleting a tag is free: no card can have gained a tag it was never offered,
-    so the stored answers stay correct once the deleted name is stripped from the
-    cards the tagger wrote, and the hash bump marks them current. Adding one
-    leaves every card on its old hash, which is what makes every card pending —
-    a full re-pass, as it must be.
-    """
-    # Refused rather than queued: the pruning below would strip tags from cards a
-    # run is still writing, and the hash bump would mark that half-old library
-    # current. The panel disables the button while its own run is on; this is the
-    # other tab, the phone, and the reload.
-    #
-    # Then *held*, not merely tested. Every line below is an await, and a run
-    # that took the lock after the test would keep writing answers from the
-    # vocabulary it read at its start — putting a tag this save just deleted
-    # back onto every card it had already pruned, where no later diff will ever
-    # list it as removed again. Testing and taking are one step because
-    # ``Lock.acquire()`` on a free lock returns without suspending: nothing can
-    # run between them. Keep them adjacent — an await in between reopens the
-    # window this comment is about.
+    """Persist the vocabulary and update existing card assignments."""
     if _run_lock.locked():
         raise HTTPException(status_code=409, detail="A tagging run is in progress")
     async with _run_lock:
@@ -136,17 +88,7 @@ async def api_put_library_tags(data: LibraryTagVocabulary):
 
 @router.post("/api/library/auto-tag/run")
 async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
-    """Tag every pending card, one forced call each, committing as it goes (SSE).
-
-    Per-card commits are what make the run resumable: a cancel, a dropped
-    connection, or a closed modal keeps everything already answered, and the next
-    press picks up the rest. Cancellation therefore needs no endpoint — the
-    client aborts the fetch, ``_sse_stream``'s disconnect watcher fires the abort
-    token, and the in-flight call dies.
-
-    ``reasoning`` is constant for the whole run, so pinning it does not disturb
-    the single shared prefix every card's call rides on.
-    """
+    """Tag pending cards sequentially and stream progress as SSE."""
     settings = await get_settings()
     abort_token = AbortToken()
 
@@ -168,21 +110,13 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
             total = len(pending)
             yield {"event": "start", "data": {"total": total}}
 
-            # The run's shared prefix, built once: identical system message and
-            # identical tools blob on every call, so each one after the first
-            # hits the provider's prefix cache on the whole instruction block.
+            # Keep the system message and tool schema identical across cards.
             system = build_system_prompt(vocabulary)
             tool = build_tag_tool(vocabulary)
             client = client_from_settings(settings, abort_token=abort_token)
             agent_client, model = agent_lane_from_settings(settings, writer_client=client, abort_token=abort_token)
             max_tokens = agent_lane_max_tokens(settings, floor=_MAX_TOKENS_FLOOR)
 
-            # Sequential, and not only for the prefix: a cloud provider would
-            # serve a small pool of these concurrently off the same cached
-            # prefix quite happily. llama.cpp is the constraint — parallel
-            # requests land in separate slots with separate KV caches, so the
-            # shared instruction block is paid once per slot instead of once per
-            # run. One at a time is the shape that is right on both.
             tagged = 0
             failed = 0
             consecutive = 0
@@ -204,9 +138,6 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
                         reasoning_on=data.reasoning,
                     )
                 except (AutoTagUnavailable, LLMCallError) as e:
-                    # Nothing is written, so the card keeps its old tags, stays
-                    # pending, and the next run retries it. Non-fatal: one bad
-                    # card must not end a run the user is watching make progress.
                     failed += 1
                     consecutive += 1
                     logger.warning("Auto-tag failed for card %s: %s", scrub_log(card_id), e)
@@ -233,9 +164,6 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
             yield {"event": "done", "data": {"tagged": tagged, "failed": failed}}
 
     return _CleanupStreamingResponse(
-        # cid=None on purpose: that argument is the *conversation* stream lock and
-        # the abort registry keyed by conversation id. Single-flight is _run_lock
-        # above; the disconnect watcher works without a cid.
         _sse_stream(_gen(), request, abort_token=abort_token),
         media_type="text/event-stream",
     )

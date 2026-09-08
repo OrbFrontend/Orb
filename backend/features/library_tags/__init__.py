@@ -1,15 +1,4 @@
-"""Library-wide auto-tagging: a curated vocabulary, applied by the Agent lane.
-
-Self-contained by design. The slice owns its prompt and its schema, imports
-nothing from ``pipeline``, and registers nothing in the shared tool catalog —
-deleting this package, ``queries/library_tags.py``, ``api/routes/library.py``
-and the Manager panel removes the feature whole.
-
-What it does not own is the tags: a run writes ``character_cards.tags``, the
-card's one tag list, rather than keeping a parallel set beside it. That makes a
-run destructive — the tags the card was imported with are overwritten and not
-kept anywhere — so the Manager panel confirms before starting one.
-"""
+"""Public API for library-wide character-card auto-tagging."""
 
 from __future__ import annotations
 

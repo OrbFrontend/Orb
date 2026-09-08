@@ -1,16 +1,4 @@
-"""The Character Library's curated tag vocabulary and the auto-tagger's writes.
-
-A card has one set of tags, and a run overwrites it. ``character_cards.tags`` is
-the same column an import fills, the card editor shows, and an export ships, so
-there is nothing downstream to merge and nothing that reads a different list
-than the one the user is looking at. The tags a card was imported with are gone
-once a run has touched it — see 0061, and the confirmation the Manager panel
-puts in front of the run.
-
-The two ``auto_tag_*`` stamps beside the column are bookkeeping, not a second
-opinion: they say which vocabulary produced the current contents and what the
-card looked like at the time.
-"""
+"""Database queries for the tag vocabulary and auto-tagged card state."""
 
 from __future__ import annotations
 
@@ -27,13 +15,7 @@ async def get_vocabulary() -> list[str]:
 
 
 async def set_vocabulary(names: list[str]) -> None:
-    """Replace the vocabulary with *names* (already normalized by the caller).
-
-    Delete-then-insert rather than a diff: ``position`` is the whole ordering
-    contract and a reorder rewrites every row anyway, so the simple form is also
-    the correct one. Both statements share one transaction, so a reader never
-    observes an empty vocabulary mid-save.
-    """
+    """Replace the normalized vocabulary in one transaction."""
     async with get_db() as db:
         await db.execute("DELETE FROM library_tags")
         await db.executemany(
@@ -43,44 +25,19 @@ async def set_vocabulary(names: list[str]) -> None:
         await db.commit()
 
 
-# A card needs (re-)tagging when it was tagged against a different vocabulary or
-# has been edited since. A never-tagged card falls out of the same test for free:
-# its hash defaults to '', which no sha256 digest equals.
-#
-# ``updated_at`` is the content fingerprint, and ``apply_auto_tags`` deliberately
-# does not bump it — a run that touched it would invalidate its own work on the
-# next comparison and reshuffle a library sorted by recency into tagging order.
-#
-# Hand-editing a card's tags in the card editor therefore makes it pending like
-# any other edit, and the next run overwrites what was typed. That follows from
-# there being one tag list rather than two, and it is the intended trade — the
-# run announces it up front rather than keeping a copy nobody asked for.
+# A card is pending when its vocabulary stamp or content timestamp is stale.
 _PENDING_WHERE = "WHERE auto_tag_vocab_hash != ? OR auto_tag_card_updated_at != updated_at"
 
 
 async def count_library_cards() -> int:
-    """How many cards the tagger is responsible for.
-
-    Here rather than off ``list_character_cards`` because the panel needs the
-    number, not the rows: counting 406 cards by materializing them is the sort of
-    waste that only shows up once a library is large.
-    """
+    """Return the number of cards in the library."""
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT COUNT(*) AS n FROM character_cards"))
         return int(rows[0]["n"]) if rows else 0
 
 
 async def count_tagged_cards() -> int:
-    """How many cards a run has written, i.e. how many a prune can reach.
-
-    The panel asks so it can tell a destructive save from a harmless one: while
-    nothing has been tagged, deleting a vocabulary tag strips it from no card at
-    all, and a confirmation in front of that is a dialog that means nothing.
-
-    Not derivable from ``total - pending``: a tagged card whose vocabulary moved
-    on is counted as pending too, so right after a tag is added — every card
-    pending, every card tagged — that subtraction reads zero.
-    """
+    """Return the number of cards whose tags the tagger may prune."""
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT COUNT(*) AS n FROM character_cards WHERE auto_tag_vocab_hash != ''"))
         return int(rows[0]["n"]) if rows else 0
@@ -98,11 +55,7 @@ async def count_pending_auto_tags(vocab_hash: str) -> int:
 
 
 async def list_pending_auto_tag_ids(vocab_hash: str) -> list[str]:
-    """Ids only, newest card first — the run streams each card's body itself.
-
-    Ordering is newest-first so a user who cancels an early run has tagged the
-    cards they most recently imported, which are the ones they are looking for.
-    """
+    """Return pending card IDs, newest first."""
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -114,12 +67,7 @@ async def list_pending_auto_tag_ids(vocab_hash: str) -> list[str]:
 
 
 async def apply_auto_tags(card_id: str, tags: list[str], vocab_hash: str, card_updated_at: str) -> None:
-    """Commit one card's answer over its tags. Called per card so a cancelled run keeps its work.
-
-    *card_updated_at* is the value the caller already read off the card, written
-    back verbatim: pairing the stamp with the row's own ``updated_at`` is what
-    makes a later edit — and only a later edit — pending again.
-    """
+    """Commit one card's tags and freshness stamps."""
     async with get_db() as db:
         await db.execute(
             "UPDATE character_cards SET tags = ?, auto_tag_vocab_hash = ?, auto_tag_card_updated_at = ? WHERE id = ?",
@@ -129,16 +77,7 @@ async def apply_auto_tags(card_id: str, tags: list[str], vocab_hash: str, card_u
 
 
 async def prune_auto_tags(removed: set[str]) -> int:
-    """Strip deleted vocabulary tags from every tagged card. No model calls.
-
-    Returns the number of rows changed. Matching is case-insensitive because the
-    vocabulary itself dedupes that way, so a tag deleted as ``Fantasy`` must also
-    remove a stored ``fantasy``.
-
-    Scoped to cards the tagger has written, so deleting a vocabulary tag cannot
-    reach into the tags of a card no run has ever touched — those are still the
-    creator's, and only a run is allowed to replace them.
-    """
+    """Remove deleted vocabulary names from cards previously tagged by a run."""
     if not removed:
         return 0
     lowered = {t.lower() for t in removed}
@@ -162,13 +101,7 @@ async def prune_auto_tags(removed: set[str]) -> int:
 
 
 async def bump_auto_tag_vocab_hash(new_hash: str) -> None:
-    """Mark every tagged card current against *new_hash* without re-running.
-
-    The edit that earns this is one that removed or reordered tags: no card can
-    gain a tag it was never offered, so every stored answer is still the answer
-    the new vocabulary would produce. Never-tagged cards are excluded, or the
-    stamp would claim work that was never done.
-    """
+    """Restamp cards already handled by the tagger."""
     async with get_db() as db:
         await db.execute("UPDATE character_cards SET auto_tag_vocab_hash = ? WHERE auto_tag_vocab_hash != ''", (new_hash,))
         await db.commit()

@@ -738,24 +738,13 @@ class ImportUrlRequest(BaseModel):
 
 
 class AutoTagRunRequest(BaseModel):
-    """Options for one auto-tagging run.
-
-    Per-run rather than persisted: a run is a deliberate, modal-bound action, so
-    "how do I want this pass done" is a property of the press, not a standing
-    preference the feature has to own a table for.
-    """
+    """Options for one auto-tagging run."""
 
     reasoning: bool = False
 
 
 class LibraryTagVocabulary(BaseModel):
-    """The Character Library's curated tag vocabulary, as the Manager panel sends it.
-
-    Unvalidated beyond the type: ``normalize_vocabulary`` owns trimming, the
-    length and count caps, the ``|`` strip and the case-insensitive dedupe, and
-    it has to run on the persisted value anyway. A second set of rules here
-    would be a second thing to keep in step.
-    """
+    """The curated tag vocabulary submitted by the Manager panel."""
 
     vocabulary: list[str] = Field(default_factory=list)
 

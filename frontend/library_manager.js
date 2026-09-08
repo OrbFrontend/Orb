@@ -1,12 +1,4 @@
-// The Character Library's Manager tab: library-wide maintenance tools.
-//
-// Today it holds one, the auto-tagger. The panel is a stack of tool cards under
-// a "Library tools" rule, so the next tool (bulk delete, dedupe, avatar
-// backfill) lands as a sibling card rather than as another modal — and so one
-// card already reads as one of several.
-//
-// It imports no chat module and not the browser it is mounted into: the browser
-// hands it a container and a callback, so there is no cycle.
+// Character Library manager tools.
 
 import { api } from "./api.js";
 import { createChipInput } from "./chips.js";
@@ -14,24 +6,18 @@ import { showSubConfirmModal } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { $, esc, toast } from "./utils.js";
 
-const MAX_VOCABULARY = 64; // mirrors features/library_tags/vocabulary.py
-const MAX_TAG_LENGTH = 40; // ditto
+const MAX_VOCABULARY = 64;
+const MAX_TAG_LENGTH = 40;
 
-let _vocabulary = []; // the saved vocabulary, as the server last told us
-let _draft = []; // what the chip editor currently holds
+let _vocabulary = [];
+let _draft = [];
 let _total = 0;
 let _pending = 0;
-let _tagged = 0; // cards a run has written — exactly what a delete can reach
-let _controller = null; // the in-flight run's AbortController, if any
+let _tagged = 0;
+let _controller = null;
 let _callbacks = {};
 
-/** Mount the Manager panel into *container*.
- *
- * *onRunComplete* fires once a run terminates, so the card cache the run just
- * rewrote gets reloaded. The vocabulary needs no callback of its own: it is the
- * tagger's input, and the browser's chip row is counted off the cards a run
- * writes, so saving one changes nothing outside this panel until a run happens.
- */
+/** Mount the Manager panel into a container. */
 export function renderLibraryManager(container, callbacks = {}) {
   _callbacks = callbacks;
   container.innerHTML = `
@@ -101,8 +87,6 @@ function chipInput() {
     placeholder: "Add a tag…",
     getItems: () => _draft,
     setItems: (items) => {
-      // The server caps it too (and owns the canonical rules); stopping here as
-      // well is what keeps the chip row from growing past what the panel shows.
       _draft = items.slice(0, MAX_VOCABULARY);
     },
     onChange: paint,
@@ -130,13 +114,7 @@ function adopt(state) {
   _tagged = Number(state?.tagged) || 0;
 }
 
-/** One tag name, folded the way the server folds it.
- *
- * Mirrors `normalize_vocabulary` (strip the `|` the filter delimits on, collapse
- * whitespace, cap the length) and then `diff_vocabulary`'s case-insensitive
- * compare. Both halves matter: retyping `Slow  burn` over `Slow burn`, or `NSFW`
- * as `Nsfw`, deletes nothing on the server, so it must not raise a deletion
- * warning here either. */
+/** Fold a draft tag for comparison with the server's normalized vocabulary. */
 function fold(tag) {
   return String(tag ?? "")
     .replace(/\|/g, "")
@@ -147,15 +125,11 @@ function fold(tag) {
     .toLowerCase();
 }
 
-/** The saved tags this draft drops, in their saved spelling. */
 function removedTags() {
   const kept = new Set(_draft.map(fold));
   return _vocabulary.filter((tag) => !kept.has(fold(tag)));
 }
 
-/** Repaint the counts and the run button. The button's label *is* the
- * idempotency contract made visible: "Everything is up to date" is how the user
- * learns that pressing again costs nothing. */
 function paint() {
   const running = !!_controller;
   const count = $("lib-vocab-count");
@@ -188,21 +162,7 @@ function paint() {
   if (reasoningBox) reasoningBox.disabled = running;
 }
 
-/** Save the vocabulary, gated when the save is a deletion.
- *
- * Deleting a tag is not an edit to a list, it is a write across the library: the
- * name is stripped from every card a run has tagged, and nothing keeps a copy.
- * Adding it back does not restore those assignments — it puts the whole library
- * back to pending and re-buys the same answers from the model. That earns the
- * same dialog the run gets, and for the same reasons: destructive, immediate, no
- * undo.
- *
- * Skipped while nothing is tagged, which is the whole point of asking the server
- * for `tagged`: during the minutes a user spends assembling a first vocabulary,
- * a deleted chip reaches no card, and a dialog in front of that is one people
- * learn to dismiss without reading — which is how the run's dialog stops working
- * too.
- */
+/** Save the vocabulary, confirming deletions that affect tagged cards. */
 function saveVocabulary() {
   const removed = removedTags();
   if (!removed.length || !_tagged) return commitVocabulary();
@@ -225,8 +185,6 @@ function saveVocabulary() {
 
 async function commitVocabulary() {
   try {
-    // The response is the authoritative normalized form — trimmed, deduped,
-    // capped — so the chips are rebuilt from it rather than from what was typed.
     adopt(await api.put("/library/tags", { vocabulary: _draft }));
   } catch (e) {
     toast(`Failed to save vocabulary: ${e.message}`, true);
@@ -238,17 +196,7 @@ async function commitVocabulary() {
   toast(_pending ? `Saved — ${_pending} characters need tagging` : "Saved — nothing to re-tag");
 }
 
-/** The one gate in front of a destructive, library-wide rewrite.
- *
- * There is no undo: a card has one tag list, and the run overwrites it. So the
- * warning names the count and the cards' own tags rather than talking about the
- * feature, and it is here rather than in the panel's prose because a note above
- * a button is read once and a dialog is read at the moment it matters.
- *
- * The *sub*-modal layer, because the Manager panel is mounted inside the library
- * browser's modal — a plain confirm would replace the panel it is asking about,
- * and closing it would leave the run painting into a modal that no longer exists.
- */
+/** Confirm the destructive library-wide rewrite. */
 function confirmRun() {
   if (_controller) return;
   const n = _pending;
@@ -266,8 +214,6 @@ async function startRun() {
   if (_controller) return;
   _controller = new AbortController();
   const total = _pending;
-  // Read once, at the press: the run pins one value for every card, which is
-  // what keeps its shared prefix shared.
   const reasoning = !!$("lib-run-reasoning")?.checked;
   showProgress(0, total, "");
   paint();
@@ -289,8 +235,6 @@ async function startRun() {
         failed += 1;
         showProgress(data.done, data.total, `${data.name} → failed`);
       } else if (event.event === "error") {
-        // A terminal error: a run already in progress, an empty vocabulary, or
-        // the circuit breaker tripping on a dead endpoint.
         toast(typeof data === "string" ? data : data.message || "Tagging failed", true);
       }
     }
@@ -299,8 +243,6 @@ async function startRun() {
   } finally {
     _controller = null;
     hideProgress();
-    // Every completed card is already committed, so this is true of a cancelled
-    // run as much as a finished one: re-read the counts and repaint the library.
     await refresh();
     await _callbacks.onRunComplete?.();
     if (failed) toast(`${failed} character${failed === 1 ? "" : "s"} could not be tagged; press again to retry`, true);
