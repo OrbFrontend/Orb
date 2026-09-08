@@ -370,8 +370,9 @@ async def test_an_export_carries_the_tags_the_run_wrote(client, llm_mock):
 async def test_a_card_keeps_one_tag_column_and_nothing_beside_it(client, llm_mock, db):
     """The regression guard on the fold: no stash column may come back.
 
-    ``imported_tags`` was exactly that (0060, dropped by 0061). A second list is
-    easy to reintroduce and invisible until an export disagrees with the browser.
+    An early cut of this feature had exactly that -- a since-removed
+    ``imported_tags`` stash column. A second list is easy to reintroduce and
+    invisible until an export disagrees with the browser.
     """
     await _cards(client, "Lira")
     await _vocab(client, ["Fantasy"])
