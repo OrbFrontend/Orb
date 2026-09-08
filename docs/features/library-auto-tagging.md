@@ -1,71 +1,68 @@
 # Library Auto-tagging
 
-Orb can read every character in your library and tag each one from a vocabulary
-you write, so the character browser's tag chips filter on terms that mean
-something to you rather than on whatever the cards were uploaded with.
+Use auto-tagging to organize your character cards with tags chosen from a list
+you provide.
 
 Open the character browser and select **🛠 Manager**.
 
-## The vocabulary
+## Add tags
 
-Type your tags into the chip box and select **Save vocabulary**. Up to 64 tags,
-40 characters each. The model is shown this list and may use nothing else.
+Enter tags under **Tag vocabulary**, then select **Save vocabulary**.
 
-Keep it small and keep the tags distinct. The browser's chip filter is an AND,
-so tags that apply to most of the library filter to nearly everything and tell
-you nothing.
+- You can add up to 64 tags.
+- Each tag can be up to 40 characters long.
+- Orb can assign only tags from this list.
 
-## Tagging
+Use specific, distinct tags. The character browser combines selected tags with
+**AND**, so selecting several tags shows only cards that have all of them.
 
-Select **Tag N characters** and confirm — the run replaces tags and cannot be
-undone. Orb then sends each card to the Agent model in turn and writes back the
-tags it chose. Progress shows a card at a time, and each card is
-saved as it finishes, so cancelling or closing the modal keeps the work already
-done. Press again to pick up the rest.
+## Tag cards
 
-The button says **Everything is up to date** when there is nothing to do.
-Pressing it again then costs nothing, because a card is only re-tagged when:
+Select **Tag N characters**, review the warning, and confirm. Orb sends each
+card to the Agent model and applies the tags it chooses. The existing tags on
+each card are replaced.
 
-- it is new,
-- it has been edited since it was tagged, or
-- you added a tag to the vocabulary.
+Progress is saved after each card. You can cancel the run and continue later;
+the next run processes only cards that still need tagging.
 
-Reordering vocabulary tags costs nothing at all.
+A card needs tagging when it is:
 
-Deleting one costs no model calls either, but it is a write across the library:
-the tag is stripped from every card a run has tagged, and nothing keeps a copy.
-Orb confirms first, once anything is tagged. Adding the tag back later does not
-bring those assignments back — it makes the whole library pending and tags it
-again from scratch, at the same price as the first time.
+- new;
+- edited after its last tagging; or
+- affected by a newly added vocabulary tag.
 
-**Enable tagger thinking** asks the model to reason before answering. It is
-slower and more expensive per card, and worth it only for a vocabulary with
-distinctions a quick read would miss.
+Reordering the vocabulary does not require another model run.
 
-## What it overwrites
+### Removing tags
 
-A card has one set of tags, and tagging **replaces** it. The tags a card was
-imported with are not merged, not kept in a second list, and not recoverable —
-the run asks you to confirm before it starts, and that is the only gate.
+Removing a vocabulary tag removes it from every card that Orb has auto-tagged.
+This does not use the model, and Orb asks for confirmation before making the
+change.
 
-One tag list is the point rather than a shortcut: the tags you see in the browser
-are the card's tags, so a card you export carries what the browser showed you,
-and nothing downstream has to choose between two answers.
+Adding the tag back later does not restore its old assignments. It makes the
+cards eligible for tagging again.
 
-What follows from that:
+### Tagger thinking
 
-- **Exports carry your vocabulary,** not the creator's. Export a card before
-  tagging it if you want to keep the tags its author wrote.
-- **Hand-typed tags go too.** Editing a card also marks it for re-tagging, so
-  tags you type in the character editor are replaced by the next run.
+Enable **Tagger thinking** for more deliberate results. It takes longer and
+uses more model resources.
 
-To undo a run, restore a backup, or re-import the cards.
+## Before you start
 
-## Requirements
+Auto-tagging replaces the card's existing tags, including imported or manually
+entered tags. This cannot be undone in Orb.
 
-The run uses the Agent model. On a separate agent endpoint it uses that one;
-otherwise it uses the writer's. A dead endpoint stops the run after five failures
-in a row rather than working through the whole library.
+Exports contain the new tags. Export a card before tagging if you want to keep
+its original tags.
 
-Cards that fail are left untouched and stay pending, so pressing **Run** again
-retries only those.
+Editing a card after tagging marks it for tagging again, so manually entered tags
+may be replaced by the next run.
+
+## Model and failed cards
+
+Auto-tagging uses the Agent model. If you have configured a separate Agent
+endpoint, Orb uses it; otherwise it uses the Writer endpoint.
+
+Cards that fail remain unchanged and are tried again the next time you run
+auto-tagging. Orb stops after five consecutive failures so a broken endpoint does
+not keep sending requests for the entire library.
