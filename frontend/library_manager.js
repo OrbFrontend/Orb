@@ -19,6 +19,7 @@ let _vocabulary = []; // the saved vocabulary, as the server last told us
 let _draft = []; // what the chip editor currently holds
 let _total = 0;
 let _pending = 0;
+let _restorable = 0; // cards still holding the tags they were imported with
 let _controller = null; // the in-flight run's AbortController, if any
 let _callbacks = {};
 
@@ -42,7 +43,8 @@ export function renderLibraryManager(container, callbacks = {}) {
             <h3 class="lib-tool-name">Auto-tagging</h3>
             <p class="lib-manager-note">
               The Agent model reads every character and replaces its tags with the
-              ones that fit. Tags a card was imported with are overwritten.
+              ones that fit. The tags a card was imported with are kept aside, so
+              exports still carry the creator's and Restore puts them back.
             </p>
           </div>
         </header>
@@ -68,6 +70,7 @@ export function renderLibraryManager(container, callbacks = {}) {
             <div class="lib-manager-actions">
               <button class="btn btn-accent" data-action="run"></button>
               <button class="btn" data-action="cancel" hidden>Cancel</button>
+              <button class="btn" data-action="restore" hidden></button>
             </div>
             <div class="lib-manager-progress" id="lib-run-progress" hidden>
               <div class="lib-progress-track"><div class="lib-progress-fill" id="lib-progress-fill"></div></div>
@@ -88,6 +91,7 @@ function onPanelClick(e) {
   if (action === "save-vocab") saveVocabulary();
   else if (action === "run") startRun();
   else if (action === "cancel") _controller?.abort();
+  else if (action === "restore") restoreTags();
 }
 
 function chipInput() {
@@ -123,6 +127,7 @@ function adopt(state) {
   _vocabulary = Array.isArray(state?.vocabulary) ? state.vocabulary : [];
   _total = Number(state?.total) || 0;
   _pending = Number(state?.pending) || 0;
+  _restorable = Number(state?.restorable) || 0;
 }
 
 /** Repaint the counts and the run button. The button's label *is* the
@@ -154,6 +159,11 @@ function paint() {
   }
   const cancelBtn = document.querySelector('[data-action="cancel"]');
   if (cancelBtn) cancelBtn.hidden = !running;
+  const restoreBtn = document.querySelector('[data-action="restore"]');
+  if (restoreBtn) {
+    restoreBtn.hidden = !_restorable || running;
+    restoreBtn.textContent = `Restore imported tags on ${_restorable}`;
+  }
   const saveBtn = document.querySelector('[data-action="save-vocab"]');
   if (saveBtn) saveBtn.disabled = running;
   const reasoningBox = $("lib-run-reasoning");
@@ -173,6 +183,21 @@ async function saveVocabulary() {
   chipInput().render();
   paint();
   toast(_pending ? `Saved — ${_pending} characters need tagging` : "Saved — nothing to re-tag");
+}
+
+/** Undo the tagger library-wide. Restored cards go back to pending, so this is
+ * a toggle: the run is destructive, and this is the way out of it. */
+async function restoreTags() {
+  try {
+    const state = await api.post("/library/auto-tag/restore", {});
+    adopt(state);
+    toast(`Restored imported tags on ${state.restored} character${state.restored === 1 ? "" : "s"}`);
+  } catch (e) {
+    toast(`Failed to restore tags: ${e.message}`, true);
+    return;
+  }
+  paint();
+  await _callbacks.onRunComplete?.();
 }
 
 async function startRun() {

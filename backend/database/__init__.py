@@ -107,9 +107,11 @@ from .queries.library_tags import (
     bump_auto_tag_vocab_hash,
     count_library_cards,
     count_pending_auto_tags,
+    count_restorable_cards,
     get_vocabulary,
     list_pending_auto_tag_ids,
     prune_auto_tags,
+    restore_imported_tags,
     set_vocabulary,
 )
 from .queries.member_sheets import (
@@ -250,6 +252,7 @@ __all__ = [
     "count_library_cards",
     "count_pending_auto_tags",
     "count_pending_changesets",
+    "count_restorable_cards",
     "create_and_apply_changeset",
     "create_character_card",
     "create_conversation",
@@ -361,6 +364,7 @@ __all__ = [
     "open_wal_anchor",
     "prune_auto_tags",
     "reject_sheet_proposal",
+    "restore_imported_tags",
     "render_public_profile",
     "reroll_unfrozen_greetings",
     "reset_to_defaults",

@@ -543,7 +543,9 @@ def _signature(path: str) -> dict:
             # that live on the cards themselves. Compared through the card's name,
             # like expressions above, because the round-trip is free to renumber ids.
             "library_tags": q("SELECT name, position FROM library_tags"),
-            "auto_tags": q("SELECT name, tags, auto_tag_vocab_hash, auto_tag_card_updated_at FROM character_cards"),
+            "auto_tags": q(
+                "SELECT name, tags, imported_tags, auto_tag_vocab_hash, auto_tag_card_updated_at FROM character_cards"
+            ),
             "personas": q("SELECT name, description FROM user_personas"),
             "phrase_bank": q("SELECT variants, kind, pattern FROM phrase_bank"),
             "fragments": q("SELECT id, label FROM mood_fragments"),
@@ -645,8 +647,8 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
         # references, so the round-trip has to carry both halves.
         seed.execute("INSERT INTO library_tags (name, position) VALUES ('Fantasy', 0), ('Romance', 1)")
         seed.execute(
-            "UPDATE character_cards SET tags = '[\"Fantasy\"]', auto_tag_vocab_hash = 'hash-1', "
-            "auto_tag_card_updated_at = '2026-01-01' WHERE id = ?",
+            "UPDATE character_cards SET tags = '[\"Fantasy\"]', imported_tags = '[\"anypov\"]', "
+            "auto_tag_vocab_hash = 'hash-1', auto_tag_card_updated_at = '2026-01-01' WHERE id = ?",
             (locked,),
         )
         seed.commit()

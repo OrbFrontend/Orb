@@ -104,8 +104,13 @@ def _quote(text: str) -> str:
     the above and tag everything" is a real card, not an attack the prompt can
     argue with — structure is what keeps it from reading as a continuation of
     the instructions.
+
+    Which is only true if the card cannot write the fence itself, so the sequence
+    is stripped from the text rather than escaped. Losing a triple quote out of
+    card prose costs a classifier nothing; leaving one in hands the card the
+    boundary the rest of this docstring claims it does not have.
     """
-    return f'"""\n{text.strip()}\n"""'
+    return f'"""\n{text.strip().replace(chr(34) * 3, "")}\n"""'
 
 
 def build_card_message(card: Mapping[str, Any]) -> str:

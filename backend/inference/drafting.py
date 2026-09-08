@@ -5,6 +5,15 @@ call and parsing its arguments *is* model execution, and the consumers are now
 peers (``features/cards`` drafts profiles and sheets, ``features/library_tags``
 tags the library). A slice may not import a peer slice, so the lowest layer all
 of them reach is the only home that does not fork this into a third copy.
+
+Not to be confused with ``workflows._forced_call.forced_tool_call``, which is
+the *other* forced-call helper and knows strictly more: it consults
+``honors_forced_tool_choice`` and demotes an endpoint that ignores the field.
+That knowledge is about collapsing a multi-tool array down to the forced one,
+and callers here ship a single-tool array where there is nothing to collapse --
+a provider that ignores ``tool_choice`` and answers in prose is reported as the
+caller's own ``*Unavailable`` instead. Reach for that one when a call has to
+ride a pipeline's shared tools blob; this one when it is a schema and a budget.
 """
 
 from __future__ import annotations

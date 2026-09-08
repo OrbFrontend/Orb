@@ -141,6 +141,19 @@ That shared beginning is why a long conversation does not require a complete
 prefill on every call. A group exchange follows the same rule as speakers add
 their replies; lore activation itself remains frozen until the next exchange.
 
+## Batch lanes
+
+A few passes are not conversation turns at all: the library auto-tagger sends one
+call per card, and every call carries the same system message and the same tools
+blob, with only the card's text moving. That is a prefix shared across the whole
+run rather than across a conversation, and it is why the run is sequential —
+parallel requests land in separate llama.cpp slots with separate KV caches, so
+the instruction block gets paid for once per slot instead of once per run.
+
+The test-time checker knows about these: a batch pass groups its calls by the
+pass name instead of by the conversation, or N calls would land in N groups of
+one and be skipped. See ``_BATCH_PASSES`` in ``tests/integration/_llm_mock.py``.
+
 ## Reasoning can create another lane
 
 The default `reasoning_enabled_passes` setting keeps Director, Writer, and

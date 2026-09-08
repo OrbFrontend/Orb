@@ -330,3 +330,79 @@ async def test_the_run_body_can_turn_thinking_on(client, llm_mock):
     assert len(params) == 2
     # Pinned once for the whole run, so the shared prefix stays shared.
     assert all(p["chat_template_kwargs"] == {"enable_thinking": True, "thinking": True} for p in params)
+
+
+# ── Recoverability ───────────────────────────────────────────────────────────
+# The run rewrites a column that leaves this install: ``tags`` is what ``to_png``
+# writes into an exported card's V2/V3 chunk. These pin the way back.
+
+
+def _exported_tags(png: bytes) -> list[str]:
+    """The ``tags`` of the V2 chunk in an exported card PNG."""
+    import base64
+    import re
+
+    blob = re.search(rb"chara\x00([A-Za-z0-9+/=]+)", png)
+    assert blob, "no chara chunk in the exported PNG"
+    payload = json.loads(base64.b64decode(blob.group(1)))
+    return payload.get("data", payload)["tags"]
+
+
+async def test_an_export_carries_the_creators_tags_not_the_librarys(client, llm_mock):
+    """The owner's private vocabulary must not leave with a shared card."""
+    card_id = (await client.post("/api/characters", json={"name": "Lira", "tags": ["anypov", "oc"]})).json()["id"]
+    await _vocab(client, ["Fantasy"])
+    await _run(client, llm_mock, [["Fantasy"]])
+
+    assert await _tags(client, card_id) == ["Fantasy"]  # the library sees the curated list
+    assert _exported_tags((await client.get(f"/api/characters/{card_id}/export")).content) == ["anypov", "oc"]
+
+
+async def test_restore_puts_the_imported_tags_back_and_makes_the_card_pending(client, llm_mock):
+    card_id = (await client.post("/api/characters", json={"name": "Lira", "tags": ["anypov"]})).json()["id"]
+    await _vocab(client, ["Fantasy"])
+    await _run(client, llm_mock, [["Fantasy"]])
+
+    state = (await client.post("/api/library/auto-tag/restore", json={})).json()
+    assert state["restored"] == 1
+    assert await _tags(client, card_id) == ["anypov"]
+    # A toggle, not a trapdoor: the card is the tagger's business again.
+    assert state["pending"] == 1 and state["restorable"] == 0
+
+
+# Two runs under two vocabularies: the second prefix legitimately differs from
+# the first, which is a user-driven invalidation and not the drift the checker
+# hunts. Within each run the prefix is still one — see the KV posture block.
+@pytest.mark.kv_divergence_expected
+async def test_a_second_run_does_not_overwrite_the_stash(client, llm_mock):
+    """``imported_tags`` is what the card arrived with, not the previous answer."""
+    card_id = (await client.post("/api/characters", json={"name": "Lira", "tags": ["anypov"]})).json()["id"]
+    await _vocab(client, ["Fantasy"])
+    await _run(client, llm_mock, [["Fantasy"]])
+    await _vocab(client, ["Fantasy", "Romance"])  # an addition re-pends every card
+    await _run(client, llm_mock, [["Romance"]])
+
+    assert await _tags(client, card_id) == ["Romance"]
+    await client.post("/api/library/auto-tag/restore", json={})
+    assert await _tags(client, card_id) == ["anypov"]
+
+
+async def test_a_card_that_arrived_untagged_still_restores(client, llm_mock):
+    """``''`` means untouched and ``'[]'`` means arrived bare — the two must not merge."""
+    card_id = (await client.post("/api/characters", json={"name": "Lira"})).json()["id"]
+    await _vocab(client, ["Fantasy"])
+    await _run(client, llm_mock, [["Fantasy"]])
+
+    assert (await client.post("/api/library/auto-tag/restore", json={})).json()["restored"] == 1
+    assert await _tags(client, card_id) == []
+
+
+# ── The panel's arithmetic ───────────────────────────────────────────────────
+
+
+async def test_an_empty_vocabulary_reports_no_work(client):
+    """Or the panel offers a run whose only outcome is being refused."""
+    await _cards(client, "Lira", "Rook")
+    state = (await client.get("/api/library/tags")).json()
+    assert state["vocabulary"] == [] and state["total"] == 2
+    assert state["pending"] == 0

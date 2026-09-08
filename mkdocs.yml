@@ -97,6 +97,7 @@ nav:
       - App and data:
           - Card-Embedded Fragments: features/card-fragments.md
           - Fetch Cards from Internet: features/fetch-cards.md
+          - Library Auto-tagging: features/library-auto-tagging.md
           - Backups and Presets: features/backups-presets.md
           - Persona Pinning: features/persona-pinning.md
           - Character Expressions: features/character-expressions.md

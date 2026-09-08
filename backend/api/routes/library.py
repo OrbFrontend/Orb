@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from ...core import agent_lane_max_tokens, scrub_log
 from ...database import (
@@ -19,11 +19,13 @@ from ...database import (
     bump_auto_tag_vocab_hash,
     count_library_cards,
     count_pending_auto_tags,
+    count_restorable_cards,
     get_character_card,
     get_settings,
     get_vocabulary,
     list_pending_auto_tag_ids,
     prune_auto_tags,
+    restore_imported_tags,
     set_vocabulary,
 )
 from ...features.library_tags import (
@@ -70,10 +72,15 @@ async def _tag_state() -> dict:
     the browser already has is the only tag source there is.
     """
     vocabulary = await get_vocabulary()
+    # No vocabulary, no work. Counted against a hash the cards cannot match, an
+    # empty vocabulary reports the whole library as pending, and the panel offers
+    # a "Tag 406 characters" button whose only outcome is the refusal below.
+    pending = await count_pending_auto_tags(vocabulary_hash(vocabulary)) if vocabulary else 0
     return {
         "vocabulary": vocabulary,
         "total": await count_library_cards(),
-        "pending": await count_pending_auto_tags(vocabulary_hash(vocabulary)),
+        "pending": pending,
+        "restorable": await count_restorable_cards(),
     }
 
 
@@ -92,6 +99,12 @@ async def api_put_library_tags(data: LibraryTagVocabulary):
     leaves every card on its old hash, which is what makes every card pending —
     a full re-pass, as it must be.
     """
+    # Refused rather than queued: the pruning below would strip tags from cards a
+    # run is still writing, and the hash bump would mark that half-old library
+    # current. The panel disables the button while its own run is on; this is the
+    # other tab, the phone, and the reload.
+    if _run_lock.locked():
+        raise HTTPException(status_code=409, detail="A tagging run is in progress")
     old = await get_vocabulary()
     new = normalize_vocabulary(data.vocabulary)
     added, removed = diff_vocabulary(old, new)
@@ -102,6 +115,21 @@ async def api_put_library_tags(data: LibraryTagVocabulary):
     if not added:
         await bump_auto_tag_vocab_hash(vocabulary_hash(new))
     return await _tag_state()
+
+
+@router.post("/api/library/auto-tag/restore")
+async def api_restore_imported_tags():
+    """Put every card back to the tags it was imported with, and forget the run.
+
+    The counterpart to the run being destructive. Restored cards are pending
+    again, so this is a toggle rather than a trapdoor — and it is the reason the
+    panel can offer a library-wide rewrite without a confirmation dialog in front
+    of it: the way out is a button, not a backup.
+    """
+    if _run_lock.locked():
+        raise HTTPException(status_code=409, detail="A tagging run is in progress")
+    restored = await restore_imported_tags()
+    return {"restored": restored, **await _tag_state()}
 
 
 @router.post("/api/library/auto-tag/run")
@@ -144,6 +172,12 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
             agent_client, model = agent_lane_from_settings(settings, writer_client=client, abort_token=abort_token)
             max_tokens = agent_lane_max_tokens(settings, floor=_MAX_TOKENS_FLOOR)
 
+            # Sequential, and not only for the prefix: a cloud provider would
+            # serve a small pool of these concurrently off the same cached
+            # prefix quite happily. llama.cpp is the constraint — parallel
+            # requests land in separate slots with separate KV caches, so the
+            # shared instruction block is paid once per slot instead of once per
+            # run. One at a time is the shape that is right on both.
             tagged = 0
             failed = 0
             consecutive = 0
