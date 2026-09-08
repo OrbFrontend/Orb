@@ -42,11 +42,7 @@ let _hydration = null;
 
 const BROWSER_CHUNK = 60;
 
-// How many chips the tag row shows. Enough to be a useful shortcut into a large
-// library, few enough to stay one wrapped row in a 600px modal. The ranking
-// itself is in library_filter.js, beside the predicate whose case-folding it
-// has to agree with.
-const TOP_TAGS = 15;
+const TOP_TAGS = 100;
 
 const IDLE_RESERVE_MS = 8;
 
