@@ -4,7 +4,14 @@
 // contain styles -> block layout -> serialise.
 
 import { CODE_COPY_ICON, CODE_WRAP_ICON } from "./icons.js";
-import { compileCss, cssScope, emptyNames, filterDeclarations, scopeClassName } from "./message_css.js";
+import {
+  compileCss,
+  cssScope,
+  emptyNames,
+  filterDeclarations,
+  sanitizedNamedProp,
+  scopeClassName,
+} from "./message_css.js";
 import { formatProse, formatProseWithDiff } from "./utils.js";
 import DOMPurify from "./vendor/purify.js";
 
@@ -92,6 +99,8 @@ export const NON_PROSE_TAGS = new Set(["PRE", "CODE", "STYLE", "SCRIPT", "TEXTAR
 // data by formatProse or the browser.
 const PASSTHROUGH_RE = /```[\s\S]*?```|```[\s\S]*$|<style\b[^>]*>[\s\S]*?<\/style\s*>|<svg\b[^>]*>[\s\S]*?<\/svg\s*>/gi;
 const TAG_START_RE = /^<\/?([a-zA-Z][a-zA-Z0-9-]*)/;
+const COMMENT_OPEN = "<!--";
+const COMMENT_CLOSE = "-->";
 
 /**
  * Escape every `<` that does not open a tag the browser actually knows.
@@ -118,6 +127,20 @@ function _escapeSpan(span, isKnownTag) {
     out += span.slice(cursor, at);
     cursor = at + 1;
     const rest = span.slice(at);
+    // A comment is markup, not prose: hand the whole thing to the sanitiser,
+    // which drops it. Escaping the `<` instead spills the body -- typically a
+    // card's own hidden instructions -- into the message as visible text.
+    if (rest.startsWith(COMMENT_OPEN)) {
+      const close = rest.indexOf(COMMENT_CLOSE, COMMENT_OPEN.length);
+      if (close === -1) {
+        out += "&lt;";
+        continue;
+      }
+      const end = at + close + COMMENT_CLOSE.length;
+      out += span.slice(at, end);
+      cursor = end;
+      continue;
+    }
     const name = TAG_START_RE.exec(rest)?.[1];
     // Require a known, closed tag so prose such as `a < b` stays intact.
     if (name && isKnownTag(name) && rest.indexOf(">") !== -1) {
@@ -156,6 +179,10 @@ export function trimIncompleteMarkup(text) {
   if (!text) return text || "";
   const tail = /<\/?[a-zA-Z][^>]*$/.exec(text);
   let out = tail ? text.slice(0, tail.index) : text;
+  // Half a comment is not yet a comment, so it would stream in as escaped prose
+  // and then vanish once the closing `-->` arrives.
+  const comment = out.lastIndexOf(COMMENT_OPEN);
+  if (comment !== -1 && !out.includes(COMMENT_CLOSE, comment + COMMENT_OPEN.length)) out = out.slice(0, comment);
   const lower = out.toLowerCase();
   const open = lower.lastIndexOf("<style");
   if (open !== -1 && open > lower.lastIndexOf("</style>")) out = out.slice(0, open);
@@ -166,10 +193,11 @@ export function trimIncompleteMarkup(text) {
 // Keep DOMPurify's default tag set; narrow it with the forbids below.
 const SANITIZE_CONFIG = {
   ADD_TAGS: ["custom-style"],
-  // Controls, embedding, navigation and deferred parsing are not message content.
+  // Embedding, navigation and deferred parsing are not message content. `input`
+  // is not in here: with `form` gone it submits nowhere, and a checkbox is how a
+  // card writes a disclosure widget without script.
   FORBID_TAGS: [
     "form",
-    "input",
     "select",
     "textarea",
     "button",
@@ -184,8 +212,22 @@ const SANITIZE_CONFIG = {
     "link",
     "meta",
   ],
-  // Remove unsolicited fetch/noise and alternate URL surfaces.
-  FORBID_ATTR: ["autoplay", "srcset", "sizes", "background", "ping", "nonce", "integrity"],
+  // Remove unsolicited fetch/noise and alternate URL surfaces. The popover and
+  // command triggers go with them: both paint in the top layer, which is the one
+  // place outside the containment that holds a card to its own bubble.
+  FORBID_ATTR: [
+    "autoplay",
+    "srcset",
+    "sizes",
+    "background",
+    "ping",
+    "nonce",
+    "integrity",
+    "popovertarget",
+    "popovertargetaction",
+    "command",
+    "commandfor",
+  ],
   // Delegated actions are restored only on Orb-built chrome after this pass.
   ALLOW_DATA_ATTR: false,
   // Prevent id/name collisions; scopeSelector mirrors the id rewrite in CSS.
@@ -233,13 +275,36 @@ function installHooks() {
       data.attrValue = data.attrValue ? filterDeclarations(data.attrValue, _css.scope, _css.names) : "";
       if (data.attrValue) _css.used = true;
       else data.keepAttr = false;
+      return;
     }
+    const idRefList = ID_REF_ATTRS.get(data.attrName);
+    if (idRefList !== undefined && data.attrValue) data.attrValue = scopeIdRefs(data.attrValue, idRefList);
   });
 
   // Preserve the encoded CSS payload until the dedicated CSS pass.
   DOMPurify.addHook("uponSanitizeElement", (_node, data) => {
     if (data.tagName === "custom-style") data.allowedTags["custom-style"] = true;
   });
+}
+
+// Attributes that name another element by its id. The sanitiser rewrote every
+// id it wrote, so a reference still spelling the original points at nothing --
+// which is what leaves `<label for>` pointing past its checkbox. The value is
+// true where the attribute takes a space-separated list of ids.
+const ID_REF_ATTRS = new Map([
+  ["for", false],
+  ["list", false],
+  ["headers", true],
+  ["aria-activedescendant", false],
+  ["aria-controls", true],
+  ["aria-describedby", true],
+  ["aria-labelledby", true],
+  ["aria-owns", true],
+]);
+
+function scopeIdRefs(value, isList) {
+  if (!isList) return sanitizedNamedProp(value);
+  return value.split(/\s+/).filter(Boolean).map(sanitizedNamedProp).join(" ");
 }
 
 /** Rewrite one class token in a class *attribute*, sparing Orb's own vocabulary. */

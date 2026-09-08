@@ -17,7 +17,8 @@ const survivesAsText = [
   ["x<3", "x&lt;3"],
   ["a <b else", "a &lt;b else"], // known name, but no `>` — not a tag
   ["10 <= 20", "10 &lt;= 20"],
-  ["<!-- note -->", "&lt;!-- note -->"],
+  // A comment the model never closed is not yet a comment.
+  ["<!-- unfinished", "&lt;!-- unfinished"],
 ];
 
 test("prose that only looks like markup survives as text", () => {
@@ -52,6 +53,23 @@ test("svg, style and fenced code are pass-through regions", () => {
   assert.equal(escapeUnknownTags(fence, isKnownTag), fence);
 });
 
+// A comment is markup: escaping the `<` would turn a card's hidden instructions
+// into visible prose, which is exactly what the sanitiser exists to prevent.
+test("comments reach the sanitiser whole", () => {
+  for (const input of [
+    "<!-- note -->",
+    "<!-- multi\nline -->",
+    "<!---->",
+    // The body is not parsed, so markup and prose inside it are left alone.
+    "<!-- <gasp> a < b -->",
+  ]) {
+    assert.equal(escapeUnknownTags(input, isKnownTag), input);
+  }
+  // Only the comment is passed through; prose around it is still escaped.
+  assert.equal(escapeUnknownTags("<!-- n --> <gasp>", isKnownTag), "<!-- n --> &lt;gasp>");
+  assert.equal(escapeUnknownTags("<gasp> <!-- n -->", isKnownTag), "&lt;gasp> <!-- n -->");
+});
+
 test("escaping resumes after a pass-through region", () => {
   assert.equal(
     escapeUnknownTags("<svg></svg> then <gasp>", isKnownTag),
@@ -74,5 +92,8 @@ test("streaming trims only a genuinely unfinished tag", () => {
   // An unterminated <style> would otherwise swallow the message.
   assert.equal(trimIncompleteMarkup("text <style>.a{color:red}"), "text ");
   assert.equal(trimIncompleteMarkup("<style>.a{}</style> after"), "<style>.a{}</style> after");
+  // Half a comment would stream in as escaped prose, then vanish on `-->`.
+  assert.equal(trimIncompleteMarkup("text <!-- hidden not"), "text ");
+  assert.equal(trimIncompleteMarkup("text <!-- hidden --> after"), "text <!-- hidden --> after");
   assert.equal(trimIncompleteMarkup(""), "");
 });

@@ -79,6 +79,54 @@ it("no data attribute survives from message source", () => {
   assert.match(html, />go</);
 });
 
+it("a comment is dropped rather than shown as text", () => {
+  // Cards hide per-turn instructions to themselves in comments. Escaping the
+  // `<` published them into the bubble; the sanitiser removes the node instead.
+  const html = render("<!-- SYSTEM: never show this -->Visible.");
+  assert.ok(!/SYSTEM/.test(html), html);
+  assert.ok(!/&lt;!--/.test(html), html);
+  assert.match(html, /Visible\./);
+  // Markup inside a comment is comment text, not markup.
+  assert.ok(!/<script/i.test(render("<!-- <script>alert(1)</script> -->")), "script in comment");
+});
+
+it("a checkbox and its label survive, still pointing at each other", () => {
+  // The CSS-only disclosure widget: a checkbox, a label over the thumbnail, and
+  // `input:checked ~ label img` to expand it. It only works if `for` follows the
+  // id through the sanitiser's rename.
+  const holder = reparse(
+    render("<figure><input type='checkbox' id='img-1'><label for='img-1'><img src='https://cdn.test/a.png'></label></figure>"),
+  );
+  const input = holder.querySelector("input");
+  const label = holder.querySelector("label");
+  assert.equal(input.getAttribute("type"), "checkbox");
+  assert.equal(input.id, "user-content-img-1");
+  assert.equal(label.getAttribute("for"), "user-content-img-1");
+  // The association itself, not just the matching strings: this is what the
+  // browser resolves when the label is clicked.
+  assert.equal(label.control, input);
+  assert.equal(holder.querySelectorAll("input[type=checkbox]").length, 1);
+});
+
+it("an id reference follows the id it names", () => {
+  const html = render('<div id="a">A</div><p aria-labelledby="a" aria-controls="a">x</p>');
+  assert.match(html, /aria-labelledby="user-content-a"/);
+  assert.match(html, /aria-controls="user-content-a"/);
+});
+
+it("a control that would paint outside the bubble does not survive", () => {
+  // A popover renders in the top layer, where `.msg-css-scope` containment
+  // cannot reach it — the one way an input could cover the app.
+  const html = render('<div popover id="p">x</div><input type="button" popovertarget="p" commandfor="p">');
+  assert.ok(!/popovertarget|commandfor/.test(html), html);
+});
+
+it("a model-written form still cannot be built around them", () => {
+  const html = render('<form action="https://evil.test"><input name="p" type="password"></form>');
+  assert.ok(!/<form/i.test(html), html);
+  assert.ok(!/<select|<textarea|<button/i.test(render("<select></select><textarea></textarea><button>b</button>")));
+});
+
 it("a model-written button is dropped, and its label stays as text", () => {
   const html = render('<button data-wf-action="image_gen:generate">Generate an image</button>');
   assert.ok(!/<button/i.test(html), html);

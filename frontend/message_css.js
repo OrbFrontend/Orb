@@ -982,7 +982,7 @@ function rewriteUrls(tokens) {
     if (tk.t === T.WS) return tk;
     if (tk.t === T.URL) {
       inUrlFn = false;
-      return tk.u.startsWith("#") ? { t: T.URL, u: `#user-content-${tk.u.slice(1)}` } : tk;
+      return tk.u.startsWith("#") ? { t: T.URL, u: `#${sanitizedNamedProp(tk.u.slice(1))}` } : tk;
     }
     if (tk.t === T.FUNC) {
       const name = unprefixed(tk.u);
@@ -992,7 +992,7 @@ function rewriteUrls(tokens) {
     // Only a URL's own argument, so `content: "#tag"` stays the text it is.
     const rewrite = inUrlFn && tk.t === T.STR && tk.u.startsWith("#");
     inUrlFn = false;
-    return rewrite ? { t: T.STR, u: `#user-content-${tk.u.slice(1)}` } : tk;
+    return rewrite ? { t: T.STR, u: `#${sanitizedNamedProp(tk.u.slice(1))}` } : tk;
   });
 }
 
@@ -1150,7 +1150,7 @@ function rewriteSelectorTokens(tokens) {
   for (let i = 0; i < tokens.length; i++) {
     const tk = tokens[i];
     if (tk.t === T.HASH) {
-      out.push({ t: T.HASH, u: `user-content-${tk.u}` });
+      out.push({ t: T.HASH, u: sanitizedNamedProp(tk.u) });
       continue;
     }
     if (tk.t === T.DELIM && tk.v === "." && tokens[i + 1]?.t === T.IDENT) {
@@ -1158,9 +1158,65 @@ function rewriteSelectorTokens(tokens) {
       i++;
       continue;
     }
+    if (tk.t === T.OPEN_S) {
+      i = rewriteAttrSelector(tokens, i, out);
+      continue;
+    }
     out.push(tk);
   }
   return out;
+}
+
+// The prefix DOMPurify's SANITIZE_NAMED_PROPS writes onto `id` and `name`,
+// including its own guard against prefixing a value that already carries it.
+const NAMED_PROPS_PREFIX = "user-content-";
+const NAMED_PROPS_ATTRS = new Set(["id", "name"]);
+
+export function sanitizedNamedProp(value) {
+  return value.startsWith(NAMED_PROPS_PREFIX) ? value : `${NAMED_PROPS_PREFIX}${value}`;
+}
+
+/**
+ * Attribute matchers whose value has to gain the prefix to keep its meaning.
+ *
+ * `*=` and `$=` match inside or at the end of the value, where a prefix cannot
+ * reach, so they are already correct and are left alone. `|=` matches the value
+ * or the value plus `-...`, which the prefixed form still expresses exactly.
+ */
+const PREFIXED_ATTR_OPS = new Set(["=", "^=", "~=", "|="]);
+
+/**
+ * Apply the id rewrite to the attribute form of the selector.
+ *
+ * `#foo` is handled by the HASH branch above; `[id^=foo]` names the same
+ * attribute and needs the same treatment, or it keeps matching the name the card
+ * wrote rather than the one the sanitiser stored, and quietly selects nothing.
+ * Returns the index of the last token consumed.
+ */
+function rewriteAttrSelector(tokens, open, out) {
+  let close = open + 1;
+  while (close < tokens.length && tokens[close].t !== T.CLOSE_S) close++;
+  const inner = [];
+  for (let i = open + 1; i < close; i++) if (tokens[i].t !== T.WS) inner.push(i);
+  let valueAt = -1;
+  const name = inner.length ? tokens[inner[0]] : null;
+  if (name?.t === T.IDENT && NAMED_PROPS_ATTRS.has(name.u.toLowerCase())) {
+    const op = inner.length > 1 ? tokens[inner[1]] : null;
+    const next = inner.length > 2 ? tokens[inner[2]] : null;
+    if (op?.t === T.DELIM && op.v === "=") valueAt = inner[2] ?? -1;
+    else if (op?.t === T.DELIM && next?.t === T.DELIM && next.v === "=" && PREFIXED_ATTR_OPS.has(`${op.v}=`)) {
+      valueAt = inner[3] ?? -1;
+    }
+  }
+  const value = valueAt >= 0 ? tokens[valueAt] : null;
+  // Quote the rewritten value: an ident that was legal bare may not stay legal
+  // once the prefix is on it, and a string means the same thing either way.
+  const rewrite = value?.t === T.IDENT || value?.t === T.STR;
+  const last = Math.min(close, tokens.length - 1);
+  for (let i = open; i <= last; i++) {
+    out.push(rewrite && i === valueAt ? { t: T.STR, u: sanitizedNamedProp(value.u) } : tokens[i]);
+  }
+  return last;
 }
 
 function serializeWithParent(tokens, parent) {

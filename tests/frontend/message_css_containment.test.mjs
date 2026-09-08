@@ -34,6 +34,32 @@ test("an id selector follows the id the sanitiser actually wrote", () => {
   // SANITIZE_NAMED_PROPS rewrites `id="hero"` to `id="user-content-hero"`, so a
   // selector that still said `#hero` would silently stop matching.
   assert.match(css("#hero { color: gold }"), /#user-content-hero \{/);
+  // The hook skips a value that already carries the prefix, so the rewrite has
+  // to skip it too rather than prefixing it twice.
+  assert.match(css("#user-content-hero { color: gold }"), /#user-content-hero \{/);
+});
+
+test("the attribute form of an id selector follows the same rewrite", () => {
+  // The bug this pins: a card laying its posts out with `[id^=post-]` had every
+  // one of those rules drop on the floor, because only `#post-1` was rewritten.
+  assert.match(css("[id^=post-] { display: grid }"), /\[id\^="user-content-post-"\]/);
+  assert.match(css('[id="hero"] { color: gold }'), /\[id="user-content-hero"\]/);
+  assert.match(css("[id|=post] { color: gold }"), /\[id\|="user-content-post"\]/);
+  assert.match(css("[id~=hero] { color: gold }"), /\[id~="user-content-hero"\]/);
+  // `name` gets the same prefix from the same hook.
+  assert.match(css("[name^=field-] { color: gold }"), /\[name\^="user-content-field-"\]/);
+  // A match that reads inside or off the end of the value is already correct,
+  // and prefixing it would break the rule instead of fixing it.
+  assert.match(css("[id$=-footer] { color: gold }"), /\[id\$=-footer\]/);
+  assert.match(css("[id*=post] { color: gold }"), /\[id\*=post\]/);
+  // A presence test needs no value, and other attributes are not rewritten.
+  assert.match(css("[id] { color: gold }"), /\[id\]/);
+  assert.match(css("[data-x=y] { color: gold }"), /\[data-x=y\]/);
+  // Whitespace, flags and quoting are all spellings of the same selector.
+  assert.match(css("[ id ^= post- i ] { color: gold }"), /\[ id \^= "user-content-post-" i \]/);
+  assert.match(css("[id^='post-'] { color: gold }"), /\[id\^="user-content-post-"\]/);
+  // The rewrite must not lose the rest of a compound selector.
+  assert.match(css(".board [id^=post-] header { color: gold }"), /\.custom-board \[id\^="user-content-post-"\] header/);
 });
 
 test("a URL is checked by scheme rather than banned outright", () => {
