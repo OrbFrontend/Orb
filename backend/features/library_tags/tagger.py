@@ -18,6 +18,8 @@ _FIELD_BUDGETS = (
     ("Personality", "personality", 600),
     ("Scenario", "scenario", 600),
     ("Creator notes", "creator_notes", 600),
+    ("First message", "first_mes", 800),
+    ("Example dialogue", "mes_example", 1200),
 )
 
 SYSTEM_PROMPT_HEADER = (
@@ -54,6 +56,8 @@ def build_tag_tool(vocabulary: list[str]) -> dict[str, Any]:
                         "type": "array",
                         "description": ("Every tag from the vocabulary that applies to this card. Empty when none of them do."),
                         "items": {"type": "string", "enum": list(vocabulary)},
+                        "maxItems": MAX_TAGS_PER_CARD,
+                        "uniqueItems": True,
                     }
                 },
                 "required": ["tags"],
@@ -74,6 +78,11 @@ def _quote(text: str) -> str:
 def build_card_message(card: Mapping[str, Any]) -> str:
     """Build the bounded, labeled user message for one card."""
     parts: list[str] = []
+    source_tags = card.get("tags")
+    if isinstance(source_tags, list):
+        rendered_tags = ", ".join(str(tag).strip() for tag in source_tags if str(tag).strip())[:600]
+        if rendered_tags:
+            parts.append(f"Existing source tags (evidence only):\n{_quote(rendered_tags)}")
     for label, key, budget in _FIELD_BUDGETS:
         text = str(card.get(key) or "").strip()
         if text:
@@ -87,16 +96,20 @@ def build_card_message(card: Mapping[str, Any]) -> str:
 def clean_tags(args: Mapping[str, Any] | None, vocabulary: list[str]) -> list[str]:
     """Return unique, canonical vocabulary members from the model's answer."""
     canonical = {name.lower(): name for name in vocabulary}
-    raw = (args or {}).get("tags")
+    if args is None or "tags" not in args:
+        raise AutoTagUnavailable("The model returned a tag call without the required tags field.")
+    raw = args.get("tags")
     if not isinstance(raw, list):
-        return []
+        raise AutoTagUnavailable("The model returned a malformed tags field.")
     out: list[str] = []
     seen: set[str] = set()
     for item in raw:
         if not isinstance(item, str):
-            continue
+            raise AutoTagUnavailable("The model returned a non-text tag.")
         name = canonical.get(item.strip().lower())
-        if name is None or name in seen:
+        if name is None:
+            raise AutoTagUnavailable("The model returned a tag outside the controlled vocabulary.")
+        if name in seen:
             continue
         seen.add(name)
         out.append(name)

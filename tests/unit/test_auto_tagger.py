@@ -28,8 +28,9 @@ def test_vocabulary_members_pass_through_in_order():
     assert clean_tags({"tags": ["Romance", "Fantasy"]}, VOCAB) == ["Romance", "Fantasy"]
 
 
-def test_strays_outside_the_vocabulary_are_dropped():
-    assert clean_tags({"tags": ["Fantasy", "Cyberpunk", "anypov"]}, VOCAB) == ["Fantasy"]
+def test_strays_outside_the_vocabulary_reject_the_answer():
+    with pytest.raises(AutoTagUnavailable):
+        clean_tags({"tags": ["Fantasy", "Cyberpunk", "anypov"]}, VOCAB)
 
 
 def test_casing_is_canonicalized_to_the_vocabulary_spelling():
@@ -53,11 +54,13 @@ def test_an_empty_list_is_a_successful_answer():
     assert clean_tags({"tags": []}, VOCAB) == []
 
 
-def test_a_missing_or_malformed_tags_field_yields_no_tags():
-    assert clean_tags({}, VOCAB) == []
-    assert clean_tags({"tags": "Fantasy"}, VOCAB) == []
-    assert clean_tags(None, VOCAB) == []
-    assert clean_tags({"tags": [None, 7, {"a": 1}, "Fantasy"]}, VOCAB) == ["Fantasy"]
+@pytest.mark.parametrize(
+    "args",
+    [{}, {"tags": "Fantasy"}, None, {"tags": [None, 7, {"a": 1}, "Fantasy"]}],
+)
+def test_a_missing_or_malformed_tags_field_rejects_the_answer(args):
+    with pytest.raises(AutoTagUnavailable):
+        clean_tags(args, VOCAB)
 
 
 def test_the_tool_schema_constrains_tags_to_the_vocabulary():
@@ -68,6 +71,9 @@ def test_the_tool_schema_constrains_tags_to_the_vocabulary():
     # "properties", so this reaches an OpenAI strict response_format intact, and
     # llama.cpp text mode compiles it into the forced call's grammar.
     assert items == {"type": "string", "enum": VOCAB}
+    tags_schema = tool["function"]["parameters"]["properties"]["tags"]
+    assert tags_schema["maxItems"] == MAX_TAGS_PER_CARD
+    assert tags_schema["uniqueItems"] is True
 
 
 def test_the_system_prompt_carries_the_whole_vocabulary():
@@ -98,6 +104,20 @@ def test_a_card_cannot_write_its_own_fence():
 def test_the_card_message_truncates_a_huge_description():
     message = build_card_message({"name": "Lira", "description": "x" * 50_000})
     assert len(message) < 5_000
+
+
+def test_the_card_message_includes_source_tags_and_dialogue_evidence():
+    message = build_card_message(
+        {
+            "name": "Lira",
+            "tags": ["vampire", "gothic"],
+            "first_mes": "The coffin lid opens.",
+            "mes_example": "The moonlight burns.",
+        }
+    )
+    assert "Existing source tags" in message and "vampire, gothic" in message
+    assert "First message" in message and "The coffin lid opens." in message
+    assert "Example dialogue" in message and "The moonlight burns." in message
 
 
 def test_a_card_with_no_text_still_produces_a_message():

@@ -10,9 +10,9 @@ from __future__ import annotations
 from backend.features.library_tags import (
     MAX_TAG_LENGTH,
     MAX_VOCABULARY,
-    diff_vocabulary,
     normalize_vocabulary,
     vocabulary_hash,
+    vocabulary_revision,
 )
 
 
@@ -56,42 +56,14 @@ def test_hash_is_stable_for_the_same_vocabulary():
     assert vocabulary_hash(["Fantasy", "Romance"]) == vocabulary_hash(["Fantasy", "Romance"])
 
 
-def test_hash_is_case_sensitive():
-    # The canonical casing is stored on every card and shown in the chip row, so
-    # re-casing a tag is a real edit even though it adds no concept.
-    assert vocabulary_hash(["NSFW"]) != vocabulary_hash(["Nsfw"])
+def test_hash_ignores_display_casing():
+    assert vocabulary_hash(["NSFW"]) == vocabulary_hash(["Nsfw"])
 
 
-def test_hash_changes_on_reorder():
-    # Order is part of the identity; the caller's diff is what keeps a reorder
-    # from costing model calls (nothing added ⇒ bump, don't re-run).
-    assert vocabulary_hash(["Fantasy", "Romance"]) != vocabulary_hash(["Romance", "Fantasy"])
+def test_hash_ignores_reorder():
+    assert vocabulary_hash(["Fantasy", "Romance"]) == vocabulary_hash(["Romance", "Fantasy"])
 
 
-def test_diff_reports_an_addition():
-    added, removed = diff_vocabulary(["Fantasy"], ["Fantasy", "Romance"])
-    assert added == {"Romance"} and removed == set()
-
-
-def test_diff_reports_a_removal():
-    added, removed = diff_vocabulary(["Fantasy", "Romance"], ["Fantasy"])
-    assert added == set() and removed == {"Romance"}
-
-
-def test_a_rename_is_both_a_removal_and_an_addition():
-    # Which is correct: the old name must be pruned everywhere, and the new one
-    # has never been offered to any card, so every card is pending again.
-    added, removed = diff_vocabulary(["Sci-Fi"], ["Science Fiction"])
-    assert added == {"Science Fiction"} and removed == {"Sci-Fi"}
-
-
-def test_a_reorder_is_neither():
-    added, removed = diff_vocabulary(["Fantasy", "Romance"], ["Romance", "Fantasy"])
-    assert added == set() and removed == set()
-
-
-def test_a_recasing_is_neither():
-    # It changes the hash, which restamps the rows; it cannot make a card
-    # eligible for a tag it was not already offered.
-    added, removed = diff_vocabulary(["NSFW"], ["Nsfw"])
-    assert added == set() and removed == set()
+def test_exact_revision_changes_on_recasing_and_reorder():
+    assert vocabulary_revision(["NSFW"]) != vocabulary_revision(["Nsfw"])
+    assert vocabulary_revision(["Fantasy", "Romance"]) != vocabulary_revision(["Romance", "Fantasy"])

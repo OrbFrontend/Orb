@@ -15,6 +15,8 @@ let _total = 0;
 let _pending = 0;
 let _tagged = 0;
 let _controller = null;
+let _saving = false;
+let _revision = "";
 let _callbacks = {};
 
 /** Mount the Manager panel into a container. */
@@ -90,6 +92,7 @@ function chipInput() {
       _draft = items.slice(0, MAX_VOCABULARY);
     },
     onChange: paint,
+    isDisabled: () => !!_controller || _saving,
   });
 }
 
@@ -112,6 +115,7 @@ function adopt(state) {
   _total = Number(state?.total) || 0;
   _pending = Number(state?.pending) || 0;
   _tagged = Number(state?.tagged) || 0;
+  _revision = typeof state?.revision === "string" ? state.revision : "";
 }
 
 /** Fold a draft tag for comparison with the server's normalized vocabulary. */
@@ -147,17 +151,21 @@ function paint() {
   if (runBtn) {
     runBtn.textContent = running
       ? "Tagging…"
-      : unsaved
-        ? "Save the vocabulary first"
-        : _pending
-          ? `Tag ${_pending} character${_pending === 1 ? "" : "s"}`
-          : "Everything is up to date";
-    runBtn.disabled = running || unsaved || !_pending;
+      : _saving
+        ? "Saving vocabulary…"
+        : unsaved
+          ? "Save the vocabulary first"
+          : _pending
+            ? `Tag ${_pending} character${_pending === 1 ? "" : "s"}`
+            : _total
+              ? `Retag all ${_total} character${_total === 1 ? "" : "s"}`
+              : "No characters to tag";
+    runBtn.disabled = running || _saving || unsaved || !_vocabulary.length || !_total;
   }
   const cancelBtn = document.querySelector('[data-action="cancel"]');
   if (cancelBtn) cancelBtn.hidden = !running;
   const saveBtn = document.querySelector('[data-action="save-vocab"]');
-  if (saveBtn) saveBtn.disabled = running;
+  if (saveBtn) saveBtn.disabled = running || _saving || !unsaved;
   const reasoningBox = $("lib-run-reasoning");
   if (reasoningBox) reasoningBox.disabled = running;
 }
@@ -184,43 +192,66 @@ function saveVocabulary() {
 }
 
 async function commitVocabulary() {
-  try {
-    adopt(await api.put("/library/tags", { vocabulary: _draft }));
-  } catch (e) {
-    toast(`Failed to save vocabulary: ${e.message}`, true);
-    return;
-  }
-  _draft = [..._vocabulary];
+  if (_saving) return;
+  const submitted = [..._draft];
+  _saving = true;
   chipInput().render();
   paint();
+  let state;
+  try {
+    state = await api.put("/library/tags", { vocabulary: submitted, base_revision: _revision });
+  } catch (e) {
+    if (e?.status === 409 && e.message.includes("vocabulary changed")) {
+      const localDraft = [..._draft];
+      await refresh();
+      _draft = localDraft;
+      toast("The vocabulary changed in another window. Your draft was kept; review it and save again.", true);
+    } else {
+      toast(`Failed to save vocabulary: ${e.message}`, true);
+    }
+    _saving = false;
+    chipInput().render();
+    paint();
+    return;
+  }
+  const editedWhileSaving = _draft.join("\n") !== submitted.join("\n");
+  const cardsChanged = Number(state?.cards_changed) > 0;
+  adopt(state);
+  if (!editedWhileSaving) _draft = [..._vocabulary];
+  _saving = false;
+  chipInput().render();
+  paint();
+  if (cardsChanged) await _callbacks.onRunComplete?.();
   toast(_pending ? `Saved — ${_pending} characters need tagging` : "Saved — nothing to re-tag");
 }
 
 /** Confirm the destructive library-wide rewrite. */
 function confirmRun() {
   if (_controller) return;
-  const n = _pending;
+  const force = !_pending;
+  const n = force ? _total : _pending;
+  const verb = force ? "Retag" : "Tag";
   showSubConfirmModal(
     {
-      title: `Tag ${n} character${n === 1 ? "" : "s"}?`,
+      title: `${verb} ${n} character${n === 1 ? "" : "s"}?`,
       message: `The tags ${n === 1 ? "this card" : "these cards"} already carry — the creator's, or your own — are replaced by your vocabulary. This cannot be undone, and exports carry the new tags.`,
-      confirmText: `Tag ${n} character${n === 1 ? "" : "s"}`,
+      confirmText: `${verb} ${n} character${n === 1 ? "" : "s"}`,
     },
-    startRun,
+    () => startRun(force),
   );
 }
 
-async function startRun() {
+async function startRun(force = false) {
   if (_controller) return;
   _controller = new AbortController();
-  const total = _pending;
+  const total = force ? _total : _pending;
   const reasoning = !!$("lib-run-reasoning")?.checked;
   showProgress(0, total, "");
   paint();
 
   let failed = 0;
   try {
-    const response = await streamPost("/library/auto-tag/run", { reasoning }, _controller.signal);
+    const response = await streamPost("/library/auto-tag/run", { reasoning, force }, _controller.signal);
     if (!response.ok) throw new Error(`run returned ${response.status}`);
     for await (const event of sseEvents(response.body, { signal: _controller.signal })) {
       let data = {};

@@ -344,8 +344,20 @@ async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | 
         sets, vals = _build_set_clause(allowed, data)
         # JSON fields
         if "tags" in data:
+            encoded_tags = json.dumps(data["tags"])
+            # The edit form submits the current tag list even when only another
+            # field changed. SQLite evaluates every SET expression against the
+            # pre-update row, so these CASEs revoke ownership only for a real tag
+            # change, not for that routine round-trip.
+            sets.extend(
+                [
+                    "auto_tag_vocab_hash = CASE WHEN tags = ? THEN auto_tag_vocab_hash ELSE '' END",
+                    "auto_tag_card_updated_at = CASE WHEN tags = ? THEN auto_tag_card_updated_at ELSE '' END",
+                ]
+            )
+            vals.extend([encoded_tags, encoded_tags])
             sets.append("tags = ?")
-            vals.append(json.dumps(data["tags"]))
+            vals.append(encoded_tags)
         if "alternate_greetings" in data:
             sets.append("alternate_greetings = ?")
             vals.append(json.dumps(data["alternate_greetings"]))

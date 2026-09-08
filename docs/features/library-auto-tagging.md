@@ -29,15 +29,25 @@ A card needs tagging when it is:
 
 - new;
 - edited after its last tagging; or
-- affected by a newly added vocabulary tag.
+- affected by a newly added vocabulary tag; or
+- tagged by an older version of Orb's classifier.
 
-Reordering the vocabulary does not require another model run.
+Reordering or changing the capitalization of the vocabulary does not require
+another model run. Capitalization changes are applied to existing assignments.
+
+When every card is current, the run button becomes **Retag all**. Use it after
+changing the Agent model or when you want to repeat the run with **Tagger
+thinking** enabled.
 
 ### Removing tags
 
 Removing a vocabulary tag removes it from every card that Orb has auto-tagged.
 This does not use the model, and Orb asks for confirmation before making the
 change.
+
+If you manually edit a card's tags after auto-tagging, that list becomes yours
+again and vocabulary deletion does not prune it. The card remains eligible for
+the next tagging run.
 
 Adding the tag back later does not restore its old assignments. It makes the
 cards eligible for tagging again.
@@ -63,6 +73,8 @@ may be replaced by the next run.
 Auto-tagging uses the Agent model. If you have configured a separate Agent
 endpoint, Orb uses it; otherwise it uses the Writer endpoint.
 
-Cards that fail remain unchanged and are tried again the next time you run
-auto-tagging. Orb stops after five consecutive failures so a broken endpoint does
-not keep sending requests for the entire library.
+Cards that return an unusable tagging answer remain unchanged and are tried
+again the next time you run auto-tagging. Orb stops after five consecutive
+unusable answers. Endpoint and network failures stop the run as soon as the
+endpoint's own retry policy is exhausted, so one outage is not retried for five
+different cards.

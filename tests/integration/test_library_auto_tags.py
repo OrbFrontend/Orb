@@ -12,9 +12,13 @@ from __future__ import annotations
 import asyncio
 import json
 
+import aiosqlite
+import httpx
 import pytest
 
 import backend.api.routes.library as library_routes
+from backend.database import replace_vocabulary
+from backend.features.library_tags import vocabulary_hash
 
 
 def _tag_call(tags: list[str]) -> list[dict]:
@@ -53,7 +57,13 @@ async def _cards(client, *names: str) -> list[str]:
 
 
 async def _vocab(client, names: list[str]) -> dict:
-    return (await client.put("/api/library/tags", json={"vocabulary": names})).json()
+    state = (await client.get("/api/library/tags")).json()
+    return (
+        await client.put(
+            "/api/library/tags",
+            json={"vocabulary": names, "base_revision": state["revision"]},
+        )
+    ).json()
 
 
 async def _tags(client, card_id: str) -> list[str]:
@@ -132,6 +142,24 @@ async def test_editing_a_card_makes_exactly_that_card_pending(client, llm_mock):
     assert await _tags(client, rook) == ["Fantasy"]
 
 
+async def test_an_edit_during_the_model_call_wins_and_leaves_the_card_pending(client, llm_mock):
+    (card_id,) = await _cards(client, "Lira")
+    await _vocab(client, ["Fantasy"])
+    llm_mock.enqueue_auto_tag(_tag_call(["Fantasy"]))
+    gate = llm_mock.gate("auto_tag")
+
+    run = asyncio.create_task(client.post("/api/library/auto-tag/run", json={}))
+    await asyncio.wait_for(gate.reached.wait(), 5)
+    await client.put(f"/api/characters/{card_id}", json={"tags": ["Hand-picked"]})
+    gate.release.set()
+    events = _parse_sse((await asyncio.wait_for(run, 10)).text)
+
+    assert await _tags(client, card_id) == ["Hand-picked"]
+    assert (await client.get("/api/library/tags")).json()["pending"] == 1
+    assert [event["event"] for event in events][-2:] == ["card_error", "done"]
+    assert json.loads(events[-1]["data"]) == {"tagged": 0, "failed": 1}
+
+
 async def test_deleting_a_tag_strips_it_everywhere_with_no_model_calls(client, llm_mock):
     lira, rook = await _cards(client, "Lira", "Rook")
     await _vocab(client, ["Fantasy", "Romance"])
@@ -146,6 +174,27 @@ async def test_deleting_a_tag_strips_it_everywhere_with_no_model_calls(client, l
     assert await _tags(client, lira) == ["Fantasy"]
     assert await _tags(client, rook) == []
     assert _auto_tag_calls(llm_mock) == 2
+
+
+async def test_vocabulary_and_card_reconciliation_roll_back_together(client, llm_mock, db):
+    (card_id,) = await _cards(client, "Lira")
+    await _vocab(client, ["Fantasy", "Romance"])
+    await _run(client, llm_mock, [["Fantasy", "Romance"]])
+    await db.execute(
+        "CREATE TRIGGER fail_tag_reconcile BEFORE UPDATE OF tags ON character_cards "
+        "BEGIN SELECT RAISE(ABORT, 'forced reconciliation failure'); END"
+    )
+    await db.commit()
+
+    with pytest.raises(aiosqlite.IntegrityError):
+        await replace_vocabulary(
+            ["Fantasy"],
+            expected=["Fantasy", "Romance"],
+            new_hash=vocabulary_hash(["Fantasy"]),
+        )
+
+    assert (await client.get("/api/library/tags")).json()["vocabulary"] == ["Fantasy", "Romance"]
+    assert await _tags(client, card_id) == ["Fantasy", "Romance"]
 
 
 async def test_deleting_a_tag_leaves_an_untagged_card_alone(client, llm_mock):
@@ -164,6 +213,32 @@ async def test_deleting_a_tag_leaves_an_untagged_card_alone(client, llm_mock):
     assert _auto_tag_calls(llm_mock) == 0
 
 
+async def test_manual_tag_edit_revokes_tagger_ownership_before_vocabulary_pruning(client, llm_mock):
+    (card_id,) = await _cards(client, "Lira")
+    await _vocab(client, ["Fantasy"])
+    await _run(client, llm_mock, [["Fantasy"]])
+
+    await client.put(f"/api/characters/{card_id}", json={"tags": ["Fantasy", "Favorite"]})
+    state = await _vocab(client, ["Romance"])
+
+    assert await _tags(client, card_id) == ["Fantasy", "Favorite"]
+    assert state["tagged"] == 0 and state["pending"] == 1
+
+
+async def test_edit_form_round_trip_of_unchanged_tags_keeps_tagger_ownership(client, llm_mock):
+    (card_id,) = await _cards(client, "Lira")
+    await _vocab(client, ["Fantasy", "Romance"])
+    await _run(client, llm_mock, [["Fantasy", "Romance"]])
+
+    await client.put(
+        f"/api/characters/{card_id}",
+        json={"description": "Edited prose.", "tags": ["Fantasy", "Romance"]},
+    )
+    await _vocab(client, ["Fantasy"])
+
+    assert await _tags(client, card_id) == ["Fantasy"]
+
+
 async def test_reordering_the_vocabulary_costs_nothing(client, llm_mock):
     await _cards(client, "Lira")
     await _vocab(client, ["Fantasy", "Romance"])
@@ -172,6 +247,18 @@ async def test_reordering_the_vocabulary_costs_nothing(client, llm_mock):
     state = await _vocab(client, ["Romance", "Fantasy"])
     assert state["vocabulary"] == ["Romance", "Fantasy"]
     assert state["pending"] == 0
+    assert _auto_tag_calls(llm_mock) == 1
+
+
+async def test_recasing_a_tag_rewrites_owned_assignments_without_a_model_call(client, llm_mock):
+    (card_id,) = await _cards(client, "Lira")
+    await _vocab(client, ["NSFW"])
+    await _run(client, llm_mock, [["NSFW"]])
+
+    state = await _vocab(client, ["Nsfw"])
+
+    assert state["pending"] == 0 and state["cards_changed"] == 1
+    assert await _tags(client, card_id) == ["Nsfw"]
     assert _auto_tag_calls(llm_mock) == 1
 
 
@@ -241,6 +328,30 @@ async def test_a_mid_run_failure_keeps_earlier_work_and_leaves_that_card_pending
     assert (await client.get("/api/library/tags")).json()["pending"] == 0
 
 
+async def test_a_malformed_tag_call_does_not_erase_or_stamp_the_card(client, llm_mock):
+    response = await client.post(
+        "/api/characters",
+        json={"name": "Lira", "description": "A mage.", "tags": ["Imported"]},
+    )
+    card_id = response.json()["id"]
+    await _vocab(client, ["Fantasy"])
+    llm_mock.enqueue_auto_tag(
+        [
+            {
+                "id": "call-1",
+                "type": "function",
+                "function": {"name": "assign_character_tags", "arguments": "{}"},
+            }
+        ]
+    )
+
+    events = _parse_sse((await client.post("/api/library/auto-tag/run", json={})).text)
+
+    assert [event["event"] for event in events if event["event"] == "card_error"] == ["card_error"]
+    assert await _tags(client, card_id) == ["Imported"]
+    assert (await client.get("/api/library/tags")).json()["pending"] == 1
+
+
 async def test_the_run_stops_after_five_consecutive_failures(client, llm_mock):
     await _cards(client, *[f"Card{i}" for i in range(12)])
     await _vocab(client, ["Fantasy"])
@@ -253,11 +364,48 @@ async def test_the_run_stops_after_five_consecutive_failures(client, llm_mock):
     assert [e["event"] for e in events][-1] == "error"
 
 
+async def test_an_exhausted_transport_failure_stops_before_trying_more_cards(client, llm_mock):
+    await _cards(client, "Lira", "Rook", "Zara")
+    await _vocab(client, ["Fantasy"])
+    real_tag_card = library_routes.tag_card
+    calls = 0
+
+    async def unreachable(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        raise httpx.ConnectError("offline")
+
+    library_routes.tag_card = unreachable
+    try:
+        events = _parse_sse((await client.post("/api/library/auto-tag/run", json={})).text)
+    finally:
+        library_routes.tag_card = real_tag_card
+
+    assert calls == 1
+    assert [event["event"] for event in events] == ["start", "card_error", "error"]
+
+
 async def test_a_run_with_no_vocabulary_is_refused_before_any_call(client, llm_mock):
     await _cards(client, "Lira")
     events = _parse_sse((await client.post("/api/library/auto-tag/run", json={})).text)
     assert [e["event"] for e in events] == ["error"]
     assert _auto_tag_calls(llm_mock) == 0
+
+
+async def test_force_retags_an_already_current_library(client, llm_mock):
+    (card_id,) = await _cards(client, "Lira")
+    await _vocab(client, ["Fantasy", "Romance"])
+    await _run(client, llm_mock, [["Fantasy"]])
+    assert (await client.get("/api/library/tags")).json()["pending"] == 0
+
+    events = await _run(client, llm_mock, [["Romance"]], force=True, reasoning=True)
+
+    assert json.loads([event for event in events if event["event"] == "done"][0]["data"]) == {
+        "tagged": 1,
+        "failed": 0,
+    }
+    assert await _tags(client, card_id) == ["Romance"]
+    assert _auto_tag_calls(llm_mock) == 2
 
 
 # ── Storage ──────────────────────────────────────────────────────────────────
@@ -288,6 +436,19 @@ async def test_tagging_a_card_overwrites_the_tags_it_was_imported_with(client, l
 async def test_the_vocabulary_is_normalized_on_save(client):
     state = await _vocab(client, ["  Fantasy ", "fantasy", "Sci|Fi", ""])
     assert state["vocabulary"] == ["Fantasy", "SciFi"]
+
+
+async def test_a_stale_vocabulary_revision_cannot_replace_newer_changes(client):
+    initial = (await client.get("/api/library/tags")).json()
+    await _vocab(client, ["Fantasy"])
+
+    stale = await client.put(
+        "/api/library/tags",
+        json={"vocabulary": ["Romance"], "base_revision": initial["revision"]},
+    )
+
+    assert stale.status_code == 409
+    assert (await client.get("/api/library/tags")).json()["vocabulary"] == ["Fantasy"]
 
 
 # ── KV posture ───────────────────────────────────────────────────────────────
@@ -428,6 +589,7 @@ async def test_a_save_is_refused_while_a_run_holds_the_lock(client, llm_mock):
     for _ in range(2):
         llm_mock.enqueue_auto_tag(_tag_call(["Fantasy", "Romance"]))
     gate = llm_mock.gate("auto_tag")
+    revision = (await client.get("/api/library/tags")).json()["revision"]
 
     async def run():
         async with client.stream("POST", "/api/library/auto-tag/run", json={}) as r:
@@ -436,7 +598,10 @@ async def test_a_save_is_refused_while_a_run_holds_the_lock(client, llm_mock):
 
     task = asyncio.create_task(run())
     await asyncio.wait_for(gate.reached.wait(), 5)
-    r = await client.put("/api/library/tags", json={"vocabulary": ["Fantasy"]})
+    r = await client.put(
+        "/api/library/tags",
+        json={"vocabulary": ["Fantasy"], "base_revision": revision},
+    )
     assert r.status_code == 409
     gate.release.set()
     await asyncio.wait_for(task, 10)
@@ -458,6 +623,7 @@ async def test_a_run_cannot_start_underneath_a_save(client, llm_mock):
     ids = await _cards(client, "Lira", "Rook")
     await _vocab(client, ["Fantasy", "Romance"])
     await _run(client, llm_mock, [["Fantasy", "Romance"], ["Fantasy", "Romance"]])
+    revision = (await client.get("/api/library/tags")).json()["revision"]
 
     real_get_vocabulary = library_routes.get_vocabulary
     parked = asyncio.Event()
@@ -473,7 +639,12 @@ async def test_a_run_cannot_start_underneath_a_save(client, llm_mock):
 
     library_routes.get_vocabulary = parking_get_vocabulary
     try:
-        save = asyncio.create_task(client.put("/api/library/tags", json={"vocabulary": ["Fantasy"]}))
+        save = asyncio.create_task(
+            client.put(
+                "/api/library/tags",
+                json={"vocabulary": ["Fantasy"], "base_revision": revision},
+            )
+        )
         await asyncio.wait_for(parked.wait(), 5)
 
         llm_mock.enqueue_auto_tag(_tag_call(["Fantasy", "Romance"]))

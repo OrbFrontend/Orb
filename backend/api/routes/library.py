@@ -5,30 +5,28 @@ from __future__ import annotations
 import asyncio
 import logging
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 from ...core import agent_lane_max_tokens, scrub_log
 from ...database import (
+    VocabularyConflict,
     apply_auto_tags,
-    bump_auto_tag_vocab_hash,
-    count_library_cards,
-    count_pending_auto_tags,
-    count_tagged_cards,
+    get_auto_tag_counts,
     get_character_card,
     get_settings,
     get_vocabulary,
     list_pending_auto_tag_ids,
-    prune_auto_tags,
-    set_vocabulary,
+    replace_vocabulary,
 )
 from ...features.library_tags import (
     AutoTagUnavailable,
     build_system_prompt,
     build_tag_tool,
-    diff_vocabulary,
     normalize_vocabulary,
     tag_card,
     vocabulary_hash,
+    vocabulary_revision,
 )
 from ...inference import (
     AbortToken,
@@ -54,12 +52,11 @@ _MAX_TOKENS_FLOOR = 512
 async def _tag_state() -> dict:
     """Return the vocabulary and counts used by the manager panel."""
     vocabulary = await get_vocabulary()
-    pending = await count_pending_auto_tags(vocabulary_hash(vocabulary)) if vocabulary else 0
+    counts = await get_auto_tag_counts(vocabulary_hash(vocabulary) if vocabulary else None)
     return {
         "vocabulary": vocabulary,
-        "total": await count_library_cards(),
-        "pending": pending,
-        "tagged": await count_tagged_cards(),
+        "revision": vocabulary_revision(vocabulary),
+        **counts,
     }
 
 
@@ -76,14 +73,15 @@ async def api_put_library_tags(data: LibraryTagVocabulary):
     async with _run_lock:
         old = await get_vocabulary()
         new = normalize_vocabulary(data.vocabulary)
-        added, removed = diff_vocabulary(old, new)
-
-        await set_vocabulary(new)
-        if removed:
-            await prune_auto_tags(removed)
-        if not added:
-            await bump_auto_tag_vocab_hash(vocabulary_hash(new))
-        return await _tag_state()
+        if data.base_revision != vocabulary_revision(old):
+            raise HTTPException(status_code=409, detail="The tag vocabulary changed in another window; review it and try again")
+        try:
+            cards_changed = await replace_vocabulary(new, expected=old, new_hash=vocabulary_hash(new))
+        except VocabularyConflict as exc:
+            raise HTTPException(status_code=409, detail=f"{exc}; review it and try again") from None
+        state = await _tag_state()
+        state["cards_changed"] = cards_changed
+        return state
 
 
 @router.post("/api/library/auto-tag/run")
@@ -106,7 +104,7 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
                 return
 
             vocab_hash = vocabulary_hash(vocabulary)
-            pending = await list_pending_auto_tag_ids(vocab_hash)
+            pending = await list_pending_auto_tag_ids(vocab_hash, force=data.force)
             total = len(pending)
             yield {"event": "start", "data": {"total": total}}
 
@@ -137,7 +135,7 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
                         max_tokens=max_tokens,
                         reasoning_on=data.reasoning,
                     )
-                except (AutoTagUnavailable, LLMCallError) as e:
+                except AutoTagUnavailable as e:
                     failed += 1
                     consecutive += 1
                     logger.warning("Auto-tag failed for card %s: %s", scrub_log(card_id), e)
@@ -152,9 +150,55 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
                         }
                         return
                     continue
+                except LLMCallError as e:
+                    failed += 1
+                    logger.warning("Auto-tag endpoint failed for card %s: %s", scrub_log(card_id), e.sentence or e)
+                    yield {
+                        "event": "card_error",
+                        "data": {
+                            "done": done,
+                            "total": total,
+                            "name": str(card.get("name") or ""),
+                            "error": e.sentence or "The Agent endpoint failed",
+                        },
+                    }
+                    yield {
+                        "event": "error",
+                        "data": "The Agent endpoint failed after its retries; the remaining cards were not sent",
+                    }
+                    return
+                except httpx.HTTPError as e:
+                    failed += 1
+                    logger.warning("Auto-tag transport failed for card %s: %s", scrub_log(card_id), e)
+                    yield {
+                        "event": "card_error",
+                        "data": {
+                            "done": done,
+                            "total": total,
+                            "name": str(card.get("name") or ""),
+                            "error": "The Agent endpoint could not be reached",
+                        },
+                    }
+                    yield {
+                        "event": "error",
+                        "data": "The Agent endpoint could not be reached after its retries; the remaining cards were not sent",
+                    }
+                    return
 
                 consecutive = 0
-                await apply_auto_tags(card_id, tags, vocab_hash, str(card.get("updated_at") or ""))
+                applied = await apply_auto_tags(card_id, tags, vocab_hash, str(card.get("updated_at") or ""))
+                if not applied:
+                    failed += 1
+                    yield {
+                        "event": "card_error",
+                        "data": {
+                            "done": done,
+                            "total": total,
+                            "name": str(card.get("name") or ""),
+                            "error": "The card changed while it was being tagged; it was left pending",
+                        },
+                    }
+                    continue
                 tagged += 1
                 yield {
                     "event": "progress",
