@@ -7,6 +7,6 @@
     "lineWidth": 120
   },
   "files": {
-    "includes": ["frontend/**/*.js"]
+    "includes": ["frontend/**/*.js", "!frontend/vendor/**"]
   }
 }

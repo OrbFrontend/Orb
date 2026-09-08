@@ -46,12 +46,20 @@ LAYERS = {
     # filter is the one piece of the browser worth testing directly, and
     # library_browser.js drags in the whole L5 chat chain.
     "library_filter.js": 0,
+    # The card-CSS policy: a tokenizer, an allowlist and the per-message scoper.
+    # A leaf so it can be tested without a DOM, which is the whole point of it
+    # being a string pass rather than a trip through the CSSOM.
+    "message_css.js": 0,
     # L1 state + shared pure helpers.
     "state.js": 1,
     "model_catalog.js": 1,
     "workflow_registry.js": 1,
     "utils.js": 1,
     "notify.js": 1,
+    # The browser half of prose rendering: DOMPurify, block layout and <style>
+    # scoping. Sits beside utils.js because it is what makes utils.js output
+    # safe to hand to innerHTML, and imports nothing above it.
+    "message_html.js": 1,
     # Pure render/state helpers for the Dynamic Worlds review surface; imports
     # only utils.js, so it sits alongside it rather than with the features.
     "world_proposals.js": 1,

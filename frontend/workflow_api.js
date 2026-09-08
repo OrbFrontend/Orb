@@ -23,7 +23,7 @@ import { closeModal, setModalCloseGuard, showModal } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { effectiveWorkflowEnabled, S, subscribe } from "./state.js";
 import { broadcastWorkflowMutation } from "./tabLock.js";
-import { convUrl, esc, escAttr, notifyError, toast } from "./utils.js";
+import { convUrl, esc, escAttr, fromMessageBody, notifyError, toast } from "./utils.js";
 import {
   registerClickHandler,
   registerTextEffect,
@@ -103,7 +103,9 @@ let _actionsWired = false;
 
 function _dispatchAction(e, type) {
   const el = e.target.closest?.("[data-wf-action]");
-  if (!el) return;
+  // A workflow's own surfaces (widgets, panels, message buttons) all sit outside
+  // the bubble. Inside it is model markup, which never gets to name an action.
+  if (!el || fromMessageBody(el)) return;
   if ((el.dataset.wfOn || "click") !== type) return;
   const fn = _actions.get(el.dataset.wfAction);
   if (!fn) return;

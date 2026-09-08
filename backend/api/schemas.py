@@ -605,30 +605,74 @@ class CharacterCardUpdate(BaseModel):
     persona_lock_id: int | None = None
 
 
+# Attachment ceilings, mirroring what the composer enforces client-side
+# (frontend/validate.js). They are re-checked here because the composer is not
+# the only thing that can reach this route, and because an attachment is stored
+# base64 on the message row and re-rendered as a `data:` URL on every read of
+# the conversation — the cost of one oversized upload is paid on every repaint,
+# forever.
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+MAX_ATTACHMENTS_PER_MESSAGE = 10
+MAX_ATTACHMENT_TOTAL_BYTES = 20 * 1024 * 1024
+MAX_ATTACHMENT_FILENAME = 255
+
+# type/subtype, no parameters. The value is interpolated into a `data:` URL in
+# the client, so anything that is not a plain MIME type has no business here.
+_MIME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$")
+
+
 class AttachmentIn(BaseModel):
     b64: str
     mime: str
     filename: str | None = None
     size: int | None = None
 
-    @field_validator("size")
+    @field_validator("mime")
     @classmethod
-    def validate_size(cls, v):
-        if v is not None and v > 10 * 1024 * 1024:  # 10 MB
+    def validate_mime(cls, v: str) -> str:
+        mime = v.strip()
+        if not _MIME_RE.match(mime):
+            raise ValueError("Invalid MIME type")
+        return mime.lower()
+
+    @field_validator("filename")
+    @classmethod
+    def validate_filename(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        # Control characters are invisible wherever the name is shown, which is
+        # exactly what makes them useful for disguising one. Bound the length
+        # too: the name is rendered on every read of the message.
+        name = "".join(ch for ch in v if ch.isprintable()).strip()[:MAX_ATTACHMENT_FILENAME]
+        return name or None
+
+    @model_validator(mode="after")
+    def _payload_within_limits(self) -> AttachmentIn:
+        # `size` is client-supplied and was previously the only thing checked, so
+        # a client could declare 1 KB and send 500 MB. What is stored is the
+        # decoded payload, so that is what is measured — and `size` is then
+        # overwritten with the truth rather than trusted.
+        if len(self.b64) // 4 * 3 > MAX_ATTACHMENT_BYTES:
+            # Cheap pre-check: refuse before allocating the decoded copy.
             raise ValueError("Attachment size exceeds 10 MB limit")
-        return v
-
-    @field_validator("b64")
-    @classmethod
-    def validate_b64(cls, v):
-        # Ensure it's valid base64 (optional)
-        import base64
-
         try:
-            base64.b64decode(v, validate=True)
+            raw = base64.b64decode(self.b64, validate=True)
         except Exception:
             raise ValueError("Invalid base64 string") from None
-        return v
+        if len(raw) > MAX_ATTACHMENT_BYTES:
+            raise ValueError("Attachment size exceeds 10 MB limit")
+        self.size = len(raw)
+        return self
+
+
+def _attachments_within_limits(atts: list[AttachmentIn]) -> list[AttachmentIn]:
+    """Bound a message's attachment set, not just each attachment on its own."""
+    if len(atts) > MAX_ATTACHMENTS_PER_MESSAGE:
+        raise ValueError(f"At most {MAX_ATTACHMENTS_PER_MESSAGE} attachments per message")
+    # Every `size` was replaced with the decoded length by the item validator.
+    if sum(a.size or 0 for a in atts) > MAX_ATTACHMENT_TOTAL_BYTES:
+        raise ValueError("Attachments exceed the 20 MB total limit")
+    return atts
 
 
 class SendMessage(BaseModel):
@@ -638,12 +682,16 @@ class SendMessage(BaseModel):
     attachments: list[AttachmentIn] = []
     speaker_member_id: str | None = None
 
+    _check_attachments = field_validator("attachments")(_attachments_within_limits)
+
 
 class EditMessage(BaseModel):
     content: str
     enable_agent: bool = True
     attachments: list[AttachmentIn] = []
     speaker_member_id: str | None = None
+
+    _check_attachments = field_validator("attachments")(_attachments_within_limits)
 
 
 class RegenerateMsg(BaseModel):

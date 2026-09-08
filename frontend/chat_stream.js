@@ -35,6 +35,7 @@ import {
 import { restNotice, speakerAvatarCell, unansweredHint } from "./group_cast.js";
 import { consumeSpeakerOverride, refreshSheetProposals, renderGroupCast } from "./group_setup.js";
 import { refreshCharacters } from "./library.js";
+import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
 import { isUtilityPanelOpen } from "./panels.js";
 import { ensurePersonaPinned } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
@@ -43,8 +44,6 @@ import {
   $,
   convUrl,
   esc,
-  formatProse,
-  formatProseWithDiff,
   notifyError,
   pinStreamingMessage,
   resolvePlaceholders,
@@ -89,6 +88,38 @@ export function setGenerationPhase(phase) {
   el.querySelector(".gen-dot").className = `gen-dot${S.generationPhase === "refining" ? " spin" : ""}`;
 }
 
+// Coalesce expensive full-body renders to one paint per animation frame.
+
+let _paintFrame = 0;
+let _paintPending = null;
+let _paintedHtml = "";
+
+function paintStreamingBody(text) {
+  _paintPending = text;
+  if (_paintFrame) return;
+  _paintFrame = requestAnimationFrame(() => {
+    _paintFrame = 0;
+    const pending = _paintPending;
+    _paintPending = null;
+    const body = S.streamingBodyEl;
+    if (!body || pending === null) return;
+    const html = renderMessageHtml(pending, { streaming: true });
+    if (html !== _paintedHtml) {
+      _paintedHtml = html;
+      body.innerHTML = html;
+    }
+    scrollToBottom();
+  });
+}
+
+/** Cancel a queued streaming paint. */
+function cancelStreamingPaint() {
+  if (_paintFrame) cancelAnimationFrame(_paintFrame);
+  _paintFrame = 0;
+  _paintPending = null;
+  _paintedHtml = "";
+}
+
 function smoothUpdateBody(el, newHtml, onComplete) {
   if (!el || el.innerHTML === newHtml) return;
   const prev = el.offsetHeight;
@@ -117,6 +148,7 @@ function smoothUpdateBody(el, newHtml, onComplete) {
 }
 
 function finalizeStreamingDiv(lastMsg) {
+  cancelStreamingPaint();
   const body = S.streamingBodyEl;
   if (!body) return false;
   const div = body.closest(".message");
@@ -128,8 +160,8 @@ function finalizeStreamingDiv(lastMsg) {
 
   const bodyHtml =
     S.pendingRefineDiff && S.showEditorDiff
-      ? formatProseWithDiff(S.pendingRefineDiff.ops)
-      : formatProse(resolvePlaceholders(lastMsg.content));
+      ? renderMessageDiffHtml(S.pendingRefineDiff.ops)
+      : renderMessageHtml(resolvePlaceholders(lastMsg.content));
   smoothUpdateBody(body, bodyHtml, () => scrollToBottom(true));
   if ((S.workflowTextEffects.length || S.workflowClickHandlers.length) && !(S.pendingRefineDiff && S.showEditorDiff)) {
     _applyWorkflowTextSegments(body, lastMsg);
@@ -165,6 +197,7 @@ export function stopGeneration() {
 }
 
 export function createStreamingDiv(name = null, memberId = null) {
+  cancelStreamingPaint();
   const div = document.createElement("div");
   div.className = "message assistant";
   const avatar = S.showChatAvatars ? speakerAvatarCell({ role: "assistant", speaker_member_id: memberId }) : "";
@@ -200,7 +233,7 @@ function adoptPendingUserMessage(msg, content = null) {
   if (tb) tb.innerHTML = buildMsgToolbar(msg);
   if (content === null) return;
   const body = div.querySelector(".msg-body");
-  if (body) body.innerHTML = formatProse(resolvePlaceholders(content));
+  if (body) body.innerHTML = renderMessageHtml(resolvePlaceholders(content));
 }
 
 function patchPendingUserMessage(pendingMsg) {
@@ -209,6 +242,7 @@ function patchPendingUserMessage(pendingMsg) {
 }
 
 export async function afterStream() {
+  cancelStreamingPaint();
   const wasGroupExchange = S.currentExchangeId != null;
   const groupExchangeId = S.currentExchangeId;
   const inFlightSpeaker = S.currentSpeaker;
@@ -434,15 +468,18 @@ export async function processSSEStream(resp, container, holder, signal) {
       }
       fullResponse += unescapeSSE(data);
       S.streamingContent = rewrittenResponse || fullResponse;
-      if (S.streamingBodyEl) S.streamingBodyEl.innerHTML = formatProse(rewrittenResponse || fullResponse);
-      scrollToBottom();
+      if (S.streamingBodyEl) paintStreamingBody(rewrittenResponse || fullResponse);
+      else scrollToBottom();
     };
     const onRewrite = (text) => {
+      cancelStreamingPaint(); // the rewrite replaces the body outright
       rewrittenResponse = text;
       S.streamingContent = text;
       if (S.streamingBodyEl) {
         const html =
-          S.pendingRefineDiff && S.showEditorDiff ? formatProseWithDiff(S.pendingRefineDiff.ops) : formatProse(text);
+          S.pendingRefineDiff && S.showEditorDiff
+            ? renderMessageDiffHtml(S.pendingRefineDiff.ops)
+            : renderMessageHtml(text);
         smoothUpdateBody(S.streamingBodyEl, html, scrollToBottom);
       } else {
         scrollToBottom();

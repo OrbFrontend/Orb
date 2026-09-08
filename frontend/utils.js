@@ -30,6 +30,29 @@ export function boolFlag(value) {
   return value === true || value === 1;
 }
 
+// An attachment's MIME type and payload arrive from the API, which accepts what
+// the client sent — so both are attacker-controlled, and both land in an
+// attribute *value* rather than in text. `esc` does not escape quotes, so
+// interpolating either one raw is how a filename ending the attribute early
+// turns into an event handler on the element.
+// Building the URL here means no call site has to remember that.
+const ATTACHMENT_MIME_RE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;
+const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/** A `data:` URL for an attachment, or "" when the metadata is not usable. */
+export function attachmentDataUrl(mime, b64) {
+  const type = typeof mime === "string" ? mime.trim() : "";
+  const data = typeof b64 === "string" ? b64.replace(/\s+/g, "") : "";
+  if (!ATTACHMENT_MIME_RE.test(type) || !BASE64_RE.test(data)) return "";
+  return `data:${type};base64,${data}`;
+}
+
+/** The attachment's declared MIME type, or "" when it is not a well-formed one. */
+export function attachmentMime(mime) {
+  const type = typeof mime === "string" ? mime.trim() : "";
+  return ATTACHMENT_MIME_RE.test(type) ? type.toLowerCase() : "";
+}
+
 export { notifyError, toast } from "./notify.js";
 
 let _chatFollow = null;
@@ -88,6 +111,20 @@ export function scrollToMessage(msgId) {
 // selector string copied into each of them.
 export function messageBody(msgId) {
   return $("chat-messages")?.querySelector(`.message[data-msg-id="${msgId}"] .msg-body`) ?? null;
+}
+
+/**
+ * True when `el` sits inside a message body — i.e. inside markup a model wrote.
+ *
+ * The app's global dispatchers select on attributes (`[data-chat-action]`,
+ * `[data-wf-action]`) anywhere in the document, which is fine for chrome the app
+ * built and wrong for a bubble. message_html.js already strips every `data-*`
+ * from message markup, so nothing should ever reach those dispatchers from in
+ * here; this is the second lock, and the one that does not depend on a
+ * sanitiser config staying right.
+ */
+export function fromMessageBody(el) {
+  return !!el?.closest?.(".msg-body");
 }
 
 export function pinStreamingMessage(el) {
@@ -235,36 +272,91 @@ export function sentenceDiff(oldText, newText) {
 
 const INLINE_QUOTE_RE = /"[^"]+"|“[^”]+”|‘[^’]+’|«[^»]+»|‹[^›]+›|「[^」]+」|『[^』]+』|„[^“]+“|‚[^‘]+‘/g;
 
-function _applyInlineFormatting(escaped) {
-  escaped = escaped.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  escaped = escaped.replace(/\*([^*]+?)\*/g, "<em>$1</em>");
-  return escaped.replace(INLINE_QUOTE_RE, '<span class="quoted">$&</span>');
+// Protect tags from the inline formatting passes; their attributes are not prose.
+const TAG_SLOT_OPEN = "\uFFFC";
+const TAG_SLOT_CLOSE = "\uFFFD";
+const TAG_SLOT_RE = /\uFFFC(\d+)\uFFFD/g;
+const CODE_SLOT_OPEN = "\uFFF9";
+const CODE_SLOT_CLOSE = "\uFFFB";
+const CODE_SLOT_RE = /\uFFF9(\d+)\uFFFB/g;
+const SLOT_CHARS_RE = /[\uFFF9\uFFFB\uFFFC\uFFFD]/g;
+
+/** Remove marker characters supplied by model text. */
+function _stripSlots(text) {
+  return text.replace(SLOT_CHARS_RE, "");
 }
 
+function _protectTags(text) {
+  const tags = [];
+  const body = text.replace(/<[^>]*>/g, (tag) => `${TAG_SLOT_OPEN}${tags.push(tag) - 1}${TAG_SLOT_CLOSE}`);
+  return { body, tags };
+}
+
+function _restoreTags(html, tags) {
+  return tags.length ? html.replace(TAG_SLOT_RE, (slot, i) => tags[i] ?? slot) : html;
+}
+
+/** Protect and escape inline code before applying prose formatting. */
+function _protectInlineCode(text) {
+  const codes = [];
+  const body = text.replace(
+    /`([^`]+)`/g,
+    (_, code) =>
+      `${CODE_SLOT_OPEN}${codes.push(`<code class="inline-code">${esc(code)}</code>`) - 1}${CODE_SLOT_CLOSE}`,
+  );
+  return { body, codes };
+}
+
+function _restoreInlineCode(html, codes) {
+  return codes.length ? html.replace(CODE_SLOT_RE, (slot, i) => codes[i] ?? slot) : html;
+}
+
+function _applyInlineFormatting(protectedText) {
+  let out = protectedText.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  out = out.replace(/\*([^*]+?)\*/g, "<em>$1</em>");
+  return out.replace(INLINE_QUOTE_RE, '<span class="quoted">$&</span>');
+}
+
+/** Emphasis and quotes only — the pass the diff renderer shares with prose. */
+function _formatSpan(text) {
+  const { body, tags } = _protectTags(_stripSlots(text));
+  return _restoreTags(_applyInlineFormatting(body), tags);
+}
+
+/** Apply inline code, emphasis, quotes and ATX headings. */
+function _formatInline(text) {
+  const { body: prose, codes } = _protectInlineCode(_stripSlots(text));
+  const { body, tags } = _protectTags(prose);
+  let out = _applyInlineFormatting(body);
+  out = out.replace(
+    /^(#{1,6}) (.+)$/gm,
+    (_, hashes, content) => `<strong class="md-h${hashes.length}">${content}</strong>`,
+  );
+  return _restoreInlineCode(_restoreTags(out, tags), codes);
+}
+
+/** Format an editor diff; the result still requires the message HTML pipeline. */
 export function formatProseWithDiff(ops) {
   let html = "";
   for (let i = 0; i < ops.length; i++) {
     const op = ops[i];
     if (op.type === "equal") {
-      html += _applyInlineFormatting(esc(op.text));
+      html += _formatSpan(op.text);
     } else if (op.type === "delete") {
       const next = ops[i + 1];
       if (next?.type === "insert") {
-        html += `<span class="diff-deleted">${_applyInlineFormatting(esc(op.text))}</span>`;
-        html += `<span class="diff-change">${_applyInlineFormatting(esc(next.text))}</span>`;
+        html += `<span class="diff-deleted">${_formatSpan(op.text)}</span>`;
+        html += `<span class="diff-change">${_formatSpan(next.text)}</span>`;
         i++; // consume the paired insert
       } else {
-        html += `<span class="diff-deleted">${_applyInlineFormatting(esc(op.text))}</span>`;
+        html += `<span class="diff-deleted">${_formatSpan(op.text)}</span>`;
       }
     } else if (op.type === "insert") {
-      html += `<span class="diff-change">${_applyInlineFormatting(esc(op.text))}</span>`;
+      html += `<span class="diff-change">${_formatSpan(op.text)}</span>`;
     }
   }
-  return html.replace(/\n{2,}/g, '<br><span class="pbreak"></span>').replace(/\n/g, "<br>");
+  return html;
 }
-
-const ICON_WRAP = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="3" y1="6" x2="21" y2="6"/><path d="M3 12h15a3 3 0 1 1 0 6h-4"/><polyline points="16 16 14 18 16 20"/><line x1="3" y1="18" x2="10" y2="18"/></svg>`;
-const ICON_COPY = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
 
 const IMG_LINK_RE = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\)/i;
 
@@ -276,65 +368,48 @@ function renderImageEmbed(url, alt) {
     `<summary><span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>` +
     `<span class="msg-image-label">🖼️ Image</span></summary>` +
     `<a class="msg-image-link" href="${safeUrl}" target="_blank" rel="noopener">` +
-    `<img class="msg-image" src="${safeUrl}" alt="${safeAlt}" loading="lazy" ` +
-    `onerror="this.replaceWith(Object.assign(document.createElement('span'),` +
-    `{className:'msg-image-broken',textContent:this.src}))">` +
+    `<img class="msg-image" src="${safeUrl}" alt="${safeAlt}" loading="lazy">` +
     `</a>` +
     `</details>`
   );
 }
 
-const _proseCache = new Map();
-const _PROSE_CACHE_MAX = 2000;
+// Split out fenced code, style blocks and image embeds before formatting prose.
+// An open fence runs to the end so its contents remain escaped code.
+const PROSE_PART_RE =
+  /(```[\w]*\n?[\s\S]*?```|```[\w]*\n?[\s\S]*$|<style\b[^>]*>[\s\S]*?<\/style\s*>|!\[[^\]]*\]\((?:https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\))/gi;
+const STYLE_BLOCK_RE = /^<style\b[^>]*>([\s\S]*?)<\/style\s*>$/i;
+const CLOSED_FENCE_RE = /^```(\w*)(\n)?([\s\S]*?)```$/;
+const OPEN_FENCE_RE = /^```(\w*)(\n)?([\s\S]*)$/;
 
+/** Format message text for the browser-side sanitise/layout pipeline. */
 export function formatProse(text) {
   if (!text) return "";
-  const cached = _proseCache.get(text);
-  if (cached !== undefined) return cached;
-  const html = _formatProse(text);
-  if (_proseCache.size >= _PROSE_CACHE_MAX) {
-    _proseCache.delete(_proseCache.keys().next().value);
-  }
-  _proseCache.set(text, html);
-  return html;
-}
-
-function _formatProse(text) {
-  const parts = text.split(/(```[\w]*\n?[\s\S]*?```|!\[[^\]]*\]\((?:https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\))/gi);
+  const parts = text.split(PROSE_PART_RE);
   return parts
     .map((part, i) => {
       const imgMatch = part.match(IMG_LINK_RE);
       if (imgMatch) {
         return renderImageEmbed(imgMatch[2], imgMatch[1]);
       }
-      const codeMatch = part.match(/^```(\w*)(\n)?([\s\S]*?)```$/);
+      const styleMatch = part.match(STYLE_BLOCK_RE);
+      if (styleMatch) {
+        // Preserve CSS as encoded text until message_html.js can scope it.
+        return `<custom-style>${encodeURIComponent(styleMatch[1])}</custom-style>`;
+      }
+      const codeMatch = part.match(CLOSED_FENCE_RE) || part.match(OPEN_FENCE_RE);
       if (codeMatch) {
         const hasNewline = !!codeMatch[2];
         const lang = hasNewline ? codeMatch[1] : "";
         const code = esc(hasNewline ? codeMatch[3] : codeMatch[1] + codeMatch[3]);
         const langAttr = lang ? ` class="language-${escAttr(lang)}"` : "";
-        return (
-          `<div class="code-block">` +
-          `<div class="code-block-bar">` +
-          `<button type="button" class="code-block-btn" title="Toggle word wrap" aria-label="Toggle word wrap" aria-pressed="false" ` +
-          `onclick="this.setAttribute('aria-pressed', this.closest('.code-block').classList.toggle('wrap'))">${ICON_WRAP}</button>` +
-          `<button type="button" class="code-block-btn" title="Copy" aria-label="Copy code" ` +
-          `onclick="navigator.clipboard.writeText(this.closest('.code-block').querySelector('code').textContent).then(() => { this.classList.add('copied'); setTimeout(() => this.classList.remove('copied'), 1200); })">${ICON_COPY}</button>` +
-          `</div>` +
-          `<pre><code${langAttr}>${code}</code></pre>` +
-          `</div>`
-        );
+        // The sanitiser strips data attributes; message_html.js rebuilds the bar.
+        return `<div class="code-block"><pre><code${langAttr}>${code}</code></pre></div>`;
       }
       let prose = part;
       if (i > 0) prose = prose.replace(/^\n/, ""); // after a code block
       if (i < parts.length - 1) prose = prose.replace(/\n$/, ""); // before a code block
-      let escaped = _applyInlineFormatting(esc(prose));
-      escaped = escaped.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
-      escaped = escaped.replace(
-        /^(#{1,6}) (.+)$/gm,
-        (_, hashes, content) => `<strong class="md-h${hashes.length}">${content}</strong>`,
-      );
-      return escaped.replace(/\n{2,}/g, '<br><span class="pbreak"></span>').replace(/\n/g, "<br>");
+      return _formatInline(prose);
     })
     .join("");
 }

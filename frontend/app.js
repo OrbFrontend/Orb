@@ -147,6 +147,7 @@ import {
   showRenameWorldModal,
   toggleWorldEnabled,
 } from "./lorebooks.js";
+import { initMessageHtmlActions } from "./message_html.js";
 import { closeMobileHeaderActions, initMobileUi, toggleMobileHeaderActions, toggleMobileSidebar } from "./mobile.js";
 import {
   closeCropModal,
@@ -210,7 +211,7 @@ import {
 import { scoreSlop } from "./slop_score.js";
 import { S } from "./state.js";
 import { initTabLock } from "./tabLock.js";
-import { $ } from "./utils.js";
+import { $, fromMessageBody } from "./utils.js";
 import { loadWorkflowModules } from "./workflow_loader.js";
 import { initWorkflowTextInteraction } from "./workflow_text_interaction.js";
 
@@ -233,7 +234,7 @@ document.addEventListener("click", (e) => {
 
 document.addEventListener("click", (e) => {
   const item = e.target.closest("[data-chat-action]");
-  if (!item) return;
+  if (!item || fromMessageBody(item)) return;
   closeBurger();
   closeMobileHeaderActions();
   if (item.dataset.chatAction === "inspector") toggleInspector();
@@ -444,6 +445,7 @@ Object.assign(window, {
 
 initTheme();
 initThemeList();
+initMessageHtmlActions();
 initComposer();
 initChatKeyNav();
 initAutoscroll();

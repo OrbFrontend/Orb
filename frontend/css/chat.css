@@ -258,6 +258,95 @@
   padding: .1em .4em;
 }
 
+/* Base styling for HTML supplied by character cards. */
+.message .msg-body h1,
+.message .msg-body h2,
+.message .msg-body h3,
+.message .msg-body h4,
+.message .msg-body h5,
+.message .msg-body h6 {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  line-height: 1.3;
+  margin: .8em 0 .4em;
+}
+.message .msg-body h1:first-child,
+.message .msg-body h2:first-child,
+.message .msg-body h3:first-child { margin-top: 0; }
+.message .msg-body h1 { font-size: 1.5em; }
+.message .msg-body h2 { font-size: 1.3em; }
+.message .msg-body h3 { font-size: 1.15em; }
+.message .msg-body h4 { font-size: 1.05em; }
+.message .msg-body h5,
+.message .msg-body h6 { font-size: 1em; color: var(--text-secondary); }
+
+.message .msg-body ul,
+.message .msg-body ol { margin: .5em 0; padding-left: 1.6em; }
+.message .msg-body li { margin: .2em 0; }
+.message .msg-body li > ul,
+.message .msg-body li > ol { margin: .2em 0; }
+
+.message .msg-body blockquote {
+  margin: .6em 0;
+  padding: .1em 0 .1em .9em;
+  border-left: 3px solid var(--accent-dim);
+  color: var(--text-secondary);
+}
+
+.message .msg-body hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: .9em 0;
+}
+
+/* Wide tables scroll inside the bubble instead of widening it; the wrapper is
+   added by message_html.js after sanitising. */
+.message .msg-body .msg-table-scroll {
+  overflow-x: auto;
+  margin: .6em 0;
+}
+.message .msg-body table {
+  border-collapse: collapse;
+  font-size: .95em;
+}
+.message .msg-body th,
+.message .msg-body td {
+  border: 1px solid var(--border);
+  padding: .35em .6em;
+  text-align: left;
+  vertical-align: top;
+}
+.message .msg-body th {
+  background: var(--bg-elevated);
+  font-weight: 600;
+}
+.message .msg-body caption {
+  color: var(--text-muted);
+  font-size: .9em;
+  padding-bottom: .3em;
+}
+
+/* Card CSS and card inline styles both land inside this wrapper, and it is the
+   one place their reach is bounded. Paint containment makes the wrapper the
+   containing block for `position: fixed` and clips what overflows it, so a card
+   overlay covers its own bubble rather than the app; it also opens a stacking
+   context, which is what keeps a card's `z-index` under Orb's chrome however
+   large it is. Style containment keeps a card's counters out of the app's, and
+   is a second declaration so an engine without it still gets the first.
+   `!important` because card CSS can write `!important` too: this is the
+   invariant the CSS policy rests on, not a look. Card rules are always
+   `.msg-body .msg-s… <descendant>`, so none of them can name this element. */
+.msg-css-scope {
+  position: relative !important;
+  isolation: isolate !important;
+  contain: layout paint !important;
+  contain: layout paint style !important;
+}
+
+/* .msg-image keeps its own viewport-aware sizing further down this file. */
+.message .msg-body img:not(.msg-image) { max-width: 100%; height: auto; }
+.message .msg-body a { color: var(--accent); }
+
 .message .msg-body .seg.seg-clickable { cursor: pointer; }
 .message .msg-body .seg.seg-multi {
   text-decoration: underline dotted var(--accent-dim);
@@ -423,6 +512,9 @@
 
 .message:hover .msg-toolbar { opacity: 1; }
 .message:last-child .msg-toolbar { opacity: 1; }
+/* The toolbar stays in the tab order at opacity 0, so tabbing into a message
+   would otherwise move focus to a control nobody can see. */
+.msg-toolbar:focus-within { opacity: 1; }
 
 .msg-toolbar button {
   padding: 5px;

@@ -9,6 +9,7 @@ import {
 import { clearWorkflowPhase, renderInspector, setWorkflowPhase } from "./chat_inspector.js";
 import { runStreamRequest, turnPayload } from "./chat_stream.js";
 import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
+import { renderMessageHtml } from "./message_html.js";
 import { confirmDelete } from "./modal.js";
 import { isUtilityPanelOpen } from "./panels.js";
 import { sseEvents, streamPost } from "./sse.js";
@@ -17,7 +18,6 @@ import { requestSendPermission } from "./tabLock.js";
 import {
   $,
   convUrl,
-  formatProse,
   initChatScrollFollow,
   messageBody,
   resolvePlaceholders,
@@ -208,7 +208,7 @@ function applyProseRewriteSnapshot(msgId, content) {
   const message = S.messages.find((m) => m.id === msgId);
   if (message) message.content = content;
   const body = messageBody(msgId);
-  if (body) body.innerHTML = formatProse(resolvePlaceholders(content));
+  if (body) body.innerHTML = renderMessageHtml(resolvePlaceholders(content));
 }
 
 // Swipes arrive faster than the round trip they start, so responses can land out
