@@ -16,6 +16,8 @@ from .format_consistency import (
     classify_axes,
     narration_only,
     normalize_to_baseline,
+    protected_runs,
+    spoken_lines,
     stable_label,
 )
 from .patching import (
@@ -55,6 +57,8 @@ __all__ = [
     "classify_axes",
     "narration_only",
     "normalize_to_baseline",
+    "protected_runs",
+    "spoken_lines",
     "stable_label",
     "split_narration_sentences",
 ]

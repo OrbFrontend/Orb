@@ -20,6 +20,7 @@ from . import (
     WORKFLOW_ID,
     normalize_config,
 )
+from .guard import rejection
 from .voice import (
     FEATURE,
     UNKNOWN_LABELS,
@@ -171,7 +172,18 @@ async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]]) -> str:
         ", ".join(phrases),
     )
     rewritten = await _voice_rewrite(ctx, text, phrases)
-    return rewritten or text
+    if not rewritten:
+        return text
+    # The result is the reply from here on: it lands after the Editor and after
+    # the speaker-label strip, with no pass behind it to catch a model that
+    # rewrote a line of dialogue, dropped a paragraph or grew past the length
+    # guard's ceiling. A rewrite that is not a faithful restatement is worth less
+    # than the finished draft, so it is discarded rather than shipped.
+    reason = rejection(text, rewritten)
+    if reason:
+        logger.info("format-consistency: discarding the voice rewrite (%s)", reason)
+        return text
+    return rewritten
 
 
 async def post_pipeline(ctx):

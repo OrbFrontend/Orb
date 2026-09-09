@@ -15,7 +15,9 @@ from ..analysis import (
     format_report,
     narration_only,
     normalize_to_baseline,
+    protected_runs,
     run_audit,
+    spoken_lines,
     stable_label,
 )
 from ..core import (
@@ -116,7 +118,9 @@ __all__ = [
     "narration_only",
     "normalize_to_baseline",
     "overlay_enable_tools",
+    "protected_runs",
     "run_audit",
+    "spoken_lines",
     "build_offturn_prefix",
     "set_workflow_character_state",
     "set_workflow_config",

@@ -21,6 +21,8 @@ __all__ = [
     "AxisStyle",
     "FormatDriftReport",
     "classify_axes",
+    "protected_runs",
+    "spoken_lines",
     "narration_only",
     "baseline_axes",
     "stable_label",
@@ -340,6 +342,35 @@ def narration_only(text: str, dialogue: Dialogue) -> str:
                 if inner:
                     beats.append(inner)
     return " ".join(beats)
+
+
+def protected_runs(text: str) -> list[str]:
+    """The runs no rewrite in this module touches: fenced code, ``**bold**``,
+    scene dividers. Not RP prose, so neither the markup pass nor a model asked to
+    restate the prose has any business in them.
+
+    A bag of strings: order is not the contract, presence is.
+    """
+    return [m.group(0) for m in _PROTECTED.finditer(text)]
+
+
+def spoken_lines(text: str) -> list[str]:
+    """What is said inside each quoted span, with the quotes and spacing removed.
+
+    Content, not markup: whether a line is quoted or bare is this module's to
+    change, but the words are the character's. Comparing these across a rewrite
+    asks "is anyone still saying the same things?" without asking the rewrite to
+    have kept the convention it was handed.
+    """
+    lines: list[str] = []
+    for para, block in _paragraph_spans(text):
+        for typ, start, end in block:
+            if typ != "SPEECH":
+                continue
+            inner = " ".join(_strip_quotes(para[start:end]).split())
+            if inner:
+                lines.append(inner)
+    return lines
 
 
 def stable_label(values: list[_StyleT], unknown: _StyleT) -> _StyleT:

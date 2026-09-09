@@ -32,6 +32,7 @@ from backend.workflows.format_consistency import (
     VOICE_REWRITE_LENGTH_RULE,
     VOICE_REWRITE_TOOL,
     VOICE_REWRITE_TOOL_NAME,
+    guard,
     hooks,
     voice,
 )
@@ -722,3 +723,51 @@ async def test_a_changed_window_majority_does_not_invalidate_a_cached_row(monkey
         assert baseline_axes([QUOTED_BASELINE, neighbour]) is not None
 
     assert seen == []
+
+
+# ---------- the rewrite is not trusted on sight ----------
+
+
+async def test_a_rewrite_that_changes_the_story_is_discarded(monkeypatch):
+    """The forced call is the last thing to touch the reply -- it runs after the
+    Editor and after the speaker-label strip, with nothing behind it. A rewrite
+    that is not a faithful restatement is worth less than the finished draft, so
+    the draft survives and only the markup pass gets to change it."""
+    _voice_on(monkeypatch)
+    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: SECOND_PRESENT})
+    # Same voice fix, but it reworded the dialogue on the way through.
+    _forced_call(monkeypatch, "*She steps closer, watching him carefully.* Are you certain about this?")
+
+    events = await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
+
+    # The draft, normalized for markup only: no trace of the rejected rewrite.
+    assert events == []
+    assert guard.rejection(VOICE_DRIFTING_DRAFT, "*She steps closer.* Are you certain about this?")
+
+
+async def test_a_rewrite_that_regrows_past_the_editor_is_discarded(monkeypatch):
+    """The Editor may have just cut this draft for the length guard."""
+    _voice_on(monkeypatch)
+    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: SECOND_PRESENT})
+    _forced_call(
+        monkeypatch,
+        "She steps closer, watching him with great care and no small amount of worry, "
+        'and after a long moment she finally speaks. "Are you sure about this?"',
+    )
+
+    events = await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
+
+    assert events == []
+
+
+async def test_a_rewrite_that_only_moved_the_markup_is_still_accepted(monkeypatch):
+    """The guard must not reject the drift the next pass exists to repair: a
+    rewrite is expected to come back in whatever markup the model felt like, and
+    the algorithmic pass is the authority on that."""
+    _voice_on(monkeypatch)
+    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: SECOND_PRESENT})
+    _forced_call(monkeypatch, DRIFTING_DRAFT)  # same words, asterisk convention
+
+    events = await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
+
+    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
