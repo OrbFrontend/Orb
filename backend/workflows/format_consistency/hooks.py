@@ -35,18 +35,8 @@ logger = logging.getLogger(__name__)
 
 BASELINE_WINDOW = 3
 
-# The rewrite runs on its own lane rather than extending the turn's prompt: a
-# voice restatement is a closed transform over the draft, so the scene, the cast
-# and the history buy it nothing and cost a full conversation's prompt tokens on
-# every drifting turn. Servers keep per-sequence caches (llama.cpp parks idle
-# slots in its host-RAM prompt cache; vLLM hashes blocks), so a second short lane
-# sits alongside the conversation's rather than displacing it.
-#
-# Constant, so it is the whole cached prefix of that lane -- warmed once and
-# reused by every rewrite in every conversation. Everything per-call rides the
-# user message behind it. What the rewrite must not touch is stated here because
-# the editor may have just rewritten this draft for the length guard: a voice fix
-# that grows the reply would silently undo that pass.
+# Keep the voice rewrite on a short, constant-prefix lane: it only needs the draft,
+# and must not undo the Editor's length guard.
 _SYSTEM = (
     "You are a copy editor. You restate a passage of prose in a different narrative "
     "voice and change nothing else.\n\n"
@@ -65,14 +55,7 @@ _INSTRUCTION = (
 
 
 def _baseline_window(history) -> list[Mapping[str, Any]]:
-    """The recent assistant-message rows (newest first, up to 3) whose conventions
-    the draft is held to.
-
-    Mirrors the fallback window the editor pass derived from its cached prefix:
-    assistant history is always plain text, so a non-str body (the multimodal
-    list form rides only user messages) has nothing to contribute. Rows rather
-    than bare content because the voice half caches its labels per message id.
-    """
+    """Return up to three recent plain-text assistant rows, newest first."""
     window: list[Mapping[str, Any]] = []
     for msg in reversed(history):
         if msg.get("role") == "assistant":
@@ -92,25 +75,7 @@ async def _voice_enabled(ctx) -> bool:
 
 
 async def _voice_rewrite(ctx, text: str, phrases: list[str]) -> str:
-    """Restate *text* in the baseline voice on a self-contained lane; "" on failure.
-
-    Two messages, no conversation: a constant system prefix and one user message
-    carrying the target voice and the draft. Restating a passage is closed over
-    that passage, so the scene, the cast and the history are not inputs to it --
-    and on a metered endpoint they are the whole bill. This call went from the
-    turn's full prompt to a few hundred tokens by dropping what it never read.
-
-    The lane is its own, not the turn's, which is the point: ``prefix`` here is a
-    constant rather than the conversation prefix, and ``enabled_tools=None`` ships
-    ``[voice_rewrite]`` alone instead of the turn's blob. Nothing about this call
-    has to match what the Director and Writer sent, so nothing about it can
-    diverge from them either -- the failure mode a shared lane invites, where a
-    forced tool the turn's blob never declared appends a schema and evicts the
-    conversation from the server's prefix cache.
-
-    It still runs on the Agent model: it is a forced tool call, and in dual-model
-    mode the writer lane is the one without schemas.
-    """
+    """Restate *text* on a self-contained voice-rewrite lane."""
     args: dict = {}
     async for event in forced_tool_call(
         client=ctx.agent_client or ctx.client,
@@ -124,8 +89,7 @@ async def _voice_rewrite(ctx, text: str, phrases: list[str]) -> str:
         tool_name=VOICE_REWRITE_TOOL_NAME,
         settings=ctx.settings,
         model_name=ctx.agent_model_name or None,
-        # None, not ctx.enabled_tools: forced_tool_call reads that as "ship the
-        # forced tool alone", which is the whole array this lane wants.
+        # None makes forced_tool_call send only the forced tool.
         enabled_tools=None,
         kv_tracker=ctx.kv_tracker,
         cache_shape="format_consistency:voice_rewrite",
@@ -140,16 +104,7 @@ async def _voice_rewrite(ctx, text: str, phrases: list[str]) -> str:
 
 
 async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]]) -> str:
-    """The draft restated in the window's voice, or *text* unchanged.
-
-    Every message here -- the draft included -- is parsed under its own markup
-    convention, never the window's aggregate. The aggregate is the rewrite
-    *target*, and using it to read a source is how a draft that broke the
-    convention gets classified as if it had kept it.
-
-    An ambiguous end, an empty rewrite, or a classifier that answered the sentinel
-    all return *text*; anything that raises is caught by the caller.
-    """
+    """Return *text* in the window's voice, or unchanged when it is ambiguous."""
     window_labels: list[VoiceLabels] = []
     for msg in window:
         labels = await labels_for(msg)
@@ -174,11 +129,6 @@ async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]]) -> str:
     rewritten = await _voice_rewrite(ctx, text, phrases)
     if not rewritten:
         return text
-    # The result is the reply from here on: it lands after the Editor and after
-    # the speaker-label strip, with no pass behind it to catch a model that
-    # rewrote a line of dialogue, dropped a paragraph or grew past the length
-    # guard's ceiling. A rewrite that is not a faithful restatement is worth less
-    # than the finished draft, so it is discarded rather than shipped.
     reason = rejection(text, rewritten)
     if reason:
         logger.info("format-consistency: discarding the voice rewrite (%s)", reason)
@@ -187,28 +137,13 @@ async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]]) -> str:
 
 
 async def post_pipeline(ctx):
-    """Hold the finished draft's markup convention -- and optionally its narrative
-    voice -- to the recent messages'.
-
-    Suspension is the framework's job: the per-workflow toggle gates this hook in
-    the fan-out loop, so when reached the hook always runs. The two repairs
-    compose before yielding, because the hook has a one-``draft_replaced`` budget
-    (the bridge warns and drops a second).
-    """
+    """Normalize the finished draft's markup and, optionally, its narrative voice."""
     window = _baseline_window(ctx.history)
     baseline_msgs = [msg.get("content", "") for msg in window]
-    # The window's aggregate convention, which is the markup *target* and nothing
-    # else. What each message and the draft already look like is each text's own
-    # answer, read where it is needed (see voice.classify).
     convention = baseline_axes(baseline_msgs)
     text = ctx.draft
 
-    # One guard over the whole voice half. Markup normalization is this workflow's
-    # always-on job; the voice check is opt-in and reaches a local model, the
-    # config slot, the message-state cache and an LLM endpoint -- four things that
-    # can fail independently. Any of them costs the check, never the markup fix.
-    # Nothing in here raises WorkflowUserFacingError: that is for a
-    # misconfiguration the user chose, not for a flaky call.
+    # Voice failures must not prevent the always-on markup normalization.
     try:
         if await _voice_enabled(ctx):
             text = await _hold_voice(ctx, text, window)
@@ -216,10 +151,7 @@ async def post_pipeline(ctx):
         logger.exception("format-consistency: voice check failed; normalizing markup only")
         text = ctx.draft
 
-    # Always last: an LLM rewrite reintroduces markup drift, and this algorithmic
-    # pass is the cheap authority on that.
-    # The pure normalizer keeps an on/off param for its own test surface; the real
-    # gate is the framework toggle, so this path always passes True.
+    # Run markup normalization last because the voice rewrite can reintroduce drift.
     text, report = normalize_to_baseline(text, baseline_msgs, enabled=True, target=convention)
     if report.changed:
         logger.info("format-consistency: normalized draft (%s)", report.transition())

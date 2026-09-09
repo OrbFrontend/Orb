@@ -1,20 +1,4 @@
-"""The format_consistency voice rewrite runs on its own lane, not the turn's.
-
-This is the call site the default-on ``verify_kv_prefix_invariants`` teardown
-never saw: the voice half's only other coverage is a unit test that monkeypatches
-``forced_tool_call`` away, so the rewrite never reached ``llm_mock``. That is how
-it shipped forcing ``editor_rewrite`` against the turn's tool blob without being
-in it -- ``forced_tool_call`` appended the schema, and the tools region renders
-ahead of history, so the 557 appended bytes evicted the whole conversation from
-the server's prefix cache.
-
-A self-contained lane makes that unrepresentable rather than merely fixed: the
-call shares no prefix and no tools array with the turn, so it has nothing to
-diverge from, and it stops paying a full conversation's prompt tokens to restate
-one draft. The checker groups calls by conversation identity (``messages[1]``),
-so this lane lands in a group of one and is skipped -- which is why the shape is
-asserted here explicitly rather than left to the teardown.
-"""
+"""Integration tests for the standalone voice-rewrite lane."""
 
 from __future__ import annotations
 
@@ -66,8 +50,6 @@ async def _seed(client) -> str:
     conv = await client.post("/api/conversations", json={"character_card_id": card.json()["id"]})
     assert conv.status_code == 200
 
-    # Agent on with the Director's tool, length guard OFF -- the configuration
-    # that used to leave editor_rewrite out of the blob.
     resp = await client.put(
         "/api/settings",
         json={
@@ -109,20 +91,15 @@ async def test_voice_rewrite_carries_no_conversation(client, llm_mock, voice_on)
     _ = send.text
 
     by_pass = {c["pass"]: c for c in llm_mock.captured}
-    # The rewrite actually ran; without it the rest of this proves nothing.
     assert "workflow" in by_pass, f"voice rewrite never fired (passes: {sorted(by_pass)})"
 
     rewrite = by_pass["workflow"]
     director = by_pass["director"]
     assert rewrite["tool_choice"] == {"type": "function", "function": {"name": VOICE_REWRITE_TOOL_NAME}}
 
-    # Only the forced tool. Shipping the turn's blob is what used to append a
-    # schema the Director and Writer had not sent.
     assert names_of(rewrite) == [VOICE_REWRITE_TOOL_NAME]
     assert VOICE_REWRITE_LENGTH_RULE in rewrite["tools"][0]["function"]["description"]
 
-    # Its own prefix, and a short one: no system message, history or scene from
-    # the turn. This is the token saving and the divergence-proofing at once.
     assert _wire(rewrite["messages"][0]) != _wire(director["messages"][0])
     assert len(rewrite["messages"]) == 2
     assert [m["role"] for m in rewrite["messages"]] == ["system", "user"]
@@ -133,12 +110,7 @@ async def test_voice_rewrite_carries_no_conversation(client, llm_mock, voice_on)
 
 
 async def test_voice_off_leaves_the_turn_untouched(client, llm_mock, voice_on):
-    """Opt-in, and invisible to the turn when off: no extra call, no extra schema.
-
-    The workflow's standalone schema never enters the turn's blob. The old shared
-    editor_rewrite schema was also absent here because the length guard is off,
-    which is the configuration where the append used to fire.
-    """
+    """Voice enforcement is opt-in and invisible to the turn when disabled."""
     cid = await _seed(client)
     await set_workflow_config("format_consistency", {"voice_consistency": False})
 
@@ -155,14 +127,7 @@ async def test_voice_off_leaves_the_turn_untouched(client, llm_mock, voice_on):
 
 
 async def test_the_rewrite_prompt_does_not_grow_with_history(client, llm_mock, voice_on):
-    """Two turns, same drifting draft, byte-identical rewrite prompts.
-
-    The load-bearing property, and the one a size comparison only gestures at: the
-    call is closed over the draft, so a conversation ten turns deep sends the same
-    bytes as one turn deep. That is what makes the saving scale with the thing that
-    was expensive -- and it is what silently regresses the moment someone reaches
-    for the turn prefix or ``ctx.history`` to give the rewriter "context".
-    """
+    """The rewrite prompt stays constant as conversation history grows."""
     cid = await _seed(client)
 
     def _queue_turn() -> None:
@@ -193,7 +158,6 @@ async def test_the_rewrite_prompt_does_not_grow_with_history(client, llm_mock, v
         rewrites.append(next(c for c in llm_mock.captured[start:] if c["pass"] == "workflow"))
 
     first, second = rewrites
-    # The second turn's Director has grown; the second turn's rewrite has not.
     directors = [c for c in llm_mock.captured if c["pass"] == "director"]
     assert len(_wire(directors[1]["messages"])) > len(_wire(directors[0]["messages"]))
     assert _wire(second["messages"]) == _wire(first["messages"])

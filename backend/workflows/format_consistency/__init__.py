@@ -37,11 +37,8 @@ VOICE_REWRITE_TOOL = ToolSpec(
     choice={"type": "function", "function": {"name": VOICE_REWRITE_TOOL_NAME}},
 )
 
-# One boolean, so it is declared here rather than in a config.py module of its
-# own (the same call image_gen's declaration makes for a much larger schema).
-# The markup half needs no config: the framework's per-workflow toggle is its
-# only switch. Voice enforcement is opt-in because it costs an LLM call per
-# drifting turn and needs a local model the user has to download first.
+# Markup follows the workflow toggle; voice enforcement is opt-in because it
+# costs an LLM call and requires the local classifier.
 CONFIG_DEFAULTS: dict[str, Any] = {"voice_consistency": False}
 
 CONFIG_SCHEMA = {
@@ -56,7 +53,7 @@ CONFIG_SCHEMA = {
 
 
 def normalize_config(raw: Mapping[str, Any] | None) -> dict:
-    """Return the complete configuration shape used by the UI and hook."""
+    """Return the normalized UI and hook configuration."""
     raw = raw if isinstance(raw, Mapping) else {}
     voice_consistency = raw.get("voice_consistency")
     return {
