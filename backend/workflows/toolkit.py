@@ -5,10 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from ..analysis import (
+    AxisStyle,
     FormatDriftReport,
+    baseline_axes,
     build_targets,
     format_numbered_report,
     format_report,
+    narration_only,
     normalize_to_baseline,
     run_audit,
     stable_label,
@@ -67,6 +70,7 @@ from .registry import (
 )
 
 __all__ = [
+    "AxisStyle",
     "CastMember",
     "EVICTED_MARKER",
     "EV_DRAFT_REPLACED",
@@ -79,6 +83,7 @@ __all__ = [
     "WorkflowUserFacingError",
     "classify_pov",
     "classify_pov_tense",
+    "baseline_axes",
     "forced_tool_call",
     "build_targets",
     "format_numbered_report",
@@ -104,6 +109,7 @@ __all__ = [
     "get_workflow_state",
     "insert_workflow_attachment",
     "local_feature_available",
+    "narration_only",
     "normalize_to_baseline",
     "overlay_enable_tools",
     "run_audit",

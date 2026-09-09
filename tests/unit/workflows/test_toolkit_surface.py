@@ -69,6 +69,13 @@ def test_toolkit_exposes_the_shared_agreement_rule():
     assert "stable_label" in toolkit.__all__
 
 
+def test_toolkit_exposes_format_convention_shaping():
+    """A plug-in must use one convention for markup repair and voice shaping."""
+    for name in ("AxisStyle", "baseline_axes", "narration_only"):
+        assert hasattr(toolkit, name)
+        assert name in toolkit.__all__
+
+
 def test_toolkit_is_the_single_plugin_contract_surface():
     for name in _PLUGIN_CONTRACTS:
         assert hasattr(toolkit, name)

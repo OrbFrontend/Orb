@@ -11,6 +11,7 @@ from backend.analysis.format_consistency import (
     Narration,
     baseline_axes,
     classify_axes,
+    narration_only,
     normalize_format,
     normalize_to_baseline,
     stable_label,
@@ -567,6 +568,21 @@ def test_a_talkative_bare_dialogue_baseline_still_sets_the_axes():
     assert '"' not in new
     assert "*Monika's smile is still perfectly in place.*" in new
     assert "Ah... Sayori." in new
+
+
+def test_narration_only_obeys_the_resolved_dialogue_convention():
+    """Equivalent scenes expose narration rather than whichever spans have quotes."""
+    bare = (
+        "As president of the Literature Club, it's my duty to make the club fun and exciting for everyone! "
+        "*Monika smiles kindly at you.* Tell me, what brings you here today?"
+    )
+    quoted = (
+        '"As president of the Literature Club, it\'s my duty to make the club fun and exciting for everyone!" '
+        'Monika smiles kindly at you. She waits by the desk. "Tell me, what brings you here today?"'
+    )
+
+    assert narration_only(bare, Dialogue.BARE) == "Monika smiles kindly at you."
+    assert narration_only(quoted, Dialogue.QUOTED) == "Monika smiles kindly at you. She waits by the desk."
 
 
 def test_a_window_that_votes_bare_on_both_axes_enforces_nothing():

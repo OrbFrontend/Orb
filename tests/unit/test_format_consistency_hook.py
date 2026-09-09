@@ -19,15 +19,18 @@ from types import MappingProxyType
 
 import pytest
 
+from backend.analysis import AxisStyle, Dialogue, Narration
 from backend.workflows import PostCtx
 from backend.workflows.format_consistency import hooks, voice
 
 # A single QUOTED-convention baseline; an asterisk-narration draft drifts from it
 # and is rewritten (lifted from the pure-logic suite's inversion case).
 QUOTED_BASELINE = 'She smiles. "Hello there," she says warmly.'
+QUOTED_BASELINE_NARRATION = "She smiles. she says warmly."
 DRIFTING_DRAFT = "*She steps closer, watching him carefully.* Are you sure about this?"
 NORMALIZED = 'She steps closer, watching him carefully. "Are you sure about this?"'
 CONSISTENT_DRAFT = 'He nods slowly. "I understand," he replies.'
+CONSISTENT_NARRATION = "He nods slowly. he replies."
 
 # Conflicting conventions in the window -> no axis agrees -> nothing to enforce.
 ASTERISK_MSG = "*She smiles and steps back, turning to the window.* I won't go."
@@ -113,6 +116,38 @@ async def test_no_yield_when_no_assistant_baseline():
     assert events == []
 
 
+async def test_one_baseline_convention_drives_voice_and_markup(monkeypatch):
+    """The two repairs must not independently reinterpret the same window."""
+    _voice_on(monkeypatch)
+    convention = AxisStyle(Dialogue.QUOTED, Narration.BARE)
+    baseline_calls: list[list[str]] = []
+
+    def fake_baseline(messages):
+        baseline_calls.append(messages)
+        return convention
+
+    async def fake_hold(ctx, text, window, received):
+        assert received is convention
+        return text
+
+    class Unchanged:
+        changed = False
+
+    def fake_normalize(draft, messages, *, enabled, target):
+        assert enabled is True
+        assert target is convention
+        return draft, Unchanged()
+
+    monkeypatch.setattr(hooks, "baseline_axes", fake_baseline)
+    monkeypatch.setattr(hooks, "_hold_voice", fake_hold)
+    monkeypatch.setattr(hooks, "normalize_to_baseline", fake_normalize)
+
+    events = await _collect(_ctx(CONSISTENT_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
+
+    assert events == []
+    assert baseline_calls == [[QUOTED_BASELINE]]
+
+
 # ---------- the voice half ----------
 # Baseline voice and draft voice are supplied by a fake classifier keyed on the
 # text it is shown: the real model is a 20MB download and its labels are not the
@@ -123,6 +158,7 @@ SECOND_PRESENT = ("second", "present")
 
 # Drifts in voice AND in markup, so one turn can prove the two repairs compose.
 VOICE_DRIFTING_DRAFT = 'You step closer, watching him carefully. "Are you sure about this?"'
+VOICE_DRIFTING_NARRATION = "You step closer, watching him carefully."
 
 
 def _voice_on(monkeypatch, *, enabled: bool = True):
@@ -169,7 +205,7 @@ async def test_voice_drift_and_markup_drift_compose_into_one_event(monkeypatch):
     # together -- and the markup pass must run on the REWRITE, not on the draft:
     # the rewrite below comes back in asterisk markup the baseline does not use.
     _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE: THIRD_PAST, VOICE_DRIFTING_DRAFT: SECOND_PRESENT})
+    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: SECOND_PRESENT})
     calls = _forced_call(monkeypatch, DRIFTING_DRAFT)
 
     history = [{"role": "assistant", "content": QUOTED_BASELINE}]
@@ -183,7 +219,7 @@ async def test_the_rewrite_runs_on_the_agent_lane(monkeypatch):
     # Still the Agent model: this is a forced tool call, and in dual-model mode the
     # writer lane is the one the pipeline strips schemas from.
     _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE: THIRD_PAST, VOICE_DRIFTING_DRAFT: SECOND_PRESENT})
+    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: SECOND_PRESENT})
     calls = _forced_call(monkeypatch, DRIFTING_DRAFT)
 
     ctx = _ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}])
@@ -210,7 +246,7 @@ async def test_the_rewrite_is_a_self_contained_lane(monkeypatch):
     # Director and Writer had already sent without it, and a tools region that
     # renders ahead of history evicts the conversation behind it.
     _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE: THIRD_PAST, VOICE_DRIFTING_DRAFT: SECOND_PRESENT})
+    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: SECOND_PRESENT})
     calls = _forced_call(monkeypatch, DRIFTING_DRAFT)
 
     ctx = _ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}])
@@ -233,7 +269,10 @@ async def test_the_rewrite_is_a_self_contained_lane(monkeypatch):
 async def test_only_the_drifting_axis_is_named(monkeypatch):
     # Independent axes: a window may have settled its tense while its POV moves.
     _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE: THIRD_PAST, VOICE_DRIFTING_DRAFT: ("second", "past")})
+    _classifier(
+        monkeypatch,
+        {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: ("second", "past")},
+    )
     calls = _forced_call(monkeypatch, DRIFTING_DRAFT)
 
     await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
@@ -245,7 +284,7 @@ async def test_only_the_drifting_axis_is_named(monkeypatch):
 
 async def test_consistent_voice_makes_no_llm_call(monkeypatch):
     _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE: THIRD_PAST, CONSISTENT_DRAFT: THIRD_PAST})
+    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, CONSISTENT_NARRATION: THIRD_PAST})
     calls = _forced_call(monkeypatch, "should not be used")
 
     events = await _collect(_ctx(CONSISTENT_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
@@ -258,7 +297,7 @@ async def test_an_unstable_baseline_voice_makes_no_llm_call(monkeypatch):
     # Two assistant messages disagreeing on both axes -> neither is enforced, and
     # the draft is never classified at all.
     _voice_on(monkeypatch)
-    seen = _classifier(monkeypatch, {QUOTED_BASELINE: THIRD_PAST, ASTERISK_MSG: SECOND_PRESENT})
+    seen = _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, ASTERISK_MSG: SECOND_PRESENT})
     calls = _forced_call(monkeypatch, "should not be used")
 
     history = [
@@ -273,7 +312,7 @@ async def test_an_unstable_baseline_voice_makes_no_llm_call(monkeypatch):
 
 async def test_config_off_classifies_nothing(monkeypatch):
     _voice_on(monkeypatch, enabled=False)
-    seen = _classifier(monkeypatch, {QUOTED_BASELINE: THIRD_PAST, DRIFTING_DRAFT: SECOND_PRESENT})
+    seen = _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, DRIFTING_DRAFT: SECOND_PRESENT})
     calls = _forced_call(monkeypatch, "should not be used")
 
     events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
@@ -316,7 +355,7 @@ async def test_a_raising_classifier_degrades_instead_of_aborting(monkeypatch):
 
 async def test_a_raising_forced_call_degrades_instead_of_aborting(monkeypatch):
     _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE: THIRD_PAST, DRIFTING_DRAFT: SECOND_PRESENT})
+    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, DRIFTING_DRAFT: SECOND_PRESENT})
 
     def boom(**kwargs):
         raise RuntimeError("endpoint down")
@@ -346,7 +385,7 @@ async def test_an_unreachable_config_slot_still_normalizes_markup(monkeypatch):
 
 async def test_an_unreachable_label_cache_still_normalizes_markup(monkeypatch):
     _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE: THIRD_PAST, DRIFTING_DRAFT: SECOND_PRESENT})
+    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, DRIFTING_DRAFT: SECOND_PRESENT})
 
     async def boom(message_id, workflow_id):
         raise RuntimeError("database is locked")
@@ -361,7 +400,7 @@ async def test_an_unreachable_label_cache_still_normalizes_markup(monkeypatch):
 async def test_an_empty_rewrite_falls_through_to_the_markup_path(monkeypatch):
     # A forced call that fills nothing must not blank the reply.
     _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE: THIRD_PAST, DRIFTING_DRAFT: SECOND_PRESENT})
+    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, DRIFTING_DRAFT: SECOND_PRESENT})
     _forced_call(monkeypatch, "")
 
     events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
@@ -373,12 +412,12 @@ async def test_a_cached_message_id_is_not_reclassified(monkeypatch):
     # Steady state is cache hits for the window and one classification of the
     # draft. History rows in production carry an id; the cache is keyed on it.
     _voice_on(monkeypatch)
-    seen = _classifier(monkeypatch, {VOICE_DRIFTING_DRAFT: SECOND_PRESENT})
+    seen = _classifier(monkeypatch, {VOICE_DRIFTING_NARRATION: SECOND_PRESENT})
     _forced_call(monkeypatch, DRIFTING_DRAFT)
 
     async def cached(message_id, workflow_id):
         assert (message_id, workflow_id) == (7, "format_consistency")
-        return {"pov": "third", "tense": "past"}
+        return {"pov": "third", "tense": "past", "dialogue": "quoted"}
 
     async def no_write(message_id, workflow_id, payload):
         raise AssertionError("a cache hit must not write")
@@ -390,13 +429,13 @@ async def test_a_cached_message_id_is_not_reclassified(monkeypatch):
     events = await _collect(_ctx(VOICE_DRIFTING_DRAFT, history))
 
     assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
-    assert seen == [VOICE_DRIFTING_DRAFT]  # the draft only; the window was cached
+    assert seen == [VOICE_DRIFTING_NARRATION]  # the draft only; the window was cached
 
 
 async def test_a_cache_miss_backfills_the_labels(monkeypatch):
     # History predating the toggle carries no labels, so the read backfills them.
     _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE: THIRD_PAST, CONSISTENT_DRAFT: THIRD_PAST})
+    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, CONSISTENT_NARRATION: THIRD_PAST})
     written: list[tuple] = []
 
     async def empty(message_id, workflow_id):
@@ -411,4 +450,62 @@ async def test_a_cache_miss_backfills_the_labels(monkeypatch):
     history = [{"id": 7, "role": "assistant", "content": QUOTED_BASELINE}]
     await _collect(_ctx(CONSISTENT_DRAFT, history))
 
-    assert written == [(7, "format_consistency", {"pov": "third", "tense": "past"})]
+    assert written == [(7, "format_consistency", {"pov": "third", "tense": "past", "dialogue": "quoted"})]
+
+
+async def test_bare_dialogue_is_removed_before_voice_classification(monkeypatch):
+    """The markup classifier's answer must shape both voice-classifier inputs.
+
+    The baseline is mostly first/second-person unmarked speech. Feeding the raw
+    messages to the voice model would make that speech define the baseline POV;
+    only the asterisk action beats belong to the narrator.
+    """
+    _voice_on(monkeypatch)
+    baseline = (
+        "As president of the Literature Club, it's my duty to make the club fun and "
+        "exciting for everyone! *Monika smiles kindly at you.* Tell me, what brings you here today?"
+    )
+    draft = "Welcome to the club. *Monika waits by the desk.* Please, take a seat."
+    seen = _classifier(
+        monkeypatch,
+        {
+            "Monika smiles kindly at you.": ("third", "present"),
+            "Monika waits by the desk.": ("third", "present"),
+        },
+    )
+    calls = _forced_call(monkeypatch, "should not be used")
+
+    events = await _collect(_ctx(draft, [{"role": "assistant", "content": baseline}]))
+
+    assert events == []
+    assert calls == []
+    assert seen == ["Monika smiles kindly at you.", "Monika waits by the desk."]
+
+
+@pytest.mark.parametrize("cached_dialogue", [None, "quoted"])
+async def test_labels_are_reclassified_when_the_cached_convention_differs(monkeypatch, cached_dialogue):
+    """Legacy cache rows and rows shaped under another dialogue axis are stale."""
+    convention = AxisStyle(Dialogue.BARE, Narration.ASTERISK)
+    msg = {
+        "id": 7,
+        "role": "assistant",
+        "content": "Stay with me. *Monika waits by the desk.* We can talk here.",
+    }
+    cached_payload = {"pov": "second", "tense": "present", "other": "preserved"}
+    if cached_dialogue is not None:
+        cached_payload["dialogue"] = cached_dialogue
+    seen = _classifier(monkeypatch, {"Monika waits by the desk.": THIRD_PAST})
+    written: list[dict] = []
+
+    async def cached(message_id, workflow_id):
+        return cached_payload
+
+    async def record(message_id, workflow_id, payload):
+        written.append(payload)
+
+    monkeypatch.setattr(voice, "get_workflow_message_state", cached)
+    monkeypatch.setattr(voice, "set_workflow_message_state", record)
+
+    assert await voice.labels_for(msg, convention) == THIRD_PAST
+    assert seen == ["Monika waits by the desk."]
+    assert written == [{"pov": "third", "tense": "past", "other": "preserved", "dialogue": "bare"}]

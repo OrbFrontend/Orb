@@ -8,6 +8,8 @@ from typing import Any
 
 from ..toolkit import (
     EV_DRAFT_REPLACED,
+    AxisStyle,
+    baseline_axes,
     forced_tool_call,
     get_workflow_config,
     normalize_to_baseline,
@@ -127,16 +129,21 @@ async def _voice_rewrite(ctx, text: str, phrases: list[str]) -> str:
     return rewritten if isinstance(rewritten, str) else ""
 
 
-async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]]) -> str:
+async def _hold_voice(
+    ctx,
+    text: str,
+    window: list[Mapping[str, Any]],
+    convention: AxisStyle,
+) -> str:
     """The draft restated in the window's voice, or *text* unchanged.
 
     An ambiguous end, an empty rewrite, or a classifier that answered the sentinel
     all return *text*; anything that raises is caught by the caller.
     """
-    baseline = target([await labels_for(msg) for msg in window])
+    baseline = target([await labels_for(msg, convention) for msg in window])
     if baseline == ("ambiguous", "ambiguous"):
         return text
-    source = await classify(text)
+    source = await classify(text, convention)
     # An empty or all-dialogue draft shapes to "" and classifies ambiguous, so it
     # falls out here by construction rather than by a length check.
     phrases = drift(source, baseline)
@@ -162,6 +169,8 @@ async def post_pipeline(ctx):
     (the bridge warns and drops a second).
     """
     window = _baseline_window(ctx.history)
+    baseline_msgs = [msg.get("content", "") for msg in window]
+    convention = baseline_axes(baseline_msgs)
     text = ctx.draft
 
     # One guard over the whole voice half. Markup normalization is this workflow's
@@ -172,7 +181,7 @@ async def post_pipeline(ctx):
     # misconfiguration the user chose, not for a flaky call.
     try:
         if await _voice_enabled(ctx):
-            text = await _hold_voice(ctx, text, window)
+            text = await _hold_voice(ctx, text, window, convention)
     except Exception:
         logger.exception("format-consistency: voice check failed; normalizing markup only")
         text = ctx.draft
@@ -181,8 +190,7 @@ async def post_pipeline(ctx):
     # pass is the cheap authority on that.
     # The pure normalizer keeps an on/off param for its own test surface; the real
     # gate is the framework toggle, so this path always passes True.
-    baseline_msgs = [msg.get("content", "") for msg in window]
-    text, report = normalize_to_baseline(text, baseline_msgs, enabled=True)
+    text, report = normalize_to_baseline(text, baseline_msgs, enabled=True, target=convention)
     if report.changed:
         logger.info("format-consistency: normalized draft (%s)", report.transition())
     if text != ctx.draft:
