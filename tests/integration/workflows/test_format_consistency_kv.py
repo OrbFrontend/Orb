@@ -160,7 +160,7 @@ async def test_the_rewrite_prompt_does_not_grow_with_history(client, llm_mock, v
     call is closed over the draft, so a conversation ten turns deep sends the same
     bytes as one turn deep. That is what makes the saving scale with the thing that
     was expensive -- and it is what silently regresses the moment someone reaches
-    for ``ctx.agent_prefix`` or ``ctx.history`` to give the rewriter "context".
+    for the turn prefix or ``ctx.history`` to give the rewriter "context".
     """
     cid = await _seed(client)
 

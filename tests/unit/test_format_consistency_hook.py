@@ -44,7 +44,6 @@ ASTERISK_MSG = "*She smiles and steps back, turning to the window.* I won't go."
 
 WRITER_CLIENT = object()
 AGENT_CLIENT = object()
-AGENT_PREFIX = ({"role": "system", "content": "agent base"},)
 
 
 def _ctx(draft: str, history: list[dict]) -> PostCtx:
@@ -64,7 +63,6 @@ def _ctx(draft: str, history: list[dict]) -> PostCtx:
         character_id=None,
         agent_client=AGENT_CLIENT,
         agent_model_name="agent-model",
-        agent_prefix=AGENT_PREFIX,
     )
 
 
@@ -254,7 +252,7 @@ async def test_the_rewrite_is_a_self_contained_lane(monkeypatch):
     # conversation: a constant system prefix and one user message holding the
     # target voice and the draft. Two things follow, and both are the point.
     #
-    # It cannot bill the scene. ctx.agent_prefix is the turn's whole prompt, and on
+    # It cannot bill the scene. ctx.prefix is the turn's whole Writer prompt, and on
     # a metered endpoint sending it on every drifting turn is the entire cost of
     # this feature.
     #
@@ -273,7 +271,7 @@ async def test_the_rewrite_is_a_self_contained_lane(monkeypatch):
     [call] = calls
     assert call["enabled_tools"] is None
     assert call["cache_shape"] == "format_consistency:voice_rewrite"
-    assert call["prefix"] != AGENT_PREFIX
+    assert call["prefix"] != ctx.prefix
     assert [m["role"] for m in call["prefix"]] == ["system"]
 
     [tail] = call["tail_messages"]

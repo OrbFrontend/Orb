@@ -140,7 +140,7 @@ framework.
 | Context | Provides | Notes |
 |---|---|---|
 | `PreCtx` | Conversation, history, current user text, settings, prefix, tool map, client, cache tracker | `turn_scratch` is shared with PostCtx |
-| `PostCtx` | Conversation, final history, effective user text, Director output, merged tools, prefix, client, cache tracker, resolved Agent lane (`agent_client`, `agent_model_name`, `agent_prefix`) | May stage a draft, state, or attachment. Force tool calls on the Agent lane: in dual-model mode the writer carries no tool schemas |
+| `PostCtx` | Conversation, final history, effective user text, Director output, merged tools, prefix, client, cache tracker, resolved Agent execution target (`agent_client`, `agent_model_name`) | May stage a draft, state, or attachment |
 | `OnDemandCtx` | Conversation, history, current user text, settings, client, character | Trigger actions |
 | `RegenCtx` | Conversation, message and attachment ids, pre-anchor history, settings, client, character | Attachment regeneration |
 | `RerollGenCtx` | Conversation, message and attachment ids, settings, client, prior consumption metadata, `replay` | Shared by reroll and rehydrate |

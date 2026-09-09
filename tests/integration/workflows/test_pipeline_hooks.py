@@ -726,12 +726,11 @@ async def test_run_pipeline_set_message_state_keyed_per_workflow():
     assert result["data"]["staged_message_state"] == {"wf_a": {"from": "a"}, "wf_b": {"from": "b"}}
 
 
-async def test_post_pipeline_ctx_carries_a_usable_agent_lane():
-    """A hook forcing a tool call needs the lane that carries the tool schemas.
+async def test_post_pipeline_ctx_carries_agent_execution_target():
+    """A hook forcing an Agent call needs its client and model.
 
     In single-model mode the agent lane IS the writer lane, so the two clients are
-    the same object; in dual-model mode the pipeline strips the writer's schemas
-    and gives the agent its own prefix, which is why the fields exist at all.
+    the same object; in dual-model mode the Agent uses a separate endpoint.
     """
     captured = {}
     client = _make_client()
@@ -743,7 +742,6 @@ async def test_post_pipeline_ctx_carries_a_usable_agent_lane():
         captured["agent_client"] = post_ctx.agent_client
         captured["writer_client"] = post_ctx.client
         captured["agent_model_name"] = post_ctx.agent_model_name
-        captured["agent_prefix"] = post_ctx.agent_prefix
         yield {"event": "noop", "data": {}}
 
     w = make_workflow("agent_lane", post_pipeline=post_hook)
@@ -753,7 +751,6 @@ async def test_post_pipeline_ctx_carries_a_usable_agent_lane():
     assert captured["agent_client"] is client
     assert captured["agent_client"] is captured["writer_client"]
     assert captured["agent_model_name"] == _SETTINGS["model_name"]
-    assert [m["role"] for m in captured["agent_prefix"]] == [m["role"] for m in _PREFIX]
 
 
 async def test_post_pipeline_ctx_carries_readonly_history():

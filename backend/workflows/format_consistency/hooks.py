@@ -97,7 +97,7 @@ async def _voice_rewrite(ctx, text: str, phrases: list[str]) -> str:
     turn's full prompt to a few hundred tokens by dropping what it never read.
 
     The lane is its own, not the turn's, which is the point: ``prefix`` here is a
-    constant rather than ``ctx.agent_prefix``, and ``enabled_tools=None`` ships
+    constant rather than the conversation prefix, and ``enabled_tools=None`` ships
     ``[voice_rewrite]`` alone instead of the turn's blob. Nothing about this call
     has to match what the Director and Writer sent, so nothing about it can
     diverge from them either -- the failure mode a shared lane invites, where a
