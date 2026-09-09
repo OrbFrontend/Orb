@@ -135,7 +135,85 @@ def _strip_protected(text: str) -> str:
 # Bare dialogue ("*she smiles* Hello") is detected from a stage direction plus
 # unmarked text that has no clear third-person narration or speech attribution.
 # Narrator person is deliberately not evidence: it is independent of markup.
-_INTERIOR_WORDS = frozenset({"i", "me", "my", "mine", "myself", "we", "us", "our", "ours"})
+#
+# What separates a stage direction from the other thing block emphasis carries --
+# an italic thought -- is what the span is *about*, not who it is about. A thought
+# is interior: it reports knowing, wanting or feeling, or it hedges. A beat reports
+# something a body did. So the test is a mental-state vocabulary, which "*I smile
+# kindly at you.*" and "*She reaches for me.*" both pass and "*He still loves me.*"
+# does not. Blacklisting first-person pronouns instead read every first-person
+# action beat as a thought, which left the most common RP convention there is
+# classified as nothing at all.
+_THOUGHT_MARKERS = frozenset(
+    {
+        # knowing and remembering
+        "think",
+        "thinks",
+        "thought",
+        "thinking",
+        "know",
+        "knows",
+        "knew",
+        "wonder",
+        "wonders",
+        "wondered",
+        "remember",
+        "remembers",
+        "remembered",
+        "realize",
+        "realizes",
+        "realized",
+        "believe",
+        "believes",
+        "believed",
+        "understand",
+        "understands",
+        "understood",
+        "suppose",
+        "supposes",
+        "guess",
+        "guesses",
+        "imagine",
+        "imagines",
+        "mean",
+        "means",
+        "meant",
+        # wanting and feeling
+        "feel",
+        "feels",
+        "felt",
+        "want",
+        "wants",
+        "wanted",
+        "wish",
+        "wishes",
+        "wished",
+        "hope",
+        "hopes",
+        "hoped",
+        "love",
+        "loves",
+        "loved",
+        "hate",
+        "hates",
+        "hated",
+        "like",
+        "likes",
+        "liked",
+        "need",
+        "needs",
+        "needed",
+        "afraid",
+        "scared",
+        # the grammar of an interior monologue: hedging and self-address
+        "maybe",
+        "perhaps",
+        "surely",
+        "must",
+        "should",
+        "why",
+    }
+)
 _BARE_NARRATION_MARKERS = frozenset(
     {
         "he",
@@ -183,9 +261,13 @@ def _paragraph_spans(text: str) -> Iterator[tuple[str, list[tuple[str, int, int]
 
 
 def _is_action_beat(beat: str) -> bool:
-    """Whether block emphasis looks like a stage direction, not a term or thought."""
+    """Whether block emphasis looks like a stage direction, not a term or thought.
+
+    Person-independent by construction: the evidence is interiority, which the
+    same beat carries whoever narrates it.
+    """
     words = _WORD.findall(beat.lower())
-    return len(words) >= 2 and _INTERIOR_WORDS.isdisjoint(words)
+    return len(words) >= 2 and _THOUGHT_MARKERS.isdisjoint(words)
 
 
 def classify_axes(text: str) -> AxisStyle:

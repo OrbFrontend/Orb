@@ -696,3 +696,49 @@ def test_wrapping_bare_narration_does_not_swallow_a_marked_span():
     new, rep = normalize_to_baseline(draft, FULL_MARKUP_BASELINE, enabled=True)
     assert rep.changed
     assert new == '*She walked.* *He still loves me.* *She stopped.* "Hello," *she said.*'
+
+
+# ---------- first-person action beats ----------
+# The other half of "person and convention are orthogonal". The thought test above
+# proves a first-person *narrator* does not flip the axes; these prove a
+# first-person *beat* does not either. Rejecting `I`/`me`/`my` outright made
+# "*I smile at you.*" -- the single most common opening in first-person RP -- read
+# as a thought, so the whole message classified as nothing and normalized as
+# nothing, while the identical third-person text classified cleanly.
+
+FIRST_PERSON_BEAT = (
+    "*I smile kindly at you.* Hello, Kai. Thank you for coming to our club. "
+    "As president of the Literature Club, it's my duty to make the club fun and "
+    "exciting for everyone! Tell me, what brings you here today?"
+)
+THIRD_PERSON_BEAT = FIRST_PERSON_BEAT.replace("*I smile kindly at you.*", "*Monika smiles kindly at you.*")
+
+
+def test_a_first_person_action_beat_classifies_like_its_third_person_twin():
+    assert classify_axes(FIRST_PERSON_BEAT) == classify_axes(THIRD_PERSON_BEAT)
+    assert classify_axes(FIRST_PERSON_BEAT) == AxisStyle(Dialogue.BARE, Narration.ASTERISK)
+
+
+def test_a_beat_with_a_first_person_object_is_still_an_action_beat():
+    # Third-person subject, first-person object: rejected by the pronoun blacklist
+    # for a word that says nothing about whether a body moved.
+    draft = "*She reaches for me.* Hello there. Are you sure you want to stay here tonight?"
+    assert classify_axes(draft) == AxisStyle(Dialogue.BARE, Narration.ASTERISK)
+
+
+def test_a_first_person_convention_normalizes_a_quoted_reply():
+    # What the classification is for: a first-person bare-dialogue greeting is a
+    # baseline like any other, and a reply that arrives in quotes is held to it.
+    draft = 'I lean against the desk. "Take a seat, then," I say.'
+    new, rep = normalize_to_baseline(draft, [FIRST_PERSON_BEAT], enabled=True)
+    assert rep.changed
+    assert '"' not in new
+    assert "*I lean against the desk.*" in new
+
+
+def test_an_interior_beat_is_still_not_an_action_beat_in_first_person():
+    # The safety case the vocabulary has to keep: same shape, same narrator, but
+    # the beat reports knowing rather than doing, so the axes stay unsettled.
+    draft = "My phone slips from my numb fingers.\n\n*He still likes me. He really does.*\n\nThe thought is not a comfort."
+    assert classify_axes(draft).dialogue == Dialogue.UNKNOWN
+    _assert_unchanged(draft, ['She smiles. "Hello there."'])
