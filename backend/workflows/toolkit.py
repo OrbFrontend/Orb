@@ -11,6 +11,7 @@ from ..analysis import (
     format_report,
     normalize_to_baseline,
     run_audit,
+    stable_label,
 )
 from ..core import (
     Macros,
@@ -77,6 +78,7 @@ __all__ = [
     "WorkflowEventStream",
     "WorkflowUserFacingError",
     "classify_pov",
+    "classify_pov_tense",
     "forced_tool_call",
     "build_targets",
     "format_numbered_report",
@@ -110,6 +112,7 @@ __all__ = [
     "set_workflow_config",
     "set_workflow_message_state",
     "set_workflow_state",
+    "stable_label",
     "workflow_character_state_lock",
     "workflow_config_lock",
     "workflow_state_lock",
@@ -124,6 +127,11 @@ def local_feature_available(feature: str) -> tuple[bool, str]:
 async def classify_pov(text: str) -> str:
     """Classify narrative point of view through the host inference service."""
     return await _local_ml.aclassify_pov(text)
+
+
+async def classify_pov_tense(text: str) -> tuple[str, str]:
+    """Classify narrative point of view and tense through the host inference service."""
+    return await _local_ml.aclassify_pov_tense(text)
 
 
 async def get_scene_cast(conversation_id: str) -> TurnCast:

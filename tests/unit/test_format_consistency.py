@@ -13,6 +13,7 @@ from backend.analysis.format_consistency import (
     classify_axes,
     normalize_format,
     normalize_to_baseline,
+    stable_label,
 )
 
 QUOTES_ONLY = 'She smiles and steps back. "I won\'t go," she says, turning to the window.'
@@ -451,3 +452,39 @@ def test_single_word_message_is_ambiguous_noop():
 def test_empty_draft_is_noop():
     base = ['She smiles. "Hello there."']
     _assert_unchanged("", base)
+
+
+# ---------- the agreement rule, on its own ----------
+# `stable_label` is the one piece the workflow's voice half shares with this
+# markup half, so it is tested directly on plain strings rather than only through
+# `baseline_axes`: the voice axes ("third", "past") are not this module's enums.
+
+
+def test_stable_label_trusts_a_single_confident_sample():
+    assert stable_label(["third"], "ambiguous") == "third"
+
+
+def test_stable_label_ignores_the_unknown_sentinel():
+    assert stable_label(["ambiguous", "past", "ambiguous"], "ambiguous") == "past"
+
+
+def test_stable_label_is_unknown_when_nothing_is_confident():
+    assert stable_label(["ambiguous", "ambiguous"], "ambiguous") == "ambiguous"
+    assert stable_label([], "ambiguous") == "ambiguous"
+
+
+def test_stable_label_needs_a_60_percent_majority():
+    # 2 of 3 is 66% -> enforced.
+    assert stable_label(["third", "third", "first"], "ambiguous") == "third"
+    # 2 of 4 is 50% -> the window has not settled, so nothing is enforced.
+    assert stable_label(["third", "third", "first", "second"], "ambiguous") == "ambiguous"
+
+
+def test_stable_label_needs_two_occurrences_not_just_a_plurality():
+    # A one-vote plurality over singletons is not agreement: every value is seen
+    # once, so the majority value never reaches the two-occurrence floor.
+    assert stable_label(["third", "first", "second"], "ambiguous") == "ambiguous"
+
+
+def test_stable_label_rejects_an_even_split():
+    assert stable_label(["past", "present"], "ambiguous") == "ambiguous"

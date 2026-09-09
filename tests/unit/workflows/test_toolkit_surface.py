@@ -59,6 +59,14 @@ def test_toolkit_does_not_expose_lower_layer_implementation_objects():
 def test_toolkit_exposes_local_ml_as_narrow_capabilities():
     assert "local_feature_available" in toolkit.__all__
     assert "classify_pov" in toolkit.__all__
+    assert "classify_pov_tense" in toolkit.__all__
+
+
+def test_toolkit_exposes_the_shared_agreement_rule():
+    """Both halves of format_consistency must answer "did the window agree?" the
+    same way, so the rule is published rather than reimplemented per axis."""
+    assert hasattr(toolkit, "stable_label")
+    assert "stable_label" in toolkit.__all__
 
 
 def test_toolkit_is_the_single_plugin_contract_surface():

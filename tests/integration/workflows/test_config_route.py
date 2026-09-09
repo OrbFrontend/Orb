@@ -121,3 +121,24 @@ async def test_tts_config_is_normalized_at_the_http_boundary(client):
             "show_karaoke": True,
         }
     }
+
+
+async def test_format_consistency_voice_toggle_round_trips(client):
+    resp = await client.put(
+        "/api/workflows/format_consistency/config",
+        json={"config": {"voice_consistency": True}},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"config": {"voice_consistency": True}}
+    assert (await client.get("/api/workflows/format_consistency/config")).json() == {"config": {"voice_consistency": True}}
+
+
+async def test_format_consistency_config_is_normalized_at_the_http_boundary(client):
+    # A PUT can write anything, and the hook branches on this value, so the
+    # normalizer coerces it once here rather than at every read.
+    resp = await client.put(
+        "/api/workflows/format_consistency/config",
+        json={"config": {"voice_consistency": "yes", "stray": 1}},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"config": {"voice_consistency": True}}

@@ -18,6 +18,7 @@ __all__ = [
     "FormatDriftReport",
     "classify_axes",
     "baseline_axes",
+    "stable_label",
     "normalize_format",
     "normalize_to_baseline",
 ]
@@ -35,7 +36,12 @@ class Narration(StrEnum):
     UNKNOWN = "unknown"
 
 
-_StyleT = TypeVar("_StyleT", Dialogue, Narration)
+# Any string axis, not just this module's two enums: the agreement rule below is
+# the one piece the voice half of the format_consistency workflow shares with the
+# markup half, and its labels are plain strings ("third", "past", "ambiguous").
+# StrEnum members are strings, so this is a strict widening of the old
+# ``TypeVar(..., Dialogue, Narration)`` constraint.
+_StyleT = TypeVar("_StyleT", bound=str)
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,8 +176,13 @@ def classify_axes(text: str) -> AxisStyle:
     return AxisStyle(dialogue=dialogue, narration=narration)
 
 
-def _stable(values: list[_StyleT], unknown: _StyleT) -> _StyleT:
-    """Return the stable majority value, or *unknown*."""
+def stable_label(values: list[_StyleT], unknown: _StyleT) -> _StyleT:
+    """Return the stable majority value, or *unknown*.
+
+    Enforce an axis only when the confident values agree: a single sample, or a
+    value seen at least twice holding at least 60% of them. Anything less is
+    drift the window itself has not settled, and nothing is enforced.
+    """
     confident = [v for v in values if v != unknown]
     if not confident:
         return unknown
@@ -186,8 +197,8 @@ def baseline_axes(messages: list[str]) -> AxisStyle:
     only when the window agrees on it; otherwise it stays UNKNOWN (not enforced)."""
     styles = [classify_axes(m) for m in messages if m and m.strip()]
     return AxisStyle(
-        dialogue=_stable([s.dialogue for s in styles], Dialogue.UNKNOWN),
-        narration=_stable([s.narration for s in styles], Narration.UNKNOWN),
+        dialogue=stable_label([s.dialogue for s in styles], Dialogue.UNKNOWN),
+        narration=stable_label([s.narration for s in styles], Narration.UNKNOWN),
     )
 
 

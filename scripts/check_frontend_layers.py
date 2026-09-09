@@ -188,6 +188,7 @@ FROZEN_ABI = {
     "canMutate",
     "getWorkflowState",
     "setWorkflowState",
+    "localMlReady",
 }
 
 # ── Parsing helpers ──────────────────────────────────────────────────────────

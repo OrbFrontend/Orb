@@ -276,6 +276,12 @@ async def _run_pipeline(
             client=client,
             kv_tracker=kv_tracker,
             schema_overrides=schema_overrides,
+            # One source for both modes: cfg.agent_lane IS the writer lane when a
+            # single model serves both, so a hook forcing a tool call lands on the
+            # lane that actually carries the schemas.
+            agent_client=cfg.agent_lane.client,
+            agent_model_name=cfg.agent_lane.base.model,
+            agent_prefix=cfg.agent_lane.base.prefix,
         ),
     ):
         if isinstance(ev, _PostPipelineResult):

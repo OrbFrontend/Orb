@@ -99,6 +99,9 @@ async def _run_post_pipeline(
     client: LLMClient,
     kv_tracker: _KVCacheTracker,
     schema_overrides: Mapping[str, dict],
+    agent_client: LLMClient | None = None,
+    agent_model_name: str = "",
+    agent_prefix: Sequence[Mapping[str, Any]] | None = None,
 ) -> AsyncIterator[dict | _PostPipelineResult]:
     """Run every POST_PIPELINE workflow hook over the finished draft.
 
@@ -139,6 +142,12 @@ async def _run_post_pipeline(
                     schema_overrides=_readonly(schema_overrides),
                     character_id=character_id,
                     character=_readonly(card),
+                    # The lane a forced tool call belongs on: in dual-model mode
+                    # the writer's schemas are stripped and its prefix is not the
+                    # agent's, so ``client``/``prefix`` are the wrong pair there.
+                    agent_client=agent_client if agent_client is not None else client,
+                    agent_model_name=agent_model_name,
+                    agent_prefix=_readonly(agent_prefix if agent_prefix is not None else prefix),
                 )
                 async for ev in sub.callable(post_ctx):
                     t = ev.get("type") if isinstance(ev, dict) else None

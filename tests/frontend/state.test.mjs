@@ -2,7 +2,7 @@
 // imports workflow_registry.js, also DOM-free), so it loads under node --test.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { charactersView, notify, S, subscribe } from "../../frontend/state.js";
+import { charactersView, localMlReady, notify, S, subscribe } from "../../frontend/state.js";
 
 test("charactersView returns the full set when allCharacters is populated", () => {
   S.allCharacters = [{ id: 1 }, { id: 2 }];
@@ -57,4 +57,32 @@ test("notify/subscribe reject an unknown topic without throwing", (t) => {
   const off = subscribe("not-a-topic", () => {});
   assert.equal(typeof off, "function");
   off();
+});
+
+test("localMlReady is false until a status lands", () => {
+  S.localMlFeatures = {};
+  assert.equal(localMlReady("pov_classifier"), false);
+});
+
+test("localMlReady needs the model downloaded, enabled and its deps installed", () => {
+  const ready = { present: true, enabled: true, deps_ok: true };
+  S.localMlFeatures = {
+    pov_classifier: ready,
+    not_downloaded: { ...ready, present: false },
+    switched_off: { ...ready, enabled: false },
+    no_deps: { ...ready, deps_ok: false },
+  };
+  assert.equal(localMlReady("pov_classifier"), true);
+  assert.equal(localMlReady("not_downloaded"), false);
+  assert.equal(localMlReady("switched_off"), false);
+  assert.equal(localMlReady("no_deps"), false);
+});
+
+test("localMlReady only holds runtime_ok against a feature that reports one", () => {
+  S.localMlFeatures = {
+    in_process: { present: true, enabled: true, deps_ok: true },
+    llama_server: { present: true, enabled: true, deps_ok: true, runtime_ok: false },
+  };
+  assert.equal(localMlReady("in_process"), true); // no runtime of its own to be missing
+  assert.equal(localMlReady("llama_server"), false);
 });
