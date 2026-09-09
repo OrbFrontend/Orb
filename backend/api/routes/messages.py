@@ -171,6 +171,10 @@ async def api_edit_message(
         # "rewrite this message".
         if original["role"] == "assistant":
             await clear_writer_draft(msg_id)
+            # POV/tense labels are cached from the saved assistant text. Once
+            # that text changes they no longer describe the row and must be
+            # classified again before they vote on a future voice baseline.
+            await set_workflow_message_state(msg_id, "format_consistency", None)
         # An unreviewed world-change proposal was derived from this exact text.
         # Editing either source message invalidates that evidence, so the
         # proposal goes stale and must be re-evaluated rather than applied.
