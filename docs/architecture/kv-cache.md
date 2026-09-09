@@ -89,6 +89,27 @@ explicit `BUILTIN_TOOL_ORDER`; workflow tools append in registration order, and
 re-registering one preserves its position. Schema property order and compact,
 insertion-order-preserving JSON bytes are part of the cache contract.
 
+`forced_tool_call` appends the forced schema when the per-turn map does not
+already carry it, and an appended schema is a diverging tools region: it renders
+ahead of history, so it evicts the whole conversation from the server's prefix
+cache rather than costing only its own bytes. A call that forces a tool therefore
+has to pick a side. Either it rides the turn's lane, and the tool must be in the
+map **before** `_resolve_pipeline_config` freezes it into a `CachedBase` — what
+`apply_length_guard_tools` does for `editor_rewrite`, and what a workflow would do
+by yielding `enable_tools` from a pre-pipeline hook. Or it rides its own lane, and
+shares nothing with the turn: its own short prefix, and `enabled_tools=None` so
+`forced_tool_call` ships the forced tool alone. What it cannot do is force a tool
+against the turn's blob without being in it.
+
+The second option is usually the cheaper one when the call does not actually read
+the conversation. `format_consistency`'s voice rewrite restates one draft, and
+image_gen's off-turn calls describe one scene; neither needs the history, and on a
+metered endpoint sending it is the whole bill. Servers hold more than one cached
+sequence — llama.cpp gives each slot its own KV cache and parks idle ones in the
+host-RAM prompt cache (`--cache-ram`, and note the pool must be sized for the sum
+of the parked conversations), vLLM hashes blocks — so a second short lane sits
+alongside the conversation's rather than displacing it.
+
 Inference servers may render only the forced tool, or no tools for `none`. As a
 result, the three passes can share the conversation body without sharing the
 entire rendered prefix. Think in **cache lanes**: each distinct rendered shape
@@ -176,9 +197,19 @@ The local values cannot know where a provider's template renders tools, so they
 are kept separate. A high message overlap with a low provider hit can indicate
 different tool rendering or reasoning lanes.
 
-The tracker compares a call with the previous call of the same kind in the
-conversation, which makes the first call of a new turn useful rather than an
-unhelpful zero baseline.
+The tracker compares a call with the previous call **on its own lane**, falling
+back to the last same-label call of the previous turn — which makes the first call
+of a new turn useful rather than an unhelpful zero baseline.
+
+A lane here is `(server, model)`, the same key the test-time checker groups on,
+because that pair is what owns one KV cache. Keying on the model name alone was a
+bug: dual-model runs the writer and the agent on different servers, and the two
+routinely answer to the same name, so the agent's calls were measured against the
+writer's. The two lanes differ by design — the writer ships no schemas and has its
+own system prompt — so every dual-model report showed a large fake divergence and
+hid the real comparison. When a turn spans more than one lane the report prints a
+`lanes:` legend and tags each row, so a pass with no predecessor reads as "first
+call on its lane" rather than as a broken prefix.
 
 ## In short
 

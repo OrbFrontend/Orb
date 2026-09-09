@@ -128,6 +128,7 @@ async def forced_tool_call(
             messages,
             tools,
             model=resolved_model,
+            endpoint=base_url,
         )
 
     resp: dict = {}
@@ -199,7 +200,7 @@ async def forced_tool_call(
             )
             tools = [schema]
             if kv_tracker is not None:
-                kv_tracker.record(kv_label, messages, tools, model=resolved_model)
+                kv_tracker.record(kv_label, messages, tools, model=resolved_model, endpoint=base_url)
             async for event in _attempt(tools):
                 yield event
             args, _ = _parse()

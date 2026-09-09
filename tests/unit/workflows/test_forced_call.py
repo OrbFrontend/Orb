@@ -17,9 +17,14 @@ _SETTINGS = {"model_name": "test-model"}
 class _RecordingTracker:
     def __init__(self) -> None:
         self.calls: list[tuple[str, list, list | None, str]] = []
+        self.lanes: list[tuple[str, str]] = []
 
-    def record(self, label: str, messages: list, tools: list | None, model: str = "") -> None:
+    def record(self, label: str, messages: list, tools: list | None, model: str = "", endpoint: str = "") -> None:
         self.calls.append((label, messages, tools, model))
+        # (server, model) is the tracker's lane key -- one KV cache per pair, so a
+        # forced call has to stamp the endpoint it actually went to or it will be
+        # measured against a different server's calls.
+        self.lanes.append((endpoint, model))
 
     def record_usage(self, label: str, usage: dict | None) -> None:
         pass
@@ -104,6 +109,26 @@ class TestKVTracker:
         assert model == "test-model"
         assert len(tools) == 1
         assert tools[0]["function"]["name"] == _TOOL_NAME
+
+    async def test_kv_tracker_records_the_endpoint_the_call_went_to(self):
+        # Half the lane key. In dual-model mode a workflow's forced call runs on the
+        # agent server while the writer runs on another, and the two can answer to
+        # the same model name -- without the endpoint the tracker measures one
+        # lane's calls against the other's and reports a bust for neither.
+        tracker = _RecordingTracker()
+        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "x"})])
+        client.base_url = "https://api.example.com/v1"
+        await _collect(
+            forced_tool_call(
+                client=client,
+                prefix=[],
+                tail_messages=[],
+                tool_name=_TOOL_NAME,
+                settings=_SETTINGS,
+                kv_tracker=tracker,
+            )
+        )
+        assert tracker.lanes == [("https://api.example.com/v1", "test-model")]
 
     async def test_kv_tracker_default_label_when_no_pass_id(self):
         tracker = _RecordingTracker()

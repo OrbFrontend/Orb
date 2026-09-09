@@ -131,12 +131,53 @@ def _strip_protected(text: str) -> str:
     return _PROTECTED.sub(" ", text)
 
 
+# The bare-dialogue convention ("*she smiles* Hello there") marks narration and
+# leaves speech unmarked, so the coverage ratio above cannot see it: the unmarked
+# speech lands in the ratio's denominator as if it were narration, and a character
+# who talks more than she acts reads as mostly-bare narration. Recovering the
+# convention needs the two questions below, because the marked-narration reading
+# competes with a second convention that looks identical to the ratio -- prose
+# narration carrying *italic inner thoughts*.
+_FIRST_SECOND_PERSON = frozenset(
+    {"i", "me", "my", "mine", "myself", "you", "your", "yours", "yourself", "we", "us", "our", "ours"}
+)
+_THIRD_PERSON = frozenset({"he", "him", "his", "she", "her", "hers", "himself", "herself", "they", "them", "their", "theirs"})
+
+_WORD = re.compile(r"[a-z']+")
+
+
+def _has_action_beat(beats: list[str]) -> bool:
+    """Whether any block-emphasis span is a stage direction rather than decoration.
+
+    A one-word span is an italicized term (*poetry*, *CLANG!*) and says nothing about
+    the convention; an action beat is always a clause ("smiles kindly at you"). This
+    only has to be true once -- a message mixing both still marks its narration.
+    """
+    return any(len(beat.split()) >= 2 for beat in beats)
+
+
+def _reads_as_speech(bare: str) -> bool:
+    """Whether the unmarked runs are the character talking, not narration about her.
+
+    Person is what separates the two conventions that share a markup shape. Unmarked
+    speech addresses someone ("it's my duty ... what brings you here?"); unmarked
+    narration describes the character ("her fingers spasming like she'd been
+    electrocuted"), and its asterisks are quoted thought, not action. Counting
+    pronouns is deliberately crude: no pronouns either way means no evidence, which
+    falls through to UNKNOWN and leaves the turn alone.
+    """
+    words = _WORD.findall(bare.lower())
+    return sum(w in _FIRST_SECOND_PERSON for w in words) > sum(w in _THIRD_PERSON for w in words)
+
+
 def classify_axes(text: str) -> AxisStyle:
     """Classify dialogue and narration markup by coverage."""
     text = _strip_protected(text)
     speech_chars = 0
     block_emph_chars = 0
     bare_chars = 0
+    beats: list[str] = []
+    bare_runs: list[str] = []
 
     for para in split_paragraphs(text):
         spans = extract_block_spans(para)
@@ -150,8 +191,10 @@ def classify_axes(text: str) -> AxisStyle:
                 if _is_inline_emphasis(spans, i, para):
                     continue  # inline emphasis is orthogonal to both axes
                 block_emph_chars += length
+                beats.append(_emphasis_inner(para[s:e]))
             else:  # NARRATION (bare)
                 bare_chars += length
+                bare_runs.append(para[s:e])
 
     # Narration axis: of the non-dialogue prose, how much sits inside asterisks?
     narr_total = block_emph_chars + bare_chars
@@ -170,6 +213,16 @@ def classify_axes(text: str) -> AxisStyle:
         dialogue = Dialogue.QUOTED
     elif narration == Narration.ASTERISK and bare_chars > 0:
         dialogue = Dialogue.BARE
+    elif bare_chars > 0 and _has_action_beat(beats) and _reads_as_speech(" ".join(bare_runs)):
+        # Marked narration plus unmarked speech, under the coverage threshold. The
+        # ratio undercounts it because the speech it is measuring against is not
+        # narration at all, so the axes are set from the evidence instead: the
+        # asterisks are the narration, which makes the convention ASTERISK however
+        # little of the turn they cover. Leaving narration on the ratio's answer
+        # would pair bare dialogue with bare narration -- a target that erases the
+        # only thing telling them apart.
+        dialogue = Dialogue.BARE
+        narration = Narration.ASTERISK
     else:
         dialogue = Dialogue.UNKNOWN
 
@@ -329,13 +382,37 @@ def _governing_dialogue(src: AxisStyle, target: AxisStyle) -> Dialogue:
 
 def _rewrite(draft: str, src: AxisStyle, target: AxisStyle) -> str:
     """Rewrite a draft using an existing source classification."""
+    # Unmarked speech beside unmarked narration is not a convention; it is a turn with
+    # nothing left to tell the two apart. No single message classifies that way -- bare
+    # dialogue always implies asterisk narration -- but a window can still vote for it
+    # across messages, one bare-dialogue message carrying the dialogue axis while prose
+    # messages carry the narration axis. Such a window disagreed with itself, and a
+    # window that has not settled enforces nothing.
+    if target.dialogue == Dialogue.BARE and target.narration == Narration.BARE:
+        return draft
+
     eff_dialogue = _governing_dialogue(src, target)
     eff_src = AxisStyle(dialogue=eff_dialogue, narration=src.narration)
 
     change_dialogue = (
         target.dialogue != Dialogue.UNKNOWN and eff_dialogue != Dialogue.UNKNOWN and target.dialogue != eff_dialogue
     )
-    change_narration = target.narration != Narration.UNKNOWN and src.narration != Narration.UNKNOWN
+    # An unsettled draft is the case this pass exists for, so a source in the
+    # ``classify_axes`` dead band does not by itself block the narration axis: the
+    # band answers "has this settled on a convention?", which is the right question
+    # for a baseline vote and the wrong one for a draft. A half-asterisked draft
+    # lands there, and skipping it left the drift in place.
+    #
+    # What must be known instead is the dialogue convention, because that is what
+    # decides whether the markers are load-bearing. With quotes present (or bare
+    # runs already read as speech) the asterisks only mark narration, so adding or
+    # removing them is lossless. With the dialogue axis UNKNOWN -- no quotes, and
+    # no confident asterisk convention to read the bare runs against -- the
+    # asterisks are the only thing separating action from unquoted speech, and
+    # stripping them would erase the distinction rather than normalize it.
+    change_narration = target.narration != Narration.UNKNOWN and (
+        src.narration != Narration.UNKNOWN or eff_dialogue != Dialogue.UNKNOWN
+    )
 
     if change_narration and target.narration == Narration.ASTERISK and eff_dialogue != Dialogue.QUOTED:
         change_narration = False

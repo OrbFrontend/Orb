@@ -25,6 +25,18 @@ def _serialize_tools(tools: list[dict] | None) -> str:
     return json.dumps(tools, separators=(",", ":"), sort_keys=True)
 
 
+def _lane_of(entry: Mapping[str, Any]) -> tuple[str, str]:
+    """The cache lane an entry belongs to: one KV cache per (server, model)."""
+    return (entry.get("endpoint", "") or "", entry.get("model", "") or "")
+
+
+def _lane_name(lane: tuple[str, str]) -> str:
+    """Short, readable name for a lane, for the report's legend."""
+    endpoint, model = lane
+    host = endpoint.split("://", 1)[-1].split("/", 1)[0]
+    return f"{model or '?'}@{host or 'local'}"
+
+
 def _common_prefix_len(a: str, b: str) -> int:
     i = 0
     limit = min(len(a), len(b))
@@ -108,14 +120,24 @@ class _KVCacheTracker:
         messages: Sequence[Mapping[str, Any]],
         tools: list[dict] | None,
         model: str = "",
+        endpoint: str = "",
     ) -> None:
-        """Snapshot one LLM call (messages + tools). Call once per pass or per director tool."""
+        """Snapshot one LLM call (messages + tools). Call once per pass or per director tool.
+
+        *endpoint* is the server the call went to. It is half of the lane key: two
+        servers hold independent KV caches even when they answer to the same model
+        name, which is exactly the dual-model setup (a local writer and a hosted
+        agent, or two providers serving one open model). Keying on the name alone
+        measured the agent lane's calls against the writer's and reported a bust
+        for two lanes that were each reusing their own prefix perfectly well.
+        """
         msgs_serialized = _serialize_messages(messages)
         tools_serialized = _serialize_tools(tools)
         self._entries.append(
             {
                 "label": label,
                 "model": model,
+                "endpoint": endpoint,
                 "msgs_serialized": msgs_serialized,
                 "tools_serialized": tools_serialized,
                 "msgs_chars": len(msgs_serialized),
@@ -133,13 +155,18 @@ class _KVCacheTracker:
                 return
         logger.debug("record_usage: no prior record() for label=%r, dropping", label)
 
-    def _find_prev(self, i: int, model: str, label: str) -> tuple[dict | None, bool]:
-        """Find the previous cache entry to compare against."""
+    def _find_prev(self, i: int, lane: tuple[str, str], label: str) -> tuple[dict | None, bool]:
+        """Find the previous cache entry on *lane* to compare against.
+
+        A comparison only means something within one lane: across lanes the tools
+        blob and the system prompt differ by design, so a cross-lane "diff" reads
+        as a cache bust that no one can fix.
+        """
         for j in range(i - 1, -1, -1):
-            if self._entries[j].get("model", "") == model:
+            if _lane_of(self._entries[j]) == lane:
                 return self._entries[j], False
         for p in reversed(self._prev_entries):
-            if p["label"] == label and p.get("model", "") == model:
+            if p["label"] == label and _lane_of(p) == lane:
                 return p, True
         return None, False
 
@@ -157,13 +184,27 @@ class _KVCacheTracker:
 
         header = "KV cache report" + (" (continued)" if first else "")
         lines = [f"{header}  (provider = truth; local = msgs-prefix + tools-match, template-dependent):"]
+
+        # Lanes over the whole turn, not just the printed slice: a continued report
+        # still compares against calls above it, so the legend has to name those too.
+        lanes: list[tuple[str, str]] = []
+        for e in self._entries:
+            if _lane_of(e) not in lanes:
+                lanes.append(_lane_of(e))
+        # Only worth the noise when there is more than one. A dual-model turn is
+        # where the reader most needs to know why a pass has no one to compare to:
+        # it is the first call on its lane, not a broken prefix.
+        multi_lane = len(lanes) > 1
+        if multi_lane:
+            lines.append("  lanes: " + "   ".join(f"L{n}={_lane_name(k)}" for n, k in enumerate(lanes, 1)))
+
         total_cached = 0
         total_prompt = 0
 
         for i in range(first, len(self._entries)):
             e = self._entries[i]
-            model = e.get("model", "")
-            prev, cross_turn = self._find_prev(i, model, e["label"])
+            lane = _lane_of(e)
+            prev, cross_turn = self._find_prev(i, lane, e["label"])
 
             # ── Local view: messages prefix + tools identity, reported separately
             if prev is None:
@@ -203,7 +244,8 @@ class _KVCacheTracker:
                 write_part = f"  write={cw}" if cw else ""
                 provider_note = f"provider: cached={ct}/{pt} tok ({pct:.1f}%){write_part} [{stats['source']}]"
 
-            lines.append(f"  {e['label']:<28}  {provider_note}  |  {local_note}")
+            tag = f"L{lanes.index(lane) + 1} " if multi_lane else ""
+            lines.append(f"  {tag}{e['label']:<28}  {provider_note}  |  {local_note}")
 
         # Over the calls printed above, not the whole conversation: on a continued
         # report those are one speaker's calls, which is the unit worth totalling.

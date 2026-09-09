@@ -180,9 +180,8 @@ async def test_voice_drift_and_markup_drift_compose_into_one_event(monkeypatch):
 
 
 async def test_the_rewrite_runs_on_the_agent_lane(monkeypatch):
-    # In dual-model mode the pipeline strips tool schemas from the writer lane,
-    # so forcing a tool call on ctx.client would send a schema to the one lane
-    # that has none, against a prefix that is not the agent's.
+    # Still the Agent model: this is a forced tool call, and in dual-model mode the
+    # writer lane is the one the pipeline strips schemas from.
     _voice_on(monkeypatch)
     _classifier(monkeypatch, {QUOTED_BASELINE: THIRD_PAST, VOICE_DRIFTING_DRAFT: SECOND_PRESENT})
     calls = _forced_call(monkeypatch, DRIFTING_DRAFT)
@@ -192,21 +191,43 @@ async def test_the_rewrite_runs_on_the_agent_lane(monkeypatch):
 
     [call] = calls
     assert call["client"] is AGENT_CLIENT
-    assert call["prefix"] is AGENT_PREFIX
     assert call["model_name"] == "agent-model"
     assert call["tool_name"] == "editor_rewrite"
-    # The tail mirrors the editor's own trailing, so this extends the prefix the
-    # editor just warmed rather than opening a new one. The per-call instruction
-    # rides the tail; nothing enters the prefix.
-    assert [m["role"] for m in call["tail_messages"]] == ["user", "assistant", "user"]
-    assert call["tail_messages"][0]["content"] == ctx.effective_msg
-    assert call["tail_messages"][1]["content"] == VOICE_DRIFTING_DRAFT
-    # Only the drifting axes are named, and both of them are.
-    assert "third person and past tense" in call["tail_messages"][2]["content"]
-    # The pipeline's tool blob goes through untouched -- overlaying it would break
-    # the byte-identical array the cached prefix is keyed on.
-    assert call["enabled_tools"] is ctx.enabled_tools
-    assert call["schema_overrides"] is ctx.schema_overrides
+
+
+async def test_the_rewrite_is_a_self_contained_lane(monkeypatch):
+    # Restating a passage is closed over that passage, so the call carries no
+    # conversation: a constant system prefix and one user message holding the
+    # target voice and the draft. Two things follow, and both are the point.
+    #
+    # It cannot bill the scene. ctx.agent_prefix is the turn's whole prompt, and on
+    # a metered endpoint sending it on every drifting turn is the entire cost of
+    # this feature.
+    #
+    # It cannot diverge from the turn's tool blob, because it does not use it.
+    # enabled_tools=None is forced_tool_call's "ship the forced tool alone"; passing
+    # ctx.enabled_tools would make it append editor_rewrite to an array the
+    # Director and Writer had already sent without it, and a tools region that
+    # renders ahead of history evicts the conversation behind it.
+    _voice_on(monkeypatch)
+    _classifier(monkeypatch, {QUOTED_BASELINE: THIRD_PAST, VOICE_DRIFTING_DRAFT: SECOND_PRESENT})
+    calls = _forced_call(monkeypatch, DRIFTING_DRAFT)
+
+    ctx = _ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}])
+    await _collect(ctx)
+
+    [call] = calls
+    assert call["enabled_tools"] is None
+    assert call["prefix"] != AGENT_PREFIX
+    assert [m["role"] for m in call["prefix"]] == ["system"]
+
+    [tail] = call["tail_messages"]
+    assert tail["role"] == "user"
+    # The draft rides the tail, so the system prefix stays byte-identical across
+    # every rewrite and warms one lane for all of them.
+    assert VOICE_DRIFTING_DRAFT in tail["content"]
+    assert QUOTED_BASELINE not in tail["content"]
+    assert ctx.effective_msg not in tail["content"]
 
 
 async def test_only_the_drifting_axis_is_named(monkeypatch):
@@ -217,7 +238,7 @@ async def test_only_the_drifting_axis_is_named(monkeypatch):
 
     await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
 
-    instruction = calls[0]["tail_messages"][2]["content"]
+    instruction = calls[0]["tail_messages"][0]["content"]
     assert "third person" in instruction
     assert "tense" not in instruction
 

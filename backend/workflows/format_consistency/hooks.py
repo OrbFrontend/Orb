@@ -19,18 +19,33 @@ logger = logging.getLogger(__name__)
 
 BASELINE_WINDOW = 3
 
-# What the rewrite must not touch. The editor may have just rewritten this draft
-# for the length guard, so length is named alongside the usual preservation rules:
-# a voice fix that grows the reply would silently undo that pass.
-_INSTRUCTION = (
-    "[OOC: The assistant message above drifted out of the narrative voice this "
-    "scene has been written in. Call `editor_rewrite` to restate it in {voice}.\n\n"
-    "REWRITING RULES:\n"
+VOICE_TOOL = "editor_rewrite"
+
+# The rewrite runs on its own lane rather than extending the turn's prompt: a
+# voice restatement is a closed transform over the draft, so the scene, the cast
+# and the history buy it nothing and cost a full conversation's prompt tokens on
+# every drifting turn. Servers keep per-sequence caches (llama.cpp parks idle
+# slots in its host-RAM prompt cache; vLLM hashes blocks), so a second short lane
+# sits alongside the conversation's rather than displacing it.
+#
+# Constant, so it is the whole cached prefix of that lane -- warmed once and
+# reused by every rewrite in every conversation. Everything per-call rides the
+# user message behind it. What the rewrite must not touch is stated here because
+# the editor may have just rewritten this draft for the length guard: a voice fix
+# that grows the reply would silently undo that pass.
+_SYSTEM = (
+    "You are a copy editor. You restate a passage of prose in a different narrative "
+    "voice and change nothing else.\n\n"
+    "RULES:\n"
     "- Change ONLY the narrative voice. Keep every story beat, every line of "
     "dialogue, the author's vocabulary, and all formatting exactly as they are.\n"
-    "- Keep the rewrite the same length as the draft. Do not add, expand, or trim.\n"
-    "- Rewrite the whole draft, not an excerpt.]"
+    "- Keep the rewrite the same length as the passage. Do not add, expand, or trim.\n"
+    "- Restate the whole passage, not an excerpt.\n"
+    "- Pronouns and names already in the passage keep their referents. Do not "
+    "introduce a character, a name, or a detail the passage does not contain."
 )
+
+_INSTRUCTION = "Restate the passage below in {voice}. Call `editor_rewrite` with the result.\n\nPASSAGE:\n{draft}"
 
 
 def _baseline_window(history) -> list[Mapping[str, Any]]:
@@ -66,33 +81,41 @@ async def _voice_enabled(ctx) -> bool:
 
 
 async def _voice_rewrite(ctx, text: str, phrases: list[str]) -> str:
-    """Ask the Editor to restate *text* in the baseline voice; "" on any failure.
+    """Restate *text* in the baseline voice on a self-contained lane; "" on failure.
 
-    The tail mirrors the editor's own ``trailing`` so on the agent lane this call
-    extends the prefix the editor just warmed this turn, and the per-call
-    instruction rides behind a byte-identical shared prefix rather than entering it.
-    Known divergence: the editor replays ``state.writer_content``, which may be a
-    multimodal list; ``PostCtx`` carries only ``effective_msg``, so on attachment
-    turns reuse degrades to the shared prefix.
+    Two messages, no conversation: a constant system prefix and one user message
+    carrying the target voice and the draft. Restating a passage is closed over
+    that passage, so the scene, the cast and the history are not inputs to it --
+    and on a metered endpoint they are the whole bill. This call went from the
+    turn's full prompt to a few hundred tokens by dropping what it never read.
+
+    The lane is its own, not the turn's, which is the point: ``prefix`` here is a
+    constant rather than ``ctx.agent_prefix``, and ``enabled_tools=None`` ships
+    ``[editor_rewrite]`` alone instead of the turn's blob. Nothing about this call
+    has to match what the Director and Writer sent, so nothing about it can
+    diverge from them either -- the failure mode a shared lane invites, where a
+    forced tool the turn's blob never declared appends a schema and evicts the
+    conversation from the server's prefix cache.
+
+    It still runs on the Agent model: it is a forced tool call, and in dual-model
+    mode the writer lane is the one without schemas.
     """
-    instruction = _INSTRUCTION.format(voice=" and ".join(phrases))
     args: dict = {}
     async for event in forced_tool_call(
         client=ctx.agent_client or ctx.client,
-        prefix=ctx.agent_prefix or ctx.prefix,
+        prefix=[{"role": "system", "content": _SYSTEM}],
         tail_messages=[
-            {"role": "user", "content": ctx.effective_msg},
-            {"role": "assistant", "content": text},
-            {"role": "user", "content": instruction},
+            {
+                "role": "user",
+                "content": _INSTRUCTION.format(voice=" and ".join(phrases), draft=text),
+            }
         ],
-        tool_name="editor_rewrite",
+        tool_name=VOICE_TOOL,
         settings=ctx.settings,
         model_name=ctx.agent_model_name or None,
-        # Unchanged, not overlaid: this renders the pipeline's own byte-identical
-        # tool blob, and appends the canonical editor_rewrite schema only when the
-        # length guard has not already put it there.
-        enabled_tools=ctx.enabled_tools,
-        schema_overrides=ctx.schema_overrides,
+        # None, not ctx.enabled_tools: forced_tool_call reads that as "ship the
+        # forced tool alone", which is the whole array this lane wants.
+        enabled_tools=None,
         kv_tracker=ctx.kv_tracker,
         reasoning_on=False,
         temperature=0.25,

@@ -382,6 +382,57 @@ def test_genuine_asterisk_convention_draft_is_not_misread_as_full_markup():
     _assert_unchanged(draft, base)  # "Are you sure about this?" stays bare dialogue
 
 
+# ---------- a draft split between the two narration conventions ----------
+# The reported case: the model was told to wrap narration in asterisks, the baseline
+# had none, and the draft came back roughly half-and-half. That ratio lands in the
+# ``classify_axes`` dead band, so the draft's own narration axis reads UNKNOWN -- which
+# used to abort the narration rewrite entirely and leave every asterisk in place.
+# An unsettled draft is the drift this pass exists to repair, not a reason to skip it.
+#
+# The limit of that is a dead-band draft with no quotes either: there the asterisks are
+# the only thing separating action from unquoted speech, so they stay put. See
+# test_italic_thoughts_in_prose_are_not_read_as_bare_dialogue below.
+
+HALF_ASTERISKED_DRAFT = (
+    "Amaryllis blinked, caught off guard by how serious the question was.\n\n"
+    "Her fingers tightened around the spine of the book.\n\n"
+    "*She let out a short, breathy laugh, the first in weeks.*\n\n"
+    '"Battle scenes?" *she asked, her accent lilting.* "Aye, there\'s a few."\n\n'
+    '*She cleared her throat and looked away.* "There\'s a siege in the third act."'
+)
+
+
+def test_half_asterisked_draft_classifies_into_the_dead_band():
+    # The precondition the rest of this section rests on: neither threshold is met, so
+    # the draft has no narration convention of its own to compare against a baseline.
+    assert classify_axes(HALF_ASTERISKED_DRAFT).narration == Narration.UNKNOWN
+
+
+def test_half_asterisked_draft_is_stripped_against_a_bare_narration_baseline():
+    base = [
+        'She set the book down. "I told you I would," she said softly.',
+        'He crossed the room in three steps. "Then prove it," he whispered.',
+        'She looked away. "It doesnae matter," she muttered.',
+    ]
+    new, rep = normalize_to_baseline(HALF_ASTERISKED_DRAFT, base, enabled=True)
+    assert rep.changed
+    assert "*" not in new
+    # Quoted dialogue is the other axis and already matched: it survives untouched.
+    assert '"Battle scenes?"' in new
+    assert "she asked, her accent lilting." in new
+
+
+def test_half_asterisked_draft_is_completed_against_an_asterisk_baseline():
+    # The mirror direction: the same unsettled draft against a baseline that does use
+    # asterisk narration gains the markers it is missing rather than losing the ones
+    # it has.
+    new, rep = normalize_to_baseline(HALF_ASTERISKED_DRAFT, FULL_MARKUP_BASELINE, enabled=True)
+    assert rep.changed
+    assert "*Amaryllis blinked, caught off guard by how serious the question was.*" in new
+    assert "*She let out a short, breathy laugh, the first in weeks.*" in new
+    assert '"Battle scenes?"' in new
+
+
 # ---------- punctuation / glyph preservation across a rewrite ----------
 
 
@@ -423,15 +474,74 @@ def test_mixed_draft_against_asterisk_baseline_strips_only_dialogue_quotes():
 # ---------- multiple dialogue beats in one turn ----------
 
 
-def test_asterisk_narration_without_quotes_is_ambiguous_noop():
-    # Asterisk narration with bare beats but no quotes at all: the bare runs could be
-    # action or unquoted dialogue, so the dialogue axis reads UNKNOWN and the
-    # normalizer leaves the whole turn alone rather than guessing.
+def test_asterisk_narration_without_quotes_reads_as_bare_dialogue():
+    # Asterisk beats plus unmarked runs and no quotes anywhere: the beats are stage
+    # directions and the unmarked runs address someone, so this is the bare-dialogue
+    # convention and converting it to a quotes baseline is safe -- the quotes take
+    # over the job the asterisks were doing.
     base = ['She smiles. "Hello there."']  # quotes baseline
     draft = "*She steps closer.* Are you sure? *She hesitates.* Really sure?"
+    assert classify_axes(draft).dialogue == Dialogue.BARE
+    new, rep = normalize_to_baseline(draft, base, enabled=True)
+    assert rep.changed
+    assert new == 'She steps closer. "Are you sure?" She hesitates. "Really sure?"'
+
+
+def test_italic_thoughts_in_prose_are_not_read_as_bare_dialogue():
+    # The competing convention with the same markup shape: third-person prose whose
+    # asterisks are quoted thought, not action. The unmarked runs describe the
+    # character rather than address anyone, so the dialogue axis stays UNKNOWN and
+    # the asterisks -- load-bearing here -- are left alone.
+    draft = (
+        "Sayori's phone slips from her numb fingers.\n\n"
+        "*He still likes me. He really does.*\n\n"
+        "The thought is not a comfort but an accusation."
+    )
     style = classify_axes(draft)
     assert style.dialogue == Dialogue.UNKNOWN
-    _assert_unchanged(draft, base)
+    assert style.narration == Narration.UNKNOWN
+    _assert_unchanged(draft, ['She smiles. "Hello there."'])
+
+
+def test_a_talkative_bare_dialogue_baseline_still_sets_the_axes():
+    # The reported case. The greeting is mostly unmarked speech with one short action
+    # beat, so the coverage ratio reads it as 13% asterisked -- nowhere near the
+    # threshold -- because the speech it measures against is not narration at all.
+    # The baseline must still come out as the bare-dialogue convention, or a reply
+    # that arrives in quotes has nothing to be held to.
+    greeting = (
+        "Hello, Kai. Thank you for coming to our club. As president of the Literature "
+        "Club, it's my duty to make the club fun and exciting for everyone! "
+        "*Monika smiles kindly at you.* Tell me, what brings you here today?"
+    )
+    assert baseline_axes([greeting]) == AxisStyle(Dialogue.BARE, Narration.ASTERISK)
+
+    draft = (
+        "Monika's smile is still perfectly in place.\n\n"
+        '"Ah... Sayori."\n\n'
+        "She laughs quietly and airily.\n\n"
+        "\"But now that you're here, let's focus on you.\""
+    )
+    new, rep = normalize_to_baseline(draft, [greeting], enabled=True)
+    assert rep.changed
+    assert '"' not in new
+    assert "*Monika's smile is still perfectly in place.*" in new
+    assert "Ah... Sayori." in new
+
+
+def test_a_window_that_votes_bare_on_both_axes_enforces_nothing():
+    # The axes are voted independently, so a mixed window can land on a pairing no
+    # single message could produce: one bare-dialogue message carries the dialogue
+    # axis while two prose messages carry the narration axis. Unmarking the speech
+    # of a draft whose narration is also unmarked would leave nothing to tell them
+    # apart, so a window that disagreed with itself enforces nothing.
+    base = [
+        "*She smiles and steps back.* I won't go, and you cannot make me.",
+        "The rain kept on against the glass, steady and grey, long after she had gone.",
+        "He waited by the door for a while, then gave up and went back inside.",
+    ]
+    assert baseline_axes(base) == AxisStyle(Dialogue.BARE, Narration.BARE)
+    _assert_unchanged('*He leans in.* "You came back," he says.', base)
 
 
 # ---------- classification edge cases ----------
