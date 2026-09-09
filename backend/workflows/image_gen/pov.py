@@ -6,7 +6,7 @@ import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from ..toolkit import classify_pov, get_settings, local_feature_available
+from ..toolkit import classify_pov, get_settings, local_feature_ready
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +35,7 @@ def normalize_mode(value: Any) -> str:
 
 async def classifier_ready() -> bool:
     """Extras installed, model on disk, and the feature toggle left on."""
-    ok, _reason = local_feature_available(FEATURE)
-    if not ok:
-        return False
-    settings = await get_settings()
-    return settings.get("local_ml_enabled", {}).get(FEATURE, True) is not False
+    return local_feature_ready(FEATURE, await get_settings())
 
 
 def _assistant_texts(history: Sequence[Mapping[str, Any]]) -> list[str]:

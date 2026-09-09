@@ -38,7 +38,7 @@ import { clearTextEffect, startTextEffect } from "./workflow_text_effects.js";
 
 // Workflow modules use this facade for registration, requests, and playback.
 
-export const WORKFLOW_API_VERSION = 3;
+export const WORKFLOW_API_VERSION = 4;
 
 export {
   api,

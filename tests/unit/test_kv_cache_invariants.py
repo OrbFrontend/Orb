@@ -1067,6 +1067,19 @@ def test_the_report_names_the_lanes_when_a_turn_spans_more_than_one(caplog):
     assert rows[0].strip().startswith("L1 ") and rows[1].strip().startswith("L2 ")
 
 
+def test_the_lane_legend_does_not_log_endpoint_credentials(caplog):
+    tracker = _KVCacheTracker(conversation_id=None)
+    _entry(tracker, "director:direct_scene", "a", endpoint="https://alice:secret@api.example.com/v1")
+    _entry(tracker, "writer", "b", endpoint="http://localhost:8080/v1")
+
+    with caplog.at_level(logging.INFO, logger="backend.inference.kv_tracker"):
+        tracker.log_summary()
+
+    assert "api.example.com" in caplog.text
+    assert "alice" not in caplog.text
+    assert "secret" not in caplog.text
+
+
 def test_a_single_lane_report_carries_no_lane_noise(caplog):
     """The common case stays exactly as it was."""
     tracker = _KVCacheTracker(conversation_id=None)

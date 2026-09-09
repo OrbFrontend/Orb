@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TypeVar
@@ -41,11 +41,7 @@ class Narration(StrEnum):
     UNKNOWN = "unknown"
 
 
-# Any string axis, not just this module's two enums: the agreement rule below is
-# the one piece the voice half of the format_consistency workflow shares with the
-# markup half, and its labels are plain strings ("third", "past", "ambiguous").
-# StrEnum members are strings, so this is a strict widening of the old
-# ``TypeVar(..., Dialogue, Narration)`` constraint.
+# Shared by markup enums and the voice classifier's string labels.
 _StyleT = TypeVar("_StyleT", bound=str)
 
 
@@ -136,30 +132,24 @@ def _strip_protected(text: str) -> str:
     return _PROTECTED.sub(" ", text)
 
 
-# The bare-dialogue convention ("*she smiles* Hello there") marks narration and
-# leaves speech unmarked, so the coverage ratio above cannot see it: the unmarked
-# speech lands in the ratio's denominator as if it were narration, and a character
-# who talks more than she acts reads as mostly-bare narration. Recovering the
-# convention needs the two questions below, because the marked-narration reading
-# competes with a second convention that looks identical to the ratio -- prose
-# narration carrying *italic inner thoughts*.
-#
-# Both questions are asked so that the ANSWER NEVER DEPENDS ON THE NARRATOR'S
-# PERSON, which is the trap here. Person and convention are orthogonal in RP --
-# a chat narrates in first, second or third person and independently marks its
-# narration or its speech -- so any test that reads "first person" as evidence
-# for one convention classifies the identical passage two ways depending on
-# whether its narrator says "her fingers" or "my fingers". Each test below can
-# only ever VETO the bare-dialogue reading, never vote for it, and the two veto
-# on different evidence, so between them a passage that switches narrator keeps
-# its answer.
-_INTERIOR = frozenset({"i", "me", "my", "mine", "myself", "we", "us", "our", "ours"})
-_THIRD_PERSON = frozenset({"he", "him", "his", "she", "her", "hers", "himself", "herself", "they", "them", "their", "theirs"})
-# Attribution is narration by construction: a speaker cannot attribute her own
-# line from inside it. Person-free, so it is the half of the veto below that
-# survives a first-person narrator.
-_ATTRIBUTION = frozenset(
+# Bare dialogue ("*she smiles* Hello") is detected from a stage direction plus
+# unmarked text that has no clear third-person narration or speech attribution.
+# Narrator person is deliberately not evidence: it is independent of markup.
+_INTERIOR_WORDS = frozenset({"i", "me", "my", "mine", "myself", "we", "us", "our", "ours"})
+_BARE_NARRATION_MARKERS = frozenset(
     {
+        "he",
+        "him",
+        "his",
+        "she",
+        "her",
+        "hers",
+        "himself",
+        "herself",
+        "they",
+        "them",
+        "their",
+        "theirs",
         "said",
         "says",
         "asked",
@@ -186,67 +176,30 @@ _ATTRIBUTION = frozenset(
 _WORD = re.compile(r"[a-z']+")
 
 
+def _paragraph_spans(text: str) -> Iterator[tuple[str, list[tuple[str, int, int]]]]:
+    """Yield each rewriteable paragraph and its typed spans."""
+    for paragraph in split_paragraphs(_strip_protected(text)):
+        yield paragraph, extract_block_spans(paragraph)
+
+
 def _is_action_beat(beat: str) -> bool:
-    """Whether one block-emphasis span is a stage direction rather than decoration.
-
-    Two tests, both about the span itself -- which is the half of the message whose
-    role is known under the reading being tested. A one-word span is an italicized
-    term (*poetry*, *CLANG!*) and says nothing about the convention; a stage
-    direction is always a clause ("smiles kindly at you"). And a span written from
-    inside the character is an inner thought, which is the competing convention
-    exactly: prose whose asterisks quote thought rather than mark action. Second
-    person is deliberately not interior -- narration addresses the reader constantly
-    ("smiles kindly at you") -- so this reads only the first-person markers, which
-    narration about a character does not use whatever person it is written in.
-    """
+    """Whether block emphasis looks like a stage direction, not a term or thought."""
     words = _WORD.findall(beat.lower())
-    return len(words) >= 2 and _INTERIOR.isdisjoint(words)
-
-
-def _has_action_beat(beats: list[str]) -> bool:
-    """Whether the asterisks are marking narration at all.
-
-    One is enough: a message mixing a stage direction with an italicized term still
-    marks its narration. A message whose only spans are inner thoughts gets no
-    reading here, which leaves both axes UNKNOWN and the turn untouched.
-    """
-    return any(_is_action_beat(beat) for beat in beats)
-
-
-def _bare_runs_are_narration(bare: str) -> bool:
-    """Whether the unmarked runs are narration, which vetoes the bare-dialogue read.
-
-    The complement of the span test, and the one that catches prose whose italic
-    aside happens to be written from outside ("*Everything had changed.*"). A run
-    that attributes a line ("she said") or that describes the character in the third
-    person ("her fingers spasming") is narration, so the asterisks are not the only
-    thing marking it and the unmarked text is not speech.
-
-    Stated as an absence rather than as a comparison. The earlier form weighed
-    first- and second-person words against third-person ones, which made a
-    first-person narrator's prose outvote its own third-person evidence and read as
-    speech -- the identical passage classified BARE with "my fingers" and UNKNOWN
-    with "her fingers". Asking only whether narration markers are PRESENT cannot
-    invert that way: a first-person narrator simply supplies no evidence here and
-    the span test above decides alone.
-    """
-    words = set(_WORD.findall(bare.lower()))
-    return not _THIRD_PERSON.isdisjoint(words) or not _ATTRIBUTION.isdisjoint(words)
+    return len(words) >= 2 and _INTERIOR_WORDS.isdisjoint(words)
 
 
 def classify_axes(text: str) -> AxisStyle:
     """Classify dialogue and narration markup by coverage."""
-    text = _strip_protected(text)
     speech_chars = 0
     block_emph_chars = 0
     bare_chars = 0
-    beats: list[str] = []
-    bare_runs: list[str] = []
+    has_action_beat = False
+    bare_words: set[str] = set()
 
-    for para in split_paragraphs(text):
-        spans = extract_block_spans(para)
+    for para, spans in _paragraph_spans(text):
         for i, (typ, s, e) in enumerate(spans):
-            length = len(para[s:e].strip())
+            raw = para[s:e]
+            length = len(raw.strip())
             if length == 0:
                 continue
             if typ == "SPEECH":
@@ -255,10 +208,10 @@ def classify_axes(text: str) -> AxisStyle:
                 if _is_inline_emphasis(spans, i, para):
                     continue  # inline emphasis is orthogonal to both axes
                 block_emph_chars += length
-                beats.append(_emphasis_inner(para[s:e]))
+                has_action_beat = has_action_beat or _is_action_beat(_emphasis_inner(raw))
             else:  # NARRATION (bare)
                 bare_chars += length
-                bare_runs.append(para[s:e])
+                bare_words.update(_WORD.findall(raw.lower()))
 
     # Narration axis: of the non-dialogue prose, how much sits inside asterisks?
     narr_total = block_emph_chars + bare_chars
@@ -277,14 +230,9 @@ def classify_axes(text: str) -> AxisStyle:
         dialogue = Dialogue.QUOTED
     elif narration == Narration.ASTERISK and bare_chars > 0:
         dialogue = Dialogue.BARE
-    elif bare_chars > 0 and _has_action_beat(beats) and not _bare_runs_are_narration(" ".join(bare_runs)):
-        # Marked narration plus unmarked speech, under the coverage threshold. The
-        # ratio undercounts it because the speech it is measuring against is not
-        # narration at all, so the axes are set from the evidence instead: the
-        # asterisks are the narration, which makes the convention ASTERISK however
-        # little of the turn they cover. Leaving narration on the ratio's answer
-        # would pair bare dialogue with bare narration -- a target that erases the
-        # only thing telling them apart.
+    elif bare_chars > 0 and has_action_beat and bare_words.isdisjoint(_BARE_NARRATION_MARKERS):
+        # The coverage ratio counted unmarked speech as narration. The stage
+        # direction establishes that the asterisks are the narration markers.
         dialogue = Dialogue.BARE
         narration = Narration.ASTERISK
     else:
@@ -296,24 +244,14 @@ def classify_axes(text: str) -> AxisStyle:
 def narration_only(text: str, dialogue: Dialogue) -> str:
     """*text* with its speech removed, under a known dialogue convention.
 
-    The one place that answers "which half of this message is the narrator
-    talking?", so that everything needing narration alone agrees on the answer.
-    Removing quotes is only correct under the quoted convention; under the bare
-    one the speech carries no markers at all and the asterisks are what is left of
-    the narrator, so the two conventions need opposite extractions and a caller
-    that hardcodes either one is wrong half the time.
-
-    UNKNOWN takes the quoted extraction. It is the safe default in the sense that
-    matters here: it removes what is certainly speech and keeps everything whose
-    role is undecided, so an unrecognized convention degrades to slightly noisy
-    narration rather than to none.
+    Bare dialogue leaves speech unmarked, so only its block-emphasis spans are
+    narration. Quoted and unknown conventions remove balanced quoted spans.
     """
     if dialogue != Dialogue.BARE:
         return extract_narration(text)
 
     beats: list[str] = []
-    for para in split_paragraphs(_strip_protected(text)):
-        spans = extract_block_spans(para)
+    for para, spans in _paragraph_spans(text):
         for i, (typ, start, end) in enumerate(spans):
             if typ == "EMPHASIS" and not _is_inline_emphasis(spans, i, para):
                 inner = _emphasis_inner(para[start:end])

@@ -120,7 +120,6 @@ async def _run_post_pipeline(
         # /trigger calls and any other in-flight pipeline that reaches this
         # hook on the same conversation. Different workflows on the same
         # conversation keep distinct lock keys, so they still run in parallel.
-        # Serialize same-(cid, wid) writers; different workflows run in parallel.
         async with (
             workflow_state_lock(conversation_id or "", sub.workflow_id),
             workflow_character_state_lock(character_id or "", sub.workflow_id),

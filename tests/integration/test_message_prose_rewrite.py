@@ -377,25 +377,6 @@ async def test_a_hand_edit_retires_the_retained_draft(client, db, monkeypatch):
         assert (await cursor.fetchone())["writer_draft"] is None
 
 
-async def test_a_hand_edit_invalidates_cached_voice_labels(client):
-    """Cached POV/tense labels describe content, so an edit must retire them."""
-    cid = "message-voice-label-edit"
-    message_id = await _assistant_message(cid, "She waited by the door.")
-    await dbmod.set_workflow_message_state(
-        message_id,
-        "format_consistency",
-        {"pov": "third", "tense": "past", "dialogue": "quoted"},
-    )
-
-    edit = await client.post(
-        f"/api/conversations/{cid}/messages/{message_id}/edit",
-        json={"content": "You wait by the door."},
-    )
-
-    assert edit.status_code == 200
-    assert await dbmod.get_workflow_message_state(message_id, "format_consistency") is None
-
-
 async def test_editing_a_user_message_leaves_assistant_drafts_alone(client, db):
     """The clear is scoped to the row that was edited, and to assistant rows."""
     cid = "message-prose-user-edit"

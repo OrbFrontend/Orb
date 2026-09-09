@@ -11,9 +11,7 @@ from .detectors.structural_repetition import StructuralResult
 from .detectors.template_repetition import FlaggedTemplate, TemplateResult
 from .format_consistency import (
     AxisStyle,
-    Dialogue,
     FormatDriftReport,
-    Narration,
     baseline_axes,
     narration_only,
     normalize_to_baseline,
@@ -51,9 +49,7 @@ __all__ = [
     "PhraseResult",
     "EchoResult",
     "AxisStyle",
-    "Dialogue",
     "FormatDriftReport",
-    "Narration",
     "baseline_axes",
     "narration_only",
     "normalize_to_baseline",

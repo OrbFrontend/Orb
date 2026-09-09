@@ -101,14 +101,11 @@ shares nothing with the turn: its own short prefix, and `enabled_tools=None` so
 `forced_tool_call` ships the forced tool alone. What it cannot do is force a tool
 against the turn's blob without being in it.
 
-The second option is usually the cheaper one when the call does not actually read
-the conversation. `format_consistency`'s voice rewrite restates one draft, and
-image_gen's off-turn calls describe one scene; neither needs the history, and on a
-metered endpoint sending it is the whole bill. Servers hold more than one cached
-sequence — llama.cpp gives each slot its own KV cache and parks idle ones in the
-host-RAM prompt cache (`--cache-ram`, and note the pool must be sized for the sum
-of the parked conversations), vLLM hashes blocks — so a second short lane sits
-alongside the conversation's rather than displacing it.
+The second option is usually cheaper when the call is closed over its explicit
+input. `format_consistency`'s voice rewrite restates one draft and does not need
+the conversation; sending the history would only add prompt cost. Servers can
+retain multiple cached sequences, so this short lane can coexist with the
+conversation lane.
 
 Inference servers may render only the forced tool, or no tools for `none`. As a
 result, the three passes can share the conversation body without sharing the

@@ -27,6 +27,7 @@ from backend.workflows import set_workflow_config
 from backend.workflows.format_consistency import (
     VOICE_REWRITE_LENGTH_RULE,
     VOICE_REWRITE_TOOL_NAME,
+    hooks,
     voice,
 )
 
@@ -48,7 +49,7 @@ def _wire(obj) -> str:
 @pytest.fixture
 def voice_on(monkeypatch):
     """Classifier present, and answering so the draft drifts from the baseline."""
-    monkeypatch.setattr(voice, "local_feature_available", lambda feature: (True, ""))
+    monkeypatch.setattr(hooks, "local_feature_ready", lambda feature, settings: True)
 
     async def classify(text: str) -> tuple[str, str]:
         return ("second", "present") if text.startswith("You ") else ("third", "past")

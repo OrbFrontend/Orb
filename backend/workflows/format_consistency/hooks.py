@@ -12,6 +12,7 @@ from ..toolkit import (
     baseline_axes,
     forced_tool_call,
     get_workflow_config,
+    local_feature_ready,
     normalize_to_baseline,
 )
 from . import (
@@ -20,7 +21,15 @@ from . import (
     WORKFLOW_ID,
     normalize_config,
 )
-from .voice import classifier_ready, classify, drift, labels_for, target
+from .voice import (
+    FEATURE,
+    UNKNOWN_LABELS,
+    VoiceLabels,
+    classify,
+    drift,
+    labels_for,
+    target,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,13 +85,8 @@ def _baseline_window(history) -> list[Mapping[str, Any]]:
 
 
 async def _voice_enabled(ctx) -> bool:
-    """Whether the voice half runs this turn.
-
-    The free precondition is asked first: ``classifier_ready`` reads the settings
-    mapping the ctx already carries, so a host without the POV/tense model never
-    pays the config slot's round trip.
-    """
-    if not classifier_ready(ctx.settings):
+    """Whether the local classifier and opt-in voice check are enabled."""
+    if not local_feature_ready(FEATURE, ctx.settings):
         return False
     return normalize_config(await get_workflow_config(WORKFLOW_ID))["voice_consistency"]
 
@@ -146,12 +150,18 @@ async def _hold_voice(
     An ambiguous end, an empty rewrite, or a classifier that answered the sentinel
     all return *text*; anything that raises is caught by the caller.
     """
-    baseline = target([await labels_for(msg, convention) for msg in window])
-    if baseline == ("ambiguous", "ambiguous"):
+    window_labels: list[VoiceLabels] = []
+    for msg in window:
+        labels = await labels_for(msg, convention)
+        if labels is None:
+            return text
+        window_labels.append(labels)
+    baseline = target(window_labels)
+    if baseline == UNKNOWN_LABELS:
         return text
     source = await classify(text, convention)
-    # An empty or all-dialogue draft shapes to "" and classifies ambiguous, so it
-    # falls out here by construction rather than by a length check.
+    if source is None:
+        return text
     phrases = drift(source, baseline)
     if not phrases:
         return text
@@ -162,7 +172,7 @@ async def _hold_voice(
         ", ".join(phrases),
     )
     rewritten = await _voice_rewrite(ctx, text, phrases)
-    return rewritten if rewritten and rewritten != text else text
+    return rewritten or text
 
 
 async def post_pipeline(ctx):

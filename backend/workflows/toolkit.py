@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from ..analysis import (
@@ -109,6 +110,7 @@ __all__ = [
     "get_workflow_state",
     "insert_workflow_attachment",
     "local_feature_available",
+    "local_feature_ready",
     "narration_only",
     "normalize_to_baseline",
     "overlay_enable_tools",
@@ -128,6 +130,13 @@ __all__ = [
 def local_feature_available(feature: str) -> tuple[bool, str]:
     """Return whether a host-provided local classifier is ready."""
     return _local_ml.available(feature)
+
+
+def local_feature_ready(feature: str, settings: Mapping[str, Any]) -> bool:
+    """Return whether a local-ML feature is available and enabled."""
+    available, _reason = local_feature_available(feature)
+    enabled = settings.get("local_ml_enabled")
+    return available and (not isinstance(enabled, Mapping) or enabled.get(feature, True) is not False)
 
 
 async def classify_pov(text: str) -> str:

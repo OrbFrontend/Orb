@@ -6,6 +6,7 @@ import json
 import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
+from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ def _lane_of(entry: Mapping[str, Any]) -> tuple[str, str, str]:
 def _lane_name(lane: tuple[str, str, str]) -> str:
     """Short, readable name for a lane, for the report's legend."""
     endpoint, model, shape = lane
-    host = endpoint.split("://", 1)[-1].split("/", 1)[0]
+    host = urlsplit(endpoint).netloc.rsplit("@", 1)[-1]
     suffix = f" [{shape}]" if shape else ""
     return f"{model or '?'}@{host or 'local'}{suffix}"
 
@@ -148,7 +149,6 @@ class _KVCacheTracker:
                 "tools_serialized": tools_serialized,
                 "msgs_chars": len(msgs_serialized),
                 "tools_chars": len(tools_serialized),
-                "tools_names": [t.get("function", {}).get("name", "") for t in (tools or [])],
                 "usage": None,
             }
         )
@@ -193,16 +193,13 @@ class _KVCacheTracker:
 
         # Lanes over the whole turn, not just the printed slice: a continued report
         # still compares against calls above it, so the legend has to name those too.
-        lanes: list[tuple[str, str, str]] = []
-        for e in self._entries:
-            if _lane_of(e) not in lanes:
-                lanes.append(_lane_of(e))
+        lanes = {lane: index for index, lane in enumerate(dict.fromkeys(map(_lane_of, self._entries)), 1)}
         # Only worth the noise when there is more than one. A dual-model turn is
         # where the reader most needs to know why a pass has no one to compare to:
         # it is the first call on its lane, not a broken prefix.
         multi_lane = len(lanes) > 1
         if multi_lane:
-            lines.append("  lanes: " + "   ".join(f"L{n}={_lane_name(k)}" for n, k in enumerate(lanes, 1)))
+            lines.append("  lanes: " + "   ".join(f"L{index}={_lane_name(lane)}" for lane, index in lanes.items()))
 
         total_cached = 0
         total_prompt = 0
@@ -250,7 +247,7 @@ class _KVCacheTracker:
                 write_part = f"  write={cw}" if cw else ""
                 provider_note = f"provider: cached={ct}/{pt} tok ({pct:.1f}%){write_part} [{stats['source']}]"
 
-            tag = f"L{lanes.index(lane) + 1} " if multi_lane else ""
+            tag = f"L{lanes[lane]} " if multi_lane else ""
             lines.append(f"  {tag}{e['label']:<28}  {provider_note}  |  {local_note}")
 
         # Over the calls printed above, not the whole conversation: on a continued

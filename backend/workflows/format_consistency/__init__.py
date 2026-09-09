@@ -56,13 +56,14 @@ CONFIG_SCHEMA = {
 
 
 def normalize_config(raw: Mapping[str, Any] | None) -> dict:
-    """Coerce the stored slot to the declared shape.
-
-    A PUT can write anything, and the hook branches on this value, so the truthy
-    coercion happens once here instead of at the read.
-    """
+    """Return the complete configuration shape used by the UI and hook."""
     raw = raw if isinstance(raw, Mapping) else {}
-    return {"voice_consistency": bool(raw.get("voice_consistency", CONFIG_DEFAULTS["voice_consistency"]))}
+    voice_consistency = raw.get("voice_consistency")
+    return {
+        "voice_consistency": (
+            voice_consistency if isinstance(voice_consistency, bool) else CONFIG_DEFAULTS["voice_consistency"]
+        )
+    }
 
 
 format_consistency_workflow = Workflow(

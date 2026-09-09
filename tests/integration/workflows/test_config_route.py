@@ -134,11 +134,10 @@ async def test_format_consistency_voice_toggle_round_trips(client):
 
 
 async def test_format_consistency_config_is_normalized_at_the_http_boundary(client):
-    # A PUT can write anything, and the hook branches on this value, so the
-    # normalizer coerces it once here rather than at every read.
+    # Reject malformed values rather than making non-empty strings truthy.
     resp = await client.put(
         "/api/workflows/format_consistency/config",
         json={"config": {"voice_consistency": "yes", "stray": 1}},
     )
     assert resp.status_code == 200
-    assert resp.json() == {"config": {"voice_consistency": True}}
+    assert resp.json() == {"config": {"voice_consistency": False}}

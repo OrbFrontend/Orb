@@ -58,6 +58,7 @@ def test_toolkit_does_not_expose_lower_layer_implementation_objects():
 
 def test_toolkit_exposes_local_ml_as_narrow_capabilities():
     assert "local_feature_available" in toolkit.__all__
+    assert "local_feature_ready" in toolkit.__all__
     assert "classify_pov" in toolkit.__all__
     assert "classify_pov_tense" in toolkit.__all__
 

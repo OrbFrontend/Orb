@@ -106,7 +106,7 @@ GO_EMOTIONS: tuple[str, ...] = (
 # tests/unit/workflows/image_gen/test_pov.py, the columns in tests/unit/test_local_ml.py.
 POV_ROWS: tuple[str, ...] = ("first", "second", "third", "ambiguous")
 TENSE_COLS: tuple[str, ...] = ("past", "present", "ambiguous")
-_POV_TENSES = len(TENSE_COLS)
+_TENSE_COUNT = len(TENSE_COLS)
 
 _REPEAT_PENALTY = 1.1
 _FREQUENCY_PENALTY = 0.1
@@ -312,32 +312,25 @@ def pov_input(text: str) -> str:
     return " ".join(sentences[-_POV_SENTENCES:]).strip()[-_POV_MAX_CHARS:]
 
 
-def pov_from_logits(logits: Sequence[float]) -> str:
-    """Marginalize the 4x3 povtense grid down to one POV row label.
-
-    Pure, so the row-major layout — the one thing here that is silently wrong if
-    transposed — is testable without the model.
-    """
+def _pov_tense_from_logits(logits: Sequence[float]) -> tuple[str, str]:
     m = max(logits)
     exp = [math.exp(x - m) for x in logits]
-    # Row sums over the softmax marginalize the tense out of each POV. The
-    # normalizer is constant across rows, so argmax needs no division.
-    rows = [sum(exp[i * _POV_TENSES : (i + 1) * _POV_TENSES]) for i in range(len(POV_ROWS))]
-    return POV_ROWS[max(range(len(rows)), key=rows.__getitem__)]
+    rows = [sum(exp[i * _TENSE_COUNT : (i + 1) * _TENSE_COUNT]) for i in range(len(POV_ROWS))]
+    cols = [sum(exp[row * _TENSE_COUNT + col] for row in range(len(POV_ROWS))) for col in range(_TENSE_COUNT)]
+    return (
+        POV_ROWS[max(range(len(rows)), key=rows.__getitem__)],
+        TENSE_COLS[max(range(len(cols)), key=cols.__getitem__)],
+    )
+
+
+def pov_from_logits(logits: Sequence[float]) -> str:
+    """Marginalize the 4x3 joint head to one POV row label."""
+    return _pov_tense_from_logits(logits)[0]
 
 
 def tense_from_logits(logits: Sequence[float]) -> str:
-    """Marginalize the 4x3 povtense grid down to one tense column label.
-
-    The column sibling of :func:`pov_from_logits`, pure for the same reason: the
-    layout is the one thing here that is silently wrong if transposed.
-    """
-    m = max(logits)
-    exp = [math.exp(x - m) for x in logits]
-    # Column sums over the softmax marginalize the POV out of each tense. The
-    # normalizer is constant across columns, so argmax needs no division.
-    cols = [sum(exp[row * _POV_TENSES + col] for row in range(len(POV_ROWS))) for col in range(_POV_TENSES)]
-    return TENSE_COLS[max(range(len(cols)), key=cols.__getitem__)]
+    """Marginalize the 4x3 joint head to one tense column label."""
+    return _pov_tense_from_logits(logits)[1]
 
 
 def _classify_pov_tense_blocking(feature: str, text: str) -> tuple[str, str]:
@@ -346,8 +339,8 @@ def _classify_pov_tense_blocking(feature: str, text: str) -> tuple[str, str]:
     shaped = pov_input(text)
     if not shaped:
         return "ambiguous", "ambiguous"
-    logits = _head_logits(feature, shaped, len(POV_ROWS) * _POV_TENSES)
-    return pov_from_logits(logits), tense_from_logits(logits)
+    logits = _head_logits(feature, shaped, len(POV_ROWS) * _TENSE_COUNT)
+    return _pov_tense_from_logits(logits)
 
 
 def _classify_pov_blocking(feature: str, text: str) -> str:

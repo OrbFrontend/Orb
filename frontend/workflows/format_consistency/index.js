@@ -29,9 +29,9 @@ async function toggleVoice(el) {
 
 registerAction(WORKFLOW_ID, "toggleVoice", (el) => toggleVoice(el));
 
-// lg-config / lg-enforce-label are the tools panel's shared sub-option row (Length
-// Guard's "Enforce", the editor's "Show diff highlights", Local ML's "Run on GPU"):
-// a terse label with the long form in its title, not a sentence in the desc style.
+// Finish loading persisted state before the workflow loader renders this card.
+await load();
+
 registerWorkflowToolsPanelCard(
   WORKFLOW_ID,
   () =>
@@ -50,5 +50,3 @@ registerWorkflowToolsPanelCard(
       }
     </div>`,
 );
-
-load();

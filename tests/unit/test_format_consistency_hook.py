@@ -19,7 +19,7 @@ from types import MappingProxyType
 
 import pytest
 
-from backend.analysis import AxisStyle, Dialogue, Narration
+from backend.analysis.format_consistency import AxisStyle, Dialogue, Narration
 from backend.workflows import PostCtx
 from backend.workflows.format_consistency import (
     VOICE_REWRITE_LENGTH_RULE,
@@ -74,7 +74,7 @@ def _classifier_absent(monkeypatch):
     it happens to have the GGUF on disk -- and a machine that does would send
     these unit tests to the config slot in the database.
     """
-    monkeypatch.setattr(voice, "local_feature_available", lambda feature: (False, "not installed"))
+    monkeypatch.setattr(hooks, "local_feature_ready", lambda feature, settings: False)
 
 
 async def _collect(ctx) -> list[dict]:
@@ -167,7 +167,7 @@ VOICE_DRIFTING_NARRATION = "You step closer, watching him carefully."
 
 def _voice_on(monkeypatch, *, enabled: bool = True):
     """Model present and the opt-in config set."""
-    monkeypatch.setattr(voice, "local_feature_available", lambda feature: (True, ""))
+    monkeypatch.setattr(hooks, "local_feature_ready", lambda feature, settings: True)
 
     async def fake_config(workflow_id):
         return {"voice_consistency": enabled}
@@ -388,7 +388,7 @@ async def test_an_unreachable_config_slot_still_normalizes_markup(monkeypatch):
     # Markup normalization is this workflow's always-on job. The voice half reaches
     # four things that can fail independently (model, config slot, message-state
     # cache, LLM endpoint); none of them may cost the markup fix.
-    monkeypatch.setattr(voice, "local_feature_available", lambda feature: (True, ""))
+    monkeypatch.setattr(hooks, "local_feature_ready", lambda feature, settings: True)
 
     async def boom(workflow_id):
         raise RuntimeError("no such table: workflow_config")
@@ -434,7 +434,12 @@ async def test_a_cached_message_id_is_not_reclassified(monkeypatch):
 
     async def cached(message_id, workflow_id):
         assert (message_id, workflow_id) == (7, "format_consistency")
-        return {"pov": "third", "tense": "past", "dialogue": "quoted"}
+        return {
+            "pov": "third",
+            "tense": "past",
+            "dialogue": "quoted",
+            "content_sha256": voice._content_digest(QUOTED_BASELINE),
+        }
 
     async def no_write(message_id, workflow_id, payload):
         raise AssertionError("a cache hit must not write")
@@ -467,7 +472,18 @@ async def test_a_cache_miss_backfills_the_labels(monkeypatch):
     history = [{"id": 7, "role": "assistant", "content": QUOTED_BASELINE}]
     await _collect(_ctx(CONSISTENT_DRAFT, history))
 
-    assert written == [(7, "format_consistency", {"pov": "third", "tense": "past", "dialogue": "quoted"})]
+    assert written == [
+        (
+            7,
+            "format_consistency",
+            {
+                "pov": "third",
+                "tense": "past",
+                "dialogue": "quoted",
+                "content_sha256": voice._content_digest(QUOTED_BASELINE),
+            },
+        )
+    ]
 
 
 async def test_bare_dialogue_is_removed_before_voice_classification(monkeypatch):
@@ -509,6 +525,7 @@ async def test_labels_are_reclassified_when_the_cached_convention_differs(monkey
         "content": "Stay with me. *Monika waits by the desk.* We can talk here.",
     }
     cached_payload = {"pov": "second", "tense": "present", "other": "preserved"}
+    cached_payload["content_sha256"] = voice._content_digest(msg["content"])
     if cached_dialogue is not None:
         cached_payload["dialogue"] = cached_dialogue
     seen = _classifier(monkeypatch, {"Monika waits by the desk.": THIRD_PAST})
@@ -525,4 +542,57 @@ async def test_labels_are_reclassified_when_the_cached_convention_differs(monkey
 
     assert await voice.labels_for(msg, convention) == THIRD_PAST
     assert seen == ["Monika waits by the desk."]
-    assert written == [{"pov": "third", "tense": "past", "other": "preserved", "dialogue": "bare"}]
+    assert written == [
+        {
+            "pov": "third",
+            "tense": "past",
+            "other": "preserved",
+            "dialogue": "bare",
+            "content_sha256": voice._content_digest(msg["content"]),
+        }
+    ]
+
+
+async def test_labels_are_reclassified_when_message_content_changes(monkeypatch):
+    convention = AxisStyle(Dialogue.QUOTED, Narration.BARE)
+    msg = {"id": 7, "role": "assistant", "content": QUOTED_BASELINE}
+    seen = _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST})
+    written: list[dict] = []
+
+    async def stale(message_id, workflow_id):
+        return {
+            "pov": "second",
+            "tense": "present",
+            "dialogue": "quoted",
+            "content_sha256": voice._content_digest("You wait by the door."),
+        }
+
+    async def record(message_id, workflow_id, payload):
+        written.append(payload)
+
+    monkeypatch.setattr(voice, "get_workflow_message_state", stale)
+    monkeypatch.setattr(voice, "set_workflow_message_state", record)
+
+    assert await voice.labels_for(msg, convention) == THIRD_PAST
+    assert seen == [QUOTED_BASELINE_NARRATION]
+    assert written[0]["content_sha256"] == voice._content_digest(QUOTED_BASELINE)
+
+
+async def test_classifier_failure_is_not_cached(monkeypatch):
+    convention = AxisStyle(Dialogue.QUOTED, Narration.BARE)
+
+    async def empty(message_id, workflow_id):
+        return None
+
+    async def boom(text: str):
+        raise RuntimeError("model failed to load")
+
+    async def no_write(message_id, workflow_id, payload):
+        raise AssertionError("a transient failure must not poison the cache")
+
+    monkeypatch.setattr(voice, "get_workflow_message_state", empty)
+    monkeypatch.setattr(voice, "set_workflow_message_state", no_write)
+    monkeypatch.setattr(voice, "classify_pov_tense", boom)
+
+    msg = {"id": 7, "role": "assistant", "content": QUOTED_BASELINE}
+    assert await voice.labels_for(msg, convention) is None
