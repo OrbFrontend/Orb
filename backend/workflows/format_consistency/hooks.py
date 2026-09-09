@@ -119,6 +119,7 @@ async def _voice_rewrite(ctx, text: str, phrases: list[str]) -> str:
         # forced tool alone", which is the whole array this lane wants.
         enabled_tools=None,
         kv_tracker=ctx.kv_tracker,
+        cache_shape="format_consistency:voice_rewrite",
         reasoning_on=False,
         temperature=0.25,
         token_floor=8192,

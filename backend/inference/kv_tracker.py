@@ -25,16 +25,21 @@ def _serialize_tools(tools: list[dict] | None) -> str:
     return json.dumps(tools, separators=(",", ":"), sort_keys=True)
 
 
-def _lane_of(entry: Mapping[str, Any]) -> tuple[str, str]:
-    """The cache lane an entry belongs to: one KV cache per (server, model)."""
-    return (entry.get("endpoint", "") or "", entry.get("model", "") or "")
+def _lane_of(entry: Mapping[str, Any]) -> tuple[str, str, str]:
+    """The physical cache owner and rendered-prompt shape for an entry."""
+    return (
+        entry.get("endpoint", "") or "",
+        entry.get("model", "") or "",
+        entry.get("shape", "") or "",
+    )
 
 
-def _lane_name(lane: tuple[str, str]) -> str:
+def _lane_name(lane: tuple[str, str, str]) -> str:
     """Short, readable name for a lane, for the report's legend."""
-    endpoint, model = lane
+    endpoint, model, shape = lane
     host = endpoint.split("://", 1)[-1].split("/", 1)[0]
-    return f"{model or '?'}@{host or 'local'}"
+    suffix = f" [{shape}]" if shape else ""
+    return f"{model or '?'}@{host or 'local'}{suffix}"
 
 
 def _common_prefix_len(a: str, b: str) -> int:
@@ -121,15 +126,15 @@ class _KVCacheTracker:
         tools: list[dict] | None,
         model: str = "",
         endpoint: str = "",
+        shape: str = "",
     ) -> None:
         """Snapshot one LLM call (messages + tools). Call once per pass or per director tool.
 
-        *endpoint* is the server the call went to. It is half of the lane key: two
-        servers hold independent KV caches even when they answer to the same model
-        name, which is exactly the dual-model setup (a local writer and a hosted
-        agent, or two providers serving one open model). Keying on the name alone
-        measured the agent lane's calls against the writer's and reported a bust
-        for two lanes that were each reusing their own prefix perfectly well.
+        *endpoint* and *model* identify the physical cache owner. *shape* is a
+        stable discriminator for an intentionally separate rendered-prompt family
+        on that owner, such as a self-contained workflow call. It is deliberately
+        not derived from the current bytes: accidental changes within one family
+        must stay comparable so the report can expose them.
         """
         msgs_serialized = _serialize_messages(messages)
         tools_serialized = _serialize_tools(tools)
@@ -138,6 +143,7 @@ class _KVCacheTracker:
                 "label": label,
                 "model": model,
                 "endpoint": endpoint,
+                "shape": shape,
                 "msgs_serialized": msgs_serialized,
                 "tools_serialized": tools_serialized,
                 "msgs_chars": len(msgs_serialized),
@@ -155,7 +161,7 @@ class _KVCacheTracker:
                 return
         logger.debug("record_usage: no prior record() for label=%r, dropping", label)
 
-    def _find_prev(self, i: int, lane: tuple[str, str], label: str) -> tuple[dict | None, bool]:
+    def _find_prev(self, i: int, lane: tuple[str, str, str], label: str) -> tuple[dict | None, bool]:
         """Find the previous cache entry on *lane* to compare against.
 
         A comparison only means something within one lane: across lanes the tools
@@ -187,7 +193,7 @@ class _KVCacheTracker:
 
         # Lanes over the whole turn, not just the printed slice: a continued report
         # still compares against calls above it, so the legend has to name those too.
-        lanes: list[tuple[str, str]] = []
+        lanes: list[tuple[str, str, str]] = []
         for e in self._entries:
             if _lane_of(e) not in lanes:
                 lanes.append(_lane_of(e))

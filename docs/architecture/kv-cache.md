@@ -201,15 +201,22 @@ The tracker compares a call with the previous call **on its own lane**, falling
 back to the last same-label call of the previous turn — which makes the first call
 of a new turn useful rather than an unhelpful zero baseline.
 
-A lane here is `(server, model)`, the same key the test-time checker groups on,
-because that pair is what owns one KV cache. Keying on the model name alone was a
-bug: dual-model runs the writer and the agent on different servers, and the two
-routinely answer to the same name, so the agent's calls were measured against the
-writer's. The two lanes differ by design — the writer ships no schemas and has its
-own system prompt — so every dual-model report showed a large fake divergence and
-hid the real comparison. When a turn spans more than one lane the report prints a
-`lanes:` legend and tags each row, so a pass with no predecessor reads as "first
-call on its lane" rather than as a broken prefix.
+A tracker lane is `(server, model, shape)`. Server and model identify the physical
+cache owner, matching the first two fields used by the test-time checker. Shape is
+empty for the shared conversation prompt and has a stable name for an
+intentionally independent rendered prefix. For example, format consistency's
+self-contained voice rewrite records `format_consistency:voice_rewrite`, so a
+group exchange's next Director call skips that short prefix and compares with the
+last conversation call instead. `forced_tool_call` accepts this as
+`cache_shape` and passes it to the tracker.
+
+The shape is a semantic discriminator, not a fingerprint of the current message
+or tools bytes. Calls in one intended family must remain comparable so an
+accidental change still appears in the report. Keying on the model name alone is
+also insufficient: dual-model runs the writer and the agent on different servers,
+and the two routinely answer to the same name. When a turn spans more than one
+lane the report prints a `lanes:` legend and tags each row, so a pass with no
+predecessor reads as "first call on its lane" rather than as a broken prefix.
 
 ## In short
 

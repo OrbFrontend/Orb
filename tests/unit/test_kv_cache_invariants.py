@@ -919,8 +919,23 @@ async def test_editor_tools_blob_constant_across_tool_switch():
 # ── The report itself, on a request that runs several pipelines ───────────────
 
 
-def _entry(tracker: _KVCacheTracker, label: str, body: str, *, model: str = "m", endpoint: str = "") -> None:
-    tracker.record(label, [{"role": "user", "content": body}], None, model=model, endpoint=endpoint)
+def _entry(
+    tracker: _KVCacheTracker,
+    label: str,
+    body: str,
+    *,
+    model: str = "m",
+    endpoint: str = "",
+    shape: str = "",
+) -> None:
+    tracker.record(
+        label,
+        [{"role": "user", "content": body}],
+        None,
+        model=model,
+        endpoint=endpoint,
+        shape=shape,
+    )
 
 
 def test_the_report_prints_each_call_once_across_a_multi_speaker_exchange(caplog):
@@ -972,19 +987,16 @@ def test_a_new_request_is_measured_against_the_latest_call_of_that_label(monkeyp
     previous.log_summary()
 
     current = mod._KVCacheTracker(conversation_id="c1")
-    prev, cross_turn = current._find_prev(0, ("", "m"), "writer")
+    prev, cross_turn = current._find_prev(0, ("", "m", ""), "writer")
     assert cross_turn and prev is not None
     assert "SHARED-AND-MORE" in prev["msgs_serialized"], "compared against the stalest same-label call"
 
 
 # ── Lanes ─────────────────────────────────────────────────────────────────────
 #
-# A lane is one KV cache: (server, model). Dual-model runs the writer and the
-# agent on different servers, and both may answer to the same model name — an
-# open model served by two providers, or an agent endpoint whose model field was
-# left at the writer's. Keying the comparison on the name alone measured the
-# agent's calls against the writer's, and reported the two lanes' by-design
-# differences (no tools on the writer, its own system prompt) as a cache bust.
+# A tracker lane is (server, model, rendered-prompt shape). The first two fields
+# identify the physical cache owner. The third keeps independent prompt families
+# on that owner from being compared with each other.
 
 
 def test_two_servers_sharing_a_model_name_are_separate_lanes():
@@ -993,11 +1005,11 @@ def test_two_servers_sharing_a_model_name_are_separate_lanes():
     _entry(tracker, "writer", "writer-side", endpoint="http://localhost:8080/v1")
 
     # The writer is the first call on its lane, so it has nothing to compare to.
-    prev, _ = tracker._find_prev(1, ("http://localhost:8080/v1", "m"), "writer")
+    prev, _ = tracker._find_prev(1, ("http://localhost:8080/v1", "m", ""), "writer")
     assert prev is None
 
     # And the director is not offered as its predecessor.
-    prev, _ = tracker._find_prev(1, ("https://api.example.com/v1", "m"), "writer")
+    prev, _ = tracker._find_prev(1, ("https://api.example.com/v1", "m", ""), "writer")
     assert prev is not None and prev["label"] == "director:direct_scene"
 
 
@@ -1016,6 +1028,29 @@ def test_a_later_call_compares_against_its_own_lane(caplog):
     rewrite_row = next(line for line in caplog.text.splitlines() if "forced:editor_rewrite" in line)
     assert "vs 'director:direct_scene'" in rewrite_row
     assert "vs 'writer'" not in rewrite_row
+
+
+def test_a_standalone_shape_cannot_break_the_shared_group_exchange_lane(caplog):
+    """Speaker 2's Director must skip speaker 1's self-contained voice rewrite."""
+    tracker = _KVCacheTracker(conversation_id=None)
+    _entry(tracker, "director:direct_scene", "conversation-prefix")
+    _entry(tracker, "writer", "conversation-prefix-plus-writer")
+    _entry(
+        tracker,
+        "forced:editor_rewrite",
+        "short-rewrite-prefix",
+        shape="format_consistency:voice_rewrite",
+    )
+    _entry(tracker, "director:direct_scene", "conversation-prefix-plus-speaker-one")
+
+    with caplog.at_level(logging.INFO, logger="backend.inference.kv_tracker"):
+        tracker.log_summary()
+
+    rows = [line for line in caplog.text.splitlines() if "  provider:" in line]
+    second_director = rows[-1]
+    assert "vs 'writer'" in second_director
+    assert "vs 'forced:editor_rewrite'" not in second_director
+    assert "L2=m@local [format_consistency:voice_rewrite]" in caplog.text
 
 
 def test_the_report_names_the_lanes_when_a_turn_spans_more_than_one(caplog):

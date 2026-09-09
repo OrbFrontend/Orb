@@ -254,6 +254,7 @@ async def test_the_rewrite_is_a_self_contained_lane(monkeypatch):
 
     [call] = calls
     assert call["enabled_tools"] is None
+    assert call["cache_shape"] == "format_consistency:voice_rewrite"
     assert call["prefix"] != AGENT_PREFIX
     assert [m["role"] for m in call["prefix"]] == ["system"]
 
