@@ -9,7 +9,11 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TypeVar
 
-from .text.text_segmentation import extract_block_spans, split_paragraphs
+from .text.text_segmentation import (
+    extract_block_spans,
+    extract_narration,
+    split_paragraphs,
+)
 
 __all__ = [
     "Dialogue",
@@ -17,6 +21,7 @@ __all__ = [
     "AxisStyle",
     "FormatDriftReport",
     "classify_axes",
+    "narration_only",
     "baseline_axes",
     "stable_label",
     "normalize_format",
@@ -138,36 +143,95 @@ def _strip_protected(text: str) -> str:
 # convention needs the two questions below, because the marked-narration reading
 # competes with a second convention that looks identical to the ratio -- prose
 # narration carrying *italic inner thoughts*.
-_FIRST_SECOND_PERSON = frozenset(
-    {"i", "me", "my", "mine", "myself", "you", "your", "yours", "yourself", "we", "us", "our", "ours"}
-)
+#
+# Both questions are asked so that the ANSWER NEVER DEPENDS ON THE NARRATOR'S
+# PERSON, which is the trap here. Person and convention are orthogonal in RP --
+# a chat narrates in first, second or third person and independently marks its
+# narration or its speech -- so any test that reads "first person" as evidence
+# for one convention classifies the identical passage two ways depending on
+# whether its narrator says "her fingers" or "my fingers". Each test below can
+# only ever VETO the bare-dialogue reading, never vote for it, and the two veto
+# on different evidence, so between them a passage that switches narrator keeps
+# its answer.
+_INTERIOR = frozenset({"i", "me", "my", "mine", "myself", "we", "us", "our", "ours"})
 _THIRD_PERSON = frozenset({"he", "him", "his", "she", "her", "hers", "himself", "herself", "they", "them", "their", "theirs"})
+# Attribution is narration by construction: a speaker cannot attribute her own
+# line from inside it. Person-free, so it is the half of the veto below that
+# survives a first-person narrator.
+_ATTRIBUTION = frozenset(
+    {
+        "said",
+        "says",
+        "asked",
+        "asks",
+        "replied",
+        "replies",
+        "answered",
+        "answers",
+        "murmured",
+        "murmurs",
+        "whispered",
+        "whispers",
+        "muttered",
+        "mutters",
+        "shouted",
+        "shouts",
+        "called",
+        "calls",
+        "added",
+        "adds",
+    }
+)
 
 _WORD = re.compile(r"[a-z']+")
 
 
+def _is_action_beat(beat: str) -> bool:
+    """Whether one block-emphasis span is a stage direction rather than decoration.
+
+    Two tests, both about the span itself -- which is the half of the message whose
+    role is known under the reading being tested. A one-word span is an italicized
+    term (*poetry*, *CLANG!*) and says nothing about the convention; a stage
+    direction is always a clause ("smiles kindly at you"). And a span written from
+    inside the character is an inner thought, which is the competing convention
+    exactly: prose whose asterisks quote thought rather than mark action. Second
+    person is deliberately not interior -- narration addresses the reader constantly
+    ("smiles kindly at you") -- so this reads only the first-person markers, which
+    narration about a character does not use whatever person it is written in.
+    """
+    words = _WORD.findall(beat.lower())
+    return len(words) >= 2 and _INTERIOR.isdisjoint(words)
+
+
 def _has_action_beat(beats: list[str]) -> bool:
-    """Whether any block-emphasis span is a stage direction rather than decoration.
+    """Whether the asterisks are marking narration at all.
 
-    A one-word span is an italicized term (*poetry*, *CLANG!*) and says nothing about
-    the convention; an action beat is always a clause ("smiles kindly at you"). This
-    only has to be true once -- a message mixing both still marks its narration.
+    One is enough: a message mixing a stage direction with an italicized term still
+    marks its narration. A message whose only spans are inner thoughts gets no
+    reading here, which leaves both axes UNKNOWN and the turn untouched.
     """
-    return any(len(beat.split()) >= 2 for beat in beats)
+    return any(_is_action_beat(beat) for beat in beats)
 
 
-def _reads_as_speech(bare: str) -> bool:
-    """Whether the unmarked runs are the character talking, not narration about her.
+def _bare_runs_are_narration(bare: str) -> bool:
+    """Whether the unmarked runs are narration, which vetoes the bare-dialogue read.
 
-    Person is what separates the two conventions that share a markup shape. Unmarked
-    speech addresses someone ("it's my duty ... what brings you here?"); unmarked
-    narration describes the character ("her fingers spasming like she'd been
-    electrocuted"), and its asterisks are quoted thought, not action. Counting
-    pronouns is deliberately crude: no pronouns either way means no evidence, which
-    falls through to UNKNOWN and leaves the turn alone.
+    The complement of the span test, and the one that catches prose whose italic
+    aside happens to be written from outside ("*Everything had changed.*"). A run
+    that attributes a line ("she said") or that describes the character in the third
+    person ("her fingers spasming") is narration, so the asterisks are not the only
+    thing marking it and the unmarked text is not speech.
+
+    Stated as an absence rather than as a comparison. The earlier form weighed
+    first- and second-person words against third-person ones, which made a
+    first-person narrator's prose outvote its own third-person evidence and read as
+    speech -- the identical passage classified BARE with "my fingers" and UNKNOWN
+    with "her fingers". Asking only whether narration markers are PRESENT cannot
+    invert that way: a first-person narrator simply supplies no evidence here and
+    the span test above decides alone.
     """
-    words = _WORD.findall(bare.lower())
-    return sum(w in _FIRST_SECOND_PERSON for w in words) > sum(w in _THIRD_PERSON for w in words)
+    words = set(_WORD.findall(bare.lower()))
+    return not _THIRD_PERSON.isdisjoint(words) or not _ATTRIBUTION.isdisjoint(words)
 
 
 def classify_axes(text: str) -> AxisStyle:
@@ -213,7 +277,7 @@ def classify_axes(text: str) -> AxisStyle:
         dialogue = Dialogue.QUOTED
     elif narration == Narration.ASTERISK and bare_chars > 0:
         dialogue = Dialogue.BARE
-    elif bare_chars > 0 and _has_action_beat(beats) and _reads_as_speech(" ".join(bare_runs)):
+    elif bare_chars > 0 and _has_action_beat(beats) and not _bare_runs_are_narration(" ".join(bare_runs)):
         # Marked narration plus unmarked speech, under the coverage threshold. The
         # ratio undercounts it because the speech it is measuring against is not
         # narration at all, so the axes are set from the evidence instead: the
@@ -227,6 +291,35 @@ def classify_axes(text: str) -> AxisStyle:
         dialogue = Dialogue.UNKNOWN
 
     return AxisStyle(dialogue=dialogue, narration=narration)
+
+
+def narration_only(text: str, dialogue: Dialogue) -> str:
+    """*text* with its speech removed, under a known dialogue convention.
+
+    The one place that answers "which half of this message is the narrator
+    talking?", so that everything needing narration alone agrees on the answer.
+    Removing quotes is only correct under the quoted convention; under the bare
+    one the speech carries no markers at all and the asterisks are what is left of
+    the narrator, so the two conventions need opposite extractions and a caller
+    that hardcodes either one is wrong half the time.
+
+    UNKNOWN takes the quoted extraction. It is the safe default in the sense that
+    matters here: it removes what is certainly speech and keeps everything whose
+    role is undecided, so an unrecognized convention degrades to slightly noisy
+    narration rather than to none.
+    """
+    if dialogue != Dialogue.BARE:
+        return extract_narration(text)
+
+    beats: list[str] = []
+    for para in split_paragraphs(_strip_protected(text)):
+        spans = extract_block_spans(para)
+        for i, (typ, start, end) in enumerate(spans):
+            if typ == "EMPHASIS" and not _is_inline_emphasis(spans, i, para):
+                inner = _emphasis_inner(para[start:end])
+                if inner:
+                    beats.append(inner)
+    return " ".join(beats)
 
 
 def stable_label(values: list[_StyleT], unknown: _StyleT) -> _StyleT:
@@ -441,14 +534,23 @@ def normalize_to_baseline(
     baseline_messages: list[str] | None,
     *,
     enabled: bool,
+    target: AxisStyle | None = None,
 ) -> tuple[str, FormatDriftReport]:
-    """Normalize draft markup against recent assistant messages."""
+    """Normalize draft markup against recent assistant messages.
+
+    *target* is the window's convention when the caller has already resolved it.
+    A caller that also segments the window (the workflow's voice half needs the
+    dialogue axis to find the narration) passes the same object to both, so the
+    two halves cannot answer the question differently; omitted, it is derived
+    here as before.
+    """
     if not enabled:
         return draft, FormatDriftReport(None, None, False, "disabled")
     if not draft or not draft.strip() or not baseline_messages:
         return draft, FormatDriftReport(None, None, False, "no baseline")
 
-    target = baseline_axes(baseline_messages)
+    if target is None:
+        target = baseline_axes(baseline_messages)
     if target.dialogue == Dialogue.UNKNOWN and target.narration == Narration.UNKNOWN:
         return draft, FormatDriftReport(None, target, False, "baseline unstable")
 

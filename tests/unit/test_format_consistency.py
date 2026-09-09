@@ -503,6 +503,46 @@ def test_italic_thoughts_in_prose_are_not_read_as_bare_dialogue():
     _assert_unchanged(draft, ['She smiles. "Hello there."'])
 
 
+def test_the_same_passage_classifies_the_same_in_first_and_third_person():
+    """Person and convention are orthogonal, so changing only the narrator's person
+    must not change the markup answer.
+
+    The regression: the sub-threshold reading used to weigh first/second-person
+    words against third-person ones, so prose narration that said "my fingers"
+    outvoted its own italic-thought evidence and read as bare dialogue -- while the
+    identical passage saying "her fingers" read as UNKNOWN. Against a quotes
+    baseline that misread wrapped the narration in quotes and unwrapped the thought,
+    turning narration into speech.
+    """
+    thought = "*He still likes me. He really does.*"
+    third = f"Sayori's phone slips from her numb fingers.\n\n{thought}\n\nThe thought is not a comfort."
+    first = f"My phone slips from my numb fingers.\n\n{thought}\n\nThe thought is not a comfort."
+
+    assert classify_axes(third) == classify_axes(first)
+    assert classify_axes(first).dialogue == Dialogue.UNKNOWN
+    # And the no-op that follows from it, which is what the reader actually loses.
+    for draft in (third, first):
+        _assert_unchanged(draft, ['She smiles. "Hello there."'])
+
+
+def test_an_italic_aside_written_from_outside_is_still_not_bare_dialogue():
+    """The span test alone would pass this: "Everything had changed." is a clause
+    with no first-person marker. The bare runs veto it instead -- they describe the
+    character in the third person, so they are narration and the asterisks are not
+    the only thing marking it."""
+    draft = "She walked to the window. *Everything had changed.* The street below was empty."
+    assert classify_axes(draft).dialogue == Dialogue.UNKNOWN
+    _assert_unchanged(draft, ['She smiles. "Hello there."'])
+
+
+def test_an_attributed_line_in_the_bare_runs_vetoes_the_bare_dialogue_read():
+    """The person-free half of the veto, and the one that still works when the
+    narrator is first person: a speaker cannot attribute her own line from inside
+    it, so "I said" marks the run around it as narration."""
+    draft = "I set the cup down. *This was going badly.* Fine, I said, and looked away."
+    assert classify_axes(draft).dialogue == Dialogue.UNKNOWN
+
+
 def test_a_talkative_bare_dialogue_baseline_still_sets_the_axes():
     # The reported case. The greeting is mostly unmarked speech with one short action
     # beat, so the coverage ratio reads it as 13% asterisked -- nowhere near the
