@@ -24,7 +24,11 @@ import pytest
 
 from backend.database import set_workflow_enabled
 from backend.workflows import set_workflow_config
-from backend.workflows.format_consistency import voice
+from backend.workflows.format_consistency import (
+    VOICE_REWRITE_LENGTH_RULE,
+    VOICE_REWRITE_TOOL_NAME,
+    voice,
+)
 
 # Third/past baseline, second/present draft -> a drift the hook must repair.
 BASELINE = "She smiles and steps back. The woods were quiet that evening."
@@ -84,14 +88,14 @@ async def test_voice_rewrite_carries_no_conversation(client, llm_mock, voice_on)
 
     llm_mock.enqueue_director([{"id": "c1", "type": "function", "function": {"name": "direct_scene", "arguments": "{}"}}])
     llm_mock.enqueue_writer(DRIFTING_DRAFT)
-    llm_mock.enqueue_editor(
+    llm_mock.enqueue_workflow(
         {
             "tool_calls": [
                 {
                     "id": "c2",
                     "type": "function",
                     "function": {
-                        "name": "editor_rewrite",
+                        "name": VOICE_REWRITE_TOOL_NAME,
                         "arguments": json.dumps({"rewritten_text": REWRITTEN}),
                     },
                 }
@@ -105,15 +109,16 @@ async def test_voice_rewrite_carries_no_conversation(client, llm_mock, voice_on)
 
     by_pass = {c["pass"]: c for c in llm_mock.captured}
     # The rewrite actually ran; without it the rest of this proves nothing.
-    assert "editor" in by_pass, f"voice rewrite never fired (passes: {sorted(by_pass)})"
+    assert "workflow" in by_pass, f"voice rewrite never fired (passes: {sorted(by_pass)})"
 
-    rewrite = by_pass["editor"]
+    rewrite = by_pass["workflow"]
     director = by_pass["director"]
-    assert rewrite["tool_choice"] == {"type": "function", "function": {"name": "editor_rewrite"}}
+    assert rewrite["tool_choice"] == {"type": "function", "function": {"name": VOICE_REWRITE_TOOL_NAME}}
 
     # Only the forced tool. Shipping the turn's blob is what used to append a
     # schema the Director and Writer had not sent.
-    assert names_of(rewrite) == ["editor_rewrite"]
+    assert names_of(rewrite) == [VOICE_REWRITE_TOOL_NAME]
+    assert VOICE_REWRITE_LENGTH_RULE in rewrite["tools"][0]["function"]["description"]
 
     # Its own prefix, and a short one: no system message, history or scene from
     # the turn. This is the token saving and the divergence-proofing at once.
@@ -129,9 +134,9 @@ async def test_voice_rewrite_carries_no_conversation(client, llm_mock, voice_on)
 async def test_voice_off_leaves_the_turn_untouched(client, llm_mock, voice_on):
     """Opt-in, and invisible to the turn when off: no extra call, no extra schema.
 
-    The turn's own blob never carried editor_rewrite here (the length guard is the
-    only feature that puts it there, and it is off), which is the configuration the
-    append used to fire in.
+    The workflow's standalone schema never enters the turn's blob. The old shared
+    editor_rewrite schema was also absent here because the length guard is off,
+    which is the configuration where the append used to fire.
     """
     cid = await _seed(client)
     await set_workflow_config("format_consistency", {"voice_consistency": False})
@@ -144,8 +149,8 @@ async def test_voice_off_leaves_the_turn_untouched(client, llm_mock, voice_on):
     _ = send.text
 
     by_pass = {c["pass"]: c for c in llm_mock.captured}
-    assert "editor" not in by_pass
-    assert "editor_rewrite" not in names_of(by_pass["director"])
+    assert "workflow" not in by_pass
+    assert VOICE_REWRITE_TOOL_NAME not in names_of(by_pass["director"])
 
 
 async def test_the_rewrite_prompt_does_not_grow_with_history(client, llm_mock, voice_on):
@@ -162,13 +167,16 @@ async def test_the_rewrite_prompt_does_not_grow_with_history(client, llm_mock, v
     def _queue_turn() -> None:
         llm_mock.enqueue_director([{"id": "c1", "type": "function", "function": {"name": "direct_scene", "arguments": "{}"}}])
         llm_mock.enqueue_writer(DRIFTING_DRAFT)
-        llm_mock.enqueue_editor(
+        llm_mock.enqueue_workflow(
             {
                 "tool_calls": [
                     {
                         "id": "c2",
                         "type": "function",
-                        "function": {"name": "editor_rewrite", "arguments": json.dumps({"rewritten_text": REWRITTEN})},
+                        "function": {
+                            "name": VOICE_REWRITE_TOOL_NAME,
+                            "arguments": json.dumps({"rewritten_text": REWRITTEN}),
+                        },
                     }
                 ]
             }
@@ -181,7 +189,7 @@ async def test_the_rewrite_prompt_does_not_grow_with_history(client, llm_mock, v
         send = await client.post(f"/api/conversations/{cid}/send", json={"content": msg, "attachments": []})
         assert send.status_code == 200
         _ = send.text
-        rewrites.append(next(c for c in llm_mock.captured[start:] if c["pass"] == "editor"))
+        rewrites.append(next(c for c in llm_mock.captured[start:] if c["pass"] == "workflow"))
 
     first, second = rewrites
     # The second turn's Director has grown; the second turn's rewrite has not.

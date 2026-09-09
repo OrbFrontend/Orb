@@ -5,9 +5,37 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ..toolkit import Workflow
+from ..toolkit import ToolSpec, Workflow
 
 WORKFLOW_ID = "format_consistency"
+VOICE_REWRITE_TOOL_NAME = "voice_rewrite"
+VOICE_REWRITE_LENGTH_RULE = "Keep the rewrite the same length as the passage. Do not add, expand, or trim."
+
+VOICE_REWRITE_TOOL = ToolSpec(
+    name=VOICE_REWRITE_TOOL_NAME,
+    schema={
+        "type": "function",
+        "function": {
+            "name": VOICE_REWRITE_TOOL_NAME,
+            "description": (
+                "Restate the entire passage in the requested narrative voice and change nothing else. "
+                f"{VOICE_REWRITE_LENGTH_RULE} Preserve every story beat, line of dialogue, the author's vocabulary, "
+                "and all formatting."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "rewritten_text": {
+                        "type": "string",
+                        "description": "The entire passage restated only in the requested narrative voice.",
+                    }
+                },
+                "required": ["rewritten_text"],
+            },
+        },
+    },
+    choice={"type": "function", "function": {"name": VOICE_REWRITE_TOOL_NAME}},
+)
 
 # One boolean, so it is declared here rather than in a config.py module of its
 # own (the same call image_gen's declaration makes for a much larger schema).
@@ -40,6 +68,7 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
 format_consistency_workflow = Workflow(
     id=WORKFLOW_ID,
     display_name="Format Consistency",
+    tools=[VOICE_REWRITE_TOOL],
     config_schema=CONFIG_SCHEMA,
     config_defaults=CONFIG_DEFAULTS,
     config_normalizer=normalize_config,

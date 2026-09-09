@@ -21,7 +21,13 @@ import pytest
 
 from backend.analysis import AxisStyle, Dialogue, Narration
 from backend.workflows import PostCtx
-from backend.workflows.format_consistency import hooks, voice
+from backend.workflows.format_consistency import (
+    VOICE_REWRITE_LENGTH_RULE,
+    VOICE_REWRITE_TOOL,
+    VOICE_REWRITE_TOOL_NAME,
+    hooks,
+    voice,
+)
 
 # A single QUOTED-convention baseline; an asterisk-narration draft drifts from it
 # and is rewritten (lifted from the pure-logic suite's inversion case).
@@ -199,6 +205,18 @@ def _forced_call(monkeypatch, rewritten: str) -> list[dict]:
     return calls
 
 
+def test_voice_rewrite_declares_its_own_compatible_standalone_schema():
+    function = VOICE_REWRITE_TOOL.schema["function"]
+
+    assert VOICE_REWRITE_TOOL.name == VOICE_REWRITE_TOOL_NAME
+    assert VOICE_REWRITE_TOOL.standalone is True
+    assert function["name"] == VOICE_REWRITE_TOOL_NAME
+    assert VOICE_REWRITE_LENGTH_RULE in function["description"]
+    assert VOICE_REWRITE_LENGTH_RULE in hooks._SYSTEM
+    assert "audit" not in function["description"].lower()
+    assert "length constraint" not in function["description"].lower()
+
+
 async def test_voice_drift_and_markup_drift_compose_into_one_event(monkeypatch):
     # The hook has a one-draft_replaced budget (the bridge warns and drops a
     # second), so the LLM rewrite and the algorithmic markup fix must arrive
@@ -228,7 +246,7 @@ async def test_the_rewrite_runs_on_the_agent_lane(monkeypatch):
     [call] = calls
     assert call["client"] is AGENT_CLIENT
     assert call["model_name"] == "agent-model"
-    assert call["tool_name"] == "editor_rewrite"
+    assert call["tool_name"] == VOICE_REWRITE_TOOL_NAME
 
 
 async def test_the_rewrite_is_a_self_contained_lane(monkeypatch):
@@ -242,7 +260,7 @@ async def test_the_rewrite_is_a_self_contained_lane(monkeypatch):
     #
     # It cannot diverge from the turn's tool blob, because it does not use it.
     # enabled_tools=None is forced_tool_call's "ship the forced tool alone"; passing
-    # ctx.enabled_tools would make it append editor_rewrite to an array the
+    # ctx.enabled_tools would make it append voice_rewrite to an array the
     # Director and Writer had already sent without it, and a tools region that
     # renders ahead of history evicts the conversation behind it.
     _voice_on(monkeypatch)

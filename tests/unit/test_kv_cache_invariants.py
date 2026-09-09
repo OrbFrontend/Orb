@@ -1020,12 +1020,12 @@ def test_a_later_call_compares_against_its_own_lane(caplog):
     agent, writer = "https://api.example.com/v1", "http://localhost:8080/v1"
     _entry(tracker, "director:direct_scene", "SHARED-AGENT-BODY", endpoint=agent)
     _entry(tracker, "writer", "different writer body", endpoint=writer)
-    _entry(tracker, "forced:editor_rewrite", "SHARED-AGENT-BODY-plus", endpoint=agent)
+    _entry(tracker, "forced:voice_rewrite", "SHARED-AGENT-BODY-plus", endpoint=agent)
 
     with caplog.at_level(logging.INFO, logger="backend.inference.kv_tracker"):
         tracker.log_summary()
 
-    rewrite_row = next(line for line in caplog.text.splitlines() if "forced:editor_rewrite" in line)
+    rewrite_row = next(line for line in caplog.text.splitlines() if "forced:voice_rewrite" in line)
     assert "vs 'director:direct_scene'" in rewrite_row
     assert "vs 'writer'" not in rewrite_row
 
@@ -1037,7 +1037,7 @@ def test_a_standalone_shape_cannot_break_the_shared_group_exchange_lane(caplog):
     _entry(tracker, "writer", "conversation-prefix-plus-writer")
     _entry(
         tracker,
-        "forced:editor_rewrite",
+        "forced:voice_rewrite",
         "short-rewrite-prefix",
         shape="format_consistency:voice_rewrite",
     )
@@ -1049,7 +1049,7 @@ def test_a_standalone_shape_cannot_break_the_shared_group_exchange_lane(caplog):
     rows = [line for line in caplog.text.splitlines() if "  provider:" in line]
     second_director = rows[-1]
     assert "vs 'writer'" in second_director
-    assert "vs 'forced:editor_rewrite'" not in second_director
+    assert "vs 'forced:voice_rewrite'" not in second_director
     assert "L2=m@local [format_consistency:voice_rewrite]" in caplog.text
 
 

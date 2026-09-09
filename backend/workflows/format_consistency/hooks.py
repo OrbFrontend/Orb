@@ -14,14 +14,17 @@ from ..toolkit import (
     get_workflow_config,
     normalize_to_baseline,
 )
-from . import WORKFLOW_ID, normalize_config
+from . import (
+    VOICE_REWRITE_LENGTH_RULE,
+    VOICE_REWRITE_TOOL_NAME,
+    WORKFLOW_ID,
+    normalize_config,
+)
 from .voice import classifier_ready, classify, drift, labels_for, target
 
 logger = logging.getLogger(__name__)
 
 BASELINE_WINDOW = 3
-
-VOICE_TOOL = "editor_rewrite"
 
 # The rewrite runs on its own lane rather than extending the turn's prompt: a
 # voice restatement is a closed transform over the draft, so the scene, the cast
@@ -41,13 +44,15 @@ _SYSTEM = (
     "RULES:\n"
     "- Change ONLY the narrative voice. Keep every story beat, every line of "
     "dialogue, the author's vocabulary, and all formatting exactly as they are.\n"
-    "- Keep the rewrite the same length as the passage. Do not add, expand, or trim.\n"
+    f"- {VOICE_REWRITE_LENGTH_RULE}\n"
     "- Restate the whole passage, not an excerpt.\n"
     "- Pronouns and names already in the passage keep their referents. Do not "
     "introduce a character, a name, or a detail the passage does not contain."
 )
 
-_INSTRUCTION = "Restate the passage below in {voice}. Call `editor_rewrite` with the result.\n\nPASSAGE:\n{draft}"
+_INSTRUCTION = (
+    f"Restate the passage below in {{voice}}. Call `{VOICE_REWRITE_TOOL_NAME}` with the result.\n\nPASSAGE:\n{{draft}}"
+)
 
 
 def _baseline_window(history) -> list[Mapping[str, Any]]:
@@ -93,7 +98,7 @@ async def _voice_rewrite(ctx, text: str, phrases: list[str]) -> str:
 
     The lane is its own, not the turn's, which is the point: ``prefix`` here is a
     constant rather than ``ctx.agent_prefix``, and ``enabled_tools=None`` ships
-    ``[editor_rewrite]`` alone instead of the turn's blob. Nothing about this call
+    ``[voice_rewrite]`` alone instead of the turn's blob. Nothing about this call
     has to match what the Director and Writer sent, so nothing about it can
     diverge from them either -- the failure mode a shared lane invites, where a
     forced tool the turn's blob never declared appends a schema and evicts the
@@ -112,7 +117,7 @@ async def _voice_rewrite(ctx, text: str, phrases: list[str]) -> str:
                 "content": _INSTRUCTION.format(voice=" and ".join(phrases), draft=text),
             }
         ],
-        tool_name=VOICE_TOOL,
+        tool_name=VOICE_REWRITE_TOOL_NAME,
         settings=ctx.settings,
         model_name=ctx.agent_model_name or None,
         # None, not ctx.enabled_tools: forced_tool_call reads that as "ship the
