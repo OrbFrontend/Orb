@@ -386,13 +386,13 @@ def test_genuine_asterisk_convention_draft_is_not_misread_as_full_markup():
 # ---------- a draft split between the two narration conventions ----------
 # The reported case: the model was told to wrap narration in asterisks, the baseline
 # had none, and the draft came back roughly half-and-half. That ratio lands in the
-# ``classify_axes`` dead band, so the draft's own narration axis reads UNKNOWN -- which
-# used to abort the narration rewrite entirely and leave every asterisk in place.
-# An unsettled draft is the drift this pass exists to repair, not a reason to skip it.
+# ``classify_axes`` dead band, so the draft's own narration axis reads UNKNOWN.
 #
-# The limit of that is a dead-band draft with no quotes either: there the asterisks are
-# the only thing separating action from unquoted speech, so they stay put. See
-# test_italic_thoughts_in_prose_are_not_read_as_bare_dialogue below.
+# The two directions out of that band are not equally safe, so the normalizer treats
+# them differently. Wrapping the unmarked runs completes a draft that was going that
+# way anyway and leaves the marked spans alone. Unwrapping the marked ones is a guess
+# about what they mean -- an action beat and an italic thought have the same shape --
+# so the dead band is taken at its word and the draft is left as it is.
 
 HALF_ASTERISKED_DRAFT = (
     "Amaryllis blinked, caught off guard by how serious the question was.\n\n"
@@ -409,18 +409,20 @@ def test_half_asterisked_draft_classifies_into_the_dead_band():
     assert classify_axes(HALF_ASTERISKED_DRAFT).narration == Narration.UNKNOWN
 
 
-def test_half_asterisked_draft_is_stripped_against_a_bare_narration_baseline():
-    base = [
-        'She set the book down. "I told you I would," she said softly.',
-        'He crossed the room in three steps. "Then prove it," he whispered.',
-        'She looked away. "It doesnae matter," she muttered.',
-    ]
-    new, rep = normalize_to_baseline(HALF_ASTERISKED_DRAFT, base, enabled=True)
-    assert rep.changed
-    assert "*" not in new
-    # Quoted dialogue is the other axis and already matched: it survives untouched.
-    assert '"Battle scenes?"' in new
-    assert "she asked, her accent lilting." in new
+BARE_NARRATION_BASELINE = [
+    'She set the book down. "I told you I would," she said softly.',
+    'He crossed the room in three steps. "Then prove it," he whispered.',
+    'She looked away. "It doesnae matter," she muttered.',
+]
+
+
+def test_half_asterisked_draft_is_left_alone_against_a_bare_narration_baseline():
+    # The destructive direction, and the one the dead band has to veto. Every
+    # ``*...*`` here happens to be an action beat, but nothing in the text says so:
+    # the same shape carries an italic thought two tests down, and unwrapping
+    # cannot tell the two apart. So the draft keeps its markers and the drift with
+    # them -- a missed repair rather than a mangled reply.
+    _assert_unchanged(HALF_ASTERISKED_DRAFT, BARE_NARRATION_BASELINE)
 
 
 def test_half_asterisked_draft_is_completed_against_an_asterisk_baseline():
@@ -654,3 +656,43 @@ def test_stable_label_needs_two_occurrences_not_just_a_plurality():
 
 def test_stable_label_rejects_an_even_split():
     assert stable_label(["past", "present"], "ambiguous") == "ambiguous"
+
+
+# ---------- unknown narration is never unwrapped ----------
+# The asymmetry, stated on its own. A `*...*` span in a draft whose narration axis
+# is UNKNOWN may be a stage direction or an italic thought, and this module has no
+# semantics to tell them apart -- so the direction that deletes markers stops at
+# the dead band while the direction that adds them does not.
+
+THOUGHT_IN_QUOTED_PROSE = 'She crossed the room slowly. *He still loves me. He has to.* "Good night," she said.'
+
+
+def test_a_thought_in_an_unsettled_draft_survives_a_bare_narration_baseline():
+    # Quoted dialogue, so the dialogue axis is confident -- which used to be enough
+    # to license the strip and turn the thought into ordinary narration.
+    style = classify_axes(THOUGHT_IN_QUOTED_PROSE)
+    assert style.dialogue == Dialogue.QUOTED
+    assert style.narration == Narration.UNKNOWN
+
+    _assert_unchanged(THOUGHT_IN_QUOTED_PROSE, BARE_NARRATION_BASELINE)
+
+
+def test_a_settled_bare_narration_draft_is_still_stripped():
+    # The veto is the dead band's, not a blanket one: a draft that did settle on
+    # asterisk narration still loses it against a bare-narration baseline.
+    draft = '*He steps inside, shaking off the rain.* "Quite a storm out there," he says.'
+    assert classify_axes(draft).narration == Narration.ASTERISK
+    new, rep = normalize_to_baseline(draft, BARE_NARRATION_BASELINE, enabled=True)
+    assert rep.changed
+    assert "*" not in new
+
+
+def test_wrapping_bare_narration_does_not_swallow_a_marked_span():
+    # The additive direction stays additive. All three spans share the narration
+    # role, so grouping them into one run would hand `_wrap_asterisks` a range
+    # whose inner markers it strips -- merging a thought into the narration around
+    # it while claiming to add markup.
+    draft = 'She walked. *He still loves me.* She stopped. "Hello," she said.'
+    new, rep = normalize_to_baseline(draft, FULL_MARKUP_BASELINE, enabled=True)
+    assert rep.changed
+    assert new == '*She walked.* *He still loves me.* *She stopped.* "Hello," *she said.*'

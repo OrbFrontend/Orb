@@ -375,7 +375,7 @@ def _rewrite_paragraph(
                 i += 1
                 continue
             if target_narration == Narration.ASTERISK and typ == "NARRATION":
-                run_end = _group_run(spans, i, src, "NARRATION", para)
+                run_end = _group_run(spans, i, src, "NARRATION", para, only_type="NARRATION")
                 out.append(_wrap_asterisks(para[s : spans[run_end][2]]))
                 i = run_end + 1
                 continue
@@ -385,12 +385,33 @@ def _rewrite_paragraph(
     return "".join(out)
 
 
-def _group_run(spans: list[tuple[str, int, int]], i: int, src: AxisStyle, role: str, para: str) -> int:
-    """Return the last span in the same-role run starting at *i*."""
+def _group_run(
+    spans: list[tuple[str, int, int]],
+    i: int,
+    src: AxisStyle,
+    role: str,
+    para: str,
+    *,
+    only_type: str | None = None,
+) -> int:
+    """Return the last span in the same-role run starting at *i*.
+
+    *only_type* stops the run at a span of any other type, which is what keeps a
+    wrap additive: ``She walked. *He still loves me.* She stopped.`` shares one
+    role across all three spans, and grouping them would hand ``_wrap_asterisks``
+    a range whose inner markers it strips. Restricted to bare narration, the run
+    ends at the marked span and the three are wrapped as three.
+
+    Inline emphasis is always absorbed regardless: it is a fragment of the run it
+    sits inside, not a span of its own.
+    """
     j = i
     while j + 1 < len(spans):
+        typ2 = spans[j + 1][0]
         r2 = _role(spans, j + 1, src.dialogue, para)
-        if r2 == role or r2 == "EMPHASIS_INLINE":
+        if r2 == "EMPHASIS_INLINE":
+            j += 1
+        elif r2 == role and (only_type is None or typ2 == only_type):
             j += 1
         else:
             break
@@ -428,24 +449,30 @@ def _rewrite(draft: str, src: AxisStyle, target: AxisStyle) -> str:
     change_dialogue = (
         target.dialogue != Dialogue.UNKNOWN and eff_dialogue != Dialogue.UNKNOWN and target.dialogue != eff_dialogue
     )
-    # An unsettled draft is the case this pass exists for, so a source in the
-    # ``classify_axes`` dead band does not by itself block the narration axis: the
-    # band answers "has this settled on a convention?", which is the right question
-    # for a baseline vote and the wrong one for a draft. A half-asterisked draft
-    # lands there, and skipping it left the drift in place.
+    # The narration axis is not symmetric, because its two directions do not risk
+    # the same thing.
     #
-    # What must be known instead is the dialogue convention, because that is what
-    # decides whether the markers are load-bearing. With quotes present (or bare
-    # runs already read as speech) the asterisks only mark narration, so adding or
-    # removing them is lossless. With the dialogue axis UNKNOWN -- no quotes, and
-    # no confident asterisk convention to read the bare runs against -- the
-    # asterisks are the only thing separating action from unquoted speech, and
-    # stripping them would erase the distinction rather than normalize it.
-    change_narration = target.narration != Narration.UNKNOWN and (
-        src.narration != Narration.UNKNOWN or eff_dialogue != Dialogue.UNKNOWN
-    )
-
-    if change_narration and target.narration == Narration.ASTERISK and eff_dialogue != Dialogue.QUOTED:
+    # Removing markers destroys information. A ``*...*`` span is an action beat in
+    # one convention and an italic thought in another, and nothing here can read
+    # which -- so when the draft's own narration axis lands in the ``classify_axes``
+    # dead band, unwrapping is a guess that silently turns thought into narration:
+    #
+    #     She crossed the room. *He still loves me.* "Good night," she said.
+    #
+    # That draft is UNKNOWN narration under a quoted dialogue axis, and stripping
+    # it against a bare-narration baseline erases the thought. The dead band is
+    # exactly the "we cannot tell" answer, so the destructive direction honours it.
+    #
+    # Adding markers does not. Wrapping an unmarked run marks narration that was
+    # already narration, and spans that carry their own markers are left alone
+    # (see ``_group_run``). What that direction needs instead is proof the
+    # unmarked runs are not speech, which only quoted dialogue gives: without it
+    # a wrap would promote an unquoted line to a stage direction.
+    if target.narration == Narration.BARE:
+        change_narration = src.narration != Narration.UNKNOWN
+    elif target.narration == Narration.ASTERISK:
+        change_narration = eff_dialogue == Dialogue.QUOTED
+    else:
         change_narration = False
 
     if not (change_dialogue or change_narration):
