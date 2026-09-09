@@ -39,7 +39,7 @@ registerWorkflowToolsPanelCard(
     <div class="lg-config">
       <label class="lg-enforce-label" title="Also match the point of view and tense of replies to your recent messages. Costs one LLM call on turns that drift.">
         <input type="checkbox"${state.voiceOn ? " checked" : ""} data-wf-action="${WORKFLOW_ID}:toggleVoice" data-wf-on="change">
-        Keep POV and tense
+        Also keep POV and tense
       </label>${
         // Read at render time, not cached from a load-time fetch: the Local ML
         // card repaints this panel when Auto-POV is downloaded or toggled, so
