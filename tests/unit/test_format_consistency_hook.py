@@ -19,7 +19,14 @@ from types import MappingProxyType
 
 import pytest
 
-from backend.analysis.format_consistency import AxisStyle, Dialogue, Narration
+from backend.analysis.format_consistency import (
+    AxisStyle,
+    Dialogue,
+    Narration,
+    baseline_axes,
+    classify_axes,
+    narration_only,
+)
 from backend.workflows import PostCtx
 from backend.workflows.format_consistency import (
     VOICE_REWRITE_LENGTH_RULE,
@@ -120,8 +127,15 @@ async def test_no_yield_when_no_assistant_baseline():
     assert events == []
 
 
-async def test_one_baseline_convention_drives_voice_and_markup(monkeypatch):
-    """The two repairs must not independently reinterpret the same window."""
+async def test_the_aggregate_convention_only_reaches_the_markup_target(monkeypatch):
+    """The window's convention is the rewrite target, never a parser for a source.
+
+    Handing it to the voice half is the source/target conflation this workflow
+    was built with: a bare-dialogue baseline made ``narration_only`` return ""
+    for a quoted draft, which reports ambiguous and hides the drift. So the
+    aggregate has exactly one consumer, and the voice half is handed no
+    convention at all -- it reads each text's own.
+    """
     _voice_on(monkeypatch)
     convention = AxisStyle(Dialogue.QUOTED, Narration.BARE)
     baseline_calls: list[list[str]] = []
@@ -130,8 +144,7 @@ async def test_one_baseline_convention_drives_voice_and_markup(monkeypatch):
         baseline_calls.append(messages)
         return convention
 
-    async def fake_hold(ctx, text, window, received):
-        assert received is convention
+    async def fake_hold(ctx, text, window):
         return text
 
     class Unchanged:
@@ -517,8 +530,9 @@ async def test_bare_dialogue_is_removed_before_voice_classification(monkeypatch)
 
 @pytest.mark.parametrize("cached_dialogue", [None, "quoted"])
 async def test_labels_are_reclassified_when_the_cached_convention_differs(monkeypatch, cached_dialogue):
-    """Legacy cache rows and rows shaped under another dialogue axis are stale."""
-    convention = AxisStyle(Dialogue.BARE, Narration.ASTERISK)
+    """Legacy cache rows, and rows a previous build shaped under the window's
+    aggregate convention, are stale: the row records the convention the message
+    reads as on its own, and this message reads as bare dialogue."""
     msg = {
         "id": 7,
         "role": "assistant",
@@ -540,7 +554,8 @@ async def test_labels_are_reclassified_when_the_cached_convention_differs(monkey
     monkeypatch.setattr(voice, "get_workflow_message_state", cached)
     monkeypatch.setattr(voice, "set_workflow_message_state", record)
 
-    assert await voice.labels_for(msg, convention) == THIRD_PAST
+    assert classify_axes(msg["content"]).dialogue == Dialogue.BARE
+    assert await voice.labels_for(msg) == THIRD_PAST
     assert seen == ["Monika waits by the desk."]
     assert written == [
         {
@@ -554,7 +569,6 @@ async def test_labels_are_reclassified_when_the_cached_convention_differs(monkey
 
 
 async def test_labels_are_reclassified_when_message_content_changes(monkeypatch):
-    convention = AxisStyle(Dialogue.QUOTED, Narration.BARE)
     msg = {"id": 7, "role": "assistant", "content": QUOTED_BASELINE}
     seen = _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST})
     written: list[dict] = []
@@ -573,14 +587,12 @@ async def test_labels_are_reclassified_when_message_content_changes(monkeypatch)
     monkeypatch.setattr(voice, "get_workflow_message_state", stale)
     monkeypatch.setattr(voice, "set_workflow_message_state", record)
 
-    assert await voice.labels_for(msg, convention) == THIRD_PAST
+    assert await voice.labels_for(msg) == THIRD_PAST
     assert seen == [QUOTED_BASELINE_NARRATION]
     assert written[0]["content_sha256"] == voice._content_digest(QUOTED_BASELINE)
 
 
 async def test_classifier_failure_is_not_cached(monkeypatch):
-    convention = AxisStyle(Dialogue.QUOTED, Narration.BARE)
-
     async def empty(message_id, workflow_id):
         return None
 
@@ -595,4 +607,118 @@ async def test_classifier_failure_is_not_cached(monkeypatch):
     monkeypatch.setattr(voice, "classify_pov_tense", boom)
 
     msg = {"id": 7, "role": "assistant", "content": QUOTED_BASELINE}
-    assert await voice.labels_for(msg, convention) is None
+    assert await voice.labels_for(msg) is None
+
+
+# ---------- source parsing: every text under its own convention ----------
+# The window's aggregate answers "what should the reply look like?"; it cannot
+# also answer "how is this text written?" without erasing the difference between
+# the two, which is the only thing a drift is.
+
+
+async def test_a_quoted_draft_is_parsed_as_quoted_in_a_bare_dialogue_chat(monkeypatch):
+    """The reported P1. The baseline is bare dialogue, so reading the draft under
+    it looks for asterisk beats -- and a draft that has none yields "", which the
+    classifier calls ambiguous. The drift the pass exists for goes unseen."""
+    _voice_on(monkeypatch)
+    baseline = "*She smiles, stepping back toward the window.* Hello there."
+    draft = 'You step closer, watching him. "Are you sure about this?"'
+    draft_narration = "You step closer, watching him."
+
+    assert baseline_axes([baseline]).dialogue == Dialogue.BARE
+    assert narration_only(draft, Dialogue.BARE) == ""  # what the old code passed on
+
+    seen = _classifier(
+        monkeypatch,
+        {"She smiles, stepping back toward the window.": THIRD_PAST, draft_narration: SECOND_PRESENT},
+    )
+    calls = _forced_call(monkeypatch, "*She steps closer, watching him.* Are you sure about this?")
+
+    await _collect(_ctx(draft, [{"role": "assistant", "content": baseline}]))
+
+    assert seen == ["She smiles, stepping back toward the window.", draft_narration]
+    assert len(calls) == 1  # the drift was seen, not swallowed
+
+
+async def test_a_bare_dialogue_draft_keeps_its_speech_out_of_the_classifier(monkeypatch):
+    """The mirror direction. Under the quoted baseline's convention the draft has
+    no quotes to remove, so its unmarked speech would reach the classifier and
+    vote on the narrator's person."""
+    _voice_on(monkeypatch)
+    draft = "*She waits by the desk.* Tell me, what brings you here today?"
+
+    assert classify_axes(draft).dialogue == Dialogue.BARE
+    seen = _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, "She waits by the desk.": THIRD_PAST})
+    calls = _forced_call(monkeypatch, "should not be used")
+
+    await _collect(_ctx(draft, [{"role": "assistant", "content": QUOTED_BASELINE}]))
+
+    assert seen == [QUOTED_BASELINE_NARRATION, "She waits by the desk."]
+    assert calls == []  # both ends third/past: no drift, and no speech voted
+
+
+async def test_each_history_row_is_classified_under_its_own_convention(monkeypatch):
+    """A window mid-drift holds both conventions at once. Each row's narration has
+    to be found with the row's own parser, or the majority vote is taken over
+    labels read from the wrong spans."""
+    _voice_on(monkeypatch)
+    bare_row = "*She smiles, stepping back toward the window.* Hello there."
+    quoted_row = 'He nods slowly. "I understand," he replies.'
+
+    assert classify_axes(bare_row).dialogue == Dialogue.BARE
+    assert classify_axes(quoted_row).dialogue == Dialogue.QUOTED
+
+    seen = _classifier(
+        monkeypatch,
+        {
+            "She smiles, stepping back toward the window.": THIRD_PAST,
+            CONSISTENT_NARRATION: THIRD_PAST,
+            VOICE_DRIFTING_NARRATION: SECOND_PRESENT,
+        },
+    )
+    _forced_call(monkeypatch, CONSISTENT_DRAFT)
+
+    history = [
+        {"role": "assistant", "content": quoted_row},
+        {"role": "assistant", "content": bare_row},
+    ]
+    await _collect(_ctx(VOICE_DRIFTING_DRAFT, history))
+
+    # Newest first: the bare row gives up its action beat, the quoted row its
+    # narration outside the quotes. Neither was read through the other's parser.
+    assert seen == [
+        "She smiles, stepping back toward the window.",
+        CONSISTENT_NARRATION,
+        VOICE_DRIFTING_NARRATION,
+    ]
+
+
+async def test_a_changed_window_majority_does_not_invalidate_a_cached_row(monkeypatch):
+    """Cache identity is the row's content and its own convention, so a row that
+    did not change keeps its labels when the messages around it do. Keying on the
+    window's aggregate churned every cached row whenever the majority moved."""
+    _voice_on(monkeypatch)
+    row = {"id": 7, "role": "assistant", "content": QUOTED_BASELINE}
+    cache = {
+        "pov": "third",
+        "tense": "past",
+        "dialogue": "quoted",
+        "content_sha256": voice._content_digest(QUOTED_BASELINE),
+    }
+
+    async def cached(message_id, workflow_id):
+        return cache
+
+    async def no_write(message_id, workflow_id, payload):
+        raise AssertionError("an unchanged message must not be reclassified")
+
+    monkeypatch.setattr(voice, "get_workflow_message_state", cached)
+    monkeypatch.setattr(voice, "set_workflow_message_state", no_write)
+    seen = _classifier(monkeypatch, {})
+
+    # Same row, two windows whose majority convention differs.
+    for neighbour in (CONSISTENT_DRAFT, ASTERISK_MSG):
+        assert await voice.labels_for(row) == THIRD_PAST
+        assert baseline_axes([QUOTED_BASELINE, neighbour]) is not None
+
+    assert seen == []

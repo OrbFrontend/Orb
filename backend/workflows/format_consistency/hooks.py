@@ -8,7 +8,6 @@ from typing import Any
 
 from ..toolkit import (
     EV_DRAFT_REPLACED,
-    AxisStyle,
     baseline_axes,
     forced_tool_call,
     get_workflow_config,
@@ -139,27 +138,27 @@ async def _voice_rewrite(ctx, text: str, phrases: list[str]) -> str:
     return rewritten if isinstance(rewritten, str) else ""
 
 
-async def _hold_voice(
-    ctx,
-    text: str,
-    window: list[Mapping[str, Any]],
-    convention: AxisStyle,
-) -> str:
+async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]]) -> str:
     """The draft restated in the window's voice, or *text* unchanged.
+
+    Every message here -- the draft included -- is parsed under its own markup
+    convention, never the window's aggregate. The aggregate is the rewrite
+    *target*, and using it to read a source is how a draft that broke the
+    convention gets classified as if it had kept it.
 
     An ambiguous end, an empty rewrite, or a classifier that answered the sentinel
     all return *text*; anything that raises is caught by the caller.
     """
     window_labels: list[VoiceLabels] = []
     for msg in window:
-        labels = await labels_for(msg, convention)
+        labels = await labels_for(msg)
         if labels is None:
             return text
         window_labels.append(labels)
     baseline = target(window_labels)
     if baseline == UNKNOWN_LABELS:
         return text
-    source = await classify(text, convention)
+    source = await classify(text)
     if source is None:
         return text
     phrases = drift(source, baseline)
@@ -186,6 +185,9 @@ async def post_pipeline(ctx):
     """
     window = _baseline_window(ctx.history)
     baseline_msgs = [msg.get("content", "") for msg in window]
+    # The window's aggregate convention, which is the markup *target* and nothing
+    # else. What each message and the draft already look like is each text's own
+    # answer, read where it is needed (see voice.classify).
     convention = baseline_axes(baseline_msgs)
     text = ctx.draft
 
@@ -197,7 +199,7 @@ async def post_pipeline(ctx):
     # misconfiguration the user chose, not for a flaky call.
     try:
         if await _voice_enabled(ctx):
-            text = await _hold_voice(ctx, text, window, convention)
+            text = await _hold_voice(ctx, text, window)
     except Exception:
         logger.exception("format-consistency: voice check failed; normalizing markup only")
         text = ctx.draft
