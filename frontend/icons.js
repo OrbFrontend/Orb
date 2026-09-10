@@ -17,6 +17,9 @@ const dot = (cx, cy, r = 1.6) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="c
 
 export const EDIT_ICON_PATHS = '<path d="M12 20H5a1 1 0 0 1-1-1v-7"/><path d="m16.5 3.5 4 4L11 17l-4 1 1-4 9.5-9.5z"/>';
 export const CLOSE_ICON_PATHS = '<path d="m6 6 12 12M18 6 6 18"/>';
+// Shared with the code-block toolbar below, which draws it at its own size.
+const COPY_ICON_PATHS =
+  '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>';
 
 export const EDIT_ICON = icon(EDIT_ICON_PATHS);
 export const CLOSE_ICON = icon(CLOSE_ICON_PATHS);
@@ -32,6 +35,24 @@ export const GRIP_ICON = icon(
   [dot(9, 5, 1.5), dot(15, 5, 1.5), dot(9, 12, 1.5), dot(15, 12, 1.5), dot(9, 19, 1.5), dot(15, 19, 1.5)].join(""),
 );
 
+// Character Library chrome: the view toggle and the manager's tool cards.
+export const GRID_ICON = icon(
+  '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+);
+export const LIST_ICON = icon(
+  `<path d="M9 6h12M9 12h12M9 18h12"/>${dot(4, 6, 1.4)}${dot(4, 12, 1.4)}${dot(4, 18, 1.4)}`,
+);
+export const GLOBE_ICON = icon(
+  '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"/>',
+);
+export const WRENCH_ICON = icon(
+  '<path d="M14.6 6.3a1 1 0 0 0 0 1.4l1.7 1.7a1 1 0 0 0 1.4 0l4-4a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9l-4 4z"/>',
+);
+export const TAG_ICON = icon(
+  `<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/>${dot(7, 7, 1.3)}`,
+);
+export const COPY_ICON = icon(COPY_ICON_PATHS);
+
 // Code-block toolbar icons are rebuilt after sanitising by message_html.js.
 const codeIcon = (paths) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true" focusable="false">${paths}</svg>`;
@@ -39,6 +60,4 @@ const codeIcon = (paths) =>
 export const CODE_WRAP_ICON = codeIcon(
   '<line x1="3" y1="6" x2="21" y2="6"/><path d="M3 12h15a3 3 0 1 1 0 6h-4"/><polyline points="16 16 14 18 16 20"/><line x1="3" y1="18" x2="10" y2="18"/>',
 );
-export const CODE_COPY_ICON = codeIcon(
-  '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
-);
+export const CODE_COPY_ICON = codeIcon(COPY_ICON_PATHS);

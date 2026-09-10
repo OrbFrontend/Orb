@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { GLOBE_ICON, GRID_ICON, LIST_ICON, WRENCH_ICON } from "./icons.js";
 import { _avatarBust, loadCharacters, showCharEditModal } from "./library.js";
 import { matchesFilter, tagsAttrFor, topTags } from "./library_filter.js";
 import { renderLibraryManager } from "./library_manager.js";
@@ -20,10 +21,10 @@ import { validate } from "./validate.js";
 // The view toggle, in order. Manager is the home for library-wide maintenance
 // tools; today it holds the auto-tagger, and further tools land beside it.
 const VIEWS = [
-  { mode: "grid", label: "⊞ Grid" },
-  { mode: "list", label: "☰ List" },
-  { mode: "internet", label: "🌐 Internet" },
-  { mode: "manager", label: "🛠 Manager" },
+  { mode: "grid", label: "Grid", icon: GRID_ICON },
+  { mode: "list", label: "List", icon: LIST_ICON },
+  { mode: "internet", label: "Internet", icon: GLOBE_ICON },
+  { mode: "manager", label: "Manager", icon: WRENCH_ICON },
 ];
 
 let _browserViewMode = "grid"; // grid, list, internet, or manager
@@ -142,8 +143,8 @@ function browserTagsHtml() {
     .join("");
 }
 
-function viewButtonHtml({ mode, label }) {
-  return `<button class="view-toggle-btn${_browserViewMode === mode ? " active" : ""}" data-view="${mode}">${label}</button>`;
+function viewButtonHtml({ mode, label, icon }) {
+  return `<button class="view-toggle-btn${_browserViewMode === mode ? " active" : ""}" data-view="${mode}">${icon}<span>${label}</span></button>`;
 }
 
 /** Delegated listeners for the two controls the modal rebuilds on every open.

@@ -1,6 +1,7 @@
 // Character Library duplicate finder controller.
 
 import { api } from "./api.js";
+import { COPY_ICON } from "./icons.js";
 import { combinations, compareHtml, duplicateResultsHtml } from "./library_dedupe_view.js";
 import { showSubConfirmModal } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
@@ -18,7 +19,7 @@ export function dedupeToolHtml() {
   return `
     <section class="lib-tool" data-tool="duplicates">
       <header class="lib-tool-head">
-        <span class="lib-tool-icon" aria-hidden="true">◌</span>
+        <span class="lib-tool-icon">${COPY_ICON}</span>
         <div class="lib-tool-heading">
           <h3 class="lib-tool-name">Duplicate finder</h3>
           <p class="lib-manager-note">Find identical cards, lightly edited copies, and versions with the same avatar. Review the evidence before deleting anything.</p>

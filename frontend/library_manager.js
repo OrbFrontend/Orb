@@ -2,6 +2,7 @@
 
 import { api } from "./api.js";
 import { createChipInput } from "./chips.js";
+import { TAG_ICON } from "./icons.js";
 import { dedupeToolHtml, mountLibraryDedupe, setDedupeCharacterCount } from "./library_dedupe.js";
 import { showSubConfirmModal } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
@@ -29,7 +30,7 @@ export function renderLibraryManager(container, callbacks = {}) {
 
       <section class="lib-tool" data-tool="auto-tag">
         <header class="lib-tool-head">
-          <span class="lib-tool-icon" aria-hidden="true">🏷</span>
+          <span class="lib-tool-icon">${TAG_ICON}</span>
           <div class="lib-tool-heading">
             <h3 class="lib-tool-name">Auto-tagging</h3>
             <p class="lib-manager-note">
