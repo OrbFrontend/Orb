@@ -12,6 +12,7 @@ from typing import TypeVar
 from .text.text_segmentation import (
     extract_block_spans,
     extract_narration,
+    find_emphasis_spans,
     split_paragraphs,
 )
 
@@ -303,19 +304,61 @@ def classify_axes(text: str) -> AxisStyle:
     return AxisStyle(dialogue=dialogue, narration=narration)
 
 
-def narration_only(text: str, dialogue: Dialogue) -> str:
-    """Return narration after removing speech under *dialogue*."""
-    if dialogue != Dialogue.BARE:
-        return extract_narration(text)
+_THOUGHT_ATTRIBUTION = re.compile(
+    r"\s*(?:I|[Hh]e|[Ss]he|[Tt]hey|[Ww]e|[Yy]ou|[Tt]he\s+[\w'-]+|[A-Z][\w'-]*)\s+"
+    r"(?:thinks?|thought|(?:tells?|told|says?|said|reminds?|reminded|asks?|asked)\s+"
+    r"(?:myself|himself|herself|themselves|ourselves|yourself))"
+    r"(?=\s*[,.;!?]|\s+(?:with|as|while|\w+ly)\b|\s*$)"
+)
 
-    beats: list[str] = []
-    for para, spans in _paragraph_spans(text):
-        for i, (typ, start, end) in enumerate(spans):
-            if typ == "EMPHASIS" and not _is_inline_emphasis(spans, i, para):
-                inner = _emphasis_inner(para[start:end])
-                if inner:
-                    beats.append(inner)
-    return " ".join(beats)
+
+def _remove_attributed_thoughts(text: str) -> str:
+    def strip_segment(para: str) -> str:
+        spans = extract_block_spans(para)
+        cuts = [
+            (start, end)
+            for i, (typ, start, end) in enumerate(spans)
+            if typ == "EMPHASIS" and not _is_inline_emphasis(spans, i, para) and _THOUGHT_ATTRIBUTION.match(para[end:])
+        ]
+        for start, end in reversed(cuts):
+            para = para[:start] + " " + para[end:]
+        return para
+
+    return _map_prose(text, strip_segment)
+
+
+def _canonical_emphasis(text: str) -> str:
+    def normalize(segment: str) -> str:
+        for start, end in reversed(find_emphasis_spans(segment)):
+            # V2 recognizes asterisks more reliably. Exclude emoticons such as
+            # two occurrences of (⌐■_■), which can resemble an emphasis span.
+            if segment[start] == "_" and segment[start + 1].isalpha():
+                segment = segment[:start] + "*" + segment[start + 1 : end - 1] + "*" + segment[end:]
+        return segment
+
+    return _map_prose(text, normalize)
+
+
+def narration_only(text: str, dialogue: Dialogue) -> str:
+    """Return classifier narration, with speech removed and emphasis canonicalized."""
+    if dialogue != Dialogue.BARE:
+        return _canonical_emphasis(extract_narration(_remove_attributed_thoughts(text)))
+
+    narration: list[str] = []
+    for paragraph in split_paragraphs(text):
+        cleaned = _remove_attributed_thoughts(paragraph)
+        if cleaned != paragraph:
+            # A thought tag identifies surrounding prose as narration. Keep that
+            # context without changing how other paragraphs' bare speech is read.
+            narration.append(extract_narration(cleaned))
+            continue
+        for para, spans in _paragraph_spans(paragraph):
+            for i, (typ, start, end) in enumerate(spans):
+                if typ == "EMPHASIS" and not _is_inline_emphasis(spans, i, para):
+                    inner = _emphasis_inner(para[start:end])
+                    if inner:
+                        narration.append(inner)
+    return _canonical_emphasis(" ".join(narration))
 
 
 def protected_runs(text: str) -> list[str]:

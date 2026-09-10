@@ -32,8 +32,8 @@ _TENSE_PHRASE = {"past": "past tense", "present": "present tense"}
 
 
 def _content_digest(text: str) -> str:
-    """Return a stable cache identity for the message body."""
-    return hashlib.sha256(text.encode()).hexdigest()
+    """Identify the message and the narration-extraction policy that labeled it."""
+    return hashlib.sha256(b"narration-v2\0" + text.encode()).hexdigest()
 
 
 async def _classify_narration(text: str, style: AxisStyle) -> VoiceLabels | None:

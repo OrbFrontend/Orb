@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from types import MappingProxyType
 
 import pytest
@@ -543,6 +544,30 @@ async def test_old_model_labels_are_reclassified(monkeypatch, classifier):
     assert seen == [QUOTED_BASELINE_NARRATION]
     assert written[0]["classifier"] == voice.local_model_identity(voice.FEATURE)
     assert written[0]["other"] == "preserved"
+
+
+async def test_cached_labels_are_refreshed_after_the_extraction_policy_changes(monkeypatch):
+    text = "*You can do this. You have to keep moving.* she thinks, waiting."
+    seen = _classifier(monkeypatch, {"she thinks, waiting.": ("third", "present")})
+    written = []
+
+    async def stale(message_id, workflow_id):
+        return {
+            "pov": "ambiguous",
+            "tense": "ambiguous",
+            "dialogue": classify_axes(text).dialogue.value,
+            "classifier": voice.local_model_identity(voice.FEATURE),
+            "content_sha256": hashlib.sha256(text.encode()).hexdigest(),
+        }
+
+    async def record(message_id, workflow_id, payload):
+        written.append(payload)
+
+    monkeypatch.setattr(voice, "get_workflow_message_state", stale)
+    monkeypatch.setattr(voice, "set_workflow_message_state", record)
+    assert await voice.labels_for({"id": 7, "content": text}) == ("third", "present")
+    assert seen == ["she thinks, waiting."]
+    assert written[0]["content_sha256"] == voice._content_digest(text)
 
 
 async def test_classifier_failure_is_not_cached(monkeypatch):
