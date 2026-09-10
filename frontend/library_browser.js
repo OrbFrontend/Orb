@@ -181,7 +181,7 @@ function renderManagerPanel() {
   const container = $("char-browser-content");
   if (!container) return;
   _hydration = null;
-  renderLibraryManager(container, { onRunComplete: refreshAfterRun });
+  renderLibraryManager(container, { onRunComplete: refreshAfterRun, characterCount: _browserCharacters.length });
 }
 
 /** Re-read the cards after a run and repaint everything that shows tags.

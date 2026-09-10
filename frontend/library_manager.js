@@ -2,6 +2,7 @@
 
 import { api } from "./api.js";
 import { createChipInput } from "./chips.js";
+import { dedupeToolHtml, mountLibraryDedupe, setDedupeCharacterCount } from "./library_dedupe.js";
 import { showSubConfirmModal } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { $, esc, toast } from "./utils.js";
@@ -67,9 +68,11 @@ export function renderLibraryManager(container, callbacks = {}) {
           </div>
         </div>
       </section>
+      ${dedupeToolHtml()}
     </div>`;
 
   container.addEventListener("click", onPanelClick);
+  mountLibraryDedupe(container.querySelector('[data-tool="duplicates"]'), callbacks);
   chipInput().render();
   refresh();
 }
@@ -115,6 +118,7 @@ function adopt(state) {
   _pending = Number(state?.pending) || 0;
   _tagged = Number(state?.tagged) || 0;
   _revision = typeof state?.revision === "string" ? state.revision : "";
+  setDedupeCharacterCount(_total);
 }
 
 /** Fold a draft tag for comparison with the server's normalized vocabulary. */

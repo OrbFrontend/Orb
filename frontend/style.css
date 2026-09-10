@@ -18,5 +18,6 @@
 @import "css/audio-transport.css";
 @import "css/character-browser-internet.css";
 @import "css/character-browser-manager.css";
+@import "css/character-browser-dedupe.css";
 @import "css/document.css";
 @import "css/group.css";

@@ -120,7 +120,15 @@ CREATE TABLE IF NOT EXISTS character_cards (
     persona_lock_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL,
     extensions TEXT DEFAULT NULL,
     auto_tag_vocab_hash TEXT NOT NULL DEFAULT '',
-    auto_tag_card_updated_at TEXT NOT NULL DEFAULT ''
+    auto_tag_card_updated_at TEXT NOT NULL DEFAULT '',
+    -- The duplicate finder's one cached signal: a 64-bit dHash of the decoded
+    -- avatar as 16 hex chars, '' when the card has no avatar or its bytes would
+    -- not decode. Avatar decoding is ~8.8 ms per card against 0.26s for every
+    -- text signal in a 2000-card library combined, so the text side is
+    -- recomputed on every scan and only this is stored. The stamp is
+    -- f"{DEDUPE_REVISION}:{updated_at}"; a mismatch means re-hash.
+    avatar_dhash TEXT NOT NULL DEFAULT '',
+    avatar_dhash_stamp TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS character_expressions (
@@ -383,6 +391,32 @@ CREATE TABLE IF NOT EXISTS documents (
 CREATE TABLE IF NOT EXISTS library_tags (
     name TEXT PRIMARY KEY,
     position INTEGER NOT NULL
+);
+
+-- Duplicate pairs the user has said to stop reporting.
+--
+-- Pairs, not groups: group identity is unstable -- one new import reshapes a
+-- group and any group key goes stale -- while a pair is stable forever.
+-- Dismissing a group of three writes its three pairs, and a fourth card joining
+-- later produces new undismissed pairs that correctly re-flag. card_a < card_b
+-- canonically, so a pair has exactly one row.
+--
+-- hash_a/hash_b are the two cards' body_hash at dismissal time. The dismissal
+-- lapses the moment either differs, which is "revisit only after meaningful
+-- changes" -- and because body_hash excludes tags and public profiles, an
+-- auto-tagging run cannot resurrect a dismissed pair.
+--
+-- ON DELETE CASCADE is load-bearing: connection.py issues PRAGMA foreign_keys=ON
+-- on every connection, so deleting a card reaps its dismissals instead of
+-- leaking them. (Contrast conversations.character_card_id, which deliberately
+-- has no FK so a dangling id can act as a relink marker.)
+CREATE TABLE IF NOT EXISTS duplicate_dismissals (
+    card_a TEXT NOT NULL REFERENCES character_cards(id) ON DELETE CASCADE,
+    card_b TEXT NOT NULL REFERENCES character_cards(id) ON DELETE CASCADE,
+    hash_a TEXT NOT NULL,
+    hash_b TEXT NOT NULL,
+    dismissed_at TEXT NOT NULL,
+    PRIMARY KEY (card_a, card_b)
 );
 
 """

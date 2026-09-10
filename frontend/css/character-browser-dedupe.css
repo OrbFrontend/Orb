@@ -1,0 +1,183 @@
+/* Character Library → Duplicate finder. The manager frame supplies spacing and
+   typography; this file owns only result density and the inline comparison. */
+
+.lib-dupe-status,
+.lib-dupe-empty {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.lib-dupe-results {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lib-dupe-group,
+.lib-dupe-possible,
+.lib-dupe-compare {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.lib-dupe-group-head,
+.lib-dupe-compare-head,
+.lib-dupe-pair,
+.lib-dupe-compare-cards,
+.lib-dupe-resolve-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.lib-dupe-badge,
+.lib-dupe-section-label {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--accent-light);
+}
+
+.lib-dupe-group-title {
+  margin-top: 3px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.lib-dupe-members,
+.lib-dupe-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.lib-dupe-members span,
+.lib-dupe-reason {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.lib-dupe-reason {
+  color: var(--text-muted);
+}
+
+.lib-dupe-pairs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lib-dupe-pair {
+  align-items: flex-start;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-deep);
+}
+
+.lib-dupe-pair-main { min-width: 0; }
+
+.lib-dupe-pair-names {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lib-dupe-pair-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+
+.lib-dupe-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.lib-dupe-compare-cards > div {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  column-gap: 8px;
+  align-items: center;
+  min-width: 0;
+  flex: 1 1 0;
+  font-size: 11px;
+}
+
+.lib-dupe-compare-cards strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-dupe-compare-cards span { grid-column: 2; color: var(--text-muted); }
+
+.lib-dupe-avatar {
+  grid-row: span 2;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.lib-dupe-no-avatar {
+  display: grid;
+  place-items: center;
+  padding: 3px;
+  font-size: 8px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.lib-dupe-collision-note {
+  padding: 8px 10px;
+  border-left: 2px solid var(--accent-dim);
+  background: var(--accent-glow);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.lib-dupe-table-wrap { overflow-x: auto; }
+
+.lib-dupe-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  table-layout: fixed;
+}
+
+.lib-dupe-table th,
+.lib-dupe-table td {
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.lib-dupe-table th { width: 18%; color: var(--text-muted); font-weight: 500; }
+.lib-dupe-table thead th { color: var(--text-secondary); background: var(--bg-deep); }
+.lib-dupe-table .wc-before,
+.lib-dupe-table .wc-after,
+.lib-dupe-same { white-space: pre-wrap; }
+.lib-dupe-table .wc-before + .wc-after { margin-top: 4px; }
+.lib-dupe-same { color: var(--text-secondary); }
+
+.lib-dupe-resolve-actions { flex-wrap: wrap; justify-content: flex-start; }
+
+@media (max-width: 620px) {
+  .lib-dupe-pair { flex-direction: column; }
+  .lib-dupe-compare-cards { align-items: flex-start; flex-direction: column; }
+  .lib-dupe-table { min-width: 580px; }
+}

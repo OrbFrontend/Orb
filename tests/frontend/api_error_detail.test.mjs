@@ -36,6 +36,11 @@ test("a FastAPI detail string becomes the message", async () => {
   assert.equal(e.status, 502);
 });
 
+test("a structured FastAPI detail exposes its reader-facing message", async () => {
+  const e = await failureOf(409, JSON.stringify({ detail: { message: "Relink conversations first", impact: {} } }));
+  assert.equal(e.message, "Relink conversations first");
+});
+
 test("the raw body stays available for anything that wants it", async () => {
   const body = JSON.stringify({ detail: "nope" });
   const e = await failureOf(500, body);
