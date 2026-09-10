@@ -6,7 +6,13 @@ import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from ..toolkit import classify_pov, get_settings, local_feature_ready
+from ..toolkit import (
+    classify_axes,
+    classify_pov,
+    get_settings,
+    local_feature_ready,
+    narration_only,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +69,9 @@ async def _classify(history: Sequence[Mapping[str, Any]]) -> str | None:
     """
     for text in _assistant_texts(history):
         try:
-            label = await classify_pov(text)
+            # Match the voice check: remove bare speech before taking the tail,
+            # or a long spoken passage can displace every narration sentence.
+            label = await classify_pov(narration_only(text, classify_axes(text).dialogue))
         except Exception:
             logger.exception("[image_gen] POV classification failed; falling back")
             return None

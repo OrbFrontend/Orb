@@ -287,7 +287,9 @@ async def aclassify(feature: str, text: str) -> str:
         return await asyncio.to_thread(_classify_blocking, feature, text)
 
 
-# The model card asks for "roughly 1-4 sentences without prior context", not a
+# The v2 model still needs short windows. Keep narration extraction in callers:
+# empirical dialogue-insertion probes favor it over trusting native markers
+# (docs/experiments/povtense-v2.md). The model card asks for 1-4 sentences, not a
 # whole reply: the encoder's trained context is 256 tokens, and a raw tail slice of
 # that size is 5-10 sentences that usually starts mid-word. So `pov_input` shapes
 # the span instead of just capping it. Tail-anchored like the emotion path: the

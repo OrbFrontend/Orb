@@ -381,6 +381,7 @@ async def test_a_cached_message_id_is_not_reclassified(monkeypatch):
             "tense": "past",
             "dialogue": "quoted",
             "content_sha256": voice._content_digest(QUOTED_BASELINE),
+            "classifier": voice.local_model_identity(voice.FEATURE),
         }
 
     async def no_write(message_id, workflow_id, payload):
@@ -422,6 +423,7 @@ async def test_a_cache_miss_backfills_the_labels(monkeypatch):
                 "tense": "past",
                 "dialogue": "quoted",
                 "content_sha256": voice._content_digest(QUOTED_BASELINE),
+                "classifier": voice.local_model_identity(voice.FEATURE),
             },
         )
     ]
@@ -461,6 +463,7 @@ async def test_labels_are_reclassified_when_the_cached_convention_differs(monkey
     }
     cached_payload = {"pov": "second", "tense": "present", "other": "preserved"}
     cached_payload["content_sha256"] = voice._content_digest(msg["content"])
+    cached_payload["classifier"] = voice.local_model_identity(voice.FEATURE)
     if cached_dialogue is not None:
         cached_payload["dialogue"] = cached_dialogue
     seen = _classifier(monkeypatch, {"Monika waits by the desk.": THIRD_PAST})
@@ -485,6 +488,7 @@ async def test_labels_are_reclassified_when_the_cached_convention_differs(monkey
             "other": "preserved",
             "dialogue": "bare",
             "content_sha256": voice._content_digest(msg["content"]),
+            "classifier": voice.local_model_identity(voice.FEATURE),
         }
     ]
 
@@ -500,6 +504,7 @@ async def test_labels_are_reclassified_when_message_content_changes(monkeypatch)
             "tense": "present",
             "dialogue": "quoted",
             "content_sha256": voice._content_digest("You wait by the door."),
+            "classifier": voice.local_model_identity(voice.FEATURE),
         }
 
     async def record(message_id, workflow_id, payload):
@@ -511,6 +516,33 @@ async def test_labels_are_reclassified_when_message_content_changes(monkeypatch)
     assert await voice.labels_for(msg) == THIRD_PAST
     assert seen == [QUOTED_BASELINE_NARRATION]
     assert written[0]["content_sha256"] == voice._content_digest(QUOTED_BASELINE)
+
+
+@pytest.mark.parametrize("classifier", [None, "chartreuse-verte/ettin-povtense-17m@old-revision"])
+async def test_old_model_labels_are_reclassified(monkeypatch, classifier):
+    msg = {"id": 7, "role": "assistant", "content": QUOTED_BASELINE}
+    seen = _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST})
+    written = []
+
+    async def stale(message_id, workflow_id):
+        return {
+            "pov": "second",
+            "tense": "present",
+            "dialogue": "quoted",
+            "content_sha256": voice._content_digest(QUOTED_BASELINE),
+            "classifier": classifier,
+            "other": "preserved",
+        }
+
+    async def record(message_id, workflow_id, payload):
+        written.append(payload)
+
+    monkeypatch.setattr(voice, "get_workflow_message_state", stale)
+    monkeypatch.setattr(voice, "set_workflow_message_state", record)
+    assert await voice.labels_for(msg) == THIRD_PAST
+    assert seen == [QUOTED_BASELINE_NARRATION]
+    assert written[0]["classifier"] == voice.local_model_identity(voice.FEATURE)
+    assert written[0]["other"] == "preserved"
 
 
 async def test_classifier_failure_is_not_cached(monkeypatch):
@@ -612,6 +644,7 @@ async def test_a_changed_window_majority_does_not_invalidate_a_cached_row(monkey
         "tense": "past",
         "dialogue": "quoted",
         "content_sha256": voice._content_digest(QUOTED_BASELINE),
+        "classifier": voice.local_model_identity(voice.FEATURE),
     }
 
     async def cached(message_id, workflow_id):

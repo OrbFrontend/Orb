@@ -130,3 +130,18 @@ async def test_empty_history_skips_the_classifier(monkeypatch):
     seen = _fake_classifier(monkeypatch, ["first"])
     assert await pov.resolve(mode="auto", history=()) == (pov.DEFAULT_POV, "default")
     assert seen == []
+
+
+@pytest.mark.parametrize("marker", ["*", "_"])
+async def test_bare_speech_cannot_displace_the_camera_narration(monkeypatch, marker):
+    text = f"{marker}Mara placed the lantern on the table.{marker} " + "I need you here. You promised. I trusted you. " * 8
+    seen = _fake_classifier(monkeypatch, ["third"])
+    assert await pov.resolve(history=_history(("assistant", text))) == (pov.THIRD, "classifier")
+    assert seen == ["Mara placed the lantern on the table."]
+
+
+async def test_camera_parses_each_history_rows_own_dialogue_convention(monkeypatch):
+    seen = _fake_classifier(monkeypatch, ["ambiguous", "first"])
+    history = _history(("assistant", "*I raised the lantern.* Come closer."), ("assistant", '"I am still here."'))
+    assert await pov.resolve(history=history) == (pov.FIRST, "classifier")
+    assert seen == ["", "I raised the lantern."]

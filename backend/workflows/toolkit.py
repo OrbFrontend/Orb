@@ -115,6 +115,7 @@ __all__ = [
     "insert_workflow_attachment",
     "local_feature_available",
     "local_feature_ready",
+    "local_model_identity",
     "narration_only",
     "normalize_to_baseline",
     "overlay_enable_tools",
@@ -143,6 +144,12 @@ def local_feature_ready(feature: str, settings: Mapping[str, Any]) -> bool:
     available, _reason = local_feature_available(feature)
     enabled = settings.get("local_ml_enabled")
     return available and (not isinstance(enabled, Mapping) or enabled.get(feature, True) is not False)
+
+
+def local_model_identity(feature: str) -> str:
+    """Return the pinned model identity for caches of classifier results."""
+    spec = _local_ml.MODELS[feature]
+    return f"{spec.repo_id}@{spec.revision}"
 
 
 async def classify_pov(text: str) -> str:

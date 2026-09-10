@@ -48,6 +48,7 @@ class ModelSpec:
     revision: str  # pinned commit sha — a repo re-point can't swap the weights under us
     runtime: RuntimeKind = "llama_cpp"
     variants: tuple[ModelVariantSpec, ...] = ()
+    local_filename: str = ""  # versioned alias when upstream reuses an older artifact's basename
 
     @property
     def local_name(self) -> str:
@@ -61,7 +62,7 @@ class ModelSpec:
         variant name no spec claims is a file ``prune_stale`` deletes the next
         time anything downloads. ``test_local_models_catalog`` asserts both.
         """
-        return os.path.basename(self.filename)
+        return self.local_filename or os.path.basename(self.filename)
 
     def all_names(self) -> set[str]:
         """Every basename this spec puts under data/models/ — the prune claim."""
@@ -97,10 +98,11 @@ MODELS: dict[str, ModelSpec] = {
         revision="9f8d0100e45c133e713283499e55105f61d29118",
     ),
     "pov_classifier": ModelSpec(
-        repo_id="chartreuse-verte/ettin-povtense-17m",
+        repo_id="chartreuse-verte/ettin-povtense-17m-v2",
         filename="gguf/povtense-17m-q8_0.gguf",
         size_mb=20,
-        revision="1245e55c47f9afc3d4938ef70f5228580228d899",
+        revision="bacd633b181b7efdfbb9ba668c8c530ba47ad8a0",
+        local_filename="povtense-17m-v2-q8_0.gguf",
     ),
     # Not an in-process model: served by a child llama-server (see
     # local_models/llama_server/, driven by features/prose_rewriter/).

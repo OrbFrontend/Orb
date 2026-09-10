@@ -12,6 +12,7 @@ from ..toolkit import (
     classify_axes,
     classify_pov_tense,
     get_workflow_message_state,
+    local_model_identity,
     narration_only,
     set_workflow_message_state,
     stable_label,
@@ -59,11 +60,13 @@ async def labels_for(msg: Mapping[str, Any]) -> VoiceLabels | None:
     if not isinstance(mid, int):
         return await _classify_narration(text, style)
     digest = _content_digest(text)
+    classifier = local_model_identity(FEATURE)
     cached = await get_workflow_message_state(mid, WORKFLOW_ID)
     if isinstance(cached, Mapping):
         pov, tense = cached.get("pov"), cached.get("tense")
         if (
             cached.get("content_sha256") == digest
+            and cached.get("classifier") == classifier
             and cached.get("dialogue") == style.dialogue.value
             and isinstance(pov, str)
             and isinstance(tense, str)
@@ -80,6 +83,7 @@ async def labels_for(msg: Mapping[str, Any]) -> VoiceLabels | None:
             "tense": tense,
             "dialogue": style.dialogue.value,
             "content_sha256": digest,
+            "classifier": classifier,
         }
     )
     await set_workflow_message_state(mid, WORKFLOW_ID, payload)
