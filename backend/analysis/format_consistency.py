@@ -84,7 +84,10 @@ def _emphasis_inner(raw: str) -> str:
     return core.strip("*_ ").strip()
 
 
-_SENTENCE_END = ".!?…"
+# A clause can close on stylistic punctuation as well as a full stop: roleplay
+# greetings routinely end a line on "~", "♪" or a cut-off dash before an
+# action beat. Anything not listed here reads as mid-sentence italics.
+_SENTENCE_END = ".!?…~♪♥♡—–-)]"
 
 
 def _is_inline_emphasis(spans: list[tuple[str, int, int]], i: int, para: str) -> bool:

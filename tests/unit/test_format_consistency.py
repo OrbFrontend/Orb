@@ -474,6 +474,34 @@ def test_a_talkative_bare_dialogue_baseline_still_sets_the_axes():
     assert "Ah... Sayori." in new
 
 
+def test_a_greeting_that_ends_on_stylistic_punctuation_still_sets_the_axes():
+    """A "~" closes a clause, so the beat after it is narration, not italics."""
+    for greeting in (
+        "miku dayo~ *does a weird dance*",
+        "Nyaa\u266a *pounces on the keyboard*",
+        "Tch\u2014 *crosses arms*",
+        "hi (^_^) *bounces on her heels*",
+    ):
+        assert baseline_axes([greeting]) == AxisStyle(Dialogue.BARE, Narration.ASTERISK), greeting
+
+
+def test_an_asterisk_greeting_does_not_strip_the_next_reply():
+    """The regression: a bare-narration baseline unwrapped every action beat."""
+    greeting = "miku dayo~ *does a weird dance*"
+    draft = "*stares at you with wide, vacant eyes.*\n\n*aggressive leek spinning*"
+    _assert_unchanged(draft, [greeting])
+
+
+def test_mid_sentence_italics_are_still_not_action_beats():
+    """Widening the terminator set must not promote inline emphasis."""
+    for draft in (
+        "She was *really* nervous about the whole thing.",
+        "I told you it was *his* fault, not mine.",
+        "It had been *years* since anyone said her name like that.",
+    ):
+        assert classify_axes(draft).narration != Narration.ASTERISK, draft
+
+
 def test_narration_only_obeys_the_resolved_dialogue_convention():
     """Equivalent scenes expose narration rather than whichever spans have quotes."""
     bare = (
