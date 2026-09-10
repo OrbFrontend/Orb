@@ -74,7 +74,13 @@ class PreCtx:
 
 @dataclass(frozen=True)
 class PostCtx:
-    """Inputs available to a workflow's post-pipeline hook."""
+    """Inputs available to a workflow's post-pipeline hook.
+
+    ``client``/``prefix`` are the Writer lane. ``agent_client`` and
+    ``agent_model_name`` identify the resolved Agent execution target, which is
+    the Writer target in single-model mode. The defaults keep a hand-built
+    ``PostCtx`` (tests, out-of-tree callers) valid.
+    """
 
     conversation_id: str
     history: tuple
@@ -90,6 +96,8 @@ class PostCtx:
     schema_overrides: MappingProxyType
     character_id: str | None = None
     character: MappingProxyType | None = None
+    agent_client: Any = None
+    agent_model_name: str = ""
 
 
 @dataclass(frozen=True)

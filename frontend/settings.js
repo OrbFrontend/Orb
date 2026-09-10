@@ -6,7 +6,7 @@ import { closeModal, confirmDelete, showModal, showSubConfirmModal } from "./mod
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { initComboboxes, loadAgentModelConfigs, loadEndpoints, renderEndpoints } from "./settings_models.js";
 import { loadPersonas, updateUserBtn } from "./settings_personas.js";
-import { effectiveWorkflowEnabled, S } from "./state.js";
+import { effectiveWorkflowEnabled, localMlReady, S } from "./state.js";
 import { $, esc, escAttr, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
@@ -214,16 +214,35 @@ const LOCAL_ML_LABELS = {
   autocomplete: "Input Autocomplete",
   slop_classifier: "AI-Slop Classifier",
   emotion_classifier: "Character Expressions",
-  pov_classifier: "Image POV",
+  pov_classifier: "Auto-POV",
   prose_rewriter: "Prose Rewriter",
 };
 const LOCAL_ML_DESCS = {
   autocomplete: "Autocomplete input as you type.",
   slop_classifier: "Unlock AI slop scorer.",
   emotion_classifier: "Track a character's mood with expression images in the avatar popup.",
-  pov_classifier: "Auto POV for image-gen.",
+  pov_classifier: "For image-gen and format consistency.",
   prose_rewriter: "Locally rewrite prose, automatically or on demand.",
 };
+
+/** Publish the fetched status and repaint the surfaces that gate on it.
+ *
+ * Same wiring as Editor Feedback graying out feedback fragments: the owning
+ * card writes shared state and re-renders the dependent surface, which reads
+ * the gate at render time. Repaint only when a gate actually flipped, so a
+ * routine status refresh never wipes a half-typed field in the tools panel.
+ */
+function publishLocalMlFeatures(features) {
+  const before = mlReadySignature();
+  S.localMlFeatures = features || {};
+  if (mlReadySignature() !== before) renderToolsPanel();
+}
+
+const mlReadySignature = () =>
+  Object.keys(S.localMlFeatures)
+    .sort()
+    .map((f) => `${f}:${localMlReady(f) ? 1 : 0}`)
+    .join(",");
 
 async function loadLocalMLSection({ expectLoad = false } = {}) {
   stopMlStateWatch();
@@ -236,6 +255,7 @@ async function loadLocalMLSection({ expectLoad = false } = {}) {
     el.innerHTML = '<div class="tool-card-desc">Could not load Local ML status.</div>';
     return;
   }
+  publishLocalMlFeatures(st.features);
   if (!st.deps_ok) {
     const names = Object.keys(st.features)
       .map((f) => `<li>${esc(LOCAL_ML_LABELS[f] || f)}</li>`)
@@ -387,6 +407,7 @@ async function pollMlStates() {
   } catch (_e) {
     return; // a dropped poll costs nothing; the next render re-reads
   }
+  publishLocalMlFeatures(st.features); // a download finishing here flips a gate too
   for (const [f, info] of Object.entries(st.features)) {
     const el = $(`local-ml-state-${f}`);
     if (!el) continue;

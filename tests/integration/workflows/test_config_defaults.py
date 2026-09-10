@@ -49,3 +49,10 @@ async def test_defaults_returned_as_fresh_copy(client):
     cfg1["x"] = 999
     cfg2 = await get_workflow_config("cd_a")
     assert cfg2 == {"x": 1}
+
+
+async def test_format_consistency_voice_is_off_by_default(client):
+    """The voice half costs an LLM call per drifting turn and needs a model the
+    user has to download, so it ships opt-in. The markup half keeps running off
+    the framework's per-workflow toggle alone."""
+    assert await get_workflow_config("format_consistency") == {"voice_consistency": False}

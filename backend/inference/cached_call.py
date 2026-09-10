@@ -51,7 +51,9 @@ async def cached_complete(
     the call boundary used by downstream buffers.
     """
     if kv_tracker is not None and record:
-        kv_tracker.record(label, messages, tools, model=model)
+        # The client's server is half the lane key: two endpoints have independent
+        # KV caches even when they answer to the same model name.
+        kv_tracker.record(label, messages, tools, model=model, endpoint=getattr(client, "base_url", ""))
     async for event in mark_call_start(
         client.complete(
             messages=messages,

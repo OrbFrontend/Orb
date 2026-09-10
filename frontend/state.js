@@ -18,6 +18,7 @@ export const S = {
   activePersonaId: null,
 
   settings: {},
+  localMlFeatures: {}, // last /local-ml/status features map; other cards gate on it
   endpoints: [],
   activeEndpointId: null,
   modelConfigs: [],
@@ -136,6 +137,19 @@ export const S = {
 
   rejectedWorkflowAtts: [],
 };
+
+/** Is a Local ML feature usable right now (downloaded, on, deps installed)?
+ *
+ * The Local ML cards publish the last `/local-ml/status` into `S`, so surfaces
+ * that depend on a model -- the Format Consistency card's POV option -- read
+ * the live answer here instead of fetching status once and going stale.
+ */
+export function localMlReady(feature) {
+  const info = S.localMlFeatures[feature];
+  // `runtime_ok` is absent for in-process features: only a feature that
+  // reports one can fail it.
+  return Boolean(info?.present && info?.enabled && info?.deps_ok && info.runtime_ok !== false);
+}
 
 export function effectiveWorkflowEnabled(wid) {
   const g = S.settings?.workflows_globally_enabled;

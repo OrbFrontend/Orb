@@ -26,6 +26,10 @@ def resolve_path(feature: str) -> str:
         if env and os.path.exists(env):  # stale override must not hide a downloaded model
             return env
     spec = MODELS[feature]
+    if spec.local_filename:
+        # An explicit alias separates versions whose upstream basenames collide.
+        # The old mirrored/root paths cannot establish which weights they hold.
+        return os.path.join(model_dir(), spec.local_name)
     for candidate in (
         os.path.join(model_dir(), spec.local_name),  # flat — what download() writes
         os.path.join(model_dir(), spec.filename),  # legacy: hf's mirror of the repo layout
@@ -137,7 +141,7 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as d:
         keep = os.path.join(d, MODELS["autocomplete"].local_name)
         open(keep, "w").close()
-        mirrored = os.path.join(d, MODELS["pov_classifier"].filename)  # legacy gguf/ nesting
+        mirrored = os.path.join(d, MODELS["emotion_classifier"].filename)  # legacy gguf/ nesting
         os.makedirs(os.path.dirname(mirrored), exist_ok=True)
         open(mirrored, "w").close()
         stale = os.path.join(d, "old-granite-Q8_0.gguf")

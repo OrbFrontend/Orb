@@ -89,6 +89,24 @@ explicit `BUILTIN_TOOL_ORDER`; workflow tools append in registration order, and
 re-registering one preserves its position. Schema property order and compact,
 insertion-order-preserving JSON bytes are part of the cache contract.
 
+`forced_tool_call` appends the forced schema when the per-turn map does not
+already carry it, and an appended schema is a diverging tools region: it renders
+ahead of history, so it evicts the whole conversation from the server's prefix
+cache rather than costing only its own bytes. A call that forces a tool therefore
+has to pick a side. Either it rides the turn's lane, and the tool must be in the
+map **before** `_resolve_pipeline_config` freezes it into a `CachedBase` — what
+`apply_length_guard_tools` does for `editor_rewrite`, and what a workflow would do
+by yielding `enable_tools` from a pre-pipeline hook. Or it rides its own lane, and
+shares nothing with the turn: its own short prefix, and `enabled_tools=None` so
+`forced_tool_call` ships the forced tool alone. What it cannot do is force a tool
+against the turn's blob without being in it.
+
+The second option is usually cheaper when the call is closed over its explicit
+input. `format_consistency`'s voice rewrite restates one draft and does not need
+the conversation; sending the history would only add prompt cost. Servers can
+retain multiple cached sequences, so this short lane can coexist with the
+conversation lane.
+
 Inference servers may render only the forced tool, or no tools for `none`. As a
 result, the three passes can share the conversation body without sharing the
 entire rendered prefix. Think in **cache lanes**: each distinct rendered shape
@@ -176,9 +194,26 @@ The local values cannot know where a provider's template renders tools, so they
 are kept separate. A high message overlap with a low provider hit can indicate
 different tool rendering or reasoning lanes.
 
-The tracker compares a call with the previous call of the same kind in the
-conversation, which makes the first call of a new turn useful rather than an
-unhelpful zero baseline.
+The tracker compares a call with the previous call **on its own lane**, falling
+back to the last same-label call of the previous turn — which makes the first call
+of a new turn useful rather than an unhelpful zero baseline.
+
+A tracker lane is `(server, model, shape)`. Server and model identify the physical
+cache owner, matching the first two fields used by the test-time checker. Shape is
+empty for the shared conversation prompt and has a stable name for an
+intentionally independent rendered prefix. For example, format consistency's
+self-contained voice rewrite records `format_consistency:voice_rewrite`, so a
+group exchange's next Director call skips that short prefix and compares with the
+last conversation call instead. `forced_tool_call` accepts this as
+`cache_shape` and passes it to the tracker.
+
+The shape is a semantic discriminator, not a fingerprint of the current message
+or tools bytes. Calls in one intended family must remain comparable so an
+accidental change still appears in the report. Keying on the model name alone is
+also insufficient: dual-model runs the writer and the agent on different servers,
+and the two routinely answer to the same name. When a turn spans more than one
+lane the report prints a `lanes:` legend and tags each row, so a pass with no
+predecessor reads as "first call on its lane" rather than as a broken prefix.
 
 ## In short
 

@@ -3,8 +3,9 @@
 Drives the bridge iterators directly with probe hooks and varying settings. The
 gate reads the settings snapshot threaded into each seam, so global-off suppresses
 every workflow and local-off suppresses exactly one. The last test pins the 3.9
-contract: format_consistency now carries no config gate of its own, so the
-framework toggle is its sole on/off.
+contract: the framework toggle is the sole on/off for format_consistency's markup
+normalization. (Its later voice half has an opt-in config of its own, off by
+default -- so with the toggle on, markup is what this drives.)
 """
 
 from __future__ import annotations
@@ -112,10 +113,12 @@ async def test_post_local_off_suppresses_probe():
     assert "probe_post" not in off
 
 
-async def test_format_consistency_runs_when_enabled_and_is_suppressed_when_toggled_off():
-    # The real format_consistency workflow is registered at import; its only on/off
-    # is now the framework toggle (no config gate). writer_rewrite is its signature
-    # event (the draft_replaced the bridge turns into an SSE rewrite).
+async def test_format_consistency_runs_when_enabled_and_is_suppressed_when_toggled_off(client):
+    # The real format_consistency workflow is registered at import; the framework
+    # toggle is the only on/off for its markup half. writer_rewrite is its signature
+    # event (the draft_replaced the bridge turns into an SSE rewrite). The `client`
+    # fixture is here for the config slot the hook reads to decide whether the
+    # opt-in voice half runs -- it defaults off, so this drives the markup path.
     history = [{"role": "assistant", "content": QUOTED_BASELINE}]
     on = await _post_event_names({"model_name": "test"}, draft=DRIFTING_DRAFT, history=history)
     off = await _post_event_names(

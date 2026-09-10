@@ -128,8 +128,11 @@ MAX_INLINE_ON = 248  # inline on*= handlers across frontend/ (js + index.html)
 MAX_UNDERSCORE_IMPORTS = 10  # underscore-prefixed names imported cross-module
 
 # ── 4. Frozen ABI ────────────────────────────────────────────────────────────
-# workflow_api.js's complete export surface (ABI v3, additive-only). A rename or
-# removal fails; a genuinely new export is added here in the same commit.
+# workflow_api.js's complete export surface, additive-only. A rename or removal
+# fails; a genuinely new export is added here in the same commit -- and, because
+# that is a new revision of the plugin ABI, `WORKFLOW_API_VERSION` is bumped with
+# it. The check below reads that constant back so the number cannot drift from
+# the surface it describes.
 FROZEN_ABI = {
     "WORKFLOW_API_VERSION",
     # registrars
@@ -188,6 +191,7 @@ FROZEN_ABI = {
     "canMutate",
     "getWorkflowState",
     "setWorkflowState",
+    "localMlReady",
 }
 
 # ── Parsing helpers ──────────────────────────────────────────────────────────
@@ -281,6 +285,12 @@ def main() -> int:
             if n:
                 exports.add(n)
     exports.discard("")
+    version_decl = re.search(r"export\s+const\s+WORKFLOW_API_VERSION\s*=\s*(\d+)\s*;", api_text)
+    if version_decl is None:
+        errors.append("[abi] workflow_api.js does not declare WORKFLOW_API_VERSION")
+        abi_version = "?"
+    else:
+        abi_version = version_decl.group(1)
     missing = FROZEN_ABI - exports
     added = exports - FROZEN_ABI
     if missing:
@@ -293,7 +303,8 @@ def main() -> int:
     # Report.
     print(
         f"frontend layer check: {len(top_files)} modules, inline on*={inline} (max {MAX_INLINE_ON}), "
-        f"underscore imports={us} (max {MAX_UNDERSCORE_IMPORTS}), ABI exports={len(exports)}"
+        f"underscore imports={us} (max {MAX_UNDERSCORE_IMPORTS}), "
+        f"ABI v{abi_version} ({len(exports)} exports)"
     )
     if errors:
         print("\nFRONTEND LAYER CHECK FAILED:")

@@ -99,6 +99,8 @@ async def _run_post_pipeline(
     client: LLMClient,
     kv_tracker: _KVCacheTracker,
     schema_overrides: Mapping[str, dict],
+    agent_client: LLMClient | None = None,
+    agent_model_name: str = "",
 ) -> AsyncIterator[dict | _PostPipelineResult]:
     """Run every POST_PIPELINE workflow hook over the finished draft.
 
@@ -118,7 +120,6 @@ async def _run_post_pipeline(
         # /trigger calls and any other in-flight pipeline that reaches this
         # hook on the same conversation. Different workflows on the same
         # conversation keep distinct lock keys, so they still run in parallel.
-        # Serialize same-(cid, wid) writers; different workflows run in parallel.
         async with (
             workflow_state_lock(conversation_id or "", sub.workflow_id),
             workflow_character_state_lock(character_id or "", sub.workflow_id),
@@ -139,6 +140,10 @@ async def _run_post_pipeline(
                     schema_overrides=_readonly(schema_overrides),
                     character_id=character_id,
                     character=_readonly(card),
+                    # The execution target for a forced Agent call: in
+                    # dual-model mode the Writer is a different endpoint.
+                    agent_client=agent_client if agent_client is not None else client,
+                    agent_model_name=agent_model_name,
                 )
                 async for ev in sub.callable(post_ctx):
                     t = ev.get("type") if isinstance(ev, dict) else None

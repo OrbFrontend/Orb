@@ -231,7 +231,7 @@ The camera setting is next to the style picker and applies globally:
 Orb uses the explicit picker choice first. In Auto mode it uses the classifier,
 then falls back to third-person when the text is unclear or the classifier is off.
 
-To enable the classifier, open **Settings → Local ML**, download **Image POV**,
+To enable the classifier, open **Settings → Local ML**, download **Auto-POV**,
 and leave it enabled. It runs locally on the CPU.
 
 ## Analyze complex scenes

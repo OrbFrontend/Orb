@@ -726,6 +726,33 @@ async def test_run_pipeline_set_message_state_keyed_per_workflow():
     assert result["data"]["staged_message_state"] == {"wf_a": {"from": "a"}, "wf_b": {"from": "b"}}
 
 
+async def test_post_pipeline_ctx_carries_agent_execution_target():
+    """A hook forcing an Agent call needs its client and model.
+
+    In single-model mode the agent lane IS the writer lane, so the two clients are
+    the same object; in dual-model mode the Agent uses a separate endpoint.
+    """
+    captured = {}
+    client = _make_client()
+
+    async def mock_writer(c, *args, **kwargs):
+        yield {"type": "content", "delta": "draft"}
+
+    async def post_hook(post_ctx):
+        captured["agent_client"] = post_ctx.agent_client
+        captured["writer_client"] = post_ctx.client
+        captured["agent_model_name"] = post_ctx.agent_model_name
+        yield {"event": "noop", "data": {}}
+
+    w = make_workflow("agent_lane", post_pipeline=post_hook)
+    with register_for_test(w):
+        await _run_with_writer(mock_writer, client=client)
+
+    assert captured["agent_client"] is client
+    assert captured["agent_client"] is captured["writer_client"]
+    assert captured["agent_model_name"] == _SETTINGS["model_name"]
+
+
 async def test_post_pipeline_ctx_carries_readonly_history():
     captured = {}
 

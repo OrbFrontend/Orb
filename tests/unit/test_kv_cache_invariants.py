@@ -919,8 +919,23 @@ async def test_editor_tools_blob_constant_across_tool_switch():
 # ── The report itself, on a request that runs several pipelines ───────────────
 
 
-def _entry(tracker: _KVCacheTracker, label: str, body: str) -> None:
-    tracker.record(label, [{"role": "user", "content": body}], None, model="m")
+def _entry(
+    tracker: _KVCacheTracker,
+    label: str,
+    body: str,
+    *,
+    model: str = "m",
+    endpoint: str = "",
+    shape: str = "",
+) -> None:
+    tracker.record(
+        label,
+        [{"role": "user", "content": body}],
+        None,
+        model=model,
+        endpoint=endpoint,
+        shape=shape,
+    )
 
 
 def test_the_report_prints_each_call_once_across_a_multi_speaker_exchange(caplog):
@@ -972,6 +987,107 @@ def test_a_new_request_is_measured_against_the_latest_call_of_that_label(monkeyp
     previous.log_summary()
 
     current = mod._KVCacheTracker(conversation_id="c1")
-    prev, cross_turn = current._find_prev(0, "m", "writer")
+    prev, cross_turn = current._find_prev(0, ("", "m", ""), "writer")
     assert cross_turn and prev is not None
     assert "SHARED-AND-MORE" in prev["msgs_serialized"], "compared against the stalest same-label call"
+
+
+# ── Lanes ─────────────────────────────────────────────────────────────────────
+#
+# A tracker lane is (server, model, rendered-prompt shape). The first two fields
+# identify the physical cache owner. The third keeps independent prompt families
+# on that owner from being compared with each other.
+
+
+def test_two_servers_sharing_a_model_name_are_separate_lanes():
+    tracker = _KVCacheTracker(conversation_id=None)
+    _entry(tracker, "director:direct_scene", "agent-side", endpoint="https://api.example.com/v1")
+    _entry(tracker, "writer", "writer-side", endpoint="http://localhost:8080/v1")
+
+    # The writer is the first call on its lane, so it has nothing to compare to.
+    prev, _ = tracker._find_prev(1, ("http://localhost:8080/v1", "m", ""), "writer")
+    assert prev is None
+
+    # And the director is not offered as its predecessor.
+    prev, _ = tracker._find_prev(1, ("https://api.example.com/v1", "m", ""), "writer")
+    assert prev is not None and prev["label"] == "director:direct_scene"
+
+
+def test_a_later_call_compares_against_its_own_lane(caplog):
+    """The reported regression: a forced workflow call on the agent lane measured
+    against the writer's call because the two shared a model name."""
+    tracker = _KVCacheTracker(conversation_id=None)
+    agent, writer = "https://api.example.com/v1", "http://localhost:8080/v1"
+    _entry(tracker, "director:direct_scene", "SHARED-AGENT-BODY", endpoint=agent)
+    _entry(tracker, "writer", "different writer body", endpoint=writer)
+    _entry(tracker, "forced:voice_rewrite", "SHARED-AGENT-BODY-plus", endpoint=agent)
+
+    with caplog.at_level(logging.INFO, logger="backend.inference.kv_tracker"):
+        tracker.log_summary()
+
+    rewrite_row = next(line for line in caplog.text.splitlines() if "forced:voice_rewrite" in line)
+    assert "vs 'director:direct_scene'" in rewrite_row
+    assert "vs 'writer'" not in rewrite_row
+
+
+def test_a_standalone_shape_cannot_break_the_shared_group_exchange_lane(caplog):
+    """Speaker 2's Director must skip speaker 1's self-contained voice rewrite."""
+    tracker = _KVCacheTracker(conversation_id=None)
+    _entry(tracker, "director:direct_scene", "conversation-prefix")
+    _entry(tracker, "writer", "conversation-prefix-plus-writer")
+    _entry(
+        tracker,
+        "forced:voice_rewrite",
+        "short-rewrite-prefix",
+        shape="format_consistency:voice_rewrite",
+    )
+    _entry(tracker, "director:direct_scene", "conversation-prefix-plus-speaker-one")
+
+    with caplog.at_level(logging.INFO, logger="backend.inference.kv_tracker"):
+        tracker.log_summary()
+
+    rows = [line for line in caplog.text.splitlines() if "  provider:" in line]
+    second_director = rows[-1]
+    assert "vs 'writer'" in second_director
+    assert "vs 'forced:voice_rewrite'" not in second_director
+    assert "L2=m@local [format_consistency:voice_rewrite]" in caplog.text
+
+
+def test_the_report_names_the_lanes_when_a_turn_spans_more_than_one(caplog):
+    tracker = _KVCacheTracker(conversation_id=None)
+    _entry(tracker, "director:direct_scene", "a", model="gemma", endpoint="https://api.example.com/v1")
+    _entry(tracker, "writer", "b", model="gemma", endpoint="http://localhost:8080/v1")
+
+    with caplog.at_level(logging.INFO, logger="backend.inference.kv_tracker"):
+        tracker.log_summary()
+
+    assert "L1=gemma@api.example.com" in caplog.text
+    assert "L2=gemma@localhost:8080" in caplog.text
+    rows = [line for line in caplog.text.splitlines() if "  provider:" in line]
+    assert rows[0].strip().startswith("L1 ") and rows[1].strip().startswith("L2 ")
+
+
+def test_the_lane_legend_does_not_log_endpoint_credentials(caplog):
+    tracker = _KVCacheTracker(conversation_id=None)
+    _entry(tracker, "director:direct_scene", "a", endpoint="https://alice:secret@api.example.com/v1")
+    _entry(tracker, "writer", "b", endpoint="http://localhost:8080/v1")
+
+    with caplog.at_level(logging.INFO, logger="backend.inference.kv_tracker"):
+        tracker.log_summary()
+
+    assert "api.example.com" in caplog.text
+    assert "alice" not in caplog.text
+    assert "secret" not in caplog.text
+
+
+def test_a_single_lane_report_carries_no_lane_noise(caplog):
+    """The common case stays exactly as it was."""
+    tracker = _KVCacheTracker(conversation_id=None)
+    _entry(tracker, "director:direct_scene", "a")
+    _entry(tracker, "writer", "b")
+
+    with caplog.at_level(logging.INFO, logger="backend.inference.kv_tracker"):
+        tracker.log_summary()
+
+    assert "lanes:" not in caplog.text
+    assert "L1 " not in caplog.text

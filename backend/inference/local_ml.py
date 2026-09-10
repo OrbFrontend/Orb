@@ -39,11 +39,13 @@ __all__ = [
     "GO_EMOTIONS",
     "MODELS",
     "POV_ROWS",
+    "TENSE_COLS",
     "ModelSpec",
     "ModelVariantSpec",
     "acomplete",
     "aclassify",
     "aclassify_pov",
+    "aclassify_pov_tense",
     "ascore",
     "available",
     "delete_model",
@@ -56,6 +58,7 @@ __all__ = [
     "present",
     "prune_stale",
     "resolve_path",
+    "tense_from_logits",
     "variant_path",
     "variant_present",
     "variant_spec",
@@ -96,13 +99,14 @@ GO_EMOTIONS: tuple[str, ...] = (
     "neutral",
 )
 
-# The POV half of the povtense head, whose 12 logits are a row-major 4x3 grid:
-# POV rows x tense columns (past, present, ambiguous). Row-sum the softmax for the
-# POV, column-sum it for the tense. Order MUST match the GGUF head's logit order.
-# Only the rows are consumed -- an image prompt has no tense, so the columns are
-# summed by nobody and the tense half of the model is deliberately unused.
+# The povtense head's 12 logits are a row-major 4x3 grid: POV rows x tense
+# columns. Row-sum the softmax for the POV, column-sum it for the tense. Order
+# MUST match the GGUF head's logit order -- a transposed reading still returns a
+# plausible label, so every cell is pinned by test: the rows in
+# tests/unit/workflows/image_gen/test_pov.py, the columns in tests/unit/test_local_ml.py.
 POV_ROWS: tuple[str, ...] = ("first", "second", "third", "ambiguous")
-_POV_TENSES = 3
+TENSE_COLS: tuple[str, ...] = ("past", "present", "ambiguous")
+_TENSE_COUNT = len(TENSE_COLS)
 
 _REPEAT_PENALTY = 1.1
 _FREQUENCY_PENALTY = 0.1
@@ -283,7 +287,9 @@ async def aclassify(feature: str, text: str) -> str:
         return await asyncio.to_thread(_classify_blocking, feature, text)
 
 
-# The model card asks for "roughly 1-4 sentences without prior context", not a
+# The v2 model still needs short windows. Keep narration extraction in callers:
+# empirical dialogue-insertion probes favor it over trusting native markers
+# (docs/experiments/povtense-v2.md). The model card asks for 1-4 sentences, not a
 # whole reply: the encoder's trained context is 256 tokens, and a raw tail slice of
 # that size is 5-10 sentences that usually starts mid-word. So `pov_input` shapes
 # the span instead of just capping it. Tail-anchored like the emotion path: the
@@ -308,25 +314,39 @@ def pov_input(text: str) -> str:
     return " ".join(sentences[-_POV_SENTENCES:]).strip()[-_POV_MAX_CHARS:]
 
 
-def pov_from_logits(logits: Sequence[float]) -> str:
-    """Marginalize the 4x3 povtense grid down to one POV row label.
-
-    Pure, so the row-major layout — the one thing here that is silently wrong if
-    transposed — is testable without the model.
-    """
+def _pov_tense_from_logits(logits: Sequence[float]) -> tuple[str, str]:
     m = max(logits)
     exp = [math.exp(x - m) for x in logits]
-    # Row sums over the softmax marginalize the tense out of each POV. The
-    # normalizer is constant across rows, so argmax needs no division.
-    rows = [sum(exp[i * _POV_TENSES : (i + 1) * _POV_TENSES]) for i in range(len(POV_ROWS))]
-    return POV_ROWS[max(range(len(rows)), key=rows.__getitem__)]
+    rows = [sum(exp[i * _TENSE_COUNT : (i + 1) * _TENSE_COUNT]) for i in range(len(POV_ROWS))]
+    cols = [sum(exp[row * _TENSE_COUNT + col] for row in range(len(POV_ROWS))) for col in range(_TENSE_COUNT)]
+    return (
+        POV_ROWS[max(range(len(rows)), key=rows.__getitem__)],
+        TENSE_COLS[max(range(len(cols)), key=cols.__getitem__)],
+    )
+
+
+def pov_from_logits(logits: Sequence[float]) -> str:
+    """Marginalize the 4x3 joint head to one POV row label."""
+    return _pov_tense_from_logits(logits)[0]
+
+
+def tense_from_logits(logits: Sequence[float]) -> str:
+    """Marginalize the 4x3 joint head to one tense column label."""
+    return _pov_tense_from_logits(logits)[1]
+
+
+def _classify_pov_tense_blocking(feature: str, text: str) -> tuple[str, str]:
+    """Both grid margins off ONE embed -- the head is a single forward pass, so
+    asking for the tense separately would pay for the model twice."""
+    shaped = pov_input(text)
+    if not shaped:
+        return "ambiguous", "ambiguous"
+    logits = _head_logits(feature, shaped, len(POV_ROWS) * _TENSE_COUNT)
+    return _pov_tense_from_logits(logits)
 
 
 def _classify_pov_blocking(feature: str, text: str) -> str:
-    shaped = pov_input(text)
-    if not shaped:
-        return "ambiguous"
-    return pov_from_logits(_head_logits(feature, shaped, len(POV_ROWS) * _POV_TENSES))
+    return _classify_pov_tense_blocking(feature, text)[0]
 
 
 async def aclassify_pov(text: str) -> str:
@@ -340,3 +360,14 @@ async def aclassify_pov(text: str) -> str:
     """
     async with _lock("pov_classifier"):
         return await asyncio.to_thread(_classify_pov_blocking, "pov_classifier", text)
+
+
+async def aclassify_pov_tense(text: str) -> tuple[str, str]:
+    """One message -> (POV_ROWS label, TENSE_COLS label). One model call.
+
+    The combined entry point for callers that want both margins of the grid;
+    `aclassify_pov` stays the single-label door image_gen's camera reads through.
+    Lazy-loads; serialized by the feature's lock; off the loop.
+    """
+    async with _lock("pov_classifier"):
+        return await asyncio.to_thread(_classify_pov_tense_blocking, "pov_classifier", text)

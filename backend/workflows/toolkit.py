@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from ..analysis import (
+    AxisStyle,
     FormatDriftReport,
+    baseline_axes,
     build_targets,
+    classify_axes,
     format_numbered_report,
     format_report,
+    narration_only,
     normalize_to_baseline,
+    protected_runs,
     run_audit,
+    spoken_lines,
+    stable_label,
 )
 from ..core import (
     Macros,
@@ -66,6 +74,7 @@ from .registry import (
 )
 
 __all__ = [
+    "AxisStyle",
     "CastMember",
     "EVICTED_MARKER",
     "EV_DRAFT_REPLACED",
@@ -77,6 +86,9 @@ __all__ = [
     "WorkflowEventStream",
     "WorkflowUserFacingError",
     "classify_pov",
+    "classify_pov_tense",
+    "baseline_axes",
+    "classify_axes",
     "forced_tool_call",
     "build_targets",
     "format_numbered_report",
@@ -102,14 +114,20 @@ __all__ = [
     "get_workflow_state",
     "insert_workflow_attachment",
     "local_feature_available",
+    "local_feature_ready",
+    "local_model_identity",
+    "narration_only",
     "normalize_to_baseline",
     "overlay_enable_tools",
+    "protected_runs",
     "run_audit",
+    "spoken_lines",
     "build_offturn_prefix",
     "set_workflow_character_state",
     "set_workflow_config",
     "set_workflow_message_state",
     "set_workflow_state",
+    "stable_label",
     "workflow_character_state_lock",
     "workflow_config_lock",
     "workflow_state_lock",
@@ -121,9 +139,27 @@ def local_feature_available(feature: str) -> tuple[bool, str]:
     return _local_ml.available(feature)
 
 
+def local_feature_ready(feature: str, settings: Mapping[str, Any]) -> bool:
+    """Return whether a local-ML feature is available and enabled."""
+    available, _reason = local_feature_available(feature)
+    enabled = settings.get("local_ml_enabled")
+    return available and (not isinstance(enabled, Mapping) or enabled.get(feature, True) is not False)
+
+
+def local_model_identity(feature: str) -> str:
+    """Return the pinned model identity for caches of classifier results."""
+    spec = _local_ml.MODELS[feature]
+    return f"{spec.repo_id}@{spec.revision}"
+
+
 async def classify_pov(text: str) -> str:
     """Classify narrative point of view through the host inference service."""
     return await _local_ml.aclassify_pov(text)
+
+
+async def classify_pov_tense(text: str) -> tuple[str, str]:
+    """Classify narrative point of view and tense through the host inference service."""
+    return await _local_ml.aclassify_pov_tense(text)
 
 
 async def get_scene_cast(conversation_id: str) -> TurnCast:

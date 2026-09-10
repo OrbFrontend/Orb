@@ -50,6 +50,7 @@ async def forced_tool_call(
     schema_overrides: Mapping[str, Mapping] | None = None,
     offer_tools: Sequence[str] | None = None,
     kv_tracker: Any = None,
+    cache_shape: str = "",
     model_name: str | None = None,
     reasoning_on: bool = True,
     temperature: float = 0.25,
@@ -64,6 +65,11 @@ async def forced_tool_call(
     Director and Editor forced calls apply. ``temperature`` stays a caller
     constant: a forced call fills a schema, so a roleplay preset would only add
     flourish to it -- the same split ``inference.drafting`` documents.
+
+    ``cache_shape`` names an intentionally separate prompt family on the same
+    endpoint and model. Leave it empty when the call extends the conversation;
+    standalone calls must give their stable shape a name so tracker comparisons
+    cannot jump between the two unrelated prefixes.
     """
     tool = require_tool(tool_name)
     schema = tool["schema"]
@@ -128,6 +134,8 @@ async def forced_tool_call(
             messages,
             tools,
             model=resolved_model,
+            endpoint=base_url,
+            shape=cache_shape,
         )
 
     resp: dict = {}
@@ -199,7 +207,14 @@ async def forced_tool_call(
             )
             tools = [schema]
             if kv_tracker is not None:
-                kv_tracker.record(kv_label, messages, tools, model=resolved_model)
+                kv_tracker.record(
+                    kv_label,
+                    messages,
+                    tools,
+                    model=resolved_model,
+                    endpoint=base_url,
+                    shape=cache_shape,
+                )
             async for event in _attempt(tools):
                 yield event
             args, _ = _parse()
