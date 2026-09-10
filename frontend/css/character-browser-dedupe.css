@@ -1,8 +1,12 @@
 /* Character Library → Duplicate finder. The manager frame supplies spacing and
-   typography; this file owns only result density and the inline comparison. */
+   typography; this file owns only result density and the inline comparison.
 
-.lib-dupe-status,
-.lib-dupe-empty {
+   One scale runs through the whole surface: a row is padded 8px 10px, a stack
+   of rows sits 6px apart, the blocks inside one match sit 10px apart, and the
+   matches themselves 16px apart across their rule. Nothing here restates a
+   margin the frame already carries. */
+
+.lib-dupe-status {
   font-size: 12px;
   line-height: 1.45;
   color: var(--text-secondary);
@@ -11,21 +15,27 @@
 .lib-dupe-results {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
 .lib-dupe-group,
-.lib-dupe-possible,
 .lib-dupe-compare {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding-top: 14px;
+  padding-top: 16px;
   border-top: 1px solid var(--border);
 }
 
-.lib-dupe-group-head,
-.lib-dupe-compare-head,
+/* The tier is an eyebrow over the title, so the one action that applies to the
+   whole match centres on the title line instead of on the two-line stack. */
+.lib-dupe-group-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lib-dupe-group-titlerow,
 .lib-dupe-pair,
 .lib-dupe-compare-cards,
 .lib-dupe-resolve-actions {
@@ -35,56 +45,173 @@
   gap: 10px;
 }
 
-.lib-dupe-badge,
-.lib-dupe-section-label {
-  font-size: 10px;
-  font-family: var(--font-mono);
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  color: var(--accent-light);
+/* Back button and label read as one unit, left to right. */
+.lib-dupe-compare-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
+/* Every action in this panel is a fixed label. A narrow panel shortens the row
+   it sits in; it never breaks "Not duplicates" across two lines. */
+.lib-dupe-group .btn,
+.lib-dupe-compare-head .btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* The back arrow is drawn, so it is sized against the label rather than against
+   whatever the theme font makes of an arrow glyph. */
+.lib-dupe-compare-head .btn { --ui-icon-size: 12px; }
+
+.lib-dupe-badge,
+.lib-dupe-section-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* A weaker signal should look weaker: the word says possible, the colour agrees
+   rather than competing with the strong matches above it. */
+.lib-dupe-badge.is-possible { color: var(--text-muted); }
+
 .lib-dupe-group-title {
-  margin-top: 3px;
+  min-width: 0;
   font-size: 13px;
   color: var(--text-primary);
 }
 
-.lib-dupe-members,
 .lib-dupe-reasons {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
 }
 
-.lib-dupe-members span,
-.lib-dupe-reason {
-  padding: 2px 6px;
+.lib-dupe-reason,
+.lib-dupe-chip {
+  padding: 2px 7px;
   border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 10px;
-  color: var(--text-secondary);
-}
-
-.lib-dupe-reason {
+  line-height: 1.5;
   color: var(--text-muted);
 }
 
-.lib-dupe-pairs {
+.lib-dupe-chip {
+  flex: 0 0 auto;
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* The letter is the only stable handle on a card whose name is shared with
+   every other member of its cluster, so it leads every label it appears in.
+   Inline it is centred on the text it precedes, not hung off the baseline. */
+.lib-dupe-mark {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  border-radius: 4px;
+  background: var(--accent-glow);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1;
+  color: var(--accent);
+  vertical-align: middle;
+}
+
+.lib-dupe-choices,
+.lib-dupe-pairs,
+.lib-dupe-fields {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lib-dupe-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-deep);
+  transition: border-color .15s;
+}
+
+.lib-dupe-choice:hover { border-color: var(--border-light); }
+
+.lib-dupe-choice-main { min-width: 0; flex: 1 1 auto; }
+
+.lib-dupe-choice-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.lib-dupe-choice-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-dupe-choice-name .lib-dupe-mark { margin-right: 0; }
+
+/* This line is the whole reason the panel exists -- it is what separates two
+   cards with the same name -- so it is set as content, not as fine print. */
+.lib-dupe-choice-meta {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* A drawn chevron, never the UA's own marker: see icons.js. The native triangle
+   is a font glyph, so it lands differently under every theme's --font-ui. */
+.lib-dupe-evidence > summary {
+  --ui-icon-size: 10px;
+  --ui-icon-stroke: 2.6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.lib-dupe-evidence > summary::-webkit-details-marker { display: none; }
+.lib-dupe-evidence > summary:hover { color: var(--text-secondary); }
+.lib-dupe-evidence > summary .ui-icon { transition: transform .15s; }
+.lib-dupe-evidence[open] > summary .ui-icon { transform: rotate(90deg); }
+.lib-dupe-evidence[open] > summary { margin-bottom: 6px; }
+
+.lib-dupe-doomed {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 
 .lib-dupe-pair {
-  align-items: flex-start;
-  padding: 9px 10px;
+  padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-deep);
 }
 
-.lib-dupe-pair-main { min-width: 0; }
+.lib-dupe-pair-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
 
 .lib-dupe-pair-names {
   overflow: hidden;
@@ -100,7 +227,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   padding: 8px 10px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius);
@@ -108,21 +235,20 @@
   color: var(--text-secondary);
 }
 
-.lib-dupe-compare-cards > div {
-  display: grid;
-  grid-template-columns: 36px 1fr;
-  column-gap: 8px;
+.lib-dupe-compare-card {
+  display: flex;
   align-items: center;
+  gap: 8px;
   min-width: 0;
   flex: 1 1 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 
-.lib-dupe-compare-cards strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lib-dupe-compare-cards span { grid-column: 2; color: var(--text-muted); }
+.lib-dupe-compare-card strong { display: flex; align-items: center; min-width: 0; font-weight: 500; }
 
 .lib-dupe-avatar {
-  grid-row: span 2;
+  flex: 0 0 auto;
+  box-sizing: border-box;
   width: 36px;
   height: 36px;
   border: 1px solid var(--border);
@@ -130,11 +256,14 @@
   object-fit: cover;
 }
 
+/* Absence drawn as absence: a dashed ring rather than a filled portrait. */
 .lib-dupe-no-avatar {
   display: grid;
   place-items: center;
-  padding: 3px;
-  font-size: 8px;
+  padding: 2px;
+  border-style: dashed;
+  font-size: 9px;
+  line-height: 1;
   color: var(--text-muted);
   text-align: center;
 }
@@ -142,42 +271,105 @@
 .lib-dupe-collision-note {
   padding: 8px 10px;
   border-left: 2px solid var(--accent-dim);
+  border-radius: 0 var(--radius) var(--radius) 0;
   background: var(--accent-glow);
   font-size: 11px;
-  line-height: 1.4;
+  line-height: 1.45;
   color: var(--text-secondary);
 }
 
-.lib-dupe-table-wrap { overflow-x: auto; }
-
-.lib-dupe-table {
-  width: 100%;
-  border-collapse: collapse;
+/* One unified diff per field, stacked full width. Two columns of the same prose
+   cost twice the width to say half as much, and repeated the shared text. */
+.lib-dupe-diff-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
   font-size: 11px;
-  table-layout: fixed;
+  color: var(--text-muted);
 }
 
-.lib-dupe-table th,
-.lib-dupe-table td {
-  padding: 7px 8px;
+.lib-dupe-legend { display: flex; gap: 10px; }
+.lib-dupe-legend .lib-dupe-mark { margin: 0 0 0 4px; }
+.lib-dupe-legend > span { display: flex; align-items: center; }
+
+.lib-dupe-field {
   border: 1px solid var(--border);
-  vertical-align: top;
-  text-align: left;
+  border-radius: var(--radius);
+  background: var(--bg-deep);
+}
+
+.lib-dupe-field-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* The chevron keeps its column on the rows that cannot open, so every field
+   label starts on the same vertical line down the list. */
+.lib-dupe-field-mark {
+  --ui-icon-size: 10px;
+  --ui-icon-stroke: 2.6;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 10px;
+  color: var(--text-muted);
+  transition: transform .15s;
+}
+
+.lib-dupe-field[open] > .lib-dupe-field-head .lib-dupe-field-mark { transform: rotate(90deg); }
+
+.lib-dupe-field-name { margin-right: auto; }
+
+summary.lib-dupe-field-head { cursor: pointer; user-select: none; }
+.lib-dupe-field.is-empty { opacity: .6; }
+
+.lib-dupe-field-tag {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lib-dupe-field-tag.is-changed { color: var(--accent); }
+
+.lib-dupe-field-body {
+  max-height: 320px;
+  padding: 8px 10px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.lib-dupe-table th { width: 18%; color: var(--text-muted); font-weight: 500; }
-.lib-dupe-table thead th { color: var(--text-secondary); background: var(--bg-deep); }
-.lib-dupe-table .wc-before,
-.lib-dupe-table .wc-after,
-.lib-dupe-same { white-space: pre-wrap; }
-.lib-dupe-table .wc-before + .wc-after { margin-top: 4px; }
-.lib-dupe-same { color: var(--text-secondary); }
-
+/* Both keepers read the same when both cards share a name, so each button
+   carries its own letter and the facts that separate the two copies. */
 .lib-dupe-resolve-actions { flex-wrap: wrap; justify-content: flex-start; }
 
+.lib-dupe-keep {
+  display: flex;
+  flex: 1 1 200px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  text-align: left;
+}
+
+.lib-dupe-keep-title { display: flex; align-items: center; }
+.lib-dupe-keep-sub { font-size: 10px; font-weight: 400; opacity: .75; }
+
 @media (max-width: 620px) {
-  .lib-dupe-pair { flex-direction: column; }
+  .lib-dupe-pair,
+  .lib-dupe-choice { flex-direction: column; align-items: stretch; }
   .lib-dupe-compare-cards { align-items: flex-start; flex-direction: column; }
-  .lib-dupe-table { min-width: 580px; }
 }

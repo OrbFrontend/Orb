@@ -17,13 +17,21 @@ from ..connection import get_db, immediate_tx
 
 
 async def list_cards_for_dedupe() -> list[dict[str, Any]]:
-    """Return the server-only card bodies and cached avatar values for a scan."""
+    """Return the server-only card bodies and cached avatar values for a scan.
+
+    ``created_at`` and ``has_avatar`` are not matcher inputs.  They exist so the
+    review UI can tell identically named copies apart, which is the one thing a
+    name and an id cannot do.  ``avatar_b64 IS NOT NULL`` reads the record header
+    rather than the blob, so it stays out of the memory budget this module's
+    one-avatar-at-a-time rule protects.
+    """
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
                 "SELECT id, name, description, personality, scenario, first_mes, mes_example, "
                 "system_prompt, post_history_instructions, alternate_greetings, creator, "
-                "avatar_dhash, avatar_dhash_stamp, updated_at "
+                "avatar_dhash, avatar_dhash_stamp, created_at, updated_at, "
+                "avatar_b64 IS NOT NULL AS has_avatar "
                 "FROM character_cards ORDER BY id"
             )
         )

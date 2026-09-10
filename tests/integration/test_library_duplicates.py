@@ -198,6 +198,83 @@ async def test_relinking_a_group_chat_that_already_casts_the_keeper_drops_the_du
     assert [member["character_card_id"] for member in members] == [keep]
 
 
+async def test_a_scan_labels_result_cards_with_what_separates_identical_names(client):
+    """Three cards named Reimu are told apart by use and age, never by name."""
+    keep = await _card(client, "Reimu")
+    other = await _card(client, "Reimu")
+    assert (await client.post("/api/conversations", json={"character_card_id": keep})).status_code == 200
+
+    report = await _scan(client)
+
+    listed = {item["id"]: item for item in report["cards"]}
+    assert set(listed) == {keep, other}
+    assert listed[keep]["conversations"] == 1 and listed[keep]["last_used_at"]
+    assert listed[other]["conversations"] == 0 and listed[other]["last_used_at"] is None
+    assert all(item["created_at"] and item["has_avatar"] in (0, 1) for item in listed.values())
+
+
+async def test_a_card_outside_every_result_is_not_listed(client):
+    """The identity strip covers results only; the rest of the library stays private."""
+    await _card(client, "Mara")
+    await _card(client, "Mara")
+    await _card(client, "Unrelated", description="A lighthouse keeper who counts gulls and nothing else.")
+
+    report = await _scan(client)
+
+    assert "Unrelated" not in {item["name"] for item in report["cards"]}
+
+
+async def test_keeping_one_copy_of_three_removes_the_rest_in_one_call(client):
+    """A cluster is one decision, not N-1 pairwise confirmations."""
+    keep = await _card(client, "Reimu")
+    first = await _card(client, "Reimu")
+    second = await _card(client, "Reimu")
+    conversation = (await client.post("/api/conversations", json={"character_card_id": first})).json()
+
+    response = await client.post(
+        "/api/library/duplicates/resolve-group",
+        json={"keep_id": keep, "remove_ids": [first, second], "relink": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["removed"] == 2 and response.json()["impact"]["conversations"] == 1
+    assert (await client.get(f"/api/characters/{first}")).status_code == 404
+    assert (await client.get(f"/api/characters/{second}")).status_code == 404
+    moved = next(item for item in (await client.get("/api/conversations")).json() if item["id"] == conversation["id"])
+    assert moved["character_card_id"] == keep
+
+
+async def test_a_group_removal_that_would_orphan_history_deletes_nothing(client):
+    """The pre-flight covers the whole cluster, so a refusal is not half-applied."""
+    keep = await _card(client, "Reimu")
+    safe = await _card(client, "Reimu")
+    linked = await _card(client, "Reimu")
+    assert (await client.post("/api/conversations", json={"character_card_id": linked})).status_code == 200
+
+    response = await client.post(
+        "/api/library/duplicates/resolve-group",
+        json={"keep_id": keep, "remove_ids": [safe, linked], "relink": False},
+    )
+
+    assert response.status_code == 409 and response.json()["detail"]["impact"]["conversations"] == 1
+    assert (await client.get(f"/api/characters/{safe}")).status_code == 200
+    assert (await client.get(f"/api/characters/{linked}")).status_code == 200
+
+
+async def test_a_group_removal_cannot_name_the_keeper(client):
+    """Keeping and deleting the same card would delete the card the reader chose."""
+    keep = await _card(client, "Reimu")
+    other = await _card(client, "Reimu")
+
+    response = await client.post(
+        "/api/library/duplicates/resolve-group",
+        json={"keep_id": keep, "remove_ids": [other, keep], "relink": False},
+    )
+
+    assert response.status_code == 422
+    assert (await client.get(f"/api/characters/{keep}")).status_code == 200
+
+
 async def test_a_scan_cannot_start_underneath_a_tagging_run(client):
     """Tagging and duplicate scans share the same card-write lock."""
     async with library_routes._run_lock:

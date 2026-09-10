@@ -59,6 +59,7 @@ from ..deps import _CleanupStreamingResponse, _sse_stream
 from ..schemas import (
     AutoTagRunRequest,
     DuplicateDismissRequest,
+    DuplicateResolveGroupRequest,
     DuplicateResolveRequest,
     LibraryTagVocabulary,
 )
@@ -282,9 +283,26 @@ async def api_scan_library_duplicates(request: Request):
                 if str(card["avatar_dhash_stamp"]) == f"{stamp_prefix}{card['updated_at']}"
             }
             report = find_duplicates(signals_for_all(cards, dhashes), dismissed=await get_dismissals())
-            # Card bodies never leave this endpoint. The UI receives only names
-            # to label result IDs; compare is the two-card body boundary.
-            report["cards"] = [{"id": str(card["id"]), "name": str(card["name"])} for card in cards]
+            # Card bodies never leave this endpoint; compare is the two-card body
+            # boundary. What does leave is the small identity strip the review UI
+            # needs to tell same-named copies apart -- avatar presence, use, and
+            # age -- for the cards that actually appear in a result. A name and an
+            # opaque id cannot distinguish three cards all called "Reimu".
+            listed = {card_id for group in report["groups"] for card_id in group["cards"]}
+            listed.update(card_id for pair in report["pairs"] for card_id in (pair["a"], pair["b"]))
+            activity = await get_card_activity(sorted(listed))
+            report["cards"] = [
+                {
+                    "id": str(card["id"]),
+                    "name": str(card["name"]),
+                    "created_at": str(card["created_at"]),
+                    "has_avatar": 1 if card["has_avatar"] else 0,
+                    "conversations": int(activity.get(str(card["id"]), {}).get("total") or 0),
+                    "last_used_at": activity.get(str(card["id"]), {}).get("last_used_at"),
+                }
+                for card in cards
+                if str(card["id"]) in listed
+            ]
             report["stats"]["avatar_rehashed"] = total
             yield {"event": "done", "data": report}
 
@@ -352,6 +370,16 @@ async def api_restore_library_duplicates(data: DuplicateDismissRequest):
     return {"restored": await remove_dismissals(data.pairs)}
 
 
+async def _resolve_one(remove_id: str, keep_id: str, relink: bool) -> dict[str, int]:
+    """Relink and delete a single doomed card. The caller already holds the lock."""
+    impact = await get_relink_impact(remove_id, keep_id)
+    if relink:
+        impact = await relink_card(remove_id, keep_id)
+    if not await delete_character_card(remove_id):
+        raise HTTPException(status_code=404, detail="Character card not found")
+    return impact
+
+
 @router.post("/api/library/duplicates/resolve")
 async def api_resolve_library_duplicate(data: DuplicateResolveRequest):
     """Delete a duplicate, blocking history loss unless the caller chooses relink."""
@@ -370,8 +398,42 @@ async def api_resolve_library_duplicate(data: DuplicateResolveRequest):
                     "impact": impact,
                 },
             )
-        if data.relink:
-            impact = await relink_card(data.remove_id, data.keep_id)
-        if not await delete_character_card(data.remove_id):
-            raise HTTPException(status_code=404, detail="Character card not found")
+        impact = await _resolve_one(data.remove_id, data.keep_id, data.relink)
         return {"ok": True, "relinked": data.relink, "impact": impact}
+
+
+@router.post("/api/library/duplicates/resolve-group")
+async def api_resolve_library_duplicate_group(data: DuplicateResolveGroupRequest):
+    """Keep one card from a cluster of three or more copies and delete the rest.
+
+    Reviewing a cluster pair by pair means N-1 confirmations for one decision the
+    reader already made, so the keeper choice is a single call. The whole cluster
+    is checked before anything is deleted: a refusal must leave the library
+    untouched rather than half-applied.
+    """
+    if _run_lock.locked():
+        raise HTTPException(status_code=409, detail="The library is busy; wait for the current run to finish")
+    async with _run_lock:
+        cards = await asyncio.gather(
+            get_character_card(data.keep_id), *(get_character_card(card_id) for card_id in data.remove_ids)
+        )
+        if any(card is None for card in cards):
+            raise HTTPException(status_code=404, detail="Character card not found")
+        impacts = [await get_relink_impact(card_id, data.keep_id) for card_id in data.remove_ids]
+        linked = sum(impact["conversations"] for impact in impacts)
+        if linked and not data.relink:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "These cards have conversations. Relink them to the keeper before deleting them.",
+                    "impact": {"conversations": linked},
+                },
+            )
+        totals = {"solo": 0, "groups": 0, "conversations": 0, "collisions": 0}
+        for card_id in data.remove_ids:
+            # Recomputed per card rather than reused from the pre-flight pass:
+            # relinking one member moves rows that change the next one's counts.
+            impact = await _resolve_one(card_id, data.keep_id, data.relink)
+            for key in totals:
+                totals[key] += int(impact.get(key, 0))
+        return {"ok": True, "removed": len(data.remove_ids), "relinked": data.relink, "impact": totals}
