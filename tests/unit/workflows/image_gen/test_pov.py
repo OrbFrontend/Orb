@@ -8,12 +8,30 @@ from __future__ import annotations
 
 import pytest
 
+from backend.analysis.format_consistency import Dialogue, classify_axes, narration_only
 from backend.inference import local_ml
+from backend.inference.local_models import assets, dependencies
 from backend.workflows.image_gen import pov
+
+
+@pytest.fixture(autouse=True)
+def _no_local_models(monkeypatch):
+    """Markup is read by `classify_axes`, whatever sits in the local models directory."""
+    monkeypatch.setattr(assets, "present", lambda feature: False)
 
 
 def _history(*roles_and_texts: tuple[str, str]) -> list[dict]:
     return [{"role": role, "content": text} for role, text in roles_and_texts]
+
+
+def _ready(monkeypatch, ready: bool = True) -> None:
+    """Set the camera's gate (POV model installed and enabled) without a database."""
+
+    async def no_settings() -> dict:
+        return {}
+
+    monkeypatch.setattr(pov, "get_settings", no_settings)
+    monkeypatch.setattr(pov, "local_feature_ready", lambda feature, settings: ready)
 
 
 def _fake_classifier(monkeypatch, labels: list[str]) -> list[str]:
@@ -26,16 +44,8 @@ def _fake_classifier(monkeypatch, labels: list[str]) -> list[str]:
         return queue.pop(0) if queue else "ambiguous"
 
     monkeypatch.setattr(local_ml, "aclassify_pov", fake)
-    monkeypatch.setattr(pov, "classifier_ready", _always_ready)
+    _ready(monkeypatch)
     return seen
-
-
-async def _always_ready() -> bool:
-    return True
-
-
-async def _never_ready() -> bool:
-    return False
 
 
 # --- the grid ------------------------------------------------------------------
@@ -103,7 +113,7 @@ async def test_lookback_is_bounded_then_falls_to_the_default(monkeypatch):
 
 
 async def test_auto_without_a_classifier_degrades_to_the_default(monkeypatch):
-    monkeypatch.setattr(pov, "classifier_ready", _never_ready)
+    _ready(monkeypatch, False)
 
     async def explode(_text):
         raise AssertionError("classifier must not run when it is not ready")
@@ -121,7 +131,7 @@ async def test_a_failing_classifier_degrades_instead_of_raising(monkeypatch):
         raise RuntimeError("failed to load: wrong head?")
 
     monkeypatch.setattr(local_ml, "aclassify_pov", boom)
-    monkeypatch.setattr(pov, "classifier_ready", _always_ready)
+    _ready(monkeypatch)
     # A local-ML fault must cost the camera, not the image.
     assert await pov.resolve(mode="auto", history=_history(("assistant", "x"))) == (pov.DEFAULT_POV, "default")
 
@@ -145,3 +155,21 @@ async def test_camera_parses_each_history_rows_own_dialogue_convention(monkeypat
     history = _history(("assistant", "*I raised the lantern.* Come closer."), ("assistant", '"I am still here."'))
     assert await pov.resolve(history=history) == (pov.FIRST, "classifier")
     assert seen == ["", "I raised the lantern."]
+
+
+async def test_the_markup_classifier_decides_what_the_camera_reads(monkeypatch):
+    """Installed, the markup model's dialogue reading chooses which spans are narration."""
+    text = "*I raised the lantern.* Come closer."
+    assert classify_axes(text).dialogue == Dialogue.BARE
+    seen = _fake_classifier(monkeypatch, ["first"])
+
+    async def reads_quoted(_text: str) -> tuple[str, str]:
+        return "asterisk", "quoted"
+
+    monkeypatch.setattr(assets, "present", lambda feature: True)
+    monkeypatch.setattr(dependencies, "deps_ok", lambda feature=None: (True, ""))
+    monkeypatch.setattr(local_ml, "aclassify_markup", reads_quoted)
+
+    assert await pov.resolve(history=_history(("assistant", text))) == (pov.FIRST, "classifier")
+    assert seen == [narration_only(text, Dialogue.QUOTED)]
+    assert seen != [narration_only(text, Dialogue.BARE)]

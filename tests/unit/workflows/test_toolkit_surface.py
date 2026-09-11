@@ -61,6 +61,7 @@ def test_toolkit_exposes_local_ml_as_narrow_capabilities():
     assert "local_feature_ready" in toolkit.__all__
     assert "classify_pov" in toolkit.__all__
     assert "classify_pov_tense" in toolkit.__all__
+    assert "markup_axes" in toolkit.__all__
 
 
 def test_toolkit_exposes_the_shared_agreement_rule():
@@ -72,7 +73,7 @@ def test_toolkit_exposes_the_shared_agreement_rule():
 
 def test_toolkit_exposes_format_convention_shaping():
     """A plug-in must use one convention for markup repair and voice shaping."""
-    for name in ("AxisStyle", "baseline_axes", "narration_only"):
+    for name in ("AxisStyle", "baseline_axes", "markup_axes", "narration_only", "vote_axes"):
         assert hasattr(toolkit, name)
         assert name in toolkit.__all__
 

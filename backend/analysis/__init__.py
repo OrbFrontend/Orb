@@ -11,7 +11,9 @@ from .detectors.structural_repetition import StructuralResult
 from .detectors.template_repetition import FlaggedTemplate, TemplateResult
 from .format_consistency import (
     AxisStyle,
+    Dialogue,
     FormatDriftReport,
+    Narration,
     baseline_axes,
     classify_axes,
     narration_only,
@@ -19,6 +21,7 @@ from .format_consistency import (
     protected_runs,
     spoken_lines,
     stable_label,
+    vote_axes,
 )
 from .patching import (
     PatchError,
@@ -52,7 +55,9 @@ __all__ = [
     "PhraseResult",
     "EchoResult",
     "AxisStyle",
+    "Dialogue",
     "FormatDriftReport",
+    "Narration",
     "baseline_axes",
     "classify_axes",
     "narration_only",
@@ -60,5 +65,6 @@ __all__ = [
     "protected_runs",
     "spoken_lines",
     "stable_label",
+    "vote_axes",
     "split_narration_sentences",
 ]

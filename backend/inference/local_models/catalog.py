@@ -104,6 +104,12 @@ MODELS: dict[str, ModelSpec] = {
         revision="bacd633b181b7efdfbb9ba668c8c530ba47ad8a0",
         local_filename="povtense-17m-v2-q8_0.gguf",
     ),
+    "markup_classifier": ModelSpec(
+        repo_id="chartreuse-verte/ettin-markup-17m",
+        filename="gguf/markup-17m-q8_0.gguf",
+        size_mb=20,
+        revision="758d5236405776dd801452a4954b047ba63775aa",
+    ),
     # Not an in-process model: served by a child llama-server (see
     # local_models/llama_server/, driven by features/prose_rewriter/).
     # `filename`/`size_mb` name the default variant so the legacy single-file

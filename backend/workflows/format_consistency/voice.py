@@ -9,7 +9,6 @@ from typing import Any
 
 from ..toolkit import (
     AxisStyle,
-    classify_axes,
     classify_pov_tense,
     get_workflow_message_state,
     local_model_identity,
@@ -36,8 +35,9 @@ def _content_digest(text: str) -> str:
     return hashlib.sha256(b"narration-v2\0" + text.encode()).hexdigest()
 
 
-async def _classify_narration(text: str, style: AxisStyle) -> VoiceLabels | None:
-    """Classify narration extracted under *style*."""
+async def classify(text: str, style: AxisStyle) -> VoiceLabels | None:
+    """Return the (POV, tense) of *text*'s narration, extracted under its markup
+    reading *style*, or ``None`` on a local-ML fault."""
     try:
         return await classify_pov_tense(narration_only(text, style.dialogue))
     except Exception as e:
@@ -45,20 +45,18 @@ async def _classify_narration(text: str, style: AxisStyle) -> VoiceLabels | None
         return None
 
 
-async def classify(text: str) -> VoiceLabels | None:
-    """Return narration's (POV, tense), or ``None`` on a local-ML fault."""
-    return await _classify_narration(text, classify_axes(text))
+async def labels_for(msg: Mapping[str, Any], style: AxisStyle) -> VoiceLabels | None:
+    """Return cached labels for a history row, classifying on a miss.
 
-
-async def labels_for(msg: Mapping[str, Any]) -> VoiceLabels | None:
-    """Return cached labels for a history row, classifying on a miss."""
+    *style* is the row's markup reading. Its dialogue decides which spans count as
+    narration, so a cached row is reused only under the same dialogue reading.
+    """
     text = msg.get("content") or ""
     if not isinstance(text, str):
         return UNKNOWN_LABELS
-    style = classify_axes(text)
     mid = msg.get("id")
     if not isinstance(mid, int):
-        return await _classify_narration(text, style)
+        return await classify(text, style)
     digest = _content_digest(text)
     classifier = local_model_identity(FEATURE)
     cached = await get_workflow_message_state(mid, WORKFLOW_ID)
@@ -72,7 +70,7 @@ async def labels_for(msg: Mapping[str, Any]) -> VoiceLabels | None:
             and isinstance(tense, str)
         ):
             return pov, tense
-    labels = await _classify_narration(text, style)
+    labels = await classify(text, style)
     if labels is None:
         return None
     pov, tense = labels

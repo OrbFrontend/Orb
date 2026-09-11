@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from typing import Any
 
 from ..analysis import (
     AxisStyle,
+    Dialogue,
     FormatDriftReport,
+    Narration,
     baseline_axes,
     build_targets,
     classify_axes,
@@ -19,6 +22,7 @@ from ..analysis import (
     run_audit,
     spoken_lines,
     stable_label,
+    vote_axes,
 )
 from ..core import (
     Macros,
@@ -73,6 +77,8 @@ from .registry import (
     set_workflow_state,
 )
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "AxisStyle",
     "CastMember",
@@ -89,6 +95,8 @@ __all__ = [
     "classify_pov_tense",
     "baseline_axes",
     "classify_axes",
+    "markup_axes",
+    "vote_axes",
     "forced_tool_call",
     "build_targets",
     "format_numbered_report",
@@ -160,6 +168,30 @@ async def classify_pov(text: str) -> str:
 async def classify_pov_tense(text: str) -> tuple[str, str]:
     """Classify narrative point of view and tense through the host inference service."""
     return await _local_ml.aclassify_pov_tense(text)
+
+
+_MARKUP_FEATURE = "markup_classifier"
+
+
+async def markup_axes(text: str, settings: Mapping[str, Any]) -> AxisStyle:
+    """*text*'s markup convention: the local markup classifier's reading, or
+    ``classify_axes`` when that model is off, missing, or failing.
+
+    Every consumer reads convention through this one door, so markup repair, voice
+    shaping, and the image camera never disagree about a message.
+    """
+    if not local_feature_ready(_MARKUP_FEATURE, settings):
+        return classify_axes(text)
+    return await _classify_markup(text) or classify_axes(text)
+
+
+async def _classify_markup(text: str) -> AxisStyle | None:
+    try:
+        narration, dialogue = await _local_ml.aclassify_markup(text)
+    except Exception as e:  # a bad wheel or a wrong head: the heuristic still answers
+        logger.warning("markup classifier failed (%r); reading markup heuristically", e)
+        return None
+    return AxisStyle(dialogue=Dialogue(dialogue), narration=Narration(narration))
 
 
 async def get_scene_cast(conversation_id: str) -> TurnCast:

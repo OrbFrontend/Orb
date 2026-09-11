@@ -153,3 +153,48 @@ def test_markup_input_hides_exactly_what_classify_axes_hides():
 
     for text in ("A **b** c", "x\n```\ny\n```\nz", "one ___ two", "*kept* __bold__"):
         assert local_ml.markup_input(text) == format_consistency._strip_protected(text)
+
+
+# --- the markup head ------------------------------------------------------------
+# Narration rows x dialogue columns, row-major (../RP-Markup-Classifier/src/schema.py).
+# A transposed read maps "asterisk" onto "quoted" and still looks plausible, so
+# every cell is pinned.
+
+
+@pytest.mark.parametrize("col,dialogue", list(enumerate(local_ml.DIALOGUE_COLS)))
+@pytest.mark.parametrize("row,narration", list(enumerate(local_ml.NARRATION_ROWS)))
+def test_markup_from_logits_reads_every_cell_row_major(row, narration, col, dialogue):
+    grid = [0.0] * 9
+    grid[row * 3 + col] = 9.0
+    assert local_ml.markup_from_logits(grid) == (narration, dialogue)
+
+
+def test_markup_labels_are_marginals_not_the_top_cell():
+    grid = [0.0] * 9
+    grid[0 * 3 + 1] = 3.0  # asterisk/bare: the single top cell
+    grid[1 * 3 + 0] = grid[1 * 3 + 2] = 2.6  # bare narration, spread across two cells
+    assert local_ml.markup_from_logits(grid) == ("bare", "bare")
+
+
+async def test_aclassify_markup_reads_the_shaped_message_off_nine_cells(monkeypatch):
+    calls: list[tuple[str, str, int]] = []
+
+    def fake(feature: str, text: str, n: int) -> list[float]:
+        calls.append((feature, text, n))
+        grid = [0.0] * n
+        grid[1 * 3 + 0] = 9.0  # bare / quoted
+        return grid
+
+    monkeypatch.setattr(local_ml, "_head_logits", fake)
+    text = 'She **really** smiles. "Hi."\n* a bullet'
+    assert await local_ml.aclassify_markup(text) == ("bare", "quoted")
+    assert calls == [("markup_classifier", local_ml.markup_input(text), 9)]
+
+
+async def test_aclassify_markup_never_loads_the_model_for_nothing_to_read(monkeypatch):
+    def boom(*args, **kwargs):
+        raise AssertionError("the model must not be reached for empty shaped input")
+
+    monkeypatch.setattr(local_ml, "_head_logits", boom)
+    for text in ("", "  \n ", "```\nonly a fence\n```"):
+        assert await local_ml.aclassify_markup(text) == ("unknown", "unknown")

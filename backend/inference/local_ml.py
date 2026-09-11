@@ -42,16 +42,19 @@ from .local_models import (
 #: a monkeypatch belongs on the module that OWNS the name (``assets.download``,
 #: ``dependencies.deps_ok``), not on the re-export.
 __all__ = [
+    "DIALOGUE_COLS",
     "GO_EMOTIONS",
     "MARKUP_INPUT_CHARS",
     "MARKUP_INPUT_VERSION",
     "MODELS",
+    "NARRATION_ROWS",
     "POV_ROWS",
     "TENSE_COLS",
     "ModelSpec",
     "ModelVariantSpec",
     "acomplete",
     "aclassify",
+    "aclassify_markup",
     "aclassify_pov",
     "aclassify_pov_tense",
     "ascore",
@@ -60,6 +63,7 @@ __all__ = [
     "deps_ok",
     "download",
     "install_cmd",
+    "markup_from_logits",
     "markup_input",
     "model_dir",
     "pov_from_logits",
@@ -323,15 +327,27 @@ def pov_input(text: str) -> str:
     return " ".join(sentences[-_POV_SENTENCES:]).strip()[-_POV_MAX_CHARS:]
 
 
-def _pov_tense_from_logits(logits: Sequence[float]) -> tuple[str, str]:
+def _argmax(values: Sequence[float]) -> int:
+    return max(range(len(values)), key=values.__getitem__)
+
+
+def _grid_margins(logits: Sequence[float], rows: Sequence[str], cols: Sequence[str]) -> tuple[str, str]:
+    """Read a row-major joint head as (row label, column label).
+
+    Each label is the argmax of its own softmax marginal (row sums, column sums),
+    never the top cell's coordinates. The softmax stays unnormalized: dividing
+    every mass by one constant cannot move an argmax.
+    """
     m = max(logits)
     exp = [math.exp(x - m) for x in logits]
-    rows = [sum(exp[i * _TENSE_COUNT : (i + 1) * _TENSE_COUNT]) for i in range(len(POV_ROWS))]
-    cols = [sum(exp[row * _TENSE_COUNT + col] for row in range(len(POV_ROWS))) for col in range(_TENSE_COUNT)]
-    return (
-        POV_ROWS[max(range(len(rows)), key=rows.__getitem__)],
-        TENSE_COLS[max(range(len(cols)), key=cols.__getitem__)],
-    )
+    width = len(cols)
+    row_mass = [sum(exp[r * width : (r + 1) * width]) for r in range(len(rows))]
+    col_mass = [sum(exp[r * width + c] for r in range(len(rows))) for c in range(width)]
+    return rows[_argmax(row_mass)], cols[_argmax(col_mass)]
+
+
+def _pov_tense_from_logits(logits: Sequence[float]) -> tuple[str, str]:
+    return _grid_margins(logits, POV_ROWS, TENSE_COLS)
 
 
 def pov_from_logits(logits: Sequence[float]) -> str:
@@ -425,3 +441,38 @@ def markup_input(text: str) -> str:
     loading the model.
     """
     return _dash_bullets(strip_protected_markup(text or ""))[:MARKUP_INPUT_CHARS]
+
+
+# The markup head is one 9-way softmax over a row-major 3x3 grid: narration rows x
+# dialogue columns (../RP-Markup-Classifier/src/schema.py). Read like povtense:
+# row sums for the narration, column sums for the dialogue, never both off the top
+# cell. Order MUST match the GGUF head's logit order -- a transposed read still
+# returns plausible labels, so tests/unit/test_local_ml.py pins every cell.
+# "unknown" is a trained class (nothing to read, or both styles mixed in this one
+# message), not a confidence floor: callers read it as "leave this alone".
+NARRATION_ROWS: tuple[str, ...] = ("asterisk", "bare", "unknown")
+DIALOGUE_COLS: tuple[str, ...] = ("quoted", "bare", "unknown")
+_MARKUP_CELLS = len(NARRATION_ROWS) * len(DIALOGUE_COLS)
+
+
+def markup_from_logits(logits: Sequence[float]) -> tuple[str, str]:
+    """Marginalize the 3x3 markup head to (narration, dialogue)."""
+    return _grid_margins(logits, NARRATION_ROWS, DIALOGUE_COLS)
+
+
+def _classify_markup_blocking(feature: str, text: str) -> tuple[str, str]:
+    shaped = markup_input(text)
+    if not shaped.strip():
+        return "unknown", "unknown"  # nothing to read: never load the model for it
+    return markup_from_logits(_head_logits(feature, shaped, _MARKUP_CELLS))
+
+
+async def aclassify_markup(text: str) -> tuple[str, str]:
+    """One whole message -> (NARRATION_ROWS label, DIALOGUE_COLS label). One model call.
+
+    The model reads `markup_input(text)`, of which llama.cpp keeps the first 512
+    tokens, exactly as training cut it. Lazy-loads; serialized by the feature's
+    lock; off the loop.
+    """
+    async with _lock("markup_classifier"):
+        return await asyncio.to_thread(_classify_markup_blocking, "markup_classifier", text)

@@ -5,8 +5,10 @@ actually receives. Stored assistant messages are not that draft: they are the
 hook's output, so a message the normalizer already rewrote looks consistent by
 construction. When ``ORB_MARKUP_CAPTURE`` names a file, every post-pipeline call
 appends one JSON line: the incoming draft, the baseline window it was judged
-against (message ids and text, newest first), the heuristic's source/target and
-action, and the text the hook emitted. Off when unset; never raises into the hook.
+against (message ids and text, newest first), the source/target readings the
+rewrite acted on (the markup classifier's when it is enabled, else the
+heuristic's), its action, and the text the hook emitted. Off when unset; never
+raises into the hook.
 """
 
 from __future__ import annotations
