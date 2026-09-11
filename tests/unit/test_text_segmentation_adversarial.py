@@ -72,6 +72,25 @@ def test_guillemet_and_cjk_quotes_are_dialogue():
         assert extract_blocks(text)[0] == ("SPEECH", quoted)
 
 
+def test_ornamental_fullwidth_and_prime_double_quotes_are_dialogue():
+    """A glyph the parser cannot read makes a correct quoted label unsafe to act on."""
+    for text, quoted in (
+        ("❝Hello,❞ she said.", "❝Hello,❞"),
+        ("〝Wait here,〞 he said.", "〝Wait here,〞"),
+        ("＂Stay,＂ she whispered.", "＂Stay,＂"),
+        ("″Fine,″ he muttered.", "″Fine,″"),
+        ("‟Really?” she asked.", "‟Really?”"),
+    ):
+        assert [text[start:end] for start, end in find_quote_spans(text)] == [quoted]
+        assert classify_axes(text).dialogue == Dialogue.QUOTED
+
+
+def test_a_double_prime_after_a_number_is_a_measurement():
+    text = "The frame is 12″ by 8″ wide."
+    assert find_quote_spans(text) == []
+    assert extract_narration(text) == text
+
+
 def test_sentence_split_preserves_balanced_closing_markup():
     assert split_sentences("He said “Stop.” Then left.") == ["He said “Stop.”", "Then left."]
     assert split_sentences("*He stopped.* Then left.") == ["*He stopped.*", "Then left."]

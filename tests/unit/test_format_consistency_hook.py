@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from types import MappingProxyType
 
 import pytest
@@ -20,6 +21,7 @@ from backend.workflows.format_consistency import (
     VOICE_REWRITE_LENGTH_RULE,
     VOICE_REWRITE_TOOL,
     VOICE_REWRITE_TOOL_NAME,
+    capture,
     guard,
     hooks,
     voice,
@@ -726,5 +728,47 @@ async def test_a_rewrite_that_only_moved_the_markup_is_still_accepted(monkeypatc
     _forced_call(monkeypatch, DRIFTING_DRAFT)
 
     events = await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
+
+    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
+
+
+# ---------- opt-in capture of the normalizer's exact inputs ----------
+
+
+async def test_markup_capture_is_off_unless_configured(monkeypatch):
+    monkeypatch.delenv(capture.ENV, raising=False)
+    written: list[str] = []
+    monkeypatch.setattr(capture, "_append", lambda path, line: written.append(line))
+
+    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
+
+    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
+    assert written == []
+
+
+async def test_markup_capture_records_the_draft_the_normalizer_received(monkeypatch, tmp_path):
+    path = tmp_path / "capture.jsonl"
+    monkeypatch.setenv(capture.ENV, str(path))
+    history = [
+        {"id": 3, "role": "assistant", "content": QUOTED_BASELINE},
+        {"id": 4, "role": "user", "content": "and then?"},
+    ]
+
+    await _collect(_ctx(DRIFTING_DRAFT, history))
+
+    [row] = [json.loads(line) for line in path.read_text().splitlines()]
+    assert row["draft"] == row["hook_input"] == DRIFTING_DRAFT
+    assert row["output"] == NORMALIZED
+    assert row["baseline"] == [{"id": 3, "content": QUOTED_BASELINE}]
+    assert row["parent_id"] == 4
+    assert row["source"] == {"narration": "asterisk", "dialogue": "bare"}
+    assert row["target"] == {"narration": "bare", "dialogue": "quoted"}
+    assert (row["note"], row["changed"]) == ("normalized", True)
+
+
+async def test_a_failing_capture_never_blocks_normalization(monkeypatch, tmp_path):
+    monkeypatch.setenv(capture.ENV, str(tmp_path))  # a directory: the append fails
+
+    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
 
     assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]

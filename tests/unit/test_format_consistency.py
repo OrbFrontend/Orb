@@ -589,6 +589,18 @@ def test_a_thought_in_an_unsettled_draft_survives_a_bare_narration_baseline():
     _assert_unchanged(THOUGHT_IN_QUOTED_PROSE, BARE_NARRATION_BASELINE)
 
 
+def test_a_bare_draft_keeps_its_thoughts_and_sound_effects_against_a_bare_baseline():
+    """Unwrapping converts asterisk narration; a draft already in bare prose keeps its marks."""
+    for draft in (
+        "She crossed the room slowly and sat down on the edge of the old bed, smoothing the blanket "
+        'flat with both hands. *He was lying again.* "Fine," she said.',
+        "The door slammed behind him hard enough to rattle the frames on the wall. *thud* "
+        '"Charming," she muttered, and turned the page of her book without looking up.',
+    ):
+        assert classify_axes(draft).narration == Narration.BARE
+        _assert_unchanged(draft, BARE_NARRATION_BASELINE)
+
+
 def test_a_settled_bare_narration_draft_is_still_stripped():
     draft = '*He steps inside, shaking off the rain.* "Quite a storm out there," he says.'
     assert classify_axes(draft).narration == Narration.ASTERISK
@@ -636,3 +648,58 @@ def test_an_interior_beat_is_still_not_an_action_beat_in_first_person():
     draft = "My phone slips from my numb fingers.\n\n*He still likes me. He really does.*\n\nThe thought is not a comfort."
     assert classify_axes(draft).dialogue == Dialogue.UNKNOWN
     _assert_unchanged(draft, ['She smiles. "Hello there."'])
+
+
+# ---------- an explicit source classification ----------
+
+
+def test_an_explicit_source_replaces_the_draft_classification():
+    """Another classifier can decide the source side of the rewrite."""
+    base = ['She smiles. "Hello there," she says warmly.']
+    draft = "*She steps closer, watching him carefully.* Are you sure about this?"
+    assert normalize_to_baseline(draft, base, enabled=True)[0] == (
+        'She steps closer, watching him carefully. "Are you sure about this?"'
+    )
+
+    # Read as quoted-dialogue prose, its bare run is narration and stays unquoted.
+    source = AxisStyle(dialogue=Dialogue.QUOTED, narration=Narration.ASTERISK)
+    new, rep = normalize_to_baseline(draft, base, enabled=True, source=source)
+    assert rep.source is source
+    assert new == "She steps closer, watching him carefully. Are you sure about this?"
+
+
+# ---------- a paragraph whose quotes do not pair is never rewritten ----------
+
+
+def test_an_unclosed_quote_leaves_its_paragraph_alone():
+    """An unclosed quote swaps speech and narration for the rest of the paragraph."""
+    draft = '"Hello, she said, stepping inside. "It\'s cold out there," he replied.'
+    _assert_unchanged(draft, FULL_MARKUP_BASELINE)
+    # Even a correct reading of the draft cannot make the swapped parse safe.
+    source = AxisStyle(dialogue=Dialogue.QUOTED, narration=Narration.BARE)
+    assert normalize_to_baseline(draft, FULL_MARKUP_BASELINE, enabled=True, source=source)[0] == draft
+
+
+def test_an_even_count_quote_swap_leaves_its_paragraph_alone():
+    """Two quotes can pair the wrong way round: the span opens onto a space."""
+    _assert_unchanged('She waved. Hello," she said. "Goodbye.', FULL_MARKUP_BASELINE)
+
+
+def test_only_the_paragraph_with_the_unpaired_quote_is_skipped():
+    draft = 'She pours the tea. "Drink it while it\'s hot."\n\n"Hello, she said. "Bye," he replied.'
+    new, rep = normalize_to_baseline(draft, FULL_MARKUP_BASELINE, enabled=True)
+    assert rep.changed
+    assert new == '*She pours the tea.* "Drink it while it\'s hot."\n\n"Hello, she said. "Bye," he replied.'
+
+
+def test_measurement_marks_and_apostrophes_do_not_block_a_rewrite():
+    draft = 'He is 6\'2" and the dogs’ keeper. "Sit down," he says.'
+    new, rep = normalize_to_baseline(draft, FULL_MARKUP_BASELINE, enabled=True)
+    assert rep.changed
+    assert new == '*He is 6\'2" and the dogs’ keeper.* "Sit down," *he says.*'
+
+
+def test_an_ornamental_quote_is_speech_to_the_rewriter_too():
+    new, rep = normalize_to_baseline("She leans closer. ❝You came back,❞ she murmurs.", FULL_MARKUP_BASELINE, enabled=True)
+    assert rep.changed
+    assert new == "*She leans closer.* ❝You came back,❞ *she murmurs.*"

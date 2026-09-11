@@ -10,6 +10,7 @@ __all__ = [
     "HARD_LINE_BREAK_RE",
     "OPEN_QUOTES",
     "PARA_SPLIT",
+    "PROTECTED_MARKUP_RE",
     "SENT_SPLIT",
     "TOGGLE_QUOTES",
     "count_sentences",
@@ -22,6 +23,7 @@ __all__ = [
     "split_paragraphs",
     "split_sentence_units",
     "split_sentences",
+    "strip_protected_markup",
 ]
 
 # Python ``str.splitlines`` recognizes this complete set.  Keep an explicit
@@ -44,10 +46,33 @@ _QUOTE_PAIRS = {
     "『": "』",
     "„": "“",
     "‚": "‘",
+    "‟": "”",
+    "❝": "❞",
+    "〝": "〞",
 }
 OPEN_QUOTES = frozenset(_QUOTE_PAIRS)
 CLOSE_QUOTES = frozenset(_QUOTE_PAIRS.values())
-TOGGLE_QUOTES = frozenset({'"'})
+# The fullwidth quote and the double prime stand in for '"' in some writers'
+# text. A double prime after a digit is a measurement (12″) and is skipped like 12".
+TOGGLE_QUOTES = frozenset({'"', "＂", "″"})
+
+# Formatting runs that are not roleplay markup: fenced code, **bold** / __bold__
+# (and their triple forms), and a lone *** or ___ scene divider. The
+# format-consistency classifier hides them from its coverage ratio and the markup
+# classifier's input shaping removes them identically, so both read this one pattern.
+PROTECTED_MARKUP_RE = re.compile(
+    r"```.*?```"  # fenced code (may span lines)
+    r"|\*{2,}[^\n]*?\*{2,}"  # **bold** / ***bold-italic*** (one line)
+    r"|_{2,}[^\n]*?_{2,}"  # __bold__ / ___bold-italic___ (one line)
+    r"|[\*_]{3,}",  # lone scene divider
+    re.DOTALL,
+)
+
+
+def strip_protected_markup(text: str) -> str:
+    """Replace every protected formatting run with one space."""
+    return PROTECTED_MARKUP_RE.sub(" ", text)
+
 
 _TERMINATORS = frozenset(".!?…。！？؟۔｡．।॥")
 _QUESTION_TERMINATORS = frozenset("?？؟")

@@ -6,10 +6,16 @@ import asyncio
 import atexit
 import math
 import os
+import re
 from collections.abc import Sequence
 from typing import Any
 
-from ..core.text_segmentation import remove_quoted_spans, split_sentences
+from ..core.text_segmentation import (
+    HARD_LINE_BREAK_RE,
+    remove_quoted_spans,
+    split_sentences,
+    strip_protected_markup,
+)
 from .local_models import (
     MODELS,
     ModelSpec,
@@ -37,6 +43,8 @@ from .local_models import (
 #: ``dependencies.deps_ok``), not on the re-export.
 __all__ = [
     "GO_EMOTIONS",
+    "MARKUP_INPUT_CHARS",
+    "MARKUP_INPUT_VERSION",
     "MODELS",
     "POV_ROWS",
     "TENSE_COLS",
@@ -52,6 +60,7 @@ __all__ = [
     "deps_ok",
     "download",
     "install_cmd",
+    "markup_input",
     "model_dir",
     "pov_from_logits",
     "pov_input",
@@ -371,3 +380,48 @@ async def aclassify_pov_tense(text: str) -> tuple[str, str]:
     """
     async with _lock("pov_classifier"):
         return await asyncio.to_thread(_classify_pov_tense_blocking, "pov_classifier", text)
+
+
+# The markup classifier (narration x dialogue convention) reads a WHOLE message:
+# convention is a coverage ratio and the dead band is a whole-message property, so
+# unlike `pov_input` nothing is windowed. Protected formatting runs (fenced code,
+# **bold**, dividers) are removed with the exact pattern `classify_axes` ignores.
+# Quote and asterisk glyphs are deliberately NOT normalized: the tokenizer reads
+# every variant, and a broken or unusual mark is the very signal being classified.
+# The one exception is a markdown bullet (`* item` at a line start): the parser
+# already refuses to read it as emphasis, and its star becomes "-" so a list never
+# looks like asterisk narration to the model. A line that closes an asterisk later
+# (`* She waves. *`) is a sloppy beat rather than a list, and keeps its star.
+#
+# The model's own cut is the token one. `Llama.embed(truncate=True)` keeps the
+# first n_batch (512) ids, so a long message loses its tail and its [SEP]; the
+# trainer (../RP-Markup-Classifier) truncates the same way rather than HF's
+# keep-[SEP] way, so both sides see identical ids. MARKUP_INPUT_CHARS is only a
+# runaway guard: on app.db it never binds before the token cut. Training builds
+# record MARKUP_INPUT_VERSION and a digest of this function's output, so bump the
+# version whenever the shaping changes.
+MARKUP_INPUT_VERSION = "markup-input-v2"
+MARKUP_INPUT_CHARS = 4000
+
+_LINE_BREAKS = re.compile(f"({HARD_LINE_BREAK_RE.pattern})")
+_BULLET_STAR = re.compile(r"([ \t]*)\*(?=[ \t])")
+
+
+def _dash_bullets(text: str) -> str:
+    """Rewrite each line-start bullet star to "-"; nothing else moves."""
+    parts = _LINE_BREAKS.split(text)
+    for i in range(0, len(parts), 2):  # even slots are lines, odd slots their breaks
+        m = _BULLET_STAR.match(parts[i])
+        if m and "*" not in parts[i][m.end() :]:
+            parts[i] = f"{m.group(1)}-{parts[i][m.end() :]}"
+    return "".join(parts)
+
+
+def markup_input(text: str) -> str:
+    """The text the markup classifier sees: protected runs removed, bullet stars
+    dashed, then capped.
+
+    Pure, so the shaping that training and serving share is testable without
+    loading the model.
+    """
+    return _dash_bullets(strip_protected_markup(text or ""))[:MARKUP_INPUT_CHARS]

@@ -18,6 +18,7 @@ from . import (
     VOICE_REWRITE_LENGTH_RULE,
     VOICE_REWRITE_TOOL_NAME,
     WORKFLOW_ID,
+    capture,
     normalize_config,
 )
 from .guard import rejection
@@ -152,8 +153,10 @@ async def post_pipeline(ctx):
         text = ctx.draft
 
     # Run markup normalization last because the voice rewrite can reintroduce drift.
-    text, report = normalize_to_baseline(text, baseline_msgs, enabled=True, target=convention)
+    draft = text
+    text, report = normalize_to_baseline(draft, baseline_msgs, enabled=True, target=convention)
     if report.changed:
         logger.info("format-consistency: normalized draft (%s)", report.transition())
+    await capture.record(ctx, window=window, draft=draft, report=report, output=text)
     if text != ctx.draft:
         yield {"type": EV_DRAFT_REPLACED, "draft": text}

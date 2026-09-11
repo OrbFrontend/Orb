@@ -114,3 +114,42 @@ async def test_aclassify_pov_tense_short_circuits_on_empty_shaping(monkeypatch):
     assert await local_ml.aclassify_pov_tense('"Just talking." "Only dialogue here."') == ("ambiguous", "ambiguous")
     # The single-label door is the same blocking core, so it short-circuits too.
     assert await local_ml.aclassify_pov("") == "ambiguous"
+
+
+# --- markup classifier input shaping ------------------------------------------
+# Shared with ../RP-Markup-Classifier: its build manifests record
+# MARKUP_INPUT_VERSION and a digest of these outputs, so a shaping change that
+# does not bump the version fails that repo's audit instead of silently mixing
+# two input distributions in one training build.
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("*She nods.* Fine.", "*She nods.* Fine."),  # RP markup is the signal: kept
+        ("“Hi,” she said. «Oui» 「はい」 ❝x❞",) * 2,  # no glyph normalization
+        ("She **really** meant it.", "She   meant it."),  # one space per protected run
+        ("Before\n```\n*code* here\n```\nAfter", "Before\n \nAfter"),  # fences span lines
+        ("Unclosed ```fence *keeps* going", "Unclosed ```fence *keeps* going"),  # incomplete runs stay
+        ("**bold that never closes\n*real beat*", "**bold that never closes\n*real beat*"),
+        ("Scene one.\n\n***\n\nScene two.", "Scene one.\n\n \n\nScene two."),
+        ("Here is a list:\n* rope\n* a lantern", "Here is a list:\n- rope\n- a lantern"),  # bullets are not beats
+        ("  * indented\r\n\t* after a CRLF", "  - indented\r\n\t- after a CRLF"),
+        ("* She waves. *", "* She waves. *"),  # closes later on its line: a sloppy beat, not a list
+        ("He said *so* * and left", "He said *so* * and left"),  # mid-line stars are never bullets
+        ("", ""),
+    ],
+)
+def test_markup_input_golden_strings(text, expected):
+    assert local_ml.markup_input(text) == expected
+
+
+def test_markup_input_caps_a_runaway_message():
+    assert local_ml.markup_input("x" * (local_ml.MARKUP_INPUT_CHARS + 50)) == "x" * local_ml.MARKUP_INPUT_CHARS
+
+
+def test_markup_input_hides_exactly_what_classify_axes_hides():
+    from backend.analysis import format_consistency
+
+    for text in ("A **b** c", "x\n```\ny\n```\nz", "one ___ two", "*kept* __bold__"):
+        assert local_ml.markup_input(text) == format_consistency._strip_protected(text)

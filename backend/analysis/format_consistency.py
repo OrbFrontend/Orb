@@ -9,10 +9,15 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TypeVar
 
+from ..core.text_segmentation import PROTECTED_MARKUP_RE
 from .text.text_segmentation import (
+    CLOSE_QUOTES,
+    OPEN_QUOTES,
+    TOGGLE_QUOTES,
     extract_block_spans,
     extract_narration,
     find_emphasis_spans,
+    find_quote_spans,
     split_paragraphs,
 )
 
@@ -103,13 +108,10 @@ def _is_inline_emphasis(spans: list[tuple[str, int, int]], i: int, para: str) ->
     return left[-1] not in _SENTENCE_END
 
 
-_PROTECTED = re.compile(
-    r"```.*?```"  # fenced code (may span lines)
-    r"|\*{2,}[^\n]*?\*{2,}"  # **bold** / ***bold-italic*** (one line)
-    r"|_{2,}[^\n]*?_{2,}"  # __bold__ / ___bold-italic___ (one line)
-    r"|[\*_]{3,}",  # lone scene divider
-    re.DOTALL,
-)
+# Fenced code, bold runs and scene dividers are formatting, not RP markup. The
+# pattern lives in core so the markup classifier's input shaping
+# (`local_ml.markup_input`) hides exactly what this module hides.
+_PROTECTED = PROTECTED_MARKUP_RE
 
 
 def _split_protected_segments(text: str) -> list[tuple[bool, str]]:
@@ -548,10 +550,13 @@ def _rewrite(draft: str, src: AxisStyle, target: AxisStyle) -> str:
     change_dialogue = (
         target.dialogue != Dialogue.UNKNOWN and eff_dialogue != Dialogue.UNKNOWN and target.dialogue != eff_dialogue
     )
-    # Unwrapping an unknown narration axis can turn an italic thought into prose;
-    # wrapping is safe only when quoted dialogue identifies bare spans as narration.
+    # Unwrapping converts asterisk narration, so only a draft that reads ASTERISK is
+    # unwrapped. Whatever emphasis a bare or unknown draft keeps, the rewriter cannot
+    # tell a slip from an italic thought, a sound effect or a stressed word, and
+    # unwrapping those turns them into prose. Wrapping is safe only when quoted
+    # dialogue identifies bare spans as narration.
     if target.narration == Narration.BARE:
-        change_narration = src.narration != Narration.UNKNOWN
+        change_narration = src.narration == Narration.ASTERISK
     elif target.narration == Narration.ASTERISK:
         change_narration = eff_dialogue == Dialogue.QUOTED
     else:
@@ -566,10 +571,36 @@ def _rewrite(draft: str, src: AxisStyle, target: AxisStyle) -> str:
     return _map_prose(draft, lambda seg: _rewrite_segment(seg, eff_src, td, tn))
 
 
+# A stray curly apostrophe ("the dogs’ bowls", "runnin’") is a closing single quote
+# to the parser, and it closes nothing, so it cannot swap a parse.
+_QUOTE_MARKS = (OPEN_QUOTES | CLOSE_QUOTES | TOGGLE_QUOTES) - {"’"}
+
+
+def _quote_parse_unreliable(para: str) -> bool:
+    """Whether *para*'s quote parse is unsafe to rewrite on.
+
+    ``find_quote_spans`` pairs a straight quote with the NEXT one, so an unclosed
+    quote swaps speech and narration for the rest of its paragraph:
+    ``"Hello, she said. "Bye," he replied`` parses as the speech
+    ``"Hello, she said. "``. A quote mark outside every span, or a straight-quote
+    span that opens onto whitespace or closes after it, is that swap. No reading
+    of the draft makes such a paragraph safe to rewrite.
+    """
+    spans = find_quote_spans(para)
+    for i, ch in enumerate(para):
+        if ch not in _QUOTE_MARKS or any(a <= i < b for a, b in spans):
+            continue
+        if ch in TOGGLE_QUOTES and i > 0 and (para[i - 1].isdigit() or para[i - 1] == "\\"):
+            continue  # 5'10" or an escaped quote: the parser skips these too
+        return True
+    return any(para[a] in TOGGLE_QUOTES and b - a >= 3 and (para[a + 1].isspace() or para[b - 2].isspace()) for a, b in spans)
+
+
 def _rewrite_segment(text: str, src: AxisStyle, td: Dialogue | None, tn: Narration | None) -> str:
-    """Rewrite a non-protected segment paragraph by paragraph."""
+    """Rewrite a non-protected segment paragraph by paragraph, leaving any
+    paragraph with an unreliable quote parse as written."""
     return "".join(
-        piece if idx % 2 == 1 or not piece.strip() else _rewrite_paragraph(piece, src, td, tn)
+        piece if idx % 2 == 1 or not piece.strip() or _quote_parse_unreliable(piece) else _rewrite_paragraph(piece, src, td, tn)
         for idx, piece in enumerate(re.split(r"(\n\s*\n)", text))
     )
 
@@ -580,8 +611,13 @@ def normalize_to_baseline(
     *,
     enabled: bool,
     target: AxisStyle | None = None,
+    source: AxisStyle | None = None,
 ) -> tuple[str, FormatDriftReport]:
-    """Normalize draft markup against recent assistant messages."""
+    """Normalize draft markup against recent assistant messages.
+
+    *target* and *source* default to the heuristic reading of the baseline and of
+    the draft; passing both lets another classifier decide the rewrite end to end.
+    """
     if not enabled:
         return draft, FormatDriftReport(None, None, False, "disabled")
     if not draft or not draft.strip() or not baseline_messages:
@@ -592,7 +628,8 @@ def normalize_to_baseline(
     if target.dialogue == Dialogue.UNKNOWN and target.narration == Narration.UNKNOWN:
         return draft, FormatDriftReport(None, target, False, "baseline unstable")
 
-    source = classify_axes(draft)
+    if source is None:
+        source = classify_axes(draft)
     new_text = _rewrite(draft, source, target)
     changed = new_text != draft
     note = "normalized" if changed else "already consistent"
