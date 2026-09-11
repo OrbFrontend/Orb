@@ -340,7 +340,7 @@ function batchSizeControl(f, info) {
   return `<div class="ml-batch">
     <label for="${id}">Parallel</label>
     <select class="tool-card-select" id="${id}" data-ml-act="batch-size" data-ml-feature="${escAttr(f)}">${options}</select>
-    <div>Lower values use less VRAM (~140–190 MB per slot).</div>
+    <div>~140–190 MB VRAM per parallel slot.</div>
   </div>`;
 }
 

@@ -356,18 +356,6 @@ BARE_NARRATION_BASELINE = [
 ]
 
 
-def test_half_asterisked_draft_is_completed_against_a_bare_narration_baseline():
-    new, rep = normalize_to_baseline(HALF_ASTERISKED_DRAFT, BARE_NARRATION_BASELINE, enabled=True)
-    assert rep.changed
-    assert new == (
-        "Amaryllis blinked, caught off guard by how serious the question was.\n\n"
-        "Her fingers tightened around the spine of the book.\n\n"
-        "She let out a short, breathy laugh, the first in weeks.\n\n"
-        '"Battle scenes?" she asked, her accent lilting. "Aye, there\'s a few."\n\n'
-        'She cleared her throat and looked away. "There\'s a siege in the third act."'
-    )
-
-
 # A bare-narration chat that sets its thoughts in asterisks.
 THOUGHT_IN_ASTERISKS_BASELINE = [
     'She set the book down. *He never listens.* "I told you I would," she said softly.',
@@ -375,9 +363,12 @@ THOUGHT_IN_ASTERISKS_BASELINE = [
 ]
 
 
-def test_half_asterisked_draft_is_left_alone_where_the_chat_writes_block_emphasis():
+def test_half_asterisked_draft_is_left_alone_against_a_bare_narration_baseline():
+    """Unwrapping converts asterisk narration. A mixed draft's asterisks may be its
+    thoughts, and a window that sets nothing in asterisks is no evidence otherwise."""
     assert baseline_axes(THOUGHT_IN_ASTERISKS_BASELINE).narration == Narration.BARE
-    _assert_unchanged(HALF_ASTERISKED_DRAFT, THOUGHT_IN_ASTERISKS_BASELINE)
+    for base in (BARE_NARRATION_BASELINE, THOUGHT_IN_ASTERISKS_BASELINE):
+        _assert_unchanged(HALF_ASTERISKED_DRAFT, base)
 
 
 def test_half_asterisked_draft_is_completed_against_an_asterisk_baseline():
@@ -464,11 +455,10 @@ def test_the_same_passage_classifies_the_same_in_first_and_third_person():
 
 def test_an_italic_aside_written_from_outside_is_still_not_bare_dialogue():
     """Third-person bare runs veto the bare-dialogue reading: nothing is quoted. The
-    aside itself is stray narration in a chat that never writes block emphasis."""
+    aside keeps its marks: the rewriter cannot tell it from a thought."""
     draft = "She walked to the window. *Everything had changed.* The street below was empty."
     assert classify_axes(draft).dialogue == Dialogue.UNKNOWN
-    new, _ = normalize_to_baseline(draft, ['She smiles. "Hello there."'], enabled=True)
-    assert new == "She walked to the window. Everything had changed. The street below was empty."
+    _assert_unchanged(draft, ['She smiles. "Hello there."'])
 
 
 def test_an_attributed_line_in_the_bare_runs_vetoes_the_bare_dialogue_read():
@@ -600,13 +590,12 @@ def test_stable_label_rejects_an_even_split():
     assert stable_label(["past", "present"], "ambiguous") == "ambiguous"
 
 
-# ---------- stray narration in a bare or mixed draft ----------
+# ---------- a draft that does not read asterisk keeps its emphasis ----------
 
 THOUGHT_IN_QUOTED_PROSE = 'She crossed the room slowly. *He still loves me. He has to.* "Good night," she said.'
 
 
-def test_an_off_voice_thought_survives_a_third_person_chat():
-    """First person in a chat whose narration never speaks in it is a thought."""
+def test_a_thought_in_an_unsettled_draft_survives_a_bare_narration_baseline():
     style = classify_axes(THOUGHT_IN_QUOTED_PROSE)
     assert style.dialogue == Dialogue.QUOTED
     assert style.narration == Narration.UNKNOWN
@@ -614,39 +603,41 @@ def test_an_off_voice_thought_survives_a_third_person_chat():
     _assert_unchanged(THOUGHT_IN_QUOTED_PROSE, BARE_NARRATION_BASELINE)
 
 
-def test_a_first_person_thought_is_unwrapped_where_the_chat_writes_its_thoughts_bare():
+def test_a_thought_survives_where_the_chat_writes_one_bare():
+    """One unmarked thought in the window does not make the draft's italic one a slip."""
     base = [*BARE_NARRATION_BASELINE[:2], 'She looked away. Why do I even bother? "It doesnae matter," she muttered.']
-    new, rep = normalize_to_baseline(THOUGHT_IN_QUOTED_PROSE, base, enabled=True)
-    assert rep.changed
-    assert new == 'She crossed the room slowly. He still loves me. He has to. "Good night," she said.'
+    _assert_unchanged(THOUGHT_IN_QUOTED_PROSE, base)
 
 
-STRAY_BEAT_DRAFT = (
-    "She crossed the room slowly and sat down on the edge of the old bed, smoothing the blanket "
-    'flat with both hands. *He was lying again.* "Fine," she said.'
-)
-
-
-def test_a_bare_draft_loses_its_stray_narration():
-    """The intra-reply slip: the chat's bare prose with one span left in asterisks."""
-    assert classify_axes(STRAY_BEAT_DRAFT).narration == Narration.BARE
-    new, rep = normalize_to_baseline(STRAY_BEAT_DRAFT, BARE_NARRATION_BASELINE, enabled=True)
-    assert rep.changed
-    assert new == STRAY_BEAT_DRAFT.replace("*He was lying again.*", "He was lying again.")
-
-
-def test_a_bare_draft_keeps_its_emphasis_where_the_chat_writes_block_emphasis():
-    _assert_unchanged(STRAY_BEAT_DRAFT, THOUGHT_IN_ASTERISKS_BASELINE)
-
-
-def test_a_bare_draft_keeps_its_sound_effects_and_stage_directions():
-    """A lone word is a sound effect, and a lower-case beat has no subject once unwrapped."""
+def test_a_bare_draft_keeps_its_thoughts_and_sound_effects_against_a_bare_baseline():
+    """Unwrapping converts asterisk narration; a draft already in bare prose keeps its
+    marks, whether or not the window sets anything in asterisks itself."""
     for draft in (
+        "She crossed the room slowly and sat down on the edge of the old bed, smoothing the blanket "
+        'flat with both hands. *He was lying again.* "Fine," she said.',
         "The door slammed behind him hard enough to rattle the frames on the wall. *thud* "
         '"Charming," she muttered, and turned the page of her book without looking up.',
         'She stood by the window for a long while, watching the rain run down the glass. *sighs softly* "Fine," she said.',
     ):
         assert classify_axes(draft).narration == Narration.BARE
+        for base in (BARE_NARRATION_BASELINE, THOUGHT_IN_ASTERISKS_BASELINE):
+            _assert_unchanged(draft, base)
+
+
+def test_italic_thoughts_keep_their_marks_in_a_chat_that_sets_nothing_in_asterisks():
+    """The shapes thoughts take in quoted prose: an interjection, a question, a
+    fragment, a tagged thought, a thought paragraph."""
+    for draft in (
+        'Mira pulls the blanket up to his chin. *Aww, poor thing. He must be exhausted.* "Sleep," she whispers.',
+        'He reads the note twice, turning it over in his hands. *Really? After all this time?* "Where did you find this?"',
+        'The lights flicker once and die, and the hum of the fridge goes with them. *Not again.* "Stay close," she says.',
+        '*Such a strange boy,* she thinks, and presses the key into his palm before he can argue. "Don\'t lose it."',
+        "He sets the cup down on the saucer without a sound and leans back in his chair, arms folded.\n\n"
+        "*He got lucky with that one. Let's see how long it lasts.*\n\n"
+        '"Again," he says, and deals the cards.',
+    ):
+        assert skip_reasons(draft) == [], draft
+        assert classify_axes(draft).narration != Narration.ASTERISK, draft
         _assert_unchanged(draft, BARE_NARRATION_BASELINE)
 
 
