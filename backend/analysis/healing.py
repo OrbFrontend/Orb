@@ -6,7 +6,8 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .text.text_segmentation import HARD_LINE_BREAK_RE, PARA_SPLIT
+from .audit import _OUTER_MARKERS
+from .text.text_segmentation import HARD_LINE_BREAK_RE, PARA_SPLIT, extract_block_spans
 
 __all__ = ["HealedPatch", "heal_replacement"]
 
@@ -56,6 +57,69 @@ def _head_repeat(keys: Sequence[str], preceding: Sequence[str]) -> int:
     return 0
 
 
+# Target spans are marker-stripped (``audit._strip_markers``), so the quotes or
+# emphasis around flagged text stay in the draft on either side of the span.
+# Straight and curly double quotes are one mark; a curly apostrophe stays apart
+# from them so ``sayin’`` never reads as a closing quote.
+_MARKER_KIND = str.maketrans({"“": '"', "”": '"', "’": "‘"})
+
+
+def _leading_markers(text: str) -> str:
+    """Return the quote/emphasis markers that open *text*."""
+    return text[: len(text) - len(text.lstrip(_OUTER_MARKERS))]
+
+
+def _trailing_markers(text: str) -> str:
+    """Return the quote/emphasis markers that close *text*."""
+    return text[len(text.rstrip(_OUTER_MARKERS)) :]
+
+
+def _enclosing_block(draft: str, start: int, end: int) -> tuple[int, int] | None:
+    """Return the speech or emphasis block holding ``draft[start:end]``, if any."""
+    para_start = 0
+    for match in PARA_SPLIT.finditer(draft, 0, start):
+        para_start = match.end()
+    next_break = PARA_SPLIT.search(draft, end)
+    para_end = next_break.start() if next_break else len(draft)
+    for typ, block_start, block_end in extract_block_spans(draft[para_start:para_end]):
+        if typ != "NARRATION" and para_start + block_start < start and end < para_start + block_end:
+            return para_start + block_start, para_start + block_end
+    return None
+
+
+def _wrapping_markers(draft: str, start: int, end: int) -> tuple[str, str]:
+    """Return the markers the draft already has before and after the span.
+
+    Each side is the run touching the span, plus the enclosing block's own
+    delimiter when the span sits mid-block and that delimiter is further off.
+    """
+    before = _trailing_markers(draft[:start])
+    after = _leading_markers(draft[end:])
+    block = _enclosing_block(draft, start, end)
+    if block is not None:
+        block_start, block_end = block
+        if start - len(before) > block_start:
+            before = _leading_markers(draft[block_start:start]) + before
+        if end + len(after) < block_end:
+            after += _trailing_markers(draft[end:block_end])
+    return before, after
+
+
+def _trim_wrapping_markers(draft: str, start: int, end: int, text: str) -> tuple[str, list[str]]:
+    """Drop the outer markers of *text* that the draft already wraps around the span."""
+    before, after = _wrapping_markers(draft, start, end)
+    notes: list[str] = []
+    opening = _head_repeat(_leading_markers(text).translate(_MARKER_KIND), before.translate(_MARKER_KIND))
+    if opening:
+        text = text[opening:].lstrip()
+        notes.append(f"dropped {opening} opening marker(s) the draft already has before the span")
+    closing = _tail_repeat(_trailing_markers(text).translate(_MARKER_KIND), after.translate(_MARKER_KIND))
+    if closing:
+        text = text[:-closing].rstrip()
+        notes.append(f"dropped {closing} closing marker(s) the draft already has after the span")
+    return text, notes
+
+
 _SEPARATORS = ("", " ", "\n", "\n\n")
 
 
@@ -100,6 +164,8 @@ def heal_replacement(draft: str, start: int, end: int, replace: str) -> HealedPa
         notes.append(f"trimmed {leading} leading word(s) copied from the draft before the span")
     if lo or hi < len(spans):
         text = text[spans[lo][0] : spans[hi - 1][1]].strip() if lo < hi else ""
+    text, marker_notes = _trim_wrapping_markers(draft, start, end, text)
+    notes.extend(marker_notes)
 
     if text:
         return HealedPatch(start, end, text, tuple(notes))
