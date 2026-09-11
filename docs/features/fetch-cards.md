@@ -3,7 +3,7 @@
 Orb can browse supported character-card repositories and open cards in the
 character editor before you save them.
 
-Open the character browser and select **🌐 Internet**.
+Open the character browser and select **Internet**.
 
 ## Supported sources
 

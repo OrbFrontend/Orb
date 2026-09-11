@@ -43,14 +43,17 @@
   gap: 10px;
 }
 
+/* A drawn icon, not a glyph: see icons.js. The box is a fixed square and the
+   SVG is centred in it by geometry, so the badge lands the same whatever the
+   theme's --font-ui is and whatever the host has to substitute for it. */
 .lib-tool-icon {
+  --ui-icon-size: 14px;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
   width: 26px;
   height: 26px;
-  font-size: 13px;
-  line-height: 1;
+  color: var(--accent);
   background: var(--accent-glow);
   border: 1px solid var(--border-light);
   border-radius: var(--radius);

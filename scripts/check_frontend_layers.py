@@ -64,6 +64,7 @@ LAYERS = {
     # only utils.js, so it sits alongside it rather than with the features.
     "world_proposals.js": 1,
     "group_cast.js": 1,
+    "library_dedupe_view.js": 1,
     # L2 services.
     "tabLock.js": 2,
     "audio_schedule.js": 2,
@@ -98,6 +99,7 @@ LAYERS = {
     "library.js": 5,
     "library_browser.js": 5,
     "library_manager.js": 5,
+    "library_dedupe.js": 5,
     "library_fragments.js": 5,
     "lorebooks.js": 5,
     "settings.js": 5,

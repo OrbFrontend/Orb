@@ -3,7 +3,7 @@
 Use auto-tagging to organize your character cards with tags chosen from a list
 you provide.
 
-Open the character browser and select **🛠 Manager**.
+Open the character browser and select **Manager**.
 
 ## Add tags
 

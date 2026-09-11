@@ -64,7 +64,13 @@
   overflow: hidden;
 }
 
+/* The mode glyph is a drawn icon (icons.js), so the row keeps its alignment
+   under every theme font instead of riding the font's own metrics. */
 .view-toggle-btn {
+  --ui-icon-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 10px;
   font-size: 11px;
   background: var(--bg-elevated);

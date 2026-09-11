@@ -799,6 +799,51 @@ class LibraryTagVocabulary(BaseModel):
     base_revision: str
 
 
+class DuplicateDismissRequest(BaseModel):
+    """Pairs to hide from, or restore to, duplicate-scan results."""
+
+    pairs: list[tuple[str, str]] = Field(min_length=1, max_length=512)
+
+    @field_validator("pairs")
+    @classmethod
+    def validate_pairs(cls, pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
+        if any(not a or not b or a == b for a, b in pairs):
+            raise ValueError("Each pair must name two different cards")
+        return pairs
+
+
+class DuplicateResolveRequest(BaseModel):
+    """Delete one duplicate, optionally relinking its conversations first."""
+
+    keep_id: str = Field(min_length=1)
+    remove_id: str = Field(min_length=1)
+    relink: bool = False
+
+    @model_validator(mode="after")
+    def validate_distinct_cards(self):
+        if self.keep_id == self.remove_id:
+            raise ValueError("Keep and remove must name different cards")
+        return self
+
+
+class DuplicateResolveGroupRequest(BaseModel):
+    """Keep one card from a duplicate cluster and delete every other member."""
+
+    keep_id: str = Field(min_length=1)
+    remove_ids: list[str] = Field(min_length=1, max_length=64)
+    relink: bool = False
+
+    @model_validator(mode="after")
+    def validate_distinct_cards(self):
+        removals = list(dict.fromkeys(self.remove_ids))
+        if any(not card_id for card_id in removals):
+            raise ValueError("Every removal must name a card")
+        if self.keep_id in removals:
+            raise ValueError("The keeper cannot also be removed")
+        self.remove_ids = removals
+        return self
+
+
 class PresetExportRequest(BaseModel):
     domains: list[str]
     strip_keys: bool = True

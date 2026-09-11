@@ -469,6 +469,12 @@ SIGNATURE_ALLOWLIST = frozenset(
         "direction_notes",
         "user_attachments",
         "workflow_attachments",
+        # Local review state for the duplicate finder: "I looked at this exact
+        # pair of cards and chose to keep both". Every row names two card ids and
+        # stamps their body hashes, so it is meaningful only against this
+        # install's library -- a preset applied elsewhere would carry dismissals
+        # for pairs that do not exist there.
+        "duplicate_dismissals",
     }
 )
 
