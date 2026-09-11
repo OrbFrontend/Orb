@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TypeVar
@@ -31,7 +31,9 @@ __all__ = [
     "spoken_lines",
     "narration_only",
     "baseline_axes",
+    "vote_axes",
     "stable_label",
+    "skip_reasons",
     "normalize_format",
     "normalize_to_baseline",
 ]
@@ -395,13 +397,17 @@ def stable_label(values: list[_StyleT], unknown: _StyleT) -> _StyleT:
     return unknown
 
 
-def baseline_axes(messages: list[str]) -> AxisStyle:
-    """Derive target axes from recent assistant messages."""
-    styles = [classify_axes(m) for m in messages if m and m.strip()]
+def vote_axes(styles: Sequence[AxisStyle]) -> AxisStyle:
+    """Vote target axes from several messages' readings, each axis on its own."""
     return AxisStyle(
         dialogue=stable_label([s.dialogue for s in styles], Dialogue.UNKNOWN),
         narration=stable_label([s.narration for s in styles], Narration.UNKNOWN),
     )
+
+
+def baseline_axes(messages: list[str]) -> AxisStyle:
+    """Derive target axes from recent assistant messages."""
+    return vote_axes([classify_axes(m) for m in messages if m and m.strip()])
 
 
 _TERMINATORS = ".!?…,;:"
@@ -553,8 +559,11 @@ def _rewrite(draft: str, src: AxisStyle, target: AxisStyle) -> str:
     # Unwrapping converts asterisk narration, so only a draft that reads ASTERISK is
     # unwrapped. Whatever emphasis a bare or unknown draft keeps, the rewriter cannot
     # tell a slip from an italic thought, a sound effect or a stressed word, and
-    # unwrapping those turns them into prose. Wrapping is safe only when quoted
-    # dialogue identifies bare spans as narration.
+    # unwrapping those turns them into prose. A window that sets nothing in asterisks
+    # is no evidence either: most replies carry no thought at all. (Unwrapping such
+    # "stray narration" was tried: on held-out chat windows all 20 of its edits were
+    # judged harmful, 17 of them italic thoughts.)
+    # Wrapping is safe only when quoted dialogue identifies bare spans as narration.
     if target.narration == Narration.BARE:
         change_narration = src.narration == Narration.ASTERISK
     elif target.narration == Narration.ASTERISK:
@@ -605,6 +614,67 @@ def _rewrite_segment(text: str, src: AxisStyle, td: Dialogue | None, tn: Narrati
     )
 
 
+# The action policy, skip-v1 (../RP-Markup-Classifier/src/policy.py): drafts that
+# no markup reading makes safe to rewrite, because the rewriter acts on the span
+# parser and the parser misreads them. Structure is not RP prose (metadata keys,
+# rules, headings, lists, tables, `Name: "..."` transcripts): a label or a rule
+# reads as a bare narration run. Emphasis the parser mis-pairs (a nested or
+# unclosed star, an emphasis span holding a quote) is cut into the wrong spans.
+# It reads the draft alone, with protected runs hidden: the rewriter never
+# touches those. On held-out chat windows it took harmful rewrites from 3.0% to
+# 0.5% behind the markup classifier and from 5.0% to 1.7% behind `classify_axes`.
+# The trainer froze those numbers against these exact rules: a change is skip-v2.
+_META = re.compile(r"(?m)^[ \t]*[A-Z][A-Z0-9 _/&-]{2,}:(?:[ \t]|$)")
+_RULE = re.compile(r"(?m)^[ \t]*(?:-{3,}|={3,}|—{2,})[ \t]*$")
+_HEADING = re.compile(r"(?m)^[ \t]*#{1,6}[ \t]+\S")
+_TABLE_ROW = re.compile(r"(?m)^[ \t]*\|.*\|[ \t]*$")
+# One to three capitalised words, a colon, then speech or a beat: `Cecilia: "..."`.
+# `She said: "..."` is prose: its second word is not capitalised.
+_SPEAKER = re.compile(r"(?m)^[ \t]*[A-Z][\w'’.-]*(?: [A-Z][\w'’.-]*){0,2}:[ \t]*[\"“*(]")
+_LIST_ITEM = re.compile(r"[ \t]*([-+•*]|\d{1,2}[.)])[ \t]+\S")
+# A markdown bullet star (`* item` after any hard line break) is never emphasis.
+_BULLET_STAR = re.compile(r"(?:^|(?<=[\n\v\f\r\x1c-\x1e\x85\u2028\u2029]))[ \t]*(\*)(?=[ \t])")
+
+
+def _list_items(text: str) -> int:
+    """Lines that open like a list item. A star that closes later on its line is a
+    sloppy beat (`* She waves. *`), not a bullet."""
+    return sum(
+        1 for line in text.splitlines() if (m := _LIST_ITEM.match(line)) and not (m.group(1) == "*" and "*" in line[m.end() :])
+    )
+
+
+def _has_stray_asterisk(text: str) -> bool:
+    """Whether a star sits outside every emphasis span and is not a bullet."""
+    paired = {i for a, b in find_emphasis_spans(text) for i in range(a, b)}
+    paired.update(m.start(1) for m in _BULLET_STAR.finditer(text))
+    return any(ch == "*" and i not in paired for i, ch in enumerate(text))
+
+
+def _quote_in_emphasis(text: str) -> bool:
+    """Whether an emphasis span holds a quote mark, which the parser cuts into
+    narration, speech and narration."""
+    return any(not _QUOTE_MARKS.isdisjoint(text[a:b]) for a, b in find_emphasis_spans(text))
+
+
+_SKIP_RULES: tuple[tuple[str, Callable[[str], object]], ...] = (
+    ("metadata", _META.search),
+    ("rule", _RULE.search),
+    ("heading", _HEADING.search),
+    ("list", lambda text: _list_items(text) >= 2),
+    ("table", lambda text: len(_TABLE_ROW.findall(text)) >= 2),
+    ("speaker-label", _SPEAKER.search),
+    ("stray-asterisk", _has_stray_asterisk),
+    ("quote-in-emphasis", _quote_in_emphasis),
+)
+
+
+def skip_reasons(draft: str) -> list[str]:
+    """Why *draft* must be left as written (skip-v1); empty when it may be rewritten."""
+    visible = _strip_protected(draft)
+    return [name for name, fires in _SKIP_RULES if fires(visible)]
+
+
 def normalize_to_baseline(
     draft: str,
     baseline_messages: list[str] | None,
@@ -617,6 +687,8 @@ def normalize_to_baseline(
 
     *target* and *source* default to the heuristic reading of the baseline and of
     the draft; passing both lets another classifier decide the rewrite end to end.
+    Whichever reading decides, a draft ``skip_reasons`` flags is left as written,
+    and only a draft that reads ASTERISK loses its emphasis to a bare target.
     """
     if not enabled:
         return draft, FormatDriftReport(None, None, False, "disabled")
@@ -630,6 +702,9 @@ def normalize_to_baseline(
 
     if source is None:
         source = classify_axes(draft)
+    skipped = skip_reasons(draft)
+    if skipped:
+        return draft, FormatDriftReport(source, target, False, f"skipped ({', '.join(skipped)})")
     new_text = _rewrite(draft, source, target)
     changed = new_text != draft
     note = "normalized" if changed else "already consistent"

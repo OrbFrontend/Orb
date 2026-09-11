@@ -16,6 +16,8 @@ from backend.analysis.format_consistency import (
     classify_axes,
     narration_only,
 )
+from backend.inference import local_ml
+from backend.inference.local_models import assets, dependencies
 from backend.workflows import PostCtx
 from backend.workflows.format_consistency import (
     VOICE_REWRITE_LENGTH_RULE,
@@ -41,14 +43,14 @@ WRITER_CLIENT = object()
 AGENT_CLIENT = object()
 
 
-def _ctx(draft: str, history: list[dict]) -> PostCtx:
+def _ctx(draft: str, history: list[dict], settings: dict | None = None) -> PostCtx:
     return PostCtx(
         conversation_id="c1",
         history=tuple(MappingProxyType(m) for m in history),
         draft=draft,
         effective_msg="and then?",
         director_output=MappingProxyType({}),
-        settings=MappingProxyType({}),
+        settings=MappingProxyType(settings or {}),
         prefix=({"role": "system", "content": "writer base"},),
         enabled_tools=MappingProxyType({}),
         turn_scratch={},
@@ -63,12 +65,22 @@ def _ctx(draft: str, history: list[dict]) -> PostCtx:
 
 @pytest.fixture(autouse=True)
 def _classifier_absent(monkeypatch):
-    """Keep markup-only tests independent of the local classifier and database."""
+    """Keep markup-only tests independent of the local classifiers and database.
+
+    The POV model is gated in the hook itself. The markup classifier is gated
+    inside the toolkit, so it is kept off where readiness starts: no model on disk.
+    """
     monkeypatch.setattr(hooks, "local_feature_ready", lambda feature, settings: False)
+    monkeypatch.setattr(assets, "present", lambda feature: False)
 
 
 async def _collect(ctx) -> list[dict]:
     return [ev async for ev in hooks.post_pipeline(ctx)]
+
+
+async def _labels(msg) -> tuple[str, str] | None:
+    """A history row's voice labels, under its heuristic markup reading."""
+    return await voice.labels_for(msg, classify_axes(msg["content"]))
 
 
 async def test_yields_draft_replaced_on_drift():
@@ -109,31 +121,32 @@ async def test_the_aggregate_convention_only_reaches_the_markup_target(monkeypat
     """Use the aggregate convention only as the markup target."""
     _voice_on(monkeypatch)
     convention = AxisStyle(Dialogue.QUOTED, Narration.BARE)
-    baseline_calls: list[list[str]] = []
+    votes: list[list[AxisStyle]] = []
 
-    def fake_baseline(messages):
-        baseline_calls.append(messages)
+    def fake_vote(styles):
+        votes.append(list(styles))
         return convention
 
-    async def fake_hold(ctx, text, window):
+    async def fake_hold(ctx, text, window, styles):
         return text
 
     class Unchanged:
         changed = False
 
-    def fake_normalize(draft, messages, *, enabled, target):
+    def fake_normalize(draft, messages, *, enabled, target, source):
         assert enabled is True
         assert target is convention
+        assert source == classify_axes(draft)
         return draft, Unchanged()
 
-    monkeypatch.setattr(hooks, "baseline_axes", fake_baseline)
+    monkeypatch.setattr(hooks, "vote_axes", fake_vote)
     monkeypatch.setattr(hooks, "_hold_voice", fake_hold)
     monkeypatch.setattr(hooks, "normalize_to_baseline", fake_normalize)
 
     events = await _collect(_ctx(CONSISTENT_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
 
     assert events == []
-    assert baseline_calls == [[QUOTED_BASELINE]]
+    assert votes == [[classify_axes(QUOTED_BASELINE)]]
 
 
 # ---------- the voice half ----------
@@ -482,7 +495,7 @@ async def test_labels_are_reclassified_when_the_cached_convention_differs(monkey
     monkeypatch.setattr(voice, "set_workflow_message_state", record)
 
     assert classify_axes(msg["content"]).dialogue == Dialogue.BARE
-    assert await voice.labels_for(msg) == THIRD_PAST
+    assert await _labels(msg) == THIRD_PAST
     assert seen == ["Monika waits by the desk."]
     assert written == [
         {
@@ -516,7 +529,7 @@ async def test_labels_are_reclassified_when_message_content_changes(monkeypatch)
     monkeypatch.setattr(voice, "get_workflow_message_state", stale)
     monkeypatch.setattr(voice, "set_workflow_message_state", record)
 
-    assert await voice.labels_for(msg) == THIRD_PAST
+    assert await _labels(msg) == THIRD_PAST
     assert seen == [QUOTED_BASELINE_NARRATION]
     assert written[0]["content_sha256"] == voice._content_digest(QUOTED_BASELINE)
 
@@ -542,7 +555,7 @@ async def test_old_model_labels_are_reclassified(monkeypatch, classifier):
 
     monkeypatch.setattr(voice, "get_workflow_message_state", stale)
     monkeypatch.setattr(voice, "set_workflow_message_state", record)
-    assert await voice.labels_for(msg) == THIRD_PAST
+    assert await _labels(msg) == THIRD_PAST
     assert seen == [QUOTED_BASELINE_NARRATION]
     assert written[0]["classifier"] == voice.local_model_identity(voice.FEATURE)
     assert written[0]["other"] == "preserved"
@@ -567,7 +580,7 @@ async def test_cached_labels_are_refreshed_after_the_extraction_policy_changes(m
 
     monkeypatch.setattr(voice, "get_workflow_message_state", stale)
     monkeypatch.setattr(voice, "set_workflow_message_state", record)
-    assert await voice.labels_for({"id": 7, "content": text}) == ("third", "present")
+    assert await _labels({"id": 7, "content": text}) == ("third", "present")
     assert seen == ["she thinks, waiting."]
     assert written[0]["content_sha256"] == voice._content_digest(text)
 
@@ -587,7 +600,7 @@ async def test_classifier_failure_is_not_cached(monkeypatch):
     monkeypatch.setattr(voice, "classify_pov_tense", boom)
 
     msg = {"id": 7, "role": "assistant", "content": QUOTED_BASELINE}
-    assert await voice.labels_for(msg) is None
+    assert await _labels(msg) is None
 
 
 # ---------- source parsing: every text under its own convention ----------
@@ -685,7 +698,7 @@ async def test_a_changed_window_majority_does_not_invalidate_a_cached_row(monkey
     seen = _classifier(monkeypatch, {})
 
     for neighbour in (CONSISTENT_DRAFT, ASTERISK_MSG):
-        assert await voice.labels_for(row) == THIRD_PAST
+        assert await _labels(row) == THIRD_PAST
         assert baseline_axes([QUOTED_BASELINE, neighbour]) is not None
 
     assert seen == []
@@ -772,3 +785,81 @@ async def test_a_failing_capture_never_blocks_normalization(monkeypatch, tmp_pat
     events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
 
     assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
+
+
+# ---------- the markup classifier reads convention when it is installed ----------
+
+
+def _markup_model(monkeypatch, answers: dict[str, tuple[str, str]]) -> list[str]:
+    """Install the markup classifier, answering (narration, dialogue) from *answers*;
+    record every text it read."""
+    seen: list[str] = []
+
+    async def fake(text: str) -> tuple[str, str]:
+        seen.append(text)
+        return answers[text]
+
+    monkeypatch.setattr(assets, "present", lambda feature: True)
+    monkeypatch.setattr(dependencies, "deps_ok", lambda feature=None: (True, ""))
+    monkeypatch.setattr(local_ml, "aclassify_markup", fake)
+    return seen
+
+
+async def test_the_markup_classifier_decides_both_ends_of_the_rewrite(monkeypatch):
+    seen = _markup_model(monkeypatch, {QUOTED_BASELINE: ("bare", "quoted"), DRIFTING_DRAFT: ("asterisk", "quoted")})
+
+    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
+
+    # The heuristic reads the draft's bare run as speech and quotes it (NORMALIZED).
+    # Read as quoted-dialogue prose, that run is narration and stays unquoted.
+    assert events == [{"type": "draft_replaced", "draft": "She steps closer, watching him carefully. Are you sure about this?"}]
+    assert seen == [QUOTED_BASELINE, DRIFTING_DRAFT]
+
+
+async def test_a_window_the_markup_classifier_cannot_read_leaves_the_draft_alone(monkeypatch):
+    _markup_model(monkeypatch, {QUOTED_BASELINE: ("unknown", "unknown"), DRIFTING_DRAFT: ("asterisk", "bare")})
+
+    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
+
+    assert events == []
+
+
+async def test_a_failing_markup_classifier_falls_back_to_the_heuristic(monkeypatch):
+    _markup_model(monkeypatch, {})
+
+    async def boom(text: str) -> tuple[str, str]:
+        raise RuntimeError("failed to load: wrong head?")
+
+    monkeypatch.setattr(local_ml, "aclassify_markup", boom)
+
+    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
+
+    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
+
+
+async def test_a_disabled_markup_classifier_is_never_consulted(monkeypatch):
+    seen = _markup_model(monkeypatch, {})
+    settings = {"local_ml_enabled": {"markup_classifier": False}}
+
+    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}], settings))
+
+    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
+    assert seen == []
+
+
+async def test_one_markup_reading_per_window_row_serves_both_halves(monkeypatch):
+    """The voice check extracts narration under the markup classifier's reading, and
+    the row is read once for the markup target and the voice check together."""
+    _voice_on(monkeypatch)
+    row = "Stay with me. *Monika waits by the desk.* We can talk here."
+    assert classify_axes(row).dialogue == Dialogue.BARE
+    seen = _markup_model(monkeypatch, {row: ("bare", "quoted"), CONSISTENT_DRAFT: ("bare", "quoted")})
+    narration = narration_only(row, Dialogue.QUOTED)
+    voiced = _classifier(monkeypatch, {narration: THIRD_PAST, CONSISTENT_NARRATION: THIRD_PAST})
+    _forced_call(monkeypatch, "should not be used")
+
+    await _collect(_ctx(CONSISTENT_DRAFT, [{"role": "assistant", "content": row}]))
+
+    assert voiced[0] == narration
+    assert narration != narration_only(row, Dialogue.BARE)
+    assert seen.count(row) == 1

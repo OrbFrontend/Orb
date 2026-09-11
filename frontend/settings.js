@@ -215,13 +215,15 @@ const LOCAL_ML_LABELS = {
   slop_classifier: "AI-Slop Classifier",
   emotion_classifier: "Character Expressions",
   pov_classifier: "Auto-POV",
+  markup_classifier: "Markup Classifier",
   prose_rewriter: "Prose Rewriter",
 };
 const LOCAL_ML_DESCS = {
   autocomplete: "Autocomplete input as you type.",
   slop_classifier: "Unlock AI slop scorer.",
-  emotion_classifier: "Track a character's mood with expression images in the avatar popup.",
+  emotion_classifier: "Track a character's mood with expression images.",
   pov_classifier: "For image-gen and format consistency.",
+  markup_classifier: "For more accurate format consistency.",
   prose_rewriter: "Locally rewrite prose, automatically or on demand.",
 };
 
@@ -338,7 +340,7 @@ function batchSizeControl(f, info) {
   return `<div class="ml-batch">
     <label for="${id}">Parallel</label>
     <select class="tool-card-select" id="${id}" data-ml-act="batch-size" data-ml-feature="${escAttr(f)}">${options}</select>
-    <div>Lower values use less VRAM (~140–190 MB per slot).</div>
+    <div>~140–190 MB VRAM per parallel slot.</div>
   </div>`;
 }
 

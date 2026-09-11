@@ -8,11 +8,13 @@ from typing import Any
 
 from ..toolkit import (
     EV_DRAFT_REPLACED,
-    baseline_axes,
+    AxisStyle,
     forced_tool_call,
     get_workflow_config,
     local_feature_ready,
+    markup_axes,
     normalize_to_baseline,
+    vote_axes,
 )
 from . import (
     VOICE_REWRITE_LENGTH_RULE,
@@ -104,18 +106,21 @@ async def _voice_rewrite(ctx, text: str, phrases: list[str]) -> str:
     return rewritten if isinstance(rewritten, str) else ""
 
 
-async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]]) -> str:
-    """Return *text* in the window's voice, or unchanged when it is ambiguous."""
+async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]], styles: list[AxisStyle]) -> str:
+    """Return *text* in the window's voice, or unchanged when it is ambiguous.
+
+    *styles* are the window rows' markup readings, in window order.
+    """
     window_labels: list[VoiceLabels] = []
-    for msg in window:
-        labels = await labels_for(msg)
+    for msg, style in zip(window, styles, strict=True):
+        labels = await labels_for(msg, style)
         if labels is None:
             return text
         window_labels.append(labels)
     baseline = target(window_labels)
     if baseline == UNKNOWN_LABELS:
         return text
-    source = await classify(text)
+    source = await classify(text, await markup_axes(text, ctx.settings))
     if source is None:
         return text
     phrases = drift(source, baseline)
@@ -141,20 +146,24 @@ async def post_pipeline(ctx):
     """Normalize the finished draft's markup and, optionally, its narrative voice."""
     window = _baseline_window(ctx.history)
     baseline_msgs = [msg.get("content", "") for msg in window]
-    convention = baseline_axes(baseline_msgs)
+    # One markup reading per window row serves both halves: the voted markup target
+    # here, and each row's narration extraction in the voice check.
+    styles = [await markup_axes(content, ctx.settings) for content in baseline_msgs]
+    convention = vote_axes(styles)
     text = ctx.draft
 
     # Voice failures must not prevent the always-on markup normalization.
     try:
         if await _voice_enabled(ctx):
-            text = await _hold_voice(ctx, text, window)
+            text = await _hold_voice(ctx, text, window, styles)
     except Exception:
         logger.exception("format-consistency: voice check failed; normalizing markup only")
         text = ctx.draft
 
     # Run markup normalization last because the voice rewrite can reintroduce drift.
     draft = text
-    text, report = normalize_to_baseline(draft, baseline_msgs, enabled=True, target=convention)
+    source = await markup_axes(draft, ctx.settings)
+    text, report = normalize_to_baseline(draft, baseline_msgs, enabled=True, target=convention, source=source)
     if report.changed:
         logger.info("format-consistency: normalized draft (%s)", report.transition())
     await capture.record(ctx, window=window, draft=draft, report=report, output=text)

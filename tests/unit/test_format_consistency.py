@@ -9,7 +9,9 @@ from backend.analysis.format_consistency import (
     narration_only,
     normalize_format,
     normalize_to_baseline,
+    skip_reasons,
     stable_label,
+    vote_axes,
 )
 
 QUOTES_ONLY = 'She smiles and steps back. "I won\'t go," she says, turning to the window.'
@@ -354,8 +356,19 @@ BARE_NARRATION_BASELINE = [
 ]
 
 
+# A bare-narration chat that sets its thoughts in asterisks.
+THOUGHT_IN_ASTERISKS_BASELINE = [
+    'She set the book down. *He never listens.* "I told you I would," she said softly.',
+    *BARE_NARRATION_BASELINE[1:],
+]
+
+
 def test_half_asterisked_draft_is_left_alone_against_a_bare_narration_baseline():
-    _assert_unchanged(HALF_ASTERISKED_DRAFT, BARE_NARRATION_BASELINE)
+    """Unwrapping converts asterisk narration. A mixed draft's asterisks may be its
+    thoughts, and a window that sets nothing in asterisks is no evidence otherwise."""
+    assert baseline_axes(THOUGHT_IN_ASTERISKS_BASELINE).narration == Narration.BARE
+    for base in (BARE_NARRATION_BASELINE, THOUGHT_IN_ASTERISKS_BASELINE):
+        _assert_unchanged(HALF_ASTERISKED_DRAFT, base)
 
 
 def test_half_asterisked_draft_is_completed_against_an_asterisk_baseline():
@@ -441,7 +454,8 @@ def test_the_same_passage_classifies_the_same_in_first_and_third_person():
 
 
 def test_an_italic_aside_written_from_outside_is_still_not_bare_dialogue():
-    """Third-person bare runs veto the bare-dialogue reading."""
+    """Third-person bare runs veto the bare-dialogue reading: nothing is quoted. The
+    aside keeps its marks: the rewriter cannot tell it from a thought."""
     draft = "She walked to the window. *Everything had changed.* The street below was empty."
     assert classify_axes(draft).dialogue == Dialogue.UNKNOWN
     _assert_unchanged(draft, ['She smiles. "Hello there."'])
@@ -576,7 +590,7 @@ def test_stable_label_rejects_an_even_split():
     assert stable_label(["past", "present"], "ambiguous") == "ambiguous"
 
 
-# ---------- unknown narration is never unwrapped ----------
+# ---------- a draft that does not read asterisk keeps its emphasis ----------
 
 THOUGHT_IN_QUOTED_PROSE = 'She crossed the room slowly. *He still loves me. He has to.* "Good night," she said.'
 
@@ -589,15 +603,41 @@ def test_a_thought_in_an_unsettled_draft_survives_a_bare_narration_baseline():
     _assert_unchanged(THOUGHT_IN_QUOTED_PROSE, BARE_NARRATION_BASELINE)
 
 
+def test_a_thought_survives_where_the_chat_writes_one_bare():
+    """One unmarked thought in the window does not make the draft's italic one a slip."""
+    base = [*BARE_NARRATION_BASELINE[:2], 'She looked away. Why do I even bother? "It doesnae matter," she muttered.']
+    _assert_unchanged(THOUGHT_IN_QUOTED_PROSE, base)
+
+
 def test_a_bare_draft_keeps_its_thoughts_and_sound_effects_against_a_bare_baseline():
-    """Unwrapping converts asterisk narration; a draft already in bare prose keeps its marks."""
+    """Unwrapping converts asterisk narration; a draft already in bare prose keeps its
+    marks, whether or not the window sets anything in asterisks itself."""
     for draft in (
         "She crossed the room slowly and sat down on the edge of the old bed, smoothing the blanket "
         'flat with both hands. *He was lying again.* "Fine," she said.',
         "The door slammed behind him hard enough to rattle the frames on the wall. *thud* "
         '"Charming," she muttered, and turned the page of her book without looking up.',
+        'She stood by the window for a long while, watching the rain run down the glass. *sighs softly* "Fine," she said.',
     ):
         assert classify_axes(draft).narration == Narration.BARE
+        for base in (BARE_NARRATION_BASELINE, THOUGHT_IN_ASTERISKS_BASELINE):
+            _assert_unchanged(draft, base)
+
+
+def test_italic_thoughts_keep_their_marks_in_a_chat_that_sets_nothing_in_asterisks():
+    """The shapes thoughts take in quoted prose: an interjection, a question, a
+    fragment, a tagged thought, a thought paragraph."""
+    for draft in (
+        'Mira pulls the blanket up to his chin. *Aww, poor thing. He must be exhausted.* "Sleep," she whispers.',
+        'He reads the note twice, turning it over in his hands. *Really? After all this time?* "Where did you find this?"',
+        'The lights flicker once and die, and the hum of the fridge goes with them. *Not again.* "Stay close," she says.',
+        '*Such a strange boy,* she thinks, and presses the key into his palm before he can argue. "Don\'t lose it."',
+        "He sets the cup down on the saucer without a sound and leans back in his chair, arms folded.\n\n"
+        "*He got lucky with that one. Let's see how long it lasts.*\n\n"
+        '"Again," he says, and deals the cards.',
+    ):
+        assert skip_reasons(draft) == [], draft
+        assert classify_axes(draft).narration != Narration.ASTERISK, draft
         _assert_unchanged(draft, BARE_NARRATION_BASELINE)
 
 
@@ -703,3 +743,59 @@ def test_an_ornamental_quote_is_speech_to_the_rewriter_too():
     new, rep = normalize_to_baseline("She leans closer. ❝You came back,❞ she murmurs.", FULL_MARKUP_BASELINE, enabled=True)
     assert rep.changed
     assert new == "*She leans closer.* ❝You came back,❞ *she murmurs.*"
+
+
+# ---------- the action policy (skip-v1): drafts no reading makes safe ----------
+
+
+def test_skip_reasons_flag_structure_that_is_not_rp_prose():
+    assert {"metadata", "rule", "speaker-label"} <= set(
+        skip_reasons('REWARD: 13\n\n---\n\nRESPONSE: *AVA smiles.* "Thanks, Kane!"')
+    )
+    assert skip_reasons('Cecilia: "We have been *thinking*."\nCeline: "Arguing."') == ["speaker-label"]
+    assert "list" in skip_reasons("*sighs* Fine.\n\nPros:\n- loyal\n- fast")
+    assert skip_reasons("# Chapter One\n\n*She wakes.*") == ["heading"]
+    assert skip_reasons("| hp | 10 |\n| mp | 4 |") == ["table"]
+
+
+def test_skip_reasons_flag_emphasis_the_parser_mis_pairs():
+    assert "stray-asterisk" in skip_reasons("*He should be *furious* by now, but he is not.*")
+    assert skip_reasons('*Her throat went dry at the word "wild," her fingers tightening.*') == ["quote-in-emphasis"]
+
+
+def test_bullet_stars_are_a_list_not_a_stray_asterisk():
+    assert skip_reasons("Pack these:\n* rope\n* a lantern") == ["list"]
+    # A bullet opens after any hard line break; a star after a mere space is a stray.
+    assert skip_reasons("then\u2028* rope") == []
+    assert skip_reasons("then * rope") == ["stray-asterisk"]
+
+
+def test_skip_reasons_leave_ordinary_rp_prose_alone():
+    for draft in (
+        '*She smiles.* "Hello there," she says.',
+        'She crossed the room. *He was lying again.* "Fine," she said.',
+        'She said: "Fine." Then she left.',
+        "*tilts head* owo",
+        '**Chapter One**\n\n*She wakes.* "Morning."',
+        '```\nMOOD: happy\n---\n- hp 10\n- mp 4\n```\n*She waves.* "Hi!"',  # the fence is never rewritten
+    ):
+        assert skip_reasons(draft) == [], draft
+
+
+def test_a_skipped_draft_is_left_as_written_whatever_the_reading():
+    base = ['She smiles. "Hello there," she says warmly.']
+    draft = "*She steps closer, watching him carefully, one hand on the doorframe.*\n\n---\n\nAre you sure about this?"
+    new, rep = normalize_to_baseline(draft, base, enabled=True)
+    assert (new, rep.changed, rep.note) == (draft, False, "skipped (rule)")
+    assert normalize_format(draft, rep.target) != draft  # the policy held it, not the reading
+    # An explicit source (the markup classifier's) is gated the same way.
+    source = AxisStyle(dialogue=Dialogue.BARE, narration=Narration.ASTERISK)
+    assert normalize_to_baseline(draft, base, enabled=True, source=source)[0] == draft
+
+
+# ---------- voting a target over supplied readings ----------
+
+
+def test_vote_axes_is_baseline_axes_over_supplied_readings():
+    messages = [QUOTES_ONLY, FULL_MARKUP, QUOTES_ONLY, ""]
+    assert vote_axes([classify_axes(m) for m in messages]) == baseline_axes(messages)

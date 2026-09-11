@@ -125,6 +125,100 @@ def test_dangling_emphasis_marker_does_not_hide_the_repeat():
     assert len(errors) == 1
 
 
+# ── Quote and emphasis markers around the span ────────────────────────────────
+#
+# Spans are marker-stripped, so the report shows flagged dialogue without its
+# quotes while the quotes stay in the draft. A model rewriting dialogue writes
+# it the way dialogue is written, and splicing that verbatim doubled them.
+
+
+def test_quotes_resent_around_a_whole_quoted_span_are_dropped():
+    # The reported anti-echo case, which spliced as `""Since when …?""`.
+    draft = 'She let out a short, sharp puff of a laugh. "Battle scenes?" She shook her head.'
+    out, errors = _patch(draft, "Battle scenes?", '"Since when did ye become a critic o\' military strategy?"')
+    assert out == (
+        "She let out a short, sharp puff of a laugh. "
+        '"Since when did ye become a critic o\' military strategy?" She shook her head.'
+    )
+    assert errors == []
+
+
+def test_quotes_resent_around_a_mid_quote_sentence_are_dropped():
+    # Only the opening quote touches the span. The model's closing quote would
+    # end the speech early and strand the draft's own one after the next line.
+    draft = 'She laughed. "Battle scenes? Is that what ye think this is?"'
+    out, errors = _patch(draft, "Battle scenes?", '"Since when?"')
+    assert out == 'She laughed. "Since when? Is that what ye think this is?"'
+    assert errors == []
+
+
+def test_straight_quotes_match_a_curly_quoted_draft():
+    draft = "She laughed. “Battle scenes?” She shook her head."
+    out, errors = _patch(draft, "Battle scenes?", '"Since when?"')
+    assert out == "She laughed. “Since when?” She shook her head."
+    assert errors == []
+
+
+@pytest.mark.parametrize(
+    ("draft", "replace", "expected"),
+    [
+        ("He waited. *She murmured.* Silence.", "*She whispered.*", "He waited. *She whispered.* Silence."),
+        (
+            "He waited. *She murmured. He left.* Silence.",
+            "*She whispered.*",
+            "He waited. *She whispered. He left.* Silence.",
+        ),
+        ("He waited. **She murmured.** Silence.", "**She whispered.**", "He waited. **She whispered.** Silence."),
+    ],
+)
+def test_emphasis_resent_around_an_emphasised_span_is_dropped(draft, replace, expected):
+    # Doubled single stars spliced as bold instead of italics.
+    out, errors = _patch(draft, "She murmured.", replace)
+    assert out == expected
+    assert errors == []
+
+
+def test_markers_are_compared_after_restated_context_is_trimmed():
+    # The word trim runs first, so the closing quote it exposes is still caught.
+    draft = 'She laughed. "Battle scenes?" She shook her head.'
+    out, errors = _patch(draft, "Battle scenes?", '"Since when?" She shook her head.')
+    assert out == 'She laughed. "Since when?" She shook her head.'
+    assert errors == []
+
+
+def test_resending_the_flagged_quote_in_its_quotes_is_a_no_op():
+    draft = 'She laughed. "Battle scenes?" She shook her head.'
+    out, errors = _patch(draft, "Battle scenes?", '"Battle scenes?"')
+    assert out == draft
+    assert errors == ["Error: the patch for id 1 is a no-op — `replace` repeats the flagged text unchanged."]
+
+
+def test_markup_the_draft_does_not_have_is_kept():
+    # Only the repeated quote goes; the emphasis the model added inside it stays.
+    draft = 'She laughed. "Battle scenes?" She shook her head.'
+    out, errors = _patch(draft, "Battle scenes?", '"*Since when?*"')
+    assert out == 'She laughed. "*Since when?*" She shook her head.'
+    assert errors == []
+
+
+def test_a_quote_opening_new_dialogue_beside_narration_is_kept():
+    # The quote before the span closes the previous line and does not touch the
+    # span, so the replacement's own opening quote starts new speech.
+    draft = '"Hi." She left.'
+    out, errors = _patch(draft, "She left.", '"Bye," she said.')
+    assert out == '"Hi." "Bye," she said.'
+    assert errors == []
+
+
+def test_an_apostrophe_is_not_read_as_a_closing_quote():
+    # The model rightly sent the dialogue bare. Its last mark is an elision, not
+    # the quote the draft already closes with, so it must survive.
+    draft = 'She laughed. "Battle scenes?" She shook her head.'
+    out, errors = _patch(draft, "Battle scenes?", "Ye're jus’ sayin’")
+    assert out == 'She laughed. "Ye\'re jus’ sayin’" She shook her head.'
+    assert errors == []
+
+
 # ── What healing must leave alone ─────────────────────────────────────────────
 
 

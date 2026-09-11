@@ -7,10 +7,10 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ..toolkit import (
-    classify_axes,
     classify_pov,
     get_settings,
     local_feature_ready,
+    markup_axes,
     narration_only,
 )
 
@@ -60,7 +60,7 @@ def _assistant_texts(history: Sequence[Mapping[str, Any]]) -> list[str]:
     return texts
 
 
-async def _classify(history: Sequence[Mapping[str, Any]]) -> str | None:
+async def _classify(history: Sequence[Mapping[str, Any]], settings: Mapping[str, Any]) -> str | None:
     """Walk back over recent assistant messages until one is not ambiguous.
 
     None when every candidate is ambiguous, there is nothing to read, or the model
@@ -71,7 +71,8 @@ async def _classify(history: Sequence[Mapping[str, Any]]) -> str | None:
         try:
             # Match the voice check: remove bare speech before taking the tail,
             # or a long spoken passage can displace every narration sentence.
-            label = await classify_pov(narration_only(text, classify_axes(text).dialogue))
+            style = await markup_axes(text, settings)
+            label = await classify_pov(narration_only(text, style.dialogue))
         except Exception:
             logger.exception("[image_gen] POV classification failed; falling back")
             return None
@@ -94,9 +95,10 @@ async def resolve(
     manual = _MANUAL.get(normalize_mode(mode))
     if manual is not None:
         return manual, "manual"
-    if not await classifier_ready():
+    settings = await get_settings()
+    if not local_feature_ready(FEATURE, settings):
         return DEFAULT_POV, "no_classifier"
-    classified = await _classify(history)
+    classified = await _classify(history, settings)
     if classified is not None:
         return classified, "classifier"
     return DEFAULT_POV, "default"
