@@ -564,7 +564,11 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
     list.innerHTML = optionHtml + statusHtml;
     list.querySelectorAll(".cb-option").forEach((el, i) => {
       el.onmousedown = (e) => {
-        if (e.target.classList.contains("cb-delete-btn")) return;
+        // The delete button wraps an inline SVG, so a click on the X targets the
+        // icon rather than the button -- match with closest(), not the target's
+        // own class, or mousedown selects the row and re-renders the list out
+        // from under the button before its click can fire.
+        if (e.target.closest(".cb-delete-btn")) return;
         e.preventDefault();
         selectVal(el.dataset.value);
       };
