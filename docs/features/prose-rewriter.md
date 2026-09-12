@@ -78,7 +78,9 @@ Approximate memory for batch 4:
 | 4B Q8_0 | 5.5 GB |
 
 The local process unloads after five minutes without work. Set
-`ORB_PROSE_REWRITER_IDLE` in seconds to change that timeout.
+`ORB_PROSE_REWRITER_IDLE` in seconds to change that timeout. Switching the
+feature off unloads it without waiting for that timeout; a rewrite already
+running finishes first.
 
 If the local model fails to start or stops, Orb keeps the Writer's reply and
 shows a warning.

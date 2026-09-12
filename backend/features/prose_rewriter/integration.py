@@ -120,16 +120,27 @@ async def _stored_profile(settings: Mapping[str, Any]) -> LaunchProfile | None:
 
 
 async def on_enabled(enabled: bool) -> None:
-    """Switching the feature on means "make this work".
+    """Make the toggle mean what it says, in both directions.
 
-    So it is also the moment to repair a selection that points at nothing — the
-    state an install that downloaded a checkpoint before the sweep existed is
-    sitting in, and the one place such an install reliably passes through. The
-    repair pre-warms what it picks, and the pre-warm below then asks for the
-    same variant a second time: ``ensure`` short-circuits on a healthy host, so
-    the duplicate is a no-op rather than a second load.
+    ON means "make this work", so it is also the moment to repair a selection
+    that points at nothing — the state an install that downloaded a checkpoint
+    before the sweep existed is sitting in, and the one place such an install
+    reliably passes through. The repair pre-warms what it picks, and the
+    pre-warm below then asks for the same variant a second time: ``ensure``
+    short-circuits on a healthy host, so the duplicate is a no-op rather than
+    a second load.
+
+    OFF means give the memory back. The child is holding 2.8-5.5 GB and, under
+    ``gpu``, the card with it; leaving it resident until the idle timer fires
+    means switching the feature off does not return what switching it on took,
+    which is the whole reason someone reaches for that toggle mid-session.
+    Unlike a selection change this does not block on a reload — nothing new can
+    arrive, because :func:`config.resolve_config` refuses while the toggle is
+    off — so ``release`` only waits out a rewrite already in flight, and that
+    one finishes rather than being cut off.
     """
     if not enabled:
+        await HOST.release()
         return
     await sync_selection()
     _apply(await _stored_profile(await get_settings()))
