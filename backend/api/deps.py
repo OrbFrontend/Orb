@@ -474,11 +474,21 @@ def _normalise_lorebook_entry(item: dict) -> dict:
     }
 
 
-def lorebook_to_book(world_name: str, entries: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def lorebook_to_book(
+    world_name: str,
+    entries: Sequence[Mapping[str, Any]],
+    *,
+    dynamic_enabled: bool = False,
+) -> dict[str, Any]:
     """Serialize a World lorebook to Character Card shape."""
     return {
         "name": world_name,
-        "extensions": {},
+        # Orb's own marker. It round-trips the Dynamic World flag, and its mere
+        # presence tells the importer the book is a World Orb exported — so an
+        # entry-less one is a real lorebook to restore (a Dynamic World starts
+        # empty by design) rather than the vestigial `entries: []` that foreign
+        # cards carry.
+        "extensions": {"orb": {"dynamic_enabled": bool(dynamic_enabled)}},
         "entries": [
             {
                 "keys": e["keywords"],

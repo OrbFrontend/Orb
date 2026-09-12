@@ -200,7 +200,7 @@ async def api_export_lorebook(world_id: str, view: Literal["authored", "effectiv
         raise HTTPException(status_code=404, detail="World not found")
 
     exported = project_lorebook_view(await get_lorebook_entries(world_id), view)
-    book = lorebook_to_book(world["name"], exported)
+    book = lorebook_to_book(world["name"], exported, dynamic_enabled=bool(world["dynamic_enabled"]))
     safe_name = "".join(c for c in world["name"] if c.isalnum() or c in " _-").strip() or "lorebook"
     suffix = "" if view == "authored" else f" ({view})"
     return Response(

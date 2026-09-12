@@ -82,16 +82,10 @@ export const ICON_CHEVRON = `<svg viewBox="0 0 24 24" fill="none" stroke="curren
 export const ICON_FORK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
 export const ICON_NOTE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M12 18v-5"/><path d="M9.5 15.5h5"/></svg>`;
 
-export function buildMsgToolbar(m, childByParent = null) {
+export function buildMsgToolbar(m) {
   const isAssistant = m.role === "assistant";
   const isGreeting = isAssistant && !m.parent_id;
-  const childAssistant = isAssistant
-    ? null
-    : childByParent
-      ? childByParent.get(m.id) || null
-      : S.messages.find((c) => c.parent_id === m.id && c.role === "assistant");
-  const regenTargetId = isAssistant ? m.id : childAssistant?.id;
-  const canRegen = !isGreeting && (isAssistant || !!childAssistant || !!m.id);
+  const canRegen = !isGreeting && (isAssistant || !!m.id);
 
   const editBtn = `<button onclick="${m.id ? `startEdit(${m.id})` : `startEditPending()`}" title="Edit">${ICON_EDIT}</button>`;
 
@@ -100,11 +94,20 @@ export function buildMsgToolbar(m, childByParent = null) {
       ? `<button onclick="startForkEdit(${m.id})" title="Edit &amp; Fork">${ICON_FORK}</button>`
       : "";
 
+  // A user row resolves its target when the button is clicked, not when the row
+  // is painted. The reply it regenerates can be deleted or swiped to another
+  // branch without the row's own markup changing, and the reconciler then keeps
+  // the node as it stands -- a baked id would outlive the message it names.
+  const regenAction = isAssistant
+    ? m.id
+      ? `regenerate(${m.id})`
+      : `continueFromUser()`
+    : `regenerateFromUser(${m.id})`;
   const regenBtn = isGreeting
     ? ""
     : !canRegen
       ? `<button disabled>${ICON_REGEN}</button>`
-      : `<button onclick="${regenTargetId ? `regenerate(${regenTargetId})` : `continueFromUser()`}" title="Regenerate">${ICON_REGEN}</button>`;
+      : `<button onclick="${regenAction}" title="Regenerate">${ICON_REGEN}</button>`;
 
   const superRegenBtn =
     isAssistant && m.id && !isGreeting
@@ -299,12 +302,12 @@ export function swipeNavHtml(m) {
         </span>`;
 }
 
-function _messageHtml(m, childByParent, avatars) {
+function _messageHtml(m, avatars) {
   const isForkEditing = S.forkEditMsgId !== null && S.forkEditMsgId === m.id;
   const isEditing =
     (S.editingMsgId !== null && S.editingMsgId === m.id) || (!m.id && S.editingPendingUserMsg) || isForkEditing;
   const branchHtml = swipeNavHtml(m);
-  const toolbar = isEditing ? "" : `<div class="msg-toolbar">${buildMsgToolbar(m, childByParent)}</div>`;
+  const toolbar = isEditing ? "" : `<div class="msg-toolbar">${buildMsgToolbar(m)}</div>`;
   const taId = m.id ? `edit-textarea-${m.id}` : `edit-textarea-pending`;
   const [cancelCall, commitCall, commitLabel] = isForkEditing
     ? [`cancelForkEdit()`, `saveForkEdit(${m.id})`, "Fork"]
@@ -397,12 +400,6 @@ export function renderMessages(forceBottom = false) {
         const start = Math.min(Math.max(S.renderWindowStart | 0, 0), msgs.length);
         if (start > 0) msgs = msgs.slice(start);
         renderedMsgs = msgs;
-        const childByParent = new Map();
-        for (const c of S.messages) {
-          if (c.role === "assistant" && c.parent_id != null && !childByParent.has(c.parent_id)) {
-            childByParent.set(c.parent_id, c);
-          }
-        }
         // Reuse the bubbles whose markup did not change. A branch swipe or a
         // mid-stream repaint then rebuilds only the rows that actually differ,
         // instead of replaying the whole list's entrance animation and layout.
@@ -410,7 +407,7 @@ export function renderMessages(forceBottom = false) {
           ct,
           // An aborted turn can leave two id-less rows in the list (the pending user
           // message and the unpersisted reply), so they key by position, not by role.
-          msgs.map((m, i) => ({ key: m.id ? `m${m.id}` : `p${i}`, html: _messageHtml(m, childByParent, avatars) })),
+          msgs.map((m, i) => ({ key: m.id ? `m${m.id}` : `p${i}`, html: _messageHtml(m, avatars) })),
           "msg-swap",
         );
         // Seed the new bubbles' intrinsic sizes before the scroll math below

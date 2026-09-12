@@ -77,11 +77,18 @@ async def api_create_character(data: CharacterCardCreate):
         entries = character_book.get("entries") or []
         if isinstance(entries, dict):
             entries = list(entries.values())
-        if entries:
+        book_ext = character_book.get("extensions")
+        orb_ext = book_ext.get("orb") if isinstance(book_ext, dict) else None
+        # An `orb` block marks a book Orb exported, so materialize it even with
+        # no entries: an empty Dynamic World is a real link whose lore the Agent
+        # writes during play. A foreign card's vestigial `entries: []` still
+        # imports nothing.
+        if entries or isinstance(orb_ext, dict):
             book_name = character_book.get("name") or card_data["name"]
             world = await get_world_by_name(book_name)
             if not world:
-                world = await create_world({"name": book_name})
+                dynamic = bool(orb_ext.get("dynamic_enabled")) if isinstance(orb_ext, dict) else False
+                world = await create_world({"name": book_name, "dynamic_enabled": dynamic})
                 for item in entries:
                     if isinstance(item, dict):
                         await create_lorebook_entry(world["id"], _normalise_lorebook_entry(item))
@@ -278,7 +285,11 @@ async def api_export_character(card_id: str, world_view: Literal["authored", "ef
     if world_id and not export_card.get("character_book"):
         world = await get_world(world_id)
         entries = project_lorebook_view(await get_lorebook_entries(world_id), world_view)
-        export_card["character_book"] = lorebook_to_book(world["name"] if world else "", entries)
+        export_card["character_book"] = lorebook_to_book(
+            world["name"] if world else "",
+            entries,
+            dynamic_enabled=bool(world and world["dynamic_enabled"]),
+        )
 
     png_bytes = tavern_cards.to_png(export_card, avatar_bytes)
 

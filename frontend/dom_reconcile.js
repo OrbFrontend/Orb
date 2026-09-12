@@ -6,6 +6,14 @@
 // keeps the nodes whose markup is byte-identical to the previous pass and
 // touches only the rows that actually differ.
 
+// Two rules follow from reuse, and a caller that breaks either gets a node that
+// outlives what it says. A row's html must be a pure function of that row: read
+// a neighbour to build it and the neighbour can change without the html
+// changing, so the stale node is kept. And a kept node may be *decorated* in
+// place (spans, chips, widget state -- surviving a repaint is the point) but
+// never rewritten to markup this module would not produce for the same html,
+// because the signature below, not the DOM, decides what counts as unchanged.
+
 // container -> Map(key -> html string produced for it last pass).
 const _signatures = new WeakMap();
 

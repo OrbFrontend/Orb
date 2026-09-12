@@ -438,3 +438,53 @@ async def test_public_profile_generate_raises_when_the_model_returns_no_call(cli
     resp = await client.post(f"/api/characters/{card_id}/public-profile/generate")
     assert resp.status_code == 502
     assert resp.json()["detail"] == "The model did not return a usable profile."
+
+
+async def test_empty_dynamic_lorebook_survives_card_export_reimport(client, db, tmp_path):
+    """A linked Dynamic World with no entries must come back on re-import.
+
+    An empty Dynamic World is the normal starting state -- the Agent writes its
+    lore during play -- so the import path cannot use "has entries" as its test
+    for whether the card carries a lorebook worth restoring.
+    """
+    world = (await client.post("/api/worlds", json={"name": "Things learned about the user"})).json()
+    await client.put(f"/api/worlds/{world['id']}/dynamic", json={"enabled": True})
+    card_id = (await client.post("/api/characters", json={"name": "Assistant", "world_id": world["id"]})).json()["id"]
+
+    export = await client.get(f"/api/characters/{card_id}/export")
+    assert export.status_code == 200
+    png = tmp_path / "assistant.png"
+    png.write_bytes(export.content)
+
+    # Re-import into a database that has never seen the World, the way another
+    # install would: drop the card, then the (now unlinked) World.
+    await client.delete(f"/api/characters/{card_id}")
+    assert (await client.delete(f"/api/worlds/{world['id']}")).status_code == 200
+
+    with png.open("rb") as fh:
+        parsed = (await client.post("/api/characters/import", files={"file": ("assistant.png", fh, "image/png")})).json()
+    assert parsed["character_book"]["entries"] == []
+
+    created = (
+        await client.post(
+            "/api/characters",
+            json={"name": parsed["name"], "id": parsed["id"], "character_book": parsed["character_book"]},
+        )
+    ).json()
+    assert created["world_id"], "re-imported card lost its lorebook link"
+
+    restored = next(w for w in (await client.get("/api/worlds")).json() if w["id"] == created["world_id"])
+    assert restored["name"] == "Things learned about the user"
+    assert bool(restored["dynamic_enabled"]) is True
+
+
+async def test_foreign_card_with_a_vestigial_empty_book_creates_no_world(client, db):
+    """`entries: []` on a card Orb did not export is noise, not a lorebook."""
+    created = (
+        await client.post(
+            "/api/characters",
+            json={"name": "Foreign", "character_book": {"name": "Nothing", "entries": [], "extensions": {}}},
+        )
+    ).json()
+    assert not created["world_id"]
+    assert not [w for w in (await client.get("/api/worlds")).json() if w["name"] == "Nothing"]

@@ -214,14 +214,6 @@ export function createStreamingDiv(name = null, memberId = null) {
   return div;
 }
 
-function patchParentUserMessage(assistantMsg) {
-  if (!assistantMsg?.parent_id || S.hasMultipleTabs) return;
-  const userDiv = document.querySelector(`.message.user[data-msg-id="${assistantMsg.parent_id}"]`);
-  if (!userDiv) return;
-  const regenBtn = userDiv.querySelector('.msg-toolbar [title="Regenerate"]');
-  if (regenBtn) regenBtn.setAttribute("onclick", `regenerate(${assistantMsg.id})`);
-}
-
 // The user's bubble is on screen before the server has an id for it. The SSE ack
 // and the post-stream sync both promote that same node, so the promotion — id,
 // toolbar, and any content the server rewrote — is written once.
@@ -361,7 +353,6 @@ export async function afterStream() {
 
   if (finalized) {
     if (pendingUserMsg) patchPendingUserMessage(pendingUserMsg);
-    patchParentUserMessage(lastMsg);
     updateContextCounter();
     const ct = $("chat-messages");
     if (ct.querySelectorAll(".message[data-msg-id]").length < S.messages.length) {
@@ -871,6 +862,19 @@ export async function sendMessage() {
       afterDone: ensurePersonaPinned,
     },
   );
+}
+
+// The regenerate button on a user row lands here, and picks its target now
+// rather than at paint time: the reply may have been deleted or swiped to
+// another branch since the row was drawn (buildMsgToolbar). With no reply left
+// under the message, regenerating it means continuing from it.
+export async function regenerateFromUser(userMsgId) {
+  const reply = S.messages.find((m) => m.role === "assistant" && m.id && m.parent_id === userMsgId);
+  if (reply) {
+    await regenerate(reply.id);
+    return;
+  }
+  await continueFromUser();
 }
 
 export async function regenerate(msgId) {

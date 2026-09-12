@@ -63,6 +63,7 @@ export {
   continueFromUser,
   handleMagicKey,
   regenerate,
+  regenerateFromUser,
   sendMessage,
   stopGeneration,
   submitMagicRewrite,
