@@ -70,6 +70,34 @@ def test_strictify_recurses_into_array_items():
     assert set(items["required"]) == {"search", "replace"}
 
 
+def test_strictify_drops_keywords_outside_the_strict_subset():
+    # The library auto-tagger's uniqueItems: a strict json_schema carrying one
+    # is rejected outright (HTTP 400, no field named), so the whole forced call
+    # fails rather than the constraint being ignored. Constraints the subset
+    # does accept must survive -- enum is what holds the answer to the
+    # vocabulary, and it travels on the same node.
+    schema = {
+        "type": "object",
+        "properties": {
+            "tags": {
+                "type": "array",
+                "items": {"type": "string", "enum": ["a", "b"]},
+                "maxItems": 12,
+                "uniqueItems": True,
+            }
+        },
+        "required": ["tags"],
+        "minProperties": 1,
+    }
+    out = strictify_schema(schema)
+    tags = out["properties"]["tags"]
+    assert "uniqueItems" not in tags
+    assert "minProperties" not in out
+    assert tags["maxItems"] == 12
+    assert tags["items"] == {"type": "string", "enum": ["a", "b"]}
+    assert schema["properties"]["tags"]["uniqueItems"] is True  # caller's copy intact
+
+
 def test_strictify_leaves_original_untouched():
     schema = {"type": "object", "properties": {"a": {"type": "string"}}, "required": []}
     strictify_schema(schema)

@@ -20,6 +20,7 @@ from backend.features.library_tags import (
     clean_tags,
     tag_card,
 )
+from backend.inference.schema import strictify_schema
 
 VOCAB = ["Fantasy", "Romance", "Sci-Fi", "NSFW"]
 
@@ -74,6 +75,18 @@ def test_the_tool_schema_constrains_tags_to_the_vocabulary():
     tags_schema = tool["function"]["parameters"]["properties"]["tags"]
     assert tags_schema["maxItems"] == MAX_TAGS_PER_CARD
     assert tags_schema["uniqueItems"] is True
+
+
+def test_the_tool_schema_survives_the_strict_response_format_rewrite():
+    # Structured-output endpoints send the schema as a strict response_format
+    # instead of a tools array, and uniqueItems is outside that subset: with it
+    # on the wire the endpoint answers 400 and every card in the run fails.
+    # Neither constraint is load-bearing here -- clean_tags dedupes and caps the
+    # answer regardless -- but the enum must still reach the provider.
+    strict = strictify_schema(build_tag_tool(VOCAB)["function"]["parameters"])
+    tags_schema = strict["properties"]["tags"]
+    assert "uniqueItems" not in tags_schema
+    assert tags_schema["items"]["enum"] == VOCAB
 
 
 def test_the_system_prompt_carries_the_whole_vocabulary():

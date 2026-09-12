@@ -106,6 +106,15 @@ and named choices to `auto`, including the Writer's normal `none`. If the body
 reveals this restriction for an unlisted model, Orb learns it for the process.
 Director and Editor already handle a model declining the intended forced call.
 
+A forced call carried as strict structured output sends the tool's parameters as
+its schema, normalized first: every property becomes required (optional ones
+nullable), objects are closed, and validation keywords the strict subset
+excludes — `uniqueItems`, `contains`, `propertyNames`, and the rest — are
+dropped. Dropping them only widens what a valid answer may contain, whereas
+leaving one in fails the entire request: NanoGPT answers HTTP 400 naming no
+field. Endpoints that receive a `tools` array get the schema with those
+keywords intact.
+
 Gemini uses Google's official OpenAI-compatible beta surface, Bearer auth, the
 existing OpenAI stream parser, and strict structured output for forced calls.
 Documented OpenAI fields, including `reasoning_effort`, remain intact. Native
