@@ -24,6 +24,7 @@ from httpx import ASGITransport
 
 import backend.database.connection as db_connection
 from backend.database import init_db
+from backend.database.seeds import DEFAULT_CHARACTER_ID, DEFAULT_CHARACTER_WORLD_ID
 
 from ._llm_mock import FakeLLMClient, llm_factory, verify_kv_prefix_invariants
 
@@ -73,6 +74,13 @@ def _fresh_db_template(tmp_path_factory, _never_the_real_database) -> Path:
     produces the same bytes every time, so it runs once here and each test
     copies the result.
 
+    The one seed this strips is the default character and its Dynamic World: a
+    library and a world list that start empty are what almost every test counts
+    against, and a shipped row in both would turn each of those counts into
+    "expected + 1" for a fact about first boot rather than about the code under
+    test. The seed itself is covered by ``test_default_character``, which builds
+    its own database.
+
     Tests that exercise ``init_db`` or the migration chain itself (e.g.
     ``test_fresh_install_stamping``) still call it directly and are unaffected.
     """
@@ -86,6 +94,10 @@ def _fresh_db_template(tmp_path_factory, _never_the_real_database) -> Path:
         db_connection.DB_PATH = str(template)
         try:
             await init_db()
+            async with db_connection.get_db() as db:
+                await db.execute("DELETE FROM character_cards WHERE id = ?", (DEFAULT_CHARACTER_ID,))
+                await db.execute("DELETE FROM worlds WHERE id = ?", (DEFAULT_CHARACTER_WORLD_ID,))
+                await db.commit()
         finally:
             db_connection.DB_PATH = original
 

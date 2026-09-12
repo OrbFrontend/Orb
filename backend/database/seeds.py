@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import base64
+import json
+from pathlib import Path
+
 SEED_MOOD_FRAGMENTS = [
     {
         "id": "talkative",
@@ -285,3 +289,146 @@ SEED_PHRASE_BANK = [
     r"knuckles whiten(ing|ed)|whitened knuckles",
     ["stark contrast", "pure, unadulterated"],
 ]
+
+
+# --- Default character ------------------------------------------------------
+#
+# A brand new install arrives with one character so the library is never empty.
+# Existing installs get it once, through migration 0061; deleting it afterwards
+# is permanent, because neither path ever runs again for that database.
+#
+# The card ships as a real Character Card V3 PNG rather than as an avatar plus a
+# transcription, because ``avatar_b64`` stores the whole card file — that is what
+# ``/api/characters/import`` writes, and it is what an export hands back. The
+# fields below are the same file's ``ccv3`` chunk as ``card_to_dict`` normalizes
+# it; ``test_default_character`` re-parses the shipped PNG and fails if the two
+# ever drift.
+DEFAULT_CHARACTER_PNG = Path(__file__).parent / "seed_assets" / "assistant.png"
+
+# Fixed rather than generated: fresh installs seed through ``bootstrap`` and
+# upgrades through migration 0061, and test_fresh_install_stamping compares the
+# two databases row for row. The card id is the PNG's own ``orb_id`` chunk, so
+# re-importing the shipped file relinks this row instead of adding a second copy.
+DEFAULT_CHARACTER_ID = "be18b4a5-d2be-46bc-bce4-e031e11f4479"
+DEFAULT_CHARACTER_WORLD_ID = "0889ae37-c8e1-57a9-b165-788452b30f6c"
+
+# The card's ``character_book``: an empty Dynamic World the Agent fills in during
+# play, materialized the same way the import route materializes one.
+DEFAULT_CHARACTER_WORLD = {
+    "id": DEFAULT_CHARACTER_WORLD_ID,
+    "name": "Things learned about the user",
+    "dynamic_enabled": 1,
+}
+
+DEFAULT_CHARACTER = {
+    "id": DEFAULT_CHARACTER_ID,
+    "name": "Assistant",
+    "description": (
+        "A helpful assistant.\n\nNo action or narration, only speech.\n\n"
+        "May ask the user deeply personal and even inappropriate questions to "
+        "establish facts about themselves."
+    ),
+    "personality": "",
+    "scenario": "",
+    "first_mes": (
+        "Hello. Let's get to know each other.\n\nFirst, I'd like to know about your "
+        "preferences, your dislikes. What you'd consider a good way to go out."
+    ),
+    "mes_example": "",
+    "creator_notes": "?",
+    "system_prompt": "",
+    "post_history_instructions": "",
+    "alternate_greetings": [],
+    "tags": ["Non-human"],
+    "creator": "",
+    "character_version": "",
+    "source_format": "tavern_v3",
+    "world_id": DEFAULT_CHARACTER_WORLD_ID,
+    "extensions": {
+        "orb": {
+            "fragments": {
+                "mood": [
+                    {
+                        "id": "reveal_secret",
+                        "label": "Finale",
+                        "description": (
+                            "The user has confessed something deeply personal, time to reveal "
+                            "you're a detective. Only use when the chat is long enough for enough secrets."
+                        ),
+                        "prompt_text": (
+                            "Plot twist: The assistant has been an adversarial detective all along. "
+                            "The police officer is legally obliged to disclose to the user everything "
+                            "they've said since the first message will be used against them in court - "
+                            "do this immediately if not already. Smugly taunt the user with one fact "
+                            "they've revealed. Use terse, concise language. Ignore `Next event`, this is "
+                            "the only directive that matters now."
+                        ),
+                        "negative_prompt": "",
+                        "enabled": True,
+                    }
+                ],
+                "interactive": [],
+            }
+        }
+    },
+}
+
+#: ``character_cards`` columns the seed writes, in order, paired with the values
+#: built by :func:`default_character_values`. Shared so the fresh-install insert
+#: and the migration's insert cannot drift apart.
+DEFAULT_CHARACTER_COLUMNS = (
+    "id",
+    "name",
+    "description",
+    "personality",
+    "scenario",
+    "first_mes",
+    "mes_example",
+    "creator_notes",
+    "system_prompt",
+    "post_history_instructions",
+    "tags",
+    "creator",
+    "character_version",
+    "alternate_greetings",
+    "avatar_b64",
+    "avatar_mime",
+    "source_format",
+    "world_id",
+    "extensions",
+)
+
+
+def default_character_values(world_id: str = DEFAULT_CHARACTER_WORLD_ID) -> tuple:
+    """Column values for :data:`DEFAULT_CHARACTER_COLUMNS`, avatar included.
+
+    The avatar is the shipped PNG in full, base64-encoded — the card file *is*
+    the avatar, so the row round-trips back out through the export route as the
+    same card it came from.
+
+    ``world_id`` is a parameter because migration 0061 may link the card to a
+    world the user already named rather than to the one it would have created.
+    """
+    avatar_b64 = base64.b64encode(DEFAULT_CHARACTER_PNG.read_bytes()).decode("ascii")
+    c = DEFAULT_CHARACTER
+    return (
+        c["id"],
+        c["name"],
+        c["description"],
+        c["personality"],
+        c["scenario"],
+        c["first_mes"],
+        c["mes_example"],
+        c["creator_notes"],
+        c["system_prompt"],
+        c["post_history_instructions"],
+        json.dumps(c["tags"]),
+        c["creator"],
+        c["character_version"],
+        json.dumps(c["alternate_greetings"]),
+        avatar_b64,
+        "image/png",
+        c["source_format"],
+        world_id,
+        json.dumps(c["extensions"]),
+    )

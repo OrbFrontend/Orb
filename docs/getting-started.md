@@ -35,8 +35,11 @@ when you run one of the project scripts yourself.
 1. Open the **Endpoints** panel and configure the Writer and Agent endpoints.
    The same model can fill both roles. Two models can improve results, but use
    more tokens.
-2. Create or import a character in **Characters**.
-3. Open the character, send a message, and continue the conversation.
+2. Open **Characters**. A new install starts with one character, **Assistant**,
+   so there is something to talk to before you create or import your own. It is
+   an ordinary card: edit it, export it, or delete it. Deleting it is permanent
+   — nothing puts it back.
+3. Open a character, send a message, and continue the conversation.
 
 Endpoints use a hierarchy: an endpoint can contain several models, and each model
 has its own parameters and prompts.

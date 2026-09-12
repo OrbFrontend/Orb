@@ -6,11 +6,14 @@ from datetime import UTC, datetime
 from .connection import get_db
 from .schema import CREATE_TABLES_SQL
 from .seeds import (
+    DEFAULT_CHARACTER_COLUMNS,
+    DEFAULT_CHARACTER_WORLD,
     DEFAULT_ENABLED_TOOLS,
     DEFAULT_SETTINGS,
     SEED_INTERACTIVE_FRAGMENTS,
     SEED_MOOD_FRAGMENTS,
     SEED_PHRASE_BANK,
+    default_character_values,
 )
 
 
@@ -30,6 +33,11 @@ async def init_db():
         if row[0]["c"] == 0:
             await _seed_settings(db)
             await _seed_default_persona(db)
+            # Gated on the *settings* count, not on an empty character library:
+            # this must be a first-boot event, so that deleting the default
+            # character keeps it deleted instead of restoring it on next start.
+            # Existing databases get the same rows once, from migration 0061.
+            await _seed_default_character(db)
 
         ep_row = list(await db.execute_fetchall("SELECT COUNT(*) as c FROM endpoints"))
         if ep_row[0]["c"] == 0:
@@ -116,6 +124,28 @@ async def _seed_default_persona(db) -> None:
         (now, now),
     )
     await db.execute("UPDATE settings SET active_persona_id = ? WHERE id = 1", (cur.lastrowid,))
+
+
+async def _seed_default_character(db) -> None:
+    """Create the shipped default character and its Dynamic World (also migration 0061).
+
+    Mirrors what ``POST /api/characters`` does with an imported card: the
+    embedded ``character_book`` is materialized as a world first, then the card
+    row links to it.
+    """
+    now = datetime.now(UTC).isoformat()
+    w = DEFAULT_CHARACTER_WORLD
+    await db.execute(
+        "INSERT INTO worlds (id, name, enabled, dynamic_enabled, content_revision, created_at, updated_at)"
+        " VALUES (?, ?, 1, ?, 0, ?, ?)",
+        (w["id"], w["name"], w["dynamic_enabled"], now, now),
+    )
+    cols = ", ".join(DEFAULT_CHARACTER_COLUMNS)
+    placeholders = ", ".join("?" * len(DEFAULT_CHARACTER_COLUMNS))
+    await db.execute(
+        f"INSERT INTO character_cards ({cols}, created_at, updated_at) VALUES ({placeholders}, ?, ?)",  # nosec B608 — column names from a module constant
+        (*default_character_values(), now, now),
+    )
 
 
 async def _seed_endpoint_from(db, s: dict) -> None:
