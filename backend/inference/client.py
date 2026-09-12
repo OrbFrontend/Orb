@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 from . import anthropic, endpoint_profiles, text_completion
+from . import reasoning_format as rf
 from .errors import LLMCallError, llm_call_error, llm_stream_error
 from .gemma_tool_format import parse_gemma_tool_calls
 from .retry import RetryPolicy
@@ -239,6 +240,7 @@ class LLMClient:
         self.abort_token = abort_token or AbortToken()
         # Transient-error retry, always on with sensible defaults. See retry.py.
         self.retry = retry or RetryPolicy()
+        self._reasoning_profile: tuple[str, rf.ReasoningFormat] | None = None
 
     def abort(self) -> None:
         """Stop all ongoing completions and close their connections."""
@@ -1010,19 +1012,47 @@ class LLMClient:
             )
 
     async def _fetch_chat_template(self, server_root: str) -> str:
-        """Fetch the server's chat template, returning empty text on failure."""
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout, proxy=self.proxy) as client:
-                resp = await client.get(f"{server_root}/props", headers=self._headers())
-                resp.raise_for_status()
-                return resp.json().get("chat_template", "") or ""
-        except (httpx.HTTPError, ValueError, KeyError) as e:
-            logger.warning("text mode: /props fetch failed (%r); reasoning toggle disabled this call", e)
-            return ""
+        """Fetch validated metadata; a failed lookup never means non-thinking."""
+        async with httpx.AsyncClient(timeout=self.timeout, proxy=self.proxy) as client:
+            resp = await client.get(f"{server_root}/props", headers=self._headers())
+            resp.raise_for_status()
+            try:
+                data = resp.json()
+            except ValueError as e:
+                raise rf.ReasoningFormatError("Cannot read the server's /props reasoning metadata: invalid JSON.") from e
+            template = data.get("chat_template") if isinstance(data, dict) else None
+            if not isinstance(template, str) or not template.strip():
+                raise rf.ReasoningFormatError("Cannot read the server's /props reasoning metadata: missing chat_template.")
+            return template
 
-    async def _reasoning_format(self, server_root: str) -> text_completion.ReasoningFormat:
-        """Sniff the loaded model's reasoning format for this call."""
-        return await text_completion.get_reasoning_format(lambda: self._fetch_chat_template(server_root))
+    async def _reasoning_format(self, server_root: str) -> rf.ReasoningFormat:
+        """Learn from synthetic renders once per client/template, with no inference.
+
+        Fetch the template every call to notice model swaps. Do not reuse a
+        cached result when metadata is unavailable, or cache failed discovery.
+        """
+        template = await self._fetch_chat_template(server_root)
+        cached = self._reasoning_profile
+        if cached and cached[0] == template:
+            return cached[1]
+        renders: dict[str, str] = {}
+        for name, history, empty, thinking in (
+            ("on", False, False, True),
+            ("off", False, False, False),
+            ("history", True, False, True),
+            ("empty_history", True, True, True),
+        ):
+            renders[name] = await self._apply_template(
+                server_root,
+                rf.probe_messages(history=history, empty=empty),
+                {"enable_thinking": thinking, "thinking": thinking},
+            )
+        fmt = rf.format_from_probes(**renders)
+        fmt.require_supported()
+        if await self._fetch_chat_template(server_root) != template:
+            raise rf.ReasoningFormatError("The loaded template changed during reasoning discovery; retry the call.")
+        self._reasoning_profile = (template, fmt)
+        return fmt
 
     async def _stream_completion(self, url: str, body: dict) -> AsyncIterator[dict]:
         """POST *body* to llama.cpp ``/completion`` and yield each parsed SSE chunk.
@@ -1056,7 +1086,7 @@ class LLMClient:
         *,
         prefill: str | None = None,
         reasoning: bool = False,
-        fmt: text_completion.ReasoningFormat | None = None,
+        fmt: rf.ReasoningFormat | None = None,
     ) -> str:
         """Render *messages* to the exact prompt string ``_complete_text`` sends.
 
@@ -1092,8 +1122,9 @@ class LLMClient:
         prompt = await self._render_with_effort_fallback(server_root, render_msgs, ctk)
         if not reasoning and not prefill:
             fmt = fmt or await self._reasoning_format(server_root)
-            if text_completion.opens_reply_channel(fmt, reasoning=reasoning, prefill=bool(prefill)):
-                prompt += fmt.disable_bytes
+            fmt.require_supported()
+            if fmt.channel:
+                prompt = rf.select_reply(prompt, fmt)
         return prompt
 
     async def _complete_text(
@@ -1128,25 +1159,13 @@ class LLMClient:
         try:
             prompt = await self.render_prompt(messages, prefill=prefill, reasoning=reasoning_on, fmt=fmt)
         except httpx.HTTPError as e:
-            logger.warning("text mode: /apply-template failed (%r); falling back to chat transport", e)
+            logger.warning(
+                "text mode: /apply-template failed (%r); falling back to chat transport",
+                e,
+            )
             async for event in self._complete_chat(messages, model, tools, tool_choice, tools_in_prompt=False, **params):
                 yield event
             return
-
-        open_bytes = fmt.open_bytes
-        # Prime the splitter from the rendered prompt, not the requested flag.
-        pre_opened = bool(open_bytes) and prompt.rstrip().endswith(open_bytes.rstrip())
-        content_open = text_completion.opens_reply_channel(fmt, reasoning=reasoning_on, prefill=bool(prefill))
-
-        # Seed a reasoning prefill in the prompt tail; assistant prefills already
-        # own that tail.
-        if rprefill and reasoning_on and open_bytes and not prefill:
-            if not pre_opened:
-                prompt += open_bytes
-                pre_opened = True
-            prompt += rprefill
-        else:
-            rprefill = ""  # no-op: reasoning off, non-thinking model, or assistant-prefill call
 
         # Forced tool_choice → grammar-constrain the whole output to the tool's
         # JSON schema. tools is otherwise unused in text mode (never rendered).
@@ -1160,28 +1179,15 @@ class LLMClient:
         if schema is not None and isinstance(tool_choice, dict):
             forced_name = (tool_choice.get("function") or {}).get("name")
 
-        # A constrained pass cannot open its own reasoning span: the grammar owns
-        # every sampled token, so neither the channel shape's routing header nor a
-        # tag-pair model's open tag is among the tokens the model may emit. Close
-        # the span for it (see ReasoningFormat.constrained_bytes for why this is a
-        # tail append and not a re-render). Left undone, a model whose template
-        # does not pre-open the span is asked to think and forbidden from doing
-        # it, and degenerates: measured on Gemma 4 31B, a forced direct_scene ran
-        # 3000 tokens of "own own own" against 187 for the same call on a
-        # routed-channel model. A template that opens the span itself fails
-        # quietly instead of loudly -- the JSON is legal inside the span, but the
-        # model reads it as scratch work and answers in stubs (Qwen3.8-27B: a
-        # median 67 argument characters against 765 once closed) -- so close that
-        # too, and clear ``pre_opened`` so the splitter is primed for content.
-        # A reasoning prefill is the one span left open: the caller seeded that
-        # thought deliberately and the JSON continues it.
-        if (grammar is not None or schema is not None) and reasoning_on and not prefill and not rprefill:
-            closed = text_completion.close_open_span(prompt, fmt) if pre_opened else None
-            if closed is not None:
-                prompt, pre_opened, content_open = closed, False, True
-            elif not pre_opened and fmt.constrained_bytes:
-                prompt += fmt.constrained_bytes
-                content_open = True
+        prepared = rf.prepare_prompt(
+            prompt,
+            fmt,
+            reasoning=reasoning_on,
+            prefill=bool(prefill),
+            reasoning_prefill=rprefill,
+            constrained=grammar is not None or schema is not None,
+        )
+        prompt, rprefill = prepared.text, prepared.reasoning_prefill
 
         body = text_completion.build_completion_params(params)
         body["prompt"] = prompt
@@ -1205,8 +1211,7 @@ class LLMClient:
 
         # trim_lead off on a prefilled call: the stream continues an open assistant
         # turn, so a leading space is the word separator, not template padding.
-        start: text_completion.SplitterStart = "reasoning" if pre_opened else "content" if prefill or content_open else "auto"
-        splitter = text_completion.make_splitter(fmt, start=start, trim_lead=not prefill)
+        splitter = text_completion.make_splitter(fmt, start=prepared.start, trim_lead=not prefill)
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         forced_buf: list[str] = []

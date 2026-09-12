@@ -1,0 +1,194 @@
+{
+  "model": "Qwen3.8-27B-Q4_K_M.gguf",
+  "build": "b1-3057bb66",
+  "caps": {
+    "supports_object_arguments": true,
+    "supports_parallel_tool_calls": true,
+    "supports_preserve_reasoning": true,
+    "supports_reasoning_effort": true,
+    "supports_string_content": true,
+    "supports_system_role": true,
+    "supports_tool_calls": true,
+    "supports_tools": true,
+    "supports_typed_content": true
+  },
+  "renders": {
+    "on": {
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with one color."
+          }
+        ],
+        "chat_template_kwargs": {
+          "enable_thinking": true,
+          "thinking": true
+        }
+      },
+      "prompt": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\nReply with one color.<|im_end|>\n<|im_start|>assistant\n<think>\n"
+    },
+    "off": {
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with one color."
+          }
+        ],
+        "chat_template_kwargs": {
+          "enable_thinking": false,
+          "thinking": false
+        }
+      },
+      "prompt": "<|im_start|>user\nReply with one color.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    },
+    "history": {
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with one color."
+          },
+          {
+            "role": "assistant",
+            "content": "ORB_CONTENT_7f32",
+            "reasoning_content": "ORB_REASONING_7f32"
+          }
+        ],
+        "chat_template_kwargs": {
+          "enable_thinking": true,
+          "thinking": true
+        }
+      },
+      "prompt": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\nReply with one color.<|im_end|>\n<|im_start|>assistant\n<think>\nORB_REASONING_7f32\n</think>\n\nORB_CONTENT_7f32"
+    },
+    "empty_history": {
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with one color."
+          },
+          {
+            "role": "assistant",
+            "content": "ORB_CONTENT_7f32",
+            "reasoning_content": ""
+          }
+        ],
+        "chat_template_kwargs": {
+          "enable_thinking": true,
+          "thinking": true
+        }
+      },
+      "prompt": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\nReply with one color.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nORB_CONTENT_7f32"
+    }
+  },
+  "streams": [
+    {
+      "case": "on",
+      "start": "reasoning",
+      "prompt": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\nReply with one color.<|im_end|>\n<|im_start|>assistant\n<think>\n",
+      "chunks": [
+        "We",
+        " need",
+        " answer",
+        " user",
+        ":",
+        " \"",
+        "Reply",
+        " with",
+        " one",
+        " color",
+        ".\"",
+        " Need",
+        " final",
+        " one",
+        " color",
+        ".",
+        " Choose",
+        " e",
+        ".g",
+        ".",
+        " Blue",
+        ".",
+        " Ensure",
+        " only",
+        " one",
+        " color",
+        ".",
+        "\n",
+        "</think>",
+        "\n\n",
+        "Blue"
+      ],
+      "reasoning": "We need answer user: \"Reply with one color.\" Need final one color. Choose e.g. Blue. Ensure only one color.\n",
+      "content": "Blue"
+    },
+    {
+      "case": "off",
+      "start": "content",
+      "prompt": "<|im_start|>user\nReply with one color.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+      "chunks": [
+        "Blue"
+      ],
+      "reasoning": "",
+      "content": "Blue"
+    },
+    {
+      "case": "seed",
+      "start": "reasoning",
+      "prompt": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\nReply with one color.<|im_end|>\n<|im_start|>assistant\n<think>\nChoose a simple color. ",
+      "chunks": [
+        " Blue",
+        ".",
+        "\n",
+        "</think>",
+        "\n\n",
+        "Blue"
+      ],
+      "reasoning": " Blue.\n",
+      "content": "Blue"
+    },
+    {
+      "case": "forced",
+      "start": "content",
+      "prompt": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\nReply with one color.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+      "chunks": [
+        "{",
+        "\n",
+        " ",
+        " \"",
+        "color",
+        "\":",
+        " \"",
+        "blue",
+        "\"",
+        "\n",
+        "}"
+      ],
+      "reasoning": "",
+      "content": "{\n  \"color\": \"blue\"\n}"
+    },
+    {
+      "case": "forced_off",
+      "start": "content",
+      "prompt": "<|im_start|>user\nReply with one color.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+      "chunks": [
+        "{",
+        "\n",
+        " ",
+        " \"",
+        "color",
+        "\":",
+        " \"",
+        "blue",
+        "\"",
+        "\n",
+        "}"
+      ],
+      "reasoning": "",
+      "content": "{\n  \"color\": \"blue\"\n}"
+    }
+  ]
+}

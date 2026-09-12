@@ -1,0 +1,250 @@
+{
+  "model": "gemma-4-31B-it-qat-UD-Q4_K_XL.gguf",
+  "build": "b1-3057bb66",
+  "caps": {
+    "supports_object_arguments": true,
+    "supports_parallel_tool_calls": true,
+    "supports_preserve_reasoning": false,
+    "supports_reasoning_effort": false,
+    "supports_string_content": true,
+    "supports_system_role": true,
+    "supports_tool_calls": true,
+    "supports_tools": true,
+    "supports_typed_content": true
+  },
+  "renders": {
+    "on": {
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with one color."
+          }
+        ],
+        "chat_template_kwargs": {
+          "enable_thinking": true,
+          "thinking": true
+        }
+      },
+      "prompt": "<|turn>system\n<|think|>\n<turn|>\n<|turn>user\nReply with one color.<turn|>\n<|turn>model\n"
+    },
+    "off": {
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with one color."
+          }
+        ],
+        "chat_template_kwargs": {
+          "enable_thinking": false,
+          "thinking": false
+        }
+      },
+      "prompt": "<|turn>user\nReply with one color.<turn|>\n<|turn>model\n<|channel>thought\n<channel|>"
+    },
+    "history": {
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with one color."
+          },
+          {
+            "role": "assistant",
+            "content": "ORB_CONTENT_7f32",
+            "reasoning_content": "ORB_REASONING_7f32"
+          }
+        ],
+        "chat_template_kwargs": {
+          "enable_thinking": true,
+          "thinking": true
+        }
+      },
+      "prompt": "<|turn>system\n<|think|>\n<turn|>\n<|turn>user\nReply with one color.<turn|>\n<|turn>model\n<|channel>thought\nORB_REASONING_7f32<channel|>ORB_CONTENT_7f32"
+    },
+    "empty_history": {
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with one color."
+          },
+          {
+            "role": "assistant",
+            "content": "ORB_CONTENT_7f32",
+            "reasoning_content": ""
+          }
+        ],
+        "chat_template_kwargs": {
+          "enable_thinking": true,
+          "thinking": true
+        }
+      },
+      "prompt": "<|turn>system\n<|think|>\n<turn|>\n<|turn>user\nReply with one color.<turn|>\n<|turn>model\n<|channel>thought\n<channel|>ORB_CONTENT_7f32"
+    }
+  },
+  "streams": [
+    {
+      "case": "on",
+      "start": "auto",
+      "prompt": "<|turn>system\n<|think|>\n<turn|>\n<|turn>user\nReply with one color.<turn|>\n<|turn>model\n",
+      "chunks": [
+        "<|channel>",
+        "thought",
+        "\n",
+        "*",
+        "   ",
+        "User",
+        " request",
+        ":",
+        " \"",
+        "Reply",
+        " with",
+        " one",
+        " color",
+        ".\"",
+        "\n",
+        "    ",
+        "*",
+        "   ",
+        "Constraint",
+        ":",
+        " Only",
+        " one",
+        " color",
+        ".",
+        "\n\n",
+        "    ",
+        "*",
+        "   ",
+        "Blue",
+        "\n",
+        "    ",
+        "*",
+        "   ",
+        "Red",
+        "\n",
+        "    ",
+        "*",
+        "   ",
+        "Green",
+        "\n",
+        "    ",
+        "*",
+        "   ",
+        "Yellow",
+        "\n",
+        "    ",
+        "*",
+        "   ",
+        "Purple",
+        "\n",
+        "    ",
+        "*",
+        "   ",
+        "Orange",
+        "\n",
+        "    ",
+        "*",
+        "   ",
+        "Black",
+        "\n",
+        "    ",
+        "*",
+        "   ",
+        "White",
+        "\n\n",
+        "    ",
+        "*",
+        "   ",
+        "Blue",
+        " is",
+        " a",
+        " common",
+        ",",
+        " neutral",
+        ",",
+        " and",
+        " pleasant",
+        " choice",
+        ".",
+        "\n\n",
+        "    ",
+        "*",
+        "   ",
+        "Blue",
+        ".",
+        "<channel|>",
+        "Blue"
+      ],
+      "reasoning": "*   User request: \"Reply with one color.\"\n    *   Constraint: Only one color.\n\n    *   Blue\n    *   Red\n    *   Green\n    *   Yellow\n    *   Purple\n    *   Orange\n    *   Black\n    *   White\n\n    *   Blue is a common, neutral, and pleasant choice.\n\n    *   Blue.",
+      "content": "Blue"
+    },
+    {
+      "case": "off",
+      "start": "content",
+      "prompt": "<|turn>user\nReply with one color.<turn|>\n<|turn>model\n<|channel>thought\n<channel|>",
+      "chunks": [
+        "Blue"
+      ],
+      "reasoning": "",
+      "content": "Blue"
+    },
+    {
+      "case": "seed",
+      "start": "reasoning",
+      "prompt": "<|turn>system\n<|think|>\n<turn|>\n<|turn>user\nReply with one color.<turn|>\n<|turn>model\n<|channel>thought\nChoose a simple color. ",
+      "chunks": [
+        "\n",
+        "One",
+        " word",
+        ".",
+        "\n",
+        "Blue",
+        ".",
+        "<channel|>",
+        "Blue"
+      ],
+      "reasoning": "\nOne word.\nBlue.",
+      "content": "Blue"
+    },
+    {
+      "case": "forced",
+      "start": "content",
+      "prompt": "<|turn>system\n<|think|>\n<turn|>\n<|turn>user\nReply with one color.<turn|>\n<|turn>model\n<|channel>thought\n<channel|>",
+      "chunks": [
+        "{",
+        "\n",
+        "  ",
+        "\"",
+        "color",
+        "\":",
+        " \"",
+        "Blue",
+        "\"",
+        "\n",
+        "}"
+      ],
+      "reasoning": "",
+      "content": "{\n  \"color\": \"Blue\"\n}"
+    },
+    {
+      "case": "forced_off",
+      "start": "content",
+      "prompt": "<|turn>user\nReply with one color.<turn|>\n<|turn>model\n<|channel>thought\n<channel|>",
+      "chunks": [
+        "{",
+        " \"",
+        "color",
+        "\":",
+        " \"",
+        "Blue",
+        "\"",
+        " }"
+      ],
+      "reasoning": "",
+      "content": "{ \"color\": \"Blue\" }"
+    }
+  ]
+}

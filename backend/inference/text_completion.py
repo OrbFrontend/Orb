@@ -5,160 +5,17 @@ from __future__ import annotations
 import logging
 import math
 import re
-from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from collections.abc import Mapping, Sequence
+from typing import Any, Protocol
+
+# Stream parsing is separate from template discovery and prompt preparation.
+from .reasoning_format import ReasoningFormat, SplitterStart, ThinkTags
 
 logger = logging.getLogger(__name__)
 
-# Reasoning tags: opening tag, closing tag, and the suffix that disables them.
-ThinkTags = tuple[str, str, str]
-
-# Gemma-4 emits reasoning inside a channel pair; the disable bytes are the
-# open channel immediately closed. Probe-verified (2026-07-04, Gemma 4 31B).
-_GEMMA4: ThinkTags = ("<|channel>thought\n", "<channel|>", "<|channel>thought\n<channel|>")
-# Qwen/DeepSeek-style <think></think> pair; disable is an empty think block.
-_THINK: ThinkTags = ("<think>", "</think>", "<think>\n\n</think>\n\n")
-# MiniMax M3 namespaced pair; disable is an empty think block.
-_MINIMAX: ThinkTags = ("<mm:think>", "</mm:think>", "<mm:think>\n\n</mm:think>\n\n")
-# Non-thinking model: no span, no-op suffix (reasoning toggle does nothing).
-_NONE: ThinkTags = ("", "", "")
-
-# Onyx ATEM/Muse Glimmer routes reasoning through a message addressed to self.
-_ONYX_ROUTE_SELF = "to=self"
 _ONYX_MESSAGE = "<|message|>"
-_ONYX_SELF = " to=self<|message|>"
-_ONYX_USER = " to=user<|message|>"
 _ONYX_BREAKS = ("<|start|>", "<|eom|>", "<|eot|>")
 _RECIPIENT_RE = re.compile(r"to=(\S+)")
-
-
-@dataclass(frozen=True)
-class ReasoningFormat:
-    """How a chat template marks reasoning in a raw completion stream."""
-
-    tags: ThinkTags = _NONE
-    channel: bool = False
-
-    @property
-    def open_bytes(self) -> str:
-        """Prompt bytes that open a reasoning span."""
-        return _ONYX_SELF if self.channel else self.tags[0]
-
-    @property
-    def disable_bytes(self) -> str:
-        """Prompt bytes that select the non-reasoning channel, if needed.
-
-        Empty for a tag-pair model: there the template renders its own
-        reasoning-off bytes from ``enable_thinking``, so appending these too
-        would double them. See :attr:`constrained_bytes` for the one caller that
-        cannot go through the template.
-        """
-        return _ONYX_USER if self.channel else ""
-
-    @property
-    def constrained_bytes(self) -> str:
-        """Prompt bytes that put a grammar-constrained call in the reply channel.
-
-        A constrained call cannot ask the template for its reasoning-off bytes:
-        the prompt is already rendered with thinking on, and re-rendering with
-        ``enable_thinking=False`` rewrites the *start* of the prompt, not its
-        tail -- Gemma 4 injects ``<|think|>`` at the top of the first system
-        turn, Qwen3.8 a reasoning-effort instruction at byte 19 -- busting the
-        prefix every other pass of the turn shares. These bytes append to the
-        tail instead, so the prefix survives.
-
-        A routed-channel model takes the reply header; a tag-pair model takes
-        the template's own disable pair, which is the third element every
-        ``ThinkTags`` triple already carries.
-        """
-        return self.disable_bytes or self.tags[2]
-
-
-# An (optionally namespaced) reasoning tag pair: <think>, <thinking>,
-# <thought>, <reason>, <reasoning>, <mm:think> (MiniMax M3),
-# <seed:think> (ByteDance Seed), <think:opensource> (Hunyuan), ...
-# Namespace may sit before or after the keyword (models differ on which).
-_THINK_RE = re.compile(r"<((?:[A-Za-z0-9_-]+:)?(?:think(?:ing)?|thought|reason(?:ing)?)(?::[A-Za-z0-9_-]+)?)>")
-
-# Some templates don't write the tag literally; they build it from a namespace
-# variable, e.g. Hunyuan:  {% set HYTK=':opensource' %}
-#   {% set think_begin_token = '<think{}>'.format(HYTK) %}
-# The sniff below reads raw jinja, so it would only see the literal ``<think{}>``
-# unless we first resolve the ``.format(VAR)`` call. This pre-pass inlines any
-# ``'...{}...'.format(VAR)`` where VAR is a ``set``-bound string literal.
-_SET_STR_RE = re.compile(r"""\bset\s+(\w+)\s*=\s*(['"])([^'"]*)\2""")
-_FORMAT_RE = re.compile(r"""(['"])([^'"]*)\1\.format\(\s*(\w+)\s*\)""")
-
-
-def _resolve_format_tokens(chat_template: str) -> str:
-    """Inline ``'<tag{}>'.format(VAR)`` constructions using ``set``-bound vars."""
-    if ".format(" not in chat_template:
-        return chat_template
-    vars_ = {m[0]: m[2] for m in _SET_STR_RE.findall(chat_template)}
-
-    def sub(m: re.Match[str]) -> str:
-        literal, var = m.group(2), m.group(3)
-        if var in vars_ and "{}" in literal:
-            return literal.replace("{}", vars_[var])
-        return m.group(0)
-
-    return _FORMAT_RE.sub(sub, chat_template)
-
-
-def think_tags_from_template(chat_template: str) -> ThinkTags:
-    """Sniff the reasoning-tag triple from a server's ``chat_template`` text.
-
-    Gemma-4 channel pair wins over any ``<think>``-family tag when both markers
-    appear (a template can mention both). Neither present => non-thinking model.
-    """
-    chat_template = _resolve_format_tokens(chat_template)
-    if "<|channel>thought" in chat_template:
-        return _GEMMA4
-    m = _THINK_RE.search(chat_template)
-    if m:
-        name = m.group(1)
-        return (f"<{name}>", f"</{name}>", f"<{name}>\n\n</{name}>\n\n")
-    return _NONE
-
-
-def reasoning_format_from_template(chat_template: str) -> ReasoningFormat:
-    """Sniff the reasoning format from *chat_template*."""
-    if _ONYX_ROUTE_SELF in chat_template and _ONYX_MESSAGE in chat_template:
-        return ReasoningFormat(channel=True)
-    return ReasoningFormat(tags=think_tags_from_template(chat_template))
-
-
-async def get_reasoning_format(fetch_template: Callable[[], Awaitable[str]]) -> ReasoningFormat:
-    """Fetch and sniff the reasoning format."""
-    return reasoning_format_from_template(await fetch_template())
-
-
-def close_open_span(prompt: str, fmt: ReasoningFormat) -> str | None:
-    """Rewrite a prompt whose tail opens a reasoning span so it closes one instead.
-
-    For a grammar-constrained call on a template that opens the span itself
-    (Qwen3.8 ends its generation prompt with ``<think>\\n``). The JSON is legal
-    inside an open span, but the model reads it as scratch work and answers in
-    stubs: measured on Qwen3.8-27B, five seeded forced calls returned a median
-    of 67 argument characters with the span open against 765 with it closed.
-
-    Rewrites rather than appends so the result is the template's own
-    reasoning-off tail byte-for-byte, instead of the doubled open tag an append
-    would leave. Returns ``None`` when there is no trailing open tag to replace
-    (including every routed-channel format, whose spans are messages rather than
-    tags) -- the caller then has nothing to close.
-    """
-    open_bytes = fmt.tags[0].rstrip()
-    stripped = prompt.rstrip()
-    if not open_bytes or not stripped.endswith(open_bytes):
-        return None
-    return stripped[: len(stripped) - len(open_bytes)] + fmt.tags[2]
-
-
-def opens_reply_channel(fmt: ReasoningFormat, *, reasoning: bool, prefill: bool) -> bool:
-    """Whether a bare, non-reasoning call needs a reply-channel header."""
-    return bool(fmt.disable_bytes) and not reasoning and not prefill
 
 
 def _max_overlap(buf: str, target: str) -> int:
@@ -236,12 +93,19 @@ class _SplitBase:
 class ThinkSplitter(_SplitBase):
     """Split streamed text into reasoning and content on a literal tag pair."""
 
-    def __init__(self, tags: ThinkTags, already_open: bool = False, trim_lead: bool = True) -> None:
+    def __init__(
+        self,
+        tags: ThinkTags,
+        already_open: bool = False,
+        trim_lead: bool = True,
+        *,
+        start: SplitterStart = "auto",
+    ) -> None:
         super().__init__(trim_lead)
-        self._open, self._close, _ = tags
-        if not self._open:
+        self._open, self._close = tags
+        if not self._open or start == "content":
             self._state = "content"
-        elif already_open:
+        elif already_open or start == "reasoning":
             self._state = "reasoning"
         else:
             self._state = "pre"
@@ -280,9 +144,6 @@ class ThinkSplitter(_SplitBase):
         self._emit(out, kind, self._buf)
         self._buf = ""
         return out
-
-
-SplitterStart = Literal["auto", "reasoning", "content"]
 
 
 class ChannelSplitter(_SplitBase):
@@ -337,7 +198,7 @@ def make_splitter(fmt: ReasoningFormat, *, start: SplitterStart = "auto", trim_l
     """Build a splitter primed by the prompt's current channel."""
     if fmt.channel:
         return ChannelSplitter(start=start, trim_lead=trim_lead)
-    return ThinkSplitter(fmt.tags, already_open=start == "reasoning", trim_lead=trim_lead)
+    return ThinkSplitter(fmt.tags, start=start, trim_lead=trim_lead)
 
 
 def reasoning_enabled(params: Mapping[str, Any]) -> bool:
