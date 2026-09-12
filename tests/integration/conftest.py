@@ -235,7 +235,17 @@ async def streaming_client(db_path: Path, monkeypatch):
                 raise RuntimeError("uvicorn did not start within 5s")
             await asyncio.sleep(0.01)
 
-        async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}") as ac:
+        # httpx defaults to a 5s read timeout, which here is a stopwatch on
+        # the *gap between SSE events* -- and every test on this fixture
+        # deliberately parks the server mid-pipeline while it does something
+        # else. Under `tests.sh all` (-n 8) that gap is scheduling noise, not
+        # behaviour: the three tests on this fixture failed intermittently with
+        # httpx.ReadTimeout on a loaded box while asserting nothing about
+        # latency. Each one already bounds its own waits (gate events, the
+        # ~2s lock-release poll), so the transport timeout is pure flake
+        # surface; raise it to a value only a real hang can reach.
+        timeout = httpx.Timeout(30.0, connect=10.0)
+        async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", timeout=timeout) as ac:
             yield ac
     finally:
         await _shutdown()

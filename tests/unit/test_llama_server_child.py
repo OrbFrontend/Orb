@@ -79,6 +79,12 @@ async def test_returncode_reports_an_exit_without_being_waited_on(impl):
     while child.returncode is None and asyncio.get_running_loop().time() < deadline:
         await asyncio.sleep(0.02)
     assert child.returncode == 3
+    # ``aclose`` cancels the reader by contract ("stop reading the log"), so the
+    # line has to be waited for before it, not after: the child can be reaped --
+    # which is all ``returncode`` reports -- while the pump has yet to be
+    # scheduled even once, and cancelling it there drops the output. Observed as
+    # ``assert [] == ['bye']`` on a loaded box.
+    await _lines(sink, 1)
     await child.aclose()
     assert sink == ["bye"]
 

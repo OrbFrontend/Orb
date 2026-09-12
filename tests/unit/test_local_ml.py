@@ -52,6 +52,7 @@ def test_install_cmd_paths_are_absolute():
     assert os.path.isabs(cmd.split(" -m ", 1)[0].strip('"'))
 
 
+@pytest.mark.real_model_dir  # asserts on model_dir() itself, off a patched _ROOT
 def test_model_dir_is_created(monkeypatch, tmp_path):
     monkeypatch.setattr(assets, "_ROOT", str(tmp_path))
     d = assets.model_dir()
