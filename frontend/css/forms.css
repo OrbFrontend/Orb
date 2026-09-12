@@ -196,6 +196,32 @@ label {
   letter-spacing: .5px;
 }
 
+/* One setting per row: label on the left, its control flush right. A label
+   beside its control must not keep the stacked-field `margin-bottom` above --
+   a centred row centres the label's box, margin included, so the words ride
+   ~2px high while the control sits level. Clearing it here is what keeps rows
+   aligned without per-row pixel nudges. */
+.setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.setting-row > label { margin: 0; }
+
+.setting-row > .tog,
+.setting-row > select,
+.setting-row > button,
+.setting-row > input { justify-self: end; }
+
+/* Controls size to their content so every row's control shares one right edge. */
+.setting-row > select,
+.setting-row > input:not([type="checkbox"]):not([type="radio"]) {
+  width: auto;
+  max-width: 100%;
+}
+
 .field { margin-bottom: 10px; }
 
 .field-warning {

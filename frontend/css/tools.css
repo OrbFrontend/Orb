@@ -227,16 +227,13 @@ label.ml-variant-name { cursor: pointer; }
   margin-top: 4px;
 }
 
+/* Layout comes from `.setting-row`; this only sets the card-local spacing. */
 .ml-batch {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
   gap: 4px 8px;
   margin-top: 8px;
 }
 
 .ml-batch label {
-  margin: 0;
   font-size: 11px;
   font-weight: 500;
   text-transform: none;
@@ -244,10 +241,7 @@ label.ml-variant-name { cursor: pointer; }
   color: var(--text-secondary);
 }
 
-.ml-batch select {
-  width: auto;
-  min-width: 112px;
-}
+.ml-batch select { min-width: 112px; }
 
 .ml-batch div {
   grid-column: 1 / -1;
@@ -296,22 +290,13 @@ label.ml-variant-name { cursor: pointer; }
   .ml-foot-loading { animation: none; }
 }
 
-.dn-config {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: 8px 10px;
-  margin: 8px 0;
-}
+/* Layout comes from `.setting-row`, so the toggle and the select share the
+   right edge the card header's toggle already sits on. */
+.dn-config { margin: 8px 0; }
 
-.dn-config label {
+.dn-config > label:not(.tog) {
   font-size: 12px;
   color: var(--text-secondary);
-}
-
-.dn-config select {
-  width: 100%;
-  transform: translateY(-1px);
 }
 
 .lg-config {

@@ -48,12 +48,18 @@ _SYSTEM = (
     "dialogue, the author's vocabulary, and all formatting exactly as they are.\n"
     f"- {VOICE_REWRITE_LENGTH_RULE}\n"
     "- Restate the whole passage, not an excerpt.\n"
-    "- Pronouns and names already in the passage keep their referents. Do not "
-    "introduce a character, a name, or a detail the passage does not contain."
+    "- Change the person of a pronoun, never who it points to. The character who "
+    "acts keeps acting and the person addressed keeps being addressed, so the "
+    'speaking character\'s own actions must never become "you". Do not introduce '
+    "a character, a name, or a detail the passage does not contain."
 )
 
+# One line per drifting axis. Folding two axes into a single "in X and Y" sentence
+# buries the second inside the first one's trailing clause, which is how a POV
+# phrase that has to name both parties reads once a tense is appended to it.
 _INSTRUCTION = (
-    f"Restate the passage below in {{voice}}. Call `{VOICE_REWRITE_TOOL_NAME}` with the result.\n\nPASSAGE:\n{{draft}}"
+    f"Restate the passage below and call `{VOICE_REWRITE_TOOL_NAME}` with the result.\n\n"
+    "REQUIRED VOICE:\n{voice}\n\nPASSAGE:\n{draft}"
 )
 
 
@@ -86,7 +92,7 @@ async def _voice_rewrite(ctx, text: str, phrases: list[str]) -> str:
         tail_messages=[
             {
                 "role": "user",
-                "content": _INSTRUCTION.format(voice=" and ".join(phrases), draft=text),
+                "content": _INSTRUCTION.format(voice="\n".join(f"- {p}" for p in phrases), draft=text),
             }
         ],
         tool_name=VOICE_REWRITE_TOOL_NAME,

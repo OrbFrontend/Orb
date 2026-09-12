@@ -270,6 +270,35 @@ async def test_only_the_drifting_axis_is_named(monkeypatch):
     assert "tense" not in instruction
 
 
+async def test_the_second_person_target_asks_for_the_character_in_third(monkeypatch):
+    """`second` is the "He tells you" register, not "You tell".
+
+    The label is a precedence rule over the pronouns present, so a bare "second
+    person" instruction gets the other reading: a copy editor makes the narration's
+    subject "you" and rewrites the speaking character's own actions into the
+    reader's, which is strictly worse than the drift it was sent to fix.
+    """
+    _voice_on(monkeypatch)
+    _classifier(
+        monkeypatch,
+        {QUOTED_BASELINE_NARRATION: SECOND_PRESENT, CONSISTENT_NARRATION: ("first", "present")},
+    )
+    calls = _forced_call(monkeypatch, CONSISTENT_DRAFT)
+
+    await _collect(_ctx(CONSISTENT_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
+
+    instruction = calls[0]["tail_messages"][0]["content"]
+    assert "third person for the speaking character" in instruction
+    assert "second person" not in instruction
+
+
+def test_no_pov_instruction_invites_a_name_the_passage_lacks(monkeypatch):
+    """The system rules forbid introducing a name, so no target may ask for one."""
+    assert "name" in hooks._SYSTEM
+    for phrase in voice._POV_PHRASE.values():
+        assert "name" not in phrase
+
+
 async def test_consistent_voice_makes_no_llm_call(monkeypatch):
     _voice_on(monkeypatch)
     _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, CONSISTENT_NARRATION: THIRD_PAST})

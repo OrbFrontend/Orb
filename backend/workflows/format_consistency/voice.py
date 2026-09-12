@@ -26,7 +26,20 @@ UNKNOWN = "ambiguous"
 VoiceLabels = tuple[str, str]
 UNKNOWN_LABELS: VoiceLabels = (UNKNOWN, UNKNOWN)
 
-_POV_PHRASE = {"first": "first person", "second": "second person", "third": "third person"}
+# The POV label is a precedence rule over the pronouns the narration contains --
+# "I tell you" is first, "He tells you" is second, "He tells her" is third -- not a
+# prose style. So `second` means the speaking character is narrated in third person
+# while the reader is still addressed as "you", which is the commonest RP register.
+# Asking a copy editor for "second person" instead gets the other reading: it makes
+# the narration's subject "you" and turns the character's own actions into the
+# reader's. Each phrase names what happens to BOTH parties for that reason, and none
+# of them may invite a name the passage does not contain (see the system rules).
+_POV_PHRASE = {
+    "first": 'first person (the speaking character narrates their own actions as "I"), with anyone they address staying "you"',
+    "second": "third person for the speaking character (their own actions become "
+    '"he", "she" or "they", never "you"), while the person they address stays "you"',
+    "third": 'third person throughout (no "you" anywhere in the narration)',
+}
 _TENSE_PHRASE = {"past": "past tense", "present": "present tense"}
 
 

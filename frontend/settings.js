@@ -337,7 +337,7 @@ function batchSizeControl(f, info) {
       ([value, label]) => `<option value="${value}" ${info.batch_size === value ? "selected" : ""}>${label}</option>`,
     )
     .join("");
-  return `<div class="ml-batch">
+  return `<div class="ml-batch setting-row">
     <label for="${id}">Parallel</label>
     <select class="tool-card-select" id="${id}" data-ml-act="batch-size" data-ml-feature="${escAttr(f)}">${options}</select>
     <div>~140–190 MB VRAM per parallel slot.</div>
@@ -893,7 +893,7 @@ export function renderToolsPanel() {
     <div class="tool-card-header">
       <span class="tool-card-name">Direction Notes</span>
     </div>
-    <div class="dn-config">
+    <div class="dn-config setting-row">
       <label>Recording</label>
       <label class="tog" onclick="event.stopPropagation()">
         <input type="checkbox" ${dnRecord ? "checked" : ""} onchange="setDirectionNotesRecord(this.checked)">
