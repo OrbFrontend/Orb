@@ -54,17 +54,17 @@ function _moodFragFormHtml(d, isEdit) {
   return `
     <div class="field-row">
       <div class="field"><label>ID <span style="font-size:10px;color:var(--text-muted)">(For tool-calling)</span></label>
-        <input id="frag-id" value="${escAttr(d.id)}" ${isEdit ? "disabled" : ""} placeholder="e.g. dramatic"></div>
+        <input id="frag-id" value="${escAttr(d.id)}" ${isEdit ? "disabled" : ""} placeholder="terse"></div>
       <div class="field"><label>Label <span style="font-size:10px;color:var(--text-muted)">(For display only)</span></label>
         <input id="frag-label" value="${escAttr(d.label)}" placeholder="Terse"></div>
     </div>
     <div class="field"><label>Description <span style="font-size:10px;color:var(--text-muted)">(tells the Director when to activate)</span></label>
-      <input id="frag-desc" value="${escAttr(d.description)}" placeholder="Short, clipped sentences. Minimal description."></div>
+      <input id="frag-desc" value="${escAttr(d.description)}" placeholder="The scene is finalizing and deserves a spontaneous haiku."></div>
     <div class="field"><label>Prompt Text <span style="font-size:10px;color:var(--text-muted)">(injected into the writer context when this mood is active)</span></label>
-      <textarea id="frag-text" rows="4" placeholder="Write tersely. Short sentences. No flowery language.">${esc(d.prompt_text)}</textarea></div>
+      <textarea id="frag-text" rows="4" placeholder="Write the reply like a haiku, strictly following haiku format (5-7-5).">${esc(d.prompt_text)}</textarea></div>
     <div class="field">
       <label>Negative Prompt <span style="font-size:10px;color:var(--text-muted)">(injected if this fragment is removed next turn)</span></label>
-      <textarea id="frag-neg" rows="3" placeholder="Stop using short, clipped sentences.">${esc(d.negative_prompt || "")}</textarea>
+      <textarea id="frag-neg" rows="3" placeholder="Stop writing like it's a haiku.">${esc(d.negative_prompt || "")}</textarea>
     </div>`;
 }
 
