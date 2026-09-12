@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS conversations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_conversations_group_root ON conversations(group_root_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_active_leaf ON conversations(active_leaf_id);
 
 CREATE TABLE IF NOT EXISTS character_cards (
     id TEXT PRIMARY KEY,
@@ -176,6 +177,7 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_exchange ON messages(conversation_id, exchange_id);
 CREATE INDEX IF NOT EXISTS idx_messages_speaker ON messages(speaker_member_id);
+CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_id);
 
 CREATE TABLE IF NOT EXISTS director_state (
     conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
@@ -212,6 +214,8 @@ CREATE TABLE IF NOT EXISTS conversation_logs (
     reasoning_editor TEXT,
     feedback TEXT NOT NULL DEFAULT '{}'
 );
+
+CREATE INDEX IF NOT EXISTS idx_conversation_logs_message ON conversation_logs(message_id);
 
 CREATE TABLE IF NOT EXISTS phrase_bank (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -257,6 +261,11 @@ CREATE TABLE IF NOT EXISTS workflow_attachments (
     active_sibling_id INTEGER REFERENCES workflow_attachments(id) ON DELETE SET NULL,
     recent_accesses TEXT DEFAULT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_user_attachments_message ON user_attachments(message_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_attachments_message ON workflow_attachments(message_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_attachments_parent ON workflow_attachments(parent_attachment_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_attachments_active_sibling ON workflow_attachments(active_sibling_id);
 
 CREATE TABLE IF NOT EXISTS endpoints (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -350,6 +359,7 @@ CREATE TABLE IF NOT EXISTS world_changesets (
 
 CREATE INDEX IF NOT EXISTS idx_changeset_world_status ON world_changesets(world_id, status);
 CREATE INDEX IF NOT EXISTS idx_changeset_source_asst ON world_changesets(source_assistant_message_id);
+CREATE INDEX IF NOT EXISTS idx_changeset_source_user ON world_changesets(source_user_message_id);
 
 CREATE TABLE IF NOT EXISTS member_sheet_proposals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

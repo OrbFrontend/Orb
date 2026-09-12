@@ -47,30 +47,70 @@ def register_workflow_attachment_persister(fn: _WorkflowAttachmentPersister) -> 
     _workflow_attachment_persister = fn
 
 
+#: The recursive step's conversation guard, with SQLite's ``+`` no-index
+#: operator on it.
+#:
+#: Every message subtree walk constrains the recursive step by ``parent_id``
+#: *and* ``conversation_id``. Left alone, the planner has no statistics for the
+#: recursive table and picks the ``conversation_id`` index, which turns each
+#: step into "scan every message in the conversation, then scan the rows found
+#: so far" -- quadratic in the conversation. ``+`` makes that term unindexable,
+#: so the only usable constraint is ``parent_id`` and the step becomes a seek.
+#: The guard still runs as a filter, so the query means exactly what it did
+#: before. Measured on a 3,000-message chat: 716 ms -> 2.2 ms.
+_SAME_CONVERSATION = "+m.conversation_id = ?"
+
+#: SQLite's default ``SQLITE_MAX_VARIABLE_NUMBER`` is 999 on older builds.
+_SQL_PARAM_CHUNK = 900
+
+
+def _chunked(items: list[int], size: int) -> list[list[int]]:
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
+def _levels_deepest_first(pairs: Sequence[tuple[int, int]]) -> list[list[int]]:
+    """Group ``(depth, id)`` pairs into id lists, deepest depth first."""
+    by_depth: dict[int, list[int]] = {}
+    for depth, message_id in pairs:
+        by_depth.setdefault(depth, []).append(message_id)
+    return [by_depth[d] for d in sorted(by_depth, reverse=True)]
+
+
 async def get_path_to_leaf(cid: str, leaf_id: int) -> list[MessageWithAttachments]:
     """Walk parent_id chain from leaf to root, return ordered root→leaf."""
     async with get_db() as db:
-        path: list[MessageWithAttachments] = []
-        current_id = leaf_id
-        while current_id is not None:
-            rows = list(
-                await db.execute_fetchall(
-                    "SELECT * FROM messages WHERE id = ? AND conversation_id = ?",
-                    (current_id, cid),
+        # One recursive walk rather than one round trip per message: a long
+        # chat's active path is thousands of rows deep and every read of it
+        # paid for that chain. The recursive step stops on a parent that is
+        # missing or in another conversation, which is where the old loop
+        # broke. ``depth`` counts up from the leaf, so ordering by it
+        # descending yields root->leaf without a reverse.
+        rows = list(
+            await db.execute_fetchall(
+                f"""
+                WITH RECURSIVE ancestors(depth, id, parent_id) AS (
+                    SELECT 0, id, parent_id FROM messages WHERE id = ? AND conversation_id = ?
+                    UNION ALL
+                    SELECT a.depth + 1, m.id, m.parent_id FROM messages m
+                    JOIN ancestors a ON m.id = a.parent_id
+                    WHERE {_SAME_CONVERSATION}
                 )
+                SELECT m.* FROM ancestors a
+                JOIN messages m ON m.id = a.id
+                ORDER BY a.depth DESC
+                """,
+                (leaf_id, cid, cid),
             )
-            if not rows:
-                break
+        )
+        path: list[MessageWithAttachments] = []
+        for row in rows:
             # Raw row: progressive_fields is still the JSON string here. Decode
             # it before labeling the dict a MessageWithAttachments, whose
             # progressive_fields is typed as the decoded dict.
-            msg = dict(rows[0])
+            msg = dict(row)
             raw_pf = msg.get("progressive_fields")
             msg["progressive_fields"] = json.loads(raw_pf) if raw_pf else {}
-            typed_msg = cast(MessageWithAttachments, msg)
-            path.append(typed_msg)
-            current_id = typed_msg.get("parent_id")
-        path.reverse()
+            path.append(cast(MessageWithAttachments, msg))
         return path
 
 
@@ -158,29 +198,42 @@ async def get_messages_with_branch_info(cid: str) -> list[MessageWithAttachments
     messages = await get_messages(cid)
     if not messages:
         return []
+    # One query for every sibling set on the path, not one per message: the
+    # parents are exactly the path's own ids shifted by one, so a single
+    # ``parent_id IN (...)`` covers them all and the grouping happens here.
+    parent_ids = sorted({int(p) for m in messages if (p := m.get("parent_id")) is not None})
+    siblings_by_parent: dict[int | None, list[int]] = {}
     async with get_db() as db:
-        for msg in messages:
-            parent_id = msg.get("parent_id")
-            if parent_id is None:
-                sibling_rows = list(
-                    await db.execute_fetchall(
-                        "SELECT id FROM messages WHERE conversation_id = ? AND parent_id IS NULL ORDER BY id ASC",
-                        (cid,),
-                    )
+        # Root messages are their own sibling set, and no ``IN`` list can hold
+        # NULL, so they need the one extra query.
+        if any(m.get("parent_id") is None for m in messages):
+            siblings_by_parent[None] = [
+                r["id"]
+                for r in await db.execute_fetchall(
+                    "SELECT id FROM messages WHERE conversation_id = ? AND parent_id IS NULL ORDER BY id ASC",
+                    (cid,),
                 )
-            else:
-                sibling_rows = list(
-                    await db.execute_fetchall(
-                        "SELECT id FROM messages WHERE conversation_id = ? AND parent_id = ? ORDER BY id ASC",
-                        (cid, parent_id),
-                    )
-                )
-            sibling_ids = [r["id"] for r in sibling_rows]
-            idx = sibling_ids.index(msg["id"]) if msg["id"] in sibling_ids else 0
-            msg["branch_count"] = len(sibling_ids)
-            msg["branch_index"] = idx
-            msg["prev_branch_id"] = sibling_ids[idx - 1] if idx > 0 else None
-            msg["next_branch_id"] = sibling_ids[idx + 1] if idx < len(sibling_ids) - 1 else None
+            ]
+        for chunk in _chunked(parent_ids, _SQL_PARAM_CHUNK):
+            placeholders = ",".join("?" * len(chunk))
+            rows = await db.execute_fetchall(
+                # ORDER BY parent_id, id keeps each group contiguous and each
+                # group's ids ascending, which is the order the branch pager
+                # numbers swipes in.
+                f"SELECT id, parent_id FROM messages WHERE conversation_id = ? AND parent_id IN ({placeholders}) "  # nosec B608 — placeholders is only '?' chars, ids are parameterised
+                "ORDER BY parent_id ASC, id ASC",
+                (cid, *chunk),
+            )
+            for r in rows:
+                siblings_by_parent.setdefault(r["parent_id"], []).append(r["id"])
+
+    for msg in messages:
+        sibling_ids = siblings_by_parent.get(msg.get("parent_id"), [])
+        idx = sibling_ids.index(msg["id"]) if msg["id"] in sibling_ids else 0
+        msg["branch_count"] = len(sibling_ids)
+        msg["branch_index"] = idx
+        msg["prev_branch_id"] = sibling_ids[idx - 1] if idx > 0 else None
+        msg["next_branch_id"] = sibling_ids[idx + 1] if idx < len(sibling_ids) - 1 else None
     return messages
 
 
@@ -435,19 +488,20 @@ async def delete_message_with_descendants(cid: str, msg_id: int) -> bool:
         desc_rows = list(
             await db.execute_fetchall(
                 f"""
-            WITH RECURSIVE subtree(id) AS (
-                SELECT id FROM messages WHERE conversation_id = ? AND {sibling_cond}
+            WITH RECURSIVE subtree(id, depth) AS (
+                SELECT id, 0 FROM messages WHERE conversation_id = ? AND {sibling_cond}
                 UNION ALL
-                SELECT m.id FROM messages m
+                SELECT m.id, s.depth + 1 FROM messages m
                 INNER JOIN subtree s ON m.parent_id = s.id
-                WHERE m.conversation_id = ?
+                WHERE {_SAME_CONVERSATION}
             )
-            SELECT id FROM subtree
+            SELECT id, depth FROM subtree
         """,
                 (cid, *sibling_params, cid),
             )
         )
-        deleted_ids = {r["id"] for r in desc_rows}
+        subtree = [(int(r["depth"]), int(r["id"])) for r in desc_rows]
+        deleted_ids = {mid for _, mid in subtree}
 
         if not deleted_ids:
             return False
@@ -463,11 +517,21 @@ async def delete_message_with_descendants(cid: str, msg_id: int) -> bool:
                 (new_leaf, cid),
             )
 
-        placeholders = ",".join("?" * len(deleted_ids))
-        await db.execute(
-            f"DELETE FROM messages WHERE id IN ({placeholders})",  # nosec B608 — placeholders is only '?' chars, ids are parameterised
-            list(deleted_ids),
-        )
+        # Deepest-first, one statement per depth level. Order is the whole point:
+        # ``messages.parent_id`` cascades, so deleting a parent before its child
+        # makes SQLite walk the subtree itself, recursing once per level of the
+        # chat -- 6.3 s of the 6.4 s a 3,000-message delete used to take. Leaves
+        # first means every cascade lookup finds nothing, and
+        # ``idx_messages_parent`` makes that lookup a seek instead of a scan.
+        # Rows at one depth are never ancestors of each other, so order within a
+        # level is free -- which is what lets each level go out in one statement.
+        for level_ids in _levels_deepest_first(subtree):
+            for chunk in _chunked(level_ids, _SQL_PARAM_CHUNK):
+                placeholders = ",".join("?" * len(chunk))
+                await db.execute(
+                    f"DELETE FROM messages WHERE id IN ({placeholders})",  # nosec B608 — placeholders is only '?' chars, ids are parameterised
+                    chunk,
+                )
 
         # Restore director_state to match the new active leaf's turn
         conv_after = list(await db.execute_fetchall("SELECT active_leaf_id FROM conversations WHERE id = ?", (cid,)))
@@ -523,9 +587,9 @@ async def get_message_delete_preview(cid: str, msg_id: int) -> dict[str, int] | 
                     SELECT m.id, m.role FROM messages m
                     WHERE m.conversation_id = ? AND {root_clause}
                     UNION ALL
-                    SELECT child.id, child.role FROM messages child
-                    JOIN subtree parent ON child.parent_id = parent.id
-                    WHERE child.conversation_id = ?
+                    SELECT m.id, m.role FROM messages m
+                    JOIN subtree s ON m.parent_id = s.id
+                    WHERE {_SAME_CONVERSATION}
                 )
                 SELECT COUNT(*) AS message_count,
                        SUM(CASE WHEN role = 'assistant' THEN 1 ELSE 0 END) AS assistant_count

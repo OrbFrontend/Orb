@@ -30,6 +30,12 @@ _MIGRATION = importlib.import_module("backend.database.migrations.0053_dynamic_w
 # The worlds/lorebook_entries shape immediately before 0053, plus the two tables
 # world_changesets points at. Written out rather than derived, so the test still
 # describes the "before" state once schema.py has moved on.
+#
+# conversations/messages are abbreviated to what this test needs, but they must
+# still carry the branching columns (``active_leaf_id``, ``parent_id``). Those
+# predate the whole migration chain, so every real database has them and
+# schema.py indexes them directly -- a fixture without them is not a state any
+# upgrade actually starts from, and init_db's CREATE INDEX would fail on it.
 _PRE_0053_SQL = """
 CREATE TABLE worlds (
     id TEXT PRIMARY KEY,
@@ -41,14 +47,16 @@ CREATE TABLE worlds (
 CREATE TABLE conversations (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL DEFAULT 'New Conversation',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    active_leaf_id INTEGER REFERENCES messages(id) ON DELETE SET NULL
 );
 CREATE TABLE messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     role TEXT NOT NULL,
     content TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    parent_id INTEGER REFERENCES messages(id) ON DELETE CASCADE
 );
 CREATE TABLE lorebook_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
