@@ -67,11 +67,12 @@ _SHOT_COUNTED_THIRD = (
 
 _SHOT_PROSE_FIRST = (
     "The pov is from the user's eyes, describe what they can **see**. Describe only the others visible to this pov. "
-    "If the user looks at a subject, only describe the subject. Write the user's hand or arm only when the final instant explicitly "
+    "The viewer is basically the camera ."
+    "Write the user's hand or arm only when the final instant explicitly "
     "puts it in frame, and state its exact action or contact and its position at the frame's edge, such as lower foreground or a "
     'side corner, always as "viewer\'s hand ..." or "viewer\'s arm ..." -- never '
-    "as \"the viewer grips\" or other phrasing where viewer is the verb's subject. NEVER mention the user's face, body, or clothing. "
-    "If the subject is really close, mention only the dominating parts, e.g. head and torso visible, etc. "
+    "as \"the viewer grips\" or other phrasing where viewer is the verb's subject. NEVER mention the user's appearance. "
+    "If the subject is very close, mention only the parts dominating the frame, e.g. only head and shoulders visible and dominating the FOV, etc. "
     + _SHOT_NO_CAMERA_WORD
     + _SHOT_SUBJECT_VISIBILITY
 )
@@ -79,7 +80,10 @@ _SHOT_PROSE_FIRST = (
 
 _SHOT_PROSE_THIRD = (
     "The pov looks at the scene from outside. Describe every person visible in frame, including the character the user "
-    "plays. Bind each person's appearance and action with natural prose. " + _SHOT_NO_CAMERA_WORD + _SHOT_SUBJECT_VISIBILITY
+    "plays. Mention their sizes relatively to each other; but if a character is further away from the pov, they will appear smaller. "
+    "Bind each person's appearance and action with natural prose, how they interact with each other. "
+    + _SHOT_NO_CAMERA_WORD
+    + _SHOT_SUBJECT_VISIBILITY
 )
 
 
@@ -87,15 +91,14 @@ _SCENE_FORMAT_TAIL = (
     "Order the scene by visual importance. Give each character's pose and action first. Then give their build, current "
     "clothing, hair, facial expressions (if available), and other visible traits. Keep one character's facts together. Then describe the interaction and "
     "spatial relationships, followed by the setting (place/time), lighting, and framing (height, angle, distance from viewer). "
-    "Use as much detail as the visible constraints need. "
     "Use the word 'own' when a character acts on their own body or belongings. Use explicit quantities such as 'one' or "
     "'two' when they disambiguate limbs, hands, objects, or contacts. Always use possessive adjectives. "
     "Use direct, honest, active language - for example, use 'pulling' with ownership over an ambiguous passive word such as 'pulled'. "
     "Describe only concrete visual details. Exclude dialogue, thoughts, sounds, motives, sensations, "
     "analogies, or a narrative explanation. Describe the current visible state affirmatively. Exclude occluded or "
-    "absent items from the positive scene. "
+    "absent subjects from the positive scene. "
     "Ignore facial traits or expressions when the face is not visible; describe the visible head orientation instead. "
-    "Be extremely meticulous and as lengthy as needed with the fine details. "
+    "Be extremely meticulous and use as much detail as the visible constraints need. "
 )
 
 
@@ -104,8 +107,7 @@ _REFERENCE_INSTRUCTION = (
     "the likeness from that picture. Still describe every visible person in full, including permanent identity "
     "traits such as face shape, eye colour, and natural hair colour: the picture sharpens the likeness, your words "
     "are what guarantee it. Then describe what has changed or what is happening now: pose, action, expression, "
-    "current clothing, interaction, setting, lighting, and framing. Do not describe the reference image itself and "
-    "do not mention that a reference exists. "
+    "current clothing, interaction, setting, lighting, and framing. "
 )
 
 
@@ -113,8 +115,7 @@ _REFERENCE_TAIL = (
     "Describe EVERY visible person in full, including their permanent identity traits, whether or not a picture of "
     "them is listed above: the pictures sharpen a likeness, your words are what guarantee it. Then describe what "
     "has changed or what is happening now: pose, action, expression, current clothing, interaction, setting, "
-    "lighting, and framing. Do not describe the reference images themselves and do not mention that a reference "
-    "exists. "
+    "lighting, and framing. "
 )
 
 
@@ -306,9 +307,8 @@ ANALYZE_TOOL = ToolSpec(
 
 
 _COMPOSER_MISSION = (
-    "Pause the roleplay and write one spatial scene for a text-to-image model. "
-    "Freeze one coherent still at the final visible instant of the previous assistant reply. Do not blend earlier actions "
-    "into that still. "
+    "Pause the roleplay and prompt one scene for a text-to-image model. "
+    "Freeze one coherent still at the final visible instant of the previous assistant reply. "
 )
 
 
