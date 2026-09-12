@@ -61,7 +61,7 @@ const SETTING_FIELDS = [
 
 const FIELD_GROUPS = [
   { l: "Prompts", cls: " ep-chat-only", keys: ["shared_system_prompt", "system_prompt"] },
-  { l: "Sampling", open: true, keys: ["temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty"] },
+  { l: "Sampling", keys: ["temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty"] },
   { l: "Advanced", keys: ["reasoning_effort", "extra_headers", "extra_body"] },
 ];
 
@@ -245,7 +245,7 @@ export function renderEndpoints() {
     for (const g of FIELD_GROUPS) {
       const members = g.keys.map((k) => byKey.get(p + k)).filter(Boolean);
       if (!members.length) continue;
-      html += `<details class="ep-group${g.cls || ""}"${g.open ? " open" : ""}>
+      html += `<details class="ep-group${g.cls || ""}">
         <summary>${g.l}</summary>
         ${members.map((f) => renderField(f, isAgent)).join("")}
       </details>`;
