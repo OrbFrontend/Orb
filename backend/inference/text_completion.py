@@ -47,8 +47,32 @@ class ReasoningFormat:
 
     @property
     def disable_bytes(self) -> str:
-        """Prompt bytes that select the non-reasoning channel, if needed."""
+        """Prompt bytes that select the non-reasoning channel, if needed.
+
+        Empty for a tag-pair model: there the template renders its own
+        reasoning-off bytes from ``enable_thinking``, so appending these too
+        would double them. See :attr:`constrained_bytes` for the one caller that
+        cannot go through the template.
+        """
         return _ONYX_USER if self.channel else ""
+
+    @property
+    def constrained_bytes(self) -> str:
+        """Prompt bytes that put a grammar-constrained call in the reply channel.
+
+        A constrained call cannot ask the template for its reasoning-off bytes:
+        the prompt is already rendered with thinking on, and re-rendering with
+        ``enable_thinking=False`` rewrites the *start* of the prompt, not its
+        tail -- Gemma 4 injects ``<|think|>`` at the top of the first system
+        turn, Qwen3.8 a reasoning-effort instruction at byte 19 -- busting the
+        prefix every other pass of the turn shares. These bytes append to the
+        tail instead, so the prefix survives.
+
+        A routed-channel model takes the reply header; a tag-pair model takes
+        the template's own disable pair, which is the third element every
+        ``ThinkTags`` triple already carries.
+        """
+        return self.disable_bytes or self.tags[2]
 
 
 # An (optionally namespaced) reasoning tag pair: <think>, <thinking>,
@@ -108,6 +132,28 @@ def reasoning_format_from_template(chat_template: str) -> ReasoningFormat:
 async def get_reasoning_format(fetch_template: Callable[[], Awaitable[str]]) -> ReasoningFormat:
     """Fetch and sniff the reasoning format."""
     return reasoning_format_from_template(await fetch_template())
+
+
+def close_open_span(prompt: str, fmt: ReasoningFormat) -> str | None:
+    """Rewrite a prompt whose tail opens a reasoning span so it closes one instead.
+
+    For a grammar-constrained call on a template that opens the span itself
+    (Qwen3.8 ends its generation prompt with ``<think>\\n``). The JSON is legal
+    inside an open span, but the model reads it as scratch work and answers in
+    stubs: measured on Qwen3.8-27B, five seeded forced calls returned a median
+    of 67 argument characters with the span open against 765 with it closed.
+
+    Rewrites rather than appends so the result is the template's own
+    reasoning-off tail byte-for-byte, instead of the doubled open tag an append
+    would leave. Returns ``None`` when there is no trailing open tag to replace
+    (including every routed-channel format, whose spans are messages rather than
+    tags) -- the caller then has nothing to close.
+    """
+    open_bytes = fmt.tags[0].rstrip()
+    stripped = prompt.rstrip()
+    if not open_bytes or not stripped.endswith(open_bytes):
+        return None
+    return stripped[: len(stripped) - len(open_bytes)] + fmt.tags[2]
 
 
 def opens_reply_channel(fmt: ReasoningFormat, *, reasoning: bool, prefill: bool) -> bool:

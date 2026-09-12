@@ -1040,9 +1040,9 @@ async def test_complete_text_channel_forced_call_yields_to_a_reasoning_prefill()
     assert captured["prompt"] == "<|start|>assistant to=self<|message|>Weigh it"
 
 
-async def test_complete_text_tag_pair_forced_call_leaves_the_prompt_alone():
-    # The reply-channel header is a channel-shape byte; a tag-pair template
-    # renders its own tail and must not gain one.
+async def test_complete_text_tag_pair_forced_call_never_gains_a_channel_header():
+    # The reply-channel header is a channel-shape byte and a tag-pair model must
+    # never gain one. It closes its span with the template's own disable pair.
     captured: dict = {}
     tools = [{"type": "function", "function": {"name": "rate", "parameters": {"type": "object"}}}]
     client = _wired_text_client(template="PROMPT", props="<think></think>", pieces=['{"a":1}'], captured=captured)
@@ -1055,7 +1055,8 @@ async def test_complete_text_tag_pair_forced_call_leaves_the_prompt_alone():
             **reasoning_cfg(True),
         )
     )
-    assert captured["prompt"] == "PROMPT"
+    assert captured["prompt"] == "PROMPT<think>\n\n</think>\n\n"
+    assert "to=user" not in captured["prompt"]
 
 
 async def test_complete_text_channel_prefill_keeps_the_prompt_tail():
@@ -1127,3 +1128,141 @@ async def test_render_prompt_skips_the_sniff_for_a_prefilled_call():
     assert await client.render_prompt([{"role": "user", "content": "hi"}], prefill="He") == (
         "<|start|>assistant to=user<|message|>He"
     )
+
+
+# ── Grammar-constrained calls close the reasoning span ──────────────────────
+
+
+def test_constrained_bytes_close_the_span_for_every_reasoning_shape():
+    # A routed-channel model takes its reply header; a tag-pair model takes the
+    # template's own disable pair (ThinkTags[2]); a non-thinking model no-ops.
+    assert tc.reasoning_format_from_template(ONYX_TEMPLATE).constrained_bytes == " to=user<|message|>"
+    assert tc.reasoning_format_from_template("<|channel>thought").constrained_bytes == GEMMA_DISABLE
+    assert tc.reasoning_format_from_template("<think></think>").constrained_bytes == "<think>\n\n</think>\n\n"
+    assert tc.reasoning_format_from_template("plain jinja").constrained_bytes == ""
+
+
+async def _forced(props: str, template: str, captured: dict) -> None:
+    """Run one grammar-forced call against *template* on a *props* model."""
+    tools = [{"type": "function", "function": {"name": "rate", "parameters": {"type": "object"}}}]
+    client = _wired_text_client(template=template, props=props, pieces=['{"a":1}'], captured=captured)
+    await _drain(
+        client.complete(
+            messages=[{"role": "user", "content": "hi"}],
+            model="m",
+            tools=tools,
+            tool_choice={"type": "function", "function": {"name": "rate"}},
+            **reasoning_cfg(True),
+        )
+    )
+
+
+async def test_complete_text_tag_pair_forced_call_closes_the_thought_span():
+    # The grammar forbids the open tag, so a template that leaves that tag to the
+    # model asks for thinking it cannot do. Measured on Gemma 4 31B, the model
+    # degenerates instead (3000 tokens of one repeated word) unless the span is
+    # closed for it here.
+    captured: dict = {}
+    await _forced("<|channel>thought", "PROMPT", captured)
+    assert captured["prompt"] == "PROMPT" + GEMMA_DISABLE
+
+
+async def test_complete_text_forced_call_closes_a_pre_opened_span():
+    # Qwen3.8's generation prompt opens <think> itself. The JSON is legal inside
+    # an open span but reads as scratch work: a median 67 argument characters
+    # against 765 once closed. The rewrite lands on the template's own
+    # reasoning-off tail rather than doubling the open tag.
+    captured: dict = {}
+    await _forced("<think>...</think>", "PROMPT<think>\n", captured)
+    assert captured["prompt"] == "PROMPT<think>\n\n</think>\n\n"
+
+
+def test_close_open_span_declines_when_there_is_no_open_tag():
+    think = tc.reasoning_format_from_template("<think></think>")
+    assert tc.close_open_span("PROMPT", think) is None
+    # A routed-channel span is a message, not a tag: nothing here to rewrite.
+    onyx = tc.reasoning_format_from_template(ONYX_TEMPLATE)
+    assert tc.close_open_span("<|start|>assistant to=self<|message|>", onyx) is None
+
+
+async def test_complete_text_non_thinking_forced_call_appends_nothing():
+    captured: dict = {}
+    await _forced("plain jinja no markers", "PROMPT", captured)
+    assert captured["prompt"] == "PROMPT"
+
+
+# ── Reasoning effort rides the text-mode render ─────────────────────────────
+
+
+def _effort_client(effort: str, captured: dict, refuse: tuple[str, ...] = ()) -> LLMClient:
+    """Text client whose /apply-template refuses the levels in *refuse*."""
+    client = _wired_text_client(template="P", props="<think></think>", captured=captured)
+    client.reasoning_effort = effort
+    real = client._apply_template
+
+    async def apply(root, msgs, chat_template_kwargs=None):
+        captured.setdefault("attempts", []).append(chat_template_kwargs)
+        if chat_template_kwargs and chat_template_kwargs.get("reasoning_effort") in refuse:
+            raise httpx.HTTPStatusError("500", request=httpx.Request("POST", "http://x"), response=httpx.Response(500))
+        return await real(root, msgs, chat_template_kwargs)
+
+    client._apply_template = apply  # type: ignore[method-assign]
+    return client
+
+
+async def test_render_prompt_sends_the_configured_reasoning_effort():
+    # Without this the level is dropped on the floor in text mode: the chat
+    # transport writes it into a request body this transport never sends.
+    captured: dict = {}
+    await _effort_client("low", captured).render_prompt([{"role": "user", "content": "hi"}], reasoning=True)
+    assert captured["ctk"] == {"enable_thinking": True, "thinking": True, "reasoning_effort": "low"}
+
+
+async def test_render_prompt_omits_reasoning_effort_when_reasoning_is_off():
+    captured: dict = {}
+    await _effort_client("low", captured).render_prompt([{"role": "user", "content": "hi"}], reasoning=False)
+    assert captured["ctk"] == {"enable_thinking": False, "thinking": False}
+
+
+async def test_render_prompt_omits_a_custom_reasoning_effort():
+    # 'custom' names a request-body field, which a chat template cannot read.
+    captured: dict = {}
+    client = _effort_client("custom", captured)
+    client.reasoning_effort_param, client.reasoning_effort_value = "think_budget", "512"
+    await client.render_prompt([{"role": "user", "content": "hi"}], reasoning=True)
+    assert captured["ctk"] == {"enable_thinking": True, "thinking": True}
+
+
+async def test_render_prompt_retries_without_a_refused_reasoning_effort():
+    # Qwen3.8 accepts only low/medium/xhigh and raises on the rest, so three of
+    # the six levels Orb's picker offers render as HTTP 500. Dropping the effort
+    # keeps the call in the text transport instead of losing it to chat.
+    captured: dict = {}
+    client = _effort_client("high", captured, refuse=("high",))
+    assert await client.render_prompt([{"role": "user", "content": "hi"}], reasoning=True) == "P"
+    assert captured["attempts"] == [
+        {"enable_thinking": True, "thinking": True, "reasoning_effort": "high"},
+        {"enable_thinking": True, "thinking": True},
+    ]
+
+
+async def test_render_prompt_reraises_a_failure_that_is_not_about_effort():
+    # No effort to drop → the caller's chat-transport fallback still owns this.
+    captured: dict = {}
+    client = _effort_client("", captured)
+
+    async def always_fail(root, msgs, chat_template_kwargs=None):
+        raise httpx.HTTPStatusError("500", request=httpx.Request("POST", "http://x"), response=httpx.Response(500))
+
+    client._apply_template = always_fail  # type: ignore[method-assign]
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.render_prompt([{"role": "user", "content": "hi"}], reasoning=True)
+
+
+async def test_complete_text_effort_render_stays_in_the_text_transport():
+    # End-to-end: a refused level must not drop the turn to the chat transport.
+    captured: dict = {}
+    client = _effort_client("high", captured, refuse=("high",))
+    events = await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(True)))
+    assert events[-1]["message"]["content"] == "x"
+    assert captured["prompt"] == "P"

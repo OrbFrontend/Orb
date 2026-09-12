@@ -971,6 +971,44 @@ class LLMClient:
             resp.raise_for_status()
             return resp.json()["prompt"]
 
+    def _template_effort(self) -> str:
+        """The reasoning-effort level to render into a text-mode prompt.
+
+        ``custom`` names a provider-specific *request body* field (see
+        :func:`apply_reasoning_effort`), which a chat template cannot read, so
+        only a standard level rides the render.
+        """
+        return "" if self.reasoning_effort == "custom" else self.reasoning_effort
+
+    async def _render_with_effort_fallback(
+        self,
+        server_root: str,
+        render_msgs: Sequence[Mapping[str, Any]],
+        ctk: dict[str, Any] | None,
+    ) -> str:
+        """``/apply-template``, retried once without ``reasoning_effort`` if refused.
+
+        Templates validate the level and raise on anything outside their own
+        vocabulary: Qwen3.8 accepts only low/medium/xhigh, so three of the six
+        levels Orb's own picker offers render as HTTP 500. Dropping just the
+        effort keeps the call in the text transport; without this the caller's
+        blanket ``HTTPError`` fallback would drop the whole turn to the chat
+        transport, losing the byte control this transport exists for.
+        """
+        try:
+            return await self._apply_template(server_root, render_msgs, ctk)
+        except httpx.HTTPError as e:
+            if not (ctk and "reasoning_effort" in ctk):
+                raise
+            logger.warning(
+                "text mode: /apply-template refused reasoning_effort=%r (%r); rendering without it",
+                ctk["reasoning_effort"],
+                e,
+            )
+            return await self._apply_template(
+                server_root, render_msgs, {k: v for k, v in ctk.items() if k != "reasoning_effort"}
+            )
+
     async def _fetch_chat_template(self, server_root: str) -> str:
         """Fetch the server's chat template, returning empty text on failure."""
         try:
@@ -1039,8 +1077,19 @@ class LLMClient:
         render_msgs: list[Mapping[str, Any]] = list(messages)
         if prefill:
             render_msgs = [*render_msgs, {"role": "assistant", "content": prefill}]
-        ctk = None if prefill else {"enable_thinking": reasoning, "thinking": reasoning}
-        prompt = await self._apply_template(server_root, render_msgs, ctk)
+        ctk: dict[str, Any] | None = None
+        if not prefill:
+            ctk = {"enable_thinking": reasoning, "thinking": reasoning}
+            # Text mode's only seam for the per-model effort level: the chat
+            # transport's apply_reasoning_effort writes a request body this
+            # transport never sends. Reasoning-off calls are skipped for the same
+            # reason apply_reasoning_effort skips them. Read off self rather than
+            # taken as an argument so the doc-mode auditor's re-render (which
+            # reuses this client) cannot drift from the transport by a byte.
+            effort = self._template_effort() if reasoning else ""
+            if effort:
+                ctk["reasoning_effort"] = effort
+        prompt = await self._render_with_effort_fallback(server_root, render_msgs, ctk)
         if not reasoning and not prefill:
             fmt = fmt or await self._reasoning_format(server_root)
             if text_completion.opens_reply_channel(fmt, reasoning=reasoning, prefill=bool(prefill)):
@@ -1111,15 +1160,27 @@ class LLMClient:
         if schema is not None and isinstance(tool_choice, dict):
             forced_name = (tool_choice.get("function") or {}).get("name")
 
-        # A constrained pass cannot route: the grammar owns every sampled token,
-        # so the channel shape's routing header is not among the tokens the model
-        # may emit and its JSON would open where the template expects that header.
-        # Write the reply channel's header for it. Reasoning off already did so in
-        # render_prompt, and an open thought span is free text where the JSON is
-        # as fine as it is on a tag-pair model -- hence ``not pre_opened``.
-        if (grammar is not None or schema is not None) and reasoning_on and not prefill and not pre_opened:
-            if fmt.disable_bytes:
-                prompt += fmt.disable_bytes
+        # A constrained pass cannot open its own reasoning span: the grammar owns
+        # every sampled token, so neither the channel shape's routing header nor a
+        # tag-pair model's open tag is among the tokens the model may emit. Close
+        # the span for it (see ReasoningFormat.constrained_bytes for why this is a
+        # tail append and not a re-render). Left undone, a model whose template
+        # does not pre-open the span is asked to think and forbidden from doing
+        # it, and degenerates: measured on Gemma 4 31B, a forced direct_scene ran
+        # 3000 tokens of "own own own" against 187 for the same call on a
+        # routed-channel model. A template that opens the span itself fails
+        # quietly instead of loudly -- the JSON is legal inside the span, but the
+        # model reads it as scratch work and answers in stubs (Qwen3.8-27B: a
+        # median 67 argument characters against 765 once closed) -- so close that
+        # too, and clear ``pre_opened`` so the splitter is primed for content.
+        # A reasoning prefill is the one span left open: the caller seeded that
+        # thought deliberately and the JSON continues it.
+        if (grammar is not None or schema is not None) and reasoning_on and not prefill and not rprefill:
+            closed = text_completion.close_open_span(prompt, fmt) if pre_opened else None
+            if closed is not None:
+                prompt, pre_opened, content_open = closed, False, True
+            elif not pre_opened and fmt.constrained_bytes:
+                prompt += fmt.constrained_bytes
                 content_open = True
 
         body = text_completion.build_completion_params(params)
