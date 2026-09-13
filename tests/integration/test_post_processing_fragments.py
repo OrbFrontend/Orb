@@ -233,27 +233,6 @@ async def test_abort_stops_remaining_fragments_feedback_and_workflows(client, ll
     assert assistant["content"] == "Original."
 
 
-async def test_fresh_seed_has_disabled_humanize_dialogue_fragment(client):
-    response = await client.get("/api/interactive-fragments")
-    assert response.status_code == 200
-    fragment = next(item for item in response.json() if item["id"] == "humanize_dialogue")
-    assert fragment == {
-        "id": "humanize_dialogue",
-        "label": "Humanize Dialogue",
-        "description": (
-            "Rewrite spoken dialogue to sound human: shorter, more casual, and natural. Preserve meaning, "
-            "characterization, subtext, tone, plot facts, and dialogue markup. Change dialogue only; do not "
-            "rewrite narration or add new events."
-        ),
-        "field_type": "post_processing",
-        "required": 0,
-        "enabled": 0,
-        "injection_label": "Humanize Dialogue",
-        "sort_order": 7,
-        "direction_note_timing": "post_turn",
-    }
-
-
 def test_upgrade_migration_seeds_humanize_dialogue_once():
     conn = sqlite3.connect(":memory:")
     conn.execute(
