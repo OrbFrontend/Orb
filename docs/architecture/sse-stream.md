@@ -58,8 +58,8 @@ pass being skipped.
 | `director_done` | Director data | Updates the inspector. |
 | `token` | Text delta | Appends visible Writer output. |
 | `writer_done` | `{editor_will_run}` | Ends the Writer phase. |
-| `draft_update` | `{draft}` | Optional cosmetic Editor progress update. |
-| `writer_rewrite` | `{refined_text}` | Replaces the visible draft. |
+| `draft_update` | `{draft}` | Optional cosmetic Editor or Prose Rewriter progress update. |
+| `writer_rewrite` | `{refined_text}` | Replaces the visible draft after an Editor or workflow change. |
 | `editor_done` | Editor data | Updates the inspector. |
 | `feedback` / `direction_notes` | Feature data | Updates feature panels. |
 | `world_change_proposed` | `{message_id, changeset}` | Shows a pending Dynamic Worlds proposal. |

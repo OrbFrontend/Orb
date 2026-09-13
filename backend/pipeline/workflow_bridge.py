@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from ..core import ChatMessage, workflow_character_state_lock, workflow_state_lock
+from ..features.prose_rewriter import ProseRewriteConfig, rewrite_events
 from ..inference import LLMClient, _KVCacheTracker
 from ..prompting.tool_catalog import has_tool
 from ..workflows import (
@@ -101,8 +102,9 @@ async def _run_post_pipeline(
     schema_overrides: Mapping[str, dict],
     agent_client: LLMClient | None = None,
     agent_model_name: str = "",
+    prose_rewrite: ProseRewriteConfig | None = None,
 ) -> AsyncIterator[dict | _PostPipelineResult]:
-    """Run every POST_PIPELINE workflow hook over the finished draft.
+    """Run post-Editor prose rewriting, then every POST_PIPELINE hook.
 
     Streams pass-through SSE events and yields one final
     :class:`_PostPipelineResult` when all hooks have run. Each hook may replace
@@ -111,6 +113,35 @@ async def _run_post_pipeline(
     """
     staged_attachments: list[dict] = []
     staged_message_state: dict[str, dict] = {}
+
+    # Prose Rewriter is secondary turn work, but its setup and enablement live
+    # under Local ML rather than the public workflow registry. Run it first in
+    # this bridge so later text normalizers and artifact workflows consume its
+    # result without subjecting it to the global workflow switch or manifest.
+    if prose_rewrite is not None and draft:
+        logger.info(
+            "Prose rewriter starting after Editor (draft=%d chars, variant=%s)",
+            len(draft),
+            prose_rewrite["variant_id"],
+        )
+        async for event in rewrite_events(draft, prose_rewrite):
+            if event["type"] == "draft_update":
+                yield {"event": "draft_update", "data": {"draft": event["draft"]}}
+            elif event["type"] == "warning":
+                yield {
+                    "event": "warning",
+                    "data": {
+                        "headline": "Prose rewriter didn't run",
+                        "sentence": event["reason"],
+                        "kind": "local_ml",
+                    },
+                }
+            elif event["type"] == "rewritten":
+                rewritten = event["draft"]
+                if rewritten != draft:
+                    draft = rewritten
+                    yield {"event": "writer_rewrite", "data": {"refined_text": draft}}
+
     for sub in iter_subscriptions(HookType.POST_PIPELINE):
         if not effective_workflow_enabled(sub.workflow_id, settings):
             logger.info("workflow %r post-pipeline hook suspended (disabled)", sub.workflow_id)

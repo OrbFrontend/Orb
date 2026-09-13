@@ -180,6 +180,10 @@ PRE_PIPELINE hooks
         ↓
 Director → Writer → Editor
         ↓
+retain post-Editor draft
+        ↓
+Prose Rewriter (when enabled in Local ML)
+        ↓
 POST_PIPELINE hooks
         ↓
 persist assistant message, state, and attachments
@@ -187,10 +191,13 @@ persist assistant message, state, and attachments
 SSE done
 ```
 
-Pre-hooks can add system blocks, enable tools, or emit public events. Post-hooks
-can replace the draft, set message state, stage attachments, or emit public
-events. Hooks run in subscription priority order. A hook failure is isolated so
-the main reply and other workflows can continue.
+Pre-hooks can add system blocks, enable tools, or emit public events. Prose
+Rewriter uses this secondary-workflow boundary but keeps its existing Local ML
+setup and enablement, so it runs before registered post-hooks and is unaffected
+by the global workflow switch. Post-hooks can replace the rewritten draft, set
+message state, stage attachments, or emit public events. Hooks run in subscription
+priority order. A hook failure is isolated so the main reply and other workflows
+can continue.
 
 Use `forced_tool_call` for a one-shot tool call. Pass the context's prefix,
 enabled tools, schema overrides, client, and cache tracker so the call follows

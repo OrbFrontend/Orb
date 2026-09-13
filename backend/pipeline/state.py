@@ -49,7 +49,7 @@ class _PipelineConfig:
     audit_enabled: bool
     length_guard: LengthGuard | None
     do_edit: bool
-    # Local prose rewriter (Editor pass, pre-audit). Non-None means enabled;
+    # Local prose rewriter (post-Editor workflow). Non-None means enabled;
     # deliberately independent of ``agent_on`` — it is a local model on its own
     # Local ML toggle, not one of the remote Agent passes.
     prose_rewrite: ProseRewriteConfig | None
@@ -135,7 +135,9 @@ class TurnState:
     writer_lorebook_block: str = ""
 
     resp_text: str = ""
-    # Writer text before local rewriting, editing, or post-pipeline workflows.
+    # Post-Editor text retained before the local prose rewriter or any later
+    # post-pipeline workflow changes the visible reply. ``writer_draft`` is the
+    # legacy persistence/API name for this pre-rewriter source.
     writer_draft: str = ""
     writer_content: str | list[ContentPart] = ""
     reasoning_director: str = ""

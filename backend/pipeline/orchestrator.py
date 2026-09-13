@@ -103,9 +103,9 @@ async def _run_pipeline(
 ) -> AsyncIterator[dict]:
     """Run the director → writer → editor passes for one turn.
 
-    Streams SSE events as each pass runs, then runs post-pipeline workflow
-    hooks and emits a single ``_result`` event with the final draft and any
-    workflow attachments.
+    Streams SSE events as each pass runs, retains the post-Editor draft, then
+    runs the local prose rewriter and post-pipeline workflow hooks before
+    emitting one ``_result`` event.
 
     A stop during the director pass exits cleanly with no output. A stop during
     the writer pass still emits ``_result`` with the partial draft so persistence
@@ -256,6 +256,11 @@ async def _run_pipeline(
             state.resp_text = stripped_draft
             yield {"event": "writer_rewrite", "data": {"refined_text": stripped_draft}}
 
+    # Retain the Editor's result before any secondary workflow changes it. The
+    # database write still happens atomically with the final assistant message;
+    # this snapshot is the source an on-demand prose rewrite can replay later.
+    state.writer_draft = state.resp_text
+
     # director_output is a plain dict (PostCtx expects a read-only mapping).
     director_output = state.as_director_output()
     post: _PostPipelineResult | None = None
@@ -276,6 +281,7 @@ async def _run_pipeline(
             client=client,
             kv_tracker=kv_tracker,
             schema_overrides=schema_overrides,
+            prose_rewrite=cfg.prose_rewrite,
             # One source for both modes: cfg.agent_lane IS the writer lane when a
             # single model serves both, so a hook's forced Agent call lands on
             # the configured execution target.

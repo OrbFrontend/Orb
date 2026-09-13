@@ -267,6 +267,51 @@ async def test_post_pipeline_iter_drops_malformed_public_events(bad_event):
     assert isinstance(events[0], _PostPipelineResult)
 
 
+async def test_prose_rewriter_runs_before_registered_post_pipeline_hooks():
+    seen: list[str] = []
+
+    async def prose_rewrite(source, config):
+        assert source == "Editor-final draft."
+        assert config["variant_id"] == "test"
+        yield {"type": "draft_update", "draft": "Partial prose rewrite."}
+        yield {"type": "rewritten", "draft": "Prose-rewritten draft."}
+
+    async def post_hook(post_ctx):
+        seen.append(post_ctx.draft)
+        yield {"event": "downstream", "data": {"draft": post_ctx.draft}}
+
+    w = make_workflow("downstream", post_pipeline=post_hook)
+    with (
+        register_for_test(w),
+        patch("backend.pipeline.workflow_bridge.rewrite_events", new=prose_rewrite),
+    ):
+        events = [
+            ev
+            async for ev in _run_post_pipeline(
+                draft="Editor-final draft.",
+                conversation_id="c1",
+                character_id=None,
+                card=None,
+                history=[],
+                effective_msg="hi",
+                director_output={},
+                settings={"model_name": "test"},
+                prefix=_PREFIX,
+                enabled_tools={},
+                turn_scratch={},
+                client=_make_client(),
+                kv_tracker=_KVCacheTracker(),
+                schema_overrides={},
+                prose_rewrite={"variant_id": "test", "gpu": False, "batch_size": 1},
+            )
+        ]
+
+    assert seen == ["Prose-rewritten draft."]
+    assert [event["event"] for event in events[:-1]] == ["draft_update", "writer_rewrite", "downstream"]
+    assert isinstance(events[-1], _PostPipelineResult)
+    assert events[-1].draft == "Prose-rewritten draft."
+
+
 async def test_pre_pipeline_iter_hook_exception_logged_and_iteration_continues():
     survived = []
 
@@ -460,6 +505,30 @@ def test_stage_attachment_non_dict_consumption_metadata_coerces_to_none_without_
 
 
 # -- _run_pipeline post-pipeline iteration --------------------------------
+
+
+async def test_prose_rewriter_does_not_force_the_editor_to_run():
+    async def mock_writer(c, *args, **kwargs):
+        yield {"type": "content", "delta": "Writer draft."}
+
+    async def prose_rewrite(source, _config):
+        assert source == "Writer draft."
+        yield {"type": "rewritten", "draft": "Prose-rewritten draft."}
+
+    with (
+        patch(
+            "backend.pipeline.config.resolve_prose_rewrite",
+            return_value={"variant_id": "test", "gpu": False, "batch_size": 1},
+        ),
+        patch("backend.pipeline.workflow_bridge.rewrite_events", new=prose_rewrite),
+    ):
+        events = await _run_with_writer(mock_writer)
+
+    [writer_done] = [event for event in events if event["event"] == "writer_done"]
+    assert writer_done["data"]["editor_will_run"] is False
+    [result] = [event for event in events if event["event"] == "_result"]
+    assert result["data"]["writer_draft"] == "Writer draft."
+    assert result["data"]["resp_text"] == "Prose-rewritten draft."
 
 
 async def test_run_pipeline_emits_single_result_with_staged_attachments():

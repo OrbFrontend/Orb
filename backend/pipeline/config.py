@@ -67,10 +67,9 @@ def _resolve_pipeline_config(
     length_guard: LengthGuard | None = resolve_length_guard(settings, agent_on)
     enabled_tools = apply_length_guard_tools(enabled_tools, length_guard)
 
-    # No `agent_on` conjunction, unlike every other editor feature above: the
-    # prose rewriter is a local model gated only by its own Local ML toggle,
-    # its selected variant being on disk, and a llama-server binary resolving.
-    # It contributes no tool schema, so the cached prefix is untouched.
+    # Resolve the post-Editor prose workflow once for this turn. It is gated
+    # only by its own Local ML toggle, selected checkpoint, and runtime; it is
+    # independent of the Agent passes and contributes no tool schema.
     prose_rewrite: ProseRewriteConfig | None = resolve_prose_rewrite(settings)
 
     # In dual-model mode the writer's KV cache is disjoint; skip tool schemas there.

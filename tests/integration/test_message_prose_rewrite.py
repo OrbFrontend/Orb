@@ -257,16 +257,28 @@ async def test_rejects_messages_with_no_text_to_rewrite(client):
     assert response.json()["detail"] == "This message has no text to rewrite"
 
 
-async def test_pipeline_persists_writer_draft_before_later_stages(client, db, llm_mock):
+async def test_pipeline_persists_post_editor_draft_before_prose_rewriter(client, db, llm_mock):
     cid = "message-prose-capture"
     await dbmod.create_conversation(cid, "Prose", "Bot", "")
     llm_mock.enqueue_writer("Raw Writer draft.")
 
     async def rewritten_by_later_stage(_cfg, state, **_kwargs):
+        assert state.resp_text == "Raw Writer draft."
         state.resp_text = "Editor-final reply."
         yield {"event": "writer_rewrite", "data": {"refined_text": state.resp_text}}
 
-    with patch("backend.pipeline.orchestrator.editor_stage", new=rewritten_by_later_stage):
+    async def prose_rewrite(source, _config):
+        assert source == "Editor-final reply."
+        yield {"type": "rewritten", "draft": "Prose-rewritten reply."}
+
+    with (
+        patch("backend.pipeline.orchestrator.editor_stage", new=rewritten_by_later_stage),
+        patch(
+            "backend.pipeline.config.resolve_prose_rewrite",
+            return_value={"variant_id": "test", "gpu": False, "batch_size": 1},
+        ),
+        patch("backend.pipeline.workflow_bridge.rewrite_events", new=prose_rewrite),
+    ):
         await _drain(handle_turn(cid, "hello"))
 
     async with db.execute(
@@ -274,8 +286,8 @@ async def test_pipeline_persists_writer_draft_before_later_stages(client, db, ll
     ) as cursor:
         row = await cursor.fetchone()
     assert row is not None
-    assert row["content"] == "Editor-final reply."
-    assert row["writer_draft"] == "Raw Writer draft."
+    assert row["content"] == "Prose-rewritten reply."
+    assert row["writer_draft"] == "Editor-final reply."
 
 
 async def test_noop_rewrite_uses_the_macro_frozen_writer_draft(client, db, llm_mock, monkeypatch):

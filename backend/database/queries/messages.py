@@ -384,13 +384,13 @@ async def update_message_content(msg_id: int, content: str) -> None:
 
 
 async def clear_writer_draft(msg_id: int) -> None:
-    """Drop the retained pre-editor Writer draft for one message.
+    """Drop the retained pre-rewriter draft for one message.
 
     Called when a human rewrites the row by hand: the retained draft then
     describes text that no longer exists, and the on-demand prose rewriter —
     which prefers the draft over the saved content — would restore it over the
     edit and call that a rewrite. Cleared rather than replaced with the edit,
-    because "there is no pre-editor draft for this row" is the true statement;
+    because "there is no pre-rewriter draft for this row" is the true statement;
     the rewriter's fallback then works from the saved text.
     """
     async with get_db() as db:

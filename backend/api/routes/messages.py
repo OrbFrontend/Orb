@@ -67,7 +67,7 @@ router = APIRouter()
 
 
 def _retained_draft(message: Mapping[str, Any]) -> str | None:
-    """The row's retained pre-editor Writer draft, when it carries real text.
+    """The row's retained pre-rewriter draft, when it carries real text.
 
     Blank counts as absent: a draft of ``""`` is not a source, and letting it
     through would have the client promise a rewrite of text that is not there.
@@ -163,7 +163,7 @@ async def api_edit_message(
         # the next fetch would re-roll from it and clobber the manual edit.
         if original["role"] == "assistant" and original["parent_id"] is None:
             await set_workflow_message_state(msg_id, "macros", None)
-        # Same clobber, one surface over: the retained Writer draft describes
+        # Same clobber, one surface over: the retained pre-rewriter draft describes
         # the text this edit just replaced, and the on-demand prose rewriter
         # prefers it over the saved content — so a rewrite after an edit would
         # quietly restore the pre-edit prose. Dropping it makes the rewriter
@@ -276,7 +276,7 @@ async def _stream_prose_rewrite_message(
     config: ProseRewriteConfig,
     abort_token: AbortToken,
 ) -> AsyncIterator[dict]:
-    """Stream an assistant row's Writer draft — or its saved text — through the local rewriter.
+    """Stream an assistant row's retained draft — or saved text — through the local rewriter.
 
     The shared prose step provides whole-draft snapshots in visible document
     order. Unlike the in-turn caller, this stream persists only after its
