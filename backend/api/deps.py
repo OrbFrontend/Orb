@@ -185,11 +185,25 @@ class _CleanupStreamingResponse(StreamingResponse):
 # connection warm. A turn has long token-free stretches — the reasoning-off
 # director pass, and (worst) the text-mode editor's prefill loop, which fires
 # many forced /completion calls back-to-back while emitting nothing to the
-# browser. An idle-timeout proxy in front of Orb (nginx proxy_read_timeout
-# defaults to 60s) tears down such a silent SSE, which strands the still-running
-# backend and drops the frontend to a stale draft. 15s stays comfortably under
-# common proxy timeouts.
-_SSE_KEEPALIVE_SECS = 15
+# browser. Two separate timers kill a silent stream, and the shorter one sets
+# this value:
+#
+# 1. The browser. When the OS reports a network change (on Linux, a
+#    NetworkManager state change over D-Bus), Firefox re-verifies traffic on
+#    every *active* connection and closes the ones that moved zero bytes inside
+#    network.http.network-changed.timeout — 5s by default — with
+#    NS_ERROR_NET_RESET. Loopback is not exempt. The page sees its fetch body
+#    fail ("Error in input stream"), never a clean end, so the turn dies with
+#    nothing logged on this side. A DHCPv6 lease renewal is such a change, and a
+#    router handing out a short T1 fires one every minute: a 15s heartbeat left
+#    gaps wide enough that turns died mid-generation several times an hour.
+# 2. An idle-timeout proxy in front of Orb (nginx proxy_read_timeout defaults to
+#    60s) tears down the same silent SSE, which strands the still-running
+#    backend and drops the frontend to a stale draft.
+#
+# 3s keeps every gap inside the browser's verification window and far under
+# common proxy timeouts, for ~4 bytes/s on an otherwise idle stream.
+_SSE_KEEPALIVE_SECS = 3
 
 
 async def _sse_stream(
