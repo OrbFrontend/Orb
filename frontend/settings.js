@@ -224,7 +224,7 @@ const LOCAL_ML_DESCS = {
   emotion_classifier: "Track a character's mood with expression images.",
   pov_classifier: "For image-gen and format consistency.",
   markup_classifier: "For more accurate format consistency.",
-  prose_rewriter: "Provides the local engine for automatic and on-demand prose rewrites.",
+  prose_rewriter: "Local engine for Prose Rewriter.",
 };
 
 /** Publish the fetched status and repaint the surfaces that gate on it.
