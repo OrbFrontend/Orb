@@ -503,8 +503,8 @@ class DocumentAuditRequest(BaseModel):
 
 class AuditReportPayload(BaseModel):
     # Serialized AuditReport (analysis.report_to_dict): one `sections` entry per
-    # scanner with findings, keyed by its AUDIT_TYPES name. Every entry also
-    # carries `ids` — the numbered findings /patch addresses, empty when the
+    # scanner with issues, keyed by its AUDIT_TYPES name. Every entry also
+    # carries `ids` — the numbered issues /patch addresses, empty when the
     # finding has no patchable span (structural repetition).
     total_issues: int
     is_clean: bool

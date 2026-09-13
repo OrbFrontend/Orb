@@ -131,7 +131,7 @@ def test_no_op_replace_reported(targets):
 
 def test_empty_target_list_names_no_range():
     _, errors = apply_id_patches(DRAFT, [], [{"id": 1, "replace": "X."}])
-    assert errors == ["Error: no finding with id 1 in the report. Valid ids: (none — the report has no numbered findings)."]
+    assert errors == ["Error: no finding with id 1 in the report. Valid ids: (none — the report has no numbered issues)."]
 
 
 # ── Error metadata ────────────────────────────────────────────────────────────

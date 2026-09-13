@@ -1,13 +1,12 @@
 # Post-processing Fragments
 
 A post-processing fragment is an Editor instruction that edits every generated
-chat reply. It is useful for narrowly scoped finishing passes such as making
-dialogue more natural, normalizing markup, or removing a recurring habit.
+chat reply. It is useful for narrowly scoped touch-up passes and enforcing
+the Director's will if the Writer missed something.
 
 Create or edit an Interactive Fragment and choose **post-processing (edits
 reply)** as its Field Type. The **Injection Label** becomes the Editor task
-heading, and **Description** is the instruction the Editor follows. Required is
-not applicable: every enabled post-processing fragment runs once.
+heading, and **Description** is the instruction the Editor follows.
 
 The feature is active whenever the Agent and at least one post-processing
 fragment are enabled. It does not depend on the Output Auditor or Length Guard.

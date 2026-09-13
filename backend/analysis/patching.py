@@ -165,7 +165,7 @@ def apply_id_patches(draft: str, targets: Sequence[Target], patches: Sequence[An
     """Apply id-anchored replacements and return the updated draft and errors."""
     errors: list[PatchError] = []
     by_id = {t.tid: t for t in targets}
-    id_range = f"1-{len(targets)}" if targets else "(none — the report has no numbered findings)"
+    id_range = f"1-{len(targets)}" if targets else "(none — the report has no numbered issues)"
     resolved: list[tuple[Target, str]] = []
     seen_ids: set[int] = set()
     logger.debug("Applying %d id-patches to draft (%d chars, %d targets)", len(patches), len(draft), len(targets))

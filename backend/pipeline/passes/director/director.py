@@ -68,7 +68,7 @@ SPEAKING_PLAN_SCHEMA_DESCRIPTION = (
 def speaking_plan_instruction(speaker_keys: str) -> str:
     """The live half: which keys are castable *this* exchange, for the trailing message.
 
-    The mirror of the editor's numbered findings — the volatile list is stated in
+    The mirror of the editor's numbered issues — the volatile list is stated in
     prose on the per-call tail and validated server-side (``cast.parse_speaking_plan``),
     never expressed as a schema override. It also reaches strictly more of the
     pipeline there: text mode never renders tool schemas at all, and the

@@ -149,7 +149,7 @@ def build_patch_prompt_raw(base: str, draft_core: str, report_text: str) -> str:
 def build_patch_messages(context: str, draft_core: str, report_text: str, *, assisted: bool) -> list[ChatMessage]:
     """The patch conversation for the CHAT-transport shapes: the generation
     messages replayed verbatim (byte parity — see ``build_generation_messages``),
-    the draft closed as the model's own turn (so the numbered findings read as
+    the draft closed as the model's own turn (so the numbered issues read as
     edits to its own text), and the fix request as a pure suffix. Text mode never uses this — it
     byte-extends the rendered generation prompt instead (see ``patch_document``),
     because a closed assistant turn can render differently from the open

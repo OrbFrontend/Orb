@@ -39,12 +39,13 @@ EDITOR_PATCH_INSTRUCTIONS = (
     "- Each issue in the report below is numbered. The `id` field must be the number of the issue you are fixing.\n"
     "- Emit one patch per issue — do not skip any, and do not patch the same id twice.\n"
     "- `replace` is the new text for that sentence. Do not copy the old sentence into it.\n"
-    "- For banned phrases: completely rewrite the sentence to eliminate the banned phrase. Make a creative and bold effort; do not just substitute with similar, related words.\n"
-    "- For repetitive openers: rewrite and replace flagged sentences so they no longer begin with the same opening words. Vary the sentence structure.\n"
-    "- For repetitive templates: restructure flagged sentences so they no longer follow the same POS pattern. Change clause order, combine sentences, or vary syntax.\n"
-    "- For repetitive phrases: rewrite and replace flagged phrases.\n"
+    "- The replacement text must be complete and make sense in the context.\n"
+    "- For banned phrases: completely rewrite the sentence to eliminate the banned phrase. Make a creative and bold effort; do not just substitute with similar words.\n"
+    "- For repetitive openers: rewrite flagged sentences so they no longer begin with the same opening words. Vary the sentence structure.\n"
+    "- For repetitive templates: restructure flagged sentences so they no longer follow the same POS pattern. Change clause order, combine sentences, vary syntax.\n"
+    "- For repetitive phrases: rewrite flagged phrases.\n"
     "- For contrastive negation ('not X, but Y'): rewrite sentences that use this cliché construction. Consider alternative phrasing that avoids this rhetorical formula.\n"
-    "- For interrogative dialogue: replace the dialogue AND its related narration with something entirely different."
+    "- For interrogative dialogue: replace the dialogue with something entirely different."
 )
 
 EDITOR_REWRITE_INSTRUCTIONS = (
