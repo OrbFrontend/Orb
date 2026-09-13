@@ -180,7 +180,7 @@ def format_numbered_report(targets: Sequence[Target]) -> str:
     """Format numbered targets for the editor."""
     if not targets:
         return CLEAN_REPORT
-    lines = ["*** WRITING AUDIT REPORT ***\n", "Numbered findings — patch each by its [id].\n"]
+    lines = ["*** WRITING AUDIT REPORT ***\n", "Numbered issues — patch each by its [id].\n"]
     for target in targets:
         lines.append(f"[{target.tid}] {_strip_markers(target.span)}")
         for why in target.reasons:

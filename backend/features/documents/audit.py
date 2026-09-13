@@ -63,8 +63,8 @@ _TEMPLATE_TOKEN_RE = re.compile(r"<\|[^<>]*\|>")
 # unreachable by construction.
 _PATCH_JSON_INSTRUCTION = (
     "The audited text needs fixes. Respond with a JSON object of the form "
-    '{"patches": [{"id": 1, "replace": "..."}]} — one patch per numbered finding. '
-    "Each `id` is the number shown in [brackets] beside the finding in the report above. "
+    '{"patches": [{"id": 1, "replace": "..."}]} — one patch per numbered issue. '
+    "Each `id` is the number shown in [brackets] beside the issue in the report above. "
     "Rewrite each flagged span boldly to fix its issue while keeping the surrounding narrative "
     "flow, preserving the author's voice, tense, and intent; an empty `replace` deletes the span. "
     "Do not copy the old sentence into `replace`."

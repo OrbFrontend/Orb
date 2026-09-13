@@ -335,7 +335,7 @@ EDITOR_APPLY_PATCH_TOOL = {
     "function": {
         "name": "editor_apply_patch",
         "description": (
-            "Apply one or more replacements to the draft. Each patch identifies a numbered finding from the "
+            "Apply one or more replacements to the draft. Each patch identifies a numbered issue from the "
             "Writing Audit Report by its id number and supplies the replacement text for that sentence."
         ),
         "parameters": {
@@ -357,7 +357,7 @@ EDITOR_APPLY_PATCH_TOOL = {
                         },
                         "required": ["id", "replace"],
                     },
-                    "description": "One patch per numbered finding.",
+                    "description": "One patch per numbered issue.",
                 }
             },
             "required": ["patches"],
