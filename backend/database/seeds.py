@@ -175,7 +175,7 @@ SEED_INTERACTIVE_FRAGMENTS = [
         "id": "humanize_dialogue",
         "label": "Humanize Dialogue",
         "description": (
-            "Rewrite spoken dialogue to sound human: more casual, and natural. Remove slop and fluff. "
+            "Rewrite spoken dialogue to sound human: more casual, and natural. Remove slop and filler. "
             "Preserve meaning, characterization, subtext, tone, plot facts, and dialogue markup. Change dialogue only; do not "
             "rewrite narration or add new events."
         ),

@@ -17,7 +17,7 @@ def migrate(conn: sqlite3.Connection) -> None:
         "VALUES ('humanize_dialogue', 'Humanize Dialogue', ?, 'post_processing', 0, 0, "
         "'Humanize Dialogue', 7, 'post_turn')",
         (
-            "Rewrite spoken dialogue to sound human: more casual, and natural. Remove slop and fluff. Preserve meaning, "
+            "Rewrite spoken dialogue to sound human: more casual, and natural. Remove slop and filler. Preserve meaning, "
             "characterization, subtext, tone, plot facts, and dialogue markup. Change dialogue only; do not "
             "rewrite narration or add new events.",
         ),

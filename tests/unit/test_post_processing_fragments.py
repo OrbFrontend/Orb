@@ -96,6 +96,19 @@ def test_prompt_uses_injection_label_as_heading_and_description_as_instruction()
     assert prompt.startswith("[OOC:") and prompt.endswith("]")
 
 
+def test_prompts_for_different_fragments_share_everything_before_the_heading():
+    first = _fragment("humanize", "post_processing")
+    first["injection_label"] = "Humanize Dialogue"
+    first["description"] = "Change dialogue only."
+    second = _fragment("tighten", "post_processing")
+    second["injection_label"] = "Tighten Prose"
+    second["description"] = "Cut filler."
+    a, b = build_post_processing_prompt(first), build_post_processing_prompt(second)
+    shared = a[: a.index("## Humanize Dialogue")]
+    assert b.startswith(shared)
+    assert "SEARCH-AND-REPLACE RULES:" in shared
+
+
 def test_search_replace_tool_schema_contract():
     function = EDITOR_SEARCH_REPLACE_TOOL["function"]
     assert function["name"] == "editor_search_replace"

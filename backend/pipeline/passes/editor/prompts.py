@@ -85,11 +85,15 @@ def build_feedback_prompt(
 
 
 def build_post_processing_prompt(fragment: Mapping[str, Any], *, reasoning_on: bool = False) -> str:
-    """Build one fragment-defined Editor request."""
+    """Build one fragment-defined Editor request.
+
+    The constant rules precede the per-fragment task so consecutive fragment
+    calls share them as cached prefix whenever the draft came through unchanged.
+    """
     preamble = POST_PROCESSING_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
     heading = str(fragment.get("injection_label") or "").strip()
     instruction = str(fragment.get("description") or "").strip()
-    return "\n\n".join([preamble, f"## {heading}", instruction, POST_PROCESSING_RULES]) + "]"
+    return "\n\n".join([preamble, POST_PROCESSING_RULES, f"## {heading}", instruction]) + "]"
 
 
 def build_editor_prompt(
