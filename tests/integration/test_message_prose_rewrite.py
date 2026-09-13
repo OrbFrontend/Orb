@@ -93,6 +93,87 @@ async def test_rewrites_saved_assistant_message_and_stales_its_proposals(client,
     assert await _content(db, message_id) == "Rewritten reply."
 
 
+async def test_runs_format_consistency_after_the_saved_message_rewrite(client, db, monkeypatch):
+    cid = "message-prose-format-consistency"
+    await dbmod.create_conversation(cid, "Prose", "Bot", "")
+    baseline_id, _ = await dbmod.add_message(
+        cid,
+        "assistant",
+        'She smiles. "Hello there," she says warmly.',
+        0,
+        advance_leaf=True,
+    )
+    user_id, _ = await dbmod.add_message(
+        cid,
+        "user",
+        "And then?",
+        1,
+        parent_id=baseline_id,
+        advance_leaf=True,
+    )
+    message_id, _ = await dbmod.add_message(
+        cid,
+        "assistant",
+        "Old visible reply.",
+        2,
+        parent_id=user_id,
+        writer_draft="Editor-final reply.",
+        advance_leaf=True,
+    )
+    _enable(monkeypatch)
+
+    async def fake_rewrite(_source, _config):
+        yield {
+            "type": "rewritten",
+            "draft": "*She steps closer, watching him carefully.* Are you sure about this?",
+        }
+
+    monkeypatch.setattr(message_routes, "rewrite_events", fake_rewrite)
+
+    response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
+
+    assert response.status_code == 200
+    expected = 'She steps closer, watching him carefully. "Are you sure about this?"'
+    assert _done_event(response)["content"] == expected
+    assert await _content(db, message_id) == expected
+
+
+async def test_skips_format_consistency_when_the_workflow_is_disabled(client, db, monkeypatch):
+    cid = "message-prose-format-disabled"
+    await dbmod.create_conversation(cid, "Prose", "Bot", "")
+    baseline_id, _ = await dbmod.add_message(
+        cid,
+        "assistant",
+        'She smiles. "Hello there," she says warmly.',
+        0,
+        advance_leaf=True,
+    )
+    user_id, _ = await dbmod.add_message(cid, "user", "And then?", 1, parent_id=baseline_id, advance_leaf=True)
+    message_id, _ = await dbmod.add_message(
+        cid,
+        "assistant",
+        "Old visible reply.",
+        2,
+        parent_id=user_id,
+        writer_draft="Editor-final reply.",
+        advance_leaf=True,
+    )
+    await dbmod.set_workflow_enabled("format_consistency", False)
+    _enable(monkeypatch)
+    rewritten = "*She steps closer, watching him carefully.* Are you sure about this?"
+
+    async def fake_rewrite(_source, _config):
+        yield {"type": "rewritten", "draft": rewritten}
+
+    monkeypatch.setattr(message_routes, "rewrite_events", fake_rewrite)
+
+    response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
+
+    assert response.status_code == 200
+    assert _done_event(response)["content"] == rewritten
+    assert await _content(db, message_id) == rewritten
+
+
 async def test_streams_a_snapshot_before_persisting_the_rewrite(streaming_client, db, monkeypatch):
     cid = "message-prose-live"
     message_id = await _assistant_message(cid, "Original reply.")

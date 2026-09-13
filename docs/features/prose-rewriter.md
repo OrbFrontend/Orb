@@ -33,6 +33,8 @@ the saved reply.
 
 - A rewrite from the retained draft preserves Editor patches while replacing the
   previous Prose Rewriter result and any later text-workflow changes.
+- After the local rewrite, Format Consistency runs on the result just as it does
+  during a generated turn. Its workflow enablement and voice setting still apply.
 - Editing a reply removes its retained draft, so later rewrites use the edit.
 - The reply stays in the same branch and updates in place.
 - A pending Dynamic World proposal based on the reply becomes stale.

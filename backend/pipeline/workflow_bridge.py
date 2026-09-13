@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -103,13 +103,16 @@ async def _run_post_pipeline(
     agent_client: LLMClient | None = None,
     agent_model_name: str = "",
     prose_rewrite: ProseRewriteConfig | None = None,
+    post_workflow_ids: Collection[str] | None = None,
 ) -> AsyncIterator[dict | _PostPipelineResult]:
-    """Run post-Editor prose rewriting, then every POST_PIPELINE hook.
+    """Run post-Editor prose rewriting, then selected POST_PIPELINE hooks.
 
     Streams pass-through SSE events and yields one final
     :class:`_PostPipelineResult` when all hooks have run. Each hook may replace
     the draft once, attach artifacts, or set per-message state. Hook failures
-    are logged and skipped so one bad hook cannot crash the turn.
+    are logged and skipped so one bad hook cannot crash the turn. By default
+    every hook runs; ``post_workflow_ids`` lets an off-turn caller reuse this
+    dispatcher for an explicit subset without firing unrelated workflows.
     """
     staged_attachments: list[dict] = []
     staged_message_state: dict[str, dict] = {}
@@ -143,6 +146,8 @@ async def _run_post_pipeline(
                     yield {"event": "writer_rewrite", "data": {"refined_text": draft}}
 
     for sub in iter_subscriptions(HookType.POST_PIPELINE):
+        if post_workflow_ids is not None and sub.workflow_id not in post_workflow_ids:
+            continue
         if not effective_workflow_enabled(sub.workflow_id, settings):
             logger.info("workflow %r post-pipeline hook suspended (disabled)", sub.workflow_id)
             continue
