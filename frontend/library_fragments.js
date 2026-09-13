@@ -270,7 +270,7 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
     injection_label: "e.g. Tighten Dialogue",
     description:
       "Rewrite spoken dialogue to be shorter and more natural. Preserve meaning and characterization; do not change narration.",
-    inj_hint: "task heading shown to the Editor",
+    inj_hint: "sent to the Editor",
     desc_hint: "editing instruction followed by the Editor",
   },
 };
