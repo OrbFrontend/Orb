@@ -33,6 +33,13 @@ def test_a_word_or_two_of_slack_is_allowed():
     assert rejection(DRAFT, FAITHFUL.replace("I crossed", "I am crossing")) == ""
 
 
+def test_the_growth_slack_scales_with_the_draft():
+    draft = " ".join([DRAFT] * 27)  # 378 words: 5% slack allows up to 396
+    rewrite = " ".join([FAITHFUL] * 27)
+    assert rejection(draft, f"{rewrite} and then some more") == ""
+    assert rejection(draft, f"{rewrite} {' '.join(['again'] * 20)}").startswith("grew from")
+
+
 def test_a_truncated_rewrite_is_rejected():
     assert rejection(DRAFT, "I crossed the room slowly.").startswith("shrank from")
 
