@@ -25,6 +25,7 @@ from typing import Any
 from backend.inference import AbortToken, LLMClient
 
 _EDITOR_FUNCTION_NAMES = {"editor_apply_patch", "editor_rewrite"}
+_POST_PROCESSING_FUNCTION_NAMES = {"editor_search_replace"}
 _DIRECTOR_FUNCTION_NAMES = {"direct_scene"}
 _FEEDBACK_FUNCTION_NAMES = {"give_feedback"}
 _DIRECTION_NOTE_FUNCTION_NAMES = {"record_direction_note"}
@@ -90,6 +91,8 @@ def _pass_from_tool_choice(tool_choice: Any) -> str:
         name = tool_choice.get("function", {}).get("name")
         if name in _EDITOR_FUNCTION_NAMES:
             return "editor"
+        if name in _POST_PROCESSING_FUNCTION_NAMES:
+            return "post_processing"
         if name in _DIRECTOR_FUNCTION_NAMES:
             return "director"
         if name in _FEEDBACK_FUNCTION_NAMES:
@@ -135,6 +138,7 @@ class FakeLLMClient:
             "director": [],
             "writer": [],
             "editor": [],
+            "post_processing": [],
             "feedback": [],
             "direction_note": [],
             "world_change": [],
@@ -156,6 +160,7 @@ class FakeLLMClient:
             "director": [],
             "writer": [],
             "editor": [],
+            "post_processing": [],
             "feedback": [],
             "direction_note": [],
             "world_change": [],
@@ -210,6 +215,11 @@ class FakeLLMClient:
         """
         _validate_tool_calls(tool_calls)
         self._queues["feedback"].append({"tool_calls": tool_calls})
+
+    def enqueue_post_processing(self, tool_calls: list[dict]) -> None:
+        """Queue one fragment's forced ``editor_search_replace`` response."""
+        _validate_tool_calls(tool_calls)
+        self._queues["post_processing"].append({"tool_calls": tool_calls})
 
     def enqueue_direction_note(self, tool_calls: list[dict]) -> None:
         """Queue a director-notes response (the ``record_direction_note`` forced call)."""
@@ -331,8 +341,8 @@ class FakeLLMClient:
             yield {"type": "done", "message": payload.get("message", {})}
             return
 
-        if pass_name == "feedback":
-            payload = self._queues["feedback"].pop(0) if self._queues["feedback"] else {"tool_calls": []}
+        if pass_name in ("feedback", "post_processing"):
+            payload = self._queues[pass_name].pop(0) if self._queues[pass_name] else {"tool_calls": []}
             yield {
                 "type": "done",
                 "message": {

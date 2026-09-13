@@ -6,9 +6,11 @@ import re
 
 from ..toolkit import protected_runs, spoken_lines
 
-# A restatement may be slightly shorter, but must not grow past the Editor's cap.
+# A restatement may be slightly shorter, and may grow only by the few words a
+# person or tense shift costs ("she'd" -> "I would"), which scales with length.
 _MIN_WORD_RATIO = 0.75
-_MAX_EXTRA_WORDS = 2
+_MAX_WORD_RATIO = 1.05
+_MIN_EXTRA_WORDS = 2
 
 # Match a leading speaker label only when the rewrite introduces one.
 _SPEAKER_LABEL = re.compile(
@@ -29,7 +31,7 @@ def rejection(draft: str, rewritten: str) -> str:
 
     draft_words = len(draft.split())
     words = len(rewritten.split())
-    if words > draft_words + _MAX_EXTRA_WORDS:
+    if words > max(draft_words * _MAX_WORD_RATIO, draft_words + _MIN_EXTRA_WORDS):
         return f"grew from {draft_words} to {words} words"
     if words < draft_words * _MIN_WORD_RATIO:
         return f"shrank from {draft_words} to {words} words"

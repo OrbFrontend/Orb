@@ -46,6 +46,7 @@ Writer. Describe the value you want and include examples when useful.
 | **Progressive** | A value that changes gradually across turns, such as trust or tension. |
 | **Feedback** | A note shown to you after the reply. See [Feedback Fragments](feedback-fragments.md). |
 | **Direction note** | A note saved on the conversation branch. See [Direction Notes](direction-notes.md). |
+| **Post-processing** | An editing instruction applied to the completed reply. See [Post-processing Fragments](post-processing-fragments.md). |
 
 ## Macros and order
 
@@ -54,5 +55,7 @@ rolls once per conversation. A random macro emitted in a Director value rolls on
 each turn. Put a macro in single backticks when you want the Director to see it as
 literal text.
 
-Fragments run from top to bottom. Earlier values can provide context for later
-values, and the Writer sees them in the same order.
+Fragments run from top to bottom within their stage. Earlier Director values can
+provide context for later values, and the Writer sees them in the same order.
+Post-processing fragments run afterward as Editor tasks and do not enter the
+Director schema or Scene Guidance.

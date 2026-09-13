@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from .tool_schemas import (
     EDITOR_APPLY_PATCH_TOOL,
     EDITOR_REWRITE_TOOL,
+    EDITOR_SEARCH_REPLACE_CHOICE,
+    EDITOR_SEARCH_REPLACE_TOOL,
     GIVE_FEEDBACK_CHOICE,
     PROPOSE_WORLD_CHANGES_CHOICE,
     PROPOSE_WORLD_CHANGES_TOOL,
@@ -24,6 +26,7 @@ BUILTIN_TOOL_ORDER = (
     "direct_scene",
     "editor_apply_patch",
     "editor_rewrite",
+    "editor_search_replace",
     "give_feedback",
     "record_direction_note",
     "select_lorebook",
@@ -43,6 +46,10 @@ _tools: dict[str, dict] = {
     "editor_rewrite": {
         "choice": {"type": "function", "function": {"name": "editor_rewrite"}},
         "schema": deepcopy(EDITOR_REWRITE_TOOL),
+    },
+    "editor_search_replace": {
+        "choice": deepcopy(EDITOR_SEARCH_REPLACE_CHOICE),
+        "schema": deepcopy(EDITOR_SEARCH_REPLACE_TOOL),
     },
     "give_feedback": {
         "choice": deepcopy(GIVE_FEEDBACK_CHOICE),

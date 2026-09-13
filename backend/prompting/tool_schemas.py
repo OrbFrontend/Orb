@@ -46,6 +46,8 @@ def build_direct_scene_tool(
     required: list[str] = []
 
     for df in interactive_fragments:
+        if df.get("field_type") == "post_processing":
+            continue
         fid = df["id"]
         field_type = df["field_type"]
         if field_type == "array":
@@ -286,6 +288,46 @@ EDITOR_REWRITE_TOOL = {
             "required": ["rewritten_text"],
         },
     },
+}
+
+EDITOR_SEARCH_REPLACE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "editor_search_replace",
+        "description": (
+            "Edit the current draft with exact search-and-replace patches. Each search string must identify "
+            "exactly one span in the current draft."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "patches": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "search": {
+                                "type": "string",
+                                "description": "Exact, case-sensitive text copied from the current draft.",
+                            },
+                            "replace": {
+                                "type": "string",
+                                "description": "Replacement text. Use an empty string to delete the matched span.",
+                            },
+                        },
+                        "required": ["search", "replace"],
+                    },
+                    "description": "Exact replacements to apply sequentially to the current draft.",
+                }
+            },
+            "required": ["patches"],
+        },
+    },
+}
+
+EDITOR_SEARCH_REPLACE_CHOICE = {
+    "type": "function",
+    "function": {"name": "editor_search_replace"},
 }
 
 EDITOR_APPLY_PATCH_TOOL = {

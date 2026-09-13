@@ -27,6 +27,11 @@ def test_editor_rewrite_routes_to_editor():
     assert _pass_from_tool_choice(tc) == "editor"
 
 
+def test_editor_search_replace_routes_to_post_processing():
+    tc = {"type": "function", "function": {"name": "editor_search_replace"}}
+    assert _pass_from_tool_choice(tc) == "post_processing"
+
+
 def test_direct_scene_routes_to_director():
     tc = {"type": "function", "function": {"name": "direct_scene"}}
     assert _pass_from_tool_choice(tc) == "director"

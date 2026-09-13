@@ -31,7 +31,7 @@ messages.
 |---|---|---|
 | Director | OOC instruction and the current user message | A forced `direct_scene` tool call |
 | Writer | Selected lore, scene direction, and the user message | Streaming prose |
-| Editor | The Writer request, the draft, and an audit instruction | Patches or a rewritten draft |
+| Editor | The Writer request, the evolving draft, and an edit instruction | Audit fixes, post-processing patches, or feedback |
 
 The Editor extends the Writer request instead of rebuilding a new conversation.
 Its first call can therefore reuse the Writer's history and draft; later ReAct
@@ -95,7 +95,8 @@ ahead of history, so it evicts the whole conversation from the server's prefix
 cache rather than costing only its own bytes. A call that forces a tool therefore
 has to pick a side. Either it rides the turn's lane, and the tool must be in the
 map **before** `_resolve_pipeline_config` freezes it into a `CachedBase` — what
-`apply_length_guard_tools` does for `editor_rewrite`, and what a workflow would do
+`apply_length_guard_tools` does for `editor_rewrite`, what active
+post-processing fragments do for `editor_search_replace`, and what a workflow would do
 by yielding `enable_tools` from a pre-pipeline hook. Or it rides its own lane, and
 shares nothing with the turn: its own short prefix, and `enabled_tools=None` so
 `forced_tool_call` ships the forced tool alone. What it cannot do is force a tool
@@ -140,7 +141,9 @@ For a user message such as `I draw my sword`:
 1. Build the base from the system prompt and prior history.
 2. Ask the Director for scene direction.
 3. Ask the Writer for prose, adding direction and selected lore to the tail.
-4. If needed, extend that request with the draft and let the Editor apply fixes.
+4. If needed, extend that request with the draft and let the Editor apply audit
+   fixes, then each post-processing fragment in order.
+5. Run Feedback and secondary workflows against the resulting draft.
 
 The first three calls may have different tool-rendered lanes, but each call
 keeps its own reusable prefix. The Editor's follow-up calls extend the prompt it
