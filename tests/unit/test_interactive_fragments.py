@@ -103,7 +103,10 @@ class TestBuildDirectSceneTool:
         tool = build_direct_scene_tool(SEED_INTERACTIVE_FRAGMENTS)
         props = tool["function"]["parameters"]["properties"]
         for frag in SEED_INTERACTIVE_FRAGMENTS:
-            assert frag["id"] in props
+            if frag["field_type"] == "post_processing":
+                assert frag["id"] not in props
+            else:
+                assert frag["id"] in props
 
 
 # ── build_feedback_tool ──────────────────────────────────────────────────────
@@ -479,7 +482,14 @@ class TestSeedInteractiveFragments:
 
     def test_field_type_is_valid(self):
         for frag in SEED_INTERACTIVE_FRAGMENTS:
-            assert frag["field_type"] in ("string", "array", "progressive", "feedback", "direction_note"), frag["id"]
+            assert frag["field_type"] in (
+                "string",
+                "array",
+                "progressive",
+                "feedback",
+                "direction_note",
+                "post_processing",
+            ), frag["id"]
 
 
 # build_director/editor/feedback preambles open [OOC: -- their builders must close it.

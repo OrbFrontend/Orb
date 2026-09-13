@@ -109,6 +109,13 @@ def test_unknown_enums_fall_back():
     assert interactive[0]["direction_note_timing"] == "post_turn"
 
 
+def test_post_processing_field_type_is_preserved():
+    _, interactive = card_embedded_fragments(
+        _card({"interactive": [{"id": "humanize", "label": "Humanize", "field_type": "post_processing"}]})
+    )
+    assert interactive[0]["field_type"] == "post_processing"
+
+
 def test_duplicate_ids_first_wins():
     moods, _ = card_embedded_fragments(
         _card({"mood": [{"id": "a", "label": "First", "prompt_text": "p"}, {"id": "a", "label": "Second"}]})

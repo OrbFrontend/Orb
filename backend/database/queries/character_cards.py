@@ -88,7 +88,14 @@ async def get_character_card(card_id: str, include_avatar: bool = False) -> Char
 # fragment ids become LLM tool-schema property names, and some backends
 # enforce a strict charset/length on those.
 _CARD_FRAGMENT_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-_INTERACTIVE_FIELD_TYPES = {"string", "array", "progressive", "feedback", "direction_note"}
+_INTERACTIVE_FIELD_TYPES = {
+    "string",
+    "array",
+    "progressive",
+    "feedback",
+    "direction_note",
+    "post_processing",
+}
 
 
 def _card_fragment_entries(raw: Any) -> list[dict]:

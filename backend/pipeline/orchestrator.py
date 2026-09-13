@@ -133,9 +133,12 @@ async def _run_pipeline(
         schema_overrides=schema_overrides,
     )
 
-    # feedback fragments are handled post-writer and direction-note fragments by the
-    # direction-note step; the rest shape the writer prompt.
-    writer_fragments, feedback_fragments, direction_note_fragments = _split_interactive_fragments(interactive_fragments)
+    # Feedback and post-processing fragments are handled after the Writer, and
+    # direction-note fragments by the direction-note step; the rest shape the
+    # Writer prompt.
+    writer_fragments, feedback_fragments, direction_note_fragments, post_processing_fragments = _split_interactive_fragments(
+        interactive_fragments
+    )
 
     # Each direction-note fragment chooses its own recording placement, so a turn may run a
     # pre-writer step, a post-turn step, or both. The shared tool blob still carries the union
@@ -241,6 +244,7 @@ async def _run_pipeline(
             settings=settings,
             phrase_bank=phrase_bank,
             feedback_fragments=feedback_fragments,
+            post_processing_fragments=post_processing_fragments,
             editor_audit_msgs=editor_audit_msgs,
             kv_tracker=kv_tracker,
         ),
@@ -260,6 +264,14 @@ async def _run_pipeline(
     # database write still happens atomically with the final assistant message;
     # this snapshot is the source an on-demand prose rewrite can replay later.
     state.writer_draft = state.resp_text
+
+    # A stop during an Editor sub-step keeps the latest authoritative draft but
+    # must not start Feedback-adjacent work or any secondary workflow. This is
+    # the post-Writer counterpart to the abort boundary above.
+    if client.is_aborted:
+        yield _make_result(state)
+        kv_tracker.log_summary()
+        return
 
     # director_output is a plain dict (PostCtx expects a read-only mapping).
     director_output = state.as_director_output()

@@ -48,6 +48,7 @@ Built-in tools use this order:
     "direct_scene",
     "editor_apply_patch",
     "editor_rewrite",
+    "editor_search_replace",
     "give_feedback",
     "record_direction_note",
     "select_lorebook",

@@ -54,8 +54,8 @@ stopping the import.
 | Unknown `direction_note_timing` | Uses `post_turn` |
 
 Valid interactive field types are `string`, `array`, `progressive`, `feedback`,
-and `direction_note`. Valid direction-note timings are `pre_writer` and
-`post_turn`.
+`direction_note`, and `post_processing`. Valid direction-note timings are
+`pre_writer` and `post_turn`.
 
 ## Card format
 
@@ -89,6 +89,15 @@ Card creators can add fragments under the card's `data.extensions` object:
               "required": false,
               "direction_note_timing": "post_turn",
               "enabled": true
+            },
+            {
+              "id": "tighten_dialogue",
+              "label": "Tighten Dialogue",
+              "description": "Make spoken dialogue shorter and more natural. Preserve meaning and characterization; do not change narration.",
+              "field_type": "post_processing",
+              "injection_label": "Tighten Dialogue",
+              "required": false,
+              "enabled": true
             }
           ]
         }
@@ -99,5 +108,5 @@ Card creators can add fragments under the card's `data.extensions` object:
 ```
 
 `mood` and `interactive` can be omitted or empty. Card fragments appear after
-global fragments in the Director's fields and in the Writer's Scene Direction
-block.
+global fragments in their respective stage. Writer fragment types become
+Director fields and Scene Guidance; post-processing types remain Editor-only.

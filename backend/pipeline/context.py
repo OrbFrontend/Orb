@@ -331,8 +331,9 @@ async def _prepare_turn(
         else None
     )
 
-    # Builds direct_scene + optionally give_feedback; must be called once so all
-    # passes get byte-identical tool blobs (KV cache Invariants 3 & 5).
+    # Builds direct_scene plus any active fragment-driven Editor tools; must be
+    # called once so all passes get byte-identical tool blobs (KV cache
+    # Invariants 3 & 5).
     overrides = _build_writer_tools_blob(
         settings,
         ctx.interactive_fragments,

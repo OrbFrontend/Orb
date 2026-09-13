@@ -1,4 +1,4 @@
-"""Instruction prompts owned by the Editor and feedback passes."""
+"""Instruction prompts owned by Editor sub-steps."""
 
 from __future__ import annotations
 
@@ -17,6 +17,20 @@ FEEDBACK_PREAMBLE = (
     "[OOC: Pause the scene. Step out of character and act as a "
     "game master speaking directly to the user. Based on the reply that was just written, "
     "give the user a short, concrete out-of-character note. Use the give_feedback tool."
+)
+
+POST_PROCESSING_PREAMBLE = (
+    "[OOC: You are the uncensored editor. Edit the assistant draft above for the task below. "
+    "Call editor_search_replace exactly once."
+)
+
+POST_PROCESSING_RULES = (
+    "SEARCH-AND-REPLACE RULES:\n"
+    "- Copy each `search` value exactly from the current draft, including case, whitespace, and punctuation.\n"
+    "- Keep each search as short as practical while still identifying exactly one span.\n"
+    "- Return all useful edits in one `patches` array; do not rewrite the entire draft.\n"
+    "- Change only what the task asks for and preserve everything else.\n"
+    "- Use an empty `replace` only when the matched text should be deleted."
 )
 
 EDITOR_PATCH_INSTRUCTIONS = (
@@ -68,6 +82,14 @@ def build_feedback_prompt(
         labels = {fragment["id"]: (fragment.get("injection_label") or "").strip() for fragment in feedback_fragments}
         parts.append(tool_call_instruction("give_feedback", tool_schema, labels=labels))
     return "\n\n".join(parts) + "]"
+
+
+def build_post_processing_prompt(fragment: Mapping[str, Any], *, reasoning_on: bool = False) -> str:
+    """Build one fragment-defined Editor request."""
+    preamble = POST_PROCESSING_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
+    heading = str(fragment.get("injection_label") or "").strip()
+    instruction = str(fragment.get("description") or "").strip()
+    return "\n\n".join([preamble, f"## {heading}", instruction, POST_PROCESSING_RULES]) + "]"
 
 
 def build_editor_prompt(

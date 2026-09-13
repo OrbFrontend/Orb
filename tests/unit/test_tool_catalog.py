@@ -34,8 +34,8 @@ _TEST_SCHEMA = {
     },
 }
 _TEST_CHOICE = {"type": "function", "function": {"name": _TEST_TOOL_NAME}}
-_BUILTIN_BLOB_LENGTH = 4808
-_BUILTIN_BLOB_SHA256 = "671820cf9eff1beefc6707f3f50c2bff646aa167212198d2fd1ab05d5efb7faf"
+_BUILTIN_BLOB_LENGTH = 5481
+_BUILTIN_BLOB_SHA256 = "b4487f4f3d146e6f9d946912da3898482ff439e9945a018a429be55f00d8eec1"
 
 
 def _tool_blob(tools: list[dict]) -> str:
@@ -54,6 +54,7 @@ def test_builtin_order_is_explicit_and_complete():
         "direct_scene",
         "editor_apply_patch",
         "editor_rewrite",
+        "editor_search_replace",
         "give_feedback",
         "record_direction_note",
         "select_lorebook",

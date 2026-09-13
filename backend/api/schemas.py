@@ -234,7 +234,7 @@ class InteractiveFragmentCreate(BaseModel):
     id: str
     label: str
     description: str
-    field_type: str = "string"
+    field_type: Literal["string", "array", "progressive", "feedback", "direction_note", "post_processing"] = "string"
     required: bool = False
     enabled: bool = True
     injection_label: str
@@ -245,7 +245,7 @@ class InteractiveFragmentCreate(BaseModel):
 class InteractiveFragmentUpdate(BaseModel):
     label: str | None = None
     description: str | None = None
-    field_type: str | None = None
+    field_type: Literal["string", "array", "progressive", "feedback", "direction_note", "post_processing"] | None = None
     required: bool | None = None
     enabled: bool | None = None
     injection_label: str | None = None

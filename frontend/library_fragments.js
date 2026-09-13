@@ -264,6 +264,15 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
     inj_hint: "shown to you",
     desc_hint: "tells the Editor what this is about",
   },
+  post_processing: {
+    id: "e.g. tighten_dialogue",
+    label: "e.g. Tighten Dialogue",
+    injection_label: "e.g. Tighten Dialogue",
+    description:
+      "Rewrite spoken dialogue to be shorter and more natural. Preserve meaning and characterization; do not change narration.",
+    inj_hint: "task heading shown to the Editor",
+    desc_hint: "editing instruction followed by the Editor",
+  },
 };
 
 export function updateInteractiveFragmentExample(fieldType) {
@@ -284,6 +293,10 @@ export function updateInteractiveFragmentExample(fieldType) {
   setHint("interactive-frag-desc-hint", ex.desc_hint);
   const timingRow = document.getElementById("interactive-frag-timing-row");
   if (timingRow) timingRow.style.display = fieldType === "direction_note" ? "" : "none";
+  const requiredRow = document.getElementById("interactive-frag-required-row");
+  if (requiredRow) requiredRow.style.display = fieldType === "post_processing" ? "none" : "";
+  const required = document.getElementById("interactive-frag-required");
+  if (required && fieldType === "post_processing") required.checked = false;
 }
 
 function _interactiveFragFormHtml(d, isEdit) {
@@ -305,6 +318,7 @@ function _interactiveFragFormHtml(d, isEdit) {
           <option value="progressive" ${d.field_type === "progressive" ? "selected" : ""}>progressive</option>
           <option value="feedback" ${d.field_type === "feedback" ? "selected" : ""}>feedback (note to you)</option>
           <option value="direction_note" ${d.field_type === "direction_note" ? "selected" : ""}>direction note (persists)</option>
+          <option value="post_processing" ${d.field_type === "post_processing" ? "selected" : ""}>post-processing (edits reply)</option>
         </select>
       </div>
     </div>
@@ -317,7 +331,7 @@ function _interactiveFragFormHtml(d, isEdit) {
     </div>
     <div class="field"><label>Description <span id="interactive-frag-desc-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.desc_hint)})</span></label>
       <textarea id="interactive-frag-desc" rows="4" placeholder="${escAttr(ex.description)}">${esc(d.description)}</textarea></div>
-    <div class="field-row">
+    <div class="field-row" id="interactive-frag-required-row" style="${d.field_type === "post_processing" ? "display:none" : ""}">
       <div class="field" style="align-self:flex-end;padding-bottom:4px">
         <label class="modal-checkbox-label">
           <input type="checkbox" id="interactive-frag-required" ${d.required ? "checked" : ""}> Required
@@ -327,12 +341,13 @@ function _interactiveFragFormHtml(d, isEdit) {
 }
 
 function _readInteractiveFragForm() {
+  const fieldType = document.getElementById("interactive-frag-type").value;
   return {
     id: document.getElementById("interactive-frag-id").value.trim(),
     label: document.getElementById("interactive-frag-label").value.trim(),
     description: document.getElementById("interactive-frag-desc").value.trim(),
-    field_type: document.getElementById("interactive-frag-type").value,
-    required: document.getElementById("interactive-frag-required").checked,
+    field_type: fieldType,
+    required: fieldType === "post_processing" ? false : document.getElementById("interactive-frag-required").checked,
     injection_label: document.getElementById("interactive-frag-inj-label").value.trim(),
     direction_note_timing: document.getElementById("interactive-frag-timing-select").value,
   };
@@ -410,18 +425,23 @@ function _interactiveTypeBadge(f) {
     ? ` <span class="frag-type-badge" title="Feedback fragment">F</span>`
     : f.field_type === "direction_note"
       ? ` <span class="frag-type-badge" title="Direction-note fragment">D</span>`
-      : "";
+      : f.field_type === "post_processing"
+        ? ` <span class="frag-type-badge" title="Post-processing fragment">P</span>`
+        : "";
 }
 
 function _featureGate(f) {
   const feedbackOff = f.field_type === "feedback" && !S.feedbackEnabled;
   const noteOff = f.field_type === "direction_note" && !S.directionNotesRecord;
+  const postProcessingOff = f.field_type === "post_processing" && !S.agentEnabled;
   const title = feedbackOff
     ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
     : noteOff
       ? "Direction Notes recording is off -- turn on Writing in the Agents panel to use this fragment"
-      : f.description || "";
-  return { disabled: feedbackOff || noteOff, title };
+      : postProcessingOff
+        ? "Agent is disabled -- enable it to use this post-processing fragment"
+        : f.description || "";
+  return { disabled: feedbackOff || noteOff || postProcessingOff, title };
 }
 
 function _cardMoodSidepanelHtml() {

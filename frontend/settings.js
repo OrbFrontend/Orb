@@ -596,6 +596,7 @@ export async function setAgentEnabled(on) {
   S.agentEnabled = on;
   $("tools-panel-btn").style.opacity = on ? "1" : "0.5";
   renderToolsPanel();
+  renderInteractiveFragments();
   await persistSettings({ enable_agent: on });
 }
 

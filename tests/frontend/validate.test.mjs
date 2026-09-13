@@ -40,3 +40,14 @@ test("the validate barrel exposes the domain validators", () => {
     assert.equal(typeof validate[name], "function", `validate.${name} missing`);
   }
 });
+
+test("interactive fragments accept post-processing field type", () => {
+  const result = validate.validateInteractiveFragment({
+    id: "humanize_dialogue",
+    label: "Humanize Dialogue",
+    injection_label: "Humanize Dialogue",
+    description: "Change dialogue only.",
+    field_type: "post_processing",
+  });
+  assert.equal(result.valid, true);
+});

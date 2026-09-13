@@ -330,7 +330,7 @@ async def _generate_group_exchange(
         phrase_bank=ctx.phrase_bank,
         schema_overrides=setup.schema_overrides,
     )
-    writer_fragments, _, direction_note_fragments = _split_interactive_fragments(ctx.interactive_fragments)
+    writer_fragments, _, direction_note_fragments, _ = _split_interactive_fragments(ctx.interactive_fragments)
     shared = TurnState(
         user_message=setup.macros.resolve_message(user_message),
         effective_msg=setup.macros.resolve_message(user_message),
