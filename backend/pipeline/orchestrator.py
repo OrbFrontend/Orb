@@ -281,7 +281,6 @@ async def _run_pipeline(
             client=client,
             kv_tracker=kv_tracker,
             schema_overrides=schema_overrides,
-            prose_rewrite=cfg.prose_rewrite,
             # One source for both modes: cfg.agent_lane IS the writer lane when a
             # single model serves both, so a hook's forced Agent call lands on
             # the configured execution target.

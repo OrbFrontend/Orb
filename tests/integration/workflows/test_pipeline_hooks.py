@@ -283,7 +283,11 @@ async def test_prose_rewriter_runs_before_registered_post_pipeline_hooks():
     w = make_workflow("downstream", post_pipeline=post_hook)
     with (
         register_for_test(w),
-        patch("backend.pipeline.workflow_bridge.rewrite_events", new=prose_rewrite),
+        patch(
+            "backend.workflows.prose_rewriter_host.resolve_config",
+            return_value={"variant_id": "test", "gpu": False, "batch_size": 1},
+        ),
+        patch("backend.workflows.prose_rewriter_host.rewrite_events", new=prose_rewrite),
     ):
         events = [
             ev
@@ -302,7 +306,6 @@ async def test_prose_rewriter_runs_before_registered_post_pipeline_hooks():
                 client=_make_client(),
                 kv_tracker=_KVCacheTracker(),
                 schema_overrides={},
-                prose_rewrite={"variant_id": "test", "gpu": False, "batch_size": 1},
             )
         ]
 
@@ -310,6 +313,43 @@ async def test_prose_rewriter_runs_before_registered_post_pipeline_hooks():
     assert [event["event"] for event in events[:-1]] == ["draft_update", "writer_rewrite", "downstream"]
     assert isinstance(events[-1], _PostPipelineResult)
     assert events[-1].draft == "Prose-rewritten draft."
+
+
+@pytest.mark.parametrize(
+    "workflow_settings",
+    [
+        {"workflow_enabled": {"prose_rewriter": False}},
+        {"workflows_globally_enabled": 0},
+    ],
+)
+async def test_prose_rewriter_automatic_hook_obeys_workflow_enablement(workflow_settings):
+    with patch(
+        "backend.workflows.prose_rewriter_host.resolve_config",
+        side_effect=AssertionError("a disabled automatic hook must not resolve or start its engine"),
+    ):
+        events = [
+            event
+            async for event in _run_post_pipeline(
+                draft="Editor-final draft.",
+                conversation_id="c1",
+                character_id=None,
+                card=None,
+                history=[],
+                effective_msg="hi",
+                director_output={},
+                settings={"model_name": "test", **workflow_settings},
+                prefix=_PREFIX,
+                enabled_tools={},
+                turn_scratch={},
+                client=_make_client(),
+                kv_tracker=_KVCacheTracker(),
+                schema_overrides={},
+            )
+        ]
+
+    assert len(events) == 1
+    assert isinstance(events[0], _PostPipelineResult)
+    assert events[0].draft == "Editor-final draft."
 
 
 async def test_pre_pipeline_iter_hook_exception_logged_and_iteration_continues():
@@ -517,10 +557,10 @@ async def test_prose_rewriter_does_not_force_the_editor_to_run():
 
     with (
         patch(
-            "backend.pipeline.config.resolve_prose_rewrite",
+            "backend.workflows.prose_rewriter_host.resolve_config",
             return_value={"variant_id": "test", "gpu": False, "batch_size": 1},
         ),
-        patch("backend.pipeline.workflow_bridge.rewrite_events", new=prose_rewrite),
+        patch("backend.workflows.prose_rewriter_host.rewrite_events", new=prose_rewrite),
     ):
         events = await _run_with_writer(mock_writer)
 

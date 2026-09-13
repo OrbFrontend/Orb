@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..core import ChatMessage, ContentPart, Macros, joined_delta
-from ..features.prose_rewriter import ProseRewriteConfig
 from ..inference import CachedBase, LLMClient
 from ..prompting.lorebook import (
     AGENTIC_LOREBOOK_SCAN_DEPTH,
@@ -49,10 +48,6 @@ class _PipelineConfig:
     audit_enabled: bool
     length_guard: LengthGuard | None
     do_edit: bool
-    # Local prose rewriter (post-Editor workflow). Non-None means enabled;
-    # deliberately independent of ``agent_on`` — it is a local model on its own
-    # Local ML toggle, not one of the remote Agent passes.
-    prose_rewrite: ProseRewriteConfig | None
     # The two call surfaces for the turn. ``writer_lane`` runs the writer pass;
     # ``agent_lane`` runs director + editor. In single-model mode they are the
     # same object by construction (see :class:`ModelLane`).
@@ -135,9 +130,8 @@ class TurnState:
     writer_lorebook_block: str = ""
 
     resp_text: str = ""
-    # Post-Editor text retained before the local prose rewriter or any later
-    # post-pipeline workflow changes the visible reply. ``writer_draft`` is the
-    # legacy persistence/API name for this pre-rewriter source.
+    # Post-Editor text retained before secondary workflows change the visible
+    # reply. ``writer_draft`` is the legacy persistence/API name for this source.
     writer_draft: str = ""
     writer_content: str | list[ContentPart] = ""
     reasoning_director: str = ""

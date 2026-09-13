@@ -1,14 +1,13 @@
-"""Resolve prose-rewriter settings and llama-server launch profiles."""
+"""Resolve prose-rewriter llama-server launch profiles."""
 
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
-from typing import Any, TypedDict
+from typing import TypedDict
 
-from ...inference.local_models import assets, llama_server
-from ...inference.local_models.catalog import ModelVariantSpec
-from ...inference.local_models.llama_server import LaunchProfile
+from .. import assets, llama_server
+from ..catalog import ModelVariantSpec
+from ..llama_server import LaunchProfile
 from . import catalog
 
 #: Per slot, and the number is the trained envelope plus room to finish a
@@ -36,7 +35,7 @@ DEFAULT_BATCH_SIZE = 4
 
 
 class ProseRewriteConfig(TypedDict):
-    """Resolved prose-rewriter config. A non-None value means enabled."""
+    """A validated prose-rewriter launch selection."""
 
     variant_id: str
     gpu: bool
@@ -78,38 +77,11 @@ def resolve_batch_size(value: object) -> int:
     return select_batch_size(value) or DEFAULT_BATCH_SIZE
 
 
-def resolve_config(settings: Mapping[str, Any]) -> ProseRewriteConfig | None:
-    """Resolve the rewriter config from *settings*, or ``None`` when it can't run.
-
-    Four things must hold, and all four are cheap: the Local ML toggle is on,
-    a variant is selected, that variant's GGUF is on disk, and a llama-server
-    binary resolves. Checked here rather than at the seam so a turn never pays
-    a filesystem walk twice and the gating at the call site is one boolean.
-
-    Unlike the Agent's own passes this is **not** agent-gated: the rewriter is
-    a local model on its own Local ML toggle and has nothing to do with whether
-    the remote Agent passes are on.
-    """
-    if settings.get("local_ml_enabled", {}).get(catalog.FEATURE, True) is False:
-        return None
-    config = (settings.get("local_ml_config") or {}).get(catalog.FEATURE) or {}
-    variant_id = str(config.get("variant") or "")
-    if not runnable(variant_id):
-        return None
-    # `gpu` defaults on: someone who fetched the Vulkan build meant to use it,
-    # and the checkbox is how they say otherwise.
-    return {
-        "variant_id": variant_id,
-        "gpu": bool(config.get("gpu", True)),
-        "batch_size": resolve_batch_size(config.get("batch_size")),
-    }
-
-
 def runnable(variant_id: str | None) -> bool:
     """Is there a selected variant, on disk, *and* a runtime binary?
 
-    Pure filesystem facts; says nothing about the settings toggle, which is
-    :func:`resolve_config`'s first line.
+    Pure filesystem facts; says nothing about the Local ML or workflow toggles,
+    which are composition decisions owned by the workflow host.
     """
     variant = catalog.resolve(variant_id)
     return variant is not None and catalog.on_disk(variant) and llama_server.runtime_ok()

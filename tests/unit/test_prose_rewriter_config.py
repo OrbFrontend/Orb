@@ -13,9 +13,10 @@ from dataclasses import replace
 
 import pytest
 
-from backend.features.prose_rewriter import catalog, config
 from backend.inference.local_models import assets
 from backend.inference.local_models.llama_server import client as C
+from backend.inference.local_models.prose_rewriter import catalog, config
+from backend.workflows import prose_rewriter_host
 
 pytestmark = pytest.mark.asyncio
 
@@ -111,7 +112,7 @@ async def test_batch_size_selector_rejects_everything_outside_the_closed_allowli
 async def test_turn_config_resolves_the_persisted_batch_size(monkeypatch):
     monkeypatch.setattr(config, "runnable", lambda _variant: True)
 
-    resolved = config.resolve_config(
+    resolved = prose_rewriter_host.resolve_config(
         {
             "local_ml_config": {
                 "prose_rewriter": {"variant": "1.7b-q8", "gpu": False, "batch_size": 2},
@@ -126,8 +127,33 @@ async def test_turn_config_defaults_an_old_or_malformed_batch_size(monkeypatch):
     monkeypatch.setattr(config, "runnable", lambda _variant: True)
     base = {"variant": "1.7b-q8", "gpu": True}
 
-    old = config.resolve_config({"local_ml_config": {"prose_rewriter": base}})
-    malformed = config.resolve_config({"local_ml_config": {"prose_rewriter": {**base, "batch_size": 99}}})
+    old = prose_rewriter_host.resolve_config({"local_ml_config": {"prose_rewriter": base}})
+    malformed = prose_rewriter_host.resolve_config({"local_ml_config": {"prose_rewriter": {**base, "batch_size": 99}}})
 
     assert old is not None and old["batch_size"] == 4
     assert malformed is not None and malformed["batch_size"] == 4
+
+
+async def test_turn_config_respects_only_the_local_engine_toggle(monkeypatch):
+    """Automatic workflow enablement is applied by the workflow bridge.
+
+    The host resolver remains usable by the dedicated manual-message route,
+    even when automatic workflows are globally or individually disabled.
+    """
+    monkeypatch.setattr(config, "runnable", lambda _variant: True)
+    selection = {"prose_rewriter": {"variant": "1.7b-q8", "gpu": True, "batch_size": 4}}
+
+    assert (
+        prose_rewriter_host.resolve_config(
+            {
+                "local_ml_config": selection,
+                "workflow_enabled": {"prose_rewriter": False},
+                "workflows_globally_enabled": 0,
+            }
+        )
+        is not None
+    )
+    assert (
+        prose_rewriter_host.resolve_config({"local_ml_config": selection, "local_ml_enabled": {"prose_rewriter": False}})
+        is None
+    )

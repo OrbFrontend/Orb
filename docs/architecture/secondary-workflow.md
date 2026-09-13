@@ -4,7 +4,8 @@ A workflow is an optional feature that plugs into Orb without adding feature
 logic to the core turn pipeline. It is a Python record in a process-local
 registry, plus any hooks, state, attachments, and frontend code it needs.
 
-Built-in examples are `tts`, `image_gen`, and `format_consistency`.
+Built-in examples are `prose_rewriter`, `tts`, `image_gen`, and
+`format_consistency`.
 
 ## What a workflow can do
 
@@ -182,22 +183,23 @@ Director → Writer → Editor
         ↓
 retain post-Editor draft
         ↓
-Prose Rewriter (when enabled in Local ML)
-        ↓
 POST_PIPELINE hooks
+  Prose Rewriter (-20)
+  Format Consistency (-10)
+  later text/artifact hooks (0+)
         ↓
 persist assistant message, state, and attachments
         ↓
 SSE done
 ```
 
-Pre-hooks can add system blocks, enable tools, or emit public events. Prose
-Rewriter uses this secondary-workflow boundary but keeps its existing Local ML
-setup and enablement, so it runs before registered post-hooks and is unaffected
-by the global workflow switch. Post-hooks can replace the rewritten draft, set
-message state, stage attachments, or emit public events. Hooks run in subscription
-priority order. A hook failure is isolated so the main reply and other workflows
-can continue.
+Pre-hooks can add system blocks, enable tools, or emit public events. Post-hooks
+can replace the draft, set message state, stage attachments, or emit public
+events. Hooks run in subscription priority order. The Prose Rewriter is a
+registered post-hook; its negative priority puts it before Format Consistency
+and artifact workflows. Its standard workflow toggle controls automatic runs,
+while Local ML owns engine availability, model selection, and runtime lifecycle.
+A hook failure is isolated so the main reply and other workflows can continue.
 
 Use `forced_tool_call` for a one-shot tool call. Pass the context's prefix,
 enabled tools, schema overrides, client, and cache tracker so the call follows

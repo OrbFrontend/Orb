@@ -93,6 +93,24 @@ async def test_rewrites_saved_assistant_message_and_stales_its_proposals(client,
     assert await _content(db, message_id) == "Rewritten reply."
 
 
+async def test_manual_rewrite_remains_available_when_automatic_workflows_are_off(client, db, monkeypatch):
+    cid = "message-prose-manual-only"
+    message_id = await _assistant_message(cid, "Visible reply.", writer_draft="Editor-final draft.")
+    await dbmod.set_workflow_enabled("prose_rewriter", False)
+    _enable(monkeypatch)
+
+    async def fake_rewrite(source, _config):
+        assert source == "Editor-final draft."
+        yield {"type": "rewritten", "draft": "Manual rewrite."}
+
+    monkeypatch.setattr(message_routes, "rewrite_events", fake_rewrite)
+    response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
+
+    assert response.status_code == 200
+    assert _done_event(response)["content"] == "Manual rewrite."
+    assert await _content(db, message_id) == "Manual rewrite."
+
+
 async def test_runs_format_consistency_after_the_saved_message_rewrite(client, db, monkeypatch):
     cid = "message-prose-format-consistency"
     await dbmod.create_conversation(cid, "Prose", "Bot", "")
@@ -355,10 +373,10 @@ async def test_pipeline_persists_post_editor_draft_before_prose_rewriter(client,
     with (
         patch("backend.pipeline.orchestrator.editor_stage", new=rewritten_by_later_stage),
         patch(
-            "backend.pipeline.config.resolve_prose_rewrite",
+            "backend.workflows.prose_rewriter_host.resolve_config",
             return_value={"variant_id": "test", "gpu": False, "batch_size": 1},
         ),
-        patch("backend.pipeline.workflow_bridge.rewrite_events", new=prose_rewrite),
+        patch("backend.workflows.prose_rewriter_host.rewrite_events", new=prose_rewrite),
     ):
         await _drain(handle_turn(cid, "hello"))
 

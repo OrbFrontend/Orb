@@ -30,6 +30,8 @@ from .image_gen.hooks import on_demand as _image_gen_on_demand
 from .image_gen.hooks import regenerate as _image_gen_regenerate
 from .image_gen.hooks import reroll_gen as _image_gen_reroll_gen
 from .image_gen.queries import query as _image_gen_query
+from .prose_rewriter import prose_rewriter_workflow
+from .prose_rewriter_host import post_pipeline as _prose_rewriter_post_pipeline
 from .registry import (
     Subscription,
     ToolNameCollision,
@@ -120,6 +122,11 @@ subscribe(tts_workflow.id, HookType.ON_DEMAND, _tts_on_demand)
 subscribe(tts_workflow.id, HookType.QUERY, _tts_query)
 subscribe(tts_workflow.id, HookType.REGENERATE, _tts_regenerate)
 subscribe(tts_workflow.id, HookType.REROLL_GEN, _tts_reroll_gen)
+
+# The rewriter is the first secondary text transform. Its Local ML toggle gates
+# engine availability; standard workflow enablement gates automatic execution.
+register_workflow(prose_rewriter_workflow)
+subscribe(prose_rewriter_workflow.id, HookType.POST_PIPELINE, _prose_rewriter_post_pipeline, priority=-20)
 
 # Negative priority makes the deterministic markup normalizer run before TTS's
 # post hook (priority 0), so TTS — and any future artifact hook — synthesizes

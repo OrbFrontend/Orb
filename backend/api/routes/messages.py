@@ -36,11 +36,6 @@ from ...database import (
 )
 from ...database.models import ConversationRow
 from ...features import autocomplete
-from ...features.prose_rewriter import (
-    ProseRewriteConfig,
-    resolve_config,
-    rewrite_events,
-)
 from ...inference import (
     AbortToken,
     _KVCacheTracker,
@@ -60,6 +55,11 @@ from ...pipeline.predicates import resolve_persona_id
 from ...pipeline.workflow_bridge import _PostPipelineResult, _run_post_pipeline
 from ...workflows.format_consistency import (
     WORKFLOW_ID as FORMAT_CONSISTENCY_WORKFLOW_ID,
+)
+from ...workflows.prose_rewriter_host import (
+    ProseRewriteConfig,
+    resolve_config,
+    rewrite_events,
 )
 from ..deps import (
     _conversation_stream_lock,
