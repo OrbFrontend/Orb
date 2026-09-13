@@ -88,7 +88,7 @@ async def lifespan(app: FastAPI):
             # Every supervised llama-server child. These are Orb's only managed
             # subprocesses, and without this teardown an orphan keeps its model
             # resident and holds the GPU after Orb exits. A process that never
-            # imported a feature that owns one has an empty registry and nothing
+            # imported a workflow or feature that owns one has an empty registry and nothing
             # to do.
             await manager.shutdown_all()
         finally:

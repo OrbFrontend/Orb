@@ -7,7 +7,7 @@ import contextlib
 import logging
 from collections.abc import AsyncGenerator
 
-from ...inference.local_models.llama_server import ManagedLlamaServerHost
+from ..llama_server import ManagedLlamaServerHost
 from . import config
 from .rewrite import arewrite
 

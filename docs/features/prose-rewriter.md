@@ -1,8 +1,8 @@
 # Prose Rewriter
 
-Prose Rewriter is an optional local language model that revises each Writer
-paragraph before the Editor checks the reply. It focuses on cadence, stock
-phrasing, and other signs of machine-written prose.
+Prose Rewriter is an optional secondary workflow backed by a local language
+model. It revises each paragraph after the Editor finishes, focusing on cadence,
+stock phrasing, and other signs of machine-written prose.
 
 It is designed for English fiction. Technical text, lists, and other languages
 may get worse. Paragraphs shorter than 80 bytes or longer than 512 tokens are left
@@ -13,24 +13,32 @@ unchanged. It does not guarantee that text will pass an AI detector.
 The order is:
 
 ```text
-Director → Writer → Prose Rewriter → Editor → other workflows
+Director → Writer → Editor → save draft → Prose Rewriter → other workflows
 ```
 
-The Editor checks the rewritten text and its diff includes the paragraph changes.
-The Length Guard also measures the rewritten text. In group chats, Orb runs the
-rewriter separately for each speaker.
+Orb retains the Editor's result before rewriting it. The Editor audit and Length
+Guard therefore evaluate the Writer's prose, and the Prose Rewriter runs as the
+first secondary text workflow. Later workflows receive its rewritten text. In
+group chats, Orb runs the rewriter separately for each speaker. The retained
+snapshot and final reply are committed together after the workflows finish.
 
-Prose Rewriter does not require the Agent toggle. It runs locally when enabled.
-Document mode has a separate Output Auditor and does not use this feature.
+Prose Rewriter does not require the Agent toggle. Automatic rewriting requires
+both the Prose Rewriter workflow and its Local ML engine to be enabled. Turning
+off Secondary Workflows skips the automatic pass. Document mode has a separate
+Output Auditor and does not use this workflow.
 
 ## Rewrite an existing reply
 
-The rewrite button appears under a saved assistant reply when the feature is on.
-Orb uses the original Writer draft when it is available; otherwise it uses the
-saved reply.
+The rewrite button appears under a saved assistant reply when the Local ML engine
+is on. Manual rewrites remain available when the automatic workflow or the
+Secondary Workflows master switch is off. Orb uses the retained post-Editor
+draft when it is available; otherwise it uses the saved reply.
 
-- A rewrite from the Writer draft discards Editor patches from that draft.
-- Editing a reply removes its stored Writer draft, so later rewrites use the edit.
+- A rewrite from the retained draft preserves Editor patches while replacing the
+  previous Prose Rewriter result and any later text-workflow changes.
+- After the local rewrite, Format Consistency runs on the result just as it does
+  during a generated turn. Its workflow enablement and voice setting still apply.
+- Editing a reply removes its retained draft, so later rewrites use the edit.
 - The reply stays in the same branch and updates in place.
 - A pending Dynamic World proposal based on the reply becomes stale.
 
@@ -78,11 +86,11 @@ Approximate memory for batch 4:
 | 4B Q8_0 | 5.5 GB |
 
 The local process unloads after five minutes without work. Set
-`ORB_PROSE_REWRITER_IDLE` in seconds to change that timeout. Switching the
-feature off unloads it without waiting for that timeout; a rewrite already
+`ORB_PROSE_REWRITER_IDLE` in seconds to change that timeout. Switching the Local
+ML engine off unloads it without waiting for that timeout; a rewrite already
 running finishes first.
 
-If the local model fails to start or stops, Orb keeps the Writer's reply and
+If the local model fails to start or stops, Orb keeps the Editor's reply and
 shows a warning.
 
 The models and rewrite logic come from

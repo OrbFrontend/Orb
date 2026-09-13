@@ -62,3 +62,15 @@ async def test_manifest_lists_disabled_workflow_with_no_enabled_field(client):
     tts = next((w for w in body if w["id"] == "tts"), None)
     assert tts is not None, "a disabled workflow must stay in the manifest"
     assert set(tts.keys()) == {"id", "display_name", "config_schema", "config_defaults"}
+
+
+async def test_manifest_lists_prose_rewriter_as_a_secondary_workflow(client):
+    body = (await client.get("/api/workflows")).json()
+    prose = next((workflow for workflow in body if workflow["id"] == "prose_rewriter"), None)
+
+    assert prose == {
+        "id": "prose_rewriter",
+        "display_name": "Prose Rewriter",
+        "config_schema": None,
+        "config_defaults": {},
+    }

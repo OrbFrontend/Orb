@@ -1,11 +1,10 @@
-"""0056_message_writer_draft -- retain an original Writer source for each reply.
+"""0056_message_writer_draft -- retain a prose-rewrite source for each reply.
 
-The local Prose Rewriter can be invoked after a turn completes. Its correct
-source is the Writer output (with inline macros already frozen) before the
-local rewriter, Editor, or post-turn workflows changed the visible message, so
-new assistant rows retain that text in ``writer_draft``. Existing rows
-intentionally remain NULL: the old source was never stored and guessing from
-edited content would be misleading.
+The local Prose Rewriter can be invoked after a turn completes. The column name
+reflects its original capture point; the current pipeline retains post-Editor
+text before the local rewriter or later workflows change the visible message.
+Existing rows intentionally remain NULL when no source was stored. Populated
+rows from an older release may still contain the earlier pre-Editor source.
 """
 
 from __future__ import annotations

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ...inference.local_models import assets
-from ...inference.local_models.catalog import MODELS, ModelVariantSpec
+from .. import assets
+from ..catalog import MODELS, ModelVariantSpec
 
 FEATURE = "prose_rewriter"
 

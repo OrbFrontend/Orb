@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
-from ...inference.local_models.llama_server import LaunchProfile, ManagedLlamaServerHost
+from ..llama_server import LaunchProfile, ManagedLlamaServerHost
 from . import text as T
 
 logger = logging.getLogger(__name__)

@@ -262,15 +262,10 @@ async def writer_stage(
         if stripped:
             state.resp_text += stripped
             yield {"event": "token", "data": stripped}
-    # Freeze inline macros before any post-writer pass sees the prose. This
-    # makes the retained Writer draft a stable, human-readable source for the
-    # in-turn and on-demand local rewriter alike; resolving a raw {{random}}
-    # again later could silently change a no-op rewrite.
+    # Freeze inline macros before any post-writer pass sees the prose. Resolving
+    # a raw {{random}} again later could silently change the Editor's input or
+    # the pre-rewriter draft retained after editing.
     state.resp_text = resolve_inline(state.resp_text)
-    # Keep the Writer's own draft before later stages (local prose rewrite,
-    # Editor, and post-pipeline workflows) change ``resp_text``. The stripped
-    # group-speaker label is transport presentation rather than prose.
-    state.writer_draft = state.resp_text
     # agent_latency_ms is the whole turn's wall time; accumulate the writer's
     # span here (director + editor add their own).
     state.latency += int((time.monotonic() - writer_t0) * 1000)

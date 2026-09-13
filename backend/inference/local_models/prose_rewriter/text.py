@@ -1,4 +1,4 @@
-"""Build the rewriter prompt and repair its output."""
+"""Build the local rewriter prompt and repair its output."""
 
 from __future__ import annotations
 

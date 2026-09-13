@@ -10,10 +10,10 @@ from typing import Any, Protocol
 from fastapi import APIRouter, Body, HTTPException
 
 from ...database import get_settings, set_local_ml_enabled
-from ...features import prose_rewriter
 from ...inference import local_ml
 from ...inference.local_models import assets, catalog, dependencies
 from ...inference.local_models.llama_server import binary as llama_binary
+from ...workflows import prose_rewriter_host
 from ..deps import _download_lock
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ class _FeatureManagement(Protocol):
 #: The features that have management behaviour of their own. A feature absent
 #: from this map is a plain download-and-toggle one, and the config route's 404
 #: is exactly that statement.
-_MANAGEMENT: dict[str, _FeatureManagement] = {prose_rewriter.FEATURE: prose_rewriter.integration}
+_MANAGEMENT: dict[str, _FeatureManagement] = {prose_rewriter_host.FEATURE: prose_rewriter_host}
 
 
 def _require(feature: str) -> catalog.ModelSpec:
@@ -193,9 +193,9 @@ async def api_local_ml_config(feature: str, data: dict = Body(...)):  # noqa: B0
         raise HTTPException(status_code=404, detail=f"{feature!r} has no configurable variants")
     try:
         config = await controller.apply_config(data)
-    except prose_rewriter.UnknownVariant as exc:
+    except prose_rewriter_host.UnknownVariant as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from None
-    except prose_rewriter.UnsupportedBatchSize as exc:
+    except prose_rewriter_host.UnsupportedBatchSize as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
     return {"local_ml_config": config}
 

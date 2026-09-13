@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import pytest
 
-from backend.features import prose_rewriter
-from backend.features.prose_rewriter import catalog, integration
 from backend.inference.local_models import assets, dependencies
 from backend.inference.local_models.llama_server import binary as llama_binary
+from backend.inference.local_models.prose_rewriter import catalog
+from backend.inference.local_models.prose_rewriter import service as prose_service
+from backend.workflows import prose_rewriter_host as integration
 
 
 @pytest.fixture(autouse=True)
@@ -34,7 +35,7 @@ def _no_child_process(monkeypatch):
         return None
 
     monkeypatch.setattr(integration, "_prewarm", _noop)
-    monkeypatch.setattr(prose_rewriter.HOST, "release", _noop)
+    monkeypatch.setattr(prose_service.HOST, "release", _noop)
 
 
 @pytest.fixture(autouse=True)
@@ -222,7 +223,7 @@ async def test_a_download_arms_the_feature_when_nothing_usable_is_selected(
     """Downloading a checkpoint selects it; the radio was the only thing that did.
 
     Without this, the obvious path — download, switch on — left the feature
-    enabled and silently inert, because ``resolve_prose_rewrite`` reads the
+    enabled and silently inert, because the workflow host reads the
     stored variant and there wasn't one.
     """
     variant = catalog.variants()[0]

@@ -7,8 +7,6 @@ from typing import Any
 
 from ..core import ChatMessage, Macros
 from ..database.models import PhraseGroup
-from ..features.prose_rewriter import ProseRewriteConfig
-from ..features.prose_rewriter import resolve_config as resolve_prose_rewrite
 from ..inference import (
     CachedBase,
     LLMClient,
@@ -67,12 +65,6 @@ def _resolve_pipeline_config(
     length_guard: LengthGuard | None = resolve_length_guard(settings, agent_on)
     enabled_tools = apply_length_guard_tools(enabled_tools, length_guard)
 
-    # No `agent_on` conjunction, unlike every other editor feature above: the
-    # prose rewriter is a local model gated only by its own Local ML toggle,
-    # its selected variant being on disk, and a llama-server binary resolving.
-    # It contributes no tool schema, so the cached prefix is untouched.
-    prose_rewrite: ProseRewriteConfig | None = resolve_prose_rewrite(settings)
-
     # In dual-model mode the writer's KV cache is disjoint; skip tool schemas there.
     dual_model = is_dual_model(agent_client)
     writer_enabled_tools = {} if dual_model else enabled_tools
@@ -113,7 +105,6 @@ def _resolve_pipeline_config(
         audit_enabled=audit_enabled,
         length_guard=length_guard,
         do_edit=audit_enabled or length_guard is not None,
-        prose_rewrite=prose_rewrite,
         writer_lane=writer_lane,
         agent_lane=agent_lane,
     )

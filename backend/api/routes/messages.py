@@ -15,10 +15,13 @@ from ...database import (
     delete_message_with_descendants,
     get_changesets_for_messages,
     get_character_card,
+    get_conversation,
+    get_group_member,
     get_group_members,
     get_message_by_id,
     get_message_delete_preview,
     get_messages,
+    get_messages_before,
     get_messages_with_branch_info,
     get_settings,
     get_speaker_names,
@@ -33,12 +36,13 @@ from ...database import (
 )
 from ...database.models import ConversationRow
 from ...features import autocomplete
-from ...features.prose_rewriter import (
-    ProseRewriteConfig,
-    resolve_config,
-    rewrite_events,
+from ...inference import (
+    AbortToken,
+    _KVCacheTracker,
+    agent_lane_from_settings,
+    client_from_settings,
+    local_ml,
 )
-from ...inference import AbortToken, local_ml
 from ...pipeline import (
     handle_fork_edit,
     handle_magic_rewrite,
@@ -48,6 +52,15 @@ from ...pipeline import (
     handle_turn,
 )
 from ...pipeline.predicates import resolve_persona_id
+from ...pipeline.workflow_bridge import _PostPipelineResult, _run_post_pipeline
+from ...workflows.format_consistency import (
+    WORKFLOW_ID as FORMAT_CONSISTENCY_WORKFLOW_ID,
+)
+from ...workflows.prose_rewriter_host import (
+    ProseRewriteConfig,
+    resolve_config,
+    rewrite_events,
+)
 from ..deps import (
     _conversation_stream_lock,
     _pipeline_sse_response,
@@ -67,7 +80,7 @@ router = APIRouter()
 
 
 def _retained_draft(message: Mapping[str, Any]) -> str | None:
-    """The row's retained pre-editor Writer draft, when it carries real text.
+    """The row's retained pre-rewriter draft, when it carries real text.
 
     Blank counts as absent: a draft of ``""`` is not a source, and letting it
     through would have the client promise a rewrite of text that is not there.
@@ -163,7 +176,7 @@ async def api_edit_message(
         # the next fetch would re-roll from it and clobber the manual edit.
         if original["role"] == "assistant" and original["parent_id"] is None:
             await set_workflow_message_state(msg_id, "macros", None)
-        # Same clobber, one surface over: the retained Writer draft describes
+        # Same clobber, one surface over: the retained pre-rewriter draft describes
         # the text this edit just replaced, and the on-demand prose rewriter
         # prefers it over the saved content — so a rewrite after an edit would
         # quietly restore the pre-edit prose. Dropping it makes the rewriter
@@ -275,8 +288,9 @@ async def _stream_prose_rewrite_message(
     msg_id: int,
     config: ProseRewriteConfig,
     abort_token: AbortToken,
+    settings: Mapping[str, Any] | None = None,
 ) -> AsyncIterator[dict]:
-    """Stream an assistant row's Writer draft — or its saved text — through the local rewriter.
+    """Stream an assistant row's retained draft — or saved text — through the local rewriter.
 
     The shared prose step provides whole-draft snapshots in visible document
     order. Unlike the in-turn caller, this stream persists only after its
@@ -294,6 +308,7 @@ async def _stream_prose_rewrite_message(
     if source is None:
         yield {"event": "error", "data": "This message has no text to rewrite"}
         return
+    settings = settings or await get_settings()
     current_content = message["content"] or ""
     rewritten = source
     warning = ""
@@ -336,6 +351,59 @@ async def _stream_prose_rewrite_message(
     finally:
         await events.aclose()
 
+    if not warning:
+        history = await get_messages_before(cid, msg_id)
+        conv = await get_conversation(cid)
+        character_id = conv.get("character_card_id") if conv else None
+        if conv and conv.get("kind", "solo") == "group":
+            member_id = message.get("speaker_member_id")
+            member = await get_group_member(str(member_id), conversation_id=cid) if member_id else None
+            character_id = member.get("character_card_id") if member else None
+        card = await get_character_card(character_id) if character_id else None
+        client = client_from_settings(settings, abort_token=abort_token)
+        agent_client, agent_model_name = agent_lane_from_settings(
+            settings,
+            writer_client=client,
+            abort_token=abort_token,
+        )
+        post: _PostPipelineResult | None = None
+        async for event in _run_post_pipeline(
+            draft=rewritten,
+            conversation_id=cid,
+            character_id=character_id,
+            card=card,
+            history=history,
+            effective_msg=next((m["content"] for m in reversed(history) if m["role"] == "user"), ""),
+            director_output={},
+            settings=settings,
+            prefix=[],
+            enabled_tools={},
+            turn_scratch={},
+            client=client,
+            kv_tracker=_KVCacheTracker(conversation_id=cid),
+            schema_overrides={},
+            agent_client=agent_client,
+            agent_model_name=agent_model_name,
+            post_workflow_ids={FORMAT_CONSISTENCY_WORKFLOW_ID},
+        ):
+            if isinstance(event, _PostPipelineResult):
+                post = event
+        assert post is not None
+        rewritten = post.draft
+
+    if abort_token.is_aborted:
+        yield {
+            "event": "prose_rewrite_done",
+            "data": {
+                "message_id": msg_id,
+                "content": current_content,
+                "changed": False,
+                "warning": "",
+                "aborted": True,
+            },
+        }
+        return
+
     changed = not warning and rewritten != current_content
     if changed:
         await update_message_content(msg_id, rewritten)
@@ -367,14 +435,15 @@ async def api_prose_rewrite_message(
     if _prose_rewrite_source(message) is None:
         raise HTTPException(status_code=409, detail="This message has no text to rewrite")
 
-    config = resolve_config(await get_settings())
+    settings = await get_settings()
+    config = resolve_config(settings)
     if config is None:
         raise HTTPException(
             status_code=503,
             detail="Prose rewriter unavailable: enable it and download a model in Settings → Local ML",
         )
     return _pipeline_sse_response(
-        lambda tok: _stream_prose_rewrite_message(cid, msg_id, config, tok),
+        lambda tok: _stream_prose_rewrite_message(cid, msg_id, config, tok, settings),
         request,
         cid,
     )

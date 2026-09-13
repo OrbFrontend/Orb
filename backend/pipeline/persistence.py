@@ -96,8 +96,8 @@ async def _persist_result(
     # Skip persistence if the LLM produced no content tokens (e.g. reasoning-only).
     # Inline macros the model emitted (copied from context) are already frozen by
     # the time they get here: the writer stage resolves them the moment streaming
-    # ends, so the retained ``writer_draft`` and every post-writer pass read the
-    # same settled text. This call is the backstop for the paths that do not run
+    # ends, so the Editor, retained pre-rewriter draft, and every secondary pass
+    # read the same settled text. This call is the backstop for paths that do not run
     # the writer stage, and a no-op for the ones that do — a resolved string has
     # no macros left to roll.
     #
@@ -122,9 +122,8 @@ async def _persist_result(
             progressive_fields=res.progressive_fields,
             speaker_member_id=speaker_member_id,
             exchange_id=exchange_id,
-            # Writer stage freezes inline macros before it captures this, so it
-            # is the same stable, human-readable source the in-turn local
-            # rewriter received.
+            # Captured after Editor and before Prose Rewriter, so an on-demand
+            # rewrite starts from the same edited source as the in-turn pass.
             writer_draft=res.writer_draft or resp_text,
             advance_leaf=True,
         )

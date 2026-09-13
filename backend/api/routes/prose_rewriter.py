@@ -6,8 +6,8 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from ...features import prose_rewriter
 from ...inference.local_models.llama_server import LlamaServerMissing
+from ...workflows import prose_rewriter_host
 from ..deps import _download_lock
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ async def api_prose_rewriter_runtime():
     """
     async with _download_lock:
         try:
-            path = await prose_rewriter.integration.fetch_runtime()
+            path = await prose_rewriter_host.fetch_runtime()
         except LlamaServerMissing as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from None
         except Exception:

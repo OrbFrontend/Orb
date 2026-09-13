@@ -111,7 +111,7 @@ MODELS: dict[str, ModelSpec] = {
         revision="758d5236405776dd801452a4954b047ba63775aa",
     ),
     # Not an in-process model: served by a child llama-server (see
-    # local_models/llama_server/, driven by features/prose_rewriter/).
+    # local_models/llama_server/, driven by the Prose Rewriter workflow host).
     # `filename`/`size_mb` name the default variant so the legacy single-file
     # paths keep working; the selector reads `variants`, and every basename
     # here must also be claimed by prune_stale.

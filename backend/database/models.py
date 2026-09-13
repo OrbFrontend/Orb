@@ -260,10 +260,10 @@ class MessageRow(TypedDict):
     conversation_id: str
     role: MessageRole
     content: str
-    # Immutable Writer output before the local rewriter, Editor, and
-    # post-pipeline workflows, with inline macros frozen. NULL means the row
-    # predates this capture or did not come from the Writer pipeline (for
-    # example a greeting or summary).
+    # Immutable post-Editor output before the local rewriter and later
+    # post-pipeline workflows, with inline macros frozen. The column keeps its
+    # legacy name for storage compatibility. NULL means the row predates this
+    # capture or did not come from the turn pipeline (for example a greeting).
     writer_draft: str | None
     turn_index: int
     parent_id: int | None
