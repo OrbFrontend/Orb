@@ -67,6 +67,7 @@ test("graph size cap agrees, or the importer and the normalizer refuse different
 test("collection caps agree, or the panel lets the user build what the server drops", () => {
   assert.equal(MAX_REFERENCE_SLOTS, pyInt(config, "MAX_REFERENCE_SLOTS"));
   assert.equal(jsInt(panel, "MAX_USER_GRAPHS"), pyInt(config, "MAX_USER_GRAPHS"));
+  assert.equal(jsInt(panel, "MAX_SCENE_SKILLS"), pyInt(config, "MAX_SCENE_SKILLS"));
 });
 
 test("the default cloud edge agrees, so an unsized entry previews what it renders", () => {
@@ -127,4 +128,13 @@ test("compatibility adds only the two optional-field controls", () => {
   assert.match(panel, />Negative prompt</);
   assert.match(panel, /placeholder="Max seed \(optional\)"/);
   assert.doesNotMatch(panel, />Send (?:a seed|negative prompts)</);
+});
+
+test("settings expose the editable scene-skill library and no analyzer control", () => {
+  assert.match(panel, />Use scene skills</);
+  assert.match(panel, />Composition skills</);
+  assert.match(panel, />When to use</);
+  assert.match(panel, /image_gen:skillAdd/);
+  assert.match(panel, /image_gen:skillRemove/);
+  assert.doesNotMatch(panel, /Analyze complex scenes|ig-scene-analysis|scene_analysis:/);
 });

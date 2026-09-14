@@ -410,6 +410,23 @@ async def test_the_rerolled_sibling_records_the_render_it_actually_got(_sized_co
 
 
 @pytest.mark.asyncio
+async def test_reroll_preserves_stored_composition_skill_attribution(_sized_comfy):
+    skills = [{"id": "first_person_hug", "label": "First-person hug"}]
+    params = {
+        "prompt": "a quiet room",
+        "negative_prompt": "",
+        "style_id": "anime",
+        "composition_skills": skills,
+        **STORED_COMFY,
+    }
+
+    _, consumption = await hooks.reroll_gen(_RerollCtx("anime"), params, "99")
+
+    assert params["composition_skills"] == skills
+    assert consumption["composition_skills"] == skills
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("_sized_comfy", [False], indirect=True)
 async def test_a_size_the_backend_only_guessed_at_is_not_shown(_sized_comfy):
     """The display half is a claim about the image, so it takes only a graded answer.

@@ -20,6 +20,7 @@ DEFAULT_SOURCE = "external_comfy"
 # provider id, so nothing may ship a provider preset called "comfy".
 COMFY_CONNECTION = "comfy"
 MAX_STYLES = 32
+MAX_SCENE_SKILLS = 32
 MAX_USER_GRAPHS = 32
 # Switching provider must not destroy the previous key, so the credential map is
 # retained rather than replaced -- and, like everything here, bounded.
@@ -48,6 +49,27 @@ DEFAULT_PROMPT_FORMAT = "hybrid"
 # from here, and so does a stored attachment's filename.
 MIME_EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 REFERENCE_MIMES = tuple(MIME_EXTENSIONS)
+
+FIRST_PERSON_HUG_SKILL = {
+    "id": "first_person_hug",
+    "label": "First-person hug",
+    "description": (
+        "Use for an embrace seen through the viewer's eyes, especially when height, contact, crop, or occlusion matters."
+    ),
+    "instructions": (
+        "Compose the embrace from the viewer's exact first-person position. Preserve the exact contact described in the "
+        "story: who holds whom, which arms wrap around which body area, and where each visible hand rests. Branch on "
+        "relative height. If the hugged character is shorter, place their crown and hair nearest the viewer in the upper "
+        "or central foreground, then order visible details down their back, outfit, hips, and legs according to the crop. "
+        "If they are the same height or taller, adjust the head, shoulder, and arm geometry so the contact remains "
+        "physically possible from the viewer's eye level. Occlude the hugged character's face and body front wherever "
+        "the embrace and viewpoint hide them; do not add frontal eye contact. Include the viewer's arms, hands, torso, "
+        "or legs only when they are actually visible from this viewpoint and the story puts them in frame. Avoid "
+        "duplicated bodies, detached or extra limbs, conflicting front-and-back views, or anatomy that contradicts the "
+        "embrace."
+    ),
+    "enabled": True,
+}
 
 
 class SourcePolicy(NamedTuple):
@@ -123,7 +145,8 @@ CONFIG_DEFAULTS = {
         },
     ],
     "pov_mode": DEFAULT_POV_MODE,
-    "scene_analysis": False,
+    "scene_skills_enabled": False,
+    "scene_skills": [FIRST_PERSON_HUG_SKILL],
     "prompter_reasoning": False,
     "timeout_seconds": 180.0,
     "external_comfy": {
@@ -288,6 +311,23 @@ def _style(raw: Any, cloud: Mapping[str, Any], legacy_references: Mapping[str, S
         "checkpoint": _text(raw.get("checkpoint"), 512),
         "workflow": workflow,
         **_render_target(raw, cloud, connection, workflow, legacy_references.get(workflow) or ()),
+    }
+
+
+def _scene_skill(raw: Any) -> dict | None:
+    """Normalize one editable composition skill."""
+    if not isinstance(raw, Mapping):
+        return None
+    skill_id = _text(raw.get("id"), 64)
+    if not _ID_RE.fullmatch(skill_id):
+        return None
+    label = _text(raw.get("label"), 80, skill_id).rstrip() or skill_id
+    return {
+        "id": skill_id,
+        "label": label,
+        "description": _text(raw.get("description"), 500).rstrip(),
+        "instructions": _text(raw.get("instructions"), 4_000).rstrip(),
+        "enabled": _enabled(raw.get("enabled")),
     }
 
 
@@ -525,6 +565,11 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     styles = _unique_by_id(raw_styles, parse_style, MAX_STYLES) or _unique_by_id(
         CONFIG_DEFAULTS["styles"], parse_style, MAX_STYLES
     )
+    # Empty is a deliberate library state. Seed the editable starter only when the
+    # field has never existed; a present malformed value normalizes to an empty list
+    # rather than resurrecting a skill the user removed.
+    raw_scene_skills = raw.get("scene_skills") if "scene_skills" in raw else CONFIG_DEFAULTS["scene_skills"]
+    scene_skills = _unique_by_id(raw_scene_skills, _scene_skill, MAX_SCENE_SKILLS)
 
     default_style = _text(raw.get("default_style"), 64, styles[0]["id"])
     if default_style not in {s["id"] for s in styles}:
@@ -552,7 +597,12 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
         "default_style": default_style,
         "styles": styles,
         "pov_mode": normalize_pov_mode(raw.get("pov_mode")),
-        "scene_analysis": bool(raw.get("scene_analysis", False)),
+        # The current field wins even when explicitly false. The retired field is
+        # read only for migration and never appears in normalized output.
+        "scene_skills_enabled": (
+            raw.get("scene_skills_enabled") is True if "scene_skills_enabled" in raw else raw.get("scene_analysis") is True
+        ),
+        "scene_skills": scene_skills,
         "prompter_reasoning": raw.get("prompter_reasoning") is True,
         "timeout_seconds": min(900.0, max(10.0, timeout)),
         "external_comfy": {

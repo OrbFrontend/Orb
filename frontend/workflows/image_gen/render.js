@@ -38,6 +38,13 @@ function referenceRows(cm, esc) {
     .join("");
 }
 
+function compositionSkillsRow(cm, esc) {
+  const labels = (Array.isArray(cm.composition_skills) ? cm.composition_skills : [])
+    .map((skill) => skill?.label || skill?.id)
+    .filter((label) => typeof label === "string" && label);
+  return labels.length ? `<dt>Composition skills</dt><dd>${esc(labels.join(", "))}</dd>` : "";
+}
+
 export function hasAttachment(msg) {
   return (msg?.workflow_attachments || []).some((a) => a.workflow_id === WORKFLOW_ID);
 }
@@ -69,6 +76,7 @@ export function attachmentDetailsHtml(att, { esc, escAttr, pending }) {
   return `<details class="image-gen-details" open><summary>Render details</summary>
     <dl><dt>Style</dt><dd>${style}</dd>
       <dt>Backend</dt><dd>${esc(cm.source || "External ComfyUI")}</dd>${size}${camera}${referenceRows(cm, esc)}
+      ${compositionSkillsRow(cm, esc)}
       <dt>Seed</dt><dd>${cm.seed_honored === false ? esc(UNUSED_SEED) : `<code>${esc(att?.seed || "")}</code>`}</dd>${costRow(cm, esc)}
       <dt>Prompt ${pencil("prompt", "Prompt")}</dt><dd>${field("prompt", "Prompt", pending?.prompt ?? cm.prompt ?? "")}${marker}</dd>
       <dt>Negative ${pencil("negative_prompt", "Negative prompt")}</dt><dd>${field("negative_prompt", "Negative prompt", pending?.negative_prompt ?? cm.negative_prompt ?? "")}</dd>${notes}</dl>

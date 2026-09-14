@@ -7,6 +7,7 @@ from backend.workflows.image_gen.config import (
     MAX_CLOUD_PROVIDERS,
     MAX_REFERENCE_IMAGE_B64,
     MAX_REFERENCE_SLOTS,
+    MAX_SCENE_SKILLS,
     MAX_USER_GRAPHS,
     PROMPT_FORMATS,
     normalize_config,
@@ -94,6 +95,64 @@ def test_prompter_reasoning_is_an_explicit_boolean_defaulting_off():
     assert normalize_config({})["prompter_reasoning"] is False
     assert normalize_config({"prompter_reasoning": True})["prompter_reasoning"] is True
     assert normalize_config({"prompter_reasoning": "true"})["prompter_reasoning"] is False
+
+
+def test_scene_skills_migrate_legacy_flag_and_current_flag_wins():
+    assert normalize_config({"scene_analysis": True})["scene_skills_enabled"] is True
+    current = normalize_config({"scene_analysis": True, "scene_skills_enabled": False})
+    assert current["scene_skills_enabled"] is False
+    assert "scene_analysis" not in current
+
+
+def test_scene_skill_starter_is_seeded_only_when_library_is_absent():
+    seeded = normalize_config({})["scene_skills"]
+    assert [skill["id"] for skill in seeded] == ["first_person_hug"]
+    assert seeded[0]["enabled"] is True
+    instructions = seeded[0]["instructions"].lower()
+    for required in ("exact contact", "relative height", "crown", "hair", "back", "outfit", "hips", "legs", "occlude"):
+        assert required in instructions
+    assert "viewer" in instructions and "duplicated bodies" in instructions and "frontal eye contact" in instructions
+    assert normalize_config({"scene_skills": []})["scene_skills"] == []
+    assert normalize_config({"scene_skills": "malformed"})["scene_skills"] == []
+
+
+def test_scene_skills_are_bounded_unique_and_normalize_to_a_fixed_point():
+    candidates = [
+        {
+            "id": f"skill_{index}",
+            "label": " L" * 100,
+            "description": " d" * 400,
+            "instructions": " i" * 3_000,
+            "enabled": index % 2 == 0,
+        }
+        for index in range(MAX_SCENE_SKILLS + 4)
+    ]
+    candidates.insert(1, {"id": "skill_0", "label": "duplicate"})
+    candidates.insert(2, {"id": "bad id", "label": "invalid"})
+    config = normalize_config({"scene_skills": candidates})
+
+    assert len(config["scene_skills"]) == MAX_SCENE_SKILLS
+    assert len({skill["id"] for skill in config["scene_skills"]}) == MAX_SCENE_SKILLS
+    first = config["scene_skills"][0]
+    assert len(first["label"]) <= 80
+    assert len(first["description"]) <= 500
+    assert len(first["instructions"]) <= 4_000
+    assert first["enabled"] is True
+    assert config["scene_skills"][1]["enabled"] is False
+    assert normalize_config(config) == config
+
+
+def test_scene_skill_enabled_is_boolean_with_opt_out_default():
+    skills = normalize_config(
+        {
+            "scene_skills": [
+                {"id": "missing"},
+                {"id": "false", "enabled": False},
+                {"id": "junk", "enabled": "false"},
+            ]
+        }
+    )["scene_skills"]
+    assert [skill["enabled"] for skill in skills] == [True, False, True]
 
 
 def test_source_is_one_of_the_declared_backends():

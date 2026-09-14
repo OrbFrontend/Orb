@@ -25,20 +25,20 @@
 
 .ig-section{display:grid;gap:10px}
 .ig-section>.btn{justify-self:start}
-.image-gen-settings :is(.ig-section,.ig-grid,.ig-style-body,.ig-styles,.ig-drawers,.ig-conn-list,.ig-conn-body,.ig-profile-fields,.image-gen-graph-picker)>*{min-width:0}
+.image-gen-settings :is(.ig-section,.ig-grid,.ig-style-body,.ig-styles,.ig-skill-list,.ig-skill-body,.ig-drawers,.ig-conn-list,.ig-conn-body,.ig-profile-fields,.image-gen-graph-picker)>*{min-width:0}
 .ig-heading{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);padding-bottom:5px;border-bottom:1px solid var(--border)}
 .ig-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
 .ig-profile-fields{display:grid;gap:10px;margin-bottom:10px}
 .ig-profile-member{display:grid;gap:4px}
 
 .ig-styles{display:grid;gap:6px}
-.ig-style,.ig-conn{border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-elevated)}
-.image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)>summary{display:flex;align-items:center;gap:8px;padding:8px 10px;overflow:hidden;cursor:pointer;font-size:12px;list-style:none}
-.image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)>summary::-webkit-details-marker{display:none}
-.image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)>summary::before{content:"▸";color:var(--text-muted);font-size:10px}
-.image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)[open]>summary::before{content:"▾"}
-.image-gen-settings :is(.ig-style,.ig-conn)[open]>summary{border-bottom:1px solid var(--border)}
-.image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)>summary:hover{color:var(--text-primary)}
+.ig-style,.ig-skill,.ig-conn{border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-elevated)}
+.image-gen-settings :is(.ig-style,.ig-skill,.ig-conn,.ig-advanced)>summary{display:flex;align-items:center;gap:8px;padding:8px 10px;overflow:hidden;cursor:pointer;font-size:12px;list-style:none}
+.image-gen-settings :is(.ig-style,.ig-skill,.ig-conn,.ig-advanced)>summary::-webkit-details-marker{display:none}
+.image-gen-settings :is(.ig-style,.ig-skill,.ig-conn,.ig-advanced)>summary::before{content:"▸";color:var(--text-muted);font-size:10px}
+.image-gen-settings :is(.ig-style,.ig-skill,.ig-conn,.ig-advanced)[open]>summary::before{content:"▾"}
+.image-gen-settings :is(.ig-style,.ig-skill,.ig-conn)[open]>summary{border-bottom:1px solid var(--border)}
+.image-gen-settings :is(.ig-style,.ig-skill,.ig-conn,.ig-advanced)>summary:hover{color:var(--text-primary)}
 .ig-style-name{flex:none;white-space:nowrap;font-weight:500;color:var(--text-primary)}
 .ig-style-conn{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 6px;border:1px solid var(--border);border-radius:999px;font-size:10px;color:var(--text-secondary)}
 .ig-style-model{min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:var(--text-muted)}
@@ -46,6 +46,9 @@
 .ig-style-format{flex:none;margin-left:auto;white-space:nowrap;color:var(--text-muted)}
 .ig-style-body{display:grid;gap:10px;padding:10px}
 .ig-style-body>.ig-danger{justify-self:start}
+.ig-skill-list{display:grid;gap:6px}
+.ig-skill-body{display:grid;gap:10px;padding:10px}
+.ig-skill-body>.ig-danger{justify-self:start}
 .ig-danger{color:var(--danger,var(--accent))}
 .ig-style-backend{padding:6px 8px;border-left:2px solid var(--border);border-radius:0 var(--radius) var(--radius) 0}
 .ig-link{background:none;border:0;padding:0;font:inherit;color:var(--accent);cursor:pointer}

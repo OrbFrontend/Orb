@@ -13,7 +13,7 @@ _SYS = {"role": "system", "content": "You are Iris."}
 _SYS_DRIFTED = {"role": "system", "content": "You are Iris.\n\n## Lorebook\nThe moon is shattered."}
 _GREET = {"role": "assistant", "content": "The archive is quiet tonight."}
 _TOOLS = [{"type": "function", "function": {"name": "direct_scene"}}]
-_TOOLS_SINGLE = [{"type": "function", "function": {"name": "analyze_scene"}}]
+_TOOLS_SINGLE = [{"type": "function", "function": {"name": "read_image_skills"}}]
 
 
 def _call(system=_SYS, tools=_TOOLS, model="m", endpoint="http://one", params=None, tail=()):
