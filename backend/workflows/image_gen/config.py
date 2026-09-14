@@ -54,7 +54,7 @@ FIRST_PERSON_HUG_SKILL = {
     "id": "first_person_hug",
     "label": "First-person hug",
     "description": (
-        "Use for an embrace seen through the viewer's eyes, especially when height, contact, crop, or occlusion matters."
+        "Use for a first-person embrace around the camera, especially when height, contact, crop, or occlusion matters."
     ),
     "instructions": (
         "First-person POV, POV hug, camera inside embrace, extremely close-up, camera at chest height, subject directly in front of camera, subject looking up at camera, arms extending around camera, arms framing both sides of foreground, strong foreshortening, upper body filling lower half of frame, only face and shoulders are visible near center. Then describe floor if subject is short, or describe ceiling if subject is tall."

@@ -48,8 +48,7 @@ _SHOT_COUNTED_FIRST = (
     "If the user looks at a subject, only describe the subject. "
     "Write the user's hand or arm only when the final instant explicitly puts it in frame. State its exact action or contact, "
     "and its position at the frame's edge, such as lower foreground or a side corner, "
-    'always as "viewer\'s hand ..." or "viewer\'s arm ..." -- never as "the viewer grips" or other phrasing where viewer is '
-    "the verb's subject. "
+    'always as "pov hand ..." or "pov arm ...", with the hand or arm as the verb\'s subject. '
     "Never mention the user's face, body, or clothing. " + _SHOT_NO_CAMERA_WORD + _SHOT_SUBJECT_VISIBILITY
 )
 
@@ -67,14 +66,11 @@ _SHOT_COUNTED_THIRD = (
 
 _SHOT_PROSE_FIRST = (
     "The pov is from the user's eyes, describe what they can **see**. Describe only the others visible to this pov. "
-    "The viewer is basically the camera so the subject CANNOT interact with them. "
+    "This pov is a camera, so the subject CANNOT interact with it. "
     "Write the user's hand or arm only when the final instant explicitly "
     "puts it in frame, and state its exact action or contact and its position at the frame's edge, such as lower foreground or a "
-    'side corner, always as "viewer\'s hand ..." or "viewer\'s arm ..." -- never '
-    "as \"the viewer grips\" or other phrasing where viewer is the verb's subject. NEVER mention the user's appearance. "
-    "If the subject is close-up, mention only the things dominating the frame, e.g. only head and shoulders visible and dominating the FOV, etc. "
-    + _SHOT_NO_CAMERA_WORD
-    + _SHOT_SUBJECT_VISIBILITY
+    'side corner, always as "a hand ..." or "an arm ...", with the hand or arm as the verb\'s subject. '
+    "NEVER mention the user's appearance. " + _SHOT_NO_CAMERA_WORD + _SHOT_SUBJECT_VISIBILITY
 )
 
 
@@ -90,7 +86,7 @@ _SHOT_PROSE_THIRD = (
 _SCENE_FORMAT_TAIL = (
     "Give each character's pose and action first. Then give their build, current "
     "clothing, hair, facial expressions (if available), and other visible traits. Keep one character's facts together. Then describe the interaction and "
-    "spatial relationships, followed by the setting (place/time), lighting, framing (height, angle, distance from viewer), and any other details. "
+    "spatial relationships, followed by the setting (place/time), lighting, framing (height, angle, distance from camera), and any other details. "
     "Use the word 'own' when a character acts on their own body or belongings. Use explicit quantities such as 'one' or "
     "'two' when they disambiguate limbs, hands, objects, or contacts. Always use possessive adjectives. "
     "Use direct, honest, active language - for example, use 'pulling' with ownership over an ambiguous passive word such as 'pulled'. "

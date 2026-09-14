@@ -80,7 +80,7 @@ _LOOKING_AT_VIEWER = "looking at viewer"
 
 
 # Only the noun after the possessive says which side of the contact the viewer is
-# on. A viewer's *limb* is the user acting (the shot rules ask for it by name);
+# on. A viewer's *limb* is the user acting (the shot rules ask for "pov hand");
 # anything else the possessive owns -- throat, collar, chest -- is the viewer being
 # acted upon, and their body must not be drawn. Keep and retag the first, collapse
 # the second.
