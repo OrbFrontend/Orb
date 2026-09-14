@@ -116,6 +116,27 @@ def test_scene_skill_starter_is_seeded_only_when_library_is_absent():
     assert normalize_config({"scene_skills": "malformed"})["scene_skills"] == []
 
 
+def test_custom_scene_skills_receive_stable_readable_ids():
+    config = normalize_config(
+        {
+            "scene_skills": [
+                {"label": "Over-the-shoulder pose", "instructions": "Keep both shoulders in frame."},
+                {"label": "Over the shoulder pose", "instructions": "Keep the foreground shoulder soft."},
+                {"id": "over_the_shoulder_pose", "label": "Explicit", "instructions": "Keep this ID."},
+                {"id": "bad id", "label": "Malformed", "instructions": "Drop this row."},
+            ]
+        }
+    )
+
+    skills = config["scene_skills"]
+    assert [skill["id"] for skill in skills] == [
+        "over_the_shoulder_pose-2",
+        "over_the_shoulder_pose-3",
+        "over_the_shoulder_pose",
+    ]
+    assert normalize_config(config) == config
+
+
 def test_scene_skills_are_bounded_unique_and_normalize_to_a_fixed_point():
     candidates = [
         {

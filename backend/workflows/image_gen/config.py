@@ -314,11 +314,11 @@ def _style(raw: Any, cloud: Mapping[str, Any], legacy_references: Mapping[str, S
     }
 
 
-def _scene_skill(raw: Any) -> dict | None:
+def _scene_skill(raw: Any, skill_id: str = "") -> dict | None:
     """Normalize one editable composition skill."""
     if not isinstance(raw, Mapping):
         return None
-    skill_id = _text(raw.get("id"), 64)
+    skill_id = skill_id or _text(raw.get("id"), 64)
     if not _ID_RE.fullmatch(skill_id):
         return None
     label = _text(raw.get("label"), 80, skill_id).rstrip() or skill_id
@@ -329,6 +329,58 @@ def _scene_skill(raw: Any) -> dict | None:
         "instructions": _text(raw.get("instructions"), 4_000).rstrip(),
         "enabled": _enabled(raw.get("enabled")),
     }
+
+
+def _scene_skill_id_base(raw: Mapping[str, Any]) -> str:
+    """Make a readable identifier base from a custom skill's label."""
+    label = _text(raw.get("label"), 80).lower()
+    base = re.sub(r"[^a-z0-9]+", "_", label).strip("_")[:64]
+    return base or "scene_skill"
+
+
+def _next_scene_skill_id(base: str, unavailable: set[str]) -> str:
+    """Return the first bounded ID based on ``base`` that is not in use."""
+    candidate = base
+    suffix = 2
+    while candidate in unavailable:
+        tail = f"-{suffix}"
+        candidate = base[: 64 - len(tail)] + tail
+        suffix += 1
+    return candidate
+
+
+def _scene_skills(candidates: Any) -> list[dict]:
+    """Normalize the editable library, allocating IDs for user-authored rows.
+
+    Built-in skills arrive with stable IDs, while custom rows from forms, preset
+    imports, and older saved state may have only a label. The selector can only
+    return an ID, so mint one here at the persistence boundary. Label-derived
+    IDs are readable in the compact selector catalog and remain stable after
+    this normalized shape is saved.
+    """
+    entries = candidates if isinstance(candidates, list) else []
+    reserved = {
+        skill_id
+        for raw in entries
+        if isinstance(raw, Mapping)
+        for skill_id in (_text(raw.get("id"), 64),)
+        if _ID_RE.fullmatch(skill_id)
+    }
+    skills: list[dict] = []
+    seen: set[str] = set()
+    for raw in entries:
+        if not isinstance(raw, Mapping):
+            continue
+        raw_id = raw.get("id")
+        missing_id = raw_id is None or (isinstance(raw_id, str) and not raw_id.strip())
+        generated_id = _next_scene_skill_id(_scene_skill_id_base(raw), reserved | seen) if missing_id else ""
+        skill = _scene_skill(raw, generated_id)
+        if skill and skill["id"] not in seen:
+            skills.append(skill)
+            seen.add(skill["id"])
+        if len(skills) >= MAX_SCENE_SKILLS:
+            break
+    return skills
 
 
 def _slot(value: Any) -> list[str] | None:
@@ -569,7 +621,7 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     # field has never existed; a present malformed value normalizes to an empty list
     # rather than resurrecting a skill the user removed.
     raw_scene_skills = raw.get("scene_skills") if "scene_skills" in raw else CONFIG_DEFAULTS["scene_skills"]
-    scene_skills = _unique_by_id(raw_scene_skills, _scene_skill, MAX_SCENE_SKILLS)
+    scene_skills = _scene_skills(raw_scene_skills)
 
     default_style = _text(raw.get("default_style"), 64, styles[0]["id"])
     if default_style not in {s["id"] for s in styles}:
