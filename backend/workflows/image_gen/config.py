@@ -57,16 +57,7 @@ FIRST_PERSON_HUG_SKILL = {
         "Use for an embrace seen through the viewer's eyes, especially when height, contact, crop, or occlusion matters."
     ),
     "instructions": (
-        "Compose the embrace from the viewer's exact first-person position. Preserve the exact contact described in the "
-        "story: who holds whom, which arms wrap around which body area, and where each visible hand rests. Branch on "
-        "relative height. If the hugged character is shorter, place their crown and hair nearest the viewer in the upper "
-        "or central foreground, then order visible details down their back, outfit, hips, and legs according to the crop. "
-        "If they are the same height or taller, adjust the head, shoulder, and arm geometry so the contact remains "
-        "physically possible from the viewer's eye level. Occlude the hugged character's face and body front wherever "
-        "the embrace and viewpoint hide them; do not add frontal eye contact. Include the viewer's arms, hands, torso, "
-        "or legs only when they are actually visible from this viewpoint and the story puts them in frame. Avoid "
-        "duplicated bodies, detached or extra limbs, conflicting front-and-back views, or anatomy that contradicts the "
-        "embrace."
+        "First-person POV, POV hug, camera inside embrace, extremely close-up, camera at chest height, subject directly in front of camera, subject looking up at camera, arms extending around camera, arms framing both sides of foreground, strong foreshortening, upper body filling lower half of frame, only face and shoulders are visible near center. Then describe floor if subject is short, or describe ceiling if subject is tall."
     ),
     "enabled": True,
 }
