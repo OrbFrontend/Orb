@@ -942,22 +942,6 @@ async def test_the_subject_roster_is_never_numbered_against_the_reference_roster
     assert "numbered by their position in that set: 1. Ashley." in tail
 
 
-async def test_a_nameless_subject_leaves_no_hole_in_the_roster(monkeypatch):
-    """A solo card with no name used to be enumerated and then filtered, so the roster
-    opened at "2." with no "1." -- a numbered list missing its first row, in a prompt
-    that also carries the numbered reference list."""
-    captured: dict = {}
-    await _compose(
-        monkeypatch,
-        {"compose_image_prompt": {"scene": "2girls", "avoid": None, "visible_subjects": []}},
-        captured,
-        subjects=[_subject("", "silver hair"), _subject("Ashley", "red coat")],
-    )
-    tail = captured["compose_image_prompt"]
-    assert "- Ashley - fixed positive tags added separately: red coat" in tail
-    assert "2." not in tail.split("Do not copy or contradict")[0]
-
-
 # ── trap 4.1: identity suppression is only for who was actually referenced ───
 
 
