@@ -151,3 +151,12 @@ export function extractBlocks(content) {
     .map((span) => spokenText(content.slice(span.contentStart, span.contentEnd)))
     .filter(Boolean);
 }
+
+// New attachments carry the exact speech chosen by the backend classifier.
+// Keep the old scanner above only for attachments without this additive field.
+export function attachmentBlocks(content, blocks) {
+  if (Array.isArray(blocks) && blocks.every((block) => typeof block.spoken_text === "string")) {
+    return blocks.map((block) => block.spoken_text);
+  }
+  return extractBlocks(content);
+}

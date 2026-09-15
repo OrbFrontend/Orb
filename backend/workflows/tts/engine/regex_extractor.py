@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ...toolkit import AxisStyle, speech_segments
 from .base import SpeakableChunk
 
 # Audible vs silent action beats
@@ -46,9 +47,8 @@ AUDIBLE_EMOTION_MAP = {alias: emotion for aliases, _, emotion in _BEAT_EFFECTS i
 
 # Workflow-private markup scanner
 
-# This workflow intentionally owns its parser instead of importing application
-# lexical utilities. Keep its frontend twin independent too; shared adversarial
-# fixtures enforce behavior across the Python/JavaScript boundary.
+# Frozen for legacy attachment replay and its frontend extraction fallback.
+# New speech uses the host analysis exposed through the workflow toolkit.
 _QUOTE_PAIRS = {
     "“": "”",
     "‘": "’",
@@ -209,6 +209,25 @@ def _extract_beat_action(beat_text: str) -> str:
     return ""
 
 
+# Compatibility scanner for attachments created before shared segmentation.
+
+
+def _legacy_segments(text: str) -> list[tuple[str, str]]:
+    quoted = _find_quoted_spans(text)
+    parentheticals = _find_parenthetical_spans(text, quoted)
+    beats = _find_beat_spans(text, quoted, parentheticals)
+    emdashes = _find_emdash_spans(text, quoted + parentheticals + beats)
+    dialogues = [span for span in quoted + emdashes if not _overlaps(span[0], span[1], parentheticals)]
+
+    events: list[tuple[int, str, tuple[int, int, int, int]]] = [
+        *((span[0], "beat", span) for span in beats),
+        *((span[0], "dialogue", span) for span in dialogues),
+    ]
+    events.sort(key=lambda item: (item[0], item[1] != "beat"))
+
+    return [(kind, text[span[2] : span[3]]) for _, kind, span in events]
+
+
 # Public API
 
 
@@ -216,6 +235,9 @@ def regex_extract(
     text: str,
     backend_type: str = "edge",
     supports_emotion_tags: bool = False,
+    *,
+    style: AxisStyle | None = None,
+    legacy: bool = False,
 ) -> list[SpeakableChunk]:
     """Extract speakable dialogue from RP text using regex/heuristics.
 
@@ -231,23 +253,13 @@ def regex_extract(
     if not text or not text.strip():
         return []
 
-    quoted = _find_quoted_spans(text)
-    parentheticals = _find_parenthetical_spans(text, quoted)
-    beats = _find_beat_spans(text, quoted, parentheticals)
-    emdashes = _find_emdash_spans(text, quoted + parentheticals + beats)
-    dialogues = [span for span in quoted + emdashes if not _overlaps(span[0], span[1], parentheticals)]
-
-    events: list[tuple[int, str, tuple[int, int, int, int]]] = [
-        *((span[0], "beat", span) for span in beats),
-        *((span[0], "dialogue", span) for span in dialogues),
-    ]
-    events.sort(key=lambda item: (item[0], item[1] != "beat"))
+    events = _legacy_segments(text) if legacy else speech_segments(text, style)
 
     chunks: list[SpeakableChunk] = []
     last_beat = None  # Most recent beat before the next dialogue
-    for _start, event_type, span in events:
+    for event_type, segment_text in events:
         if event_type == "beat":
-            action = _extract_beat_action(text[span[2] : span[3]])
+            action = _extract_beat_action(segment_text)
             last_beat = {
                 "action": action,
                 "is_audible": action in AUDIBLE_BEATS or action in AUDIBLE_EMOTION_MAP,
@@ -256,7 +268,7 @@ def regex_extract(
             }
             continue
 
-        dialogue_text = _spoken_text(text[span[2] : span[3]])
+        dialogue_text = _spoken_text(segment_text)
         if not dialogue_text:
             continue
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { alignableKeys, extractBlocks } from "../../frontend/workflows/tts/extract.js";
+import { alignableKeys, attachmentBlocks, extractBlocks } from "../../frontend/workflows/tts/extract.js";
 
 const fixtureUrl = new URL("../fixtures/tts_extraction_cases.json", import.meta.url);
 const cases = JSON.parse(readFileSync(fileURLToPath(fixtureUrl), "utf8"));
@@ -22,3 +22,16 @@ for (const fixture of alignmentCases) {
     assert.deepEqual(alignableKeys(fixture.text), fixture.keys);
   });
 }
+
+
+test("TTS uses persisted speech blocks instead of guessing the model's convention", () => {
+  const text = "*nods* Come here.";
+  assert.deepEqual(extractBlocks(text), []);
+  assert.deepEqual(attachmentBlocks(text, [{ spoken_text: "Come here." }]), ["Come here."]);
+  assert.deepEqual(attachmentBlocks(text, []), []);
+});
+
+test("TTS preserves the legacy scanner for old audio", () => {
+  const text = 'She — tired — sat down. "Hello."';
+  assert.deepEqual(attachmentBlocks(text, [{ words: [] }]), ["tired", "Hello."]);
+});

@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict
+from typing import Any
 
+from ..toolkit import markup_axes, speech_input
+from .engine.base import SpeakableChunk
 from .engine.regex_extractor import regex_extract
 from .engine.router import get_adapter
 
@@ -121,16 +127,18 @@ def estimate_audio_duration_ms(audio: bytes, content_type: str) -> int:
     return 0
 
 
-def compute_seed(text: str, profile: dict) -> str:
+def compute_seed(text: str, profile: dict, blocks: list[dict] | None = None) -> str:
     """A deterministic fingerprint of the audio's identity (voice params +
     source text), used as the attachment ``seed``. Non-empty, so the row is
     rehydratable. The api_key is excluded -- a credential is not part of what
     the audio sounds like, and the seed is client-visible."""
     basis = "|".join(str(profile.get(k, "")) for k in _METADATA_KEYS if k != "api_key")
+    if blocks is not None:
+        basis += "|" + json.dumps([b.get("chunk") for b in blocks], sort_keys=True)
     return hashlib.md5((basis + "|" + text).encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
-def build_generation_metadata(text: str, profile: dict) -> dict:
+def build_generation_metadata(text: str, profile: dict, blocks: list[dict] | None = None) -> dict:
     """The self-contained reproduction record stored on the attachment.
 
     Carries every parameter the synthesis call needs plus the source text, so
@@ -139,6 +147,8 @@ def build_generation_metadata(text: str, profile: dict) -> dict:
     """
     md = {k: profile.get(k, PROFILE_DEFAULTS.get(k, "")) for k in _METADATA_KEYS}
     md["text"] = text
+    if blocks is not None:
+        md["speech_chunks"] = [b["chunk"] for b in blocks]
     return md
 
 
@@ -150,11 +160,9 @@ async def synthesize(text: str, profile: dict) -> tuple[bytes, str]:
     """
     backend = profile.get("backend") or "edge"
     adapter = get_adapter(backend)
-    chunks = regex_extract(
-        text=text,
-        backend_type=backend,
-        supports_emotion_tags=adapter.supports_emotion_tags,
-    )
+    # Preview is literal input, not an RP message needing dialogue discovery.
+    spoken = " ".join(text.split())
+    chunks = [SpeakableChunk(text=spoken, spoken_text=spoken)] if spoken else []
     result = await adapter.synthesize(
         chunks=chunks,
         voice_id=profile.get("voice_id") or PROFILE_DEFAULTS["voice_id"],
@@ -262,15 +270,28 @@ def reconcile_boundaries(dialogue_text: str, boundaries: list[dict]) -> list[dic
     return spans
 
 
-async def synthesize_blocks(text: str, profile: dict) -> tuple[bytes, str, list[dict]]:
+async def synthesize_blocks(
+    text: str,
+    profile: dict,
+    *,
+    settings: Mapping[str, Any] | None = None,
+    speech_chunks: Sequence[dict] | None = None,
+    legacy: bool = False,
+) -> tuple[bytes, str, list[dict]]:
     """Render each speakable block as a self-contained clip."""
     backend = profile.get("backend") or "edge"
     adapter = get_adapter(backend)
-    chunks = regex_extract(
-        text=text,
-        backend_type=backend,
-        supports_emotion_tags=adapter.supports_emotion_tags,
-    )
+    if speech_chunks is not None:
+        chunks = [SpeakableChunk(**chunk) for chunk in speech_chunks]
+    else:
+        style = await markup_axes(speech_input(text), settings) if settings is not None and not legacy else None
+        chunks = regex_extract(
+            text=text,
+            backend_type=backend,
+            supports_emotion_tags=adapter.supports_emotion_tags,
+            style=style,
+            legacy=legacy,
+        )
     pause_after = [chunks[i + 1].pause_before_ms if i + 1 < len(chunks) else 0 for i in range(len(chunks))]
     voice_id = profile.get("voice_id") or PROFILE_DEFAULTS["voice_id"]
     language = profile.get("language") or PROFILE_DEFAULTS["language"]
@@ -284,6 +305,7 @@ async def synthesize_blocks(text: str, profile: dict) -> tuple[bytes, str, list[
     blocks: list[dict] = []
     offset = 0
     for i, chunk in enumerate(chunks):
+        recorded_chunk = asdict(chunk)
         chunk.pause_before_ms = 0
         chunk.pause_after_ms = 0
         result = await adapter.synthesize(
@@ -309,6 +331,8 @@ async def synthesize_blocks(text: str, profile: dict) -> tuple[bytes, str, list[
         )
         blocks.append(
             {
+                "spoken_text": spoken,
+                "chunk": recorded_chunk,
                 "byte_start": offset,
                 "byte_end": offset + len(clip),
                 "duration_ms": duration_ms,
@@ -333,4 +357,11 @@ async def synthesize_blocks_from_metadata(metadata: dict) -> tuple[bytes, str, l
     text = metadata.get("text") if isinstance(metadata, dict) else None
     if not text:
         raise ValueError("generation_metadata carries no text to synthesize")
-    return await synthesize_blocks(text, normalize_profile(metadata))
+    return await synthesize_blocks(
+        text, normalize_profile(metadata), speech_chunks=metadata.get("speech_chunks"), legacy="speech_chunks" not in metadata
+    )
+
+
+def consumption_blocks(blocks: list[dict]) -> list[dict]:
+    """Public playback metadata excludes the synthesis reproduction record."""
+    return [{key: value for key, value in block.items() if key != "chunk"} for block in blocks]
