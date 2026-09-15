@@ -147,7 +147,7 @@ function configPanelBody() {
     ? `<label for="ig-card-style">Style</label><select id="ig-card-style" class="tool-card-select" data-wf-action="image_gen:pickStyle" data-wf-on="change">${cardStyleOptions()}</select>`
     : "";
   return `<div class="image-gen-card-controls">${stylePicker}${povPicker()}</div>
-    <div class="image-gen-card-summary">${esc(cardSummary(cfg, cardStyles))}</div>
+    <div class="image-gen-card-summary">${esc(cardSummary(cfg, cardStyles, backends.providers))}</div>
     <button class="btn btn-sm tool-card-btn" data-wf-action="image_gen:settings">Settings</button>`;
 }
 

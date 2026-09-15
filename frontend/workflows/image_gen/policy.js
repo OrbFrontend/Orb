@@ -165,13 +165,29 @@ function cardResolution(config, style) {
   return Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0 ? `${width}x${height}` : "";
 }
 
-export function cardSummary(config = {}, styles = []) {
+function cardSupportsReferences(config, style, providers) {
+  if (!style) return false;
+  const connection = styleConnectionId(style, config);
+  if (connection === COMFY_CONNECTION) {
+    return graphReferenceSlots(config.external_comfy?.user_graphs, style.workflow).length > 0;
+  }
+  const provider = Array.isArray(providers) ? providers.find((item) => item?.id === connection) : null;
+  return providerTakesReferences(provider);
+}
+
+export function cardSummary(config = {}, styles = [], providers = []) {
   const skillCount = Array.isArray(config.scene_skills)
     ? config.scene_skills.filter((skill) => skill?.enabled === true).length
     : 0;
   const activeStyle = activeCardStyle(config, styles);
   const skillLabel = `${skillCount} skill${skillCount === 1 ? "" : "s"}`;
-  return [skillLabel, promptFormatLabel(activeStyle?.prompt_format), cardResolution(config, activeStyle)]
+  const referenceLabel = cardSupportsReferences(config, activeStyle, providers) ? "Ref" : "";
+  return [
+    skillLabel,
+    promptFormatLabel(activeStyle?.prompt_format),
+    cardResolution(config, activeStyle),
+    referenceLabel,
+  ]
     .filter(Boolean)
     .join(" · ");
 }

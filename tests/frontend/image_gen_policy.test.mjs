@@ -66,7 +66,8 @@ test("the tools card summarizes enabled skills and the selected style format", (
     source: "cloud",
     styles: [{ ...config.styles[0], connection: "xai", width: 1024, height: 1536 }],
   };
-  assert.equal(cardSummary(withResolution, withResolution.styles), "2 skills · Tags · 1024x1536");
+  assert.equal(cardSummary(withResolution, withResolution.styles, [{ id: "xai", supports_references: true }]), "2 skills · Tags · 1024x1536 · Ref");
+  assert.equal(cardSummary(withResolution, withResolution.styles, [{ id: "xai", supports_references: false }]), "2 skills · Tags · 1024x1536");
   assert.equal(
     cardSummary(
       {
@@ -88,6 +89,17 @@ test("the tools card summarizes enabled skills and the selected style format", (
       [],
     ),
     "2 skills · Tags · 832x1216",
+  );
+  assert.equal(
+    cardSummary(
+      {
+        ...config,
+        styles: [{ ...config.styles[0], workflow: "refs", width: 832, height: 1216 }],
+        external_comfy: { user_graphs: [{ id: "refs", slots: { references: [{ slot: ["1", "image"] }] } }] },
+      },
+      [],
+    ),
+    "2 skills · Tags · Ref",
   );
 });
 
