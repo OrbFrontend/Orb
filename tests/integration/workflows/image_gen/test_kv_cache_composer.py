@@ -25,6 +25,7 @@ from backend.database import (
     update_settings,
 )
 from backend.workflows import set_workflow_character_state, set_workflow_config
+from backend.workflows.image_gen.config import DEFAULT_SCENE_SKILLS
 from backend.workflows.image_gen.engine import ImageResult
 
 
@@ -152,7 +153,10 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
     attachment = await get_workflow_attachment_by_id(attachment_id)
     generation = json.loads(attachment["generation_metadata"])
     consumption = json.loads(attachment["consumption_metadata"])
-    expected_skills = [{"id": "first_person_hug", "label": "First-person hug"}]
+    # Read the label off the shipped library rather than restating it: the recorded
+    # metadata must track the seeded skill, and the wording is retuned often.
+    hug = next(skill for skill in DEFAULT_SCENE_SKILLS if skill["id"] == "first_person_hug")
+    expected_skills = [{"id": hug["id"], "label": hug["label"]}]
     assert generation["composition_skills"] == expected_skills
     assert consumption["composition_skills"] == expected_skills
 

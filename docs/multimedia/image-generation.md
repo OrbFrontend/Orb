@@ -248,10 +248,12 @@ remove entries. Each skill has:
   visible-detail guidance shown only to the prompt composer when selected.
 
 Write narrow skills for one composition problem. Explain observable geometry and
-branching conditions directly, choose compatible guidance, and avoid placeholders
-or macros: instructions are used as plain text. Orb can select up to four enabled
-skills and prefers the smallest compatible set. The included first-person-hug skill
-is an editable example.
+branching conditions directly, choose compatible guidance, and avoid macros --
+instructions are used as plain text. Orb can select up to four enabled
+skills and prefers the smallest compatible set. Orb ships a starter library of
+first-person framings -- front hug, kiss, both back-hug directions, and close-up --
+which are ordinary editable entries: change or remove any of them, and a removal
+stays removed.
 
 When enabled and at least one usable skill exists, selection adds one Agent-model
 call for each new image or regeneration. A failed or malformed selection does not

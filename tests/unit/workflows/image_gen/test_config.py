@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import pytest
 
+from backend.workflows.image_gen.composer import enabled_scene_skills
 from backend.workflows.image_gen.config import (
     DEFAULT_PROMPT_FORMAT,
+    DEFAULT_SCENE_SKILLS,
     MAX_CLOUD_PROVIDERS,
     MAX_REFERENCE_IMAGE_B64,
     MAX_REFERENCE_SLOTS,
@@ -91,6 +93,17 @@ def test_config_rejects_credentials_in_url_and_bounds_timeout():
     assert cfg["timeout_seconds"] == 900.0
 
 
+def test_config_rejects_malformed_endpoint_urls_without_raising():
+    cfg = normalize_config(
+        {
+            "external_comfy": {"api_url": "http://[bad"},
+            "cloud": {"provider": "custom", "providers": {"custom": {"base_url": "http://[bad"}}},
+        }
+    )
+    assert cfg["external_comfy"]["api_url"] == "http://127.0.0.1:8188"
+    assert cfg["cloud"]["providers"]["custom"]["base_url"] == ""
+
+
 def test_prompter_reasoning_is_an_explicit_boolean_defaulting_off():
     assert normalize_config({})["prompter_reasoning"] is False
     assert normalize_config({"prompter_reasoning": True})["prompter_reasoning"] is True
@@ -104,16 +117,35 @@ def test_scene_skills_migrate_legacy_flag_and_current_flag_wins():
     assert "scene_analysis" not in current
 
 
-def test_scene_skill_starter_is_seeded_only_when_library_is_absent():
+def test_scene_skill_library_is_seeded_only_when_the_field_is_absent():
     seeded = normalize_config({})["scene_skills"]
-    assert [skill["id"] for skill in seeded] == ["first_person_hug"]
-    assert seeded[0]["enabled"] is True
-    instructions = seeded[0]["instructions"].lower()
-    for required in ("exact contact", "relative height", "crown", "hair", "back", "outfit", "hips", "legs", "occlude"):
-        assert required in instructions
-    assert "viewer" in instructions and "duplicated bodies" in instructions and "frontal eye contact" in instructions
+    assert [skill["id"] for skill in seeded] == [
+        "first_person_hug",
+        "first_person_kiss",
+        "first_person_user_back_hug",
+        "first_person_char_back_hug",
+        "first_person_close_up",
+    ]
     assert normalize_config({"scene_skills": []})["scene_skills"] == []
     assert normalize_config({"scene_skills": "malformed"})["scene_skills"] == []
+
+
+def test_shipped_scene_skills_survive_normalization_and_reach_the_composer():
+    """Every shipped row must clear the persistence and selection gates as authored.
+
+    Asserting the gates rather than the prose: the wording is tuned often, but a
+    default that normalization silently truncates, re-IDs, or that
+    ``enabled_scene_skills`` drops would ship a skill the selector can never pick.
+    """
+    seeded = normalize_config({})["scene_skills"]
+    assert seeded == DEFAULT_SCENE_SKILLS
+    assert normalize_config({"scene_skills": seeded})["scene_skills"] == seeded
+    assert enabled_scene_skills(seeded) == tuple(DEFAULT_SCENE_SKILLS)
+    for skill in seeded:
+        assert skill["enabled"] is True
+        # The selector is shown `label` and `description` alone, so a shipped row
+        # without both is unpickable however good its instructions are.
+        assert skill["label"] and skill["description"] and skill["instructions"]
 
 
 def test_custom_scene_skills_receive_stable_readable_ids():

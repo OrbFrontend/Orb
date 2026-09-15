@@ -160,11 +160,6 @@ _REPLAYED_FACTS = (
 _DISCLOSED_FACTS = ("steps", "cfg", "sampler", "scheduler")
 
 
-async def _rendered(adapter, request, *, target, progress=None):
-    """Render through the shared seam used by fresh images and rerolls."""
-    return await resolve_and_generate(adapter, request, target=target, progress=progress)
-
-
 def _render_record(result, *, source: str) -> dict:
     """What a render reported about itself, in the shape a replay reads back.
 
@@ -362,8 +357,9 @@ async def _generate_fresh(
     style_id: str,
     prefix: Sequence[dict] | None = None,
     progress: ProgressCallback | None = None,
+    history: Sequence[Mapping[str, Any]] | None = None,
 ):
-    history = _history_through(ctx.history, int(message["id"]))
+    history = _history_through(history if history is not None else ctx.history, int(message["id"]))
     if prefix is None:
         prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
     selected_style = resolve_style(config, style_id)
@@ -439,7 +435,7 @@ async def _generate_fresh(
     if not prompt.strip():
         raise ImageGenerationError("the composed image prompt came out empty; try generating again")
     seed = _fresh_seed()
-    result = await _rendered(
+    result = await resolve_and_generate(
         adapter,
         ImageRequest(
             prompt=prompt,
@@ -581,27 +577,17 @@ async def regenerate(ctx, body):
     if message is None or message.get("role") != "assistant":
         return []
     config, style_id, profile = await _render_inputs(ctx, body)
-    ctx_with_history = _RegenCompositionCtx(ctx, tuple(list(ctx.history) + [message]))
+    history = tuple([*ctx.history, message])
     return [
         await _generate_fresh(
-            ctx=ctx_with_history,
+            ctx=ctx,
             message=message,
             config=config,
             profile=profile,
             style_id=style_id,
+            history=history,
         )
     ]
-
-
-class _RegenCompositionCtx:
-    def __init__(self, ctx, history):
-        self.conversation_id = ctx.conversation_id
-        self.history = history
-        self.settings = ctx.settings
-        self.agent_client = ctx.agent_client
-        self.agent_model_name = ctx.agent_model_name
-        self.character = ctx.character
-        self.character_id = ctx.character_id
 
 
 async def reroll_gen(ctx, params, seed):
@@ -641,7 +627,7 @@ async def reroll_gen(ctx, params, seed):
     if recorded_references or references:
         params["references"] = [reference.record() for reference in references]
     resolved_seed = fold_seed(seed)
-    result = await _rendered(
+    result = await resolve_and_generate(
         adapter,
         ImageRequest(
             prompt=prompt,

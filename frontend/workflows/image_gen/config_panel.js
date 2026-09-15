@@ -169,10 +169,10 @@ export function configPanelRenderer() {
 }
 
 async function saveConfigPatch(patch, failure) {
-  Object.assign(cfg, patch);
+  const next = { ...cfg, ...patch };
   try {
-    const res = await api.put(`/workflows/${WORKFLOW_ID}/config`, { config: { ...cfg, ...patch } });
-    if (res?.config) Object.assign(cfg, res.config);
+    const res = await api.put(`/workflows/${WORKFLOW_ID}/config`, { config: next });
+    Object.assign(cfg, res?.config || next);
   } catch {
     toast(failure, "error");
   }

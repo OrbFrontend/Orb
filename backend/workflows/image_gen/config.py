@@ -50,17 +50,49 @@ DEFAULT_PROMPT_FORMAT = "hybrid"
 MIME_EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 REFERENCE_MIMES = tuple(MIME_EXTENSIONS)
 
-FIRST_PERSON_HUG_SKILL = {
-    "id": "first_person_hug",
-    "label": "First-person hug",
-    "description": (
-        "Use for a first-person embrace around the camera, especially when height, contact, crop, or occlusion matters."
-    ),
-    "instructions": (
-        "First-person POV, POV hug, camera inside embrace, extremely close-up, camera at chest height, subject directly in front of camera, subject looking up at camera, arms extending around camera, arms framing both sides of foreground, strong foreshortening, upper body filling lower half of frame, only face and shoulders are visible near center. Then describe floor if subject is short, or describe ceiling if subject is tall."
-    ),
-    "enabled": True,
-}
+# The composition-skill library Orb ships. Seeded only when a stored config has
+# never carried the field -- removing one keeps it removed, per `normalize_config`.
+# These IDs are stable and referenced by saved renders; user-authored rows get
+# label-derived IDs minted at the persistence boundary instead. The selector reads
+# only `label` and `description`, so those carry the "when to use"; `instructions`
+# reach the composer only for the skills it picks.
+DEFAULT_SCENE_SKILLS = [
+    {
+        "id": "first_person_hug",
+        "label": "First-person front hug",
+        "description": "A frontal embrace in first-person mode.",
+        "instructions": "First-person POV, POV hug, camera inside embrace, extremely close-up, camera at chest height, subject directly in front of camera, subject looking up at camera, arms extending around camera, arms framing both sides of foreground, strong foreshortening, upper body filling lower half of frame, only face and shoulders are visible near center.\nThen describe floor if subject is short, or describe ceiling if subject is tall.",
+        "enabled": True,
+    },
+    {
+        "id": "first_person_kiss",
+        "label": "First-person kiss",
+        "description": "A kiss in first-person mode.",
+        "instructions": "Example: A close-up shot of character's face, <face and hair detail here>, only face and shoulders are visible. Character's eyes are closed, lips pursed.",
+        "enabled": True,
+    },
+    {
+        "id": "first_person_user_back_hug",
+        "label": "First-person user back hug",
+        "description": "User embraces char from the back in first-person mode.",
+        "instructions": "An over-the-shoulder shot of the subject, back view. The subject is facing away from the camera, only back, shoulders and nape visible. Strong foreshortening.",
+        "enabled": True,
+    },
+    {
+        "id": "first_person_char_back_hug",
+        "label": "First-person char back hug",
+        "description": "Char embraces user from the back in first-person mode.",
+        "instructions": "First-person POV of the subject, the camera points down to the subject's torso with two arms wrapped around his/her stomach, <outfit here>, his/her feet are visible and unfocused. Describe the ground.",
+        "enabled": True,
+    },
+    {
+        "id": "first_person_close_up",
+        "label": "First-person close-up",
+        "description": "A close-up shot in first-person mode.",
+        "instructions": "Describe only the things of interest, and explicitly state that only they are visible. Skip all occluded or irrelevant details.",
+        "enabled": True,
+    },
+]
 
 
 class SourcePolicy(NamedTuple):
@@ -137,7 +169,7 @@ CONFIG_DEFAULTS = {
     ],
     "pov_mode": DEFAULT_POV_MODE,
     "scene_skills_enabled": False,
-    "scene_skills": [FIRST_PERSON_HUG_SKILL],
+    "scene_skills": DEFAULT_SCENE_SKILLS,
     "prompter_reasoning": False,
     "timeout_seconds": 180.0,
     "external_comfy": {
@@ -491,11 +523,21 @@ def _is_loopback(hostname: str) -> bool:
     return host in ("localhost", "::1", "0:0:0:0:0:0:0:1") or host == "127.0.0.1" or host.startswith("127.")
 
 
-def _is_addressable(parsed: SplitResult) -> bool:
+def _safe_urlsplit(value: str) -> SplitResult | None:
+    """Parse a user-entered URL without letting parser errors escape normalization."""
+    try:
+        return urlsplit(value)
+    except ValueError:
+        return None
+
+
+def _is_addressable(parsed: SplitResult | None) -> bool:
     """Whether Orb will talk to this URL at all -- the rule both endpoint fields
     share. Embedded credentials are refused rather than carried: they would ride
     every request URL into logs and back out to the settings form."""
-    return parsed.scheme in ("http", "https") and bool(parsed.hostname) and not parsed.username and not parsed.password
+    return bool(
+        parsed and parsed.scheme in ("http", "https") and parsed.hostname and not parsed.username and not parsed.password
+    )
 
 
 def _cloud_base_url(value: Any) -> str:
@@ -507,8 +549,8 @@ def _cloud_base_url(value: Any) -> str:
     url = _text(value, 2_048)
     if not url:
         return ""
-    parsed = urlsplit(url)
-    if not _is_addressable(parsed):
+    parsed = _safe_urlsplit(url)
+    if parsed is None or not _is_addressable(parsed):
         return ""
     if parsed.scheme != "https" and not _is_loopback(parsed.hostname or ""):
         return ""
@@ -578,7 +620,7 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     external_value = raw.get("external_comfy")
     external_raw: Mapping[str, Any] = external_value if isinstance(external_value, Mapping) else {}
     url = _text(external_raw.get("api_url"), 2_048, CONFIG_DEFAULTS["external_comfy"]["api_url"])
-    if not _is_addressable(urlsplit(url)):
+    if not _is_addressable(_safe_urlsplit(url)):
         url = CONFIG_DEFAULTS["external_comfy"]["api_url"]
     url = url.rstrip("/")
 

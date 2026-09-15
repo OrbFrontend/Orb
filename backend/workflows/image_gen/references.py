@@ -23,7 +23,7 @@ from .config import (
     normalize_profile,
 )
 from .engine import ImageGenerationError
-from .engine.contracts import RenderTarget, ResolvedReference
+from .engine.contracts import RenderTarget, ResolvedReference, reference_slot_key
 from .engine.display_encode import normalize_reference
 from .subjects import Subject
 
@@ -187,12 +187,6 @@ def _required(entry: Mapping[str, Any]) -> bool:
     with a note. Declared by the adapter, because it is a fact about the backend.
     """
     return entry.get("required") is not False
-
-
-def _slot_key(slot: Any) -> tuple[str, ...] | None:
-    if not isinstance(slot, (list, tuple)) or len(slot) != 2:
-        return None
-    return tuple(str(part) for part in slot)
 
 
 async def _resolved(
@@ -395,15 +389,15 @@ def _pair_with_slots(
     """
     # Tracked by index, never by value: two slots on one target can be equal dicts,
     # and removing "the equal one" would consume the wrong slot.
-    by_key: dict[tuple[str, ...], int] = {}
+    by_key: dict[tuple[str, str], int] = {}
     for index, slot in enumerate(slots):
-        key = _slot_key(slot.get("slot"))
+        key = reference_slot_key(slot.get("slot"))
         if key is not None and key not in by_key:
             by_key[key] = index
     taken: set[int] = set()
     matched: list[int | None] = []
     for entry in recorded:
-        key = _slot_key(entry.get("slot"))
+        key = reference_slot_key(entry.get("slot"))
         index = by_key.get(key) if key is not None else None
         if index is not None and index not in taken:
             taken.add(index)
@@ -444,7 +438,7 @@ async def refetch_references(
     for entry, target in _pair_with_slots(entries, slots):
         slot = target.get("slot") if target is not None else entry.get("slot")
         origin = str(entry.get("origin") or "")
-        if _slot_key(entry.get("slot")) is None or not origin:
+        if reference_slot_key(entry.get("slot")) is None or not origin:
             raise ImageGenerationError("This image's reference is no longer recorded; regenerate it instead of rerolling")
         if slots and target is None:
             # Nowhere to put it on this render. The caller discloses the drop.
@@ -470,8 +464,8 @@ def _require_all_filled(slots: Sequence[Mapping[str, Any]], resolved: Sequence[R
     images than the record holds. Recorded slots naming another graph's node ids is
     not one -- the origins never did, and `_pair_with_slots` re-keys them.
     """
-    filled = {_slot_key(reference.slot) for reference in resolved}
-    missing = [slot for slot in slots if _required(slot) and _slot_key(slot.get("slot")) not in filled]
+    filled = {reference_slot_key(reference.slot) for reference in resolved}
+    missing = [slot for slot in slots if _required(slot) and reference_slot_key(slot.get("slot")) not in filled]
     if not missing:
         return
     labels = ", ".join(str(slot.get("label") or "reference image") for slot in missing)

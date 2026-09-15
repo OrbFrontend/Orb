@@ -33,6 +33,13 @@ def recorded_edge(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
 
+def reference_slot_key(slot: Any) -> tuple[str, str] | None:
+    """Normalize a serialized reference slot for comparisons across replay paths."""
+    if not isinstance(slot, (list, tuple)) or len(slot) != 2:
+        return None
+    return str(slot[0]), str(slot[1])
+
+
 def fold_seed_into(seed: int, low: int, high: int) -> int:
     """`seed` folded into the inclusive range `[low, high]`, or unchanged where that
     is not a range at all.
