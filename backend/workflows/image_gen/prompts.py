@@ -31,7 +31,7 @@ _FORMAT_INSTRUCTIONS = {
         "If the number of people matters, state it naturally in prose. "
         "For more than one person, name the character in every sentence about that character so attributes and actions "
         "stay bound to the correct person. "
-        "Format example only; do not copy its details: 'Mara wears a blue jacket. Mara raises her arm to hold up an umbrella with one hand.' "
+        "Format example only; do not copy its details: 'Mara wears a blue jacket. Mara raises her own arm to hold up an umbrella with one hand.' "
     ),
 }
 
@@ -99,19 +99,21 @@ _SCENE_FORMAT_TAIL = (
 
 
 _REFERENCE_INSTRUCTION = (
-    "A reference image of the subject is sent to the image model with this prompt, and the image model will take "
-    "the likeness from that picture. Still describe every visible person in full, including permanent identity "
-    "traits such as face shape, eye colour, and natural hair colour: the picture sharpens the likeness, your words "
-    "are what guarantee it. Then describe what has changed or what is happening now: pose, action, expression, "
-    "current clothing, interaction, setting, lighting, and framing. "
+    "A reference image goes to the image model with this prompt. The image model takes the likeness from that "
+    "picture. Do not write the identity traits in full. Give a short identity summary for each visible person: "
+    "only the few traits that tell the persons apart. Then give the current pose, action, expression, clothing, "
+    "interaction, setting, lighting, and framing in full detail. This instruction has priority over the "
+    "appearance guidance below. "
 )
 
 
 _REFERENCE_TAIL = (
-    "Describe EVERY visible person in full, including their permanent identity traits, whether or not a picture of "
-    "them is listed above: the pictures sharpen a likeness, your words are what guarantee it. Then describe what "
-    "has changed or what is happening now: pose, action, expression, current clothing, interaction, setting, "
-    "lighting, and framing. "
+    "The image model gets these pictures in a plain list with no names attached. Write each person's name in "
+    "`scene`. Put a short identity summary next to each listed name: only the few traits that tell the persons "
+    "apart. Do not write the identity traits of a listed person in full. Describe in full each visible person "
+    "who is not in the list above, because no picture carries that person. Then give the current pose, action, "
+    "expression, clothing, interaction, setting, lighting, and framing for every person in full detail. This "
+    "instruction has priority over the appearance guidance below. "
 )
 
 
@@ -121,8 +123,8 @@ def _reference_instruction(referenced: Sequence[tuple[int, str]]) -> str:
         return _REFERENCE_INSTRUCTION
     listed = ", ".join(f"{position}. {name}" for position, name in referenced)
     return (
-        "Reference images are sent to the image model with this prompt, numbered by their position in that set: "
-        f"{listed}. The image model will take each of those people's likeness from their own picture. " + _REFERENCE_TAIL
+        "Reference images go to the image model with this prompt, in this order: "
+        f"{listed}. The image model takes each of those people's likeness from their own picture. " + _REFERENCE_TAIL
     )
 
 
