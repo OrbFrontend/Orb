@@ -9,6 +9,7 @@ import {
   refreshConversationMessages,
   registerAction,
   registerRerollParams,
+  registerRerollSuccess,
   requestRepaint,
   setWorkflowPhase,
   sseEvents,
@@ -24,6 +25,7 @@ let cfg;
 const inFlight = new Map(); // msgId -> AbortController
 
 const pendingEdits = new Map(); // attId -> edited fields
+const rerollEditSnapshots = new Map(); // attId -> edit object submitted by the current reroll
 
 export function initWidget(sharedConfig) {
   cfg = sharedConfig;
@@ -31,6 +33,7 @@ export function initWidget(sharedConfig) {
   registerAction(WORKFLOW_ID, "savePrompt", savePrompt);
   registerAction(WORKFLOW_ID, "editPrompt", editPrompt);
   registerRerollParams(WORKFLOW_ID, rerollParams);
+  registerRerollSuccess(WORKFLOW_ID, clearPendingEdit);
 }
 
 function editPrompt(el) {
@@ -58,9 +61,20 @@ function savePrompt(el) {
 }
 
 function rerollParams(_msgId, attId) {
-  const params = { ...(pendingEdits.get(attId) || {}) };
+  const edits = pendingEdits.get(attId);
+  rerollEditSnapshots.set(attId, edits);
+  const params = { ...(edits || {}) };
   if (cfg?.default_style) params.style_id = cfg.default_style; // the tools-panel picker
   return Object.keys(params).length ? params : null;
+}
+
+function clearPendingEdit(_msgId, attId) {
+  const submitted = rerollEditSnapshots.get(attId);
+  rerollEditSnapshots.delete(attId);
+  // Keep a newer edit made while the request was running; only the edit that
+  // produced the successful sibling has been rendered.
+  if (pendingEdits.get(attId) === submitted) pendingEdits.delete(attId);
+  requestRepaint();
 }
 
 export function createButtonRenderer(msg) {

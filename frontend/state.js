@@ -127,6 +127,7 @@ export const S = {
   workflowEventHandlers: {}, // Custom SSE handlers by event name
   workflowAttachmentRenderers: {}, // Attachment renderers by workflow id
   workflowRerollParams: {}, // Extra reroll parameters by workflow id
+  workflowRerollSuccess: {}, // Success callbacks after a reroll creates a sibling
   workflowPipelines: [], // Registered workflow pipelines
   workflowState: {}, // Opaque workflow state
   workflowPhases: {}, // Status labels by workflow channel

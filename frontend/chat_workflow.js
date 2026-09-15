@@ -76,6 +76,16 @@ function _workflowLabel(att) {
   return entry?.display_name || att.workflow_id || "artifact";
 }
 
+function _notifyWorkflowRerollSuccess(wid, msgId, attId) {
+  const fn = S.workflowRerollSuccess[wid];
+  if (typeof fn !== "function") return;
+  try {
+    fn(msgId, attId);
+  } catch (e) {
+    console.error(`reroll success callback threw (${wid}):`, e);
+  }
+}
+
 const WF_MINIMIZED_LS_KEY = "orb.workflowMinimized";
 
 function _loadWorkflowMinimized() {
@@ -343,7 +353,7 @@ async function _workflowGroupInFlight(convId, msgId, rootId) {
   }
 }
 
-async function _recoverWorkflowSibling(convId, msgId, rootId, before) {
+async function _recoverWorkflowSibling(convId, msgId, rootId, before, onSuccess) {
   const deadline = Date.now() + 200_000;
   // Our request died on the wire, so its outcome has to be read off the server:
   // a new sibling means it landed, two consecutive "nothing running" answers
@@ -366,6 +376,7 @@ async function _recoverWorkflowSibling(convId, msgId, rootId, before) {
     );
     if ([...now].some((id) => !before.has(id))) {
       if (S.activeConvId !== convId) return true;
+      onSuccess?.();
       setMessages(msgs);
       _reapplyInFlightSwipes();
       renderMessages();
@@ -515,6 +526,7 @@ window.workflowReroll = async (msgId, attId, btn) => {
       convUrl(convId, "messages", msgId, "workflow-attachments", attId, "reroll-gen"),
       extra ? { params: extra } : {},
     );
+    if (result?.attachment_id != null) _notifyWorkflowRerollSuccess(wid, msgId, attId);
     const incoming = result && Array.isArray(result.rejected_workflow_atts) ? result.rejected_workflow_atts : [];
     _mergeWorkflowRejections(msgId, rootId, incoming);
     setMessages(await api.get(convUrl(convId, "messages")));
@@ -523,7 +535,12 @@ window.workflowReroll = async (msgId, attId, btn) => {
     _scrollArtifactIntoView(msgId, rootId);
     broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
-    if (_isNetworkError(e) && (await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings))) {
+    if (
+      _isNetworkError(e) &&
+      (await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings, () =>
+        _notifyWorkflowRerollSuccess(wid, msgId, attId),
+      ))
+    ) {
     } else {
       console.error("Reroll failed:", e);
       _showActionFailure(container, "workflow-reroll-error", "Reroll", e);

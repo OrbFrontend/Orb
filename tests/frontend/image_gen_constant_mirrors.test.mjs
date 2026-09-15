@@ -31,6 +31,9 @@ const pov = read("backend/workflows/image_gen/pov.py");
 const panel = read("frontend/workflows/image_gen/config_panel.js");
 const graphImport = read("frontend/workflows/image_gen/graph_import.js");
 const profile = read("frontend/workflows/image_gen/character_profile.js");
+const workflowApi = read("frontend/workflow_api.js");
+const chatWorkflow = read("frontend/chat_workflow.js");
+const imageWidget = read("frontend/workflows/image_gen/widget.js");
 
 /** One `NAME = <int>` from a Python source, underscores stripped. */
 function pyInt(source, name) {
@@ -137,4 +140,12 @@ test("settings expose the editable scene-skill library and no analyzer control",
   assert.match(panel, /image_gen:skillAdd/);
   assert.match(panel, /image_gen:skillRemove/);
   assert.doesNotMatch(panel, /Analyze complex scenes|ig-scene-analysis|scene_analysis:/);
+});
+
+test("successful rerolls clear only the submitted image prompt edit", () => {
+  assert.match(workflowApi, /export const WORKFLOW_API_VERSION = 5;/);
+  assert.match(workflowApi, /export function registerRerollSuccess\(/);
+  assert.match(chatWorkflow, /if \(result\?\.attachment_id != null\) _notifyWorkflowRerollSuccess\(wid, msgId, attId\)/);
+  assert.match(imageWidget, /registerRerollSuccess\(WORKFLOW_ID, clearPendingEdit\)/);
+  assert.match(imageWidget, /pendingEdits\.get\(attId\) === submitted/);
 });
