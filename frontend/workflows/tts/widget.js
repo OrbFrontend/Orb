@@ -183,15 +183,18 @@ function updateChipTime(el, att, st) {
   const symbol = el.querySelector(".tts-chip-symbol");
   if (!time || !symbol) return;
   const duration = st?.stream?.durationSec > 0 ? st.stream.durationSec : durationMs(att) / 1000;
+  const icon = st?.playing && !st.paused ? "pause" : "play";
+  if (symbol.dataset.icon !== icon) {
+    symbol.innerHTML = icon === "pause" ? ICON_PAUSE : ICON_PLAY;
+    symbol.dataset.icon = icon;
+  }
   if (st?.playing) {
-    symbol.innerHTML = st.paused ? ICON_PLAY : ICON_PAUSE;
     time.textContent = `${formatTime(st.stream.elapsedSec)} / ${formatTime(duration)}`;
     el.setAttribute(
       "aria-label",
       `${st.paused ? "Resume" : "Pause"} speech, ${formatTime(st.stream.elapsedSec)} of ${formatTime(duration)}`,
     );
   } else {
-    symbol.innerHTML = ICON_PLAY;
     time.textContent = duration > 0 ? formatTime(duration) : "";
     el.setAttribute("aria-label", `Play speech${duration > 0 ? `, ${formatTime(duration)}` : ""}`);
   }
@@ -488,9 +491,10 @@ export function attachmentRenderer(ctx) {
   const restore = evicted
     ? `<button ${item} data-wf-action="tts:rehydrate" data-msg-id="${msg?.id || ""}" data-att="${att.id}"${mutationDisabled}>Restore speech</button>`
     : "";
+  const icon = state?.playing && !state.paused ? "pause" : "play";
   return `<span class="tts-speech-chip${state?.playing ? (state.paused ? " is-paused" : " is-playing") : ""}" id="${instanceId}" data-msg-id="${msg?.id || ""}" data-root-id="${root.id}" data-att="${att.id}">
     <button type="button" class="tts-chip-play" title="Play speech" data-wf-action="tts:toggle" data-att="${att.id}"${evicted ? " disabled" : ""}>
-      <span class="tts-chip-symbol" aria-hidden="true">${state?.playing && !state.paused ? ICON_PAUSE : ICON_PLAY}</span><span class="tts-chip-time">${shownTime}</span>
+      <span class="tts-chip-symbol" data-icon="${icon}" aria-hidden="true">${icon === "pause" ? ICON_PAUSE : ICON_PLAY}</span><span class="tts-chip-time">${shownTime}</span>
     </button>
     <button type="button" class="tts-chip-caret" title="Speech options" aria-label="Speech options" aria-haspopup="menu" aria-expanded="false" data-wf-action="tts:menu" data-att="${att.id}">${ICON_CARET}</button>
     <template class="tts-menu-items">
