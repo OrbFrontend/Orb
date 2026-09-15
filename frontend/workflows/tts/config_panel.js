@@ -358,7 +358,12 @@ async function preview() {
   try {
     const res = await query("preview", readForm());
     if (res?.audio_b64) {
-      playAudio({ channel: WORKFLOW_ID, segments: [{ b64: res.audio_b64, mime: res.mime }], volume: cfg.volume });
+      playAudio({
+        channel: WORKFLOW_ID,
+        segments: [{ b64: res.audio_b64, mime: res.mime }],
+        volume: cfg.volume,
+        source: { label: "Voice preview", msgId: null },
+      });
     } else {
       status.textContent = res?.error || "Preview failed";
     }

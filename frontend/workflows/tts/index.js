@@ -48,7 +48,7 @@ initKaraoke(config);
 initConfigPanel(config);
 
 registerWorkflowMessageButton(WORKFLOW_ID, createButtonRenderer);
-registerAttachmentRenderer(WORKFLOW_ID, attachmentRenderer);
+registerAttachmentRenderer(WORKFLOW_ID, attachmentRenderer, { placement: "actions" });
 registerWorkflowToolsPanelCard(WORKFLOW_ID, configPanelRenderer);
 registerWorkflowEventHandler(WORKFLOW_ID, `${WORKFLOW_ID}_autoplay`, autoplayHandler);
 

@@ -54,6 +54,18 @@ class _BoundaryAdapter(TTSAdapter):
         return []
 
 
+class _DurationAdapter(TTSAdapter):
+    @property
+    def backend_name(self) -> str:
+        return "Duration"
+
+    async def synthesize(self, chunks, voice_id, language="en-US", rate=1.0, pitch=1.0, **kwargs):
+        return SynthesisResult(audio_bytes=b"ENCODED", duration_ms=1234)
+
+    async def list_voices(self, language="", **kwargs):
+        return []
+
+
 def _patch_adapter(monkeypatch):
     monkeypatch.setattr("backend.workflows.tts.synth.get_adapter", lambda backend: _FakeAdapter())
 
@@ -224,3 +236,18 @@ async def test_synthesize_blocks_uses_native_word_boundaries(monkeypatch):
     # 100ms-apart native boundaries, not the estimator's char-proportional widths.
     assert words[0]["end_ms"] == 100.0
     assert words[1]["start_ms"] == 100.0
+
+
+async def test_synthesize_blocks_persists_backend_duration(monkeypatch):
+    monkeypatch.setattr("backend.workflows.tts.synth.get_adapter", lambda backend: _DurationAdapter())
+    profile = synth.normalize_profile({"voice_id": "v1"})
+    _, _, blocks = await synth.synthesize_blocks('"Hello there."', profile)
+    assert blocks[0]["duration_ms"] == 1234
+
+
+def test_estimate_mp3_duration_reads_frame_headers():
+    # Two MPEG-1 Layer III 128-kbps/44.1-kHz frames: 2 * 1152 samples.
+    header = (0x7FF << 21) | (3 << 19) | (1 << 17) | (1 << 16) | (9 << 12)
+    frame_length = (144 * 128_000) // 44_100
+    frame = header.to_bytes(4, "big") + b"\0" * (frame_length - 4)
+    assert synth.estimate_audio_duration_ms(frame * 2, "audio/mpeg") == 52

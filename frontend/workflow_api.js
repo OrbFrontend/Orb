@@ -83,7 +83,7 @@ export {
   toast,
 };
 
-export function registerAttachmentRenderer(wid, fn) {
+export function registerAttachmentRenderer(wid, fn, options = {}) {
   if (typeof wid !== "string" || !wid) {
     console.error("registerAttachmentRenderer: workflow id required", wid);
     return;
@@ -93,6 +93,9 @@ export function registerAttachmentRenderer(wid, fn) {
     return;
   }
   S.workflowAttachmentRenderers[wid] = fn;
+  S.workflowAttachmentPlacements[wid] = {
+    placement: options?.placement === "actions" ? "actions" : "artifact",
+  };
 }
 
 export function registerRerollParams(wid, fn) {

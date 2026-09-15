@@ -63,6 +63,64 @@ def audio_mime_ext(backend: str) -> tuple[str, str]:
     return "audio/mpeg", "mp3"
 
 
+def _estimate_mp3_duration_ms(audio: bytes) -> int:
+    """Read an MP3's frame headers without decoding the encoded payload."""
+    if len(audio) < 4:
+        return 0
+    offset = 0
+    if audio[:3] == b"ID3" and len(audio) >= 10:
+        tag_size = 0
+        for value in audio[6:10]:
+            tag_size = (tag_size << 7) | (value & 0x7F)
+        offset = 10 + tag_size
+
+    bitrates = {
+        3: (0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320),
+        2: (0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160),
+        0: (0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160),
+    }
+    sample_rates = (44100, 48000, 32000)
+    samples = 0
+    sample_rate = 0
+    frames = 0
+    while offset + 4 <= len(audio):
+        header = int.from_bytes(audio[offset : offset + 4], "big")
+        if (header >> 21) & 0x7FF != 0x7FF:
+            offset += 1
+            continue
+        version = (header >> 19) & 0x3
+        layer = (header >> 17) & 0x3
+        bitrate_index = (header >> 12) & 0xF
+        sample_index = (header >> 10) & 0x3
+        if version == 1 or layer != 1 or bitrate_index in (0, 15) or sample_index == 3:
+            offset += 1
+            continue
+        bitrate = bitrates[version][bitrate_index] * 1000
+        rate = sample_rates[sample_index]
+        if version == 2:
+            rate //= 2
+        elif version == 0:
+            rate //= 4
+        padding = (header >> 9) & 1
+        frame_length = ((144 if version == 3 else 72) * bitrate // rate) + padding
+        if frame_length <= 0 or offset + frame_length > len(audio):
+            break
+        frames += 1
+        samples += 1152 if version == 3 else 576
+        sample_rate = rate
+        offset += frame_length
+    if not frames or not sample_rate:
+        return 0
+    return round(samples / sample_rate * 1000)
+
+
+def estimate_audio_duration_ms(audio: bytes, content_type: str) -> int:
+    """Return a cheap duration estimate for encoded formats used by TTS."""
+    if content_type.lower().split(";", 1)[0].strip() == "audio/mpeg":
+        return _estimate_mp3_duration_ms(audio)
+    return 0
+
+
 def compute_seed(text: str, profile: dict) -> str:
     """A deterministic fingerprint of the audio's identity (voice params +
     source text), used as the attachment ``seed``. Non-empty, so the row is
@@ -244,10 +302,16 @@ async def synthesize_blocks(text: str, profile: dict) -> tuple[bytes, str, list[
         words = reconcile_boundaries(spoken, result.word_boundaries) if result.word_boundaries else None
         if words is None:
             words = estimate_word_spans(spoken)
+        duration_ms = max(
+            int(result.duration_ms or 0),
+            max((int(word.get("end_ms") or 0) for word in (result.word_boundaries or [])), default=0),
+            estimate_audio_duration_ms(clip, result.content_type),
+        )
         blocks.append(
             {
                 "byte_start": offset,
                 "byte_end": offset + len(clip),
+                "duration_ms": duration_ms,
                 "pause_after_ms": pause_after[i],
                 "words": words,
             }
