@@ -89,7 +89,6 @@ _SCENE_FORMAT_TAIL = (
     "spatial relationships, followed by the setting (place/time), lighting, framing (height, angle, distance from camera), and any other details. "
     "Use the word 'own' when a character acts on their own body or belongings. Use explicit quantities such as 'one' or "
     "'two' when they disambiguate limbs, hands, objects, or contacts. Always use possessive adjectives. "
-    "Be extremely thorough and obsessive when describing the pose and action. "
     "Use direct, honest, active language - for example, use 'pulling' with ownership over an ambiguous passive word such as 'pulled'. "
     "Exclude dialogue, thoughts, sounds, motives, sensations, "
     "analogies, or a narrative explanation. Exclude occluded or absent subjects from the positive scene. "
