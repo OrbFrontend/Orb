@@ -86,10 +86,10 @@ DEFAULT_SCENE_SKILLS = [
         "enabled": True,
     },
     {
-        "id": "first_person_close_up",
-        "label": "First-person close-up",
-        "description": "A close-up shot in first-person mode.",
-        "instructions": "Describe only the things of interest, and explicitly state that only they are visible. Skip all occluded or irrelevant details.",
+        "id": "close_up",
+        "label": "Close-up",
+        "description": "A close-up shot focused on subject(s) of interest.",
+        "instructions": "Describe only the things of interest, and explicitly state that only they are visible. Skip all occluded or far-away or irrelevant details.",
         "enabled": True,
     },
 ]

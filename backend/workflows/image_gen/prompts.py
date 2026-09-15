@@ -36,7 +36,7 @@ _FORMAT_INSTRUCTIONS = {
 }
 
 
-_SHOT_NO_CAMERA_WORD = "Never write the word 'user' in the image prompt. "
+_SHOT_NO_CAMERA_WORD = "Never use the words 'user' or 'first-person' or 'third-person'. "
 
 
 _SHOT_SUBJECT_VISIBILITY = "There may or may not be any characters in the frame - just scenery is fine. "
@@ -89,10 +89,10 @@ _SCENE_FORMAT_TAIL = (
     "spatial relationships, followed by the setting (place/time), lighting, framing (height, angle, distance from camera), and any other details. "
     "Use the word 'own' when a character acts on their own body or belongings. Use explicit quantities such as 'one' or "
     "'two' when they disambiguate limbs, hands, objects, or contacts. Always use possessive adjectives. "
+    "Be extremely thorough and obsessive when describing the pose and action. "
     "Use direct, honest, active language - for example, use 'pulling' with ownership over an ambiguous passive word such as 'pulled'. "
-    "Describe only concrete visual details. Exclude dialogue, thoughts, sounds, motives, sensations, "
-    "analogies, or a narrative explanation. Describe the current visible state affirmatively. Exclude occluded or "
-    "absent subjects from the positive scene. "
+    "Exclude dialogue, thoughts, sounds, motives, sensations, "
+    "analogies, or a narrative explanation. Exclude occluded or absent subjects from the positive scene. "
     "Ignore facial traits or expressions when the face is not visible; describe the visible head orientation instead. "
     "Be extremely meticulous and use as much detail as the visible constraints need, but only mention each fact/thing once. "
 )
