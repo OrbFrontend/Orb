@@ -281,12 +281,7 @@ def _skill_block(skills: Sequence[dict]) -> str:
     ]
     if not rows:
         return ""
-    return (
-        " Selected composition skills follow. Apply them to geometry, occlusion, framing, contact, crop, and visible-detail "
-        "ordering. They are guidance, not story facts, and cannot override the story, POV, or saved exclusions."
-        + "".join(rows)
-        + " "
-    )
+    return " Selected composition skills follow. Treat them as high priority. " + "".join(rows) + " "
 
 
 def _downstream_blocks(
