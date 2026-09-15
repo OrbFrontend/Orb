@@ -1,37 +1,31 @@
 
 
+/* A split toolbar button: play/time on the left, the options caret on the
+   right. Both halves inherit `.msg-toolbar button`, so the chip reads as one
+   more icon in the row rather than a widget dropped into it. */
 .tts-speech-chip {
-  position: relative;
   display: inline-flex;
   align-items: center;
-  max-width: 13rem;
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-surface);
-  color: var(--text-secondary);
 }
 
-.tts-speech-chip.is-playing {
-  border-color: var(--accent-dim);
-  color: var(--text-primary);
-}
-
-.tts-chip-play {
-  gap: 5px;
-  min-width: 0;
-  padding: 3px 7px !important;
-  color: inherit !important;
-  border-radius: 999px 0 0 999px !important;
+.msg-toolbar .tts-chip-play {
+  gap: 4px;
+  padding-right: 4px;
+  border-radius: 4px 0 0 4px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
+  line-height: 15px;
 }
 
-.tts-chip-play:hover {
-  background: transparent !important;
+.msg-toolbar .tts-chip-caret {
+  padding-left: 1px;
+  padding-right: 2px;
+  border-radius: 0 4px 4px 0;
 }
 
-.tts-chip-play:disabled {
-  opacity: 0.55;
+.tts-speech-chip.is-playing .tts-chip-play,
+.tts-speech-chip.is-paused .tts-chip-play {
+  color: var(--accent);
 }
 
 .tts-chip-symbol {
@@ -40,74 +34,39 @@
 }
 
 .tts-chip-symbol svg {
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
   display: block;
 }
 
 .tts-chip-time {
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tts-chip-menu {
-  flex: 0 0 auto;
-  align-self: stretch;
-  border-left: 1px solid var(--border);
-}
-
-.tts-chip-menu summary {
-  height: 100%;
-  min-width: 22px;
-  padding: 0 5px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  cursor: pointer;
-  list-style: none;
-}
-
-.tts-chip-menu summary::-webkit-details-marker {
+.tts-chip-time:empty {
   display: none;
 }
 
-.tts-chip-menu summary:hover {
-  color: var(--text-primary);
-}
-
-.tts-menu-list {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 4px);
-  right: 0;
-  min-width: 150px;
-  padding: 4px;
-  display: grid;
-  gap: 2px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-elevated);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
-}
-
 .tts-menu-item {
-  width: 100%;
-  justify-content: flex-start !important;
-  padding: 6px 8px !important;
-  color: var(--text-secondary) !important;
-  font-size: 12px;
   white-space: nowrap;
 }
 
-.tts-menu-item:hover:not(:disabled) {
-  color: var(--text-primary) !important;
-  background: var(--bg-hover) !important;
+.tts-menu-item.danger,
+.tts-menu-item.danger:hover {
+  color: var(--red);
 }
 
-.tts-menu-item.danger {
-  color: var(--red) !important;
+.tts-menu-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.tts-menu-item:disabled:hover {
+  background: transparent;
+}
+
+.tts-menu-item:not(.danger):disabled:hover {
+  color: var(--text-primary);
 }
 
 .tts-create-btn {

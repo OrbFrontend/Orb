@@ -28,6 +28,7 @@ const AUTOPLAY_MAX_TRIES = 40;
 const ICON_SPEAK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polygon points="3 9 3 15 7 15 12 19 12 5 7 9 3 9"/><path d="M16 9a3 3 0 0 1 0 6"/><path d="M19 6a7 7 0 0 1 0 12"/></svg>`;
 const ICON_PLAY = `<svg class="tts-ic-play" viewBox="0 0 24 24" fill="currentColor"><polygon points="8 5 19 12 8 19 8 5"/></svg>`;
 const ICON_PAUSE = `<svg class="tts-ic-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="3.5" height="14" rx="1"/><rect x="14" y="5" width="3.5" height="14" rx="1"/></svg>`;
+const ICON_CARET = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="15"><polyline points="6 10 12 16 18 10"/></svg>`;
 
 let cfg = { volume: 0.75, click_granularity: "block", click_play_scope: "unit" };
 
@@ -35,27 +36,93 @@ let playingAttId = null;
 let channelBound = false;
 let autoplayTimer = null;
 let chipRaf = null;
+let menuEl = null;
+let menuCaret = null;
 
 export function initWidget(sharedConfig) {
   cfg = sharedConfig;
   registerAction(WORKFLOW_ID, "create", (el) => create(Number(el.dataset.msgId), el));
   registerAction(WORKFLOW_ID, "toggle", (el) => toggle(Number(el.dataset.att)));
+  registerAction(WORKFLOW_ID, "menu", (el) => (menuCaret === el ? closeMenu() : openMenu(el)));
+  // Menu items live on <body>, so the in-flight button handed to the shared
+  // handlers is the caret back in the toolbar: it is what gets disabled, and
+  // its chip is where a failure caption lands.
   registerAction(WORKFLOW_ID, "regenerate", (el) => {
-    window.workflowRegenerate?.(Number(el.dataset.msgId), Number(el.dataset.att), el);
+    window.workflowRegenerate?.(Number(el.dataset.msgId), Number(el.dataset.att), takeMenuAnchor(el));
   });
   registerAction(WORKFLOW_ID, "reroll", (el) => {
-    window.workflowReroll?.(Number(el.dataset.msgId), Number(el.dataset.att), el);
+    window.workflowReroll?.(Number(el.dataset.msgId), Number(el.dataset.att), takeMenuAnchor(el));
   });
   registerAction(WORKFLOW_ID, "step", (el) => {
+    closeMenu();
     window.workflowArtifactStep?.(el.dataset.instanceId, Number(el.dataset.delta));
   });
   registerAction(WORKFLOW_ID, "delete", (el) => {
+    closeMenu();
     window.workflowDeleteAttachment?.(el.dataset.instanceId);
   });
   registerAction(WORKFLOW_ID, "rehydrate", (el) => {
-    window.workflowRehydrate?.(Number(el.dataset.msgId), Number(el.dataset.att), el);
+    window.workflowRehydrate?.(Number(el.dataset.msgId), Number(el.dataset.att), takeMenuAnchor(el));
   });
   registerClickHandler({ id: WORKFLOW_ID, label: "Speak", claims: speakClaims, onClick: speakOnClick });
+}
+
+function takeMenuAnchor(item) {
+  const caret = document.querySelector(`.tts-speech-chip[data-att="${item.dataset.att}"] .tts-chip-caret`);
+  closeMenu();
+  return caret || item;
+}
+
+// `.message` is content-visibility:auto, which paint-contains the bubble: a
+// menu positioned anywhere inside it is clipped at the bubble's edge.
+function openMenu(caret) {
+  closeMenu();
+  const chip = caret.closest(".tts-speech-chip");
+  if (!chip) return;
+  const menu = document.createElement("div");
+  menu.className = "wf-claim-popover tts-menu";
+  menu.setAttribute("role", "menu");
+  menu.innerHTML = chip.querySelector("template.tts-menu-items")?.innerHTML || "";
+  document.body.appendChild(menu);
+  menuEl = menu;
+  menuCaret = caret;
+  caret.setAttribute("aria-expanded", "true");
+  const anchor = chip.getBoundingClientRect();
+  const box = menu.getBoundingClientRect();
+  let left = anchor.right - box.width;
+  let top = anchor.bottom + 4;
+  if (top + box.height > window.innerHeight - 8) top = anchor.top - box.height - 4;
+  left = Math.min(Math.max(8, left), window.innerWidth - box.width - 8);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${Math.max(8, top)}px`;
+  document.addEventListener("pointerdown", onMenuOutside, true);
+  document.addEventListener("keydown", onMenuKey, true);
+  document.addEventListener("scroll", closeMenu, true);
+  window.addEventListener("resize", closeMenu);
+}
+
+function closeMenu() {
+  if (!menuEl) return;
+  menuEl.remove();
+  menuCaret?.setAttribute("aria-expanded", "false");
+  menuEl = null;
+  menuCaret = null;
+  document.removeEventListener("pointerdown", onMenuOutside, true);
+  document.removeEventListener("keydown", onMenuKey, true);
+  document.removeEventListener("scroll", closeMenu, true);
+  window.removeEventListener("resize", closeMenu);
+}
+
+function onMenuOutside(e) {
+  if (menuEl?.contains(e.target) || menuCaret?.contains(e.target)) return;
+  closeMenu();
+}
+
+function onMenuKey(e) {
+  if (e.key !== "Escape") return;
+  const caret = menuCaret;
+  closeMenu();
+  caret?.focus();
 }
 
 function bindChannel() {
@@ -125,7 +192,7 @@ function updateChipTime(el, att, st) {
     );
   } else {
     symbol.innerHTML = ICON_PLAY;
-    time.textContent = duration > 0 ? formatTime(duration) : "—";
+    time.textContent = duration > 0 ? formatTime(duration) : "";
     el.setAttribute("aria-label", `Play speech${duration > 0 ? `, ${formatTime(duration)}` : ""}`);
   }
 }
@@ -408,32 +475,31 @@ export function attachmentRenderer(ctx) {
     ? `${formatTime(state.stream.elapsedSec)} / ${formatTime(shownDuration)}`
     : shownDuration > 0
       ? formatTime(shownDuration)
-      : "—";
+      : "";
   const canEdit = canMutate();
   const mutationDisabled = canEdit ? "" : " disabled";
+  const item = `type="button" role="menuitem" class="wf-claim-item tts-menu-item"`;
   const stepButtons =
     total > 1
-      ? `<button type="button" class="tts-menu-item" data-wf-action="tts:step" data-instance-id="${instanceId}" data-delta="-1"${index <= 0 || !canEdit ? " disabled" : ""}>Previous take</button>
-       <button type="button" class="tts-menu-item" data-wf-action="tts:step" data-instance-id="${instanceId}" data-delta="1"${index < 0 || index >= total - 1 || !canEdit ? " disabled" : ""}>Next take</button>`
+      ? `<button ${item} data-wf-action="tts:step" data-instance-id="${instanceId}" data-delta="-1"${index <= 0 || !canEdit ? " disabled" : ""}>Previous take</button>
+       <button ${item} data-wf-action="tts:step" data-instance-id="${instanceId}" data-delta="1"${index < 0 || index >= total - 1 || !canEdit ? " disabled" : ""}>Next take</button>`
       : "";
   const evicted = (att.b64 || att.data_b64) === EVICTED;
   const restore = evicted
-    ? `<button type="button" class="tts-menu-item" data-wf-action="tts:rehydrate" data-msg-id="${msg?.id || ""}" data-att="${att.id}"${canEdit ? "" : " disabled"}>Restore speech</button>`
+    ? `<button ${item} data-wf-action="tts:rehydrate" data-msg-id="${msg?.id || ""}" data-att="${att.id}"${mutationDisabled}>Restore speech</button>`
     : "";
   return `<span class="tts-speech-chip${state?.playing ? (state.paused ? " is-paused" : " is-playing") : ""}" id="${instanceId}" data-msg-id="${msg?.id || ""}" data-root-id="${root.id}" data-att="${att.id}">
     <button type="button" class="tts-chip-play" title="Play speech" data-wf-action="tts:toggle" data-att="${att.id}"${evicted ? " disabled" : ""}>
       <span class="tts-chip-symbol" aria-hidden="true">${state?.playing && !state.paused ? ICON_PAUSE : ICON_PLAY}</span><span class="tts-chip-time">${shownTime}</span>
     </button>
-    <details class="tts-chip-menu">
-      <summary title="Speech options" aria-label="Speech options">▾</summary>
-      <div class="tts-menu-list">
-        ${restore}
-        <button type="button" class="tts-menu-item" data-wf-action="tts:regenerate" data-msg-id="${msg?.id || ""}" data-att="${att.id}"${mutationDisabled}>Regenerate speech</button>
-        <button type="button" class="tts-menu-item" data-wf-action="tts:reroll" data-msg-id="${msg?.id || ""}" data-att="${att.id}"${mutationDisabled}>New take</button>
-        ${stepButtons}
-        <button type="button" class="tts-menu-item danger" data-wf-action="tts:delete" data-instance-id="${instanceId}"${mutationDisabled}>Delete speech</button>
-      </div>
-    </details>
+    <button type="button" class="tts-chip-caret" title="Speech options" aria-label="Speech options" aria-haspopup="menu" aria-expanded="false" data-wf-action="tts:menu" data-att="${att.id}">${ICON_CARET}</button>
+    <template class="tts-menu-items">
+      ${restore}
+      <button ${item} data-wf-action="tts:regenerate" data-msg-id="${msg?.id || ""}" data-att="${att.id}"${mutationDisabled}>Regenerate speech</button>
+      <button ${item} data-wf-action="tts:reroll" data-msg-id="${msg?.id || ""}" data-att="${att.id}"${mutationDisabled}>New take</button>
+      ${stepButtons}
+      <button type="button" role="menuitem" class="wf-claim-item tts-menu-item danger" data-wf-action="tts:delete" data-instance-id="${instanceId}"${mutationDisabled}>Delete speech</button>
+    </template>
   </span>`;
 }
 
