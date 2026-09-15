@@ -28,6 +28,7 @@ import { modelPickerState } from "./model_picker.js";
 import {
   addableProviders,
   COMFY_CONNECTION,
+  cardSummary,
   connectionLabel,
   connectionList,
   DEFAULT_PROMPT_FORMAT,
@@ -146,6 +147,7 @@ function configPanelBody() {
     ? `<label for="ig-card-style">Style</label><select id="ig-card-style" class="tool-card-select" data-wf-action="image_gen:pickStyle" data-wf-on="change">${cardStyleOptions()}</select>`
     : "";
   return `<div class="image-gen-card-controls">${stylePicker}${povPicker()}</div>
+    <div class="image-gen-card-summary">${esc(cardSummary(cfg, cardStyles))}</div>
     <button class="btn btn-sm tool-card-btn" data-wf-action="image_gen:settings">Settings</button>`;
 }
 

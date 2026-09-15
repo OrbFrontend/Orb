@@ -148,6 +148,17 @@ export function promptFormatLabel(value) {
   return PROMPT_FORMATS.find(([f]) => f === id)[1];
 }
 
+export function cardSummary(config = {}, styles = []) {
+  const skillCount = Array.isArray(config.scene_skills)
+    ? config.scene_skills.filter((skill) => skill?.enabled === true).length
+    : 0;
+  const availableStyles =
+    Array.isArray(styles) && styles.length ? styles : Array.isArray(config.styles) ? config.styles : [];
+  const activeStyle = availableStyles.find((style) => style?.id === config.default_style) || availableStyles[0];
+  const skillLabel = `${skillCount} skill${skillCount === 1 ? "" : "s"}`;
+  return `${skillLabel} · ${promptFormatLabel(activeStyle?.prompt_format)}`;
+}
+
 export const POV_MODES = [
   ["auto", "Auto"],
   ["first", "First-person"],

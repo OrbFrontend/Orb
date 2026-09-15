@@ -5,6 +5,7 @@ import { test } from "node:test";
 
 import {
   addableProviders,
+  cardSummary,
   CLOUD_SIZES,
   COMFY_CONNECTION,
   COMFY_SIZES,
@@ -48,6 +49,17 @@ test("every stored format has a label, and everything else reads as the default"
     assert.equal(normalizePromptFormat(value), "hybrid");
     assert.equal(promptFormatLabel(value), "Hybrid");
   }
+});
+
+test("the tools card summarizes enabled skills and the selected style format", () => {
+  const config = {
+    default_style: "tags",
+    scene_skills: [{ enabled: true }, { enabled: false }, { enabled: true }],
+    styles: [{ id: "tags", prompt_format: "tags" }],
+  };
+  assert.equal(cardSummary(config, config.styles), "2 skills · Tags");
+  assert.equal(cardSummary({ ...config, default_style: "missing" }, []), "2 skills · Tags");
+  assert.equal(cardSummary({ scene_skills: [{ enabled: true }] }, []), "1 skill · Hybrid");
 });
 
 // ── connections ──────────────────────────────────────────────────────────────
