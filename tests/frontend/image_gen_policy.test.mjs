@@ -60,6 +60,35 @@ test("the tools card summarizes enabled skills and the selected style format", (
   assert.equal(cardSummary(config, config.styles), "2 skills · Tags");
   assert.equal(cardSummary({ ...config, default_style: "missing" }, []), "2 skills · Tags");
   assert.equal(cardSummary({ scene_skills: [{ enabled: true }] }, []), "1 skill · Hybrid");
+
+  const withResolution = {
+    ...config,
+    source: "cloud",
+    styles: [{ ...config.styles[0], connection: "xai", width: 1024, height: 1536 }],
+  };
+  assert.equal(cardSummary(withResolution, withResolution.styles), "2 skills · Tags · 1024x1536");
+  assert.equal(
+    cardSummary(
+      {
+        ...config,
+        styles: [{ ...config.styles[0], workflow: "no-size" }],
+        external_comfy: { user_graphs: [{ id: "no-size", slots: {} }] },
+      },
+      [],
+    ),
+    "2 skills · Tags",
+  );
+  assert.equal(
+    cardSummary(
+      {
+        ...config,
+        styles: [{ ...config.styles[0], workflow: "sized", width: 832, height: 1216 }],
+        external_comfy: { user_graphs: [{ id: "sized", slots: { width: ["1", "width"], height: ["1", "height"] } }] },
+      },
+      [],
+    ),
+    "2 skills · Tags · 832x1216",
+  );
 });
 
 // ── connections ──────────────────────────────────────────────────────────────

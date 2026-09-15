@@ -148,15 +148,32 @@ export function promptFormatLabel(value) {
   return PROMPT_FORMATS.find(([f]) => f === id)[1];
 }
 
+function activeCardStyle(config, styles) {
+  const availableStyles =
+    Array.isArray(styles) && styles.length ? styles : Array.isArray(config.styles) ? config.styles : [];
+  return availableStyles.find((style) => style?.id === config.default_style) || availableStyles[0];
+}
+
+function cardResolution(config, style) {
+  if (!style) return "";
+  if (styleConnectionId(style, config) === COMFY_CONNECTION) {
+    const workflow = config.external_comfy?.user_graphs?.find((graph) => graph?.id === style.workflow);
+    if (!workflow?.slots?.width || !workflow?.slots?.height) return "";
+  }
+  const width = Number(style.width);
+  const height = Number(style.height);
+  return Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0 ? `${width}x${height}` : "";
+}
+
 export function cardSummary(config = {}, styles = []) {
   const skillCount = Array.isArray(config.scene_skills)
     ? config.scene_skills.filter((skill) => skill?.enabled === true).length
     : 0;
-  const availableStyles =
-    Array.isArray(styles) && styles.length ? styles : Array.isArray(config.styles) ? config.styles : [];
-  const activeStyle = availableStyles.find((style) => style?.id === config.default_style) || availableStyles[0];
+  const activeStyle = activeCardStyle(config, styles);
   const skillLabel = `${skillCount} skill${skillCount === 1 ? "" : "s"}`;
-  return `${skillLabel} · ${promptFormatLabel(activeStyle?.prompt_format)}`;
+  return [skillLabel, promptFormatLabel(activeStyle?.prompt_format), cardResolution(config, activeStyle)]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 export const POV_MODES = [
