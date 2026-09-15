@@ -88,7 +88,7 @@ function memberPickerHtml(cast) {
         `<option value="${esc(member.id)}"${member.id === memberId ? " selected" : ""}>${esc(member.name)}</option>`,
     )
     .join("");
-  return `<label class="tts-config-row">Cast member
+  return `<label class="tts-field">Cast member
       <select id="tts-pf-member" data-wf-action="tts:profileMember" data-wf-on="change">${options}</select>
     </label>`;
 }
@@ -104,27 +104,43 @@ export function configPanelRenderer() {
 
 function settingsBodyHtml() {
   return `<h2>Text-to-Speech</h2>
-    <div class="tts-config">
-      <div class="tts-config-section">
-        <div class="tts-config-heading">Speech</div>
-        <label class="tts-config-row"><input type="checkbox" id="tts-cfg-autoplay"${cfg.auto_play ? " checked" : ""} data-wf-action="tts:cfgGlobal" data-wf-on="change"> Play new speech automatically</label>
-        <label class="tts-config-row">Volume <input type="range" min="0" max="1" step="0.05" id="tts-cfg-volume" value="${cfg.volume}" data-wf-action="tts:cfgGlobal" data-wf-on="change"></label>
-        <label class="tts-config-row"><input type="checkbox" id="tts-cfg-karaoke"${cfg.show_karaoke ? " checked" : ""} data-wf-action="tts:cfgGlobal" data-wf-on="change"> Highlight words as they're spoken</label>
-        <label class="tts-config-row">Click to speak
+    <div class="tts-settings">
+      <section class="tts-section">
+        <div class="tts-heading">Playback</div>
+        <label class="tts-setting-toggle">
+          <input type="checkbox" id="tts-cfg-autoplay"${cfg.auto_play ? " checked" : ""} data-wf-action="tts:cfgGlobal" data-wf-on="change">
+          <span class="tts-toggle-body"><span class="tts-toggle-label">Play new speech automatically</span><span class="tts-note">Start audio as soon as a reply finishes generating.</span></span>
+        </label>
+        <label class="tts-field">Volume
+          <div class="tts-range"><input type="range" min="0" max="1" step="0.05" id="tts-cfg-volume" value="${cfg.volume}" data-wf-action="tts:cfgGlobal" data-wf-on="change"><output for="tts-cfg-volume" id="tts-cfg-volume-value">${Math.round(cfg.volume * 100)}%</output></div>
+        </label>
+      </section>
+      <section class="tts-section">
+        <div class="tts-heading">Message interaction</div>
+        <div class="tts-grid">
+          <label class="tts-field">Click to speak
           <select id="tts-cfg-granularity" data-wf-action="tts:cfgGlobal" data-wf-on="change">
             <option value="none"${cfg.click_granularity === "none" ? " selected" : ""}>Off</option>
             <option value="message"${cfg.click_granularity === "message" ? " selected" : ""}>Whole message</option>
             <option value="block"${cfg.click_granularity === "block" ? " selected" : ""}>Block</option>
           </select>
-        </label>
-        <label class="tts-config-row">Click plays
+          </label>
+          <label class="tts-field">Click plays
           <select id="tts-cfg-playscope" data-wf-action="tts:cfgGlobal" data-wf-on="change">
             <option value="unit"${cfg.click_play_scope === "unit" ? " selected" : ""}>Clicked unit</option>
             <option value="whole"${cfg.click_play_scope === "whole" ? " selected" : ""}>Whole reply</option>
           </select>
+          </label>
+        </div>
+        <label class="tts-setting-toggle">
+          <input type="checkbox" id="tts-cfg-karaoke"${cfg.show_karaoke ? " checked" : ""} data-wf-action="tts:cfgGlobal" data-wf-on="change">
+          <span class="tts-toggle-body"><span class="tts-toggle-label">Highlight words as they're spoken</span><span class="tts-note">Show the current word while speech is playing.</span></span>
         </label>
-      </div>
-      <div class="tts-config-section" id="tts-profile">Loading voice settings...</div>
+      </section>
+      <section class="tts-section" id="tts-profile">
+        <div class="tts-heading">Voice profile</div>
+        <div id="tts-profile-content" class="tts-note">Loading voice settings…</div>
+      </section>
     </div>
     <div class="modal-actions"><button class="btn" data-wf-action="tts:closeSettings">Close</button></div>`;
 }
@@ -146,6 +162,8 @@ function saveGlobal() {
   if (granularity) cfg.click_granularity = granularity.value;
   if (playscope) cfg.click_play_scope = playscope.value;
   if (karaoke) cfg.show_karaoke = karaoke.checked;
+  const volumeValue = document.getElementById("tts-cfg-volume-value");
+  if (volumeValue && volume) volumeValue.textContent = `${Math.round(parseFloat(volume.value) * 100)}%`;
   if (cfg.click_granularity !== prevGranularity) requestRepaint();
   api
     .put(`/workflows/${WORKFLOW_ID}/config`, {
@@ -161,16 +179,16 @@ function saveGlobal() {
 }
 
 async function populateProfile() {
-  let el = document.getElementById("tts-profile");
+  let el = document.getElementById("tts-profile-content");
   if (!el) return;
   if (!getActiveConvId()) {
-    el.innerHTML = `<div class="tts-config-note">Open a conversation to set its character's voice.</div>`;
+    el.innerHTML = `<div class="tts-note">Open a conversation to set its character's voice.</div>`;
     return;
   }
   const cast = getGroupCast() ? castWithCards() : null;
   if (cast) {
     if (!cast.length) {
-      el.innerHTML = `<div class="tts-config-note">This scene has no character cards to give a voice.</div>`;
+      el.innerHTML = `<div class="tts-note">This scene has no character cards to give a voice.</div>`;
       return;
     }
     if (!cast.some((member) => member.id === memberId)) memberId = cast[0].id;
@@ -188,14 +206,14 @@ async function populateProfile() {
     backends = bk?.backends || [];
   } catch (e) {
     console.warn("tts: profile load failed", e);
-    el = document.getElementById("tts-profile");
-    if (el) el.innerHTML = `<div class="tts-config-note">Could not load voice settings.</div>`;
+    el = document.getElementById("tts-profile-content");
+    if (el) el.innerHTML = `<div class="tts-note">Could not load voice settings.</div>`;
     return;
   }
-  el = document.getElementById("tts-profile");
+  el = document.getElementById("tts-profile-content");
   if (!el) return;
   if (!profile) {
-    el.innerHTML = `<div class="tts-config-note">This conversation has no character.</div>`;
+    el.innerHTML = `<div class="tts-note">This conversation has no character.</div>`;
     return;
   }
   el.innerHTML = profileFormHtml(profile, backends, cast);
@@ -217,26 +235,34 @@ function profileFormHtml(p, backends, cast = null) {
   const backendOpts = backends.map((b) => opt(b.id, b.name || b.id, b.id === p.backend)).join("");
   const langOpts = LANGUAGES.map(([code, label]) => opt(code, label, p.language?.startsWith(code))).join("");
   return `
-    <div class="tts-config-heading">Voice (this character)</div>
-    ${cast ? memberPickerHtml(cast) : ""}
-    <label class="tts-config-row"><input type="checkbox" id="tts-pf-enabled"${p.enabled ? " checked" : ""}> Auto-generate speech for this character's replies</label>
-    <label class="tts-config-row">Backend
-      <select id="tts-pf-backend" data-wf-action="tts:backendChange" data-wf-on="change">${backendOpts}</select>
-    </label>
-    ${field("api_url", `<label class="tts-config-row">API URL <input type="text" id="tts-pf-api_url" value="${esc(p.api_url || "")}"></label>`)}
-    ${field("api_key", `<label class="tts-config-row">API key <input type="password" id="tts-pf-api_key" value="${esc(p.api_key || "")}"></label>`)}
-    ${field("model", `<label class="tts-config-row">Model <select id="tts-pf-model"><option value="${esc(p.model || "")}" selected>${esc(p.model || "(default)")}</option></select></label>`)}
-    ${field("language", `<label class="tts-config-row">Language <select id="tts-pf-language">${langOpts}</select></label>`)}
-    <label class="tts-config-row">Voice
-      <select id="tts-pf-voice"><option value="${esc(p.voice_id || "")}" selected>${esc(p.voice_id || "(default)")}</option></select>
-      <button type="button" data-wf-action="tts:voiceReload">Reload</button>
-    </label>
-    ${field("rate", `<label class="tts-config-row">Rate <input type="range" min="0.5" max="2.0" step="0.1" id="tts-pf-rate" value="${esc(p.rate)}"></label>`)}
-    ${field("pitch", `<label class="tts-config-row">Pitch <input type="range" min="0.5" max="2.0" step="0.1" id="tts-pf-pitch" value="${esc(p.pitch)}"></label>`)}
-    <div class="tts-config-row">
-      <button type="button" data-wf-action="tts:profileSave">Save voice</button>
-      <button type="button" data-wf-action="tts:preview">Preview</button>
-      <span id="tts-pf-status"></span>
+    <div class="tts-note">Choose how this character sounds in generated replies.</div>
+    <div class="tts-profile-fields">
+      ${cast ? memberPickerHtml(cast) : ""}
+      <label class="tts-setting-toggle">
+        <input type="checkbox" id="tts-pf-enabled"${p.enabled ? " checked" : ""}>
+        <span class="tts-toggle-body"><span class="tts-toggle-label">Auto-generate speech for this character's replies</span><span class="tts-note">New replies will receive an audio clip automatically.</span></span>
+      </label>
+      <div class="tts-grid">
+        <label class="tts-field">Backend
+          <select id="tts-pf-backend" data-wf-action="tts:backendChange" data-wf-on="change">${backendOpts}</select>
+        </label>
+        ${field("language", `<label class="tts-field">Language <select id="tts-pf-language">${langOpts}</select></label>`)}
+      </div>
+      ${field("api_url", `<label class="tts-field">API URL <input type="text" id="tts-pf-api_url" value="${esc(p.api_url || "")}"></label>`)}
+      ${field("api_key", `<label class="tts-field">API key <input type="password" id="tts-pf-api_key" value="${esc(p.api_key || "")}"></label>`)}
+      ${field("model", `<label class="tts-field">Model <select id="tts-pf-model"><option value="${esc(p.model || "")}" selected>${esc(p.model || "(default)")}</option></select></label>`)}
+      <label class="tts-field">Voice
+        <span class="tts-control-row"><select id="tts-pf-voice"><option value="${esc(p.voice_id || "")}" selected>${esc(p.voice_id || "(default)")}</option></select><button class="btn btn-sm" type="button" data-wf-action="tts:voiceReload">Reload</button></span>
+      </label>
+      <div class="tts-grid">
+        ${field("rate", `<label class="tts-field">Rate <input type="range" min="0.5" max="2.0" step="0.1" id="tts-pf-rate" value="${esc(p.rate)}"></label>`)}
+        ${field("pitch", `<label class="tts-field">Pitch <input type="range" min="0.5" max="2.0" step="0.1" id="tts-pf-pitch" value="${esc(p.pitch)}"></label>`)}
+      </div>
+    </div>
+    <div class="tts-profile-actions">
+      <button class="btn btn-sm btn-accent" type="button" data-wf-action="tts:profileSave">Save voice</button>
+      <button class="btn btn-sm" type="button" data-wf-action="tts:preview">Preview</button>
+      <span id="tts-pf-status" aria-live="polite"></span>
     </div>`;
 }
 
