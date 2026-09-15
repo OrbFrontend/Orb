@@ -109,6 +109,7 @@ class KokoroTTSAdapter(TTSAdapter):
         return SynthesisResult(
             audio_bytes=wav_bytes,
             content_type="audio/wav",
+            duration_ms=round(len(raw_pcm) / 2 / sample_rate * 1000),
         )
 
     async def list_voices(self, language: str = "", **kwargs) -> list[dict]:

@@ -102,6 +102,7 @@ class EdgeTTSAdapter(TTSAdapter):
         return SynthesisResult(
             audio_bytes=audio_bytes,
             content_type="audio/mpeg",
+            duration_ms=max((int(boundary["end_ms"]) for boundary in boundaries), default=0),
             word_boundaries=boundaries or None,
         )
 

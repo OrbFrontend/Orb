@@ -9,8 +9,6 @@
   --at-btn-px: clamp(7px, 0.7vw, 13px);
   --at-btn-py: clamp(2px, 0.25vw, 5px);
   --at-track: clamp(7px, 0.7vw, 12px);
-  --at-vol-w: clamp(64px, 7vw, 116px);
-  --at-thumb: clamp(10px, 1vw, 15px);
 
   position: absolute;
   left: 0;
@@ -18,7 +16,7 @@
   bottom: 100%;
   display: flex;
   flex-direction: column;
-  gap: calc(var(--at-gap) * 0.75);
+  gap: calc(var(--at-gap) * 0.5);
   margin: var(--at-my) var(--at-mx);
   padding: var(--at-py) var(--at-px);
   background: var(--bg-elevated);
@@ -59,40 +57,25 @@
 }
 .audio-transport-row {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: var(--at-gap);
 }
-.audio-transport-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--at-gap) calc(var(--at-gap) * 1.2);
-}
-.audio-transport-playpause,
-.audio-transport-repeat,
-.audio-transport-stop {
-  flex: 0 0 auto;
-  padding: var(--at-btn-py) var(--at-btn-px);
-  background: var(--bg-hover);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+.audio-transport-source {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding: var(--at-btn-py) 0;
+  background: none;
+  border: 0;
   color: var(--text-secondary);
   font-size: var(--at-fs-sm);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: pointer;
 }
-.audio-transport-playpause:hover,
-.audio-transport-repeat:hover,
-.audio-transport-stop:hover {
+.audio-transport-source:hover {
   color: var(--text-primary);
-  border-color: var(--accent-dim);
-}
-.audio-transport-repeat.on {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-.audio-transport-playpause {
-  min-width: clamp(48px, 5vw, 84px);
-  text-align: center;
 }
 .audio-transport-time {
   flex: 1 1 auto;
@@ -105,7 +88,9 @@
   white-space: nowrap;
 }
 .audio-transport-progress {
-  width: 100%;
+  flex: 0 1 clamp(90px, 18vw, 240px);
+  width: auto;
+  min-width: 56px;
   height: var(--at-track);
   background: var(--bg-hover);
   border-radius: calc(var(--at-track) / 2);
@@ -120,88 +105,4 @@
   height: 100%;
   width: 0;
   background: var(--accent);
-}
-.audio-transport-vol {
-  flex: 0 0 auto;
-  width: var(--at-vol-w);
-  height: calc(var(--at-track) * 0.8);
-  -webkit-appearance: none;
-  appearance: none;
-  background: var(--bg-hover);
-  border-radius: calc(var(--at-track) * 0.4);
-  cursor: pointer;
-}
-.audio-transport-vol::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: var(--at-thumb);
-  height: var(--at-thumb);
-  border-radius: 50%;
-  background: var(--text-secondary);
-  cursor: pointer;
-}
-.audio-transport-vol:hover::-webkit-slider-thumb {
-  background: var(--text-primary);
-}
-.audio-transport-vol::-moz-range-thumb {
-  width: var(--at-thumb);
-  height: var(--at-thumb);
-  border: none;
-  border-radius: 50%;
-  background: var(--text-secondary);
-  cursor: pointer;
-}
-.audio-transport-vol::-moz-range-track {
-  height: calc(var(--at-track) * 0.8);
-  background: var(--bg-hover);
-  border-radius: calc(var(--at-track) * 0.4);
-}
-.audio-transport-close {
-  margin-left: auto;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1px var(--at-btn-px);
-  background: none;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  color: var(--text-muted);
-  cursor: pointer;
-}
-.audio-transport-close:hover {
-  color: var(--text-primary);
-  border-color: var(--accent-dim);
-}
-.audio-transport-close svg {
-  width: 1.1em;
-  height: 1.1em;
-  display: block;
-}
-.audio-reopen {
-  position: absolute;
-  bottom: 100%;
-  right: 0;
-  margin: 0 clamp(12px, 1.4vw, 24px) clamp(6px, 0.6vw, 11px) 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: clamp(30px, 3vw, 42px);
-  height: clamp(30px, 3vw, 42px);
-  padding: 0;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-.audio-reopen:hover {
-  color: var(--text-primary);
-  border-color: var(--accent-dim);
-}
-.audio-reopen svg {
-  width: 58%;
-  height: 58%;
-  display: block;
 }

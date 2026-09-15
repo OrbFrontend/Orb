@@ -67,6 +67,7 @@ function _ensureChannel(name) {
     playing: false,
     loop: false,
     stopOn: null,
+    source: null,
     steps: null,
     paused: false,
     pausedOffset: 0,
@@ -247,7 +248,7 @@ function _onLastEnded(ch, token, channel) {
   _notifyBar();
 }
 
-export function playAudio({ channel, segments, loop = false, volume, stopOn } = {}) {
+export function playAudio({ channel, segments, loop = false, volume, stopOn, source } = {}) {
   if (typeof channel !== "string" || !channel) {
     console.error("[audio] playAudio: a channel name is required");
     return { channel: null, stop() {}, isActive: () => false };
@@ -266,6 +267,10 @@ export function playAudio({ channel, segments, loop = false, volume, stopOn } = 
   ch.token = token;
   ch.loop = !!loop;
   ch.stopOn = stopOn || null;
+  ch.source =
+    source && typeof source === "object"
+      ? { label: typeof source.label === "string" ? source.label : "Audio", msgId: source.msgId ?? null }
+      : { label: "Audio", msgId: null };
   if (volume != null) ch.baseGain.gain.value = _clamp01(volume);
   _stopSources(ch);
 
@@ -342,6 +347,7 @@ export function channelState(channel) {
       remainingSec: seg.segRemainingSec,
       durationSec: seg.segDurationSec,
     },
+    source: ch.source,
   };
 }
 
@@ -499,7 +505,7 @@ function _stopForEvent(event) {
 export function activeChannels() {
   const names = [];
   for (const [name, ch] of _channels) {
-    if (ch.plan) names.push(name);
+    if (ch.plan && ch.playing) names.push(name);
   }
   return names;
 }

@@ -148,6 +148,50 @@ export function promptFormatLabel(value) {
   return PROMPT_FORMATS.find(([f]) => f === id)[1];
 }
 
+function activeCardStyle(config, styles) {
+  const availableStyles =
+    Array.isArray(styles) && styles.length ? styles : Array.isArray(config.styles) ? config.styles : [];
+  return availableStyles.find((style) => style?.id === config.default_style) || availableStyles[0];
+}
+
+function cardResolution(config, style) {
+  if (!style) return "";
+  if (styleConnectionId(style, config) === COMFY_CONNECTION) {
+    const workflow = config.external_comfy?.user_graphs?.find((graph) => graph?.id === style.workflow);
+    if (!workflow?.slots?.width || !workflow?.slots?.height) return "";
+  }
+  const width = Number(style.width);
+  const height = Number(style.height);
+  return Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0 ? `${width}x${height}` : "";
+}
+
+function cardSupportsReferences(config, style, providers) {
+  if (!style) return false;
+  const connection = styleConnectionId(style, config);
+  if (connection === COMFY_CONNECTION) {
+    return graphReferenceSlots(config.external_comfy?.user_graphs, style.workflow).length > 0;
+  }
+  const provider = Array.isArray(providers) ? providers.find((item) => item?.id === connection) : null;
+  return providerTakesReferences(provider);
+}
+
+export function cardSummary(config = {}, styles = [], providers = []) {
+  const skillCount = Array.isArray(config.scene_skills)
+    ? config.scene_skills.filter((skill) => skill?.enabled === true).length
+    : 0;
+  const activeStyle = activeCardStyle(config, styles);
+  const skillLabel = config.scene_skills_enabled === true ? `${skillCount} skill${skillCount === 1 ? "" : "s"}` : "";
+  const referenceLabel = cardSupportsReferences(config, activeStyle, providers) ? "Ref" : "";
+  return [
+    skillLabel,
+    promptFormatLabel(activeStyle?.prompt_format),
+    cardResolution(config, activeStyle),
+    referenceLabel,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 export const POV_MODES = [
   ["auto", "Auto"],
   ["first", "First-person"],

@@ -37,6 +37,9 @@ def _attachment(text: str, profile: dict, audio: bytes, mime: str, backend: str,
     pauses the frontend reads to slice and play individual blocks.
     """
     _, ext = audio_mime_ext(backend)
+    duration_ms = sum(
+        max(0, int(block.get("duration_ms") or 0)) + max(0, int(block.get("pause_after_ms") or 0)) for block in blocks
+    )
     return {
         "workflow_id": WORKFLOW_ID,
         "filename": f"speech.{ext}",
@@ -44,7 +47,7 @@ def _attachment(text: str, profile: dict, audio: bytes, mime: str, backend: str,
         "data": audio,
         "seed": compute_seed(text, profile),
         "generation_metadata": build_generation_metadata(text, profile),
-        "consumption_metadata": {"blocks": blocks},
+        "consumption_metadata": {"duration_ms": duration_ms, "blocks": blocks},
     }
 
 
@@ -114,7 +117,10 @@ async def reroll_gen(ctx, params, seed):
     a 500.
     """
     audio, _, blocks = await synthesize_blocks_from_metadata(params if isinstance(params, dict) else {})
-    return audio, {"blocks": blocks}
+    duration_ms = sum(
+        max(0, int(block.get("duration_ms") or 0)) + max(0, int(block.get("pause_after_ms") or 0)) for block in blocks
+    )
+    return audio, {"duration_ms": duration_ms, "blocks": blocks}
 
 
 async def on_demand(ctx, body):

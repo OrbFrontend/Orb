@@ -1,28 +1,26 @@
 import {
   activeChannels,
   channelState,
-  channelUserVolume,
   isContextSuspended,
-  pauseChannel,
-  replayChannel,
-  resumeChannel,
   resumeContext,
   seekChannel,
   setBarChangeHook,
-  setChannelRepeat,
-  setChannelUserVolume,
-  stopChannel,
 } from "./audio_player.js";
-import { scrollToBottom } from "./utils.js";
+import { speakerLabel } from "./group_cast.js";
+import { S } from "./state.js";
+import { scrollToMessage } from "./utils.js";
 
 let _barEl = null;
-let _reopenEl = null;
 let _inited = false;
 let _rafId = null;
 let _geomRaf = null;
 let _ro = null;
+let _messageObserver = null;
+let _messageMutations = null;
 let _selectedChannel = null;
-let _dismissed = false;
+let _watchedMsgId = null;
+let _watchedMessageEl = null;
+let _messageVisibility = new Map();
 
 let _dragging = false;
 let _dragChannel = null;
@@ -37,19 +35,7 @@ function _mmss(sec) {
 }
 
 function _formatTime(st) {
-  let out = `${_mmss(st.stream.elapsedSec)} / ${_mmss(st.stream.durationSec)}`;
-  if (st.segmentCount > 1 && st.segmentIndex >= 0) {
-    out +=
-      "  " +
-      (st.segmentIndex + 1) +
-      "/" +
-      st.segmentCount +
-      " " +
-      _mmss(st.segment.elapsedSec) +
-      "/" +
-      _mmss(st.segment.durationSec);
-  }
-  return out;
+  return `${_mmss(st.stream.elapsedSec)} / ${_mmss(st.stream.durationSec)}`;
 }
 
 function _streamPct(st) {
@@ -95,109 +81,117 @@ function _onGeomChange() {
   });
 }
 
-const _SVG_NS = "http://www.w3.org/2000/svg";
-function _icon(viewBox, children) {
-  const svg = document.createElementNS(_SVG_NS, "svg");
-  svg.setAttribute("viewBox", viewBox);
-  svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "2");
-  svg.setAttribute("stroke-linecap", "round");
-  svg.setAttribute("stroke-linejoin", "round");
-  for (const [tag, attrs] of children) {
-    const el = document.createElementNS(_SVG_NS, tag);
-    for (const k in attrs) el.setAttribute(k, attrs[k]);
-    svg.appendChild(el);
-  }
-  return svg;
+function _messageElement(msgId) {
+  if (msgId == null) return null;
+  return document.querySelector(`.message[data-msg-id="${Number(msgId)}"]`);
 }
 
-function _setReopenVisible(on) {
-  if (_reopenEl) _reopenEl.classList.toggle("hidden", !on);
+function _watchMessage(msgId) {
+  const el = _messageElement(msgId);
+  if (_watchedMsgId === msgId && _watchedMessageEl === el) return;
+  _watchedMsgId = msgId;
+  _watchedMessageEl = el;
+  _messageVisibility = new Map();
+  _messageObserver?.disconnect();
+  if (msgId == null) return;
+  if (!el) {
+    _messageVisibility.set(msgId, false);
+    return;
+  }
+  _messageObserver?.observe(el);
+}
+
+function _messageIsVisible(msgId) {
+  if (msgId == null) return false;
+  if (_messageVisibility.has(msgId)) return _messageVisibility.get(msgId);
+  const el = _messageElement(msgId);
+  const cm = document.getElementById("chat-messages");
+  if (!el || !cm) return false;
+  const r = el.getBoundingClientRect();
+  const box = cm.getBoundingClientRect();
+  return r.bottom > box.top && r.top < box.bottom;
+}
+
+function _sourceText(st) {
+  const source = st.source || { label: "Audio", msgId: null };
+  const msg = source.msgId == null ? null : S.messages.find((item) => item.id === source.msgId);
+  const preview = (msg?.content || "").replace(/\s+/g, " ").trim();
+  return {
+    label:
+      source.msgId != null && (!source.label || source.label === "Speech")
+        ? speakerLabel(msg)
+        : source.label || "Audio",
+    preview: preview.length > 90 ? `${preview.slice(0, 87)}…` : preview,
+    msgId: source.msgId,
+  };
+}
+
+function _shouldShowDock(st) {
+  const msgId = st?.source?.msgId;
+  return msgId == null || !_messageIsVisible(msgId);
 }
 
 function _refreshBar() {
   if (!_barEl) return;
-  const wasHidden = _barEl.classList.contains("hidden");
   const names = activeChannels();
   if (_selectedChannel && !names.includes(_selectedChannel)) _selectedChannel = null;
   if (!_selectedChannel && names.length) _selectedChannel = names[0];
 
+  let st = _selectedChannel ? channelState(_selectedChannel) : null;
+  _watchMessage(st?.source?.msgId ?? null);
+  let show = !!names.length && !!st && _shouldShowDock(st);
+  if (!show && names.length > 1) {
+    const fallback = names.find((name) => _shouldShowDock(channelState(name)));
+    if (fallback) {
+      _selectedChannel = fallback;
+      st = channelState(fallback);
+      _watchMessage(st?.source?.msgId ?? null);
+      show = true;
+    }
+  }
+
   _barEl.innerHTML = "";
   _barEl.classList.toggle("audio-transport-suspended", isContextSuspended());
-
-  if (!names.length) _dismissed = false;
-  _setReopenVisible(names.length > 0 && _dismissed);
-
-  if (!names.length || _dismissed) {
-    _barEl.classList.add("hidden");
+  _barEl.classList.toggle("hidden", !show);
+  if (!show) {
     _syncBarLayout();
     _syncRaf();
     return;
   }
-  _barEl.classList.remove("hidden");
 
-  const tabs = document.createElement("div");
-  tabs.className = "audio-transport-tabs";
-  for (const name of names) {
-    const tab = document.createElement("button");
-    tab.type = "button";
-    tab.className = `audio-transport-tab${name === _selectedChannel ? " selected" : ""}`;
-    tab.dataset.channel = name;
-    tab.setAttribute("aria-pressed", name === _selectedChannel ? "true" : "false");
-    tab.textContent = name;
-    tabs.appendChild(tab);
+  if (names.length > 1) {
+    const tabs = document.createElement("div");
+    tabs.className = "audio-transport-tabs";
+    for (const name of names) {
+      const tab = document.createElement("button");
+      const tabState = channelState(name);
+      tab.type = "button";
+      tab.className = `audio-transport-tab${name === _selectedChannel ? " selected" : ""}`;
+      tab.dataset.channel = name;
+      tab.setAttribute("aria-pressed", name === _selectedChannel ? "true" : "false");
+      tab.textContent = _sourceText(tabState || {}).label;
+      tabs.appendChild(tab);
+    }
+    _barEl.appendChild(tabs);
   }
-  const closeBtn = document.createElement("button");
-  closeBtn.type = "button";
-  closeBtn.className = "audio-transport-close";
-  closeBtn.setAttribute("aria-label", "Close audio player (keeps playing)");
-  closeBtn.appendChild(
-    _icon("0 0 24 24", [
-      ["line", { x1: "6", y1: "6", x2: "18", y2: "18" }],
-      ["line", { x1: "18", y1: "6", x2: "6", y2: "18" }],
-    ]),
-  );
-  tabs.appendChild(closeBtn);
-  _barEl.appendChild(tabs);
 
-  const st = channelState(_selectedChannel);
-  if (st) _barEl.appendChild(_buildControls(_selectedChannel, st));
-
+  _barEl.appendChild(_buildDock(_selectedChannel, st));
   _syncBarLayout();
-  if (wasHidden) scrollToBottom();
   _syncRaf();
 }
 
-function _buildControls(channel, st) {
+function _buildDock(channel, st) {
   const row = document.createElement("div");
   row.className = "audio-transport-row";
   row.dataset.channel = channel;
 
-  const playpause = document.createElement("button");
-  playpause.type = "button";
-  playpause.className = "audio-transport-playpause";
-  playpause.dataset.channel = channel;
-  if (!st.playing) {
-    playpause.dataset.action = "replay";
-    playpause.textContent = "Replay";
-    playpause.setAttribute("aria-label", `Replay ${channel}`);
-  } else if (st.paused) {
-    playpause.dataset.action = "resume";
-    playpause.textContent = "Play";
-    playpause.setAttribute("aria-label", `Play ${channel}`);
-  } else {
-    playpause.dataset.action = "pause";
-    playpause.textContent = "Pause";
-    playpause.setAttribute("aria-label", `Pause ${channel}`);
-  }
-
-  const repeat = document.createElement("button");
-  repeat.type = "button";
-  repeat.className = `audio-transport-repeat${st.loop ? " on" : ""}`;
-  repeat.dataset.channel = channel;
-  repeat.setAttribute("aria-pressed", st.loop ? "true" : "false");
-  repeat.textContent = "Repeat";
+  const source = _sourceText(st);
+  const label = document.createElement("button");
+  label.type = "button";
+  label.className = "audio-transport-source";
+  label.dataset.msgId = source.msgId ?? "";
+  label.title = source.msgId == null ? source.label : "Jump to the playing message";
+  label.textContent = source.preview ? `${source.label} · ${source.preview}` : source.label;
 
   const progress = document.createElement("div");
   progress.className = "audio-transport-progress";
@@ -210,26 +204,7 @@ function _buildControls(channel, st) {
   const time = document.createElement("span");
   time.className = "audio-transport-time";
   time.textContent = _formatTime(st);
-
-  const vol = document.createElement("input");
-  vol.type = "range";
-  vol.min = "0";
-  vol.max = "100";
-  vol.className = "audio-transport-vol";
-  vol.dataset.channel = channel;
-  vol.value = String(Math.round(channelUserVolume(channel) * 100));
-
-  const stop = document.createElement("button");
-  stop.type = "button";
-  stop.className = "audio-transport-stop";
-  stop.dataset.channel = channel;
-  stop.setAttribute("aria-label", `Stop ${channel}`);
-  stop.textContent = "Stop";
-
-  const controls = document.createElement("div");
-  controls.className = "audio-transport-controls";
-  controls.append(playpause, repeat, time, vol, stop);
-  row.append(progress, controls);
+  row.append(label, progress, time);
   return row;
 }
 
@@ -237,7 +212,7 @@ function _tick() {
   const anyPlaying = _anyAudible();
   const st = _selectedChannel ? channelState(_selectedChannel) : null;
   const dragOwnsFill = _dragging && _dragChannel === _selectedChannel;
-  if (st && _barEl && !dragOwnsFill) {
+  if (st && _barEl && !_barEl.classList.contains("hidden") && !dragOwnsFill) {
     const row = _barEl.querySelector(".audio-transport-row");
     if (row) {
       const fill = row.querySelector(".audio-transport-fill");
@@ -288,32 +263,14 @@ function _onDragUp(e) {
 }
 
 function _onBarClick(e) {
-  if (e.target.closest(".audio-transport-close")) {
-    _dismissed = true;
-    _refreshBar();
-    return;
-  }
   const tab = e.target.closest(".audio-transport-tab");
   if (tab?.dataset.channel) {
     _selectedChannel = tab.dataset.channel;
     _refreshBar();
     return;
   }
-  const pp = e.target.closest(".audio-transport-playpause");
-  if (pp?.dataset.channel) {
-    if (pp.dataset.action === "pause") pauseChannel(pp.dataset.channel);
-    else if (pp.dataset.action === "resume") resumeChannel(pp.dataset.channel);
-    else if (pp.dataset.action === "replay") replayChannel(pp.dataset.channel);
-    return;
-  }
-  const rep = e.target.closest(".audio-transport-repeat");
-  if (rep?.dataset.channel) {
-    const st = channelState(rep.dataset.channel);
-    setChannelRepeat(rep.dataset.channel, !st?.loop);
-    return;
-  }
-  const stop = e.target.closest(".audio-transport-stop");
-  if (stop?.dataset.channel) stopChannel(stop.dataset.channel);
+  const source = e.target.closest(".audio-transport-source");
+  if (source?.dataset.msgId) scrollToMessage(Number(source.dataset.msgId));
 }
 
 function _onBarPointerDown(e) {
@@ -328,13 +285,6 @@ function _onBarPointerDown(e) {
   document.addEventListener("pointermove", _onDragMove, true);
   document.addEventListener("pointerup", _onDragUp, true);
   e.preventDefault();
-}
-
-function _onBarInput(e) {
-  const slider = e.target.closest(".audio-transport-vol");
-  if (slider?.dataset.channel) {
-    setChannelUserVolume(slider.dataset.channel, Number(slider.value) / 100);
-  }
 }
 
 function _bindResumeOnGesture() {
@@ -358,33 +308,32 @@ export function initAudioPlayer() {
   _barEl.className = "audio-transport hidden";
   _barEl.addEventListener("click", _onBarClick);
   _barEl.addEventListener("pointerdown", _onBarPointerDown);
-  _barEl.addEventListener("input", _onBarInput);
   const main = document.getElementById("main");
   const inputArea = document.getElementById("chat-input-area");
   if (inputArea) inputArea.insertBefore(_barEl, inputArea.firstChild);
   else if (main) main.appendChild(_barEl);
   else document.body.appendChild(_barEl);
-  _reopenEl = document.createElement("button");
-  _reopenEl.type = "button";
-  _reopenEl.id = "audio-reopen";
-  _reopenEl.className = "audio-reopen hidden";
-  _reopenEl.setAttribute("aria-label", "Show audio player");
-  _reopenEl.appendChild(
-    _icon("0 0 24 24", [
-      ["polygon", { points: "11 5 6 9 2 9 2 15 6 15 11 19 11 5" }],
-      ["path", { d: "M15.54 8.46a5 5 0 0 1 0 7.07" }],
-      ["path", { d: "M19.07 4.93a10 10 0 0 1 0 14.14" }],
-    ]),
-  );
-  _reopenEl.addEventListener("click", () => {
-    _dismissed = false;
-    _refreshBar();
-  });
-  _barEl.parentNode.insertBefore(_reopenEl, _barEl);
   const cm = document.getElementById("chat-messages");
   if (cm && typeof ResizeObserver !== "undefined") {
     _ro = new ResizeObserver(_onGeomChange);
     _ro.observe(cm);
+  }
+  if (cm && typeof IntersectionObserver !== "undefined") {
+    _messageObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) _messageVisibility.set(Number(entry.target.dataset.msgId), entry.isIntersecting);
+        _refreshBar();
+      },
+      { root: cm, threshold: 0.01 },
+    );
+  }
+  if (cm && typeof MutationObserver !== "undefined") {
+    _messageMutations = new MutationObserver(() => {
+      const st = _selectedChannel ? channelState(_selectedChannel) : null;
+      _watchMessage(st?.source?.msgId ?? null);
+      _refreshBar();
+    });
+    _messageMutations.observe(cm, { childList: true, subtree: true });
   }
   setBarChangeHook(_refreshBar);
   _bindResumeOnGesture();

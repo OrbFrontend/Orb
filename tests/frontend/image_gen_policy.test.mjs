@@ -5,6 +5,7 @@ import { test } from "node:test";
 
 import {
   addableProviders,
+  cardSummary,
   CLOUD_SIZES,
   COMFY_CONNECTION,
   COMFY_SIZES,
@@ -48,6 +49,60 @@ test("every stored format has a label, and everything else reads as the default"
     assert.equal(normalizePromptFormat(value), "hybrid");
     assert.equal(promptFormatLabel(value), "Hybrid");
   }
+});
+
+test("the tools card summarizes enabled skills and the selected style format", () => {
+  const config = {
+    default_style: "tags",
+    scene_skills: [{ enabled: true }, { enabled: false }, { enabled: true }],
+    scene_skills_enabled: true,
+    styles: [{ id: "tags", prompt_format: "tags" }],
+  };
+  assert.equal(cardSummary(config, config.styles), "2 skills · Tags");
+  assert.equal(cardSummary({ ...config, default_style: "missing" }, []), "2 skills · Tags");
+  assert.equal(cardSummary({ scene_skills: [{ enabled: true }], scene_skills_enabled: true }, []), "1 skill · Hybrid");
+  assert.equal(cardSummary({ ...config, scene_skills_enabled: false }, config.styles), "Tags");
+
+  const withResolution = {
+    ...config,
+    source: "cloud",
+    styles: [{ ...config.styles[0], connection: "xai", width: 1024, height: 1536 }],
+  };
+  assert.equal(cardSummary(withResolution, withResolution.styles, [{ id: "xai", supports_references: true }]), "2 skills · Tags · 1024x1536 · Ref");
+  assert.equal(cardSummary(withResolution, withResolution.styles, [{ id: "xai", supports_references: false }]), "2 skills · Tags · 1024x1536");
+  assert.equal(
+    cardSummary(
+      {
+        ...config,
+        styles: [{ ...config.styles[0], workflow: "no-size" }],
+        external_comfy: { user_graphs: [{ id: "no-size", slots: {} }] },
+      },
+      [],
+    ),
+    "2 skills · Tags",
+  );
+  assert.equal(
+    cardSummary(
+      {
+        ...config,
+        styles: [{ ...config.styles[0], workflow: "sized", width: 832, height: 1216 }],
+        external_comfy: { user_graphs: [{ id: "sized", slots: { width: ["1", "width"], height: ["1", "height"] } }] },
+      },
+      [],
+    ),
+    "2 skills · Tags · 832x1216",
+  );
+  assert.equal(
+    cardSummary(
+      {
+        ...config,
+        styles: [{ ...config.styles[0], workflow: "refs", width: 832, height: 1216 }],
+        external_comfy: { user_graphs: [{ id: "refs", slots: { references: [{ slot: ["1", "image"] }] } }] },
+      },
+      [],
+    ),
+    "2 skills · Tags · Ref",
+  );
 });
 
 // ── connections ──────────────────────────────────────────────────────────────
