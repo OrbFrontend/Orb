@@ -180,7 +180,7 @@ export function cardSummary(config = {}, styles = [], providers = []) {
     ? config.scene_skills.filter((skill) => skill?.enabled === true).length
     : 0;
   const activeStyle = activeCardStyle(config, styles);
-  const skillLabel = `${skillCount} skill${skillCount === 1 ? "" : "s"}`;
+  const skillLabel = config.scene_skills_enabled === true ? `${skillCount} skill${skillCount === 1 ? "" : "s"}` : "";
   const referenceLabel = cardSupportsReferences(config, activeStyle, providers) ? "Ref" : "";
   return [
     skillLabel,

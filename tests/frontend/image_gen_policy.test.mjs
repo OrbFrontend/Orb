@@ -55,11 +55,13 @@ test("the tools card summarizes enabled skills and the selected style format", (
   const config = {
     default_style: "tags",
     scene_skills: [{ enabled: true }, { enabled: false }, { enabled: true }],
+    scene_skills_enabled: true,
     styles: [{ id: "tags", prompt_format: "tags" }],
   };
   assert.equal(cardSummary(config, config.styles), "2 skills · Tags");
   assert.equal(cardSummary({ ...config, default_style: "missing" }, []), "2 skills · Tags");
-  assert.equal(cardSummary({ scene_skills: [{ enabled: true }] }, []), "1 skill · Hybrid");
+  assert.equal(cardSummary({ scene_skills: [{ enabled: true }], scene_skills_enabled: true }, []), "1 skill · Hybrid");
+  assert.equal(cardSummary({ ...config, scene_skills_enabled: false }, config.styles), "Tags");
 
   const withResolution = {
     ...config,
