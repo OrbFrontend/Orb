@@ -753,19 +753,41 @@ def speech_input(text: str) -> str:
     return text
 
 
+def _unmarked_speech(text: str, style: AxisStyle) -> bool:
+    """Read plain chat when the model cannot identify either markup convention.
+
+    Unknown is not a semantic narration label: the markup model also returns
+    unknown/unknown for ordinary greetings. Keep marked or malformed RP out of
+    this fallback; an apostrophe within a word is not a quotation delimiter.
+    """
+    if style.dialogue != Dialogue.UNKNOWN or style.narration != Narration.UNKNOWN:
+        return False
+    markers = OPEN_QUOTES | CLOSE_QUOTES | TOGGLE_QUOTES | frozenset("*_—`")
+    for i, char in enumerate(text):
+        if char == "’" and 0 < i < len(text) - 1 and text[i - 1].isalnum() and text[i + 1].isalnum():
+            continue
+        if char in markers:
+            return False
+    return any(char.isalnum() for char in text)
+
+
 def speech_segments(text: str, style: AxisStyle | None = None) -> list[tuple[str, str]]:
     """Ordered speech/action text under the message's markup convention.
 
     Shares format consistency's quotation, emphasis and inline-role decisions.
-    A convention labels the whole message, not individual sentences: ambiguous
-    bare prose stays silent unless the convention identifies bare dialogue.
+    A convention labels the whole message, not individual sentences. Unmarked
+    chat with both conventions unknown falls back to plain speech; a positive
+    narration reading still excludes the unquoted prose.
     Parenthetical asides, OOC and protected formatting are never spoken.
     """
     text = speech_input(text)
     style = style or classify_axes(text)
+    plain_speech = _unmarked_speech(text, style)
     # Both axes bare means narration and speech have no structural boundary.
     # Explicit quotes remain usable, but guessing the bare spans reads narration.
     dialogue = Dialogue.UNKNOWN if style.narration == Narration.BARE and style.dialogue == Dialogue.BARE else style.dialogue
+    if plain_speech:
+        dialogue = Dialogue.BARE
     segments: list[tuple[str, str]] = []
 
     for para in split_paragraphs(text):
@@ -793,7 +815,7 @@ def speech_segments(text: str, style: AxisStyle | None = None) -> list[tuple[str
             elif role == "DIALOGUE" or (role == "EMPHASIS_INLINE" and pending):
                 # A whole-message convention cannot identify individual
                 # narrative sentences mixed into bare speech. Be conservative.
-                if typ == "NARRATION" and re.match(r"\s*(?:The|He|She|They|His|Her|Their)\b", raw):
+                if not plain_speech and typ == "NARRATION" and re.match(r"\s*(?:The|He|She|They|His|Her|Their)\b", raw):
                     flush()
                     continue
                 pending += raw

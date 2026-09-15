@@ -317,3 +317,26 @@ async def test_preview_speaks_literal_unquoted_text(monkeypatch):
     _patch_adapter(monkeypatch)
     audio, _ = await synth.synthesize("Hello there.", synth.normalize_profile(None))
     assert b"Hello there." in audio
+
+
+async def test_plain_greeting_reaches_audio_with_real_model_labels(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from backend.workflows import toolkit
+
+    _patch_adapter(monkeypatch)
+    monkeypatch.setattr(toolkit, "local_feature_available", lambda feature: (True, ""))
+    # Recorded from the pinned markup-17m-q8_0 model, not an assumed bare label.
+    classifier = AsyncMock(return_value=("unknown", "unknown"))
+    monkeypatch.setattr(toolkit._local_ml, "aclassify_markup", classifier)
+    text = "Hello. Let's get to know each other."
+    profile = synth.normalize_profile(None)
+    audio, _, blocks = await synth.synthesize_blocks(text, profile, settings={})
+    classifier.assert_awaited_once_with(text)
+    assert text.encode() in audio
+    assert [block["spoken_text"] for block in blocks] == [text]
+    metadata = synth.build_generation_metadata(text, profile, blocks)
+    classifier.side_effect = AssertionError("saved plain speech should replay without the classifier")
+    replay, _, replay_blocks = await synth.synthesize_blocks_from_metadata(metadata)
+    assert replay == audio
+    assert replay_blocks == blocks

@@ -49,8 +49,12 @@ attributed thoughts are excluded. Ordinary parentheses inside dialogue remain
 spoken.
 
 The classifier identifies a whole-message convention, not the speaker or the
-role of every sentence. Ambiguous unmarked prose remains conservative; mixed
-bare narration and speech cannot always be separated reliably. TTS does not
+role of every sentence. For unmarked chat such as `Hello. Let's get to know each
+other.`, it can return `unknown` for both conventions. TTS reads that plain text
+as speech, while still excluding text positively classified as narration. This
+fallback requires the model's reading; the heuristic fallback alone cannot
+reliably recognize plain chat. Mixed bare narration and speech cannot always be
+separated reliably, and an ambiguous unmarked narrative may also be read. TTS does not
 infer different speakers inside one reply. Voice previews read their literal
 input without dialogue extraction.
 

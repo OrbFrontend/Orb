@@ -54,3 +54,38 @@ def test_bare_narration_and_dialogue_have_no_reliable_boundary():
     style = AxisStyle(dialogue=Dialogue.BARE, narration=Narration.BARE)
     text = 'I crossed the room. Come here. "Hello."'
     assert [text for kind, text in speech_segments(text, style) if kind == "dialogue"] == ["Hello."]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Hello. Let's get to know each other.",
+        "Hello.",
+        "Let’s get to know each other.",
+        "The answer is yes.",
+        "He is my brother.",
+    ],
+)
+def test_unmarked_chat_with_unknown_model_conventions_is_spoken(text):
+    # These labels reproduce the pinned markup model's reading of short chat.
+    style = AxisStyle(dialogue=Dialogue.UNKNOWN, narration=Narration.UNKNOWN)
+    assert speech_segments(text, style) == [("dialogue", text)]
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["*She smiles.* Hello.", "*unfinished beat", "He said “Hello.", "(An aside.)", "[OOC: Hello.]", "```Hello.```", "..."],
+)
+def test_unknown_model_conventions_do_not_turn_rp_markup_into_plain_speech(text):
+    style = AxisStyle(dialogue=Dialogue.UNKNOWN, narration=Narration.UNKNOWN)
+    assert [value for kind, value in speech_segments(text, style) if kind == "dialogue"] == []
+
+
+def test_positive_narration_reading_still_excludes_unmarked_prose():
+    text = "She crossed the room."
+    style = AxisStyle(dialogue=Dialogue.UNKNOWN, narration=Narration.BARE)
+    assert speech_segments(text, style) == []
+
+
+def test_missing_model_does_not_invent_a_plain_speech_reading():
+    assert speech_segments("Hello. Let's get to know each other.") == []
