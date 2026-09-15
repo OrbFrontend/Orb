@@ -251,3 +251,92 @@ def test_estimate_mp3_duration_reads_frame_headers():
     frame_length = (144 * 128_000) // 44_100
     frame = header.to_bytes(4, "big") + b"\0" * (frame_length - 4)
     assert synth.estimate_audio_duration_ms(frame * 2, "audio/mpeg") == 52
+
+
+@pytest.mark.parametrize("mode", ["enabled", "disabled", "unavailable", "failure"])
+async def test_markup_classifier_and_fallback(monkeypatch, mode):
+    from unittest.mock import AsyncMock
+
+    from backend.workflows import toolkit
+
+    _patch_adapter(monkeypatch)
+    monkeypatch.setattr(toolkit, "local_feature_available", lambda feature: (mode != "unavailable", ""))
+    classifier = AsyncMock(return_value=("asterisk", "bare"))
+    if mode == "failure":
+        classifier.side_effect = RuntimeError("model failed")
+    monkeypatch.setattr(toolkit._local_ml, "aclassify_markup", classifier)
+    settings = {"local_ml_enabled": {"markup_classifier": mode != "disabled"}}
+    # The classifier recognizes this short beat, which the coverage heuristic
+    # cannot distinguish from an emphasized word followed by narration.
+    text = "*nods* Come here."
+    if mode == "enabled":
+        _, _, blocks = await synth.synthesize_blocks(text, synth.normalize_profile(None), settings=settings)
+        assert [b["spoken_text"] for b in blocks] == ["Come here."]
+    else:
+        with pytest.raises(ValueError, match="no audio"):
+            await synth.synthesize_blocks(text, synth.normalize_profile(None), settings=settings)
+    assert classifier.await_count == (1 if mode in ("enabled", "failure") else 0)
+
+
+async def test_saved_speech_replays_without_classification(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from backend.analysis import AxisStyle, Dialogue, Narration
+
+    _patch_adapter(monkeypatch)
+    reader = AsyncMock(return_value=AxisStyle(dialogue=Dialogue.BARE, narration=Narration.ASTERISK))
+    monkeypatch.setattr(synth, "markup_axes", reader)
+    text = "*nods* Come here. *she sighs* Fine."
+    profile = synth.normalize_profile(None)
+    original = await synth.synthesize_blocks(text, profile, settings={})
+    metadata = synth.build_generation_metadata(text, profile, original[2])
+    # Round-trip through the DB's JSON shape, then simulate the model going away.
+    metadata = json.loads(json.dumps(metadata))
+    reader.side_effect = AssertionError("replay must not classify")
+    assert await synth.synthesize_blocks_from_metadata(metadata) == original
+    assert reader.await_count == 1
+    assert metadata["speech_chunks"][1]["pause_before_ms"] == 400
+    playback = synth.consumption_blocks(original[2])
+    assert [b["spoken_text"] for b in playback] == ["Come here.", "Fine."]
+    assert all("chunk" not in b for b in playback)
+
+
+async def test_legacy_replay_retains_old_segmentation(monkeypatch):
+    _patch_adapter(monkeypatch)
+    text = 'She — tired — sat down. "Hello."'
+    profile = synth.normalize_profile(None)
+    metadata = synth.build_generation_metadata(text, profile)
+    _, _, old_blocks = await synth.synthesize_blocks_from_metadata(metadata)
+    _, _, new_blocks = await synth.synthesize_blocks(text, profile)
+    assert [b["spoken_text"] for b in old_blocks] == ["tired", "Hello."]
+    assert [b["spoken_text"] for b in new_blocks] == ["Hello."]
+    assert synth.compute_seed(text, profile, old_blocks) != synth.compute_seed(text, profile, new_blocks)
+
+
+async def test_preview_speaks_literal_unquoted_text(monkeypatch):
+    _patch_adapter(monkeypatch)
+    audio, _ = await synth.synthesize("Hello there.", synth.normalize_profile(None))
+    assert b"Hello there." in audio
+
+
+async def test_plain_greeting_reaches_audio_with_real_model_labels(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from backend.workflows import toolkit
+
+    _patch_adapter(monkeypatch)
+    monkeypatch.setattr(toolkit, "local_feature_available", lambda feature: (True, ""))
+    # Recorded from the pinned markup-17m-q8_0 model, not an assumed bare label.
+    classifier = AsyncMock(return_value=("unknown", "unknown"))
+    monkeypatch.setattr(toolkit._local_ml, "aclassify_markup", classifier)
+    text = "Hello. Let's get to know each other."
+    profile = synth.normalize_profile(None)
+    audio, _, blocks = await synth.synthesize_blocks(text, profile, settings={})
+    classifier.assert_awaited_once_with(text)
+    assert text.encode() in audio
+    assert [block["spoken_text"] for block in blocks] == [text]
+    metadata = synth.build_generation_metadata(text, profile, blocks)
+    classifier.side_effect = AssertionError("saved plain speech should replay without the classifier")
+    replay, _, replay_blocks = await synth.synthesize_blocks_from_metadata(metadata)
+    assert replay == audio
+    assert replay_blocks == blocks

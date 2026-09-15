@@ -16,7 +16,7 @@ import {
   resumeChannel,
   setWorkflowPhase,
 } from "/static/workflow_api.js";
-import { alignmentKey, extractBlocks } from "./extract.js";
+import { alignmentKey, attachmentBlocks } from "./extract.js";
 import { startKaraoke } from "./karaoke.js";
 
 const WORKFLOW_ID = "tts";
@@ -339,14 +339,16 @@ function messageLabel(msgId) {
   return msg?.speaker_name || msg?.name || "Speech";
 }
 
-let _blockMap = { msgId: null, content: null, map: null, wordIndices: null };
+let _blockMap = { msgId: null, content: null, attachment: null, map: null, wordIndices: null };
 
 function _alignmentFor(msgId) {
   const msg = getMessages().find((m) => m.id === msgId);
   const content = msg?.content || "";
-  if (_blockMap.msgId === msgId && _blockMap.content === content) return _blockMap;
+  const attachment = ttsAttachmentForMessage(msgId);
+  if (_blockMap.msgId === msgId && _blockMap.content === content && _blockMap.attachment === attachment)
+    return _blockMap;
   const built = msg ? computeBlockMap(msg) : { map: {}, wordIndices: {}, ready: true };
-  if (built.ready) _blockMap = { msgId, content, map: built.map, wordIndices: built.wordIndices };
+  if (built.ready) _blockMap = { msgId, content, attachment, map: built.map, wordIndices: built.wordIndices };
   return built.ready ? _blockMap : { map: built.map, wordIndices: built.wordIndices };
 }
 
@@ -367,7 +369,7 @@ function computeBlockMap(msg) {
   if (!clipCount) return { map, wordIndices, ready: true };
   const segs = messageSegments(msg.id);
   if (!segs.length) return { map, wordIndices, ready: false };
-  const blocks = extractBlocks(msg.content || "");
+  const blocks = attachmentBlocks(msg.content || "", cm.blocks);
   const words = segs.map((s) => ({ wordIndex: s.wordIndex, t: alignmentKey(s.word) }));
   const limit = Math.min(blocks.length, clipCount);
   let cursor = 0;

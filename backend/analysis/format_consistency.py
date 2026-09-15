@@ -19,6 +19,7 @@ from .text.text_segmentation import (
     find_emphasis_spans,
     find_quote_spans,
     split_paragraphs,
+    strip_ooc,
 )
 
 __all__ = [
@@ -29,6 +30,8 @@ __all__ = [
     "classify_axes",
     "protected_runs",
     "spoken_lines",
+    "speech_segments",
+    "speech_input",
     "narration_only",
     "baseline_axes",
     "vote_axes",
@@ -709,3 +712,119 @@ def normalize_to_baseline(
     changed = new_text != draft
     note = "normalized" if changed else "already consistent"
     return new_text, FormatDriftReport(source, target, changed, note)
+
+
+def speech_input(text: str) -> str:
+    """Prose eligible for speech, retaining markup needed to read convention."""
+    text = strip_ooc(text)
+    # Fences must go before quote scanning: code can contain unbalanced quotes.
+    text = _PROTECTED.sub(lambda m: "\n\n" if m.group().startswith("```") else m.group(), text)
+    quotes = find_quote_spans(text)
+    for match in reversed(list(_PROTECTED.finditer(text))):
+        # Formatting inside a spoken quote is part of that quote, not a reason
+        # to cut the quote in half or discard the emphasized words.
+        if any(start < match.start() and match.end() < end for start, end in quotes):
+            continue
+        text = text[: match.start()] + "\n\n" + text[match.end() :]
+    # Remove only parentheses outside speech (including quotes inside an aside).
+    quotes = find_quote_spans(text)
+    depth = 0
+    hidden_start = 0
+    cuts: list[tuple[int, int]] = []
+    quote_index = 0
+    for i, char in enumerate(text):
+        while quote_index < len(quotes) and quotes[quote_index][1] <= i:
+            quote_index += 1
+        in_quote = quote_index < len(quotes) and quotes[quote_index][0] <= i < quotes[quote_index][1]
+        if in_quote:
+            continue
+        if char == "(":
+            if depth == 0:
+                hidden_start = i
+            depth += 1
+        elif char == ")" and depth:
+            depth -= 1
+            if depth == 0:
+                cuts.append((hidden_start, i + 1))
+    if depth:
+        cuts.append((hidden_start, len(text)))
+    for start, end in reversed(cuts):
+        text = text[:start] + " " + text[end:]
+    return text
+
+
+def _unmarked_speech(text: str, style: AxisStyle) -> bool:
+    """Read plain chat when the model cannot identify either markup convention.
+
+    Unknown is not a semantic narration label: the markup model also returns
+    unknown/unknown for ordinary greetings. Keep marked or malformed RP out of
+    this fallback; an apostrophe within a word is not a quotation delimiter.
+    """
+    if style.dialogue != Dialogue.UNKNOWN or style.narration != Narration.UNKNOWN:
+        return False
+    markers = OPEN_QUOTES | CLOSE_QUOTES | TOGGLE_QUOTES | frozenset("*_—`")
+    for i, char in enumerate(text):
+        if char == "’" and 0 < i < len(text) - 1 and text[i - 1].isalnum() and text[i + 1].isalnum():
+            continue
+        if char in markers:
+            return False
+    return any(char.isalnum() for char in text)
+
+
+def speech_segments(text: str, style: AxisStyle | None = None) -> list[tuple[str, str]]:
+    """Ordered speech/action text under the message's markup convention.
+
+    Shares format consistency's quotation, emphasis and inline-role decisions.
+    A convention labels the whole message, not individual sentences. Unmarked
+    chat with both conventions unknown falls back to plain speech; a positive
+    narration reading still excludes the unquoted prose.
+    Parenthetical asides, OOC and protected formatting are never spoken.
+    """
+    text = speech_input(text)
+    style = style or classify_axes(text)
+    plain_speech = _unmarked_speech(text, style)
+    # Both axes bare means narration and speech have no structural boundary.
+    # Explicit quotes remain usable, but guessing the bare spans reads narration.
+    dialogue = Dialogue.UNKNOWN if style.narration == Narration.BARE and style.dialogue == Dialogue.BARE else style.dialogue
+    if plain_speech:
+        dialogue = Dialogue.BARE
+    segments: list[tuple[str, str]] = []
+
+    for para in split_paragraphs(text):
+        spans = extract_block_spans(para)
+        pending = ""
+
+        def flush() -> None:
+            nonlocal pending
+            spoken = " ".join(pending.split())
+            if spoken:
+                segments.append(("dialogue", spoken))
+            pending = ""
+
+        for i, (typ, start, end) in enumerate(spans):
+            raw = para[start:end]
+            role = _role(spans, i, dialogue, para)
+            if typ == "SPEECH":
+                flush()
+                if not _THOUGHT_ATTRIBUTION.match(para[end:]):
+                    pending = _strip_quotes(raw)
+                    flush()
+            elif role == "NARRATION" and typ == "EMPHASIS":
+                flush()
+                segments.append(("beat", _emphasis_inner(raw)))
+            elif role == "DIALOGUE" or (role == "EMPHASIS_INLINE" and pending):
+                # A whole-message convention cannot identify individual
+                # narrative sentences mixed into bare speech. Be conservative.
+                if not plain_speech and typ == "NARRATION" and re.match(r"\s*(?:The|He|She|They|His|Her|Their)\b", raw):
+                    flush()
+                    continue
+                pending += raw
+            else:
+                flush()
+                # Preserve paired dash dialogue only at a prose boundary;
+                # an inline narrative aside ("She — tired — sat") is silent.
+                for match in re.finditer(r"(?:^\s*|[\n.!?]\s*)—([^—\n]+)—", raw):
+                    pending = match.group(1)
+                    flush()
+        flush()
+    return segments

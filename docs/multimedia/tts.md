@@ -11,7 +11,7 @@ In **Settings**, configure:
 - **Auto-speak**: play speech for each new assistant reply
 - **Volume**: set playback volume
 
-Select the speaker icon on an assistant reply to read it. Select a quoted line to
+Select the speaker icon on an assistant reply to read it. Select a spoken line to
 read only that line. Orb highlights the line currently playing.
 
 ## Character voices
@@ -30,13 +30,40 @@ panel.
 
 ## How speech is made
 
-1. Orb extracts quoted dialogue locally. Narration and inner monologue are left
-   out. Recognized action beats such as `*laughs*` can become pauses or emotion
-   tags for compatible backends.
-2. The selected backend synthesizes the dialogue.
-3. The browser plays the audio. Orb caches generated audio for replay.
+1. Orb reads the message's dialogue/narration convention with the same markup
+   classifier used by Format Consistency, when that Local ML model is available
+   and enabled. Otherwise it uses the shared format heuristics. This works
+   independently of whether the Format Consistency workflow is enabled.
+2. Shared quote and emphasis segmentation selects speech. It recognizes quoted
+   dialogue and bare dialogue between marked action beats, including underscore
+   beats and inline emphasis. Recognized action beats such as `*laughs*` can
+   become pauses or emotion tags for compatible backends.
+3. The selected backend synthesizes each speech block. The browser plays the
+   audio and highlights its words. Orb caches generated audio for replay.
 
-Orb recognizes straight and curly double quotes.
+Orb recognizes straight, curly, guillemet, CJK, fullwidth, and other supported
+Unicode quote pairs. Paired em-dash dialogue at a prose boundary is supported;
+inline narrative dash asides are left out. Parenthetical asides, OOC notes,
+protected formatting (code fences, bold runs and dividers), and recognized
+attributed thoughts are excluded. Ordinary parentheses inside dialogue remain
+spoken.
+
+The classifier identifies a whole-message convention, not the speaker or the
+role of every sentence. For unmarked chat such as `Hello. Let's get to know each
+other.`, it can return `unknown` for both conventions. TTS reads that plain text
+as speech, while still excluding text positively classified as narration. This
+fallback requires the model's reading; the heuristic fallback alone cannot
+reliably recognize plain chat. Mixed bare narration and speech cannot always be
+separated reliably, and an ambiguous unmarked narrative may also be read. TTS does not
+infer different speakers inside one reply. Voice previews read their literal
+input without dialogue extraction.
+
+New audio attachments save the exact synthesis chunks in
+`generation_metadata.speech_chunks`, and each playback block includes
+`consumption_metadata.blocks[].spoken_text`. Replay uses those saved chunks
+without rerunning the classifier, and highlighting uses the stored spoken text.
+Older attachments retain their original extraction rules for replay; regenerating
+an attachment applies the current segmentation and Local ML settings.
 
 ## Available backends
 
@@ -50,7 +77,7 @@ Orb recognizes straight and curly double quotes.
 
 ## Add a backend
 
-Backends live in `backend/tts/` and implement the `TTSAdapter` base class. The
+Backends live in `backend/workflows/tts/engine/` and implement the `TTSAdapter` base class. The
 router registers an adapter when its dependencies are available. Implement
 `list_voices()`, `list_models()` when needed, and `synthesize()`, plus the adapter
-metadata properties. `backend/tts/edge_adapter.py` is a reference.
+metadata properties. `backend/workflows/tts/engine/edge_adapter.py` is a reference.
