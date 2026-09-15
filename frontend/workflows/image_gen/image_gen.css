@@ -49,6 +49,7 @@
 .ig-skill-list{display:grid;gap:6px}
 .ig-skill-body{display:grid;gap:10px;padding:10px}
 .ig-skill-body>.ig-danger{justify-self:start}
+.ig-skill-body textarea[data-ig-skill-field="instructions"]{min-height:180px}
 .ig-danger{color:var(--danger,var(--accent))}
 .ig-style-backend{padding:6px 8px;border-left:2px solid var(--border);border-radius:0 var(--radius) var(--radius) 0}
 .ig-link{background:none;border:0;padding:0;font:inherit;color:var(--accent);cursor:pointer}
