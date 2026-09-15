@@ -238,6 +238,10 @@
   gap: 10px;
 }
 
+.tts-note + .tts-profile-fields {
+  margin-top: 10px;
+}
+
 .tts-pf-field {
   min-width: 0;
 }
