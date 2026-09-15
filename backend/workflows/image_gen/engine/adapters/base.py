@@ -14,6 +14,7 @@ from ..contracts import (
     ProgressCallback,
     RenderTarget,
     recorded_edge,
+    reference_slot_key,
 )
 
 
@@ -131,13 +132,9 @@ def replayed_reference_source(
         (
             source
             for entry in (entries if isinstance(entries, (list, tuple)) else ())
-            if isinstance(entry, Mapping) and _slot_key(entry.get("slot")) in declared
+            if isinstance(entry, Mapping) and reference_slot_key(entry.get("slot")) in declared
             for source in (str(entry.get("source") or ""),)
             if source
         ),
         current,
     )
-
-
-def _slot_key(slot: Any) -> tuple[str, str] | None:
-    return (str(slot[0]), str(slot[1])) if isinstance(slot, (list, tuple)) and len(slot) == 2 else None

@@ -31,6 +31,9 @@ const pov = read("backend/workflows/image_gen/pov.py");
 const panel = read("frontend/workflows/image_gen/config_panel.js");
 const graphImport = read("frontend/workflows/image_gen/graph_import.js");
 const profile = read("frontend/workflows/image_gen/character_profile.js");
+const workflowApi = read("frontend/workflow_api.js");
+const chatWorkflow = read("frontend/chat_workflow.js");
+const imageWidget = read("frontend/workflows/image_gen/widget.js");
 
 /** One `NAME = <int>` from a Python source, underscores stripped. */
 function pyInt(source, name) {
@@ -67,6 +70,7 @@ test("graph size cap agrees, or the importer and the normalizer refuse different
 test("collection caps agree, or the panel lets the user build what the server drops", () => {
   assert.equal(MAX_REFERENCE_SLOTS, pyInt(config, "MAX_REFERENCE_SLOTS"));
   assert.equal(jsInt(panel, "MAX_USER_GRAPHS"), pyInt(config, "MAX_USER_GRAPHS"));
+  assert.equal(jsInt(panel, "MAX_SCENE_SKILLS"), pyInt(config, "MAX_SCENE_SKILLS"));
 });
 
 test("the default cloud edge agrees, so an unsized entry previews what it renders", () => {
@@ -127,4 +131,21 @@ test("compatibility adds only the two optional-field controls", () => {
   assert.match(panel, />Negative prompt</);
   assert.match(panel, /placeholder="Max seed \(optional\)"/);
   assert.doesNotMatch(panel, />Send (?:a seed|negative prompts)</);
+});
+
+test("settings expose the editable scene-skill library and no analyzer control", () => {
+  assert.match(panel, />Use scene skills</);
+  assert.match(panel, />Composition skills</);
+  assert.match(panel, />When to use</);
+  assert.match(panel, /image_gen:skillAdd/);
+  assert.match(panel, /image_gen:skillRemove/);
+  assert.doesNotMatch(panel, /Analyze complex scenes|ig-scene-analysis|scene_analysis:/);
+});
+
+test("successful rerolls clear only the submitted image prompt edit", () => {
+  assert.match(workflowApi, /export const WORKFLOW_API_VERSION = 5;/);
+  assert.match(workflowApi, /export function registerRerollSuccess\(/);
+  assert.match(chatWorkflow, /if \(result\?\.attachment_id != null\) _notifyWorkflowRerollSuccess\(wid, msgId, attId\)/);
+  assert.match(imageWidget, /registerRerollSuccess\(WORKFLOW_ID, clearPendingEdit\)/);
+  assert.match(imageWidget, /pendingEdits\.get\(attId\) === submitted/);
 });

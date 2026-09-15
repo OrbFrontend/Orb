@@ -20,6 +20,7 @@ DEFAULT_SOURCE = "external_comfy"
 # provider id, so nothing may ship a provider preset called "comfy".
 COMFY_CONNECTION = "comfy"
 MAX_STYLES = 32
+MAX_SCENE_SKILLS = 32
 MAX_USER_GRAPHS = 32
 # Switching provider must not destroy the previous key, so the credential map is
 # retained rather than replaced -- and, like everything here, bounded.
@@ -48,6 +49,50 @@ DEFAULT_PROMPT_FORMAT = "hybrid"
 # from here, and so does a stored attachment's filename.
 MIME_EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 REFERENCE_MIMES = tuple(MIME_EXTENSIONS)
+
+# The composition-skill library Orb ships. Seeded only when a stored config has
+# never carried the field -- removing one keeps it removed, per `normalize_config`.
+# These IDs are stable and referenced by saved renders; user-authored rows get
+# label-derived IDs minted at the persistence boundary instead. The selector reads
+# only `label` and `description`, so those carry the "when to use"; `instructions`
+# reach the composer only for the skills it picks.
+DEFAULT_SCENE_SKILLS = [
+    {
+        "id": "first_person_hug",
+        "label": "First-person front hug",
+        "description": "A frontal embrace in first-person mode.",
+        "instructions": "First-person POV, POV hug, camera inside embrace, extremely close-up, camera at chest height, subject directly in front of camera, subject looking up at camera, arms extending around camera, arms framing both sides of foreground, strong foreshortening, upper body filling lower half of frame, only face and shoulders are visible near center.\nThen describe floor if subject is short, or describe ceiling if subject is tall.",
+        "enabled": True,
+    },
+    {
+        "id": "first_person_kiss",
+        "label": "First-person kiss",
+        "description": "A kiss in first-person mode.",
+        "instructions": "Example: A close-up shot of character's face, <face and hair detail here>, only face and shoulders are visible. Character's eyes are closed, lips pursed.",
+        "enabled": True,
+    },
+    {
+        "id": "first_person_user_back_hug",
+        "label": "First-person user back hug",
+        "description": "User embraces char from the back in first-person mode.",
+        "instructions": "An over-the-shoulder shot of the subject, back view. The subject is facing away from the camera, only back, shoulders and nape visible. Strong foreshortening.",
+        "enabled": True,
+    },
+    {
+        "id": "first_person_char_back_hug",
+        "label": "First-person char back hug",
+        "description": "Char embraces user from the back in first-person mode.",
+        "instructions": "First-person POV of the subject, the camera points down to the subject's torso with two arms wrapped around his/her stomach, <outfit here>, his/her feet are visible and unfocused. Describe the ground.",
+        "enabled": True,
+    },
+    {
+        "id": "close_up",
+        "label": "Close-up",
+        "description": "A close-up shot focused on subject(s) of interest.",
+        "instructions": "Describe only the things of interest, and explicitly state that only they are visible. Skip all occluded or far-away or irrelevant details.",
+        "enabled": True,
+    },
+]
 
 
 class SourcePolicy(NamedTuple):
@@ -123,7 +168,8 @@ CONFIG_DEFAULTS = {
         },
     ],
     "pov_mode": DEFAULT_POV_MODE,
-    "scene_analysis": False,
+    "scene_skills_enabled": False,
+    "scene_skills": DEFAULT_SCENE_SKILLS,
     "prompter_reasoning": False,
     "timeout_seconds": 180.0,
     "external_comfy": {
@@ -291,6 +337,75 @@ def _style(raw: Any, cloud: Mapping[str, Any], legacy_references: Mapping[str, S
     }
 
 
+def _scene_skill(raw: Any, skill_id: str = "") -> dict | None:
+    """Normalize one editable composition skill."""
+    if not isinstance(raw, Mapping):
+        return None
+    skill_id = skill_id or _text(raw.get("id"), 64)
+    if not _ID_RE.fullmatch(skill_id):
+        return None
+    label = _text(raw.get("label"), 80, skill_id).rstrip() or skill_id
+    return {
+        "id": skill_id,
+        "label": label,
+        "description": _text(raw.get("description"), 500).rstrip(),
+        "instructions": _text(raw.get("instructions"), 4_000).rstrip(),
+        "enabled": _enabled(raw.get("enabled")),
+    }
+
+
+def _scene_skill_id_base(raw: Mapping[str, Any]) -> str:
+    """Make a readable identifier base from a custom skill's label."""
+    label = _text(raw.get("label"), 80).lower()
+    base = re.sub(r"[^a-z0-9]+", "_", label).strip("_")[:64]
+    return base or "scene_skill"
+
+
+def _next_scene_skill_id(base: str, unavailable: set[str]) -> str:
+    """Return the first bounded ID based on ``base`` that is not in use."""
+    candidate = base
+    suffix = 2
+    while candidate in unavailable:
+        tail = f"-{suffix}"
+        candidate = base[: 64 - len(tail)] + tail
+        suffix += 1
+    return candidate
+
+
+def _scene_skills(candidates: Any) -> list[dict]:
+    """Normalize the editable library, allocating IDs for user-authored rows.
+
+    Built-in skills arrive with stable IDs, while custom rows from forms, preset
+    imports, and older saved state may have only a label. The selector can only
+    return an ID, so mint one here at the persistence boundary. Label-derived
+    IDs are readable in the compact selector catalog and remain stable after
+    this normalized shape is saved.
+    """
+    entries = candidates if isinstance(candidates, list) else []
+    reserved = {
+        skill_id
+        for raw in entries
+        if isinstance(raw, Mapping)
+        for skill_id in (_text(raw.get("id"), 64),)
+        if _ID_RE.fullmatch(skill_id)
+    }
+    skills: list[dict] = []
+    seen: set[str] = set()
+    for raw in entries:
+        if not isinstance(raw, Mapping):
+            continue
+        raw_id = raw.get("id")
+        missing_id = raw_id is None or (isinstance(raw_id, str) and not raw_id.strip())
+        generated_id = _next_scene_skill_id(_scene_skill_id_base(raw), reserved | seen) if missing_id else ""
+        skill = _scene_skill(raw, generated_id)
+        if skill and skill["id"] not in seen:
+            skills.append(skill)
+            seen.add(skill["id"])
+        if len(skills) >= MAX_SCENE_SKILLS:
+            break
+    return skills
+
+
 def _slot(value: Any) -> list[str] | None:
     if not isinstance(value, (list, tuple)) or len(value) != 2:
         return None
@@ -408,11 +523,21 @@ def _is_loopback(hostname: str) -> bool:
     return host in ("localhost", "::1", "0:0:0:0:0:0:0:1") or host == "127.0.0.1" or host.startswith("127.")
 
 
-def _is_addressable(parsed: SplitResult) -> bool:
+def _safe_urlsplit(value: str) -> SplitResult | None:
+    """Parse a user-entered URL without letting parser errors escape normalization."""
+    try:
+        return urlsplit(value)
+    except ValueError:
+        return None
+
+
+def _is_addressable(parsed: SplitResult | None) -> bool:
     """Whether Orb will talk to this URL at all -- the rule both endpoint fields
     share. Embedded credentials are refused rather than carried: they would ride
     every request URL into logs and back out to the settings form."""
-    return parsed.scheme in ("http", "https") and bool(parsed.hostname) and not parsed.username and not parsed.password
+    return bool(
+        parsed and parsed.scheme in ("http", "https") and parsed.hostname and not parsed.username and not parsed.password
+    )
 
 
 def _cloud_base_url(value: Any) -> str:
@@ -424,8 +549,8 @@ def _cloud_base_url(value: Any) -> str:
     url = _text(value, 2_048)
     if not url:
         return ""
-    parsed = urlsplit(url)
-    if not _is_addressable(parsed):
+    parsed = _safe_urlsplit(url)
+    if parsed is None or not _is_addressable(parsed):
         return ""
     if parsed.scheme != "https" and not _is_loopback(parsed.hostname or ""):
         return ""
@@ -495,7 +620,7 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     external_value = raw.get("external_comfy")
     external_raw: Mapping[str, Any] = external_value if isinstance(external_value, Mapping) else {}
     url = _text(external_raw.get("api_url"), 2_048, CONFIG_DEFAULTS["external_comfy"]["api_url"])
-    if not _is_addressable(urlsplit(url)):
+    if not _is_addressable(_safe_urlsplit(url)):
         url = CONFIG_DEFAULTS["external_comfy"]["api_url"]
     url = url.rstrip("/")
 
@@ -525,6 +650,11 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     styles = _unique_by_id(raw_styles, parse_style, MAX_STYLES) or _unique_by_id(
         CONFIG_DEFAULTS["styles"], parse_style, MAX_STYLES
     )
+    # Empty is a deliberate library state. Seed the editable starter only when the
+    # field has never existed; a present malformed value normalizes to an empty list
+    # rather than resurrecting a skill the user removed.
+    raw_scene_skills = raw.get("scene_skills") if "scene_skills" in raw else CONFIG_DEFAULTS["scene_skills"]
+    scene_skills = _scene_skills(raw_scene_skills)
 
     default_style = _text(raw.get("default_style"), 64, styles[0]["id"])
     if default_style not in {s["id"] for s in styles}:
@@ -552,7 +682,12 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
         "default_style": default_style,
         "styles": styles,
         "pov_mode": normalize_pov_mode(raw.get("pov_mode")),
-        "scene_analysis": bool(raw.get("scene_analysis", False)),
+        # The current field wins even when explicitly false. The retired field is
+        # read only for migration and never appears in normalized output.
+        "scene_skills_enabled": (
+            raw.get("scene_skills_enabled") is True if "scene_skills_enabled" in raw else raw.get("scene_analysis") is True
+        ),
+        "scene_skills": scene_skills,
         "prompter_reasoning": raw.get("prompter_reasoning") is True,
         "timeout_seconds": min(900.0, max(10.0, timeout)),
         "external_comfy": {

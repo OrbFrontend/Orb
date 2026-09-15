@@ -1,6 +1,6 @@
 """The `offer_tools` blob must be order-stable across sibling forced calls.
 
-image_gen's analyze + compose calls ship one shared array so that a backend
+image_gen's select + compose calls ship one shared array so that a backend
 which renders the whole array can serve the second call from the first call's
 cached prefix (docs/architecture/kv-cache.md, Invariant 3). That only works if
 the array is byte-identical regardless of which member is forced — the sole
@@ -72,14 +72,14 @@ def client() -> _CapturingClient:
 
 
 async def test_blob_is_byte_identical_across_the_two_forced_calls(client):
-    """analyze and compose must differ on tool_choice and nothing else."""
-    await _run(client, "analyze_scene")
+    """Selection and composition must differ on tool_choice and nothing else."""
+    await _run(client, "read_image_skills")
     await _run(client, "compose_image_prompt")
 
-    analyze, compose = client.calls
-    assert json.dumps(analyze["tools"]) == json.dumps(compose["tools"])
+    select, compose = client.calls
+    assert json.dumps(select["tools"]) == json.dumps(compose["tools"])
 
-    differing = {k for k in analyze.keys() | compose.keys() if analyze.get(k) != compose.get(k)}
+    differing = {k for k in select.keys() | compose.keys() if select.get(k) != compose.get(k)}
     assert differing == {"tool_choice"}
 
 
@@ -99,15 +99,15 @@ async def test_forcing_a_tool_outside_the_offer_appends_it_without_reordering(cl
 
 async def test_offer_member_is_not_duplicated_when_forced(client):
     """The forced member already in the array must not be appended twice."""
-    await _run(client, "analyze_scene")
+    await _run(client, "read_image_skills")
     names = [t["function"]["name"] for t in client.calls[0]["tools"]]
-    assert names.count("analyze_scene") == 1
+    assert names.count("read_image_skills") == 1
     assert len(names) == len(OFFER_TOOLS)
 
 
 async def test_blob_carries_the_registry_schemas_verbatim(client):
     """The array is the registry's bytes — not a copy that could drift."""
-    await _run(client, "analyze_scene")
+    await _run(client, "read_image_skills")
     sent = client.calls[0]["tools"]
     assert sent == [TOOLS[n]["schema"] for n in OFFER_TOOLS]
 
@@ -116,7 +116,7 @@ async def test_blob_collapses_to_the_forced_tool_when_forcing_is_not_honored(cli
     """Correctness outranks the cache: an unforced array is a coin flip.
 
     Guards the branch that trades the shared prefix away — with compose forced
-    but coerced, deepseek-v4-pro answered analyze_scene 8/8.
+    but coerced, a model can answer with the selector instead.
     """
     monkeypatch.setattr(
         "backend.workflows._forced_call.honors_forced_tool_choice",

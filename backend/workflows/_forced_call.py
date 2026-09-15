@@ -95,8 +95,8 @@ async def forced_tool_call(
         # honoring a forced tool_choice and rendering the whole array are
         # INDEPENDENT properties, and several backends do the first by doing the
         # opposite of the second -- they serialize only the forced tool. On
-        # Gemma-4-26B @ Ionstream `offer_tools` + forced(analyze_scene) renders
-        # byte-identically to shipping [analyze_scene] alone; DeepSeek v4-pro is
+        # Gemma-4-26B @ Ionstream `offer_tools` + a forced selector renders
+        # byte-identically to shipping that selector alone; DeepSeek v4-pro is
         # the same plus a ~7-token forcing directive. There the two calls share
         # only the conversation body, never the blob, so this array buys nothing.
         # It is kept because it costs nothing to send and does pay off on
@@ -109,7 +109,7 @@ async def forced_tool_call(
             tools.append(schema)
         # ...unless the wire won't carry the forcing. Then a rival schema in the
         # array is a lottery the caller never asked for: with compose_image_prompt
-        # forced but coerced, deepseek-v4-pro answered with analyze_scene 8/8 --
+        # forced but coerced, a model can answer with the selector instead --
         # no arguments for the tool that was asked for. Ship only the forced tool
         # in that case: the shared blob is a cache optimization, calling the right
         # tool is the point of the call. Providers that ignore the field silently

@@ -1,7 +1,7 @@
 """The image-gen composer's forced calls ride the conversation's cached prefix.
 
 Unlike the other image_gen tests, this one does NOT stub ``compose_scene`` —
-only the ComfyUI renderer. The analyze/compose forced calls flow through the
+only the ComfyUI renderer. The select/compose forced calls flow through the
 real ``build_offturn_prefix`` → ``forced_tool_call`` → ``client.complete()``
 stack into ``FakeLLMClient``, alongside a genuine chat turn in the same
 conversation. That is what arms the ``llm_mock`` teardown invariant
@@ -21,9 +21,11 @@ from backend.database import (
     create_user_persona,
     create_world,
     get_messages,
+    get_workflow_attachment_by_id,
     update_settings,
 )
 from backend.workflows import set_workflow_character_state, set_workflow_config
+from backend.workflows.image_gen.config import DEFAULT_SCENE_SKILLS
 from backend.workflows.image_gen.engine import ImageResult
 
 
@@ -99,7 +101,7 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
         {
             "source": "external_comfy",
             "default_style": "anime",
-            "scene_analysis": True,  # both forced calls (analyze + compose) must fire
+            "scene_skills_enabled": True,  # both forced calls (select + compose) must fire
             "prompter_reasoning": True,
             "external_comfy": {"api_url": "http://127.0.0.1:8188"},
         },
@@ -122,16 +124,21 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
     llm_mock.enqueue_workflow(
         {
             "tool_calls": _tc(
-                "analyze_scene",
+                "read_image_skills",
                 {
-                    "characters": [{"name": "Iris", "appearance": ""}],
-                    "setting": "rainy archive at night",
+                    "skill_ids": ["first_person_hug"],
+                    "visible_subjects": ["Iris"],
                 },
             )
         }
     )
     llm_mock.enqueue_workflow(
-        {"tool_calls": _tc("compose_image_prompt", {"scene": "1girl, sitting, window, rain, night", "avoid": ""})}
+        {
+            "tool_calls": _tc(
+                "compose_image_prompt",
+                {"scene": "1girl, sitting, window, rain, night", "avoid": "", "visible_subjects": ["Iris"]},
+            )
+        }
     )
 
     msgs = await get_messages(cid)
@@ -142,6 +149,16 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
     )
     assert resp.status_code == 200
     assert "event: image_gen_done" in resp.text
+    attachment_id = int(resp.text.partition('"attachment_id":')[2].partition("}")[0])
+    attachment = await get_workflow_attachment_by_id(attachment_id)
+    generation = json.loads(attachment["generation_metadata"])
+    consumption = json.loads(attachment["consumption_metadata"])
+    # Read the label off the shipped library rather than restating it: the recorded
+    # metadata must track the seeded skill, and the wording is retuned often.
+    hug = next(skill for skill in DEFAULT_SCENE_SKILLS if skill["id"] == "first_person_hug")
+    expected_skills = [{"id": hug["id"], "label": hug["label"]}]
+    assert generation["composition_skills"] == expected_skills
+    assert consumption["composition_skills"] == expected_skills
 
     # Vacuity guards: the forced calls really reached the client boundary, ship
     # the workflow's own tools blob and force via tool_choice (the pipeline
@@ -149,7 +166,7 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
     # conversation identity the teardown invariant groups by — so system-prefix
     # parity with the chat turn is enforced there for every off-turn call site.
     wf = [c for c in llm_mock.captured if c["pass"] == "workflow"]
-    assert len(wf) == 2, "composer must issue analyze + compose through the real forced-call stack"
+    assert len(wf) == 2, "composer must issue select + compose through the real forced-call stack"
     writer = next(c for c in llm_mock.captured if c["pass"] == "writer")
     agent_pass = next(c for c in llm_mock.captured if c["pass"] == "director")
     assert writer["endpoint"] == "http://writer.local"
@@ -157,7 +174,7 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
     blobs = set()
     for c in wf:
         names = [t["function"]["name"] for t in (c["tools"] or [])]
-        assert names == ["analyze_scene", "compose_image_prompt"], (
+        assert names == ["read_image_skills", "compose_image_prompt"], (
             "off-turn calls must ship the workflow's own tools blob, not tools=None — "
             "most chat models won't reliably call a tool they were never given"
         )
@@ -173,4 +190,4 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
             "off-turn call lost the conversation's history head — the teardown invariant would "
             "silently group it apart from the chat turn instead of comparing prefixes"
         )
-    assert len(blobs) == 1, "analyze and compose must ship the byte-identical blob so they reuse each other's prefix"
+    assert len(blobs) == 1, "select and compose must ship the byte-identical blob so they reuse each other's prefix"

@@ -22,7 +22,7 @@ You need:
 The Agent model reads the conversation up to the selected reply and writes the
 scene part of the image prompt. It also uses the selected style and visible
 character appearance settings. The image backend receives the final positive and
-negative prompts, not the conversation, character card, or scene analysis.
+negative prompts, not the conversation, character card, or composition-skill library.
 
 ## Enable image generation
 
@@ -142,10 +142,12 @@ Reference uploads must be PNG, JPEG, or WebP. Cloud references are limited to 4 
 after preparation. A provider may accept fewer references or refuse to use them.
 
 [^group-reference-selection]: In a group chat, Orb considers characters who have
-    replied in the current round through the selected reply. With scene analysis
-    enabled, it excludes characters that are not in the resulting scene. If more
-    characters remain than the backend has reference slots, the rest are described
-    in the prompt. Orb supports up to four reference slots per render.
+    replied in the current round through the selected reply. With scene skills
+    enabled, the selector names the characters actually visible in the shot before
+    Orb chooses reference images. If selection fails, Orb safely falls back to the
+    broader candidate list. If more characters remain than the backend has reference
+    slots, the rest are described in the prompt. Orb supports up to four reference
+    slots per render.
 
 ## Make an image
 
@@ -166,7 +168,7 @@ Each image result is a variant of the selected reply.
 | Action | Behavior |
 |---|---|
 | **Reroll** | Reuses the stored prompt and settings with a new seed when supported. |
-| **Regenerate** | Composes a new prompt using the current style and character settings. |
+| **Regenerate** | Composes a new prompt using the current style, scene-skill library, and character settings. |
 | **Rehydrate** | Recreates an image whose stored bytes were evicted, using its saved prompt and seed. |
 
 Each cloud action is a new provider request and may be billed. Providers that do
@@ -234,19 +236,37 @@ then falls back to third-person when the text is unclear or the classifier is of
 To enable the classifier, open **Settings → Local ML**, download **Auto-POV**,
 and leave it enabled. It runs locally on the CPU.
 
-## Analyze complex scenes
+## Composition skills
 
-Enable **Analyze complex scenes** when a reply contains several characters or
-important positions. Orb first identifies the visible characters, clothing, and
-positions, then writes the image prompt from that result. This adds one model call
-for each new image or regeneration. Reroll uses the stored prompt and skips it.
+Enable **Use scene skills** to let Orb select reusable composition guidance before
+it writes an image prompt. Open **Composition skills** to enable, add, edit, or
+remove entries. Each skill has:
+
+- **Name**: the label shown in settings and Render details.
+- **When to use**: a short applicability summary shown to the selector.
+- **Instructions**: the full geometry, contact, occlusion, framing, crop, or
+  visible-detail guidance shown only to the prompt composer when selected.
+
+Write narrow skills for one composition problem. Explain observable geometry and
+branching conditions directly, choose compatible guidance, and avoid macros --
+instructions are used as plain text. Orb can select up to four enabled
+skills and prefers the smallest compatible set. Orb ships a starter library of
+first-person framings -- front hug, kiss, both back-hug directions, and close-up --
+which are ordinary editable entries: change or remove any of them, and a removal
+stays removed.
+
+When enabled and at least one usable skill exists, selection adds one Agent-model
+call for each new image or regeneration. A failed or malformed selection does not
+fail the render; Orb composes without skills and uses its broader subject behavior.
+Reroll and Rehydrate reuse the stored prompt and skill attribution without selecting
+again. **Regenerate** selects again from the current library.
 
 ## Prompter thinking
 
-**Enable prompter thinking** lets the Agent model reason before it analyzes a
-complex scene or writes the image prompt. It applies to both prompt steps and can
-increase token use. Stable thinking settings generally give better prompt-cache
-reuse.
+**Enable prompter thinking** lets the Agent model reason before it selects scene
+skills or writes the image prompt. It applies to both calls when selection runs and
+only to composition when skills are off or no usable skills exist. It can increase
+token use. Stable thinking settings generally give better prompt-cache reuse.
 
 Each prompt step has its own reply budget, and the Agent endpoint's configured
 **Max Tokens** raises it when that setting is higher — room a thinking model can

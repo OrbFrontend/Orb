@@ -38,7 +38,7 @@ import { clearTextEffect, startTextEffect } from "./workflow_text_effects.js";
 
 // Workflow modules use this facade for registration, requests, and playback.
 
-export const WORKFLOW_API_VERSION = 4;
+export const WORKFLOW_API_VERSION = 5;
 
 export {
   api,
@@ -97,6 +97,18 @@ export function registerAttachmentRenderer(wid, fn) {
 
 export function registerRerollParams(wid, fn) {
   S.workflowRerollParams[wid] = fn;
+}
+
+export function registerRerollSuccess(wid, fn) {
+  if (typeof wid !== "string" || !wid) {
+    console.error("registerRerollSuccess: workflow id required", wid);
+    return;
+  }
+  if (typeof fn !== "function") {
+    console.error(`registerRerollSuccess: fn must be a function (${wid})`);
+    return;
+  }
+  S.workflowRerollSuccess[wid] = fn;
 }
 
 const _actions = new Map(); // action name -> handler

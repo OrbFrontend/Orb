@@ -195,6 +195,17 @@ test("a hostile recorded reference is escaped like every other field", () => {
   assert.ok(!html.replaceAll(/«[^»]*»/gs, "").includes("<script>"));
 });
 
+test("selected composition skills are shown by label and escaped", () => {
+  const html = attachmentDetailsHtml(
+    { consumption_metadata: { composition_skills: [{ id: "hug", label: HOSTILE }, { id: "crop" }] } },
+    MARKERS,
+  );
+  assert.ok(html.includes("<dt>Composition skills</dt>"));
+  assert.ok(html.includes(`«${HOSTILE}, crop»`));
+  assert.ok(!html.replaceAll(`«${HOSTILE}, crop»`, "").includes("<script>"));
+  assert.ok(!attachmentDetailsHtml({ consumption_metadata: { composition_skills: [] } }, MARKERS).includes("Composition skills"));
+});
+
 // ── seedless backends and cost ───────────────────────────────────────────────
 
 test("a normal attachment still prints its seed", () => {

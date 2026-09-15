@@ -20,10 +20,11 @@ from ..toolkit import (
 from . import pov as pov_mod
 from . import subjects as subjects_mod
 from .composer import (
+    SkillSelection,
     addressable_subjects,
-    analyze_scene,
     assemble_prompts,
     compose_scene,
+    read_image_skills,
 )
 from .config import (
     MAX_REFERENCE_IMAGE_B64,
@@ -159,11 +160,6 @@ _REPLAYED_FACTS = (
 _DISCLOSED_FACTS = ("steps", "cfg", "sampler", "scheduler")
 
 
-async def _rendered(adapter, request, *, target, progress=None):
-    """Render through the shared seam used by fresh images and rerolls."""
-    return await resolve_and_generate(adapter, request, target=target, progress=progress)
-
-
 def _render_record(result, *, source: str) -> dict:
     """What a render reported about itself, in the shape a replay reads back.
 
@@ -190,6 +186,7 @@ def _metadata(
     composer_mode: str,
     pov: str,
     pov_source: str,
+    composition_skills: Sequence[Mapping[str, str]] = (),
 ) -> dict:
     info: Mapping[str, Any] = result.backend_info
     return {
@@ -198,6 +195,7 @@ def _metadata(
         "composer_mode": composer_mode,
         "pov": pov,
         "pov_source": pov_source,
+        "composition_skills": [dict(skill) for skill in composition_skills],
         "prompt": prompt,
         "negative_prompt": negative_prompt,
         "references": info.get("references") or [],
@@ -235,6 +233,13 @@ def _consumption(
         value = record.get(key)
         if value:
             payload[key] = value
+    skills = record.get("composition_skills")
+    if isinstance(skills, (list, tuple)):
+        payload["composition_skills"] = [
+            {"id": entry.get("id"), "label": entry.get("label")}
+            for entry in skills
+            if isinstance(entry, Mapping) and isinstance(entry.get("id"), str) and isinstance(entry.get("label"), str)
+        ]
     references = record.get("references")
     if isinstance(references, (list, tuple)) and references:
         payload["references"] = [
@@ -352,8 +357,9 @@ async def _generate_fresh(
     style_id: str,
     prefix: Sequence[dict] | None = None,
     progress: ProgressCallback | None = None,
+    history: Sequence[Mapping[str, Any]] | None = None,
 ):
-    history = _history_through(ctx.history, int(message["id"]))
+    history = _history_through(history if history is not None else ctx.history, int(message["id"]))
     if prefix is None:
         prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
     selected_style = resolve_style(config, style_id)
@@ -361,13 +367,13 @@ async def _generate_fresh(
     target = adapter.resolve_target(None)
     # The order is load-bearing, and each step depends on the one above it:
     #
-    #   camera   -> how many subjects there are at all (first-person keeps one)
+    #   camera   -> which subjects can be visible from the chosen viewpoint
     #   subjects -> who this render is a picture of, primary first
-    #   analysis -> which of them is actually in frame
+    #   selector -> which of them is actually in frame and which guidance to load
     #   slots    -> whose likeness leaves the machine, one image per person
     #   composer -> what the prompt says about the pictures that went with it
     #
-    # The analyzer sits *above* the slots rather than inside the compose call so that a
+    # The selector sits *above* the slots rather than inside the compose call so that a
     # member who spoke in the round but walked out of the shot never has their face
     # uploaded: an edit model handed a likeness the prompt never mentions draws that
     # person back in. `addressable_subjects` is the join, and it costs no extra call.
@@ -381,26 +387,27 @@ async def _generate_fresh(
         character=getattr(ctx, "character", None),
         profile=profile,
     )
-    analysis = (
-        await analyze_scene(
+    selection = (
+        await read_image_skills(
             client=ctx.agent_client,
             model_name=ctx.agent_model_name,
             prefix=prefix,
             settings=ctx.settings,
+            skills=config.get("scene_skills") or (),
             pov=pov,
             reasoning_on=bool(config.get("prompter_reasoning")),
             subjects=subjects,
-            supports_negative=target.supports_negative_prompt,
         )
-        if config.get("scene_analysis")
-        else None
+        if config.get("scene_skills_enabled")
+        else SkillSelection()
     )
     # Hoisted rather than inlined: this is the list the render is actually *of*, so both
     # the slots and the disclosure below read the same answer rather than the wider
     # candidate list. The chat image is found once, because the plan depends on whether
     # there is one -- `previous_or_character` asks for one slot when the chat has an
     # image and one per character when it does not.
-    addressable = addressable_subjects(subjects, analysis)
+    selected_visible = selection.visible_subjects if selection.valid else None
+    addressable = addressable_subjects(subjects, selected_visible)
     previous = previous_image(history, int(message["id"]))
     slots = plan_slots(target, addressable, previous=previous)
     references = await resolve_references(slots, subjects=addressable, previous=previous)
@@ -413,8 +420,9 @@ async def _generate_fresh(
         prompt_format=selected_style["prompt_format"],
         pov=pov,
         reasoning_on=bool(config.get("prompter_reasoning")),
-        analysis=analysis,
         subjects=subjects,
+        selected_skills=selection.skills,
+        visible_subjects=selected_visible,
         extra_instructions=str(selected_style.get("extra_instructions") or ""),
         supports_negative=target.supports_negative_prompt,
         has_references=bool(references),
@@ -427,7 +435,7 @@ async def _generate_fresh(
     if not prompt.strip():
         raise ImageGenerationError("the composed image prompt came out empty; try generating again")
     seed = _fresh_seed()
-    result = await _rendered(
+    result = await resolve_and_generate(
         adapter,
         ImageRequest(
             prompt=prompt,
@@ -449,6 +457,7 @@ async def _generate_fresh(
         composer_mode=composer_mode,
         pov=pov,
         pov_source=pov_source,
+        composition_skills=[{"id": skill["id"], "label": skill["label"]} for skill in selection.skills],
     )
     consumption = _consumption(style, prompt, negative, result, md, source_label=adapter.label)
     if unfilled > 0:
@@ -568,27 +577,17 @@ async def regenerate(ctx, body):
     if message is None or message.get("role") != "assistant":
         return []
     config, style_id, profile = await _render_inputs(ctx, body)
-    ctx_with_history = _RegenCompositionCtx(ctx, tuple(list(ctx.history) + [message]))
+    history = tuple([*ctx.history, message])
     return [
         await _generate_fresh(
-            ctx=ctx_with_history,
+            ctx=ctx,
             message=message,
             config=config,
             profile=profile,
             style_id=style_id,
+            history=history,
         )
     ]
-
-
-class _RegenCompositionCtx:
-    def __init__(self, ctx, history):
-        self.conversation_id = ctx.conversation_id
-        self.history = history
-        self.settings = ctx.settings
-        self.agent_client = ctx.agent_client
-        self.agent_model_name = ctx.agent_model_name
-        self.character = ctx.character
-        self.character_id = ctx.character_id
 
 
 async def reroll_gen(ctx, params, seed):
@@ -628,7 +627,7 @@ async def reroll_gen(ctx, params, seed):
     if recorded_references or references:
         params["references"] = [reference.record() for reference in references]
     resolved_seed = fold_seed(seed)
-    result = await _rendered(
+    result = await resolve_and_generate(
         adapter,
         ImageRequest(
             prompt=prompt,

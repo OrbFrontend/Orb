@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Any, NamedTuple
 
 from .config import DEFAULT_PROMPT_FORMAT, PROMPT_FORMATS
@@ -80,7 +80,7 @@ _LOOKING_AT_VIEWER = "looking at viewer"
 
 
 # Only the noun after the possessive says which side of the contact the viewer is
-# on. A viewer's *limb* is the user acting (the shot rules ask for it by name);
+# on. A viewer's *limb* is the user acting (the shot rules ask for "pov hand");
 # anything else the possessive owns -- throat, collar, chest -- is the viewer being
 # acted upon, and their body must not be drawn. Keep and retag the first, collapse
 # the second.
@@ -172,32 +172,6 @@ def rewrite_viewer_contact(text: str) -> str:
         if tag and tag not in out:
             out.append(tag)
     return ", ".join(out)
-
-
-def count_anchor(characters: Any) -> str | None:
-    """Booru count tags from the analyzed cast, e.g. '1boy, 1girl' or '1girl, solo'.
-
-    The analyze schema excludes the viewer in first_person, so counting this list
-    is what keeps POV scenes from leaking an extra '1boy'. None when an entry is
-    malformed or missing a sex -- the caller skips pinning rather than guess.
-    """
-    counts = dict.fromkeys(("girl", "boy", "other"), 0)
-    for ch in characters if isinstance(characters, list) else [None]:
-        sex = bounded(ch.get("sex")).lower() if isinstance(ch, Mapping) else ""
-        if sex not in counts:
-            return None
-        counts[sex] += 1
-    parts = [f"{n}{sex}" + ("s" if n > 1 else "") for sex, n in counts.items() if n]
-    if sum(counts.values()) == 1:
-        parts.append("solo")
-    return ", ".join(parts)
-
-
-def pin_anchor(scene: str, anchor: str) -> str:
-    """Deterministically own the count block: drop whatever counts the composer wrote."""
-    lead = [anchor] if anchor else []
-    kept = strip_chunks(scene, _COUNT_CHUNK_RE)
-    return ", ".join(lead + [kept] if kept else lead) or scene
 
 
 def split_lead_count(scene: str) -> tuple[str, str]:
