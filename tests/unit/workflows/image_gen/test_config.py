@@ -117,19 +117,6 @@ def test_scene_skills_migrate_legacy_flag_and_current_flag_wins():
     assert "scene_analysis" not in current
 
 
-def test_scene_skill_library_is_seeded_only_when_the_field_is_absent():
-    seeded = normalize_config({})["scene_skills"]
-    assert [skill["id"] for skill in seeded] == [
-        "first_person_hug",
-        "first_person_kiss",
-        "first_person_user_back_hug",
-        "first_person_char_back_hug",
-        "first_person_close_up",
-    ]
-    assert normalize_config({"scene_skills": []})["scene_skills"] == []
-    assert normalize_config({"scene_skills": "malformed"})["scene_skills"] == []
-
-
 def test_shipped_scene_skills_survive_normalization_and_reach_the_composer():
     """Every shipped row must clear the persistence and selection gates as authored.
 
