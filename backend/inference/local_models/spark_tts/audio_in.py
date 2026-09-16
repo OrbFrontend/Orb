@@ -1,23 +1,4 @@
-"""Turn an uploaded audio file into the 16 kHz mono signal enrollment needs.
-
-Orb's base dependencies are FastAPI/Pillow/httpx — no soundfile, no torchaudio,
-no scipy — so this module is deliberately layered from what is certainly there
-to what merely might be:
-
-1. the stdlib ``wave`` module, which reads PCM WAV and nothing else;
-2. ``soundfile`` when it is installed, which adds FLAC/OGG and the WAV
-   encodings ``wave`` rejects;
-3. ``ffmpeg`` when it happens to be on PATH, which covers MP3/M4A — the format
-   a phone recording actually arrives in.
-
-A file none of the three can read raises :class:`UnsupportedAudio`, whose
-message names what would have read it. That is a decision the user can act on;
-"could not decode" is not.
-
-Nothing here loads a model, so it is all unit-testable, and it is: resampling
-and volume normalisation both move the 32 speaker tokens, which makes them
-correctness surface rather than convenience.
-"""
+"""Decode and prepare uploaded audio for Spark-TTS enrollment."""
 
 from __future__ import annotations
 
@@ -31,22 +12,17 @@ import tempfile
 import wave
 from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:  # numpy arrives with onnxruntime; base Orb must import this module without it
+if TYPE_CHECKING:  # numpy is an optional runtime dependency
     import numpy as np
 
 logger = logging.getLogger(__name__)
 
 TARGET_RATE = 16000
 
-#: Longest source clip we will decode, and therefore the most audio one voice is
-#: enrolled from (see :func:`reference_signal`). Past two minutes the voice has
-#: long since stopped moving, and an uncapped decode is a memory budget set by
-#: whoever picks the file.
+#: Maximum source audio used for enrollment.
 MAX_SOURCE_SECONDS = 120
 
-#: Zero crossings each side of the resampling kernel. 16 is the usual
-#: "good enough for anything but mastering" figure, and enrollment is a
-#: one-shot on at most two minutes of speech.
+#: Sinc kernel half-width.
 _SINC_ZEROS = 16
 
 
@@ -83,9 +59,7 @@ def _from_wave(data: bytes) -> tuple[np.ndarray, int] | None:
     if not raw or channels < 1 or rate <= 0:
         return None
     if width == 3:
-        # 24-bit has no numpy dtype and `audioop`, which used to widen it, was
-        # removed in Python 3.13 — so the three little-endian bytes become the
-        # high three of an int32 by construction, which also sign-extends.
+        # Widen 24-bit little-endian samples manually; NumPy has no 24-bit dtype.
         packed = np.frombuffer(raw[: len(raw) // 3 * 3], dtype=np.uint8).reshape(-1, 3)
         widened = np.zeros((packed.shape[0], 4), dtype=np.uint8)
         widened[:, 1:] = packed
@@ -123,12 +97,7 @@ def _from_soundfile(data: bytes) -> tuple[np.ndarray, int] | None:
 
 
 def _from_ffmpeg(data: bytes, suffix: str) -> tuple[np.ndarray, int] | None:
-    """Shell out to a user-supplied ffmpeg, which decodes everything else.
-
-    Via a temp FILE, not a pipe: MP4/M4A carries its index at the end of the
-    stream and ffmpeg has to seek back to it, which a pipe cannot do — the
-    common case (a voice memo) is exactly the one that would fail.
-    """
+    """Use ffmpeg to decode formats unsupported by the in-process readers."""
     import numpy as np  # noqa: PLC0415 — deferred; see module docstring
 
     binary = ffmpeg_path()
@@ -138,8 +107,7 @@ def _from_ffmpeg(data: bytes, suffix: str) -> tuple[np.ndarray, int] | None:
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
-        # Fixed argv. The one variable is a path this process just created, and
-        # `-i` before it means a name beginning with `-` is still read as a file.
+        # Pass a fixed argument list and a temporary input path.
         argv = [
             binary, "-nostdin", "-v", "error",
             "-t", str(MAX_SOURCE_SECONDS),
@@ -156,7 +124,6 @@ def _from_ffmpeg(data: bytes, suffix: str) -> tuple[np.ndarray, int] | None:
         if done.returncode != 0 or not done.stdout:
             logger.warning("ffmpeg rejected the upload: %s", (done.stderr or b"").decode("utf-8", "replace")[-400:])
             return None
-        # ffmpeg resampled for us, so this is already at TARGET_RATE.
         return np.frombuffer(done.stdout, dtype=np.float32).copy(), TARGET_RATE
     finally:
         with contextlib.suppress(OSError):
@@ -173,29 +140,20 @@ def _to_mono(interleaved: np.ndarray, channels: int) -> np.ndarray:
 
 
 def resample(wav: np.ndarray, src_rate: int, dst_rate: int = TARGET_RATE) -> np.ndarray:
-    """Band-limited resample of a mono signal.
-
-    A windowed sinc evaluated directly at the output positions, rather than
-    scipy's polyphase — scipy is 30 MB for one call per uploaded clip, on
-    a code path whose entire purpose is not installing large packages. The
-    kernel is Kaiser-windowed and its cutoff drops with the rate ratio, so
-    downsampling is anti-aliased rather than aliased-then-decimated.
-    """
+    """Band-limited resample of a mono signal using a windowed-sinc kernel."""
     import numpy as np  # noqa: PLC0415 — deferred; see module docstring
 
     if src_rate == dst_rate or wav.size == 0:
         return np.ascontiguousarray(wav, dtype=np.float32)
     ratio = dst_rate / float(src_rate)
-    # Downsampling: cut at the OUTPUT Nyquist, in input-rate units, with a
-    # little guard band. Upsampling needs no extra band limiting.
+    # Lower the cutoff for downsampling to avoid aliasing.
     cutoff = min(1.0, ratio) * 0.95
     half = int(np.ceil(_SINC_ZEROS / cutoff))
     taps = np.arange(-half + 1, half + 1, dtype=np.float64)
     out_len = max(1, int(np.floor(wav.size * ratio)))
     source = np.asarray(wav, dtype=np.float64)
     out = np.empty(out_len, dtype=np.float64)
-    # Chunked so the (out_len x 2*half) weight matrix stays a few MB rather
-    # than scaling with the length of whatever the user uploaded.
+    # Process blocks to bound the temporary weight matrix.
     block = 8192
     for start in range(0, out_len, block):
         stop = min(start + block, out_len)
@@ -204,8 +162,7 @@ def resample(wav: np.ndarray, src_rate: int, dst_rate: int = TARGET_RATE) -> np.
         offsets = base[:, None] + taps[None, :]
         delta = offsets - centre[:, None]
         weights = cutoff * np.sinc(cutoff * delta) * np.kaiser(2 * half, 5.0)[None, :]
-        # Edge samples read past the ends; clamping the index and zeroing the
-        # weight is the same as zero-padding, without materialising the pad.
+        # Clamp edge indices and zero their weights, equivalent to zero-padding.
         inside = (offsets >= 0) & (offsets < source.size)
         gathered = source[np.clip(offsets, 0, source.size - 1).astype(np.int64)]
         out[start:stop] = np.einsum("ij,ij->i", gathered * inside, weights)
@@ -213,13 +170,7 @@ def resample(wav: np.ndarray, src_rate: int, dst_rate: int = TARGET_RATE) -> np.
 
 
 def volume_normalize(wav: np.ndarray, coeff: float = 0.2) -> np.ndarray:
-    """Upstream's ``audio_volume_normalize``, reproduced exactly.
-
-    It is not cosmetic: the mel it feeds is what the speaker encoder quantises,
-    so a different gain is a different set of 32 tokens. Kept faithful to
-    ``sparktts/utils/audio.py`` rather than replaced with a peak or RMS
-    normaliser that would be tidier and wrong.
-    """
+    """Apply Spark-TTS's volume normalization."""
     import numpy as np  # noqa: PLC0415 — deferred; see module docstring
 
     audio = np.asarray(wav, dtype=np.float32).reshape(-1).copy()
@@ -241,11 +192,7 @@ def volume_normalize(wav: np.ndarray, coeff: float = 0.2) -> np.ndarray:
 
 
 def decode(data: bytes, *, filename: str = "") -> np.ndarray:
-    """An uploaded file's audio as 16 kHz mono float32.
-
-    Raises :class:`UnsupportedAudio` when no reader on this machine can open
-    it, naming the ones that would have.
-    """
+    """Decode uploaded audio as 16 kHz mono float32."""
     import numpy as np  # noqa: PLC0415 — deferred; see module docstring
 
     if not data:
@@ -265,8 +212,7 @@ def decode(data: bytes, *, filename: str = "") -> np.ndarray:
         raise UnsupportedAudio("The uploaded file contains no audio.")
     signal = signal[: rate * MAX_SOURCE_SECONDS]
     resampled = resample(signal, rate, TARGET_RATE)
-    # An upload can be silent, or clipped well past full scale; neither should
-    # reach the mel as inf/NaN.
+    # Keep silent or clipped uploads finite before mel extraction.
     return np.nan_to_num(resampled, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
 
 
@@ -278,23 +224,7 @@ def _unreadable_message(suffix: str) -> str:
 
 
 def reference_signal(wav: np.ndarray, min_seconds: int = 6, hop: int = 320) -> np.ndarray:
-    """What the speaker encoder reads: the whole clip, never less than six seconds.
-
-    A clip shorter than Spark-TTS's ``ref_segment_duration`` is REPEATED to fill
-    it, as upstream does, rather than zero-padded — silence would be seconds of
-    a speaker who is not speaking.
-
-    A longer clip is kept WHOLE, which is where this departs from upstream.
-    Upstream crops to the first six seconds, and which six seconds turns out to
-    matter: across the 6 s windows of one 47 s recording, an independent
-    speaker-verification model (WavLM-SV) scored the clones 0.87–0.94 against
-    the real voice, and the first window was the worst of them. The whole clip
-    in one pass scored 0.93 with no run-on generations. Length does not rescue
-    a noisy recording: 120 s with music under the voice scored 0.88 whole or
-    cropped. The encoder takes any frame count, so this is a longer input, not
-    a different model. Upstream's tokens are still reproduced exactly for
-    anything six seconds or shorter.
-    """
+    """Prepare a reference signal, repeating short clips and trimming frame tails."""
     import numpy as np  # noqa: PLC0415 — deferred; see module docstring
 
     minimum = int(TARGET_RATE * min_seconds) // hop * hop

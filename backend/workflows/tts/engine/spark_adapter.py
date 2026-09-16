@@ -1,25 +1,4 @@
-"""Spark-TTS sidecar adapter, registered as ``spark_remote``.
-
-Superseded by ``builtin_spark_adapter``, which runs the same model inside Orb
-with no sidecar, no torch and no ``voices.json``. Kept registered because
-profiles written before the built-in existed point at a server the user
-installed and may still run — repointing those at a model that is not
-downloaded would break a working setup to tidy up a name.
-
-Client for a local server wrapping Spark-TTS-0.5B, expected at
-``DEFAULT_API_URL`` and exposing ``GET /v1/voices`` and ``POST /v1/tts``
-(see docs/multimedia/tts.md for the contract). One request synthesizes one
-speech chunk; this adapter pads the returned clips with real silence so a
-chunk's pause hints survive.
-
-A voice id names a preset on the sidecar. Presets come in two kinds, and the
-difference decides what ``rate``/``pitch`` can do:
-
-- control — the sidecar shifts the preset's own pitch/speed level by the
-  bucket each multiplier falls into.
-- clone — every prosodic attribute comes from the reference clip, so
-  Spark-TTS accepts no pitch/speed control and the multipliers do not apply.
-"""
+"""Adapter for the legacy Spark-TTS sidecar backend."""
 
 from __future__ import annotations
 
@@ -35,13 +14,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_API_URL = "http://localhost:9300"
 DEFAULT_VOICE = "spark_female_warm"
 
-# A 0.5B autoregressive model on CPU is far slower than a cloud call; a short
-# chunk can still take tens of seconds on a cold or busy box.
+# Local inference can take several minutes on a cold CPU process.
 _SYNTH_TIMEOUT = 300.0
 _LIST_TIMEOUT = 10.0
 
-# Spark-TTS emits 16 kHz mono. Used only to pad silence before the first clip
-# reports the real rate.
+# Used for silence before the first clip reports its rate.
 _FALLBACK_SAMPLE_RATE = 16000
 
 
@@ -144,8 +121,7 @@ class SparkTTSAdapter(TTSAdapter):
                 response.raise_for_status()
                 voices = response.json()
         except Exception as exc:
-            # The panel shows an empty picker rather than a broken one; the
-            # sidecar is a separate process the user starts by hand.
+            # The sidecar is optional, so an unavailable server has no voices.
             logger.debug("could not fetch Spark-TTS voices: %s", exc)
             return []
 

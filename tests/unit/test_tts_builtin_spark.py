@@ -1,8 +1,4 @@
-"""The built-in Spark cloner's profile contract and adapter behaviour.
-
-No model here: the point is everything that happens BEFORE one is loaded, which
-is where a cloned voice is silently lost or silently wrong.
-"""
+"""Tests for the built-in Spark cloner profile and adapter."""
 
 from __future__ import annotations
 
@@ -24,17 +20,14 @@ VALID = list(range(32))
 
 
 def test_the_sidecar_keeps_a_name_of_its_own():
-    """Existing profiles point at a server the user installed and runs. The
-    built-in takes `spark`; migration 0062 moves those saves to `spark_remote`,
-    which must therefore still resolve."""
+    """Legacy sidecar profiles continue to resolve as ``spark_remote``."""
     assert isinstance(get_adapter("spark"), BuiltinSparkAdapter)
     assert get_adapter("spark_remote").backend_name == "Spark-TTS (sidecar)"
     assert {b["id"] for b in list_backends()} >= {"spark", "spark_remote"}
 
 
 def test_both_spark_backends_are_declared_wav():
-    """The sidecar emitted WAV and so does the built-in; a backend missing from
-    that set has its clips labelled audio/mpeg and plays as noise or not at all."""
+    """Both Spark backends return WAV audio."""
     assert audio_mime_ext("spark") == ("audio/wav", "wav")
     assert audio_mime_ext("spark_remote") == ("audio/wav", "wav")
 
@@ -46,8 +39,7 @@ def test_profile_defaults_carry_an_empty_voice():
 
 @pytest.mark.parametrize("bad", [None, "x", [1], list(range(33)), [4096] * 32, [1.5] * 32, [True] * 32])
 def test_a_malformed_voice_normalizes_to_no_voice(bad):
-    """It must not reach the codec, which answers a wrong-length array with an
-    exception from inside an einsum rather than a message."""
+    """Malformed speaker tokens normalize to an empty voice."""
     assert normalize_profile({"backend": "spark", "speaker_tokens": bad})["speaker_tokens"] == []
 
 
@@ -58,13 +50,11 @@ def test_a_valid_voice_survives_normalization():
 
 
 def test_the_voice_is_part_of_the_reproduction_record():
-    """`_METADATA_KEYS` is what a reroll re-synthesizes from, in a context with
-    no character state. Without the tokens, rerolling a cloned line comes back
-    in a different voice."""
+    """Speaker tokens are included in generation metadata."""
     assert "speaker_tokens" in _METADATA_KEYS
     profile = normalize_profile({"backend": "spark", "speaker_tokens": VALID})
     assert build_generation_metadata("hello", profile)["speaker_tokens"] == VALID
-    # And the record round-trips back through the normaliser a reroll uses.
+    # Metadata round-trips through the profile normalizer.
     assert normalize_profile(build_generation_metadata("hello", profile))["speaker_tokens"] == VALID
 
 
@@ -81,9 +71,7 @@ async def test_empty_text_is_not_an_error():
 
 
 async def test_synthesis_surfaces_the_readiness_reason_verbatim():
-    """Which piece is missing depends on the machine — no onnxruntime, no GGUF,
-    no llama-server — so the contract is that whatever readiness says is what
-    the user is told, not that the adapter invents a message of its own."""
+    """Synthesis reports the readiness failure reason."""
     from backend.workflows import spark_tts_host
 
     settings = {"local_ml_enabled": {}}
@@ -118,9 +106,7 @@ async def test_list_voices_is_empty_without_a_picker():
 
 
 async def test_chunk_pauses_become_real_silence_between_clips(monkeypatch):
-    """The stitching contract the other local backends share: a pause hint is
-    rendered as PCM, and the leading pause on the first chunk is dropped
-    because it would only delay playback."""
+    """Chunk pauses become silence between clips."""
     import backend.workflows.tts.engine.builtin_spark_adapter as module
 
     async def fake_speak(text, speaker_tokens, settings):
@@ -145,9 +131,7 @@ async def test_chunk_pauses_become_real_silence_between_clips(monkeypatch):
 
 @pytest.mark.parametrize("gpu", [True, False])
 def test_the_spark_child_never_runs_a_prompt_batch_past_eight(tmp_path, monkeypatch, gpu):
-    """Above 8 rows ggml-vulkan switches kernels, and that one garbles this
-    model's prompt: a second of babble instead of the line, with no error
-    anywhere. See `UBATCH_SIZE` — raising it is a regression, not a speedup."""
+    """The Spark child keeps its prompt batch at or below eight."""
     from backend.inference.local_models.llama_server import client as C
     from backend.inference.local_models.spark_tts import config
 

@@ -233,30 +233,7 @@ class LlamaServerClient:
         seed: int | None = None,
         cache_prompt: bool = True,
     ) -> tuple[list[int], bool]:
-        """Stream one completion in TOKEN IDS; return ``(tokens, stopped)``.
-
-        A sibling of :meth:`generate` rather than a second mode of it, so the
-        prose rewriter's text path keeps its exact signature and return type.
-
-        Both halves differ from the text path and both are mandatory for an
-        audio model:
-
-        *The prompt is a list of ints.* Spark-TTS's speaker and audio tokens
-        are special tokens; sending them as text means round-tripping them
-        through ``/tokenize`` with ``parse_special`` on, which also invites the
-        user's own line to be read for control tokens. An int array skips the
-        tokenizer entirely.
-
-        *The output is read from ``tokens``, not ``content``.* Every bicodec
-        token is typed ``CONTROL`` in the GGUF and ``--special`` defaults to
-        false, so ``content`` arrives EMPTY for a completion that is entirely
-        audio. A text-based reader does not fail here; it silently returns
-        nothing, which is why upstream's regex-the-completion approach cannot
-        be used against llama-server at all.
-
-        As with :meth:`generate`, cancelling the awaiting task closes the
-        connection mid-stream and llama.cpp frees the slot at once.
-        """
+        """Stream an audio completion and return ``(tokens, stopped)``."""
         payload: dict = {
             "prompt": list(prompt),
             "n_predict": n_predict,

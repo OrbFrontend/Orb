@@ -1,9 +1,4 @@
-"""Run Spark-TTS: prompt the child, read token ids, render a waveform.
-
-The two halves meet here. ``ManagedLlamaServerHost`` already supports a second
-resident child — ``manager`` holds a LIST of hosts, and the app lifespan stops
-every one of them — so this is a supported pattern rather than new machinery.
-"""
+"""Generate Spark-TTS tokens and decode them to audio."""
 
 from __future__ import annotations
 
@@ -22,12 +17,10 @@ from .tokens import (
 
 logger = logging.getLogger(__name__)
 
-#: One host per process, registered with the shared runtime manager so the app
-#: lifespan can stop a child it otherwise knows nothing about.
+#: Shared Spark-TTS model host.
 HOST = ManagedLlamaServerHost(name="spark_tts", idle_timeout=config.IDLE_TIMEOUT)
 
-#: Sampling. Upstream's defaults, which is the right default for a model whose
-#: published samples were produced with them.
+#: Spark-TTS sampling defaults.
 TEMPERATURE = 0.8
 TOP_P = 0.95
 TOP_K = 50
@@ -43,20 +36,14 @@ def state() -> dict[str, str]:
 
 
 async def synthesize(text: str, speaker_tokens: Sequence[int], *, gpu: bool = True) -> tuple[bytes, int]:
-    """Speak *text* in the enrolled voice. Returns ``(pcm16, sample_rate)``.
-
-    Note what is NOT sent: no reference audio, no transcript, no semantic
-    tokens, and no per-request re-encoding. The 32 ints came out of the
-    database, and everything the model needs about the voice is in them.
-    """
+    """Speak text in an enrolled voice and return ``(pcm16, sample_rate)``."""
     spoken = " ".join(text.split())
     if not spoken:
         return b"", codec.SAMPLE_RATE
     speaker = validate_speaker_tokens(list(speaker_tokens))
     profile = config.launch_profile(gpu=gpu)
     async with HOST.use(profile) as server:
-        # parse_special OFF: the line is a character's dialogue, not a place to
-        # honour control-token spellings that happen to appear in it.
+        # User text must not be interpreted as control tokens.
         body = await server.tokenize(spoken, parse_special=False)
         prompt = clone_prompt(body, speaker)
         budget = token_budget(spoken)
@@ -69,15 +56,11 @@ async def synthesize(text: str, speaker_tokens: Sequence[int], *, gpu: bool = Tr
         )
     semantic = semantic_indices(generated)
     if not semantic:
-        # Upstream retries this, because on ITS path the failure is the model
-        # emitting no speaker tokens and it has no other source for them. Here
-        # the speaker tokens are supplied, so an empty generation is a real
-        # failure rather than a dice roll worth re-rolling.
+        # Without semantic tokens there is nothing for the decoder to render.
         raise SynthesisFailed("Spark-TTS produced no audio tokens for this line.")
     if not stopped:
         logger.info("Spark-TTS hit its %d-token budget for a %d-character line", budget, len(spoken))
-    # The 385 MB decoder holds the GIL for its whole run; off the loop it goes,
-    # or every other request in the app stalls for the length of the clip.
+    # Keep the blocking decoder off the event loop.
     pcm = await asyncio.to_thread(codec.decode, semantic, speaker)
     return pcm, codec.SAMPLE_RATE
 

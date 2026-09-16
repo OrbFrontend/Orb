@@ -1,26 +1,4 @@
-"""Spark-TTS's audio vocabulary, as token ids rather than text.
-
-Upstream drives this model through STRINGS: it renders speaker tokens as
-``<|bicodec_global_3363|>…``, generates, then regexes ``bicodec_semantic_(\\d+)``
-back out of the decoded completion. That cannot work against llama-server.
-Every bicodec token is typed ``CONTROL`` in the GGUF and ``--special`` defaults
-to false, so ``/completion`` returns ``content: ''`` and the regex finds
-nothing — silently, which is the worst available failure.
-
-Both families are contiguous, so we work in ids and do arithmetic instead:
-
-===================  =====  ==============  ==================
-family               count  index range     token-id range
-===================  =====  ==============  ==================
-``bicodec_global``    4096  0 – 4095        151665 – 155760
-``bicodec_semantic``  8192  0 – 8191        155761 – 163952
-===================  =====  ==============  ==================
-
-Everything in this module is pure: no model, no HTTP, no numpy.
-``tests/unit/test_spark_tokens.py`` pins the exact id sequence for a known
-``(text, speaker_tokens)`` pair, which is the only way a silent off-by-one in
-a base constant gets caught before it reaches a listener as a different voice.
-"""
+"""Map Spark-TTS control and semantic tokens to integer ids."""
 
 from __future__ import annotations
 
@@ -42,28 +20,17 @@ START_GLOBAL = 165150
 END_GLOBAL = 165156
 START_SEMANTIC = 165151
 
-#: How many speaker tokens one enrollment produces. A property of the FSQ
-#: quantizer (``token_num: 32`` in BiCodec's config), not a choice.
+#: Number of speaker tokens produced by enrollment.
 SPEAKER_TOKEN_COUNT = 32
 
-#: Budget for one generation. Upstream passes a flat 3000 — about a minute of
-#: audio — so a degenerate generation runs to that cap and costs ~2.5 minutes
-#: on CPU for a line that needs eleven seconds. Semantic tokens come out at
-#: 50 Hz and speech runs ~15 chars/second, so a line needs roughly 3.3 tokens
-#: per character; 8 leaves double the headroom the slowest delivery asks for
-#: while cutting the runaway case to a fraction of its cost. Carried over from
-#: OrbTTS, where it was measured.
+#: Maximum semantic tokens for one line.
 TOKENS_PER_CHAR = 8
 TOKEN_FLOOR = 256
 TOKEN_CEILING = 3000
 
 
 class InvalidSpeakerTokens(ValueError):
-    """A stored voice that is not 32 in-range ints.
-
-    Raised at the boundary rather than passed to the codec, which answers a
-    wrong-length array with an exception from deep inside an einsum.
-    """
+    """A stored voice is not 32 in-range integers."""
 
 
 def token_budget(text: str) -> int:
@@ -72,12 +39,7 @@ def token_budget(text: str) -> int:
 
 
 def validate_speaker_tokens(raw: object) -> list[int]:
-    """Coerce a stored value to 32 speaker indices, or explain what it was.
-
-    Reached from the profile normaliser, from the synthesis path, and from the
-    enrollment route, because "the thing in the database is the right shape" is
-    not an assumption any of the three may make on its own.
-    """
+    """Validate and return 32 speaker indices."""
     if not isinstance(raw, (list, tuple)):
         raise InvalidSpeakerTokens(f"speaker tokens must be a list of {SPEAKER_TOKEN_COUNT} integers")
     if len(raw) != SPEAKER_TOKEN_COUNT:
@@ -94,16 +56,7 @@ def validate_speaker_tokens(raw: object) -> list[int]:
 
 
 def clone_prompt(text_tokens: Sequence[int], speaker_tokens: Sequence[int]) -> list[int]:
-    """The cloning prompt, as token ids.
-
-    ``text_tokens`` is the line tokenised with ``parse_special`` OFF — a
-    character name that happens to spell ``<|end_content|>`` is text, not a
-    control token, and asking the tokenizer to honour specials inside user text
-    is how that stops being true.
-
-    Note what is absent: no reference audio, no semantic tokens, no transcript.
-    The 32 ints carry the timbre; the model writes the prosody.
-    """
+    """Build the cloning prompt from text and speaker token ids."""
     speaker = validate_speaker_tokens(list(speaker_tokens))
     return [
         TASK_TTS,
@@ -117,12 +70,7 @@ def clone_prompt(text_tokens: Sequence[int], speaker_tokens: Sequence[int]) -> l
 
 
 def semantic_indices(generated: Iterable[int]) -> list[int]:
-    """Codebook indices from generated token ids, in order.
-
-    Anything outside the semantic range is dropped rather than trusted: on the
-    cloning path the model should emit semantic tokens and nothing else, and an
-    EOS or a stray text token reaching the codec as an index is a crash at best.
-    """
+    """Extract in-range semantic codebook indices from generated ids."""
     return [token - SEMANTIC_BASE for token in generated if SEMANTIC_BASE <= token <= SEMANTIC_LAST]
 
 

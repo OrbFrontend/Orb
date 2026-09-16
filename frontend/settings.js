@@ -227,21 +227,13 @@ const LOCAL_ML_DESCS = {
   prose_rewriter: "Local engine for Prose Rewriter.",
 };
 
-// Features whose whole management lives on the surface that uses them. The
-// Spark-TTS halves are set up, switched on and put on the GPU from the TTS
-// panel's cloned-voice control, so a card here would only repeat it.
+// Spark-TTS model management lives in the TTS cloned-voice control.
 const LOCAL_ML_MANAGED_ELSEWHERE = new Set(["spark_tts_llm", "spark_tts_codec"]);
 
 const settingsFeatures = (features) =>
   Object.fromEntries(Object.entries(features).filter(([f]) => !LOCAL_ML_MANAGED_ELSEWHERE.has(f)));
 
-/** Publish the fetched status and repaint the surfaces that gate on it.
- *
- * Same wiring as Editor Feedback graying out feedback fragments: the owning
- * card writes shared state and re-renders the dependent surface, which reads
- * the gate at render time. Repaint only when a gate actually flipped, so a
- * routine status refresh never wipes a half-typed field in the tools panel.
- */
+/** Publish local model status and repaint dependent surfaces. */
 function publishLocalMlFeatures(features) {
   const before = mlReadySignature();
   S.localMlFeatures = features || {};
@@ -509,12 +501,7 @@ function beginMlBusy(btn) {
   };
 }
 
-/** Fetch the runtime: both builds, so the GPU toggle never waits on a download.
- *
- * `expectLoad` because the fetch re-warms the model on what just landed —
- * without it the state poller stops and the card sits on a stale line while the
- * new runtime loads behind it.
- */
+/** Fetch local model status, optionally waiting for a newly loaded model. */
 async function fetchLlamaRuntime(btn) {
   const endBusy = beginMlBusy(btn);
   try {

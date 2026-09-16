@@ -1,22 +1,4 @@
-"""Built-in Spark-TTS voice cloner — no sidecar, no torch, no voices.json.
-
-The user-facing workflow is one step: upload an audio file to a character, and
-that character speaks in that voice from then on. What is stored is 32 integers
-in the character's voice profile; the reference clip itself is never consulted
-again at synthesis time.
-
-Differences from the sidecar adapter this replaces (``spark_adapter``, still
-registered as ``spark_remote`` for existing profiles):
-
-- There is no ``api_url``. The model runs in-process, through the same
-  llama-server runtime the Prose Rewriter uses.
-- ``list_voices`` returns the character's own enrolled voice, or nothing, and
-  its failure mode is a reason rather than silence.
-- ``rate``/``pitch`` DO NOTHING and the panel greys them out. That is not an
-  omission: Spark-TTS takes prosody attributes only on its control path, and
-  cloning bypasses that path entirely. Sending values that are silently ignored
-  is worse than not offering them.
-"""
+"""Adapter for the built-in Spark-TTS voice cloner."""
 
 from __future__ import annotations
 
@@ -28,7 +10,7 @@ from .wav import pcm_duration_ms, pcm_to_wav, silence_pcm
 
 logger = logging.getLogger(__name__)
 
-#: The profile field an enrolled voice lives in, and the id the picker shows.
+#: Profile voice id for an enrolled voice.
 VOICE_ID = "cloned"
 
 _FALLBACK_SAMPLE_RATE = 16000
@@ -53,9 +35,7 @@ class BuiltinSparkAdapter(TTSAdapter):
         if not text_chunks:
             return SynthesisResult(audio_bytes=b"", content_type="audio/wav")
 
-        # The 32 ints ride on the profile, so they arrive here through the same
-        # **kwargs the router already forwards. Validated by the caller
-        # (normalize_profile) and again by the token layer before the codec.
+        # The router passes the enrolled tokens through kwargs.
         speaker_tokens = kwargs.get("speaker_tokens") or []
         if not speaker_tokens:
             raise ValueError("This character has no cloned voice yet — upload a reference clip first.")
@@ -87,7 +67,7 @@ class BuiltinSparkAdapter(TTSAdapter):
         )
 
     async def list_voices(self, language: str = "", **kwargs) -> list[dict]:
-        # Enrollment selects the only voice; the generic picker has no choices.
+        # Enrollment provides the only available voice.
         return []
 
     @property

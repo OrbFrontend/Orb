@@ -1,16 +1,4 @@
-"""Render Spark-TTS audio tokens back into a waveform.
-
-``bicodec.onnx`` is the decode half of BiCodec — ``quantizer.detokenize``,
-``speaker_encoder.detokenize``, ``prenet`` and ``decoder``, and none of the
-encoder, postnet or mel transform, which is why it is 385 MB against the
-checkpoint's 625 MB. It reproduces the torch decoder at 114 dB SNR, holding
-from one semantic token to the 1500 at the generation cap.
-
-It is not a speed win — ONNX Runtime measured slightly SLOWER than torch here
-(0.84x) — and it is not meant to be. It is how the decoder ships without torch,
-and at 0.22x realtime on CPU the vocoder is not the constraint: the LLM is,
-which is the half that already runs on Orb's llama-server.
-"""
+"""Decode Spark-TTS semantic tokens into PCM audio."""
 
 from __future__ import annotations
 
@@ -27,20 +15,11 @@ SAMPLE_RATE = 16000
 
 
 class EmptyGeneration(RuntimeError):
-    """The model produced no semantic tokens; there is nothing to render.
-
-    Kept distinct so a caller can retry rather than report a broken install.
-    Upstream hits this as a crash deep inside einx on a zero-length axis.
-    """
+    """The model produced no semantic tokens."""
 
 
 def decode(semantic: Sequence[int], speaker_tokens: Sequence[int]) -> bytes:
-    """``(semantic indices, 32 speaker tokens)`` -> 16-bit mono PCM at 16 kHz.
-
-    Raw PCM rather than a WAV file because the TTS workflow stitches per-chunk
-    clips with real silence between them and wraps the result once, in
-    ``engine/wav.py``.
-    """
+    """Decode semantic and speaker tokens to 16-bit mono PCM."""
     import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
 
     if not semantic:
@@ -54,7 +33,7 @@ def decode(semantic: Sequence[int], speaker_tokens: Sequence[int]) -> bytes:
         ["audio"],
         {
             "semantic_tokens": indices[None, :],
-            # (batch, 1, 32): the decoder's own extra axis, not a mistake.
+            # The decoder expects speaker tokens with an extra axis.
             "global_tokens": np.asarray(speaker, dtype=np.int64)[None, None, :],
         },
     )[0]
@@ -62,12 +41,7 @@ def decode(semantic: Sequence[int], speaker_tokens: Sequence[int]) -> bytes:
 
 
 def to_pcm16(audio) -> bytes:
-    """Encode a float waveform as 16-bit little-endian PCM.
-
-    Spark-TTS returns float32 nominally in [-1, 1] but a degenerate generation
-    can overshoot; peak-normalise those rather than let the clipping reach the
-    listener.
-    """
+    """Encode a float waveform as 16-bit little-endian PCM."""
     import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
 
     samples = np.nan_to_num(np.asarray(audio, dtype=np.float32).reshape(-1), copy=False)

@@ -1,13 +1,4 @@
-"""Migration 0062: keep existing Spark-TTS sidecar profiles working.
-
-The rename is the part that can break a working setup. `spark` used to mean
-"the OrbTTS sidecar at http://localhost:9300"; it now means the built-in
-cloner, which needs a downloaded model and an enrolled voice. A profile written
-before this release names a server the user installed and may still be running,
-so those move to `spark_remote` -- the same adapter under its new name -- rather
-than being repointed at a model that is probably not on disk.
-
-"""
+"""Tests for migration 0062's Spark-TTS backend rename."""
 
 from __future__ import annotations
 
@@ -63,11 +54,10 @@ def test_moves_existing_spark_profiles_to_the_sidecar_backend():
     _migrate(conn)
     moved = _tts(conn, "sidecar")
     assert moved["backend"] == "spark_remote"
-    # The rest of the profile is untouched: the sidecar still wants its url and
-    # its preset, and the point of the rename is that it keeps working.
+    # Preserve the sidecar URL and preset.
     assert moved["voice_id"] == "spark_female_warm"
     assert moved["api_url"] == "http://localhost:9300"
-    # And the name it moved to is a backend that actually resolves.
+    # The migrated backend remains registered.
     assert get_adapter(moved["backend"]) is not None
 
 
@@ -98,8 +88,7 @@ def test_leaves_everything_else_alone():
 
 
 def test_is_idempotent():
-    """The runner records applied migrations, but a restore or a hand-run must
-    not double-apply -- and a second pass here must match nothing at all."""
+    """Applying the migration twice leaves the database unchanged."""
     conn = _staged()
     _migrate(conn)
     first = _tts(conn, "sidecar")

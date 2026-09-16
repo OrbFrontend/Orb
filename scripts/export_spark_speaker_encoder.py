@@ -1,32 +1,15 @@
 #!/usr/bin/env python3
-"""Export Spark-TTS's speaker encoder to ONNX — the one artifact nobody hosts.
+"""Export and verify Spark-TTS's speaker encoder as an ONNX model.
 
-Enrollment needs mel -> 32 FSQ codes, which upstream ships only as a submodule
-of the 625 MB BiCodec checkpoint. 385 MB of that checkpoint is the decoder we
-already have as ``bicodec.onnx``, and 1.4 GB of the rest is the wav2vec2 and
-encoder stack this backend deliberately does not use, so extracting the 39 MB
-that matters is what makes a torch-free install possible at all.
-
-Run it against a torch checkout of Spark-TTS::
+Run against a torch checkout of Spark-TTS::
 
     pip install torch torchaudio onnx onnxruntime safetensors omegaconf soundfile soxr
     python scripts/export_spark_speaker_encoder.py \\
         --checkpoint /path/to/Spark-TTS-0.5B \\
         --spark-tts  /path/to/Spark-TTS        # the upstream repo, for its modules
 
-With no ``--out`` it writes straight into ``backend/data/models/`` under the
-basename the catalog claims, so a machine that runs this has a working voice
-cloner immediately, without waiting on a download.
-
-The export is CHECKED, not assumed. Three things are verified before the file
-is kept, because each has failed in a way that would otherwise be silent:
-
-* the ONNX graph returns the same 32 ints as torch for a real clip;
-* it honours its dynamic axes — the tracer emits ``TracerWarning``s on the FSQ
-  loop and on shape asserts, and a graph that silently hardcoded 301 frames
-  would work on exactly one clip length;
-* enrollment is deterministic across runs, which is what lets the stored 32
-  ints be a reproduction record rather than a snapshot of one lucky run.
+The output defaults to the model directory. The script verifies agreement with
+torch, dynamic axes, and deterministic output before keeping the file.
 """
 
 from __future__ import annotations
@@ -65,12 +48,7 @@ def main() -> int:
     codec.eval()
 
     class Enroller(torch.nn.Module):
-        """mel (B, n_mels, T) -> 32 speaker ids. Exactly BiCodec.tokenize's global half.
-
-        The transpose is inside the graph so the runtime caller passes the mel
-        in its natural (batch, n_mels, frames) layout and no shape convention
-        has to be remembered on the other side of the export.
-        """
+        """Map mel input ``(B, n_mels, T)`` to 32 speaker ids."""
 
         def __init__(self, speaker_encoder: torch.nn.Module) -> None:
             super().__init__()
@@ -99,8 +77,7 @@ def main() -> int:
         args.out,
         input_names=["mel"],
         output_names=["speaker_tokens"],
-        # Frames AND batch, both dynamic. Frames is load-bearing: enrollment
-        # feeds the whole clip (up to two minutes), not upstream's six seconds.
+        # Enrollment accepts variable batch sizes and clip lengths.
         dynamic_axes={"mel": {0: "batch", 2: "frames"}},
         opset_version=17,
         do_constant_folding=True,

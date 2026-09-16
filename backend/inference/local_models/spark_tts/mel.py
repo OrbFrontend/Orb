@@ -1,20 +1,4 @@
-"""The mel spectrogram Spark-TTS's speaker encoder reads, in numpy.
-
-Upstream computes this with ``torchaudio.transforms.MelSpectrogram``. Enrollment
-is the only place Orb needs it, and pulling 328 MB of torch in for one
-spectrogram is the dependency this whole backend exists to avoid — so it is
-reimplemented here against the same parameters, and
-``tests/unit/test_spark_mel.py`` pins the reimplementation to the 32 speaker
-tokens torch produces for the same clip.
-
-EVERY DEFAULT IS LOAD-BEARING. torchaudio's are ``center=True``,
-``pad_mode="reflect"``, a *periodic* Hann window of ``win_length`` centred
-inside an ``n_fft`` frame, and no STFT normalisation; ``power=1`` means
-magnitude rather than the more usual power spectrum, and ``norm="slaney"``
-scales each filter by its own bandwidth. A mismatch in any of them does not
-raise — it shifts a few of the 32 FSQ codes, which is a voice that is slightly
-not the one the user uploaded.
-"""
+"""Compute the mel spectrogram used by Spark-TTS speaker enrollment."""
 
 from __future__ import annotations
 
@@ -42,8 +26,7 @@ def _hz_to_mel(freq):
     min_log_mel = min_log_hz / f_sp
     logstep = np.log(6.4) / 27.0
     freq = np.asarray(freq, dtype=np.float64)
-    # np.where rather than a masked assignment so a scalar stays a scalar; the
-    # clip only keeps log() off zero in the branch np.where discards anyway.
+    # Keep the logarithm defined for values in the unused branch of np.where.
     safe = np.maximum(freq, min_log_hz)
     return np.where(
         freq >= min_log_hz,
@@ -68,12 +51,7 @@ def _mel_to_hz(mels):
 
 
 def mel_filterbank() -> np.ndarray:
-    """``(n_freqs, n_mels)`` triangular filters, Slaney-normalised.
-
-    Same construction as ``torchaudio.functional.melscale_fbanks``: triangles
-    whose corners are equally spaced *in mel*, each divided by its own width in
-    Hz so a wide high filter does not simply out-sum a narrow low one.
-    """
+    """Return the Slaney-normalized mel filterbank."""
     import numpy as np  # noqa: PLC0415 — deferred; see module docstring
 
     n_freqs = N_FFT // 2 + 1
@@ -90,11 +68,7 @@ def mel_filterbank() -> np.ndarray:
 
 
 def _hann_periodic(length: int) -> np.ndarray:
-    """torch's ``hann_window``: PERIODIC, i.e. ``np.hanning(n + 1)[:-1]``.
-
-    numpy's ``hanning`` is the symmetric one and differs at every sample; it is
-    the single easiest way to get this wrong.
-    """
+    """Return the periodic Hann window used by torch."""
     import numpy as np  # noqa: PLC0415 — deferred; see module docstring
 
     n = np.arange(length, dtype=np.float64)
@@ -105,20 +79,16 @@ def _stft_magnitude(wav: np.ndarray) -> np.ndarray:
     """``(n_freqs, frames)`` magnitudes, matching ``torch.stft``'s framing."""
     import numpy as np  # noqa: PLC0415 — deferred; see module docstring
 
-    # center=True reflects n_fft//2 samples off each end, so frame k is centred
-    # on sample k*hop and the frame count is len//hop + 1 rather than a ragged
-    # tail. The speaker encoder was trained on that framing.
+    # Match torch.stft's centered, reflect-padded framing.
     padded = np.pad(np.asarray(wav, dtype=np.float64), N_FFT // 2, mode="reflect")
-    # torch pads a shorter window out to n_fft by CENTRING it, so a 640-sample
-    # Hann sits inside a 1024-sample frame with 192 zeros either side.
+    # Center the shorter analysis window inside each n_fft frame.
     window = np.zeros(N_FFT, dtype=np.float64)
     left = (N_FFT - WIN_LENGTH) // 2
     window[left : left + WIN_LENGTH] = _hann_periodic(WIN_LENGTH)
     frames = 1 + (len(padded) - N_FFT) // HOP_LENGTH
     if frames <= 0:
         return np.zeros((N_FFT // 2 + 1, 0), dtype=np.float64)
-    # One strided view rather than a Python loop: enrollment is 301 frames, but
-    # this is also how a 30 s clip stays instant.
+    # Use a strided view instead of a Python loop.
     shape = (frames, N_FFT)
     strides = (padded.strides[0] * HOP_LENGTH, padded.strides[0])
     blocks = np.lib.stride_tricks.as_strided(padded, shape=shape, strides=strides)

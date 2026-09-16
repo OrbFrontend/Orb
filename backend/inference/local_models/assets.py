@@ -58,9 +58,7 @@ def present(feature: str) -> bool:
     spec = MODELS.get(feature)
     if spec is None:
         return os.path.exists(resolve_path(feature))
-    # A companion is not optional: half of Spark-TTS is a cloner that cannot
-    # enroll, or enrolled tokens nothing can speak. Checked before the variant
-    # branch so it applies to both shapes.
+    # A missing companion makes the feature unusable.
     if any(not os.path.exists(file_path(f)) for f in spec.extra_files):
         return False
     if spec.variants:
@@ -83,12 +81,7 @@ def file_path(spec: ModelFileSpec) -> str:
 
 
 def missing_files(feature: str) -> list[str]:
-    """Basenames of *feature*'s artifacts that are not on disk.
-
-    For error messages that say WHICH file is missing. "Spark-TTS is not
-    downloaded" when only the 23 MB encoder is absent sends the user to
-    re-fetch 368 MB they already have.
-    """
+    """Return basenames of a feature's missing artifacts."""
     spec = MODELS.get(feature)
     if spec is None:
         return []
@@ -189,16 +182,10 @@ def _fetch(repo_id: str, path: str, revision: str, local_name: str, sha256: str)
 
 
 def download(feature: str, variant: str | None = None) -> None:
-    """Fetch a feature's artifacts into data/models/, then prune stale weights.
-
-    Blocking; run in a thread. Companions come down in the same press as the
-    main file — a half-fetched Spark-TTS is a feature that reports present and
-    then fails at the first enrollment.
-    """
+    """Fetch a feature's artifacts and prune stale weights."""
     spec = MODELS[feature]
     repo_id, path, revision, local_name = variant_spec(feature, variant)
-    # Companions first, because they are the small ones: a failure there costs
-    # seconds rather than stranding a user who just waited for 368 MB.
+    # Fetch companions first so partial downloads are not reported as ready.
     for companion in spec.extra_files:
         if not os.path.exists(file_path(companion)):
             _fetch(companion.repo_id, companion.path, companion.revision, companion.local_name, companion.sha256)

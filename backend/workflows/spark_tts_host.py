@@ -1,15 +1,4 @@
-"""Host integration for the built-in Spark-TTS voice cloner.
-
-The TTS workflow plug-in may import only ``workflows.toolkit``, so this is
-where the plug-in's two needs — "enroll this upload" and "speak this line in
-that voice" — are joined to the model slice under ``inference/local_models``.
-It is also where the Local ML routes' management hooks live for the feature's
-two halves, which the TTS panel's cloned-voice control drives.
-
-Enrollment and synthesis are gated separately. The codec half is 23 MB + 368 MB
-of CPU graphs and is all that enrollment needs, so a user can save a voice while
-the 520 MB LLM is still downloading.
-"""
+"""Bridge the TTS workflow to the built-in Spark-TTS model slice."""
 
 from __future__ import annotations
 
@@ -34,13 +23,7 @@ FEATURE_CODEC = catalog.FEATURE_CODEC
 
 
 def clean_tokens(raw: object) -> list[int]:
-    """A stored voice as 32 validated speaker tokens, or ``[]`` for anything else.
-
-    The lenient half of the token contract: profile normalisation runs over
-    whatever JSON is in the database and must not raise on a blob written by an
-    older version, a hand-edited row, or a failed enrollment. The strict half —
-    :func:`spark_tts.tokens.validate_speaker_tokens` — still guards the codec.
-    """
+    """Return validated stored speaker tokens, or ``[]`` if invalid."""
     try:
         return tokens.validate_speaker_tokens(raw)
     except tokens.InvalidSpeakerTokens:
@@ -81,12 +64,7 @@ def synthesis_ready(settings: Mapping[str, Any]) -> tuple[bool, str]:
 
 
 async def enroll_upload(data: bytes, *, filename: str = "") -> list[int]:
-    """Enroll an uploaded audio file and return its speaker tokens.
-
-    Blocking work — decode, resample, mel, and a 23 MB ONNX session — goes to a
-    thread: it is ~14 ms of model plus however long the file takes to decode,
-    and an upload is not a reason to stall every other request in the app.
-    """
+    """Enroll an uploaded audio file without blocking the event loop."""
 
     def run() -> list[int]:
         return enroll.enroll(data, filename=filename)
@@ -111,8 +89,7 @@ class _LlmManagement:
     async def apply_config(self, body: Mapping[str, Any]) -> dict:
         gpu = bool(body.get("gpu", True))
         await set_local_ml_config(FEATURE_LLM, {"gpu": gpu})
-        # Record the change without touching a child that may be mid-line; the
-        # swap happens on the next synthesis, exactly as it does for a rewrite.
+        # Apply the new profile on the next synthesis.
         try:
             service.HOST.mark_stale(config.launch_profile(gpu=gpu))
         except RuntimeError:  # not downloaded yet: nothing to point at, and that is fine

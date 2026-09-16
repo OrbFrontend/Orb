@@ -17,19 +17,12 @@ import { formatTime } from "./widget.js";
 
 const WORKFLOW_ID = "tts";
 const CHANNEL = "tts";
-// Previews play on their own channel and report progress on the panel's status line, not the chat dock.
+// Keep previews separate from chat playback.
 const PREVIEW_CHANNEL = "tts-preview";
-// Playback start is silent when decoding fails, so a preview that never starts is called unplayable.
+// Give failed preview decodes time to report before showing an error.
 const PREVIEW_START_GRACE_MS = 1500;
 
-// Which rows each backend shows. "voice" is the voice picker; "clone" is the
-// built-in Spark cloner's upload control, which replaces it.
-//
-// `spark` (built-in) deliberately shows NEITHER rate nor pitch: Spark-TTS
-// accepts prosody attributes only on its control path, and cloning bypasses
-// that path, so those sliders would move and change nothing. `spark_remote` is
-// the sidecar under its old field set, kept for profiles written before the
-// built-in existed.
+// Backend-specific settings. `clone` is the built-in Spark control.
 const BACKEND_FIELDS = {
   edge: ["voice", "language", "rate", "pitch"],
   kokoro: ["voice", "api_url", "language", "rate"],
@@ -80,9 +73,7 @@ export function initConfigPanel(sharedConfig) {
   onChannel(PREVIEW_CHANNEL, onPreviewEvent);
 }
 
-// The Local ML entries the built-in cloner needs, in the order they become
-// useful: the codec is all enrollment needs, so it lands first and a voice can
-// be saved while the 520 MB model is still coming down behind it.
+// The codec is enough for enrollment, so list it before the voice model.
 const CLONE_FEATURES = [
   { id: "spark_tts_codec", label: "voice codec" },
   { id: "spark_tts_llm", label: "voice model" },
@@ -95,9 +86,7 @@ let mlPending = false;
 let setupBusy = false;
 let setupStep = ""; // the download in flight, said where the button was pressed
 let enrolling = ""; // the file being enrolled, shown in the drop zone until the route answers
-// The enrolled voice is not an editable form control — it is written by the
-// upload route and read back — so it lives here and readForm() carries it
-// through unchanged, which is what stops a plain Save from wiping it.
+// Keep the server-owned voice tokens outside the editable form.
 let cloned = { tokens: [], name: "" };
 let loadedProfile = null;
 let previewRaf = null;
@@ -192,8 +181,7 @@ function settingsBodyHtml() {
 }
 
 function openSettings() {
-  // Re-asked per open: a download can have finished, or the voice model gone
-  // idle or failed, since this panel last looked.
+  // Refresh status each time the modal opens.
   mlStatus = null;
   showModal(settingsBodyHtml());
   setTimeout(populateProfile, 0);
@@ -320,37 +308,20 @@ function profileFormHtml(p, backends, cast = null) {
     </div>`;
 }
 
-// --- The cloned voice control ------------------------------------------------
-//
-// One control does the whole feature: it says what is still missing and fixes
-// it, takes a dropped file, reports the voice that came out, and holds the voice
-// model's GPU switch. Settings → Local ML shows no Spark cards; this is the only
-// place the cloner is used, so it is the only place it is managed.
+// --- Cloned voice control ----------------------------------------------------
 
 function mlFeature(id) {
   return mlStatus?.features?.[id] || {};
 }
 
-/** Is one half of the cloner usable right now?
- *
- * `null` status answers yes: it means the panel has not been told otherwise,
- * and the routes report the truth anyway. Blocking the control on a fetch that
- * has not landed would be a worse lie than letting the upload answer.
- */
+/** Return whether one half of the cloner is usable. */
 function featureReady(id) {
   if (!mlStatus) return true;
   const info = mlFeature(id);
   return Boolean(info.present && info.enabled && info.deps_ok && info.runtime_ok !== false);
 }
 
-/** Fetch the status this control gates on, once per open settings modal, or
- * again with `refresh` after something here may have loaded the voice model.
- *
- * The panel asks for its own copy instead of reading the shared one: that map
- * is published by the Settings page, which a user who came straight here has
- * never opened, and an empty map there is indistinguishable from "nothing is
- * downloaded".
- */
+/** Fetch local model status for this panel. */
 function ensureMlStatus({ refresh = false } = {}) {
   if ((mlStatus && !refresh) || mlPending) return;
   if (document.getElementById("tts-pf-backend")?.value !== "spark") return;
@@ -367,8 +338,7 @@ function ensureMlStatus({ refresh = false } = {}) {
     });
 }
 
-/** What still stands between this panel and a spoken line, and the button that
- * removes it. Empty once both halves are ready, which is the common case. */
+/** Describe setup still required before speech can run. */
 function setupNoticeHtml() {
   if (!mlStatus) return "";
   const pending = CLONE_FEATURES.filter((f) => !featureReady(f.id));
@@ -393,9 +363,7 @@ function setupNoticeHtml() {
     </span>`;
 }
 
-// The one button reads as what it will do: fetch what is missing, or switch on
-// what is merely off. It does both when both are true, and the sentence beside
-// it names both halves.
+// The button downloads missing files and enables disabled features.
 function setupLabel(download, sizeMb) {
   if (setupBusy) return download ? "Downloading…" : "Turning on…";
   if (!download) return "Turn on";
@@ -436,8 +404,7 @@ function cloneControlHtml(p) {
     </div>`;
 }
 
-/** The voice model's GPU switch and what the model is doing, once there is a
- * downloaded model for either to describe. */
+/** Render the voice model status and GPU switch. */
 function engineRowHtml() {
   const llm = mlFeature("spark_tts_llm");
   if (!llm.deps_ok || !llm.present || llm.runtime_ok === false) return "";
@@ -451,8 +418,7 @@ function engineRowHtml() {
     </span>`;
 }
 
-// No relaunch to wait for: the running child is only marked stale, and the next
-// spoken line starts on the build the switch now names.
+// The next spoken line picks up the new GPU setting.
 async function saveCloneGpu(box) {
   try {
     await api.post("/local-ml/spark_tts_llm/config", { gpu: box.checked });
@@ -464,10 +430,7 @@ async function saveCloneGpu(box) {
   renderCloneControl(); // a failed write redraws the box as it was
 }
 
-// Rate and pitch are impossible for a cloned voice rather than merely unused:
-// Spark-TTS takes those attributes on its control path, which cloning bypasses.
-// Redrawing the control in place keeps the rest of the form, and is also what
-// picks up a half of the cloner that has just finished downloading.
+// Cloned voices do not support rate or pitch controls.
 function renderCloneControl() {
   const el = document.getElementById("tts-pf-clone");
   if (!el) return;
@@ -475,16 +438,13 @@ function renderCloneControl() {
   ensureMlStatus();
 }
 
-// A drop target is three events on one element: the browser fires `drop` only
-// where `dragover` accepted the drag, so both ride on this one action.
+// Handle dragover, dragleave, and drop on the same target.
 function onVoiceDrop(el, ev) {
   if (ev.type === "dragleave") {
     el.classList.remove("tts-drop-over");
     return;
   }
-  // Accept the drag even when the codec is missing. Refusing it hands the file
-  // back to the browser, which navigates away from Orb to play it — losing the
-  // open scene is a steep price for dropping a clip a second too early.
+  // Prevent the browser from navigating to the dropped file.
   ev.preventDefault();
   if (enrolling) return; // one clip at a time; the zone already says which
   const live = featureReady("spark_tts_codec");
@@ -500,13 +460,7 @@ function onVoiceDrop(el, ev) {
   enrollFile(ev.dataTransfer?.files?.[0]);
 }
 
-/** Download whatever half is missing and switch on whatever is off.
- *
- * Sequential and in feature order, so the codec lands first and the drop zone
- * comes alive while the model is still downloading. There is no progress to
- * report — the download route answers when it is done — so the notice beside
- * the button names the file being fetched and its size.
- */
+/** Download missing model files and enable their features. */
 async function runCloneSetup() {
   if (setupBusy) return;
   setupBusy = true;
@@ -542,8 +496,7 @@ async function runCloneSetup() {
   }
 }
 
-/** Enroll one file. Picking or dropping it IS the upload — there is nothing to
- * confirm, and a second click only buys a chance to forget it. */
+/** Enroll one selected or dropped file. */
 async function enrollFile(file) {
   if (!file) return;
   if (!cardId) {
@@ -556,10 +509,7 @@ async function enrollFile(file) {
   renderCloneControl();
   try {
     const res = await api.upload(`/characters/${encodeURIComponent(cardId)}/voice-reference`, file);
-    // The route writes the profile itself — enrolling also selects this backend
-    // and switches the character on — so the form is refilled from what was
-    // stored rather than from the guess the panel would otherwise make. The
-    // redrawn zone says whether speech is still waiting on the voice model.
+    // Refill the form from the profile written by the enrollment route.
     enrolling = "";
     applyProfile(res?.profile);
     setStatus("Voice saved");
@@ -587,8 +537,7 @@ async function clearVoiceReference() {
   }
 }
 
-// Push a server-owned profile back into the open form. Only the fields the
-// clone flow actually changes, so a half-edited API key beside it survives.
+// Push server-owned clone fields into the open form.
 function applyProfile(profile) {
   if (!profile) return;
   cloned = { tokens: profile.speaker_tokens || [], name: profile.speaker_ref_name || "" };
@@ -596,8 +545,7 @@ function applyProfile(profile) {
   if (backend && profile.backend) backend.value = profile.backend;
   const voice = document.getElementById("tts-pf-voice");
   if (voice && profile.voice_id) voice.innerHTML = opt(profile.voice_id, profile.voice_id, true);
-  // Enrolling arms the character and clearing disarms it; the checkbox has to
-  // follow, or the next plain Save writes the stale one back.
+  // Enrollment and clearing also toggle the character state.
   const enabled = document.getElementById("tts-pf-enabled");
   if (enabled) enabled.checked = Boolean(profile.enabled);
   applyFieldVisibility(profile.backend || backend?.value || "edge");
@@ -605,8 +553,7 @@ function applyProfile(profile) {
   loadedProfile = readForm();
 }
 
-// Footer order follows the other modals: the secondary action sits far left with the status
-// text, then Close and the primary action on the right. Voice buttons need a profile form.
+// Keep footer order consistent with the other modals.
 function settingsActionsHtml(hasProfile) {
   return `
     ${hasProfile ? `<button class="btn" type="button" data-wf-action="tts:preview">Preview</button>` : ""}
@@ -741,7 +688,7 @@ function armPreviewRaf() {
   if (previewRaf == null) previewRaf = requestAnimationFrame(tickPreview);
 }
 
-// Only the elapsed/duration readout ticks here; play and close events own the status text.
+// Only the elapsed/duration readout updates here.
 function tickPreview(now) {
   previewRaf = null;
   if (!statusLine()) {

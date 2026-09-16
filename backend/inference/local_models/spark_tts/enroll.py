@@ -1,21 +1,4 @@
-"""Turn an uploaded clip into the 32 integers that name a voice.
-
-This is the whole of "cloning". There is no training step and no per-request
-re-encoding: BiCodec's speaker encoder reads the clip's mel and emits 32 FSQ
-codes, and those codes ARE the voice from then on.
-
-The cheap part is that speaker identity comes from the mel ALONE. Upstream's
-``BiCodec.tokenize`` looks like it needs the whole encoder stack, but its two
-outputs have disjoint inputs — semantic tokens need wav2vec2 (1.2 GB) and the
-BiCodec encoder (122 MB), while global tokens need only the mel and the 39 MB
-of ECAPA + perceiver + FSQ that this ONNX graph contains. Computing them the
-mel-only way was verified bit-identical to the full pipeline, and 260x faster.
-
-Enrollment is also DETERMINISTIC: the same clip yields the same 32 ints across
-runs and across processes. ``tests/unit/test_spark_enroll.py`` asserts that,
-because it is what makes the stored tokens a reproduction record rather than a
-snapshot of one lucky run.
-"""
+"""Create the 32 speaker tokens used by the Spark-TTS voice cloner."""
 
 from __future__ import annotations
 
@@ -37,12 +20,7 @@ class EnrollmentUnavailable(RuntimeError):
 
 
 def reference_clip(wav: np.ndarray) -> np.ndarray:
-    """The exact signal the speaker encoder will read.
-
-    Order matters and is upstream's: normalise the WHOLE clip, then shape it.
-    Normalising after tiling a short clip measures the loudness of the repeats
-    rather than of the recording, which moves the tokens.
-    """
+    """Normalize and shape the signal before speaker encoding."""
     return audio_in.reference_signal(audio_in.volume_normalize(wav))
 
 
@@ -55,8 +33,7 @@ def enroll_signal(signal: np.ndarray) -> list[int]:
         raise EnrollmentUnavailable(reason)
     spectrogram = mel.mel_spectrogram(signal)
     session = onnx_runtime.load(catalog.speaker_encoder_path())
-    # The graph takes (batch, n_mels, frames) — the transpose upstream does
-    # inside `speaker_encoder.tokenize` is baked into the exported graph.
+    # The exported graph expects (batch, n_mels, frames).
     raw = session.run(["speaker_tokens"], {"mel": spectrogram[None].astype(np.float32)})[0]
     tokens = [int(value) for value in np.asarray(raw).reshape(-1)]
     if len(tokens) != SPEAKER_TOKEN_COUNT:  # a re-export that changed token_num
@@ -65,11 +42,7 @@ def enroll_signal(signal: np.ndarray) -> list[int]:
 
 
 def enroll(data: bytes, *, filename: str = "") -> list[int]:
-    """Return the speaker tokens for an uploaded audio file.
-
-    The identity is fully represented by the returned tokens; the upload is not
-    retained after enrollment.
-    """
+    """Decode an upload and return its speaker tokens."""
     return enroll_signal(reference_clip(audio_in.decode(data, filename=filename)))
 
 

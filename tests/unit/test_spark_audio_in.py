@@ -1,13 +1,4 @@
-"""Decoding an upload, and the two transforms that move the enrolled voice.
-
-Resampling and volume normalisation both change the mel, and the mel is what
-the FSQ quantiser turns into the 32 integers that ARE the voice. So they are
-correctness surface, not convenience, and are tested on signals whose right
-answer is known analytically rather than on a fixture.
-
-numpy arrives with onnxruntime, which base Orb does not install, so the whole
-module skips without it rather than failing a plain `pytest`.
-"""
+"""Tests for Spark-TTS audio decoding and preparation."""
 
 from __future__ import annotations
 
@@ -45,9 +36,7 @@ def tone(seconds: float, rate: int, hz: float = 440.0, amplitude: float = 0.5):
 
 @pytest.mark.parametrize("width", [1, 2, 3, 4])
 def test_every_pcm_wav_width_decodes_without_soundfile(width):
-    """The stdlib path is the only one guaranteed to exist, so it carries the
-    formats a user is most likely to have. 24-bit is here because `audioop`,
-    which used to widen it, was removed in Python 3.13."""
+    """The stdlib reader handles supported PCM widths."""
     signal = tone(0.5, 16000)
     got = audio_in.decode(wav_bytes(signal, 16000, width), filename="clip.wav")
     tolerance = 0.02 if width == 1 else 1e-3  # 8-bit has 8 bits
@@ -63,8 +52,7 @@ def test_stereo_is_mixed_to_mono_rather_than_taking_one_side():
 
 
 def test_resampling_preserves_a_tone_rather_than_aliasing_it():
-    """44.1 kHz is what a phone recording arrives at, and a naive decimation
-    would fold everything above 8 kHz back into the speech band."""
+    """Resampling preserves a tone without aliasing."""
     got = audio_in.decode(wav_bytes(tone(1.0, 44100), 44100), filename="clip.wav")
     assert abs(len(got) - 16000) <= 1
     expected = tone(len(got) / 16000, 16000)
@@ -73,8 +61,7 @@ def test_resampling_preserves_a_tone_rather_than_aliasing_it():
 
 
 def test_resampling_a_tone_above_the_new_nyquist_attenuates_it():
-    """The anti-aliasing half of the same property: 7 kHz survives a trip to
-    16 kHz, 15 kHz must not come back as a 1 kHz whistle."""
+    """Frequencies above the target Nyquist are attenuated."""
     kept = audio_in.resample(tone(0.5, 44100, hz=7000), 44100, 16000)
     folded = audio_in.resample(tone(0.5, 44100, hz=15000), 44100, 16000)
     interior = slice(500, -500)
@@ -89,10 +76,7 @@ def test_resample_is_a_no_op_at_the_target_rate():
 
 
 def test_reference_signal_tiles_a_short_clip_to_exactly_six_seconds():
-    """Upstream REPEATS a clip shorter than six seconds rather than padding it
-    with silence, and silence would be six seconds of a speaker who is not
-    speaking. Exactly six, not "six and whatever the last repeat overshot": a
-    short clip must still enroll to upstream's tokens."""
+    """Short clips are repeated to six seconds without padding."""
     short = tone(1.0, 16000)
     signal = audio_in.reference_signal(short)
     assert signal.shape == (96000,)
@@ -103,9 +87,7 @@ def test_reference_signal_tiles_a_short_clip_to_exactly_six_seconds():
 
 
 def test_reference_signal_keeps_a_long_clip_whole():
-    """Past six seconds the clip is NOT cropped: which six seconds upstream's
-    crop happens to keep moves the cloned voice more than seed noise does, and
-    the whole clip evens that out. Trimmed only to a whole mel hop."""
+    """Long clips are retained and trimmed to a complete mel hop."""
     long = tone(30.0, 16000)
     assert np.array_equal(audio_in.reference_signal(long), long)
     assert audio_in.reference_signal(tone(10.01, 16000)).shape == (160160 // 320 * 320,)
@@ -119,8 +101,7 @@ def test_volume_normalize_lifts_a_quiet_recording_and_never_clips():
 
 
 def test_volume_normalize_leaves_a_signal_with_too_little_content_alone():
-    """Upstream's guard: fewer than ten samples above 0.01 is not enough to
-    measure a level from, so the gain is not guessed."""
+    """Sparse signals are not gain-adjusted."""
     sparse = np.zeros(16000, dtype=np.float32)
     sparse[:5] = 0.5
     assert np.array_equal(audio_in.volume_normalize(sparse), sparse)
