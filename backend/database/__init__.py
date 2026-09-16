@@ -38,6 +38,12 @@ from .queries.character_expressions import (
     list_expression_labels,
     set_character_expressions,
 )
+from .queries.character_voice_refs import (
+    delete_character_voice_ref,
+    get_character_voice_ref,
+    get_character_voice_ref_info,
+    set_character_voice_ref,
+)
 from .queries.conversation_logs import (
     add_conversation_log,
     get_conversation_logs,
@@ -277,6 +283,7 @@ __all__ = [
     "create_world_changeset",
     "delete_character_card",
     "delete_character_expressions",
+    "delete_character_voice_ref",
     "delete_conversation",
     "delete_direction_note",
     "delete_document",
@@ -302,6 +309,8 @@ __all__ = [
     "get_card_activity",
     "get_character_card",
     "get_character_expression",
+    "get_character_voice_ref",
+    "get_character_voice_ref_info",
     "get_character_usage",
     "get_dismissals",
     "get_relink_impact",
@@ -387,6 +396,7 @@ __all__ = [
     "resolve_char_context",
     "set_active_leaf",
     "set_character_expressions",
+    "set_character_voice_ref",
     "set_local_ml_config",
     "set_local_ml_enabled",
     "set_public_profile",

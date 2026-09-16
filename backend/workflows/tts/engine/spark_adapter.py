@@ -1,4 +1,10 @@
-"""Spark-TTS adapter.
+"""Spark-TTS sidecar adapter, registered as ``spark_remote``.
+
+Superseded by ``builtin_spark_adapter``, which runs the same model inside Orb
+with no sidecar, no torch and no ``voices.json``. Kept registered because
+profiles written before the built-in existed point at a server the user
+installed and may still run — repointing those at a model that is not
+downloaded would break a working setup to tidy up a name.
 
 Client for a local server wrapping Spark-TTS-0.5B, expected at
 ``DEFAULT_API_URL`` and exposing ``GET /v1/voices`` and ``POST /v1/tts``
@@ -149,4 +155,4 @@ class SparkTTSAdapter(TTSAdapter):
 
     @property
     def backend_name(self) -> str:
-        return "Spark-TTS"
+        return "Spark-TTS (sidecar)"

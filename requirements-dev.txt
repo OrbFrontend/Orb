@@ -8,3 +8,8 @@ pip-audit==2.10.1
 pyright==1.1.411
 ruff
 pytest-xdist==3.8.0
+# Exporting Spark-TTS's speaker encoder (scripts/export_spark_speaker_encoder.py).
+# Never needed at run time — onnxruntime alone loads the result — so this stays
+# out of the user's install. torch/torchaudio are NOT pinned here: the export is
+# run once against an upstream checkout, not on every dev machine.
+onnx>=1.16

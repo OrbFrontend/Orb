@@ -7,9 +7,35 @@ from dataclasses import dataclass
 from typing import Literal
 
 #: How a model is executed. ``llama_cpp`` is in-process through the binding;
-#: ``llama_server`` is a supervised child process spoken to over HTTP. A
+#: ``llama_server`` is a supervised child process spoken to over HTTP; ``onnx``
+#: is a cached ONNX Runtime session (see ``local_models/onnx_runtime/``). A
 #: ``Literal`` rather than a bare ``str`` so a typo fails at the definition.
-RuntimeKind = Literal["llama_cpp", "llama_server"]
+RuntimeKind = Literal["llama_cpp", "llama_server", "onnx"]
+
+
+@dataclass(frozen=True)
+class ModelFileSpec:
+    """A companion file that must travel WITH a spec's main artifact.
+
+    Not a variant. A variant is an alternative the user picks between and any
+    one of which makes the feature work; a companion is a second file the
+    feature does not run without — Spark-TTS needs both the bicodec decoder and
+    the speaker encoder, and half of that pair is a voice cloner that cannot
+    enroll or a set of enrolled tokens that cannot be spoken.
+
+    So ``present()`` requires every companion, ``download()`` fetches them in
+    one press, and ``prune_stale`` claims their basenames.
+    """
+
+    repo_id: str
+    path: str  # path *inside* the HF repo
+    revision: str  # pinned commit sha
+    size_mb: int
+    sha256: str = ""  # verified after download when set; see assets.download
+
+    @property
+    def local_name(self) -> str:
+        return os.path.basename(self.path)
 
 
 @dataclass(frozen=True)
@@ -49,6 +75,8 @@ class ModelSpec:
     runtime: RuntimeKind = "llama_cpp"
     variants: tuple[ModelVariantSpec, ...] = ()
     local_filename: str = ""  # versioned alias when upstream reuses an older artifact's basename
+    extra_files: tuple[ModelFileSpec, ...] = ()  # companions fetched with the main file
+    sha256: str = ""  # verified after download when set; see assets.download
 
     @property
     def local_name(self) -> str:
@@ -66,7 +94,11 @@ class ModelSpec:
 
     def all_names(self) -> set[str]:
         """Every basename this spec puts under data/models/ — the prune claim."""
-        return {self.local_name, *(v.local_name for v in self.variants)}
+        return {
+            self.local_name,
+            *(v.local_name for v in self.variants),
+            *(f.local_name for f in self.extra_files),
+        }
 
 
 # The two prose-rewriter repos, pinned. Named once because three variants
@@ -77,6 +109,42 @@ _PROSE_1_7B_REPO = "chartreuse-verte/prose-rewriter-1.7b-v1.6"
 _PROSE_1_7B_REV = "3497f8966949420a9de68068d2fd262997138aa7"
 _PROSE_4B_REPO = "chartreuse-verte/prose-rewriter-4b-v1.6"
 _PROSE_4B_REV = "a92a6cbb4e7a8fe487cee5e2a2c3829020967713"
+
+# --- Spark-TTS, the built-in voice cloner -----------------------------------
+#
+# Three artifacts, two features. The LLM writes a stream of audio tokens; the
+# bicodec decoder renders them to a waveform using the 32 speaker tokens an
+# enrollment produced; the speaker encoder is what produced them. All three are
+# torch-free at run time, which is the entire point — the sidecar this replaces
+# cost 4.5 GB, of which 1.4 GB was a wav2vec2 and an encoder that only the
+# transcript-conditioned path ever needed.
+#
+# THESE TWO REPOS BELONG TO OTHER PEOPLE. Both were verified byte for byte
+# before being pinned — the GGUF's source weights are identical to the official
+# `SparkAudio/Spark-TTS-0.5B` (sha256 54825baf0a2f6076… across all four repos),
+# and bicodec.onnx reproduces torch's decoder at 114 dB SNR — but verification
+# is not availability: a third-party repo can be deleted or force-pushed. The
+# revision pin stops a re-point swapping the weights, and `sha256` below makes
+# that structural rather than a promise, since a download whose bytes do not
+# match is rejected rather than run.
+_SPARK_LLM_REPO = "mradermacher/Spark-TTS-0.5B-GGUF"
+_SPARK_LLM_REV = "5ba102cd2dfa63b55657d62cc2d216d97abbdc4b"
+# Both ONNX files are served from our own mirror, byte-identical to the repos
+# they were verified against (the sha256 pins below are the proof, and they are
+# the same values those repos serve). Fhrozen/Spark-TTS-0.5B-ONNX remains the
+# provenance for bicodec.onnx; mirroring is about availability, not doubt.
+_SPARK_CODEC_REPO = "chartreuse-verte/Spark-TTS-0.5B-ONNX"
+_SPARK_CODEC_REV = "4fa08a1c26784030ddd92d9cf2ab7a2efee3ffc4"
+
+# The speaker encoder exists in no OTHER public repo — upstream ships it only as
+# a submodule of the 625 MB BiCodec checkpoint, and 385 MB of that is the
+# decoder we already have. `scripts/export_spark_speaker_encoder.py` produces
+# it and verifies the export against torch before keeping it; this repo is
+# where that output is published. Run the script and it writes straight into
+# data/models/ under exactly this basename, so a machine with the upstream
+# checkout never needs the download at all.
+_SPARK_SPEAKER_REPO = _SPARK_CODEC_REPO
+_SPARK_SPEAKER_REV = _SPARK_CODEC_REV
 
 MODELS: dict[str, ModelSpec] = {
     "autocomplete": ModelSpec(
@@ -148,6 +216,40 @@ MODELS: dict[str, ModelSpec] = {
                 path="GGUF/prose-rewriter-4b-v1.6-Q8_0.gguf",
                 revision=_PROSE_4B_REV,
                 size_mb=4694,
+            ),
+        ),
+    ),
+    # The Spark-TTS half that runs on the GPU: a 0.5B Qwen2 whose vocabulary
+    # carries 12 288 audio tokens alongside ordinary text. Driven by the same
+    # child-process runtime as the prose rewriter, which is what lets Orb's
+    # Vulkan build accelerate the 63% of synthesis wall time that lives here.
+    "spark_tts_llm": ModelSpec(
+        repo_id=_SPARK_LLM_REPO,
+        filename="Spark-TTS-0.5B.Q8_0.gguf",
+        size_mb=520,
+        revision=_SPARK_LLM_REV,
+        runtime="llama_server",
+        sha256="9ea2db6a658652c7f5ad35d5c428ad476e37cd7c9a20fe3c9b1a0fbc26da6b0f",
+    ),
+    # The Spark-TTS half that runs on the CPU, as two ONNX graphs that must
+    # travel together: `bicodec.onnx` turns audio tokens back into a waveform,
+    # `spark-speaker-encoder.onnx` turns an uploaded clip into the 32 ints that
+    # name a voice. Neither is a choice the user makes, so they are companions
+    # rather than variants.
+    "spark_tts_codec": ModelSpec(
+        repo_id=_SPARK_CODEC_REPO,
+        filename="bicodec.onnx",
+        size_mb=368,
+        revision=_SPARK_CODEC_REV,
+        runtime="onnx",
+        sha256="a1459483cf562e9de8b9d6077e9246b38df797b81d392b6c5a3cb78a595bb7df",
+        extra_files=(
+            ModelFileSpec(
+                repo_id=_SPARK_SPEAKER_REPO,
+                path="spark-speaker-encoder.onnx",
+                revision=_SPARK_SPEAKER_REV,
+                size_mb=23,
+                sha256="808b0c09187fe031d896c5fdb92d6fc30fd9ac46f951b95988f6065d60ece22c",
             ),
         ),
     ),

@@ -140,6 +140,22 @@ CREATE TABLE IF NOT EXISTS character_expressions (
     PRIMARY KEY (character_card_id, label)
 );
 
+-- The reference clip a character's cloned voice was enrolled from: the exact
+-- six-second, 16 kHz mono window the speaker encoder read, as a WAV.
+--
+-- Its own table, not `character_cards.workflow_state`, because workflow_state
+-- is decoded on every turn and a 192 KB blob has no business in a hot read.
+-- The identity itself is 32 integers and lives in the profile; this is kept so
+-- a model bump can re-enroll without asking the user for the file again, and
+-- so the panel can play back what was actually heard.
+CREATE TABLE IF NOT EXISTS character_voice_refs (
+    character_card_id TEXT PRIMARY KEY REFERENCES character_cards(id) ON DELETE CASCADE,
+    data_b64 TEXT NOT NULL,
+    mime TEXT NOT NULL DEFAULT 'audio/wav',
+    source_name TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS group_members (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,

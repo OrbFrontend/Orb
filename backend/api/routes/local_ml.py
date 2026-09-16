@@ -13,7 +13,7 @@ from ...database import get_settings, set_local_ml_enabled
 from ...inference import local_ml
 from ...inference.local_models import assets, catalog, dependencies
 from ...inference.local_models.llama_server import binary as llama_binary
-from ...workflows import prose_rewriter_host
+from ...workflows import prose_rewriter_host, spark_tts_host
 from ..deps import _download_lock
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,15 @@ class _FeatureManagement(Protocol):
 #: The features that have management behaviour of their own. A feature absent
 #: from this map is a plain download-and-toggle one, and the config route's 404
 #: is exactly that statement.
-_MANAGEMENT: dict[str, _FeatureManagement] = {prose_rewriter_host.FEATURE: prose_rewriter_host}
+_MANAGEMENT: dict[str, _FeatureManagement] = {
+    prose_rewriter_host.FEATURE: prose_rewriter_host,
+    # Spark-TTS's two halves are managed separately because they fail
+    # separately: the GGUF needs a child process released before it can be
+    # deleted, the ONNX pair needs its cached sessions dropped, and on Windows
+    # skipping either makes the unlink fail outright.
+    spark_tts_host.FEATURE_LLM: spark_tts_host.LLM_MANAGEMENT,
+    spark_tts_host.FEATURE_CODEC: spark_tts_host.CODEC_MANAGEMENT,
+}
 
 
 def _require(feature: str) -> catalog.ModelSpec:
@@ -110,6 +118,10 @@ async def api_local_ml_status():
             ]
         if spec.runtime == "llama_server":
             info["runtime_ok"] = llama_binary.runtime_ok()
+        if spec.extra_files:
+            # Two files behind one button: the panel shows one combined size so
+            # a user is not told 368 MB and then charged 391 MB.
+            info["size_mb"] = spec.size_mb + sum(f.size_mb for f in spec.extra_files)
         controller = _MANAGEMENT.get(f)
         if controller is not None:
             info.update(await controller.status_extra(settings))

@@ -28,10 +28,30 @@ In a group chat, choose a **Cast member** in the Voice panel. Each reply uses th
 voice of the member who wrote it, regardless of which member is selected in the
 panel.
 
-Spark-TTS builds a voice from gender and pitch/speed attributes rather than a
-fixed voice bank, and can clone a voice from a reference clip. Speed and pitch
-apply to its attribute-built voices only; a cloned voice takes its prosody from
-the reference clip.
+### Cloning a voice
+
+**Spark-TTS (built-in)** replaces the voice picker with an upload control.
+Choose an audio file of the character speaking, press **Upload**, and that
+character speaks in that voice from then on — there is no server to run and
+nothing else to configure. A short preview plays as soon as the voice is stored.
+
+Only the **first six seconds** of the clip affect the result. That is the window
+Spark-TTS's speaker encoder reads; a shorter clip is repeated to fill it, and a
+longer one is ignored past that point. Clean speech with no music or second
+speaker works best.
+
+What is stored is 32 integers — the speaker's timbre as the model encodes it —
+which live in the character's voice profile and travel with it. The six-second
+clip is kept alongside them so the voice can be rebuilt if the model is ever
+updated, and you can play it back or remove it from the same panel.
+
+**Speed and pitch do not apply to a cloned voice**, and the panel hides them.
+Spark-TTS accepts prosody attributes only when it is inventing a speaker; a
+cloned voice takes its delivery from the model, not from a slider. Timbre
+transfers; pacing does not.
+
+Enrollment reads WAV and FLAC out of the box. MP3, M4A and anything else need
+`ffmpeg` on your `PATH`; without it, convert the clip to WAV first.
 
 ## How speech is made
 
@@ -80,17 +100,36 @@ an attachment applies the current segmentation and Local ML settings.
 | Microsoft Edge TTS | Included in `requirements.txt` | None | 400+ voices in 80+ languages |
 | OpenAI-compatible | HTTP endpoint | Required | Uses `POST /v1/audio/speech`; voices and models depend on the provider |
 | Kokoro-82M | HTTP endpoint | None | Local server with 54 voices and 9 languages |
-| Spark-TTS-0.5B | HTTP endpoint | Optional | Local server; voices built from gender/pitch/speed attributes, plus zero-shot cloning. |
+| Spark-TTS (built-in) | Local ML download | None | Runs inside Orb. Clone a character's voice from one audio file; no server, no speed/pitch. |
+| Spark-TTS (sidecar) | HTTP endpoint | Optional | The standalone server, kept for setups that already run it. Voices built from gender/pitch/speed attributes. |
 | Fish Speech | HTTP endpoint | Optional | Local server with voice references |
 | ElevenLabs | HTTP endpoint | Required | Cloud voices and emotion tags |
 
+### The built-in backend
+
+**Spark-TTS (built-in)** is the only backend that needs no server. Install the
+optional ML extras (`pip install -r requirements-ml.txt`), then download its two
+entries from **Settings → Local ML**:
+
+- **Voice Cloning · Model** (520 MB) — speaks. Runs on the GPU through the same
+  llama-server runtime as the Prose Rewriter, so it is the half that benefits
+  from a Vulkan build.
+- **Voice Cloning · Codec** (391 MB, two files) — turns an uploaded clip into a
+  voice and voices back into audio. CPU only; ONNX Runtime has no Vulkan
+  provider, and the vocoder is not the bottleneck.
+
+The two download separately and you can enrol a voice as soon as the codec is
+present, before the model finishes. Each has its own on/off switch, and the
+model is unloaded after a couple of minutes idle so it does not hold VRAM
+against a local Writer or the Prose Rewriter.
+
 ### Local server backends
 
-Kokoro-82M, Spark-TTS, and Fish Speech run as local servers. Orb ships the
-client, not the server: run one yourself, then point that voice's **API URL**
+Kokoro-82M, Spark-TTS (sidecar), and Fish Speech run as local servers. Orb ships
+the client, not the server: run one yourself, then point that voice's **API URL**
 at it.
 
-Kokoro-82M (default `http://localhost:9200`) and Spark-TTS (default
+Kokoro-82M (default `http://localhost:9200`) and Spark-TTS's sidecar (default
 `http://localhost:9300`) each expose:
 
 - `GET /v1/voices` — returns `[{id, name, language, gender}]`
@@ -99,7 +138,9 @@ Kokoro-82M (default `http://localhost:9200`) and Spark-TTS (default
 Their request bodies differ. Kokoro takes `{text, voice, speed, lang}`, where
 `lang` is its own single-letter code (`a` for American English, `b` for
 British, and so on). Spark-TTS takes `{text, voice, speed, pitch, lang}`, where
-`lang` is a full locale. Fish Speech uses its own native API instead: `POST
+`lang` is a full locale. Voice profiles saved before the built-in backend
+existed keep working: they are moved to **Spark-TTS (sidecar)** automatically
+and still point at the server you already run. Fish Speech uses its own native API instead: `POST
 /v1/tts` keyed by `reference_id`, and `GET /v1/references/list`.
 
 Orb sends one request per speech block and joins the clips itself, inserting

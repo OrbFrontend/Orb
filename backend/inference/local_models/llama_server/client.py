@@ -219,6 +219,97 @@ class LlamaServerClient:
             raise RuntimeError(_error_text(response.text))
         return len(response.json().get("tokens") or [])
 
+    async def generate_tokens(
+        self,
+        prompt: Sequence[int],
+        *,
+        n_predict: int,
+        temperature: float,
+        top_p: float,
+        top_k: int = 0,
+        seed: int | None = None,
+        cache_prompt: bool = True,
+    ) -> tuple[list[int], bool]:
+        """Stream one completion in TOKEN IDS; return ``(tokens, stopped)``.
+
+        A sibling of :meth:`generate` rather than a second mode of it, so the
+        prose rewriter's text path keeps its exact signature and return type.
+
+        Both halves differ from the text path and both are mandatory for an
+        audio model:
+
+        *The prompt is a list of ints.* Spark-TTS's speaker and audio tokens
+        are special tokens; sending them as text means round-tripping them
+        through ``/tokenize`` with ``parse_special`` on, which also invites the
+        user's own line to be read for control tokens. An int array skips the
+        tokenizer entirely.
+
+        *The output is read from ``tokens``, not ``content``.* Every bicodec
+        token is typed ``CONTROL`` in the GGUF and ``--special`` defaults to
+        false, so ``content`` arrives EMPTY for a completion that is entirely
+        audio. A text-based reader does not fail here; it silently returns
+        nothing, which is why upstream's regex-the-completion approach cannot
+        be used against llama-server at all.
+
+        As with :meth:`generate`, cancelling the awaiting task closes the
+        connection mid-stream and llama.cpp frees the slot at once.
+        """
+        payload: dict = {
+            "prompt": list(prompt),
+            "n_predict": n_predict,
+            "temperature": temperature,
+            "top_p": top_p,
+            "stream": True,
+            "return_tokens": True,
+            "cache_prompt": cache_prompt,
+        }
+        if top_k:
+            payload["top_k"] = top_k
+        if seed is not None:
+            payload["seed"] = seed
+        tokens: list[int] = []
+        stopped = False
+        headers = {"Accept": "text/event-stream"}
+        async with self._http().stream("POST", "/completion", json=payload, headers=headers, timeout=600.0) as response:
+            if response.status_code != 200:
+                raise RuntimeError(_error_text((await response.aread()).decode("utf-8", "replace")))
+            async for raw in response.aiter_lines():
+                line = raw.rstrip("\r\n")
+                if not line:
+                    continue
+                if line.startswith("error:"):
+                    raise RuntimeError(_error_text(line[6:]))
+                if not line.startswith("data:"):
+                    continue
+                message = json.loads(line[5:])
+                if message.get("error"):
+                    raise RuntimeError(_error_text(json.dumps(message["error"])))
+                # One id per chunk on b10549, but the field is an array and a
+                # future build batching them must not be silently truncated.
+                chunk = message.get("tokens")
+                if chunk:
+                    tokens.extend(int(token) for token in chunk)
+                if message.get("stop"):
+                    stop_type = message.get("stop_type")
+                    if stop_type is not None:
+                        stopped = stop_type in ("eos", "word")
+                    else:
+                        stopped = bool(message.get("stopped_eos") or message.get("stopped_word"))
+        return tokens, stopped
+
+    async def tokenize(self, text: str, *, parse_special: bool = False) -> list[int]:
+        """*text* as token ids from the model's own vocabulary.
+
+        ``parse_special`` defaults OFF, which is the safe direction for text
+        that came from a user: with it on, a line containing ``<|end_content|>``
+        becomes a control token instead of six characters of dialogue.
+        """
+        body = {"content": text, "parse_special": parse_special}
+        response = await self._http().post("/tokenize", json=body, timeout=30.0)
+        if response.status_code != 200:
+            raise RuntimeError(_error_text(response.text))
+        return [int(token) for token in (response.json().get("tokens") or [])]
+
     async def generate(
         self,
         prompt: str,

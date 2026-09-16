@@ -217,6 +217,8 @@ const LOCAL_ML_LABELS = {
   pov_classifier: "Auto-POV",
   markup_classifier: "Markup Classifier",
   prose_rewriter: "Prose Rewriter",
+  spark_tts_llm: "Voice Cloning · Model",
+  spark_tts_codec: "Voice Cloning · Codec",
 };
 const LOCAL_ML_DESCS = {
   autocomplete: "Autocomplete input as you type.",
@@ -225,6 +227,8 @@ const LOCAL_ML_DESCS = {
   pov_classifier: "For image-gen and format consistency.",
   markup_classifier: "For more accurate format consistency.",
   prose_rewriter: "Local engine for Prose Rewriter.",
+  spark_tts_llm: "Speaks cloned voices. Runs on the GPU.",
+  spark_tts_codec: "Turns an uploaded clip into a voice, and voices back into audio.",
 };
 
 /** Publish the fetched status and repaint the surfaces that gate on it.

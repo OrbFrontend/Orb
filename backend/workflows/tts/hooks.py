@@ -7,14 +7,17 @@ import logging
 
 from ..toolkit import (
     get_message_by_id,
+    get_settings,
     get_workflow_character_state,
     get_workflow_config,
     insert_workflow_attachment,
     set_workflow_character_state,
+    spark_voice_ready,
 )
 from .config import normalize_config
 from .engine.router import get_adapter, list_backends
 from .synth import (
+    WORKFLOW_ID,
     audio_mime_ext,
     build_generation_metadata,
     compute_seed,
@@ -27,7 +30,6 @@ from .synth import (
 
 logger = logging.getLogger(__name__)
 
-WORKFLOW_ID = "tts"
 PREVIEW_TEXT = "Hey, this is a voice preview. How do I sound?"
 
 
@@ -196,7 +198,19 @@ async def query(ctx, body):
         return await _list_models(body)
     if action == "preview":
         return await _preview(body)
+    if action == "voice_status":
+        return await _voice_status()
     return {"error": f"unknown action: {action!r}"}
+
+
+async def _voice_status() -> dict:
+    """Whether the built-in cloner can speak, and why not when it cannot.
+
+    The panel asks before it renders the Spark controls, so "download the model
+    first" is shown in place of an upload button that would fail.
+    """
+    ok, reason = spark_voice_ready(await get_settings())
+    return {"ready": ok, "reason": reason}
 
 
 async def _list_voices(body) -> dict:
@@ -208,6 +222,10 @@ async def _list_voices(body) -> dict:
             api_url=body.get("api_url") or "",
             api_key=(body.get("api_key") or None),
             model=body.get("model") or "",
+            # The built-in cloner has no catalog to fetch: its one voice is the
+            # character's own, named by the unsaved form's own enrollment.
+            speaker_tokens=body.get("speaker_tokens") or [],
+            speaker_ref_name=body.get("speaker_ref_name") or "",
         )
     except Exception:
         logger.exception("tts list_voices failed for backend %r", backend)

@@ -6,6 +6,8 @@ from . import assets, catalog, dependencies
 from .assets import (
     delete_model,
     download,
+    file_path,
+    missing_files,
     model_dir,
     present,
     prune_stale,
@@ -14,7 +16,7 @@ from .assets import (
     variant_present,
     variant_spec,
 )
-from .catalog import MODELS, ModelSpec, ModelVariantSpec, RuntimeKind
+from .catalog import MODELS, ModelFileSpec, ModelSpec, ModelVariantSpec, RuntimeKind
 from .dependencies import deps_ok, import_llama, install_cmd
 
 
@@ -38,6 +40,7 @@ def available(feature: str = "autocomplete") -> tuple[bool, str]:
 
 __all__ = [
     "MODELS",
+    "ModelFileSpec",
     "ModelSpec",
     "ModelVariantSpec",
     "RuntimeKind",
@@ -48,8 +51,10 @@ __all__ = [
     "dependencies",
     "deps_ok",
     "download",
+    "file_path",
     "import_llama",
     "install_cmd",
+    "missing_files",
     "model_dir",
     "present",
     "prune_stale",

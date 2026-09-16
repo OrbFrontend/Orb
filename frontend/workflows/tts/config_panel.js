@@ -22,20 +22,29 @@ const PREVIEW_CHANNEL = "tts-preview";
 // Playback start is silent when decoding fails, so a preview that never starts is called unplayable.
 const PREVIEW_START_GRACE_MS = 1500;
 
+// Which rows each backend shows. "voice" is the voice picker; "clone" is the
+// built-in Spark cloner's upload control, which replaces it.
+//
+// `spark` (built-in) deliberately shows NEITHER rate nor pitch: Spark-TTS
+// accepts prosody attributes only on its control path, and cloning bypasses
+// that path, so those sliders would move and change nothing. `spark_remote` is
+// the sidecar under its old field set, kept for profiles written before the
+// built-in existed.
 const BACKEND_FIELDS = {
-  edge: ["language", "rate", "pitch"],
-  kokoro: ["api_url", "language", "rate"],
-  openai: ["api_url", "api_key", "model", "rate"],
-  spark: ["api_url", "language", "rate", "pitch"],
-  fish: ["api_url", "rate"],
-  elevenlabs: ["api_key", "model"],
+  edge: ["voice", "language", "rate", "pitch"],
+  kokoro: ["voice", "api_url", "language", "rate"],
+  openai: ["voice", "api_url", "api_key", "model", "rate"],
+  spark: ["clone"],
+  spark_remote: ["voice", "api_url", "language", "rate", "pitch"],
+  fish: ["voice", "api_url", "rate"],
+  elevenlabs: ["voice", "api_key", "model"],
 };
 
 const DEFAULT_API_URL = {
   openai: "https://api.openai.com",
   fish: "http://localhost:8080",
   kokoro: "http://localhost:9200",
-  spark: "http://localhost:9300",
+  spark_remote: "http://localhost:9300",
 };
 
 const LANGUAGES = [
@@ -63,10 +72,17 @@ export function initConfigPanel(sharedConfig) {
   registerAction(WORKFLOW_ID, "profileSave", () => saveProfile());
   registerAction(WORKFLOW_ID, "preview", () => preview());
   registerAction(WORKFLOW_ID, "profileMember", (el) => selectMember(el));
+  registerAction(WORKFLOW_ID, "voiceUpload", () => uploadVoiceReference());
+  registerAction(WORKFLOW_ID, "voiceClear", () => clearVoiceReference());
   onChannel(PREVIEW_CHANNEL, onPreviewEvent);
 }
 
 let memberId = null;
+let cardId = null; // the card the open profile belongs to; the clone API is keyed on it
+// The enrolled voice is not an editable form control — it is written by the
+// upload route and read back — so it lives here and readForm() carries it
+// through unchanged, which is what stops a plain Save from wiping it.
+let cloned = { tokens: [], name: "" };
 let loadedProfile = null;
 let previewRaf = null;
 let previewPending = 0; // start deadline while a preview is decoding, 0 once it plays
@@ -212,11 +228,13 @@ async function populateProfile() {
   }
   let profile;
   let backends;
+  let pr;
   try {
-    const [pr, bk] = await Promise.all([
+    const [loaded, bk] = await Promise.all([
       api.post(triggerUrl(), { action: "get_profile", ...profileTarget() }),
       query("list_backends"),
     ]);
+    pr = loaded;
     profile = pr?.profile;
     backends = bk?.backends || [];
   } catch (e) {
@@ -231,12 +249,15 @@ async function populateProfile() {
     el.innerHTML = `<div class="tts-note">This conversation has no character.</div>`;
     return;
   }
+  cardId = pr?.character_id || null;
+  cloned = { tokens: profile.speaker_tokens || [], name: profile.speaker_ref_name || "" };
   el.innerHTML = profileFormHtml(profile, backends, cast);
   setProfileActions(true);
   applyFieldVisibility(profile.backend);
   loadedProfile = readForm();
   loadVoices(profile.voice_id);
   if (BACKEND_FIELDS[profile.backend]?.includes("model")) loadModels(profile.model);
+  refreshCloneStatus();
 }
 
 function opt(value, label, selected) {
@@ -266,14 +287,121 @@ function profileFormHtml(p, backends, cast = null) {
       ${field("api_url", `<label class="tts-field">API URL <input type="text" id="tts-pf-api_url" value="${esc(p.api_url || "")}"></label>`)}
       ${field("api_key", `<label class="tts-field">API key <input type="password" id="tts-pf-api_key" value="${esc(p.api_key || "")}"></label>`)}
       ${field("model", `<label class="tts-field">Model <select id="tts-pf-model"><option value="${esc(p.model || "")}" selected>${esc(p.model || "(default)")}</option></select></label>`)}
-      <label class="tts-field">Voice
+      ${field(
+        "voice",
+        `<label class="tts-field">Voice
         <span class="tts-control-row"><select id="tts-pf-voice"><option value="${esc(p.voice_id || "")}" selected>${esc(p.voice_id || "(default)")}</option></select><button class="btn btn-sm" type="button" data-wf-action="tts:voiceReload">Reload</button></span>
-      </label>
+      </label>`,
+      )}
+      ${field("clone", cloneControlHtml(p))}
       <div class="tts-grid">
         ${field("rate", `<label class="tts-field">Rate <input type="range" min="0.5" max="2.0" step="0.1" id="tts-pf-rate" value="${esc(p.rate)}"></label>`)}
         ${field("pitch", `<label class="tts-field">Pitch <input type="range" min="0.5" max="2.0" step="0.1" id="tts-pf-pitch" value="${esc(p.pitch)}"></label>`)}
       </div>
     </div>`;
+}
+
+// Why the built-in cloner cannot run, or "" when it can. Fetched once per
+// panel open rather than per render: it is a fact about the install, not about
+// the form, and it is what turns an Upload button that would fail into one
+// that says which download is missing.
+let cloneBlocker = "";
+
+async function refreshCloneStatus() {
+  try {
+    const res = await query("voice_status");
+    cloneBlocker = res?.ready ? "" : res?.reason || "";
+  } catch (e) {
+    console.warn("tts: voice status failed", e);
+    cloneBlocker = "";
+  }
+  renderCloneStatus();
+}
+
+function cloneStatusHtml(p) {
+  if (cloneBlocker) {
+    return `<span class="tts-note">${esc(cloneBlocker)} Download it in Settings → Local ML.</span>`;
+  }
+  if (!p.speaker_tokens?.length) {
+    return `<span class="tts-note">No voice uploaded yet. Pick a clip of this character speaking — only the first six seconds are used.</span>`;
+  }
+  const from = p.speaker_ref_name ? ` from ${esc(p.speaker_ref_name)}` : "";
+  return `<span class="tts-note">Voice cloned${from}. Every reply from this character uses it.</span>`;
+}
+
+function cloneControlHtml(p) {
+  return `<div class="tts-field">Cloned voice
+      <span class="tts-control-row">
+        <input type="file" id="tts-pf-voicefile" accept="audio/*,.wav,.flac,.mp3,.m4a,.ogg">
+        <button class="btn btn-sm" type="button" data-wf-action="tts:voiceUpload">Upload</button>
+        <button class="btn btn-sm" type="button" data-wf-action="tts:voiceClear"${p.speaker_tokens?.length ? "" : " disabled"}>Clear</button>
+      </span>
+      <div id="tts-pf-clone-status">${cloneStatusHtml(p)}</div>
+    </div>`;
+}
+
+// Rate and pitch are impossible for a cloned voice rather than merely unused:
+// Spark-TTS takes those attributes on its control path, which cloning bypasses.
+// Redrawing the status in place keeps the file input and the rest of the form.
+function renderCloneStatus() {
+  const el = document.getElementById("tts-pf-clone-status");
+  if (el) el.innerHTML = cloneStatusHtml(readForm());
+  const clear = document.querySelector('[data-wf-action="tts:voiceClear"]');
+  if (clear) clear.disabled = !readForm().speaker_tokens?.length;
+}
+
+async function uploadVoiceReference() {
+  const input = document.getElementById("tts-pf-voicefile");
+  const file = input?.files?.[0];
+  if (!file) {
+    setStatus("Choose an audio file first");
+    return;
+  }
+  if (!cardId) {
+    setStatus("This conversation has no character to give a voice");
+    return;
+  }
+  setStatus("Enrolling voice…");
+  setPreviewTime("");
+  try {
+    const res = await api.upload(`/characters/${encodeURIComponent(cardId)}/voice-reference`, file);
+    // The route writes the profile itself (enrolling also selects this backend),
+    // so the form is refilled from what was stored rather than from the guess
+    // the panel would otherwise make about it.
+    applyProfile(res?.profile);
+    setStatus(res?.preview_error ? `Voice saved. ${res.preview_error}` : "Voice saved");
+    if (res?.preview_b64) playPreview(res.preview_b64, res.mime || "audio/wav");
+  } catch (e) {
+    console.warn("tts: voice enrollment failed", e);
+    setStatus(e?.message || "Voice enrollment failed");
+  }
+}
+
+async function clearVoiceReference() {
+  if (!cardId) return;
+  if (!window.confirm("Remove this character's cloned voice?")) return;
+  try {
+    const res = await api.del(`/characters/${encodeURIComponent(cardId)}/voice-reference`);
+    applyProfile(res?.profile);
+    setStatus("Cloned voice removed");
+  } catch (e) {
+    console.warn("tts: voice clear failed", e);
+    setStatus("Could not remove the cloned voice");
+  }
+}
+
+// Push a server-owned profile back into the open form. Only the fields the
+// clone flow actually changes, so a half-edited API key beside it survives.
+function applyProfile(profile) {
+  if (!profile) return;
+  cloned = { tokens: profile.speaker_tokens || [], name: profile.speaker_ref_name || "" };
+  const backend = document.getElementById("tts-pf-backend");
+  if (backend && profile.backend) backend.value = profile.backend;
+  const voice = document.getElementById("tts-pf-voice");
+  if (voice && profile.voice_id) voice.innerHTML = opt(profile.voice_id, profile.voice_id, true);
+  applyFieldVisibility(profile.backend || backend?.value || "edge");
+  renderCloneStatus();
+  loadedProfile = readForm();
 }
 
 // Footer order follows the other modals: the secondary action sits far left with the status
@@ -305,6 +433,8 @@ function readForm() {
     enabled: !!val("tts-pf-enabled")?.checked,
     backend: val("tts-pf-backend")?.value || "edge",
     voice_id: val("tts-pf-voice")?.value || "",
+    speaker_tokens: cloned.tokens,
+    speaker_ref_name: cloned.name,
     language: val("tts-pf-language")?.value || "en",
     model: val("tts-pf-model")?.value || "",
     api_url: val("tts-pf-api_url")?.value || "",
@@ -319,6 +449,7 @@ function onBackendChange() {
   const apiUrl = document.getElementById("tts-pf-api_url");
   if (apiUrl && !apiUrl.value && DEFAULT_API_URL[backend]) apiUrl.value = DEFAULT_API_URL[backend];
   applyFieldVisibility(backend);
+  renderCloneStatus();
   loadVoices();
   if (BACKEND_FIELDS[backend]?.includes("model")) loadModels();
 }
@@ -334,6 +465,10 @@ async function loadVoices(selectId) {
       language: f.language,
       api_url: f.api_url,
       api_key: f.api_key,
+      // The built-in cloner has no catalog to list: its one voice is whatever
+      // this character has enrolled, which only the form knows.
+      speaker_tokens: f.speaker_tokens,
+      speaker_ref_name: f.speaker_ref_name,
     });
     const voices = res?.voices || [];
     if (!voices.length) return;
@@ -429,6 +564,18 @@ function tickPreview(now) {
   armPreviewRaf();
 }
 
+function playPreview(b64, mime) {
+  stopChannel(CHANNEL); // a preview should not talk over a message that is playing
+  previewPending = performance.now() + PREVIEW_START_GRACE_MS;
+  playAudio({
+    channel: PREVIEW_CHANNEL,
+    segments: [{ b64, mime: mime || "audio/wav" }],
+    volume: cfg.volume,
+    source: { label: "Voice preview", dock: false },
+  });
+  armPreviewRaf();
+}
+
 function cancelPreviewRaf() {
   if (previewRaf != null) cancelAnimationFrame(previewRaf);
   previewRaf = null;
@@ -445,15 +592,7 @@ async function preview() {
       setStatus(res?.error || "Preview failed");
       return;
     }
-    stopChannel(CHANNEL); // a preview should not talk over a message that is playing
-    previewPending = performance.now() + PREVIEW_START_GRACE_MS;
-    playAudio({
-      channel: PREVIEW_CHANNEL,
-      segments: [{ b64: res.audio_b64, mime: res.mime }],
-      volume: cfg.volume,
-      source: { label: "Voice preview", dock: false },
-    });
-    armPreviewRaf();
+    playPreview(res.audio_b64, res.mime);
   } catch (e) {
     console.error("tts: preview failed", e);
     setStatus("Preview failed");

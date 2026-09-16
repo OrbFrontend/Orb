@@ -46,11 +46,18 @@ def deps_ok(feature: str | None = None) -> tuple[bool, str]:
     original whole-extras meaning, which is what the Local ML card's top-level
     ``deps_ok`` (the grouped opt-in) is keyed on; every per-feature caller
     passes a name.
+
+    An ``onnx`` feature needs ``onnxruntime`` and nothing else at run time. The
+    ``onnx`` package — another 73 MB — only *builds* graphs, so it lives in
+    requirements-dev.txt with the export script that uses it, not in the user's
+    install.
     """
     runtime = MODELS[feature].runtime if feature in MODELS else "llama_cpp"
     try:
         if runtime == "llama_cpp":
             import_llama()
+        if runtime == "onnx":
+            import onnxruntime  # noqa: F401, PLC0415 — deferred; base Orb has no ML extras
         import huggingface_hub  # noqa: F401, PLC0415 — deferred; only needed for downloads
     except Exception as e:  # ModuleNotFoundError or a broken build
         return False, f"ML extras not installed ({e}); {install_cmd()}"
