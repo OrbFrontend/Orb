@@ -2,20 +2,13 @@
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Sequence
 
 from .. import onnx_runtime
 from . import catalog
 from .tokens import SEMANTIC_COUNT, validate_speaker_tokens
 
-logger = logging.getLogger(__name__)
-
 SAMPLE_RATE = 16000
-
-
-class EmptyGeneration(RuntimeError):
-    """The model produced no semantic tokens."""
 
 
 def decode(semantic: Sequence[int], speaker_tokens: Sequence[int]) -> bytes:
@@ -23,7 +16,7 @@ def decode(semantic: Sequence[int], speaker_tokens: Sequence[int]) -> bytes:
     import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
 
     if not semantic:
-        raise EmptyGeneration("Spark-TTS produced no audio tokens for this line.")
+        raise ValueError("Spark-TTS produced no audio tokens for this line.")
     speaker = validate_speaker_tokens(list(speaker_tokens))
     indices = np.asarray(semantic, dtype=np.int64)
     if indices.min() < 0 or indices.max() >= SEMANTIC_COUNT:  # a caller that skipped the range filter
@@ -53,4 +46,4 @@ def to_pcm16(audio) -> bytes:
     return (np.clip(samples, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
 
 
-__all__ = ["SAMPLE_RATE", "EmptyGeneration", "decode", "to_pcm16"]
+__all__ = ["SAMPLE_RATE", "decode", "to_pcm16"]

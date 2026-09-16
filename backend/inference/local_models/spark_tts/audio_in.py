@@ -30,11 +30,6 @@ class UnsupportedAudio(ValueError):
     """The upload could not be decoded by any reader this install has."""
 
 
-def ffmpeg_path() -> str | None:
-    """``ffmpeg`` on PATH, or ``None``. Probed, never assumed."""
-    return shutil.which("ffmpeg")
-
-
 def _have_soundfile() -> bool:
     try:
         import soundfile  # noqa: F401, PLC0415 — deferred probe
@@ -100,14 +95,13 @@ def _from_ffmpeg(data: bytes, suffix: str) -> tuple[np.ndarray, int] | None:
     """Use ffmpeg to decode formats unsupported by the in-process readers."""
     import numpy as np  # noqa: PLC0415 — deferred; see module docstring
 
-    binary = ffmpeg_path()
+    binary = shutil.which("ffmpeg")
     if binary is None:
         return None
     fd, path = tempfile.mkstemp(suffix=suffix or ".bin")
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
-        # Pass a fixed argument list and a temporary input path.
         argv = [
             binary, "-nostdin", "-v", "error",
             "-t", str(MAX_SOURCE_SECONDS),
@@ -241,7 +235,6 @@ __all__ = [
     "TARGET_RATE",
     "UnsupportedAudio",
     "decode",
-    "ffmpeg_path",
     "reference_signal",
     "resample",
     "volume_normalize",

@@ -9,9 +9,8 @@ from backend.inference.local_models.spark_tts import tokens
 
 def test_the_two_audio_families_are_contiguous_and_adjacent():
     """The two token families use adjacent ranges."""
-    assert tokens.GLOBAL_LAST == tokens.GLOBAL_BASE + tokens.GLOBAL_COUNT - 1 == 155760
     assert tokens.SEMANTIC_LAST == tokens.SEMANTIC_BASE + tokens.SEMANTIC_COUNT - 1 == 163952
-    assert tokens.SEMANTIC_BASE == tokens.GLOBAL_LAST + 1
+    assert tokens.SEMANTIC_BASE == tokens.GLOBAL_BASE + tokens.GLOBAL_COUNT
 
 
 def test_clone_prompt_is_the_exact_id_sequence():

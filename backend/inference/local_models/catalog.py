@@ -111,38 +111,10 @@ _PROSE_4B_REPO = "chartreuse-verte/prose-rewriter-4b-v1.6"
 _PROSE_4B_REV = "a92a6cbb4e7a8fe487cee5e2a2c3829020967713"
 
 # --- Spark-TTS, the built-in voice cloner -----------------------------------
-#
-# Three artifacts, two features. The LLM writes a stream of audio tokens; the
-# bicodec decoder renders them to a waveform using the 32 speaker tokens an
-# enrollment produced; the speaker encoder is what produced them. All three are
-# torch-free at run time, which is the entire point — the sidecar this replaces
-# cost 4.5 GB, of which 1.4 GB was a wav2vec2 and an encoder that only the
-# transcript-conditioned path ever needed.
-#
-# THESE TWO REPOS BELONG TO OTHER PEOPLE. Both were verified byte for byte
-# before being pinned — the GGUF's source weights are identical to the official
-# `SparkAudio/Spark-TTS-0.5B` (sha256 54825baf0a2f6076… across all four repos),
-# and bicodec.onnx reproduces torch's decoder at 114 dB SNR — but verification
-# is not availability: a third-party repo can be deleted or force-pushed. The
-# revision pin stops a re-point swapping the weights, and `sha256` below makes
-# that structural rather than a promise, since a download whose bytes do not
-# match is rejected rather than run.
 _SPARK_LLM_REPO = "mradermacher/Spark-TTS-0.5B-GGUF"
 _SPARK_LLM_REV = "5ba102cd2dfa63b55657d62cc2d216d97abbdc4b"
-# Both ONNX files are served from our own mirror, byte-identical to the repos
-# they were verified against (the sha256 pins below are the proof, and they are
-# the same values those repos serve). Fhrozen/Spark-TTS-0.5B-ONNX remains the
-# provenance for bicodec.onnx; mirroring is about availability, not doubt.
 _SPARK_CODEC_REPO = "chartreuse-verte/Spark-TTS-0.5B-ONNX"
 _SPARK_CODEC_REV = "4fa08a1c26784030ddd92d9cf2ab7a2efee3ffc4"
-
-# The speaker encoder exists in no OTHER public repo — upstream ships it only as
-# a submodule of the 625 MB BiCodec checkpoint, and 385 MB of that is the
-# decoder we already have. `scripts/export_spark_speaker_encoder.py` produces
-# it and verifies the export against torch before keeping it; this repo is
-# where that output is published. Run the script and it writes straight into
-# data/models/ under exactly this basename, so a machine with the upstream
-# checkout never needs the download at all.
 _SPARK_SPEAKER_REPO = _SPARK_CODEC_REPO
 _SPARK_SPEAKER_REV = _SPARK_CODEC_REV
 

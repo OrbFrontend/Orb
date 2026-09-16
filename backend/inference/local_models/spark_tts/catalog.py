@@ -8,9 +8,6 @@ from ..catalog import MODELS
 FEATURE_LLM = "spark_tts_llm"
 FEATURE_CODEC = "spark_tts_codec"
 
-#: Speaker encoder filename from the codec catalog entry.
-SPEAKER_ENCODER_NAME = next(iter(MODELS[FEATURE_CODEC].extra_files)).local_name
-
 
 def decoder_path() -> str:
     """``bicodec.onnx``'s absolute path (may not exist)."""
@@ -50,7 +47,6 @@ def llm_ready() -> tuple[bool, str]:
 __all__ = [
     "FEATURE_CODEC",
     "FEATURE_LLM",
-    "SPEAKER_ENCODER_NAME",
     "codec_ready",
     "decoder_path",
     "llm_ready",

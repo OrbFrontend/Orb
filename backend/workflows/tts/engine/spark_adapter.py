@@ -7,7 +7,7 @@ import logging
 import httpx
 
 from .base import SpeakableChunk, SynthesisResult, TTSAdapter
-from .wav import pcm_duration_ms, pcm_to_wav, silence_pcm, strip_header
+from .wav import pcm_duration_ms, pcm_to_wav, stitch_pcm, strip_header
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +17,6 @@ DEFAULT_VOICE = "spark_female_warm"
 # Local inference can take several minutes on a cold CPU process.
 _SYNTH_TIMEOUT = 300.0
 _LIST_TIMEOUT = 10.0
-
-# Used for silence before the first clip reports its rate.
-_FALLBACK_SAMPLE_RATE = 16000
 
 
 def _base_url(api_url: str) -> str:
@@ -48,21 +45,12 @@ class SparkTTSAdapter(TTSAdapter):
         **kwargs,
     ) -> SynthesisResult:
         """Synthesize each chunk and join the clips into one WAV."""
-        text_chunks = [chunk for chunk in chunks if chunk.text.strip()]
-        if not text_chunks:
-            return SynthesisResult(audio_bytes=b"", content_type="audio/wav")
-
         url = f"{_base_url(api_url)}/v1/tts"
         voice = voice_id or DEFAULT_VOICE
-        audio_parts: list[bytes] = []
-        sample_rate = _FALLBACK_SAMPLE_RATE
 
         async with httpx.AsyncClient(timeout=_SYNTH_TIMEOUT) as client:
-            for index, chunk in enumerate(text_chunks):
-                # A leading pause on the first chunk would just delay playback.
-                if chunk.pause_before_ms > 0 and index > 0:
-                    audio_parts.append(silence_pcm(chunk.pause_before_ms, sample_rate))
 
+            async def speak(chunk: SpeakableChunk) -> tuple[bytes, int]:
                 response = await client.post(
                     url,
                     json={
@@ -75,23 +63,15 @@ class SparkTTSAdapter(TTSAdapter):
                     headers=_headers(api_key),
                 )
                 response.raise_for_status()
+                return strip_header(response.content)
 
-                pcm, clip_rate = strip_header(response.content)
-                # Every clip comes from one model at one rate; trust the first.
-                if index == 0:
-                    sample_rate = clip_rate
-                audio_parts.append(pcm)
-
-                if chunk.pause_after_ms > 0:
-                    audio_parts.append(silence_pcm(chunk.pause_after_ms, sample_rate))
-
-        raw_pcm = b"".join(audio_parts)
+            raw_pcm, sample_rate = await stitch_pcm(chunks, speak)
         if not raw_pcm:
             return SynthesisResult(audio_bytes=b"", content_type="audio/wav")
 
         logger.info(
             "Spark-TTS: %d chunks → %d bytes at %d Hz (voice=%s)",
-            len(text_chunks),
+            sum(bool(chunk.text.strip()) for chunk in chunks),
             len(raw_pcm),
             sample_rate,
             voice,

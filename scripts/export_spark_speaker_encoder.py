@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
-"""Export and verify Spark-TTS's speaker encoder as an ONNX model.
-
-Run against a torch checkout of Spark-TTS::
-
-    pip install torch torchaudio onnx onnxruntime safetensors omegaconf soundfile soxr
-    python scripts/export_spark_speaker_encoder.py \\
-        --checkpoint /path/to/Spark-TTS-0.5B \\
-        --spark-tts  /path/to/Spark-TTS        # the upstream repo, for its modules
-
-The output defaults to the model directory. The script verifies agreement with
-torch, dynamic axes, and deterministic output before keeping the file.
-"""
+"""Export and verify Spark-TTS's speaker encoder as an ONNX model."""
 
 from __future__ import annotations
 
@@ -77,7 +66,6 @@ def main() -> int:
         args.out,
         input_names=["mel"],
         output_names=["speaker_tokens"],
-        # Enrollment accepts variable batch sizes and clip lengths.
         dynamic_axes={"mel": {0: "batch", 2: "frames"}},
         opset_version=17,
         do_constant_folding=True,
