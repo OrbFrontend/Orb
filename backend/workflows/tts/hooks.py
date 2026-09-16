@@ -18,6 +18,7 @@ from .synth import (
     audio_mime_ext,
     build_generation_metadata,
     compute_seed,
+    consumption_blocks,
     normalize_profile,
     synthesize,
     synthesize_blocks,
@@ -45,9 +46,9 @@ def _attachment(text: str, profile: dict, audio: bytes, mime: str, backend: str,
         "filename": f"speech.{ext}",
         "mime": mime,
         "data": audio,
-        "seed": compute_seed(text, profile),
-        "generation_metadata": build_generation_metadata(text, profile),
-        "consumption_metadata": {"duration_ms": duration_ms, "blocks": blocks},
+        "seed": compute_seed(text, profile, blocks),
+        "generation_metadata": build_generation_metadata(text, profile, blocks),
+        "consumption_metadata": {"duration_ms": duration_ms, "blocks": consumption_blocks(blocks)},
     }
 
 
@@ -70,7 +71,7 @@ async def post_pipeline(ctx):
         return
     yield {"event": "phase_status", "data": {"channel": f"workflow:{WORKFLOW_ID}", "label": "Synthesizing speech..."}}
     try:
-        audio, mime, blocks = await synthesize_blocks(text, profile)
+        audio, mime, blocks = await synthesize_blocks(text, profile, settings=ctx.settings)
     except Exception:
         logger.exception("tts auto-generation failed")
         return
@@ -98,7 +99,7 @@ async def regenerate(ctx, body):
         return []
     profile = normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID) if ctx.character_id else None)
     try:
-        audio, mime, blocks = await synthesize_blocks(text, profile)
+        audio, mime, blocks = await synthesize_blocks(text, profile, settings=ctx.settings)
     except Exception:
         logger.exception("tts regenerate failed for attachment %s", ctx.attachment_id)
         return []
@@ -120,7 +121,7 @@ async def reroll_gen(ctx, params, seed):
     duration_ms = sum(
         max(0, int(block.get("duration_ms") or 0)) + max(0, int(block.get("pause_after_ms") or 0)) for block in blocks
     )
-    return audio, {"duration_ms": duration_ms, "blocks": blocks}
+    return audio, {"duration_ms": duration_ms, "blocks": consumption_blocks(blocks)}
 
 
 async def on_demand(ctx, body):
@@ -148,7 +149,7 @@ async def _create(ctx, body) -> dict:
         return {"error": "message has no text"}
     profile = normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID) if ctx.character_id else None)
     try:
-        audio, mime, blocks = await synthesize_blocks(text, profile)
+        audio, mime, blocks = await synthesize_blocks(text, profile, settings=ctx.settings)
     except Exception:
         logger.exception("tts create failed for message %s", mid)
         return {"error": "synthesis failed"}

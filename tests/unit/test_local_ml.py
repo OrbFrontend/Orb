@@ -150,10 +150,10 @@ def test_markup_input_caps_a_runaway_message():
 
 
 def test_markup_input_hides_exactly_what_classify_axes_hides():
-    from backend.analysis import format_consistency
+    from backend.core.text_segmentation import strip_protected_markup
 
     for text in ("A **b** c", "x\n```\ny\n```\nz", "one ___ two", "*kept* __bold__"):
-        assert local_ml.markup_input(text) == format_consistency._strip_protected(text)
+        assert local_ml.markup_input(text) == strip_protected_markup(text)
 
 
 # --- the markup head ------------------------------------------------------------

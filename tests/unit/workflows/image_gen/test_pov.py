@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from backend.analysis.format_consistency import Dialogue, classify_axes, narration_only
+from backend.analysis.text.markup import classify_axes, narration_only
+from backend.analysis.text.roleplay import Dialogue
 from backend.inference import local_ml
 from backend.inference.local_models import assets, dependencies
 from backend.workflows.image_gen import pov

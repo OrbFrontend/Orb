@@ -56,9 +56,10 @@ class TestBasicDialogue:
         assert chunks[1].text == "Second."
         assert chunks[2].text == "Third."
 
-    def test_no_quotes_returns_empty(self):
+    def test_legacy_no_quotes_returns_empty(self):
+        # Old attachment replay still requires explicit dialogue delimiters.
         text = "*She walks across the room.* The wind howls outside."
-        chunks = regex_extract(text)
+        chunks = regex_extract(text, legacy=True)
         assert chunks == []
 
     def test_empty_string(self):

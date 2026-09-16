@@ -269,8 +269,12 @@ export function playAudio({ channel, segments, loop = false, volume, stopOn, sou
   ch.stopOn = stopOn || null;
   ch.source =
     source && typeof source === "object"
-      ? { label: typeof source.label === "string" ? source.label : "Audio", msgId: source.msgId ?? null }
-      : { label: "Audio", msgId: null };
+      ? {
+          label: typeof source.label === "string" ? source.label : "Audio",
+          msgId: source.msgId ?? null,
+          dock: source.dock !== false,
+        }
+      : { label: "Audio", msgId: null, dock: true };
   if (volume != null) ch.baseGain.gain.value = _clamp01(volume);
   _stopSources(ch);
 

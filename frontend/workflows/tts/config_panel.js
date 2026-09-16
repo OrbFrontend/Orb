@@ -1,22 +1,32 @@
 import {
   api,
+  channelState,
   closeModal,
   convUrl,
   esc,
   getActiveConvId,
   getGroupCast,
+  onChannel,
   playAudio,
   registerAction,
   requestRepaint,
   showModal,
+  stopChannel,
 } from "/static/workflow_api.js";
+import { formatTime } from "./widget.js";
 
 const WORKFLOW_ID = "tts";
+const CHANNEL = "tts";
+// Previews play on their own channel and report progress on the panel's status line, not the chat dock.
+const PREVIEW_CHANNEL = "tts-preview";
+// Playback start is silent when decoding fails, so a preview that never starts is called unplayable.
+const PREVIEW_START_GRACE_MS = 1500;
 
 const BACKEND_FIELDS = {
   edge: ["language", "rate", "pitch"],
   kokoro: ["api_url", "language", "rate"],
   openai: ["api_url", "api_key", "model", "rate"],
+  spark: ["api_url", "language", "rate", "pitch"],
   fish: ["api_url", "rate"],
   elevenlabs: ["api_key", "model"],
 };
@@ -25,6 +35,7 @@ const DEFAULT_API_URL = {
   openai: "https://api.openai.com",
   fish: "http://localhost:8080",
   kokoro: "http://localhost:9200",
+  spark: "http://localhost:9300",
 };
 
 const LANGUAGES = [
@@ -52,10 +63,13 @@ export function initConfigPanel(sharedConfig) {
   registerAction(WORKFLOW_ID, "profileSave", () => saveProfile());
   registerAction(WORKFLOW_ID, "preview", () => preview());
   registerAction(WORKFLOW_ID, "profileMember", (el) => selectMember(el));
+  onChannel(PREVIEW_CHANNEL, onPreviewEvent);
 }
 
 let memberId = null;
 let loadedProfile = null;
+let previewRaf = null;
+let previewPending = 0; // start deadline while a preview is decoding, 0 once it plays
 
 function triggerUrl() {
   return convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger");
@@ -138,11 +152,11 @@ function settingsBodyHtml() {
         </label>
       </section>
       <section class="tts-section" id="tts-profile">
-        <div class="tts-heading">Voice profile</div>
+        <div class="tts-heading">Voice profile - This character only</div>
         <div id="tts-profile-content" class="tts-note">Loading voice settings…</div>
       </section>
     </div>
-    <div class="modal-actions"><button class="btn" data-wf-action="tts:closeSettings">Close</button></div>`;
+    <div class="modal-actions tts-settings-actions" id="tts-settings-actions">${settingsActionsHtml(false)}</div>`;
 }
 
 function openSettings() {
@@ -181,6 +195,7 @@ function saveGlobal() {
 async function populateProfile() {
   let el = document.getElementById("tts-profile-content");
   if (!el) return;
+  setProfileActions(false); // every path below that shows a note instead of a form keeps just Close
   if (!getActiveConvId()) {
     el.innerHTML = `<div class="tts-note">Open a conversation to set its character's voice.</div>`;
     return;
@@ -217,6 +232,7 @@ async function populateProfile() {
     return;
   }
   el.innerHTML = profileFormHtml(profile, backends, cast);
+  setProfileActions(true);
   applyFieldVisibility(profile.backend);
   loadedProfile = readForm();
   loadVoices(profile.voice_id);
@@ -235,7 +251,6 @@ function profileFormHtml(p, backends, cast = null) {
   const backendOpts = backends.map((b) => opt(b.id, b.name || b.id, b.id === p.backend)).join("");
   const langOpts = LANGUAGES.map(([code, label]) => opt(code, label, p.language?.startsWith(code))).join("");
   return `
-    <div class="tts-note">Choose how this character sounds in generated replies.</div>
     <div class="tts-profile-fields">
       ${cast ? memberPickerHtml(cast) : ""}
       <label class="tts-setting-toggle">
@@ -258,12 +273,23 @@ function profileFormHtml(p, backends, cast = null) {
         ${field("rate", `<label class="tts-field">Rate <input type="range" min="0.5" max="2.0" step="0.1" id="tts-pf-rate" value="${esc(p.rate)}"></label>`)}
         ${field("pitch", `<label class="tts-field">Pitch <input type="range" min="0.5" max="2.0" step="0.1" id="tts-pf-pitch" value="${esc(p.pitch)}"></label>`)}
       </div>
-    </div>
-    <div class="tts-profile-actions">
-      <button class="btn btn-sm btn-accent" type="button" data-wf-action="tts:profileSave">Save voice</button>
-      <button class="btn btn-sm" type="button" data-wf-action="tts:preview">Preview</button>
-      <span id="tts-pf-status" aria-live="polite"></span>
     </div>`;
+}
+
+// Footer order follows the other modals: the secondary action sits far left with the status
+// text, then Close and the primary action on the right. Voice buttons need a profile form.
+function settingsActionsHtml(hasProfile) {
+  return `
+    ${hasProfile ? `<button class="btn" type="button" data-wf-action="tts:preview">Preview</button>` : ""}
+    <span id="tts-pf-status" aria-live="polite"></span>
+    <span id="tts-pf-time" aria-hidden="true"></span>
+    <button class="btn" data-wf-action="tts:closeSettings">Close</button>
+    ${hasProfile ? `<button class="btn btn-accent" type="button" data-wf-action="tts:profileSave">Save voice</button>` : ""}`;
+}
+
+function setProfileActions(hasProfile) {
+  const el = document.getElementById("tts-settings-actions");
+  if (el) el.innerHTML = settingsActionsHtml(hasProfile);
 }
 
 function applyFieldVisibility(backend) {
@@ -352,23 +378,84 @@ async function saveProfile() {
   }
 }
 
+function statusLine() {
+  return document.getElementById("tts-pf-status");
+}
+
+function setStatus(text) {
+  const el = statusLine();
+  if (el) el.textContent = text;
+}
+
+function setPreviewTime(text) {
+  const el = document.getElementById("tts-pf-time");
+  if (el) el.textContent = text;
+}
+
+function onPreviewEvent(ev) {
+  if (ev.type === "play") {
+    previewPending = 0;
+    setStatus("Playing preview");
+    armPreviewRaf();
+    return;
+  }
+  if (ev.type !== "close" || ev.reason === "superseded") return; // a newer preview owns the line
+  cancelPreviewRaf();
+  setPreviewTime("");
+  setStatus(ev.reason === "ended" ? "Preview finished" : "");
+}
+
+function armPreviewRaf() {
+  if (previewRaf == null) previewRaf = requestAnimationFrame(tickPreview);
+}
+
+// Only the elapsed/duration readout ticks here; play and close events own the status text.
+function tickPreview(now) {
+  previewRaf = null;
+  if (!statusLine()) {
+    stopChannel(PREVIEW_CHANNEL); // the panel showing this preview is gone
+    return;
+  }
+  const st = channelState(PREVIEW_CHANNEL);
+  if (st?.playing) {
+    setPreviewTime(`${formatTime(st.stream.elapsedSec)} / ${formatTime(st.stream.durationSec)}`);
+  } else if (!previewPending) {
+    return;
+  } else if (now > previewPending) {
+    previewPending = 0;
+    setStatus("Preview audio could not be played");
+    return;
+  }
+  armPreviewRaf();
+}
+
+function cancelPreviewRaf() {
+  if (previewRaf != null) cancelAnimationFrame(previewRaf);
+  previewRaf = null;
+}
+
 async function preview() {
-  const status = document.getElementById("tts-pf-status");
-  if (!status) return;
+  if (!statusLine()) return;
+  setStatus("Generating preview…");
+  setPreviewTime("");
   try {
     const res = await query("preview", readForm());
-    if (res?.audio_b64) {
-      playAudio({
-        channel: WORKFLOW_ID,
-        segments: [{ b64: res.audio_b64, mime: res.mime }],
-        volume: cfg.volume,
-        source: { label: "Voice preview", msgId: null },
-      });
-    } else {
-      status.textContent = res?.error || "Preview failed";
+    if (!statusLine()) return;
+    if (!res?.audio_b64) {
+      setStatus(res?.error || "Preview failed");
+      return;
     }
+    stopChannel(CHANNEL); // a preview should not talk over a message that is playing
+    previewPending = performance.now() + PREVIEW_START_GRACE_MS;
+    playAudio({
+      channel: PREVIEW_CHANNEL,
+      segments: [{ b64: res.audio_b64, mime: res.mime }],
+      volume: cfg.volume,
+      source: { label: "Voice preview", dock: false },
+    });
+    armPreviewRaf();
   } catch (e) {
     console.error("tts: preview failed", e);
-    status.textContent = "Preview failed";
+    setStatus("Preview failed");
   }
 }

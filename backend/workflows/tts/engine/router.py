@@ -48,6 +48,13 @@ try:
 except ImportError:
     logger.info("httpx not installed — Kokoro TTS backend disabled")
 
+try:
+    from .spark_adapter import SparkTTSAdapter
+
+    _REGISTRY["spark"] = SparkTTSAdapter
+except ImportError:
+    logger.info("httpx not installed — Spark-TTS backend disabled")
+
 
 def get_adapter(backend: str) -> TTSAdapter:
     """Instantiate and return a TTS adapter for the given backend name."""

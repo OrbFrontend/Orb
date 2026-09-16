@@ -2,7 +2,8 @@
 
 import pytest
 
-from backend.analysis.format_consistency import Dialogue, classify_axes, narration_only
+from backend.analysis.text.markup import classify_axes, narration_only
+from backend.analysis.text.roleplay import Dialogue
 
 
 @pytest.mark.parametrize("marker", ["*", "_"])

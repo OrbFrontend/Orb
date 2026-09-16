@@ -13,8 +13,6 @@ from ..toolkit import (
     get_workflow_config,
     local_feature_ready,
     markup_axes,
-    normalize_to_baseline,
-    vote_axes,
 )
 from . import (
     VOICE_REWRITE_LENGTH_RULE,
@@ -24,6 +22,7 @@ from . import (
     normalize_config,
 )
 from .guard import rejection
+from .normalization import normalize_to_baseline, vote_axes
 from .voice import (
     FEATURE,
     UNKNOWN_LABELS,

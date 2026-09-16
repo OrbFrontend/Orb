@@ -8,14 +8,8 @@ from types import MappingProxyType
 
 import pytest
 
-from backend.analysis.format_consistency import (
-    AxisStyle,
-    Dialogue,
-    Narration,
-    baseline_axes,
-    classify_axes,
-    narration_only,
-)
+from backend.analysis.text.markup import classify_axes, narration_only
+from backend.analysis.text.roleplay import AxisStyle, Dialogue, Narration
 from backend.inference import local_ml
 from backend.inference.local_models import assets, dependencies
 from backend.workflows import PostCtx
@@ -28,6 +22,7 @@ from backend.workflows.format_consistency import (
     hooks,
     voice,
 )
+from backend.workflows.format_consistency.normalization import baseline_axes
 
 QUOTED_BASELINE = 'She smiles. "Hello there," she says warmly.'
 QUOTED_BASELINE_NARRATION = "She smiles. she says warmly."

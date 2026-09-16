@@ -64,18 +64,41 @@ def test_toolkit_exposes_local_ml_as_narrow_capabilities():
     assert "markup_axes" in toolkit.__all__
 
 
-def test_toolkit_exposes_the_shared_agreement_rule():
-    """Both halves of format_consistency must answer "did the window agree?" the
-    same way, so the rule is published rather than reimplemented per axis."""
-    assert hasattr(toolkit, "stable_label")
-    assert "stable_label" in toolkit.__all__
-
-
-def test_toolkit_exposes_format_convention_shaping():
-    """A plug-in must use one convention for markup repair and voice shaping."""
-    for name in ("AxisStyle", "baseline_axes", "markup_axes", "narration_only", "vote_axes"):
+def test_toolkit_exposes_format_convention_reading():
+    """A plug-in must read one convention for markup repair and voice shaping."""
+    for name in ("AxisStyle", "Dialogue", "Narration", "classify_axes", "markup_axes", "narration_only"):
         assert hasattr(toolkit, name)
         assert name in toolkit.__all__
+
+
+def test_toolkit_exposes_the_span_primitives_a_rewriter_acts_on():
+    """Markup repair belongs to format_consistency, but it must act on the same
+    span parser the shared classifier reads, not on a private copy of it."""
+    for name in (
+        "CLOSE_QUOTES",
+        "OPEN_QUOTES",
+        "TOGGLE_QUOTES",
+        "emphasis_inner",
+        "extract_block_spans",
+        "find_emphasis_spans",
+        "find_quote_spans",
+        "map_prose",
+        "span_role",
+        "split_ws",
+        "strip_protected_markup",
+        "strip_quotes",
+    ):
+        assert hasattr(toolkit, name), f"{name} not importable from toolkit"
+        assert name in toolkit.__all__, f"{name} missing from toolkit.__all__"
+
+
+def test_toolkit_does_not_own_the_format_consistency_repair_policy():
+    """Baseline selection, voting, and the drift report belong to the workflow.
+    A toolkit re-export would let another plug-in inherit that policy by accident
+    and would import the workflow back into its own API."""
+    for name in ("FormatDriftReport", "baseline_axes", "normalize_to_baseline", "stable_label", "vote_axes"):
+        assert not hasattr(toolkit, name), f"{name} leaks the workflow's repair policy"
+        assert name not in toolkit.__all__
 
 
 def test_toolkit_is_the_single_plugin_contract_surface():
