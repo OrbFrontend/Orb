@@ -28,7 +28,13 @@ def fingerprint(config: Mapping[str, Any], style: Mapping[str, Any]) -> str:
         entry = (providers if isinstance(providers, Mapping) else {}).get(provider)
         entry = entry if isinstance(entry, Mapping) else {}
         key = str(entry.get("api_key") or "")
-        parts += [entry.get("base_url"), hashlib.sha256(key.encode()).hexdigest()[:16] if key else ""]
+        # Stands in for the credential's identity, so rotating a key retires the
+        # verdict recorded against the old one. Never stored, transmitted, or
+        # checked against anything -- `usedforsecurity=False` says so, and keeps
+        # this off the password-hashing scanners that cannot tell a cache key
+        # from a credential at rest.
+        digest = hashlib.sha256(key.encode(), usedforsecurity=False).hexdigest()[:16] if key else ""
+        parts += [entry.get("base_url"), digest]
     return "\x1f".join(str(part or "") for part in parts)
 
 
