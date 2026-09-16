@@ -88,17 +88,27 @@ def test_resample_is_a_no_op_at_the_target_rate():
     assert np.array_equal(audio_in.resample(signal, 16000, 16000), signal)
 
 
-def test_reference_window_tiles_a_short_clip_and_truncates_a_long_one():
+def test_reference_signal_tiles_a_short_clip_to_exactly_six_seconds():
     """Upstream REPEATS a clip shorter than six seconds rather than padding it
     with silence, and silence would be six seconds of a speaker who is not
-    speaking."""
+    speaking. Exactly six, not "six and whatever the last repeat overshot": a
+    short clip must still enroll to upstream's tokens."""
     short = tone(1.0, 16000)
-    window = audio_in.reference_window(short)
-    assert window.shape == (96000,)
-    assert np.array_equal(window[:16000], short)
-    assert np.array_equal(window[16000:32000], short)  # tiled, not zero-padded
-    assert audio_in.reference_window(tone(30.0, 16000)).shape == (96000,)
-    assert audio_in.reference_window(np.zeros(0, dtype=np.float32)).shape == (96000,)
+    signal = audio_in.reference_signal(short)
+    assert signal.shape == (96000,)
+    assert np.array_equal(signal[:16000], short)
+    assert np.array_equal(signal[16000:32000], short)  # tiled, not zero-padded
+    assert audio_in.reference_signal(tone(0.0629, 16000)).shape == (96000,)  # 1006 samples: repeats overshoot
+    assert audio_in.reference_signal(np.zeros(0, dtype=np.float32)).shape == (96000,)
+
+
+def test_reference_signal_keeps_a_long_clip_whole():
+    """Past six seconds the clip is NOT cropped: which six seconds upstream's
+    crop happens to keep moves the cloned voice more than seed noise does, and
+    the whole clip evens that out. Trimmed only to a whole mel hop."""
+    long = tone(30.0, 16000)
+    assert np.array_equal(audio_in.reference_signal(long), long)
+    assert audio_in.reference_signal(tone(10.01, 16000)).shape == (160160 // 320 * 320,)
 
 
 def test_volume_normalize_lifts_a_quiet_recording_and_never_clips():

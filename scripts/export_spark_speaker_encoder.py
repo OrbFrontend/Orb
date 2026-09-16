@@ -99,9 +99,8 @@ def main() -> int:
         args.out,
         input_names=["mel"],
         output_names=["speaker_tokens"],
-        # Frames AND batch, both dynamic: a shorter clip is tiled to the same
-        # six seconds today, but a graph frozen at one length is a trap for the
-        # next person who changes ref_segment_duration.
+        # Frames AND batch, both dynamic. Frames is load-bearing: enrollment
+        # feeds the whole clip (up to two minutes), not upstream's six seconds.
         dynamic_axes={"mel": {0: "batch", 2: "frames"}},
         opset_version=17,
         do_constant_folding=True,

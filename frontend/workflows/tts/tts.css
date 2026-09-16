@@ -222,6 +222,196 @@
   white-space: nowrap;
 }
 
+/* The cloned voice: its label, an optional setup line, then the drop zone. A
+   touch more air than a plain field, since the zone is a box of its own. */
+.tts-clone {
+  gap: 8px;
+}
+
+.tts-clone > label {
+  margin: 0;
+}
+
+/* The zone and its Remove button share a row until the zone would get too
+   narrow to read, then the button drops beneath it. */
+.tts-clone .tts-control-row {
+  flex-wrap: wrap;
+}
+
+/* The cloned-voice drop zone. A label wrapping a visually hidden file input, so
+   a click anywhere on it opens the picker and the input stays keyboard-reachable.
+   Being a <label>, it resets the uppercase field-label type it would inherit. */
+.tts-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  flex: 1 1 260px;
+  min-width: 0;
+  margin: 0;
+  padding: 18px 16px;
+  border: 1px dashed var(--border-light);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-align: center;
+  text-transform: none;
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.tts-drop-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+/* Children never take the pointer: a dragleave onto a child would otherwise
+   flicker the highlight off and on for the whole drag. */
+.tts-drop > * {
+  pointer-events: none;
+}
+
+.tts-drop-icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
+.tts-drop-text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.tts-drop-label {
+  color: var(--text-primary);
+}
+
+.tts-drop-link {
+  color: var(--accent);
+}
+
+.tts-drop:hover,
+.tts-drop:has(:focus-visible),
+.tts-drop-over {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+  color: var(--accent);
+}
+
+.tts-drop:hover .tts-drop-link,
+.tts-drop-over .tts-drop-link {
+  text-decoration: underline;
+}
+
+/* An enrolled voice reads as a file, not an invitation: a solid frame with the
+   clip's name beside its icon, still taking a drop to replace it. */
+.tts-drop-set {
+  flex-direction: row;
+  gap: 12px;
+  padding: 10px 12px;
+  border-style: solid;
+  color: var(--accent);
+  text-align: left;
+}
+
+.tts-drop-set .tts-drop-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The codec is missing or switched off: the zone shows what it will be, and the
+   notice above it carries the button that makes it live. Enrolling holds the
+   zone the same way until the route answers. */
+.tts-drop-off,
+.tts-drop-busy {
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+.tts-drop-off {
+  cursor: default;
+}
+
+.tts-drop-busy {
+  cursor: progress;
+}
+
+.tts-drop-off .tts-drop-label,
+.tts-drop-off .tts-drop-link {
+  color: var(--text-muted);
+}
+
+.tts-drop-off:hover,
+.tts-drop-busy:hover {
+  border-color: var(--border);
+  background: none;
+  color: var(--text-muted);
+}
+
+.tts-drop-off:hover .tts-drop-link {
+  text-decoration: none;
+}
+
+.tts-drop-busy .tts-drop-icon {
+  color: var(--accent);
+  animation: tts-drop-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes tts-drop-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tts-drop-busy .tts-drop-icon {
+    animation: none;
+  }
+}
+
+/* Setup line: the sentence takes the slack, the button stays on the right
+   until the sentence would be squeezed into a column, then wraps under it. */
+.tts-setup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.tts-setup .tts-note {
+  flex: 1 1 240px;
+}
+
+.tts-setup .btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* Inline-block so the command moves to its own line whole before it breaks. */
+.tts-note code {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0 5px;
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 1em;
+  overflow-wrap: anywhere;
+}
+
 /* Preview and the playback status hold the left of the footer; Close and Save stay right-aligned. */
 .tts-settings-actions {
   align-items: center;

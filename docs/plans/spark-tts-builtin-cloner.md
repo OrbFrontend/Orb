@@ -208,10 +208,29 @@ and the BiCodec encoder (122 MB) can be dropped from the product entirely** —
 at the cost described under [Accepted quality
 tradeoff](#accepted-quality-tradeoff).
 
-A detail worth encoding in the UI: the speaker encoder reads a **fixed 6.00 s
-window** (`ref_segment_duration: 6`, 96 000 samples), and tiles a shorter clip to
-fill it. OrbTTS's "5–15 s" advice is misleading — only the first 6 seconds
-affect identity.
+Upstream reads a **fixed 6.00 s window** (`ref_segment_duration: 6`, 96 000
+samples): it tiles a shorter clip to fill it and ignores everything past the
+first 6 s of a longer one. **Orb departs from the second half** (2026-09-16):
+the graph accepts any frame count, so a longer clip is fed whole, up to
+`MAX_SOURCE_SECONDS`. Which 6 s you pick turns out to matter. Clones were built
+from each 6 s window of one 47 s Ancestor recording (3 lines × 2 seeds each).
+WavLM-SV then scored them against the real voice, where real windows score
+0.97 and an unrelated voice 0.48:
+
+| enrolled from | similarity | run-on generations |
+|---|---:|---:|
+| first 6 s (upstream) | 0.79 (0.88 without run-ons) | 2 / 6 |
+| each other 6 s window | 0.87 – 0.94 | 0 |
+| mean latent of 14 windows | 0.91 (0.95 without run-ons) | 1 / 6 |
+| **whole 47 s, one pass** | **0.93** | **0 / 6** |
+
+Longer input buys consistency rather than a higher ceiling. Pooling window
+latents scored similarly but needs graph surgery; the one-pass input needs
+none. **Background matters more than length.** A 120 s stretch with a music
+bed under the voice scored 0.88 whether enrolled whole or from its first 6 s;
+the whole clip only narrowed the spread (0.86–0.92 vs 0.79–0.93). The encoder
+costs 269 ms on 120 s against 26 ms on 6 s, and decoding the upload dominates
+either way.
 
 ### 2. The decode path is a separable ~385 MB subset
 
@@ -475,6 +494,14 @@ llama-server plumbing) are all closed; see
    end-to-end script against a Vulkan build on Linux and on Windows. The LLM is
    63% of wall time, so this is where the performance story lives, and
    `gpu_build_published()` already says Windows arm64 has no Vulkan asset.
+   **Linux result (2026-09-16, RTX 3090 / NVIDIA 580, b10549 and b11000):
+   Vulkan was silently wrong.** For any prompt batch over 8 tokens, Vulkan's
+   feed-forward results for this model are wrong, for Q8_0 and F16 alike.
+   The first token should be `<|start_semantic_token|>` with p=1.0. Instead
+   the model emits 1–2 s of babble for every voice and every file type. It
+   was fixed by capping `--ubatch-size` at 8 (`spark_tts/config.py`). That
+   matches the CPU build to within 0.07 logprob at 380 tok/s, against 55 on
+   the CPU. Windows is still unmeasured.
 2. **`Fhrozen/Spark-TTS-0.5B-ONNX` is one person's repo with no downloads.**
    Numerically verified, but **mirror it** rather than fetching from it at
    install time, and pin the sha256 (`a1459483cf562e9d…`) the way `catalog.py`
@@ -594,6 +621,35 @@ shipped enrollment, compared in d-vector space. The plan's own run measured
 - **sha256 pinning was added to the catalog** and is verified after download, a
   file that fails being deleted rather than kept. Risk 2 asked for it; it is the
   half of "mirror it" that can be done without a mirror.
+
+### The panel, revisited — 2026-09-16
+
+Phases 1–4 made the feature work; a pass over the control it is used through
+closed the four gaps between "works" and "one step":
+
+- **Enrolling is the file landing.** The panel's `<input type="file">` + Upload
+  pair is a drop zone that enrols on pick or drop. `data-wf-on` now takes a
+  space-separated LIST of events, because a drop target is three events on one
+  element — `dragover` must preventDefault or the browser never fires `drop` —
+  and the zone accepts the drag even when it cannot act on it, since refusing
+  hands the file to the browser, which navigates away from the open scene.
+- **The control repairs itself.** When either Local ML half is missing or
+  switched off, the control says which and carries the button that downloads or
+  enables both, codec first. Sending a user to a Settings page to unblock a
+  control they are already looking at was the last "go configure it elsewhere"
+  step in the feature. The panel fetches `/local-ml/status` itself rather than
+  reading the shared map, which only the Settings page publishes — an empty map
+  there is indistinguishable from "nothing is downloaded".
+- **Enrolling arms the character.** The upload route already selected the
+  backend and the voice id; it now also sets `enabled`, and clearing unsets it.
+  "Upload one file and that character speaks from then on" was otherwise untrue
+  by one checkbox, and a `spark` profile with no tokens can only fail once per
+  turn.
+- **Preview says why.** `_preview` returned a flat "preview synthesis failed"
+  over the adapters' own messages. ValueError is their contract for a refusal a
+  user can act on ("no cloned voice yet", "the model is not downloaded"), so
+  that text now reaches the status line; anything else is a bug and stays
+  generic.
 
 ### Still open
 

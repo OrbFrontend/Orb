@@ -238,6 +238,14 @@ async def _preview(body) -> dict:
     text = body.get("text") or PREVIEW_TEXT
     try:
         audio, mime = await synthesize(text, profile)
+    except ValueError as exc:
+        # An adapter raises ValueError for the refusals a user can act on: no
+        # voice enrolled yet, a model that is not downloaded, a missing API
+        # key. That message IS the fix, so it reaches the panel's status line;
+        # "preview synthesis failed" would send the user looking for a bug that
+        # is not there. Anything else IS a bug and stays generic below.
+        logger.info("tts preview refused: %s", exc)
+        return {"error": str(exc) or "preview synthesis failed"}
     except Exception:
         logger.exception("tts preview failed")
         return {"error": "preview synthesis failed"}

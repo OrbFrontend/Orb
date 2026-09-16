@@ -25,6 +25,19 @@ CTX_SIZE = TOKEN_CEILING + 1096
 
 HTTP_THREADS = 4
 
+#: At most 8 tokens per forward pass. NOT A PERFORMANCE KNOB — A CORRECTNESS ONE.
+#: ggml-vulkan multiplies batches of more than 8 rows with a different kernel,
+#: and for this Qwen2-0.5B that kernel returns wrong feed-forward results
+#: (RTX 3090, NVIDIA 580, llama.cpp b10549 and b11000, Q8_0 and F16 alike; the
+#: Qwen3 prose rewriters are unaffected). The prompt is the only multi-token
+#: batch, so the damage lands exactly there: the model misses
+#: <|start_semantic_token|>, emits a second or two of babble and stops. Nothing
+#: raises. At 8 the GPU matches the CPU build to within 0.07 logprob and keeps
+#: its ~380 tok/s against the CPU's 55. The prompt is ~60 tokens, so the cap
+#: costs nothing measurable. It applies on the CPU path too, because a Vulkan
+#: build from PATH still sends a big batch to the GPU at --n-gpu-layers 0.
+UBATCH_SIZE = 8
+
 #: Seconds at zero in-flight before the child is stopped and its VRAM released.
 #: SHORTER THAN THE PROSE REWRITER'S ON PURPOSE. Speech is bursty, this model is
 #: small, and the rewriter it shares a card with is 2-4 GB — on a 6 GB card,
@@ -55,9 +68,10 @@ def launch_profile(*, gpu: bool = True) -> LaunchProfile:
         ctx_size=CTX_SIZE,
         parallel=PARALLEL,
         http_threads=HTTP_THREADS,
+        ubatch_size=UBATCH_SIZE,
         label="Spark-TTS 0.5B",
         size_mb=spec.size_mb,
     )
 
 
-__all__ = ["ALIAS", "CTX_SIZE", "IDLE_TIMEOUT", "PARALLEL", "launch_profile"]
+__all__ = ["ALIAS", "CTX_SIZE", "IDLE_TIMEOUT", "PARALLEL", "UBATCH_SIZE", "launch_profile"]

@@ -1,7 +1,7 @@
 """Turn an uploaded clip into the 32 integers that name a voice.
 
 This is the whole of "cloning". There is no training step and no per-request
-re-encoding: BiCodec's speaker encoder reads a six-second mel and emits 32 FSQ
+re-encoding: BiCodec's speaker encoder reads the clip's mel and emits 32 FSQ
 codes, and those codes ARE the voice from then on.
 
 The cheap part is that speaker identity comes from the mel ALONE. Upstream's
@@ -37,23 +37,23 @@ class EnrollmentUnavailable(RuntimeError):
 
 
 def reference_clip(wav: np.ndarray) -> np.ndarray:
-    """The exact six seconds the speaker encoder will read.
+    """The exact signal the speaker encoder will read.
 
-    Order matters and is upstream's: normalise the WHOLE clip, then take the
-    window. Normalising the window instead measures the loudness of six seconds
+    Order matters and is upstream's: normalise the WHOLE clip, then shape it.
+    Normalising after tiling a short clip measures the loudness of the repeats
     rather than of the recording, which moves the tokens.
     """
-    return audio_in.reference_window(audio_in.volume_normalize(wav))
+    return audio_in.reference_signal(audio_in.volume_normalize(wav))
 
 
-def enroll_window(window: np.ndarray) -> list[int]:
-    """The 32 speaker tokens for a prepared :func:`reference_clip` window."""
+def enroll_signal(signal: np.ndarray) -> list[int]:
+    """The 32 speaker tokens for a prepared :func:`reference_clip` signal."""
     import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
 
     ok, reason = catalog.codec_ready()
     if not ok:
         raise EnrollmentUnavailable(reason)
-    spectrogram = mel.mel_spectrogram(window)
+    spectrogram = mel.mel_spectrogram(signal)
     session = onnx_runtime.load(catalog.speaker_encoder_path())
     # The graph takes (batch, n_mels, frames) — the transpose upstream does
     # inside `speaker_encoder.tokenize` is baked into the exported graph.
@@ -70,8 +70,7 @@ def enroll(data: bytes, *, filename: str = "") -> list[int]:
     The identity is fully represented by the returned tokens; the upload is not
     retained after enrollment.
     """
-    window = reference_clip(audio_in.decode(data, filename=filename))
-    return enroll_window(window)
+    return enroll_signal(reference_clip(audio_in.decode(data, filename=filename)))
 
 
-__all__ = ["EnrollmentUnavailable", "enroll", "enroll_window", "reference_clip"]
+__all__ = ["EnrollmentUnavailable", "enroll", "enroll_signal", "reference_clip"]

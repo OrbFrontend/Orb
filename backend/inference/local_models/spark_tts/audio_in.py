@@ -38,15 +38,15 @@ logger = logging.getLogger(__name__)
 
 TARGET_RATE = 16000
 
-#: Longest source clip we will decode. Enrollment reads a fixed six-second
-#: window (see :func:`reference_window`), so anything past this is cost with no
-#: effect on the result — and an uncapped decode is a memory budget set by
+#: Longest source clip we will decode, and therefore the most audio one voice is
+#: enrolled from (see :func:`reference_signal`). Past two minutes the voice has
+#: long since stopped moving, and an uncapped decode is a memory budget set by
 #: whoever picks the file.
 MAX_SOURCE_SECONDS = 120
 
 #: Zero crossings each side of the resampling kernel. 16 is the usual
 #: "good enough for anything but mastering" figure, and enrollment is a
-#: one-shot on six seconds of speech.
+#: one-shot on at most two minutes of speech.
 _SINC_ZEROS = 16
 
 
@@ -176,7 +176,7 @@ def resample(wav: np.ndarray, src_rate: int, dst_rate: int = TARGET_RATE) -> np.
     """Band-limited resample of a mono signal.
 
     A windowed sinc evaluated directly at the output positions, rather than
-    scipy's polyphase — scipy is 30 MB for one call on six seconds of audio, on
+    scipy's polyphase — scipy is 30 MB for one call per uploaded clip, on
     a code path whose entire purpose is not installing large packages. The
     kernel is Kaiser-windowed and its cutoff drops with the rate ratio, so
     downsampling is anti-aliased rather than aliased-then-decimated.
@@ -277,23 +277,33 @@ def _unreadable_message(suffix: str) -> str:
     return f"{kind} audio could not be read. Upload a PCM WAV file, or install ffmpeg to accept any format."
 
 
-def reference_window(wav: np.ndarray, seconds: int = 6, hop: int = 320) -> np.ndarray:
-    """The fixed window the speaker encoder reads, tiling a clip that is short.
+def reference_signal(wav: np.ndarray, min_seconds: int = 6, hop: int = 320) -> np.ndarray:
+    """What the speaker encoder reads: the whole clip, never less than six seconds.
 
-    Spark-TTS's ``ref_segment_duration`` is 6 s rounded down to a whole hop —
-    96 000 samples at 16 kHz — and a shorter clip is REPEATED to fill it rather
-    than zero-padded. Only these six seconds affect the enrolled identity;
-    OrbTTS's "5-15 s" advice was about nothing.
+    A clip shorter than Spark-TTS's ``ref_segment_duration`` is REPEATED to fill
+    it, as upstream does, rather than zero-padded — silence would be seconds of
+    a speaker who is not speaking.
+
+    A longer clip is kept WHOLE, which is where this departs from upstream.
+    Upstream crops to the first six seconds, and which six seconds turns out to
+    matter: across the 6 s windows of one 47 s recording, an independent
+    speaker-verification model (WavLM-SV) scored the clones 0.87–0.94 against
+    the real voice, and the first window was the worst of them. The whole clip
+    in one pass scored 0.93 with no run-on generations. Length does not rescue
+    a noisy recording: 120 s with music under the voice scored 0.88 whole or
+    cropped. The encoder takes any frame count, so this is a longer input, not
+    a different model. Upstream's tokens are still reproduced exactly for
+    anything six seconds or shorter.
     """
     import numpy as np  # noqa: PLC0415 — deferred; see module docstring
 
-    length = int(TARGET_RATE * seconds) // hop * hop
+    minimum = int(TARGET_RATE * min_seconds) // hop * hop
     audio = np.asarray(wav, dtype=np.float32).reshape(-1)
     if audio.size == 0:
-        return np.zeros(length, dtype=np.float32)
-    if length > audio.size:
-        audio = np.tile(audio, length // audio.size + 1)
-    return np.ascontiguousarray(audio[:length], dtype=np.float32)
+        return np.zeros(minimum, dtype=np.float32)
+    if audio.size < minimum:
+        return np.ascontiguousarray(np.tile(audio, minimum // audio.size + 1)[:minimum], dtype=np.float32)
+    return np.ascontiguousarray(audio[: audio.size // hop * hop], dtype=np.float32)
 
 
 __all__ = [
@@ -302,7 +312,7 @@ __all__ = [
     "UnsupportedAudio",
     "decode",
     "ffmpeg_path",
-    "reference_window",
+    "reference_signal",
     "resample",
     "volume_normalize",
 ]

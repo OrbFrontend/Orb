@@ -72,13 +72,28 @@ export function initConfigPanel(sharedConfig) {
   registerAction(WORKFLOW_ID, "profileSave", () => saveProfile());
   registerAction(WORKFLOW_ID, "preview", () => preview());
   registerAction(WORKFLOW_ID, "profileMember", (el) => selectMember(el));
-  registerAction(WORKFLOW_ID, "voiceUpload", () => uploadVoiceReference());
+  registerAction(WORKFLOW_ID, "voicePick", (el) => enrollFile(el.files?.[0]));
+  registerAction(WORKFLOW_ID, "voiceDrop", (el, ev) => onVoiceDrop(el, ev));
   registerAction(WORKFLOW_ID, "voiceClear", () => clearVoiceReference());
+  registerAction(WORKFLOW_ID, "cloneSetup", () => runCloneSetup());
   onChannel(PREVIEW_CHANNEL, onPreviewEvent);
 }
 
+// The Local ML entries the built-in cloner needs, in the order they become
+// useful: the codec is all enrollment needs, so it lands first and a voice can
+// be saved while the 520 MB model is still coming down behind it.
+const CLONE_FEATURES = [
+  { id: "spark_tts_codec", label: "voice codec" },
+  { id: "spark_tts_llm", label: "voice model" },
+];
+
 let memberId = null;
 let cardId = null; // the card the open profile belongs to; the clone API is keyed on it
+let mlStatus = null; // last /local-ml/status; null means "not asked yet, assume fine"
+let mlPending = false;
+let setupBusy = false;
+let setupStep = ""; // the download in flight, said where the button was pressed
+let enrolling = ""; // the file being enrolled, shown in the drop zone until the route answers
 // The enrolled voice is not an editable form control — it is written by the
 // upload route and read back — so it lives here and readForm() carries it
 // through unchanged, which is what stops a plain Save from wiping it.
@@ -176,6 +191,9 @@ function settingsBodyHtml() {
 }
 
 function openSettings() {
+  // Re-asked per open: a model can have been downloaded, deleted or switched
+  // off in Settings since this panel last looked.
+  mlStatus = null;
   showModal(settingsBodyHtml());
   setTimeout(populateProfile, 0);
 }
@@ -255,6 +273,7 @@ async function populateProfile() {
   setProfileActions(true);
   applyFieldVisibility(profile.backend);
   loadedProfile = readForm();
+  ensureMlStatus(); // a profile that opens on `spark` gates its control on this
   loadVoices(profile.voice_id);
   if (BACKEND_FIELDS[profile.backend]?.includes("model")) loadModels(profile.model);
 }
@@ -292,7 +311,7 @@ function profileFormHtml(p, backends, cast = null) {
         <span class="tts-control-row"><select id="tts-pf-voice"><option value="${esc(p.voice_id || "")}" selected>${esc(p.voice_id || "(default)")}</option></select><button class="btn btn-sm" type="button" data-wf-action="tts:voiceReload">Reload</button></span>
       </label>`,
       )}
-      ${field("clone", cloneControlHtml(p))}
+      ${field("clone", `<div id="tts-pf-clone">${cloneControlHtml(p)}</div>`)}
       <div class="tts-grid">
         ${field("rate", `<label class="tts-field">Rate <input type="range" min="0.5" max="2.0" step="0.1" id="tts-pf-rate" value="${esc(p.rate)}"></label>`)}
         ${field("pitch", `<label class="tts-field">Pitch <input type="range" min="0.5" max="2.0" step="0.1" id="tts-pf-pitch" value="${esc(p.pitch)}"></label>`)}
@@ -300,58 +319,219 @@ function profileFormHtml(p, backends, cast = null) {
     </div>`;
 }
 
-function cloneStatusHtml(p) {
-  if (!p.speaker_tokens?.length) {
-    return `<span class="tts-note">No voice uploaded yet. Pick a clip of this character speaking — only the first six seconds are used.</span>`;
-  }
-  const from = p.speaker_ref_name ? ` from ${esc(p.speaker_ref_name)}` : "";
-  return `<span class="tts-note">Voice cloned${from}. Every reply from this character uses it.</span>`;
+// --- The cloned voice control ------------------------------------------------
+//
+// One control does the whole feature: it says what is still missing and fixes
+// it, takes a dropped file, and reports the voice that came out. Sending a user
+// to Settings → Local ML to unblock a control they are already looking at is
+// the thing this deliberately does not do.
+
+function mlFeature(id) {
+  return mlStatus?.features?.[id] || {};
 }
 
+/** Is one half of the cloner usable right now?
+ *
+ * `null` status answers yes: it means the panel has not been told otherwise,
+ * and the routes report the truth anyway. Blocking the control on a fetch that
+ * has not landed would be a worse lie than letting the upload answer.
+ */
+function featureReady(id) {
+  if (!mlStatus) return true;
+  const info = mlFeature(id);
+  return Boolean(info.present && info.enabled && info.deps_ok);
+}
+
+/** Fetch the status this control gates on, once per open settings modal.
+ *
+ * The panel asks for its own copy instead of reading the shared one: that map
+ * is published by the Settings page, which a user who came straight here has
+ * never opened, and an empty map there is indistinguishable from "nothing is
+ * downloaded".
+ */
+function ensureMlStatus() {
+  if (mlStatus || mlPending) return;
+  if (document.getElementById("tts-pf-backend")?.value !== "spark") return;
+  mlPending = true;
+  api
+    .get("/local-ml/status")
+    .then((res) => {
+      mlStatus = res;
+    })
+    .catch((e) => console.warn("tts: local-ml status failed", e))
+    .finally(() => {
+      mlPending = false;
+      renderCloneControl();
+    });
+}
+
+/** What still stands between this panel and a spoken line, and the button that
+ * removes it. Empty once both halves are ready, which is the common case. */
+function setupNoticeHtml() {
+  if (!mlStatus) return "";
+  if (!mlStatus.deps_ok) {
+    const cmd = mlStatus.install_cmd || "pip install -r requirements-ml.txt";
+    return `<span class="tts-note">Voice cloning needs the optional ML extras: <code>${esc(cmd)}</code></span>`;
+  }
+  const pending = CLONE_FEATURES.filter((f) => !featureReady(f.id));
+  if (!pending.length) return "";
+  const missing = pending.filter((f) => !mlFeature(f.id).present);
+  const names = pending.map((f) => f.label).join(" and ");
+  const verb = pending.length > 1 ? "are" : "is";
+  const size = missing.reduce((mb, f) => mb + (mlFeature(f.id).size_mb || 0), 0);
+  const sentence =
+    setupStep ||
+    (missing.length
+      ? `Voice cloning runs inside Orb — the ${names} ${verb} not downloaded yet.`
+      : `The ${names} ${verb} switched off in Local ML.`);
+  return `<span class="tts-setup">
+      <span class="tts-note">${sentence}</span>
+      <button class="btn btn-sm" type="button" data-wf-action="tts:cloneSetup"${setupBusy ? " disabled" : ""}>${setupLabel(missing.length, size)}</button>
+    </span>`;
+}
+
+// The one button reads as what it will do: fetch what is missing, or switch on
+// what is merely off. It does both when both are true, and the sentence beside
+// it names both halves.
+function setupLabel(missingCount, sizeMb) {
+  if (setupBusy) return missingCount ? "Downloading…" : "Turning on…";
+  if (!missingCount) return "Turn on";
+  return sizeMb ? `Download (${sizeMb} MB)` : "Download";
+}
+
+const ICON_WAVE = `<svg class="tts-drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 10v3"/><path d="M6 6v11"/><path d="M10 3v18"/><path d="M14 8v7"/><path d="M18 5v13"/><path d="M22 10v3"/></svg>`;
+
 function cloneControlHtml(p) {
-  return `<div class="tts-field">Cloned voice
-      <span class="tts-control-row">
-        <input type="file" id="tts-pf-voicefile" accept="audio/*,.wav,.flac,.mp3,.m4a,.ogg">
-        <button class="btn btn-sm" type="button" data-wf-action="tts:voiceUpload">Upload</button>
-        <button class="btn btn-sm" type="button" data-wf-action="tts:voiceClear"${p.speaker_tokens?.length ? "" : " disabled"}>Clear</button>
-      </span>
-      <div id="tts-pf-clone-status">${cloneStatusHtml(p)}</div>
+  const enrolled = Boolean(p.speaker_tokens?.length);
+  const live = featureReady("spark_tts_codec") && !enrolling;
+  let title = `Drop a clip of this character speaking, or <span class="tts-drop-link">choose a file</span>`;
+  let note = "The whole clip is used, up to two minutes. One speaker, no music.";
+  if (enrolling) {
+    title = `Enrolling ${esc(enrolling)}…`;
+    note = "Reading the voice from the whole clip.";
+  } else if (enrolled) {
+    title = esc(p.speaker_ref_name || "Uploaded clip");
+    note = `${featureReady("spark_tts_llm") ? "Every reply from this character uses it." : "This character speaks once the voice model is ready."} Drop another clip to replace it.`;
+  }
+  const state = `${enrolled && !enrolling ? " tts-drop-set" : ""}${enrolling ? " tts-drop-busy" : live ? "" : " tts-drop-off"}`;
+  const zone = `<label class="tts-drop${state}" data-wf-action="tts:voiceDrop" data-wf-on="dragover dragleave drop">
+      <input type="file" class="tts-drop-input" id="tts-pf-voicefile" accept="audio/*,.wav,.flac,.mp3,.m4a,.ogg"${
+        live ? "" : " disabled"
+      } data-wf-action="tts:voicePick" data-wf-on="change">
+      ${ICON_WAVE}
+      <span class="tts-drop-text"><span class="tts-drop-label">${title}</span><span class="tts-note">${note}</span></span>
+    </label>`;
+  return `<div class="tts-field tts-clone">
+      <label for="tts-pf-voicefile">Cloned voice</label>
+      ${setupNoticeHtml()}
+      ${
+        enrolled && !enrolling
+          ? `<span class="tts-control-row">${zone}<button class="btn btn-sm" type="button" data-wf-action="tts:voiceClear">Remove voice</button></span>`
+          : zone
+      }
     </div>`;
 }
 
 // Rate and pitch are impossible for a cloned voice rather than merely unused:
 // Spark-TTS takes those attributes on its control path, which cloning bypasses.
-// Redrawing the status in place keeps the file input and the rest of the form.
-function renderCloneStatus() {
-  const el = document.getElementById("tts-pf-clone-status");
-  if (el) el.innerHTML = cloneStatusHtml(readForm());
-  const clear = document.querySelector('[data-wf-action="tts:voiceClear"]');
-  if (clear) clear.disabled = !readForm().speaker_tokens?.length;
+// Redrawing the control in place keeps the rest of the form, and is also what
+// picks up a half of the cloner that has just finished downloading.
+function renderCloneControl() {
+  const el = document.getElementById("tts-pf-clone");
+  if (!el) return;
+  el.innerHTML = cloneControlHtml(readForm());
+  ensureMlStatus();
 }
 
-async function uploadVoiceReference() {
-  const input = document.getElementById("tts-pf-voicefile");
-  const file = input?.files?.[0];
-  if (!file) {
-    setStatus("Choose an audio file first");
+// A drop target is three events on one element: the browser fires `drop` only
+// where `dragover` accepted the drag, so both ride on this one action.
+function onVoiceDrop(el, ev) {
+  if (ev.type === "dragleave") {
+    el.classList.remove("tts-drop-over");
     return;
   }
+  // Accept the drag even when the codec is missing. Refusing it hands the file
+  // back to the browser, which navigates away from Orb to play it — losing the
+  // open scene is a steep price for dropping a clip a second too early.
+  ev.preventDefault();
+  if (enrolling) return; // one clip at a time; the zone already says which
+  const live = featureReady("spark_tts_codec");
+  if (ev.type === "dragover") {
+    if (live) el.classList.add("tts-drop-over");
+    return;
+  }
+  el.classList.remove("tts-drop-over");
+  if (!live) {
+    setStatus("Download the voice codec first");
+    return;
+  }
+  enrollFile(ev.dataTransfer?.files?.[0]);
+}
+
+/** Download whatever half is missing and switch on whatever is off.
+ *
+ * Sequential and in feature order, so the codec lands first and the drop zone
+ * comes alive while the model is still downloading. There is no progress to
+ * report — the download route answers when it is done — so the notice beside
+ * the button names the file being fetched and its size.
+ */
+async function runCloneSetup() {
+  if (setupBusy) return;
+  setupBusy = true;
+  renderCloneControl();
+  try {
+    for (const feature of CLONE_FEATURES) {
+      if (!mlFeature(feature.id).present) {
+        setupStep = `Downloading the ${feature.label} (${mlFeature(feature.id).size_mb || "?"} MB) — this takes a while.`;
+        renderCloneControl();
+        await api.post(`/local-ml/${feature.id}/download`, {});
+      }
+      if (mlFeature(feature.id).enabled === false) {
+        await api.post(`/local-ml/${feature.id}/enabled`, { enabled: true });
+      }
+      mlStatus = await api.get("/local-ml/status");
+      renderCloneControl();
+    }
+    setStatus(CLONE_FEATURES.every((f) => featureReady(f.id)) ? "Voice cloning is ready" : "");
+  } catch (e) {
+    console.warn("tts: voice cloning setup failed", e);
+    setStatus(e?.message || "Could not set up voice cloning");
+  } finally {
+    setupBusy = false;
+    setupStep = "";
+    renderCloneControl();
+  }
+}
+
+/** Enroll one file. Picking or dropping it IS the upload — there is nothing to
+ * confirm, and a second click only buys a chance to forget it. */
+async function enrollFile(file) {
+  if (!file) return;
   if (!cardId) {
     setStatus("This conversation has no character to give a voice");
     return;
   }
-  setStatus("Enrolling voice…");
+  enrolling = file.name;
+  setStatus("");
   setPreviewTime("");
+  renderCloneControl();
   try {
     const res = await api.upload(`/characters/${encodeURIComponent(cardId)}/voice-reference`, file);
-    // The route writes the profile itself (enrolling also selects this backend),
-    // so the form is refilled from what was stored rather than from the guess
-    // the panel would otherwise make about it.
+    // The route writes the profile itself — enrolling also selects this backend
+    // and switches the character on — so the form is refilled from what was
+    // stored rather than from the guess the panel would otherwise make. The
+    // redrawn zone says whether speech is still waiting on the voice model.
+    enrolling = "";
     applyProfile(res?.profile);
     setStatus("Voice saved");
   } catch (e) {
     console.warn("tts: voice enrollment failed", e);
     setStatus(e?.message || "Voice enrollment failed");
+  } finally {
+    if (enrolling) {
+      enrolling = "";
+      renderCloneControl();
+    }
   }
 }
 
@@ -377,8 +557,12 @@ function applyProfile(profile) {
   if (backend && profile.backend) backend.value = profile.backend;
   const voice = document.getElementById("tts-pf-voice");
   if (voice && profile.voice_id) voice.innerHTML = opt(profile.voice_id, profile.voice_id, true);
+  // Enrolling arms the character and clearing disarms it; the checkbox has to
+  // follow, or the next plain Save writes the stale one back.
+  const enabled = document.getElementById("tts-pf-enabled");
+  if (enabled) enabled.checked = Boolean(profile.enabled);
   applyFieldVisibility(profile.backend || backend?.value || "edge");
-  renderCloneStatus();
+  renderCloneControl();
   loadedProfile = readForm();
 }
 
@@ -427,7 +611,7 @@ function onBackendChange() {
   const apiUrl = document.getElementById("tts-pf-api_url");
   if (apiUrl && !apiUrl.value && DEFAULT_API_URL[backend]) apiUrl.value = DEFAULT_API_URL[backend];
   applyFieldVisibility(backend);
-  renderCloneStatus();
+  renderCloneControl();
   loadVoices();
   if (BACKEND_FIELDS[backend]?.includes("model")) loadModels();
 }

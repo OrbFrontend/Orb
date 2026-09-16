@@ -16,7 +16,9 @@ read only that line. Orb highlights the line currently playing.
 
 ## Character voices
 
-Open a character's **Voice** tab to choose:
+Open the **Text-to-Speech** card in the tools panel, then **Settings**. Its
+**Voice profile** section applies to the current conversation's character only,
+and sets:
 
 - Whether the voice is enabled
 - Backend and connection settings
@@ -30,15 +32,26 @@ panel.
 
 ### Cloning a voice
 
-**Spark-TTS (built-in)** replaces the voice picker with an upload control.
-Choose an audio file of the character speaking, press **Upload**, and that
-character speaks in that voice from then on — there is no server to run and
-nothing else to configure. Use **Preview** to hear the result.
+**Spark-TTS (built-in)** replaces the voice picker with a drop zone. Drop an
+audio file of the character speaking onto it — or select it to pick a file — and
+that character speaks in that voice from then on. There is no server to run and
+nothing else to press: the clip enrols as it lands, and Orb points the profile
+at the built-in backend and switches this character's speech on for you. Use
+**Preview** to hear the result, and **Remove voice** to forget it, which also
+stops the automatic speech that enrolling turned on.
 
-Only the **first six seconds** of the clip affect the result. That is the window
-Spark-TTS's speaker encoder reads; a shorter clip is repeated to fill it, and a
-longer one is ignored past that point. Clean speech with no music or second
-speaker works best.
+When the two Local ML entries the cloner needs are missing or switched off, the
+control says which and offers a **Download** button that fetches them in place —
+there is no trip to **Settings → Local ML** to make the control work. The codec
+comes down first, so a voice can be enrolled while the model is still
+downloading; the drop zone says when speech is waiting on it.
+
+The **whole clip, up to two minutes**, is read. The cloned voice shifts with
+which few seconds it hears, so a clip of several lines leaves less to chance
+than one line does. A clip under six seconds is repeated to fill six. **Clean
+audio matters more than length:** music or ambience under the voice costs more
+than extra seconds recover, so prefer a short clean clip to a long noisy one.
+One speaker only.
 
 What is stored is 32 integers — the speaker's timbre as the model encodes it —
 which live in the character's voice profile and travel with it. The uploaded
@@ -108,7 +121,7 @@ an attachment applies the current segmentation and Local ML settings.
 
 **Spark-TTS (built-in)** is the only backend that needs no server. Install the
 optional ML extras (`pip install -r requirements-ml.txt`), then download its two
-entries from **Settings → Local ML**:
+entries — from the voice control itself, or from **Settings → Local ML**:
 
 - **Voice Cloning · Model** (520 MB) — speaks. Runs on the GPU through the same
   llama-server runtime as the Prose Rewriter, so it is the half that benefits

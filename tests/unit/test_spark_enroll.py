@@ -24,6 +24,7 @@ np = pytest.importorskip("numpy")
 pytest.importorskip("onnxruntime")
 
 from backend.inference.local_models.spark_tts import (  # noqa: E402
+    audio_in,
     catalog,
     enroll,
     tokens,
@@ -71,7 +72,7 @@ def test_enrollment_shape_and_range():
         (np.random.default_rng(0).standard_normal(96000) * 0.1).astype(np.float32),
         np.ones(1000, dtype=np.float32) * 0.2,  # shorter than the window; tiled
     ):
-        got = enroll.enroll_window(enroll.reference_clip(signal))
+        got = enroll.enroll_signal(enroll.reference_clip(signal))
         assert tokens.validate_speaker_tokens(got) == got
 
 
@@ -80,15 +81,15 @@ def test_enrollment_is_deterministic():
     a model bump must be able to re-enroll the retained clip and get the voice
     the character already had."""
     signal = (np.random.default_rng(3).standard_normal(96000) * 0.1).astype(np.float32)
-    assert enroll.enroll_window(enroll.reference_clip(signal)) == enroll.enroll_window(enroll.reference_clip(signal))
+    assert enroll.enroll_signal(enroll.reference_clip(signal)) == enroll.enroll_signal(enroll.reference_clip(signal))
 
 
 def test_different_signals_enroll_differently():
     """Guards the failure the plan's probe hit: a path that returns the same
     tokens regardless of input makes every voice look equally cloned."""
     rng = np.random.default_rng(11)
-    a = enroll.enroll_window(enroll.reference_clip(rng.standard_normal(96000).astype(np.float32) * 0.1))
-    b = enroll.enroll_window(enroll.reference_clip(np.zeros(96000, dtype=np.float32)))
+    a = enroll.enroll_signal(enroll.reference_clip(rng.standard_normal(96000).astype(np.float32) * 0.1))
+    b = enroll.enroll_signal(enroll.reference_clip(np.zeros(96000, dtype=np.float32)))
     assert a != b
 
 
@@ -100,5 +101,19 @@ def test_reproduces_the_torch_reference():
     ONNX, with no wav2vec2 and no BiCodec encoder, is the SAME answer.
     """
     with open(_REFERENCE_WAV, "rb") as handle:
-        got = enroll.enroll(handle.read(), filename="prompt_audio.wav")
-    assert got == _PROMPT_AUDIO_TOKENS
+        data = handle.read()
+    # The fixture is upstream's FIRST SIX SECONDS; Orb enrolls the whole clip,
+    # so crop the prepared signal the way upstream does before comparing. What
+    # is under test is mel + ONNX == torch, not which stretch of audio is read.
+    signal = enroll.reference_clip(audio_in.decode(data, filename="prompt_audio.wav"))
+    assert enroll.enroll_signal(signal[:96000]) == _PROMPT_AUDIO_TOKENS
+
+
+def test_a_long_clip_is_enrolled_past_its_first_six_seconds():
+    """The first six seconds are one sample of the voice, not the voice: a clip
+    that changes only after them must enroll differently, or the crop is back."""
+    rng = np.random.default_rng(5)
+    head = (rng.standard_normal(96000) * 0.1).astype(np.float32)
+    tail = np.sin(np.arange(20 * 16000) * 2 * np.pi * 220 / 16000).astype(np.float32) * 0.3
+    only_head = enroll.enroll_signal(enroll.reference_clip(head))
+    assert enroll.enroll_signal(enroll.reference_clip(np.concatenate([head, tail]))) != only_head

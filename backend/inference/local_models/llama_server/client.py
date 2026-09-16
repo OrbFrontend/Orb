@@ -37,6 +37,7 @@ class LaunchProfile:
     parallel: int
     http_threads: int
     cont_batching: bool = True
+    ubatch_size: int = 0  # 0 = llama-server's own default; see spark_tts/config.py for why a feature sets it
     no_webui: bool = True  # asked for only if the binary says it knows the flag
     label: str = ""  # log text
     size_mb: int = 0  # log text
@@ -44,7 +45,7 @@ class LaunchProfile:
     def __post_init__(self) -> None:
         # Every argv-bound number is an int owned by this process, not a value
         # that arrived over HTTP. type() is exact on purpose: bool is an int.
-        for value in (self.gpu_layers, self.ctx_size, self.parallel, self.http_threads):
+        for value in (self.gpu_layers, self.ctx_size, self.parallel, self.http_threads, self.ubatch_size):
             if type(value) is not int:
                 raise TypeError("launch profile numbers must be code-owned ints")
 
@@ -72,6 +73,8 @@ def _argv(profile: LaunchProfile, binary: Path, port: int) -> list[str]:
     ]
     if profile.cont_batching:
         argv.append("--cont-batching")
+    if profile.ubatch_size:
+        argv += ["--ubatch-size", str(profile.ubatch_size)]
     argv += ["--threads-http", str(profile.http_threads)]
     # Optional, and asked for only if this build has it: nothing here calls
     # /v1/chat/completions, and llama.cpp's own front end has no business being

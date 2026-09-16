@@ -66,10 +66,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-#: Cap on a voice-reference upload. Only the first six seconds are read, so this
-#: is not a quality budget — it is a bound on what one multipart request can
-#: make the server decode, generous enough for an uncompressed WAV of a minute
-#: or two and far short of "someone dropped in a film".
+#: Cap on a voice-reference upload. Enrollment reads up to two minutes, and this
+#: is a bound on what one multipart request can make the server decode —
+#: generous enough for an uncompressed WAV of that length and far short of
+#: "someone dropped in a film".
 _MAX_VOICE_UPLOAD = 25 * 1024 * 1024
 
 
@@ -393,6 +393,16 @@ async def _store_speaker_tokens(card_id: str, tokens: list[int], source_name: st
             # user uploads a clip and then has to find two more dropdowns.
             profile["backend"] = "spark"
             profile["voice_id"] = builtin_spark_adapter.VOICE_ID
+            # And the same argument for the switch that actually makes the
+            # character speak: "upload one file and that character speaks in
+            # that voice from then on" is the whole feature, so an upload that
+            # left auto-generation off would deliver a stored voice and silence.
+            profile["enabled"] = True
+        else:
+            # Clearing is the inverse statement. The backend selection stays so
+            # the next clip can go straight in, but a `spark` profile with no
+            # tokens can only fail once per turn, so it must not stay armed.
+            profile["enabled"] = False
         await set_workflow_character_state(card_id, tts_synth.WORKFLOW_ID, profile)
     return profile
 
@@ -401,7 +411,9 @@ async def _store_speaker_tokens(card_id: str, tokens: list[int], source_name: st
 async def api_upload_voice_reference(card_id: str, file: Annotated[UploadFile, File(...)]):
     """Enroll a character's voice from one uploaded audio file.
 
-    Returns the stored voice. Use the profile's Preview action to hear it.
+    Returns the stored voice, on a profile that is now pointed at the built-in
+    backend AND switched on, so the next reply is spoken without a second trip
+    through the panel. Use the profile's Preview action to hear it sooner.
     """
     if not await get_character_card(card_id):
         raise HTTPException(status_code=404, detail="Character card not found")
@@ -427,6 +439,9 @@ async def api_upload_voice_reference(card_id: str, file: Annotated[UploadFile, F
 
 @router.delete("/api/characters/{card_id}/voice-reference")
 async def api_delete_voice_reference(card_id: str):
-    """Forget a character's cloned voice while keeping the backend selected."""
+    """Forget a character's cloned voice, and stop speaking for this character.
+
+    The backend selection survives so the next clip can go straight in.
+    """
     profile = await _store_speaker_tokens(card_id, [], "")
     return {"ok": True, "profile": profile}

@@ -144,3 +144,20 @@ async def test_chunk_pauses_become_real_silence_between_clips(monkeypatch):
     # 0.1 + 0.2 + 0.3 + 0.1 seconds; the leading 500 ms is not in there.
     assert len(pcm) == int(16000 * 0.7) * 2
     assert result.duration_ms == 700
+
+
+@pytest.mark.parametrize("gpu", [True, False])
+def test_the_spark_child_never_runs_a_prompt_batch_past_eight(tmp_path, monkeypatch, gpu):
+    """Above 8 rows ggml-vulkan switches kernels, and that one garbles this
+    model's prompt: a second of babble instead of the line, with no error
+    anywhere. See `UBATCH_SIZE` — raising it is a regression, not a speedup."""
+    from backend.inference.local_models.llama_server import client as C
+    from backend.inference.local_models.spark_tts import config
+
+    gguf = tmp_path / "spark.gguf"
+    gguf.write_text("gguf")
+    monkeypatch.setattr(config.assets, "resolve_path", lambda _feature: str(gguf))
+    monkeypatch.setattr(C.binary_module, "supports_flag", lambda _binary, _flag: False)
+    argv = C._argv(config.launch_profile(gpu=gpu), C.Path("llama-server"), 1)
+
+    assert 0 < int(argv[argv.index("--ubatch-size") + 1]) <= 8

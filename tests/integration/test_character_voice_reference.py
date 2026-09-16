@@ -75,6 +75,9 @@ async def test_upload_stores_the_voice_and_selects_the_backend(client, enrolled)
     assert stored["backend"] == "spark"
     assert stored["voice_id"] == "cloned"
     assert stored["speaker_ref_name"] == "memo.wav"
+    # ...including the switch that makes it audible. A stored voice that does
+    # not speak is the failure mode this route exists to avoid.
+    assert stored["enabled"] is True
 
 
 async def test_clearing_removes_the_tokens(client, enrolled):
@@ -87,8 +90,10 @@ async def test_clearing_removes_the_tokens(client, enrolled):
 
     assert (await _profile(client, card_id))["speaker_tokens"] == []
     # The backend selection is deliberately left alone: a user clearing a voice
-    # to upload a different one should not have to re-pick it.
+    # to upload a different one should not have to re-pick it. Auto-generation
+    # is not: a `spark` profile with no tokens fails once per turn.
     assert (await _profile(client, card_id))["backend"] == "spark"
+    assert (await _profile(client, card_id))["enabled"] is False
 
 
 async def test_enrollment_leaves_the_rest_of_the_profile_intact(client, enrolled):
