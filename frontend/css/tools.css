@@ -343,8 +343,8 @@ label.ml-variant-name { cursor: pointer; }
   gap: 6px;
   font-size: 10px;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: .4px;
+  text-transform: none;
+  letter-spacing: normal;
   cursor: pointer;
 }
 
