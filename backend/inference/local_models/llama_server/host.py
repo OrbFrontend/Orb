@@ -75,25 +75,38 @@ class ManagedLlamaServerHost:
         # stop arriving for the drain to end, and `state` is what callers
         # read to turn themselves away with a message.
         self.profile, self.state, self.error, self._stale = profile, "loading", "", False
-        await self._drain()
-        if self.server is not None:
-            await self.server.stop()
-            self.server = None
-        logger.info(
-            "Loading %s (%d MB, %d slots, gpu=%s)…",
-            os.path.basename(profile.model_path),
-            profile.size_mb,
-            profile.parallel,
-            wants_gpu,
-        )
-        server = LlamaServerClient(profile, executable)
+        server: LlamaServerClient | None = None
         try:
+            await self._drain()
+            if self.server is not None:
+                await self.server.stop()
+                self.server = None
+            logger.info(
+                "Loading %s (%d MB, %d slots, gpu=%s)…",
+                os.path.basename(profile.model_path),
+                profile.size_mb,
+                profile.parallel,
+                wants_gpu,
+            )
+            server = LlamaServerClient(profile, executable)
             await server.start()
             await server.wait_ready()
+        except asyncio.CancelledError:
+            # An abandoned load (an aborted turn, the feature switched off) is
+            # not a failure, but nothing else holds its child: without the stop
+            # it keeps its VRAM for good and the panel reads "loading" forever.
+            previous = self.server
+            live = previous is not None and previous.alive and previous.ready
+            self.state, self._stale = ("ready" if live else "idle"), True
+            if server is not None:
+                with contextlib.suppress(Exception):
+                    await server.stop()
+            raise
         except Exception as exc:
             self.state, self.error = "failed", str(exc)
-            with contextlib.suppress(Exception):
-                await server.stop()
+            if server is not None:
+                with contextlib.suppress(Exception):
+                    await server.stop()
             raise
         self.server = server
         self.state = "ready"

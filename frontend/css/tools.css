@@ -213,12 +213,6 @@ label.ml-variant-name { cursor: pointer; }
   color: var(--text-secondary);
 }
 
-.ml-gate-desc {
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--text-muted);
-}
-
 .ml-gate-act {
   display: flex;
   align-items: center;
@@ -349,8 +343,8 @@ label.ml-variant-name { cursor: pointer; }
   gap: 6px;
   font-size: 10px;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: .4px;
+  text-transform: none;
+  letter-spacing: normal;
   cursor: pointer;
 }
 

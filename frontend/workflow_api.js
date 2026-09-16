@@ -20,6 +20,7 @@ import {
   setWorkflowPhase,
 } from "./chat.js";
 import { closeModal, setModalCloseGuard, showModal } from "./modal.js";
+import { refreshLocalMlStatus } from "./settings.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { effectiveWorkflowEnabled, localMlReady, S, subscribe } from "./state.js";
 import { broadcastWorkflowMutation } from "./tabLock.js";
@@ -38,7 +39,7 @@ import { clearTextEffect, startTextEffect } from "./workflow_text_effects.js";
 
 // Workflow modules use this facade for registration, requests, and playback.
 
-export const WORKFLOW_API_VERSION = 5;
+export const WORKFLOW_API_VERSION = 6;
 
 export {
   api,
@@ -58,6 +59,7 @@ export {
   pauseChannel,
   playAudio,
   refreshConversationMessages,
+  refreshLocalMlStatus,
   registerClickHandler,
   registerTextEffect,
   registerWorkflowEventHandler,
@@ -117,12 +119,19 @@ export function registerRerollSuccess(wid, fn) {
 const _actions = new Map(); // action name -> handler
 let _actionsWired = false;
 
+// The events `data-wf-on` may name. Drag events are here so a workflow can
+// declare a drop target in markup like any other control: a drop target is
+// three events on one element -- `dragover` must preventDefault or the browser
+// never fires `drop` -- so `data-wf-on` takes a space-separated LIST and the
+// handler switches on `e.type`.
+const _ACTION_EVENTS = ["click", "change", "dragover", "dragleave", "drop"];
+
 function _dispatchAction(e, type) {
   const el = e.target.closest?.("[data-wf-action]");
   // A workflow's own surfaces (widgets, panels, message buttons) all sit outside
   // the bubble. Inside it is model markup, which never gets to name an action.
   if (!el || fromMessageBody(el)) return;
-  if ((el.dataset.wfOn || "click") !== type) return;
+  if (!(el.dataset.wfOn || "click").split(/\s+/).includes(type)) return;
   const fn = _actions.get(el.dataset.wfAction);
   if (!fn) return;
   try {
@@ -135,8 +144,7 @@ function _dispatchAction(e, type) {
 function _wireActionDelegation() {
   if (_actionsWired) return;
   _actionsWired = true;
-  document.addEventListener("click", (e) => _dispatchAction(e, "click"));
-  document.addEventListener("change", (e) => _dispatchAction(e, "change"));
+  for (const type of _ACTION_EVENTS) document.addEventListener(type, (e) => _dispatchAction(e, type));
 }
 
 export function registerAction(wid, name, fn) {

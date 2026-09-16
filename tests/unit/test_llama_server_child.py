@@ -157,6 +157,10 @@ async def test_argv_is_read_off_the_profile_and_nothing_else(monkeypatch, tmp_pa
     assert argv[argv.index("--parallel") + 1] == "1"
     assert argv[argv.index("--threads-http") + 1] == "6"
     assert "--cont-batching" in argv
+    assert "--ubatch-size" not in argv  # unset means llama-server's own default
+
+    capped = C._argv(_profile(ubatch_size=8), tmp_path / "llama-server", 4242)
+    assert capped[capped.index("--ubatch-size") + 1] == "8"
 
 
 async def test_the_web_ui_flag_is_only_sent_to_a_build_that_knows_it(monkeypatch, tmp_path):

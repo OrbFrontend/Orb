@@ -11,3 +11,13 @@
 # only huggingface_hub leaves the rewriter usable and the rest greyed out.
 llama-cpp-python>=0.3.0
 huggingface_hub
+
+# The built-in Spark-TTS voice cloner (runtime="onnx"): the speaker encoder and
+# the bicodec decoder are ONNX graphs, so onnxruntime is all it needs at run
+# time. The `onnx` package — another 73 MB — only BUILDS graphs and lives in
+# requirements-dev.txt with scripts/export_spark_speaker_encoder.py.
+onnxruntime>=1.17
+# Optional, and only for enrolling a voice: the stdlib reads PCM WAV, this adds
+# FLAC/OGG and the WAV encodings it rejects, and an ffmpeg on PATH covers
+# MP3/M4A. Enrollment degrades to WAV-only without it rather than failing.
+soundfile>=0.12

@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from ..database import DB_PATH, close_wal_anchor, init_db, open_wal_anchor
 from ..database.migrations import run_pending, stamp_all
 from ..features.presets import schema_safety_problems as preset_schema_safety_problems
+from ..inference.local_models import onnx_runtime
 from ..inference.local_models.llama_server import manager
 from .deps import FRONTEND_DIR
 from .routes import ROUTERS
@@ -91,6 +92,10 @@ async def lifespan(app: FastAPI):
             # imported a workflow or feature that owns one has an empty registry and nothing
             # to do.
             await manager.shutdown_all()
+            # ONNX sessions are not subprocesses, but a 385 MB graph held past
+            # shutdown is the same class of leak as an orphaned child, and the
+            # release is what lets a model file be replaced on the next start.
+            onnx_runtime.release()
         finally:
             # Nested so a child that refuses to die still releases the anchor,
             # whose close is what performs the final WAL checkpoint.

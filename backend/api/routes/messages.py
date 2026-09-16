@@ -440,7 +440,7 @@ async def api_prose_rewrite_message(
     if config is None:
         raise HTTPException(
             status_code=503,
-            detail="Prose rewriter unavailable: enable it and download a model in Settings → Local ML",
+            detail="Prose rewriter unavailable: turn it on and download a model in Workflow → Secondary",
         )
     return _pipeline_sse_response(
         lambda tok: _stream_prose_rewrite_message(cid, msg_id, config, tok, settings),

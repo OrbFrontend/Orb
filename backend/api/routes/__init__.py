@@ -15,7 +15,6 @@ from . import (
     personas,
     phrase_bank,
     presets,
-    prose_rewriter,
     settings,
     stats,
     storage,
@@ -43,10 +42,6 @@ ROUTERS = [
     presets.router,
     messages.router,
     workflows.router,
-    # Ahead of local_ml's `{feature}` patterns. The paths do not collide today,
-    # and an exact path in front of a parameterised one is the ordering that
-    # stays correct if one ever does.
-    prose_rewriter.router,
     local_ml.router,
     documents.router,
 ]

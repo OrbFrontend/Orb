@@ -37,6 +37,7 @@ class LaunchProfile:
     parallel: int
     http_threads: int
     cont_batching: bool = True
+    ubatch_size: int = 0  # 0 = llama-server's own default; see spark_tts/config.py for why a feature sets it
     no_webui: bool = True  # asked for only if the binary says it knows the flag
     label: str = ""  # log text
     size_mb: int = 0  # log text
@@ -44,7 +45,7 @@ class LaunchProfile:
     def __post_init__(self) -> None:
         # Every argv-bound number is an int owned by this process, not a value
         # that arrived over HTTP. type() is exact on purpose: bool is an int.
-        for value in (self.gpu_layers, self.ctx_size, self.parallel, self.http_threads):
+        for value in (self.gpu_layers, self.ctx_size, self.parallel, self.http_threads, self.ubatch_size):
             if type(value) is not int:
                 raise TypeError("launch profile numbers must be code-owned ints")
 
@@ -72,6 +73,8 @@ def _argv(profile: LaunchProfile, binary: Path, port: int) -> list[str]:
     ]
     if profile.cont_batching:
         argv.append("--cont-batching")
+    if profile.ubatch_size:
+        argv += ["--ubatch-size", str(profile.ubatch_size)]
     argv += ["--threads-http", str(profile.http_threads)]
     # Optional, and asked for only if this build has it: nothing here calls
     # /v1/chat/completions, and llama.cpp's own front end has no business being
@@ -218,6 +221,74 @@ class LlamaServerClient:
         if response.status_code != 200:
             raise RuntimeError(_error_text(response.text))
         return len(response.json().get("tokens") or [])
+
+    async def generate_tokens(
+        self,
+        prompt: Sequence[int],
+        *,
+        n_predict: int,
+        temperature: float,
+        top_p: float,
+        top_k: int = 0,
+        seed: int | None = None,
+        cache_prompt: bool = True,
+    ) -> tuple[list[int], bool]:
+        """Stream an audio completion and return ``(tokens, stopped)``."""
+        payload: dict = {
+            "prompt": list(prompt),
+            "n_predict": n_predict,
+            "temperature": temperature,
+            "top_p": top_p,
+            "stream": True,
+            "return_tokens": True,
+            "cache_prompt": cache_prompt,
+        }
+        if top_k:
+            payload["top_k"] = top_k
+        if seed is not None:
+            payload["seed"] = seed
+        tokens: list[int] = []
+        stopped = False
+        headers = {"Accept": "text/event-stream"}
+        async with self._http().stream("POST", "/completion", json=payload, headers=headers, timeout=600.0) as response:
+            if response.status_code != 200:
+                raise RuntimeError(_error_text((await response.aread()).decode("utf-8", "replace")))
+            async for raw in response.aiter_lines():
+                line = raw.rstrip("\r\n")
+                if not line:
+                    continue
+                if line.startswith("error:"):
+                    raise RuntimeError(_error_text(line[6:]))
+                if not line.startswith("data:"):
+                    continue
+                message = json.loads(line[5:])
+                if message.get("error"):
+                    raise RuntimeError(_error_text(json.dumps(message["error"])))
+                # One id per chunk on b10549, but the field is an array and a
+                # future build batching them must not be silently truncated.
+                chunk = message.get("tokens")
+                if chunk:
+                    tokens.extend(int(token) for token in chunk)
+                if message.get("stop"):
+                    stop_type = message.get("stop_type")
+                    if stop_type is not None:
+                        stopped = stop_type in ("eos", "word")
+                    else:
+                        stopped = bool(message.get("stopped_eos") or message.get("stopped_word"))
+        return tokens, stopped
+
+    async def tokenize(self, text: str, *, parse_special: bool = False) -> list[int]:
+        """*text* as token ids from the model's own vocabulary.
+
+        ``parse_special`` defaults OFF, which is the safe direction for text
+        that came from a user: with it on, a line containing ``<|end_content|>``
+        becomes a control token instead of six characters of dialogue.
+        """
+        body = {"content": text, "parse_special": parse_special}
+        response = await self._http().post("/tokenize", json=body, timeout=30.0)
+        if response.status_code != 200:
+            raise RuntimeError(_error_text(response.text))
+        return [int(token) for token in (response.json().get("tokens") or [])]
 
     async def generate(
         self,

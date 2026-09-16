@@ -1,5 +1,5 @@
-"""Local-ML routes: status tri-state, download gating, the enable toggle, and
-the prose rewriter's variant selector.
+"""Local-ML routes: status tri-state, download gating, the enable toggle, the
+prose rewriter's variant selector, and the Spark-TTS model's GPU switch.
 
 NO NETWORK AND NO WEIGHTS. ``download`` and the llama-server fetch are both
 monkeypatched to raise wherever a route could reach them, which is the guard
@@ -12,9 +12,12 @@ from __future__ import annotations
 import pytest
 
 from backend.inference.local_models import assets, dependencies
+from backend.inference.local_models.catalog import MODELS
 from backend.inference.local_models.llama_server import binary as llama_binary
 from backend.inference.local_models.prose_rewriter import catalog
 from backend.inference.local_models.prose_rewriter import service as prose_service
+from backend.inference.local_models.spark_tts import catalog as spark_catalog
+from backend.inference.local_models.spark_tts import service as spark_service
 from backend.workflows import prose_rewriter_host as integration
 
 
@@ -174,6 +177,33 @@ async def test_config_404s_for_an_unknown_feature(client):
     assert (await client.post("/api/local-ml/nope/config", json={})).status_code == 404
 
 
+# ── Spark-TTS model: the GPU switch without variants ─────────────────────────
+
+
+async def test_spark_config_roundtrips_gpu(client):
+    resp = await client.post("/api/local-ml/spark_tts_llm/config", json={"gpu": False})
+    assert resp.status_code == 200
+    assert resp.json()["local_ml_config"]["spark_tts_llm"] == {"gpu": False}
+    st = (await client.get("/api/local-ml/status")).json()
+    assert st["features"]["spark_tts_llm"]["gpu"] is False
+
+
+async def test_the_spark_gpu_switch_retargets_the_child(client, monkeypatch, _empty_model_dir):
+    """The next spoken line relaunches on the build the switch now names."""
+    (_empty_model_dir / MODELS[spark_catalog.FEATURE_LLM].local_name).write_text("gguf")
+    marked = []
+    monkeypatch.setattr(spark_service.HOST, "mark_stale", marked.append)
+
+    await client.post("/api/local-ml/spark_tts_llm/config", json={"gpu": False})
+    await client.post("/api/local-ml/spark_tts_llm/config", json={"gpu": True})
+
+    assert [profile.gpu_layers for profile in marked] == [0, 999]
+
+
+async def test_the_spark_codec_has_no_config(client):
+    assert (await client.post("/api/local-ml/spark_tts_codec/config", json={"gpu": False})).status_code == 404
+
+
 async def test_a_variant_download_never_reaches_the_network(client, monkeypatch):
     # The house guard, extended to the variant path: the route must refuse on
     # deps before it can touch hf_hub_download.
@@ -313,16 +343,10 @@ async def test_status_payload_keys_are_unchanged(client):
     assert all(set(v) == {"id", "label", "detail", "size_mb", "present"} for v in rewriter["variants"])
 
 
-async def test_the_runtime_fetch_lives_on_its_own_router(client, monkeypatch):
-    """Split out of the generic module, same URL and same response.
-
-    It shares ``api.deps._download_lock`` with the model download rather than
-    holding a second one: two routers, one home connection, and the fetch
-    replaces a directory a model load may be reading from.
-    """
+async def test_the_runtime_fetch_is_shared_by_local_model_features(client, monkeypatch):
     monkeypatch.setattr(llama_binary, "fetch", lambda: "/bin/llama-bin/gpu/llama-server")
 
-    resp = await client.post("/api/local-ml/prose_rewriter/runtime", json={})
+    resp = await client.post("/api/local-ml/runtime", json={})
 
     assert resp.status_code == 200
     assert resp.json() == {"ok": True, "path": "/bin/llama-bin/gpu/llama-server"}
@@ -337,7 +361,7 @@ async def test_a_failed_runtime_fetch_reports_what_went_wrong(client, monkeypatc
 
     monkeypatch.setattr(llama_binary, "fetch", _boom)
 
-    resp = await client.post("/api/local-ml/prose_rewriter/runtime", json={})
+    resp = await client.post("/api/local-ml/runtime", json={})
 
     assert resp.status_code == 500
     assert resp.json()["detail"] == "b10549 does not publish that asset."

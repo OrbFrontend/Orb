@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ..analysis import (
@@ -72,6 +72,7 @@ from ..prompting import macro_identity as _macro_identity
 from ..prompting.lorebook import (
     compute_constant_lorebook_block as _compute_constant_lorebook_block,
 )
+from . import spark_tts_host as _spark_tts_host
 from ._forced_call import forced_tool_call
 from .attachment_cache import EVICTED_MARKER, insert_workflow_attachment
 from .contracts import EV_DRAFT_REPLACED, ToolSpec, WorkflowEventStream
@@ -149,6 +150,8 @@ __all__ = [
     "local_model_identity",
     "narration_only",
     "overlay_enable_tools",
+    "spark_voice_clean_tokens",
+    "spark_voice_speak",
     "protected_runs",
     "run_audit",
     "spoken_lines",
@@ -215,6 +218,26 @@ async def _classify_markup(text: str) -> AxisStyle | None:
         logger.warning("markup classifier failed (%r); reading markup heuristically", e)
         return None
     return AxisStyle(dialogue=Dialogue(dialogue), narration=Narration(narration))
+
+
+def spark_voice_clean_tokens(raw: object) -> list[int]:
+    """A stored voice as 32 validated speaker tokens, or ``[]``.
+
+    The shape rule (exactly 32 ints in ``[0, 4096)``) is a property of BiCodec's
+    FSQ quantizer, so it is answered by the model slice rather than restated in
+    the workflow — a hand-rolled copy that drifts is a malformed voice reaching
+    the codec, which fails inside an einsum rather than at the boundary.
+    """
+    return _spark_tts_host.clean_tokens(raw)
+
+
+async def spark_voice_speak(
+    text: str,
+    speaker_tokens: Sequence[int],
+    settings: Mapping[str, Any],
+) -> tuple[bytes, int]:
+    """Speak *text* in an enrolled voice. Returns ``(pcm16, sample_rate)``."""
+    return await _spark_tts_host.synthesize(text, speaker_tokens, settings)
 
 
 async def get_scene_cast(conversation_id: str) -> TurnCast:

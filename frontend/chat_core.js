@@ -10,7 +10,7 @@ import { sceneEmptyStateHtml, speakerAvatarCell, speakerLabel } from "./group_ca
 import { CHEVRON_LEFT_ICON, CHEVRON_RIGHT_ICON, EDIT_ICON_PATHS } from "./icons.js";
 import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
-import { effectiveWorkflowEnabled, S, subscribe } from "./state.js";
+import { effectiveWorkflowEnabled, localMlReady, S, subscribe } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
 import {
   $,
@@ -123,8 +123,8 @@ export function buildMsgToolbar(m) {
     isAssistant &&
     m.id &&
     (m.content || "").trim() &&
-    S.settings?.local_ml_config?.prose_rewriter?.variant &&
-    S.settings?.local_ml_enabled?.prose_rewriter !== false;
+    effectiveWorkflowEnabled("prose_rewriter") &&
+    localMlReady("prose_rewriter");
   const proseRewriteTitle = m.has_writer_draft ? "Rewrite saved pre-rewriter draft" : "Rewrite this message";
   const proseRewriteBtn = canProseRewrite
     ? `<button class="msg-btn-prose-rewrite" onclick="rewriteMessageProse(${m.id})" title="${proseRewriteTitle}"${S.proseRewriteMsgId ? " disabled" : ""}>${ICON_PROSE_REWRITE}</button>`

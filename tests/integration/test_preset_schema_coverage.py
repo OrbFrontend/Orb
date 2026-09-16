@@ -594,6 +594,14 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
     await client.put(f"/api/characters/{linked}", json={"world_id": w1})
     locked = (await client.post("/api/characters", json={"name": "Locked"})).json()["id"]
     await client.put(f"/api/characters/{locked}", json={"persona_lock_id": p1})
+    from backend.database import set_workflow_character_state
+    from backend.workflows.tts.synth import WORKFLOW_ID, normalize_profile
+
+    await set_workflow_character_state(
+        locked,
+        WORKFLOW_ID,
+        normalize_profile({"backend": "spark", "voice_id": "cloned", "speaker_tokens": list(range(32))}),
+    )
 
     # a chat tree, persona-locked, with an active leaf to remap.
     _insert_conv_tree(path, "conv-keep", p1)

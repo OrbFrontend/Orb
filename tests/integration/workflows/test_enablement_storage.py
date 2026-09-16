@@ -11,6 +11,7 @@ just go stale).
 from __future__ import annotations
 
 from backend.database import get_settings, set_workflow_enabled, update_settings
+from backend.workflows import prose_rewriter_host
 
 
 async def test_per_key_write_keeps_both_keys(client):
@@ -71,6 +72,33 @@ async def test_manifest_lists_prose_rewriter_as_a_secondary_workflow(client):
     assert prose == {
         "id": "prose_rewriter",
         "display_name": "Prose Rewriter",
-        "config_schema": None,
-        "config_defaults": {},
+        "config_schema": {
+            "type": "object",
+            "properties": {"automatic": {"type": "boolean", "title": "Rewrite every reply automatically"}},
+        },
+        "config_defaults": {"automatic": True},
     }
+
+
+async def test_the_prose_rewriter_toggle_loads_and_unloads_its_model(client, monkeypatch):
+    calls: list[bool] = []
+
+    async def on_enabled(enabled):
+        calls.append(enabled)
+
+    monkeypatch.setattr(prose_rewriter_host, "on_enabled", on_enabled)
+
+    await client.post("/api/workflows/prose_rewriter/enabled", json={"enabled": False})
+    await client.post("/api/workflows/prose_rewriter/enabled", json={"enabled": True})
+    await client.post("/api/workflows/tts/enabled", json={"enabled": False})
+
+    assert calls == [False, True]
+
+
+async def test_prose_rewriter_config_normalizes_the_automatic_switch(client):
+    resp = await client.put("/api/workflows/prose_rewriter/config", json={"config": {"automatic": "no"}})
+    assert resp.json() == {"config": {"automatic": True}}
+
+    resp = await client.put("/api/workflows/prose_rewriter/config", json={"config": {"automatic": False}})
+    assert resp.json() == {"config": {"automatic": False}}
+    assert (await client.get("/api/workflows/prose_rewriter/config")).json() == {"config": {"automatic": False}}

@@ -123,8 +123,14 @@ subscribe(tts_workflow.id, HookType.QUERY, _tts_query)
 subscribe(tts_workflow.id, HookType.REGENERATE, _tts_regenerate)
 subscribe(tts_workflow.id, HookType.REROLL_GEN, _tts_reroll_gen)
 
-# The rewriter is the first secondary text transform. Its Local ML toggle gates
-# engine availability; standard workflow enablement gates automatic execution.
+register_workflow(image_gen_workflow)
+subscribe(image_gen_workflow.id, HookType.ON_DEMAND, _image_gen_on_demand)
+subscribe(image_gen_workflow.id, HookType.QUERY, _image_gen_query)
+subscribe(image_gen_workflow.id, HookType.REGENERATE, _image_gen_regenerate)
+subscribe(image_gen_workflow.id, HookType.REROLL_GEN, _image_gen_reroll_gen)
+
+# The rewriter is the first secondary text transform. Its workflow toggle turns
+# it on for manual and automatic rewrites; its ``automatic`` config gates turns.
 register_workflow(prose_rewriter_workflow)
 subscribe(prose_rewriter_workflow.id, HookType.POST_PIPELINE, _prose_rewriter_post_pipeline, priority=-20)
 
@@ -133,12 +139,6 @@ subscribe(prose_rewriter_workflow.id, HookType.POST_PIPELINE, _prose_rewriter_po
 # from the normalized text rather than the raw draft.
 register_workflow(format_consistency_workflow)
 subscribe(format_consistency_workflow.id, HookType.POST_PIPELINE, _fc_post_pipeline, priority=-10)
-
-register_workflow(image_gen_workflow)
-subscribe(image_gen_workflow.id, HookType.ON_DEMAND, _image_gen_on_demand)
-subscribe(image_gen_workflow.id, HookType.QUERY, _image_gen_query)
-subscribe(image_gen_workflow.id, HookType.REGENERATE, _image_gen_regenerate)
-subscribe(image_gen_workflow.id, HookType.REROLL_GEN, _image_gen_reroll_gen)
 
 
 finalize_registry()

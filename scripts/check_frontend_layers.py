@@ -195,6 +195,7 @@ FROZEN_ABI = {
     "getWorkflowState",
     "setWorkflowState",
     "localMlReady",
+    "refreshLocalMlStatus",
 }
 
 # ── Parsing helpers ──────────────────────────────────────────────────────────

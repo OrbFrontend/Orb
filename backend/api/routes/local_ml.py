@@ -11,9 +11,15 @@ from fastapi import APIRouter, Body, HTTPException
 
 from ...database import get_settings, set_local_ml_enabled
 from ...inference import local_ml
-from ...inference.local_models import assets, catalog, dependencies
+from ...inference.local_models import (
+    assets,
+    catalog,
+    dependencies,
+    llama_server,
+    onnx_runtime,
+)
 from ...inference.local_models.llama_server import binary as llama_binary
-from ...workflows import prose_rewriter_host
+from ...workflows import prose_rewriter_host, spark_tts_host
 from ..deps import _download_lock
 
 logger = logging.getLogger(__name__)
@@ -33,19 +39,31 @@ class _FeatureManagement(Protocol):
 
     async def status_extra(self, settings: Mapping[str, Any]) -> dict: ...
 
-    async def sync_selection(self, *, prefer: str | None = None) -> dict: ...
-
-    async def apply_config(self, body: Mapping[str, Any]) -> dict: ...
-
     async def on_enabled(self, enabled: bool) -> None: ...
 
     async def release_host(self) -> None: ...
 
 
 #: The features that have management behaviour of their own. A feature absent
-#: from this map is a plain download-and-toggle one, and the config route's 404
-#: is exactly that statement.
-_MANAGEMENT: dict[str, _FeatureManagement] = {prose_rewriter_host.FEATURE: prose_rewriter_host}
+#: from this map is a plain download-and-toggle one.
+_MANAGEMENT: dict[str, _FeatureManagement] = {
+    prose_rewriter_host.FEATURE: prose_rewriter_host,
+    spark_tts_host.FEATURE_LLM: spark_tts_host.LLM_MANAGEMENT,
+}
+
+
+class _Configurable(Protocol):
+    """A feature with settings of its own for the config route to write."""
+
+    async def apply_config(self, body: Mapping[str, Any]) -> dict: ...
+
+
+#: The features with a config route. Both llama-server features carry the GPU
+#: switch; only the rewriter also has a variant and a batch size.
+_CONFIGURABLE: dict[str, _Configurable] = {
+    prose_rewriter_host.FEATURE: prose_rewriter_host,
+    spark_tts_host.FEATURE_LLM: spark_tts_host.LLM_MANAGEMENT,
+}
 
 
 def _require(feature: str) -> catalog.ModelSpec:
@@ -63,11 +81,10 @@ async def _sync_selection(feature: str, *, prefer: str | None = None) -> dict:
     """Let a feature repair its own stored selection, and return the new blob.
 
     Generic here, feature behaviour there: the sweep only means something for a
-    feature that has a selection to repair.
+    feature that has a selection to repair, and the rewriter is the only one.
     """
-    controller = _MANAGEMENT.get(feature)
-    if controller is not None:
-        return await controller.sync_selection(prefer=prefer)
+    if feature == prose_rewriter_host.FEATURE:
+        return await prose_rewriter_host.sync_selection(prefer=prefer)
     return await _config_blob()
 
 
@@ -110,6 +127,10 @@ async def api_local_ml_status():
             ]
         if spec.runtime == "llama_server":
             info["runtime_ok"] = llama_binary.runtime_ok()
+        if spec.extra_files:
+            # Two files behind one button: the panel shows one combined size so
+            # a user is not told 368 MB and then charged 391 MB.
+            info["size_mb"] = spec.size_mb + sum(f.size_mb for f in spec.extra_files)
         controller = _MANAGEMENT.get(f)
         if controller is not None:
             info.update(await controller.status_extra(settings))
@@ -164,8 +185,11 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
     if variant and variant not in {v.id for v in spec.variants}:
         raise HTTPException(status_code=404, detail=f"Unknown variant {variant!r} for {feature!r}")
     controller = _MANAGEMENT.get(feature)
-    if controller is not None:
-        # Before the unlink, not after — the feature explains why.
+    if spec.runtime == "onnx":
+        # Sessions keep model files open on Windows, and the cache is global to
+        # the runtime rather than to this one Spark codec.
+        onnx_runtime.release()
+    elif controller is not None:
         await controller.release_host()
     try:
         removed = await asyncio.to_thread(assets.delete_model, feature, variant)
@@ -180,7 +204,8 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
 
 @router.post("/api/local-ml/{feature}/config")
 async def api_local_ml_config(feature: str, data: dict = Body(...)):  # noqa: B008
-    """Set one feature's config (prose rewriter: variant, GPU and batch size).
+    """Set one feature's config (prose rewriter: variant, GPU and batch size;
+    Spark-TTS model: GPU).
 
     The body is opaque here — this route validates the feature id and hands the
     rest to the slice, which owns what its own settings mean. STATUS CODES STAY
@@ -188,9 +213,9 @@ async def api_local_ml_config(feature: str, data: dict = Body(...)):  # noqa: B0
     own rather than importing FastAPI to say 404.
     """
     _require(feature)
-    controller = _MANAGEMENT.get(feature)
+    controller = _CONFIGURABLE.get(feature)
     if controller is None:
-        raise HTTPException(status_code=404, detail=f"{feature!r} has no configurable variants")
+        raise HTTPException(status_code=404, detail=f"{feature!r} has no settings to configure")
     try:
         config = await controller.apply_config(data)
     except prose_rewriter_host.UnknownVariant as exc:
@@ -236,11 +261,13 @@ async def api_classify_emotion(data: dict = Body(...)):  # noqa: B008
 @router.post("/api/local-ml/{feature}/enabled")
 async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B008
     """Flip one feature's on/off toggle; return the full decoded map."""
-    _require(feature)
+    spec = _require(feature)
     enabled = bool(data.get("enabled"))
     await set_local_ml_enabled(feature, enabled)
     controller = _MANAGEMENT.get(feature)
-    if controller is not None:
+    if spec.runtime == "onnx" and not enabled:
+        onnx_runtime.release()
+    elif controller is not None:
         # Switching a feature on means "make this work", so the slice gets to
         # repair a selection that points at nothing, and pre-warm what it picks.
         await controller.on_enabled(enabled)
@@ -249,3 +276,19 @@ async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B
         "local_ml_enabled": settings.get("local_ml_enabled", {}),
         "local_ml_config": settings.get("local_ml_config", {}),
     }
+
+
+@router.post("/api/local-ml/runtime")
+async def api_local_ml_runtime():
+    """Fetch the shared llama-server runtime used by local model features."""
+    async with _download_lock:
+        try:
+            # The fetch replaces the binaries every running child was launched from.
+            await llama_server.manager.release_all()
+            path = await asyncio.to_thread(llama_binary.fetch)
+        except llama_binary.LlamaServerMissing as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from None
+        except Exception:
+            logger.exception("llama-server fetch failed")
+            raise HTTPException(status_code=500, detail="Runtime download failed; see server logs") from None
+    return {"ok": True, "path": path}

@@ -14,7 +14,7 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 
-from ...core import scrub_log
+from ...core import scrub_log, workflow_character_state_lock
 from ...database import (
     create_character_card,
     create_lorebook_entry,
@@ -28,12 +28,14 @@ from ...database import (
     get_lorebook_entries,
     get_settings,
     get_user_persona,
+    get_workflow_character_state,
     get_world,
     get_world_by_name,
     list_character_cards,
     list_expression_labels,
     set_character_expressions,
     set_public_profile,
+    set_workflow_character_state,
     sync_conversations_for_card,
     update_character_card,
 )
@@ -42,6 +44,10 @@ from ...features.cards import draft_card_profile
 from ...features.cards import expressions as card_expressions
 from ...features.cards import parsing as tavern_cards
 from ...inference import agent_lane_from_settings, client_from_settings
+from ...inference.local_models import spark_tts
+from ...workflows import spark_tts_host
+from ...workflows.tts import synth as tts_synth
+from ...workflows.tts.engine import builtin_spark_adapter
 from ..deps import (
     _normalise_lorebook_entry,
     cached_image_response,
@@ -59,6 +65,12 @@ from ..schemas import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+#: Cap on a voice-reference upload. Enrollment reads up to two minutes, and this
+#: is a bound on what one multipart request can make the server decode —
+#: generous enough for an uncompressed WAV of that length and far short of
+#: "someone dropped in a film".
+_MAX_VOICE_UPLOAD = 25 * 1024 * 1024
 
 
 @router.get("/api/characters")
@@ -306,7 +318,7 @@ async def api_upload_expressions(card_id: str, file: Annotated[UploadFile, File(
     """Upload a .zip of expression images; replaces the card's whole set."""
     if not await get_character_card(card_id):
         raise HTTPException(status_code=404, detail="Character card not found")
-    content = await file.read()
+    content = await file.read(_MAX_VOICE_UPLOAD + 1)
     if len(content) > 50 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Upload exceeds 50 MB")
     try:
@@ -337,3 +349,99 @@ async def api_get_expression(card_id: str, label: str, request: Request):
 async def api_delete_expressions(card_id: str):
     await delete_character_expressions(card_id)
     return {"ok": True}
+
+
+# --- Cloned voices ----------------------------------------------------------
+#
+# The whole user-facing workflow for the built-in Spark-TTS backend: upload one
+# audio file to a character, and the character speaks in that voice from then
+# on. Enrollment produces 32 integers, which are all synthesis needs and go
+# directly into the card's TTS profile.
+
+
+def _voice_profile_error(exc: Exception) -> HTTPException:
+    """Map an enrollment failure to the status code that describes it.
+
+    A file we cannot read is the request's problem (400); a model that is not
+    downloaded is the server's state, and 503 is what the panel renders as
+    "finish setting this up" rather than "your file is bad".
+    """
+    if isinstance(exc, spark_tts.UnsupportedAudio):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, spark_tts.EnrollmentUnavailable):
+        return HTTPException(status_code=503, detail=str(exc))
+    logger.exception("Voice enrollment failed")
+    return HTTPException(status_code=500, detail="Voice enrollment failed; see server logs")
+
+
+async def _store_speaker_tokens(card_id: str, tokens: list[int], source_name: str) -> dict:
+    """Write the enrolled voice into the card's TTS profile and return it.
+
+    Read-modify-write under the same lock the workflow uses, because this is
+    the one place outside the workflow that edits its slot and a settings save
+    landing between the read and the write would otherwise lose one of them.
+    """
+    async with workflow_character_state_lock(card_id, tts_synth.WORKFLOW_ID):
+        stored = await get_workflow_character_state(card_id, tts_synth.WORKFLOW_ID)
+        profile = tts_synth.normalize_profile(stored)
+        profile["speaker_tokens"] = tokens
+        profile["speaker_ref_name"] = source_name
+        if tokens:
+            # An enrolled voice is only reachable through the built-in backend,
+            # and `cloned` is the only voice id it has. Selecting it here is
+            # what makes "upload a file" the complete workflow — otherwise the
+            # user uploads a clip and then has to find two more dropdowns.
+            profile["backend"] = "spark"
+            profile["voice_id"] = builtin_spark_adapter.VOICE_ID
+            # And the same argument for the switch that actually makes the
+            # character speak: "upload one file and that character speaks in
+            # that voice from then on" is the whole feature, so an upload that
+            # left auto-generation off would deliver a stored voice and silence.
+            profile["enabled"] = True
+        else:
+            # Clearing is the inverse statement. The backend selection stays so
+            # the next clip can go straight in, but a `spark` profile with no
+            # tokens can only fail once per turn, so it must not stay armed.
+            profile["enabled"] = False
+        await set_workflow_character_state(card_id, tts_synth.WORKFLOW_ID, profile)
+    return profile
+
+
+@router.post("/api/characters/{card_id}/voice-reference")
+async def api_upload_voice_reference(card_id: str, file: Annotated[UploadFile, File(...)]):
+    """Enroll a character's voice from one uploaded audio file.
+
+    Returns the stored voice, on a profile that is now pointed at the built-in
+    backend AND switched on, so the next reply is spoken without a second trip
+    through the panel. Use the profile's Preview action to hear it sooner.
+    """
+    if not await get_character_card(card_id):
+        raise HTTPException(status_code=404, detail="Character card not found")
+    content = await file.read()
+    if len(content) > _MAX_VOICE_UPLOAD:
+        raise HTTPException(status_code=400, detail="Reference audio must be under 25 MB")
+    settings = await get_settings()
+    ok, reason = spark_tts_host.enrollment_ready(settings)
+    if not ok:
+        raise HTTPException(status_code=503, detail=reason)
+    source_name = os.path.basename(file.filename or "")[:120]
+    try:
+        tokens = await spark_tts_host.enroll_upload(content, filename=source_name)
+    except Exception as exc:
+        raise _voice_profile_error(exc) from exc
+    profile = await _store_speaker_tokens(card_id, tokens, source_name)
+    return {
+        "speaker_tokens": tokens,
+        "source_name": source_name,
+        "profile": profile,
+    }
+
+
+@router.delete("/api/characters/{card_id}/voice-reference")
+async def api_delete_voice_reference(card_id: str):
+    """Forget a character's cloned voice, and stop speaking for this character.
+
+    The backend selection survives so the next clip can go straight in.
+    """
+    profile = await _store_speaker_tokens(card_id, [], "")
+    return {"ok": True, "profile": profile}

@@ -134,26 +134,18 @@ async def test_turn_config_defaults_an_old_or_malformed_batch_size(monkeypatch):
     assert malformed is not None and malformed["batch_size"] == 4
 
 
-async def test_turn_config_respects_only_the_local_engine_toggle(monkeypatch):
-    """Automatic workflow enablement is applied by the workflow bridge.
-
-    The host resolver remains usable by the dedicated manual-message route,
-    even when automatic workflows are globally or individually disabled.
-    """
+@pytest.mark.parametrize(
+    "switches",
+    [
+        {"workflow_enabled": {"prose_rewriter": False}},
+        {"workflows_globally_enabled": 0},
+        {"local_ml_enabled": {"prose_rewriter": False}},
+    ],
+)
+async def test_turn_config_is_off_when_the_rewriter_is_switched_off(monkeypatch, switches):
+    """The workflow toggle gates the manual route as well as the automatic pass."""
     monkeypatch.setattr(config, "runnable", lambda _variant: True)
     selection = {"prose_rewriter": {"variant": "1.7b-q8", "gpu": True, "batch_size": 4}}
 
-    assert (
-        prose_rewriter_host.resolve_config(
-            {
-                "local_ml_config": selection,
-                "workflow_enabled": {"prose_rewriter": False},
-                "workflows_globally_enabled": 0,
-            }
-        )
-        is not None
-    )
-    assert (
-        prose_rewriter_host.resolve_config({"local_ml_config": selection, "local_ml_enabled": {"prose_rewriter": False}})
-        is None
-    )
+    assert prose_rewriter_host.resolve_config({"local_ml_config": selection}) is not None
+    assert prose_rewriter_host.resolve_config({"local_ml_config": selection, **switches}) is None

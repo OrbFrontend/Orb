@@ -74,3 +74,89 @@ def test_prune_stale_keeps_every_registered_prose_variant(tmp_path, monkeypatch)
     for variant in variants:
         assert os.path.exists(tmp_path / variant.local_name), variant.id
     assert not os.path.exists(tmp_path / "unclaimed.gguf")
+
+
+def test_every_artifact_has_an_extension_prune_stale_can_claim():
+    """``prune_stale`` only deletes the suffixes in ``MANAGED_SUFFIXES``. A spec
+    that writes anything else puts a file on disk nothing will ever clean up on
+    a model bump — which is exactly what happened when ONNX artifacts were
+    added to a prune that knew only ``.gguf``."""
+    for feature, spec in MODELS.items():
+        for name in spec.all_names():
+            assert name.endswith(assets.MANAGED_SUFFIXES), f"{feature}: {name}"
+
+
+def test_a_companion_file_is_required_for_present_and_kept_by_prune(tmp_path, monkeypatch):
+    """A companion is not an alternative: half of Spark-TTS is a cloner that
+    cannot enroll, or enrolled tokens nothing can speak. So ``present`` must be
+    false until both land, and neither may be pruned."""
+    monkeypatch.setattr(assets, "model_dir", lambda: str(tmp_path))
+    spec = MODELS["spark_tts_codec"]
+    assert spec.extra_files, "this test is about the companion mechanism"
+    companion = spec.extra_files[0]
+
+    (tmp_path / spec.local_name).write_text("decoder")
+    assert not assets.present("spark_tts_codec")
+    assert assets.missing_files("spark_tts_codec") == [companion.local_name]
+
+    (tmp_path / companion.local_name).write_text("encoder")
+    assert assets.present("spark_tts_codec")
+    assert assets.missing_files("spark_tts_codec") == []
+
+    (tmp_path / "some-other-decoder.onnx").write_text("stale")
+    assets.prune_stale(str(tmp_path))
+    assert (tmp_path / spec.local_name).exists()
+    assert (tmp_path / companion.local_name).exists()
+    assert not (tmp_path / "some-other-decoder.onnx").exists()
+
+
+def test_deleting_a_specs_own_file_takes_its_companions(tmp_path, monkeypatch):
+    """They are useless alone, and 23 MB nothing claims is the shape of bug
+    ``prune_stale`` exists to prevent."""
+    monkeypatch.setattr(assets, "model_dir", lambda: str(tmp_path))
+    spec = MODELS["spark_tts_codec"]
+    companion = spec.extra_files[0]
+    (tmp_path / spec.local_name).write_text("decoder")
+    (tmp_path / companion.local_name).write_text("encoder")
+
+    assert assets.delete_model("spark_tts_codec") is True
+
+    assert not (tmp_path / spec.local_name).exists()
+    assert not (tmp_path / companion.local_name).exists()
+
+
+def test_deleting_one_variant_leaves_shared_companions_alone(tmp_path, monkeypatch):
+    """A variant's siblings still need them, so the companion sweep is scoped
+    to a delete of the spec's OWN file."""
+    monkeypatch.setattr(assets, "model_dir", lambda: str(tmp_path))
+    spec = MODELS["prose_rewriter"]
+    variant = spec.variants[0]
+    (tmp_path / variant.local_name).write_text("weights")
+    assert assets.delete_model("prose_rewriter", variant.id) is True
+    assert not (tmp_path / variant.local_name).exists()
+
+
+def test_a_pinned_checksum_is_hex_and_the_right_length():
+    """A truncated or mistyped pin rejects every download of a good file."""
+    for feature, spec in MODELS.items():
+        for label, digest in [(feature, spec.sha256)] + [(f.local_name, f.sha256) for f in spec.extra_files]:
+            if digest:
+                assert len(digest) == 64 and set(digest) <= set("0123456789abcdef"), label
+
+
+def test_verify_rejects_and_removes_a_file_whose_bytes_are_wrong(tmp_path):
+    """A revision pin says which COMMIT; this says which BYTES, and a repo that
+    is force-pushed or recreated can satisfy the first and fail this. The file
+    must not survive, or ``present()`` would then call it ready."""
+    import pytest
+
+    target = tmp_path / "artifact.onnx"
+    target.write_text("not the bytes we verified")
+    with pytest.raises(RuntimeError, match="pinned checksum"):
+        assets._verify(str(target), "0" * 64)
+    assert not target.exists()
+
+    good = tmp_path / "good.onnx"
+    good.write_bytes(b"abc")
+    assets._verify(str(good), assets.file_sha256(str(good)))  # no exception
+    assert good.exists()

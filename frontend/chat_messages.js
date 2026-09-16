@@ -185,7 +185,7 @@ export async function rewriteMessageProse(msgId) {
     if (!completed) throw new Error("Prose rewrite stream ended before completion");
   } catch (e) {
     if (abortController.signal.aborted || e?.name === "AbortError") toast("Prose rewrite stopped");
-    else if (e.status === 503) toast("Enable & download the Prose Rewriter in Settings → Local ML");
+    else if (e.status === 503) toast("Turn on the Prose Rewriter and download a model in Workflow → Secondary");
     else {
       console.error("prose rewrite failed", e);
       toast("Prose rewrite failed", true);

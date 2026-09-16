@@ -8,10 +8,16 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from typing import Any
 
-from ..toolkit import markup_axes, speech_input
+from ..toolkit import markup_axes, spark_voice_clean_tokens, speech_input
 from .engine.base import SpeakableChunk
 from .engine.regex_extractor import regex_extract
 from .engine.router import get_adapter
+
+#: This workflow's registry id, and the key its per-character profile is stored
+#: under. Defined here rather than in ``hooks`` because the profile is this
+#: module's contract and a caller outside the workflow — the voice-enrollment
+#: route — needs the key without importing the hook surface.
+WORKFLOW_ID = "tts"
 
 # Field set of a per-character voice profile, stored in
 # ``character_cards.workflow_state['tts']`` (read via get_workflow_character_state).
@@ -27,12 +33,31 @@ PROFILE_DEFAULTS: dict = {
     "api_url": "",
     "api_key": "",
     "model": "",
+    # The built-in Spark-TTS cloner's whole notion of a voice: 32 FSQ codes
+    # from BiCodec's speaker encoder, ~200 bytes, so they live inline in the
+    # profile rather than in a table of their own. `speaker_ref_name` is the
+    # uploaded file's name, kept only so the panel can say which clip this is.
+    "speaker_tokens": [],
+    "speaker_ref_name": "",
 }
 
 # Reproduction-record keys carried in an attachment's generation_metadata.
 # These plus the source text are sufficient to re-synthesize the identical
 # audio from a context that has no character or turn state (reroll, rehydrate).
-_METADATA_KEYS = ("backend", "voice_id", "language", "rate", "pitch", "api_url", "api_key", "model")
+# `speaker_tokens` is in the set because it IS the voice for the built-in
+# Spark backend: without it a rerolled cloned line would be re-synthesized from
+# a metadata record that names no speaker, and come back in a different voice.
+_METADATA_KEYS = (
+    "backend",
+    "voice_id",
+    "language",
+    "rate",
+    "pitch",
+    "api_url",
+    "api_key",
+    "model",
+    "speaker_tokens",
+)
 
 
 def _as_float(value: object, default: float) -> float:
@@ -58,12 +83,18 @@ def normalize_profile(raw: object) -> dict:
     out["rate"] = _as_float(out["rate"], 1.0)
     out["pitch"] = _as_float(out["pitch"], 1.0)
     out["enabled"] = bool(out["enabled"])
+    # A malformed voice must become "no voice" here rather than reach the codec,
+    # which answers a wrong-length array with an exception from inside an
+    # einsum. Everything that reads a profile reads it through this function.
+    out["speaker_tokens"] = spark_voice_clean_tokens(out.get("speaker_tokens"))
+    out["speaker_ref_name"] = str(out.get("speaker_ref_name") or "")
     return out
 
 
 # Local backends that stitch per-chunk clips together and emit WAV; every
-# other backend returns MP3.
-_WAV_BACKENDS = frozenset({"kokoro", "spark"})
+# other backend returns MP3. `spark` is the built-in cloner and `spark_remote`
+# the sidecar it replaced; both emit 16 kHz PCM.
+_WAV_BACKENDS = frozenset({"kokoro", "spark", "spark_remote"})
 
 
 def audio_mime_ext(backend: str) -> tuple[str, str]:
@@ -156,7 +187,23 @@ def build_generation_metadata(text: str, profile: dict, blocks: list[dict] | Non
     return md
 
 
-async def synthesize(text: str, profile: dict) -> tuple[bytes, str]:
+def _backend_kwargs(profile: dict, settings: Mapping[str, Any] | None) -> dict:
+    """Profile fields only some backends read, passed to all of them.
+
+    Every adapter takes ``**kwargs``, so this stays one call shape rather than a
+    branch per backend. ``speaker_tokens`` is the built-in Spark cloner's voice;
+    ``settings`` is how a local backend reads its own Local ML gates, and stays
+    ``None`` when the caller had none — preview and reroll both synthesize from
+    a context that carries no settings, and making this path fetch them would
+    put a database read in front of every remote backend that never looks.
+    """
+    return {
+        "speaker_tokens": list(profile.get("speaker_tokens") or []),
+        "settings": settings,
+    }
+
+
+async def synthesize(text: str, profile: dict, *, settings: Mapping[str, Any] | None = None) -> tuple[bytes, str]:
     """Render ``text`` to audio under ``profile``. Returns ``(bytes, mime)``.
 
     Raises ``ValueError`` for an unknown backend (from ``get_adapter``) or
@@ -176,6 +223,7 @@ async def synthesize(text: str, profile: dict) -> tuple[bytes, str]:
         api_url=profile.get("api_url") or "",
         api_key=(profile.get("api_key") or None),
         model=profile.get("model") or "",
+        **_backend_kwargs(profile, settings),
     )
     if not result.audio_bytes:
         raise ValueError("TTS synthesis produced no audio")
@@ -306,6 +354,7 @@ async def synthesize_blocks(
     api_url = profile.get("api_url") or ""
     api_key = profile.get("api_key") or None
     model = profile.get("model") or ""
+    extra = _backend_kwargs(profile, settings)
 
     parts: list[bytes] = []
     blocks: list[dict] = []
@@ -323,6 +372,7 @@ async def synthesize_blocks(
             api_url=api_url,
             api_key=api_key,
             model=model,
+            **extra,
         )
         clip = result.audio_bytes or b""
         parts.append(clip)

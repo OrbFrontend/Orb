@@ -70,8 +70,6 @@ export async function loadSettings() {
   if (S.settings.enabled_tools) S.enabledTools = { ...S.enabledTools, ...S.settings.enabled_tools };
   if (typeof S.settings.enable_agent === "number") S.agentEnabled = S.settings.enable_agent !== 0;
 
-  if (!S.settings.local_ml_config || typeof S.settings.local_ml_config !== "object") S.settings.local_ml_config = {};
-
   S.lengthGuardEnabled = Boolean(S.settings.length_guard_enabled);
   S.lengthGuardEnforce = Boolean(S.settings.length_guard_enforce);
 
@@ -216,7 +214,6 @@ const LOCAL_ML_LABELS = {
   emotion_classifier: "Character Expressions",
   pov_classifier: "Auto-POV",
   markup_classifier: "Markup Classifier",
-  prose_rewriter: "Prose Rewriter",
 };
 const LOCAL_ML_DESCS = {
   autocomplete: "Autocomplete input as you type.",
@@ -224,20 +221,22 @@ const LOCAL_ML_DESCS = {
   emotion_classifier: "Track a character's mood with expression images.",
   pov_classifier: "For image-gen and format consistency.",
   markup_classifier: "For more accurate format consistency.",
-  prose_rewriter: "Local engine for Prose Rewriter.",
 };
 
-/** Publish the fetched status and repaint the surfaces that gate on it.
- *
- * Same wiring as Editor Feedback graying out feedback fragments: the owning
- * card writes shared state and re-renders the dependent surface, which reads
- * the gate at render time. Repaint only when a gate actually flipped, so a
- * routine status refresh never wipes a half-typed field in the tools panel.
- */
+// Models with a single consumer are managed by it: Spark-TTS in the TTS
+// cloned-voice control, the Prose Rewriter in its workflow card.
+const LOCAL_ML_MANAGED_ELSEWHERE = new Set(["spark_tts_llm", "spark_tts_codec", "prose_rewriter"]);
+
+const settingsFeatures = (features) =>
+  Object.fromEntries(Object.entries(features).filter(([f]) => !LOCAL_ML_MANAGED_ELSEWHERE.has(f)));
+
+/** Publish local model status and repaint dependent surfaces. */
 function publishLocalMlFeatures(features) {
   const before = mlReadySignature();
   S.localMlFeatures = features || {};
-  if (mlReadySignature() !== before) renderToolsPanel();
+  if (mlReadySignature() === before) return;
+  renderToolsPanel();
+  if (!S.isStreaming) renderMessages(); // the prose rewrite button gates on it
 }
 
 const mlReadySignature = () =>
@@ -246,20 +245,26 @@ const mlReadySignature = () =>
     .map((f) => `${f}:${localMlReady(f) ? 1 : 0}`)
     .join(",");
 
-async function loadLocalMLSection({ expectLoad = false } = {}) {
-  stopMlStateWatch();
+/** Fetch local model status and publish it to every gate that reads it. */
+export async function refreshLocalMlStatus() {
+  const st = await api.get("/local-ml/status");
+  publishLocalMlFeatures(st.features);
+  return st;
+}
+
+async function loadLocalMLSection() {
   const el = $("local-ml-section");
   if (!el) return;
   let st;
   try {
-    st = await api.get("/local-ml/status");
+    st = await refreshLocalMlStatus(); // every feature: gates elsewhere read the ones not shown here
   } catch (_e) {
     el.innerHTML = '<div class="tool-card-desc">Could not load Local ML status.</div>';
     return;
   }
-  publishLocalMlFeatures(st.features);
+  const shown = settingsFeatures(st.features);
   if (!st.deps_ok) {
-    const names = Object.keys(st.features)
+    const names = Object.keys(shown)
       .map((f) => `<li>${esc(LOCAL_ML_LABELS[f] || f)}</li>`)
       .join("");
     el.innerHTML = `<div class="tool-card" style="opacity:0.5">
@@ -268,14 +273,13 @@ async function loadLocalMLSection({ expectLoad = false } = {}) {
     </div>`;
     return;
   }
-  el.innerHTML = Object.entries(st.features)
-    .map(([f, info]) => (info.variants ? variantCard(f, info) : simpleCard(f, info)))
+  el.innerHTML = Object.entries(shown)
+    .map(([f, info]) => localMlCard(f, info))
     .join("");
   wireLocalMLSection(el);
-  watchMlStates(st.features, expectLoad);
 }
 
-function simpleCard(f, info) {
+function localMlCard(f, info) {
   const name = esc(LOCAL_ML_LABELS[f] || f);
   if (!info.present) {
     return `<div class="tool-card">
@@ -287,137 +291,12 @@ function simpleCard(f, info) {
   const desc = LOCAL_ML_DESCS[f] || "";
   return `<div class="tool-card ${info.enabled ? "tool-on" : ""}">
     <div class="tool-card-header"><span class="tool-card-name">${name}</span>
-      ${enableToggle(f, info.enabled)}</div>
+      <label class="tog" data-ml-act="stop">
+        <input type="checkbox" ${info.enabled ? "checked" : ""} data-ml-act="enabled" data-ml-feature="${escAttr(f)}">
+        <span class="tog-slider"></span>
+      </label></div>
     ${desc ? `<div class="tool-card-desc">${desc}</div>` : ""}
   </div>`;
-}
-
-const enableToggle = (f, on) =>
-  `<label class="tog" data-ml-act="stop">
-    <input type="checkbox" ${on ? "checked" : ""} data-ml-act="enabled" data-ml-feature="${escAttr(f)}">
-    <span class="tog-slider"></span>
-  </label>`;
-
-function variantCard(f, info) {
-  const name = esc(LOCAL_ML_LABELS[f] || f);
-  const desc = LOCAL_ML_DESCS[f] || "";
-  const ready = Boolean(info.runtime_ok);
-  const anyPresent = info.variants.some((v) => v.present);
-  const showVariants = ready || anyPresent;
-  const rows = info.variants.map((v) => variantRow(f, v, info.selected, ready)).join("");
-  return `<div class="tool-card ${ready && anyPresent && info.enabled ? "tool-on" : ""}"
-       data-ml-feature="${escAttr(f)}" data-ml-selected="${escAttr(info.selected || "")}">
-    <div class="tool-card-header"><span class="tool-card-name">${name}</span>
-      ${ready && anyPresent ? enableToggle(f, info.enabled) : ""}</div>
-    ${desc ? `<div class="tool-card-desc">${desc}</div>` : ""}
-    ${ready ? "" : runtimeGate()}
-    ${showVariants ? `<div class="ml-variants">${rows}</div>` : ""}
-    ${ready ? batchSizeControl(f, info) : ""}
-    ${ready ? `<div class="ml-foot">${gpuCheck(f, info)}${stateRow(f, info)}</div>` : ""}
-  </div>`;
-}
-
-const gpuCheck = (f, info) =>
-  `<label class="lg-enforce-label ml-check" title="Offload the model to the GPU. Switches the running model over.">
-    <input type="checkbox" ${info.gpu ? "checked" : ""} data-ml-act="gpu" data-ml-feature="${escAttr(f)}">
-    Run on GPU
-  </label>`;
-
-function batchSizeControl(f, info) {
-  if (!Number.isInteger(info.batch_size)) return "";
-  const id = escAttr(`ml-batch-size-${f}`);
-  const options = [
-    [1, "1 · lowest VRAM"],
-    [2, "2"],
-    [3, "3"],
-    [4, "4 · default"],
-    [8, "8 · fastest"],
-  ]
-    .map(
-      ([value, label]) => `<option value="${value}" ${info.batch_size === value ? "selected" : ""}>${label}</option>`,
-    )
-    .join("");
-  return `<div class="ml-batch setting-row">
-    <label for="${id}">Parallel</label>
-    <select class="tool-card-select" id="${id}" data-ml-act="batch-size" data-ml-feature="${escAttr(f)}">${options}</select>
-    <div>~140–190 MB VRAM per parallel slot.</div>
-  </div>`;
-}
-
-function variantRow(f, v, selected, ready) {
-  const attrs = `data-ml-feature="${escAttr(f)}" data-ml-variant="${escAttr(v.id)}"`;
-  const rid = escAttr(`ml-var-${f}-${v.id}`);
-  const on = ready && v.present && v.id === selected;
-  const label = escAttr(v.label);
-  const pick =
-    ready && v.present
-      ? `<input type="radio" id="${rid}" name="local-ml-variant-${escAttr(f)}" ${on ? "checked" : ""}
-              aria-label="Use ${label}" data-ml-act="select" ${attrs}>
-       <label class="ml-variant-name" for="${rid}">${label}</label>`
-      : `<span class="ml-variant-name">${label}</span>`;
-  const act = v.present
-    ? `<button class="btn btn-xs btn-danger btn-square ml-variant-act" title="Delete" aria-label="Delete ${label}"
-               data-ml-act="delete" ${attrs}>${CLOSE_ICON}</button>`
-    : `<button class="btn btn-xs ml-variant-act" data-ml-act="download" ${attrs}
-               ${ready ? "" : 'disabled title="Download the llama.cpp runtime first"'}>Download</button>`;
-  return `<div class="ml-variant${on ? " ml-variant-on" : ""}">
-    ${pick}
-    <span class="ml-variant-size">${(v.size_mb / 1024).toFixed(1)} GB</span>
-    ${act}
-    <div class="ml-variant-detail">${esc(v.detail)}</div>
-  </div>`;
-}
-
-function runtimeGate() {
-  return `<div class="ml-gate">
-    <div class="ml-gate-title">llama.cpp runtime required</div>
-    <div class="ml-gate-desc">Rewrites run in a local llama-server. Fetch it to unlock the models.</div>
-    <div class="ml-gate-act">
-      <button class="btn btn-sm" data-ml-act="runtime">Download · 150 MB</button>
-    </div>
-  </div>`;
-}
-
-function stateRow(f, info) {
-  const cls = info.state === "loading" ? " ml-foot-loading" : info.error ? " ml-foot-error" : "";
-  return `<span class="ml-foot-state${cls}" id="local-ml-state-${escAttr(f)}">${esc(mlStateText(info))}</span>`;
-}
-
-const mlStateText = (info) => `${info.state || "idle"}${info.error ? `: ${info.error}` : ""}`;
-
-const ML_STATE_POLL_MS = 1500;
-let mlStateTimer = null;
-
-function stopMlStateWatch() {
-  if (mlStateTimer !== null) clearTimeout(mlStateTimer);
-  mlStateTimer = null;
-}
-
-function watchMlStates(features, expectLoad) {
-  stopMlStateWatch();
-  const loading = Object.values(features).some((info) => info.state === "loading");
-  if (!loading && !expectLoad) return;
-  mlStateTimer = setTimeout(pollMlStates, ML_STATE_POLL_MS);
-}
-
-async function pollMlStates() {
-  mlStateTimer = null;
-  if (!$("local-ml-section")) return; // panel closed — nothing to write into
-  let st;
-  try {
-    st = await api.get("/local-ml/status");
-  } catch (_e) {
-    return; // a dropped poll costs nothing; the next render re-reads
-  }
-  publishLocalMlFeatures(st.features); // a download finishing here flips a gate too
-  for (const [f, info] of Object.entries(st.features)) {
-    const el = $(`local-ml-state-${f}`);
-    if (!el) continue;
-    el.textContent = mlStateText(info);
-    el.classList.toggle("ml-foot-error", Boolean(info.error));
-    el.classList.toggle("ml-foot-loading", info.state === "loading");
-  }
-  watchMlStates(st.features, false);
 }
 
 function wireLocalMLSection(el) {
@@ -427,104 +306,38 @@ function wireLocalMLSection(el) {
   el.addEventListener("change", onLocalMLChange);
 }
 
-async function onLocalMLClick(ev) {
+function onLocalMLClick(ev) {
   const target = ev.target.closest("[data-ml-act]");
   if (!target) return;
-  const { mlAct: act, mlFeature: feature, mlVariant: variant } = target.dataset;
+  const { mlAct: act, mlFeature: feature } = target.dataset;
   if (act === "stop") return ev.stopPropagation();
-  if (act === "download") return downloadLocalMlModel(feature, variant, target);
-  if (act === "delete") return deleteLocalMlModel(feature, variant);
-  if (act === "runtime") return fetchLlamaRuntime(target);
+  if (act === "download") return downloadLocalMlModel(feature, target);
 }
 
 function onLocalMLChange(ev) {
   const target = ev.target.closest("[data-ml-act]");
-  if (!target) return;
-  const { mlAct: act, mlFeature: feature, mlVariant: variant } = target.dataset;
-  if (act === "enabled") return toggleLocalMlEnabled(feature, target.checked);
-  if (act === "select") return saveLocalMlConfig(feature, { variant });
-  if (act === "gpu") return saveLocalMlConfig(feature, { gpu: target.checked });
-  if (act === "batch-size") return saveLocalMlConfig(feature, { batchSize: Number(target.value) });
+  if (target?.dataset.mlAct === "enabled") return toggleLocalMlEnabled(target.dataset.mlFeature, target.checked);
 }
 
 function applyLocalMlResponse(res) {
   if (!res || typeof res !== "object") return;
   if (typeof res.local_ml_enabled === "object") S.settings.local_ml_enabled = res.local_ml_enabled;
-  if (typeof res.local_ml_config === "object") S.settings.local_ml_config = res.local_ml_config;
   renderMessages();
 }
 
-async function saveLocalMlConfig(feature, patch) {
-  const root = $("local-ml-section");
-  const card = root?.querySelector(`.tool-card[data-ml-feature="${feature}"]`);
-  const picked = root?.querySelector(`input[name="local-ml-variant-${feature}"]:checked`);
-  const gpuBox = root?.querySelector(`input[data-ml-act="gpu"][data-ml-feature="${feature}"]`);
-  const batchSelect = root?.querySelector(`select[data-ml-act="batch-size"][data-ml-feature="${feature}"]`);
-  const body = {
-    variant: patch.variant ?? picked?.dataset.mlVariant ?? (card?.dataset.mlSelected || null),
-    gpu: patch.gpu ?? Boolean(gpuBox?.checked),
-    batch_size: patch.batchSize ?? Number(batchSelect?.value || 4),
-  };
+async function downloadLocalMlModel(feature, btn) {
+  const card = btn.closest(".tool-card");
+  card?.classList.add("ml-busy");
+  card?.setAttribute("aria-busy", "true");
+  btn.disabled = true;
   try {
-    applyLocalMlResponse(await api.post(`/local-ml/${feature}/config`, body));
-  } catch (e) {
-    toast(e.message || "Failed to save", true);
-  }
-  loadLocalMLSection({ expectLoad: true }); // the config write pre-warms in the background
-}
-
-function deleteLocalMlModel(feature, variant) {
-  confirmDelete("Model", "Delete this downloaded model file? It can be downloaded again.", async () => {
-    try {
-      applyLocalMlResponse(
-        await api.del(`/local-ml/${feature}/model${variant ? `?variant=${encodeURIComponent(variant)}` : ""}`),
-      );
-    } catch (e) {
-      toast(e.message || "Delete failed", true);
-    }
-    loadLocalMLSection();
-  });
-}
-
-function beginMlBusy(btn) {
-  const scope = btn?.closest(".ml-variant, .ml-gate, .tool-card");
-  if (!scope) return () => {};
-  const others = [...(btn.closest(".tool-card")?.querySelectorAll("button[data-ml-act]") ?? [btn])];
-  scope.classList.add("ml-busy");
-  scope.setAttribute("aria-busy", "true");
-  for (const b of others) b.disabled = true;
-  return () => {
-    scope.classList.remove("ml-busy");
-    scope.removeAttribute("aria-busy");
-    for (const b of others) b.disabled = false;
-  };
-}
-
-/** Fetch the runtime: both builds, so the GPU toggle never waits on a download.
- *
- * `expectLoad` because the fetch re-warms the model on what just landed —
- * without it the state poller stops and the card sits on a stale line while the
- * new runtime loads behind it.
- */
-async function fetchLlamaRuntime(btn) {
-  const endBusy = beginMlBusy(btn);
-  try {
-    await api.post("/local-ml/prose_rewriter/runtime", {});
-  } catch (e) {
-    toast(e.message || "Runtime download failed", true);
-    endBusy();
-  }
-  loadLocalMLSection({ expectLoad: true });
-}
-
-async function downloadLocalMlModel(feature, variant, btn) {
-  const endBusy = beginMlBusy(btn);
-  try {
-    applyLocalMlResponse(await api.post(`/local-ml/${feature}/download`, variant ? { variant } : {}));
+    applyLocalMlResponse(await api.post(`/local-ml/${feature}/download`, {}));
     await loadLocalMLSection(); // flips the card to a toggle
   } catch (e) {
     toast(e.message || "Download failed", true);
-    endBusy();
+    card?.classList.remove("ml-busy");
+    card?.removeAttribute("aria-busy");
+    btn.disabled = false;
   }
 }
 
@@ -534,7 +347,7 @@ async function toggleLocalMlEnabled(feature, on) {
   } catch (_e) {
     toast("Failed to toggle", true);
   }
-  loadLocalMLSection({ expectLoad: on }); // enabling pre-warms; disabling has nothing to wait for
+  loadLocalMLSection();
 }
 
 const TOOL_DEFS = [
@@ -752,7 +565,7 @@ function buildWorkflowToggleRows() {
         <span class="tog-slider"></span>
       </label>
     </div>
-    <div class="tool-card-desc">Turns all the workflows below on or off at once.</div>
+    <div class="tool-card-desc">Toggle everything below.</div>
   </div>`;
 
   const panels = new Map(S.workflowToolsPanelRenderers.map(({ workflowId, render }) => [workflowId, render]));
