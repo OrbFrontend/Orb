@@ -222,13 +222,18 @@
   white-space: nowrap;
 }
 
+/* The voice buttons fill the left of the modal footer so Close stays on the same row. */
+.tts-settings-actions {
+  align-items: center;
+}
+
 .tts-profile-actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
+  flex: 1;
+  min-width: 0;
 }
 
 #tts-pf-status,

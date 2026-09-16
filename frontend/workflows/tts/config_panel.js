@@ -150,11 +150,14 @@ function settingsBodyHtml() {
         </label>
       </section>
       <section class="tts-section" id="tts-profile">
-        <div class="tts-heading">Voice profile</div>
+        <div class="tts-heading">Voice profile - This character only</div>
         <div id="tts-profile-content" class="tts-note">Loading voice settings…</div>
       </section>
     </div>
-    <div class="modal-actions"><button class="btn" data-wf-action="tts:closeSettings">Close</button></div>`;
+    <div class="modal-actions tts-settings-actions">
+      <div class="tts-profile-actions" id="tts-profile-actions"></div>
+      <button class="btn" data-wf-action="tts:closeSettings">Close</button>
+    </div>`;
 }
 
 function openSettings() {
@@ -193,6 +196,7 @@ function saveGlobal() {
 async function populateProfile() {
   let el = document.getElementById("tts-profile-content");
   if (!el) return;
+  setProfileActions(""); // every path below that shows a note instead of a form leaves it empty
   if (!getActiveConvId()) {
     el.innerHTML = `<div class="tts-note">Open a conversation to set its character's voice.</div>`;
     return;
@@ -229,6 +233,7 @@ async function populateProfile() {
     return;
   }
   el.innerHTML = profileFormHtml(profile, backends, cast);
+  setProfileActions(profileActionsHtml());
   applyFieldVisibility(profile.backend);
   loadedProfile = readForm();
   loadVoices(profile.voice_id);
@@ -247,7 +252,6 @@ function profileFormHtml(p, backends, cast = null) {
   const backendOpts = backends.map((b) => opt(b.id, b.name || b.id, b.id === p.backend)).join("");
   const langOpts = LANGUAGES.map(([code, label]) => opt(code, label, p.language?.startsWith(code))).join("");
   return `
-    <div class="tts-note">Choose how this character sounds in generated replies.</div>
     <div class="tts-profile-fields">
       ${cast ? memberPickerHtml(cast) : ""}
       <label class="tts-setting-toggle">
@@ -270,13 +274,21 @@ function profileFormHtml(p, backends, cast = null) {
         ${field("rate", `<label class="tts-field">Rate <input type="range" min="0.5" max="2.0" step="0.1" id="tts-pf-rate" value="${esc(p.rate)}"></label>`)}
         ${field("pitch", `<label class="tts-field">Pitch <input type="range" min="0.5" max="2.0" step="0.1" id="tts-pf-pitch" value="${esc(p.pitch)}"></label>`)}
       </div>
-    </div>
-    <div class="tts-profile-actions">
-      <button class="btn btn-sm btn-accent" type="button" data-wf-action="tts:profileSave">Save voice</button>
-      <button class="btn btn-sm" type="button" data-wf-action="tts:preview">Preview</button>
-      <span id="tts-pf-status" aria-live="polite"></span>
-      <span id="tts-pf-time" aria-hidden="true"></span>
     </div>`;
+}
+
+// Lives in the modal footer next to Close, so it renders only once a profile form exists.
+function profileActionsHtml() {
+  return `
+    <button class="btn btn-sm btn-accent" type="button" data-wf-action="tts:profileSave">Save voice</button>
+    <button class="btn btn-sm" type="button" data-wf-action="tts:preview">Preview</button>
+    <span id="tts-pf-status" aria-live="polite"></span>
+    <span id="tts-pf-time" aria-hidden="true"></span>`;
+}
+
+function setProfileActions(html) {
+  const el = document.getElementById("tts-profile-actions");
+  if (el) el.innerHTML = html;
 }
 
 function applyFieldVisibility(backend) {
