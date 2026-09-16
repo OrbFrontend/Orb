@@ -138,6 +138,55 @@ present, before the model finishes. The model is unloaded after a couple of
 minutes idle so it does not hold VRAM against a local Writer or the Prose
 Rewriter.
 
+#### Built-in cloner implementation notes
+
+An enrolled voice is 32 BiCodec global-token indices stored in the character's
+TTS profile. Orb decodes an uploaded clip only while enrolling it and never
+stores the audio. Profiles created for the former `spark` sidecar backend are
+migrated to `spark_remote`; new `spark` profiles select the built-in cloner.
+
+The built-in feature transfers timbre only. Spark-TTS's upstream
+transcript-conditioned path can also copy reference pacing, but it depends on
+wav2vec2 and the BiCodec encoder — roughly 1.4 GB of additional weights — so it
+is deliberately outside this feature's scope.
+
+The codec artifacts have separate responsibilities:
+
+- The speaker encoder is a small CPU-only ONNX graph. It reads a 16 kHz mel
+  spectrogram and produces the 32 global-token indices used for enrollment.
+- The decoder is also CPU-only ONNX. It turns generated semantic-token indices
+  and the enrolled global tokens into 16 kHz PCM.
+
+A llama-server child generates the semantic tokens from the 0.5B GGUF. It is
+the only cloner component affected by **Run on GPU**, and is released after
+inactivity. The shared llama-server runtime is obtained through the generic
+Local ML runtime route; the Prose Rewriter uses that runtime too, but does not
+own it.
+
+All BiCodec tokens are GGUF control tokens, so llama-server receives an integer
+prompt and returns generated token IDs; Orb does not parse completion text. The
+pinned token ranges are:
+
+| Family | Index range | Token-ID range |
+|---|---:|---:|
+| global | 0–4095 | 151665–155760 |
+| semantic | 0–8191 | 155761–163952 |
+
+Orb tokenizes user text with special-token parsing disabled and ignores any
+generated IDs outside the semantic range before decoding. `UBATCH_SIZE = 8` is
+a correctness limit for the pinned llama.cpp Vulkan build: larger prompt
+batches can corrupt the model's prompt. Do not raise it without an end-to-end
+audio regression check.
+
+The mel parameters and volume normalization match Spark-TTS. References shorter
+than six seconds are tiled to six seconds; longer clips are retained up to the
+two-minute limit, because clean additional speech yields a more stable speaker
+representation. WAV, FLAC, and OGG use the optional audio dependency; other
+formats use `ffmpeg` when available. To regenerate the speaker-encoder ONNX
+artifact, run `scripts/export_spark_speaker_encoder.py`. A replacement must
+preserve the 32-token output contract and update the catalog checksum and
+enrollment golden test.
+
 ### Local server backends
 
 Kokoro-82M, Spark-TTS (sidecar), and Fish Speech run as local servers. Orb ships
