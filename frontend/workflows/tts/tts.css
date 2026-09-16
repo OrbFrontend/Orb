@@ -222,18 +222,11 @@
   white-space: nowrap;
 }
 
-/* The voice buttons fill the left of the modal footer so Close stays on the same row. */
+/* Preview and the playback status hold the left of the footer; Close and Save stay right-aligned. */
 .tts-settings-actions {
   align-items: center;
-}
-
-.tts-profile-actions {
-  display: flex;
-  align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
+  row-gap: 8px;
 }
 
 #tts-pf-status,
@@ -247,7 +240,7 @@
   flex: 0 1 auto;
 }
 
-/* Takes the row's slack so the readout sits next to the status text. */
+/* Takes the row's slack so the readout sits next to the status text and the buttons stay right. */
 #tts-pf-time {
   flex: 1 1 60px;
   font-variant-numeric: tabular-nums;

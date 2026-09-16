@@ -154,10 +154,7 @@ function settingsBodyHtml() {
         <div id="tts-profile-content" class="tts-note">Loading voice settings…</div>
       </section>
     </div>
-    <div class="modal-actions tts-settings-actions">
-      <div class="tts-profile-actions" id="tts-profile-actions"></div>
-      <button class="btn" data-wf-action="tts:closeSettings">Close</button>
-    </div>`;
+    <div class="modal-actions tts-settings-actions" id="tts-settings-actions">${settingsActionsHtml(false)}</div>`;
 }
 
 function openSettings() {
@@ -196,7 +193,7 @@ function saveGlobal() {
 async function populateProfile() {
   let el = document.getElementById("tts-profile-content");
   if (!el) return;
-  setProfileActions(""); // every path below that shows a note instead of a form leaves it empty
+  setProfileActions(false); // every path below that shows a note instead of a form keeps just Close
   if (!getActiveConvId()) {
     el.innerHTML = `<div class="tts-note">Open a conversation to set its character's voice.</div>`;
     return;
@@ -233,7 +230,7 @@ async function populateProfile() {
     return;
   }
   el.innerHTML = profileFormHtml(profile, backends, cast);
-  setProfileActions(profileActionsHtml());
+  setProfileActions(true);
   applyFieldVisibility(profile.backend);
   loadedProfile = readForm();
   loadVoices(profile.voice_id);
@@ -277,18 +274,20 @@ function profileFormHtml(p, backends, cast = null) {
     </div>`;
 }
 
-// Lives in the modal footer next to Close, so it renders only once a profile form exists.
-function profileActionsHtml() {
+// Footer order follows the other modals: the secondary action sits far left with the status
+// text, then Close and the primary action on the right. Voice buttons need a profile form.
+function settingsActionsHtml(hasProfile) {
   return `
-    <button class="btn btn-sm btn-accent" type="button" data-wf-action="tts:profileSave">Save voice</button>
-    <button class="btn btn-sm" type="button" data-wf-action="tts:preview">Preview</button>
+    ${hasProfile ? `<button class="btn" type="button" data-wf-action="tts:preview">Preview</button>` : ""}
     <span id="tts-pf-status" aria-live="polite"></span>
-    <span id="tts-pf-time" aria-hidden="true"></span>`;
+    <span id="tts-pf-time" aria-hidden="true"></span>
+    <button class="btn" data-wf-action="tts:closeSettings">Close</button>
+    ${hasProfile ? `<button class="btn btn-accent" type="button" data-wf-action="tts:profileSave">Save voice</button>` : ""}`;
 }
 
-function setProfileActions(html) {
-  const el = document.getElementById("tts-profile-actions");
-  if (el) el.innerHTML = html;
+function setProfileActions(hasProfile) {
+  const el = document.getElementById("tts-settings-actions");
+  if (el) el.innerHTML = settingsActionsHtml(hasProfile);
 }
 
 function applyFieldVisibility(backend) {
