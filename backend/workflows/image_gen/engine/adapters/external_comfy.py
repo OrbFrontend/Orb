@@ -165,6 +165,25 @@ class ExternalComfyAdapter(ImageAdapter):
         ext = self.config["external_comfy"]
         return ComfyClient(ext["api_url"], ext["api_key"])
 
+    def _check_style(self, style: Mapping[str, Any], info: Mapping[str, Any]) -> None:
+        """Validate one style's graph against the server's node catalogue."""
+        graph, slots = resolve_graph(self.config, style["workflow"])
+        if "checkpoint" in slots:
+            graph, _ = patch_graph(
+                graph,
+                slots,
+                prompt="connection test",
+                negative_prompt="",
+                seed=0,
+                checkpoint=style["checkpoint"],
+            )
+        validate_graph_structure(graph, slots, info, filled=enabled_references(slots, style_reference_source(style)))
+
+    async def validate_bound_style(self, *, allow_cached: bool = True) -> None:
+        """Validate the style bound to this adapter."""
+        info = await self._client().object_info(allow_cached=allow_cached)
+        self._check_style(self.style, info)
+
     async def validate_connection(self, *, allow_cached: bool = False) -> dict:
         """Prove this configuration can render, without submitting anything.
 
@@ -198,18 +217,7 @@ class ExternalComfyAdapter(ImageAdapter):
 
         for (graph_id, checkpoint, source), label in selections.items():
             try:
-                graph, slots = resolve_graph(config, graph_id)
-                if "checkpoint" in slots:
-                    graph, _ = patch_graph(
-                        graph,
-                        slots,
-                        prompt="connection test",
-                        negative_prompt="",
-                        seed=0,
-                        checkpoint=checkpoint,
-                    )
-                filled = enabled_references(slots, source)
-                validate_graph_structure(graph, slots, info, filled=filled)
+                self._check_style({"workflow": graph_id, "checkpoint": checkpoint, "reference_source": source}, info)
             except ImageGenerationError as exc:
                 raise ImageGenerationError(f"Style {label!r}: {exc}") from exc
         try:

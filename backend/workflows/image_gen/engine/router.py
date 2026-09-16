@@ -51,17 +51,11 @@ def get_adapter(config: Mapping[str, Any], style: Mapping[str, Any]) -> ImageAda
     return cls(config, style)
 
 
-def comfy_adapter(config: Mapping[str, Any]) -> ExternalComfyAdapter:
-    """The ComfyUI adapter explicitly, whatever any style links to. Graphs are global
-    and the importer stays usable under cloud, so `node_types` must never route by
-    a style's connection.
-
-    No style argument: its one caller asks `node_roles()`, which is pure network and
-    has no render target to answer about.
-    """
+def comfy_adapter(config: Mapping[str, Any], style: Mapping[str, Any] | None = None) -> ExternalComfyAdapter:
+    """Return the ComfyUI adapter, optionally bound to a style."""
     if _COMFY is None:  # pragma: no cover — the ComfyUI adapter has no optional deps
         raise RuntimeError("The external ComfyUI backend is unavailable")
-    return _COMFY(config)
+    return _COMFY(config, style)
 
 
 def list_sources() -> list[dict]:

@@ -257,6 +257,12 @@ def validate_graph_structure(
     if not graph:
         raise ImageGenerationError("The selected workflow is empty")
     mapped = {(str(entry["slot"][0]), str(entry["slot"][1])) for entry in filled if entry.get("slot")}
+    checkpoint_slot = slots.get("checkpoint")
+    checkpoint_input = (
+        (str(checkpoint_slot[0]), str(checkpoint_slot[1]))
+        if isinstance(checkpoint_slot, (list, tuple)) and len(checkpoint_slot) == 2
+        else None
+    )
     for node_id, node in graph.items():
         if (
             not isinstance(node, Mapping)
@@ -279,6 +285,8 @@ def validate_graph_structure(
                         f"Node {node_id} needs image {value!r} on the ComfyUI server, "
                         "or point this style's reference image at it"
                     )
+                if (str(node_id), name) == checkpoint_input:
+                    raise ImageGenerationError(f"The checkpoint {value!r} is no longer on the ComfyUI server")
                 raise ImageGenerationError(f"Node {node_id} input {name!r} is no longer available on this server")
     for role in ("positive", "negative", "seed", "width", "height"):
         if role in OPTIONAL_SLOTS and role not in slots:

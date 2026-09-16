@@ -207,13 +207,30 @@ def test_a_valid_graph_passes_structural_validation():
     ("break_it", "match"),
     [
         (lambda g, s: g["6"].__setitem__("class_type", "SomeCustomTextEncode"), "SomeCustomTextEncode"),
-        (lambda g, s: g["4"]["inputs"].__setitem__("ckpt_name", "deleted.safetensors"), "no longer available"),
+        (
+            lambda g, s: g["4"]["inputs"].__setitem__("ckpt_name", "deleted.safetensors"),
+            "checkpoint 'deleted.safetensors' is no longer on the ComfyUI server",
+        ),
+        (
+            lambda g, s: (
+                g["3"]["inputs"].__setitem__("sampler_name", "gone"),
+                s.pop("checkpoint", None),
+            ),
+            "no longer available",
+        ),
         (lambda g, s: s.__setitem__("positive", ["6", "prompt_text"]), "positive slot"),
         # VAEDecode: a real node, but it saves nothing.
         (lambda g, s: s.__setitem__("output", ["8", "images"]), "does not save or preview"),
         (lambda g, s: s.__setitem__("output", ["999", "images"]), "no configured output node"),
     ],
-    ids=["unknown node type", "stale combo value", "slot on a missing input", "output saves nothing", "output node absent"],
+    ids=[
+        "unknown node type",
+        "deleted checkpoint",
+        "stale combo value",
+        "slot on a missing input",
+        "output saves nothing",
+        "output node absent",
+    ],
 )
 def test_validation_names_what_this_server_cannot_run(break_it, match):
     graph, slots = _core()

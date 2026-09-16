@@ -16,9 +16,20 @@ from backend.database import (
 )
 from backend.inference import LLMClient, _KVCacheTracker
 from backend.pipeline.workflow_bridge import _run_post_pipeline
-from backend.workflows import set_workflow_character_state, set_workflow_config
-from backend.workflows.image_gen.config import CONFIG_DEFAULTS
-from backend.workflows.image_gen.engine import ImageResult
+from backend.workflows import (
+    get_workflow_config,
+    set_workflow_character_state,
+    set_workflow_config,
+)
+from backend.workflows.image_gen.config import (
+    CONFIG_DEFAULTS,
+    active_style,
+    normalize_config,
+)
+from backend.workflows.image_gen.engine import ImageGenerationError, ImageResult, health
+from backend.workflows.image_gen.engine.adapters.external_comfy import (
+    ExternalComfyAdapter,
+)
 
 
 def _avatar(red: int = 30) -> str:
@@ -50,6 +61,13 @@ async def _status(client) -> dict:
     response = await client.post("/api/workflows/image_gen/query", json={"action": "status"})
     assert response.status_code == 200
     return response.json()
+
+
+@pytest.fixture(autouse=True)
+def _forget_health():
+    health.forget()
+    yield
+    health.forget()
 
 
 async def _attachment_from(response) -> dict:
@@ -731,3 +749,134 @@ async def test_completing_a_turn_produces_no_image_and_no_image_inference(client
 
     assert not [att for att in events[-1].staged_attachments if att.get("workflow_id") == "image_gen"]
     assert await get_workflow_attachments_for_message(mid) == []
+
+
+# Workflow probe behavior.
+
+
+def _two_styles() -> dict:
+    return {
+        "default_style": "good",
+        "external_comfy": {
+            "styles": [
+                {"id": "good", "label": "Perfectly OK style", "workflow": "user_self"},
+                {"id": "bad", "label": "Broken style", "workflow": "user_self"},
+            ],
+            "user_graphs": [_SELF_CONTAINED],
+        },
+    }
+
+
+async def _probe(client, style_id: str = "") -> dict:
+    body = {"action": "probe"}
+    if style_id:
+        body["style_id"] = style_id
+    response = await client.post("/api/workflows/image_gen/query", json=body)
+    assert response.status_code == 200
+    return response.json()
+
+
+@pytest.mark.asyncio
+async def test_a_workflow_that_cannot_run_here_is_reported_to_the_card(client, monkeypatch):
+    await set_workflow_config("image_gen", _two_styles())
+
+    async def missing_checkpoint(self, *, allow_cached=True):
+        raise ImageGenerationError("The checkpoint 'sd.safetensors' is no longer on the ComfyUI server")
+
+    monkeypatch.setattr(ExternalComfyAdapter, "validate_bound_style", missing_checkpoint)
+
+    assert "sd.safetensors" in (await _probe(client, "good"))["failure"]["detail"]
+    status = await _status(client)
+    assert status["ready"] is True, "a broken workflow must not hide the controls that fix it"
+    assert status["failure"]["style_label"] == "Perfectly OK style"
+
+
+@pytest.mark.asyncio
+async def test_the_probe_judges_only_the_style_it_was_asked_about(client, monkeypatch):
+    await set_workflow_config("image_gen", _two_styles())
+    asked: list[str] = []
+
+    async def only_the_bound_style(self, *, allow_cached=True):
+        asked.append(self.style["id"])
+        if self.style["id"] == "bad":
+            raise ImageGenerationError("The checkpoint 'gone.safetensors' is no longer on the ComfyUI server")
+
+    monkeypatch.setattr(ExternalComfyAdapter, "validate_bound_style", only_the_bound_style)
+
+    assert (await _probe(client, "bad"))["failure"]["style_label"] == "Broken style"
+    assert asked == ["bad"]
+    assert (await _status(client))["failure"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_probe_that_passes_clears_a_standing_finding(client, monkeypatch):
+    await set_workflow_config("image_gen", _two_styles())
+    config = normalize_config(await get_workflow_config("image_gen"))
+    health.record_failure(config, active_style(config), "checkpoint gone")
+    assert (await _status(client))["failure"] is not None
+
+    async def fine(self, *, allow_cached=True):
+        return None
+
+    monkeypatch.setattr(ExternalComfyAdapter, "validate_bound_style", fine)
+    assert (await _probe(client, "good"))["failure"] is None
+    assert (await _status(client))["failure"] is None
+
+
+@pytest.mark.asyncio
+async def test_editing_the_style_retires_the_finding(client):
+    await set_workflow_config("image_gen", _two_styles())
+    config = normalize_config(await get_workflow_config("image_gen"))
+    health.record_failure(config, active_style(config), "checkpoint gone")
+    assert (await _status(client))["failure"] is not None
+
+    repaired = _two_styles()
+    repaired["external_comfy"]["styles"][0]["checkpoint"] = "restored.safetensors"
+    await set_workflow_config("image_gen", repaired)
+
+    assert (await _status(client))["failure"] is None
+
+
+@pytest.mark.asyncio
+async def test_an_unreachable_server_is_reported_rather_than_500ing(client, monkeypatch):
+    await set_workflow_config("image_gen", _two_styles())
+
+    async def unreachable(self, *, allow_cached=True):
+        raise ImageGenerationError("Could not communicate with ComfyUI")
+
+    monkeypatch.setattr(ExternalComfyAdapter, "validate_bound_style", unreachable)
+    assert "Could not communicate" in (await _probe(client, "good"))["failure"]["detail"]
+
+
+@pytest.mark.asyncio
+async def test_an_unfinished_style_is_not_probed_on_top_of_its_setup_prompt(client, monkeypatch):
+    await set_workflow_config(
+        "image_gen",
+        {"default_style": "new", "external_comfy": {"styles": [{"id": "new", "label": "New style"}]}},
+    )
+
+    async def forbidden(self, *, allow_cached=True):
+        raise AssertionError("an unfinished style must not be probed")
+
+    monkeypatch.setattr(ExternalComfyAdapter, "validate_bound_style", forbidden)
+
+    assert (await _probe(client, "new"))["failure"] is None
+    assert (await _status(client))["reason"] == "no_workflow"
+
+
+@pytest.mark.asyncio
+async def test_a_cloud_style_is_never_probed(client, monkeypatch):
+    await set_workflow_config(
+        "image_gen",
+        {
+            "default_style": "grok",
+            "styles": [{"id": "grok", "label": "Grok", "connection": "xai"}],
+            "cloud": {"providers": {"xai": {"api_key": "k"}}},
+        },
+    )
+
+    def forbidden(self, *, allow_cached=True):
+        raise AssertionError("a cloud style must not be probed")
+
+    monkeypatch.setattr(ExternalComfyAdapter, "validate_bound_style", forbidden)
+    assert (await _probe(client, "grok"))["failure"] is None

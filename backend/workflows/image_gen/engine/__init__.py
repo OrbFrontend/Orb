@@ -1,5 +1,6 @@
 """Public image-generation engine facade."""
 
+from . import health
 from .contracts import (
     ImageGenerationError,
     ImageRequest,
@@ -17,6 +18,7 @@ __all__ = [
     "ProgressCallback",
     "comfy_adapter",
     "get_adapter",
+    "health",
     "list_sources",
     "recorded_edge",
     "resolve_and_generate",

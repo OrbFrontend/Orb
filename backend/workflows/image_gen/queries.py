@@ -4,8 +4,20 @@ from __future__ import annotations
 
 from ..toolkit import get_workflow_config
 from . import pov as pov_mod
-from .config import MAX_REFERENCE_SLOTS, WORKFLOW_ID, active_style, normalize_config
-from .engine import ImageGenerationError, comfy_adapter, get_adapter, list_sources
+from .config import (
+    MAX_REFERENCE_SLOTS,
+    WORKFLOW_ID,
+    active_style,
+    normalize_config,
+    style_source,
+)
+from .engine import (
+    ImageGenerationError,
+    comfy_adapter,
+    get_adapter,
+    health,
+    list_sources,
+)
 from .engine.providers import provider_catalogue
 
 MAX_INSPECTED_CLASS_TYPES = 200
@@ -39,6 +51,7 @@ async def _status(body) -> dict:
     adapter = _default_adapter(config)
     return {
         "source": config["source"],
+        "failure": health.verdict(config, active_style(config)),
         "capabilities": dict(adapter.capabilities),
         "sources": list_sources(),
         "providers": provider_catalogue(MAX_REFERENCE_SLOTS),
@@ -65,6 +78,10 @@ async def _styles(body) -> dict:
     }
 
 
+def _style_by_id(config, style_id: str):
+    return next((s for s in config["styles"] if s["id"] == style_id), None)
+
+
 async def _test_connection(body) -> dict:
     explicit = isinstance(body, dict) and isinstance(body.get("config"), dict)
     config = await _config_from_query(body)
@@ -72,6 +89,29 @@ async def _test_connection(body) -> dict:
         return await _default_adapter(config).validate_connection(allow_cached=not explicit)
     except (ImageGenerationError, ValueError) as exc:
         return {"error": str(exc)}
+
+
+async def _probe(body) -> dict:
+    """Probe the selected ComfyUI style without raising to the API caller."""
+    config = await _config_from_query(body)
+    requested = body.get("style_id") if isinstance(body, dict) else None
+    style = _style_by_id(config, requested) if isinstance(requested, str) and requested else active_style(config)
+    if style is None:
+        return {"failure": None}
+    source, _ = style_source(config, style)
+    if source != "external_comfy":
+        return {"failure": None}
+    adapter = comfy_adapter(config, style)
+    if not adapter.readiness()["ready"]:
+        health.record_success(config, style)
+        return {"failure": None}
+    try:
+        await adapter.validate_bound_style(allow_cached=True)
+    except (ImageGenerationError, ValueError) as exc:
+        health.record_failure(config, style, str(exc))
+    else:
+        health.record_success(config, style)
+    return {"failure": health.verdict(config, style)}
 
 
 async def _external_models(body) -> dict:
@@ -104,6 +144,7 @@ async def _node_types(body) -> dict:
 _QUERY_ACTIONS = {
     "status": _status,
     "styles": _styles,
+    "probe": _probe,
     "test": _test_connection,
     "models": _external_models,
     "node_types": _node_types,

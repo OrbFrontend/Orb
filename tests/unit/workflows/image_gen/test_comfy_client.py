@@ -232,3 +232,123 @@ async def test_one_node_class_is_read_without_pulling_the_whole_catalogue():
     assert await client.node_info("Seed (rgthree)") == catalogue["Seed (rgthree)"]
     assert paths == ["/object_info/Seed%20%28rgthree%29", "/object_info"]
     invalidate_object_info()
+
+
+# Execution failure messages.
+
+
+def _error_history(prompt_id: str = "p1", **data) -> dict:
+    return {
+        prompt_id: {
+            "status": {
+                "completed": False,
+                "status_str": "error",
+                "messages": [["execution_start", {}], ["execution_error", {"prompt_id": prompt_id, **data}]],
+            },
+            "outputs": {},
+        }
+    }
+
+
+def _serving(history: dict):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/prompt":
+            return httpx.Response(200, json={"prompt_id": "p1", "number": 1})
+        if request.url.path.startswith("/history"):
+            return httpx.Response(200, json=history)
+        return httpx.Response(200, json={})
+
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_an_execution_failure_names_the_node_that_raised_it():
+    history = _error_history(
+        node_id="4",
+        node_type="CheckpointLoaderSimple",
+        exception_type="FileNotFoundError",
+        exception_message="No such file: /home/z/ComfyUI/models/checkpoints/anime.safetensors",
+        traceback=['  File "/home/z/ComfyUI/execution.py", line 1'],
+    )
+    client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(_serving(history)))
+
+    with pytest.raises(ImageGenerationError) as raised:
+        await client.generate({}, "9", timeout_seconds=2)
+
+    message = str(raised.value)
+    assert "node 4" in message
+    assert "CheckpointLoaderSimple" in message
+    assert "FileNotFoundError" in message
+    assert "/home/z" not in message
+
+
+@pytest.mark.asyncio
+async def test_a_custom_nodes_qualified_exception_type_is_reported_by_name():
+    history = _error_history(node_id="7", node_type="GGUFLoader", exception_type="safetensors_rust.SafetensorError")
+    client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(_serving(history)))
+
+    with pytest.raises(ImageGenerationError, match="raised SafetensorError"):
+        await client.generate({}, "9", timeout_seconds=2)
+
+
+@pytest.mark.asyncio
+async def test_an_execution_failure_with_nothing_to_say_still_reports_cleanly():
+    client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(_serving(_error_history())))
+
+    with pytest.raises(ImageGenerationError, match="^ComfyUI could not complete the image$"):
+        await client.generate({}, "9", timeout_seconds=2)
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_checkpoint_is_quoted_by_name():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "error": {"type": "prompt_outputs_failed_validation"},
+                "node_errors": {
+                    "4": {
+                        "errors": [
+                            {
+                                "type": "value_not_in_list",
+                                "extra_info": {"input_name": "ckpt_name", "received_value": "anime.safetensors"},
+                            }
+                        ]
+                    }
+                },
+            },
+        )
+
+    client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(handler))
+    with pytest.raises(ImageGenerationError, match="checkpoint 'anime.safetensors' is no longer"):
+        await client.generate({}, "9", timeout_seconds=2)
+
+
+@pytest.mark.asyncio
+async def test_a_loader_that_is_not_a_checkpoint_is_named_rather_than_generalised():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "error": {"type": "prompt_outputs_failed_validation"},
+                "node_errors": {
+                    "11": {
+                        "errors": [
+                            {
+                                "type": "value_not_in_list",
+                                "extra_info": {"input_name": "unet_name", "received_value": "flux.gguf"},
+                            }
+                        ]
+                    }
+                },
+            },
+        )
+
+    client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(handler))
+    with pytest.raises(ImageGenerationError) as raised:
+        await client.generate({}, "9", timeout_seconds=2)
+
+    message = str(raised.value)
+    assert "'unet_name'" in message
+    assert "node 11" in message
+    assert "flux.gguf" in message

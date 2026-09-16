@@ -87,10 +87,11 @@ let pendingConnections = new Set();
 
 export function initConfigPanel(sharedConfig) {
   cfg = sharedConfig;
-  registerAction(WORKFLOW_ID, "settings", () => openSettings());
+  registerAction(WORKFLOW_ID, "settings", (el) => openSettings(el?.dataset?.styleId || ""));
   registerAction(WORKFLOW_ID, "pickStyle", async (el) => {
     await saveConfigPatch({ default_style: el.value }, "Could not save default style");
     refreshCardReadiness();
+    probeStyleWorkflow(el.value);
   });
   registerAction(WORKFLOW_ID, "pickPov", (el) => saveConfigPatch({ pov_mode: el.value }, "Could not save the camera"));
   registerAction(WORKFLOW_ID, "editStyle", (el) => openSettings(el.dataset.styleId));
@@ -120,7 +121,7 @@ function query(action, extra) {
   return api.post(`/workflows/${WORKFLOW_ID}/query`, { action, ...extra });
 }
 
-let cardReadiness = { text: "", ready: true };
+let cardReadiness = { text: "", ready: true, styleId: "", failure: null };
 let cardPov = { classifier: true, fallback: "third" };
 let cardStyles = [];
 
@@ -135,20 +136,35 @@ function cardStyleOptions() {
   );
 }
 
+const settingsButton = (label, styleId, extraClass = "") =>
+  `<button class="btn btn-sm ${extraClass}" data-wf-action="image_gen:settings" data-style-id="${escAttr(styleId || "")}">${esc(label)}</button>`;
+
+function failureStrip() {
+  const failure = cardReadiness.failure;
+  if (!failure) return "";
+  const on = failure.style_label ? ` — ${failure.style_label}` : "";
+  return `<div class="image-gen-card-alert">
+    <div class="image-gen-card-alert-head">${esc(`This style cannot render${on}`)}</div>
+    <div class="image-gen-card-alert-detail">${esc(failure.detail)}</div>
+    ${settingsButton("Fix", failure.style_id, "image-gen-card-btn")}
+  </div>`;
+}
+
 function configPanelBody() {
   if (!cardReadiness.ready) {
     return `<div class="image-gen-card-setup">
-      <span class="image-gen-card-status" title="${escAttr(cardReadiness.text)}">Setup required</span>
-      <button class="btn btn-sm btn-accent image-gen-card-btn" data-wf-action="image_gen:settings">Finish setup</button>
-    </div>`;
+        <span class="image-gen-card-status image-gen-card-unready">Setup required</span>
+        ${settingsButton("Finish setup", cardReadiness.styleId, "btn-accent image-gen-card-btn")}
+      </div>
+      <div class="image-gen-card-alert-detail">${esc(cardReadiness.text || "Not configured")}</div>`;
   }
 
   const stylePicker = cardStyles.length
     ? `<label for="ig-card-style">Style</label><select id="ig-card-style" class="tool-card-select" data-wf-action="image_gen:pickStyle" data-wf-on="change">${cardStyleOptions()}</select>`
     : "";
-  return `<div class="image-gen-card-controls">${stylePicker}${povPicker()}</div>
+  return `${failureStrip()}<div class="image-gen-card-controls">${stylePicker}${povPicker()}</div>
     <div class="image-gen-card-summary">${esc(cardSummary(cfg, cardStyles, backends.providers))}</div>
-    <button class="btn btn-sm tool-card-btn" data-wf-action="image_gen:settings">Settings</button>`;
+    ${settingsButton("Settings", "", "tool-card-btn")}`;
 }
 
 function cardPovOptions() {
@@ -195,6 +211,8 @@ export async function refreshCardReadiness() {
     const status = await query("status");
     cardReadiness = {
       ready: !!status?.ready,
+      styleId: status?.default_style || "",
+      failure: status?.failure || null,
       text: status?.ready
         ? `Ready — ${status.style_count} style${status.style_count === 1 ? "" : "s"}`
         : status?.detail || "Not configured",
@@ -205,8 +223,31 @@ export async function refreshCardReadiness() {
       providers: Array.isArray(status?.providers) ? status.providers : backends.providers,
     };
   } catch {
-    cardReadiness = { ready: false, text: "" };
+    cardReadiness = {
+      ready: false,
+      styleId: "",
+      failure: null,
+      text: "Orb could not read the image settings. Check that the app is still running, then reload.",
+    };
   }
+  refreshCard();
+}
+
+/** Probe the selected ComfyUI workflow. */
+async function probeStyleWorkflow(styleId, { draft: fromDraft = false } = {}) {
+  if (!styleId) return;
+  probeIds[styleId] = (probeIds[styleId] || 0) + 1;
+  const probeId = probeIds[styleId];
+  let failure = null;
+  try {
+    const body = fromDraft ? { style_id: styleId, config: readConfig() } : { style_id: styleId };
+    failure = (await query("probe", body))?.failure || null;
+  } catch {
+    return;
+  }
+  if (probeIds[styleId] !== probeId) return;
+  if (styleId !== (cfg?.default_style || "")) return;
+  cardReadiness = { ...cardReadiness, failure };
   refreshCard();
 }
 
@@ -714,6 +755,8 @@ function refreshStyleState(el) {
   const row = el.closest("[data-style-index]");
   if (STRUCTURAL_STYLE_FIELDS.includes(el.dataset.igField)) {
     rebuildStyleRow(row);
+    if (el.dataset.igField === "workflow")
+      probeStyleWorkflow(draft.styles[Number(row?.dataset.styleIndex)]?.id, { draft: true });
     return;
   }
   captureStyles();
@@ -873,8 +916,8 @@ function addRowHtml() {
 }
 
 function setupTargets() {
-  if (cardReadiness.ready) return [];
-  return [connections.find((c) => !c.ready)?.id || COMFY_CONNECTION];
+  const unready = connections.find((c) => !c.ready);
+  return unready ? [unready.id] : [];
 }
 
 const SUMMARY_NAMES = 2;
@@ -1057,6 +1100,7 @@ function openSettings(expandStyleId = "") {
     default_style: cfg.default_style || "",
   };
   rebuildConnections();
+  const connectionTargets = setupTargets();
   showModal(`<h2>Image Generation</h2><div class="image-gen-settings">
     <section class="ig-section">
       <div class="ig-heading">Styles</div>
@@ -1088,11 +1132,11 @@ function openSettings(expandStyleId = "") {
           <button class="btn btn-sm" data-wf-action="image_gen:skillAdd">Add skill</button>
         </div>
       </details>
-      <details class="ig-advanced" id="ig-connections"${cardReadiness.ready ? "" : " open"}>
+      <details class="ig-advanced" id="ig-connections"${connectionTargets.length ? " open" : ""}>
         <summary>Connections<span class="ig-summary-note" id="ig-conn-summary">${esc(connectionSummaryText())}</span></summary>
         <div class="ig-advanced-body">
           <div class="image-gen-note">Where images render. Every style links to a connection, which can be local or cloud-based. ComfyUI is always available and cannot be removed.</div>
-          <div id="ig-conn-list" class="ig-conn-list">${connectionRows(setupTargets())}</div>
+          <div id="ig-conn-list" class="ig-conn-list">${connectionRows(connectionTargets)}</div>
           <div id="ig-conn-add-row" class="image-gen-row">${addRowHtml()}</div>
         </div>
       </details>

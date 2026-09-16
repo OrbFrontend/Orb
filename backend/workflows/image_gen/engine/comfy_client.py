@@ -60,13 +60,61 @@ def _first_input_name(node_errors: Any) -> str | None:
     return None
 
 
+def _execution_failure(status: Any) -> str:
+    """Return a safe, concise message for a ComfyUI execution error."""
+    messages = (status or {}).get("messages") if isinstance(status, Mapping) else None
+    for entry in messages if isinstance(messages, list) else []:
+        if not isinstance(entry, (list, tuple)) or len(entry) != 2 or entry[0] != "execution_error":
+            continue
+        data = entry[1]
+        if not isinstance(data, Mapping):
+            continue
+        node = str(data.get("node_id") or "")[:40]
+        node_type = str(data.get("node_type") or "")[:80]
+        # Keep only the exception name; messages and tracebacks may contain paths.
+        kind = str(data.get("exception_type") or "")[:120].rsplit(".", 1)[-1]
+        where = f"node {node} ({node_type})" if node and node_type else f"node {node}" if node else ""
+        if where and kind:
+            return f"ComfyUI could not complete the image: {where} raised {kind}"
+        if where:
+            return f"ComfyUI could not complete the image: {where} failed"
+        if kind:
+            return f"ComfyUI could not complete the image: {kind}"
+        break
+    return "ComfyUI could not complete the image"
+
+
+def _rejected_value(node_errors: Any) -> tuple[str, str]:
+    """Return the first rejected node/value pair."""
+    if not isinstance(node_errors, Mapping):
+        return "", ""
+    for node_id, value in node_errors.items():
+        errors = value.get("errors") if isinstance(value, Mapping) else None
+        for item in errors if isinstance(errors, list) else []:
+            extra = item.get("extra_info") if isinstance(item, Mapping) else None
+            received = (extra or {}).get("received_value") if isinstance(extra, Mapping) else None
+            if isinstance(received, str) and received:
+                return str(node_id)[:40], received[:200]
+    return "", ""
+
+
 def _validation_message(payload: Any) -> str:
     if not isinstance(payload, Mapping):
         return "ComfyUI rejected the workflow"
     error = payload.get("error")
     error_type = error.get("type") if isinstance(error, Mapping) else None
-    if _first_input_name(payload.get("node_errors")) == "ckpt_name":
-        return "The selected checkpoint is no longer on the ComfyUI server"
+    node_errors = payload.get("node_errors")
+    input_name = _first_input_name(node_errors)
+    node_id, received = _rejected_value(node_errors)
+    if input_name == "ckpt_name":
+        return (
+            f"The checkpoint {received!r} is no longer on the ComfyUI server"
+            if received
+            else "The selected checkpoint is no longer on the ComfyUI server"
+        )
+    if input_name and node_id:
+        rejected = f" -- {received!r} is not available" if received else ""
+        return f"ComfyUI rejected {input_name!r} on node {node_id}{rejected}"
     if error_type:
         return f"ComfyUI rejected the workflow ({error_type})"
     return "ComfyUI rejected the workflow"
@@ -251,7 +299,7 @@ class ComfyClient:
                     record = item
                     break
                 if isinstance(status, Mapping) and status.get("status_str") == "error":
-                    raise ImageGenerationError("ComfyUI could not complete the image")
+                    raise ImageGenerationError(_execution_failure(status))
             if waiting:
                 previous, ahead = ahead, await self.queue_ahead(number, timeout=queue_timeout)
                 waiting = bool(ahead)
