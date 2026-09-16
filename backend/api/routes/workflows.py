@@ -43,6 +43,7 @@ from ...workflows import (
     get_workflow,
     get_workflow_config,
     list_workflows,
+    prose_rewriter_host,
     set_workflow_config,
 )
 from ...workflows.attachment_cache import (
@@ -210,6 +211,10 @@ async def api_set_workflow_enabled(workflow_id: str, data: WorkflowEnabledUpdate
     if get_workflow(workflow_id) is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
     await set_workflow_enabled(workflow_id, data.enabled)
+    if workflow_id == prose_rewriter_host.FEATURE:
+        # Its model can hold gigabytes of VRAM: free it now rather than after
+        # the idle timeout, and warm it when the rewriter is switched back on.
+        await prose_rewriter_host.on_enabled(data.enabled)
     settings = await get_settings()
     logger.info("workflow %r enabled=%s", scrub_log(workflow_id), data.enabled)
     return {"workflow_enabled": settings.get("workflow_enabled", {})}

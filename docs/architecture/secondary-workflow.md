@@ -219,8 +219,10 @@ Pre-hooks can add system blocks, enable tools, or emit public events. Post-hooks
 can replace the draft, set message state, stage attachments, or emit public
 events. Hooks run in subscription priority order. The Prose Rewriter is a
 registered post-hook; its negative priority puts it before Format Consistency
-and artifact workflows. Its standard workflow toggle controls automatic runs,
-while Local ML owns engine availability, model selection, and runtime lifecycle.
+and artifact workflows. Its standard workflow toggle turns the rewriter on for
+both automatic runs and the saved-message rewrite route, and its `automatic`
+config gates the post-hook alone. Its workflow card manages the model through
+the generic Local ML routes, which also own the shared llama-server runtime.
 A hook failure is isolated so the main reply and other workflows can continue.
 
 Use `forced_tool_call` for a one-shot tool call. Pass the context's prefix,

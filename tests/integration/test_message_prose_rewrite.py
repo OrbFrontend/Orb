@@ -93,10 +93,10 @@ async def test_rewrites_saved_assistant_message_and_stales_its_proposals(client,
     assert await _content(db, message_id) == "Rewritten reply."
 
 
-async def test_manual_rewrite_remains_available_when_automatic_workflows_are_off(client, db, monkeypatch):
+async def test_manual_rewrite_remains_available_when_automatic_rewriting_is_off(client, db, monkeypatch):
     cid = "message-prose-manual-only"
     message_id = await _assistant_message(cid, "Visible reply.", writer_draft="Editor-final draft.")
-    await dbmod.set_workflow_enabled("prose_rewriter", False)
+    await dbmod.set_workflow_config("prose_rewriter", {"automatic": False})
     _enable(monkeypatch)
 
     async def fake_rewrite(source, _config):

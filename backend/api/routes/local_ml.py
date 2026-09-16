@@ -11,7 +11,13 @@ from fastapi import APIRouter, Body, HTTPException
 
 from ...database import get_settings, set_local_ml_enabled
 from ...inference import local_ml
-from ...inference.local_models import assets, catalog, dependencies, onnx_runtime
+from ...inference.local_models import (
+    assets,
+    catalog,
+    dependencies,
+    llama_server,
+    onnx_runtime,
+)
 from ...inference.local_models.llama_server import binary as llama_binary
 from ...workflows import prose_rewriter_host, spark_tts_host
 from ..deps import _download_lock
@@ -273,12 +279,13 @@ async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B
 
 
 @router.post("/api/local-ml/runtime")
-@router.post("/api/local-ml/prose_rewriter/runtime", include_in_schema=False)
 async def api_local_ml_runtime():
     """Fetch the shared llama-server runtime used by local model features."""
     async with _download_lock:
         try:
-            path = await prose_rewriter_host.fetch_runtime()
+            # The fetch replaces the binaries every running child was launched from.
+            await llama_server.manager.release_all()
+            path = await asyncio.to_thread(llama_binary.fetch)
         except llama_binary.LlamaServerMissing as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from None
         except Exception:

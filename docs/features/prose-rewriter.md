@@ -22,17 +22,19 @@ first secondary text workflow. Later workflows receive its rewritten text. In
 group chats, Orb runs the rewriter separately for each speaker. The retained
 snapshot and final reply are committed together after the workflows finish.
 
-Prose Rewriter does not require the Agent toggle. Automatic rewriting requires
-both the Prose Rewriter workflow and its Local ML engine to be enabled. Turning
-off Secondary Workflows skips the automatic pass. Document mode has a separate
-Output Auditor and does not use this workflow.
+Prose Rewriter does not require the Agent toggle. Its workflow toggle turns the
+rewriter on; **Rewrite every reply automatically**, on by default, decides whether
+generated turns run through it. Turning off the toggle or Secondary Workflows
+turns the rewriter off entirely. Document mode has a separate Output Auditor and
+does not use this workflow.
 
 ## Rewrite an existing reply
 
-The rewrite button appears under a saved assistant reply when the Local ML engine
-is on. Manual rewrites remain available when the automatic workflow or the
-Secondary Workflows master switch is off. Orb uses the retained post-Editor
-draft when it is available; otherwise it uses the saved reply.
+The rewrite button appears under a saved assistant reply when the rewriter is on
+and a model is downloaded. It stays available with **Rewrite every reply
+automatically** off, so you can rewrite only the replies you pick. Orb uses the
+retained post-Editor draft when it is available; otherwise it uses the saved
+reply.
 
 - A rewrite from the retained draft preserves Editor patches while replacing the
   previous Prose Rewriter result and any later text-workflow changes.
@@ -47,20 +49,22 @@ closed tab leaves the saved reply unchanged.
 
 ## Install it
 
-Open **Settings → Local ML → Prose Rewriter**.
+Open **Workflow → Secondary**, turn on **Prose Rewriter**, and select **Download**
+beside a model variant.
 
 ### Runtime
 
-Select **Download** to install Orb's pinned `llama-server` build from the official
-[llama.cpp releases](https://github.com/ggml-org/llama.cpp). Orb stores it in
-`backend/data/llama-bin/`.
+The first model download also installs Orb's pinned `llama-server` build (about
+150 MB) from the official [llama.cpp releases](https://github.com/ggml-org/llama.cpp).
+Orb stores it in `backend/data/llama-bin/`. The Spark-TTS voice model uses the
+same runtime, so whichever feature you set up first fetches it.
 
 You can provide an existing executable with the `ORB_LLAMA_SERVER` environment
 variable. A configured path must be executable. Set `ORB_LLAMA_CPP_BUILD=latest`
 or a `bNNNNN` tag to override Orb's pinned build.
 
-**Run on GPU** selects the Vulkan build during download and controls GPU layers
-after installation. **Parallel batch** controls how many paragraphs are decoded
+**Run on GPU** switches between the GPU and CPU builds, which are installed
+together. **Parallel batch** controls how many paragraphs are decoded
 at once; larger values use more memory. The default batch is 4, with a maximum of
 8.
 
@@ -86,9 +90,9 @@ Approximate memory for batch 4:
 | 4B Q8_0 | 5.5 GB |
 
 The local process unloads after five minutes without work. Set
-`ORB_PROSE_REWRITER_IDLE` in seconds to change that timeout. Switching the Local
-ML engine off unloads it without waiting for that timeout; a rewrite already
-running finishes first.
+`ORB_PROSE_REWRITER_IDLE` in seconds to change that timeout. Switching the
+workflow off unloads it without waiting for that timeout and stops a load still
+in progress; a rewrite already running finishes first.
 
 If the local model fails to start or stops, Orb keeps the Editor's reply and
 shows a warning.

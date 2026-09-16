@@ -125,6 +125,55 @@ async def test_release_with_no_child_still_forces_the_next_load(host):
     assert host.healthy is False
 
 
+class _SlowBootServer(_StoppableServer):
+    """A child that is still loading until *booted* is set."""
+
+    started: list[_SlowBootServer] = []
+
+    def __init__(self, profile: LaunchProfile, _executable=None) -> None:
+        super().__init__(profile)
+        self.ready = False
+        self.booted = asyncio.Event()
+        _SlowBootServer.started.append(self)
+
+    async def start(self) -> None:
+        return None
+
+    async def wait_ready(self) -> None:
+        await self.booted.wait()
+        self.ready = True
+
+
+@pytest.fixture
+def slow_boot(monkeypatch):
+    from backend.inference.local_models.llama_server import host as H
+
+    _SlowBootServer.started = []
+    monkeypatch.setattr(H.binary, "find_binary", lambda gpu=True: "/bin/llama-server")
+    monkeypatch.setattr(H.binary, "gpu_capable", lambda _binary: True)
+    monkeypatch.setattr(H, "LlamaServerClient", _SlowBootServer)
+    return _SlowBootServer.started
+
+
+async def test_a_cancelled_load_stops_its_child(host, slow_boot):
+    """An aborted turn or a feature switched off mid-load cancels the loader.
+    Nothing else holds the half-started child, so the host must stop it — or it
+    keeps its VRAM with the panel reading "loading" until Orb exits."""
+    loading = asyncio.create_task(host.ensure(_profile()))
+    while not slow_boot:
+        await asyncio.sleep(0)
+    assert host.state == "loading"
+
+    loading.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await loading
+
+    assert slow_boot[0].stopped is True
+    assert host.server is None
+    assert host.state == "idle"
+    assert host.healthy is False
+
+
 async def test_the_gpu_setting_selects_which_build_is_launched(host, monkeypatch):
     """The switch, at the seam that performs it.
 

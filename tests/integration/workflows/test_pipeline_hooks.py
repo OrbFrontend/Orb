@@ -17,6 +17,7 @@ from backend.database import (
     get_messages,
     get_workflow_message_state,
     set_active_leaf,
+    set_workflow_config,
 )
 from backend.inference import LLMClient, _KVCacheTracker
 from backend.pipeline.orchestrator import _run_pipeline
@@ -267,7 +268,7 @@ async def test_post_pipeline_iter_drops_malformed_public_events(bad_event):
     assert isinstance(events[0], _PostPipelineResult)
 
 
-async def test_prose_rewriter_runs_before_registered_post_pipeline_hooks():
+async def test_prose_rewriter_runs_before_registered_post_pipeline_hooks(client):
     seen: list[str] = []
 
     async def prose_rewrite(source, config):
@@ -320,13 +321,16 @@ async def test_prose_rewriter_runs_before_registered_post_pipeline_hooks():
     [
         {"workflow_enabled": {"prose_rewriter": False}},
         {"workflows_globally_enabled": 0},
+        None,  # on, with automatic rewriting switched off
     ],
 )
-async def test_prose_rewriter_automatic_hook_obeys_workflow_enablement(workflow_settings):
-    with patch(
-        "backend.workflows.prose_rewriter_host.resolve_config",
-        side_effect=AssertionError("a disabled automatic hook must not resolve or start its engine"),
-    ):
+async def test_prose_rewriter_automatic_hook_obeys_workflow_enablement(client, workflow_settings):
+    if workflow_settings is None:
+        await set_workflow_config("prose_rewriter", {"automatic": False})
+        workflow_settings = {}
+    # A disabled automatic hook must not resolve or start its engine. Asserted on
+    # the mock: the bridge isolates hook exceptions, so raising would pass too.
+    with patch("backend.workflows.prose_rewriter_host.resolve_config", return_value=None) as resolve:
         events = [
             event
             async for event in _run_post_pipeline(
@@ -347,6 +351,7 @@ async def test_prose_rewriter_automatic_hook_obeys_workflow_enablement(workflow_
             )
         ]
 
+    resolve.assert_not_called()
     assert len(events) == 1
     assert isinstance(events[0], _PostPipelineResult)
     assert events[0].draft == "Editor-final draft."
@@ -547,7 +552,7 @@ def test_stage_attachment_non_dict_consumption_metadata_coerces_to_none_without_
 # -- _run_pipeline post-pipeline iteration --------------------------------
 
 
-async def test_prose_rewriter_does_not_force_the_editor_to_run():
+async def test_prose_rewriter_does_not_force_the_editor_to_run(client):
     async def mock_writer(c, *args, **kwargs):
         yield {"type": "content", "delta": "Writer draft."}
 

@@ -120,13 +120,8 @@ def find_binary(gpu: bool = True) -> Path:
     local = Path(flavour_dir(gpu)) / BINARY_NAME
     if _executable(local):
         return local
-    # NAMES A FEATURE, DELIBERATELY, in shared code. This is panel text, the
-    # prose rewriter is the only place in the UI that offers the fetch, and a
-    # generic "no binary" message would send the user nowhere. The moment a
-    # second llama-server feature exists this becomes wrong, and it is a
-    # one-line fix then.
     raise LlamaServerMissing(
-        "No llama-server binary. Fetch one from Settings → Local ML → Prose Rewriter, "
+        "No llama-server binary. Downloading a model that needs it fetches one, "
         "or point ORB_LLAMA_SERVER at one you already have."
     )
 

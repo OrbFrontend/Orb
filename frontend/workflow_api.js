@@ -20,6 +20,7 @@ import {
   setWorkflowPhase,
 } from "./chat.js";
 import { closeModal, setModalCloseGuard, showModal } from "./modal.js";
+import { refreshLocalMlStatus } from "./settings.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { effectiveWorkflowEnabled, localMlReady, S, subscribe } from "./state.js";
 import { broadcastWorkflowMutation } from "./tabLock.js";
@@ -38,7 +39,7 @@ import { clearTextEffect, startTextEffect } from "./workflow_text_effects.js";
 
 // Workflow modules use this facade for registration, requests, and playback.
 
-export const WORKFLOW_API_VERSION = 5;
+export const WORKFLOW_API_VERSION = 6;
 
 export {
   api,
@@ -58,6 +59,7 @@ export {
   pauseChannel,
   playAudio,
   refreshConversationMessages,
+  refreshLocalMlStatus,
   registerClickHandler,
   registerTextEffect,
   registerWorkflowEventHandler,

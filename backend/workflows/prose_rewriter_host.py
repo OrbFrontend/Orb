@@ -1,4 +1,4 @@
-"""Host integration for the Prose Rewriter workflow and its Local ML runtime."""
+"""Host integration for the Prose Rewriter workflow and its local model."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..database import get_settings, set_local_ml_config
-from ..inference.local_models import llama_server
 from ..inference.local_models.llama_server import LaunchProfile
 from ..inference.local_models.prose_rewriter import catalog, config
 from ..inference.local_models.prose_rewriter.config import (
@@ -18,24 +17,30 @@ from ..inference.local_models.prose_rewriter.config import (
 )
 from ..inference.local_models.prose_rewriter.service import HOST, rewrite_events, state
 from .contracts import EV_DRAFT_REPLACED
+from .enablement import effective_workflow_enabled
+from .prose_rewriter import normalize_config
+from .registry import get_workflow_config
 
 logger = logging.getLogger(__name__)
 
 FEATURE = catalog.FEATURE
 
-# Strong references to fire-and-forget pre-warm tasks. Without this the only
+# Strong references to fire-and-forget host tasks. Without this the only
 # reference is the event loop's weak one and the task can be collected
 # mid-load, which shows up as a model that silently never finishes warming.
 _BACKGROUND: set[asyncio.Task] = set()
+# The pre-warms among them, which switching the rewriter off abandons.
+_WARMING: set[asyncio.Task] = set()
 
 
 def resolve_config(settings: Mapping[str, Any]) -> ProseRewriteConfig | None:
-    """Resolve the Local ML selection used by automatic and manual rewrites.
+    """Resolve the model selection used by automatic and manual rewrites.
 
-    Workflow enablement is intentionally not read here. The workflow bridge
-    applies it to automatic post-pipeline execution, while the dedicated saved-
-    message action remains available whenever the local engine itself is on.
+    The workflow toggle is the rewriter's on/off switch for both paths; the
+    ``automatic`` config only decides whether a generated turn runs it.
     """
+    if not effective_workflow_enabled(FEATURE, settings):
+        return None
     raw_enabled = settings.get("local_ml_enabled")
     if isinstance(raw_enabled, Mapping) and raw_enabled.get(FEATURE, True) is False:
         return None
@@ -54,9 +59,11 @@ def resolve_config(settings: Mapping[str, Any]) -> ProseRewriteConfig | None:
 
 async def post_pipeline(ctx):
     """Rewrite the post-Editor draft before later secondary workflows."""
-    cfg = resolve_config(ctx.settings)
     draft = ctx.draft
-    if cfg is None or not draft:
+    if not draft or not normalize_config(await get_workflow_config(FEATURE))["automatic"]:
+        return
+    cfg = resolve_config(ctx.settings)
+    if cfg is None:
         return
     logger.info(
         "Prose rewriter starting after Editor (draft=%d chars, variant=%s)",
@@ -79,10 +86,11 @@ async def post_pipeline(ctx):
             yield {"type": EV_DRAFT_REPLACED, "draft": event["draft"]}
 
 
-def _spawn(coro) -> None:
+def _spawn(coro, *also: set[asyncio.Task]) -> None:
     task = asyncio.create_task(coro)
-    _BACKGROUND.add(task)
-    task.add_done_callback(_BACKGROUND.discard)
+    for tasks in (_BACKGROUND, *also):
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
 
 
 async def _prewarm(profile: LaunchProfile) -> None:
@@ -103,7 +111,7 @@ def _apply(profile: LaunchProfile | None) -> None:
     """Record a new selection and warm it without interrupting an active rewrite."""
     HOST.mark_stale(profile)
     if profile is not None:
-        _spawn(_prewarm(profile))
+        _spawn(_prewarm(profile), _WARMING)
 
 
 async def status_extra(settings: Mapping[str, Any]) -> dict:
@@ -168,7 +176,13 @@ async def _stored_profile(settings: Mapping[str, Any]) -> LaunchProfile | None:
 async def on_enabled(enabled: bool) -> None:
     """Warm the engine when enabled and release its memory when disabled."""
     if not enabled:
-        await HOST.release()
+        # The toggle must not wait on the model: a pre-warm still loading holds
+        # the host lock for the whole load, so it is abandoned rather than
+        # waited out, and the release (which lets a running rewrite finish
+        # first) goes to the background.
+        for task in list(_WARMING):
+            task.cancel()
+        _spawn(HOST.release())
         return
     await sync_selection()
     _apply(await _stored_profile(await get_settings()))
@@ -179,24 +193,12 @@ async def release_host() -> None:
     await HOST.release()
 
 
-async def fetch_runtime() -> str:
-    """Install the shared llama-server builds and pre-warm the selected model."""
-    await llama_server.manager.release_all()
-    path = await asyncio.to_thread(llama_server.binary.fetch)
-    settings = await get_settings()
-    enabled = settings.get("local_ml_enabled")
-    if not isinstance(enabled, Mapping) or enabled.get(FEATURE, True):
-        _apply(await _stored_profile(settings))
-    return path
-
-
 __all__ = [
     "FEATURE",
     "ProseRewriteConfig",
     "UnknownVariant",
     "UnsupportedBatchSize",
     "apply_config",
-    "fetch_runtime",
     "on_enabled",
     "post_pipeline",
     "release_host",

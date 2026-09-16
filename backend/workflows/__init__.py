@@ -123,8 +123,8 @@ subscribe(tts_workflow.id, HookType.QUERY, _tts_query)
 subscribe(tts_workflow.id, HookType.REGENERATE, _tts_regenerate)
 subscribe(tts_workflow.id, HookType.REROLL_GEN, _tts_reroll_gen)
 
-# The rewriter is the first secondary text transform. Its Local ML toggle gates
-# engine availability; standard workflow enablement gates automatic execution.
+# The rewriter is the first secondary text transform. Its workflow toggle turns
+# it on for manual and automatic rewrites; its ``automatic`` config gates turns.
 register_workflow(prose_rewriter_workflow)
 subscribe(prose_rewriter_workflow.id, HookType.POST_PIPELINE, _prose_rewriter_post_pipeline, priority=-20)
 
