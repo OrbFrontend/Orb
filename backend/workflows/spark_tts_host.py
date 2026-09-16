@@ -3,8 +3,8 @@
 The TTS workflow plug-in may import only ``workflows.toolkit``, so this is
 where the plug-in's two needs — "enroll this upload" and "speak this line in
 that voice" — are joined to the model slice under ``inference/local_models``.
-It is also where the Local ML card's management hooks live for the feature's
-two halves.
+It is also where the Local ML routes' management hooks live for the feature's
+two halves, which the TTS panel's cloned-voice control drives.
 
 Enrollment and synthesis are gated separately. The codec half is 23 MB + 368 MB
 of CPU graphs and is all that enrollment needs, so a user can save a voice while
@@ -67,14 +67,14 @@ def use_gpu(settings: Mapping[str, Any]) -> bool:
 def enrollment_ready(settings: Mapping[str, Any]) -> tuple[bool, str]:
     """Can a clip be turned into 32 speaker tokens right now?"""
     if not _enabled(settings, FEATURE_CODEC):
-        return False, "The Spark-TTS voice codec is switched off in Local ML."
+        return False, "The Spark-TTS voice codec is switched off. Turn it on from the cloned voice in TTS settings."
     return catalog.codec_ready()
 
 
 def synthesis_ready(settings: Mapping[str, Any]) -> tuple[bool, str]:
     """Can a line be spoken right now? Needs both halves and both toggles."""
     if not _enabled(settings, FEATURE_LLM):
-        return False, "Spark-TTS is switched off in Local ML."
+        return False, "The Spark-TTS voice model is switched off. Turn it on from the cloned voice in TTS settings."
     ok, reason = enrollment_ready(settings)
     if not ok:
         return False, reason
@@ -104,7 +104,7 @@ async def synthesize(text: str, speaker_tokens: Sequence[int], settings: Mapping
 
 
 class _LlmManagement:
-    """Local ML card hooks for the llama-server half."""
+    """Local ML route hooks for the llama-server half."""
 
     async def status_extra(self, settings: Mapping[str, Any]) -> dict:
         return {"gpu": use_gpu(settings), **service.state()}
@@ -131,7 +131,7 @@ class _LlmManagement:
 
 
 class _CodecManagement:
-    """Local ML card hooks for the ONNX half."""
+    """Local ML route hooks for the ONNX half."""
 
     async def status_extra(self, settings: Mapping[str, Any]) -> dict:
         return {"missing_files": assets.missing_files(FEATURE_CODEC)}

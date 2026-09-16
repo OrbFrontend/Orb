@@ -76,6 +76,7 @@ export function initConfigPanel(sharedConfig) {
   registerAction(WORKFLOW_ID, "voiceDrop", (el, ev) => onVoiceDrop(el, ev));
   registerAction(WORKFLOW_ID, "voiceClear", () => clearVoiceReference());
   registerAction(WORKFLOW_ID, "cloneSetup", () => runCloneSetup());
+  registerAction(WORKFLOW_ID, "cloneGpu", (el) => saveCloneGpu(el));
   onChannel(PREVIEW_CHANNEL, onPreviewEvent);
 }
 
@@ -191,8 +192,8 @@ function settingsBodyHtml() {
 }
 
 function openSettings() {
-  // Re-asked per open: a model can have been downloaded, deleted or switched
-  // off in Settings since this panel last looked.
+  // Re-asked per open: a download can have finished, or the voice model gone
+  // idle or failed, since this panel last looked.
   mlStatus = null;
   showModal(settingsBodyHtml());
   setTimeout(populateProfile, 0);
@@ -322,9 +323,9 @@ function profileFormHtml(p, backends, cast = null) {
 // --- The cloned voice control ------------------------------------------------
 //
 // One control does the whole feature: it says what is still missing and fixes
-// it, takes a dropped file, and reports the voice that came out. Sending a user
-// to Settings → Local ML to unblock a control they are already looking at is
-// the thing this deliberately does not do.
+// it, takes a dropped file, reports the voice that came out, and holds the voice
+// model's GPU switch. Settings → Local ML shows no Spark cards; this is the only
+// place the cloner is used, so it is the only place it is managed.
 
 function mlFeature(id) {
   return mlStatus?.features?.[id] || {};
@@ -342,15 +343,16 @@ function featureReady(id) {
   return Boolean(info.present && info.enabled && info.deps_ok);
 }
 
-/** Fetch the status this control gates on, once per open settings modal.
+/** Fetch the status this control gates on, once per open settings modal, or
+ * again with `refresh` after something here may have loaded the voice model.
  *
  * The panel asks for its own copy instead of reading the shared one: that map
  * is published by the Settings page, which a user who came straight here has
  * never opened, and an empty map there is indistinguishable from "nothing is
  * downloaded".
  */
-function ensureMlStatus() {
-  if (mlStatus || mlPending) return;
+function ensureMlStatus({ refresh = false } = {}) {
+  if ((mlStatus && !refresh) || mlPending) return;
   if (document.getElementById("tts-pf-backend")?.value !== "spark") return;
   mlPending = true;
   api
@@ -383,7 +385,7 @@ function setupNoticeHtml() {
     setupStep ||
     (missing.length
       ? `Voice cloning runs inside Orb — the ${names} ${verb} not downloaded yet.`
-      : `The ${names} ${verb} switched off in Local ML.`);
+      : `The ${names} ${verb} switched off.`);
   return `<span class="tts-setup">
       <span class="tts-note">${sentence}</span>
       <button class="btn btn-sm" type="button" data-wf-action="tts:cloneSetup"${setupBusy ? " disabled" : ""}>${setupLabel(missing.length, size)}</button>
@@ -429,7 +431,36 @@ function cloneControlHtml(p) {
           ? `<span class="tts-control-row">${zone}<button class="btn btn-sm" type="button" data-wf-action="tts:voiceClear">Remove voice</button></span>`
           : zone
       }
+      ${engineRowHtml()}
     </div>`;
+}
+
+/** The voice model's GPU switch and what the model is doing, once there is a
+ * downloaded model for either to describe. */
+function engineRowHtml() {
+  const llm = mlFeature("spark_tts_llm");
+  if (!mlStatus?.deps_ok || !llm.present) return "";
+  const state = `${llm.state || "idle"}${llm.error ? `: ${llm.error}` : ""}`;
+  return `<span class="tts-engine">
+      <label class="tts-setting-toggle" title="Run the voice model on the GPU. Takes effect on the next spoken line.">
+        <input type="checkbox"${llm.gpu ? " checked" : ""} data-wf-action="tts:cloneGpu" data-wf-on="change">
+        <span class="tts-toggle-label">Run on GPU</span>
+      </label>
+      <span class="tts-note${llm.error ? " tts-engine-error" : ""}">${esc(state)}</span>
+    </span>`;
+}
+
+// No relaunch to wait for: the running child is only marked stale, and the next
+// spoken line starts on the build the switch now names.
+async function saveCloneGpu(box) {
+  try {
+    await api.post("/local-ml/spark_tts_llm/config", { gpu: box.checked });
+    mlFeature("spark_tts_llm").gpu = box.checked;
+  } catch (e) {
+    console.warn("tts: voice model GPU switch failed", e);
+    setStatus(e?.message || "Could not change the GPU setting");
+  }
+  renderCloneControl(); // a failed write redraws the box as it was
 }
 
 // Rate and pitch are impossible for a cloned voice rather than merely unused:
@@ -750,6 +781,8 @@ async function preview() {
   try {
     const res = await query("preview", readForm());
     if (!statusLine()) return;
+    // A built-in preview is what loads the voice model, or fails to.
+    if (readForm().backend === "spark") ensureMlStatus({ refresh: true });
     if (!res?.audio_b64) {
       setStatus(res?.error || "Preview failed");
       return;

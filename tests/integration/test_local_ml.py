@@ -1,5 +1,5 @@
-"""Local-ML routes: status tri-state, download gating, the enable toggle, and
-the prose rewriter's variant selector.
+"""Local-ML routes: status tri-state, download gating, the enable toggle, the
+prose rewriter's variant selector, and the Spark-TTS model's GPU switch.
 
 NO NETWORK AND NO WEIGHTS. ``download`` and the llama-server fetch are both
 monkeypatched to raise wherever a route could reach them, which is the guard
@@ -12,9 +12,12 @@ from __future__ import annotations
 import pytest
 
 from backend.inference.local_models import assets, dependencies
+from backend.inference.local_models.catalog import MODELS
 from backend.inference.local_models.llama_server import binary as llama_binary
 from backend.inference.local_models.prose_rewriter import catalog
 from backend.inference.local_models.prose_rewriter import service as prose_service
+from backend.inference.local_models.spark_tts import catalog as spark_catalog
+from backend.inference.local_models.spark_tts import service as spark_service
 from backend.workflows import prose_rewriter_host as integration
 
 
@@ -172,6 +175,33 @@ async def test_config_404s_for_a_feature_with_no_variants(client):
 
 async def test_config_404s_for_an_unknown_feature(client):
     assert (await client.post("/api/local-ml/nope/config", json={})).status_code == 404
+
+
+# ── Spark-TTS model: the GPU switch without variants ─────────────────────────
+
+
+async def test_spark_config_roundtrips_gpu(client):
+    resp = await client.post("/api/local-ml/spark_tts_llm/config", json={"gpu": False})
+    assert resp.status_code == 200
+    assert resp.json()["local_ml_config"]["spark_tts_llm"] == {"gpu": False}
+    st = (await client.get("/api/local-ml/status")).json()
+    assert st["features"]["spark_tts_llm"]["gpu"] is False
+
+
+async def test_the_spark_gpu_switch_retargets_the_child(client, monkeypatch, _empty_model_dir):
+    """The next spoken line relaunches on the build the switch now names."""
+    (_empty_model_dir / MODELS[spark_catalog.FEATURE_LLM].local_name).write_text("gguf")
+    marked = []
+    monkeypatch.setattr(spark_service.HOST, "mark_stale", marked.append)
+
+    await client.post("/api/local-ml/spark_tts_llm/config", json={"gpu": False})
+    await client.post("/api/local-ml/spark_tts_llm/config", json={"gpu": True})
+
+    assert [profile.gpu_layers for profile in marked] == [0, 999]
+
+
+async def test_the_spark_codec_has_no_config(client):
+    assert (await client.post("/api/local-ml/spark_tts_codec/config", json={"gpu": False})).status_code == 404
 
 
 async def test_a_variant_download_never_reaches_the_network(client, monkeypatch):

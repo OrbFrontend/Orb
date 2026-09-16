@@ -40,11 +40,13 @@ at the built-in backend and switches this character's speech on for you. Use
 **Preview** to hear the result, and **Remove voice** to forget it, which also
 stops the automatic speech that enrolling turned on.
 
-When the two Local ML entries the cloner needs are missing or switched off, the
-control says which and offers a **Download** button that fetches them in place —
-there is no trip to **Settings → Local ML** to make the control work. The codec
-comes down first, so a voice can be enrolled while the model is still
-downloading; the drop zone says when speech is waiting on it.
+When the two models the cloner needs are missing or switched off, the control
+says which and offers a **Download** button that fetches them in place. The
+codec comes down first, so a voice can be enrolled while the model is still
+downloading; the drop zone says when speech is waiting on it. Once the model is
+downloaded, the control also shows its **Run on GPU** switch and whether it is
+loaded. None of this appears under **Settings → Local ML**: the cloned-voice
+control is the only place the cloner is managed.
 
 The **whole clip, up to two minutes**, is read. The cloned voice shifts with
 which few seconds it hears, so a clip of several lines leaves less to chance
@@ -121,19 +123,20 @@ an attachment applies the current segmentation and Local ML settings.
 
 **Spark-TTS (built-in)** is the only backend that needs no server. Install the
 optional ML extras (`pip install -r requirements-ml.txt`), then download its two
-entries — from the voice control itself, or from **Settings → Local ML**:
+halves from the cloned-voice control:
 
-- **Voice Cloning · Model** (520 MB) — speaks. Runs on the GPU through the same
-  llama-server runtime as the Prose Rewriter, so it is the half that benefits
-  from a Vulkan build.
-- **Voice Cloning · Codec** (391 MB, two files) — turns an uploaded clip into a
-  voice and voices back into audio. CPU only; ONNX Runtime has no Vulkan
-  provider, and the vocoder is not the bottleneck.
+- **Voice model** (520 MB) — speaks. Runs through the same llama-server runtime
+  as the Prose Rewriter and has the same **Run on GPU** switch; it is the half
+  that benefits from the GPU build. Changing the switch takes effect on the next
+  spoken line.
+- **Voice codec** (391 MB, two files) — turns an uploaded clip into a voice and
+  voices back into audio. CPU only; ONNX Runtime has no Vulkan provider, and the
+  vocoder is not the bottleneck.
 
 The two download separately and you can enrol a voice as soon as the codec is
-present, before the model finishes. Each has its own on/off switch, and the
-model is unloaded after a couple of minutes idle so it does not hold VRAM
-against a local Writer or the Prose Rewriter.
+present, before the model finishes. The model is unloaded after a couple of
+minutes idle so it does not hold VRAM against a local Writer or the Prose
+Rewriter.
 
 ### Local server backends
 

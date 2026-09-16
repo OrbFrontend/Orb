@@ -399,6 +399,26 @@
   white-space: nowrap;
 }
 
+/* The voice model's GPU switch on the left, its load state on the right; a long
+   error drops beneath the switch rather than squeezing it. */
+.tts-engine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  min-width: 0;
+}
+
+.tts-engine .tts-note {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tts-engine .tts-engine-error {
+  color: var(--red);
+}
+
 /* Inline-block so the command moves to its own line whole before it breaks. */
 .tts-note code {
   display: inline-block;

@@ -217,8 +217,6 @@ const LOCAL_ML_LABELS = {
   pov_classifier: "Auto-POV",
   markup_classifier: "Markup Classifier",
   prose_rewriter: "Prose Rewriter",
-  spark_tts_llm: "Voice Cloning · Model",
-  spark_tts_codec: "Voice Cloning · Codec",
 };
 const LOCAL_ML_DESCS = {
   autocomplete: "Autocomplete input as you type.",
@@ -227,9 +225,15 @@ const LOCAL_ML_DESCS = {
   pov_classifier: "For image-gen and format consistency.",
   markup_classifier: "For more accurate format consistency.",
   prose_rewriter: "Local engine for Prose Rewriter.",
-  spark_tts_llm: "Speaks cloned voices. Runs on the GPU.",
-  spark_tts_codec: "Turns an uploaded clip into a voice, and voices back into audio.",
 };
+
+// Features whose whole management lives on the surface that uses them. The
+// Spark-TTS halves are set up, switched on and put on the GPU from the TTS
+// panel's cloned-voice control, so a card here would only repeat it.
+const LOCAL_ML_MANAGED_ELSEWHERE = new Set(["spark_tts_llm", "spark_tts_codec"]);
+
+const settingsFeatures = (features) =>
+  Object.fromEntries(Object.entries(features).filter(([f]) => !LOCAL_ML_MANAGED_ELSEWHERE.has(f)));
 
 /** Publish the fetched status and repaint the surfaces that gate on it.
  *
@@ -261,9 +265,10 @@ async function loadLocalMLSection({ expectLoad = false } = {}) {
     el.innerHTML = '<div class="tool-card-desc">Could not load Local ML status.</div>';
     return;
   }
-  publishLocalMlFeatures(st.features);
+  publishLocalMlFeatures(st.features); // every feature: gates elsewhere read the ones not shown here
+  const shown = settingsFeatures(st.features);
   if (!st.deps_ok) {
-    const names = Object.keys(st.features)
+    const names = Object.keys(shown)
       .map((f) => `<li>${esc(LOCAL_ML_LABELS[f] || f)}</li>`)
       .join("");
     el.innerHTML = `<div class="tool-card" style="opacity:0.5">
@@ -272,11 +277,11 @@ async function loadLocalMLSection({ expectLoad = false } = {}) {
     </div>`;
     return;
   }
-  el.innerHTML = Object.entries(st.features)
+  el.innerHTML = Object.entries(shown)
     .map(([f, info]) => (info.variants ? variantCard(f, info) : simpleCard(f, info)))
     .join("");
   wireLocalMLSection(el);
-  watchMlStates(st.features, expectLoad);
+  watchMlStates(shown, expectLoad);
 }
 
 function simpleCard(f, info) {
@@ -421,7 +426,7 @@ async function pollMlStates() {
     el.classList.toggle("ml-foot-error", Boolean(info.error));
     el.classList.toggle("ml-foot-loading", info.state === "loading");
   }
-  watchMlStates(st.features, false);
+  watchMlStates(settingsFeatures(st.features), false);
 }
 
 function wireLocalMLSection(el) {

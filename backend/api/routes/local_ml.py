@@ -39,8 +39,7 @@ class _FeatureManagement(Protocol):
 
 
 #: The features that have management behaviour of their own. A feature absent
-#: from this map is a plain download-and-toggle one, and the config route's 404
-#: is exactly that statement.
+#: from this map is a plain download-and-toggle one.
 _MANAGEMENT: dict[str, _FeatureManagement] = {
     prose_rewriter_host.FEATURE: prose_rewriter_host,
     # Spark-TTS's two halves are managed separately because they fail
@@ -51,7 +50,19 @@ _MANAGEMENT: dict[str, _FeatureManagement] = {
     spark_tts_host.FEATURE_CODEC: spark_tts_host.CODEC_MANAGEMENT,
 }
 
-_CONFIGURABLE = {prose_rewriter_host.FEATURE: prose_rewriter_host}
+
+class _Configurable(Protocol):
+    """A feature with settings of its own for the config route to write."""
+
+    async def apply_config(self, body: Mapping[str, Any]) -> dict: ...
+
+
+#: The features with a config route. Both llama-server features carry the GPU
+#: switch; only the rewriter also has a variant and a batch size.
+_CONFIGURABLE: dict[str, _Configurable] = {
+    prose_rewriter_host.FEATURE: prose_rewriter_host,
+    spark_tts_host.FEATURE_LLM: spark_tts_host.LLM_MANAGEMENT,
+}
 
 
 def _require(feature: str) -> catalog.ModelSpec:
@@ -69,11 +80,10 @@ async def _sync_selection(feature: str, *, prefer: str | None = None) -> dict:
     """Let a feature repair its own stored selection, and return the new blob.
 
     Generic here, feature behaviour there: the sweep only means something for a
-    feature that has a selection to repair.
+    feature that has a selection to repair, and the rewriter is the only one.
     """
-    controller = _CONFIGURABLE.get(feature)
-    if controller is not None:
-        return await controller.sync_selection(prefer=prefer)
+    if feature == prose_rewriter_host.FEATURE:
+        return await prose_rewriter_host.sync_selection(prefer=prefer)
     return await _config_blob()
 
 
@@ -190,7 +200,8 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
 
 @router.post("/api/local-ml/{feature}/config")
 async def api_local_ml_config(feature: str, data: dict = Body(...)):  # noqa: B008
-    """Set one feature's config (prose rewriter: variant, GPU and batch size).
+    """Set one feature's config (prose rewriter: variant, GPU and batch size;
+    Spark-TTS model: GPU).
 
     The body is opaque here — this route validates the feature id and hands the
     rest to the slice, which owns what its own settings mean. STATUS CODES STAY
@@ -200,7 +211,7 @@ async def api_local_ml_config(feature: str, data: dict = Body(...)):  # noqa: B0
     _require(feature)
     controller = _CONFIGURABLE.get(feature)
     if controller is None:
-        raise HTTPException(status_code=404, detail=f"{feature!r} has no configurable variants")
+        raise HTTPException(status_code=404, detail=f"{feature!r} has no settings to configure")
     try:
         config = await controller.apply_config(data)
     except prose_rewriter_host.UnknownVariant as exc:
