@@ -28,6 +28,11 @@ In a group chat, choose a **Cast member** in the Voice panel. Each reply uses th
 voice of the member who wrote it, regardless of which member is selected in the
 panel.
 
+Spark-TTS builds a voice from gender and pitch/speed attributes rather than a
+fixed voice bank, and can clone a voice from a reference clip. Speed and pitch
+apply to its attribute-built voices only; a cloned voice takes its prosody from
+the reference clip.
+
 ## How speech is made
 
 1. Orb reads the message's dialogue/narration convention with the same markup
@@ -71,9 +76,33 @@ an attachment applies the current segmentation and Local ML settings.
 |---|---|---|---|
 | Microsoft Edge TTS | Included in `requirements.txt` | None | 400+ voices in 80+ languages |
 | OpenAI-compatible | HTTP endpoint | Required | Uses `POST /v1/audio/speech`; voices and models depend on the provider |
-| Kokoro-82M | Install `requirements-tts.txt` | None | Local model with 54 voices and 9 languages |
+| Kokoro-82M | HTTP endpoint | None | Local server with 54 voices and 9 languages |
+| Spark-TTS-0.5B | HTTP endpoint | Optional | Local server; voices built from gender/pitch/speed attributes, plus zero-shot cloning. |
 | Fish Speech | HTTP endpoint | Optional | Local server with voice references |
 | ElevenLabs | HTTP endpoint | Required | Cloud voices and emotion tags |
+
+### Local server backends
+
+Kokoro-82M, Spark-TTS, and Fish Speech run as local servers. Orb ships the
+client, not the server: run one yourself, then point that voice's **API URL**
+at it.
+
+Kokoro-82M (default `http://localhost:9200`) and Spark-TTS (default
+`http://localhost:9300`) each expose:
+
+- `GET /v1/voices` — returns `[{id, name, language, gender}]`
+- `POST /v1/tts` — returns WAV
+
+Their request bodies differ. Kokoro takes `{text, voice, speed, lang}`, where
+`lang` is its own single-letter code (`a` for American English, `b` for
+British, and so on). Spark-TTS takes `{text, voice, speed, pitch, lang}`, where
+`lang` is a full locale. Fish Speech uses its own native API instead: `POST
+/v1/tts` keyed by `reference_id`, and `GET /v1/references/list`.
+
+Orb sends one request per speech block and joins the clips itself, inserting
+real silence for pauses, so a server only ever synthesizes one block at a time.
+`speed` and `pitch` arrive as float multipliers where `1.0` means the voice's
+own level.
 
 ## Add a backend
 

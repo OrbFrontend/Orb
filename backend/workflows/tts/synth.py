@@ -61,10 +61,14 @@ def normalize_profile(raw: object) -> dict:
     return out
 
 
+# Local backends that stitch per-chunk clips together and emit WAV; every
+# other backend returns MP3.
+_WAV_BACKENDS = frozenset({"kokoro", "spark"})
+
+
 def audio_mime_ext(backend: str) -> tuple[str, str]:
-    """The MIME type and filename extension a backend emits. Kokoro returns
-    WAV; every other backend returns MP3."""
-    if backend == "kokoro":
+    """The MIME type and filename extension a backend emits."""
+    if backend in _WAV_BACKENDS:
         return "audio/wav", "wav"
     return "audio/mpeg", "mp3"
 

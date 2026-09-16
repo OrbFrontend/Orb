@@ -26,6 +26,7 @@ const BACKEND_FIELDS = {
   edge: ["language", "rate", "pitch"],
   kokoro: ["api_url", "language", "rate"],
   openai: ["api_url", "api_key", "model", "rate"],
+  spark: ["api_url", "language", "rate", "pitch"],
   fish: ["api_url", "rate"],
   elevenlabs: ["api_key", "model"],
 };
@@ -34,6 +35,7 @@ const DEFAULT_API_URL = {
   openai: "https://api.openai.com",
   fish: "http://localhost:8080",
   kokoro: "http://localhost:9200",
+  spark: "http://localhost:9300",
 };
 
 const LANGUAGES = [

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import io
 import logging
-import wave
 
 import httpx
 
 from .base import SpeakableChunk, SynthesisResult, TTSAdapter
+from .wav import pcm_duration_ms, pcm_to_wav, silence_pcm, strip_header
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +73,7 @@ class KokoroTTSAdapter(TTSAdapter):
             for i, chunk in enumerate(text_chunks):
                 # Prepend silence for pause_before_ms
                 if chunk.pause_before_ms > 0 and i > 0:
-                    audio_parts.append(_silence_pcm(chunk.pause_before_ms, sample_rate))
+                    audio_parts.append(silence_pcm(chunk.pause_before_ms, sample_rate))
 
                 body = {
                     "text": chunk.text,
@@ -86,18 +85,18 @@ class KokoroTTSAdapter(TTSAdapter):
                 resp.raise_for_status()
 
                 # Strip WAV header, keep raw PCM
-                audio_parts.append(_wav_strip_header(resp.content))
+                audio_parts.append(strip_header(resp.content)[0])
 
                 # Append silence for pause_after_ms
                 if chunk.pause_after_ms > 0:
-                    audio_parts.append(_silence_pcm(chunk.pause_after_ms, sample_rate))
+                    audio_parts.append(silence_pcm(chunk.pause_after_ms, sample_rate))
 
         if not audio_parts or all(p == b"" for p in audio_parts):
             return SynthesisResult(audio_bytes=b"", content_type="audio/wav")
 
         # Wrap concatenated PCM in a WAV container
         raw_pcm = b"".join(audio_parts)
-        wav_bytes = _pcm_to_wav(raw_pcm, sample_rate)
+        wav_bytes = pcm_to_wav(raw_pcm, sample_rate)
 
         logger.info(
             "Kokoro synthesis: %d chunks, %d bytes, voice=%s",
@@ -109,7 +108,7 @@ class KokoroTTSAdapter(TTSAdapter):
         return SynthesisResult(
             audio_bytes=wav_bytes,
             content_type="audio/wav",
-            duration_ms=round(len(raw_pcm) / 2 / sample_rate * 1000),
+            duration_ms=pcm_duration_ms(raw_pcm, sample_rate),
         )
 
     async def list_voices(self, language: str = "", **kwargs) -> list[dict]:
@@ -135,32 +134,6 @@ class KokoroTTSAdapter(TTSAdapter):
     @property
     def backend_name(self) -> str:
         return "Kokoro-82M"
-
-
-# WAV helpers for per-chunk concatenation
-
-
-def _silence_pcm(duration_ms: int, sample_rate: int = 24000) -> bytes:
-    """Generate silent PCM frames (16-bit mono)."""
-    n_samples = int(sample_rate * duration_ms / 1000)
-    return b"\x00\x00" * n_samples
-
-
-def _wav_strip_header(wav_bytes: bytes) -> bytes:
-    """Extract raw PCM data from a WAV byte string."""
-    with wave.open(io.BytesIO(wav_bytes), "rb") as w:
-        return w.readframes(w.getnframes())
-
-
-def _pcm_to_wav(raw_pcm: bytes, sample_rate: int = 24000) -> bytes:
-    """Wrap raw 16-bit mono PCM bytes in a WAV container."""
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(sample_rate)
-        w.writeframes(raw_pcm)
-    return buf.getvalue()
 
 
 # Map language codes to Kokoro lang_code (single char)
