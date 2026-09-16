@@ -288,13 +288,15 @@ async def synthesize_blocks(
     if speech_chunks is not None:
         chunks = [SpeakableChunk(**chunk) for chunk in speech_chunks]
     else:
-        style = await markup_axes(speech_input(text), settings) if settings is not None and not legacy else None
+        prepared = text if legacy else speech_input(text)
+        style = await markup_axes(prepared, settings) if settings is not None and not legacy else None
         chunks = regex_extract(
-            text=text,
+            text=prepared,
             backend_type=backend,
             supports_emotion_tags=adapter.supports_emotion_tags,
             style=style,
             legacy=legacy,
+            input_prepared=not legacy,
         )
     pause_after = [chunks[i + 1].pause_before_ms if i + 1 < len(chunks) else 0 for i in range(len(chunks))]
     voice_id = profile.get("voice_id") or PROFILE_DEFAULTS["voice_id"]

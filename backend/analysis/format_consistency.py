@@ -6,10 +6,20 @@ import re
 from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import TypeVar
 
 from ..core.text_segmentation import PROTECTED_MARKUP_RE
+from .text.roleplay import (
+    THOUGHT_ATTRIBUTION,
+    AxisStyle,
+    Dialogue,
+    Narration,
+    emphasis_inner,
+    is_inline_emphasis,
+    span_role,
+    split_ws,
+    strip_quotes,
+)
 from .text.text_segmentation import (
     CLOSE_QUOTES,
     OPEN_QUOTES,
@@ -19,7 +29,6 @@ from .text.text_segmentation import (
     find_emphasis_spans,
     find_quote_spans,
     split_paragraphs,
-    strip_ooc,
 )
 
 __all__ = [
@@ -30,8 +39,6 @@ __all__ = [
     "classify_axes",
     "protected_runs",
     "spoken_lines",
-    "speech_segments",
-    "speech_input",
     "narration_only",
     "baseline_axes",
     "vote_axes",
@@ -42,28 +49,7 @@ __all__ = [
 ]
 
 
-class Dialogue(StrEnum):
-    QUOTED = "quoted"
-    BARE = "bare"
-    UNKNOWN = "unknown"
-
-
-class Narration(StrEnum):
-    ASTERISK = "asterisk"
-    BARE = "bare"
-    UNKNOWN = "unknown"
-
-
 _StyleT = TypeVar("_StyleT", bound=str)
-
-
-@dataclass(frozen=True, slots=True)
-class AxisStyle:
-    dialogue: Dialogue
-    narration: Narration
-
-    def label(self) -> str:
-        return f"dialogue={self.dialogue.value}, narration={self.narration.value}"
 
 
 @dataclass(slots=True)
@@ -84,33 +70,6 @@ class FormatDriftReport:
 
 _NARR_HIGH = 0.6  # >= this fraction of narration chars inside *asterisks* -> ASTERISK
 _NARR_LOW = 0.25  # <= this -> BARE
-
-
-def _emphasis_inner(raw: str) -> str:
-    """Strip surrounding emphasis markers."""
-    core = raw.strip()
-    if len(core) >= 2 and core[0] in "*_" and core[-1] == core[0]:
-        return core[1:-1].strip()
-    return core.strip("*_ ").strip()
-
-
-# A clause can close on stylistic punctuation as well as a full stop: roleplay
-# greetings routinely end a line on "~", "♪" or a cut-off dash before an
-# action beat. Anything not listed here reads as mid-sentence italics.
-_SENTENCE_END = ".!?…~♪♥♡—–-)]"
-
-
-def _is_inline_emphasis(spans: list[tuple[str, int, int]], i: int, para: str) -> bool:
-    """Return whether an emphasis span is inline rather than block narration."""
-    if i == 0:
-        return False
-    ptyp, ps, pe = spans[i - 1]
-    if ptyp != "NARRATION":
-        return False
-    left = para[ps:pe].rstrip()
-    if not left.strip():
-        return False  # whitespace-only gap (e.g. between a quote and the asterisks)
-    return left[-1] not in _SENTENCE_END
 
 
 # Fenced code, bold runs and scene dividers are formatting, not RP markup. The
@@ -281,10 +240,10 @@ def classify_axes(text: str) -> AxisStyle:
             if typ == "SPEECH":
                 speech_chars += length
             elif typ == "EMPHASIS":
-                if _is_inline_emphasis(spans, i, para):
+                if is_inline_emphasis(spans, i, para):
                     continue  # inline emphasis is orthogonal to both axes
                 block_emph_chars += length
-                has_action_beat = has_action_beat or _is_action_beat(_emphasis_inner(raw))
+                has_action_beat = has_action_beat or _is_action_beat(emphasis_inner(raw))
             else:  # NARRATION (bare)
                 bare_chars += length
                 bare_words.update(_WORD.findall(raw.lower()))
@@ -314,21 +273,13 @@ def classify_axes(text: str) -> AxisStyle:
     return AxisStyle(dialogue=dialogue, narration=narration)
 
 
-_THOUGHT_ATTRIBUTION = re.compile(
-    r"\s*(?:I|[Hh]e|[Ss]he|[Tt]hey|[Ww]e|[Yy]ou|[Tt]he\s+[\w'-]+|[A-Z][\w'-]*)\s+"
-    r"(?:thinks?|thought|(?:tells?|told|says?|said|reminds?|reminded|asks?|asked)\s+"
-    r"(?:myself|himself|herself|themselves|ourselves|yourself))"
-    r"(?=\s*[,.;!?]|\s+(?:with|as|while|\w+ly)\b|\s*$)"
-)
-
-
 def _remove_attributed_thoughts(text: str) -> str:
     def strip_segment(para: str) -> str:
         spans = extract_block_spans(para)
         cuts = [
             (start, end)
             for i, (typ, start, end) in enumerate(spans)
-            if typ == "EMPHASIS" and not _is_inline_emphasis(spans, i, para) and _THOUGHT_ATTRIBUTION.match(para[end:])
+            if typ == "EMPHASIS" and not is_inline_emphasis(spans, i, para) and THOUGHT_ATTRIBUTION.match(para[end:])
         ]
         for start, end in reversed(cuts):
             para = para[:start] + " " + para[end:]
@@ -364,8 +315,8 @@ def narration_only(text: str, dialogue: Dialogue) -> str:
             continue
         for para, spans in _paragraph_spans(paragraph):
             for i, (typ, start, end) in enumerate(spans):
-                if typ == "EMPHASIS" and not _is_inline_emphasis(spans, i, para):
-                    inner = _emphasis_inner(para[start:end])
+                if typ == "EMPHASIS" and not is_inline_emphasis(spans, i, para):
+                    inner = emphasis_inner(para[start:end])
                     if inner:
                         narration.append(inner)
     return _canonical_emphasis(" ".join(narration))
@@ -383,7 +334,7 @@ def spoken_lines(text: str) -> list[str]:
         for typ, start, end in block:
             if typ != "SPEECH":
                 continue
-            inner = " ".join(_strip_quotes(para[start:end]).split())
+            inner = " ".join(strip_quotes(para[start:end]).split())
             if inner:
                 lines.append(inner)
     return lines
@@ -416,34 +367,8 @@ def baseline_axes(messages: list[str]) -> AxisStyle:
 _TERMINATORS = ".!?…,;:"
 
 
-def _role(spans: list[tuple[str, int, int]], i: int, src_dialogue: Dialogue, para: str) -> str:
-    """Map a span to its semantic role under the source convention."""
-    typ = spans[i][0]
-    if typ == "SPEECH":
-        return "DIALOGUE"
-    if typ == "EMPHASIS":
-        return "EMPHASIS_INLINE" if _is_inline_emphasis(spans, i, para) else "NARRATION"
-    if src_dialogue == Dialogue.BARE:
-        return "DIALOGUE"  # asterisk convention: bare runs are spoken lines
-    return "NARRATION"
-
-
-def _split_ws(raw: str) -> tuple[str, str, str]:
-    """(leading_ws, core, trailing_ws) so a transform touches only the core."""
-    lead = raw[: len(raw) - len(raw.lstrip())]
-    trail = raw[len(raw.rstrip()) :]
-    return lead, raw.strip(), trail
-
-
-def _strip_quotes(raw: str) -> str:
-    lead, core, trail = _split_ws(raw)
-    if len(core) >= 2:
-        core = core[1:-1].strip()
-    return f"{lead}{core}{trail}"
-
-
 def _wrap_quotes(raw: str) -> str:
-    lead, core, trail = _split_ws(raw)
+    lead, core, trail = split_ws(raw)
     if not core:
         return raw
     core = core.replace("*", "").replace("_", "").strip()
@@ -451,7 +376,7 @@ def _wrap_quotes(raw: str) -> str:
 
 
 def _wrap_asterisks(raw: str) -> str:
-    lead, core, trail = _split_ws(raw)
+    lead, core, trail = split_ws(raw)
     if not core:
         return raw
     core = core.replace("*", "").replace("_", "").strip()
@@ -460,8 +385,8 @@ def _wrap_asterisks(raw: str) -> str:
 
 def _strip_block_emphasis(raw: str) -> str:
     """Remove block-emphasis markers and close a bare clause."""
-    lead, core, trail = _split_ws(raw)
-    inner = _emphasis_inner(raw)
+    lead, core, trail = split_ws(raw)
+    inner = emphasis_inner(raw)
     if inner and inner[-1].isalnum():
         inner += "."
     return f"{lead}{inner}{trail}"
@@ -481,11 +406,11 @@ def _rewrite_paragraph(
     while i < n:
         typ, s, e = spans[i]
         raw = para[s:e]
-        role = _role(spans, i, src.dialogue, para)
+        role = span_role(spans, i, src.dialogue, para)
 
         if role == "DIALOGUE" and target_dialogue is not None:
             if target_dialogue == Dialogue.BARE and typ == "SPEECH":
-                out.append(_strip_quotes(raw))
+                out.append(strip_quotes(raw))
                 i += 1
                 continue
             if target_dialogue == Dialogue.QUOTED and typ == "NARRATION":
@@ -523,7 +448,7 @@ def _group_run(
     j = i
     while j + 1 < len(spans):
         typ2 = spans[j + 1][0]
-        r2 = _role(spans, j + 1, src.dialogue, para)
+        r2 = span_role(spans, j + 1, src.dialogue, para)
         if r2 == "EMPHASIS_INLINE":
             j += 1
         elif r2 == role and (only_type is None or typ2 == only_type):
@@ -712,119 +637,3 @@ def normalize_to_baseline(
     changed = new_text != draft
     note = "normalized" if changed else "already consistent"
     return new_text, FormatDriftReport(source, target, changed, note)
-
-
-def speech_input(text: str) -> str:
-    """Prose eligible for speech, retaining markup needed to read convention."""
-    text = strip_ooc(text)
-    # Fences must go before quote scanning: code can contain unbalanced quotes.
-    text = _PROTECTED.sub(lambda m: "\n\n" if m.group().startswith("```") else m.group(), text)
-    quotes = find_quote_spans(text)
-    for match in reversed(list(_PROTECTED.finditer(text))):
-        # Formatting inside a spoken quote is part of that quote, not a reason
-        # to cut the quote in half or discard the emphasized words.
-        if any(start < match.start() and match.end() < end for start, end in quotes):
-            continue
-        text = text[: match.start()] + "\n\n" + text[match.end() :]
-    # Remove only parentheses outside speech (including quotes inside an aside).
-    quotes = find_quote_spans(text)
-    depth = 0
-    hidden_start = 0
-    cuts: list[tuple[int, int]] = []
-    quote_index = 0
-    for i, char in enumerate(text):
-        while quote_index < len(quotes) and quotes[quote_index][1] <= i:
-            quote_index += 1
-        in_quote = quote_index < len(quotes) and quotes[quote_index][0] <= i < quotes[quote_index][1]
-        if in_quote:
-            continue
-        if char == "(":
-            if depth == 0:
-                hidden_start = i
-            depth += 1
-        elif char == ")" and depth:
-            depth -= 1
-            if depth == 0:
-                cuts.append((hidden_start, i + 1))
-    if depth:
-        cuts.append((hidden_start, len(text)))
-    for start, end in reversed(cuts):
-        text = text[:start] + " " + text[end:]
-    return text
-
-
-def _unmarked_speech(text: str, style: AxisStyle) -> bool:
-    """Read plain chat when the model cannot identify either markup convention.
-
-    Unknown is not a semantic narration label: the markup model also returns
-    unknown/unknown for ordinary greetings. Keep marked or malformed RP out of
-    this fallback; an apostrophe within a word is not a quotation delimiter.
-    """
-    if style.dialogue != Dialogue.UNKNOWN or style.narration != Narration.UNKNOWN:
-        return False
-    markers = OPEN_QUOTES | CLOSE_QUOTES | TOGGLE_QUOTES | frozenset("*_—`")
-    for i, char in enumerate(text):
-        if char == "’" and 0 < i < len(text) - 1 and text[i - 1].isalnum() and text[i + 1].isalnum():
-            continue
-        if char in markers:
-            return False
-    return any(char.isalnum() for char in text)
-
-
-def speech_segments(text: str, style: AxisStyle | None = None) -> list[tuple[str, str]]:
-    """Ordered speech/action text under the message's markup convention.
-
-    Shares format consistency's quotation, emphasis and inline-role decisions.
-    A convention labels the whole message, not individual sentences. Unmarked
-    chat with both conventions unknown falls back to plain speech; a positive
-    narration reading still excludes the unquoted prose.
-    Parenthetical asides, OOC and protected formatting are never spoken.
-    """
-    text = speech_input(text)
-    style = style or classify_axes(text)
-    plain_speech = _unmarked_speech(text, style)
-    # Both axes bare means narration and speech have no structural boundary.
-    # Explicit quotes remain usable, but guessing the bare spans reads narration.
-    dialogue = Dialogue.UNKNOWN if style.narration == Narration.BARE and style.dialogue == Dialogue.BARE else style.dialogue
-    if plain_speech:
-        dialogue = Dialogue.BARE
-    segments: list[tuple[str, str]] = []
-
-    for para in split_paragraphs(text):
-        spans = extract_block_spans(para)
-        pending = ""
-
-        def flush() -> None:
-            nonlocal pending
-            spoken = " ".join(pending.split())
-            if spoken:
-                segments.append(("dialogue", spoken))
-            pending = ""
-
-        for i, (typ, start, end) in enumerate(spans):
-            raw = para[start:end]
-            role = _role(spans, i, dialogue, para)
-            if typ == "SPEECH":
-                flush()
-                if not _THOUGHT_ATTRIBUTION.match(para[end:]):
-                    pending = _strip_quotes(raw)
-                    flush()
-            elif role == "NARRATION" and typ == "EMPHASIS":
-                flush()
-                segments.append(("beat", _emphasis_inner(raw)))
-            elif role == "DIALOGUE" or (role == "EMPHASIS_INLINE" and pending):
-                # A whole-message convention cannot identify individual
-                # narrative sentences mixed into bare speech. Be conservative.
-                if not plain_speech and typ == "NARRATION" and re.match(r"\s*(?:The|He|She|They|His|Her|Their)\b", raw):
-                    flush()
-                    continue
-                pending += raw
-            else:
-                flush()
-                # Preserve paired dash dialogue only at a prose boundary;
-                # an inline narrative aside ("She — tired — sat") is silent.
-                for match in re.finditer(r"(?:^\s*|[\n.!?]\s*)—([^—\n]+)—", raw):
-                    pending = match.group(1)
-                    flush()
-        flush()
-    return segments

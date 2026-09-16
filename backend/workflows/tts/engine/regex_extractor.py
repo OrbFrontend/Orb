@@ -238,6 +238,7 @@ def regex_extract(
     *,
     style: AxisStyle | None = None,
     legacy: bool = False,
+    input_prepared: bool = False,
 ) -> list[SpeakableChunk]:
     """Extract speakable dialogue from RP text using regex/heuristics.
 
@@ -246,6 +247,8 @@ def regex_extract(
         backend_type: TTS backend name (for tag/emotion decisions).
         supports_emotion_tags: Whether the backend supports inline tags
             like [laugh], [sigh]. If False, audible beats become pauses.
+        input_prepared: text is already the speech_input used for classification.
+            Ignored for legacy replay, which always uses the original text.
 
     Returns:
         List of SpeakableChunks ready for TTS synthesis.
@@ -253,7 +256,7 @@ def regex_extract(
     if not text or not text.strip():
         return []
 
-    events = _legacy_segments(text) if legacy else speech_segments(text, style)
+    events = _legacy_segments(text) if legacy else speech_segments(text, style, input_prepared=input_prepared)
 
     chunks: list[SpeakableChunk] = []
     last_beat = None  # Most recent beat before the next dialogue

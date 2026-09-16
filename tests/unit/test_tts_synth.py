@@ -340,3 +340,22 @@ async def test_plain_greeting_reaches_audio_with_real_model_labels(monkeypatch):
     replay, _, replay_blocks = await synth.synthesize_blocks_from_metadata(metadata)
     assert replay == audio
     assert replay_blocks == blocks
+
+
+async def test_classification_and_selection_share_one_prepared_input(monkeypatch):
+    from unittest.mock import AsyncMock, Mock
+
+    from backend.analysis import AxisStyle, Dialogue, Narration, speech
+
+    _patch_adapter(monkeypatch)
+    original_prepare = speech.speech_input
+    prepare = Mock(wraps=original_prepare)
+    monkeypatch.setattr(synth, "speech_input", prepare)
+    monkeypatch.setattr(speech, "speech_input", prepare)
+    classify = AsyncMock(return_value=AxisStyle(Dialogue.BARE, Narration.ASTERISK))
+    monkeypatch.setattr(synth, "markup_axes", classify)
+    source = "(An aside.) *She sighs.* —The answer is *really* yes.— —Goodbye.— [OOC: Ignore.]"
+    _, _, blocks = await synth.synthesize_blocks(source, synth.normalize_profile(None), settings={})
+    prepare.assert_called_once_with(source)
+    classify.assert_awaited_once_with(original_prepare(source), {})
+    assert [block["spoken_text"] for block in blocks] == ["The answer is *really* yes.", "Goodbye."]

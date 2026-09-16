@@ -47,8 +47,9 @@ the reference clip.
    audio and highlights its words. Orb caches generated audio for replay.
 
 Orb recognizes straight, curly, guillemet, CJK, fullwidth, and other supported
-Unicode quote pairs. Paired em-dash dialogue at a prose boundary is supported;
-inline narrative dash asides are left out. Parenthetical asides, OOC notes,
+Unicode quote pairs. Paired em-dash dialogue supports consecutive lines at prose
+boundaries, including inline emphasis within each line.
+Inline narrative dash asides are left out. Parenthetical asides, OOC notes,
 protected formatting (code fences, bold runs and dividers), and recognized
 attributed thoughts are excluded. Ordinary parentheses inside dialogue remain
 spoken.
@@ -59,7 +60,9 @@ other.`, it can return `unknown` for both conventions. TTS reads that plain text
 as speech, while still excluding text positively classified as narration. This
 fallback requires the model's reading; the heuristic fallback alone cannot
 reliably recognize plain chat. Mixed bare narration and speech cannot always be
-separated reliably, and an ambiguous unmarked narrative may also be read. TTS does not
+separated reliably: speech selection follows the classified convention, without
+discarding bare dialogue merely because it begins with words such as “The” or
+“She”. An ambiguous unmarked narrative may also be read. TTS does not
 infer different speakers inside one reply. Voice previews read their literal
 input without dialogue extraction.
 

@@ -30,7 +30,6 @@ from backend.workflows.tts.engine.regex_extractor import regex_extract
         ("The frame is 12″ by 8″. ＂Hello.＂", ["Hello."]),
         ("❝Hello.❞ 〝Goodbye.〞 ‟Wait.”", ["Hello.", "Goodbye.", "Wait."]),
         ("Narration without dialogue.", []),
-        ("*She walks across the room.* The wind howls outside.", []),
     ],
 )
 def test_speech_selection(text, expected):
@@ -82,10 +81,93 @@ def test_unknown_model_conventions_do_not_turn_rp_markup_into_plain_speech(text)
 
 
 def test_positive_narration_reading_still_excludes_unmarked_prose():
-    text = "She crossed the room."
     style = AxisStyle(dialogue=Dialogue.UNKNOWN, narration=Narration.BARE)
-    assert speech_segments(text, style) == []
+    for text in ("She crossed the room.", "*She walks across the room.* The wind howls outside."):
+        assert [value for kind, value in speech_segments(text, style) if kind == "dialogue"] == []
 
 
 def test_missing_model_does_not_invent_a_plain_speech_reading():
     assert speech_segments("Hello. Let's get to know each other.") == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "The answer is yes.",
+        "He is my brother.",
+        "She is my sister.",
+        "They are my friends.",
+        "His name is Sam.",
+        "Her name is Sam.",
+        "Their names escape me.",
+        "The answer is *definitely* yes.",
+        "He is _really_ my brother.",
+    ],
+)
+@pytest.mark.parametrize("use_model", [False, True])
+def test_bare_speech_is_not_filtered_by_its_first_word(line, use_model):
+    text = f"*She smiles warmly and settles back into her chair.* {line}"
+    style = AxisStyle(Dialogue.BARE, Narration.ASTERISK) if use_model else None
+    assert [chunk.spoken_text for chunk in regex_extract(text, style=style)] == [line]
+
+
+@pytest.mark.parametrize("dialogue", list(Dialogue))
+@pytest.mark.parametrize("narration", list(Narration))
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("—Hello.— —Goodbye.—", ["Hello.", "Goodbye."]),
+        ("—Hello——Goodbye—", ["Hello", "Goodbye"]),
+        ("*She sighs.* —Hello.— —Goodbye.—", ["Hello.", "Goodbye."]),
+        ('"Hello." —Goodbye.—', ["Hello.", "Goodbye."]),
+        ("—I *really* mean it.— —Goodbye.—", ["I *really* mean it.", "Goodbye."]),
+        ("—I _really_ mean it.—", ["I _really_ mean it."]),
+        ("—Hello.—\u2028—Goodbye.—", ["Hello.", "Goodbye."]),
+        ('"Keep — this — spoken."', ["Keep — this — spoken."]),
+        ("—Maybe tomorrow,— she thought.", []),
+    ],
+)
+def test_dash_speech_is_independent_of_convention(text, expected, dialogue, narration):
+    style = AxisStyle(dialogue, narration)
+    assert [chunk.spoken_text for chunk in regex_extract(text, style=style)] == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'She — exhausted — sat down. "Hello."',
+        '*She — exhausted — sat down.* "Hello."',
+        '(—An aside.—) "Hello."',
+        '[OOC: —An aside.—] "Hello."',
+        '```—Some code.—``` "Hello."',
+        '**—A title.—** "Hello."',
+        '—Unclosed dash. "Hello."',
+        '—Split\nline.— "Hello."',
+        '—Split\u2028line.— "Hello."',
+        '*She walks across the room.* The wind howls outside. "Hello."',
+    ],
+)
+def test_dash_scanning_preserves_narration_and_exclusions(text):
+    style = AxisStyle(Dialogue.QUOTED, Narration.BARE)
+    assert [chunk.spoken_text for chunk in regex_extract(text, style=style)] == ["Hello."]
+
+
+def test_consecutive_dash_dialogue_keeps_beat_prosody():
+    chunks = regex_extract("—Hello.— _she sighs_ —Fine.— —Goodbye.—", supports_emotion_tags=True)
+    assert [chunk.text for chunk in chunks] == ["Hello.", "[sigh] Fine.", "Goodbye."]
+    assert [chunk.pause_before_ms for chunk in chunks] == [0, 400, 300]
+
+
+@pytest.mark.parametrize("thought", ['"Maybe tomorrow,"', "—Maybe tomorrow,—", "*Maybe tomorrow,*"])
+@pytest.mark.parametrize("attribution", ["she thought.", "she thought with a *heavy* sigh."])
+def test_bare_speech_does_not_read_thought_attributions(thought, attribution):
+    text = f"*She smiles.* {thought} {attribution} The answer is yes."
+    style = AxisStyle(Dialogue.BARE, Narration.ASTERISK)
+    assert [chunk.spoken_text for chunk in regex_extract(text, style=style)] == ["The answer is yes."]
+
+
+@pytest.mark.parametrize("line", ['"Hello."', "—Hello.—"])
+def test_unpunctuated_thought_attribution_does_not_swallow_explicit_speech(line):
+    text = f'"Maybe tomorrow," she thought with a sigh\n{line}'
+    style = AxisStyle(Dialogue.BARE, Narration.ASTERISK)
+    assert [chunk.spoken_text for chunk in regex_extract(text, style=style)] == ["Hello."]

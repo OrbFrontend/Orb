@@ -19,8 +19,6 @@ from .format_consistency import (
     narration_only,
     normalize_to_baseline,
     protected_runs,
-    speech_input,
-    speech_segments,
     spoken_lines,
     stable_label,
     vote_axes,
@@ -31,6 +29,7 @@ from .patching import (
     apply_id_patches,
     filter_audit_report_to_text,
 )
+from .speech import speech_input, speech_segments
 from .targets import Target, build_targets, format_numbered_report, target_ids_for
 from .text.text_segmentation import split_narration_sentences
 
