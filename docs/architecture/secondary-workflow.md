@@ -48,6 +48,28 @@ explicit names in its literal `__all__`; wildcard imports, importing the module
 object, and private names are rejected. The backend layer checker enforces this
 boundary.
 
+### What belongs in `analysis/` and what belongs in the workflow
+
+`analysis/` answers questions about text that more than one consumer asks.
+A workflow owns the policy it applies to those answers: which reading wins,
+what to change, and what to report.
+
+`format_consistency` is the worked example. Reading a message's roleplay
+markup is shared — `analysis/text/markup.py` classifies the dialogue and
+narration axes for markup repair, for TTS speech selection, and for the image
+camera's narration extraction, and `analysis/text/roleplay.py` and
+`analysis/text/text_segmentation.py` hold the span parser all three read.
+Repair is not shared: `workflows/format_consistency/normalization.py` owns the
+baseline window vote, the rewrite rules, the skip policy, and
+`FormatDriftReport`. Nothing outside the workflow imports them, and the toolkit
+does not re-export them — a toolkit entry would hand another plug-in this
+workflow's repair policy by accident and would import the workflow back into
+its own API.
+
+The line to apply to a new workflow: publish through the toolkit the
+primitives a plug-in needs to act on shared text, and keep in the workflow the
+decisions only that feature makes.
+
 ### Frontend
 
 | Path | Purpose |

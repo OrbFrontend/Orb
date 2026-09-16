@@ -14,9 +14,9 @@ from ..toolkit import (
     local_model_identity,
     narration_only,
     set_workflow_message_state,
-    stable_label,
 )
 from . import WORKFLOW_ID
+from .normalization import stable_label
 
 logger = logging.getLogger(__name__)
 

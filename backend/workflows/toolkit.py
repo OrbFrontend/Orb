@@ -9,22 +9,28 @@ from typing import Any
 from ..analysis import (
     AxisStyle,
     Dialogue,
-    FormatDriftReport,
     Narration,
-    baseline_axes,
     build_targets,
     classify_axes,
     format_numbered_report,
     format_report,
     narration_only,
-    normalize_to_baseline,
     protected_runs,
     run_audit,
     speech_input,
     speech_segments,
     spoken_lines,
-    stable_label,
-    vote_axes,
+)
+
+# Shared span primitives used by markup repair, voice shaping, and classification.
+from ..analysis.text.roleplay import emphasis_inner, span_role, split_ws, strip_quotes
+from ..analysis.text.text_segmentation import (
+    CLOSE_QUOTES,
+    OPEN_QUOTES,
+    TOGGLE_QUOTES,
+    extract_block_spans,
+    find_emphasis_spans,
+    find_quote_spans,
 )
 from ..core import (
     Macros,
@@ -33,6 +39,7 @@ from ..core import (
     workflow_state_lock,
 )
 from ..core.domain_types import AgentLane, CastMember, TurnCast
+from ..core.text_segmentation import map_prose, strip_protected_markup
 from ..database import (
     get_active_lorebook_entries,
     get_character_avatar,
@@ -83,11 +90,15 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "AxisStyle",
+    "CLOSE_QUOTES",
     "CastMember",
+    "Dialogue",
     "EVICTED_MARKER",
     "EV_DRAFT_REPLACED",
-    "FormatDriftReport",
     "Macros",
+    "Narration",
+    "OPEN_QUOTES",
+    "TOGGLE_QUOTES",
     "ToolSpec",
     "TurnCast",
     "Workflow",
@@ -95,10 +106,17 @@ __all__ = [
     "WorkflowUserFacingError",
     "classify_pov",
     "classify_pov_tense",
-    "baseline_axes",
     "classify_axes",
     "markup_axes",
-    "vote_axes",
+    "emphasis_inner",
+    "extract_block_spans",
+    "find_emphasis_spans",
+    "find_quote_spans",
+    "map_prose",
+    "span_role",
+    "split_ws",
+    "strip_protected_markup",
+    "strip_quotes",
     "forced_tool_call",
     "build_targets",
     "format_numbered_report",
@@ -127,7 +145,6 @@ __all__ = [
     "local_feature_ready",
     "local_model_identity",
     "narration_only",
-    "normalize_to_baseline",
     "overlay_enable_tools",
     "protected_runs",
     "run_audit",
@@ -139,7 +156,6 @@ __all__ = [
     "set_workflow_config",
     "set_workflow_message_state",
     "set_workflow_state",
-    "stable_label",
     "workflow_character_state_lock",
     "workflow_config_lock",
     "workflow_state_lock",

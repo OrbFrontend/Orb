@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from ..core.text_segmentation import PROTECTED_MARKUP_RE
-from .format_consistency import classify_axes
+from .text.markup import classify_axes
 from .text.roleplay import (
     THOUGHT_ATTRIBUTION,
     AxisStyle,

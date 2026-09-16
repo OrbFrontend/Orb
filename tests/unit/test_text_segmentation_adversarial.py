@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 from backend.analysis.detectors.anti_echo import detect_anti_echo
-from backend.analysis.format_consistency import (
-    Dialogue,
-    classify_axes,
-    normalize_to_baseline,
-)
+from backend.analysis.text.markup import classify_axes
+from backend.analysis.text.roleplay import Dialogue
 from backend.analysis.text.text_segmentation import (
     SENT_SPLIT,
     ends_with_question,
@@ -21,6 +18,7 @@ from backend.analysis.text.text_segmentation import (
     split_sentences,
     strip_ooc,
 )
+from backend.workflows.format_consistency.normalization import normalize_to_baseline
 
 
 def test_nested_directional_quotes_stay_one_outer_dialogue_span():
