@@ -5,8 +5,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+from ..core.text_segmentation import split_paragraphs
 from .audit import CLEAN_REPORT, AuditReport, _strip_markers
-from .text.text_segmentation import extract_block_spans, split_paragraphs
+from .text.roleplay_segmentation import extract_block_spans
 
 
 @dataclass

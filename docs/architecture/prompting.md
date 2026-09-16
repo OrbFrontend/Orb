@@ -35,6 +35,13 @@ workflow toolkit, never these lower layers, host internals, or peer plug-ins. Th
 enforced by `scripts/check_backend_layers.py`; every Python-bearing top-level
 backend package must be classified there.
 
+Shared sentence boundaries, quotation scanning, and protected-markup primitives
+belong in `core/text_segmentation.py`, which both inference and analysis use.
+Roleplay block segmentation (speech, emphasis, narration, and OOC asides) belongs
+in `analysis/text/roleplay_segmentation.py` and builds on those primitives.
+Consumers import core helpers directly; the analysis module does not re-export
+them. Workflow plug-ins access shared capabilities through the stable toolkit.
+
 ## Byte and order contracts
 
 Prompt text, whitespace, delimiters, message order, parameter order, macro

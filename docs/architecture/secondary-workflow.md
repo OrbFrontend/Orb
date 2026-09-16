@@ -58,7 +58,7 @@ what to change, and what to report.
 markup is shared — `analysis/text/markup.py` classifies the dialogue and
 narration axes for markup repair, for TTS speech selection, and for the image
 camera's narration extraction, and `analysis/text/roleplay.py` and
-`analysis/text/text_segmentation.py` hold the span parser all three read.
+`analysis/text/roleplay_segmentation.py` hold the span parser all three read.
 Repair is not shared: `workflows/format_consistency/normalization.py` owns the
 baseline window vote, the rewrite rules, the skip policy, and
 `FormatDriftReport`. Nothing outside the workflow imports them, and the toolkit

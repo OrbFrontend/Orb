@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass, field
 
 from ..text.lexical import normalize_word
-from ..text.text_segmentation import split_narration_sentences
+from ..text.roleplay_segmentation import split_narration_sentences
 
 DEBUG = "DEBUG_OPENING_MONOTONY" in os.environ
 

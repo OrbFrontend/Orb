@@ -7,7 +7,9 @@ from collections.abc import Iterator
 
 from ...core.text_segmentation import (
     PROTECTED_MARKUP_RE,
+    extract_unquoted_text,
     map_prose,
+    split_paragraphs,
     strip_protected_markup,
 )
 from .roleplay import (
@@ -19,11 +21,9 @@ from .roleplay import (
     is_inline_emphasis,
     strip_quotes,
 )
-from .text_segmentation import (
+from .roleplay_segmentation import (
     extract_block_spans,
-    extract_narration,
     find_emphasis_spans,
-    split_paragraphs,
 )
 
 __all__ = [
@@ -241,14 +241,14 @@ def _canonical_emphasis(text: str) -> str:
 def narration_only(text: str, dialogue: Dialogue) -> str:
     """Return classifier narration, with speech removed and emphasis canonicalized."""
     if dialogue != Dialogue.BARE:
-        return _canonical_emphasis(extract_narration(_remove_attributed_thoughts(text)))
+        return _canonical_emphasis(extract_unquoted_text(_remove_attributed_thoughts(text)))
 
     narration: list[str] = []
     for paragraph in split_paragraphs(text):
         cleaned = _remove_attributed_thoughts(paragraph)
         if cleaned != paragraph:
             # A thought tag makes the surrounding prose narration.
-            narration.append(extract_narration(cleaned))
+            narration.append(extract_unquoted_text(cleaned))
             continue
         for para, spans in _paragraph_spans(paragraph):
             for i, (typ, start, end) in enumerate(spans):

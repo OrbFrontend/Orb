@@ -24,13 +24,9 @@ from ..analysis import (
 
 # Shared span primitives used by markup repair, voice shaping, and classification.
 from ..analysis.text.roleplay import emphasis_inner, span_role, split_ws, strip_quotes
-from ..analysis.text.text_segmentation import (
-    CLOSE_QUOTES,
-    OPEN_QUOTES,
-    TOGGLE_QUOTES,
+from ..analysis.text.roleplay_segmentation import (
     extract_block_spans,
     find_emphasis_spans,
-    find_quote_spans,
 )
 from ..core import (
     Macros,
@@ -39,7 +35,14 @@ from ..core import (
     workflow_state_lock,
 )
 from ..core.domain_types import AgentLane, CastMember, TurnCast
-from ..core.text_segmentation import map_prose, strip_protected_markup
+from ..core.text_segmentation import (
+    CLOSE_QUOTES,
+    OPEN_QUOTES,
+    TOGGLE_QUOTES,
+    find_quote_spans,
+    map_prose,
+    strip_protected_markup,
+)
 from ..database import (
     get_active_lorebook_entries,
     get_character_avatar,

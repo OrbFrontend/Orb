@@ -19,7 +19,7 @@ from .speech import speech_input, speech_segments
 from .targets import Target, build_targets, format_numbered_report, target_ids_for
 from .text.markup import classify_axes, narration_only, protected_runs, spoken_lines
 from .text.roleplay import AxisStyle, Dialogue, Narration
-from .text.text_segmentation import split_narration_sentences
+from .text.roleplay_segmentation import split_narration_sentences
 
 __all__ = [
     "AUDIT_TYPES",

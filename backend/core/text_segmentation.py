@@ -11,7 +11,6 @@ __all__ = [
     "OPEN_QUOTES",
     "PARA_SPLIT",
     "PROTECTED_MARKUP_RE",
-    "SENT_SPLIT",
     "TOGGLE_QUOTES",
     "count_sentences",
     "ends_with_question",
@@ -31,12 +30,6 @@ __all__ = [
 # pattern for callers that need to preserve or inspect the separators.
 HARD_LINE_BREAK_RE = re.compile(r"\r\n|[\n\v\f\r\x1c-\x1e\x85\u2028\u2029]")
 PARA_SPLIT = re.compile(r"(?:\r\n|[\n\r\x85\u2028\u2029])\s*(?:\r\n|[\n\r\x85\u2028\u2029])")
-
-# Compatibility pattern for older consumers that call ``SENT_SPLIT.split``.
-# Public splitting uses the scanner below for abbreviations and Unicode marks.
-SENT_SPLIT = re.compile(
-    r"(?:(?<=[.!?…])[\"\u201d\u2019'*_)\]]*\s+|(?:\r\n|[\n\v\f\r\x1c-\x1e\x85\u2028\u2029])+)",
-)
 
 _QUOTE_PAIRS = {
     "“": "”",

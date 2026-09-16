@@ -5,13 +5,13 @@ from __future__ import annotations
 import difflib
 from dataclasses import dataclass, field
 
-from ..text.text_segmentation import (
+from ...core.text_segmentation import (
     PARA_SPLIT as _PARA_SPLIT,
 )
-from ..text.text_segmentation import (
+from ...core.text_segmentation import (
     count_sentences as _count_sentences,
 )
-from ..text.text_segmentation import (
+from ..text.roleplay_segmentation import (
     extract_blocks as _extract_blocks,
 )
 

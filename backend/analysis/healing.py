@@ -6,8 +6,12 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from ..core.text_segmentation import (
+    HARD_LINE_BREAK_RE,
+    PARA_SPLIT,
+)
 from .audit import _OUTER_MARKERS
-from .text.text_segmentation import HARD_LINE_BREAK_RE, PARA_SPLIT, extract_block_spans
+from .text.roleplay_segmentation import extract_block_spans
 
 __all__ = ["HealedPatch", "heal_replacement"]
 

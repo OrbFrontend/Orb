@@ -1,56 +1,24 @@
-"""Analysis-specific sentence, dialogue, and block segmentation."""
+"""Roleplay speech, emphasis, and narration blocks built on core text primitives."""
 
 from __future__ import annotations
 
 import re
 
 from ...core.text_segmentation import (
-    CLOSE_QUOTES,
     HARD_LINE_BREAK_RE,
-    OPEN_QUOTES,
-    PARA_SPLIT,
-    SENT_SPLIT,
-    TOGGLE_QUOTES,
-    count_sentences,
-    ends_with_question,
-    ends_with_sentence_terminator,
-    extract_unquoted_text,
     find_quote_spans,
-    sentence_boundary_ends,
     split_paragraphs,
     split_sentence_units,
-    split_sentences,
 )
 
 __all__ = [
-    "HARD_LINE_BREAK_RE",
-    "PARA_SPLIT",
-    "SENT_SPLIT",
-    "OPEN_QUOTES",
-    "CLOSE_QUOTES",
-    "TOGGLE_QUOTES",
-    "EMPHASIS_RE",
-    "split_paragraphs",
-    "split_sentences",
-    "split_sentence_units",
-    "sentence_boundary_ends",
-    "ends_with_sentence_terminator",
     "split_segment_sentences",
-    "extract_narration",
     "split_narration_sentences",
     "strip_ooc",
-    "find_quote_spans",
     "find_emphasis_spans",
     "extract_block_spans",
     "extract_blocks",
-    "count_sentences",
-    "ends_with_question",
 ]
-
-
-def extract_narration(paragraph: str) -> str:
-    """Return paragraph text outside balanced quoted spans."""
-    return extract_unquoted_text(paragraph)
 
 
 def split_narration_sentences(text: str) -> list[str]:
@@ -111,7 +79,7 @@ def strip_ooc(text: str) -> str:
 
 _NO_LINE_BREAK_ASTERISK = r"[^*\n\v\f\r\x1c-\x1e\x85\u2028\u2029]"
 _NO_LINE_BREAK_UNDERSCORE = r"[^_\n\v\f\r\x1c-\x1e\x85\u2028\u2029]"
-EMPHASIS_RE = re.compile(
+_EMPHASIS_RE = re.compile(
     rf"(?<![\w*\\])\*(?![\s*])({_NO_LINE_BREAK_ASTERISK}+?)\*(?![\w*])"
     rf"|(?<![\w_\\])_(?![\s_])({_NO_LINE_BREAK_UNDERSCORE}+?)_(?![\w_])"
 )
@@ -127,7 +95,7 @@ def _line_start_before(text: str, offset: int) -> int:
 def find_emphasis_spans(text: str) -> list[tuple[int, int]]:
     """Return single-marker emphasis spans, excluding bullets, escapes, and bold."""
     spans: list[tuple[int, int]] = []
-    for match in EMPHASIS_RE.finditer(text):
+    for match in _EMPHASIS_RE.finditer(text):
         if match.group(0).startswith("*"):
             prefix = text[_line_start_before(text, match.start()) : match.start()]
             after_star = match.start() + 1

@@ -12,7 +12,7 @@ from ..text.lexical import (
     ngrams,
     tokenize,
 )
-from ..text.text_segmentation import split_narration_sentences
+from ..text.roleplay_segmentation import split_narration_sentences
 
 DEBUG = "DEBUG_PHRASE_REPETITION" in os.environ
 

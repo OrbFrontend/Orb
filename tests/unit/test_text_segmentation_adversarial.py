@@ -5,18 +5,19 @@ from __future__ import annotations
 from backend.analysis.detectors.anti_echo import detect_anti_echo
 from backend.analysis.text.markup import classify_axes
 from backend.analysis.text.roleplay import Dialogue
-from backend.analysis.text.text_segmentation import (
-    SENT_SPLIT,
-    ends_with_question,
+from backend.analysis.text.roleplay_segmentation import (
     extract_block_spans,
     extract_blocks,
-    extract_narration,
     find_emphasis_spans,
-    find_quote_spans,
     split_narration_sentences,
     split_segment_sentences,
-    split_sentences,
     strip_ooc,
+)
+from backend.core.text_segmentation import (
+    ends_with_question,
+    extract_unquoted_text,
+    find_quote_spans,
+    split_sentences,
 )
 from backend.workflows.format_consistency.normalization import normalize_to_baseline
 
@@ -26,7 +27,7 @@ def test_nested_directional_quotes_stay_one_outer_dialogue_span():
     assert [(start, end, text[start:end]) for start, end in find_quote_spans(text)] == [
         (0, 32, "“She called it ‘odd’ yesterday.”")
     ]
-    assert extract_narration(text) == "Then she left."
+    assert extract_unquoted_text(text) == "Then she left."
     assert extract_blocks(text) == [
         ("SPEECH", "“She called it ‘odd’ yesterday.”"),
         ("NARRATION", "Then she left."),
@@ -47,19 +48,19 @@ def test_plural_possessive_apostrophe_does_not_close_double_dialogue():
 def test_escaped_straight_quotes_do_not_fragment_dialogue():
     text = 'She said "a \\"quoted\\" word" and left.'
     assert [text[start:end] for start, end in find_quote_spans(text)] == ['"a \\"quoted\\" word"']
-    assert extract_narration(text) == "She said and left."
+    assert extract_unquoted_text(text) == "She said and left."
 
 
 def test_measurement_marks_do_not_create_bogus_straight_quote_dialogue():
     text = 'The frame is 12" by 8" wide.'
     assert find_quote_spans(text) == []
-    assert extract_narration(text) == text
+    assert extract_unquoted_text(text) == text
 
 
 def test_unclosed_quote_is_literal_and_cannot_swallow_rest_of_paragraph():
     text = "He said “Stop. Then he left."
     assert find_quote_spans(text) == []
-    assert extract_narration(text) == text
+    assert extract_unquoted_text(text) == text
     assert extract_blocks(text) == [("NARRATION", text)]
     assert classify_axes(text).dialogue == Dialogue.UNKNOWN
 
@@ -86,7 +87,7 @@ def test_ornamental_fullwidth_and_prime_double_quotes_are_dialogue():
 def test_a_double_prime_after_a_number_is_a_measurement():
     text = "The frame is 12″ by 8″ wide."
     assert find_quote_spans(text) == []
-    assert extract_narration(text) == text
+    assert extract_unquoted_text(text) == text
 
 
 def test_sentence_split_preserves_balanced_closing_markup():
@@ -126,7 +127,6 @@ def test_line_breaks_are_hard_sentence_boundaries_without_punctuation():
     assert split_sentences(text) == expected
     assert split_narration_sentences(text) == expected
     assert split_segment_sentences(text) == expected
-    assert [part for part in SENT_SPLIT.split(text) if part] == expected
     assert all(not any(mark in sentence for mark in "\r\n\u2028") for sentence in expected)
 
 

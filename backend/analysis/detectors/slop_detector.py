@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from ..text.lexical import ngrams
-from ..text.text_segmentation import split_segment_sentences
+from ..text.roleplay_segmentation import split_segment_sentences
 
 if TYPE_CHECKING:
     from ...database.models import PhraseGroup

@@ -18,11 +18,11 @@ from ...analysis import (
     report_to_dict,
     run_audit,
 )
-from ...analysis.text.text_segmentation import (
+from ...core import ChatMessage, extract_hyperparams
+from ...core.text_segmentation import (
     ends_with_sentence_terminator,
     sentence_boundary_ends,
 )
-from ...core import ChatMessage, extract_hyperparams
 from ...inference import LLMClient, parse_tool_calls, reasoning_cfg
 from ...prompting.tool_catalog import require_tool
 from .continuation import _MACRO_RE, build_generation_messages
@@ -76,7 +76,7 @@ def trim_incomplete_tail(draft: str) -> tuple[str, str]:
 
     Returns ``(draft_core, tail_fragment)`` with ``draft_core + tail_fragment
     == draft``, so a patched core can reattach the tail verbatim. Uses the
-    analysis layer's sentence-boundary scanner rather than
+    core sentence-boundary scanner rather than
     a second regex. A draft with no complete sentence returns ``("", draft)``.
     """
     if not draft.strip():

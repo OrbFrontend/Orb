@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ..text.lexical import count_content_words, longest_common_run, tokenize
-from ..text.text_segmentation import (
+from ...core.text_segmentation import (
     ends_with_question,
     find_quote_spans,
-    split_narration_sentences,
     split_sentences,
+)
+from ..text.lexical import count_content_words, longest_common_run, tokenize
+from ..text.roleplay_segmentation import (
+    split_narration_sentences,
     strip_ooc,
 )
 

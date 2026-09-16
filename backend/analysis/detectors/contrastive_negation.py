@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from ..text.text_segmentation import split_sentences
+from ...core.text_segmentation import split_sentences
 
 # Dialogue is intentionally kept: clause-grammar analysis must see quoted text.
 # Paragraph-first splitting (in text_segmentation) prevents a paragraph that

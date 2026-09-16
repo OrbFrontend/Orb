@@ -14,7 +14,7 @@ from .detectors.template_repetition import FlaggedTemplate, TemplateResult
 from .guarding import guard_protected_sequences, protected_bands
 from .healing import heal_replacement
 from .targets import Target
-from .text.text_segmentation import split_narration_sentences
+from .text.roleplay_segmentation import split_narration_sentences
 
 logger = logging.getLogger(__name__)
 

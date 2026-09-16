@@ -4,7 +4,16 @@ from __future__ import annotations
 
 import re
 
-from ..core.text_segmentation import PROTECTED_MARKUP_RE
+from ..core.text_segmentation import (
+    CLOSE_QUOTES,
+    HARD_LINE_BREAK_RE,
+    OPEN_QUOTES,
+    PROTECTED_MARKUP_RE,
+    TOGGLE_QUOTES,
+    find_quote_spans,
+    sentence_boundary_ends,
+    split_paragraphs,
+)
 from .text.markup import classify_axes
 from .text.roleplay import (
     THOUGHT_ATTRIBUTION,
@@ -16,15 +25,8 @@ from .text.roleplay import (
     span_role,
     strip_quotes,
 )
-from .text.text_segmentation import (
-    CLOSE_QUOTES,
-    HARD_LINE_BREAK_RE,
-    OPEN_QUOTES,
-    TOGGLE_QUOTES,
+from .text.roleplay_segmentation import (
     extract_block_spans,
-    find_quote_spans,
-    sentence_boundary_ends,
-    split_paragraphs,
     strip_ooc,
 )
 
