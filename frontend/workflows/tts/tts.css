@@ -222,20 +222,34 @@
   white-space: nowrap;
 }
 
-/* The cloned voice: its label, an optional setup line, then the drop zone. A
-   touch more air than a plain field, since the zone is a box of its own. */
+/* The cloned voice: its heading, an optional setup line, the drop zone, then
+   the GPU switch. A touch more air than a plain field, since the zone is a box
+   of its own. */
 .tts-clone {
   gap: 8px;
 }
 
-.tts-clone > label {
+/* The heading carries Remove at its right end, lined up with the zone's edge. */
+.tts-clone-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tts-clone-head label {
   margin: 0;
 }
 
-/* The zone and its Remove button share a row until the zone would get too
-   narrow to read, then the button drops beneath it. */
-.tts-clone .tts-control-row {
-  flex-wrap: wrap;
+.tts-clone-remove {
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.tts-clone-remove:hover,
+.tts-clone-remove:focus-visible {
+  color: var(--red);
 }
 
 /* The cloned-voice drop zone. A label wrapping a visually hidden file input, so
@@ -399,23 +413,18 @@
   white-space: nowrap;
 }
 
-/* The voice model's GPU switch on the left, its load state on the right; a long
-   error drops beneath the switch rather than squeezing it. */
-.tts-engine {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px 12px;
-  min-width: 0;
+/* The GPU switch's note is the voice model's load state; a long error wraps
+   under the switch instead of widening the modal. */
+.tts-clone .tts-setting-toggle {
+  margin-top: 2px;
 }
 
-.tts-engine .tts-note {
+.tts-clone .tts-toggle-body {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.tts-engine .tts-engine-error {
+.tts-note.tts-engine-error {
   color: var(--red);
 }
 

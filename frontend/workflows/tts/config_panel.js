@@ -133,7 +133,7 @@ function query(action, extra) {
 }
 
 export function configPanelRenderer() {
-  return `<div class="tool-card-desc">Generate audio for dialogues.</div>
+  return `<div class="tool-card-desc">Generate audio for dialogue.</div>
     <button class="btn btn-sm tool-card-btn" data-wf-action="tts:openSettings">Settings</button>`;
 }
 
@@ -392,30 +392,30 @@ function cloneControlHtml(p) {
       ${ICON_WAVE}
       <span class="tts-drop-text"><span class="tts-drop-label">${title}</span><span class="tts-note">${note}</span></span>
     </label>`;
+  const remove =
+    enrolled && !enrolling
+      ? `<button class="tts-clone-remove" type="button" data-wf-action="tts:voiceClear">Remove</button>`
+      : "";
   return `<div class="tts-field tts-clone">
-      <label for="tts-pf-voicefile">Cloned voice</label>
+      <span class="tts-clone-head"><label for="tts-pf-voicefile">Cloned voice</label>${remove}</span>
       ${setupNoticeHtml()}
-      ${
-        enrolled && !enrolling
-          ? `<span class="tts-control-row">${zone}<button class="btn btn-sm" type="button" data-wf-action="tts:voiceClear">Remove voice</button></span>`
-          : zone
-      }
+      ${zone}
       ${engineRowHtml()}
     </div>`;
 }
 
-/** Render the voice model status and GPU switch. */
+/** Render the GPU switch with the voice model's state as its note. */
 function engineRowHtml() {
   const llm = mlFeature("spark_tts_llm");
   if (!llm.deps_ok || !llm.present || llm.runtime_ok === false) return "";
-  const state = `${llm.state || "idle"}${llm.error ? `: ${llm.error}` : ""}`;
-  return `<span class="tts-engine">
-      <label class="tts-setting-toggle" title="Run the voice model on the GPU. Takes effect on the next spoken line.">
-        <input type="checkbox"${llm.gpu ? " checked" : ""} data-wf-action="tts:cloneGpu" data-wf-on="change">
+  const state = llm.state === "loading" ? "loading…" : llm.state || "idle";
+  return `<label class="tts-setting-toggle" title="Run the voice model on the GPU. Takes effect on the next spoken line.">
+      <input type="checkbox"${llm.gpu ? " checked" : ""} data-wf-action="tts:cloneGpu" data-wf-on="change">
+      <span class="tts-toggle-body">
         <span class="tts-toggle-label">Run on GPU</span>
-      </label>
-      <span class="tts-note${llm.error ? " tts-engine-error" : ""}">${esc(state)}</span>
-    </span>`;
+        <span class="tts-note${llm.error ? " tts-engine-error" : ""}">Voice model ${esc(state)}${llm.error ? `: ${esc(llm.error)}` : ""}</span>
+      </span>
+    </label>`;
 }
 
 // The next spoken line picks up the new GPU setting.

@@ -565,7 +565,7 @@ function buildWorkflowToggleRows() {
         <span class="tog-slider"></span>
       </label>
     </div>
-    <div class="tool-card-desc">Turns all the workflows below on or off at once.</div>
+    <div class="tool-card-desc">Toggle everything below.</div>
   </div>`;
 
   const panels = new Map(S.workflowToolsPanelRenderers.map(({ workflowId, render }) => [workflowId, render]));
