@@ -16,7 +16,7 @@ import {
   resumeChannel,
   setWorkflowPhase,
 } from "/static/workflow_api.js";
-import { alignmentKey, attachmentBlocks } from "./extract.js";
+import { alignableKeys, alignBlocks, alignmentKey, attachmentBlocks } from "./extract.js";
 import { startKaraoke } from "./karaoke.js";
 
 const WORKFLOW_ID = "tts";
@@ -370,38 +370,26 @@ function computeBlockMap(msg) {
   const segs = messageSegments(msg.id);
   if (!segs.length) return { map, wordIndices, ready: false };
   const blocks = attachmentBlocks(msg.content || "", cm.blocks);
-  const words = segs.map((s) => ({ wordIndex: s.wordIndex, t: alignmentKey(s.word) }));
-  const limit = Math.min(blocks.length, clipCount);
-  let cursor = 0;
-  for (let bi = 0; bi < limit; bi++) {
-    const tokens = blocks[bi].split(/\s+/).map(alignmentKey).filter(Boolean);
-    if (!tokens.length) continue;
-    const at = _findRun(words, tokens, cursor);
+  const words = segs.map((s) => ({ wordIndex: s.wordIndex, t: alignmentKey(s.word), raw: s.word }));
+  // `alignableKeys` is the tokenizer the backend mirrors when it emits one timing
+  // span per word, so the karaoke driver can pair the k-th span with the k-th
+  // index below. Splitting these apart by hand drifts from that contract on the
+  // separators only one of the two splitters knows, and the driver, which checks
+  // the two lengths agree, then silently stops highlighting the block.
+  const blockTokens = blocks.slice(0, Math.min(blocks.length, clipCount)).map(alignableKeys);
+  const starts = alignBlocks(words, blockTokens);
+  for (let bi = 0; bi < blockTokens.length; bi++) {
+    const at = starts[bi];
     if (at < 0) continue;
     const idxs = [];
-    for (let k = 0; k < tokens.length; k++) {
+    for (let k = 0; k < blockTokens[bi].length; k++) {
       const wi = words[at + k].wordIndex;
       map[wi] = bi;
       idxs.push(wi);
     }
     wordIndices[bi] = idxs;
-    cursor = at + tokens.length;
   }
   return { map, wordIndices, ready: true };
-}
-
-function _findRun(words, tokens, from) {
-  for (let i = from; i + tokens.length <= words.length; i++) {
-    let ok = true;
-    for (let k = 0; k < tokens.length; k++) {
-      if (words[i + k].t !== tokens[k]) {
-        ok = false;
-        break;
-      }
-    }
-    if (ok) return i;
-  }
-  return -1;
 }
 
 function speakClaims(seg) {

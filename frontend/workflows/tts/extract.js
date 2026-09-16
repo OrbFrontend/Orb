@@ -139,6 +139,99 @@ export function alignableKeys(text) {
   return whitespaceTokens(text).map(alignmentKey).filter(Boolean);
 }
 
+const OPENERS = new Set([...OPEN_QUOTES, '"', "＂", "″", "—", "‟", "❝", "〝"]);
+const CLOSERS = new Set([...CLOSE_QUOTES, '"', "＂", "″", "—", "❞", "〞"]);
+
+function quoteAffinity(firstWord, lastWord) {
+  const lead = /^[^\p{L}\p{N}]*/u.exec(firstWord || "")[0];
+  const trail = /[^\p{L}\p{N}]*$/u.exec(lastWord || "")[0];
+  return ([...lead].some((c) => OPENERS.has(c)) ? 1 : 0) + ([...trail].some((c) => CLOSERS.has(c)) ? 1 : 0);
+}
+
+function runMatches(words, tokens, at) {
+  for (let k = 0; k < tokens.length; k++) {
+    if (words[at + k].t !== tokens[k]) return false;
+  }
+  return true;
+}
+
+function firstRun(words, tokens, from, until) {
+  for (let at = from; at + tokens.length <= until; at++) {
+    if (runMatches(words, tokens, at)) return at;
+  }
+  return -1;
+}
+
+function lastRun(words, tokens, from, until) {
+  for (let at = until - tokens.length; at >= from; at--) {
+    if (runMatches(words, tokens, at)) return at;
+  }
+  return -1;
+}
+
+function bestRun(words, tokens, from, to) {
+  let best = -1;
+  let bestScore = -1;
+  for (let at = from; at <= to; at++) {
+    if (!runMatches(words, tokens, at)) continue;
+    const score = quoteAffinity(words[at].raw, words[at + tokens.length - 1].raw);
+    if (score > bestScore) {
+      best = at;
+      bestScore = score;
+      if (score === 2) break;
+    }
+  }
+  return best;
+}
+
+// Locate each block's on-screen words. `words` are the message's rendered tokens
+// as `{t, raw}`, `blockTokens` each block's keys from `alignableKeys`; the result
+// holds one start index per block, or -1 for a block the message no longer says.
+//
+// Taking the first run that matches gives a one-word block like `"Right,"` away
+// to any bare `right` earlier in the narration, which steals the click target and
+// the karaoke highlight and leaves the real line unmapped. Preferring the
+// best-delimited run fixes that but, chosen per block against the whole rest of
+// the message, lets an undelimited block reach forward and take the run a later
+// block needed. So bound the choice first: the leftmost chain gives every block
+// its earliest feasible run and the rightmost chain its latest, and a block can
+// only move inside that window, where by construction no other block is
+// displaced. Ties keep the leftmost run, as does a message that delimits nothing.
+export function alignBlocks(words, blockTokens) {
+  const count = blockTokens.length;
+  const earliest = new Array(count).fill(-1);
+  const latest = new Array(count).fill(-1);
+  const starts = new Array(count).fill(-1);
+
+  let cursor = 0;
+  for (let i = 0; i < count; i++) {
+    const tokens = blockTokens[i];
+    if (!tokens.length) continue;
+    const at = firstRun(words, tokens, cursor, words.length);
+    if (at < 0) continue;
+    earliest[i] = at;
+    cursor = at + tokens.length;
+  }
+
+  let until = words.length;
+  for (let i = count - 1; i >= 0; i--) {
+    if (earliest[i] < 0) continue;
+    latest[i] = lastRun(words, blockTokens[i], earliest[i], until);
+    until = latest[i];
+  }
+
+  cursor = 0;
+  for (let i = 0; i < count; i++) {
+    if (earliest[i] < 0) continue;
+    const tokens = blockTokens[i];
+    const at = bestRun(words, tokens, Math.max(cursor, earliest[i]), latest[i]);
+    if (at < 0) continue;
+    starts[i] = at;
+    cursor = at + tokens.length;
+  }
+  return starts;
+}
+
 export function extractBlocks(content) {
   if (!content?.trim()) return [];
   const quoted = findQuotedSpans(content);
