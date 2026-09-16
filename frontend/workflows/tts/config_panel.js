@@ -340,7 +340,7 @@ function mlFeature(id) {
 function featureReady(id) {
   if (!mlStatus) return true;
   const info = mlFeature(id);
-  return Boolean(info.present && info.enabled && info.deps_ok);
+  return Boolean(info.present && info.enabled && info.deps_ok && info.runtime_ok !== false);
 }
 
 /** Fetch the status this control gates on, once per open settings modal, or
@@ -371,33 +371,34 @@ function ensureMlStatus({ refresh = false } = {}) {
  * removes it. Empty once both halves are ready, which is the common case. */
 function setupNoticeHtml() {
   if (!mlStatus) return "";
-  if (!mlStatus.deps_ok) {
+  const pending = CLONE_FEATURES.filter((f) => !featureReady(f.id));
+  const unavailable = pending.find((f) => !mlFeature(f.id).deps_ok);
+  if (unavailable) {
     const cmd = mlStatus.install_cmd || "pip install -r requirements-ml.txt";
     return `<span class="tts-note">Voice cloning needs the optional ML extras: <code>${esc(cmd)}</code></span>`;
   }
-  const pending = CLONE_FEATURES.filter((f) => !featureReady(f.id));
-  if (!pending.length) return "";
   const missing = pending.filter((f) => !mlFeature(f.id).present);
-  const names = pending.map((f) => f.label).join(" and ");
-  const verb = pending.length > 1 ? "are" : "is";
-  const size = missing.reduce((mb, f) => mb + (mlFeature(f.id).size_mb || 0), 0);
-  const sentence =
-    setupStep ||
-    (missing.length
-      ? `Voice cloning runs inside Orb — the ${names} ${verb} not downloaded yet.`
-      : `The ${names} ${verb} switched off.`);
+  const runtime = mlFeature("spark_tts_llm").runtime_ok === false;
+  if (!pending.length && !runtime) return "";
+  const names = [
+    ...(runtime ? ["llama.cpp runtime"] : []),
+    ...missing.map((f) => f.label),
+    ...pending.filter((f) => mlFeature(f.id).present && !mlFeature(f.id).enabled).map((f) => f.label),
+  ];
+  const size = missing.reduce((mb, f) => mb + (mlFeature(f.id).size_mb || 0), runtime ? 150 : 0);
+  const sentence = setupStep || `Voice cloning needs ${names.join(" and ")}.`;
   return `<span class="tts-setup">
       <span class="tts-note">${sentence}</span>
-      <button class="btn btn-sm" type="button" data-wf-action="tts:cloneSetup"${setupBusy ? " disabled" : ""}>${setupLabel(missing.length, size)}</button>
+      <button class="btn btn-sm" type="button" data-wf-action="tts:cloneSetup"${setupBusy ? " disabled" : ""}>${setupLabel(Boolean(missing.length || runtime), size)}</button>
     </span>`;
 }
 
 // The one button reads as what it will do: fetch what is missing, or switch on
 // what is merely off. It does both when both are true, and the sentence beside
 // it names both halves.
-function setupLabel(missingCount, sizeMb) {
-  if (setupBusy) return missingCount ? "Downloading…" : "Turning on…";
-  if (!missingCount) return "Turn on";
+function setupLabel(download, sizeMb) {
+  if (setupBusy) return download ? "Downloading…" : "Turning on…";
+  if (!download) return "Turn on";
   return sizeMb ? `Download (${sizeMb} MB)` : "Download";
 }
 
@@ -439,7 +440,7 @@ function cloneControlHtml(p) {
  * downloaded model for either to describe. */
 function engineRowHtml() {
   const llm = mlFeature("spark_tts_llm");
-  if (!mlStatus?.deps_ok || !llm.present) return "";
+  if (!llm.deps_ok || !llm.present || llm.runtime_ok === false) return "";
   const state = `${llm.state || "idle"}${llm.error ? `: ${llm.error}` : ""}`;
   return `<span class="tts-engine">
       <label class="tts-setting-toggle" title="Run the voice model on the GPU. Takes effect on the next spoken line.">
@@ -522,6 +523,13 @@ async function runCloneSetup() {
       }
       mlStatus = await api.get("/local-ml/status");
       renderCloneControl();
+      if (feature.id === "spark_tts_codec" && mlFeature("spark_tts_llm").runtime_ok === false) {
+        setupStep = "Downloading the llama.cpp runtime (150 MB) — this takes a while.";
+        renderCloneControl();
+        await api.post("/local-ml/runtime", {});
+        mlStatus = await api.get("/local-ml/status");
+        renderCloneControl();
+      }
     }
     setStatus(CLONE_FEATURES.every((f) => featureReady(f.id)) ? "Voice cloning is ready" : "");
   } catch (e) {
@@ -658,10 +666,6 @@ async function loadVoices(selectId) {
       language: f.language,
       api_url: f.api_url,
       api_key: f.api_key,
-      // The built-in cloner has no catalog to list: its one voice is whatever
-      // this character has enrolled, which only the form knows.
-      speaker_tokens: f.speaker_tokens,
-      speaker_ref_name: f.speaker_ref_name,
     });
     const voices = res?.voices || [];
     if (!voices.length) return;

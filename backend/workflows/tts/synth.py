@@ -199,7 +199,6 @@ def _backend_kwargs(profile: dict, settings: Mapping[str, Any] | None) -> dict:
     """
     return {
         "speaker_tokens": list(profile.get("speaker_tokens") or []),
-        "speaker_ref_name": profile.get("speaker_ref_name") or "",
         "settings": settings,
     }
 

@@ -12,7 +12,7 @@ import logging
 from collections.abc import Sequence
 
 from ..llama_server import ManagedLlamaServerHost
-from . import catalog, codec, config
+from . import codec, config
 from .tokens import (
     clone_prompt,
     semantic_indices,
@@ -33,18 +33,13 @@ TOP_P = 0.95
 TOP_K = 50
 
 
-class SynthesisFailed(RuntimeError):
+class SynthesisFailed(ValueError):
     """Spark-TTS could not produce audio for this line."""
 
 
 def state() -> dict[str, str]:
     """``{"state": idle|loading|ready|failed, "error": …}`` for status surfaces."""
     return {"state": HOST.state, "error": HOST.error}
-
-
-async def shutdown() -> None:
-    """Stop this feature's llama-server child."""
-    await HOST.shutdown()
 
 
 async def synthesize(text: str, speaker_tokens: Sequence[int], *, gpu: bool = True) -> tuple[bytes, int]:
@@ -58,21 +53,16 @@ async def synthesize(text: str, speaker_tokens: Sequence[int], *, gpu: bool = Tr
     if not spoken:
         return b"", codec.SAMPLE_RATE
     speaker = validate_speaker_tokens(list(speaker_tokens))
-    ok, reason = catalog.llm_ready()
-    if not ok:
-        raise SynthesisFailed(reason)
-    ok, reason = catalog.codec_ready()
-    if not ok:
-        raise SynthesisFailed(reason)
     profile = config.launch_profile(gpu=gpu)
     async with HOST.use(profile) as server:
         # parse_special OFF: the line is a character's dialogue, not a place to
         # honour control-token spellings that happen to appear in it.
         body = await server.tokenize(spoken, parse_special=False)
         prompt = clone_prompt(body, speaker)
+        budget = token_budget(spoken)
         generated, stopped = await server.generate_tokens(
             prompt,
-            n_predict=token_budget(spoken),
+            n_predict=budget,
             temperature=TEMPERATURE,
             top_p=TOP_P,
             top_k=TOP_K,
@@ -85,11 +75,11 @@ async def synthesize(text: str, speaker_tokens: Sequence[int], *, gpu: bool = Tr
         # failure rather than a dice roll worth re-rolling.
         raise SynthesisFailed("Spark-TTS produced no audio tokens for this line.")
     if not stopped:
-        logger.info("Spark-TTS hit its %d-token budget for a %d-character line", token_budget(spoken), len(spoken))
+        logger.info("Spark-TTS hit its %d-token budget for a %d-character line", budget, len(spoken))
     # The 385 MB decoder holds the GIL for its whole run; off the loop it goes,
     # or every other request in the app stalls for the length of the clip.
     pcm = await asyncio.to_thread(codec.decode, semantic, speaker)
     return pcm, codec.SAMPLE_RATE
 
 
-__all__ = ["HOST", "SynthesisFailed", "shutdown", "state", "synthesize"]
+__all__ = ["HOST", "SynthesisFailed", "state", "synthesize"]

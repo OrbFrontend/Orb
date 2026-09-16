@@ -40,13 +40,11 @@ at the built-in backend and switches this character's speech on for you. Use
 **Preview** to hear the result, and **Remove voice** to forget it, which also
 stops the automatic speech that enrolling turned on.
 
-When the two models the cloner needs are missing or switched off, the control
-says which and offers a **Download** button that fetches them in place. The
-codec comes down first, so a voice can be enrolled while the model is still
-downloading; the drop zone says when speech is waiting on it. Once the model is
-downloaded, the control also shows its **Run on GPU** switch and whether it is
-loaded. None of this appears under **Settings → Local ML**: the cloned-voice
-control is the only place the cloner is managed.
+When a required download or switch is missing, the control says which and fixes
+it in place. It installs the codec first, so a voice can be enrolled while the
+shared runtime and voice model download. Once ready, it also shows the model's
+**Run on GPU** switch and load state. None of this appears under **Settings →
+Local ML**: the cloned-voice control is the only place the cloner is managed.
 
 The **whole clip, up to two minutes**, is read. The cloned voice shifts with
 which few seconds it hears, so a clip of several lines leaves less to chance
@@ -122,8 +120,8 @@ an attachment applies the current segmentation and Local ML settings.
 ### The built-in backend
 
 **Spark-TTS (built-in)** is the only backend that needs no server. Install the
-optional ML extras (`pip install -r requirements-ml.txt`), then download its two
-halves from the cloned-voice control:
+optional ML extras (`pip install -r requirements-ml.txt`), then download its
+pieces from the cloned-voice control:
 
 - **Voice model** (520 MB) — speaks. Runs through the same llama-server runtime
   as the Prose Rewriter and has the same **Run on GPU** switch; it is the half
@@ -132,6 +130,8 @@ halves from the cloned-voice control:
 - **Voice codec** (391 MB, two files) — turns an uploaded clip into a voice and
   voices back into audio. CPU only; ONNX Runtime has no Vulkan provider, and the
   vocoder is not the bottleneck.
+- **llama-server runtime** (about 150 MB) — shared with the Prose Rewriter and
+  fetched automatically when the voice model needs it.
 
 The two download separately and you can enrol a voice as soon as the codec is
 present, before the model finishes. The model is unloaded after a couple of

@@ -19,7 +19,6 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ..database import get_settings, set_local_ml_config
-from ..inference.local_models import assets, onnx_runtime
 from ..inference.local_models.spark_tts import (
     catalog,
     config,
@@ -130,45 +129,16 @@ class _LlmManagement:
         await service.HOST.release()
 
 
-class _CodecManagement:
-    """Local ML route hooks for the ONNX half."""
-
-    async def status_extra(self, settings: Mapping[str, Any]) -> dict:
-        return {"missing_files": assets.missing_files(FEATURE_CODEC)}
-
-    async def on_enabled(self, enabled: bool) -> None:
-        if not enabled:
-            onnx_runtime.release()
-
-    async def release_host(self) -> None:
-        """Drop the cached sessions before the files are deleted.
-
-        Not optional on Windows, where an open handle makes the unlink fail
-        outright; everywhere else it is 385 MB that would otherwise stay
-        resident pointing at a file that no longer exists.
-        """
-        onnx_runtime.release()
-
-
 LLM_MANAGEMENT = _LlmManagement()
-CODEC_MANAGEMENT = _CodecManagement()
-
-
-async def shutdown() -> None:
-    """Stop the child and drop the ONNX sessions. For the app lifespan."""
-    await service.shutdown()
-    onnx_runtime.release()
 
 
 __all__ = [
-    "CODEC_MANAGEMENT",
     "FEATURE_CODEC",
     "FEATURE_LLM",
     "LLM_MANAGEMENT",
     "clean_tokens",
     "enroll_upload",
     "enrollment_ready",
-    "shutdown",
     "synthesis_ready",
     "synthesize",
     "use_gpu",

@@ -151,7 +151,6 @@ __all__ = [
     "narration_only",
     "overlay_enable_tools",
     "spark_voice_clean_tokens",
-    "spark_voice_ready",
     "spark_voice_speak",
     "protected_runs",
     "run_audit",
@@ -219,16 +218,6 @@ async def _classify_markup(text: str) -> AxisStyle | None:
         logger.warning("markup classifier failed (%r); reading markup heuristically", e)
         return None
     return AxisStyle(dialogue=Dialogue(dialogue), narration=Narration(narration))
-
-
-def spark_voice_ready(settings: Mapping[str, Any]) -> tuple[bool, str]:
-    """Can the built-in Spark-TTS cloner speak a line on this machine?
-
-    ``(False, reason)`` names the missing piece, and the reason is shown to the
-    user — an adapter that answered a bare False would reproduce the sidecar's
-    worst habit, an empty voice picker with nothing to act on.
-    """
-    return _spark_tts_host.synthesis_ready(settings)
 
 
 def spark_voice_clean_tokens(raw: object) -> list[int]:

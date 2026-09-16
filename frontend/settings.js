@@ -518,7 +518,7 @@ function beginMlBusy(btn) {
 async function fetchLlamaRuntime(btn) {
   const endBusy = beginMlBusy(btn);
   try {
-    await api.post("/local-ml/prose_rewriter/runtime", {});
+    await api.post("/local-ml/runtime", {});
   } catch (e) {
     toast(e.message || "Runtime download failed", true);
     endBusy();

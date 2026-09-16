@@ -208,10 +208,6 @@ async def _list_voices(body) -> dict:
             api_url=body.get("api_url") or "",
             api_key=(body.get("api_key") or None),
             model=body.get("model") or "",
-            # The built-in cloner has no catalog to fetch: its one voice is the
-            # character's own, named by the unsaved form's own enrollment.
-            speaker_tokens=body.get("speaker_tokens") or [],
-            speaker_ref_name=body.get("speaker_ref_name") or "",
         )
     except Exception:
         logger.exception("tts list_voices failed for backend %r", backend)

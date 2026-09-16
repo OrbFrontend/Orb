@@ -343,16 +343,10 @@ async def test_status_payload_keys_are_unchanged(client):
     assert all(set(v) == {"id", "label", "detail", "size_mb", "present"} for v in rewriter["variants"])
 
 
-async def test_the_runtime_fetch_lives_on_its_own_router(client, monkeypatch):
-    """Split out of the generic module, same URL and same response.
-
-    It shares ``api.deps._download_lock`` with the model download rather than
-    holding a second one: two routers, one home connection, and the fetch
-    replaces a directory a model load may be reading from.
-    """
+async def test_the_runtime_fetch_is_shared_by_local_model_features(client, monkeypatch):
     monkeypatch.setattr(llama_binary, "fetch", lambda: "/bin/llama-bin/gpu/llama-server")
 
-    resp = await client.post("/api/local-ml/prose_rewriter/runtime", json={})
+    resp = await client.post("/api/local-ml/runtime", json={})
 
     assert resp.status_code == 200
     assert resp.json() == {"ok": True, "path": "/bin/llama-bin/gpu/llama-server"}
@@ -367,7 +361,7 @@ async def test_a_failed_runtime_fetch_reports_what_went_wrong(client, monkeypatc
 
     monkeypatch.setattr(llama_binary, "fetch", _boom)
 
-    resp = await client.post("/api/local-ml/prose_rewriter/runtime", json={})
+    resp = await client.post("/api/local-ml/runtime", json={})
 
     assert resp.status_code == 500
     assert resp.json()["detail"] == "b10549 does not publish that asset."

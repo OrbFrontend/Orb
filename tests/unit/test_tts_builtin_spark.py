@@ -84,10 +84,10 @@ async def test_synthesis_surfaces_the_readiness_reason_verbatim():
     """Which piece is missing depends on the machine — no onnxruntime, no GGUF,
     no llama-server — so the contract is that whatever readiness says is what
     the user is told, not that the adapter invents a message of its own."""
-    from backend.workflows.toolkit import spark_voice_ready
+    from backend.workflows import spark_tts_host
 
     settings = {"local_ml_enabled": {}}
-    ready, reason = spark_voice_ready(settings)
+    ready, reason = spark_tts_host.synthesis_ready(settings)
     if ready:
         pytest.skip("Spark-TTS is fully installed on this machine")
     with pytest.raises(ValueError) as excinfo:
@@ -111,12 +111,10 @@ async def test_a_disabled_local_ml_toggle_is_reported_as_such():
         )
 
 
-async def test_list_voices_offers_the_characters_own_voice_only_once_enrolled():
+async def test_list_voices_is_empty_without_a_picker():
     adapter = BuiltinSparkAdapter()
     assert await adapter.list_voices(speaker_tokens=[]) == []
-    voices = await adapter.list_voices(speaker_tokens=VALID, speaker_ref_name="memo.wav")
-    assert [v["id"] for v in voices] == ["cloned"]
-    assert "memo.wav" in voices[0]["name"]
+    assert await adapter.list_voices(speaker_tokens=VALID, speaker_ref_name="memo.wav") == []
 
 
 async def test_chunk_pauses_become_real_silence_between_clips(monkeypatch):
@@ -128,7 +126,6 @@ async def test_chunk_pauses_become_real_silence_between_clips(monkeypatch):
     async def fake_speak(text, speaker_tokens, settings):
         return b"\x01\x00" * 1600, 16000  # 0.1 s of non-silence per chunk
 
-    monkeypatch.setattr(module, "spark_voice_ready", lambda settings: (True, ""))
     monkeypatch.setattr(module, "spark_voice_speak", fake_speak)
     result = await module.BuiltinSparkAdapter().synthesize(
         chunks=[

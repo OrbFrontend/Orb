@@ -318,7 +318,7 @@ async def api_upload_expressions(card_id: str, file: Annotated[UploadFile, File(
     """Upload a .zip of expression images; replaces the card's whole set."""
     if not await get_character_card(card_id):
         raise HTTPException(status_code=404, detail="Character card not found")
-    content = await file.read()
+    content = await file.read(_MAX_VOICE_UPLOAD + 1)
     if len(content) > 50 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Upload exceeds 50 MB")
     try:

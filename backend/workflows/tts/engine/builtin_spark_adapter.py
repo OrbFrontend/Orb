@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 
-from ...toolkit import get_settings, spark_voice_ready, spark_voice_speak
+from ...toolkit import get_settings, spark_voice_speak
 from .base import SpeakableChunk, SynthesisResult, TTSAdapter
 from .wav import pcm_duration_ms, pcm_to_wav, silence_pcm
 
@@ -59,14 +59,9 @@ class BuiltinSparkAdapter(TTSAdapter):
         speaker_tokens = kwargs.get("speaker_tokens") or []
         if not speaker_tokens:
             raise ValueError("This character has no cloned voice yet — upload a reference clip first.")
-        # Resolved once per call, and only here: a preview or a reroll arrives
-        # with no settings, and the Local ML toggles are not optional to read.
         settings = kwargs.get("settings")
         if settings is None:
             settings = await get_settings()
-        ok, reason = spark_voice_ready(settings)
-        if not ok:
-            raise ValueError(reason)
 
         audio_parts: list[bytes] = []
         sample_rate = _FALLBACK_SAMPLE_RATE
@@ -92,23 +87,8 @@ class BuiltinSparkAdapter(TTSAdapter):
         )
 
     async def list_voices(self, language: str = "", **kwargs) -> list[dict]:
-        """The one voice this backend has: the character's own, once enrolled.
-
-        There is no catalog to fetch and nothing to reload, so this answers from
-        the form's own state. An unenrolled character gets an empty list, which
-        the panel renders as the upload control rather than a broken picker.
-        """
-        if not kwargs.get("speaker_tokens"):
-            return []
-        name = str(kwargs.get("speaker_ref_name") or "").strip()
-        return [
-            {
-                "id": VOICE_ID,
-                "name": f"Cloned voice ({name})" if name else "Cloned voice",
-                "language": language or "",
-                "gender": "",
-            }
-        ]
+        # Enrollment selects the only voice; the generic picker has no choices.
+        return []
 
     @property
     def backend_name(self) -> str:

@@ -11,7 +11,7 @@ from fastapi import APIRouter, Body, HTTPException
 
 from ...database import get_settings, set_local_ml_enabled
 from ...inference import local_ml
-from ...inference.local_models import assets, catalog, dependencies
+from ...inference.local_models import assets, catalog, dependencies, onnx_runtime
 from ...inference.local_models.llama_server import binary as llama_binary
 from ...workflows import prose_rewriter_host, spark_tts_host
 from ..deps import _download_lock
@@ -42,12 +42,7 @@ class _FeatureManagement(Protocol):
 #: from this map is a plain download-and-toggle one.
 _MANAGEMENT: dict[str, _FeatureManagement] = {
     prose_rewriter_host.FEATURE: prose_rewriter_host,
-    # Spark-TTS's two halves are managed separately because they fail
-    # separately: the GGUF needs a child process released before it can be
-    # deleted, the ONNX pair needs its cached sessions dropped, and on Windows
-    # skipping either makes the unlink fail outright.
     spark_tts_host.FEATURE_LLM: spark_tts_host.LLM_MANAGEMENT,
-    spark_tts_host.FEATURE_CODEC: spark_tts_host.CODEC_MANAGEMENT,
 }
 
 
@@ -184,8 +179,11 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
     if variant and variant not in {v.id for v in spec.variants}:
         raise HTTPException(status_code=404, detail=f"Unknown variant {variant!r} for {feature!r}")
     controller = _MANAGEMENT.get(feature)
-    if controller is not None:
-        # Before the unlink, not after — the feature explains why.
+    if spec.runtime == "onnx":
+        # Sessions keep model files open on Windows, and the cache is global to
+        # the runtime rather than to this one Spark codec.
+        onnx_runtime.release()
+    elif controller is not None:
         await controller.release_host()
     try:
         removed = await asyncio.to_thread(assets.delete_model, feature, variant)
@@ -257,11 +255,13 @@ async def api_classify_emotion(data: dict = Body(...)):  # noqa: B008
 @router.post("/api/local-ml/{feature}/enabled")
 async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B008
     """Flip one feature's on/off toggle; return the full decoded map."""
-    _require(feature)
+    spec = _require(feature)
     enabled = bool(data.get("enabled"))
     await set_local_ml_enabled(feature, enabled)
     controller = _MANAGEMENT.get(feature)
-    if controller is not None:
+    if spec.runtime == "onnx" and not enabled:
+        onnx_runtime.release()
+    elif controller is not None:
         # Switching a feature on means "make this work", so the slice gets to
         # repair a selection that points at nothing, and pre-warm what it picks.
         await controller.on_enabled(enabled)
@@ -270,3 +270,18 @@ async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B
         "local_ml_enabled": settings.get("local_ml_enabled", {}),
         "local_ml_config": settings.get("local_ml_config", {}),
     }
+
+
+@router.post("/api/local-ml/runtime")
+@router.post("/api/local-ml/prose_rewriter/runtime", include_in_schema=False)
+async def api_local_ml_runtime():
+    """Fetch the shared llama-server runtime used by local model features."""
+    async with _download_lock:
+        try:
+            path = await prose_rewriter_host.fetch_runtime()
+        except llama_binary.LlamaServerMissing as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from None
+        except Exception:
+            logger.exception("llama-server fetch failed")
+            raise HTTPException(status_code=500, detail="Runtime download failed; see server logs") from None
+    return {"ok": True, "path": path}
