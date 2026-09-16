@@ -42,10 +42,19 @@ function _streamPct(st) {
   return st.stream.durationSec > 0 ? (st.stream.elapsedSec / st.stream.durationSec) * 100 : 0;
 }
 
+// A channel can opt out of the dock and show its own progress where it was started.
+function _dockAllowed(st) {
+  return !!st && st.source?.dock !== false;
+}
+
+function _dockChannels() {
+  return activeChannels().filter((name) => _dockAllowed(channelState(name)));
+}
+
 function _anyAudible() {
   for (const name of activeChannels()) {
     const s = channelState(name);
-    if (s?.playing && !s.paused) return true;
+    if (s?.playing && !s.paused && _dockAllowed(s)) return true;
   }
   return false;
 }
@@ -133,7 +142,7 @@ function _shouldShowDock(st) {
 
 function _refreshBar() {
   if (!_barEl) return;
-  const names = activeChannels();
+  const names = _dockChannels();
   if (_selectedChannel && !names.includes(_selectedChannel)) _selectedChannel = null;
   if (!_selectedChannel && names.length) _selectedChannel = names[0];
 

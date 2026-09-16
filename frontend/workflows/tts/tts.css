@@ -231,11 +231,21 @@
   border-top: 1px solid var(--border);
 }
 
-#tts-pf-status {
-  flex: 1 1 120px;
+#tts-pf-status,
+#tts-pf-time {
   min-width: 0;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+#tts-pf-status {
+  flex: 0 1 auto;
+}
+
+/* Takes the row's slack so the readout sits next to the status text. */
+#tts-pf-time {
+  flex: 1 1 60px;
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 560px) {

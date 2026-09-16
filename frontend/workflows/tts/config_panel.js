@@ -1,17 +1,26 @@
 import {
   api,
+  channelState,
   closeModal,
   convUrl,
   esc,
   getActiveConvId,
   getGroupCast,
+  onChannel,
   playAudio,
   registerAction,
   requestRepaint,
   showModal,
+  stopChannel,
 } from "/static/workflow_api.js";
+import { formatTime } from "./widget.js";
 
 const WORKFLOW_ID = "tts";
+const CHANNEL = "tts";
+// Previews play on their own channel and report progress on the panel's status line, not the chat dock.
+const PREVIEW_CHANNEL = "tts-preview";
+// Playback start is silent when decoding fails, so a preview that never starts is called unplayable.
+const PREVIEW_START_GRACE_MS = 1500;
 
 const BACKEND_FIELDS = {
   edge: ["language", "rate", "pitch"],
@@ -52,10 +61,13 @@ export function initConfigPanel(sharedConfig) {
   registerAction(WORKFLOW_ID, "profileSave", () => saveProfile());
   registerAction(WORKFLOW_ID, "preview", () => preview());
   registerAction(WORKFLOW_ID, "profileMember", (el) => selectMember(el));
+  onChannel(PREVIEW_CHANNEL, onPreviewEvent);
 }
 
 let memberId = null;
 let loadedProfile = null;
+let previewRaf = null;
+let previewPending = 0; // start deadline while a preview is decoding, 0 once it plays
 
 function triggerUrl() {
   return convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger");
@@ -263,6 +275,7 @@ function profileFormHtml(p, backends, cast = null) {
       <button class="btn btn-sm btn-accent" type="button" data-wf-action="tts:profileSave">Save voice</button>
       <button class="btn btn-sm" type="button" data-wf-action="tts:preview">Preview</button>
       <span id="tts-pf-status" aria-live="polite"></span>
+      <span id="tts-pf-time" aria-hidden="true"></span>
     </div>`;
 }
 
@@ -352,23 +365,84 @@ async function saveProfile() {
   }
 }
 
+function statusLine() {
+  return document.getElementById("tts-pf-status");
+}
+
+function setStatus(text) {
+  const el = statusLine();
+  if (el) el.textContent = text;
+}
+
+function setPreviewTime(text) {
+  const el = document.getElementById("tts-pf-time");
+  if (el) el.textContent = text;
+}
+
+function onPreviewEvent(ev) {
+  if (ev.type === "play") {
+    previewPending = 0;
+    setStatus("Playing preview");
+    armPreviewRaf();
+    return;
+  }
+  if (ev.type !== "close" || ev.reason === "superseded") return; // a newer preview owns the line
+  cancelPreviewRaf();
+  setPreviewTime("");
+  setStatus(ev.reason === "ended" ? "Preview finished" : "");
+}
+
+function armPreviewRaf() {
+  if (previewRaf == null) previewRaf = requestAnimationFrame(tickPreview);
+}
+
+// Only the elapsed/duration readout ticks here; play and close events own the status text.
+function tickPreview(now) {
+  previewRaf = null;
+  if (!statusLine()) {
+    stopChannel(PREVIEW_CHANNEL); // the panel showing this preview is gone
+    return;
+  }
+  const st = channelState(PREVIEW_CHANNEL);
+  if (st?.playing) {
+    setPreviewTime(`${formatTime(st.stream.elapsedSec)} / ${formatTime(st.stream.durationSec)}`);
+  } else if (!previewPending) {
+    return;
+  } else if (now > previewPending) {
+    previewPending = 0;
+    setStatus("Preview audio could not be played");
+    return;
+  }
+  armPreviewRaf();
+}
+
+function cancelPreviewRaf() {
+  if (previewRaf != null) cancelAnimationFrame(previewRaf);
+  previewRaf = null;
+}
+
 async function preview() {
-  const status = document.getElementById("tts-pf-status");
-  if (!status) return;
+  if (!statusLine()) return;
+  setStatus("Generating preview…");
+  setPreviewTime("");
   try {
     const res = await query("preview", readForm());
-    if (res?.audio_b64) {
-      playAudio({
-        channel: WORKFLOW_ID,
-        segments: [{ b64: res.audio_b64, mime: res.mime }],
-        volume: cfg.volume,
-        source: { label: "Voice preview", msgId: null },
-      });
-    } else {
-      status.textContent = res?.error || "Preview failed";
+    if (!statusLine()) return;
+    if (!res?.audio_b64) {
+      setStatus(res?.error || "Preview failed");
+      return;
     }
+    stopChannel(CHANNEL); // a preview should not talk over a message that is playing
+    previewPending = performance.now() + PREVIEW_START_GRACE_MS;
+    playAudio({
+      channel: PREVIEW_CHANNEL,
+      segments: [{ b64: res.audio_b64, mime: res.mime }],
+      volume: cfg.volume,
+      source: { label: "Voice preview", dock: false },
+    });
+    armPreviewRaf();
   } catch (e) {
     console.error("tts: preview failed", e);
-    status.textContent = "Preview failed";
+    setStatus("Preview failed");
   }
 }

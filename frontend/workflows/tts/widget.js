@@ -158,7 +158,7 @@ function applyPlayingMark() {
   }
 }
 
-function formatTime(seconds) {
+export function formatTime(seconds) {
   const total = Math.max(0, Math.floor(Number(seconds) || 0));
   const minutes = Math.floor(total / 60);
   const secondsPart = total % 60;
