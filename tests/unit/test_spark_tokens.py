@@ -54,19 +54,11 @@ def test_clone_prompt_rejects_a_malformed_voice_before_it_reaches_the_model():
 
 @pytest.mark.parametrize(
     "raw",
-    [
-        None,
-        "not a list",
-        list(range(31)),
-        list(range(33)),
-        [0.5] * 32,
-        [True] * 32,  # bool is an int in Python and would index the codebook at 1
-        [-1] * 32,
-        [4096] * 32,
-    ],
+    [None, "not a list", list(range(31)), list(range(33)), [0.5] * 32, [True] * 32, [-1] * 32, [4096] * 32],
 )
 def test_validate_rejects(raw):
-    assert not tokens.looks_like_speaker_tokens(raw)
+    with pytest.raises(tokens.InvalidSpeakerTokens):
+        tokens.validate_speaker_tokens(raw)
 
 
 def test_validate_accepts_the_edges_of_the_codebook():
@@ -85,7 +77,6 @@ def test_semantic_indices_drops_everything_outside_its_range():
         151643,  # <|endoftext|>
     ]
     assert tokens.semantic_indices(generated) == [0, 8191]
-    assert tokens.global_indices(generated) == [0]
 
 
 def test_token_budget_bounds_a_degenerate_generation():

@@ -6,18 +6,15 @@ that voice" — are joined to the model slice under ``inference/local_models``.
 It is also where the Local ML card's management hooks live for the feature's
 two halves.
 
-Enrollment and synthesis are gated SEPARATELY on purpose. The codec half is
-23 MB + 368 MB of CPU graphs and is all that enrollment needs, so a user can
-upload a clip and hear their stored tokens confirmed while the 520 MB LLM is
-still downloading.
+Enrollment and synthesis are gated separately. The codec half is 23 MB + 368 MB
+of CPU graphs and is all that enrollment needs, so a user can save a voice while
+the 520 MB LLM is still downloading.
 """
 
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
-import wave
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -25,7 +22,6 @@ from ..database import get_settings, set_local_ml_config
 from ..inference.local_models import assets, onnx_runtime
 from ..inference.local_models.spark_tts import (
     catalog,
-    codec,
     config,
     enroll,
     service,
@@ -36,12 +32,6 @@ logger = logging.getLogger(__name__)
 
 FEATURE_LLM = catalog.FEATURE_LLM
 FEATURE_CODEC = catalog.FEATURE_CODEC
-
-#: Cap on a stored reference clip. The window is a fixed six seconds of 16 kHz
-#: mono PCM — 192 KB — so this is headroom for a header and nothing else; it
-#: exists so a bug upstream of the encoder cannot put an unbounded blob in a
-#: row that is read whenever a card is opened.
-MAX_REFERENCE_BYTES = 1024 * 1024
 
 
 def clean_tokens(raw: object) -> list[int]:
@@ -91,35 +81,16 @@ def synthesis_ready(settings: Mapping[str, Any]) -> tuple[bool, str]:
     return catalog.llm_ready()
 
 
-def reference_wav(window) -> bytes:
-    """The enrolled six-second window as a WAV file, for storage and preview."""
-    buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(codec.SAMPLE_RATE)
-        handle.writeframes(codec.to_pcm16(window))
-    return buffer.getvalue()
-
-
-async def enroll_upload(data: bytes, *, filename: str = "") -> tuple[list[int], bytes]:
-    """``(speaker_tokens, reference_wav)`` for an uploaded audio file.
+async def enroll_upload(data: bytes, *, filename: str = "") -> list[int]:
+    """Enroll an uploaded audio file and return its speaker tokens.
 
     Blocking work — decode, resample, mel, and a 23 MB ONNX session — goes to a
     thread: it is ~14 ms of model plus however long the file takes to decode,
     and an upload is not a reason to stall every other request in the app.
     """
 
-    def run() -> tuple[list[int], bytes]:
-        speaker, window = enroll.enroll(data, filename=filename)
-        clip = reference_wav(window)
-        if len(clip) > MAX_REFERENCE_BYTES:
-            # Unreachable while the window is a fixed six seconds; asserted
-            # anyway because the row it lands in is read whenever a card is
-            # opened, and a change to ref_segment_duration must not silently
-            # start putting megabytes there.
-            raise RuntimeError(f"reference clip is {len(clip)} bytes, over the {MAX_REFERENCE_BYTES}-byte cap")
-        return speaker, clip
+    def run() -> list[int]:
+        return enroll.enroll(data, filename=filename)
 
     return await asyncio.to_thread(run)
 
@@ -137,11 +108,6 @@ class _LlmManagement:
 
     async def status_extra(self, settings: Mapping[str, Any]) -> dict:
         return {"gpu": use_gpu(settings), **service.state()}
-
-    async def sync_selection(self, *, prefer: str | None = None) -> dict:
-        """No variants to repair — the selection is a single file."""
-        settings = await get_settings()
-        return settings.get("local_ml_config", {})
 
     async def apply_config(self, body: Mapping[str, Any]) -> dict:
         gpu = bool(body.get("gpu", True))
@@ -168,16 +134,7 @@ class _CodecManagement:
     """Local ML card hooks for the ONNX half."""
 
     async def status_extra(self, settings: Mapping[str, Any]) -> dict:
-        missing = assets.missing_files(FEATURE_CODEC)
-        return {"missing_files": missing, "providers": onnx_runtime.preferred_providers()}
-
-    async def sync_selection(self, *, prefer: str | None = None) -> dict:
-        settings = await get_settings()
-        return settings.get("local_ml_config", {})
-
-    async def apply_config(self, body: Mapping[str, Any]) -> dict:
-        settings = await get_settings()
-        return settings.get("local_ml_config", {})
+        return {"missing_files": assets.missing_files(FEATURE_CODEC)}
 
     async def on_enabled(self, enabled: bool) -> None:
         if not enabled:
@@ -208,11 +165,9 @@ __all__ = [
     "FEATURE_CODEC",
     "FEATURE_LLM",
     "LLM_MANAGEMENT",
-    "MAX_REFERENCE_BYTES",
     "clean_tokens",
     "enroll_upload",
     "enrollment_ready",
-    "reference_wav",
     "shutdown",
     "synthesis_ready",
     "synthesize",

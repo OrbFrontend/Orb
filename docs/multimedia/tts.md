@@ -33,7 +33,7 @@ panel.
 **Spark-TTS (built-in)** replaces the voice picker with an upload control.
 Choose an audio file of the character speaking, press **Upload**, and that
 character speaks in that voice from then on — there is no server to run and
-nothing else to configure. A short preview plays as soon as the voice is stored.
+nothing else to configure. Use **Preview** to hear the result.
 
 Only the **first six seconds** of the clip affect the result. That is the window
 Spark-TTS's speaker encoder reads; a shorter clip is repeated to fill it, and a
@@ -41,9 +41,8 @@ longer one is ignored past that point. Clean speech with no music or second
 speaker works best.
 
 What is stored is 32 integers — the speaker's timbre as the model encodes it —
-which live in the character's voice profile and travel with it. The six-second
-clip is kept alongside them so the voice can be rebuilt if the model is ever
-updated, and you can play it back or remove it from the same panel.
+which live in the character's voice profile and travel with it. The uploaded
+clip is used only for enrollment; the compact tokens are all synthesis needs.
 
 **Speed and pitch do not apply to a cloned voice**, and the panel hides them.
 Spark-TTS accepts prosody attributes only when it is inventing a speaker; a

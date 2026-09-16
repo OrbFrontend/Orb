@@ -21,13 +21,10 @@ from ...database import (
     create_world,
     delete_character_card,
     delete_character_expressions,
-    delete_character_voice_ref,
     get_character_avatar,
     get_character_card,
     get_character_expression,
     get_character_usage,
-    get_character_voice_ref,
-    get_character_voice_ref_info,
     get_lorebook_entries,
     get_settings,
     get_user_persona,
@@ -37,7 +34,6 @@ from ...database import (
     list_character_cards,
     list_expression_labels,
     set_character_expressions,
-    set_character_voice_ref,
     set_public_profile,
     set_workflow_character_state,
     sync_conversations_for_card,
@@ -75,10 +71,6 @@ router = APIRouter()
 #: make the server decode, generous enough for an uncompressed WAV of a minute
 #: or two and far short of "someone dropped in a film".
 _MAX_VOICE_UPLOAD = 25 * 1024 * 1024
-
-#: What a freshly enrolled voice says back. Short, so the preview is a second of
-#: synthesis rather than ten, and plain enough to judge timbre on.
-_VOICE_PREVIEW_TEXT = "This is how I sound now."
 
 
 @router.get("/api/characters")
@@ -363,9 +355,8 @@ async def api_delete_expressions(card_id: str):
 #
 # The whole user-facing workflow for the built-in Spark-TTS backend: upload one
 # audio file to a character, and the character speaks in that voice from then
-# on. What enrollment actually produces is 32 integers, which go into the
-# card's TTS profile; the six-second clip they were read from is kept beside
-# them so a model bump can re-enroll without asking for the file again.
+# on. Enrollment produces 32 integers, which are all synthesis needs and go
+# directly into the card's TTS profile.
 
 
 def _voice_profile_error(exc: Exception) -> HTTPException:
@@ -410,9 +401,7 @@ async def _store_speaker_tokens(card_id: str, tokens: list[int], source_name: st
 async def api_upload_voice_reference(card_id: str, file: Annotated[UploadFile, File(...)]):
     """Enroll a character's voice from one uploaded audio file.
 
-    Returns the stored voice plus a short preview synthesized on the spot when
-    the model half is also ready — hearing it immediately is the point of the
-    feature, and a stored set of 32 integers is otherwise unfalsifiable.
+    Returns the stored voice. Use the profile's Preview action to hear it.
     """
     if not await get_character_card(card_id):
         raise HTTPException(status_code=404, detail="Character card not found")
@@ -425,70 +414,19 @@ async def api_upload_voice_reference(card_id: str, file: Annotated[UploadFile, F
         raise HTTPException(status_code=503, detail=reason)
     source_name = os.path.basename(file.filename or "")[:120]
     try:
-        tokens, clip = await spark_tts_host.enroll_upload(content, filename=source_name)
+        tokens = await spark_tts_host.enroll_upload(content, filename=source_name)
     except Exception as exc:
         raise _voice_profile_error(exc) from exc
-    await set_character_voice_ref(card_id, clip, "audio/wav", source_name)
     profile = await _store_speaker_tokens(card_id, tokens, source_name)
-    payload: dict[str, Any] = {
+    return {
         "speaker_tokens": tokens,
         "source_name": source_name,
         "profile": profile,
-        "preview_b64": "",
-        "mime": "audio/wav",
     }
-    ready, why = spark_tts_host.synthesis_ready(settings)
-    if not ready:
-        # The voice IS stored; only the preview could not be made. Saying which
-        # is the difference between "finish the download" and "that failed".
-        payload["preview_error"] = why
-        return payload
-    try:
-        audio, mime = await tts_synth.synthesize(_VOICE_PREVIEW_TEXT, profile, settings=settings)
-    except Exception as exc:
-        logger.warning("Voice preview failed after enrolling card %s: %s", scrub_log(card_id), exc)
-        payload["preview_error"] = str(exc) or "Preview synthesis failed"
-        return payload
-    payload["preview_b64"] = base64.b64encode(audio).decode("ascii")
-    payload["mime"] = mime
-    return payload
-
-
-@router.get("/api/characters/{card_id}/voice-reference")
-async def api_get_voice_reference(card_id: str):
-    """What this character's cloned voice is, without moving the audio."""
-    profile = tts_synth.normalize_profile(await get_workflow_character_state(card_id, tts_synth.WORKFLOW_ID))
-    info = await get_character_voice_ref_info(card_id)
-    enrolled = bool(profile.get("speaker_tokens"))
-    ok, reason = spark_tts_host.enrollment_ready(await get_settings())
-    return {
-        "enrolled": enrolled,
-        "source_name": profile.get("speaker_ref_name") or (info or {}).get("source_name", ""),
-        "has_clip": info is not None,
-        "clip": info,
-        "enrollment_ready": ok,
-        "reason": reason,
-    }
-
-
-@router.get("/api/characters/{card_id}/voice-reference/audio")
-async def api_get_voice_reference_audio(card_id: str):
-    """The six-second clip the voice was enrolled from."""
-    result = await get_character_voice_ref(card_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="No reference clip stored")
-    audio, mime = result
-    return Response(content=audio, media_type=mime)
 
 
 @router.delete("/api/characters/{card_id}/voice-reference")
 async def api_delete_voice_reference(card_id: str):
-    """Forget a character's cloned voice: the tokens and the clip together.
-
-    The backend selection is left alone. A user who clears a voice to upload a
-    different one should not also have to find the Backend dropdown again, and
-    the adapter already reports "no cloned voice yet" rather than failing oddly.
-    """
-    removed = await delete_character_voice_ref(card_id)
+    """Forget a character's cloned voice while keeping the backend selected."""
     profile = await _store_speaker_tokens(card_id, [], "")
-    return {"ok": True, "removed_clip": removed, "profile": profile}
+    return {"ok": True, "profile": profile}

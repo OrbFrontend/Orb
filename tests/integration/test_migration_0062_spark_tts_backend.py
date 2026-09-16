@@ -1,4 +1,4 @@
-"""Migration 0062: the voice-reference table, and the `spark` backend rename.
+"""Migration 0062: keep existing Spark-TTS sidecar profiles working.
 
 The rename is the part that can break a working setup. `spark` used to mean
 "the OrbTTS sidecar at http://localhost:9300"; it now means the built-in
@@ -7,9 +7,6 @@ before this release names a server the user installed and may still be running,
 so those move to `spark_remote` -- the same adapter under its new name -- rather
 than being repointed at a model that is probably not on disk.
 
-All three places a voice profile is persisted are covered, because missing the
-third would leave a reroll of an already-generated clip trying to speak through
-a backend that has no voice enrolled.
 """
 
 from __future__ import annotations
@@ -22,7 +19,7 @@ from backend.workflows.tts.engine.router import get_adapter
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    importlib.import_module("backend.database.migrations.0062_character_voice_refs").migrate(conn)
+    importlib.import_module("backend.database.migrations.0062_spark_tts_backend").migrate(conn)
 
 
 def _staged() -> sqlite3.Connection:
@@ -59,13 +56,6 @@ def _staged() -> sqlite3.Connection:
 def _tts(conn: sqlite3.Connection, card_id: str) -> dict:
     raw = conn.execute("SELECT workflow_state FROM character_cards WHERE id = ?", (card_id,)).fetchone()[0]
     return json.loads(raw)["tts"]
-
-
-def test_creates_the_voice_reference_table():
-    conn = _staged()
-    _migrate(conn)
-    columns = {row[1] for row in conn.execute("PRAGMA table_info(character_voice_refs)")}
-    assert columns == {"character_card_id", "data_b64", "mime", "source_name", "created_at"}
 
 
 def test_moves_existing_spark_profiles_to_the_sidecar_backend():
@@ -118,7 +108,5 @@ def test_is_idempotent():
 
 
 def test_survives_a_database_that_predates_the_tables():
-    """Migrations run against whatever an old install actually has."""
     conn = sqlite3.connect(":memory:")
-    _migrate(conn)  # no character_cards, no group_members, no workflow_attachments
-    assert conn.execute("SELECT name FROM sqlite_master WHERE name='character_voice_refs'").fetchone() is not None
+    _migrate(conn)

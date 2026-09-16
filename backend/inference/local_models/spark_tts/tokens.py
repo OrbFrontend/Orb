@@ -93,15 +93,6 @@ def validate_speaker_tokens(raw: object) -> list[int]:
     return out
 
 
-def looks_like_speaker_tokens(raw: object) -> bool:
-    """Whether :func:`validate_speaker_tokens` would accept *raw*."""
-    try:
-        validate_speaker_tokens(raw)
-    except InvalidSpeakerTokens:
-        return False
-    return True
-
-
 def clone_prompt(text_tokens: Sequence[int], speaker_tokens: Sequence[int]) -> list[int]:
     """The cloning prompt, as token ids.
 
@@ -135,16 +126,6 @@ def semantic_indices(generated: Iterable[int]) -> list[int]:
     return [token - SEMANTIC_BASE for token in generated if SEMANTIC_BASE <= token <= SEMANTIC_LAST]
 
 
-def global_indices(generated: Iterable[int]) -> list[int]:
-    """Speaker indices the MODEL emitted — empty on the cloning path.
-
-    Only the control path (where the model invents a speaker) produces these.
-    Reading them back is how a caller can tell the two apart, and an empty list
-    here when cloning is the expected result, not a failure.
-    """
-    return [token - GLOBAL_BASE for token in generated if GLOBAL_BASE <= token <= GLOBAL_LAST]
-
-
 __all__ = [
     "END_CONTENT",
     "END_GLOBAL",
@@ -162,8 +143,6 @@ __all__ = [
     "TASK_TTS",
     "TOKEN_CEILING",
     "clone_prompt",
-    "global_indices",
-    "looks_like_speaker_tokens",
     "semantic_indices",
     "token_budget",
     "validate_speaker_tokens",

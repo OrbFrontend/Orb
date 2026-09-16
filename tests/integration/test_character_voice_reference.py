@@ -1,9 +1,8 @@
-"""The voice-enrollment routes: upload -> stored voice -> preview -> clear.
+"""The voice-enrollment routes: upload -> stored voice -> clear.
 
 The models are never present in CI, so the 503 path is what runs there and the
-happy path runs only where the artifacts are on disk. Both matter: "the model
-is not downloaded" and "that file is not audio" are different answers and the
-panel renders them differently.
+happy path runs only where the codec is available. Both matter: "the model is
+not downloaded" and "that file is not audio" are different answers.
 
 Enrollment is stubbed in the happy-path tests rather than run for real — what
 is under test here is the ROUTE's contract (what it writes, what it selects,
@@ -47,15 +46,14 @@ async def _profile(client, card_id: str) -> dict:
 
 @pytest.fixture
 def enrolled(monkeypatch):
-    """Stand in for the codec half: enrollment succeeds, synthesis does not."""
+    """Stand in for the codec half: enrollment succeeds."""
 
     async def fake_enroll(data: bytes, *, filename: str = ""):
         assert data, "the route must pass the uploaded bytes through"
-        return list(VALID), _wav(6.0)
+        return list(VALID)
 
     monkeypatch.setattr(spark_tts_host, "enrollment_ready", lambda settings: (True, ""))
     monkeypatch.setattr(spark_tts_host, "enroll_upload", fake_enroll)
-    monkeypatch.setattr(spark_tts_host, "synthesis_ready", lambda settings: (False, "The Spark-TTS model is not downloaded."))
 
 
 async def test_upload_stores_the_voice_and_selects_the_backend(client, enrolled):
@@ -79,51 +77,15 @@ async def test_upload_stores_the_voice_and_selects_the_backend(client, enrolled)
     assert stored["speaker_ref_name"] == "memo.wav"
 
 
-async def test_a_missing_preview_is_reported_without_losing_the_voice(client, enrolled):
-    """The two halves download separately; enrolling before the LLM arrives is
-    a supported state, not a failure."""
-    card_id = await _make_char(client)
-    body = (
-        await client.post(
-            f"/api/characters/{card_id}/voice-reference",
-            files={"file": ("memo.wav", _wav(), "audio/wav")},
-        )
-    ).json()
-    assert body["preview_b64"] == ""
-    assert "not downloaded" in body["preview_error"]
-    assert (await _profile(client, card_id))["speaker_tokens"] == VALID
-
-
-async def test_the_reference_clip_is_stored_and_served_back(client, enrolled):
-    card_id = await _make_char(client)
-    await client.post(f"/api/characters/{card_id}/voice-reference", files={"file": ("memo.wav", _wav(), "audio/wav")})
-
-    info = (await client.get(f"/api/characters/{card_id}/voice-reference")).json()
-    assert info["enrolled"] is True
-    assert info["has_clip"] is True
-    assert info["source_name"] == "memo.wav"
-
-    audio = await client.get(f"/api/characters/{card_id}/voice-reference/audio")
-    assert audio.status_code == 200
-    assert audio.headers["content-type"].startswith("audio/wav")
-    # Six seconds of 16 kHz mono PCM: the window the encoder actually read,
-    # not the file that was uploaded.
-    with wave.open(io.BytesIO(audio.content), "rb") as handle:
-        assert handle.getframerate() == 16000
-        assert handle.getnframes() == 96000
-
-
-async def test_clearing_removes_the_tokens_and_the_clip(client, enrolled):
+async def test_clearing_removes_the_tokens(client, enrolled):
     card_id = await _make_char(client)
     await client.post(f"/api/characters/{card_id}/voice-reference", files={"file": ("memo.wav", _wav(), "audio/wav")})
 
     cleared = await client.delete(f"/api/characters/{card_id}/voice-reference")
     assert cleared.status_code == 200
-    assert cleared.json()["removed_clip"] is True
     assert cleared.json()["profile"]["speaker_tokens"] == []
 
     assert (await _profile(client, card_id))["speaker_tokens"] == []
-    assert (await client.get(f"/api/characters/{card_id}/voice-reference/audio")).status_code == 404
     # The backend selection is deliberately left alone: a user clearing a voice
     # to upload a different one should not have to re-pick it.
     assert (await _profile(client, card_id))["backend"] == "spark"
@@ -190,11 +152,3 @@ async def test_a_missing_model_is_a_503_naming_what_is_missing(client):
     )
     assert response.status_code == 503
     assert response.json()["detail"]
-
-
-async def test_a_character_with_no_voice_reports_none(client):
-    card_id = await _make_char(client)
-    info = (await client.get(f"/api/characters/{card_id}/voice-reference")).json()
-    assert info["enrolled"] is False
-    assert info["has_clip"] is False
-    assert info["clip"] is None

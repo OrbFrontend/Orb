@@ -439,7 +439,6 @@ SIGNATURE_TABLES = frozenset(
     {
         "character_cards",
         "character_expressions",
-        "character_voice_refs",
         "library_tags",
         "user_personas",
         "conversations",
@@ -504,14 +503,6 @@ def _signature(path: str) -> dict:
             "character_expressions": q(
                 "SELECT cc.name, ce.label, ce.mime FROM character_expressions ce "
                 "JOIN character_cards cc ON ce.character_card_id = cc.id"
-            ),
-            # A cloned voice's reference clip. Through the card's name for the
-            # same reason expressions are: the round-trip may renumber ids. The
-            # 32 speaker tokens that ARE the voice ride in the card's own
-            # workflow_state and are covered by the characters row above.
-            "character_voice_refs": q(
-                "SELECT cc.name, vr.mime, vr.source_name, vr.data_b64 FROM character_voice_refs vr "
-                "JOIN character_cards cc ON vr.character_card_id = cc.id"
             ),
             "conversations": q("SELECT id, title FROM conversations"),
             "conv_persona": q(
@@ -603,12 +594,9 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
     await client.put(f"/api/characters/{linked}", json={"world_id": w1})
     locked = (await client.post("/api/characters", json={"name": "Locked"})).json()["id"]
     await client.put(f"/api/characters/{locked}", json={"persona_lock_id": p1})
-    # A cloned voice's reference clip: a cascade child of a card holding opaque
-    # bytes, which the generic engine must carry without understanding them.
-    from backend.database import set_character_voice_ref, set_workflow_character_state
+    from backend.database import set_workflow_character_state
     from backend.workflows.tts.synth import WORKFLOW_ID, normalize_profile
 
-    await set_character_voice_ref(locked, b"RIFF....fake wav bytes", "audio/wav", "memo.wav")
     await set_workflow_character_state(
         locked,
         WORKFLOW_ID,

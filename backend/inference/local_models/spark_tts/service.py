@@ -15,7 +15,6 @@ from ..llama_server import ManagedLlamaServerHost
 from . import catalog, codec, config
 from .tokens import (
     clone_prompt,
-    global_indices,
     semantic_indices,
     token_budget,
     validate_speaker_tokens,
@@ -59,7 +58,10 @@ async def synthesize(text: str, speaker_tokens: Sequence[int], *, gpu: bool = Tr
     if not spoken:
         return b"", codec.SAMPLE_RATE
     speaker = validate_speaker_tokens(list(speaker_tokens))
-    ok, reason = catalog.runnable()
+    ok, reason = catalog.llm_ready()
+    if not ok:
+        raise SynthesisFailed(reason)
+    ok, reason = catalog.codec_ready()
     if not ok:
         raise SynthesisFailed(reason)
     profile = config.launch_profile(gpu=gpu)
@@ -84,9 +86,6 @@ async def synthesize(text: str, speaker_tokens: Sequence[int], *, gpu: bool = Tr
         raise SynthesisFailed("Spark-TTS produced no audio tokens for this line.")
     if not stopped:
         logger.info("Spark-TTS hit its %d-token budget for a %d-character line", token_budget(spoken), len(spoken))
-    invented = global_indices(generated)
-    if invented:  # only the control path should emit these; on the clone path it means the prompt was wrong
-        logger.warning("Spark-TTS emitted %d speaker tokens of its own; the enrolled voice was still used", len(invented))
     # The 385 MB decoder holds the GIL for its whole run; off the loop it goes,
     # or every other request in the app stalls for the length of the clip.
     pcm = await asyncio.to_thread(codec.decode, semantic, speaker)

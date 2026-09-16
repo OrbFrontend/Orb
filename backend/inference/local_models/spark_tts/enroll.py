@@ -64,21 +64,14 @@ def enroll_window(window: np.ndarray) -> list[int]:
     return validate_speaker_tokens(tokens)
 
 
-def enroll_signal(wav: np.ndarray) -> list[int]:
-    """The 32 speaker tokens for an already-decoded 16 kHz mono signal."""
-    return enroll_window(reference_clip(wav))
+def enroll(data: bytes, *, filename: str = "") -> list[int]:
+    """Return the speaker tokens for an uploaded audio file.
 
-
-def enroll(data: bytes, *, filename: str = "") -> tuple[list[int], np.ndarray]:
-    """``(speaker_tokens, reference_window)`` for an uploaded audio file.
-
-    The window comes back so the caller can store the six seconds that were
-    actually used — the identity is in the tokens, but keeping the audio means a
-    model bump can re-enroll without asking the user for the file again, and it
-    is what the "this is what we heard" preview plays.
+    The identity is fully represented by the returned tokens; the upload is not
+    retained after enrollment.
     """
     window = reference_clip(audio_in.decode(data, filename=filename))
-    return enroll_window(window), window
+    return enroll_window(window)
 
 
-__all__ = ["EnrollmentUnavailable", "enroll", "enroll_signal", "enroll_window", "reference_clip"]
+__all__ = ["EnrollmentUnavailable", "enroll", "enroll_window", "reference_clip"]

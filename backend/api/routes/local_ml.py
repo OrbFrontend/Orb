@@ -33,10 +33,6 @@ class _FeatureManagement(Protocol):
 
     async def status_extra(self, settings: Mapping[str, Any]) -> dict: ...
 
-    async def sync_selection(self, *, prefer: str | None = None) -> dict: ...
-
-    async def apply_config(self, body: Mapping[str, Any]) -> dict: ...
-
     async def on_enabled(self, enabled: bool) -> None: ...
 
     async def release_host(self) -> None: ...
@@ -54,6 +50,8 @@ _MANAGEMENT: dict[str, _FeatureManagement] = {
     spark_tts_host.FEATURE_LLM: spark_tts_host.LLM_MANAGEMENT,
     spark_tts_host.FEATURE_CODEC: spark_tts_host.CODEC_MANAGEMENT,
 }
+
+_CONFIGURABLE = {prose_rewriter_host.FEATURE: prose_rewriter_host}
 
 
 def _require(feature: str) -> catalog.ModelSpec:
@@ -73,7 +71,7 @@ async def _sync_selection(feature: str, *, prefer: str | None = None) -> dict:
     Generic here, feature behaviour there: the sweep only means something for a
     feature that has a selection to repair.
     """
-    controller = _MANAGEMENT.get(feature)
+    controller = _CONFIGURABLE.get(feature)
     if controller is not None:
         return await controller.sync_selection(prefer=prefer)
     return await _config_blob()
@@ -200,7 +198,7 @@ async def api_local_ml_config(feature: str, data: dict = Body(...)):  # noqa: B0
     own rather than importing FastAPI to say 404.
     """
     _require(feature)
-    controller = _MANAGEMENT.get(feature)
+    controller = _CONFIGURABLE.get(feature)
     if controller is None:
         raise HTTPException(status_code=404, detail=f"{feature!r} has no configurable variants")
     try:

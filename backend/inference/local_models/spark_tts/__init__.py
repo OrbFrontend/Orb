@@ -18,14 +18,13 @@ from __future__ import annotations
 
 from . import audio_in, catalog, codec, config, enroll, mel, service, tokens
 from .audio_in import UnsupportedAudio
-from .catalog import codec_ready, llm_ready, runnable
+from .catalog import codec_ready, llm_ready
 from .codec import SAMPLE_RATE, EmptyGeneration
 from .enroll import EnrollmentUnavailable
 from .service import HOST, SynthesisFailed
 from .tokens import (
     SPEAKER_TOKEN_COUNT,
     InvalidSpeakerTokens,
-    looks_like_speaker_tokens,
     validate_speaker_tokens,
 )
 
@@ -45,9 +44,7 @@ __all__ = [
     "config",
     "enroll",
     "llm_ready",
-    "looks_like_speaker_tokens",
     "mel",
-    "runnable",
     "service",
     "tokens",
     "validate_speaker_tokens",

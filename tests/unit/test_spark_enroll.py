@@ -71,7 +71,7 @@ def test_enrollment_shape_and_range():
         (np.random.default_rng(0).standard_normal(96000) * 0.1).astype(np.float32),
         np.ones(1000, dtype=np.float32) * 0.2,  # shorter than the window; tiled
     ):
-        got = enroll.enroll_signal(signal)
+        got = enroll.enroll_window(enroll.reference_clip(signal))
         assert tokens.validate_speaker_tokens(got) == got
 
 
@@ -80,15 +80,15 @@ def test_enrollment_is_deterministic():
     a model bump must be able to re-enroll the retained clip and get the voice
     the character already had."""
     signal = (np.random.default_rng(3).standard_normal(96000) * 0.1).astype(np.float32)
-    assert enroll.enroll_signal(signal) == enroll.enroll_signal(signal)
+    assert enroll.enroll_window(enroll.reference_clip(signal)) == enroll.enroll_window(enroll.reference_clip(signal))
 
 
 def test_different_signals_enroll_differently():
     """Guards the failure the plan's probe hit: a path that returns the same
     tokens regardless of input makes every voice look equally cloned."""
     rng = np.random.default_rng(11)
-    a = enroll.enroll_signal(rng.standard_normal(96000).astype(np.float32) * 0.1)
-    b = enroll.enroll_signal(np.zeros(96000, dtype=np.float32))
+    a = enroll.enroll_window(enroll.reference_clip(rng.standard_normal(96000).astype(np.float32) * 0.1))
+    b = enroll.enroll_window(enroll.reference_clip(np.zeros(96000, dtype=np.float32)))
     assert a != b
 
 
@@ -100,6 +100,5 @@ def test_reproduces_the_torch_reference():
     ONNX, with no wav2vec2 and no BiCodec encoder, is the SAME answer.
     """
     with open(_REFERENCE_WAV, "rb") as handle:
-        got, window = enroll.enroll(handle.read(), filename="prompt_audio.wav")
-    assert window.shape == (96000,)
+        got = enroll.enroll(handle.read(), filename="prompt_audio.wav")
     assert got == _PROMPT_AUDIO_TOKENS

@@ -21,11 +21,6 @@ FEATURE_CODEC = "spark_tts_codec"
 SPEAKER_ENCODER_NAME = next(iter(MODELS[FEATURE_CODEC].extra_files)).local_name
 
 
-def llm_path() -> str:
-    """The GGUF's absolute path (may not exist)."""
-    return assets.resolve_path(FEATURE_LLM)
-
-
 def decoder_path() -> str:
     """``bicodec.onnx``'s absolute path (may not exist)."""
     return assets.resolve_path(FEATURE_CODEC)
@@ -66,23 +61,12 @@ def llm_ready() -> tuple[bool, str]:
     return True, ""
 
 
-def runnable() -> tuple[bool, str]:
-    """Both halves. What synthesis requires; enrollment requires only the codec."""
-    for check in (llm_ready, codec_ready):
-        ok, reason = check()
-        if not ok:
-            return False, reason
-    return True, ""
-
-
 __all__ = [
     "FEATURE_CODEC",
     "FEATURE_LLM",
     "SPEAKER_ENCODER_NAME",
     "codec_ready",
     "decoder_path",
-    "llm_path",
     "llm_ready",
-    "runnable",
     "speaker_encoder_path",
 ]

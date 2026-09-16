@@ -257,7 +257,6 @@ async function populateProfile() {
   loadedProfile = readForm();
   loadVoices(profile.voice_id);
   if (BACKEND_FIELDS[profile.backend]?.includes("model")) loadModels(profile.model);
-  refreshCloneStatus();
 }
 
 function opt(value, label, selected) {
@@ -301,27 +300,7 @@ function profileFormHtml(p, backends, cast = null) {
     </div>`;
 }
 
-// Why the built-in cloner cannot run, or "" when it can. Fetched once per
-// panel open rather than per render: it is a fact about the install, not about
-// the form, and it is what turns an Upload button that would fail into one
-// that says which download is missing.
-let cloneBlocker = "";
-
-async function refreshCloneStatus() {
-  try {
-    const res = await query("voice_status");
-    cloneBlocker = res?.ready ? "" : res?.reason || "";
-  } catch (e) {
-    console.warn("tts: voice status failed", e);
-    cloneBlocker = "";
-  }
-  renderCloneStatus();
-}
-
 function cloneStatusHtml(p) {
-  if (cloneBlocker) {
-    return `<span class="tts-note">${esc(cloneBlocker)} Download it in Settings → Local ML.</span>`;
-  }
   if (!p.speaker_tokens?.length) {
     return `<span class="tts-note">No voice uploaded yet. Pick a clip of this character speaking — only the first six seconds are used.</span>`;
   }
@@ -369,8 +348,7 @@ async function uploadVoiceReference() {
     // so the form is refilled from what was stored rather than from the guess
     // the panel would otherwise make about it.
     applyProfile(res?.profile);
-    setStatus(res?.preview_error ? `Voice saved. ${res.preview_error}` : "Voice saved");
-    if (res?.preview_b64) playPreview(res.preview_b64, res.mime || "audio/wav");
+    setStatus("Voice saved");
   } catch (e) {
     console.warn("tts: voice enrollment failed", e);
     setStatus(e?.message || "Voice enrollment failed");

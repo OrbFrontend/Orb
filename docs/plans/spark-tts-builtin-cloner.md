@@ -390,10 +390,8 @@ model dependency.
 - Register two artifacts with pinned revision shas per existing convention:
   `spark_tts_llm` (GGUF, `runtime="llama_server"`) and `spark_tts_codec`
   (ONNX, `runtime="onnx"`).
-- Execution providers: CPU EP is the target. **ONNX Runtime has no Vulkan EP** —
-  Orb's Vulkan is llama.cpp's and lands on the LLM, which is the bottleneck.
-  CoreML (macOS) and DirectML (Windows) are opportunistic, behind a probe like
-  `binary.gpu_capable()`'s tri-state.
+- Execution provider: CPU EP. ONNX Runtime has no Vulkan EP; Orb's Vulkan is
+  llama.cpp's and lands on the LLM, which is the bottleneck.
 
 ### Phase 3 — the engine
 
@@ -444,14 +442,10 @@ control path, where the model invents its own speaker. Cloning supplies them.
 - **Reproduction record.** `_METADATA_KEYS` is the set that lets an attachment
   be re-synthesized from a context with no character state. `speaker_tokens`
   must join it, or rerolling a cloned line silently produces a different voice.
-- **Retained clip.** The 6 s reference goes in its own table keyed by card id —
-  not in `workflow_state`, which is read on every turn. Model `expressions`
-  (`backend/features/cards/expressions.py`): validate at the boundary, cap the
-  size, store bytes + mime, serve back by GET.
-- **API.** `POST/GET/DELETE /api/characters/{card_id}/voice-reference`, next to
-  the expressions routes in `backend/api/routes/characters.py`. POST decodes,
-  enrolls, writes the tokens, returns a short preview clip synthesized on the
-  spot — hearing it immediately is the whole UX.
+- **API.** `POST/DELETE /api/characters/{card_id}/voice-reference`, next to the
+  expressions routes in `backend/api/routes/characters.py`. POST decodes and
+  enrolls the upload; the compact speaker tokens are the only retained voice
+  data, and the existing Preview action generates audio when requested.
 - **UI.** `frontend/workflows/tts/config_panel.js` line 29 lists the fields per
   backend. Spark's built-in entry gets a file-drop + "Preview" + "Clear" control
   instead of the voice `<select>`. The `api_url` field disappears for this

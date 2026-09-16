@@ -7,12 +7,10 @@ import logging
 
 from ..toolkit import (
     get_message_by_id,
-    get_settings,
     get_workflow_character_state,
     get_workflow_config,
     insert_workflow_attachment,
     set_workflow_character_state,
-    spark_voice_ready,
 )
 from .config import normalize_config
 from .engine.router import get_adapter, list_backends
@@ -198,19 +196,7 @@ async def query(ctx, body):
         return await _list_models(body)
     if action == "preview":
         return await _preview(body)
-    if action == "voice_status":
-        return await _voice_status()
     return {"error": f"unknown action: {action!r}"}
-
-
-async def _voice_status() -> dict:
-    """Whether the built-in cloner can speak, and why not when it cannot.
-
-    The panel asks before it renders the Spark controls, so "download the model
-    first" is shown in place of an upload button that would fail.
-    """
-    ok, reason = spark_voice_ready(await get_settings())
-    return {"ready": ok, "reason": reason}
 
 
 async def _list_voices(body) -> dict:

@@ -151,7 +151,6 @@ __all__ = [
     "narration_only",
     "overlay_enable_tools",
     "spark_voice_clean_tokens",
-    "spark_voice_enrollment_ready",
     "spark_voice_ready",
     "spark_voice_speak",
     "protected_runs",
@@ -230,15 +229,6 @@ def spark_voice_ready(settings: Mapping[str, Any]) -> tuple[bool, str]:
     worst habit, an empty voice picker with nothing to act on.
     """
     return _spark_tts_host.synthesis_ready(settings)
-
-
-def spark_voice_enrollment_ready(settings: Mapping[str, Any]) -> tuple[bool, str]:
-    """Can a reference clip be turned into speaker tokens yet?
-
-    A weaker condition than :func:`spark_voice_ready`: enrollment needs the
-    codec half only, not the 520 MB LLM.
-    """
-    return _spark_tts_host.enrollment_ready(settings)
 
 
 def spark_voice_clean_tokens(raw: object) -> list[int]:
