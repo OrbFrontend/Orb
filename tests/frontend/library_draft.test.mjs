@@ -39,3 +39,44 @@ test("an abandoned PNG import cannot lend its identity or avatar to the next dra
   assert.ok(!("avatar_b64" in saved));
   assert.equal(saved.source_format, "generated");
 });
+
+test("generated fields at every clamp limit pass the actual form save", async () => {
+  const draft = {
+    name: "N".repeat(100), description: "D".repeat(6000), personality: "P".repeat(1200),
+    scenario: "S".repeat(1600), first_mes: "F".repeat(2000), mes_example: "E".repeat(1600),
+    creator_notes: "C".repeat(400), source_format: "generated",
+  };
+  await showCharEditModal(draft);
+  await saveImportedChar();
+  for (const [key, value] of Object.entries(draft)) assert.equal(saved[key], value);
+});
+
+test("the generated editor restores Manager after save or cancel", async () => {
+  const { showCharacterBrowserModal } = await import("../../frontend/library_browser.js");
+  const { S } = await import("../../frontend/state.js");
+  const tick = () => new Promise((resolve) => setImmediate(resolve));
+  S.characterBrowserView = "list";
+  api.get = async (path) => path === "/library/tags"
+    ? { vocabulary: [], total: 0, pending: 0, tagged: 0, revision: "test" }
+    : [];
+  globalThis.fetch = async () => new Response(`event: start\ndata: {}\n\nevent: done\ndata: ${JSON.stringify({ card: {
+    name: "Generated", first_mes: "Welcome.", source_format: "generated",
+  } })}\n\n`);
+  for (const save of [false, true]) {
+    await showCharacterBrowserModal();
+    document.querySelector('[data-view="manager"]').click();
+    const idea = document.querySelector("[data-cardgen-idea]");
+    idea.value = "A fence";
+    idea.dispatchEvent(new window.Event("input", { bubbles: true }));
+    document.querySelector('[data-cardgen-action="generate"]').click();
+    await tick();
+    assert.equal(document.getElementById("ce-name").value, "Generated");
+    if (save) await saveImportedChar();
+    else closeModal();
+    await tick();
+    assert.ok(document.querySelector('[data-tool="card-generator"]'));
+    assert.equal(document.querySelector('[data-view="manager"]').classList.contains("active"), true);
+    assert.equal(S.characterBrowserView, "list", "restoring Manager does not change the saved card view");
+    closeModal();
+  }
+});

@@ -3,6 +3,7 @@
 import { api } from "./api.js";
 import { createChipInput } from "./chips.js";
 import { TAG_ICON } from "./icons.js";
+import { cardGeneratorToolHtml, mountCardGenerator } from "./library_card_generator.js";
 import { dedupeToolHtml, mountLibraryDedupe, setDedupeCharacterCount } from "./library_dedupe.js";
 import { showSubConfirmModal } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
@@ -70,10 +71,12 @@ export function renderLibraryManager(container, callbacks = {}) {
         </div>
       </section>
       ${dedupeToolHtml()}
+      ${cardGeneratorToolHtml()}
     </div>`;
 
   container.addEventListener("click", onPanelClick);
   mountLibraryDedupe(container.querySelector('[data-tool="duplicates"]'), callbacks);
+  mountCardGenerator(container.querySelector('[data-tool="card-generator"]'), callbacks);
   chipInput().render();
   refresh();
 }

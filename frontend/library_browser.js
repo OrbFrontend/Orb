@@ -18,8 +18,8 @@ import {
 } from "./utils.js";
 import { validate } from "./validate.js";
 
-// The view toggle, in order. Manager is the home for library-wide maintenance
-// tools; today it holds the auto-tagger, and further tools land beside it.
+// The view toggle, in order. Manager holds auto-tagging, duplicate finding,
+// and character card generation.
 const VIEWS = [
   { mode: "grid", label: "Grid", icon: GRID_ICON },
   { mode: "list", label: "List", icon: LIST_ICON },
@@ -60,7 +60,7 @@ let _internetResults = [];
 let _internetLoading = false;
 let _internetHasMore = false;
 
-export async function showCharacterBrowserModal() {
+export async function showCharacterBrowserModal({ view } = {}) {
   const token = ++_openToken;
   _browserCharacters = charactersView();
   _browserConversations = S.conversations || [];
@@ -70,7 +70,7 @@ export async function showCharacterBrowserModal() {
   _browserSelectedTags.clear();
   _filterApplied = false;
   _browserSortBy = S.characterBrowserSort || "time-added";
-  _browserViewMode = _browserViewMode === "internet" ? "internet" : S.characterBrowserView || "grid";
+  _browserViewMode = view || (_browserViewMode === "internet" ? "internet" : S.characterBrowserView || "grid");
   _browserSearchQuery = "";
 
   showModal(`
@@ -182,7 +182,16 @@ function renderManagerPanel() {
   const container = $("char-browser-content");
   if (!container) return;
   _hydration = null;
-  renderLibraryManager(container, { onRunComplete: refreshAfterRun, characterCount: _browserCharacters.length });
+  renderLibraryManager(container, {
+    onRunComplete: refreshAfterRun,
+    characterCount: _browserCharacters.length,
+    onOpenDraft: (card) => {
+      setModalCloseCallback(async () => {
+        await showCharacterBrowserModal({ view: "manager" });
+      });
+      return showCharEditModal(card);
+    },
+  });
 }
 
 /** Re-read the cards after a run and repaint everything that shows tags.

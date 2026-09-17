@@ -785,6 +785,21 @@ class ImportUrlRequest(BaseModel):
     full_path: str
 
 
+class CardGeneratorRunRequest(BaseModel):
+    """Options for one unsaved character card draft."""
+
+    idea: str = Field(min_length=1, max_length=2000)
+    reasoning: bool = False
+    tailored: bool = False
+
+    @field_validator("idea")
+    @classmethod
+    def nonblank_idea(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Describe a character idea first")
+        return value.strip()
+
+
 class AutoTagRunRequest(BaseModel):
     """Options for one auto-tagging run."""
 
