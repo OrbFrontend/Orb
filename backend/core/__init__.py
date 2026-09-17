@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .card_scripts import CardScripts
 from .domain_types import CastMember, GroupContextMode, TurnCast
 from .llm_types import (
     AssistantToolMessage,
@@ -58,6 +59,7 @@ __all__ = [
     "world_apply_lock",
     # macros — string/message transforms
     "Macros",
+    "CardScripts",
     "has_inline_macros",
     "resolve_inline",
     "resolve_stored_random",

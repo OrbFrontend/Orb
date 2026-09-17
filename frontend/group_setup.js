@@ -649,6 +649,10 @@ function showGroupConfig(initialTab = "cast") {
       ...S.groupCast,
       members: updated,
       speakerNames: new Map([...(S.groupCast.speakerNames || []), ...speakerNameMap(updated)]),
+      speakerCardIds: new Map([
+        ...(S.groupCast.speakerCardIds || []),
+        ...updated.map((member) => [member.id, member.character_card_id]),
+      ]),
       sheet_proposals: (S.groupCast.sheet_proposals || []).filter((item) => live.has(item.member_id)),
     };
     const local = S.conversations.find((item) => item.id === S.activeConvId);
@@ -862,6 +866,7 @@ export async function loadGroupCast(conv) {
   S.groupCast = {
     members,
     speakerNames: speakerNameMap(roster),
+    speakerCardIds: new Map(roster.map((member) => [member.id, member.character_card_id])),
     turn_mode: conv.group_turn_mode,
     max_speakers: conv.group_max_speakers,
     context_mode: conv.group_context_mode,

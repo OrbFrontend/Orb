@@ -10,6 +10,7 @@ from typing import Any, cast
 import aiosqlite
 
 from ...core import TurnCast, has_inline_macros, resolve_inline
+from ...core.card_scripts import card_render_options, is_display_script
 from ..connection import (
     _build_set_clause,
     _get_workflow_slot,
@@ -39,7 +40,7 @@ async def list_character_cards() -> list[CharacterCardRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                "SELECT c.id, c.name, c.creator_notes, c.tags, c.creator, c.source_format, c.created_at, c.updated_at, c.avatar_mime, c.world_id, c.persona_lock_id, "
+                "SELECT c.extensions, c.id, c.name, c.creator_notes, c.tags, c.creator, c.source_format, c.created_at, c.updated_at, c.avatar_mime, c.world_id, c.persona_lock_id, "
                 "LENGTH(COALESCE(c.description, '')) + LENGTH(COALESCE(c.personality, '')) + LENGTH(COALESCE(c.mes_example, '')) AS def_chars, "
                 "EXISTS(SELECT 1 FROM character_expressions e WHERE e.character_card_id = c.id) AS has_expressions "
                 "FROM character_cards c ORDER BY c.updated_at DESC"
@@ -48,6 +49,14 @@ async def list_character_cards() -> list[CharacterCardRow]:
         result: list[CharacterCardRow] = []
         for r in rows:
             d = dict(r)
+            extensions = json.loads(d.pop("extensions") or "{}")
+            scripts, css = card_render_options(extensions)
+            d["display_scripts"] = [
+                {key: script[key] for key in ("findRegex", "replaceString", "placement") if key in script}
+                for script in scripts
+                if is_display_script(script)
+            ]
+            d["display_css"] = css
             d["tags"] = json.loads(d["tags"]) if d["tags"] else []
             d["has_avatar"] = d["avatar_mime"] is not None
             del d["avatar_mime"]

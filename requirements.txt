@@ -6,3 +6,4 @@ pydantic==2.13.4
 Pillow==12.3.0
 python-multipart==0.0.32
 edge-tts>=7.2.8
+regex>=2024.11.6

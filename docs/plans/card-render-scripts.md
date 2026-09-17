@@ -1,6 +1,11 @@
 # Card render scripts
 
-Status: proposed. Owner: unassigned.
+Status: implemented (2026-09-18). See [the feature contract](../features/card-render-scripts.md)
+for the shipped subset and limits. Phase 3 uses an explicit `extensions.orb.display_css`
+field rather than executing creator notes. Secondary consumers remain deferred.
+Literal patterns without `g` retain JavaScript's single-replacement behavior;
+macro-order tests use identity substitution, because inline macros already run
+at persistence time.
 
 Support the card-supplied text transforms that SillyTavern calls "regex
 scripts", so that cards built around a split between what the reader sees and

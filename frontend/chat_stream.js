@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { onTurnStart } from "./audio_player.js";
+import { messageDisplaySource } from "./card_scripts.js";
 import { updateAttachmentPreview } from "./chat_composer.js";
 import {
   _applyWorkflowTextSegments,
@@ -94,6 +95,10 @@ let _paintFrame = 0;
 let _paintPending = null;
 let _paintedHtml = "";
 
+function streamingDisplaySource(content) {
+  return messageDisplaySource({ role: "assistant", content, speaker_member_id: S.currentSpeaker?.member_id });
+}
+
 function paintStreamingBody(text) {
   _paintPending = text;
   if (_paintFrame) return;
@@ -103,7 +108,7 @@ function paintStreamingBody(text) {
     _paintPending = null;
     const body = S.streamingBodyEl;
     if (!body || pending === null) return;
-    const html = renderMessageHtml(pending, { streaming: true });
+    const html = renderMessageHtml(streamingDisplaySource(pending), { streaming: true });
     if (html !== _paintedHtml) {
       _paintedHtml = html;
       body.innerHTML = html;
@@ -161,7 +166,12 @@ function finalizeStreamingDiv(lastMsg) {
   const bodyHtml =
     S.pendingRefineDiff && S.showEditorDiff
       ? renderMessageDiffHtml(S.pendingRefineDiff.ops)
-      : renderMessageHtml(resolvePlaceholders(lastMsg.content));
+      : renderMessageHtml(
+          messageDisplaySource({
+            ...lastMsg,
+            speaker_member_id: lastMsg.speaker_member_id ?? S.currentSpeaker?.member_id,
+          }),
+        );
   smoothUpdateBody(body, bodyHtml, () => scrollToBottom(true));
   if ((S.workflowTextEffects.length || S.workflowClickHandlers.length) && !(S.pendingRefineDiff && S.showEditorDiff)) {
     _applyWorkflowTextSegments(body, lastMsg);
@@ -225,7 +235,7 @@ function adoptPendingUserMessage(msg, content = null) {
   if (tb) tb.innerHTML = buildMsgToolbar(msg);
   if (content === null) return;
   const body = div.querySelector(".msg-body");
-  if (body) body.innerHTML = renderMessageHtml(resolvePlaceholders(content));
+  if (body) body.innerHTML = renderMessageHtml(messageDisplaySource({ ...msg, content }));
 }
 
 function patchPendingUserMessage(pendingMsg) {
@@ -470,7 +480,7 @@ export async function processSSEStream(resp, container, holder, signal) {
         const html =
           S.pendingRefineDiff && S.showEditorDiff
             ? renderMessageDiffHtml(S.pendingRefineDiff.ops)
-            : renderMessageHtml(text);
+            : renderMessageHtml(streamingDisplaySource(text));
         smoothUpdateBody(S.streamingBodyEl, html, scrollToBottom);
       } else {
         scrollToBottom();
@@ -491,8 +501,8 @@ export async function processSSEStream(resp, container, holder, signal) {
 
 function swapStreamingDraft(text, onRewrite) {
   if (S.editorDraftBaseline === null) S.editorDraftBaseline = S.streamingContent || "";
-  const original = resolvePlaceholders(S.editorDraftBaseline);
-  S.pendingRefineDiff = { original, ops: sentenceDiff(original, resolvePlaceholders(text)) };
+  const original = streamingDisplaySource(S.editorDraftBaseline);
+  S.pendingRefineDiff = { original, ops: sentenceDiff(original, streamingDisplaySource(text)) };
   onRewrite(text);
 }
 

@@ -67,3 +67,13 @@ Enabled built-ins preserve that order. Workflow tools append in registration
 order, and re-registering a workflow tool preserves its position. Schema
 property order and insertion-order-preserving JSON serialization are part of
 the transport contract.
+
+## Card message projections
+
+History formatting resolves identity macros, then applies caller-supplied
+`CardScripts` for the prompt channel to the message body, then appends attachment
+annotations and group speaker labels. Stored bodies, system instructions, and
+card definitions remain canonical. Group history uses the original speaker's
+card scripts, independent of the currently generating speaker; unattributed
+rows have no owning card. Pipeline and off-turn workflow prefixes share this
+contract. See [Card render scripts](../features/card-render-scripts.md).

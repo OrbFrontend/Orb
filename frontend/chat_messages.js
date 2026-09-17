@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { messageDisplaySource } from "./card_scripts.js";
 import {
   canStartGeneration,
   ensureIndexInWindow,
@@ -208,7 +209,7 @@ function applyProseRewriteSnapshot(msgId, content) {
   const message = S.messages.find((m) => m.id === msgId);
   if (message) message.content = content;
   const body = messageBody(msgId);
-  if (body) body.innerHTML = renderMessageHtml(resolvePlaceholders(content));
+  if (body) body.innerHTML = renderMessageHtml(messageDisplaySource(message || { role: "assistant", content }));
 }
 
 // Swipes arrive faster than the round trip they start, so responses can land out

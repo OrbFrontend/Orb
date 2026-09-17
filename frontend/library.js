@@ -1,5 +1,11 @@
 import { api } from "./api.js";
-import { loadConversations, refreshSceneCardFragments, resetChatUI, stashCardFragments } from "./chat.js";
+import {
+  loadConversations,
+  refreshSceneCardFragments,
+  renderMessages,
+  resetChatUI,
+  stashCardFragments,
+} from "./chat.js";
 import { createChipInput } from "./chips.js";
 import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
 import {
@@ -307,6 +313,14 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       <div class="field"><label>Creator's Note</label><textarea id="${prefix}-creator-notes" rows="1">${esc(d.creator_notes || "")}</textarea></div>
       <div class="field"><label>System Prompt Override</label><textarea id="${prefix}-sysprompt" rows="1">${esc(d.system_prompt || "")}</textarea></div>
       <div class="field"><label>Post-History Instructions</label><textarea id="${prefix}-posthist" rows="1">${esc(d.post_history_instructions || "")}</textarea></div>
+      <div class="form-divider">Card rendering</div>
+      <div class="field"><label><input type="checkbox" id="${prefix}-scripts-enabled" ${d.extensions?.orb?.card_scripts_enabled === false ? "" : "checked"}> Enable card text scripts</label>
+        <div class="modal-hint">Scripts change how messages are displayed or sent to the model. Changing this setting re-reads history and may rebuild the model cache. Stored messages stay unchanged. Scripts without channel flags affect display only.</div>
+        <details><summary>Imported scripts (${Array.isArray(d.extensions?.regex_scripts) ? d.extensions.regex_scripts.length : 0})</summary><pre>${esc(JSON.stringify(d.extensions?.regex_scripts || [], null, 2))}</pre></details>
+      </div>
+      <div class="field"><label>Message stylesheet (CSS)</label><textarea id="${prefix}-display-css" rows="4">${esc(d.extensions?.orb?.display_css || "")}</textarea>
+        <div class="modal-hint">Styles assistant messages from this character. CSS is sanitized and scoped to each message. Copy any desired CSS from creator notes here.</div>
+      </div>
       <div class="form-divider">Group chat</div>
       <div class="field"><label>Public cast appearance</label><textarea id="${prefix}-public-appearance" rows="2" placeholder="${escAttr(PUBLIC_APPEARANCE_PLACEHOLDER)}">${esc(publicProfile.appearance || "")}</textarea></div>
       <div class="field"><label>Public cast role</label><textarea id="${prefix}-public-role" rows="2" placeholder="${escAttr(PUBLIC_ROLE_PLACEHOLDER)}">${esc(publicProfile.role || "")}</textarea></div>
@@ -384,6 +398,18 @@ function _readCharEditForm() {
     delete ext.orb.fragments;
     if (!Object.keys(ext.orb).length) delete ext.orb;
   }
+  if ($("ce-scripts-enabled")?.checked === false) {
+    ext.orb = { ...(ext.orb || {}), card_scripts_enabled: false };
+  } else if (ext.orb) {
+    delete ext.orb.card_scripts_enabled;
+  }
+  const css = $("ce-display-css")?.value.trim() || "";
+  if (css) {
+    ext.orb = { ...(ext.orb || {}), display_css: css };
+  } else if (ext.orb) {
+    delete ext.orb.display_css;
+  }
+  if (ext.orb && !Object.keys(ext.orb).length) delete ext.orb;
   const appearance = $("ce-public-appearance")?.value.trim() || "";
   const role = $("ce-public-role")?.value.trim() || "";
   if (appearance || role) {
@@ -567,6 +593,7 @@ export async function saveCharEdit(id, exportAfter = false) {
       const titleEl = document.getElementById("chat-title-text");
       if (titleEl) titleEl.textContent = activeConv.title || activeConv.character_name || "";
     }
+    renderMessages();
     toast("Saved");
     if (exportAfter) exportCharacter(id, name);
   } catch (e) {

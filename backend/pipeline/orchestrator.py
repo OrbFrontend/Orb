@@ -6,7 +6,7 @@ import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any, TypeVar
 
-from ..core import CastMember, ChatMessage, GroupContextMode, Macros
+from ..core import CardScripts, CastMember, ChatMessage, GroupContextMode, Macros
 from ..database.models import PhraseGroup
 from ..inference import LLMClient, _KVCacheTracker
 from .config import _resolve_pipeline_config, _split_interactive_fragments
@@ -119,6 +119,8 @@ async def _run_pipeline(
         lorebook = LorebookTurn(entries=(), messages=(), agentic=False)
 
     user_message = macros.resolve_message(user_message)
+    if card and speaker is None:
+        user_message = CardScripts.from_extensions(card.get("extensions")).apply(user_message, "prompt", "user")
 
     # Resolved once; cfg.enabled_tools is the length-guard-folded map.
     cfg = _resolve_pipeline_config(

@@ -488,3 +488,94 @@ async def test_foreign_card_with_a_vestigial_empty_book_creates_no_world(client,
     ).json()
     assert not created["world_id"]
     assert not [w for w in (await client.get("/api/worlds")).json() if w["name"] == "Nothing"]
+
+
+async def test_card_render_projection_and_script_roundtrip(client, db, tmp_path):
+    from backend.features.cards import parsing
+
+    display = {
+        "scriptName": "dialogue",
+        "findRegex": "/<dialogue>/ig",
+        "replaceString": '<div class="dialogue">',
+        "placement": [2],
+        "markdownOnly": True,
+    }
+    prompt = {"findRegex": "/secret/g", "replaceString": "", "placement": [2], "promptOnly": True}
+    unflagged = {"findRegex": "/word/g", "replaceString": "shown", "placement": [1]}
+    extensions = {
+        "regex_scripts": [display, prompt, unflagged, {**display, "disabled": True}],
+        "orb": {"display_css": ".dialogue { color: red; }"},
+        "foreign": {"keep": True},
+    }
+    # Exercise the same parse → schema → persistence boundary as an imported card.
+    source = tmp_path / "import.png"
+    source.write_bytes(parsing.to_png({"name": "Scripted", "extensions": extensions}))
+    imported = parsing.card_to_dict(parsing.parse(str(source)))
+    created = (await client.post("/api/characters", json=imported)).json()
+    card_id = created["id"]
+    listed = next(card for card in (await client.get("/api/characters")).json() if card["id"] == card_id)
+    assert "extensions" not in listed
+    assert listed["display_scripts"] == [
+        {key: s[key] for key in ("findRegex", "replaceString", "placement")} for s in (display, unflagged)
+    ]
+    assert listed["display_css"] == extensions["orb"]["display_css"]
+    saved = (await client.get(f"/api/characters/{card_id}")).json()
+    assert saved["extensions"] == extensions
+    exported = tmp_path / "export.png"
+    exported.write_bytes((await client.get(f"/api/characters/{card_id}/export")).content)
+    assert parsing.card_to_dict(parsing.parse(str(exported)))["extensions"] == extensions
+    extensions["orb"]["card_scripts_enabled"] = False
+    await client.put(f"/api/characters/{card_id}", json={"extensions": extensions})
+    listed = next(card for card in (await client.get("/api/characters")).json() if card["id"] == card_id)
+    assert listed["display_scripts"] == []
+    assert (await client.get(f"/api/characters/{card_id}")).json()["extensions"]["regex_scripts"] == extensions["regex_scripts"]
+
+
+async def test_card_scripts_project_live_and_historical_prompts_without_persisting(client, llm_mock):
+    from backend.database import get_messages
+    from backend.pipeline import handle_turn
+
+    greeting = '<div id="reader">artifact</div><div id="model" hidden>{{char}} waits.</div>'
+    card = (
+        await client.post(
+            "/api/characters",
+            json={
+                "name": "Amy",
+                "first_mes": greeting,
+                "extensions": {
+                    "regex_scripts": [
+                        {
+                            "findRegex": '/<div id="reader">.*?</div>/gs',
+                            "replaceString": "",
+                            "placement": [2],
+                            "promptOnly": True,
+                        },
+                        {
+                            "findRegex": '/<div id="model" hidden>(.*?)</div>/gs',
+                            "replaceString": "$1",
+                            "placement": [2],
+                            "promptOnly": True,
+                        },
+                        {"findRegex": "/secret/g", "replaceString": "projected", "placement": [1], "promptOnly": True},
+                    ]
+                },
+            },
+        )
+    ).json()
+    conv = (await client.post("/api/conversations", json={"character_card_id": card["id"]})).json()
+    cid = conv["id"]
+    for body in ("secret", "next"):
+        llm_mock.enqueue_writer("Reply.")
+        events = [event async for event in handle_turn(cid, body)]
+        assert not any(event.get("event") == "error" for event in events)
+    writer_calls = [call for call in llm_mock.captured if call["pass"] == "writer"]
+    assert len(writer_calls) == 2
+    for call in writer_calls:
+        prompt = json.dumps(call["messages"])
+        assert "Amy waits." in prompt
+        assert "projected" in prompt
+        assert "secret" not in prompt
+        assert "artifact" not in prompt
+    stored = await get_messages(cid)
+    assert stored[0]["content"] == greeting
+    assert stored[1]["content"] == "secret"

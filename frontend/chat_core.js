@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { messageDisplaySource } from "./card_scripts.js";
 import { renderTurnError } from "./chat_error.js";
 import {
   _refreshWorkflowViewportObserver,
@@ -12,17 +13,7 @@ import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, localMlReady, S, subscribe } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
-import {
-  $,
-  avatarCell,
-  avatarUrl,
-  esc,
-  escAttr,
-  escHandlerArg,
-  formatBytes,
-  resolvePlaceholders,
-  userAttachmentSrc,
-} from "./utils.js";
+import { $, avatarCell, avatarUrl, esc, escAttr, escHandlerArg, formatBytes, userAttachmentSrc } from "./utils.js";
 import { segmentBody } from "./workflow_segmentation.js";
 import { markClickable } from "./workflow_text_interaction.js";
 import { messageProposalsHtml } from "./world_proposals.js";
@@ -326,7 +317,7 @@ function _messageHtml(m, avatars) {
     : `<div class="msg-body">${
         S.pendingRefineDiff?.msgId && m.id === S.pendingRefineDiff.msgId && S.showEditorDiff
           ? renderMessageDiffHtml(S.pendingRefineDiff.ops)
-          : renderMessageHtml(resolvePlaceholders(m.content))
+          : renderMessageHtml(messageDisplaySource(m))
       }</div>`;
   const attachmentsHtml = renderUserAttachments(m.user_attachments);
   const workflowArtifactsHtml = _renderWorkflowArtifacts(m);

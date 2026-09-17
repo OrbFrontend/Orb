@@ -5,11 +5,15 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from ..core import ChatMessage, ContentPart, Macros, TurnCast
+from ..core import CardScripts, ChatMessage, ContentPart, Macros, TurnCast
 from .group_context import render_cast_section
 
 
-def format_message_with_attachments(message: Mapping[str, Any], macros: Macros | None) -> ChatMessage:
+def format_message_with_attachments(
+    message: Mapping[str, Any],
+    macros: Macros | None,
+    scripts: CardScripts | None = None,
+) -> ChatMessage:
     """Convert a message dict to chat format, embedding user attachments.
 
     Workflow attachment bytes never enter the prefix; annotations from root
@@ -18,6 +22,9 @@ def format_message_with_attachments(message: Mapping[str, Any], macros: Macros |
     role = message["role"]
     raw = message.get("content", "")
     text = macros.resolve_prompt(raw) if macros else raw
+
+    if scripts:
+        text = scripts.apply(text, "prompt", role)
 
     user_atts: list[dict] = list(message.get("user_attachments") or [])
     workflow_annotations: list[str] = []
@@ -66,6 +73,8 @@ def build_prefix(
     extra_system_blocks: list[str] | None = None,
     cast: TurnCast | None = None,
     speaker_names: Mapping[str, str] | None = None,
+    scripts: CardScripts | None = None,
+    speaker_scripts: Mapping[str, CardScripts] | None = None,
 ) -> list[ChatMessage]:
     """Build the stable system prefix and rendered history messages."""
     resolve = macros.resolve_message if macros else (lambda text: text)
@@ -107,7 +116,14 @@ def build_prefix(
         parts.append(f"\n\n{block}")
 
     original_messages = messages or []
-    processed_messages = [format_message_with_attachments(message, macros) for message in original_messages]
+    processed_messages = [
+        format_message_with_attachments(
+            message,
+            macros,
+            (speaker_scripts or {}).get(str(message.get("speaker_member_id"))) if cast and cast.grouped else scripts,
+        )
+        for message in original_messages
+    ]
     if cast and cast.grouped:
         labelled: list[ChatMessage] = []
         names = dict(speaker_names or {})

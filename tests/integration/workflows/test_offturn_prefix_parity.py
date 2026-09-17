@@ -50,6 +50,9 @@ async def test_offturn_prefix_is_byte_identical_to_pipeline_prefix(client):
             "mes_example": "<START>\n{{char}}: Shelve it yourself.",
             "system_prompt": "You are {{char}}, speaking with {{user}}.",
             "post_history_instructions": "Stay in character.",
+            "extensions": {
+                "regex_scripts": [{"findRegex": "/desk/g", "replaceString": "counter", "placement": [2], "promptOnly": True}]
+            },
         }
     )
     persona = await create_user_persona({"name": "Chi", "description": "A curious visitor."})
@@ -83,6 +86,7 @@ async def test_offturn_prefix_is_byte_identical_to_pipeline_prefix(client):
     assert "## Lorebook" in body and "The moon is shattered." in body
     assert "A legendary blade." not in body
     assert "A curious visitor." in body
+    assert pipeline_prefix[-1]["content"] == "She looks up from the counter."
 
     assert _serialize(offturn_prefix) == _serialize(pipeline_prefix)
     assert _serialize(single_agent_prefix) == _serialize(pipeline_prefix)
@@ -124,7 +128,16 @@ async def test_offturn_prefix_matches_a_group_turn_prefix(client, context_mode):
     it is the base the Director runs on, and under Classic card swap it is the
     only one an off-turn call can name without picking a speaker for itself.
     """
-    aria = await client.post("/api/characters", json={"name": "Aria", "description": "A tired ranger."})
+    aria = await client.post(
+        "/api/characters",
+        json={
+            "name": "Aria",
+            "description": "A tired ranger.",
+            "extensions": {
+                "regex_scripts": [{"findRegex": "/lantern/g", "replaceString": "torch", "placement": [2], "promptOnly": True}]
+            },
+        },
+    )
     kael = await client.post("/api/characters", json={"name": "Kael", "description": "A blunt smith."})
     conv = await client.post(
         "/api/conversations",
@@ -153,7 +166,7 @@ async def test_offturn_prefix_matches_a_group_turn_prefix(client, context_mode):
     body = pipeline_prefix[0]["content"]
     assert "## Cast" in body
     assert "## Character: The Long Watch" not in body
-    assert {"role": "assistant", "content": "Aria: Aria lifts the lantern."} in pipeline_prefix
+    assert {"role": "assistant", "content": "Aria: Aria lifts the torch."} in pipeline_prefix
 
     assert _serialize(await build_offturn_prefix(conv_id, history, settings)) == _serialize(pipeline_prefix)
     assert _serialize(await build_offturn_prefix(conv_id, history, settings, lane="agent")) == _serialize(pipeline_prefix)
