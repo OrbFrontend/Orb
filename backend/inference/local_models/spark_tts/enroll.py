@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from .. import onnx_runtime
-from . import audio_in, catalog, mel
+from . import audio_in, catalog, mel, silence
 from .tokens import SPEAKER_TOKEN_COUNT, validate_speaker_tokens
 
 if TYPE_CHECKING:
@@ -19,9 +19,12 @@ class EnrollmentUnavailable(RuntimeError):
     """The codec half is missing, so no clip can be enrolled yet."""
 
 
-def reference_clip(wav: np.ndarray) -> np.ndarray:
+def reference_clip(wav: np.ndarray, *, trim: bool = True) -> np.ndarray:
     """Normalize and shape the signal before speaker encoding."""
-    return audio_in.reference_signal(audio_in.volume_normalize(wav))
+    normalized = audio_in.volume_normalize(wav)
+    if trim:
+        normalized = silence.trim_silence(normalized)
+    return audio_in.reference_signal(normalized)
 
 
 def enroll_signal(signal: np.ndarray) -> list[int]:
