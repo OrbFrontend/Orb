@@ -1,24 +1,4 @@
-"""Model-written, read-only SQL over a documented slice of the library.
-
-The card generator's research loop lets the Agent model write its own queries,
-so the guarantee has to come from SQLite rather than from reviewing the text:
-
-- the file is opened ``mode=ro``, so no statement can write;
-- TEMP views shadow the four readable table names and are the only thing an
-  authorizer lets a statement read -- raw tables, ``settings``, secrets such as
-  ``endpoints.api_key``, avatar blobs, and ``sqlite_schema`` are refused at
-  prepare time, before a row is touched;
-- a read attributed to a view must also be a column the views read, recorded
-  as the connection opens: SQLite attributes a CTE's reads by its name exactly
-  as it does a view's, so ``WITH characters AS (...)`` claims a view's name;
-- everything that is not a ``SELECT`` (PRAGMA, ATTACH, writes, transactions) is
-  refused by the same authorizer, and ``load_extension`` by name;
-- a progress-handler deadline interrupts a runaway statement (a recursive CTE
-  that never terminates), and a length limit refuses giant strings.
-
-One connection per query: no snapshot is held across the LLM calls between
-steps, and the WAL anchor keeps a transient read connection cheap.
-"""
+"""Run model-written SELECTs over an allowlisted, read-only library projection."""
 
 from __future__ import annotations
 
@@ -31,8 +11,7 @@ from pathlib import Path
 from .. import connection
 from ..models import LibraryQueryResult, LibrarySqlCell
 
-# Every source is qualified with ``main.``: the temp view of the same name would
-# otherwise resolve first and the view would read itself.
+# Qualify sources with ``main.`` so each temporary view does not read itself.
 _VIEWS: dict[str, str] = {
     "conversations": """
         SELECT c.id, c.title, c.character_card_id, c.character_name,
@@ -66,15 +45,12 @@ def _allowed_read(
     schema_names: frozenset[str],
 ) -> bool:
     if db == "temp":
-        return table in _VIEWS  # a statement reading a view's columns
+        return table in _VIEWS
     if table in _TABLE_FUNCTIONS:
         return True
     if column:
-        return source in _VIEWS and (table, column) in view_reads  # a view reading its own sources
-    # Column-less reads are row counts: a flattened view join reports one on the
-    # tables the views read without naming the view, and ``count(*)`` over a CTE
-    # reports one with no schema, exactly as it reports an unqualified real
-    # table, so every name the file defines is refused.
+        return source in _VIEWS and (table, column) in view_reads
+    # Handle count(*) and similar column-less reads conservatively.
     name = table.lower()
     return any(table == read for read, _ in view_reads) or (
         db is None and not name.startswith("sqlite_") and name not in schema_names
@@ -171,11 +147,5 @@ async def run_library_query(
     max_result_chars: int,
     time_limit_s: float,
 ) -> LibraryQueryResult:
-    """Run one model-written ``SELECT`` over the library views; never raises on bad SQL.
-
-    Cells longer than *max_cell_chars* end in ``…[+N chars]``, and trailing rows
-    are dropped to keep the JSON-encoded rows near *max_result_chars* (the first
-    row is always kept). ``more_rows`` reports either cut. A SQLite error,
-    refusal, or timeout comes back as ``{"error": message}`` for the model to read.
-    """
+    """Run one model-written SELECT and return SQL errors as data."""
     return await asyncio.to_thread(_run, sql, max_rows, max_cell_chars, max_result_chars, time_limit_s)

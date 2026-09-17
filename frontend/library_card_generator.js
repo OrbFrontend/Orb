@@ -66,8 +66,7 @@ export function mountCardGenerator(root, callbacks = {}) {
     progress.classList.toggle("is-error", error);
   }
 
-  // Deep research always thinks. The user's own choice is kept aside while the
-  // checkbox is locked on, and comes back when they pick another mode.
+  // Deep mode locks thinking on and restores the user's choice when it ends.
   let reasoningBeforeDeep = null;
   function syncTailoring() {
     const deep = tailoring.value === "deep";

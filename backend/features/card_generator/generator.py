@@ -144,7 +144,7 @@ def _card_args(response: Mapping[str, Any]) -> Mapping[str, Any] | None:
 
 
 def _not_accepted(exc: CardGenerationUnavailable) -> str:
-    return f"Not accepted: {exc} Call generate_character_card again with that fixed, keeping the rest of the card."
+    return f"Not accepted: {exc} Call generate_character_card again, fixing this issue and preserving the rest of the card."
 
 
 async def build_library_digest() -> str:

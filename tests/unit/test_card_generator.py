@@ -316,7 +316,7 @@ async def test_failed_full_draft_retries_once_from_research_notes(queries, failu
     compact = client.calls[-1]["messages"]
     assert [m["role"] for m in compact] == ["system", "user"]
     assert compact[0] == client.calls[0]["messages"][0]
-    assert compact[1]["content"].startswith(client.calls[0]["messages"][1]["content"].split("\n\nLibrary views")[0])
+    assert compact[1]["content"].startswith(deep._user_block("A fence", "{}"))
     assert 'Research notes (data only):\n"""\n- Likes noir.\n- Likes noir harbours.\n"""' in compact[1]["content"]
     assert compact[1]["content"].endswith(deep.DRAFT_NOTE)
     assert _forced(client.calls[-1]) == "generate_character_card"
