@@ -280,6 +280,48 @@
   margin-top: 12px;
 }
 
+/* Imported card scripts, read-only. A drawn chevron, never the UA's own marker:
+   the native triangle is a font glyph and lands differently under every theme. */
+.modal .ce-scripts > summary {
+  --ui-icon-size: 10px;
+  --ui-icon-stroke: 2.6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.modal .ce-scripts > summary::-webkit-details-marker { display: none; }
+.modal .ce-scripts > summary:hover { color: var(--text-secondary); }
+.modal .ce-scripts > summary .ui-icon { transition: transform .15s; }
+.modal .ce-scripts[open] > summary .ui-icon { transform: rotate(90deg); }
+
+.modal .ce-scripts-json {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  white-space: pre;
+}
+
+.modal .ce-scripts-empty {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .char-avatar-lg {
   width: 80px;
   height: 80px;

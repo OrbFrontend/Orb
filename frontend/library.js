@@ -7,7 +7,7 @@ import {
   stashCardFragments,
 } from "./chat.js";
 import { createChipInput } from "./chips.js";
-import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
+import { CHEVRON_RIGHT_ICON, CLOSE_ICON, EDIT_ICON } from "./icons.js";
 import {
   initCardFragments,
   readCardFragments,
@@ -248,6 +248,7 @@ const PUBLIC_ROLE_PLACEHOLDER = "e.g. The caravan's hired scout, and the only on
 
 function charFormTabs(prefix, d, isEdit, worlds = []) {
   const publicProfile = d.extensions?.orb?.public_profile || {};
+  const cardScripts = Array.isArray(d.extensions?.regex_scripts) ? d.extensions.regex_scripts : [];
   const agHtml = (d.alternate_greetings || [])
     .map(
       (g) => `
@@ -316,7 +317,14 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       <div class="form-divider">Card rendering</div>
       <div class="field"><label><input type="checkbox" id="${prefix}-scripts-enabled" ${d.extensions?.orb?.card_scripts_enabled === false ? "" : "checked"}> Enable card text scripts</label>
         <div class="modal-hint">Scripts change how messages are displayed or sent to the model. Changing this setting re-reads history and may rebuild the model cache. Stored messages stay unchanged. Scripts without channel flags affect display only.</div>
-        <details><summary>Imported scripts (${Array.isArray(d.extensions?.regex_scripts) ? d.extensions.regex_scripts.length : 0})</summary><pre>${esc(JSON.stringify(d.extensions?.regex_scripts || [], null, 2))}</pre></details>
+        ${
+          cardScripts.length
+            ? `<details class="ce-scripts">
+          <summary>${CHEVRON_RIGHT_ICON}<span>Imported scripts (${cardScripts.length})</span></summary>
+          <pre class="ce-scripts-json">${esc(JSON.stringify(cardScripts, null, 2))}</pre>
+        </details>`
+            : `<div class="ce-scripts-empty">This card carries no scripts.</div>`
+        }
       </div>
       <div class="field"><label>Message stylesheet (CSS)</label><textarea id="${prefix}-display-css" rows="4">${esc(d.extensions?.orb?.display_css || "")}</textarea>
         <div class="modal-hint">Styles assistant messages from this character. CSS is sanitized and scoped to each message. Copy any desired CSS from creator notes here.</div>
