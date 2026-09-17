@@ -13,7 +13,7 @@ from .client import (
     reasoning_cfg,
     separate_agent_lane_configured,
 )
-from .drafting import BRACES, forced_draft, normalize
+from .drafting import BRACES, forced_draft, forced_turn, normalize
 from .endpoint_profiles import (
     ModelProfile,
     honors_forced_tool_choice,
@@ -36,9 +36,10 @@ __all__ = [
     "parse_tool_calls",
     "reasoning_cfg",
     "separate_agent_lane_configured",
-    # drafting — one-shot forced calls
+    # drafting — forced calls outside the pipeline
     "BRACES",
     "forced_draft",
+    "forced_turn",
     "normalize",
     # retry
     "RetryPolicy",

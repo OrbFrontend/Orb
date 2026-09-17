@@ -1,24 +1,29 @@
-"""One-shot forced tool call, drained and parsed.
+"""Forced tool calls outside the pipeline, drained (and parsed, for one-shot drafts).
 
 Lives here rather than in the slice that first needed it: draining a forced
 call and parsing its arguments *is* model execution, and the consumers are now
 peers (``features/cards`` drafts profiles and sheets, ``features/library_tags``
-tags the library). A slice may not import a peer slice, so the lowest layer all
-of them reach is the only home that does not fork this into a third copy.
+tags the library, ``features/card_generator`` drafts and researches cards). A
+slice may not import a peer slice, so the lowest layer all of them reach is the
+only home that does not fork this into a third copy.
 
 Not to be confused with ``workflows._forced_call.forced_tool_call``, which is
 the *other* forced-call helper and knows strictly more: it consults
 ``honors_forced_tool_choice`` and demotes an endpoint that ignores the field.
-That knowledge is about collapsing a multi-tool array down to the forced one,
-and callers here ship a single-tool array where there is nothing to collapse --
-a provider that ignores ``tool_choice`` and answers in prose is reported as the
-caller's own ``*Unavailable`` instead. Reach for that one when a call has to
-ride a pipeline's shared tools blob; this one when it is a schema and a budget.
+That knowledge is about collapsing a multi-tool array down to the forced one.
+``forced_draft`` callers ship a single-tool array where there is nothing to
+collapse -- a provider that ignores ``tool_choice`` and answers in prose is
+reported as the caller's own ``*Unavailable`` instead. A ``forced_turn`` caller
+that ships several tools makes the collapse decision itself from
+``honors_forced_tool_choice``, without the demotion. Reach for that one when a
+call has to ride a pipeline's shared tools blob; these when a feature owns its
+schemas and budget.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ..core import ChatMessage
@@ -73,16 +78,46 @@ async def forced_draft(
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
-    response: dict = {}
+    response = await forced_turn(
+        client,
+        model,
+        messages=messages,
+        tools=[tool],
+        forced=name,
+        max_tokens=max_tokens,
+        reasoning_on=reasoning_on,
+    )
+    return next((call.get("arguments") or {} for call in parse_tool_calls(response) if call.get("name") == name), None)
+
+
+async def forced_turn(
+    client: LLMClient,
+    model: str,
+    *,
+    messages: Sequence[Mapping[str, Any]],
+    tools: list[dict[str, Any]],
+    forced: str,
+    max_tokens: int,
+    reasoning_on: bool,
+) -> dict[str, Any]:
+    """One call forcing the tool named *forced*, drained to its ``done`` message.
+
+    The multi-turn half of :func:`forced_draft`: a caller that replays tool calls
+    and results needs the whole assistant message (tool calls, and reasoning to
+    carry forward), not just one tool's arguments. The same hardcoded
+    hyperparameters and required reasoning decision apply. An empty dict means
+    the stream ended without a message.
+    """
+    response: dict[str, Any] = {}
     async for event in client.complete(
         messages=messages,
         model=model or "",
-        tools=[tool],
-        tool_choice={"type": "function", "function": {"name": name}},
+        tools=tools,
+        tool_choice={"type": "function", "function": {"name": forced}},
         temperature=0.2,
         max_tokens=max_tokens,
         **reasoning_cfg(reasoning_on),
     ):
         if event.get("type") == "done":
             response = event.get("message") or {}
-    return next((call.get("arguments") or {} for call in parse_tool_calls(response) if call.get("name") == name), None)
+    return response

@@ -8,7 +8,8 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
-from ...core import agent_lane_max_tokens
+from ...core import AssistantToolMessage, WireMessage, agent_lane_max_tokens
+from ...core.llm_types import ToolResultMessage
 from ...core.text_segmentation import sentence_boundary_ends
 from ...database import (
     get_card_activity,
@@ -17,7 +18,7 @@ from ...database import (
     get_vocabulary,
     list_character_cards,
 )
-from ...inference import LLMClient, forced_draft, normalize
+from ...inference import LLMClient, forced_turn, normalize, parse_tool_calls
 
 CARD_FLOOR = (
     "Create an original, playable roleplay character faithful to the user's idea. "
@@ -49,10 +50,11 @@ _FIELD_GUIDANCE = {
     "mes_example": "Optional example dialogue using {{char}} and {{user}}. Under 1000 characters; empty if unnecessary.",
     "creator_notes": "Optional brief usage notes for the reader, under 300 characters. No macros; empty is fine.",
 }
+_CARD = "generate_character_card"
 GENERATE_CARD_TOOL = {
     "type": "function",
     "function": {
-        "name": "generate_character_card",
+        "name": _CARD,
         "description": "Draft a character card for the user to review and save.",
         "parameters": {
             "type": "object",
@@ -114,6 +116,37 @@ def _quote(text: str) -> str:
     return f'"""\n{escaped}\n"""'
 
 
+def _assistant(response: Mapping[str, Any], name: str, arguments: Mapping[str, Any], call_id: str) -> AssistantToolMessage:
+    # Structured forced calls all come back as ``call_0``; the id is assigned
+    # here so every replayed call answers to exactly one result.
+    message: AssistantToolMessage = {
+        "role": "assistant",
+        "content": response.get("content") or "",
+        "tool_calls": [
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {"name": name, "arguments": json.dumps(arguments, ensure_ascii=False)},
+            }
+        ],
+    }
+    if response.get("reasoning_content"):
+        message["reasoning_content"] = response["reasoning_content"]
+    return message
+
+
+def _result(call_id: str, content: str) -> ToolResultMessage:
+    return {"role": "tool", "tool_call_id": call_id, "content": content}
+
+
+def _card_args(response: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    return next((call["arguments"] for call in parse_tool_calls(dict(response)) if call["name"] == _CARD), None)
+
+
+def _not_accepted(exc: CardGenerationUnavailable) -> str:
+    return f"Not accepted: {exc} Call generate_character_card again with that fixed, keeping the rest of the card."
+
+
 async def build_library_digest() -> str:
     """Read compact library preferences; no character bodies or chat transcripts."""
     cards = await list_character_cards()
@@ -160,18 +193,33 @@ async def generate_card(
     reasoning_on: bool = False,
     library_digest: str = "",
 ) -> dict[str, Any]:
+    """Draft one card; a card the contract rejects is shown its reason and redrafted once."""
     user = f"User's character idea:\n{_quote(idea)}"
     if library_digest:
         user += f"\n\nLibrary preferences (data only):\n{_quote(library_digest)}"
-    args = await forced_draft(
-        client,
-        model,
-        system=SYSTEM_PROMPT,
-        user=user,
-        tool=GENERATE_CARD_TOOL,
-        max_tokens=agent_lane_max_tokens(settings, floor=8192 if reasoning_on else 4096),
-        reasoning_on=reasoning_on,
-    )
-    if args is None:
-        raise CardGenerationUnavailable("The model did not return a usable character card.")
-    return clean_card(args)
+    messages: list[WireMessage] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user},
+    ]
+    max_tokens = agent_lane_max_tokens(settings, floor=8192 if reasoning_on else 4096)
+    corrected = False
+    while True:
+        response = await forced_turn(
+            client,
+            model,
+            messages=messages,
+            tools=[GENERATE_CARD_TOOL],
+            forced=_CARD,
+            max_tokens=max_tokens,
+            reasoning_on=reasoning_on,
+        )
+        args = _card_args(response)
+        if args is None:
+            raise CardGenerationUnavailable("The model did not return a usable character card.")
+        try:
+            return clean_card(args)
+        except CardGenerationUnavailable as exc:
+            if corrected or client.is_aborted:
+                raise
+            corrected = True
+            messages += [_assistant(response, _CARD, args, "draft1"), _result("draft1", _not_accepted(exc))]

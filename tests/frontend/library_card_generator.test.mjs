@@ -46,16 +46,73 @@ test("isolated markup and a double press produce one request, with thinking off"
   root.querySelector('[data-cardgen-action="generate"]').dispatchEvent(new window.Event("click", { bubbles: true }));
   await tick();
   assert.equal(requests.length, 1);
-  assert.deepEqual(JSON.parse(requests[0].body), { idea: "A harbour fence", reasoning: false, tailored: false });
+  assert.deepEqual(JSON.parse(requests[0].body), { idea: "A harbour fence", reasoning: false, tailoring: "off" });
+});
+
+function tailor(root, mode) {
+  const select = root.querySelector("[data-cardgen-tailoring]");
+  select.value = mode;
+  select.dispatchEvent(new window.Event("change", { bubbles: true }));
+}
+
+for (const mode of ["summary", "deep"]) {
+  test(`${mode} tailoring sends its mode`, async () => {
+    const root = mount();
+    tailor(root, mode);
+    generate(root);
+    await tick();
+    const body = JSON.parse(requests[0].body);
+    assert.equal(body.tailoring, mode);
+    assert.equal(body.reasoning, mode === "deep");
+  });
+}
+
+test("Deep locks thinking on and restores the user's choice when switched away", () => {
+  const root = mount();
+  const reasoning = root.querySelector("[data-cardgen-reasoning]");
+  for (const choice of [false, true]) {
+    tailor(root, "off");
+    reasoning.checked = choice;
+    tailor(root, "deep");
+    assert.equal(reasoning.checked, true);
+    assert.equal(reasoning.disabled, true);
+    tailor(root, "deep");
+    tailor(root, "summary");
+    assert.equal(reasoning.checked, choice);
+    assert.equal(reasoning.disabled, false);
+  }
+});
+
+test("only Deep shows the data warning", () => {
+  const root = mount();
+  const note = root.querySelector("[data-cardgen-tailoring-note]");
+  for (const mode of ["off", "summary", "deep", "summary"]) {
+    tailor(root, mode);
+    const deep = mode === "deep";
+    assert.equal(note.classList.contains("is-warning"), deep);
+    assert.equal(/Agent endpoint/.test(note.textContent), deep);
+  }
+});
+
+test("running locks every control, and Deep keeps thinking locked afterwards", async () => {
+  const root = mount();
+  tailor(root, "deep");
+  generate(root);
+  await tick();
+  const controls = ["[data-cardgen-idea]", "[data-cardgen-tailoring]", "[data-cardgen-reasoning]"].map((s) => root.querySelector(s));
+  assert.deepEqual(controls.map((control) => control.disabled), [true, true, true]);
+  root.querySelector('[data-cardgen-action="cancel"]').click();
+  await tick();
+  assert.deepEqual(controls.map((control) => control.disabled), [false, false, true]);
 });
 
 test("progress and multiline drafts reach the editor callback", async () => {
   let opened;
   const root = mount((card) => { opened = card; });
-  root.querySelector("[data-cardgen-tailored]").checked = true;
+  tailor(root, "summary");
   generate(root);
   await tick();
-  assert.equal(JSON.parse(requests[0].body).tailored, true);
+  assert.equal(JSON.parse(requests[0].body).tailoring, "summary");
   send(requests[0], "progress", { label: "Reading preferences…" });
   await tick();
   assert.equal(root.querySelector("[data-cardgen-progress]").textContent, "Reading preferences…");
