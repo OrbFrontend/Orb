@@ -455,12 +455,12 @@ export async function showCharEditModal(idOrData) {
   _pendingAvatar = null;
   const isNew = typeof idOrData === "object";
   const c = isNew ? idOrData : await api.get(`/characters/${idOrData}`);
+  _pendingImportId = isNew ? c.id || null : null;
+  _pendingImportSourceFormat = isNew ? c.source_format || null : null;
 
   let av;
   if (isNew && c.avatar_b64) {
     _pendingAvatar = { b64: c.avatar_b64, mime: c.avatar_mime || "image/png" };
-    _pendingImportId = c.id || null;
-    _pendingImportSourceFormat = c.source_format || null;
     av = `<img src="data:${_pendingAvatar.mime};base64,${_pendingAvatar.b64}">`;
   } else {
     const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : "";
