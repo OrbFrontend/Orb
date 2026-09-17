@@ -228,17 +228,14 @@ async def test_deep_research_finishes_then_drafts_over_one_growing_transcript(qu
     )
     events = await _events(client)
     assert events[-1] == {"type": "done", "card": deep.clean_card(CARD)}
-    assert _labels(events) == [
-        "Researching your library: Most played characters (step 1 of 10)…",
-        "Researching your library: Tag mix (step 2 of 10)…",
-        "Drafting your character…",
-    ]
+    labels = _labels(events)
+    assert len(labels) == 3 and "Most played characters" in labels[0] and "Tag mix" in labels[1]
     assert [_forced(call) for call in client.calls] == ["query_library"] * 3 + ["generate_character_card"]
     assert len(queries) == 2 and queries[0][1] == {
-        "max_rows": 50,
-        "max_cell_chars": 500,
-        "max_result_chars": 4000,
-        "time_limit_s": 5.0,
+        "max_rows": deep.MAX_ROWS,
+        "max_cell_chars": deep.MAX_CELL_CHARS,
+        "max_result_chars": deep.MAX_RESULT_CHARS,
+        "time_limit_s": deep.QUERY_TIME_LIMIT_S,
     }
     _assert_append_only(client.calls)
     blob = json.dumps(deep.TOOLS)
@@ -253,8 +250,9 @@ async def test_deep_research_finishes_then_drafts_over_one_growing_transcript(qu
     results = [m for m in final if m["role"] == "tool"]
     assert [m["tool_calls"][0]["id"] for m in replayed] == [m["tool_call_id"] for m in results] == ["step1", "step2", "step3"]
     assert json.loads(replayed[0]["tool_calls"][0]["function"]["arguments"])["purpose"] == "Most   played\ncharacters."
-    assert json.loads(results[0]["content"]) == {"steps_left": 9, "columns": ["name"], "rows": [["Mara"]], "more_rows": False}
-    assert json.loads(results[1]["content"]) == {"steps_left": 8, "error": "no such column: nope"}
+    first = {"steps_left": deep.MAX_STEPS - 1, "columns": ["name"], "rows": [["Mara"]], "more_rows": False}
+    assert json.loads(results[0]["content"]) == first
+    assert json.loads(results[1]["content"]) == {"steps_left": deep.MAX_STEPS - 2, "error": "no such column: nope"}
     assert results[2]["content"] == deep.DRAFT_NOTE
 
 

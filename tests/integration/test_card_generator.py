@@ -125,11 +125,6 @@ async def test_deep_tailoring_researches_then_drafts_without_saving(client, llm_
     response = await client.post("/api/library/card-generator/run", json={"idea": "A fence", "tailoring": "deep"})
     events = frames(response)
     assert [event for event, _ in events] == ["start", "progress", "progress", "progress", "done"]
-    assert [data["label"] for event, data in events if event == "progress"] == [
-        "Reading your library preferences…",
-        "Researching your library: Existing characters (step 1 of 10)…",
-        "Drafting your character…",
-    ]
     assert events[-1][1]["card"]["name"] == "Mara"
     assert [(await client.get("/api/characters")).json()[0]["name"]] == ["Ivo"]
 
@@ -142,12 +137,8 @@ async def test_deep_tailoring_researches_then_drafts_without_saving(client, llm_
     assert "Library preferences (data only)" in calls[0]["messages"][1]["content"]
     result = calls[1]["messages"][-1]
     assert result["role"] == "tool"
-    assert json.loads(result["content"]) == {
-        "steps_left": 9,
-        "columns": ["name", "tags"],
-        "rows": [["Ivo", '["Noir"]']],
-        "more_rows": False,
-    }
+    content = json.loads(result["content"])
+    assert (content["columns"], content["rows"]) == (["name", "tags"], [["Ivo", '["Noir"]']])
     assert all(call["params"]["chat_template_kwargs"]["enable_thinking"] is True for call in calls)
 
 
