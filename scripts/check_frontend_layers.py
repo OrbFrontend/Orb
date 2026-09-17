@@ -161,6 +161,7 @@ FROZEN_ABI = {
     "setModalCloseGuard",
     "sseEvents",
     "streamPost",
+    "workflowAttachmentUrl",
     # audio
     "playAudio",
     "stopChannel",

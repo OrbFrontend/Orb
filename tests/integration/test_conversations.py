@@ -48,6 +48,19 @@ async def test_list_conversations_message_count_excludes_swiped_branches(client,
     assert row["message_count"] == 2
 
 
+async def test_list_conversations_previews_the_latest_message(client, db):
+    # A preview, not the message: the list carried every chat's whole last
+    # reply, when the sidebar shows a line of it.
+    cid = "conv-preview"
+    await dbmod.create_conversation(cid, "Preview", "Nova", "")
+    u1, _ = await dbmod.add_message(cid, "user", "first", 0, parent_id=None)
+    await dbmod.add_message(cid, "assistant", "é" + "x" * 999, 1, parent_id=u1)
+
+    resp = await client.get("/api/conversations")
+    row = next(c for c in resp.json() if c["id"] == cid)
+    assert row["last_message_preview"] == "é" + "x" * 199
+
+
 async def test_delete_conversation_removes_from_db(client, db):
     resp = await client.post("/api/conversations", json={"title": "ToDelete"})
     cid = resp.json()["id"]
@@ -183,7 +196,8 @@ async def test_checkpoint_duplicates_active_path(client, db):
     # Fresh row ids — the copy is a distinct message tree, not a shared reference.
     assert msgs[1]["id"] != a1
     # User upload carried onto the copy.
-    assert msgs[0]["user_attachments"][0]["data_b64"] == "QUJD"
+    upload = msgs[0]["user_attachments"][0]
+    assert (await client.get(f"/api/user-attachments/{upload['id']}/content")).content == b"ABC"
 
     # Director state carried verbatim so continuation behaves identically.
     ds = await dbmod.get_director_state(new_cid)

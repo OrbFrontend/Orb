@@ -7,10 +7,9 @@ import {
   shouldStopOn,
 } from "./audio_schedule.js";
 import { S } from "./state.js";
+import { boolFlag, workflowAttachmentUrl } from "./utils.js";
 
 // Channels mix independently; playback tokens discard stale callbacks.
-
-const EVICTED_MARKER = "[evicted]";
 
 const SCHEDULE_LEAD = 0.02;
 
@@ -89,14 +88,40 @@ function _b64ToArrayBuffer(b64) {
   return bytes.buffer;
 }
 
+// One request per clip however many spans of it a plan decodes at once. The
+// entry lives only while the request is pending; later plays go back through
+// the browser's HTTP cache.
+const _rowFetches = new Map(); // url -> Promise<ArrayBuffer>
+
+function _fetchRowBytes(url) {
+  let p = _rowFetches.get(url);
+  if (!p) {
+    p = fetch(url)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.arrayBuffer();
+      })
+      .finally(() => _rowFetches.delete(url));
+    _rowFetches.set(url, p);
+  }
+  return p;
+}
+
 function _prepareSource(source) {
   if (source.row != null) {
     const att = _findAttachment(source.row);
     if (!att) return { skip: `row ${source.row} not in loaded messages` };
-    const b64 = att.b64 || att.data_b64;
-    if (b64 === EVICTED_MARKER) return { skip: `row ${source.row} evicted` };
-    if (!b64) return { skip: `row ${source.row} has no bytes` };
-    return { thunk: () => _b64ToArrayBuffer(b64) };
+    if (boolFlag(att.evicted)) return { skip: `row ${source.row} evicted` };
+    const url = workflowAttachmentUrl(att);
+    if (!url) return { skip: `row ${source.row} has no bytes` };
+    // decodeAudioData detaches the buffer it is handed, and a pending fetch is
+    // shared, so every decode gets its own copy.
+    return {
+      thunk: () =>
+        _fetchRowBytes(url).then((bytes) =>
+          source.byteStart == null ? bytes.slice(0) : bytes.slice(source.byteStart, source.byteEnd),
+        ),
+    };
   }
   return { thunk: () => _b64ToArrayBuffer(source.b64) };
 }
@@ -115,7 +140,9 @@ function _findAttachment(rowId) {
 function _decode(key, thunk) {
   let p = _decodeCache.get(key);
   if (p) return p;
-  p = Promise.resolve().then(() => _ctx.decodeAudioData(thunk()));
+  p = Promise.resolve()
+    .then(thunk)
+    .then((bytes) => _ctx.decodeAudioData(bytes));
   _decodeCache.set(key, p);
   p.catch(() => {
     if (_decodeCache.get(key) === p) _decodeCache.delete(key);

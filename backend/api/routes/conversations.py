@@ -33,6 +33,7 @@ from ...database import (
     disable_character_linked_worlds,
     fork_conversation,
     get_active_lorebook_entries,
+    get_active_path,
     get_character_card,
     get_conversation,
     get_conversation_logs,
@@ -44,7 +45,6 @@ from ...database import (
     get_interactive_fragments,
     get_message_by_id,
     get_messages,
-    get_messages_with_branch_info,
     get_mood_fragments,
     get_settings,
     get_sheet_proposals,
@@ -461,7 +461,7 @@ async def api_summarize_conversation(
     if data.keep_count not in (2, 4, 6, 8):
         raise HTTPException(status_code=400, detail="keep_count must be one of 2, 4, 6, 8")
 
-    messages = await get_messages_with_branch_info(cid)
+    messages = await get_messages(cid)
     history_slice = messages[: max(0, len(messages) - data.keep_count)]
 
     if not history_slice:
@@ -543,7 +543,7 @@ async def api_compress_conversation(
     if not data.summary.strip():
         raise HTTPException(status_code=400, detail="summary must not be empty")
 
-    messages = await get_messages_with_branch_info(cid)
+    messages = await get_messages(cid)
     tail = messages[max(0, len(messages) - data.keep_count) :]
 
     old_title = conv.get("title", "") or ""
@@ -678,7 +678,9 @@ async def api_stop_generation(cid: str):
 @router.get("/api/conversations/{cid}/context-size")
 async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     settings = await get_settings()
-    messages = await get_messages(cid)
+    # Only content is measured; the attachments' bytes would be megabytes of
+    # base64 read and discarded on every repaint's estimate.
+    messages = await get_active_path(cid)
     director = await get_director_state(cid) or {}
 
     # Resolve the same effective persona generation would use (conversation/
@@ -838,7 +840,7 @@ async def api_get_message_director_log(
 
 @router.get("/api/conversations/{cid}/direction-notes")
 async def api_list_direction_notes(cid: str, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
-    messages = await get_messages(cid)
+    messages = await get_active_path(cid)
     by_id = {m["id"]: m for m in messages}
     rows = await get_direction_notes_for_path(cid, list(by_id))
     return [

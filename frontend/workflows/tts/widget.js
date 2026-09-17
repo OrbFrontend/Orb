@@ -21,7 +21,6 @@ import { startKaraoke } from "./karaoke.js";
 
 const WORKFLOW_ID = "tts";
 const CHANNEL = "tts";
-const EVICTED = "[evicted]";
 const AUTOPLAY_POLL_MS = 125;
 const AUTOPLAY_MAX_TRIES = 40;
 
@@ -236,8 +235,7 @@ function msgIdForAtt(attId) {
 
 function sliceClip(att, i) {
   const blk = att.consumption_metadata.blocks[i];
-  const raw = atob(att.b64 || att.data_b64 || "");
-  return { b64: btoa(raw.slice(blk.byte_start, blk.byte_end)) };
+  return { row: att.id, byte_start: blk.byte_start, byte_end: blk.byte_end };
 }
 
 function buildSegPlan(blocks) {
@@ -328,9 +326,7 @@ function ttsAttachmentForMessage(msgId) {
   const atts = (msg.workflow_attachments || []).filter((a) => a.workflow_id === WORKFLOW_ID);
   if (!atts.length) return null;
   const att = activeSibling(atts);
-  const b64 = att.b64 || att.data_b64 || "";
-  if (!b64 || b64 === EVICTED) return null;
-  return att;
+  return att.evicted ? null : att;
 }
 
 function messageLabel(msgId) {
@@ -477,7 +473,7 @@ export function attachmentRenderer(ctx) {
       ? `<button ${item} data-wf-action="tts:step" data-instance-id="${instanceId}" data-delta="-1"${index <= 0 || !canEdit ? " disabled" : ""}>Previous take</button>
        <button ${item} data-wf-action="tts:step" data-instance-id="${instanceId}" data-delta="1"${index < 0 || index >= total - 1 || !canEdit ? " disabled" : ""}>Next take</button>`
       : "";
-  const evicted = (att.b64 || att.data_b64) === EVICTED;
+  const evicted = Boolean(att.evicted);
   const restore = evicted
     ? `<button ${item} data-wf-action="tts:rehydrate" data-msg-id="${msg?.id || ""}" data-att="${att.id}"${mutationDisabled}>Restore speech</button>`
     : "";
@@ -515,9 +511,7 @@ function freshAttachmentId(seen) {
     const atts = (m.workflow_attachments || []).filter((a) => a.workflow_id === WORKFLOW_ID);
     if (!atts.length) continue;
     const att = activeSibling(atts);
-    if (seen.has(att.id)) continue;
-    const b64 = att.b64 || att.data_b64 || "";
-    if (!b64 || b64 === EVICTED) continue;
+    if (seen.has(att.id) || att.evicted) continue;
     return att.id;
   }
   return null;

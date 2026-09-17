@@ -5,13 +5,10 @@ import { renderDefaultWidget } from "./default_widget.js";
 import { closeModal, showModal } from "./modal.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
 import { broadcastWorkflowMutation, requestSendPermission, setWorkflowMutationCallback } from "./tabLock.js";
-import { $, convUrl, esc, escAttr, markChatProgrammaticScroll, toast } from "./utils.js";
-
-const WORKFLOW_ATT_EVICTED_MARKER = "[evicted]";
+import { $, boolFlag, convUrl, esc, escAttr, markChatProgrammaticScroll, toast } from "./utils.js";
 
 function _isAttachmentEvicted(att) {
-  const v = att.b64 || att.data_b64 || "";
-  return v === WORKFLOW_ATT_EVICTED_MARKER;
+  return boolFlag(att.evicted);
 }
 
 function _evictedAttachmentHtml(msg, att) {

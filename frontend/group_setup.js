@@ -842,11 +842,15 @@ function speakerNameMap(rows) {
 
 export async function loadGroupCast(conv) {
   if (conv?.kind !== "group") {
+    const hadCast = S.groupCast !== null;
     S.groupCast = null;
     S.pinnedSpeakerId = null;
     S.consumedSpeakerId = null;
     renderGroupCast();
-    notify("cast", null);
+    // Between two solo chats nothing changed. A notify would repaint the
+    // previous chat's messages under the new one, and queue a context-size
+    // estimate the real render is about to queue again.
+    if (hadCast) notify("cast", null);
     return;
   }
   const [roster, proposals] = await Promise.all([

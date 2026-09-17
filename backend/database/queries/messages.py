@@ -9,12 +9,14 @@ from typing import Any, Protocol, cast
 from ...core.domain_types import MessageRole
 from ..connection import _get_workflow_slot, _set_workflow_slot, get_db
 from ..models import (
+    MessageListing,
     MessageRow,
     MessageWithAttachments,
     UserAttachmentRow,
     WorkflowAttachmentRowBase,
 )
 from .conversations import get_conversation
+from .workflow_attachments import EVICTED_MARKER
 
 
 class _WorkflowAttachmentPersister(Protocol):
@@ -121,8 +123,22 @@ _WORKFLOW_ATTACHMENT_COLUMNS = (
     "consumption_metadata, active_sibling_id, recent_accesses"
 )
 
+# The listing's projections: every column but the bytes. A chat's attachments
+# are megabytes of base64 -- a 289-message chat with spoken replies carried
+# 24 MB of it -- and serialising that into the one response that opens the chat
+# was most of the time the open took. Whether a workflow row is evicted is the
+# only fact about its bytes the client needs up front; the comparison runs
+# inside SQLite, so the bytes never become Python strings.
+_USER_ATTACHMENT_SUMMARY_COLUMNS = "id, message_id, mime_type, filename, size, created_at"
+assert "'" not in EVICTED_MARKER  # interpolated as a SQL literal below
+_WORKFLOW_ATTACHMENT_SUMMARY_COLUMNS = (
+    "id, message_id, mime_type, filename, created_at, "
+    "workflow_id, parent_attachment_id, annotation, seed, generation_metadata, "
+    f"consumption_metadata, active_sibling_id, recent_accesses, data_b64 = '{EVICTED_MARKER}' AS evicted"
+)
 
-async def _child_rows_by_message(messages: list[MessageWithAttachments], *, table: str, columns: str) -> dict[int, list]:
+
+async def _child_rows_by_message(messages: Sequence[MessageRow], *, table: str, columns: str) -> dict[int, list]:
     """Fetch per-message child rows from *table* grouped by ``message_id``.
 
     Every message id gets an entry (empty list when it has no children), so
@@ -153,15 +169,24 @@ async def _attach_attachments(messages: list[MessageWithAttachments]) -> None:
         m["workflow_attachments"] = wf_by_msg[m["id"]]
 
 
-async def get_messages(cid: str) -> list[MessageWithAttachments]:
-    """Get active path messages (root→leaf) for LLM prompt construction."""
+async def get_active_path(cid: str) -> list[MessageWithAttachments]:
+    """Get active path messages (root→leaf) without their attachments.
+
+    For readers that only need the messages themselves -- counting, scanning
+    content, mapping ids -- and would otherwise load every attachment's bytes.
+    """
     conv = await get_conversation(cid)
     if not conv:
         return []
     leaf_id = conv.get("active_leaf_id")
     if not leaf_id:
         return []
-    messages = await get_path_to_leaf(cid, leaf_id)
+    return await get_path_to_leaf(cid, leaf_id)
+
+
+async def get_messages(cid: str) -> list[MessageWithAttachments]:
+    """Get active path messages (root→leaf) for LLM prompt construction."""
+    messages = await get_active_path(cid)
     await _attach_attachments(messages)
     return messages
 
@@ -193,11 +218,21 @@ async def get_messages_before(cid: str, message_id: int) -> list[MessageWithAtta
     return messages
 
 
-async def get_messages_with_branch_info(cid: str) -> list[MessageWithAttachments]:
-    """Get active path messages with branch navigation metadata for the frontend."""
-    messages = await get_messages(cid)
-    if not messages:
+async def get_messages_with_branch_info(cid: str) -> list[MessageListing]:
+    """Get active path messages with branch navigation metadata for the frontend.
+
+    Attachments come as byte-free summaries (see the projections above); the
+    client fetches each attachment's bytes from its content route.
+    """
+    path = await get_active_path(cid)
+    if not path:
         return []
+    user_by_msg = await _child_rows_by_message(path, table="user_attachments", columns=_USER_ATTACHMENT_SUMMARY_COLUMNS)
+    wf_by_msg = await _child_rows_by_message(path, table="workflow_attachments", columns=_WORKFLOW_ATTACHMENT_SUMMARY_COLUMNS)
+    messages = [cast(MessageListing, m) for m in path]
+    for m in messages:
+        m["user_attachments"] = user_by_msg[m["id"]]
+        m["workflow_attachments"] = wf_by_msg[m["id"]]
     # One query for every sibling set on the path, not one per message: the
     # parents are exactly the path's own ids shifted by one, so a single
     # ``parent_id IN (...)`` covers them all and the grouping happens here.
@@ -360,6 +395,17 @@ async def get_user_attachments_for_message(message_id: int) -> list[UserAttachme
             )
         )
         return [cast(UserAttachmentRow, dict(r)) for r in rows]
+
+
+async def get_user_attachment_by_id(attachment_id: int) -> UserAttachmentRow | None:
+    async with get_db() as db:
+        rows = list(
+            await db.execute_fetchall(
+                f"SELECT {_USER_ATTACHMENT_COLUMNS} FROM user_attachments WHERE id = ?",  # nosec B608 -- module literal
+                (attachment_id,),
+            )
+        )
+        return cast(UserAttachmentRow, dict(rows[0])) if rows else None
 
 
 async def get_workflow_attachments_for_message(message_id: int) -> list[WorkflowAttachmentRowBase]:

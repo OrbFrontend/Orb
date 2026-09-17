@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { attachmentDataUrl, attachmentMime } from "../../frontend/utils.js";
+import {
+  attachmentDataUrl,
+  attachmentMime,
+  userAttachmentSrc,
+  workflowAttachmentUrl,
+} from "../../frontend/utils.js";
 import { renderDefaultWidget } from "../../frontend/default_widget.js";
 
 // Attachment markup is built by string interpolation and appended outside
@@ -55,36 +60,52 @@ test("a payload that is not base64 yields no URL", () => {
   assert.equal(attachmentDataUrl("image/png", "aG\nk="), "data:image/png;base64,aGk=");
 });
 
+test("a stored attachment's bytes load from its content route", () => {
+  assert.equal(workflowAttachmentUrl({ id: 7 }), "/api/workflow-attachments/7/content");
+  assert.equal(userAttachmentSrc({ id: 9, mime: "image/png" }), "/api/user-attachments/9/content");
+  // The id is the only interpolated value, so anything but a positive integer
+  // builds no URL at all.
+  for (const id of ["7/../../settings", "7?x", 0, -1, 1.5, null, undefined]) {
+    assert.equal(workflowAttachmentUrl({ id }), "", `id: ${String(id)}`);
+  }
+  assert.equal(workflowAttachmentUrl(null), "");
+});
+
+test("an unsent upload has no id yet and previews from its own bytes", () => {
+  assert.equal(userAttachmentSrc({ mime: "image/png", b64: "aGk=" }), "data:image/png;base64,aGk=");
+  assert.equal(userAttachmentSrc({ mime: 'image/png" onerror="x', b64: "aGk=" }), "");
+});
+
 test("the default widget quotes every attribute it interpolates", () => {
   installEscapingDocument();
   const html = renderDefaultWidget({
+    id: 7,
     mime: "image/png",
-    b64: "aGk=",
     filename: '" onload="alert(1)',
   });
   // The quote has to be entity-encoded, or the alt attribute ends early and
   // what follows it becomes an event handler.
   assert.ok(!html.includes('" onload='), html);
   assert.match(html, /alt="&quot; onload=&quot;alert\(1\)"/);
-  assert.match(html, /src="data:image\/png;base64,aGk="/);
+  assert.match(html, /src="\/api\/workflow-attachments\/7\/content"/);
 });
 
-test("the default widget refuses to build a src from a forged MIME type", () => {
+test("the default widget refuses to build a media element from a forged MIME type", () => {
   installEscapingDocument();
-  const html = renderDefaultWidget({ mime: 'image/png" onerror="alert(1)', b64: "aGk=", filename: "x.png" });
+  const html = renderDefaultWidget({ id: 7, mime: 'image/png" onerror="alert(1)', filename: "x.png" });
   assert.ok(!html.includes("onerror"), html);
   // The forged type is replaced, not repaired: the bytes stay reachable as an
-  // opaque download, and nothing the model wrote reaches the `data:` URL.
+  // opaque download, and nothing the model wrote reaches the markup.
   assert.ok(!html.includes("image/png"), html);
   assert.match(html, /class="workflow-artifact-link"/);
-  assert.match(html, /href="data:application\/octet-stream;base64,aGk="/);
+  assert.match(html, /href="\/api\/workflow-attachments\/7\/content"/);
 });
 
 test("a filename is escaped in the link text as well as in its attributes", () => {
   installEscapingDocument();
   const html = renderDefaultWidget({
+    id: 7,
     mime: "application/pdf",
-    b64: "aGk=",
     filename: "<script>alert(1)</script>",
   });
   assert.ok(!html.includes("<script>"), html);

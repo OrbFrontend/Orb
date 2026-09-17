@@ -8,7 +8,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from ...core import (
     scrub_log,
@@ -62,6 +62,7 @@ from ...workflows.enablement import effective_workflow_enabled
 from ...workflows.errors import WorkflowUserFacingError
 from ..deps import (
     _workflow_event_stream_response,
+    attachment_content_response,
     locked_attachment_group,
     require_conversation,
     workflow_group_in_flight,
@@ -750,6 +751,20 @@ async def api_delete_workflow_attachment(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return result
+
+
+@router.get("/api/workflow-attachments/{aid}/content")
+async def api_get_workflow_attachment_content(aid: int, request: Request):
+    """The attachment's bytes, which the message listing leaves out.
+
+    Not gated on the workflow being enabled: stored artifacts stay readable.
+    """
+    att = await get_workflow_attachment_by_id(aid)
+    if att is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    if att["data_b64"] == EVICTED_MARKER:
+        raise HTTPException(status_code=410, detail="Attachment bytes were evicted")
+    return attachment_content_response(att["data_b64"], att["mime_type"], request)
 
 
 @router.post("/api/conversations/{cid}/workflow-attachments/access")

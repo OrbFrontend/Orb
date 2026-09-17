@@ -37,7 +37,22 @@ export function normalizeSegment(seg) {
   if (start < 0) return null;
   const end = seg.end == null ? null : _finite(seg.end, null);
   if (hasRow) {
-    return { sourceKey: `row:${seg.row}`, source: { row: seg.row }, start, end };
+    if (seg.byte_start == null && seg.byte_end == null) {
+      return { sourceKey: `row:${seg.row}`, source: { row: seg.row }, start, end };
+    }
+    // A byte span of the row: a self-contained clip packed inside a larger
+    // attachment, decoded on its own.
+    const byteStart = seg.byte_start;
+    const byteEnd = seg.byte_end;
+    if (!Number.isInteger(byteStart) || !Number.isInteger(byteEnd) || byteStart < 0 || byteEnd <= byteStart) {
+      return null;
+    }
+    return {
+      sourceKey: `row:${seg.row}:${byteStart}-${byteEnd}`,
+      source: { row: seg.row, byteStart, byteEnd },
+      start,
+      end,
+    };
   }
   const mime = typeof seg.mime === "string" ? seg.mime : "";
   return { sourceKey: inlineKey(seg.b64), source: { b64: seg.b64, mime }, start, end };

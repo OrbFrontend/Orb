@@ -286,23 +286,24 @@ class UserAttachmentRow(TypedDict, total=False):
     created_at: str
 
 
-class WorkflowAttachmentRowBase(TypedDict):
-    """The columns every ``workflow_attachments`` reader projects.
-
-    ``get_workflow_attachments_for_message()`` filters by ``message_id`` and
-    omits that redundant column, so it returns this base directly; the
-    single-row reader and the per-message attachment glue also project
-    ``message_id`` and return the fuller :class:`WorkflowAttachmentRow`. Split
-    out as a ``total=True`` base so those full-row readers can require the FK
-    (consumers subscript it) while the projection reader stays honest. Mirrors
-    the ``_SettingsBase`` / :class:`SettingsRow` split. ``data_b64`` is the
-    EVICTED_MARKER sentinel string once an artifact's bytes are evicted -- see
-    secondary-workflow.md §9.
+class UserAttachmentSummary(TypedDict):
+    """A ``user_attachments`` row without its bytes, as the message listing
+    projects it. The client loads the bytes from the attachment content route.
     """
 
     id: int
+    message_id: int
     mime_type: str
-    data_b64: str
+    filename: str | None
+    size: int | None
+    created_at: str
+
+
+class _WorkflowAttachmentColumns(TypedDict):
+    """Every ``workflow_attachments`` column but the bytes and the FK."""
+
+    id: int
+    mime_type: str
     filename: str | None
     created_at: str
     workflow_id: str
@@ -315,6 +316,34 @@ class WorkflowAttachmentRowBase(TypedDict):
     recent_accesses: str | None
 
 
+class WorkflowAttachmentRowBase(_WorkflowAttachmentColumns):
+    """The columns every byte-reading ``workflow_attachments`` reader projects.
+
+    ``get_workflow_attachments_for_message()`` filters by ``message_id`` and
+    omits that redundant column, so it returns this base directly; the
+    single-row reader and the per-message attachment glue also project
+    ``message_id`` and return the fuller :class:`WorkflowAttachmentRow`. Split
+    out as a ``total=True`` base so those full-row readers can require the FK
+    (consumers subscript it) while the projection reader stays honest. Mirrors
+    the ``_SettingsBase`` / :class:`SettingsRow` split. ``data_b64`` is the
+    EVICTED_MARKER sentinel string once an artifact's bytes are evicted -- see
+    secondary-workflow.md §9.
+    """
+
+    data_b64: str
+
+
+class WorkflowAttachmentSummary(_WorkflowAttachmentColumns):
+    """A ``workflow_attachments`` row without its bytes, as the message listing
+    projects it. ``evicted`` is 1 when ``data_b64`` holds EVICTED_MARKER, which
+    is the only thing the listing needs to know about the bytes; the client
+    loads them from the attachment content route.
+    """
+
+    message_id: int
+    evicted: int
+
+
 class WorkflowAttachmentRow(WorkflowAttachmentRowBase):
     """A fully-projected ``workflow_attachments`` row -- the shared columns plus
     the ``message_id`` FK -- as get_workflow_attachment_by_id() and the
@@ -325,14 +354,22 @@ class WorkflowAttachmentRow(WorkflowAttachmentRowBase):
 
 
 class MessageWithAttachments(MessageRow, total=False):
-    """A ``MessageRow`` after the query layer glues on related rows and branch
-    navigation metadata in place. The extra keys are not columns; they are
-    populated by _attach_attachments() and get_messages_with_branch_info(),
-    hence ``total=False``.
+    """A ``MessageRow`` after the query layer glues on its attachment rows in
+    place. The extra keys are not columns; _attach_attachments() populates
+    them, hence ``total=False``.
     """
 
     user_attachments: list[UserAttachmentRow]
     workflow_attachments: list[WorkflowAttachmentRow]
+
+
+class MessageListing(MessageRow, total=False):
+    """A ``MessageRow`` as get_messages_with_branch_info() shapes it for the
+    client: byte-free attachment summaries plus branch navigation metadata.
+    """
+
+    user_attachments: list[UserAttachmentSummary]
+    workflow_attachments: list[WorkflowAttachmentSummary]
     branch_count: int
     branch_index: int
     prev_branch_id: int | None

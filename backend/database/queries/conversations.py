@@ -33,9 +33,13 @@ async def list_conversations() -> list[ConversationListRow]:
                 SELECT conv_id, COUNT(*) FROM active_path GROUP BY conv_id
             )
             SELECT c.*,
-                   (SELECT m.content FROM messages m
-                    WHERE m.conversation_id = c.id
-                    ORDER BY m.id DESC LIMIT 1) AS last_message_preview,
+                   -- A preview, not the message: the sidebar shows a line of
+                   -- it, and whole replies were most of this response's bytes.
+                   -- max(id) resolves from the conversation index alone, where
+                   -- ORDER BY id LIMIT 1 sorted every message in the chat.
+                   (SELECT substr(m.content, 1, 200) FROM messages m
+                    WHERE m.id = (SELECT max(id) FROM messages
+                                  WHERE conversation_id = c.id)) AS last_message_preview,
                    COALESCE((SELECT json_group_array(gm.character_card_id)
                              FROM group_members gm
                              WHERE gm.conversation_id = c.id AND gm.active = 1

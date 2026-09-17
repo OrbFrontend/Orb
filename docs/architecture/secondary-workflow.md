@@ -248,6 +248,14 @@ The active sibling is user-selectable. The cache stores bytes in
 needed, older accessed rows are evicted by replacing their bytes with the
 `[evicted]` marker.
 
+The message listing (`GET /api/conversations/{cid}/messages`) carries each
+attachment without its bytes: every other column, plus `evicted` (1 when the
+bytes are the marker). Bytes load from the content routes below, which answer
+with an ETag the browser revalidates, support byte ranges, and return 410 for
+an evicted row. A frontend widget builds the URL with `workflowAttachmentUrl`;
+audio plays through `playAudio` segments of `{ row }`, or
+`{ row, byte_start, byte_end }` for one clip packed inside a larger attachment.
+
 Supply a seed and JSON generation metadata when an artifact can be recreated.
 That lets the user rehydrate evicted bytes. The same `REROLL_GEN` hook handles:
 
@@ -276,7 +284,10 @@ POST /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/activate
 POST /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/delete
 GET  /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/in-flight
 POST /api/conversations/{cid}/workflow-attachments/access
+GET  /api/workflow-attachments/{aid}/content
 ```
+
+User uploads have the same split: `GET /api/user-attachments/{aid}/content`.
 
 `in-flight` reports `{"in_flight": bool}` for the attachment's canonical root:
 whether a request still holds the group's lock. Regenerate, reroll-gen,

@@ -143,7 +143,7 @@ test("settings expose the editable scene-skill library and no analyzer control",
 });
 
 test("successful rerolls clear only the submitted image prompt edit", () => {
-  assert.match(workflowApi, /export const WORKFLOW_API_VERSION = 6;/);
+  assert.match(workflowApi, /export const WORKFLOW_API_VERSION = 7;/);
   assert.match(workflowApi, /export function registerRerollSuccess\(/);
   assert.match(chatWorkflow, /if \(result\?\.attachment_id != null\) _notifyWorkflowRerollSuccess\(wid, msgId, attId\)/);
   assert.match(imageWidget, /registerRerollSuccess\(WORKFLOW_ID, clearPendingEdit\)/);

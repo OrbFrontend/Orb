@@ -8,7 +8,7 @@ import { resetWorkflowViewportState } from "./chat_workflow.js";
 import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
 import { groupFamily, groupRootId } from "./group_cast.js";
 import { loadGroupCast, renderGroupCast, renderGroupList } from "./group_setup.js";
-import { refreshCharacters, renderCharacters } from "./library.js";
+import { avatarBustQuery, refreshCharacters, renderCharacters } from "./library.js";
 import { renderInteractiveFragments, renderMoodFragments } from "./library_fragments.js";
 import { reflectConversationWorldActivation } from "./lorebooks.js";
 import { closeModal, showConfirmModal, showModal } from "./modal.js";
@@ -206,7 +206,10 @@ export async function selectConversation(id) {
   if (conv?.kind === "group") {
     av.textContent = "👥";
   } else if (conv?.character_card_id) {
-    av.innerHTML = avatarCell(`${avatarUrl(conv.character_card_id)}?t=${Date.now()}`, {
+    // The library's bust token, not a fresh timestamp: an avatar edit bumps it,
+    // and otherwise the header reuses the cached image instead of downloading
+    // it again on every switch.
+    av.innerHTML = avatarCell(`${avatarUrl(conv.character_card_id)}${avatarBustQuery(conv.character_card_id)}`, {
       icon: CHAT_AVATAR_ICON,
       attrs: 'onclick="showAvatarPopup()" style="cursor:pointer"',
     });
@@ -219,17 +222,16 @@ export async function selectConversation(id) {
   $("chat-input").disabled = false;
   $("send-btn").disabled = false;
 
-  if (conv) {
-    const activation = await api.post(convUrl(id, "activate"));
-    reflectConversationWorldActivation(activation.world_ids);
-  }
-
+  // Activation only toggles linked Worlds, which none of the reads below
+  // depend on, so it runs alongside them rather than ahead of them.
   const cardIds = sceneCardIds(conv);
-  const [msgs, directorState, ...cards] = await Promise.all([
+  const [activation, msgs, directorState, ...cards] = await Promise.all([
+    conv ? api.post(convUrl(id, "activate")) : null,
     api.get(convUrl(id, "messages")),
     api.get(convUrl(id, "director")),
     ...cardIds.map((cardId) => api.get(`/characters/${cardId}`).catch(() => null)),
   ]);
+  if (activation) reflectConversationWorldActivation(activation.world_ids);
   setMessages(msgs);
   S.directorState = directorState;
   stashCardFragments(cards);

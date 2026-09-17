@@ -25,6 +25,7 @@ from ...database import (
     get_messages_with_branch_info,
     get_settings,
     get_speaker_names,
+    get_user_attachment_by_id,
     get_user_persona,
     get_worlds,
     mark_changesets_stale_for_messages,
@@ -64,6 +65,7 @@ from ...workflows.prose_rewriter_host import (
 from ..deps import (
     _conversation_stream_lock,
     _pipeline_sse_response,
+    attachment_content_response,
     require_conversation,
     stream_idle_lock,
 )
@@ -139,6 +141,15 @@ async def api_get_messages(cid: str, _conv: ConversationRow = Depends(require_co
         if idle:
             await reroll_unfrozen_greetings(cid)
         return await _message_rows_for_client(await get_messages_with_branch_info(cid))
+
+
+@router.get("/api/user-attachments/{aid}/content")
+async def api_get_user_attachment_content(aid: int, request: Request):
+    """An uploaded attachment's bytes, which the message listing leaves out."""
+    att = await get_user_attachment_by_id(aid)
+    if att is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    return attachment_content_response(att.get("data_b64", ""), att.get("mime_type"), request)
 
 
 @router.get("/api/conversations/{cid}/messages/{msg_id}/delete-preview")

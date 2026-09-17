@@ -24,7 +24,7 @@ import { refreshLocalMlStatus } from "./settings.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { effectiveWorkflowEnabled, localMlReady, S, subscribe } from "./state.js";
 import { broadcastWorkflowMutation } from "./tabLock.js";
-import { convUrl, esc, escAttr, fromMessageBody, notifyError, toast } from "./utils.js";
+import { convUrl, esc, escAttr, fromMessageBody, notifyError, toast, workflowAttachmentUrl } from "./utils.js";
 import {
   registerClickHandler,
   registerTextEffect,
@@ -39,7 +39,7 @@ import { clearTextEffect, startTextEffect } from "./workflow_text_effects.js";
 
 // Workflow modules use this facade for registration, requests, and playback.
 
-export const WORKFLOW_API_VERSION = 6;
+export const WORKFLOW_API_VERSION = 7;
 
 export {
   api,
@@ -83,6 +83,7 @@ export {
   streamPost,
   subscribe,
   toast,
+  workflowAttachmentUrl,
 };
 
 export function registerAttachmentRenderer(wid, fn, options = {}) {

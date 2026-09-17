@@ -53,6 +53,24 @@ export function attachmentMime(mime) {
   return ATTACHMENT_MIME_RE.test(type) ? type.toLowerCase() : "";
 }
 
+// The message listing carries attachments without their bytes; each one's
+// bytes load from its content route, which the browser caches and revalidates.
+// The id is the only thing interpolated, and only once it is a positive integer.
+function attachmentContentUrl(kind, att) {
+  const id = Number(att?.id);
+  return Number.isInteger(id) && id > 0 ? `/api/${kind}/${id}/content` : "";
+}
+
+/** Where a stored workflow attachment's bytes load from, or "" without an id. */
+export function workflowAttachmentUrl(att) {
+  return attachmentContentUrl("workflow-attachments", att);
+}
+
+/** A user upload's image source: its content route once saved, its `data:` URL while still unsent. */
+export function userAttachmentSrc(att) {
+  return attachmentContentUrl("user-attachments", att) || attachmentDataUrl(att?.mime || att?.mime_type, att?.b64);
+}
+
 export { notifyError, toast } from "./notify.js";
 
 let _chatFollow = null;

@@ -14,7 +14,6 @@ import { effectiveWorkflowEnabled, localMlReady, S, subscribe } from "./state.js
 import { requestSendPermission } from "./tabLock.js";
 import {
   $,
-  attachmentDataUrl,
   avatarCell,
   avatarUrl,
   esc,
@@ -22,6 +21,7 @@ import {
   escHandlerArg,
   formatBytes,
   resolvePlaceholders,
+  userAttachmentSrc,
 } from "./utils.js";
 import { segmentBody } from "./workflow_segmentation.js";
 import { markClickable } from "./workflow_text_interaction.js";
@@ -41,7 +41,6 @@ function normalizeMessages(msgs) {
       const list = m[field];
       if (!Array.isArray(list)) continue;
       for (const att of list) {
-        if (att.data_b64 != null && att.b64 == null) att.b64 = att.data_b64;
         if (att.mime_type != null && att.mime == null) att.mime = att.mime_type;
         if (typeof att.consumption_metadata === "string") {
           try {
@@ -182,7 +181,7 @@ function renderUserAttachments(userAtts) {
       // untrusted and both land inside an attribute: escAttr, never esc. A
       // filename that closes the attribute early would otherwise write an
       // event handler onto the image.
-      const src = escAttr(attachmentDataUrl(att.mime || att.mime_type || "image/jpeg", att.b64 || att.data_b64 || ""));
+      const src = escAttr(userAttachmentSrc(att));
       const filename = escAttr(att.filename || "image");
       const size = Number.isFinite(att.size) && att.size > 0 ? att.size : 0;
       return `

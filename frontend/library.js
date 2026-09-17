@@ -60,6 +60,11 @@ let _pendingCharacterBook = null;
 let _pendingExtensions = null;
 export const _avatarBust = new Map();
 
+/** The query that busts a card's cached avatar once it has changed this session, else "". */
+export function avatarBustQuery(cardId) {
+  return _avatarBust.has(cardId) ? `?v=${_avatarBust.get(cardId)}` : "";
+}
+
 function filterRecentCharacters(characters, conversations, limit = 5) {
   const recentMap = new Map();
   for (const conv of conversations) {
