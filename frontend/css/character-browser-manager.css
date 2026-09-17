@@ -94,7 +94,14 @@
   color: var(--text-muted);
 }
 
-.lib-manager-field > label {
+/* A tool whose markup carries no ids wraps its control in the label instead.
+   The wrapper sheds the global label's margin; its caption span takes the look. */
+label.lib-manager-field {
+  margin: 0;
+}
+
+.lib-manager-field > label,
+.lib-manager-field-label {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
@@ -123,9 +130,15 @@
 
 .lib-manager-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
+}
+
+/* Directly in a tool body the flex column already spaces the row. */
+.lib-tool-body > .lib-manager-actions {
+  margin-top: 0;
 }
 
 .lib-manager-run {
@@ -146,6 +159,18 @@
   font-size: 12px;
   line-height: 1.4;
   color: var(--text-secondary);
+}
+
+/* A status line on the action row reports on the button beside it. It takes
+   the free width, so a progress label or an error never grows the card. */
+.lib-manager-actions > .lib-manager-status {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.lib-manager-status.is-error {
+  color: var(--red);
 }
 
 /* A `label` element, so the global uppercase label rule has to be undone — and
@@ -183,6 +208,25 @@
 .lib-manager-toggle .lib-manager-note {
   display: block;
   margin-top: 3px;
+}
+
+/* Whatever a running tool locks has to look locked. Several themes force their
+   button hover with !important, so a disabled button takes no pointer at all
+   rather than trying to restate every theme's resting colours. */
+.lib-tool .btn:disabled {
+  opacity: .5;
+  pointer-events: none;
+}
+
+.lib-tool textarea:disabled {
+  opacity: .6;
+  cursor: default;
+  box-shadow: none;
+}
+
+.lib-manager-toggle:has(input:disabled) {
+  opacity: .6;
+  cursor: default;
 }
 
 .lib-manager-progress {

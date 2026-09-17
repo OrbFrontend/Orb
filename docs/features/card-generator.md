@@ -41,5 +41,6 @@ macros. Review the draft before saving, especially after a long idea.
 
 Saved cards carry `source_format: "generated"`. The streaming endpoint is
 `POST /api/library/card-generator/run` with `idea`, optional `reasoning`, and
-optional `tailored`. It emits `start`, optional `progress`, then `done` with an
+optional `tailored`. It emits `start`, a `progress` label for each phase
+(reading library preferences when tailored, then drafting), then `done` with an
 unsaved `card`, or `error` with a plain-text sentence.

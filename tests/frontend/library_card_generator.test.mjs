@@ -103,6 +103,8 @@ test("Cancel restores controls and never opens a card", async () => {
   assert.equal(opened, false);
   assert.equal(root.querySelector('[data-cardgen-action="generate"]').disabled, false);
   assert.match(root.querySelector("[data-cardgen-progress]").textContent, /cancelled/);
+  assert.equal(root.querySelector("[data-cardgen-progress]").classList.contains("is-error"), false);
+  assert.equal(root.classList.contains("ml-busy"), false);
 });
 
 test("provider errors display as text and allow another attempt", async () => {
@@ -112,11 +114,16 @@ test("provider errors display as text and allow another attempt", async () => {
   send(requests[0], "error", "Provider unavailable <script>");
   requests[0].writer.close();
   await tick();
-  assert.equal(root.querySelector("[data-cardgen-progress]").textContent, "Provider unavailable <script>");
+  const progress = root.querySelector("[data-cardgen-progress]");
+  assert.equal(progress.textContent, "Provider unavailable <script>");
+  assert.equal(progress.classList.contains("is-error"), true);
   assert.equal(root.querySelectorAll("script").length, 0);
   generate(root);
   await tick();
   assert.equal(requests.length, 2);
+  assert.equal(root.classList.contains("ml-busy"), true);
+  assert.equal(progress.textContent, "");
+  assert.equal(progress.classList.contains("is-error"), false);
 });
 
 test("an incomplete stream reports failure without opening an editor", async () => {

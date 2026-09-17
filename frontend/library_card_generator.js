@@ -1,5 +1,5 @@
 // Character Library card generator: each mounted panel owns its request.
-import { EDIT_ICON } from "./icons.js";
+import { SPARKLE_ICON } from "./icons.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
 
 let _unmount = null;
@@ -8,14 +8,15 @@ export function cardGeneratorToolHtml() {
   return `
     <section class="lib-tool" data-tool="card-generator">
       <header class="lib-tool-head">
-        <span class="lib-tool-icon">${EDIT_ICON}</span>
+        <span class="lib-tool-icon">${SPARKLE_ICON}</span>
         <div class="lib-tool-heading">
-          <h3 class="lib-tool-name">Card Generator</h3>
+          <h3 class="lib-tool-name">Card generator</h3>
           <p class="lib-manager-note">Describe a character and let the Agent model draft a card. Review and edit it before saving to your library.</p>
         </div>
       </header>
       <div class="lib-tool-body">
-        <label class="field">Character idea
+        <label class="lib-manager-field">
+          <span class="lib-manager-field-label">Character idea</span>
           <textarea data-cardgen-idea rows="4" maxlength="2000" placeholder="A jaded harbour-town fence who owes everyone money…"></textarea>
         </label>
         <label class="lib-manager-toggle">
@@ -33,10 +34,10 @@ export function cardGeneratorToolHtml() {
           </span>
         </label>
         <div class="lib-manager-actions">
+          <div class="lib-manager-status" data-cardgen-progress role="status" aria-live="polite"></div>
           <button class="btn btn-accent" data-cardgen-action="generate">Generate</button>
           <button class="btn" data-cardgen-action="cancel" hidden>Cancel</button>
         </div>
-        <div class="lib-manager-progress" data-cardgen-progress role="status" aria-live="polite" hidden></div>
       </div>
     </section>`;
 }
@@ -51,9 +52,9 @@ export function mountCardGenerator(root, callbacks = {}) {
   const cancel = root.querySelector('[data-cardgen-action="cancel"]');
   const progress = root.querySelector("[data-cardgen-progress]");
 
-  function status(message) {
-    progress.hidden = false;
+  function status(message, { error = false } = {}) {
     progress.textContent = message;
+    progress.classList.toggle("is-error", error);
   }
 
   function paint() {
@@ -61,6 +62,7 @@ export function mountCardGenerator(root, callbacks = {}) {
     generate.textContent = controller ? "Generating…" : "Generate";
     cancel.hidden = !controller;
     idea.disabled = reasoning.disabled = tailored.disabled = !!controller;
+    root.classList.toggle("ml-busy", !!controller);
   }
 
   async function run() {
@@ -68,7 +70,7 @@ export function mountCardGenerator(root, callbacks = {}) {
     const runController = new AbortController();
     controller = runController;
     paint();
-    status("Drafting your character…");
+    status("");
     try {
       const response = await streamPost(
         "/library/card-generator/run",
@@ -89,10 +91,11 @@ export function mountCardGenerator(root, callbacks = {}) {
         }
       }
       if (runController.signal.aborted) status("Generation cancelled.");
-      else if (!finished) status("Generation ended without a draft. Try again.");
+      else if (!finished) status("Generation ended without a draft. Try again.", { error: true });
     } catch (error) {
       if (root.isConnected) {
-        status(runController.signal.aborted ? "Generation cancelled." : error.message);
+        const aborted = runController.signal.aborted;
+        status(aborted ? "Generation cancelled." : error.message, { error: !aborted });
       }
     } finally {
       controller = null;

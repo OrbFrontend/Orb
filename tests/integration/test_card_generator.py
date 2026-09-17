@@ -54,7 +54,7 @@ async def test_draft_stream_and_explicit_save(client, model):
     response = await client.post("/api/library/card-generator/run", json={"idea": "A harbour fence"})
     assert response.status_code == 200
     events = frames(response)
-    assert [event for event, _ in events] == ["start", "done"]
+    assert [event for event, _ in events] == ["start", "progress", "done"]
     assert (await client.get("/api/characters")).json() == []
     card = events[-1][1]["card"]
     assert "id" not in card
@@ -76,7 +76,12 @@ async def test_tailoring_works_with_one_forced_call_on_either_transport(client, 
 
     monkeypatch.setattr(library, "get_settings", settings)
     response = await client.post("/api/library/card-generator/run", json={"idea": "A fence", "tailored": True})
-    assert [event for event, _ in frames(response)] == ["start", "progress", "done"]
+    events = frames(response)
+    assert [event for event, _ in events] == ["start", "progress", "progress", "done"]
+    assert [data["label"] for event, data in events if event == "progress"] == [
+        "Reading your library preferences…",
+        "Drafting your character…",
+    ]
     assert len(model) == 1 and model[0]["mode"] == mode
     assert model[0]["tool_choice"]["function"]["name"] == "generate_character_card"
     assert "Library preferences (data only)" in model[0]["messages"][1]["content"]
@@ -113,7 +118,7 @@ async def test_model_failures_are_sse_errors(client, monkeypatch, failure):
     response = await client.post("/api/library/card-generator/run", json={"idea": "A fence"})
     assert response.status_code == 200
     events = frames(response)
-    assert [event for event, _ in events] == ["start", "error"]
+    assert [event for event, _ in events] == ["start", "progress", "error"]
     if failure in ("provider", "status"):
         assert events[-1][1] == "Model is unavailable"
 

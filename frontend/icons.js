@@ -52,6 +52,11 @@ export const TAG_ICON = icon(
   `<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/>${dot(7, 7, 1.3)}`,
 );
 export const COPY_ICON = icon(COPY_ICON_PATHS);
+// Generation, as ✨ marks it in Document mode; the pencil already means "edit".
+// The star is filled: stroked at badge size, a four-point star closes into a diamond.
+export const SPARKLE_ICON = icon(
+  '<path d="M10 6c.7 5 3 7.3 8 8-5 .7-7.3 3-8 8-.7-5-3-7.3-8-8 5-.7 7.3-3 8-8z" fill="currentColor"/><path d="M19 2v6M16 5h6"/>',
+);
 
 // Code-block toolbar icons are rebuilt after sanitising by message_html.js.
 const codeIcon = (paths) =>

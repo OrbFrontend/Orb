@@ -100,6 +100,7 @@ async def api_run_card_generator(data: CardGeneratorRunRequest, request: Request
                 return
             client = client_from_settings(settings, abort_token=abort_token)
             agent_client, model = agent_lane_from_settings(settings, writer_client=client, abort_token=abort_token)
+            yield {"event": "progress", "data": {"label": "Drafting your character…"}}
             card = await generate_card(
                 agent_client, model, data.idea, settings=settings, reasoning_on=data.reasoning, library_digest=digest
             )
