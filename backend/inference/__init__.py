@@ -11,6 +11,7 @@ from .client import (
     client_from_settings,
     parse_tool_calls,
     reasoning_cfg,
+    replay_reasoning,
     separate_agent_lane_configured,
 )
 from .drafting import BRACES, forced_draft, forced_turn, normalize
@@ -35,6 +36,7 @@ __all__ = [
     "client_from_settings",
     "parse_tool_calls",
     "reasoning_cfg",
+    "replay_reasoning",
     "separate_agent_lane_configured",
     # drafting — forced calls outside the pipeline
     "BRACES",

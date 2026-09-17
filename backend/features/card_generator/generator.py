@@ -18,7 +18,13 @@ from ...database import (
     get_vocabulary,
     list_character_cards,
 )
-from ...inference import LLMClient, forced_turn, normalize, parse_tool_calls
+from ...inference import (
+    LLMClient,
+    forced_turn,
+    normalize,
+    parse_tool_calls,
+    replay_reasoning,
+)
 
 CARD_FLOOR = (
     "Create an original, playable roleplay character faithful to the user's idea. "
@@ -129,9 +135,8 @@ def _assistant(response: Mapping[str, Any], name: str, arguments: Mapping[str, A
                 "function": {"name": name, "arguments": json.dumps(arguments, ensure_ascii=False)},
             }
         ],
+        **replay_reasoning(response),
     }
-    if response.get("reasoning_content"):
-        message["reasoning_content"] = response["reasoning_content"]
     return message
 
 

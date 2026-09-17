@@ -277,23 +277,43 @@ async def test_reasoning_is_replayed_only_when_the_step_had_some(queries):
     assert "reasoning_content" not in client.calls[2]["messages"][4]
 
 
-@pytest.mark.parametrize(
-    ("reply", "role"),
-    [
-        (_step(""), "tool"),
-        (_step("   "), "tool"),
-        (_card(), "user"),
-        ({"content": "I would rather just write the card."}, "user"),
-        ({}, "user"),
-    ],
-)
-async def test_a_step_without_a_query_ends_research(queries, reply, role):
+async def test_reasoning_is_replayed_under_the_field_names_the_provider_streamed(queries):
+    details = [{"type": "reasoning.text", "text": "Hmm.", "signature": "sig", "index": 0}]
+    thought = {**_step(), "reasoning": "Hmm.", "reasoning_details": details}
+    client = ScriptedClient(thought, _step(sql="", finished=True), _card())
+    await _events(client)
+    replayed = client.calls[1]["messages"][2]
+    assert (replayed["reasoning"], replayed["reasoning_details"]) == ("Hmm.", details)
+    assert "reasoning_content" not in replayed
+
+
+@pytest.mark.parametrize("reply", [_step(""), _step("   ")])
+async def test_a_step_without_sql_ends_research(queries, reply):
     client = ScriptedClient(_step(), reply, _card())
     events = await _events(client)
     assert events[-1]["type"] == "done" and len(queries) == 1
     assert [_forced(call) for call in client.calls] == ["query_library"] * 2 + ["generate_character_card"]
     last = client.calls[-1]["messages"][-1]
-    assert (last["role"], last["content"]) == (role, deep.DRAFT_NOTE)
+    assert (last["role"], last["content"]) == ("tool", deep.DRAFT_NOTE)
+
+
+@pytest.mark.parametrize("reply", [_card(), {"content": "I would rather just write the card."}, {}])
+async def test_a_reply_without_a_query_ends_research_on_the_last_result(queries, reply):
+    client = ScriptedClient(_step(), reply, _card())
+    events = await _events(client)
+    assert events[-1]["type"] == "done" and len(queries) == 1
+    assert [_forced(call) for call in client.calls] == ["query_library"] * 2 + ["generate_character_card"]
+    # The note joins the last result instead of opening a user turn, which would
+    # make Qwen3-style templates drop every earlier step's reasoning.
+    research, draft = client.calls[1]["messages"], client.calls[-1]["messages"]
+    assert len(draft) == len(research) and draft[:-1] == research[:-1]
+    assert draft[-1] == {**research[-1], "content": f"{research[-1]['content']}\n\n{deep.DRAFT_NOTE}"}
+
+
+async def test_a_first_reply_without_a_query_drafts_from_a_user_note(queries):
+    client = ScriptedClient({}, _card())
+    await _events(client)
+    assert client.calls[-1]["messages"][-1] == {"role": "user", "content": deep.DRAFT_NOTE}
 
 
 async def test_provider_error_raises_on_the_first_step_only(queries):
@@ -302,7 +322,8 @@ async def test_provider_error_raises_on_the_first_step_only(queries):
     client = ScriptedClient(_step(), _provider_error(), _card())
     events = await _events(client)
     assert events[-1]["type"] == "done"
-    assert client.calls[-1]["messages"][-1] == {"role": "user", "content": deep.DRAFT_NOTE}
+    last = client.calls[-1]["messages"][-1]
+    assert last["role"] == "tool" and last["content"].endswith(f"\n\n{deep.DRAFT_NOTE}")
 
 
 @pytest.mark.parametrize("failure", [_provider_error, lambda: {"content": "no card"}])

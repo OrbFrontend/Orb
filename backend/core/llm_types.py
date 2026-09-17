@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, Literal, TypedDict
 
 
 class TextPart(TypedDict):
@@ -53,14 +53,22 @@ class ToolCall(TypedDict):
     function: dict[str, Any]
 
 
-class AssistantToolMessage(TypedDict):
+class ReasoningReplay(TypedDict, total=False):
+    """A model's reasoning as replayed on its assistant turn, under the field
+    names the provider streamed it with (see ``inference.replay_reasoning``)."""
+
+    reasoning_content: str
+    reasoning: str
+    reasoning_details: list[dict[str, Any]]
+
+
+class AssistantToolMessage(ReasoningReplay):
     """An assistant turn that carries tool calls (and optional reasoning),
     appended by the ReAct loops when ``reasoning_on`` is set."""
 
     role: Literal["assistant"]
     content: str | list[ContentPart]
     tool_calls: list[ToolCall]
-    reasoning_content: NotRequired[str]
 
 
 class ToolResultMessage(TypedDict):

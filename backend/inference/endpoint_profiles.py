@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -9,6 +10,13 @@ from urllib.parse import urlsplit, urlunsplit
 
 # Body keys always sent; never subject to allowlist filtering.
 ALWAYS_ALLOWED: frozenset[str] = frozenset({"model", "messages", "stream", "tools", "tool_choice"})
+
+# Assistant-message fields that carry a model's reasoning back to it. The chat
+# transport stores reasoning under the names the provider streamed, and a replay
+# echoes them unchanged, because servers disagree about what they read:
+# llama.cpp reads only ``reasoning_content``, vLLM only ``reasoning``, and
+# OpenRouter also needs ``reasoning_details`` to keep signed reasoning valid.
+REASONING_REPLAY_FIELDS: tuple[str, ...] = ("reasoning_content", "reasoning", "reasoning_details")
 
 # Mutates body in place. Returns a log line to surface the action, or None.
 Transform = Callable[[dict], str | None]
@@ -506,6 +514,25 @@ _TOOL_CHOICE_AUTO_ONLY: set[tuple[str, str]] = set()
 # list rots into wrongly clamping a level the provider has since added.
 _REASONING_EFFORT_UNSUPPORTED: set[tuple[str, str]] = set()
 
+# Replay fields each pair refused on an assistant message this session. Some
+# providers stream reasoning and then reject it on the way back (Groq refuses
+# both ``reasoning_content`` and ``reasoning``), so the refusal is learned
+# instead of listed. Dropping the field on every later call keeps the rendered
+# prefix the same from call to call.
+_REASONING_REPLAY_UNSUPPORTED: dict[tuple[str, str], set[str]] = {}
+
+_FIELD_REFUSAL_MARKERS = (
+    "unsupported",
+    "not supported",
+    "not allowed",
+    "not permitted",
+    "extra inputs",
+    "additional properties",
+    "unexpected",
+    "unknown",
+    "unrecognized",
+)
+
 
 def _is_openrouter(endpoint_url: str) -> bool:
     return "openrouter.ai" in endpoint_url.lower()
@@ -542,6 +569,51 @@ def _is_reasoning_effort_rejected(status: int, text: str) -> bool:
     return any(marker in low for marker in ("invalid", "unsupported", "not supported", "not allowed", "valid values"))
 
 
+def _drop_replay_fields(body: dict, fields: set[str]) -> list[str]:
+    """Remove *fields* from the body's messages and return the ones that were present.
+
+    Changed messages are copied, because the outbound body shares its message
+    dicts with the caller's transcript.
+    """
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return []
+    removed: set[str] = set()
+    kept: list[Any] = []
+    for message in messages:
+        present = fields.intersection(message) if isinstance(message, Mapping) else set()
+        if present:
+            removed |= present
+            message = {key: value for key, value in message.items() if key not in present}
+        kept.append(message)
+    if removed:
+        body["messages"] = kept
+    return sorted(removed)
+
+
+def _refused_replay_fields(body: dict, status: int, text: str) -> set[str]:
+    """Return the replayed reasoning fields that a rejection names.
+
+    Only fields the body actually carries can match, and the body must point at
+    ``messages``. That way a refused top-level ``reasoning`` param, or a generic
+    400, never costs a replay the endpoint accepts.
+    """
+    low = text.lower()
+    if status not in {400, 422} or "messages" not in low:
+        return set()
+    if not any(marker in low for marker in _FIELD_REFUSAL_MARKERS):
+        return set()
+    messages = body.get("messages")
+    carried = {
+        field
+        for message in (messages if isinstance(messages, list) else ())
+        if isinstance(message, Mapping)
+        for field in REASONING_REPLAY_FIELDS
+        if field in message
+    }
+    return {field for field in carried if re.search(rf"(?<!\w){field}(?!\w)", low)}
+
+
 def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]:
     """Apply the matching profile and any session-learned workarounds to *body* in place.
 
@@ -556,6 +628,12 @@ def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]
     if "reasoning_effort" in body and (endpoint_url, model) in _REASONING_EFFORT_UNSUPPORTED:
         effort = body.pop("reasoning_effort")
         actions.append(f"reasoning_effort {effort!r} dropped (session-learned unsupported)")
+
+    refused = _REASONING_REPLAY_UNSUPPORTED.get((endpoint_url, model))
+    if refused:
+        dropped = _drop_replay_fields(body, refused)
+        if dropped:
+            actions.append(f"replayed reasoning {dropped} dropped (session-learned unsupported)")
 
     # A model we already learned rejects tool_choice this session: drop it up
     # front so we skip the failing round-trip entirely.
@@ -606,6 +684,11 @@ def recover_from_error(endpoint_url: str, model: str, body: dict, status: int, t
         _REASONING_EFFORT_UNSUPPORTED.add((endpoint_url, model))
         effort = body.pop("reasoning_effort")
         return f"Model {model} rejected reasoning_effort={effort!r}; retrying without it."
+    refused = _refused_replay_fields(body, status, text)
+    if refused:
+        _REASONING_REPLAY_UNSUPPORTED.setdefault((endpoint_url, model), set()).update(refused)
+        _drop_replay_fields(body, refused)
+        return f"Model {model} rejected replayed reasoning {sorted(refused)}; retrying without it."
     if not _is_openrouter(endpoint_url):
         return None
     if "tool_choice" in body and _is_tool_choice_unsupported(status, text):
