@@ -25,9 +25,6 @@ from .subjects import Subject
 
 logger = logging.getLogger(__name__)
 
-_SELECT_TOKENS = 1_024
-_COMPOSE_TOKENS = 4_096
-
 
 class SkillSelection(NamedTuple):
     """A validated selector result and whether its visibility answer is usable."""
@@ -37,7 +34,7 @@ class SkillSelection(NamedTuple):
     valid: bool = False
 
 
-async def _forced_args(*, client, model_name, prefix, tail, tool_name, settings, token_floor, reasoning_on) -> dict:
+async def _forced_args(*, client, model_name, prefix, tail, tool_name, settings, reasoning_on) -> dict:
     logger.info("[image_gen] %s tail:\n%s", tool_name, "\n--\n".join(m["content"] for m in tail))
     args: dict = {}
     async for event in forced_tool_call(
@@ -49,7 +46,6 @@ async def _forced_args(*, client, model_name, prefix, tail, tool_name, settings,
         model_name=model_name,
         reasoning_on=reasoning_on,
         temperature=0.2,
-        token_floor=token_floor,
         offer_tools=OFFER_TOOLS,
     ):
         if event.get("type") == "result" and isinstance(event.get("args"), dict):
@@ -93,7 +89,6 @@ async def read_image_skills(
             tail=[{"role": "user", "content": select_skills_ooc(pov, _sheets(subjects), catalog)}],
             tool_name="read_image_skills",
             settings=settings,
-            token_floor=_SELECT_TOKENS,
             reasoning_on=reasoning_on,
         )
     except Exception:
@@ -187,7 +182,6 @@ async def compose_scene(
         ],
         tool_name="compose_image_prompt",
         settings=settings,
-        token_floor=_COMPOSE_TOKENS,
         reasoning_on=reasoning_on,
     )
 

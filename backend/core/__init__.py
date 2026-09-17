@@ -32,6 +32,7 @@ from .text_segmentation import (
     split_sentences,
 )
 from .utils import (
+    agent_lane_cut_off,
     agent_lane_max_tokens,
     build_multimodal_content,
     estimate_tokens,
@@ -72,6 +73,7 @@ __all__ = [
     "remove_quoted_spans",
     "split_sentences",
     # utils — token/log/multimodal helpers
+    "agent_lane_cut_off",
     "agent_lane_max_tokens",
     "build_multimodal_content",
     "estimate_tokens",

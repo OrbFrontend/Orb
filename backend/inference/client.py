@@ -5,10 +5,11 @@ import json
 import logging
 import re
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
+from ..core.llm_types import ReasoningReplay
 from . import anthropic, endpoint_profiles, text_completion
 from . import reasoning_format as rf
 from .errors import LLMCallError, llm_call_error, llm_stream_error
@@ -56,6 +57,42 @@ def reasoning_cfg(on: bool, prefill: str = "") -> dict:
             "thinking": {"type": "disabled"},
         }
     )
+
+
+def replay_reasoning(response: Mapping[str, Any]) -> ReasoningReplay:
+    """Return the reasoning fields of a ``done`` message to copy onto its replayed assistant turn.
+
+    The names are whatever the provider streamed, so the next request hands the
+    reasoning back the way that server reads it. A server that refuses one of
+    them is learned from the rejection (see ``endpoint_profiles``).
+    """
+    fields = {field: response[field] for field in endpoint_profiles.REASONING_REPLAY_FIELDS if response.get(field)}
+    return cast(ReasoningReplay, fields)
+
+
+def _merge_reasoning_details(blocks: list[dict], fragments: object) -> None:
+    """Fold one delta's ``reasoning_details`` fragments into whole blocks.
+
+    OpenRouter streams a block as pieces that share an ``index``: text and
+    summary arrive in slices, while signature, data and id arrive once. Replaying
+    the pieces as separate blocks is rejected, so they are joined back into one
+    block per index.
+    """
+    if not isinstance(fragments, list):
+        return
+    for fragment in fragments:
+        if not isinstance(fragment, Mapping):
+            continue
+        index = fragment.get("index")
+        block = blocks[-1] if blocks and index is not None and blocks[-1].get("index") == index else None
+        if block is None or block.get("type") != fragment.get("type"):
+            blocks.append(dict(fragment))
+            continue
+        for key, value in fragment.items():
+            if key in {"text", "summary"} and isinstance(value, str):
+                block[key] = (block.get(key) or "") + value
+            elif value is not None:
+                block[key] = value
 
 
 def apply_reasoning_effort(body: dict, effort: str, param: str = "", value: str = "") -> None:
@@ -155,13 +192,14 @@ def _parse_chat_logprobs(choice: Mapping[str, Any]) -> list[dict]:
     return text_completion.normalize_prob_records(logprobs.get("content"))
 
 
-def _text_message(content_parts: list[str], reasoning_parts: list[str]) -> dict:
+def _text_message(content_parts: list[str], reasoning_parts: list[str], reasoning_key: str = "reasoning_content") -> dict:
     """Assemble the free-decoded half of a ``done`` message from its deltas.
 
     Both transports build the same shape: content and reasoning are included
     only when non-empty, so a pass can test presence rather than emptiness.
-    Tool calls and ``finish_reason`` are transport-specific and layered on by
-    the caller.
+    Reasoning is stored under *reasoning_key*, the name the provider streamed it
+    under. Tool calls and ``finish_reason`` are transport-specific and layered
+    on by the caller.
     """
     message: dict = {}
     content = "".join(content_parts)
@@ -169,7 +207,7 @@ def _text_message(content_parts: list[str], reasoning_parts: list[str]) -> dict:
         message["content"] = content
     reasoning = "".join(reasoning_parts)
     if reasoning:
-        message["reasoning_content"] = reasoning
+        message[reasoning_key] = reasoning
     return message
 
 
@@ -612,6 +650,8 @@ class LLMClient:
 
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
+        reasoning_key = "reasoning_content"
+        reasoning_details: list[dict] = []
         tool_calls_acc: dict[int, dict] = {}
         finish_reason: str | None = None
         usage: dict | None = None
@@ -625,9 +665,11 @@ class LLMClient:
             two thinking runs in the pass's box -- the honest picture of what
             was spent, and bounded to once per model per process.
             """
-            nonlocal finish_reason, usage
+            nonlocal finish_reason, usage, reasoning_key
             content_parts.clear()
             reasoning_parts.clear()
+            reasoning_key = "reasoning_content"
+            reasoning_details.clear()
             tool_calls_acc.clear()
             finish_reason = None
             usage = None
@@ -642,7 +684,7 @@ class LLMClient:
                 return tool_calls_acc[index]
 
             async def consume_openai(resp) -> AsyncIterator[dict]:
-                nonlocal finish_reason, usage
+                nonlocal finish_reason, usage, reasoning_key
                 # Slot last handed to an index-less delta; -1 before the first.
                 unindexed = -1
 
@@ -682,10 +724,12 @@ class LLMClient:
                     try:
                         choice = choices[0]
                         delta = choice.get("delta", {})
-                        rc = delta.get("reasoning_content") or delta.get("reasoning")
-                        if rc:
-                            reasoning_parts.append(rc)
-                            yield {"type": "reasoning", "delta": rc}
+                        rc_key = next((key for key in ("reasoning_content", "reasoning") if delta.get(key)), None)
+                        if rc_key:
+                            reasoning_key = rc_key
+                            reasoning_parts.append(delta[rc_key])
+                            yield {"type": "reasoning", "delta": delta[rc_key]}
+                        _merge_reasoning_details(reasoning_details, delta.get("reasoning_details"))
                         content = delta.get("content")
                         if content:
                             content_parts.append(content)
@@ -798,12 +842,13 @@ class LLMClient:
                             if resp.status_code >= 400:
                                 err_text = await _read_error_body(resp, route.url)
                                 # One attempt per independent quirk class: the profile
-                                # rules, a refused reasoning_effort level, Anthropic
-                                # sampling controls, and the 4.6+ reasoning fields can
-                                # each need their own rejection before a body this
-                                # endpoint accepts is reached. No route reaches more
-                                # than three of them -- reasoning_effort is an
-                                # OpenAI-body field the Anthropic translation drops.
+                                # rules, a refused reasoning_effort level, refused
+                                # replayed reasoning, Anthropic sampling controls, and
+                                # the 4.6+ reasoning fields can each need their own
+                                # rejection before a body this endpoint accepts is
+                                # reached. No route reaches more than three of them --
+                                # reasoning_effort and replayed reasoning are
+                                # OpenAI-body fields the Anthropic translation drops.
                                 if recovery_count < 3:
                                     fix = endpoint_profiles.recover_from_error(
                                         self.base_url, model, outbound, resp.status_code, err_text
@@ -880,9 +925,11 @@ class LLMClient:
             # JSON; re-synthesize the tool-call shape the pipeline expects. A
             # provider that answered with real tool_calls anyway wins below.
             message = text_completion.forced_tool_message(forced_name, "".join(content_parts))
-            message.update(_text_message([], reasoning_parts))
+            message.update(_text_message([], reasoning_parts, reasoning_key))
         else:
-            message = _text_message(content_parts, reasoning_parts)
+            message = _text_message(content_parts, reasoning_parts, reasoning_key)
+        if reasoning_details:
+            message["reasoning_details"] = list(reasoning_details)
         if tool_calls_acc:
             message["tool_calls"] = [
                 {

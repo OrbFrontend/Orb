@@ -191,7 +191,7 @@ def test_selector_visibility_controls_reference_subjects_exactly():
     assert addressable_subjects(subjects, None) == tuple(subjects)
 
 
-async def test_reasoning_offer_order_and_token_floors_reach_both_calls(monkeypatch):
+async def test_reasoning_and_offer_order_reach_both_calls_without_a_budget_override(monkeypatch):
     calls: list[dict] = []
     monkeypatch.setattr(
         composer,
@@ -225,7 +225,8 @@ async def test_reasoning_offer_order_and_token_floors_reach_both_calls(monkeypat
     )
 
     assert [call["tool_name"] for call in calls] == ["read_image_skills", "compose_image_prompt"]
-    assert [call["token_floor"] for call in calls] == [1_024, 4_096]
+    # The budget is forced_tool_call's configured one; neither step overrides it.
+    assert not any("token_floor" in call or "max_tokens" in call for call in calls)
     assert all(call["reasoning_on"] is True for call in calls)
     assert all(call["offer_tools"] == prompts.OFFER_TOOLS for call in calls)
 

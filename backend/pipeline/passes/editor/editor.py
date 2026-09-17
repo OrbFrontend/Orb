@@ -48,6 +48,7 @@ from ....inference import (
     _KVCacheTracker,
     parse_tool_calls,
     reasoning_cfg,
+    replay_reasoning,
 )
 from ....prompting.tool_catalog import require_tool
 from ....prompting.tool_schemas import build_feedback_tool
@@ -532,7 +533,7 @@ async def _run_edit_loop(
             report.total_issues,
         )
         try:
-            hyperparams = extract_hyperparams(settings, lane="agent", token_floor=8192, defaults={"temperature": 0.25})
+            hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.25})
             reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
             if not reasoning_params["reasoning"].get("enabled", True):
                 logger.info("Editor iteration %d: reasoning disabled", iteration + 1)
@@ -641,9 +642,8 @@ async def _run_edit_loop(
                         "role": "assistant",
                         "content": resp.get("content") or "",
                         "tool_calls": rewrite_tool_calls,
+                        **replay_reasoning(resp),
                     }
-                    if resp.get("reasoning_content"):
-                        asst_msg["reasoning_content"] = resp["reasoning_content"]
                     trailing.append(asst_msg)
                     if rewrite_tool_calls:
                         trailing.append(
@@ -899,9 +899,8 @@ def _append_iteration_context(
         "role": "assistant",
         "content": resp.get("content") or "",
         "tool_calls": tool_calls,
+        **replay_reasoning(resp),
     }
-    if resp.get("reasoning_content"):
-        asst_msg["reasoning_content"] = resp["reasoning_content"]
     msgs.append(asst_msg)
     for tc in tool_calls:
         msgs.append(

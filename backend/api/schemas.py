@@ -790,7 +790,8 @@ class CardGeneratorRunRequest(BaseModel):
 
     idea: str = Field(min_length=1, max_length=2000)
     reasoning: bool = False
-    tailored: bool = False
+    # ``deep`` researches the library before drafting and always thinks.
+    tailoring: Literal["off", "summary", "deep"] = "off"
 
     @field_validator("idea")
     @classmethod

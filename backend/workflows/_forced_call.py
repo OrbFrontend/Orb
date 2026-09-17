@@ -54,17 +54,15 @@ async def forced_tool_call(
     model_name: str | None = None,
     reasoning_on: bool = True,
     temperature: float = 0.25,
-    token_floor: int = 8192,
     tools_in_prompt: bool = True,
 ) -> AsyncIterator[dict]:
     """Run one forced tool call and yield its parsed arguments.
 
-    ``token_floor`` is what this call needs to answer in full; the agent lane's
-    configured ``max_tokens`` raises it when the user has given that endpoint more
-    room (see :func:`~backend.core.agent_lane_max_tokens`), the same floor the
-    Director and Editor forced calls apply. ``temperature`` stays a caller
-    constant: a forced call fills a schema, so a roleplay preset would only add
-    flourish to it -- the same split ``inference.drafting`` documents.
+    The budget is the agent lane's configured ``max_tokens``, as every call on
+    that lane sends it (see :func:`~backend.core.agent_lane_max_tokens`).
+    ``temperature`` stays a caller constant: a forced call fills a schema, so a
+    roleplay preset would only add flourish to it -- the same split
+    ``inference.drafting`` documents.
 
     ``cache_shape`` names an intentionally separate prompt family on the same
     endpoint and model. Leave it empty when the call extends the conversation;
@@ -152,7 +150,7 @@ async def forced_tool_call(
                 tools=tool_array,
                 tool_choice=tool["choice"],
                 temperature=temperature,
-                max_tokens=agent_lane_max_tokens(settings, floor=token_floor),
+                max_tokens=agent_lane_max_tokens(settings),
                 tools_in_prompt=tools_in_prompt,
                 **reasoning_params,
             )

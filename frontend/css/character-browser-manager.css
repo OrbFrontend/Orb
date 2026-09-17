@@ -151,7 +151,6 @@ label.lib-manager-field {
 
 /* Inside the run block every gap comes from the flex column. */
 .lib-manager-run .lib-manager-actions {
-  justify-content: flex-start;
   margin-top: 0;
 }
 
@@ -218,6 +217,21 @@ label.lib-manager-field {
   pointer-events: none;
 }
 
+/* Inside a label wrapper the hint would inherit the caption's uppercase. */
+.lib-manager-field > .lib-manager-note {
+  display: block;
+  margin-top: 6px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* A warning the user can read and still proceed past. */
+.lib-manager-note.is-warning {
+  color: var(--accent);
+}
+
+.lib-tool select:disabled,
 .lib-tool textarea:disabled {
   opacity: .6;
   cursor: default;

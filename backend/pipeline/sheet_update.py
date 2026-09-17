@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
+from typing import Any
 
 from .. import database as db
 from ..features.cards import (
@@ -32,6 +33,7 @@ async def sheet_update_stage(
     cfg: _PipelineConfig,
     state: TurnState,
     *,
+    settings: Mapping[str, Any],
     turn: SheetUpdateTurn,
 ) -> AsyncIterator[dict]:
     """Propose sheet updates for the members this exchange touched, and stage them.
@@ -104,6 +106,7 @@ async def sheet_update_stage(
                 member_name=member.name,
                 sheet=carried,
                 transcript=transcript,
+                settings=settings,
             )
         except SheetUpdateUnavailable as exc:
             logger.info("Sheet update for %s produced nothing usable: %s", member.name, exc)

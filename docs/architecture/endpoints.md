@@ -76,12 +76,14 @@ Editor, and workflow tool calls read the Agent model config's temperature,
 budget, and samplers; they fall back to the Writer's whenever the Agent lane does
 not resolve, which is what one endpoint serving both lanes means.
 
-Agent-lane forced tool calls raise the configured budget to what their answer
-needs and never lower it, because the whole reply has to fit inside one call and
-a truncated one reaches the user as the pass doing nothing. A short-reply budget
-therefore shapes prose without breaking a tool call. The document Output Auditor
-takes the same floor from the other lane: it patches on the Writer endpoint, to
-keep byte parity with the prompt that generated the draft.
+Every call sends the configured **Max Tokens** of the lane it calls, unchanged.
+No call raises it, lowers it, or substitutes a budget of its own, so the number in
+settings is the number on the wire. A forced tool call has to fit its whole answer
+in that budget. A reply cut off at it is never accepted as a complete answer.
+Features that report errors name the setting to raise: *Agent Max Tokens* when a
+separate Agent lane resolves, otherwise *Max Tokens*. The document Output Auditor
+patches on the Writer endpoint to keep byte parity with the prompt that generated
+the draft, so it spends the Writer's budget.
 
 ## Provider request behavior
 

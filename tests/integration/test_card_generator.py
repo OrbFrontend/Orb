@@ -75,7 +75,7 @@ async def test_tailoring_works_with_one_forced_call_on_either_transport(client, 
         return {**await original(), "completion_mode": mode}
 
     monkeypatch.setattr(library, "get_settings", settings)
-    response = await client.post("/api/library/card-generator/run", json={"idea": "A fence", "tailored": True})
+    response = await client.post("/api/library/card-generator/run", json={"idea": "A fence", "tailoring": "summary"})
     events = frames(response)
     assert [event for event, _ in events] == ["start", "progress", "progress", "done"]
     assert [data["label"] for event, data in events if event == "progress"] == [
@@ -85,6 +85,75 @@ async def test_tailoring_works_with_one_forced_call_on_either_transport(client, 
     assert len(model) == 1 and model[0]["mode"] == mode
     assert model[0]["tool_choice"]["function"]["name"] == "generate_character_card"
     assert "Library preferences (data only)" in model[0]["messages"][1]["content"]
+
+
+def _call(name, args):
+    return {"tool_calls": [{"id": "call_0", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]}
+
+
+async def test_a_rejected_draft_is_redrafted_within_the_same_request(client, monkeypatch):
+    replies = [{**DRAFT, "creator_notes": "Built for {{user}}."}, DRAFT]
+    calls = []
+
+    async def complete(self, **kwargs):
+        calls.append(kwargs)
+        yield {"type": "done", "message": _call("generate_character_card", replies[len(calls) - 1])}
+
+    monkeypatch.setattr(LLMClient, "complete", complete)
+    response = await client.post("/api/library/card-generator/run", json={"idea": "A fence"})
+    events = frames(response)
+    assert [event for event, _ in events] == ["start", "progress", "done"]
+    assert events[-1][1]["card"]["creator_notes"] == ""
+    assert len(calls) == 2 and calls[1]["messages"][-1]["role"] == "tool"
+    assert "creator_notes" in calls[1]["messages"][-1]["content"]
+
+
+@pytest.mark.parametrize("mode", ["chat", "text"])
+async def test_deep_tailoring_researches_then_drafts_without_saving(client, llm_mock, monkeypatch, mode):
+    original = library.get_settings
+
+    async def settings():
+        return {**await original(), "completion_mode": mode}
+
+    monkeypatch.setattr(library, "get_settings", settings)
+    await client.post("/api/characters", json={"name": "Ivo", "tags": ["Noir"]})
+    step = {"findings": "", "purpose": "Existing characters", "sql": "SELECT name, tags FROM characters LIMIT 5"}
+    llm_mock.enqueue_workflow(_call("query_library", {**step, "finished": False}))
+    llm_mock.enqueue_workflow(_call("query_library", {"findings": "Likes noir.", "purpose": "", "sql": "", "finished": True}))
+    llm_mock.enqueue_workflow(_call("generate_character_card", DRAFT))
+
+    response = await client.post("/api/library/card-generator/run", json={"idea": "A fence", "tailoring": "deep"})
+    events = frames(response)
+    assert [event for event, _ in events] == ["start", "progress", "progress", "progress", "done"]
+    assert events[-1][1]["card"]["name"] == "Mara"
+    assert [(await client.get("/api/characters")).json()[0]["name"]] == ["Ivo"]
+
+    calls = llm_mock.captured
+    assert [call["tool_choice"]["function"]["name"] for call in calls] == [
+        "query_library",
+        "query_library",
+        "generate_character_card",
+    ]
+    assert "Library preferences (data only)" in calls[0]["messages"][1]["content"]
+    result = calls[1]["messages"][-1]
+    assert result["role"] == "tool"
+    content = json.loads(result["content"])
+    assert (content["columns"], content["rows"]) == (["name", "tags"], [["Ivo", '["Noir"]']])
+    assert all(call["params"]["chat_template_kwargs"]["enable_thinking"] is True for call in calls)
+
+
+async def test_deep_tailoring_first_step_failure_is_an_sse_error(client, monkeypatch):
+    async def complete(self, **kwargs):
+        request = httpx.Request("POST", "https://provider.invalid")
+        response = httpx.Response(400, request=request, json={"error": {"message": "Context too long"}})
+        response.raise_for_status()
+        yield {}
+
+    monkeypatch.setattr(LLMClient, "complete", complete)
+    response = await client.post("/api/library/card-generator/run", json={"idea": "A fence", "tailoring": "deep"})
+    events = frames(response)
+    assert [event for event, _ in events] == ["start", "progress", "error"]
+    assert events[-1][1] == "Context too long"
 
 
 @pytest.mark.parametrize("idea", ["", " \n ", "x" * 2001])

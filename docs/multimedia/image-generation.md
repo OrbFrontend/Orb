@@ -268,10 +268,9 @@ skills or writes the image prompt. It applies to both calls when selection runs 
 only to composition when skills are off or no usable skills exist. It can increase
 token use. Stable thinking settings generally give better prompt-cache reuse.
 
-Each prompt step has its own reply budget, and the Agent endpoint's configured
-**Max Tokens** raises it when that setting is higher — room a thinking model can
-spend before it answers. A lower setting is left to the writing it was chosen for:
-it never shrinks a prompt step below what the step needs to finish.
+Both prompt steps use the Agent model's configured **Max Tokens** as their reply
+budget. A thinking model spends its reasoning from the same budget, so raise it if
+prompt steps with thinking on come back empty.
 
 ## Troubleshooting
 

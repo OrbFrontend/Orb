@@ -10,7 +10,12 @@ import pytest
 from backend.inference import anthropic
 from backend.inference import client as llm_mod
 from backend.inference import endpoint_profiles as ep
-from backend.inference.client import LLMClient, parse_tool_calls, reasoning_cfg
+from backend.inference.client import (
+    LLMClient,
+    parse_tool_calls,
+    reasoning_cfg,
+    replay_reasoning,
+)
 from backend.inference.errors import LLMCallError
 
 TOOL = {
@@ -34,6 +39,7 @@ def _clear_learned_state():
     ep._TOOL_CHOICE_AUTO_ONLY.clear()
     ep._TOOL_CHOICE_UNSUPPORTED.clear()
     ep._REASONING_EFFORT_UNSUPPORTED.clear()
+    ep._REASONING_REPLAY_UNSUPPORTED.clear()
     anthropic._SAMPLING_UNSUPPORTED.clear()
     anthropic._THINKING_UNSUPPORTED.clear()
     yield
@@ -41,6 +47,7 @@ def _clear_learned_state():
     ep._TOOL_CHOICE_AUTO_ONLY.clear()
     ep._TOOL_CHOICE_UNSUPPORTED.clear()
     ep._REASONING_EFFORT_UNSUPPORTED.clear()
+    ep._REASONING_REPLAY_UNSUPPORTED.clear()
     anthropic._SAMPLING_UNSUPPORTED.clear()
     anthropic._THINKING_UNSUPPORTED.clear()
 
@@ -761,6 +768,73 @@ async def test_reasoning_effort_rejection_retries_and_is_remembered():
     again = _HTTP([_Response(lines=openai_done)])
     await _run(client, again, model="gemini-3-pro", **reasoning_cfg(True))
     assert "reasoning_effort" not in again.requests[0]["body"]
+
+
+@pytest.mark.parametrize("key", ["reasoning_content", "reasoning"])
+async def test_streamed_reasoning_keeps_the_providers_field_name(key):
+    lines = [
+        _line({"choices": [{"delta": {key: "Let me "}}]}),
+        _line({"choices": [{"delta": {key: "think."}}]}),
+        "data: [DONE]",
+    ]
+    events = await _run(LLMClient("https://compat.test/v1"), _HTTP([_Response(lines=lines)]), model="m")
+    message = events[-1]["message"]
+    assert message[key] == "Let me think."
+    assert replay_reasoning(message) == {key: "Let me think."}
+
+
+async def test_streamed_reasoning_details_fragments_merge_into_one_block_per_index():
+    fragments = [
+        [{"type": "reasoning.text", "text": "Let me ", "format": "anthropic-claude-v1", "index": 0}],
+        [{"type": "reasoning.text", "text": "think.", "index": 0}],
+        [{"type": "reasoning.text", "signature": "sig", "index": 0}],
+        [{"type": "reasoning.encrypted", "data": "opaque", "index": 1}],
+    ]
+    lines = [
+        *(_line({"choices": [{"delta": {"reasoning": "x", "reasoning_details": part}}]}) for part in fragments),
+        "data: [DONE]",
+    ]
+    events = await _run(LLMClient("https://openrouter.ai/api/v1"), _HTTP([_Response(lines=lines)]), model="m")
+    assert events[-1]["message"]["reasoning_details"] == [
+        {"type": "reasoning.text", "text": "Let me think.", "format": "anthropic-claude-v1", "signature": "sig", "index": 0},
+        {"type": "reasoning.encrypted", "data": "opaque", "index": 1},
+    ]
+
+
+async def test_refused_reasoning_replay_retries_without_it_and_is_remembered():
+    """Groq streams ``reasoning`` and then refuses it on the replayed turn."""
+    rejection = (
+        '{"error":{"message":"\'messages.1\' : for \'role:assistant\' the following must be satisfied'
+        '[(\'messages.1\' : property \'reasoning\' is unsupported)]","type":"invalid_request_error"}}'
+    )
+    done = ['data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}', "data: [DONE]"]
+    step = {"role": "assistant", "content": "", "reasoning": "Hmm.", "tool_calls": []}
+    transcript = [{"role": "user", "content": "hi"}, step]
+    client = LLMClient("https://api.groq.test/openai/v1")
+
+    async def complete(fake):
+        with patch.object(llm_mod.httpx, "AsyncClient", lambda *args, **kw: fake):
+            return [event async for event in client.complete(transcript, "gpt-oss")]
+
+    fake = _HTTP([_Response(400, error=rejection), _Response(lines=done)])
+    events = await complete(fake)
+    assert fake.requests[0]["body"]["messages"][1]["reasoning"] == "Hmm."
+    assert "reasoning" not in fake.requests[1]["body"]["messages"][1]
+    assert events[-1]["message"]["content"] == "ok"
+    assert transcript[1]["reasoning"] == "Hmm."
+
+    again = _HTTP([_Response(lines=done)])
+    await complete(again)
+    assert "reasoning" not in again.requests[0]["body"]["messages"][1]
+
+
+def test_a_rejection_naming_a_top_level_reasoning_param_keeps_the_replay():
+    body = {"model": "m", "reasoning": {"enabled": True}, "messages": [{"role": "assistant", "reasoning": "Hmm."}]}
+    assert (
+        ep.recover_from_error("https://compat.test/v1", "m", body, 400, "Unrecognized request argument supplied: reasoning")
+        is None
+    )
+    assert body["messages"][0]["reasoning"] == "Hmm."
 
 
 async def test_gemini_model_that_cannot_disable_thinking_settles_after_one_rejection():

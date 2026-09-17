@@ -114,6 +114,7 @@ from .queries.library_dedupe import (
     relink_card,
     remove_dismissals,
 )
+from .queries.library_sql import run_library_query
 from .queries.library_tags import (
     VocabularyConflict,
     apply_auto_tags,
@@ -388,6 +389,7 @@ __all__ = [
     "reject_sheet_proposal",
     "render_public_profile",
     "reroll_unfrozen_greetings",
+    "run_library_query",
     "reset_to_defaults",
     "resolve_cast",
     "resolve_char_context",

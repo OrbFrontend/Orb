@@ -12,16 +12,15 @@ from __future__ import annotations
 import pytest
 
 from backend.features.cards.sheet_update import (
-    MAX_SHEET_GROWTH_CHARS,
     MAX_SUMMARY_WORDS,
     MIN_SHEET_CEILING_CHARS,
     SHEET_TOOL_NAME,
     SheetUpdateUnavailable,
     propose_sheet_update,
-    sheet_reply_budget,
 )
 
 SHEET = "A scout of the Watch, tall and green-cloaked.\n\nPersonality: Terse."
+SETTINGS = {"agent_max_tokens": 1536}
 TRANSCRIPT = "User: What now?\n\nAria: She cut her hair to the scalp and threw the cloak on the fire."
 
 
@@ -48,6 +47,7 @@ async def _propose(message: dict, *, sheet: str = SHEET):
         member_name="Aria",
         sheet=sheet,
         transcript=TRANSCRIPT,
+        settings=SETTINGS,
     )
 
 
@@ -123,31 +123,31 @@ async def test_an_answer_with_no_usable_call_is_unavailable(message):
 
 async def test_the_call_is_forced_and_not_at_the_writing_preset():
     """A roleplay preset at temperature 1.15 would embellish the sheet this call
-    was asked to preserve; the hyperparameters are hardcoded for the same reason
-    the profile drafter's are."""
+    was asked to preserve; the temperature is fixed for the same reason the
+    profile drafter's is. The budget is the one the user configured."""
     client = _FakeClient(_call(changed=False))
-    await propose_sheet_update(client, "m", member_name="Aria", sheet=SHEET, transcript=TRANSCRIPT)  # type: ignore[arg-type]
+    await propose_sheet_update(
+        client,  # type: ignore[arg-type]
+        "m",
+        member_name="Aria",
+        sheet=SHEET,
+        transcript=TRANSCRIPT,
+        settings=SETTINGS,
+    )
     call = client.calls[0]
     assert call["tool_choice"] == {"type": "function", "function": {"name": SHEET_TOOL_NAME}}
-    assert call["temperature"] == 0.2 and call["max_tokens"] == sheet_reply_budget(SHEET)
-    # Pinned off for the same reason the budget is computed rather than flat:
-    # reasoning comes out of the allowance sized to restate this exact sheet.
+    assert call["temperature"] == 0.2 and call["max_tokens"] == 1536
+    # Pinned off: reasoning comes out of the same budget the restated sheet needs.
     assert call["chat_template_kwargs"] == {"enable_thinking": False, "thinking": False}
     assert call["thinking"] == {"type": "disabled"}
 
 
-async def test_the_reply_budget_can_always_restate_the_sheet_it_was_given():
-    """The call has to reproduce a whole sheet verbatim, so a *flat* `max_tokens`
-    is a truncation budget on any card longer than it — and a truncated sheet is
-    the one bad output the contract cannot catch: non-empty, brace-free, under
-    the ceiling and different from the base. The budget therefore tracks the
-    same ceiling `_clean_sheet` enforces."""
-    long_sheet = "x" * 6000
-    client = _FakeClient(_call(changed=False))
-    await propose_sheet_update(client, "m", member_name="Aria", sheet=long_sheet, transcript=TRANSCRIPT)  # type: ignore[arg-type]
-    budget = client.calls[0]["max_tokens"]
-    assert budget > sheet_reply_budget(SHEET)
-    # Enough room for the longest proposal this sheet is allowed to grow into,
-    # at a deliberately pessimistic three characters per token.
-    ceiling = max(MIN_SHEET_CEILING_CHARS, len(long_sheet) + MAX_SHEET_GROWTH_CHARS)
-    assert budget >= ceiling / 3
+async def test_a_sheet_cut_off_at_the_budget_is_rejected_not_cleaned():
+    """A truncated sheet is the one bad output the contract cannot catch: it is
+    non-empty, brace-free, under the ceiling and different from the base. So a
+    reply that stopped at the budget is refused outright, naming the setting."""
+    cut = {**_call(changed=True, sheet="A scout of the Watch, tall", summary="Lost a line"), "finish_reason": "length"}
+    with pytest.raises(
+        SheetUpdateUnavailable, match="^The model's reply was cut off at the Agent Max Tokens limit of 1536\\.$"
+    ):
+        await _propose(cut)
