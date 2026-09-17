@@ -48,7 +48,6 @@ def extract_hyperparams(
     settings: Mapping[str, Any],
     *,
     lane: AgentLane = "writer",
-    token_floor: int | None = None,
     defaults: Mapping[str, Any] | None = None,
 ) -> dict:
     """Extract LLM hyperparameters from a settings dict for the lane making the call.
@@ -62,18 +61,14 @@ def extract_hyperparams(
     columns behind these keys are all NOT NULL, so a resolved agent lane carries
     every twin and an unresolved one carries none.
 
-    ``token_floor`` is what the call needs to answer in full. The configured budget
-    may only *raise* it: a budget is a reply-length preference, and a short-reply
-    preset is a normal setting, while the floor is what the call needs to answer at
-    all -- so honoring a smaller one would truncate the reply mid-answer and turn a
-    sampling preference into a silent failure. Every call whose whole answer has to
-    fit in one reply (a forced tool call, a constrained-decoding call) passes one;
-    passes that stream prose take the setting as-is and leave it unset.
+    ``max_tokens`` goes out exactly as configured, on every call. A call whose
+    whole answer must fit in one reply gets no hidden raise: the setting is the
+    only budget, and a reply cut at it is reported against that setting.
 
     Optionally fills in *defaults* for any keys not present in settings. Note that
     both ``settings`` and ``model_configs`` declare all six columns NOT NULL, so
     *defaults* only ever fires for a partial mapping, never for a real row -- it is
-    not a way to spell a minimum, which is what ``token_floor`` is for.
+    not a way to override a configured value.
     """
     prefix = "agent_" if lane == "agent" else ""
     params: dict[str, Any] = {}
@@ -87,18 +82,31 @@ def extract_hyperparams(
         for k, v in defaults.items():
             if k not in params:
                 params[k] = v
-    if token_floor is not None:
-        params["max_tokens"] = max(token_floor, int(params.get("max_tokens") or 0))
     return params
 
 
-def agent_lane_max_tokens(settings: Mapping[str, Any], *, floor: int) -> int:
-    """The agent lane's reply budget for a call that needs at least *floor* tokens.
+#: The ``max_tokens`` column default, for a partial mapping that carries no budget.
+_DEFAULT_MAX_TOKENS = 4096
 
-    The lane cascade and the floor rule are ``extract_hyperparams``'; this is the
-    spelling for a caller that sets its own samplers and wants only the budget.
+
+def agent_lane_max_tokens(settings: Mapping[str, Any]) -> int:
+    """The agent lane's configured reply budget.
+
+    The lane cascade is ``extract_hyperparams``'; this is the spelling for a
+    caller that sets its own samplers and wants only the budget.
     """
-    return int(extract_hyperparams(settings, lane="agent", token_floor=floor)["max_tokens"])
+    return int(extract_hyperparams(settings, lane="agent").get("max_tokens") or _DEFAULT_MAX_TOKENS)
+
+
+def agent_lane_cut_off(settings: Mapping[str, Any]) -> str:
+    """The sentence for an agent-lane reply that stopped at its budget.
+
+    It names the field the user edits: the ``agent_`` twin is present only when a
+    separate Agent lane resolves, and otherwise agent calls spend the Writer
+    model's own Max Tokens.
+    """
+    label = "Agent Max Tokens" if settings.get("agent_max_tokens") is not None else "Max Tokens"
+    return f"The model's reply was cut off at the {label} limit of {agent_lane_max_tokens(settings)}."
 
 
 def build_multimodal_content(text: str, attachments: Sequence[Mapping[str, Any]] | None = None) -> str | list[ContentPart]:

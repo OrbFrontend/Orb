@@ -103,7 +103,6 @@ async def _voice_rewrite(ctx, text: str, phrases: list[str]) -> str:
         cache_shape="format_consistency:voice_rewrite",
         reasoning_on=False,
         temperature=0.25,
-        token_floor=8192,
     ):
         if event.get("type") == "result" and isinstance(event.get("args"), dict):
             args = event["args"]

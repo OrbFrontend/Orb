@@ -32,6 +32,7 @@ from backend.features.cards.public_profile import (
 )
 
 CARD = {"name": "Aria", "description": "A scout of the northern watch.", "personality": "Wary"}
+SETTINGS = {"agent_max_tokens": 1536}
 
 
 class _FakeClient:
@@ -53,8 +54,8 @@ def _call(name: str = PROFILE_TOOL_NAME, **arguments) -> dict:
 async def _draft_both(message: dict):
     """Run the same response through both public entry points."""
     return [
-        await draft_card_profile(_FakeClient(message), "m", CARD),  # type: ignore[arg-type]
-        await draft_scene_profile(_FakeClient(message), "m", CARD),  # type: ignore[arg-type]
+        await draft_card_profile(_FakeClient(message), "m", CARD, settings=SETTINGS),  # type: ignore[arg-type]
+        await draft_scene_profile(_FakeClient(message), "m", CARD, settings=SETTINGS),  # type: ignore[arg-type]
     ]
 
 
@@ -106,7 +107,7 @@ async def test_json_string_arguments_parse_the_same_way():
 async def test_a_malformed_draft_is_unavailable_rather_than_stored(arguments, because):
     for drafter in (draft_card_profile, draft_scene_profile):
         with pytest.raises(ProfileDraftUnavailable):
-            await drafter(_FakeClient(_call(**arguments)), "m", CARD)  # type: ignore[arg-type]
+            await drafter(_FakeClient(_call(**arguments)), "m", CARD, settings=SETTINGS)  # type: ignore[arg-type]
     assert because  # names the case in the failure output
 
 
@@ -121,7 +122,21 @@ async def test_a_malformed_draft_is_unavailable_rather_than_stored(arguments, be
 async def test_an_answer_with_no_usable_call_is_unavailable(message):
     for drafter in (draft_card_profile, draft_scene_profile):
         with pytest.raises(ProfileDraftUnavailable, match="did not return a usable profile"):
-            await drafter(_FakeClient(message), "m", CARD)  # type: ignore[arg-type]
+            await drafter(_FakeClient(message), "m", CARD, settings=SETTINGS)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "settings,limit",
+    [
+        ({"agent_max_tokens": 1536, "max_tokens": 700}, "Agent Max Tokens limit of 1536"),
+        ({"max_tokens": 700}, "Max Tokens limit of 700"),
+    ],
+)
+async def test_a_reply_cut_at_the_budget_names_the_setting(settings, limit):
+    message = {**_call(appearance="Tall.", role="Bard."), "finish_reason": "length"}
+    for drafter in (draft_card_profile, draft_scene_profile):
+        with pytest.raises(ProfileDraftUnavailable, match=f"^The model's reply was cut off at the {limit}\\.$"):
+            await drafter(_FakeClient(message), "m", CARD, settings=settings)  # type: ignore[arg-type]
 
 
 # ── The prompts ─────────────────────────────────────────────────────────────
@@ -133,7 +148,7 @@ async def test_both_prompts_quote_the_same_no_secrets_floor():
     systems = []
     for drafter in (draft_card_profile, draft_scene_profile):
         client = _FakeClient(_call(appearance="Tall.", role="Bard."))
-        await drafter(client, "m", CARD)  # type: ignore[arg-type]
+        await drafter(client, "m", CARD, settings=SETTINGS)  # type: ignore[arg-type]
         systems.append(client.calls[0]["messages"][0]["content"])
     assert all(PROFILE_FLOOR in system for system in systems)
     # The scene prompt adds the sentence that buys mode-independence.
@@ -143,14 +158,15 @@ async def test_both_prompts_quote_the_same_no_secrets_floor():
 
 async def test_the_drafting_call_is_forced_and_not_at_the_writing_preset():
     """A roleplay preset at temperature 1.15 would produce a florid two-liner;
-    this is a summarization call, so the hyperparameters are hardcoded."""
+    this is a summarization call, so the temperature is fixed. The budget is
+    the one the user configured."""
     client = _FakeClient(_call(appearance="Tall.", role="Bard."))
-    await draft_scene_profile(client, "m", CARD)  # type: ignore[arg-type]
+    await draft_scene_profile(client, "m", CARD, settings=SETTINGS)  # type: ignore[arg-type]
     call = client.calls[0]
     assert call["tool_choice"] == {"type": "function", "function": {"name": PROFILE_TOOL_NAME}}
-    assert call["temperature"] == 0.2 and call["max_tokens"] == 512
+    assert call["temperature"] == 0.2 and call["max_tokens"] == 1536
     # Thinking is pinned, not merely unmentioned: an absent hint reads as
-    # thinking ON, and reasoning is spent from that same 512-token budget.
+    # thinking ON, and reasoning is spent from that same budget.
     assert call["chat_template_kwargs"] == {"enable_thinking": False, "thinking": False}
     assert call["thinking"] == {"type": "disabled"}
 

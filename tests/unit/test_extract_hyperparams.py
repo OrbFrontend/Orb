@@ -1,10 +1,10 @@
-"""The lane cascade and token floor `extract_hyperparams` applies to a settings row."""
+"""The lane cascade `extract_hyperparams` applies to a settings row."""
 
 from __future__ import annotations
 
 import pytest
 
-from backend.core import agent_lane_max_tokens, extract_hyperparams
+from backend.core import agent_lane_cut_off, agent_lane_max_tokens, extract_hyperparams
 
 _WRITER = {"temperature": 0.8, "max_tokens": 4096, "top_p": 0.95, "min_p": 0.0, "top_k": 40, "repetition_penalty": 1.0}
 
@@ -34,41 +34,30 @@ def test_defaults_only_fill_keys_no_lane_supplied():
     assert params == {"temperature": 0.8, "max_tokens": 2048}
 
 
-class TestTokenFloor:
-    """The configured budget may raise the floor; it may never lower it."""
-
-    def test_a_roomier_budget_is_kept(self):
-        assert extract_hyperparams({"max_tokens": 16384}, token_floor=8192)["max_tokens"] == 16384
-
-    def test_a_short_reply_budget_is_raised_to_the_floor(self):
-        # 600 tokens is a normal setting for brief prose. Sending it to a call whose
-        # whole answer must fit truncates the answer, which reaches the user as the
-        # pass doing nothing rather than as the shorter reply they asked for.
-        assert extract_hyperparams({"max_tokens": 600}, token_floor=8192)["max_tokens"] == 8192
-
-    def test_a_missing_budget_becomes_the_floor(self):
-        assert extract_hyperparams({}, token_floor=2048)["max_tokens"] == 2048
-
-    def test_the_floor_outranks_a_default(self):
-        params = extract_hyperparams({}, token_floor=8192, defaults={"max_tokens": 512})
-        assert params["max_tokens"] == 8192
-
-    def test_no_floor_leaves_the_budget_alone(self):
-        # Prose passes stream to a stop token, so a short preset is honored there.
-        assert extract_hyperparams({"max_tokens": 600}) == {"max_tokens": 600}
-
-    def test_the_floor_reads_the_agent_lane(self):
-        settings = {"max_tokens": 600, "agent_max_tokens": 32768}
-        assert extract_hyperparams(settings, lane="agent", token_floor=8192)["max_tokens"] == 32768
+def test_the_budget_goes_out_as_configured():
+    # No call raises it: the setting a user can see is the budget every call sends.
+    assert extract_hyperparams({"max_tokens": 600}) == {"max_tokens": 600}
+    assert extract_hyperparams({"max_tokens": 600, "agent_max_tokens": 32768}, lane="agent")["max_tokens"] == 32768
 
 
 @pytest.mark.parametrize(
-    ("settings", "floor", "expected"),
+    ("settings", "expected"),
     [
-        ({"agent_max_tokens": 32768, "max_tokens": 600}, 8192, 32768),
-        ({"max_tokens": 600}, 8192, 8192),
-        ({}, 4096, 4096),
+        ({"agent_max_tokens": 32768, "max_tokens": 600}, 32768),
+        ({"max_tokens": 600}, 600),
+        ({}, 4096),
     ],
 )
-def test_agent_lane_max_tokens_is_the_budget_alone(settings, floor, expected):
-    assert agent_lane_max_tokens(settings, floor=floor) == expected
+def test_agent_lane_max_tokens_is_the_configured_budget(settings, expected):
+    assert agent_lane_max_tokens(settings) == expected
+
+
+@pytest.mark.parametrize(
+    ("settings", "sentence"),
+    [
+        ({"agent_max_tokens": 2048, "max_tokens": 600}, "The model's reply was cut off at the Agent Max Tokens limit of 2048."),
+        ({"max_tokens": 600}, "The model's reply was cut off at the Max Tokens limit of 600."),
+    ],
+)
+def test_a_cut_off_names_the_setting_the_budget_came_from(settings, sentence):
+    assert agent_lane_cut_off(settings) == sentence

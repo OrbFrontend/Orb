@@ -8,7 +8,12 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
-from ...core import AssistantToolMessage, WireMessage, agent_lane_max_tokens
+from ...core import (
+    AssistantToolMessage,
+    WireMessage,
+    agent_lane_cut_off,
+    agent_lane_max_tokens,
+)
 from ...core.llm_types import ToolResultMessage
 from ...core.text_segmentation import sentence_boundary_ends
 from ...database import (
@@ -144,8 +149,14 @@ def _result(call_id: str, content: str) -> ToolResultMessage:
     return {"role": "tool", "tool_call_id": call_id, "content": content}
 
 
-def _card_args(response: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    return next((call["arguments"] for call in parse_tool_calls(dict(response)) if call["name"] == _CARD), None)
+def _card_args(response: Mapping[str, Any], settings: Mapping[str, Any]) -> Mapping[str, Any]:
+    """The drafted card's arguments; a reply cut at the budget or without a card is unavailable."""
+    if response.get("finish_reason") == "length":
+        raise CardGenerationUnavailable(agent_lane_cut_off(settings))
+    args = next((call["arguments"] for call in parse_tool_calls(dict(response)) if call["name"] == _CARD), None)
+    if args is None:
+        raise CardGenerationUnavailable("The model did not return a usable character card.")
+    return args
 
 
 def _not_accepted(exc: CardGenerationUnavailable) -> str:
@@ -206,7 +217,7 @@ async def generate_card(
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user},
     ]
-    max_tokens = agent_lane_max_tokens(settings, floor=8192 if reasoning_on else 4096)
+    max_tokens = agent_lane_max_tokens(settings)
     corrected = False
     while True:
         response = await forced_turn(
@@ -218,9 +229,7 @@ async def generate_card(
             max_tokens=max_tokens,
             reasoning_on=reasoning_on,
         )
-        args = _card_args(response)
-        if args is None:
-            raise CardGenerationUnavailable("The model did not return a usable character card.")
+        args = _card_args(response, settings)
         try:
             return clean_card(args)
         except CardGenerationUnavailable as exc:

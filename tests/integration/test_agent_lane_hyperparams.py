@@ -4,9 +4,8 @@ The Agent endpoint carries its own model config -- temperature, budget, samplers
 and the Agent passes are the ones dialing that endpoint. Sending the Writer's preset
 there is the bug this file guards: it reads as the Agent ignoring its own settings.
 
-The budget is the one key that does not pass straight through. A forced tool call
-has to fit its whole answer in one reply, so the configured `max_tokens` may raise
-that call's floor but never lower it.
+The budget passes straight through too: no call raises or lowers the configured
+`max_tokens`, so the number in settings is the number every request carries.
 """
 
 from __future__ import annotations
@@ -17,13 +16,10 @@ import backend.database as dbmod
 from backend.pipeline import handle_turn
 
 # Deliberately far apart, and each key different from the other lane's, so a mixed
-# spread fails on the key that leaked rather than passing on a shared default. The
-# Agent budget sits above the Director's 8192 floor so it survives verbatim; the
-# floored case gets its own test below.
+# spread fails on the key that leaked rather than passing on a shared default.
 _SAMPLERS = ("temperature", "top_k", "min_p")
 _WRITER_PRESET = {"temperature": 1.15, "max_tokens": 700, "top_k": 80, "min_p": 0.02}
 _AGENT_PRESET = {"temperature": 0.4, "max_tokens": 16384, "top_k": 20, "min_p": 0.1}
-_DIRECTOR_FLOOR = 8192
 
 
 async def _drain(agen) -> list[dict]:
@@ -77,22 +73,16 @@ async def test_each_lane_sends_the_preset_of_the_endpoint_it_calls(client, db, l
     writer_params = _params(llm_mock.captured, "writer")
     assert {k: writer_params[k] for k in _WRITER_PRESET} == _WRITER_PRESET
     assert _samplers(llm_mock.captured, "director") == {k: _AGENT_PRESET[k] for k in _SAMPLERS}
-    # Above the floor, so the Agent endpoint's own budget is what goes out.
     assert _params(llm_mock.captured, "director")["max_tokens"] == _AGENT_PRESET["max_tokens"]
 
 
-async def test_a_short_agent_budget_never_shrinks_a_forced_call(client, db, llm_mock):
-    """1024 tokens is a normal setting for an endpoint kept to brief replies.
-
-    Honoring it for `direct_scene` truncates the tool call mid-arguments, which
-    degrades to empty arguments and reaches the user as the Director silently doing
-    nothing -- so the floor wins, while every sampler still comes from the Agent.
-    """
+async def test_a_short_agent_budget_is_sent_as_configured(client, db, llm_mock):
+    """A forced call gets no hidden raise: 1024 in settings is 1024 on the wire."""
     await _two_lane_setup(client, {**_AGENT_PRESET, "max_tokens": 1024})
-    await _run_turn("conv-lane-floored", llm_mock)
+    await _run_turn("conv-lane-short-budget", llm_mock)
 
     assert _samplers(llm_mock.captured, "director") == {k: _AGENT_PRESET[k] for k in _SAMPLERS}
-    assert _params(llm_mock.captured, "director")["max_tokens"] == _DIRECTOR_FLOOR
+    assert _params(llm_mock.captured, "director")["max_tokens"] == 1024
 
 
 async def test_one_endpoint_for_both_lanes_keeps_sending_its_preset(client, db, llm_mock):
@@ -105,6 +95,5 @@ async def test_one_endpoint_for_both_lanes_keeps_sending_its_preset(client, db, 
     await _run_turn("conv-single-lane-presets", llm_mock)
 
     assert _samplers(llm_mock.captured, "director") == {k: _WRITER_PRESET[k] for k in _SAMPLERS}
-    # The writer's 700-token preset is honored for prose and floored for the call.
     assert _params(llm_mock.captured, "writer")["max_tokens"] == _WRITER_PRESET["max_tokens"]
-    assert _params(llm_mock.captured, "director")["max_tokens"] == _DIRECTOR_FLOOR
+    assert _params(llm_mock.captured, "director")["max_tokens"] == _WRITER_PRESET["max_tokens"]

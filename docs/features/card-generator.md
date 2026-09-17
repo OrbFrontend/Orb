@@ -73,12 +73,20 @@ result holds at most 50 rows, cuts text longer than 500 characters, and drops
 trailing rows past about 4,000 characters. SQL errors and refusals go back to
 the model as the result, so it can correct its query.
 
-Research ends after at most 10 queries, or sooner when the model reports it has
+Research ends after at most 25 steps, or sooner when the model reports it has
 finished, sends an empty query, or replies without a query. The panel shows
 one progress label per query, such as *Researching your library: most-played
-characters (step 2 of 10)…*, then *Drafting your character…*. A provider error
-on the first step is reported like any other; on a later step it ends research
-and drafting continues with what was learned.
+characters (step 2 of 25)…*, then *Drafting your character…*. A provider error
+on the first step is reported like any other.
+
+A reply cut off at **Max Tokens**, or one that cannot be read as a query, does
+not count as finishing. The step is retried once per run, and the panel says
+why, as in *Research step 4 failed. The model's reply was cut off at the Agent
+Max Tokens limit of 4096. Retrying…*. If the first step fails again, the error
+appears in the panel. On a later step, a provider error or a second broken reply
+ends research, and drafting continues with what was learned under a label that
+says why, such as *Research stopped at step 4. The model's reply was not a
+readable query. Drafting from 3 queries…*.
 
 The model sees whatever went wrong on its next pass. A failed query comes back
 as that step's result. A drafted card that breaks the rules under
@@ -100,9 +108,11 @@ retry. Small context windows are more likely to need that retry.
 
 Generation uses the configured Agent lane, falling back to the Writer lane
 when they share an endpoint. **Enable generator thinking** is off by default;
-turning it on takes longer and uses more tokens. The minimum reply allowance
-is 4,096 tokens, or 8,192 with thinking or in Deep mode. A larger configured
-budget is preserved.
+turning it on takes longer and uses more tokens. Every call uses the Agent
+model's configured **Max Tokens** (the Writer's **Max Tokens** when no separate
+Agent lane is set up), and thinking is spent from that same budget. A reply cut
+off at that limit fails with a message naming the setting to raise; it is never
+shown to the model as a rule violation.
 
 Long prose is trimmed at a sentence boundary where possible, then a word
 boundary. Paragraph breaks and the native `{{char}}` / `{{user}}` macros are

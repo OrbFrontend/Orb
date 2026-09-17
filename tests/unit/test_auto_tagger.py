@@ -164,7 +164,7 @@ async def _tag_with(client, **kwargs):
         vocabulary=VOCAB,
         system=build_system_prompt(VOCAB),
         tool=build_tag_tool(VOCAB),
-        max_tokens=512,
+        settings={"agent_max_tokens": 512},
         **kwargs,
     )
 
@@ -206,5 +206,21 @@ async def test_a_missing_tool_call_raises_rather_than_storing_nothing():
             vocabulary=VOCAB,
             system=build_system_prompt(VOCAB),
             tool=build_tag_tool(VOCAB),
-            max_tokens=512,
+            settings={"agent_max_tokens": 512},
         )
+
+
+class _CutOffClient:
+    """An endpoint whose reply stopped at the budget mid-arguments."""
+
+    async def complete(self, **_kwargs):
+        call = {"id": "c1", "type": "function", "function": {"name": TAG_TOOL_NAME, "arguments": '{"tags": ["vamp'}}
+        yield {"type": "done", "message": {"role": "assistant", "tool_calls": [call], "finish_reason": "length"}}
+
+
+async def test_a_reply_cut_at_the_budget_leaves_the_card_pending_and_names_the_setting():
+    client = _CapturingClient()
+    await _tag_with(client)
+    assert client.params["max_tokens"] == 512
+    with pytest.raises(AutoTagUnavailable, match=r"^The model's reply was cut off at the Agent Max Tokens limit of 512\.$"):
+        await _tag_with(_CutOffClient())

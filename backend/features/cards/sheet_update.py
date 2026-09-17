@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, TypedDict
 
-from ...inference import BRACES, LLMClient, forced_draft, normalize
+from ...core import agent_lane_cut_off, agent_lane_max_tokens
+from ...inference import BRACES, LLMClient, ReplyCutOff, forced_draft, normalize
 
 SHEET_TOOL_NAME = "update_character_sheet"
 
@@ -63,22 +64,6 @@ UPDATE_SHEET_TOOL = {
 # reject every long card's update or wave through an essay on a short one.
 MAX_SHEET_GROWTH_CHARS = 600
 MIN_SHEET_CEILING_CHARS = 1200
-
-# The reply budget is derived from that same ceiling rather than fixed, for the
-# reason the ceiling itself is: the call is asked to reproduce a whole sheet
-# verbatim, so a flat cap silently became a *truncation* budget on any card
-# longer than it. A truncated sheet is the one bad output the contract cannot
-# catch — it is non-empty, brace-free, under the ceiling and different from the
-# base, so it passes every check while having quietly deleted the character's
-# last paragraph. Three chars per token is deliberately pessimistic (the usual
-# estimate is four), and the slack covers the summary and the JSON envelope.
-_SHEET_CHARS_PER_TOKEN = 3
-_SHEET_TOKEN_SLACK = 256
-
-
-def sheet_reply_budget(sheet: str) -> int:
-    """`max_tokens` for one update call: enough to restate *this* sheet in full."""
-    return _sheet_ceiling(sheet) // _SHEET_CHARS_PER_TOKEN + _SHEET_TOKEN_SLACK
 
 
 def _sheet_ceiling(base: str) -> int:
@@ -165,6 +150,7 @@ async def propose_sheet_update(
     member_name: str,
     sheet: str,
     transcript: str,
+    settings: Mapping[str, Any],
 ) -> SheetUpdate | None:
     """One forced ``update_character_sheet`` call, drained and contract-checked.
 
@@ -172,23 +158,30 @@ async def propose_sheet_update(
     and the one that must be cheap to express, or a model with a tool it has to
     call will invent a change to fill it.
 
-    Hyperparameters are hardcoded rather than read from the user's preset — see
+    The budget is the agent lane's configured Max Tokens; temperature is fixed
+    rather than read from the user's preset — see
     :func:`backend.inference.drafting.forced_draft`.
+
+    A reply cut at that budget is rejected, never cleaned: a truncated sheet is
+    the one bad output the contract cannot catch — it is non-empty, brace-free,
+    under the ceiling and different from the base, so it would pass every check
+    while having quietly deleted the character's last paragraph.
     """
-    args = await forced_draft(
-        client,
-        model,
-        system=SHEET_SYSTEM_PROMPT,
-        user=build_update_message(member_name=member_name, sheet=sheet, transcript=transcript),
-        tool=UPDATE_SHEET_TOOL,
-        max_tokens=sheet_reply_budget(sheet),
-        # Pinned off for the same reason as the budget itself is computed:
-        # ``sheet_reply_budget`` is sized to restate *this* sheet and little
-        # more, and reasoning comes out of that same allowance. The task is to
-        # carry unchanged sentences forward verbatim, which thinking does not
-        # help and a truncated reply actively breaks.
-        reasoning_on=False,
-    )
+    try:
+        args = await forced_draft(
+            client,
+            model,
+            system=SHEET_SYSTEM_PROMPT,
+            user=build_update_message(member_name=member_name, sheet=sheet, transcript=transcript),
+            tool=UPDATE_SHEET_TOOL,
+            max_tokens=agent_lane_max_tokens(settings),
+            # Pinned off: the task is to carry unchanged sentences forward
+            # verbatim, which thinking does not help, and reasoning is spent from
+            # the same budget the restated sheet needs.
+            reasoning_on=False,
+        )
+    except ReplyCutOff:
+        raise SheetUpdateUnavailable(agent_lane_cut_off(settings)) from None
     if args is None:
         raise SheetUpdateUnavailable("The model did not return a usable sheet update.")
     if not args.get("changed"):

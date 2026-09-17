@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, TypedDict
 
-from ...inference import BRACES, LLMClient, forced_draft, normalize
+from ...core import agent_lane_cut_off, agent_lane_max_tokens
+from ...inference import BRACES, LLMClient, ReplyCutOff, forced_draft, normalize
 
 PROFILE_TOOL_NAME = "draft_public_profile"
 
@@ -194,25 +195,27 @@ def build_scene_message(
     return "\n\n".join(parts)
 
 
-async def _draft(client: LLMClient, model: str, system: str, user: str) -> PublicProfileDraft:
+async def _draft(client: LLMClient, model: str, system: str, user: str, settings: Mapping[str, Any]) -> PublicProfileDraft:
     """One forced ``draft_public_profile`` call, drained and contract-checked.
 
     ``LLMCallError`` propagates untouched — it already carries the provider's own
     sentence, and the routes turn it into a 502 verbatim.
     """
     # Thinking pinned off, not left to the endpoint's default. The whole answer
-    # is two phrases under 30 words each, on a fixed 512-token budget that
-    # reasoning is spent from — a thinking model left unpinned can exhaust it
-    # before the tool call and turn a draft the user is waiting on into an error.
-    args = await forced_draft(
-        client,
-        model,
-        system=system,
-        user=user,
-        tool=DRAFT_PROFILE_TOOL,
-        max_tokens=512,
-        reasoning_on=False,
-    )
+    # is two phrases under 30 words each, and reasoning is spent from the same
+    # budget, so a thinking model left unpinned only adds latency and cost.
+    try:
+        args = await forced_draft(
+            client,
+            model,
+            system=system,
+            user=user,
+            tool=DRAFT_PROFILE_TOOL,
+            max_tokens=agent_lane_max_tokens(settings),
+            reasoning_on=False,
+        )
+    except ReplyCutOff:
+        raise ProfileDraftUnavailable(agent_lane_cut_off(settings)) from None
     if args is None:
         raise ProfileDraftUnavailable("The model did not return a usable profile.")
     return PublicProfileDraft(
@@ -221,9 +224,11 @@ async def _draft(client: LLMClient, model: str, system: str, user: str) -> Publi
     )
 
 
-async def draft_card_profile(client: LLMClient, model: str, card: Mapping[str, Any]) -> PublicProfileDraft:
+async def draft_card_profile(
+    client: LLMClient, model: str, card: Mapping[str, Any], *, settings: Mapping[str, Any]
+) -> PublicProfileDraft:
     """Draft the card-level public profile for *card*. Never persists."""
-    return await _draft(client, model, CARD_SYSTEM_PROMPT, build_card_message(card))
+    return await _draft(client, model, CARD_SYSTEM_PROMPT, build_card_message(card), settings)
 
 
 async def draft_scene_profile(
@@ -231,6 +236,7 @@ async def draft_scene_profile(
     model: str,
     card: Mapping[str, Any],
     *,
+    settings: Mapping[str, Any],
     display_name: str = "",
     cast_names: Sequence[str] = (),
     premise: str = "",
@@ -249,4 +255,4 @@ async def draft_scene_profile(
         card_profile=card_profile,
         omitted_cast=omitted_cast,
     )
-    return await _draft(client, model, SCENE_SYSTEM_PROMPT, message)
+    return await _draft(client, model, SCENE_SYSTEM_PROMPT, message, settings)

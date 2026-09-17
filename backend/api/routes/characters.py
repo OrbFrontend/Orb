@@ -207,7 +207,7 @@ async def api_generate_public_profile(card_id: str):
     client = client_from_settings(settings)
     agent_client, model = agent_lane_from_settings(settings, writer_client=client)
     with profile_draft_failures(f"Public-profile generation for card {scrub_log(card_id)!r}"):
-        return await draft_card_profile(agent_client, model or "", card)
+        return await draft_card_profile(agent_client, model or "", card, settings=settings)
 
 
 @router.put("/api/characters/{card_id}/public-profile")

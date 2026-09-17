@@ -88,7 +88,7 @@ async def post_processing_step(
             {"role": "assistant", "content": current},
             {"role": "user", "content": request},
         ]
-        hyperparams = extract_hyperparams(settings, lane="agent", token_floor=2048, defaults={"temperature": 0.25})
+        hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.25})
         resp: dict = {}
         async for event in base.complete_into(
             client,

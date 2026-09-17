@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ...inference import LLMClient, forced_draft
+from ...core import agent_lane_cut_off, agent_lane_max_tokens
+from ...inference import LLMClient, ReplyCutOff, forced_draft
 
 TAG_TOOL_NAME = "assign_character_tags"
 
@@ -126,19 +127,22 @@ async def tag_card(
     vocabulary: list[str],
     system: str,
     tool: dict[str, Any],
-    max_tokens: int,
+    settings: Mapping[str, Any],
     reasoning_on: bool = False,
 ) -> list[str]:
     """Tag one card without persisting the result."""
-    args = await forced_draft(
-        client,
-        model,
-        system=system,
-        user=build_card_message(card),
-        tool=tool,
-        max_tokens=max_tokens,
-        reasoning_on=reasoning_on,
-    )
+    try:
+        args = await forced_draft(
+            client,
+            model,
+            system=system,
+            user=build_card_message(card),
+            tool=tool,
+            max_tokens=agent_lane_max_tokens(settings),
+            reasoning_on=reasoning_on,
+        )
+    except ReplyCutOff:
+        raise AutoTagUnavailable(agent_lane_cut_off(settings)) from None
     if args is None:
         raise AutoTagUnavailable("The model answered without assigning any tags.")
     return clean_tags(args, vocabulary)

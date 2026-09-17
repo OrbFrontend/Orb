@@ -10,7 +10,7 @@ from typing import Any, Literal, TypedDict
 
 import httpx
 
-from ...core import WireMessage, agent_lane_max_tokens
+from ...core import WireMessage, agent_lane_cut_off, agent_lane_max_tokens
 from ...database import run_library_query
 from ...inference import (
     LLMCallError,
@@ -196,6 +196,32 @@ def _step_args(arguments: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _broken_step(response: Mapping[str, Any], query: Mapping[str, Any] | None, settings: Mapping[str, Any]) -> str:
+    """Why a research reply is unusable, as a sentence, or ``""`` when it is a real choice.
+
+    A reply cut at the budget, or a query whose arguments did not decode (the
+    client degrades those to ``{}``), says nothing about whether the model meant
+    to stop, so neither may pass for a finishing call.
+    """
+    if response.get("finish_reason") == "length":
+        return agent_lane_cut_off(settings)
+    if query is not None and not query["arguments"]:
+        return "The model's reply was not a readable query."
+    return ""
+
+
+def _provider_reason(exc: httpx.HTTPStatusError) -> str:
+    sentence = exc.sentence.strip() if isinstance(exc, LLMCallError) else ""
+    if not sentence:
+        return f"The Agent endpoint returned HTTP {exc.response.status_code}."
+    return sentence if sentence.endswith((".", "!", "?")) else f"{sentence}."
+
+
+def _stopped(step: int, reason: str, queries_run: int) -> str:
+    queries = "1 query" if queries_run == 1 else f"{queries_run} queries"
+    return f"Research stopped at step {step}. {reason} Drafting from {queries}…"
+
+
 async def generate_deep_card(
     client: LLMClient,
     model: str,
@@ -209,7 +235,7 @@ async def generate_deep_card(
         {"role": "system", "content": DEEP_SYSTEM_PROMPT},
         {"role": "user", "content": f"{_user_block(idea, digest)}\n\n{VIEW_DOCS}\n\n{STEP_PROTOCOL}"},
     ]
-    max_tokens = agent_lane_max_tokens(settings, floor=8192)
+    max_tokens = agent_lane_max_tokens(settings)
     # Restrict the tool list when forced choice is unreliable.
     shared_tools = honors_forced_tool_choice(getattr(client, "base_url", ""), model, reasoning_cfg(True))
 
@@ -227,7 +253,10 @@ async def generate_deep_card(
 
     findings: list[str] = []
     queries_run = 0
-    for step in range(1, MAX_STEPS + 1):
+    drafting = "Drafting your character…"
+    retried = False
+    step = 1
+    while step <= MAX_STEPS:
         if client.is_aborted:
             return
         call_id = f"step{step}"
@@ -239,12 +268,26 @@ async def generate_deep_card(
             logger.info(
                 "Deep card research: step %d failed at the provider, drafting from %d queries: %r", step, queries_run, exc
             )
+            drafting = _stopped(step, _provider_reason(exc), queries_run)
             _end_research(messages)
             break
         if client.is_aborted:
             return
-        # If forcing was ignored, move on to drafting.
         query = next((c for c in parse_tool_calls(response) if c["name"] == _QUERY), None)
+        broken = _broken_step(response, query, settings)
+        if broken:
+            logger.warning("Deep card research: step %d unusable, retried=%s: %s", step, retried, broken)
+            # Nothing reached the transcript, so the retry resends the same prefix.
+            if not retried:
+                retried = True
+                yield _progress(f"Research step {step} failed. {broken} Retrying…")
+                continue
+            if step == 1:
+                raise CardGenerationUnavailable(f"Library research failed at the first step. {broken}")
+            drafting = _stopped(step, broken, queries_run)
+            _end_research(messages)
+            break
+        # If forcing was ignored, move on to drafting.
         if query is None:
             logger.info("Deep card research: step %d returned no query; drafting", step)
             _end_research(messages)
@@ -280,10 +323,11 @@ async def generate_deep_card(
         steps_left = MAX_STEPS - step
         content = json.dumps({"steps_left": steps_left, **result}, ensure_ascii=False)
         messages.append(_result(call_id, f"{content}\n\n{DRAFT_NOTE}" if not steps_left else content))
+        step += 1
 
     if client.is_aborted:
         return
-    yield _progress("Drafting your character…")
+    yield _progress(drafting)
     # Initial draft plus one correction and one compact retry.
     transcript = messages
     rejection = ""
@@ -294,9 +338,7 @@ async def generate_deep_card(
         call_id = f"draft{attempt}"
         try:
             response = await call(_CARD, transcript)
-            args = _card_args(response)
-            if args is None:
-                raise CardGenerationUnavailable("The model did not return a usable character card.")
+            args = _card_args(response, settings)
             try:
                 cleaned = clean_card(args)
                 break

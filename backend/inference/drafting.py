@@ -15,6 +15,10 @@ _WHITESPACE_RE = re.compile(r"\s+")
 BRACES = ("{", "}")
 
 
+class ReplyCutOff(RuntimeError):
+    """A forced reply stopped at its ``max_tokens``, so its arguments are incomplete."""
+
+
 def normalize(text: str) -> str:
     """Collapse a parsed field to a single line."""
     return _WHITESPACE_RE.sub(" ", text).strip()
@@ -30,7 +34,11 @@ async def forced_draft(
     max_tokens: int,
     reasoning_on: bool,
 ) -> dict[str, Any] | None:
-    """Make one forced tool call and return its arguments, or ``None`` if absent."""
+    """Make one forced tool call and return its arguments, or ``None`` if absent.
+
+    Raises :class:`ReplyCutOff` when the reply stopped at *max_tokens*: arguments
+    salvaged from a cut reply can look complete while missing their tail.
+    """
     name = tool["function"]["name"]
     messages: list[ChatMessage] = [
         {"role": "system", "content": system},
@@ -45,6 +53,8 @@ async def forced_draft(
         max_tokens=max_tokens,
         reasoning_on=reasoning_on,
     )
+    if response.get("finish_reason") == "length":
+        raise ReplyCutOff
     return next((call.get("arguments") or {} for call in parse_tool_calls(response) if call.get("name") == name), None)
 
 

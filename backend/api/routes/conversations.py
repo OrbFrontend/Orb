@@ -305,6 +305,7 @@ async def api_generate_scene_profile(
             agent_client,
             model or "",
             card,
+            settings=settings,
             display_name=data.display_name,
             cast_names=cast_names,
             # The premise is the server's, never the client's -- it is durable

@@ -84,8 +84,8 @@ def test_all_seven_fields_remain_required_nonnullable_in_strict_schema():
     assert all(prop["type"] == "string" for prop in schema["properties"].values())
 
 
-@pytest.mark.parametrize("thinking,budget,expected", [(False, 200, 4096), (True, 200, 8192), (False, 16000, 16000)])
-async def test_budget_and_thinking_are_explicit(thinking, budget, expected):
+@pytest.mark.parametrize("thinking", [False, True])
+async def test_the_budget_is_the_setting_and_thinking_is_explicit(thinking):
     captured = {}
 
     async def complete(**kwargs):
@@ -112,12 +112,12 @@ async def test_budget_and_thinking_are_explicit(thinking, budget, expected):
         client,
         "agent",
         'idea """ boundary',
-        settings={"agent_max_tokens": budget},
+        settings={"agent_max_tokens": 200},
         reasoning_on=thinking,
         library_digest='names """ data',
     )
     assert result["name"] == "Mara"
-    assert captured["max_tokens"] == expected
+    assert captured["max_tokens"] == 200
     assert captured["chat_template_kwargs"]["enable_thinking"] is thinking
     assert captured["messages"][1]["content"].count('"""') == 4
 
@@ -226,7 +226,7 @@ async def test_deep_research_finishes_then_drafts_over_one_growing_transcript(qu
         _step("", findings="Likes noir harbours.", finished=True),
         _card(),
     )
-    events = await _events(client)
+    events = await _events(client, agent_max_tokens=2048)
     assert events[-1] == {"type": "done", "card": deep.clean_card(CARD)}
     labels = _labels(events)
     assert len(labels) == 3 and "Most played characters" in labels[0] and "Tag mix" in labels[1]
@@ -241,7 +241,7 @@ async def test_deep_research_finishes_then_drafts_over_one_growing_transcript(qu
     blob = json.dumps(deep.TOOLS)
     assert all(json.dumps(call["tools"]) == blob for call in client.calls)
     assert all(call["chat_template_kwargs"]["enable_thinking"] is True for call in client.calls)
-    assert all(call["max_tokens"] == 8192 and call["temperature"] == 0.2 for call in client.calls)
+    assert all(call["max_tokens"] == 2048 and call["temperature"] == 0.2 for call in client.calls)
 
     final = client.calls[-1]["messages"]
     assert final[0]["content"] == deep.DEEP_SYSTEM_PROMPT
@@ -320,8 +320,69 @@ async def test_provider_error_raises_on_the_first_step_only(queries):
     client = ScriptedClient(_step(), _provider_error(), _card())
     events = await _events(client)
     assert events[-1]["type"] == "done"
+    assert _labels(events)[-1] == "Research stopped at step 2. The Agent endpoint returned HTTP 400. Drafting from 1 query…"
     last = client.calls[-1]["messages"][-1]
     assert last["role"] == "tool" and last["content"].endswith(f"\n\n{deep.DRAFT_NOTE}")
+
+
+def _raw_query(arguments, **extra):
+    call = {"id": "call_0", "type": "function", "function": {"name": "query_library", "arguments": arguments}}
+    return {"content": "", "tool_calls": [call], **extra}
+
+
+TRUNCATED = "The model's reply was cut off at the Agent Max Tokens limit of 2048."
+UNREADABLE = "The model's reply was not a readable query."
+
+
+@pytest.mark.parametrize(
+    "broken,reason",
+    [
+        (_raw_query(" \n\n ", finish_reason="length"), TRUNCATED),
+        ({"content": "", "finish_reason": "length"}, TRUNCATED),
+        (_raw_query('{"findings": "Likes noir", "sql": "SELE', finish_reason="length"), TRUNCATED),
+        (_raw_query("not json"), UNREADABLE),
+        (_reply("query_library", {}), UNREADABLE),
+    ],
+)
+async def test_a_broken_step_is_retried_on_the_same_transcript(queries, broken, reason):
+    client = ScriptedClient(_step(), broken, _step(sql="", finished=True), _card())
+    events = await _events(client, agent_max_tokens=2048)
+    assert events[-1]["type"] == "done" and len(queries) == 1
+    assert _labels(events)[1:] == [f"Research step 2 failed. {reason} Retrying…", "Drafting your character…"]
+    assert client.calls[2]["messages"] == client.calls[1]["messages"]
+    replayed = [m for m in client.calls[-1]["messages"] if m["role"] == "assistant"]
+    assert [m["tool_calls"][0]["id"] for m in replayed] == ["step1", "step2"]
+
+
+async def test_a_second_broken_step_ends_research_with_the_reason(queries):
+    broken = _raw_query("", finish_reason="length")
+    client = ScriptedClient(_step(), broken, _step(), _raw_query("not json"), _card())
+    events = await _events(client, agent_max_tokens=2048)
+    assert events[-1]["type"] == "done" and len(queries) == 2
+    assert _labels(events)[-1] == f"Research stopped at step 3. {UNREADABLE} Drafting from 2 queries…"
+    assert [_forced(call) for call in client.calls] == ["query_library"] * 4 + ["generate_character_card"]
+    research, draft = client.calls[3]["messages"], client.calls[-1]["messages"]
+    assert draft[:-1] == research[:-1]
+    assert draft[-1] == {**research[-1], "content": f"{research[-1]['content']}\n\n{deep.DRAFT_NOTE}"}
+
+
+async def test_a_first_step_broken_twice_raises_the_reason(queries):
+    broken = _raw_query("", finish_reason="length")
+    client = ScriptedClient(broken, broken)
+    with pytest.raises(CardGenerationUnavailable) as raised:
+        await _events(client, agent_max_tokens=2048)
+    assert str(raised.value) == f"Library research failed at the first step. {TRUNCATED}"
+    assert len(client.calls) == 2 and queries == []
+
+
+async def test_a_draft_cut_at_the_budget_names_the_setting_after_the_compact_retry(queries):
+    cut = {**_card(), "finish_reason": "length"}
+    client = ScriptedClient(*RESEARCH, cut, cut)
+    with pytest.raises(CardGenerationUnavailable) as raised:
+        await _events(client, agent_max_tokens=2048)
+    assert str(raised.value) == TRUNCATED
+    # A cut card is never replayed as a rule violation: no "Fixing the draft" pass.
+    assert [m["role"] for m in client.calls[-1]["messages"]] == ["system", "user"]
 
 
 @pytest.mark.parametrize("failure", [_provider_error, lambda: {"content": "no card"}])
@@ -452,7 +513,15 @@ async def test_single_draft_rejection_is_shown_to_the_model_and_redrafted_once()
     assert result["content"].startswith(f"Not accepted: {BRACES} Call generate_character_card again")
     assert first["tools"] == second["tools"] == [GENERATE_CARD_TOOL]
     assert first["chat_template_kwargs"] == second["chat_template_kwargs"]
-    assert first["max_tokens"] == second["max_tokens"] == 8192
+    assert first["max_tokens"] == second["max_tokens"] == 4096
+
+
+async def test_single_draft_cut_at_the_budget_is_not_redrafted_and_names_the_setting():
+    client = ScriptedClient({**_card(), "finish_reason": "length"})
+    with pytest.raises(CardGenerationUnavailable) as raised:
+        await generate_card(client, "agent", "A fence", settings={"max_tokens": 700})
+    assert str(raised.value) == "The model's reply was cut off at the Max Tokens limit of 700."
+    assert len(client.calls) == 1
 
 
 async def test_single_draft_gives_up_after_the_redraft():

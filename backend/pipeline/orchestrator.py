@@ -365,7 +365,7 @@ async def _run_pipeline(
     if run_exchange_final and sheet_update is not None and state.resp_text.strip() and not client.is_aborted:
         async for ev in _staged(
             STAGE_EDITOR,
-            sheet_update_stage(cfg, state, turn=sheet_update),
+            sheet_update_stage(cfg, state, settings=settings, turn=sheet_update),
         ):
             yield ev
 

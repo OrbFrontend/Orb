@@ -89,7 +89,7 @@ async def world_change_step(
         {"role": "assistant", "content": reply_text},
         {"role": "user", "content": request},
     ]
-    hyperparams = extract_hyperparams(settings, lane="agent", token_floor=2048, defaults={"temperature": 0.3})
+    hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.3})
 
     resp: dict = {}
     try:
