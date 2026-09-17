@@ -29,7 +29,19 @@ fi
 
 source .venv/bin/activate
 echo "Installing dependencies..."
-pip install -q -r requirements.txt
+# A failed install is only fatal when it leaves nothing to run. Orb gets used
+# offline (local models, local TTS), and bumping a pin in requirements.txt makes
+# the next launch the one launch that needs the network -- without this, someone
+# who was running fine yesterday cannot start at all until they reconnect.
+if ! pip install -q -r requirements.txt; then
+    if python -c "import fastapi, uvicorn" >/dev/null 2>&1; then
+        echo "Warning: could not install dependencies (offline?)."
+        echo "Starting with the versions already in .venv."
+    else
+        echo "Error: failed to install dependencies from requirements.txt."
+        exit 1
+    fi
+fi
 
 # Create data directory
 mkdir -p backend/data
