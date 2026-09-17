@@ -12,6 +12,7 @@ from ...core import agent_lane_max_tokens
 from ...core.text_segmentation import sentence_boundary_ends
 from ...database import (
     get_card_activity,
+    get_persona_conversation_counts,
     get_user_personas,
     get_vocabulary,
     list_character_cards,
@@ -117,7 +118,9 @@ async def build_library_digest() -> str:
     """Read compact library preferences; no character bodies or chat transcripts."""
     cards = await list_character_cards()
     vocabulary = await get_vocabulary()
-    personas = await get_user_personas()
+    persona_plays = await get_persona_conversation_counts()
+    # Most-used first so the twenty-name cap drops idle personas; ties stay alphabetical.
+    personas = sorted(await get_user_personas(), key=lambda persona: -persona_plays.get(persona["id"], 0))
     activity = await get_card_activity([card.get("id", "") for card in cards])
     counts = Counter(tag for card in cards for tag in set(card.get("tags") or []) if isinstance(tag, str))
 

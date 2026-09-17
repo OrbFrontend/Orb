@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from backend.api.routes import library
-from backend.database import create_user_persona
+from backend.database import create_user_persona, get_persona_conversation_counts
 from backend.features.card_generator import build_library_digest
 from backend.inference import LLMCallError, LLMClient
 
@@ -151,6 +151,28 @@ async def test_digest_counts_tags_and_ranks_played_cards_without_reading_prose(c
     assert "Captain" in digest["persona_names"]
     assert digest["most_played"] == [{"name": "Mara", "tags": ["Noir"], "conversations": 1}]
     assert "SECRET" not in text
+
+
+async def test_digest_ranks_personas_by_the_conversations_they_speak_in(client, db):
+    await db.execute("DELETE FROM user_personas")
+    await db.commit()
+    ids = {name: (await create_user_persona({"name": name}))["id"] for name in ("Alpha", "Beta", "Card", "Zed")}
+    await db.execute("UPDATE settings SET active_persona_id = ? WHERE id = 1", (ids["Beta"],))
+    await db.commit()
+    card_id = (await client.post("/api/characters", json={"name": "Lira"})).json()["id"]
+    await client.put(f"/api/characters/{card_id}", json={"persona_lock_id": ids["Card"]})
+    for pin in (None, None, ids["Zed"]):
+        conversation = (await client.post("/api/conversations", json={"character_card_id": card_id})).json()
+        if pin:
+            await client.put(f"/api/conversations/{conversation['id']}", json={"persona_lock_id": pin})
+    for _ in range(2):
+        conversation = (await client.post("/api/conversations", json={"title": "Pinned"})).json()
+        await client.put(f"/api/conversations/{conversation['id']}", json={"persona_lock_id": ids["Zed"]})
+    await client.post("/api/conversations", json={"title": "Unpinned"})
+
+    # Conversation pin beats the card pin, which beats the active persona.
+    assert await get_persona_conversation_counts() == {ids["Zed"]: 3, ids["Card"]: 2, ids["Beta"]: 1}
+    assert json.loads(await build_library_digest())["persona_names"] == ["Zed", "Card", "Beta", "Alpha"]
 
 
 async def test_disconnect_stops_upstream_generation(streaming_client, monkeypatch):

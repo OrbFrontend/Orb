@@ -22,6 +22,28 @@ async def get_user_personas() -> list[UserPersonaRow]:
         return [_project(r) for r in rows]
 
 
+async def get_persona_conversation_counts() -> dict[int, int]:
+    """Count conversations by the persona each one speaks as today.
+
+    Mirrors ``resolve_persona_id``: conversation pin, then the conversation's
+    card pin, then the global active persona. No history of past active
+    personas exists, so unpinned conversations count toward the current one.
+    """
+    async with get_db() as db:
+        rows = list(
+            await db.execute_fetchall(
+                """SELECT COALESCE(c.persona_lock_id, card.persona_lock_id,
+                                   (SELECT active_persona_id FROM settings WHERE id = 1)) AS persona_id,
+                          COUNT(*) AS conversations
+                   FROM conversations AS c
+                   LEFT JOIN character_cards AS card ON card.id = c.character_card_id
+                   GROUP BY persona_id
+                   HAVING persona_id IS NOT NULL"""
+            )
+        )
+    return {int(row["persona_id"]): int(row["conversations"]) for row in rows}
+
+
 async def get_user_persona(persona_id: int) -> UserPersonaRow | None:
     async with get_db() as db:
         rows = list(

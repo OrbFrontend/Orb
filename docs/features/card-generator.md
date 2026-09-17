@@ -17,10 +17,10 @@ Provider errors appear in the panel; edit your idea or retry when ready.
 ## Tailored to me
 
 This optional checkbox uses a compact digest of your library: card count,
-tag vocabulary and common tags, up to twenty persona names, and up to five
-characters with the most conversations. It reads no character descriptions,
-persona descriptions, or conversation messages. Your idea takes priority over
-these preferences. An empty library still works.
+tag vocabulary and common tags, up to twenty persona names (most-used first),
+and up to five characters with the most conversations. It reads no character
+descriptions, persona descriptions, or conversation messages. Your idea takes
+priority over these preferences. An empty library still works.
 
 Tailoring works with both chat and text-completion endpoints. It adds no
 reconnaissance model calls; a database tool loop is deferred until the digest
