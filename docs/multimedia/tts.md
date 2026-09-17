@@ -46,9 +46,11 @@ shared runtime and voice model download. Once ready, it also shows the model's
 **Run on GPU** switch and load state. None of this appears under **Settings →
 Local ML**: the cloned-voice control is the only place the cloner is managed.
 
-The **whole clip, up to two minutes**, is read. The cloned voice shifts with
-which few seconds it hears, so a clip of several lines leaves less to chance
-than one line does. A clip under six seconds is repeated to fill six. **Clean
+The **whole clip, up to two minutes**, is considered. Orb removes silent edges
+and shortens long silent gaps before enrollment, so scene transitions do not
+dilute the voice signal. The cloned voice shifts with which few seconds it
+hears, so a clip of several lines leaves less to chance than one line does. A
+clip under six seconds after silence cleanup is repeated to fill six. **Clean
 audio matters more than length:** music or ambience under the voice costs more
 than extra seconds recover, so prefer a short clean clip to a long noisy one.
 One speaker only.
@@ -178,14 +180,18 @@ a correctness limit for the pinned llama.cpp Vulkan build: larger prompt
 batches can corrupt the model's prompt. Do not raise it without an end-to-end
 audio regression check.
 
-The mel parameters and volume normalization match Spark-TTS. References shorter
-than six seconds are tiled to six seconds; longer clips are retained up to the
-two-minute limit, because clean additional speech yields a more stable speaker
-representation. WAV, FLAC, and OGG use the optional audio dependency; other
-formats use `ffmpeg` when available. To regenerate the speaker-encoder ONNX
-artifact, run `scripts/export_spark_speaker_encoder.py`. A replacement must
-preserve the 32-token output contract and update the catalog checksum and
-enrollment golden test.
+The mel parameters and volume normalization match Spark-TTS. After volume
+normalization, silent edges are removed and interior silence longer than 300 ms
+is shortened to 200 ms. References shorter than six seconds after that cleanup
+are tiled to six seconds; longer clips are retained up to the two-minute limit,
+because clean additional speech yields a more stable speaker representation.
+Generated clips also have silent edges removed before playback, leaving the
+workflow's designed inter-block gap as the only pause between blocks. WAV, FLAC,
+and OGG use the optional audio dependency; other formats use `ffmpeg` when
+available. To regenerate the speaker-encoder ONNX artifact, run
+`scripts/export_spark_speaker_encoder.py`. A replacement must preserve the
+32-token output contract and update the catalog checksum and enrollment golden
+test.
 
 ### Local server backends
 

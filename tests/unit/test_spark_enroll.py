@@ -75,7 +75,7 @@ def test_reproduces_the_torch_reference():
     with open(_REFERENCE_WAV, "rb") as handle:
         data = handle.read()
     # Compare the same six-second reference segment as the fixture.
-    signal = enroll.reference_clip(audio_in.decode(data, filename="prompt_audio.wav"))
+    signal = enroll.reference_clip(audio_in.decode(data, filename="prompt_audio.wav"), trim=False)
     assert enroll.enroll_signal(signal[:96000]) == _PROMPT_AUDIO_TOKENS
 
 

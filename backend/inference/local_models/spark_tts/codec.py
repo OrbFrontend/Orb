@@ -5,13 +5,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from .. import onnx_runtime
-from . import catalog
+from . import catalog, silence
 from .tokens import SEMANTIC_COUNT, validate_speaker_tokens
 
 SAMPLE_RATE = 16000
 
 
-def decode(semantic: Sequence[int], speaker_tokens: Sequence[int]) -> bytes:
+def decode(semantic: Sequence[int], speaker_tokens: Sequence[int], *, trim: bool = True) -> bytes:
     """Decode semantic and speaker tokens to 16-bit mono PCM."""
     import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
 
@@ -30,7 +30,10 @@ def decode(semantic: Sequence[int], speaker_tokens: Sequence[int]) -> bytes:
             "global_tokens": np.asarray(speaker, dtype=np.int64)[None, None, :],
         },
     )[0]
-    return to_pcm16(np.asarray(audio).reshape(-1))
+    waveform = np.asarray(audio).reshape(-1)
+    if trim:
+        waveform = silence.trim_silence_edges(waveform)
+    return to_pcm16(waveform)
 
 
 def to_pcm16(audio) -> bytes:
