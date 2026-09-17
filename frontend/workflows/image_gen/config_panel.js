@@ -460,7 +460,8 @@ function comfyReferenceFields(style) {
 }
 
 function backendFields(style, connection) {
-  if (connection && connection.source === "cloud") return cloudStyleFields(style, connection);
+  if (!connection) return "";
+  if (connection.source === "cloud") return cloudStyleFields(style, connection);
   return `<div class="ig-grid">
       <label>Checkpoint${checkpointField(style.checkpoint || "")}</label>
       <label>Workflow${workflowField(style.workflow || "")}</label>
@@ -544,7 +545,7 @@ function styleTargetBadge(style, connection) {
 function styleSummary(style, connection) {
   const id = styleConnectionId(style, cfg);
   return `<span class="ig-style-name">${esc(style.label || style.id)}</span>
-      <span class="ig-style-conn${connection?.ready === false ? " ig-unready" : ""}">${esc(connection?.label || id || "No connection")}</span>
+      <span class="ig-style-conn${connection?.ready ? "" : " ig-unready"}">${esc(connection?.label || id || "No connection")}</span>
       <span class="ig-style-model">${esc(styleTargetBadge(style, connection))}</span>
       <span class="ig-style-format">${promptFormatBadge(style.prompt_format)}</span>`;
 }
@@ -853,7 +854,7 @@ function comfyFields() {
       <label>Server URL<input ${connField("api_url")} value="${escAttr(comfy.api_url || "http://127.0.0.1:8188")}"></label>
       <label>API key<input type="password" ${connField("api_key")} value="${escAttr(comfy.api_key || "")}"></label>
     </div>
-    <div class="image-gen-note">ComfyUI is the built-in local connection and cannot be removed. Styles using a removed cloud connection fall back to ComfyUI.</div>`;
+    <div class="image-gen-note">ComfyUI is the built-in local connection and cannot be removed.</div>`;
 }
 
 function cloudFields(connection) {
@@ -993,12 +994,9 @@ function removeConnection(id) {
   delete draft.connections[id];
   delete modelsByConnection[id];
   pendingConnections.delete(id);
-  const orphaned = draft.styles.filter((s) => s.connection === id).length;
-  draft.styles = draft.styles.map((s) => (s.connection === id ? { ...s, connection: COMFY_CONNECTION } : s));
   rebuildConnections();
   renderConnections();
   renderStyles(openStyleIds());
-  if (orphaned) toast(`${orphaned} style${orphaned > 1 ? "s" : ""} moved to ComfyUI`);
 }
 
 function refreshConnectionState(el) {
