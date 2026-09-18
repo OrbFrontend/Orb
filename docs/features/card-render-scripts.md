@@ -11,7 +11,9 @@ transformed text back to history.
   projected after macro resolution as well.
 - `markdownOnly` scripts run before HTML rendering, sanitization, and cache
   lookup, including saved messages, streaming, and prose rewrites.
-- Both flags enable both channels. Neither flag means display-only in Orb.
+- Both flags, or neither, enable both channels. An unflagged script rewrites the
+  stored row in the original engine, so its effect is visible to the reader and
+  to the model alike; Orb reproduces that as two reads rather than a rewrite.
 - `placement: [1]` targets user messages; `[2]` targets assistant messages.
   Disabled scripts are skipped. Scripts execute in declaration order.
 
@@ -38,11 +40,20 @@ values and rerender the chat.
 
 ## Supported subset and limits
 
-Patterns can be `/pattern/flags` literals or bare patterns (global by default).
-Supported literal flags are `g`, `i`, `m`, `s`, and `u`; a literal without `g`
-replaces only its first match. Replacement tokens include `$1`–`$99`, `$$`,
-`$&`, and the JavaScript prefix/suffix tokens. Backslashes in replacements remain
-literal. Invalid patterns are skipped and logged.
+A `/pattern/flags` literal is honoured when its flags are `g`, `i`, `m`, `s`, or
+`u`. Anything else — a bare pattern, a missing closing delimiter, a repeated or
+non-flag-shaped suffix — is treated as its own pattern with no flags, and so
+replaces only its first match. A flag-shaped but unsupported literal (`/a/x`)
+and a pattern that will not compile are skipped and logged.
+
+Replacement tokens are `$0` and `{{match}}` for the whole match, `$1`–`$99` and
+`$<name>` for groups, `$$`, `$&`, and the JavaScript prefix and suffix tokens.
+An unknown group expands to nothing; a numbered group past the pattern's count
+stays literal. Backslashes remain literal. Macros a replacement introduces are
+resolved after expansion, so `{{char}}` in a `replaceString` reaches the model
+and the reader as the name. Both channels run the same expansion; this is a
+practical compatibility subset, not an exact port — the original engine leaves
+`$$` and `$&` literal, and drops rather than keeps an out-of-range `$9`.
 
 Python's `regex` library handles the prompt projection, with a 50 ms budget for
 all scripts on one message. Timeout or oversized output restores the entire
@@ -52,11 +63,16 @@ characters. These bounds affect execution, not stored declarations.
 
 Display uses native JavaScript regular expressions and the same size/count
 limits. Native browser regex has no timeout; pathological display patterns can
-still stall rendering. Python and JavaScript regex engines are not identical;
-this is a practical compatibility subset, not a complete ECMAScript emulator.
+still stall rendering. Python and JavaScript regex engines are not identical, so
+a pattern can still resolve differently between the two channels even though
+both run the same flag parsing and replacement expansion.
 
-`minDepth`, `maxDepth`, `runOnEdit`, `substituteRegex`, and `trimStrings` are not
-implemented. Keyword lorebook scanning, round bookkeeping, autocomplete, and
+Scripts come only from the character card. There is no user-level or
+preset-level script list, so a group chat's user messages and unattributed
+summaries — which have no owning card — are never projected. `placement` 3
+(slash command), 5 (world info), and 6 (reasoning) are not implemented, and
+neither are `minDepth`, `maxDepth`, `runOnEdit`, `substituteRegex`, or
+`trimStrings`. Keyword lorebook scanning, round bookkeeping, autocomplete, and
 summarization still read canonical text independently. Inline macros keep their
 existing persistence-time behavior; history projection only substitutes prompt
 identity macros. `{{trim}}` remains outside this feature.

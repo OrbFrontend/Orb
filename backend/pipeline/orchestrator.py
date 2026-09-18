@@ -120,7 +120,9 @@ async def _run_pipeline(
 
     user_message = macros.resolve_message(user_message)
     if card and speaker is None:
-        user_message = CardScripts.from_extensions(card.get("extensions")).apply(user_message, "prompt", "user")
+        user_message = CardScripts.from_extensions(card.get("extensions")).apply(
+            user_message, "prompt", "user", macros.resolve_message
+        )
 
     # Resolved once; cfg.enabled_tools is the length-guard-folded map.
     cfg = _resolve_pipeline_config(

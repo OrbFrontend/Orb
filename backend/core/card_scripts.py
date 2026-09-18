@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from time import monotonic
 from typing import Any, Literal, NamedTuple
 
@@ -15,7 +15,11 @@ MAX_SCRIPTS = 50
 MAX_PATTERN_LENGTH = 4096
 MAX_TEXT_LENGTH = 100_000
 TIMEOUT_SECONDS = 0.05
+JS_FLAGS = frozenset("gmixXsuUAJ")  # Flag-shaped to the original engine's parser.
+ENGINE_FLAGS = frozenset("gimsu")  # Flag-shaped and honoured here.
+_MATCH_MACRO = re.compile(r"\{\{match\}\}", re.I)
 Channel = Literal["prompt", "display"]
+Resolver = Callable[[str], str]
 
 
 def card_render_options(extensions: Any) -> tuple[list[dict], str]:
@@ -41,11 +45,31 @@ def card_render_options(extensions: Any) -> tuple[list[dict], str]:
 
 
 def is_display_script(script: Mapping[str, Any]) -> bool:
-    # Unflagged scripts are display-only in Orb; both flags opt into both views.
     return bool(script.get("markdownOnly")) or not script.get("promptOnly")
 
 
-def _replacement(template: str, match: Any, source: str) -> str:
+def is_prompt_script(script: Mapping[str, Any]) -> bool:
+    # An unflagged script rewrites the stored row in the original engine, so its
+    # effect is visible in both views. Read-time, that means both channels.
+    return bool(script.get("promptOnly")) or not script.get("markdownOnly")
+
+
+def _parse_literal(source: str) -> tuple[str, str] | None:
+    """Split `/pattern/flags`, or return None when the whole string is the pattern."""
+    if not source.startswith("/"):
+        return None
+    end = source.rfind("/")
+    if end <= 0:
+        return None
+    flags = source[end + 1 :]
+    # Flag-shaped is the original engine's test; unsupported-but-shaped flags
+    # reach the compiler and fail there rather than degrading to a literal.
+    if flags and (len(set(flags)) != len(flags) or not set(flags) <= JS_FLAGS):
+        return None
+    return source[1:end], flags
+
+
+def _replacement(template: str, match: Any, source: str, resolve: Resolver | None) -> str:
     """JS replacement tokens, without interpreting backslashes as Python escapes."""
 
     def replace(token: re.Match) -> str:
@@ -58,14 +82,22 @@ def _replacement(template: str, match: Any, source: str) -> str:
             return source[: match.start()]
         if key == "'":
             return source[match.end() :]
+        if key.startswith("<"):
+            try:
+                return match[key[1:-1]] or ""
+            except (IndexError, KeyError):
+                return ""
         index = int(key)
+        if index == 0:
+            return match[0]
         if 0 < index <= match.re.groups:
             return match[index] or ""
         if len(key) == 2 and 0 < int(key[0]) <= match.re.groups:
             return (match[int(key[0])] or "") + key[1]
         return token[0]
 
-    return re.sub(r"\$(?:[$&`']|[0-9]{1,2})", replace, template)
+    expanded = re.sub(r"\$(?:[$&`']|<[^>]*>|[0-9]{1,2})", replace, _MATCH_MACRO.sub("$0", template))
+    return resolve(expanded) if resolve and "{{" in expanded else expanded
 
 
 class _Script(NamedTuple):
@@ -85,16 +117,11 @@ class CardScripts(NamedTuple):
         declarations, _ = card_render_options(extensions)
         compiled = []
         for script in declarations:
-            source = script["findRegex"]
-            flags = "g"  # Bare patterns use global replacement.
-            if source.startswith("/"):
-                end = source.rfind("/")
-                if end == 0:
-                    logger.warning("Ignoring invalid card regex literal")
-                    continue
-                source, flags = source[1:end], source[end + 1 :]
+            # A pattern that is not a well-formed literal is its own pattern,
+            # matching only its first occurrence, as `new RegExp(string)` does.
+            source, flags = _parse_literal(script["findRegex"]) or (script["findRegex"], "")
             try:
-                if len(set(flags)) != len(flags) or set(flags) - set("gimsu"):
+                if not set(flags) <= ENGINE_FLAGS:
                     raise ValueError("unsupported regex flags")
                 options = regex.VERSION0
                 for flag, option in (("i", regex.I), ("m", regex.M), ("s", regex.S)):
@@ -105,7 +132,7 @@ class CardScripts(NamedTuple):
                         regex.compile(source, options),
                         script.get("replaceString", ""),
                         tuple(p for p in script["placement"] if p in (1, 2)),
-                        bool(script.get("promptOnly")),
+                        is_prompt_script(script),
                         is_display_script(script),
                         "g" in flags,
                     )
@@ -114,7 +141,8 @@ class CardScripts(NamedTuple):
                 logger.warning("Ignoring invalid or unsupported card regex")
         return cls(tuple(compiled))
 
-    def apply(self, text: str, channel: Channel, role: str) -> str:
+    def apply(self, text: str, channel: Channel, role: str, resolve: Resolver | None = None) -> str:
+        """Project one message. `resolve` expands macros a replacement introduces."""
         placement = {"user": 1, "assistant": 2}.get(role)
         if not placement or not self.scripts or len(text) > MAX_TEXT_LENGTH:
             return text
@@ -129,7 +157,9 @@ class CardScripts(NamedTuple):
                     raise TimeoutError
                 source = text
                 text = script.pattern.sub(
-                    lambda match, replacement=script.replacement, source=source: _replacement(replacement, match, source),
+                    lambda match, replacement=script.replacement, source=source: _replacement(
+                        replacement, match, source, resolve
+                    ),
                     text,
                     count=0 if script.global_replace else 1,
                     timeout=remaining,

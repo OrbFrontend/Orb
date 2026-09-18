@@ -13,9 +13,35 @@ test("display flags, role, disabled, malformed scripts and ordering", () => {
   assert.equal(applyCardScripts("secret", [script({ promptOnly: true, markdownOnly: true })], "assistant"), "visible");
 });
 
-test("native JS flags and replacement tokens, including non-global replacement", () => {
-  assert.equal(applyCardScripts("A\nb\naXb", [script({ findRegex: "/^a.(b)$/gims", replaceString: "$1" })], "assistant"), "b\nb");
-  assert.equal(applyCardScripts("aa", [script({ findRegex: "/(a)/", replaceString: "$1$$" })], "assistant"), "a$a");
+// Mirrors the table in tests/unit/test_card_scripts.py: the two channels project
+// one declaration set, so a divergence here is a bug in one of them.
+test("pattern flags and replacement tokens match the prompt channel", () => {
+  const cases = [
+    ["/^a.(b)$/gims", "$1", "A\nb\naXb", "b\nb"],
+    ["/(a)(b)?/g", "$1|$2|$$|$&|$9|$12|\\n", "a", "a||$|a|$9|a2|\\n"],
+    ["/a/", "X", "aa", "Xa"],
+    ["/a/g", "X", "aa", "XX"],
+    ["/<\\/div>/g", "", "hello</div>", "hello"],
+    ["/b/", "$`-$'", "abc", "aa-cc"],
+    ["/b(c)/g", "$0|{{MATCH}}", "abc", "abc|bc"],
+    ["/(?<word>\\w+)/g", "[$<word>]", "hi there", "[hi] [there]"],
+    ["/b/g", "[$<nope>]", "abc", "a[]c"],
+  ];
+  for (const [findRegex, replaceString, source, expected] of cases)
+    assert.equal(applyCardScripts(source, [script({ findRegex, replaceString })], "assistant"), expected, findRegex);
+});
+
+test("a pattern without usable flags is its own first-match-only pattern", () => {
+  const cases = [
+    ["plain", "plain plain", "M plain"],
+    ["/missing", "x /missing y", "x M y"],
+    ["/a/y", "a /a/y b", "a M b"],
+    ["/a/gg", "z /a/gg z", "z M z"],
+  ];
+  for (const [findRegex, source, expected] of cases)
+    assert.equal(applyCardScripts(source, [script({ findRegex, replaceString: "M" })], "assistant"), expected, findRegex);
+  for (const findRegex of ["/[broken/g", "/(unclosed/g", "/a/x"])
+    assert.equal(applyCardScripts("abc", [script({ findRegex, replaceString: "X" })], "assistant"), "abc", findRegex);
 });
 
 test("input and output caps retain canonical text", () => {

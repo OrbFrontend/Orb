@@ -24,7 +24,7 @@ def format_message_with_attachments(
     text = macros.resolve_prompt(raw) if macros else raw
 
     if scripts:
-        text = scripts.apply(text, "prompt", role)
+        text = scripts.apply(text, "prompt", role, macros.resolve_prompt if macros else None)
 
     user_atts: list[dict] = list(message.get("user_attachments") or [])
     workflow_annotations: list[str] = []

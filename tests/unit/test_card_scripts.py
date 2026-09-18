@@ -26,10 +26,32 @@ def compile_scripts(*scripts):
         ("/a/g", "X", "aa", "XX"),
         (r"/<\/div>/g", "", "hello</div>", "hello"),
         ("/b/", "$`-$'", "abc", "aa-cc"),
+        ("/b(c)/g", "$0|{{MATCH}}", "abc", "abc|bc"),
+        (r"/(?<word>\w+)/g", "[$<word>]", "hi there", "[hi] [there]"),
+        ("/b/g", "[$<nope>]", "abc", "a[]c"),
     ],
 )
 def test_js_pattern_flags_and_replacements(pattern, replacement, source, expected):
     assert compile_scripts(script(pattern, replacement)).apply(source, "prompt", "assistant") == expected
+
+
+@pytest.mark.parametrize(
+    ("pattern", "source", "expected"),
+    [
+        ("plain", "plain plain", "M plain"),
+        ("/missing", "x /missing y", "x M y"),
+        ("/a/y", "a /a/y b", "a M b"),
+        ("/a/gg", "z /a/gg z", "z M z"),
+    ],
+)
+def test_pattern_without_usable_flags_is_its_own_first_match_only_pattern(pattern, source, expected):
+    assert compile_scripts(script(pattern, "M")).apply(source, "prompt", "assistant") == expected
+
+
+def test_replacement_macros_resolve_after_expansion():
+    scripts = compile_scripts(script("/NAME/g", "{{char}} and $0"))
+    assert scripts.apply("hi NAME", "prompt", "assistant", Macros("User", "Amy").resolve_prompt) == "hi Amy and NAME"
+    assert scripts.apply("hi NAME", "prompt", "assistant") == "hi {{char}} and NAME"
 
 
 def test_channels_roles_disabled_and_declaration_order():
@@ -46,7 +68,25 @@ def test_channels_roles_disabled_and_declaration_order():
     assert scripts.apply("secret", "prompt", "system") == "secret"
 
 
-@pytest.mark.parametrize("bad", ["/[broken/g", "/a/gg", "/a/y", "/missing"])
+@pytest.mark.parametrize(
+    ("flags", "channels"),
+    [
+        ({}, ("prompt", "display")),
+        ({"promptOnly": True}, ("prompt",)),
+        ({"markdownOnly": True}, ("display",)),
+        ({"promptOnly": True, "markdownOnly": True}, ("prompt", "display")),
+    ],
+)
+def test_unflagged_script_reaches_both_views_like_a_rewritten_row(flags, channels):
+    # The original engine rewrites the stored row, so an unflagged script is
+    # visible to the reader and to the model alike.
+    scripts = compile_scripts({"findRegex": "/secret/g", "replaceString": "visible", "placement": [2], **flags})
+    for channel in ("prompt", "display"):
+        expected = "visible" if channel in channels else "secret"
+        assert scripts.apply("secret", channel, "assistant") == expected
+
+
+@pytest.mark.parametrize("bad", ["/[broken/g", "/(unclosed/g", "/a/x"])
 def test_bad_pattern_skipped_without_losing_valid_scripts(bad, caplog):
     scripts = compile_scripts(script(bad), script())
     assert scripts.apply("secret", "prompt", "assistant") == "visible"

@@ -7,6 +7,31 @@ Literal patterns without `g` retain JavaScript's single-replacement behavior;
 macro-order tests use identity substitution, because inline macros already run
 at persistence time.
 
+Revised 2026-09-18 after reading the original engine's source. Corrected: an
+unflagged script now feeds both channels, not display only — see "Scope subset"
+below; a pattern that is not a well-formed literal is its own pattern rather
+than a global one or a dropped one; and both channels share one replacement
+expansion covering `$0`, `{{match}}`, `$<name>`, and macros introduced by a
+replacement. Still open, and deliberately not built:
+
+- **One tier of three.** The original engine reads scripts from the user's own
+  settings, from the card, and from the generation preset, in that order, and
+  the card tier is the one it gates behind an explicit per-character opt-in.
+  Orb has only the card tier, so no user can write a script, and a group chat's
+  user messages have no owning card and are never projected. `CardScripts` holds
+  a flat compiled tuple, so a second tier is a concatenation at the three
+  construction sites plus a settings field and an editor.
+- **Consent is inverted.** The original engine defaults card scripts off and
+  prompts on first load, keyed by character in the *user's* settings. Orb
+  defaults on and stores the decision in `extensions.orb`, so it exports with
+  the card and a re-import re-grants it.
+- **Placements 3, 5 and 6.** Reasoning (6) is the closest fit for Orb; world
+  info (5) rewrites lorebook entry content at insertion.
+- **Lorebook scanning is not parity, it is a divergence.** The original engine
+  scans the prompt projection for keys (`chatForWI` is built from the regexed
+  history), so the retarget under "Secondary consumers" is required for
+  portability, not an incidental bug fix.
+
 Support the card-supplied text transforms that SillyTavern calls "regex
 scripts", so that cards built around a split between what the reader sees and
 what the model reads work in Orb.
@@ -154,10 +179,15 @@ and `markdownOnly`. Ignore `minDepth`, `maxDepth`, `runOnEdit`,
 them, and each is a separate behavioral contract.
 
 A script with neither `promptOnly` nor `markdownOnly` set rewrites the stored
-body in the original engine. Orb should **not** implement that: it is a
-destructive edit of the canonical row, it is unnecessary for this card, and it
-would bust the KV prefix for the whole conversation on import. Treat an
-unflagged script as display-only and surface it in the card editor.
+body in the original engine, at write time: on user send, on reply receipt, on
+greeting load, and on edit. Orb should **not** copy the rewrite — it is a
+destructive edit of the canonical row, and it would bust the KV prefix for the
+whole conversation on import. But because the rewrite lands in the row *both*
+views read, its effect is visible in the prompt and on screen alike. The
+faithful read-time mapping is therefore **both channels**, the same as a script
+with both flags set; display-only would hide text from the reader and still feed
+it to the model, which is backwards for the commonest script of this shape (one
+that strips reasoning tags). Surface unflagged scripts in the card editor.
 
 ## Phases
 
