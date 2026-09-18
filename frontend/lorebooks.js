@@ -3,7 +3,7 @@ import { createChipInput } from "./chips.js";
 import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
 import { closeModal, isModalOpen, showConfirmModal, showModal } from "./modal.js";
 import { charactersView } from "./state.js";
-import { $, boolFlag, downloadBlob, esc, toast } from "./utils.js";
+import { $, boolFlag, downloadBlob, esc, fromMessageBody, toast } from "./utils.js";
 import { changesetRowHtml, isOpen, operationEditHtml, readOperationEdit } from "./world_proposals.js";
 
 let _worlds = [];
@@ -1019,7 +1019,7 @@ const _WC_ACTIONS = {
 export function initWorldProposalActions() {
   document.addEventListener("click", (e) => {
     const btn = e.target?.closest?.("[data-wc-action]");
-    if (!btn) return;
+    if (!btn || fromMessageBody(btn)) return;
     const host = btn.closest("[data-wc-id][data-wc-world]");
     if (!host) return;
     const handler = _WC_ACTIONS[btn.dataset.wcAction];

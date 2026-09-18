@@ -136,10 +136,10 @@ export function messageBody(msgId) {
  *
  * The app's global dispatchers select on attributes (`[data-chat-action]`,
  * `[data-wf-action]`) anywhere in the document, which is fine for chrome the app
- * built and wrong for a bubble. message_html.js already strips every `data-*`
- * from message markup, so nothing should ever reach those dispatchers from in
- * here; this is the second lock, and the one that does not depend on a
- * sanitiser config staying right.
+ * built and wrong for a bubble. message_html.js already renames every `data-*`
+ * in message markup to `data-custom-*`, so nothing should ever reach those
+ * dispatchers from in here; this is the second lock, and the one that does not
+ * depend on a sanitiser config staying right.
  */
 export function fromMessageBody(el) {
   return !!el?.closest?.(".msg-body");
@@ -392,11 +392,14 @@ function renderImageEmbed(url, alt) {
   );
 }
 
-// Split out fenced code, style blocks and image embeds before formatting prose.
-// An open fence runs to the end so its contents remain escaped code.
+// Split out fenced code, style and textarea blocks and image embeds before
+// formatting prose. An open fence runs to the end so its contents remain escaped
+// code; a textarea's body is raw text the browser shows verbatim, so markdown in
+// it would surface as literal tags.
 const PROSE_PART_RE =
-  /(```[\w]*\n?[\s\S]*?```|```[\w]*\n?[\s\S]*$|<style\b[^>]*>[\s\S]*?<\/style\s*>|!\[[^\]]*\]\((?:https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\))/gi;
+  /(```[\w]*\n?[\s\S]*?```|```[\w]*\n?[\s\S]*$|<style\b[^>]*>[\s\S]*?<\/style\s*>|<textarea\b[^>]*>[\s\S]*?<\/textarea\s*>|!\[[^\]]*\]\((?:https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\))/gi;
 const STYLE_BLOCK_RE = /^<style\b[^>]*>([\s\S]*?)<\/style\s*>$/i;
+const TEXTAREA_BLOCK_RE = /^<textarea\b[^>]*>[\s\S]*?<\/textarea\s*>$/i;
 const CLOSED_FENCE_RE = /^```(\w*)(\n)?([\s\S]*?)```$/;
 const OPEN_FENCE_RE = /^```(\w*)(\n)?([\s\S]*)$/;
 
@@ -415,6 +418,7 @@ export function formatProse(text) {
         // Preserve CSS as encoded text until message_html.js can scope it.
         return `<custom-style>${encodeURIComponent(styleMatch[1])}</custom-style>`;
       }
+      if (TEXTAREA_BLOCK_RE.test(part)) return part; // DOMPurify still sanitises it
       const codeMatch = part.match(CLOSED_FENCE_RE) || part.match(OPEN_FENCE_RE);
       if (codeMatch) {
         const hasNewline = !!codeMatch[2];

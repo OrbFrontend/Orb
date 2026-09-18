@@ -476,174 +476,23 @@ function unprefixed(name) {
 // ---- Policy ----------------------------------------------------------------
 
 /**
- * Properties allowed verbatim, after vendor-prefix stripping. Longhands matter:
- * engines expand shorthands, and a shorthand is only as safe as its parts.
+ * Property names are open: an unknown one is ignored by the engine, and every
+ * value is still held to the function allowlist and URL check below, which is
+ * where CSS reaches the network or runs anything. What is named here is a
+ * property whose effect escapes the bubble whatever its value: script extension
+ * points, editing, window chrome, and the view-transition overlay.
  */
-const CSS_PROP_EXACT = new Set([
-  "accent-color",
-  "all",
-  "animation",
-  "appearance",
-  "aspect-ratio",
-  "backdrop-filter",
-  "backface-visibility",
-  "background",
-  "baseline-shift",
-  "block-size",
-  "bottom",
-  "box-decoration-break",
-  "box-orient",
-  "box-shadow",
-  "box-sizing",
-  "break-after",
-  "break-before",
-  "break-inside",
-  "caption-side",
-  "caret-color",
-  "clear",
-  "clip-path",
-  "clip-rule",
-  "color",
-  "color-interpolation",
-  "color-scheme",
-  "columns",
-  "contain",
-  "content",
-  "content-visibility",
-  "counter-increment",
-  "counter-reset",
-  "counter-set",
-  "cursor",
-  "direction",
-  "display",
-  "dominant-baseline",
-  "empty-cells",
-  "fill",
-  "fill-opacity",
-  "fill-rule",
-  "filter",
-  "float",
-  "font",
-  "forced-color-adjust",
-  "gap",
-  "height",
-  "hyphenate-character",
-  "hyphens",
-  "image-orientation",
-  "image-rendering",
-  "initial-letter",
-  "inline-size",
-  "inset",
-  "isolation",
-  "left",
-  "letter-spacing",
-  "line-break",
-  "line-clamp",
-  "line-height",
-  "marker",
-  "marker-end",
-  "marker-mid",
-  "marker-start",
-  "max-block-size",
-  "max-height",
-  "max-inline-size",
-  "max-width",
-  "min-block-size",
-  "min-height",
-  "min-inline-size",
-  "min-width",
-  "mix-blend-mode",
-  "object-fit",
-  "object-position",
-  "opacity",
-  "order",
-  "orphans",
-  "osx-font-smoothing",
-  "paint-order",
-  "perspective",
-  "perspective-origin",
-  "pointer-events",
-  "position",
-  "print-color-adjust",
-  "quotes",
-  "resize",
-  "right",
-  "rotate",
-  "scale",
-  "shape-image-threshold",
-  "shape-margin",
-  "shape-outside",
-  "shape-rendering",
-  "stop-color",
-  "stop-opacity",
-  "tab-size",
-  "table-layout",
-  "tap-highlight-color",
-  "top",
-  "touch-action",
-  "transform",
-  "transform-box",
-  "transform-origin",
-  "transform-style",
-  "transition",
-  "translate",
-  "unicode-bidi",
-  "user-select",
-  "vector-effect",
-  "vertical-align",
-  "visibility",
-  "white-space",
-  "white-space-collapse",
-  "widows",
-  "width",
-  "will-change",
-  "word-break",
-  "word-spacing",
-  "writing-mode",
-  "z-index",
-  "zoom",
+const CSS_PROP_DENY = new Set([
+  "app-region",
+  "behavior",
+  "binding",
+  "expression",
+  "link",
+  "link-source",
+  "user-modify",
+  "view-transition-class",
+  "view-transition-name",
 ]);
-
-/** Families allowed wholesale, longhands and shorthands alike. */
-const CSS_PROP_PREFIXES = [
-  "align-",
-  "anchor-",
-  "animation-",
-  "background-",
-  "border",
-  "column-",
-  "contain-intrinsic-",
-  "container",
-  "flex",
-  "font-",
-  "grid",
-  "inset-",
-  "justify-",
-  "list-style",
-  "margin",
-  "mask",
-  "offset",
-  "outline",
-  "overflow",
-  "overscroll-",
-  "padding",
-  "place-",
-  "position-",
-  "row-gap",
-  "ruby-",
-  "scroll",
-  "shape-",
-  "stroke",
-  "text-",
-  "transition-",
-];
-
-/**
- * Extension points, not styling. Named even though nothing on the lists above
- * reaches them, because vendor-prefix stripping is a generic rule and these are
- * exactly the names it must not be allowed to normalise into one.
- */
-const CSS_PROP_DENY = new Set(["behavior", "binding", "link", "link-source", "expression"]);
 
 /** `animation` is the one property whose value is renamed wholesale (see below). */
 const ANIMATION_PROPS = new Set(["animation", "animation-name"]);
@@ -767,6 +616,20 @@ const CSS_FN_ALLOW = new Set([
   // anchor positioning
   "anchor",
   "anchor-size",
+  // scroll-driven animation and motion paths
+  "ray",
+  "scroll",
+  "view",
+  // tree counting, interpolation and newer colour and shape helpers
+  "calc-size",
+  "container-progress",
+  "contrast-color",
+  "media-progress",
+  "progress",
+  "reversed",
+  "sibling-count",
+  "sibling-index",
+  "superellipse",
 ]);
 
 /** Functions whose string argument is fetched as a URL rather than read as text. */
@@ -780,9 +643,6 @@ const SELECTOR_DELIMS = new Set([".", "*", ">", "+", "~", "|", "^", "$", "=", "&
 
 /** Delimiters an `@media`/`@supports`/`@container` prelude may contain. */
 const CONDITION_DELIMS = new Set(["<", ">", "=", "/", "+", "-", "*", ".", "%"]);
-
-/** Functions a conditional prelude may contain. None of them apply styling. */
-const CONDITION_FNS = new Set(["selector", "style", "scroll-state", "font-tech", "font-format", "supports"]);
 
 const CSS_AT_CONDITIONAL = new Set(["media", "supports", "container"]);
 
@@ -882,9 +742,7 @@ function isSafeUrl(url) {
 function isAllowedProp(prop) {
   if (prop.startsWith("--")) return /^--[\w-]+$/.test(prop);
   if (!/^-?[a-z][a-z0-9-]*$/.test(prop)) return false;
-  const base = unprefixed(prop);
-  if (CSS_PROP_DENY.has(base)) return false;
-  return CSS_PROP_EXACT.has(base) || CSS_PROP_PREFIXES.some((p) => base.startsWith(p));
+  return !CSS_PROP_DENY.has(unprefixed(prop));
 }
 
 // ---- Scoped names ----------------------------------------------------------
@@ -909,6 +767,19 @@ function scopedProp(ctx, name) {
 export function scopeClassName(token) {
   return token.startsWith("custom-") ? token : `custom-${token}`;
 }
+
+/**
+ * Rewrite a `data-*` attribute name the way class tokens are rewritten, so a
+ * card keeps its own data attributes but can never spell one the app's
+ * dispatchers select on (`data-chat-action` becomes `data-custom-chat-action`).
+ * HTML lowercases attribute names, so the CSS side is lowercased to match.
+ */
+export function scopeDataAttr(name) {
+  const lower = name.toLowerCase();
+  return lower.startsWith("data-custom-") ? lower : `data-custom-${lower.slice("data-".length)}`;
+}
+
+const isDataAttr = (name) => /^data-./i.test(name);
 
 // ---- Values ----------------------------------------------------------------
 
@@ -1069,6 +940,27 @@ function rewriteFontFamily(tokens, ctx) {
   return out;
 }
 
+/** Point `attr(data-x)` at the name the sanitiser gave the attribute. */
+function rewriteAttrRefs(tokens) {
+  let inAttr = false;
+  return tokens.map((tk) => {
+    if (tk.t === T.WS) return tk;
+    const rename = inAttr && tk.t === T.IDENT && isDataAttr(tk.u);
+    inAttr = tk.t === T.FUNC && unprefixed(tk.u) === "attr";
+    return rename ? { t: T.IDENT, u: scopeDataAttr(tk.u) } : tk;
+  });
+}
+
+/**
+ * `appearance` takes one keyword, and only a keyword is accepted, so `var()` and
+ * `attr()` cannot supply the one it must not reach: `base-select` renders a
+ * `<select>` picker in the top layer, above the bubble's containment, where card
+ * CSS could stretch it over the app.
+ */
+function appearanceIsAllowed(value) {
+  return value.length === 1 && value[0].t === T.IDENT && !/^base\b/i.test(value[0].u);
+}
+
 /** Emit one declaration, or "" when the policy does not allow it. */
 function emitDeclaration(tokens, ctx, allowProp) {
   let depth = 0;
@@ -1092,9 +984,10 @@ function emitDeclaration(tokens, ctx, allowProp) {
 
   const { value, important } = splitImportant(tokens.slice(colon + 1));
   if (!value.length || !valueIsAllowed(value)) return "";
-
-  let out = rewriteDeclaredNames(rewriteUrls(value), ctx);
   const base = custom ? prop : unprefixed(prop);
+  if (base === "appearance" && !appearanceIsAllowed(value)) return "";
+
+  let out = rewriteAttrRefs(rewriteDeclaredNames(rewriteUrls(value), ctx));
   if (ANIMATION_PROPS.has(base)) out = rewriteAnimation(out, ctx);
   if (base === "font" || base === "font-family") out = rewriteFontFamily(out, ctx);
 
@@ -1186,11 +1079,12 @@ export function sanitizedNamedProp(value) {
 const PREFIXED_ATTR_OPS = new Set(["=", "^=", "~=", "|="]);
 
 /**
- * Apply the id rewrite to the attribute form of the selector.
+ * Apply the sanitiser's attribute renames to the attribute form of the selector.
  *
  * `#foo` is handled by the HASH branch above; `[id^=foo]` names the same
  * attribute and needs the same treatment, or it keeps matching the name the card
  * wrote rather than the one the sanitiser stored, and quietly selects nothing.
+ * `[data-x]` is the same problem with the attribute's name instead of its value.
  * Returns the index of the last token consumed.
  */
 function rewriteAttrSelector(tokens, open, out) {
@@ -1212,9 +1106,13 @@ function rewriteAttrSelector(tokens, open, out) {
   // Quote the rewritten value: an ident that was legal bare may not stay legal
   // once the prefix is on it, and a string means the same thing either way.
   const rewrite = value?.t === T.IDENT || value?.t === T.STR;
+  // `[data-x]` names the attribute the sanitiser renamed, so it follows the rename.
+  const dataName = name?.t === T.IDENT && isDataAttr(name.u) ? inner[0] : -1;
   const last = Math.min(close, tokens.length - 1);
   for (let i = open; i <= last; i++) {
-    out.push(rewrite && i === valueAt ? { t: T.STR, u: sanitizedNamedProp(value.u) } : tokens[i]);
+    if (rewrite && i === valueAt) out.push({ t: T.STR, u: sanitizedNamedProp(value.u) });
+    else if (i === dataName) out.push({ t: T.IDENT, u: scopeDataAttr(name.u) });
+    else out.push(tokens[i]);
   }
   return last;
 }
@@ -1329,7 +1227,7 @@ function emitDescriptors(tokens, ctx, allowed) {
   return emitDeclarationList(tokens, ctx, (prop) => allowed.has(unprefixed(prop)));
 }
 
-/** Copy a conditional prelude, which may test the page but never style it. */
+/** Copy a conditional prelude, which may test the page but never style it or fetch. */
 function emitCondition(tokens) {
   const prelude = trimWs(tokens);
   if (!prelude.length) return "";
@@ -1340,18 +1238,17 @@ function emitCondition(tokens) {
       case T.OPEN_B:
       case T.CLOSE_B:
       case T.SEMI:
-      case T.URL:
       case T.BAD:
         return "";
       case T.OPEN_P:
+      case T.FUNC:
+        // Any function, `url()` included: a condition is tested, never applied,
+        // so `@supports (filter: url(#f))` fetches nothing and styles nothing.
         depth++;
         break;
       case T.CLOSE_P:
-        depth--;
-        break;
-      case T.FUNC:
-        if (!CONDITION_FNS.has(unprefixed(tk.u))) return "";
-        depth++;
+        // `) (` balances to zero and still leaves a `(` open to swallow the block.
+        if (--depth < 0) return "";
         break;
       case T.DELIM:
         if (!CONDITION_DELIMS.has(tk.v)) return "";
@@ -1454,6 +1351,13 @@ function emitAtRule({ prelude, block }, ctx, parent, depth) {
       const inner = emitBody(block, ctx, parent, depth + 1);
       const body = (inner.decls && parent ? `${parent} { ${inner.decls} }\n` : "") + inner.rules;
       return body ? `@layer ${names.join("")} {\n${body}}\n` : "";
+    }
+    case "starting-style": {
+      // Before-change styles for an entry transition: ordinary rules, scoped as such.
+      if (trimWs(rest).length) return "";
+      const inner = emitBody(block, ctx, parent, depth + 1);
+      const body = (inner.decls && parent ? `${parent} { ${inner.decls} }\n` : "") + inner.rules;
+      return body ? `@starting-style {\n${body}}\n` : "";
     }
     default:
       // `@import` pulls in a sheet nothing here ever sees; `@page` and `@scope`

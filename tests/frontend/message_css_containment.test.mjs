@@ -54,12 +54,26 @@ test("the attribute form of an id selector follows the same rewrite", () => {
   assert.match(css("[id*=post] { color: gold }"), /\[id\*=post\]/);
   // A presence test needs no value, and other attributes are not rewritten.
   assert.match(css("[id] { color: gold }"), /\[id\]/);
-  assert.match(css("[data-x=y] { color: gold }"), /\[data-x=y\]/);
+  assert.match(css("[title=y] { color: gold }"), /\[title=y\]/);
   // Whitespace, flags and quoting are all spellings of the same selector.
   assert.match(css("[ id ^= post- i ] { color: gold }"), /\[ id \^= "user-content-post-" i \]/);
   assert.match(css("[id^='post-'] { color: gold }"), /\[id\^="user-content-post-"\]/);
   // The rewrite must not lose the rest of a compound selector.
   assert.match(css(".board [id^=post-] header { color: gold }"), /\.custom-board \[id\^="user-content-post-"\] header/);
+});
+
+test("a data attribute selector follows the name the sanitiser gave the attribute", () => {
+  // The markup hook renames `data-x` to `data-custom-x`, as it renames classes,
+  // so no card attribute can be one the app's dispatchers select on.
+  assert.match(css("[data-state=open] { color: gold }"), /\[data-custom-state=open\]/);
+  assert.match(css("[DATA-State] { color: gold }"), /\[data-custom-state\]/);
+  assert.match(css(".a:not([data-custom-x]) { color: gold }"), /:not\(\[data-custom-x\]\)/);
+  // `attr()` reads the renamed attribute too, which is the glitch-text effect.
+  assert.match(css('.g::before { content: attr(data-text) }'), /content: attr\(data-custom-text\)/);
+  assert.match(css(".g { width: attr( data-w px, 1px) }"), /attr\( data-custom-w px, 1px\)/);
+  // Only the attribute name moves; a string that merely looks like one stays.
+  assert.match(css('.g::before { content: "data-text" }'), /content: "data-text"/);
+  assert.match(css(".g::before { content: attr(title) }"), /attr\(title\)/);
 });
 
 test("a URL is checked by scheme rather than banned outright", () => {
@@ -142,6 +156,26 @@ test("a global name is renamed into the scope; what cannot be renamed is dropped
   assert.match(media, /@media \(max-width: 600px\) \{/);
   assert.match(media, /\.msg-body \.msg-stest \.custom-b \{ color: green \}/);
   assert.match(css("@supports (display: grid) { .b { display: grid } }"), /@supports \(display: grid\)/);
+  // A condition is tested, never applied or fetched, so its values may use any
+  // function -- `url()` included.
+  for (const condition of [
+    "(color: color-mix(in srgb, red, blue))",
+    "(width: calc(1px + 1%))",
+    'not (filter: url("#scan"))',
+    "(mask: url(https://cdn.test/m.svg))",
+  ]) {
+    assert.match(css(`@supports ${condition} { .b { color: red } }`), /\.custom-b \{ color: red \}/, condition);
+  }
+  // `) (` nets to zero but leaves a `(` open that would swallow the block.
+  assert.equal(css("@media screen ) and ( { .b { color: red } }"), "");
+  assert.equal(css("@supports (x: y) { } @import url(x)"), "");
+});
+
+test("@starting-style is an ordinary block of scoped rules", () => {
+  assert.match(css("@starting-style { .pop { opacity: 0 } }"), /@starting-style \{\n\.msg-body \.msg-stest \.custom-pop \{ opacity: 0 \}/);
+  // Nested in a rule, its declarations belong to that rule.
+  assert.match(css(".pop { transition: opacity 1s; @starting-style { opacity: 0 } }"), /@starting-style \{\n\.msg-body \.msg-stest \.custom-pop \{ opacity: 0 \}/);
+  assert.equal(css("@starting-style foo { .pop { opacity: 0 } }"), "");
 });
 
 test("positioning is contained by the wrapper rather than clamped by the policy", () => {
@@ -164,12 +198,34 @@ test("the containment the CSS policy leans on is actually in the stylesheet", ()
   assert.match(rule[1], /isolation:\s*isolate\s*!important/);
 });
 
-test("only allowlisted properties survive", () => {
+test("property names are open, except the ones that act outside the bubble", () => {
   assert.match(css(".a { color: red; font-size: 2em; border-radius: 4px }"), /color: red; font-size: 2em/);
-  // Not on the list: behaviour hooks and anything that pulls in an external
-  // resource or a browser extension point.
-  for (const decl of ["behavior: url(x.htc)", "-moz-binding: url(x)", "src: url(x)", "unknown-prop: 1"]) {
+  // Old aliases, SVG geometry and properties newer than this file all survive:
+  // the engine ignores what it does not know, and the value rules still apply.
+  for (const decl of ["word-wrap: break-word", "clip: rect(0, 10px, 5px, 0)", "cx: 5", "field-sizing: content"]) {
+    assert.match(css(`.a { ${decl} }`), new RegExp(decl.replace(/[()]/g, "\\$&")), decl);
+  }
+  assert.equal(css(".a { word-wrap: url(javascript:alert(1)) }"), "");
+  // Script hooks, editing, window chrome and the view-transition overlay, under
+  // any prefix and any value.
+  for (const decl of [
+    "behavior: url(x.htc)",
+    "-moz-binding: url(x)",
+    "-webkit-user-modify: read-write",
+    "-webkit-app-region: drag",
+    "view-transition-name: hero",
+  ]) {
     assert.equal(css(`.a { ${decl} }`), "", decl);
+  }
+});
+
+test("a select cannot be given the picker that renders in the top layer", () => {
+  assert.match(css("select { appearance: none }"), /appearance: none/);
+  assert.match(css("select { -webkit-appearance: menulist }"), /-webkit-appearance: menulist/);
+  // `base-select` moves the picker into the top layer, outside the containment;
+  // only a bare keyword is read, so no substitution can produce it either.
+  for (const value of ["base-select", "BASE-SELECT", "base", "var(--a)", "attr(data-a type(<custom-ident>))"]) {
+    assert.equal(css(`select { appearance: ${value} }`), "", value);
   }
 });
 

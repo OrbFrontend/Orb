@@ -11,6 +11,7 @@ import {
   filterDeclarations,
   sanitizedNamedProp,
   scopeClassName,
+  scopeDataAttr,
 } from "./message_css.js";
 import { formatProse, formatProseWithDiff } from "./utils.js";
 import DOMPurify from "./vendor/purify.js";
@@ -183,9 +184,13 @@ export function trimIncompleteMarkup(text) {
   // and then vanish once the closing `-->` arrives.
   const comment = out.lastIndexOf(COMMENT_OPEN);
   if (comment !== -1 && !out.includes(COMMENT_CLOSE, comment + COMMENT_OPEN.length)) out = out.slice(0, comment);
-  const lower = out.toLowerCase();
-  const open = lower.lastIndexOf("<style");
-  if (open !== -1 && open > lower.lastIndexOf("</style>")) out = out.slice(0, open);
+  // A raw-text element takes everything after its open tag as its own text, so
+  // one still open would swallow the rest of the stream; hold it until it closes.
+  for (const tag of ["style", "textarea"]) {
+    const lower = out.toLowerCase();
+    const open = lower.lastIndexOf(`<${tag}`);
+    if (open !== -1 && open > lower.lastIndexOf(`</${tag}>`)) out = out.slice(0, open);
+  }
   return out;
 }
 
@@ -193,25 +198,12 @@ export function trimIncompleteMarkup(text) {
 // Keep DOMPurify's default tag set; narrow it with the forbids below.
 const SANITIZE_CONFIG = {
   ADD_TAGS: ["custom-style"],
-  // Embedding, navigation and deferred parsing are not message content. `input`
-  // is not in here: with `form` gone it submits nowhere, and a checkbox is how a
-  // card writes a disclosure widget without script.
-  FORBID_TAGS: [
-    "form",
-    "select",
-    "textarea",
-    "button",
-    "style",
-    "template",
-    "slot",
-    "iframe",
-    "object",
-    "embed",
-    "script",
-    "base",
-    "link",
-    "meta",
-  ],
+  // Embedding, navigation and deferred parsing are not message content. A form
+  // submits (navigating the app, or posting what was typed off-site); without
+  // one the controls submit nowhere, so `input`, `button`, `select` and
+  // `textarea` stay -- a checkbox is how a card writes a disclosure widget
+  // without script. `appearance: base-select` is held back in message_css.js.
+  FORBID_TAGS: ["form", "style", "template", "slot", "iframe", "object", "embed", "script", "base", "link", "meta"],
   // Remove unsolicited fetch/noise and alternate URL surfaces. The popover and
   // command triggers go with them: both paint in the top layer, which is the one
   // place outside the containment that holds a card to its own bubble.
@@ -228,8 +220,11 @@ const SANITIZE_CONFIG = {
     "command",
     "commandfor",
   ],
-  // Delegated actions are restored only on Orb-built chrome after this pass.
-  ALLOW_DATA_ATTR: false,
+  // `<marquee>`'s own tuning, which the default allowlist does not carry.
+  ADD_ATTR: ["behavior", "scrollamount", "scrolldelay", "truespeed"],
+  // Data attributes stay, renamed out of the app's vocabulary in the hook below;
+  // delegated actions are restored only on Orb-built chrome after this pass.
+  ALLOW_DATA_ATTR: true,
   // Prevent id/name collisions; scopeSelector mirrors the id rewrite in CSS.
   SANITIZE_NAMED_PROPS: true,
   RETURN_DOM_FRAGMENT: true,
@@ -247,6 +242,19 @@ function installHooks() {
   _hooksInstalled = true;
 
   DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+    // `data-chat-action` becomes `data-custom-chat-action`: the card's CSS still
+    // finds it (message_css.js renames `[data-*]` and `attr()` to match), and no
+    // app dispatcher selects on it. Rewritten here because DOMPurify writes an
+    // attribute back under its original name after `uponSanitizeAttribute`.
+    for (const attr of Array.from(node.attributes || [])) {
+      if (!/^data-/i.test(attr.name) || /^data-custom-/i.test(attr.name)) continue;
+      node.removeAttribute(attr.name);
+      try {
+        node.setAttribute(scopeDataAttr(attr.name), attr.value);
+      } catch {
+        // A name setAttribute will not take is dropped rather than kept as-is.
+      }
+    }
     const tag = node.tagName?.toUpperCase?.();
     if (tag === "A" || tag === "AREA") {
       // Links leave the app, so open them in a separate context.

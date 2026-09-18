@@ -39,6 +39,9 @@ test("value functions are an allowlist, which is what makes url() safe to permit
     "filter: blur(2px) drop-shadow(0 0 2px #000)",
     "clip-path: polygon(0 0, 100% 0, 50% 100%)",
     "grid-template-columns: repeat(3, minmax(0, 1fr))",
+    "animation-timeline: view()",
+    "offset-path: ray(45deg closest-side)",
+    "rotate: calc(sibling-index() * 10deg)",
   ]) {
     assert.notEqual(css(`.a { ${value} }`), "", value);
   }
