@@ -55,18 +55,7 @@ def _sub_cast(text: str, cast_names: str) -> str:
     return _outside_literals(text, lambda value: re.sub(r"\{\{cast\}\}", cast_names, value, flags=re.IGNORECASE))
 
 
-# Two branches: comments that own their line(s) take the whole line with them (no
-# blank line left behind); one sitting mid-line takes only itself, leaving the
-# surrounding spaces. The body is tempered rather than merely non-greedy, so it
-# ends at the first `}}` — a plain `.*?` lets the line branch backtrack past that
-# `}}` hunting for one followed by a newline, eating every character in between.
-# That is prose, not markup: `{{// note }}Hello {{user}}` lost its greeting, and
-# a later line-ending `}}` (another macro, usually) dragged whole lines off with
-# it. The line branch repeats the body so a line of several comments still owns
-# it, while anything that is not a comment ends the run and keeps its line. Its
-# newline is `\r?\n` because `\r` is not in `[ \t]`: a bare `\n` meant the branch
-# could never fire at all in a CRLF card, which is most of what gets imported.
-_COMMENT_BODY = r"\{\{//(?:(?!\}\})[\s\S])*\}\}"
+_COMMENT_BODY = r"\{\{//(?:\{\{[^{}]*\}\}|(?!\}\})[\s\S])*\}\}"
 _COMMENT_RE = re.compile(rf"^[ \t]*(?:{_COMMENT_BODY}[ \t]*)+\r?\n|{_COMMENT_BODY}", re.MULTILINE)
 _ROLL_RE = re.compile(r"\{\{roll::(\d+)d(\d+)\}\}", re.IGNORECASE)
 _RANDOM_RE = re.compile(r"\{\{(?:random|pick)::(.*?)\}\}", re.IGNORECASE | re.DOTALL)

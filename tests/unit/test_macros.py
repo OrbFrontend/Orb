@@ -9,6 +9,8 @@ resolved text is a no-op).
 
 from __future__ import annotations
 
+import time
+
 from backend.core.macros import (
     Macros,
     has_inline_macros,
@@ -246,14 +248,37 @@ def test_comment_multiline_and_repeated():
 
 def test_macro_inside_comment_does_not_fire():
     # Comments are stripped before every other inline macro, so a nested macro is
-    # deleted rather than resolved — its trailing `}}` survives (grammar limit).
-    assert resolve_inline("{{// dice: {{roll::1d6}} }}x") == " }}x"
-    assert resolve_message("{{// pick {{random::a::b}} }}y", "U", "C") == " }}y"
+    # deleted rather than resolved, and takes the rest of the note with it.
+    assert resolve_inline("{{// dice: {{roll::1d6}} }}x") == "x"
+    assert resolve_message("{{// pick {{random::a::b}} }}y", "U", "C") == "y"
 
 
-def test_comment_body_cannot_contain_closing_braces():
-    # Documented grammar limit: the match ends at the first }}.
-    assert resolve_inline("{{// see {{user}} }}") == " }}"
+def test_comment_body_may_contain_a_nested_macro():
+    # The comment closes on its own `}}`, not the nested macro's.
+    assert resolve_inline("{{// see {{user}} }}") == ""
+    assert resolve_inline("{{// a {{b}} c }}tail") == "tail"
+    assert resolve_inline("{{// a\nb {{user}} c\n}}") == ""
+
+
+def test_comment_does_not_publish_the_tail_of_a_note():
+    # Closing on the nested macro's `}}` left the rest of the note in the text,
+    # and resolve_inline is the persist boundary, so it reached the stored row.
+    assert resolve_inline("Note {{// remember {{user}} likes tea }} ok") == "Note  ok"
+
+
+def test_comment_body_ends_early_when_nested_two_deep():
+    # Documented limit: a brace-free nested form keeps the scan linear, so a
+    # macro inside a macro inside a comment still closes early.
+    assert resolve_inline("{{// deep {{a {{b}} c}} }}") == " }}"
+
+
+def test_comment_with_unclosed_braces_stays_linear():
+    # `{{//` followed by open braces and no closer used to re-scan to the end at
+    # every position -- quadratic, and minutes on a field-sized input.
+    blob = "{{//" + "{{" * 50_000
+    start = time.monotonic()
+    assert resolve_inline(blob) == blob
+    assert time.monotonic() - start < 2.0
 
 
 def test_comment_does_not_eat_the_prose_that_follows_it():

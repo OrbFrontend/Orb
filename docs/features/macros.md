@@ -13,13 +13,25 @@ and direction notes.
 | `{{pick::a::b::c}}` | Alias for `{{random}}` |
 | `{{time}}` | Local time in `HH:MM` format |
 | `{{date}}` | Local date in `YYYY-MM-DD` format |
+| `{{// note }}` | Nothing -- the text inside is a note to yourself |
 | `{{trim}}` | Nothing, and removes the newlines surrounding it |
 
 Random options are separated by `::`. Options may contain spaces and line breaks,
 but not `::` or `}}`. Macro names are case-insensitive.
 
+`{{// ... }}` is a note to yourself. Orb removes it before the character sees
+any of it, so it is where reminders about how a card is meant to be played
+belong -- the kind of thing you want the next reader of the card to see and the
+model never to read.
+
+A note alone on its line takes the whole line with it, so no blank line is left
+behind; a note sitting mid-line takes only itself. Macros inside a note are
+removed along with it rather than resolved, so `{{// ask {{user}} later }}`
+disappears completely and rolls nothing.
+
 `{{trim}}` joins the lines on either side of it, which is mainly how a card
-drops the blank line an author's note would otherwise leave behind:
+drops the blank line a note would otherwise leave behind when something follows
+it on the same line:
 
 ```
 {{// Turn example messages on. }}{{trim}}
