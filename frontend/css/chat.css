@@ -343,6 +343,15 @@
   contain: layout paint style !important;
 }
 
+/* A card written for a desktop window collapses to zero width in a phone-width
+   bubble, and `contain: paint` above then clips it away silently. message_fit.js
+   hands the collapsed block its own width back and puts it in here, so the card
+   lays out as written and pans inside the bubble instead of disappearing. */
+.message .msg-body .msg-pan {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
 /* .msg-image keeps its own viewport-aware sizing further down this file. */
 .message .msg-body img:not(.msg-image) { max-width: 100%; height: auto; }
 .message .msg-body a { color: var(--accent); }

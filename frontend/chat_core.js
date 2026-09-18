@@ -9,6 +9,7 @@ import {
 import { reconcileChildren } from "./dom_reconcile.js";
 import { sceneEmptyStateHtml, speakerAvatarCell, speakerLabel } from "./group_cast.js";
 import { CHEVRON_LEFT_ICON, CHEVRON_RIGHT_ICON, EDIT_ICON_PATHS } from "./icons.js";
+import { fitMessageCards } from "./message_fit.js";
 import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, localMlReady, S, subscribe } from "./state.js";
@@ -400,6 +401,10 @@ export function renderMessages(forceBottom = false) {
           msgs.map((m, i) => ({ key: m.id ? `m${m.id}` : `p${i}`, html: _messageHtml(m, avatars) })),
           "msg-swap",
         );
+        // Rescue desktop-width card layouts first: it changes a collapsed
+        // bubble's height by thousands of pixels, so it has to settle before
+        // anything records that height.
+        fitMessageCards(fresh);
         // Seed the new bubbles' intrinsic sizes before the scroll math below
         // reads scrollHeight, or a node that has never been rendered still
         // counts as the 300px placeholder and the restore lands short.

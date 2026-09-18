@@ -52,17 +52,21 @@ function warningFor(script, index) {
   return warnings.join(" ");
 }
 
-const SCOPE_NOTES = {
-  display: "Changes what you see. The model still receives the message unchanged.",
-  prompt: "Changes what the model receives. You still see the message unchanged.",
-  both: "Changes both what you see and what the model receives.",
-};
+const removesMatches = (script) => (script.replaceString ?? "") === "";
+const scopeLabel = (script) => (removesMatches(script) ? "Remove matches from" : "Replace matches in");
 
 function noteFor(script) {
+  if (script.disabled) return "This script is disabled, so it never runs.";
   if (!Array.isArray(script.placement) || !script.placement.some((p) => p === 1 || p === 2)) {
     return "No message type is selected, so this script never runs.";
   }
-  return SCOPE_NOTES[scope(script)];
+  const action = removesMatches(script) ? "Removes matching text from" : "Replaces matching text in";
+  const notes = {
+    display: `${action} the chat display. This script leaves the model prompt unchanged.`,
+    prompt: `${action} the model prompt. This script leaves the chat display unchanged.`,
+    both: `${action} both the chat display and the model prompt.`,
+  };
+  return notes[scope(script)];
 }
 
 function rowHtml(script, index, count) {
@@ -81,18 +85,18 @@ function rowHtml(script, index, count) {
       <textarea id="${id}-replace" data-script-field="replaceString" rows="3" spellcheck="false" placeholder="Leave empty to remove matches">\n${esc(textValue(script.replaceString))}</textarea>
     </div>
     <div class="ce-script-options">
-      <fieldset><legend>Messages</legend>
+      <fieldset><legend>Message authors</legend>
         <div class="ce-script-checks">
           <label><input type="checkbox" data-script-field="placement" value="1" ${Array.isArray(script.placement) && script.placement.includes(1) ? "checked" : ""}> User</label>
           <label><input type="checkbox" data-script-field="placement" value="2" ${Array.isArray(script.placement) && script.placement.includes(2) ? "checked" : ""}> Assistant</label>
         </div>
       </fieldset>
-      <div class="field"><label for="${id}-scope">Apply to</label>
-        <select id="${id}-scope" data-script-field="scope">
+      <div class="field"><label for="${id}-scope" data-script-scope-label>${scopeLabel(script)}</label>
+        <select id="${id}-scope" data-script-field="scope" aria-describedby="${id}-note">
           ${[
-            ["display", "Display only"],
-            ["prompt", "Model prompt only"],
-            ["both", "Display and model prompt"],
+            ["display", "Chat display"],
+            ["prompt", "Model prompt"],
+            ["both", "Chat display and model prompt"],
           ]
             .map(
               ([value, label]) =>
@@ -102,7 +106,7 @@ function rowHtml(script, index, count) {
         </select>
       </div>
     </div>
-    <p class="ce-script-note">${esc(noteFor(script))}</p>`
+    <p id="${id}-note" class="ce-script-note">${esc(noteFor(script))}</p>`
     : "";
   const disabled = valid && Boolean(script.disabled);
   return `<section class="ce-script-row${disabled ? " is-disabled" : ""}" data-script-index="${index}" aria-label="Script ${index + 1}">
@@ -217,6 +221,7 @@ export function mountCardScriptsEditor(root, original) {
     } else script[field] = input.value;
     changed = true;
     row.querySelector(".ce-script-warning").textContent = warningFor(script, index);
+    row.querySelector("[data-script-scope-label]").textContent = scopeLabel(script);
     row.querySelector(".ce-script-note").textContent = noteFor(script);
   }
   root.addEventListener("input", updateField);

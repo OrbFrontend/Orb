@@ -46,6 +46,9 @@ LAYERS = {
     # filter is the one piece of the browser worth testing directly, and
     # library_browser.js drags in the whole L5 chat chain.
     "library_filter.js": 0,
+    # The desktop-width card rescue: measures a rendered bubble and re-widens a
+    # collapsed card block. Pure DOM, imports nothing, so it stays a leaf.
+    "message_fit.js": 0,
     # The card-CSS policy: a tokenizer, an allowlist and the per-message scoper.
     # A leaf so it can be tested without a DOM, which is the whole point of it
     # being a string pass rather than a trip through the CSSOM.

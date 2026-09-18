@@ -41,6 +41,16 @@ The card editor's Card rendering section provides:
 - per-script enablement and controls to add, remove, and reorder scripts; and
 - an explicit **Message stylesheet (CSS)** field.
 
+The scope selector reads **Remove matches from** when the replacement is empty,
+or **Replace matches in** otherwise. **Chat display** runs that operation on
+the text shown in chat; **Model prompt** runs it on the text sent to the model.
+For example, removing matches from the chat display hides them from the reader
+but leaves them in the model prompt. To keep a matched block visible only to
+the reader, remove it from the model prompt instead. Script names are labels
+and do not control scope. **Message authors** selects whose messages are processed,
+not who can see the matched text. Each script's note describes only its own
+effect; other scripts may also change either copy of the message.
+
 Saving the card applies the edited declarations. The stylesheet is applied to
 assistant messages, then sanitized and scoped to the individual message. It
 accepts CSS directly or CSS pasted inside `<style>` blocks.

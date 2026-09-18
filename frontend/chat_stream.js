@@ -36,6 +36,7 @@ import {
 import { restNotice, speakerAvatarCell, unansweredHint } from "./group_cast.js";
 import { consumeSpeakerOverride, refreshSheetProposals, renderGroupCast } from "./group_setup.js";
 import { refreshCharacters } from "./library.js";
+import { fitMessageCards } from "./message_fit.js";
 import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
 import { isUtilityPanelOpen } from "./panels.js";
 import { ensurePersonaPinned } from "./settings_personas.js";
@@ -129,6 +130,9 @@ function smoothUpdateBody(el, newHtml, onComplete) {
   if (!el || el.innerHTML === newHtml) return;
   const prev = el.offsetHeight;
   el.innerHTML = newHtml;
+  // Before the height is read: a rescued card bubble is thousands of pixels
+  // shorter than the collapsed one, and this animates to whatever it sees.
+  fitMessageCards(el);
   const next = el.scrollHeight;
   if (Math.abs(next - prev) > 4) {
     el.style.height = `${prev}px`;
