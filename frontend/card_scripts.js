@@ -70,11 +70,18 @@ export function applyCardScripts(text, scripts, role) {
   return text;
 }
 
+const STYLE_ELEMENT_RE = /<style\b[^>]*>([\s\S]*?)(?:<\/style\s*>|$)/gi;
+
+function stylesheetText(css) {
+  if (!/<style\b/i.test(css)) return css;
+  return Array.from(css.matchAll(STYLE_ELEMENT_RE), (match) => match[1]).join("\n");
+}
+
 /** CSS stays inside the existing message sanitizer and per-message CSS scope. */
 export function projectCardDisplay(text, card, role) {
   text = applyCardScripts(text, card?.display_scripts, role);
-  const css = card?.display_css;
-  if (role === "assistant" && typeof css === "string" && css.trim()) {
+  const css = typeof card?.display_css === "string" ? stylesheetText(card.display_css) : "";
+  if (role === "assistant" && css.trim()) {
     // Prevent a stylesheet field from terminating its element and adding prose.
     text = `<style>${css.replace(/<\/style/gi, "<\\/style")}</style>\n${text}`;
   }

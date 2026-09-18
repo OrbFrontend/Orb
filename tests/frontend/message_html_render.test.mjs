@@ -345,6 +345,18 @@ it("card dialogue transforms survive the real sanitizer, with explicit scoped CS
   assert.match(parsed.querySelector("style")?.textContent || "", /\.msg-body \.msg-s[0-9a-z]+ body/);
 });
 
+it("a card stylesheet pasted with its style tags keeps its web font", async () => {
+  const { projectCardDisplay } = await import("../../frontend/card_scripts.js");
+  const card = {
+    display_css:
+      '<style>@font-face { font-family: board; src: url("https://fonts.invalid/b.ttf"); }\n.custom-dialogue { font-family: board !important; }</style>',
+  };
+  const sheet = reparse(render(projectCardDisplay("Hello.", card, "assistant"))).querySelector("style")?.textContent || "";
+  const face = sheet.match(/@font-face \{ font-family: "([^"]+)"/)?.[1];
+  assert.ok(face?.endsWith("-board"), sheet);
+  assert.ok(sheet.includes(`font-family: "${face}" !important`), sheet);
+});
+
 it("card edits change HTML cache keys for the same raw message", async () => {
   const { projectCardDisplay } = await import("../../frontend/card_scripts.js");
   const raw = "<dialogue>Hello.</dialogue>";

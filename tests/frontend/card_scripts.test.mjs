@@ -73,3 +73,10 @@ test("CSS only attaches to assistant messages and cannot break out of its elemen
   assert.equal(projectCardDisplay("hello", card, "user"), "hello");
   assert.ok(projectCardDisplay("hello", card, "assistant").startsWith('<style><\\/style>'));
 });
+
+test("CSS pasted with its style tags from a creator's note is unwrapped", () => {
+  const face = "@font-face { font-family: board; src: url(a.ttf); }";
+  const wrapped = { display_css: `Prose first.\n<style>${face}</style>\n<STYLE media="x">q { color: red; }` };
+  assert.equal(projectCardDisplay("hi", wrapped, "assistant"), `<style>${face}\nq { color: red; }</style>\nhi`);
+  assert.equal(projectCardDisplay("hi", { display_css: "<style></style>" }, "assistant"), "hi");
+});

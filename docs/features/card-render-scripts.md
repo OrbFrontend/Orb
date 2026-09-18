@@ -32,7 +32,9 @@ The explicit **Message stylesheet (CSS)** field lives at
 `extensions.orb.display_css`. It applies to the character's assistant messages
 through the existing message CSS sanitizer and per-message containment scope.
 Creator notes remain prose; copy desired CSS into the stylesheet field to use
-it. No new database column or migration is needed.
+it. The field takes a bare sheet or pasted `<style>` blocks, and in the latter
+case only the blocks' contents are used. No new database column or migration is
+needed.
 
 The character list exposes only `display_scripts` (find, replacement, placement)
 and `display_css`, not the full extensions object. Card edits refresh these
