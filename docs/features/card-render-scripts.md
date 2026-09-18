@@ -23,10 +23,28 @@ applies. The off-turn workflow prefix uses the same projection as generation.
 
 ## Card editor
 
-The Advanced tab lists imported declarations and provides a per-card enable
-checkbox (`extensions.orb.card_scripts_enabled`, enabled unless explicitly
-false). Disabling preserves the declarations. Changing scripts or enablement
-reprojects historical messages and invalidates the model's cached prefix.
+The Advanced tab provides one editable entry per script, with a name, find
+regex, replacement text, enabled checkbox, user/assistant targets, and a
+display/model/both scope selector. Entries can be added, removed, and moved
+up or down to control execution order. New entries default to assistant
+messages and display only. Empty replacements remove matched text; whitespace
+in search and replacement fields is preserved. Each entry states which side of
+the projection its scope keeps unchanged, and says so instead when no message
+type is targeted. Warnings are reserved for what the controls do not already
+show -- a pattern that will not compile, or an imported value Orb skips; they
+use the same compiler as display rendering and do not prevent saving imported
+declarations.
+
+Edits are applied by the card's Save or Export PNG action; Cancel discards them.
+Untouched declarations, unknown fields, and unsupported placement values are
+preserved, including when supported fields are edited. Additional imported
+metadata remains available in a read-only disclosure. Unsupported options are
+preserved for export, not enabled by this editor.
+
+The per-card enable checkbox (`extensions.orb.card_scripts_enabled`, enabled
+unless explicitly false) disables execution without discarding declarations.
+Changing scripts or enablement reprojects historical messages and invalidates
+the model's cached prefix.
 
 The explicit **Message stylesheet (CSS)** field lives at
 `extensions.orb.display_css`. It applies to the character's assistant messages

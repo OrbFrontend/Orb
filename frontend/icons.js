@@ -26,6 +26,7 @@ export const CLOSE_ICON = icon(CLOSE_ICON_PATHS);
 export const PLUS_ICON = icon('<path d="M12 5v14M5 12h14"/>');
 export const MENU_ICON = icon('<path d="M3 6h18M3 12h18M3 18h18"/>');
 export const DOWNLOAD_ICON = icon('<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 20h16"/>');
+export const CHEVRON_UP_ICON = icon('<path d="m18 15-6-6-6 6"/>');
 export const CHEVRON_DOWN_ICON = icon('<path d="m6 9 6 6 6-6"/>');
 export const CHEVRON_LEFT_ICON = icon('<path d="m15 18-6-6 6-6"/>');
 export const CHEVRON_RIGHT_ICON = icon('<path d="m9 18 6-6-6-6"/>');

@@ -524,6 +524,13 @@ async def test_card_render_projection_and_script_roundtrip(client, db, tmp_path)
     exported = tmp_path / "export.png"
     exported.write_bytes((await client.get(f"/api/characters/{card_id}/export")).content)
     assert parsing.card_to_dict(parsing.parse(str(exported)))["extensions"] == extensions
+    # Editor changes use the existing extension update path and survive PNG export.
+    display.update({"findRegex": "/<speech>/g", "replaceString": " \n$1\n ", "minDepth": 3})
+    await client.put(f"/api/characters/{card_id}", json={"extensions": extensions})
+    listed = next(card for card in (await client.get("/api/characters")).json() if card["id"] == card_id)
+    assert listed["display_scripts"][0] == {key: display[key] for key in ("findRegex", "replaceString", "placement")}
+    exported.write_bytes((await client.get(f"/api/characters/{card_id}/export")).content)
+    assert parsing.card_to_dict(parsing.parse(str(exported)))["extensions"] == extensions
     extensions["orb"]["card_scripts_enabled"] = False
     await client.put(f"/api/characters/{card_id}", json={"extensions": extensions})
     listed = next(card for card in (await client.get("/api/characters")).json() if card["id"] == card_id)

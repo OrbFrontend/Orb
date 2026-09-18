@@ -1,0 +1,231 @@
+import { compileCardScriptPattern } from "./card_scripts.js";
+import { CHEVRON_DOWN_ICON, CHEVRON_RIGHT_ICON, CHEVRON_UP_ICON, CLOSE_ICON } from "./icons.js";
+import { esc, escAttr } from "./utils.js";
+
+const KNOWN_FIELDS = new Set([
+  "id",
+  "scriptName",
+  "findRegex",
+  "replaceString",
+  "disabled",
+  "placement",
+  "markdownOnly",
+  "promptOnly",
+]);
+const isRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+const textValue = (value) => (typeof value === "string" ? value : "");
+const scope = (script) => {
+  if (script.markdownOnly && !script.promptOnly) return "display";
+  if (script.promptOnly && !script.markdownOnly) return "prompt";
+  return "both";
+};
+
+function scriptId() {
+  // Orb can be opened over plain HTTP on a LAN, where randomUUID is unavailable.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/* Report only what the fields do not already show. An empty pattern or an
+   unticked target is visible in the control itself; what a reader cannot see is
+   that a pattern will not compile, or that an import holds a value Orb skips. */
+function warningFor(script, index) {
+  if (!isRecord(script)) return "Unrecognized declaration; preserved unchanged unless removed.";
+  const warnings = [];
+  const find = script.findRegex;
+  if (index >= 50) warnings.push("Only the first 50 entries run.");
+  if (find != null && typeof find !== "string") {
+    warnings.push("Search pattern must be text; this entry is skipped.");
+  } else if (typeof find === "string" && find.length > 4096) {
+    warnings.push("Patterns longer than 4,096 characters are skipped.");
+  } else if (find) {
+    try {
+      if (!compileCardScriptPattern(find)) warnings.push("Unsupported flags; use g, i, m, s or u.");
+    } catch {
+      warnings.push("Invalid display regex; check the search pattern.");
+    }
+  }
+  if (script.replaceString != null && typeof script.replaceString !== "string") {
+    warnings.push("Replacement must be text; this entry is skipped.");
+  }
+  return warnings.join(" ");
+}
+
+/* Neither channel rewrites history, so which one a script runs in is the whole
+   difference between the two reads -- and the select's own wording names the
+   side that changes without saying the other side stays as written. */
+const SCOPE_NOTES = {
+  display: "Changes what you see. The model still receives the message unchanged.",
+  prompt: "Changes what the model receives. You still see the message unchanged.",
+  both: "Changes both what you see and what the model receives.",
+};
+
+function noteFor(script) {
+  if (!Array.isArray(script.placement) || !script.placement.some((p) => p === 1 || p === 2)) {
+    return "No message type is selected, so this script never runs.";
+  }
+  return SCOPE_NOTES[scope(script)];
+}
+
+function rowHtml(script, index, count) {
+  const valid = isRecord(script);
+  const extras = valid ? Object.fromEntries(Object.entries(script).filter(([key]) => !KNOWN_FIELDS.has(key))) : script;
+  const id = `ce-script-${index}`;
+  const controls = valid
+    ? `
+    <div class="field"><label for="${id}-name">Script name</label>
+      <input id="${id}-name" data-script-field="scriptName" value="${escAttr(textValue(script.scriptName))}" placeholder="Untitled script">
+    </div>
+    <div class="field"><label for="${id}-find">Find regex</label>
+      <textarea id="${id}-find" data-script-field="findRegex" rows="2" spellcheck="false" placeholder="/pattern/g">\n${esc(textValue(script.findRegex))}</textarea>
+    </div>
+    <div class="field"><label for="${id}-replace">Replace with</label>
+      <textarea id="${id}-replace" data-script-field="replaceString" rows="3" spellcheck="false" placeholder="Leave empty to remove matches">\n${esc(textValue(script.replaceString))}</textarea>
+    </div>
+    <div class="ce-script-options">
+      <fieldset><legend>Messages</legend>
+        <div class="ce-script-checks">
+          <label><input type="checkbox" data-script-field="placement" value="1" ${Array.isArray(script.placement) && script.placement.includes(1) ? "checked" : ""}> User</label>
+          <label><input type="checkbox" data-script-field="placement" value="2" ${Array.isArray(script.placement) && script.placement.includes(2) ? "checked" : ""}> Assistant</label>
+        </div>
+      </fieldset>
+      <div class="field"><label for="${id}-scope">Apply to</label>
+        <select id="${id}-scope" data-script-field="scope">
+          ${[
+            ["display", "Display only"],
+            ["prompt", "Model prompt only"],
+            ["both", "Display and model prompt"],
+          ]
+            .map(
+              ([value, label]) =>
+                `<option value="${value}" ${scope(script) === value ? "selected" : ""}>${label}</option>`,
+            )
+            .join("")}
+        </select>
+      </div>
+    </div>
+    <p class="ce-script-note">${esc(noteFor(script))}</p>`
+    : "";
+  const disabled = valid && Boolean(script.disabled);
+  return `<section class="ce-script-row${disabled ? " is-disabled" : ""}" data-script-index="${index}" aria-label="Script ${index + 1}">
+    <div class="ce-script-toolbar">
+      <span class="ce-script-title">Script ${index + 1}</span>
+      ${valid ? `<label><input type="checkbox" data-script-field="enabled" ${disabled ? "" : "checked"}> Enabled</label>` : ""}
+      <div class="ce-script-actions">
+        <button type="button" class="btn btn-sm btn-square" data-script-action="up" title="Move up" aria-label="Move script ${index + 1} up" ${index === 0 ? "disabled" : ""}>${CHEVRON_UP_ICON}</button>
+        <button type="button" class="btn btn-sm btn-square" data-script-action="down" title="Move down" aria-label="Move script ${index + 1} down" ${index === count - 1 ? "disabled" : ""}>${CHEVRON_DOWN_ICON}</button>
+        <button type="button" class="btn btn-sm btn-square" data-script-action="remove" title="Remove" aria-label="Remove script ${index + 1}">${CLOSE_ICON}</button>
+      </div>
+    </div>
+    ${controls}
+    <p class="ce-script-warning" role="status">${esc(warningFor(script, index))}</p>
+    ${
+      !valid || Object.keys(extras).length
+        ? `<details class="ce-scripts">
+      <summary>${CHEVRON_RIGHT_ICON}<span>Preserved imported data</span></summary>
+      <p class="modal-hint">Kept on save and export. Depth limits, trim strings, macro substitution in search patterns, run-on-edit and other message targets are not applied by Orb.</p>
+      <pre class="ce-scripts-json">${esc(JSON.stringify(extras, null, 2))}</pre>
+    </details>`
+        : ""
+    }
+  </section>`;
+}
+
+/** Own one modal's draft. Untouched declarations (including unknown fields) round-trip exactly. */
+export function mountCardScriptsEditor(root, original) {
+  const scripts = Array.isArray(original) ? structuredClone(original) : [];
+  let changed = false;
+  root.classList.add("ce-scripts-editor");
+  function render() {
+    root.innerHTML = `<div class="ce-script-list">${scripts.map((script, i) => rowHtml(script, i, scripts.length)).join("") || '<p class="ce-scripts-empty">This card carries no scripts.</p>'}</div>
+      <div class="ce-script-footer">
+        <button type="button" class="btn btn-sm" data-script-action="add">+ Add script</button>
+        <p class="modal-hint">Use /pattern/g to replace every match. Replacements support $1, $2, $&lt;name&gt; and {{match}}. Changes take effect when you save the card.</p>
+      </div>`;
+  }
+  const actions = new Map([
+    [
+      "add",
+      () => {
+        scripts.push({
+          id: scriptId(),
+          scriptName: "",
+          findRegex: "",
+          replaceString: "",
+          placement: [2],
+          disabled: false,
+          markdownOnly: true,
+          promptOnly: false,
+        });
+        return scripts.length - 1;
+      },
+    ],
+    [
+      "remove",
+      (index) => {
+        scripts.splice(index, 1);
+        return Math.min(index, scripts.length - 1);
+      },
+    ],
+    [
+      "up",
+      (index) => {
+        if (index > 0) [scripts[index - 1], scripts[index]] = [scripts[index], scripts[index - 1]];
+        return Math.max(0, index - 1);
+      },
+    ],
+    [
+      "down",
+      (index) => {
+        if (index < scripts.length - 1) [scripts[index + 1], scripts[index]] = [scripts[index], scripts[index + 1]];
+        return Math.min(scripts.length - 1, index + 1);
+      },
+    ],
+  ]);
+  root.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-script-action]");
+    if (!button || button.disabled) return;
+    const action = actions.get(button.dataset.scriptAction);
+    if (!action) return;
+    const index = Number(button.closest("[data-script-index]")?.dataset.scriptIndex);
+    const nextIndex = action(index);
+    changed = true;
+    render();
+    const row = root.querySelector(`[data-script-index="${nextIndex}"]`);
+    const focusTarget =
+      button.dataset.scriptAction === "add"
+        ? row?.querySelector('[data-script-field="scriptName"]')
+        : row?.querySelector(`[data-script-action="${button.dataset.scriptAction}"]:not(:disabled)`);
+    (focusTarget || row?.querySelector("input") || root.querySelector('[data-script-action="add"]'))?.focus();
+  });
+  function updateField(event) {
+    const input = event.target.closest("[data-script-field]");
+    if (!input) return;
+    const row = input.closest("[data-script-index]");
+    const index = Number(row.dataset.scriptIndex);
+    const script = scripts[index];
+    const field = input.dataset.scriptField;
+    if (field === "enabled") {
+      script.disabled = !input.checked;
+      row.classList.toggle("is-disabled", script.disabled);
+    } else if (field === "scope") {
+      script.markdownOnly = input.value !== "prompt";
+      script.promptOnly = input.value !== "display";
+    } else if (field === "placement") {
+      const target = Number(input.value);
+      const placement = Array.isArray(script.placement) ? script.placement : [];
+      script.placement = placement.filter((p) => p !== target);
+      if (input.checked) script.placement.push(target);
+    } else script[field] = input.value;
+    changed = true;
+    row.querySelector(".ce-script-warning").textContent = warningFor(script, index);
+    row.querySelector(".ce-script-note").textContent = noteFor(script);
+  }
+  root.addEventListener("input", updateField);
+  root.addEventListener("change", updateField);
+  render();
+  return () => structuredClone(changed ? scripts : original);
+}

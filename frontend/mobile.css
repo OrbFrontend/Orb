@@ -296,6 +296,16 @@ body {
     row-gap: 8px;
   }
 
+  /* Card scripts: the row gives back some padding so the header -- title,
+     Enabled, and the three square actions -- still fits on one line. */
+  .ce-script-row {
+    --ce-row-pad: 10px;
+  }
+
+  .ce-script-actions {
+    gap: 4px;
+  }
+
   #lorebook-drawer .lb-entry-list {
     width: 100%;
     min-width: 0;

@@ -101,6 +101,7 @@ LAYERS = {
     "library_browser.js": 5,
     "library_manager.js": 5,
     "library_card_generator.js": 5,
+    "library_card_scripts.js": 5,
     "library_dedupe.js": 5,
     "library_fragments.js": 5,
     "lorebooks.js": 5,

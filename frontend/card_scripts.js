@@ -7,7 +7,7 @@ const ENGINE_FLAGS = /^[gimsu]*$/; // Flag-shaped and honoured here.
 const TOKEN = /\$(?:[$&`']|<[^>]*>|[0-9]{1,2})/g;
 
 /** Compile a JavaScript pattern literal, or the whole string when it is not one. */
-function compilePattern(source) {
+export function compileCardScriptPattern(source) {
   let pattern = source;
   let flags = "";
   const end = source.startsWith("/") ? source.lastIndexOf("/") : 0;
@@ -55,7 +55,7 @@ export function applyCardScripts(text, scripts, role) {
     const replacement = script.replaceString ?? "";
     if (typeof replacement !== "string") continue;
     try {
-      const pattern = compilePattern(source);
+      const pattern = compileCardScriptPattern(source);
       if (!pattern) throw new SyntaxError("unsupported regex flags");
       text = text.replace(pattern, (...args) => {
         const named = typeof args.at(-1) === "object" ? args.at(-1) : undefined;

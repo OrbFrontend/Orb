@@ -40,6 +40,39 @@ test("an abandoned PNG import cannot lend its identity or avatar to the next dra
   assert.equal(saved.source_format, "generated");
 });
 
+test("the card save includes edited regex drafts and preserves unrelated extensions", async () => {
+  const extensions = {
+    regex_scripts: [{ id: "imported", findRegex: "/old/g", replaceString: "old", placement: [2, 5], minDepth: 3 }],
+    foreign: { keep: true },
+    orb: { display_css: ".dialogue { color: red; }" },
+  };
+  await showCharEditModal({ name: "Scripted", extensions });
+  const replacement = document.querySelector('[data-script-field="replaceString"]');
+  replacement.value = " \n$1\n ";
+  replacement.dispatchEvent(new window.Event("input", { bubbles: true }));
+  document.querySelector('[data-script-field="enabled"]').click();
+  document.getElementById("ce-scripts-enabled").checked = false;
+  await saveImportedChar();
+  assert.deepEqual(saved.extensions, {
+    ...extensions,
+    regex_scripts: [{ ...extensions.regex_scripts[0], replaceString: " \n$1\n ", disabled: true }],
+    orb: { ...extensions.orb, card_scripts_enabled: false },
+  });
+  assert.equal(extensions.regex_scripts[0].replaceString, "old");
+
+  await showCharEditModal({ name: "Scripted", extensions });
+  document.querySelector('[data-script-action="remove"]').click();
+  closeModal();
+  await showCharEditModal({ name: "Scripted", extensions });
+  await saveImportedChar();
+  assert.deepEqual(saved.extensions, extensions, "Cancel discards script deletion");
+
+  await showCharEditModal({ name: "Scripted", extensions });
+  document.querySelector('[data-script-action="remove"]').click();
+  await saveImportedChar();
+  assert.deepEqual(saved.extensions.regex_scripts, [], "Save persists deleting the last script");
+});
+
 test("generated fields at every clamp limit pass the actual form save", async () => {
   const draft = {
     name: "N".repeat(100), description: "D".repeat(6000), personality: "P".repeat(1200),

@@ -280,15 +280,156 @@
   margin-top: 12px;
 }
 
-/* Imported card scripts, read-only. A drawn chevron, never the UA's own marker:
-   the native triangle is a font glyph and lands differently under every theme. */
+/* Per-card regex editor and preserved import metadata.
+
+   Every block inside a script row is spaced by one grid gap rather than by its
+   own margin, so a row that hides its warning or its preserved-data drawer
+   closes the space with it instead of leaving a hole. */
+.ce-scripts-editor { margin-bottom: 16px; }
+
+.ce-script-list {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ce-script-row {
+  --ce-row-pad: 12px;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: var(--ce-row-pad);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-deep);
+}
+
+.ce-script-row > .field { margin-bottom: 0; }
+
+/* The header rule runs the full width of the row, so it bleeds back out over
+   the row's own padding. */
+.ce-script-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin: 0 calc(var(--ce-row-pad) * -1);
+  padding: 0 var(--ce-row-pad) 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ce-script-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.ce-script-actions {
+  --btn-square-size: 26px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.ce-script-actions .btn[disabled] {
+  opacity: .4;
+  pointer-events: none;
+}
+
+/* A checkbox beside its own text must not keep the stacked-field label margin:
+   centring the row centres the label's box, bottom margin included, so the
+   words ride high while the box sits level (see .setting-row in forms.css). */
+.ce-script-row label:has(> input[type="checkbox"]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.ce-script-row textarea {
+  /* rows="" sizes these; the global 60px floor would leave the shorter one
+     standing half empty. */
+  min-height: 0;
+  line-height: 1.5;
+  font-family: var(--font-mono, monospace);
+}
+
+.ce-script-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px 16px;
+}
+
+.ce-script-options > .field { margin-bottom: 0; min-width: 0; }
+
+.ce-script-options fieldset {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* A <legend> is not a <label>, so it needs the label styling spelled out --
+   including the UA's 2px inline padding, which would otherwise push "Messages"
+   off the left edge its own checkboxes sit on. */
+.ce-script-options legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+/* Grows to fill whatever height the select beside it sets, so side by side the
+   two option columns end level and stacked neither carries dead space. */
+.ce-script-checks {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.ce-script-note,
+.ce-script-warning {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.ce-script-note { color: var(--text-muted); }
+.ce-script-warning { color: #c8a84b; }
+
+.ce-script-warning:empty { display: none; }
+
+/* A disabled script reads as off without dimming the header that switches it
+   back on, or the warning explaining why it would not have run anyway. */
+.ce-script-row.is-disabled > :not(.ce-script-toolbar):not(.ce-script-warning) {
+  opacity: .55;
+}
+
+.ce-script-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.ce-script-footer .modal-hint { margin: 0; }
+
 .modal .ce-scripts > summary {
   --ui-icon-size: 10px;
   --ui-icon-stroke: 2.6;
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 10px;
   font-size: 11px;
   color: var(--text-muted);
   cursor: pointer;
@@ -301,8 +442,10 @@
 .modal .ce-scripts > summary .ui-icon { transition: transform .15s; }
 .modal .ce-scripts[open] > summary .ui-icon { transform: rotate(90deg); }
 
+.modal .ce-scripts > .modal-hint { margin-top: 8px; }
+
 .modal .ce-scripts-json {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   padding: 8px 10px;
   max-height: 220px;
   overflow: auto;
@@ -317,9 +460,13 @@
 }
 
 .modal .ce-scripts-empty {
-  margin-top: 10px;
-  font-size: 11px;
+  margin: 0;
+  padding: 16px 0;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
   color: var(--text-muted);
+  text-align: center;
 }
 
 .char-avatar-lg {
