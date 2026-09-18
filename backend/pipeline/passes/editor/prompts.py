@@ -43,7 +43,7 @@ EDITOR_PATCH_INSTRUCTIONS = (
     "- For banned phrases: completely rewrite the sentence to eliminate the banned phrase. Make a creative and bold effort; do not just substitute with similar words.\n"
     "- For repetitive openers: rewrite flagged sentences so they no longer begin with the same opening words. Vary the sentence structure.\n"
     "- For repetitive templates: restructure flagged sentences so they no longer follow the same POS pattern. Change clause order, combine sentences, vary syntax.\n"
-    "- For repetitive phrases: rewrite flagged phrases.\n"
+    "- For repetitive phrases: rewrite flagged phrases, changing the subject.\n"
     "- For contrastive negation ('not X, but Y'): rewrite sentences that use this cliché construction. Consider alternative phrasing that avoids this rhetorical formula.\n"
     "- For interrogative dialogue: replace the dialogue with something entirely different."
 )
