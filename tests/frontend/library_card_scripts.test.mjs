@@ -144,3 +144,62 @@ test("opening a different draft does not retain abandoned scripts and preserves 
   assert.deepEqual(read(), []);
   assert.equal(root.querySelector(".ce-script-row"), null);
 });
+
+test("rows stand collapsed to a preview of their own effect until they are opened", () => {
+  mountCardScriptsEditor(root, [
+    { scriptName: "dialogue", findRegex: "/<dialogue>/ig", replaceString: '<div\n  class="dialogue">', placement: [2], markdownOnly: true },
+    { findRegex: "/a/g", replaceString: "", placement: [1, 2] },
+    { findRegex: "", replaceString: "b", placement: [] },
+  ]);
+  const part = (name, index = 0) => row(index).querySelector(`[data-script-${name}]`).textContent;
+  const collapsed = (index = 0) => row(index).classList.contains("is-collapsed");
+  const toggle = (index = 0) => row(index).querySelector('[data-script-action="toggle"]');
+  assert.ok([0, 1, 2].every((i) => collapsed(i)));
+  assert.equal(part("label"), "dialogue");
+  assert.equal(part("summary"), '/<dialogue>/ig → <div class="dialogue">', "a multi-line replacement previews on one line");
+  assert.equal(part("meta"), "Assistant · Chat display");
+  assert.equal(part("summary", 1), "/a/g → (removed)");
+  assert.equal(part("meta", 1), "User and Assistant · Display and prompt");
+  assert.equal(part("summary", 2), "No search pattern");
+  assert.equal(part("meta", 2), "No authors · Display and prompt");
+  toggle(0).click();
+  assert.equal(collapsed(0), false);
+  assert.equal(toggle(0).getAttribute("aria-expanded"), "true");
+  assert.equal(toggle(0).getAttribute("aria-controls"), row(0).querySelector(".ce-script-body").id);
+  toggle(0).click();
+  assert.equal(collapsed(0), true);
+});
+
+test("a preview tracks its own edits and an open row rides along with reordering", () => {
+  const read = mountCardScriptsEditor(root, [
+    { scriptName: "  padded  ", findRegex: "/a/g", replaceString: "b", placement: [2] },
+    { scriptName: "second", findRegex: "/c/g", replaceString: "d", placement: [2] },
+  ]);
+  const part = (name, index = 0) => row(index).querySelector(`[data-script-${name}]`).textContent;
+  row(0).querySelector('[data-script-action="toggle"]').click();
+  assert.equal(part("label"), "padded", "the header trims a name the card is free to keep padded");
+  assert.equal(field("scriptName").value, "  padded  ");
+  assert.equal(read()[0].scriptName, "  padded  ");
+  input("scriptName", "renamed");
+  input("findRegex", "/x/g");
+  input("replaceString", "");
+  input("scope", "prompt");
+  assert.equal(part("label"), "renamed");
+  assert.equal(part("summary"), "/x/g → (removed)");
+  assert.equal(part("meta"), "Assistant · Model prompt");
+  click("down", 0);
+  assert.equal(row(0).classList.contains("is-collapsed"), true, "the untouched row keeps its collapsed state");
+  assert.equal(row(1).classList.contains("is-collapsed"), false, "the open row stays open where it moved");
+  assert.equal(part("label", 1), "renamed");
+  assert.equal(read()[1].scriptName, "renamed");
+});
+
+test("a new script opens for editing and an unreadable entry has nothing to collapse", () => {
+  mountCardScriptsEditor(root, ["bad"]);
+  assert.equal(row().querySelector('[data-script-action="toggle"]'), null);
+  assert.equal(row().classList.contains("is-collapsed"), false);
+  assert.match(row().textContent, /Preserved imported data/);
+  click("add");
+  assert.equal(row(1).classList.contains("is-collapsed"), false);
+  assert.equal(window.document.activeElement, field("scriptName", 1));
+});

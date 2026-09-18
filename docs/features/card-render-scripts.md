@@ -41,6 +41,11 @@ The card editor's Card rendering section provides:
 - per-script enablement and controls to add, remove, and reorder scripts; and
 - an explicit **Message stylesheet (CSS)** field.
 
+A card can carry many scripts, so each row is collapsed to its name, a one-line
+preview of its search and replacement, and its authors and scope. Open a row to
+edit it; a newly added script opens for editing, and an open row stays open when
+it is reordered.
+
 The scope selector reads **Remove matches from** when the replacement is empty,
 or **Replace matches in** otherwise. **Chat display** runs that operation on
 the text shown in chat; **Model prompt** runs it on the text sent to the model.

@@ -69,12 +69,45 @@ function noteFor(script) {
   return notes[scope(script)];
 }
 
-function rowHtml(script, index, count) {
+/* A collapsed row stands in for its own body, so it has to say what the script
+   searches for, what it leaves behind, and which copy of which messages it
+   touches -- everything the open row spells out in controls. */
+const SCOPE_SUMMARIES = { display: "Chat display", prompt: "Model prompt", both: "Display and prompt" };
+
+function metaSummary(script) {
+  const placement = Array.isArray(script.placement) ? script.placement : [];
+  const authors = [
+    [1, "User"],
+    [2, "Assistant"],
+  ]
+    .filter(([value]) => placement.includes(value))
+    .map(([, label]) => label);
+  return `${authors.join(" and ") || "No authors"} · ${SCOPE_SUMMARIES[scope(script)]}`;
+}
+
+function patternSummary(script) {
+  const oneLine = (value) => textValue(value).replace(/\s+/g, " ").trim();
+  const find = oneLine(script.findRegex);
+  if (!find) return "No search pattern";
+  return `${find} → ${oneLine(script.replaceString) || "(removed)"}`;
+}
+
+const nameOf = (script) => textValue(script.scriptName).trim();
+
+function rowHtml(script, index, count, open) {
   const valid = isRecord(script);
   const extras = valid ? Object.fromEntries(Object.entries(script).filter(([key]) => !KNOWN_FIELDS.has(key))) : script;
   const id = `ce-script-${index}`;
-  const controls = valid
-    ? `
+  const preserved =
+    !valid || Object.keys(extras).length
+      ? `<details class="ce-scripts">
+      <summary>${CHEVRON_RIGHT_ICON}<span>Preserved imported data</span></summary>
+      <p class="modal-hint">Kept on save and export. Depth limits, trim strings, macro substitution in search patterns, run-on-edit and other message targets are not applied by Orb.</p>
+      <pre class="ce-scripts-json">${esc(JSON.stringify(extras, null, 2))}</pre>
+    </details>`
+      : "";
+  const body = valid
+    ? `<div class="ce-script-body" id="${id}-body">
     <div class="field"><label for="${id}-name">Script name</label>
       <input id="${id}-name" data-script-field="scriptName" value="${escAttr(textValue(script.scriptName))}" placeholder="Untitled script">
     </div>
@@ -106,40 +139,44 @@ function rowHtml(script, index, count) {
         </select>
       </div>
     </div>
-    <p id="${id}-note" class="ce-script-note">${esc(noteFor(script))}</p>`
-    : "";
+    <p id="${id}-note" class="ce-script-note">${esc(noteFor(script))}</p>
+    ${preserved}
+  </div>`
+    : preserved;
   const disabled = valid && Boolean(script.disabled);
-  return `<section class="ce-script-row${disabled ? " is-disabled" : ""}" data-script-index="${index}" aria-label="Script ${index + 1}">
+  return `<section class="ce-script-row${disabled ? " is-disabled" : ""}${valid && !open ? " is-collapsed" : ""}" data-script-index="${index}" aria-label="Script ${index + 1}">
     <div class="ce-script-toolbar">
-      <span class="ce-script-title">Script ${index + 1}</span>
-      ${valid ? `<label><input type="checkbox" data-script-field="enabled" ${disabled ? "" : "checked"}> Enabled</label>` : ""}
+      ${
+        valid
+          ? `<button type="button" class="ce-script-toggle" data-script-action="toggle" aria-expanded="${open}" aria-controls="${id}-body">
+        <span class="ce-script-chevron">${CHEVRON_RIGHT_ICON}</span>
+        <span class="ce-script-title">Script ${index + 1}</span>
+        <span class="ce-script-label" data-script-label>${esc(nameOf(script))}</span>
+      </button>`
+          : `<span class="ce-script-title">Script ${index + 1}</span>`
+      }
+      ${valid ? `<label class="ce-script-enabled"><input type="checkbox" data-script-field="enabled" ${disabled ? "" : "checked"}> <span>Enabled</span></label>` : ""}
       <div class="ce-script-actions">
         <button type="button" class="btn btn-sm btn-square" data-script-action="up" title="Move up" aria-label="Move script ${index + 1} up" ${index === 0 ? "disabled" : ""}>${CHEVRON_UP_ICON}</button>
         <button type="button" class="btn btn-sm btn-square" data-script-action="down" title="Move down" aria-label="Move script ${index + 1} down" ${index === count - 1 ? "disabled" : ""}>${CHEVRON_DOWN_ICON}</button>
         <button type="button" class="btn btn-sm btn-square" data-script-action="remove" title="Remove" aria-label="Remove script ${index + 1}">${CLOSE_ICON}</button>
       </div>
     </div>
-    ${controls}
+    ${valid ? `<p class="ce-script-summary"><code data-script-summary>${esc(patternSummary(script))}</code><span class="ce-script-meta" data-script-meta>${esc(metaSummary(script))}</span></p>` : ""}
+    ${body}
     <p class="ce-script-warning" role="status">${esc(warningFor(script, index))}</p>
-    ${
-      !valid || Object.keys(extras).length
-        ? `<details class="ce-scripts">
-      <summary>${CHEVRON_RIGHT_ICON}<span>Preserved imported data</span></summary>
-      <p class="modal-hint">Kept on save and export. Depth limits, trim strings, macro substitution in search patterns, run-on-edit and other message targets are not applied by Orb.</p>
-      <pre class="ce-scripts-json">${esc(JSON.stringify(extras, null, 2))}</pre>
-    </details>`
-        : ""
-    }
   </section>`;
 }
 
 /** Mount the editor and return a reader for its current draft. */
 export function mountCardScriptsEditor(root, original) {
   const scripts = Array.isArray(original) ? structuredClone(original) : [];
+  // Keyed by the draft object, so an open row stays open where reordering moves it.
+  const expanded = new WeakSet();
   let changed = false;
   root.classList.add("ce-scripts-editor");
   function render() {
-    root.innerHTML = `<div class="ce-script-list">${scripts.map((script, i) => rowHtml(script, i, scripts.length)).join("") || '<p class="ce-scripts-empty">This card carries no scripts.</p>'}</div>
+    root.innerHTML = `<div class="ce-script-list">${scripts.map((script, i) => rowHtml(script, i, scripts.length, expanded.has(script))).join("") || '<p class="ce-scripts-empty">This card carries no scripts.</p>'}</div>
       <div class="ce-script-footer">
         <button type="button" class="btn btn-sm" data-script-action="add">+ Add script</button>
         <p class="modal-hint">Use /pattern/g to replace every match. Replacements support $1, $2, $&lt;name&gt; and {{match}}. Changes take effect when you save the card.</p>
@@ -149,7 +186,7 @@ export function mountCardScriptsEditor(root, original) {
     [
       "add",
       () => {
-        scripts.push({
+        const script = {
           id: scriptId(),
           scriptName: "",
           findRegex: "",
@@ -158,7 +195,9 @@ export function mountCardScriptsEditor(root, original) {
           disabled: false,
           markdownOnly: true,
           promptOnly: false,
-        });
+        };
+        scripts.push(script);
+        expanded.add(script); // An empty row has nothing to preview, and is there to be filled in.
         return scripts.length - 1;
       },
     ],
@@ -187,18 +226,28 @@ export function mountCardScriptsEditor(root, original) {
   root.addEventListener("click", (event) => {
     const button = event.target.closest("[data-script-action]");
     if (!button || button.disabled) return;
+    const row = button.closest("[data-script-index]");
+    const index = Number(row?.dataset.scriptIndex);
+    // Opening a row only reveals markup the row already carries, so it needs no re-render.
+    if (button.dataset.scriptAction === "toggle") {
+      const open = row.classList.contains("is-collapsed");
+      if (open) expanded.add(scripts[index]);
+      else expanded.delete(scripts[index]);
+      row.classList.toggle("is-collapsed", !open);
+      button.setAttribute("aria-expanded", String(open));
+      return;
+    }
     const action = actions.get(button.dataset.scriptAction);
     if (!action) return;
-    const index = Number(button.closest("[data-script-index]")?.dataset.scriptIndex);
     const nextIndex = action(index);
     changed = true;
     render();
-    const row = root.querySelector(`[data-script-index="${nextIndex}"]`);
+    const nextRow = root.querySelector(`[data-script-index="${nextIndex}"]`);
     const focusTarget =
       button.dataset.scriptAction === "add"
-        ? row?.querySelector('[data-script-field="scriptName"]')
-        : row?.querySelector(`[data-script-action="${button.dataset.scriptAction}"]:not(:disabled)`);
-    (focusTarget || row?.querySelector("input") || root.querySelector('[data-script-action="add"]'))?.focus();
+        ? nextRow?.querySelector('[data-script-field="scriptName"]')
+        : nextRow?.querySelector(`[data-script-action="${button.dataset.scriptAction}"]:not(:disabled)`);
+    (focusTarget || nextRow?.querySelector("input") || root.querySelector('[data-script-action="add"]'))?.focus();
   });
   function updateField(event) {
     const input = event.target.closest("[data-script-field]");
@@ -223,6 +272,9 @@ export function mountCardScriptsEditor(root, original) {
     row.querySelector(".ce-script-warning").textContent = warningFor(script, index);
     row.querySelector("[data-script-scope-label]").textContent = scopeLabel(script);
     row.querySelector(".ce-script-note").textContent = noteFor(script);
+    row.querySelector("[data-script-label]").textContent = nameOf(script);
+    row.querySelector("[data-script-summary]").textContent = patternSummary(script);
+    row.querySelector("[data-script-meta]").textContent = metaSummary(script);
   }
   root.addEventListener("input", updateField);
   root.addEventListener("change", updateField);
