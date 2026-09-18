@@ -80,6 +80,7 @@ class PipelineContext:
     cast: TurnCast = field(default_factory=lambda: TurnCast(False, ()))
     speaker_names: Mapping[str, str] = field(default_factory=dict)
     speaker_scripts: Mapping[str, CardScripts] = field(default_factory=dict)
+    card_scripts: CardScripts = field(default_factory=CardScripts)
     group_members: tuple[Mapping[str, Any], ...] = ()
 
 
@@ -103,11 +104,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     card, active_persona = await resolve_card_and_persona(conv, settings)
     cast = await db.resolve_cast(conv)
     all_group_members = await db.get_group_members(conversation_id, include_inactive=True) if cast.grouped else []
-    speaker_scripts = {}
-    for member in all_group_members:
-        member_card = await db.get_character_card(card_id) if (card_id := member.get("character_card_id")) else None
-        if member_card:
-            speaker_scripts[member["id"]] = CardScripts.from_extensions(member_card.get("extensions"))
+    speaker_scripts = await db.get_group_member_scripts(conversation_id, members=all_group_members) if cast.grouped else {}
     # Card-embedded fragments merge into the global lists for this turn only
     # (the context is rebuilt per turn); on id collision the global wins.
     card_moods, card_interactive = await db.cast_embedded_fragments(card, cast)
@@ -153,6 +150,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         worlds=worlds,
         cast=cast,
         speaker_scripts=speaker_scripts,
+        card_scripts=CardScripts.from_extensions(card.get("extensions") if card else None),
         speaker_names={m["id"]: m["display_name"] for m in all_group_members},
         group_members=tuple(m for m in all_group_members if m.get("active")),
     )
@@ -223,7 +221,7 @@ def _build_prefix_from_ctx(
         extra_system_blocks=extra_system_blocks,
         cast=cast,
         speaker_names=ctx.speaker_names,
-        scripts=CardScripts.from_extensions(ctx.card.get("extensions") if ctx.card else None),
+        scripts=ctx.card_scripts,
         speaker_scripts=ctx.speaker_scripts,
     )
 

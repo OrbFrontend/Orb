@@ -50,7 +50,7 @@ from ..database import (
     get_character_card,
     get_conversation,
     get_director_state,
-    get_group_members,
+    get_group_member_scripts,
     get_interactive_fragments,
     get_message_by_id,
     get_messages,
@@ -287,12 +287,7 @@ async def build_offturn_prefix(
         settings, macro_char, persona, seed=conv.get("macro_seed") or conv.get("id", ""), cast=cast_names
     )
     speaker_names = await get_speaker_names(conversation_id) if turn_cast.grouped else {}
-    speaker_scripts = {}
-    if turn_cast.grouped:
-        for member in await get_group_members(conversation_id, include_inactive=True):
-            member_card = await get_character_card(card_id) if (card_id := member.get("character_card_id")) else None
-            if member_card:
-                speaker_scripts[member["id"]] = CardScripts.from_extensions(member_card.get("extensions"))
+    speaker_scripts = await get_group_member_scripts(conversation_id) if turn_cast.grouped else {}
     user_description = persona.get("description", "") if persona else settings.get("user_description", "")
     return _build_prefix(
         system_prompt,

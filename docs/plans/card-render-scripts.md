@@ -79,39 +79,13 @@ heaviest alternate greeting — text the model currently reads as content.
 | `alternate_greetings[1]` | 9785 | 3182 | 67% |
 | `alternate_greetings[4]` | 6735 | 2794 | 59% |
 
-## Current behavior, as measured
+## Shipped behavior
 
-Verified against this repo: the card run through `backend/features/cards/parsing.py`,
-and its text rendered through the real frontend pipeline under jsdom.
-
-**Import already works.** All four scripts survive
-`parse` → `card_to_dict` → `CharacterCardCreate` → the `extensions` TEXT column,
-and come back out of `get_character_card`. Nothing in the repository reads them:
-`regex_scripts` has zero references across backend, frontend, tests and docs.
-
-**Display is largely correct already.** The fan-page greeting renders: background
-image, audio element, marquee keyframes correctly scoped to the message, `hidden`
-respected on the `llm-only` block, and the planning comment dropped rather than
-leaked. `scopeClassName` ([`frontend/message_css.js:909`](../../frontend/message_css.js#L909))
-prefixes `custom-`, which is the same convention the card's own CSS is written
-against.
-
-**One visible break.** `<dialogue>` is not a tag the browser knows, so
-`escapeUnknownTags` ([`frontend/message_html.js:111`](../../frontend/message_html.js#L111))
-escapes it, by design — dropping it would spill prose. Every reply from this card
-therefore renders as literal text:
-
-```text
-&lt;dialogue&gt;Hm. That's funny.&lt;/dialogue&gt;
-```
-
-**The prompt path has no transform.**
-[`backend/prompting/base.py:20`](../../backend/prompting/base.py#L20) passes stored
-content through `{{user}}`/`{{char}}` substitution and nothing else, so the model
-receives the full HTML and CSS block *and* the markdown duplicate of the same
-text. Greetings are ordinary assistant message rows
-([`backend/api/routes/conversations.py:202`](../../backend/api/routes/conversations.py#L202)),
-so they travel this path like any other message.
+The import, prompt, display, editor, and explicit stylesheet paths described in
+the feature contract are implemented. The feature preserves canonical message
+content and applies the compiled projections only at read time. The shipped
+subset, limits, unsupported placements, and remaining secondary consumers are
+maintained in [the feature contract](../features/card-render-scripts.md).
 
 ## Design
 
