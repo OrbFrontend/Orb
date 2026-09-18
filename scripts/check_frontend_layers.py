@@ -46,6 +46,9 @@ LAYERS = {
     # filter is the one piece of the browser worth testing directly, and
     # library_browser.js drags in the whole L5 chat chain.
     "library_filter.js": 0,
+    # The desktop-width card rescue: measures a rendered bubble and re-widens a
+    # collapsed card block. Pure DOM, imports nothing, so it stays a leaf.
+    "message_fit.js": 0,
     # The card-CSS policy: a tokenizer, an allowlist and the per-message scoper.
     # A leaf so it can be tested without a DOM, which is the whole point of it
     # being a string pass rather than a trip through the CSSOM.
@@ -60,6 +63,7 @@ LAYERS = {
     # scoping. Sits beside utils.js because it is what makes utils.js output
     # safe to hand to innerHTML, and imports nothing above it.
     "message_html.js": 1,
+    "card_scripts.js": 1,
     # Pure render/state helpers for the Dynamic Worlds review surface; imports
     # only utils.js, so it sits alongside it rather than with the features.
     "world_proposals.js": 1,
@@ -100,6 +104,7 @@ LAYERS = {
     "library_browser.js": 5,
     "library_manager.js": 5,
     "library_card_generator.js": 5,
+    "library_card_scripts.js": 5,
     "library_dedupe.js": 5,
     "library_fragments.js": 5,
     "lorebooks.js": 5,

@@ -327,3 +327,56 @@ it("a message too large for the cache still renders, and renders the same way", 
   const small = "*hello* `world`";
   assert.equal(render(small), render(small));
 });
+
+it("card dialogue transforms survive the real sanitizer, with explicit scoped CSS", async () => {
+  const { projectCardDisplay } = await import("../../frontend/card_scripts.js");
+  const card = {
+    display_scripts: [
+      { findRegex: "/<dialogue>/ig", replaceString: '<div class="dialogue-outer"><div class="dialogue">', placement: [2] },
+      { findRegex: "/<\\/dialogue>/ig", replaceString: "</div></div>", placement: [2] },
+    ],
+    display_css: ".custom-dialogue { color: red; } body { position: fixed; }",
+  };
+  const html = render(projectCardDisplay("<dialogue>Hello.</dialogue>", card, "assistant"));
+  const parsed = reparse(html);
+  assert.equal(parsed.querySelector(".custom-dialogue")?.textContent, "Hello.");
+  assert.ok(!html.includes("&lt;dialogue"), html);
+  assert.match(parsed.querySelector("style")?.textContent || "", /color:\s*red/);
+  assert.match(parsed.querySelector("style")?.textContent || "", /\.msg-body \.msg-s[0-9a-z]+ body/);
+});
+
+it("a card stylesheet pasted with its style tags keeps its web font", async () => {
+  const { projectCardDisplay } = await import("../../frontend/card_scripts.js");
+  const card = {
+    display_css:
+      '<style>@font-face { font-family: board; src: url("https://fonts.invalid/b.ttf"); }\n.custom-dialogue { font-family: board !important; }</style>',
+  };
+  const sheet = reparse(render(projectCardDisplay("Hello.", card, "assistant"))).querySelector("style")?.textContent || "";
+  const face = sheet.match(/@font-face \{ font-family: "([^"]+)"/)?.[1];
+  assert.ok(face?.endsWith("-board"), sheet);
+  assert.ok(sheet.includes(`font-family: "${face}" !important`), sheet);
+});
+
+it("card edits change HTML cache keys for the same raw message", async () => {
+  const { projectCardDisplay } = await import("../../frontend/card_scripts.js");
+  const raw = "<dialogue>Hello.</dialogue>";
+  const card = {
+    display_scripts: [{ findRegex: "/dialogue/g", replaceString: "strong", placement: [2] }],
+  };
+  const before = render(projectCardDisplay(raw, card, "assistant"));
+  card.display_scripts[0].replaceString = "em";
+  const after = render(projectCardDisplay(raw, card, "assistant"));
+  assert.notEqual(before, after);
+  assert.equal(reparse(before).querySelector("strong")?.textContent, "Hello.");
+  assert.equal(reparse(after).querySelector("em")?.textContent, "Hello.");
+  card.display_css = "em { color: blue; }";
+  assert.notEqual(render(projectCardDisplay(raw, card, "assistant")), after);
+});
+
+it("script replacements still cross the HTML trust boundary", async () => {
+  const { projectCardDisplay } = await import("../../frontend/card_scripts.js");
+  const source = projectCardDisplay("hello", { display_scripts: [{ findRegex: "/hello/g", replaceString: '<script>alert(1)</script><div onclick="alert(2)" data-chat-action="delete">safe</div>', placement: [2] }] }, "assistant");
+  const html = render(source);
+  assert.ok(!/<script|onclick|data-chat-action/.test(html), html);
+  assert.match(html, /safe/);
+});

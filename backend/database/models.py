@@ -671,6 +671,8 @@ class CharacterCardRow(TypedDict, total=False):
     has_avatar: bool
     has_expressions: bool
     def_chars: int
+    display_scripts: list[dict]
+    display_css: str
 
 
 class CharacterExpressionRow(TypedDict):

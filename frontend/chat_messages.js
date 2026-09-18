@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { messageDisplaySource } from "./card_scripts.js";
 import {
   canStartGeneration,
   ensureIndexInWindow,
@@ -9,6 +10,7 @@ import {
 import { clearWorkflowPhase, renderInspector, setWorkflowPhase } from "./chat_inspector.js";
 import { runStreamRequest, turnPayload } from "./chat_stream.js";
 import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
+import { fitMessageCards } from "./message_fit.js";
 import { renderMessageHtml } from "./message_html.js";
 import { confirmDelete } from "./modal.js";
 import { isUtilityPanelOpen } from "./panels.js";
@@ -208,7 +210,9 @@ function applyProseRewriteSnapshot(msgId, content) {
   const message = S.messages.find((m) => m.id === msgId);
   if (message) message.content = content;
   const body = messageBody(msgId);
-  if (body) body.innerHTML = renderMessageHtml(resolvePlaceholders(content));
+  if (!body) return;
+  body.innerHTML = renderMessageHtml(messageDisplaySource(message || { role: "assistant", content }));
+  fitMessageCards(body);
 }
 
 // Swipes arrive faster than the round trip they start, so responses can land out

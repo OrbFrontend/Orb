@@ -29,6 +29,7 @@ from ..analysis.text.roleplay_segmentation import (
     find_emphasis_spans,
 )
 from ..core import (
+    CardScripts,
     Macros,
     workflow_character_state_lock,
     workflow_config_lock,
@@ -49,6 +50,7 @@ from ..database import (
     get_character_card,
     get_conversation,
     get_director_state,
+    get_group_member_scripts,
     get_interactive_fragments,
     get_message_by_id,
     get_messages,
@@ -285,6 +287,7 @@ async def build_offturn_prefix(
         settings, macro_char, persona, seed=conv.get("macro_seed") or conv.get("id", ""), cast=cast_names
     )
     speaker_names = await get_speaker_names(conversation_id) if turn_cast.grouped else {}
+    speaker_scripts = await get_group_member_scripts(conversation_id) if turn_cast.grouped else {}
     user_description = persona.get("description", "") if persona else settings.get("user_description", "")
     return _build_prefix(
         system_prompt,
@@ -298,4 +301,6 @@ async def build_offturn_prefix(
         constant_lorebook_block=_compute_constant_lorebook_block(await get_active_lorebook_entries(), macros),
         cast=turn_cast,
         speaker_names=speaker_names,
+        scripts=CardScripts.from_extensions(card.get("extensions") if card else None),
+        speaker_scripts=speaker_scripts,
     )

@@ -1,0 +1,97 @@
+import { charactersView, S } from "./state.js";
+import { resolvePlaceholders } from "./utils.js";
+
+const MAX_TEXT_LENGTH = 100_000;
+const JS_FLAGS = /^(?!.*?(.).*?\1)[gmixXsuUAJ]+$/; // Accepted by the source parser.
+const ENGINE_FLAGS = /^[gimsu]*$/; // Supported by both projections.
+const TOKEN = /\$(?:[$&`']|<[^>]*>|[0-9]{1,2})/g;
+
+/** Compile a JavaScript pattern literal, or the whole string when it is not one. */
+export function compileCardScriptPattern(source) {
+  let pattern = source;
+  let flags = "";
+  const end = source.startsWith("/") ? source.lastIndexOf("/") : 0;
+  const declared = end > 0 ? source.slice(end + 1) : "";
+  if (end > 0 && (!declared || JS_FLAGS.test(declared))) {
+    pattern = source.slice(1, end);
+    flags = declared;
+  }
+  if (!ENGINE_FLAGS.test(flags)) return null;
+  return new RegExp(pattern, flags);
+}
+
+/** Expand the shared JavaScript-compatible replacement tokens. */
+function expandReplacement(template, captures, groups, offset, source) {
+  const expanded = template.replace(/\{\{match\}\}/gi, "$0").replace(TOKEN, (token) => {
+    const key = token.slice(1);
+    if (key === "$") return "$";
+    if (key === "&") return captures[0];
+    if (key === "`") return source.slice(0, offset);
+    if (key === "'") return source.slice(offset + captures[0].length);
+    if (key.startsWith("<")) return groups?.[key.slice(1, -1)] ?? "";
+    const index = Number(key);
+    if (index === 0) return captures[0];
+    if (index > 0 && index < captures.length) return captures[index] ?? "";
+    if (key.length === 2 && Number(key[0]) > 0 && Number(key[0]) < captures.length)
+      return (captures[Number(key[0])] ?? "") + key[1];
+    return token;
+  });
+  return expanded.includes("{{") ? resolvePlaceholders(expanded) : expanded;
+}
+
+/** Apply display-side card scripts before HTML memoization. */
+export function applyCardScripts(text, scripts, role) {
+  const placement = { user: 1, assistant: 2 }[role];
+  if (!placement || !Array.isArray(scripts) || text.length > MAX_TEXT_LENGTH) return text;
+  const original = text;
+  for (const script of scripts.slice(0, 50)) {
+    if (!script || script.disabled || !Array.isArray(script.placement) || !script.placement.includes(placement))
+      continue;
+    if (script.promptOnly && !script.markdownOnly) continue;
+    const source = script.findRegex;
+    if (typeof source !== "string" || !source || source.length > 4096) continue;
+    const replacement = script.replaceString ?? "";
+    if (typeof replacement !== "string") continue;
+    try {
+      const pattern = compileCardScriptPattern(source);
+      if (!pattern) throw new SyntaxError("unsupported regex flags");
+      text = text.replace(pattern, (...args) => {
+        const named = typeof args.at(-1) === "object" ? args.at(-1) : undefined;
+        const tail = named ? 3 : 2;
+        return expandReplacement(replacement, args.slice(0, -tail), named, args.at(-tail), args.at(-tail + 1));
+      });
+    } catch {
+      console.warn("Ignoring invalid or unsupported card regex");
+    }
+    if (text.length > MAX_TEXT_LENGTH) return original;
+  }
+  return text;
+}
+
+const STYLE_ELEMENT_RE = /<style\b[^>]*>([\s\S]*?)(?:<\/style\s*>|$)/gi;
+
+function stylesheetText(css) {
+  if (!/<style\b/i.test(css)) return css;
+  return Array.from(css.matchAll(STYLE_ELEMENT_RE), (match) => match[1]).join("\n");
+}
+
+/** Project card CSS through the existing message sanitizer and scope. */
+export function projectCardDisplay(text, card, role) {
+  text = applyCardScripts(text, card?.display_scripts, role);
+  const css = typeof card?.display_css === "string" ? stylesheetText(card.display_css) : "";
+  if (role === "assistant" && css.trim()) {
+    // Keep card CSS from terminating the injected style element.
+    text = `<style>${css.replace(/<\/style/gi, "<\\/style")}</style>\n${text}`;
+  }
+  return text;
+}
+
+export function messageDisplaySource(message) {
+  const conv = S.conversations?.find((c) => c.id === S.activeConvId);
+  const cardId = S.groupCast
+    ? (S.groupCast.speakerCardIds?.get(message.speaker_member_id) ??
+      S.groupCast.members?.find((m) => m.id === message.speaker_member_id)?.character_card_id)
+    : conv?.character_card_id;
+  const card = cardId ? charactersView().find((c) => c.id === cardId) : null;
+  return projectCardDisplay(resolvePlaceholders(message.content || ""), card, message.role);
+}

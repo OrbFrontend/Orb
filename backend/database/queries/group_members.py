@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 from typing import cast as typed_cast
 
-from ...core import CastMember, GroupContextMode, TurnCast
+from ...core import CardScripts, CastMember, GroupContextMode, TurnCast
 from ..connection import get_db, immediate_tx
 from ..models import ConversationRow, GroupMemberRow
 from .character_cards import get_character_card, render_public_profile
@@ -48,6 +48,24 @@ async def get_speaker_names(conversation_id: str) -> dict[str, str]:
     also needs; it is the one caller for which this would be a second query.)
     """
     return {member["id"]: member["display_name"] for member in await get_group_members(conversation_id, include_inactive=True)}
+
+
+async def get_group_member_scripts(
+    conversation_id: str,
+    *,
+    members: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, CardScripts]:
+    """Compile scripts for card-backed members, including inactive speakers."""
+    rows = members if members is not None else await get_group_members(conversation_id, include_inactive=True)
+    scripts: dict[str, CardScripts] = {}
+    for member in rows:
+        card_id = member.get("character_card_id")
+        if not card_id:
+            continue
+        card = await get_character_card(card_id)
+        if card:
+            scripts[member["id"]] = CardScripts.from_extensions(card.get("extensions"))
+    return scripts
 
 
 async def get_group_member(member_id: str, *, conversation_id: str | None = None) -> GroupMemberRow | None:

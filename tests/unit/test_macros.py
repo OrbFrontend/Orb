@@ -9,6 +9,8 @@ resolved text is a no-op).
 
 from __future__ import annotations
 
+import time
+
 from backend.core.macros import (
     Macros,
     has_inline_macros,
@@ -246,11 +248,119 @@ def test_comment_multiline_and_repeated():
 
 def test_macro_inside_comment_does_not_fire():
     # Comments are stripped before every other inline macro, so a nested macro is
-    # deleted rather than resolved — its trailing `}}` survives (grammar limit).
-    assert resolve_inline("{{// dice: {{roll::1d6}} }}x") == " }}x"
-    assert resolve_message("{{// pick {{random::a::b}} }}y", "U", "C") == " }}y"
+    # deleted rather than resolved, and takes the rest of the note with it.
+    assert resolve_inline("{{// dice: {{roll::1d6}} }}x") == "x"
+    assert resolve_message("{{// pick {{random::a::b}} }}y", "U", "C") == "y"
 
 
-def test_comment_body_cannot_contain_closing_braces():
-    # Documented grammar limit: the match ends at the first }}.
-    assert resolve_inline("{{// see {{user}} }}") == " }}"
+def test_comment_body_may_contain_a_nested_macro():
+    # The comment closes on its own `}}`, not the nested macro's.
+    assert resolve_inline("{{// see {{user}} }}") == ""
+    assert resolve_inline("{{// a {{b}} c }}tail") == "tail"
+    assert resolve_inline("{{// a\nb {{user}} c\n}}") == ""
+
+
+def test_comment_does_not_publish_the_tail_of_a_note():
+    # Closing on the nested macro's `}}` left the rest of the note in the text,
+    # and resolve_inline is the persist boundary, so it reached the stored row.
+    assert resolve_inline("Note {{// remember {{user}} likes tea }} ok") == "Note  ok"
+
+
+def test_comment_body_ends_early_when_nested_two_deep():
+    # Documented limit: a brace-free nested form keeps the scan linear, so a
+    # macro inside a macro inside a comment still closes early.
+    assert resolve_inline("{{// deep {{a {{b}} c}} }}") == " }}"
+
+
+def test_comment_with_unclosed_braces_stays_linear():
+    # `{{//` followed by open braces and no closer used to re-scan to the end at
+    # every position -- quadratic, and minutes on a field-sized input.
+    blob = "{{//" + "{{" * 50_000
+    start = time.monotonic()
+    assert resolve_inline(blob) == blob
+    assert time.monotonic() - start < 2.0
+
+
+def test_comment_does_not_eat_the_prose_that_follows_it():
+    # A line-opening comment takes itself, never the writing after it. The line
+    # branch used to backtrack past its own `}}` looking for one followed by a
+    # newline, so a trailing macro — the usual way a line ends — handed it the
+    # whole line to delete.
+    assert resolve_inline("{{// note }}Hello {{user}}\nBody") == "Hello {{user}}\nBody"
+    assert resolve_inline("{{// note }}plain tail\nBody") == "plain tail\nBody"
+
+
+def test_comment_does_not_eat_following_lines():
+    # Same backtracking, at range: any later line-ending `}}` dragged every
+    # line between it and the comment along with it.
+    assert resolve_inline("{{// note }}one\ntwo {{char}}\nthree") == "one\ntwo {{char}}\nthree"
+    assert resolve_inline("{{// note }}x\nmore\ny}}\ntail") == "x\nmore\ny}}\ntail"
+
+
+def test_run_of_comments_owns_its_line():
+    # Several comments alone on a line still take the line with them; spacing
+    # between and around them is part of the run.
+    assert resolve_inline("{{// a }}{{// b }}\nBody") == "Body"
+    assert resolve_inline("  {{// a }} {{// b }}  \nBody") == "Body"
+
+
+def test_comment_owns_its_line_in_a_crlf_card():
+    # `\r` is not horizontal whitespace, so a line branch ending in a bare `\n`
+    # never fired on CRLF text — every own-line comment left the blank line it
+    # is supposed to take with it.
+    assert resolve_inline("a\r\n{{// note }}\r\nb") == "a\r\nb"
+    assert resolve_inline("{{// a }}{{// b }}\r\nBody") == "Body"
+
+
+# ── {{trim}} (joins what the newlines around it separated) ───────────────────
+
+
+def test_trim_joins_across_newlines():
+    assert resolve_inline("a\n{{trim}}\nb") == "ab"
+    assert resolve_inline("a\n\n\n{{trim}}\n\nb") == "ab"
+    assert resolve_inline("x{{trim}}y") == "xy"
+
+
+def test_trim_eats_crlf_newlines():
+    # Card fields commonly arrive CRLF; \r must go with the \n it belongs to.
+    assert resolve_inline("a\r\n{{trim}}\r\n\r\nb") == "ab"
+
+
+def test_trim_at_either_end():
+    assert resolve_inline("{{trim}}\n\nBody") == "Body"
+    assert resolve_inline("Body\n\n{{trim}}") == "Body"
+
+
+def test_trim_case_insensitive_and_repeated():
+    assert resolve_inline("a\n{{TRIM}}\nb\n{{Trim}}\nc") == "abc"
+
+
+def test_trim_after_comment_is_the_card_idiom():
+    # The shape real cards use: a header comment followed by {{trim}} to drop
+    # the blank lines it would otherwise leave. The comment's own line-eating
+    # branch must not swallow the {{trim}} that follows it.
+    assert resolve_inline("{{// note }}{{trim}}\n\nBody") == "Body"
+    assert resolve_inline("{{// note }}{{trim}}\r\n\r\nBody") == "Body"
+    assert resolve_inline("{{// note }}\n{{trim}}\nBody") == "Body"
+    assert resolve_inline("A\n{{// note }}\n{{trim}}B") == "AB"
+
+
+def test_trim_leaves_horizontal_whitespace_alone():
+    # Newlines only — spaces and tabs around the macro survive.
+    assert resolve_inline("a \n{{trim}}\n b") == "a  b"
+
+
+def test_backticked_trim_stays_literal():
+    assert resolve_inline("write `{{trim}}` to join lines") == "write `{{trim}}` to join lines"
+    assert not has_inline_macros("write `{{trim}}` to join lines")
+
+
+def test_trim_registers_as_an_inline_macro():
+    assert has_inline_macros("a\n{{trim}}\nb")
+
+
+def test_trim_is_idempotent_and_resolves_in_messages():
+    once = resolve_message("{{user}} said:\n{{trim}} hi {{char}}", "Alice", "Bot")
+    assert once == "Alice said: hi Bot"
+    assert resolve_message(once, "Alice", "Bot") == once
+    assert Macros("Alice", "Bot", seed="conv-t").resolve_message("a\n{{trim}}\nb") == "ab"

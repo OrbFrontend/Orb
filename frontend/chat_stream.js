@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { onTurnStart } from "./audio_player.js";
+import { messageDisplaySource } from "./card_scripts.js";
 import { updateAttachmentPreview } from "./chat_composer.js";
 import {
   _applyWorkflowTextSegments,
@@ -35,6 +36,7 @@ import {
 import { restNotice, speakerAvatarCell, unansweredHint } from "./group_cast.js";
 import { consumeSpeakerOverride, refreshSheetProposals, renderGroupCast } from "./group_setup.js";
 import { refreshCharacters } from "./library.js";
+import { fitMessageCards } from "./message_fit.js";
 import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
 import { isUtilityPanelOpen } from "./panels.js";
 import { ensurePersonaPinned } from "./settings_personas.js";
@@ -94,6 +96,10 @@ let _paintFrame = 0;
 let _paintPending = null;
 let _paintedHtml = "";
 
+function streamingDisplaySource(content) {
+  return messageDisplaySource({ role: "assistant", content, speaker_member_id: S.currentSpeaker?.member_id });
+}
+
 function paintStreamingBody(text) {
   _paintPending = text;
   if (_paintFrame) return;
@@ -103,7 +109,7 @@ function paintStreamingBody(text) {
     _paintPending = null;
     const body = S.streamingBodyEl;
     if (!body || pending === null) return;
-    const html = renderMessageHtml(pending, { streaming: true });
+    const html = renderMessageHtml(streamingDisplaySource(pending), { streaming: true });
     if (html !== _paintedHtml) {
       _paintedHtml = html;
       body.innerHTML = html;
@@ -124,6 +130,9 @@ function smoothUpdateBody(el, newHtml, onComplete) {
   if (!el || el.innerHTML === newHtml) return;
   const prev = el.offsetHeight;
   el.innerHTML = newHtml;
+  // Before the height is read: a rescued card bubble is thousands of pixels
+  // shorter than the collapsed one, and this animates to whatever it sees.
+  fitMessageCards(el);
   const next = el.scrollHeight;
   if (Math.abs(next - prev) > 4) {
     el.style.height = `${prev}px`;
@@ -161,7 +170,12 @@ function finalizeStreamingDiv(lastMsg) {
   const bodyHtml =
     S.pendingRefineDiff && S.showEditorDiff
       ? renderMessageDiffHtml(S.pendingRefineDiff.ops)
-      : renderMessageHtml(resolvePlaceholders(lastMsg.content));
+      : renderMessageHtml(
+          messageDisplaySource({
+            ...lastMsg,
+            speaker_member_id: lastMsg.speaker_member_id ?? S.currentSpeaker?.member_id,
+          }),
+        );
   smoothUpdateBody(body, bodyHtml, () => scrollToBottom(true));
   if ((S.workflowTextEffects.length || S.workflowClickHandlers.length) && !(S.pendingRefineDiff && S.showEditorDiff)) {
     _applyWorkflowTextSegments(body, lastMsg);
@@ -225,7 +239,7 @@ function adoptPendingUserMessage(msg, content = null) {
   if (tb) tb.innerHTML = buildMsgToolbar(msg);
   if (content === null) return;
   const body = div.querySelector(".msg-body");
-  if (body) body.innerHTML = renderMessageHtml(resolvePlaceholders(content));
+  if (body) body.innerHTML = renderMessageHtml(messageDisplaySource({ ...msg, content }));
 }
 
 function patchPendingUserMessage(pendingMsg) {
@@ -470,7 +484,7 @@ export async function processSSEStream(resp, container, holder, signal) {
         const html =
           S.pendingRefineDiff && S.showEditorDiff
             ? renderMessageDiffHtml(S.pendingRefineDiff.ops)
-            : renderMessageHtml(text);
+            : renderMessageHtml(streamingDisplaySource(text));
         smoothUpdateBody(S.streamingBodyEl, html, scrollToBottom);
       } else {
         scrollToBottom();
@@ -491,8 +505,8 @@ export async function processSSEStream(resp, container, holder, signal) {
 
 function swapStreamingDraft(text, onRewrite) {
   if (S.editorDraftBaseline === null) S.editorDraftBaseline = S.streamingContent || "";
-  const original = resolvePlaceholders(S.editorDraftBaseline);
-  S.pendingRefineDiff = { original, ops: sentenceDiff(original, resolvePlaceholders(text)) };
+  const original = streamingDisplaySource(S.editorDraftBaseline);
+  S.pendingRefineDiff = { original, ops: sentenceDiff(original, streamingDisplaySource(text)) };
   onRewrite(text);
 }
 
