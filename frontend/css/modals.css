@@ -67,6 +67,19 @@
   margin-top: 20px;
 }
 
+/* A status line on the action row reports on the button beside it, so a save can
+   confirm itself without closing the modal. */
+.modal-action-status {
+  align-self: center;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.modal-action-status.is-error {
+  color: var(--red);
+}
 
 .modal-title-row {
   display: flex;

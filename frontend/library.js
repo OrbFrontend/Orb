@@ -214,6 +214,7 @@ export function triggerAvatarCrop(prefix, _cardId) {
     _pendingAvatar = { b64, mime };
     const el = $(`${prefix}-avatar-preview`);
     if (el) el.innerHTML = `<img src="data:${mime};base64,${b64}">`;
+    clearCharEditStatus(); // A new avatar is an unsaved edit like any other.
   });
 }
 
@@ -317,16 +318,16 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       <div class="field"><label>Post-History Instructions</label><textarea id="${prefix}-posthist" rows="1">${esc(d.post_history_instructions || "")}</textarea></div>
       <div class="form-divider">Card rendering</div>
       <div class="field"><label><input type="checkbox" id="${prefix}-scripts-enabled" ${d.extensions?.orb?.card_scripts_enabled === false ? "" : "checked"}> Enable card text scripts</label>
-        <div class="modal-hint">Scripts change how messages are displayed or sent to the model, in list order. Saving re-reads history and may rebuild the model cache. Stored messages stay unchanged.</div>
+        <div class="modal-hint">Scripts change how messages are displayed or sent to the model, in list order. Saving re-renders history and may break the KV cache.</div>
       </div>
       <div id="${prefix}-scripts-editor"></div>
       <div class="field"><label>Message stylesheet (CSS)</label><textarea id="${prefix}-display-css" rows="4">${esc(d.extensions?.orb?.display_css || "")}</textarea>
-        <div class="modal-hint">Styles assistant messages from this character. CSS is sanitized and scoped to each message. Copy any desired CSS from creator notes here.</div>
+        <div class="modal-hint">Styles assistant messages from this character. Copy any desired CSS from creator notes here.</div>
       </div>
       <div class="form-divider">Group chat</div>
       <div class="field"><label>Public cast appearance</label><textarea id="${prefix}-public-appearance" rows="2" placeholder="${escAttr(PUBLIC_APPEARANCE_PLACEHOLDER)}">${esc(publicProfile.appearance || "")}</textarea></div>
       <div class="field"><label>Public cast role</label><textarea id="${prefix}-public-role" rows="2" placeholder="${escAttr(PUBLIC_ROLE_PLACEHOLDER)}">${esc(publicProfile.role || "")}</textarea></div>
-      ${d.id ? `<button type="button" class="btn btn-sm" id="${prefix}-generate-public-profile">Generate editable draft</button><div class="modal-hint">Only these confirmed public fields enter a group's shared cast prompt.</div>` : ""}
+      ${d.id ? `<button type="button" class="btn btn-sm" id="${prefix}-generate-public-profile">Generate editable draft</button><div class="modal-hint">Only these public fields enter a group's shared cast prompt.</div>` : ""}
       ${
         d.id
           ? `<div class="form-divider">Expression images</div>
@@ -527,8 +528,9 @@ export async function showCharEditModal(idOrData) {
     <div class="modal-actions">
       ${!isNew ? `<button class="btn btn-danger btn-sm" onclick="deleteCharacter('${c.id}')">Delete</button>` : ""}
       <div style="flex:1"></div>
+      ${!isNew ? `<span id="ce-save-status" class="modal-action-status" role="status" aria-live="polite"></span>` : ""}
       ${!isNew ? `<button class="btn btn-sm" onclick="saveCharEdit('${c.id}', true)">Export PNG</button>` : ""}
-      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn" id="ce-cancel-btn" onclick="closeModal()">Cancel</button>
       ${
         isNew
           ? `<button class="btn btn-accent" onclick="saveImportedChar()">Save</button>`
@@ -551,6 +553,10 @@ export async function showCharEditModal(idOrData) {
       toast(error.message, true);
     }
   });
+  // The editor stays open after a save, so a stale "Saved" must not outlive the
+  // edits it described.
+  const modalEl = $("modal-root").querySelector(".modal");
+  for (const event of ["input", "change"]) modalEl?.addEventListener(event, clearCharEditStatus);
   if (c.id) {
     api
       .get(`/characters/${c.id}/expressions`)
@@ -562,10 +568,26 @@ export async function showCharEditModal(idOrData) {
   }
 }
 
+/** Report on the Save button beside it; the editor no longer closes to confirm. */
+function setCharEditStatus(message, { error = false } = {}) {
+  const el = $("ce-save-status");
+  if (!el) return;
+  el.textContent = message;
+  el.classList.toggle("is-error", error);
+  // Nothing is pending after a clean save, so the escape hatch stops reading as
+  // a discard. The next edit clears the status and puts "Cancel" back.
+  const cancel = $("ce-cancel-btn");
+  if (cancel) cancel.textContent = message && !error ? "Close" : "Cancel";
+}
+
+function clearCharEditStatus() {
+  if ($("ce-save-status")?.textContent) setCharEditStatus("");
+}
+
 export async function saveCharEdit(id, exportAfter = false) {
   const validation = _validateCharForm("ce", { advanced: true });
   if (!validation.valid) {
-    toast(validation.error, true);
+    setCharEditStatus(validation.error, { error: true });
     return;
   }
 
@@ -576,9 +598,9 @@ export async function saveCharEdit(id, exportAfter = false) {
     d.avatar_mime = _pendingAvatar.mime;
   }
   const avatarChanged = !!_pendingAvatar;
-  _pendingAvatar = null;
   try {
     const updated = await api.put(`/characters/${id}`, d);
+    _pendingAvatar = null;
     if (S.activeCharId === id) stashCardFragments(updated);
     else if ((S.groupCast?.members || []).some((member) => member.character_card_id === id)) {
       await refreshSceneCardFragments();
@@ -590,7 +612,6 @@ export async function saveCharEdit(id, exportAfter = false) {
         if (av) av.innerHTML = avatarCell(`${avatarUrl(id)}?v=${_avatarBust.get(id)}`, { icon: CHAT_AVATAR_ICON });
       }
     }
-    closeModal();
     await loadCharacters();
     await loadConversations();
     const activeConv = S.conversations.find((c) => c.id === S.activeConvId);
@@ -599,10 +620,10 @@ export async function saveCharEdit(id, exportAfter = false) {
       if (titleEl) titleEl.textContent = activeConv.title || activeConv.character_name || "";
     }
     renderMessages();
-    toast("Saved");
+    setCharEditStatus("Saved");
     if (exportAfter) exportCharacter(id, name);
   } catch (e) {
-    toast(e.message, true);
+    setCharEditStatus(e.message, { error: true });
   }
 }
 
