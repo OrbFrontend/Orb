@@ -55,12 +55,7 @@ async def get_group_member_scripts(
     *,
     members: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, CardScripts]:
-    """Compile the card scripts for every group member with a character card.
-
-    Callers that already loaded the member rows can pass them through to avoid
-    repeating the roster query. Inactive members are included because their
-    historical assistant messages still need their original card projection.
-    """
+    """Compile scripts for card-backed members, including inactive speakers."""
     rows = members if members is not None else await get_group_members(conversation_id, include_inactive=True)
     scripts: dict[str, CardScripts] = {}
     for member in rows:

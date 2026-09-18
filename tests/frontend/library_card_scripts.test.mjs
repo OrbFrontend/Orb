@@ -92,7 +92,7 @@ test("pattern warnings share rendering's literal parsing and imported HTML stays
   assert.match(row().textContent, /Unsupported flags/);
   input("findRegex", "/[/g");
   assert.match(row().textContent, /Invalid display regex/);
-  input("findRegex", "/a/gg"); // malformed literal is a valid bare pattern in the existing engine
+  input("findRegex", "/a/gg"); // malformed delimiters fall back to a bare pattern
   assert.equal(row().querySelector(".ce-script-warning").textContent, "");
   input("findRegex", "a".repeat(4097));
   assert.match(row().textContent, /4,096/);

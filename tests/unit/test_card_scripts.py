@@ -1,4 +1,4 @@
-"""Card scripts project one canonical body independently for prompt and display."""
+"""Card script projection tests."""
 
 from __future__ import annotations
 
@@ -78,8 +78,7 @@ def test_channels_roles_disabled_and_declaration_order():
     ],
 )
 def test_unflagged_script_reaches_both_views_like_a_rewritten_row(flags, channels):
-    # The original engine rewrites the stored row, so an unflagged script is
-    # visible to the reader and to the model alike.
+    # The source engine rewrites the row, so both reads see the result.
     scripts = compile_scripts({"findRegex": "/secret/g", "replaceString": "visible", "placement": [2], **flags})
     for channel in ("prompt", "display"):
         expected = "visible" if channel in channels else "secret"

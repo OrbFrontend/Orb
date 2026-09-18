@@ -13,8 +13,7 @@ test("display flags, role, disabled, malformed scripts and ordering", () => {
   assert.equal(applyCardScripts("secret", [script({ promptOnly: true, markdownOnly: true })], "assistant"), "visible");
 });
 
-// Mirrors the table in tests/unit/test_card_scripts.py: the two channels project
-// one declaration set, so a divergence here is a bug in one of them.
+// Keep the browser and prompt projections in lockstep.
 test("pattern flags and replacement tokens match the prompt channel", () => {
   const cases = [
     ["/^a.(b)$/gims", "$1", "A\nb\naXb", "b\nb"],

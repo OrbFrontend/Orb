@@ -21,7 +21,7 @@ const scope = (script) => {
 };
 
 function scriptId() {
-  // Orb can be opened over plain HTTP on a LAN, where randomUUID is unavailable.
+  // randomUUID is unavailable when Orb runs over plain HTTP.
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
@@ -29,9 +29,7 @@ function scriptId() {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/* Report only what the fields do not already show. An empty pattern or an
-   unticked target is visible in the control itself; what a reader cannot see is
-   that a pattern will not compile, or that an import holds a value Orb skips. */
+/* Report invalid or unsupported imported values not already visible in controls. */
 function warningFor(script, index) {
   if (!isRecord(script)) return "Unrecognized declaration; preserved unchanged unless removed.";
   const warnings = [];
@@ -54,9 +52,6 @@ function warningFor(script, index) {
   return warnings.join(" ");
 }
 
-/* Neither channel rewrites history, so which one a script runs in is the whole
-   difference between the two reads -- and the select's own wording names the
-   side that changes without saying the other side stays as written. */
 const SCOPE_NOTES = {
   display: "Changes what you see. The model still receives the message unchanged.",
   prompt: "Changes what the model receives. You still see the message unchanged.",
@@ -134,7 +129,7 @@ function rowHtml(script, index, count) {
   </section>`;
 }
 
-/** Own one modal's draft. Untouched declarations (including unknown fields) round-trip exactly. */
+/** Mount the editor and return a reader for its current draft. */
 export function mountCardScriptsEditor(root, original) {
   const scripts = Array.isArray(original) ? structuredClone(original) : [];
   let changed = false;

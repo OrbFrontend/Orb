@@ -15,8 +15,8 @@ MAX_SCRIPTS = 50
 MAX_PATTERN_LENGTH = 4096
 MAX_TEXT_LENGTH = 100_000
 TIMEOUT_SECONDS = 0.05
-JS_FLAGS = frozenset("gmixXsuUAJ")  # Flag-shaped to the original engine's parser.
-ENGINE_FLAGS = frozenset("gimsu")  # Flag-shaped and honoured here.
+JS_FLAGS = frozenset("gmixXsuUAJ")  # Accepted by the source engine's parser.
+ENGINE_FLAGS = frozenset("gimsu")  # Supported by both projections.
 _MATCH_MACRO = re.compile(r"\{\{match\}\}", re.I)
 Channel = Literal["prompt", "display"]
 Resolver = Callable[[str], str]
@@ -49,8 +49,7 @@ def is_display_script(script: Mapping[str, Any]) -> bool:
 
 
 def is_prompt_script(script: Mapping[str, Any]) -> bool:
-    # An unflagged script rewrites the stored row in the original engine, so its
-    # effect is visible in both views. Read-time, that means both channels.
+    # Unflagged scripts affect both views in the source engine.
     return bool(script.get("promptOnly")) or not script.get("markdownOnly")
 
 
@@ -62,15 +61,14 @@ def _parse_literal(source: str) -> tuple[str, str] | None:
     if end <= 0:
         return None
     flags = source[end + 1 :]
-    # Flag-shaped is the original engine's test; unsupported-but-shaped flags
-    # reach the compiler and fail there rather than degrading to a literal.
+    # Preserve the source engine's distinction between flag-shaped and malformed.
     if flags and (len(set(flags)) != len(flags) or not set(flags) <= JS_FLAGS):
         return None
     return source[1:end], flags
 
 
 def _replacement(template: str, match: Any, source: str, resolve: Resolver | None) -> str:
-    """JS replacement tokens, without interpreting backslashes as Python escapes."""
+    """Expand JS replacement tokens without interpreting backslashes."""
 
     def replace(token: re.Match) -> str:
         key = token[0][1:]
@@ -117,8 +115,6 @@ class CardScripts(NamedTuple):
         declarations, _ = card_render_options(extensions)
         compiled = []
         for script in declarations:
-            # A pattern that is not a well-formed literal is its own pattern,
-            # matching only its first occurrence, as `new RegExp(string)` does.
             source, flags = _parse_literal(script["findRegex"]) or (script["findRegex"], "")
             try:
                 if not set(flags) <= ENGINE_FLAGS:
@@ -142,7 +138,7 @@ class CardScripts(NamedTuple):
         return cls(tuple(compiled))
 
     def apply(self, text: str, channel: Channel, role: str, resolve: Resolver | None = None) -> str:
-        """Project one message. `resolve` expands macros a replacement introduces."""
+        """Apply matching scripts to one message."""
         placement = {"user": 1, "assistant": 2}.get(role)
         if not placement or not self.scripts or len(text) > MAX_TEXT_LENGTH:
             return text

@@ -2,8 +2,8 @@ import { charactersView, S } from "./state.js";
 import { resolvePlaceholders } from "./utils.js";
 
 const MAX_TEXT_LENGTH = 100_000;
-const JS_FLAGS = /^(?!.*?(.).*?\1)[gmixXsuUAJ]+$/; // Flag-shaped to the original engine's parser.
-const ENGINE_FLAGS = /^[gimsu]*$/; // Flag-shaped and honoured here.
+const JS_FLAGS = /^(?!.*?(.).*?\1)[gmixXsuUAJ]+$/; // Accepted by the source parser.
+const ENGINE_FLAGS = /^[gimsu]*$/; // Supported by both projections.
 const TOKEN = /\$(?:[$&`']|<[^>]*>|[0-9]{1,2})/g;
 
 /** Compile a JavaScript pattern literal, or the whole string when it is not one. */
@@ -13,8 +13,6 @@ export function compileCardScriptPattern(source) {
   const end = source.startsWith("/") ? source.lastIndexOf("/") : 0;
   const declared = end > 0 ? source.slice(end + 1) : "";
   if (end > 0 && (!declared || JS_FLAGS.test(declared))) {
-    // A pattern that is not a well-formed literal is its own pattern, matching
-    // only its first occurrence, as `new RegExp(string)` does.
     pattern = source.slice(1, end);
     flags = declared;
   }
@@ -22,7 +20,7 @@ export function compileCardScriptPattern(source) {
   return new RegExp(pattern, flags);
 }
 
-/** Expand replacement tokens identically to `core/card_scripts.py:_replacement`. */
+/** Expand the shared JavaScript-compatible replacement tokens. */
 function expandReplacement(template, captures, groups, offset, source) {
   const expanded = template.replace(/\{\{match\}\}/gi, "$0").replace(TOKEN, (token) => {
     const key = token.slice(1);
@@ -41,7 +39,7 @@ function expandReplacement(template, captures, groups, offset, source) {
   return expanded.includes("{{") ? resolvePlaceholders(expanded) : expanded;
 }
 
-/** Apply the list endpoint's display-only projection before HTML memoization. */
+/** Apply display-side card scripts before HTML memoization. */
 export function applyCardScripts(text, scripts, role) {
   const placement = { user: 1, assistant: 2 }[role];
   if (!placement || !Array.isArray(scripts) || text.length > MAX_TEXT_LENGTH) return text;
@@ -77,12 +75,12 @@ function stylesheetText(css) {
   return Array.from(css.matchAll(STYLE_ELEMENT_RE), (match) => match[1]).join("\n");
 }
 
-/** CSS stays inside the existing message sanitizer and per-message CSS scope. */
+/** Project card CSS through the existing message sanitizer and scope. */
 export function projectCardDisplay(text, card, role) {
   text = applyCardScripts(text, card?.display_scripts, role);
   const css = typeof card?.display_css === "string" ? stylesheetText(card.display_css) : "";
   if (role === "assistant" && css.trim()) {
-    // Prevent a stylesheet field from terminating its element and adding prose.
+    // Keep card CSS from terminating the injected style element.
     text = `<style>${css.replace(/<\/style/gi, "<\\/style")}</style>\n${text}`;
   }
   return text;
