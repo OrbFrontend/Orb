@@ -55,14 +55,26 @@ def _sub_cast(text: str, cast_names: str) -> str:
     return _outside_literals(text, lambda value: re.sub(r"\{\{cast\}\}", cast_names, value, flags=re.IGNORECASE))
 
 
-# Two branches: a comment that owns its line(s) takes the whole line with it (no
+# Two branches: comments that own their line(s) take the whole line with them (no
 # blank line left behind); one sitting mid-line takes only itself, leaving the
-# surrounding spaces. Non-greedy either way, so the body ends at the first `}}`.
-_COMMENT_RE = re.compile(r"^[ \t]*\{\{//.*?\}\}[ \t]*\n|\{\{//.*?\}\}", re.DOTALL | re.MULTILINE)
+# surrounding spaces. The body is tempered rather than merely non-greedy, so it
+# ends at the first `}}` — a plain `.*?` lets the line branch backtrack past that
+# `}}` hunting for one followed by a newline, eating every character in between.
+# That is prose, not markup: `{{// note }}Hello {{user}}` lost its greeting, and
+# a later line-ending `}}` (another macro, usually) dragged whole lines off with
+# it. The line branch repeats the body so a line of several comments still owns
+# it, while anything that is not a comment ends the run and keeps its line. Its
+# newline is `\r?\n` because `\r` is not in `[ \t]`: a bare `\n` meant the branch
+# could never fire at all in a CRLF card, which is most of what gets imported.
+_COMMENT_BODY = r"\{\{//(?:(?!\}\})[\s\S])*\}\}"
+_COMMENT_RE = re.compile(rf"^[ \t]*(?:{_COMMENT_BODY}[ \t]*)+\r?\n|{_COMMENT_BODY}", re.MULTILINE)
 _ROLL_RE = re.compile(r"\{\{roll::(\d+)d(\d+)\}\}", re.IGNORECASE)
 _RANDOM_RE = re.compile(r"\{\{(?:random|pick)::(.*?)\}\}", re.IGNORECASE | re.DOTALL)
 _TIME_RE = re.compile(r"\{\{time\}\}", re.IGNORECASE)
 _DATE_RE = re.compile(r"\{\{date\}\}", re.IGNORECASE)
+# Eats the newlines on both sides, joining what they separated. [\r\n] rather
+# than \n because card fields commonly arrive CRLF.
+_TRIM_RE = re.compile(r"[\r\n]*\{\{trim\}\}[\r\n]*", re.IGNORECASE)
 
 
 def _comment(m: re.Match, rng: Any) -> str:
@@ -86,20 +98,26 @@ def _date(m: re.Match, rng: Any) -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
 
+def _trim(m: re.Match, rng: Any) -> str:
+    return ""
+
+
 # The inline-macro grammar. Adding a macro = one regex + one handler + one row
 # here; _resolve_inline and has_inline_macros iterate this table. Comments come
-# first so a macro written inside one is deleted rather than resolved.
+# first so a macro written inside one is deleted rather than resolved, and
+# {{trim}} last so it eats the newlines the rows above leave behind.
 _INLINE_MACROS: list[tuple[re.Pattern, Callable[[re.Match, Any], str]]] = [
     (_COMMENT_RE, _comment),
     (_ROLL_RE, _roll),
     (_RANDOM_RE, _rand),
     (_TIME_RE, _time),
     (_DATE_RE, _date),
+    (_TRIM_RE, _trim),
 ]
 
 
 def _resolve_inline(text: str, seed: str = "") -> str:
-    """Resolve inline macros ({{//}}, {{roll}}, {{random}}/{{pick}}, {{time}}).
+    """Resolve inline macros ({{//}}, {{roll}}, {{random}}/{{pick}}, {{time}}, {{date}}, {{trim}}).
 
     Randomized macros roll fresh when *seed* is empty; with a seed the result
     is a pure function of (seed, macro text, occurrence), so identical text

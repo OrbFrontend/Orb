@@ -13,9 +13,22 @@ and direction notes.
 | `{{pick::a::b::c}}` | Alias for `{{random}}` |
 | `{{time}}` | Local time in `HH:MM` format |
 | `{{date}}` | Local date in `YYYY-MM-DD` format |
+| `{{trim}}` | Nothing, and removes the newlines surrounding it |
 
 Random options are separated by `::`. Options may contain spaces and line breaks,
 but not `::` or `}}`. Macro names are case-insensitive.
+
+`{{trim}}` joins the lines on either side of it, which is mainly how a card
+drops the blank line an author's note would otherwise leave behind:
+
+```
+{{// Turn example messages on. }}{{trim}}
+
+A demon of dark dreams...
+```
+
+The description reaches the model starting at `A demon`. Spaces and tabs around
+the macro are kept -- only newlines go.
 
 ## When values are chosen
 
