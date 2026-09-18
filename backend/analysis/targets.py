@@ -63,19 +63,17 @@ def _raw_findings(report: AuditReport, draft: str) -> list[tuple[str, str, str]]
         raw.append((fs.sentence, "banned_phrases", f"contains banned phrase(s): {phrases}"))
     for fo in report.monotony_result.flagged_openers:
         for s in fo.sentences[1:]:
-            raw.append((s, "repetitive_openers", f'opens with "{fo.opener}" like too many nearby sentences — vary the opening'))
+            raw.append((s, "repetitive_openers", f'opens with "{fo.opener}" like too many nearby sentences'))
     for ft in report.template_result.flagged_templates:
         for s in ft.sentences[1:]:
-            raw.append(
-                (s, "repetitive_templates", f'follows the repeated sentence template "{ft.template}" — vary the structure')
-            )
+            raw.append((s, "repetitive_templates", f'follows the repeated sentence structure "{ft.template}"'))
     for nb in report.not_but_result:
         if nb.get("sentence"):
             raw.append(
                 (
                     nb["sentence"],
                     "contrastive_negation",
-                    "uses the contrastive-negation cliché ('not X, but Y') — rephrase without it",
+                    "uses the contrastive-negation cliché ('not X, but Y')",
                 )
             )
     if report.phrase_result:
@@ -86,13 +84,13 @@ def _raw_findings(report: AuditReport, draft: str) -> list[tuple[str, str, str]]
                         (
                             s,
                             "phrase_repetition",
-                            f'reuses the phrase "{fp.phrase}" already seen in {fp.count} previous messages',
+                            f'reuses the phrase "{fp.phrase}" already seen in previous messages',
                         )
                     )
                     break
     if report.echo_result:
         for fe in report.echo_result.flagged_echoes:
-            raw.append((fe.echo, "anti_echo", "parrots the user's own words back as a question — replace with something new"))
+            raw.append((fe.echo, "anti_echo", "parrots the user's own words back as a question"))
     return raw
 
 
