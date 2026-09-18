@@ -1,11 +1,5 @@
 import { api } from "./api.js";
-import {
-  loadConversations,
-  refreshSceneCardFragments,
-  renderMessages,
-  resetChatUI,
-  stashCardFragments,
-} from "./chat.js";
+import { loadConversations, refreshSceneCardFragments, renderMessages, resetChatUI, stashSceneCards } from "./chat.js";
 import { createChipInput } from "./chips.js";
 import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
 import { mountCardScriptsEditor } from "./library_card_scripts.js";
@@ -601,7 +595,7 @@ export async function saveCharEdit(id, exportAfter = false) {
   try {
     const updated = await api.put(`/characters/${id}`, d);
     _pendingAvatar = null;
-    if (S.activeCharId === id) stashCardFragments(updated);
+    if (S.activeCharId === id) stashSceneCards(updated);
     else if ((S.groupCast?.members || []).some((member) => member.character_card_id === id)) {
       await refreshSceneCardFragments();
     }

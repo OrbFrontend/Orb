@@ -14,7 +14,17 @@ import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, localMlReady, S, subscribe } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
-import { $, avatarCell, avatarUrl, esc, escAttr, escHandlerArg, formatBytes, userAttachmentSrc } from "./utils.js";
+import {
+  $,
+  avatarCell,
+  avatarUrl,
+  esc,
+  escAttr,
+  escHandlerArg,
+  formatBytes,
+  resolvePlaceholders,
+  userAttachmentSrc,
+} from "./utils.js";
 import { segmentBody } from "./workflow_segmentation.js";
 import { markClickable } from "./workflow_text_interaction.js";
 import { messageProposalsHtml } from "./world_proposals.js";
@@ -293,6 +303,37 @@ export function swipeNavHtml(m) {
         </span>`;
 }
 
+// The card's framing, above the opening line: what the scene is, and what its
+// author wanted the reader to know before it starts. Neither has another home
+// in the chat pane.
+//
+// These are card metadata, not turns. They carry no id, so nothing in the
+// message paths can address them, and no toolbar, branch pager or avatar -- the
+// blocks take the bubble's shape and nothing else. They render only when the
+// window starts at the top of the conversation, where the greeting is.
+const SCENE_INTRO_BLOCKS = [
+  ["notes", "Creator's Note", "creatorNotes"],
+  ["scenario", "Scenario", "scenario"],
+];
+
+export function sceneIntroEntries() {
+  const intro = S.sceneIntro;
+  if (!intro || intro.convId !== S.activeConvId) return [];
+  const entries = [];
+  for (const [kind, label, field] of SCENE_INTRO_BLOCKS) {
+    const text = (intro[field] || "").trim();
+    if (!text) continue;
+    entries.push({
+      key: `scene-${kind}`,
+      html: `<div class="message scene-intro scene-intro-${kind}">
+        <div class="msg-role">${esc(label)}</div>
+        <div class="msg-body">${renderMessageHtml(resolvePlaceholders(text))}</div>
+      </div>`,
+    });
+  }
+  return entries;
+}
+
 function _messageHtml(m, avatars) {
   const isForkEditing = S.forkEditMsgId !== null && S.forkEditMsgId === m.id;
   const isEditing =
@@ -396,9 +437,12 @@ export function renderMessages(forceBottom = false) {
         // instead of replaying the whole list's entrance animation and layout.
         const fresh = reconcileChildren(
           ct,
-          // An aborted turn can leave two id-less rows in the list (the pending user
-          // message and the unpersisted reply), so they key by position, not by role.
-          msgs.map((m, i) => ({ key: m.id ? `m${m.id}` : `p${i}`, html: _messageHtml(m, avatars) })),
+          [
+            ...(start === 0 ? sceneIntroEntries() : []),
+            // An aborted turn can leave two id-less rows in the list (the pending user
+            // message and the unpersisted reply), so they key by position, not by role.
+            ...msgs.map((m, i) => ({ key: m.id ? `m${m.id}` : `p${i}`, html: _messageHtml(m, avatars) })),
+          ],
           "msg-swap",
         );
         // Rescue desktop-width card layouts first: it changes a collapsed

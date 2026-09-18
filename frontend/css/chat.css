@@ -181,6 +181,19 @@
   border-color: var(--accent-dim);
 }
 
+/* The card's framing above the opening line: the Creator's Note and the
+   Scenario. Neither is a turn -- there is nothing to edit, regenerate or swipe
+   -- so the block keeps the bubble's shape, whatever a theme makes of it, and
+   only steps back in colour. */
+.message.scene-intro .msg-role { color: var(--accent-dim); }
+.message.scene-intro .msg-body { color: var(--text-secondary); }
+
+/* A turn's spacing below it comes from its toolbar strip, which sits in the DOM
+   at opacity 0 whether or not it is being hovered. These blocks have no toolbar
+   to space them, so they reserve that height themselves: 4px above a 25px icon
+   button, the same rhythm as the messages under them. */
+.message.scene-intro { margin-bottom: 29px; }
+
 .message .msg-body p { margin-bottom: .6em; }
 .message .msg-body p:last-child { margin-bottom: 0; }
 .message .msg-body .pbreak { display: block; height: .825em; }

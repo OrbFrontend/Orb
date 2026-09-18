@@ -44,7 +44,7 @@ document.addEventListener("group-selected", (event) => selectConversation(event.
 document.addEventListener("group-delete-request", (event) => _deleteGroupFamily(event.detail));
 document.addEventListener("group-cast-updated", () => refreshSceneCardFragments());
 
-export function stashCardFragments(cards) {
+export function stashSceneCards(cards) {
   const list = (Array.isArray(cards) ? cards : [cards]).filter(Boolean);
   const merge = (pick, globals) => {
     const claimed = new Set(globals.map((g) => g.id));
@@ -61,8 +61,24 @@ export function stashCardFragments(cards) {
   };
   S.cardMoodFragments = merge((frags) => frags?.mood, S.moodFragments);
   S.cardInteractiveFragments = merge((frags) => frags?.interactive, S.interactiveFragments);
+  S.sceneIntro = sceneIntroFrom(list);
   renderMoodFragments();
   renderInteractiveFragments();
+}
+
+// The Scenario and Creator's Note ride the same card read the fragments do, so
+// the blocks above the opening line refresh on every path that can change them:
+// opening a conversation, a cast edit, and a card save.
+//
+// A group is left out on purpose. Its premise is a scene field, edited in Group
+// settings rather than carried by any one card, and several members' notes
+// stacked above the opening line would bury the scene instead of framing it.
+function sceneIntroFrom(cards) {
+  const conv = S.conversations.find((c) => c.id === S.activeConvId);
+  if (!conv || conv.kind === "group") return null;
+  const card = cards.find((c) => c.id === conv.character_card_id);
+  if (!card) return null;
+  return { convId: conv.id, scenario: card.scenario || "", creatorNotes: card.creator_notes || "" };
 }
 
 function sceneCardIds(conv) {
@@ -77,7 +93,7 @@ export async function refreshSceneCardFragments() {
   const cards = await Promise.all(
     sceneCardIds(conv).map((cardId) => api.get(`/characters/${cardId}`).catch(() => null)),
   );
-  stashCardFragments(cards);
+  stashSceneCards(cards);
 }
 
 export function resetChatUI() {
@@ -87,7 +103,7 @@ export function resetChatUI() {
   S.groupCast = null;
   S.pinnedSpeakerId = null;
   S.consumedSpeakerId = null;
-  stashCardFragments(null);
+  stashSceneCards(null);
   S.messages = [];
   S.lastDirectorData = null;
   S.directorState = null;
@@ -234,7 +250,7 @@ export async function selectConversation(id) {
   if (activation) reflectConversationWorldActivation(activation.world_ids);
   setMessages(msgs);
   S.directorState = directorState;
-  stashCardFragments(cards);
+  stashSceneCards(cards);
   resetRenderWindow();
   S.editingMsgId = null;
   S.magicInputMsgId = null;

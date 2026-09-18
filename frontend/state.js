@@ -13,6 +13,10 @@ export const S = {
   interactiveFragments: [],
   cardMoodFragments: [],
   cardInteractiveFragments: [],
+  // The solo card's Scenario and Creator's Note, shown above the opening line.
+  // Carries the conversation it was read for so a repaint mid-switch cannot
+  // paint the outgoing character's framing over the incoming one's.
+  sceneIntro: null,
 
   personas: [],
   activePersonaId: null,
