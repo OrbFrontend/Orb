@@ -106,11 +106,7 @@ async def test_reports_format_check_progress_to_the_turn_status(monkeypatch):
     assert events == [
         {
             "event": "phase_status",
-            "data": {
-                "channel": "workflow:format_consistency",
-                "label": "Checking voice and formatting…",
-                "turn_phase": "finalizing",
-            },
+            "data": {"channel": "workflow:format_consistency", "label": "Matching voice and format…"},
         },
         {"event": "phase_status", "data": {"channel": "workflow:format_consistency", "state": "done"}},
     ]

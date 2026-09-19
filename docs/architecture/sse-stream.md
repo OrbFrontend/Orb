@@ -42,13 +42,11 @@ connection from being dropped.
 what an event means or unescape the payload. `chat_stream.js` dispatches by event
 name; other streaming features use the same parser with their own handlers.
 
-The generation status presents these boundaries as a compact Plan → Draft →
-Finish rail. `director_done` advances the UI to Draft before visible prose
-arrives, Writer reasoning does the same when the Director is skipped, and
-`writer_done.editor_will_run` advances it to the optional review work within
-Finish. Post-pipeline workflows can identify their actual work with
-`phase_status` and opt into the same final stage with `turn_phase: "finalizing"`.
-This keeps the indicator tied to authoritative stream events rather than timers.
+The status bar describes the step that is running. `director_start` and
+`step_start` mark where each core step begins, and while the turn streams a
+workflow hook's `phase_status` label describes its own step. The text holds
+until the next step starts, so the indicator follows stream events rather than
+timers.
 
 Only `token` is normally raw text. Other payloads are JSON, with `error` also
 accepting a legacy string.
@@ -62,6 +60,7 @@ pass being skipped.
 |---|---|---|
 | `user_message_created` | `{id, content}` | Replaces the optimistic user row with its saved id and text. `/send` only. |
 | `director_start` | — | Starts the directing phase. |
+| `step_start` | `{step}` | Names the step that is starting: `lorebook`, `direction_notes`, `writer`, `output_auditor`, `length_guard`, `post_processing`, `feedback`, `world_changes`, or `sheet_updates`. |
 | `reasoning` | `{pass, delta}` | Adds thinking text to a pass's reasoning buffer. |
 | `director_done` | Director data | Updates the inspector. |
 | `token` | Text delta | Appends visible Writer output. |

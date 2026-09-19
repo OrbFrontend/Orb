@@ -232,7 +232,9 @@ configured `max_tokens`, unchanged; a workflow does not pick its own.
 
 Public hook events pass through to SSE. Core events and names beginning with
 `_` are reserved. A useful custom event is `phase_status` with a channel that
-starts with `workflow:<id>`.
+starts with `workflow:<id>`. On a turn stream its label becomes the status
+bar's text for the running step, so keep it a short description of the work
+(`Rewriting prose…`); outside a turn it shows as a separate pill.
 
 ## Attachments
 

@@ -408,8 +408,7 @@
 
 .gen-status.pill-only .gen-bar,
 .gen-status.pill-only .gen-dot,
-.gen-status.pill-only .gen-text,
-.gen-status.pill-only .gen-steps {
+.gen-status.pill-only .gen-text {
   display: none;
 }
 

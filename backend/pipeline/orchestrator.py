@@ -59,6 +59,7 @@ async def _consume_direction_note_step(gen: AsyncIterator[dict], state: TurnStat
     Notes accumulate across the turn's two placements; the event carries the running total so
     the inspector shows every note recorded this turn regardless of which step produced it.
     """
+    yield {"event": "step_start", "data": {"step": "direction_notes"}}
     async for ev in gen:
         if ev["type"] == "reasoning":
             yield {"event": "reasoning", "data": {"pass": pass_label, "delta": state.add_reasoning(pass_label, ev)}}

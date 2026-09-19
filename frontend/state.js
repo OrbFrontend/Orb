@@ -77,7 +77,7 @@ export const S = {
   pendingUserMsg: null,
   attachments: [],
   wasAborted: false,
-  generationPhase: null,
+  generationStep: null, // Status-bar step name; "" before the first step, null between turns
   hideStreamingBox: false,
   contextSize: null,
   pendingRefineDiff: null, // writer/editor diff for the current stream

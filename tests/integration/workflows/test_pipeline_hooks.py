@@ -318,11 +318,7 @@ async def test_prose_rewriter_runs_before_registered_post_pipeline_hooks(client)
         "phase_status",
         "downstream",
     ]
-    assert events[0]["data"] == {
-        "channel": "workflow:prose_rewriter",
-        "label": "Reworking prose…",
-        "turn_phase": "finalizing",
-    }
+    assert events[0]["data"] == {"channel": "workflow:prose_rewriter", "label": "Rewriting prose…"}
     assert events[3]["data"] == {"channel": "workflow:prose_rewriter", "state": "done"}
     assert isinstance(events[-1], _PostPipelineResult)
     assert events[-1].draft == "Prose-rewritten draft."

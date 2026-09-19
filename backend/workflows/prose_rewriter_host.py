@@ -71,14 +71,7 @@ async def post_pipeline(ctx):
         cfg["variant_id"],
     )
     channel = f"workflow:{FEATURE}"
-    yield {
-        "event": "phase_status",
-        "data": {
-            "channel": channel,
-            "label": "Reworking prose…",
-            "turn_phase": "finalizing",
-        },
-    }
+    yield {"event": "phase_status", "data": {"channel": channel, "label": "Rewriting prose…"}}
     async for event in rewrite_events(draft, cfg):
         if event["type"] == "draft_update":
             yield {"event": "draft_update", "data": {"draft": event["draft"]}}

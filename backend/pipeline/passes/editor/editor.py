@@ -191,9 +191,17 @@ async def editor_pass(
     feedback_fragments: Sequence[Mapping[str, Any]] | None = None,
     post_processing_fragments: Sequence[Mapping[str, Any]] | None = None,
 ) -> AsyncIterator[dict]:
-    """Run the audit/edit loop, post-processing fragments, and feedback."""
+    """Run the audit/edit loop, post-processing fragments, and feedback.
+
+    Each sub-step that has work to do is announced with a
+    ``{"type": "step", "step": str}`` marker before it starts.
+    """
     t0 = time.monotonic()
 
+    if audit_enabled:
+        yield {"type": "step", "step": "output_auditor"}
+    elif length_guard is not None:
+        yield {"type": "step", "step": "length_guard"}
     edit_done: dict | None = None
     async for ev in _run_edit_loop(
         client,
@@ -224,6 +232,7 @@ async def editor_pass(
 
     post_processing_calls: list[dict] = []
     if post_processing_fragments and not client.is_aborted:
+        yield {"type": "step", "step": "post_processing"}
         async for ev in post_processing_step(
             client,
             base,
@@ -247,6 +256,7 @@ async def editor_pass(
 
     feedback_values: dict = {}
     if feedback_fragments and final_text and not client.is_aborted:
+        yield {"type": "step", "step": "feedback"}
         async for ev in feedback_step(
             client,
             base,
@@ -307,11 +317,10 @@ async def editor_stage(
     post_processing_needed = post_processing_active(post_processing_fragments, agent_on=cfg.agent_on)
     editor_will_run = bool(state.resp_text and (cfg.do_edit or post_processing_needed or feedback_needed))
 
-    # Authoritative writer→editor boundary. The frontend flips to its "refining"
-    # phase on this event (not on a token-gap heuristic, which misfires when slow
-    # endpoints stall mid-stream), and only when an Editor sub-step actually
-    # follows. Not emitted on the writer-abort path — afterStream clears the phase
-    # there. Mirrors director_start/director_done.
+    # Authoritative writer→editor boundary: says whether an Editor sub-step
+    # follows. Not emitted on the writer-abort path. Mirrors
+    # director_start/director_done; each sub-step still announces itself with
+    # step_start.
     yield {"event": "writer_done", "data": {"editor_will_run": editor_will_run}}
 
     if editor_will_run:
@@ -346,7 +355,9 @@ async def editor_stage(
             post_processing_fragments=post_processing_fragments if post_processing_needed else None,
             feedback_fragments=feedback_fragments if feedback_needed else None,
         ):
-            if event["type"] == "reasoning":
+            if event["type"] == "step":
+                yield {"event": "step_start", "data": {"step": event["step"]}}
+            elif event["type"] == "reasoning":
                 # Feedback reasoning is folded into the editor channel (it is an
                 # editor sub-step, so it shares the Editor reasoning toggle and box).
                 yield {

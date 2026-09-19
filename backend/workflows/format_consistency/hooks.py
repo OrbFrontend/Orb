@@ -163,11 +163,7 @@ async def post_pipeline(ctx):
             voice_status = True
             yield {
                 "event": "phase_status",
-                "data": {
-                    "channel": f"workflow:{WORKFLOW_ID}",
-                    "label": "Checking voice and formatting…",
-                    "turn_phase": "finalizing",
-                },
+                "data": {"channel": f"workflow:{WORKFLOW_ID}", "label": "Matching voice and format…"},
             }
             text = await _hold_voice(ctx, text, window, styles)
     except Exception:

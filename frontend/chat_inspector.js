@@ -287,7 +287,7 @@ function _renderWorkflowPhasesPill() {
 export function _syncGenerationStatusVisibility() {
   const el = $("generation-status");
   if (!el) return;
-  const turnActive = !!S.generationPhase;
+  const turnActive = S.generationStep !== null;
   const pillActive = Object.keys(S.workflowPhases).length > 0;
   el.classList.toggle("hidden", !(turnActive || pillActive));
   el.classList.toggle("pill-only", !turnActive && pillActive);

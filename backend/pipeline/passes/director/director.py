@@ -495,6 +495,7 @@ async def director_stage(
     # lorebook works whether or not the Director's scene-direction tool is enabled.
     # Runs before director_done so its picks ride state.calls into the inspector/log.
     if lorebook.agentic:
+        yield {"event": "step_start", "data": {"step": "lorebook"}}
         async for event in lorebook_select_step(
             cfg.agent_lane.client,
             cfg.agent_lane.base,

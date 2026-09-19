@@ -1,27 +1,22 @@
-const PHASES = {
-  pending: { label: "Preparing the request…", step: -1, stage: "" },
-  directing: { label: "Reading context and planning the scene…", step: 0, stage: "director pass" },
-  generating: { label: "Drafting the response…", step: 1, stage: "writer pass" },
-  refining: { label: "Reviewing and polishing the response…", step: 2, stage: "editor pass" },
-  finalizing: { label: "Finishing the response…", step: 2, stage: "workflow hook" },
+// Status-bar text for the core pipeline steps, keyed by the ids the backend
+// sends in `step_start` (plus `director_start`). Workflow hooks describe their
+// own step through a `phase_status` label.
+const STEP_LABELS = {
+  director: "Directing the scene…",
+  lorebook: "Consulting the lorebook…",
+  direction_notes: "Updating direction notes…",
+  writer: "Writing the reply…",
+  output_auditor: "Auditing the draft…",
+  length_guard: "Checking the length…",
+  post_processing: "Applying post-processing…",
+  feedback: "Preparing feedback…",
+  world_changes: "Checking for world changes…",
+  sheet_updates: "Reviewing character sheets…",
 };
-const PHASE_NAMES = Object.keys(PHASES);
-const FALLBACK = { label: "Processing…", step: -1, stage: "" };
 
-export function generationPhaseView(phase) {
-  return PHASES[phase] || FALLBACK;
-}
+// Shown from the request until the first step starts.
+export const WAITING_LABEL = "Waiting for response…";
 
-export function generationPhaseIndex(phase) {
-  return PHASE_NAMES.indexOf(phase);
-}
-
-export function renderGenerationPhase(el, phase) {
-  const { label, step: activeStep } = generationPhaseView(phase);
-  el.dataset.phase = phase;
-  el.querySelector(".gen-text").textContent = label;
-  el.querySelector(".gen-dot").className = `gen-dot${activeStep === 2 ? " spin" : ""}`;
-  for (const [index, step] of el.querySelectorAll("[data-generation-step]").entries()) {
-    step.dataset.state = index < activeStep ? "complete" : index === activeStep ? "active" : "upcoming";
-  }
+export function generationStepLabel(step) {
+  return Object.hasOwn(STEP_LABELS, step) ? STEP_LABELS[step] : "";
 }

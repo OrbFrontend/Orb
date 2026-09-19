@@ -38,13 +38,9 @@ async def sheet_update_stage(
 ) -> AsyncIterator[dict]:
     """Propose sheet updates for the members this exchange touched, and stage them.
 
-    An async generator with no yields today, for symmetry with
-    ``world_proposal_stage`` and so a future reasoning passthrough is an
-    additive change at the call site rather than a signature change. The
-    orchestrator drives it the same way.
+    Yields only its ``step_start`` announcement; the orchestrator drives it the
+    same way as ``world_proposal_stage``.
     """
-    if False:  # pragma: no cover - keeps the stage an async generator
-        yield {}
     try:
         conv = await db.get_conversation(turn.conversation_id)
         # Re-resolved here rather than read off the turn: the sheet a proposal is
@@ -81,6 +77,7 @@ async def sheet_update_stage(
     # drafter takes. A per-member call carrying the whole scene prefix would
     # bill the cast's context once per touched member for a question that only
     # needs one sheet and one exchange.
+    yield {"event": "step_start", "data": {"step": "sheet_updates"}}
     client, model = cfg.agent_lane.client, cfg.agent_lane.base.model
     staged: list[dict] = []
     for member in targets:
