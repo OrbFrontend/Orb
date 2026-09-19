@@ -191,11 +191,7 @@ async def editor_pass(
     feedback_fragments: Sequence[Mapping[str, Any]] | None = None,
     post_processing_fragments: Sequence[Mapping[str, Any]] | None = None,
 ) -> AsyncIterator[dict]:
-    """Run the audit/edit loop, post-processing fragments, and feedback.
-
-    Each sub-step that has work to do is announced with a
-    ``{"type": "step", "step": str}`` marker before it starts.
-    """
+    """Run the audit/edit loop, post-processing fragments, and feedback."""
     t0 = time.monotonic()
 
     if audit_enabled:
@@ -317,10 +313,8 @@ async def editor_stage(
     post_processing_needed = post_processing_active(post_processing_fragments, agent_on=cfg.agent_on)
     editor_will_run = bool(state.resp_text and (cfg.do_edit or post_processing_needed or feedback_needed))
 
-    # Authoritative writer→editor boundary: says whether an Editor sub-step
-    # follows. Not emitted on the writer-abort path. Mirrors
-    # director_start/director_done; each sub-step still announces itself with
-    # step_start.
+    # writer_done says whether an Editor sub-step follows; each sub-step emits
+    # its own step_start.
     yield {"event": "writer_done", "data": {"editor_will_run": editor_will_run}}
 
     if editor_will_run:

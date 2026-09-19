@@ -54,19 +54,16 @@ import {
   toast,
 } from "./utils.js";
 
-// Generation entry points share the SSE handling in this module.
-
 export function stopConversation(convId) {
   fetch(`/api/conversations/${convId}/stop`, { method: "POST" }).catch(() => {});
 }
 
-// A failure's stage when the backend named none: the running step's status text.
+// Use the visible step when an error has no explicit stage.
 function phaseStage() {
   return (S.generationStep || "").replace(/(…|\.\.\.)$/, "");
 }
 
-// The status bar describes the step the backend says is running. "" is a turn that
-// has started but not reached its first step; null is no turn.
+// Empty means waiting; null means no active turn.
 function setGenerationStep(label) {
   S.generationStep = label;
   _syncGenerationStatusVisibility();
@@ -475,7 +472,7 @@ export async function processSSEStream(resp, container, holder, signal) {
       }
     };
     try {
-      handleSSEEvent(event, data, container, holder.el, onToken, onRewrite);
+      handleSSEEvent(event, data, holder.el, onToken, onRewrite);
     } catch (e) {
       console.error(`SSE handler for "${event}" threw:`, e);
       if (!dispatchErrorToasted) {
@@ -518,7 +515,7 @@ function parseFailure(data) {
   return { headline: unescapeSSE(raw), sentence: "", kind: "internal" };
 }
 
-function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
+function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
   switch (event) {
     case "director_start":
       setGenerationStep(generationStepLabel("director"));
@@ -610,8 +607,7 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
     case "phase_status": {
       try {
         const d = JSON.parse(data);
-        // A workflow hook on the turn stream is a step of the turn, so its label
-        // takes the status line; the pill is for workflow work outside the turn.
+        // Turn workflow steps use the primary status line.
         const label = typeof d.label === "string" ? d.label.trim() : "";
         if (label && d.state !== "done") setGenerationStep(label);
       } catch (_) {}

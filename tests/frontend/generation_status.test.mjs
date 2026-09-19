@@ -1,6 +1,4 @@
-// The step ids are read out of the backend sources rather than restated here, so a
-// new `step_start` without status text fails this test instead of leaving the bar
-// showing the previous step.
+// Read step ids from the backend so new steps cannot silently lose their label.
 
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
@@ -30,7 +28,7 @@ test("every backend step has its own status text", () => {
   assert.equal(new Set(labels).size, labels.length);
 });
 
-test("an unknown step keeps the current text", () => {
+test("unknown steps have no label", () => {
   assert.equal(generationStepLabel("future_step"), "");
   assert.equal(generationStepLabel("toString"), "");
   assert.equal(generationStepLabel(undefined), "");

@@ -54,11 +54,7 @@ def _make_result(state: TurnState, staged: list[dict] | None = None, staged_stat
 
 
 async def _consume_direction_note_step(gen: AsyncIterator[dict], state: TurnState, pass_label: str) -> AsyncIterator[dict]:
-    """Announce and drain a direction-note step: stream its reasoning under *pass_label*, keep the notes.
-
-    Notes accumulate across the turn's two placements; the event carries the running total so
-    the inspector shows every note recorded this turn regardless of which step produced it.
-    """
+    """Announce and drain a direction-note step, preserving accumulated notes."""
     yield {"event": "step_start", "data": {"step": "direction_notes"}}
     async for ev in gen:
         if ev["type"] == "reasoning":

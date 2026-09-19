@@ -1,6 +1,4 @@
-// Status-bar text for the core pipeline steps, keyed by the ids the backend
-// sends in `step_start` (plus `director_start`). Workflow hooks describe their
-// own step through a `phase_status` label.
+// Labels for backend step_start ids; director_start uses "director".
 const STEP_LABELS = {
   director: "Directing the scene…",
   lorebook: "Consulting the lorebook…",
@@ -14,7 +12,6 @@ const STEP_LABELS = {
   sheet_updates: "Reviewing character sheets…",
 };
 
-// Shown from the request until the first step starts.
 export const WAITING_LABEL = "Waiting for response…";
 
 export function generationStepLabel(step) {

@@ -36,11 +36,7 @@ async def sheet_update_stage(
     settings: Mapping[str, Any],
     turn: SheetUpdateTurn,
 ) -> AsyncIterator[dict]:
-    """Propose sheet updates for the members this exchange touched, and stage them.
-
-    Yields only its ``step_start`` announcement; the orchestrator drives it the
-    same way as ``world_proposal_stage``.
-    """
+    """Propose and stage sheet updates for the members this exchange touched."""
     try:
         conv = await db.get_conversation(turn.conversation_id)
         # Re-resolved here rather than read off the turn: the sheet a proposal is
