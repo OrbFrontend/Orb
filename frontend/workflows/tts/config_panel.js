@@ -451,7 +451,7 @@ function cloneControlHtml(p) {
       ? `<button class="tts-clone-remove" type="button" data-wf-action="tts:voiceClear">Remove</button>`
       : "";
   const intro = advanced
-    ? "Also copies the clip's pacing and accent, from a short excerpt Orb transcribes for you."
+    ? "Also copies the clip's pacing and accent, more accurate."
     : "Copies the voice's timbre from the whole clip.";
   return `<div class="tts-field tts-clone">
       <span class="tts-clone-head"><label for="tts-pf-voicefile">Cloned voice</label>${remove}</span>
@@ -476,7 +476,7 @@ function referenceHtml() {
   const seconds = (tokens.length / SEMANTIC_RATE).toFixed(1);
   const typed = cloned.referenceText.trim();
   const status = typed
-    ? "It must say exactly what the excerpt says. Fix any mistakes, then save the voice."
+    ? "It must say exactly what the excerpt says. Fix mistakes, then save the voice."
     : `${esc(referenceNote || "The excerpt has no transcript yet.")} Until it has one, replies use Basic cloning.`;
   return `<div class="tts-reference">
       <span class="tts-control-row">
@@ -581,7 +581,7 @@ async function runCloneSetup() {
     const features = cloneFeatures();
     for (const feature of features) {
       if (!mlFeature(feature.id).present) {
-        setupStep = `Downloading the ${feature.label} (${mlFeature(feature.id).size_mb || "?"} MB) — this takes a while.`;
+        setupStep = `Downloading the ${feature.label} (${mlFeature(feature.id).size_mb || "?"} MB).`;
         renderCloneControl();
         await api.post(`/local-ml/${feature.id}/download`, {});
       }
