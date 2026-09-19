@@ -1,30 +1,5 @@
 #!/usr/bin/env python3
-"""Export and verify Spark-TTS's semantic tokenizer as one ONNX model.
-
-The graph maps a 16 kHz mono waveform ``(1, samples)`` to BiCodec semantic
-token indices ``(1, frames)`` at 50 per second — what upstream's
-``BiCodecTokenizer.tokenize`` computes for a prompt clip, in one graph:
-
-1. wav2vec2's zero-mean / unit-variance input normalization,
-2. wav2vec2-large-xlsr-53 truncated to its first 16 transformer layers, since
-   upstream reads only hidden states 11, 14 and 16 (a third of the weights are
-   never used),
-3. the mean of those three states through BiCodec's encoder and factorized
-   quantizer.
-
-Verification compares every export against upstream's own pipeline — the
-feature-extractor processor and the untruncated model's ``hidden_states`` —
-not against the wrapper it was traced from, so a wrong truncation index fails
-here rather than producing plausible tokens.
-
-Weights are stored as float16 and cast back to float32 when the session loads,
-so the file is half the size while the arithmetic stays float32. Semantic
-tokens are an argmax over 8192 cosine similarities, which makes them sensitive
-to weight precision: measured on three clips, float16 storage kept 99.8–100% of
-upstream's tokens, while dynamic int8 kept 62–76% (68–72% per-channel) and is
-not offered. The script reports the agreement and refuses an export below
-``--min-agreement``.
-"""
+"""Export and verify Spark-TTS's semantic tokenizer as one ONNX model."""
 
 from __future__ import annotations
 
@@ -35,7 +10,7 @@ import time
 
 DEFAULT_LOCAL_NAME = "spark-semantic-tokenizer.onnx"
 SAMPLE_RATE = 16000
-#: wav2vec2 hidden states upstream mixes (``audio_tokenizer.py``).
+#: wav2vec2 hidden states mixed by upstream.
 MIXED_STATES = (11, 14, 16)
 
 
@@ -45,12 +20,7 @@ def _default_out() -> str:
 
 
 def _store_float16(src: str, dst: str) -> None:
-    """Store large float32 initializers as float16, each behind a Cast back.
-
-    Not a float16 conversion of the graph: every op still computes in float32,
-    which is what ONNX Runtime's CPU provider has kernels for on every
-    platform. ONNX Runtime folds the casts once when the session loads.
-    """
+    """Store large float32 initializers as float16 with float32 casts."""
     import numpy as np
     import onnx
     from onnx import TensorProto, helper, numpy_helper
@@ -105,9 +75,6 @@ def main() -> int:
     processor = Wav2Vec2FeatureExtractor.from_pretrained(w2v_dir)
     wav2vec2 = Wav2Vec2Model.from_pretrained(w2v_dir).eval()
     if not wav2vec2.config.do_stable_layer_norm:
-        # The truncation below assumes pre-norm layers whose hidden state k is
-        # the raw output of layer k-1, with the final norm applied only after
-        # the last layer. A post-norm checkpoint would need a different graph.
         print("FAIL: expected a stable-layer-norm wav2vec2", file=sys.stderr)
         return 1
 

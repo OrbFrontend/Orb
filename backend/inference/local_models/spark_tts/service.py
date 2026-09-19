@@ -46,12 +46,7 @@ async def synthesize(
     reference: Reference | None = None,
     gpu: bool = True,
 ) -> tuple[bytes, int]:
-    """Speak text in an enrolled voice and return ``(pcm16, sample_rate)``.
-
-    With a *reference*, the prompt carries the reference excerpt's speech and
-    transcript, and the line continues that delivery rather than only its
-    timbre.
-    """
+    """Speak text in an enrolled voice and return ``(pcm16, sample_rate)``."""
     spoken = " ".join(text.split())
     if not spoken:
         return b"", codec.SAMPLE_RATE
@@ -72,14 +67,7 @@ async def synthesize(
             raise SynthesisFailed("This line is too long for Spark-TTS to speak in one piece.")
         generated: list[int] = []
         if excerpt:
-            # A continuation must not end before it starts. The first token
-            # after an excerpt carries a small raw chance of ending (up to
-            # about a quarter, measured on a slow speaker), and top-k keeps
-            # that one token while discarding most of the probability spread
-            # over 8192 audio tokens — leaving whole lines, the preview among
-            # them, ending at their first token every time. So the first
-            # token is sampled with ending banned, and the rest continues
-            # from it unconstrained, off the prompt already in the cache.
+            # Prevent a continuation from ending before it produces audio.
             generated, _ = await server.generate_tokens(
                 prompt,
                 n_predict=1,

@@ -7,12 +7,7 @@ from collections.abc import Iterable, Mapping
 
 
 def _byte_decoder() -> dict[str, int]:
-    """Invert GPT-2's byte-to-printable-character table.
-
-    Byte-level BPE spells every byte as a printable character so that a token
-    is a plain string; decoding maps the characters back to bytes and only then
-    reads UTF-8, which is what lets a multi-byte character span two tokens.
-    """
+    """Invert GPT-2's byte-to-printable-character table."""
     printable = [*range(ord("!"), ord("~") + 1), *range(ord("¡"), ord("¬") + 1), *range(ord("®"), ord("ÿ") + 1)]
     chars = list(printable)
     shifted = 0
@@ -28,12 +23,7 @@ _BYTES = _byte_decoder()
 
 
 class Vocabulary:
-    """The text half of a Whisper vocabulary, read from its ``vocab.json``.
-
-    ``vocab.json`` holds the byte-level BPE tokens and ``<|endoftext|>``; every
-    special token — languages, tasks, timestamps — lives only in the added
-    tokens. So the ids here are exactly the ones a transcript may contain.
-    """
+    """The text tokens from a Whisper ``vocab.json``."""
 
     def __init__(self, token_ids: Mapping[str, int]) -> None:
         self._text = {int(index): token for token, index in token_ids.items()}

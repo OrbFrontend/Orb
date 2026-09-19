@@ -1,12 +1,4 @@
-"""Choose and encode the reference excerpt for transcript-conditioned cloning.
-
-Advanced cloning puts a few seconds of the reference speaker's own speech into
-the prompt, as semantic tokens, together with what those seconds say. The
-excerpt has to be short — every one of its tokens is re-read for every spoken
-line — and has to start and end between words, or its transcript cannot match
-it. So it is cut at pauses, from the stretch of the clip with the most speech,
-and its own long pauses are shortened the way enrollment shortens them.
-"""
+"""Choose and encode the reference excerpt for advanced cloning."""
 
 from __future__ import annotations
 
@@ -24,36 +16,29 @@ if TYPE_CHECKING:
 SAMPLE_RATE = silence.SAMPLE_RATE
 FRAME = silence.FRAME_SAMPLES
 
-#: Longest excerpt, after its pauses are shortened.
+#: Maximum excerpt length after pause shortening.
 TARGET_SECONDS = 10.0
-#: Less speech than this carries too little delivery to be worth the prompt.
+#: Minimum speech needed for a useful reference.
 MIN_SPEECH_SECONDS = 2.0
-#: A silence at least this long separates two phrases; shorter ones are
-#: gaps inside a phrase and never become a cut.
+#: Minimum gap between phrases.
 MIN_PAUSE_MS = 200
-#: A silence at least this long ends a sentence or a clause. The excerpt starts
-#: and ends at one when the clip has one, so it does not open mid-thought.
+#: Gap marking a sentence or clause break.
 BREAK_PAUSE_MS = 400
-#: An excerpt that opens and closes at breaks is chosen over one that does not
-#: while it holds at least this share of that one's speech; a clip of long
-#: sentences would otherwise trade ten seconds of delivery for two.
+#: Minimum speech share required to prefer break-aligned excerpts.
 BREAK_PREFERENCE = 0.5
-#: Longest pause kept inside the excerpt. The same rule enrollment applies: a
-#: dramatic two-second silence in the reference is copied as a speaking habit,
-#: and generation trails off into silence instead of ending.
+#: Maximum pause kept inside the excerpt.
 KEEP_PAUSE_MS = 200
-#: Silence kept on each side of the excerpt, so its first and last sounds are
-#: not clipped by a frame boundary.
+#: Context kept around the excerpt.
 EDGE_MS = 100
 
 
 class NoUsableExcerpt(ValueError):
-    """The clip has no stretch of speech long enough to act as a reference."""
+    """The clip has no usable speech excerpt."""
 
 
 @dataclass(frozen=True)
 class Reference:
-    """A reference excerpt as a prompt uses it: its speech and what it says."""
+    """Reference speech and its transcript."""
 
     text: str
     tokens: Sequence[int]
@@ -64,7 +49,7 @@ def _frames(ms: float) -> int:
 
 
 def _phrases(mask: np.ndarray) -> list[tuple[int, int]]:
-    """``[start, end)`` frame runs of speech, bridging pauses shorter than a phrase break."""
+    """Return speech runs, splitting on phrase-length pauses."""
     import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
 
     spoken = np.flatnonzero(mask)
@@ -83,11 +68,7 @@ def _phrases(mask: np.ndarray) -> list[tuple[int, int]]:
 
 
 def _split_long(phrase: tuple[int, int], rms: np.ndarray, limit: int) -> list[tuple[int, int]]:
-    """Cut a phrase longer than *limit* frames at its quietest interior frame.
-
-    Continuous speech with no phrase break still dips between words; cutting
-    there is the least bad place to end an excerpt.
-    """
+    """Split long speech runs at their quietest interior frames."""
     import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
 
     start, end = phrase
@@ -99,12 +80,7 @@ def _split_long(phrase: tuple[int, int], rms: np.ndarray, limit: int) -> list[tu
 
 
 def _window(phrases: list[tuple[int, int]], first: int, last: int, total: int) -> list[tuple[int, int]]:
-    """Frame ranges that make up the excerpt of ``phrases[first..last]``.
-
-    Each phrase is kept whole; a pause between two is shortened to
-    ``KEEP_PAUSE_MS``, half after one phrase and half before the next; and up
-    to ``EDGE_MS`` of the surrounding silence is kept at either end.
-    """
+    """Return sample-frame ranges for a phrase window with shortened pauses."""
     keep, edge = _frames(KEEP_PAUSE_MS), _frames(EDGE_MS)
     floor = phrases[first - 1][1] if first > 0 else 0
     ceiling = phrases[last + 1][0] if last + 1 < len(phrases) else total
@@ -120,15 +96,7 @@ def _window(phrases: list[tuple[int, int]], first: int, last: int, total: int) -
 
 
 def excerpt_ranges(wav: np.ndarray) -> list[tuple[int, int]]:
-    """``[start, end)`` sample ranges of the best reference excerpt in *wav*.
-
-    Scores every run of consecutive phrases that fits ``TARGET_SECONDS`` once
-    its pauses are shortened, by how much speech it holds, and keeps the best
-    (the earliest on a tie). A run that starts and ends at a break is preferred
-    while it holds ``BREAK_PREFERENCE`` of the best run's speech. Raises
-    :class:`NoUsableExcerpt` when even the best run holds less than
-    ``MIN_SPEECH_SECONDS``.
-    """
+    """Return the best ``[start, end)`` sample ranges for *wav*."""
     import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
 
     audio = np.asarray(wav, dtype=np.float32).reshape(-1)
@@ -136,7 +104,7 @@ def excerpt_ranges(wav: np.ndarray) -> list[tuple[int, int]]:
     rms = silence.frame_rms(audio, FRAME, FRAME)
     limit = int(TARGET_SECONDS * SAMPLE_RATE / FRAME)
     phrases = [piece for phrase in _phrases(mask) for piece in _split_long(phrase, rms, limit)]
-    gaps = [b[0] - a[1] for a, b in zip(phrases, phrases[1:])]  # gaps[i] follows phrases[i]
+    gaps = [b[0] - a[1] for a, b in zip(phrases, phrases[1:])]
     brk = _frames(BREAK_PAUSE_MS)
     opens = [i == 0 or gaps[i - 1] >= brk for i in range(len(phrases))]
     closes = [i == len(phrases) - 1 or gaps[i] >= brk for i in range(len(phrases))]
@@ -144,7 +112,7 @@ def excerpt_ranges(wav: np.ndarray) -> list[tuple[int, int]]:
     enough = MIN_SPEECH_SECONDS * SAMPLE_RATE / FRAME
 
     def best(at_breaks: bool) -> tuple[int, int, int] | None:
-        found: tuple[int, int, int] | None = None  # (speech frames, first, last)
+        found: tuple[int, int, int] | None = None
         for first in range(len(phrases)):
             if at_breaks and not opens[first]:
                 continue
@@ -168,7 +136,7 @@ def excerpt_ranges(wav: np.ndarray) -> list[tuple[int, int]]:
 
 
 def select_excerpt(wav: np.ndarray) -> np.ndarray:
-    """The best reference excerpt in *wav*, with its long pauses shortened."""
+    """Return the best reference excerpt with long pauses shortened."""
     import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
 
     audio = np.asarray(wav, dtype=np.float32).reshape(-1)
@@ -176,7 +144,7 @@ def select_excerpt(wav: np.ndarray) -> np.ndarray:
 
 
 def semantic_tokens(signal: np.ndarray) -> list[int]:
-    """The excerpt's BiCodec semantic token indices, 50 per second."""
+    """Encode an excerpt as BiCodec semantic tokens."""
     import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
 
     audio = np.ascontiguousarray(np.asarray(signal, dtype=np.float32).reshape(1, -1))
@@ -184,13 +152,13 @@ def semantic_tokens(signal: np.ndarray) -> list[int]:
     raw = session.run(["semantic_tokens"], {"wav": audio})[0]
     tokens = [int(value) for value in np.asarray(raw).reshape(-1)]
     expected = audio.shape[1] // FRAME
-    if abs(len(tokens) - expected) > 2:  # a re-export that changed the frame rate
+    if abs(len(tokens) - expected) > 2:
         raise RuntimeError(f"semantic tokenizer returned {len(tokens)} tokens for {expected} frames")
     return validate_reference_tokens(tokens)
 
 
 def release() -> None:
-    """Drop the tokenizer's session; it is large and used once per voice."""
+    """Release the tokenizer session."""
     onnx_runtime.release(catalog.semantic_tokenizer_path())
 
 

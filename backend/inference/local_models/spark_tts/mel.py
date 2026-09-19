@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ..mel import hz_to_mel, mel_to_hz
+
 if TYPE_CHECKING:  # numpy arrives with onnxruntime; base Orb must import this module without it
     import numpy as np
 
@@ -17,47 +19,14 @@ MEL_FMAX = SAMPLE_RATE / 2  # config says null, which torchaudio reads as Nyquis
 NUM_MELS = 128
 
 
-def _hz_to_mel(freq):
-    """Slaney's mel scale: linear below 1 kHz, logarithmic above."""
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
-
-    f_sp = 200.0 / 3
-    min_log_hz = 1000.0
-    min_log_mel = min_log_hz / f_sp
-    logstep = np.log(6.4) / 27.0
-    freq = np.asarray(freq, dtype=np.float64)
-    # Keep the logarithm defined for values in the unused branch of np.where.
-    safe = np.maximum(freq, min_log_hz)
-    return np.where(
-        freq >= min_log_hz,
-        min_log_mel + np.log(safe / min_log_hz) / logstep,
-        freq / f_sp,
-    )
-
-
-def _mel_to_hz(mels):
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
-
-    f_sp = 200.0 / 3
-    min_log_hz = 1000.0
-    min_log_mel = min_log_hz / f_sp
-    logstep = np.log(6.4) / 27.0
-    mels = np.asarray(mels, dtype=np.float64)
-    return np.where(
-        mels >= min_log_mel,
-        min_log_hz * np.exp(logstep * (mels - min_log_mel)),
-        f_sp * mels,
-    )
-
-
 def mel_filterbank() -> np.ndarray:
     """Return the Slaney-normalized mel filterbank."""
     import numpy as np  # noqa: PLC0415 — deferred; see module docstring
 
     n_freqs = N_FFT // 2 + 1
     all_freqs = np.linspace(0, SAMPLE_RATE // 2, n_freqs, dtype=np.float64)
-    m_pts = np.linspace(_hz_to_mel(MEL_FMIN), _hz_to_mel(MEL_FMAX), NUM_MELS + 2)
-    f_pts = _mel_to_hz(m_pts)
+    m_pts = np.linspace(hz_to_mel(MEL_FMIN), hz_to_mel(MEL_FMAX), NUM_MELS + 2)
+    f_pts = mel_to_hz(m_pts)
     f_diff = np.diff(f_pts)  # (n_mels + 1,)
     slopes = f_pts[None, :] - all_freqs[:, None]  # (n_freqs, n_mels + 2)
     down = -slopes[:, :-2] / f_diff[None, :-1]

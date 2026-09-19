@@ -76,6 +76,14 @@ def test_an_advanced_voice_survives_normalization():
     assert speaks_advanced(profile)
 
 
+def test_an_advanced_reference_is_ignored_by_other_backends():
+    profile = normalize_profile({**ADVANCED, "backend": "edge"})
+    assert not speaks_advanced(profile)
+    record = build_generation_metadata("hello", profile)
+    assert record["reference_tokens"] == []
+    assert record["reference_text"] == ""
+
+
 @pytest.mark.parametrize(
     ("field", "bad"),
     [
@@ -120,7 +128,7 @@ def test_an_advanced_voice_sends_its_reference_to_the_adapter():
 
 
 def test_the_reference_is_part_of_the_reproduction_record_only_when_spoken():
-    """A reroll of an advanced line must be advanced; a basic line must not carry 300 unused tokens."""
+    """Include the reference in metadata only for advanced speech."""
     assert {"clone_mode", "reference_tokens", "reference_text"} <= set(_METADATA_KEYS)
     advanced = normalize_profile(ADVANCED)
     record = build_generation_metadata("hello", advanced)
@@ -129,7 +137,6 @@ def test_the_reference_is_part_of_the_reproduction_record_only_when_spoken():
     basic = normalize_profile({**ADVANCED, "clone_mode": "basic"})
     record = build_generation_metadata("hello", basic)
     assert record["reference_tokens"] == [] and record["reference_text"] == ""
-    # The stored-but-unused reference does not change what the audio is.
     assert compute_seed("hello", basic) == compute_seed("hello", {**basic, "reference_tokens": [], "reference_text": ""})
     assert compute_seed("hello", advanced) != compute_seed("hello", basic)
 

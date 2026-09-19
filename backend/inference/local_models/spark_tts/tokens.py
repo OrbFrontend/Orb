@@ -19,21 +19,20 @@ START_GLOBAL = 165150
 END_GLOBAL = 165156
 START_SEMANTIC = 165151
 
-#: The GGUF's end-of-generation tokens, ``<|endoftext|>`` and ``<|im_end|>``.
+#: GGUF end-of-generation tokens.
 STOP_TOKENS = (151643, 151645)
 
-#: Number of speaker tokens produced by enrollment.
+#: Speaker tokens produced by enrollment.
 SPEAKER_TOKEN_COUNT = 32
 
-#: Semantic tokens per second of reference audio (one per 320-sample hop).
+#: Semantic tokens per second of reference audio.
 SEMANTIC_RATE = 50
 
-#: Longest reference excerpt, in seconds and in the tokens it becomes.
+#: Maximum reference excerpt length.
 MAX_REFERENCE_SECONDS = 12
 MAX_REFERENCE_TOKENS = SEMANTIC_RATE * MAX_REFERENCE_SECONDS
 
-#: Longest reference transcript. Twelve seconds of speech is well under this
-#: in any language; a longer transcript cannot be the excerpt's.
+#: Maximum reference transcript length.
 MAX_REFERENCE_TEXT = 400
 
 #: Maximum semantic tokens for one line.
@@ -89,18 +88,12 @@ def validate_reference_tokens(raw: object) -> list[int]:
 
 
 def _is_cjk(char: str) -> bool:
-    # CJK punctuation, kana, ideographs and fullwidth forms: scripts written
-    # without spaces between words. Hangul is spaced and stays out.
+    # CJK text does not need a separating space.
     return "\u2e80" <= char <= "\u9fff" or "\uf900" <= char <= "\ufaff" or "\uff00" <= char <= "\uffef"
 
 
 def join_content(reference_text: str, text: str) -> str:
-    """The reference transcript followed by the line to speak.
-
-    Upstream concatenates the two with nothing between them, which reads
-    correctly for Chinese and runs two English sentences together, so a space
-    goes between them unless either side of the seam is a CJK character.
-    """
+    """Join a reference transcript and the line to speak."""
     head, tail = reference_text.strip(), text.strip()
     if not head or not tail:
         return head or tail
@@ -112,14 +105,7 @@ def clone_prompt(
     speaker_tokens: Sequence[int],
     reference_tokens: Sequence[int] = (),
 ) -> list[int]:
-    """Build the cloning prompt from text, speaker and reference token ids.
-
-    With *reference_tokens*, the prompt continues past the speaker block into
-    the reference excerpt's own speech, and *text_tokens* must spell the
-    excerpt's transcript followed by the line to speak (see
-    :func:`join_content`). The model then continues that speech, and what it
-    generates is the new line alone.
-    """
+    """Build a Spark-TTS prompt with optional reference speech."""
     speaker = validate_speaker_tokens(list(speaker_tokens))
     prompt = [
         TASK_TTS,

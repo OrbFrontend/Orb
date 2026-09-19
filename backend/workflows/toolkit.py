@@ -254,11 +254,7 @@ async def spark_voice_speak(
     reference_tokens: Sequence[int] = (),
     reference_text: str = "",
 ) -> tuple[bytes, int]:
-    """Speak *text* in an enrolled voice. Returns ``(pcm16, sample_rate)``.
-
-    Passing a reference excerpt and its transcript speaks with the excerpt's
-    delivery as well as the voice's timbre.
-    """
+    """Speak *text* in an enrolled voice."""
     return await _spark_tts_host.synthesize(
         text,
         speaker_tokens,

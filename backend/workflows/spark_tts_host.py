@@ -74,11 +74,7 @@ def enrollment_ready(settings: Mapping[str, Any]) -> tuple[bool, str]:
 
 
 def reference_ready(settings: Mapping[str, Any]) -> tuple[bool, str]:
-    """Can an enrollment also prepare an advanced reference right now?
-
-    Needs the codec, the reference reader and the speech recognizer, and all
-    three switched on. Speaking an advanced voice needs none of the last two.
-    """
+    """Whether enrollment can prepare an advanced reference."""
     ok, reason = enrollment_ready(settings)
     if not ok:
         return False, reason
@@ -103,24 +99,18 @@ def synthesis_ready(settings: Mapping[str, Any]) -> tuple[bool, str]:
 
 @dataclass(frozen=True)
 class Enrollment:
-    """What one uploaded clip became."""
+    """Results of voice enrollment."""
 
     speaker_tokens: list[int]
-    #: The advanced reference: an excerpt's semantic tokens and its transcript.
+    #: Advanced reference tokens and transcript.
     reference_tokens: list[int] = field(default_factory=list)
     reference_text: str = ""
-    #: Why the reference is missing or needs a transcript typed, when one was
-    #: asked for. Enrollment itself still succeeded.
+    #: Why the reference is unavailable or needs editing.
     reference_note: str = ""
 
 
 def _prepare_reference(wav: Any) -> tuple[list[int], str, str]:
-    """``(tokens, transcript, note)`` for the best excerpt of a decoded clip.
-
-    Never raises for the clip's sake: a clip with no usable excerpt, or one
-    Whisper cannot transcribe, still enrolls its timbre, and the note says
-    what advanced cloning needs instead.
-    """
+    """Prepare ``(tokens, transcript, note)`` for an enrolled clip."""
     files = whisper.files()
     try:
         excerpt = reference.select_excerpt(audio_in.volume_normalize(wav))
@@ -132,7 +122,6 @@ def _prepare_reference(wav: Any) -> tuple[list[int], str, str]:
         logger.exception("advanced reference preparation failed")
         return [], "", "The reference excerpt could not be prepared; see server logs."
     finally:
-        # Both are large and needed once per voice, not once per line.
         reference.release()
         whisper.release(files)
     text = clean_reference_text(heard.text)
@@ -142,10 +131,7 @@ def _prepare_reference(wav: Any) -> tuple[list[int], str, str]:
 
 
 async def enroll_upload(data: bytes, *, filename: str = "", with_reference: bool = False) -> Enrollment:
-    """Enroll an uploaded audio file without blocking the event loop.
-
-    With *with_reference*, the same decode also yields the advanced reference.
-    """
+    """Enroll an uploaded audio file off the event loop."""
 
     def run() -> Enrollment:
         wav = audio_in.decode(data, filename=filename)
@@ -159,10 +145,7 @@ async def enroll_upload(data: bytes, *, filename: str = "", with_reference: bool
 
 
 async def reference_audio(reference_tokens: Sequence[int], speaker_tokens: Sequence[int]) -> tuple[bytes, int]:
-    """The stored excerpt, decoded back to audio so its transcript can be checked.
-
-    Rebuilt from its tokens rather than stored: Orb keeps no uploaded audio.
-    """
+    """Decode a stored reference excerpt for transcript checking."""
     ok, reason = enrollment_ready(await get_settings())
     if not ok:
         raise service.SynthesisFailed(reason)
@@ -180,11 +163,7 @@ async def synthesize(
     reference_tokens: Sequence[int] = (),
     reference_text: str = "",
 ) -> tuple[bytes, int]:
-    """Speak *text* in an enrolled voice. Returns ``(pcm16, sample_rate)``.
-
-    A reference with both tokens and a transcript makes this an advanced
-    voice; either half alone is the basic one.
-    """
+    """Speak *text* in an enrolled voice."""
     ok, reason = synthesis_ready(settings)
     if not ok:
         raise service.SynthesisFailed(reason)

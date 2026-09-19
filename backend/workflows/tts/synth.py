@@ -39,16 +39,10 @@ PROFILE_DEFAULTS: dict = {
     "api_url": "",
     "api_key": "",
     "model": "",
-    # The built-in Spark-TTS cloner's whole notion of a voice: 32 FSQ codes
-    # from BiCodec's speaker encoder, ~200 bytes, so they live inline in the
-    # profile rather than in a table of their own. `speaker_ref_name` is the
-    # uploaded file's name, kept only so the panel can say which clip this is.
+    # Built-in Spark-TTS voice data.
     "speaker_tokens": [],
     "speaker_ref_name": "",
-    # Advanced cloning: a ~10 s excerpt of the same clip as BiCodec semantic
-    # tokens (50 a second) plus what it says. `clone_mode` is the panel tab
-    # the voice speaks with; the reference is kept while `basic` is selected so
-    # switching back needs no new upload.
+    # Optional advanced-cloning reference.
     "clone_mode": "basic",
     "reference_tokens": [],
     "reference_text": "",
@@ -56,12 +50,7 @@ PROFILE_DEFAULTS: dict = {
 
 CLONE_MODES = ("basic", "advanced")
 
-# Reproduction-record keys carried in an attachment's generation_metadata.
-# These plus the source text are sufficient to re-synthesize the identical
-# audio from a context that has no character or turn state (reroll, rehydrate).
-# `speaker_tokens` is in the set because it IS the voice for the built-in
-# Spark backend: without it a rerolled cloned line would be re-synthesized from
-# a metadata record that names no speaker, and come back in a different voice.
+# Reproduction fields stored in attachment metadata.
 _METADATA_KEYS = (
     "backend",
     "voice_id",
@@ -101,9 +90,7 @@ def normalize_profile(raw: object) -> dict:
     out["rate"] = _as_float(out["rate"], 1.0)
     out["pitch"] = _as_float(out["pitch"], 1.0)
     out["enabled"] = bool(out["enabled"])
-    # A malformed voice must become "no voice" here rather than reach the codec,
-    # which answers a wrong-length array with an exception from inside an
-    # einsum. Everything that reads a profile reads it through this function.
+    # Invalid voice data is treated as no voice.
     out["speaker_tokens"] = spark_voice_clean_tokens(out.get("speaker_tokens"))
     out["speaker_ref_name"] = str(out.get("speaker_ref_name") or "")
     out["clone_mode"] = out["clone_mode"] if out["clone_mode"] in CLONE_MODES else "basic"
@@ -113,20 +100,17 @@ def normalize_profile(raw: object) -> dict:
 
 
 def speaks_advanced(profile: Mapping[str, Any]) -> bool:
-    """Whether *profile* speaks with its reference excerpt's delivery.
-
-    Needs the Advanced tab selected and both halves of the reference: the
-    excerpt without its transcript is only something to listen to.
-    """
-    return bool(profile.get("clone_mode") == "advanced" and profile.get("reference_tokens") and profile.get("reference_text"))
+    """Whether *profile* uses its advanced reference."""
+    return bool(
+        profile.get("backend") == "spark"
+        and profile.get("clone_mode") == "advanced"
+        and profile.get("reference_tokens")
+        and profile.get("reference_text")
+    )
 
 
 def _voice_record(profile: Mapping[str, Any]) -> dict:
-    """*profile*'s reproduction fields, with the reference only when it is spoken.
-
-    A basic voice that still holds a reference would otherwise copy ~500 unused
-    tokens into every attachment it makes.
-    """
+    """Return reproduction fields, including the reference only when used."""
     record = {k: profile.get(k, PROFILE_DEFAULTS.get(k, "")) for k in _METADATA_KEYS}
     if not speaks_advanced(profile):
         record.update(clone_mode="basic", reference_tokens=[], reference_text="")

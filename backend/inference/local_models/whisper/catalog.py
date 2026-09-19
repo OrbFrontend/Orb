@@ -12,11 +12,7 @@ FEATURE = "speech_recognizer"
 
 
 def files() -> WhisperFiles:
-    """The downloaded checkpoint's paths (which may not exist yet).
-
-    Companions are found by their name in the upstream repo, which is
-    Optimum's export layout, rather than by their position in the catalog.
-    """
+    """Return the downloaded checkpoint's paths."""
     by_name = {os.path.basename(f.path): assets.file_path(f) for f in MODELS[FEATURE].extra_files}
     decoder = next(path for name, path in by_name.items() if name.startswith("decoder_model_merged"))
     return WhisperFiles(

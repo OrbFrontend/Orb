@@ -25,12 +25,7 @@ TOKEN_SLACK = 16
 
 @dataclass(frozen=True)
 class WhisperFiles:
-    """Where one Whisper checkpoint's files are on disk.
-
-    ``decoder`` is the merged export (``decoder_model_merged``), which takes a
-    ``use_cache_branch`` flag and past key/values, so each generated token
-    costs one position instead of re-reading the whole prefix.
-    """
+    """Paths for one Whisper checkpoint."""
 
     encoder: str
     decoder: str
@@ -42,8 +37,6 @@ class WhisperFiles:
 @dataclass(frozen=True)
 class Transcript:
     text: str
-    #: The language Whisper heard, as its code (``en``, ``zh``, …).
-    language: str
     #: False when generation hit its budget instead of ending the transcript.
     complete: bool
 
@@ -90,8 +83,7 @@ class _Decoder:
         for name, value in values.items():
             if not name.startswith("present."):
                 continue
-            # The encoder's keys and values are computed once, from the first
-            # pass; later passes may return them empty.
+            # Encoder keys and values are only returned on the first pass.
             if cached and ".encoder." in name:
                 continue
             self._past["past_key_values." + name.removeprefix("present.")] = value
@@ -108,7 +100,7 @@ class _Decoder:
 
 
 def transcribe(wav: np.ndarray, files: WhisperFiles) -> Transcript:
-    """Transcribe up to 30 s of 16 kHz mono audio in the language it is spoken in."""
+    """Transcribe up to 30 s of 16 kHz mono audio."""
     import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
 
     audio = np.asarray(wav, dtype=np.float32).reshape(-1)
@@ -127,7 +119,6 @@ def transcribe(wav: np.ndarray, files: WhisperFiles) -> Transcript:
     languages = {token.strip("<|>"): int(index) for token, index in generation["lang_to_id"].items()}
     heard = decoder.start([start])
     language_id = max(languages.values(), key=lambda index: heard[index])
-    language = next(code for code, index in languages.items() if index == language_id)
     prompt = [
         start,
         language_id,
@@ -159,11 +150,11 @@ def transcribe(wav: np.ndarray, files: WhisperFiles) -> Transcript:
         if step + 1 < budget:
             logits = decoder.step(token)
     text = " ".join(vocabulary.decode(generated, skip=(eos,)).split())
-    return Transcript(text=text, language=language, complete=complete)
+    return Transcript(text=text, complete=complete)
 
 
 def release(files: WhisperFiles) -> None:
-    """Drop the cached sessions; transcription is rare and the graphs are large."""
+    """Release the encoder and decoder sessions."""
     onnx_runtime.release(files.encoder)
     onnx_runtime.release(files.decoder)
 
