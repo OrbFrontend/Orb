@@ -138,6 +138,7 @@ class RegenCtx:
     agent_model_name: str
     character_id: str | None = None
     character: MappingProxyType | None = None
+    phase: Callable[[str], None] = lambda _label: None  # step label, streamed to a client that asks
 
 
 @dataclass(frozen=True)

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any
 
@@ -282,15 +283,40 @@ async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(def
     return result
 
 
+_DETACHED: set[asyncio.Task] = set()
+
+
 @router.post("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate")
 async def api_regenerate_attachment(
     cid: str,
     mid: int,
     aid: int,
+    request: Request,
     body: dict = Body(default={}),  # noqa: B008
     conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
     """Append a new sibling variant under a workflow-produced attachment's root."""
+    phases: asyncio.Queue[str | None] = asyncio.Queue()
+    task = asyncio.create_task(_regenerate(cid, mid, aid, body, conv, phases.put_nowait))
+    if "text/event-stream" not in request.headers.get("accept", ""):
+        return await task
+    # Outlives a dropped stream, so the sibling still lands for the client's recovery poll.
+    _DETACHED.add(task)
+    task.add_done_callback(_DETACHED.discard)
+    task.add_done_callback(lambda _: phases.put_nowait(None))
+
+    async def events():
+        while (label := await phases.get()) is not None:
+            yield {"event": "phase_status", "data": {"label": label}}
+        try:
+            yield {"event": "regenerate_done", "data": task.result()}
+        except HTTPException as exc:
+            yield {"event": "regenerate_error", "data": {"status": exc.status_code, "detail": exc.detail}}
+
+    return _workflow_event_stream_response(WorkflowEventStream(events=events()))
+
+
+async def _regenerate(cid: str, mid: int, aid: int, body: dict, conv: ConversationRow, phase: Callable[[str], None]) -> dict:
     att = await get_workflow_attachment_by_id(aid)
     if att is None or att["message_id"] != mid:
         raise HTTPException(status_code=404, detail="Attachment not found on this message")
@@ -333,6 +359,7 @@ async def api_regenerate_attachment(
                 agent_model_name=agent_model_name,
                 character_id=card_id,
                 character=_readonly(card),
+                phase=phase,
             )
             new_dicts = await sub.callable(regen_ctx, body)
 

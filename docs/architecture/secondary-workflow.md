@@ -165,7 +165,7 @@ framework.
 | `PreCtx` | Conversation, history, current user text, settings, prefix, tool map, client, cache tracker | `turn_scratch` is shared with PostCtx |
 | `PostCtx` | Conversation, final history, effective user text, Director output, merged tools, prefix, client, cache tracker, resolved Agent execution target (`agent_client`, `agent_model_name`) | May stage a draft, state, or attachment |
 | `OnDemandCtx` | Conversation, history, current user text, settings, client, character | Trigger actions |
-| `RegenCtx` | Conversation, message and attachment ids, pre-anchor history, settings, client, character | Attachment regeneration |
+| `RegenCtx` | Conversation, message and attachment ids, pre-anchor history, settings, client, character, `phase(label)` | Attachment regeneration |
 | `RerollGenCtx` | Conversation, message and attachment ids, settings, client, prior consumption metadata, `replay` | Shared by reroll and rehydrate |
 | `QueryCtx` | Settings | No conversation and no client |
 
@@ -298,6 +298,10 @@ change the group. It exists for a client whose own connection died mid-render,
 which otherwise cannot tell a running render from one the server already failed.
 A single `false` does not prove failure -- a queued request has not reached the
 lock yet -- so clients confirm it across consecutive polls.
+
+With `Accept: text/event-stream`, `regenerate` streams each `ctx.phase(label)` as
+`phase_status`, then `regenerate_done` (the JSON body) or `regenerate_error`
+(`{status, detail}`). The render outlives a dropped stream.
 
 The manifest returns workflow identity and config form metadata. Config is a
 full replacement; a workflow's `config_normalizer` owns its valid shape and is

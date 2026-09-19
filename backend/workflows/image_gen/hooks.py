@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from ..toolkit import (
@@ -131,6 +131,10 @@ def _progress_label(stage: str, detail: Mapping[str, Any]) -> str | None:
             return f"Queued behind {ahead} render{'s' if ahead > 1 else ''}..."
         return "Queued on ComfyUI..."
     return None
+
+
+def _reporting(emit: Callable[[str], None]) -> ProgressCallback:
+    return lambda stage, detail: None if (label := _progress_label(stage, detail)) is None else emit(label)
 
 
 def _history_through(history: Sequence[Mapping[str, Any]], message_id: int) -> list[dict]:
@@ -491,12 +495,6 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
         attachment_id: int | None = None
         error: str | None = None
         labels: asyncio.Queue = asyncio.Queue()
-
-        def on_progress(stage: str, detail: Mapping[str, Any]) -> None:
-            label = _progress_label(stage, detail)
-            if label:
-                labels.put_nowait(label)
-
         task = asyncio.create_task(
             _generate_fresh(
                 ctx=ctx,
@@ -505,7 +503,7 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
                 profile=profile,
                 style_id=style_id,
                 prefix=prefix,
-                progress=on_progress,
+                progress=_reporting(labels.put_nowait),
             )
         )
         try:
@@ -585,6 +583,7 @@ async def regenerate(ctx, body):
             config=config,
             profile=profile,
             style_id=style_id,
+            progress=_reporting(ctx.phase),
             history=history,
         )
     ]
