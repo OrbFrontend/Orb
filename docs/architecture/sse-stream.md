@@ -42,6 +42,14 @@ connection from being dropped.
 what an event means or unescape the payload. `chat_stream.js` dispatches by event
 name; other streaming features use the same parser with their own handlers.
 
+The generation status presents these boundaries as a compact Plan → Draft →
+Finish rail. `director_done` advances the UI to Draft before visible prose
+arrives, Writer reasoning does the same when the Director is skipped, and
+`writer_done.editor_will_run` advances it to the optional review work within
+Finish. Post-pipeline workflows can identify their actual work with
+`phase_status` and opt into the same final stage with `turn_phase: "finalizing"`.
+This keeps the indicator tied to authoritative stream events rather than timers.
+
 Only `token` is normally raw text. Other payloads are JSON, with `error` also
 accepting a legacy string.
 

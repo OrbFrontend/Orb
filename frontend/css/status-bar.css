@@ -63,3 +63,62 @@
 }
 
 .gen-text { color: var(--text-primary); }
+
+.gen-steps {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.gen-step {
+  padding: 3px 5px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--text-muted);
+  transition: color .2s ease, background .2s ease, border-color .2s ease;
+}
+
+.gen-step[data-state="complete"] {
+  color: var(--accent);
+}
+
+.gen-step[data-state="active"] {
+  color: var(--text-primary);
+  background: var(--accent-glow);
+  border-color: var(--accent-dim);
+}
+
+.gen-step-divider {
+  color: var(--border-light);
+}
+
+@media (max-width: 600px) {
+  .gen-status { gap: 6px; }
+
+  .gen-steps { gap: 3px; }
+
+  .gen-step {
+    width: 14px;
+    height: 4px;
+    padding: 0;
+    border: 0;
+    border-radius: 2px;
+    background: var(--border);
+    font-size: 0;
+  }
+
+  .gen-step[data-state="complete"] { background: var(--accent-dim); }
+  .gen-step[data-state="active"] { background: var(--accent); }
+  .gen-step-divider { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gen-bar,
+  .gen-dot,
+  .gen-dot.spin {
+    animation: none;
+  }
+}

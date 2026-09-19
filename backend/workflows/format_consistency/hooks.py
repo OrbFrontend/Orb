@@ -157,8 +157,18 @@ async def post_pipeline(ctx):
     text = ctx.draft
 
     # Voice failures must not prevent the always-on markup normalization.
+    voice_status = False
     try:
         if await _voice_enabled(ctx):
+            voice_status = True
+            yield {
+                "event": "phase_status",
+                "data": {
+                    "channel": f"workflow:{WORKFLOW_ID}",
+                    "label": "Checking voice and formatting…",
+                    "turn_phase": "finalizing",
+                },
+            }
             text = await _hold_voice(ctx, text, window, styles)
     except Exception:
         logger.exception("format-consistency: voice check failed; normalizing markup only")
@@ -173,3 +183,8 @@ async def post_pipeline(ctx):
     await capture.record(ctx, window=window, draft=draft, report=report, output=text)
     if text != ctx.draft:
         yield {"type": EV_DRAFT_REPLACED, "draft": text}
+    if voice_status:
+        yield {
+            "event": "phase_status",
+            "data": {"channel": f"workflow:{WORKFLOW_ID}", "state": "done"},
+        }

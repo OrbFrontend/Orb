@@ -33,6 +33,7 @@ import {
   optimisticDropDirectionNotesFrom,
   renderDirectionNotesPanel,
 } from "./direction_notes_panel.js";
+import { generationPhaseIndex, generationPhaseView, renderGenerationPhase } from "./generation_status.js";
 import { restNotice, speakerAvatarCell, unansweredHint } from "./group_cast.js";
 import { consumeSpeakerOverride, refreshSheetProposals, renderGroupCast } from "./group_setup.js";
 import { refreshCharacters } from "./library.js";
@@ -61,24 +62,14 @@ export function stopConversation(convId) {
   fetch(`/api/conversations/${convId}/stop`, { method: "POST" }).catch(() => {});
 }
 
-const PHASE_ORDER = { pending: 0, directing: 0, generating: 1, refining: 2 };
-const PHASE_LABELS = {
-  pending: "Waiting for response…",
-  directing: "Director analyzing scene…",
-  generating: "Generating response…",
-  refining: "Refining response…",
-};
-
-const PHASE_STAGES = { pending: "", directing: "director pass", generating: "writer pass", refining: "editor pass" };
-
 function phaseStage() {
-  return PHASE_STAGES[S.generationPhase] || "";
+  return generationPhaseView(S.generationPhase).stage;
 }
 
 export function setGenerationPhase(phase) {
   if (!phase) {
     S.generationPhase = null;
-  } else if (S.generationPhase && PHASE_ORDER[phase] < PHASE_ORDER[S.generationPhase]) {
+  } else if (S.generationPhase && generationPhaseIndex(phase) < generationPhaseIndex(S.generationPhase)) {
     return; // never go backwards
   } else {
     S.generationPhase = phase;
@@ -86,8 +77,7 @@ export function setGenerationPhase(phase) {
   _syncGenerationStatusVisibility();
   const el = $("generation-status");
   if (!S.generationPhase || !el) return;
-  el.querySelector(".gen-text").textContent = PHASE_LABELS[S.generationPhase] || "Processing…";
-  el.querySelector(".gen-dot").className = `gen-dot${S.generationPhase === "refining" ? " spin" : ""}`;
+  renderGenerationPhase(el, S.generationPhase);
 }
 
 // Coalesce expensive full-body renders to one paint per animation frame.
@@ -445,6 +435,8 @@ export async function processSSEStream(resp, container, holder, signal) {
         S.currentExchangeId = parsed.exchange_id;
         S.currentSpeaker = parsed;
         resetSpeakerTurnState();
+        setGenerationPhase(null);
+        setGenerationPhase("pending");
         holder.el = createStreamingDiv(parsed.name, parsed.member_id);
         if (!S.hideUntilBaked) container.appendChild(holder.el);
         onTurnStart();
@@ -547,6 +539,7 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
       try {
         S.lastDirectorData = JSON.parse(data);
       } catch (_) {}
+      setGenerationPhase("generating");
       _advanceReasoningPass(1); // director done → move to Writer dot
       renderInspector();
       break;
@@ -561,6 +554,7 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
       } catch (_) {}
       break;
     case "draft_update":
+      setGenerationPhase("refining");
       try {
         const draft = JSON.parse(data).draft;
         if (draft !== S.streamingContent) swapStreamingDraft(draft, onRewrite);
@@ -578,6 +572,8 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
         const d = JSON.parse(data);
         const passKey = d.pass;
         const delta = d.delta;
+        if (passKey === "writer") setGenerationPhase("generating");
+        else if (passKey === "editor") setGenerationPhase("refining");
         const builtinIdx = REASONING_PASSES.findIndex((p) => p.key === passKey);
         if (builtinIdx >= 0) {
           const stateKey = `reasoning${passKey.charAt(0).toUpperCase()}${passKey.slice(1)}`;
@@ -630,7 +626,10 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
         if (typeof channel === "string" && channel.startsWith("workflow:")) {
           const label = typeof d.label === "string" ? d.label : "";
           if (d.state === "done" || !label.trim()) clearWorkflowPhase(channel);
-          else setWorkflowPhase(channel, label);
+          else {
+            if (d.turn_phase === "finalizing") setGenerationPhase("finalizing");
+            setWorkflowPhase(channel, label);
+          }
         }
       } catch (_) {}
       break;
