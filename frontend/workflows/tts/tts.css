@@ -249,10 +249,12 @@
 }
 
 .tts-clone-tabs {
-  margin-bottom: 0;
+  gap: 20px;
+  margin-bottom: 2px;
 }
 
 .tts-clone-tabs .tab {
+  padding: 6px 0;
   border: 0;
   border-bottom: 2px solid transparent;
   background: none;
@@ -266,6 +268,11 @@
 .tts-reference {
   display: grid;
   gap: 6px;
+  margin-top: 8px;
+}
+
+.tts-reference > .tts-field {
+  margin-top: 8px;
 }
 
 .tts-reference textarea {
@@ -422,7 +429,7 @@
 }
 
 .tts-clone .tts-setting-toggle {
-  margin-top: 2px;
+  margin-top: 8px;
 }
 
 .tts-clone .tts-toggle-body {
