@@ -16,10 +16,8 @@ from backend.inference.local_models.prose_rewriter import text as T
 # ── the prompt ───────────────────────────────────────────────────────────────
 
 
-def test_serve_prompt_is_the_exact_three_block_string():
-    assert T.serve_prompt("The rain fell.") == (
-        "<|im_start|>source\nThe rain fell.<|im_end|>\n<|im_start|>edit\nmatch<|im_end|>\n<|im_start|>rewrite\n"
-    )
+def test_serve_prompt_is_the_exact_two_block_string():
+    assert T.serve_prompt("The rain fell.") == "<|im_start|>source\nThe rain fell.<|im_end|>\n<|im_start|>rewrite\n"
 
 
 # ── plan: what gets rewritten and what is passed through ─────────────────────

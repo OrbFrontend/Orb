@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 
-EDIT_MODE = "match"
 #: The checkpoints' end-of-turn token, sent as a string stop alongside the EOG
 #: metadata. A property of these weights' chat template, which is why it lives
 #: with the prompt rather than with the llama-server transport.
@@ -12,8 +11,12 @@ STOP_TOKEN = "<|im_end|>"
 
 
 def serve_prompt(source: str) -> str:
-    """The three-block prompt, exactly as the pool was written."""
-    return f"<|im_start|>source\n{source}<|im_end|>\n<|im_start|>edit\n{EDIT_MODE}<|im_end|>\n<|im_start|>rewrite\n"
+    """The two-block prompt, exactly as the pool was written.
+
+    v2 dropped v1.x's ``edit`` block: every training row is length-matched, so
+    there is no mode left to name, and the card says not to send one.
+    """
+    return f"<|im_start|>source\n{source}<|im_end|>\n<|im_start|>rewrite\n"
 
 
 # ANY newline run, not just blank lines -- the corpus builder split on r"\n+" and
