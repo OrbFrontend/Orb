@@ -8,7 +8,7 @@ from .. import assets
 from ..catalog import MODELS
 from ..llama_server import LaunchProfile
 from . import catalog
-from .tokens import TOKEN_CEILING
+from .tokens import MAX_REFERENCE_TEXT, MAX_REFERENCE_TOKENS, TOKEN_CEILING
 
 #: Child model alias.
 ALIAS = "spark-tts"
@@ -16,8 +16,11 @@ ALIAS = "spark-tts"
 #: TTS synthesizes chunks serially.
 PARALLEL = 1
 
+#: Context reserved for an advanced reference.
+REFERENCE_ALLOWANCE = 1 + MAX_REFERENCE_TOKENS + 2 * MAX_REFERENCE_TEXT
+
 #: Context for the prompt and maximum generation.
-CTX_SIZE = TOKEN_CEILING + 1096
+CTX_SIZE = TOKEN_CEILING + 1096 + REFERENCE_ALLOWANCE
 
 HTTP_THREADS = 4
 
@@ -49,4 +52,4 @@ def launch_profile(*, gpu: bool = True) -> LaunchProfile:
     )
 
 
-__all__ = ["ALIAS", "CTX_SIZE", "IDLE_TIMEOUT", "PARALLEL", "UBATCH_SIZE", "launch_profile"]
+__all__ = ["ALIAS", "CTX_SIZE", "IDLE_TIMEOUT", "PARALLEL", "REFERENCE_ALLOWANCE", "UBATCH_SIZE", "launch_profile"]

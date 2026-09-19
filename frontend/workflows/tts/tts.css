@@ -222,14 +222,10 @@
   white-space: nowrap;
 }
 
-/* The cloned voice: its heading, an optional setup line, the drop zone, then
-   the GPU switch. A touch more air than a plain field, since the zone is a box
-   of its own. */
 .tts-clone {
   gap: 8px;
 }
 
-/* The heading carries Remove at its right end, lined up with the zone's edge. */
 .tts-clone-head {
   display: flex;
   align-items: baseline;
@@ -252,9 +248,37 @@
   color: var(--red);
 }
 
-/* The cloned-voice drop zone. A label wrapping a visually hidden file input, so
-   a click anywhere on it opens the picker and the input stays keyboard-reachable.
-   Being a <label>, it resets the uppercase field-label type it would inherit. */
+.tts-clone-tabs {
+  gap: 20px;
+  margin-bottom: 2px;
+}
+
+.tts-clone-tabs .tab {
+  padding: 6px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font-family: inherit;
+}
+
+.tts-clone-tabs .tab.active {
+  border-bottom-color: var(--accent);
+}
+
+.tts-reference {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.tts-reference > .tts-field {
+  margin-top: 8px;
+}
+
+.tts-reference textarea {
+  resize: vertical;
+}
+
 .tts-drop {
   display: flex;
   flex-direction: column;
@@ -287,8 +311,6 @@
   opacity: 0;
 }
 
-/* Children never take the pointer: a dragleave onto a child would otherwise
-   flicker the highlight off and on for the whole drag. */
 .tts-drop > * {
   pointer-events: none;
 }
@@ -326,8 +348,6 @@
   text-decoration: underline;
 }
 
-/* An enrolled voice reads as a file, not an invitation: a solid frame with the
-   clip's name beside its icon, still taking a drop to replace it. */
 .tts-drop-set {
   flex-direction: row;
   gap: 12px;
@@ -343,9 +363,6 @@
   white-space: nowrap;
 }
 
-/* The codec is missing or switched off: the zone shows what it will be, and the
-   notice above it carries the button that makes it live. Enrolling holds the
-   zone the same way until the route answers. */
 .tts-drop-off,
 .tts-drop-busy {
   border-color: var(--border);
@@ -393,8 +410,6 @@
   }
 }
 
-/* Setup line: the sentence takes the slack, the button stays on the right
-   until the sentence would be squeezed into a column, then wraps under it. */
 .tts-setup {
   display: flex;
   flex-wrap: wrap;
@@ -413,10 +428,8 @@
   white-space: nowrap;
 }
 
-/* The GPU switch's note is the voice model's load state; a long error wraps
-   under the switch instead of widening the modal. */
 .tts-clone .tts-setting-toggle {
-  margin-top: 2px;
+  margin-top: 8px;
 }
 
 .tts-clone .tts-toggle-body {
@@ -428,7 +441,6 @@
   color: var(--red);
 }
 
-/* Inline-block so the command moves to its own line whole before it breaks. */
 .tts-note code {
   display: inline-block;
   max-width: 100%;
@@ -441,7 +453,6 @@
   overflow-wrap: anywhere;
 }
 
-/* Preview and the playback status hold the left of the footer; Close and Save stay right-aligned. */
 .tts-settings-actions {
   align-items: center;
   flex-wrap: wrap;

@@ -28,7 +28,7 @@ const WIRED = new Set(
 );
 
 test("the dispatcher wires the events it documents", () => {
-  for (const event of ["click", "change", "dragover", "dragleave", "drop"]) assert.ok(WIRED.has(event), event);
+  for (const event of ["click", "change", "input", "dragover", "dragleave", "drop"]) assert.ok(WIRED.has(event), event);
   const wiring = source(join(ROOT, "workflow_api.js"));
   assert.match(wiring, /for \(const type of _ACTION_EVENTS\) document\.addEventListener/);
 });

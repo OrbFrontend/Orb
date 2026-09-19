@@ -232,8 +232,12 @@ class LlamaServerClient:
         top_k: int = 0,
         seed: int | None = None,
         cache_prompt: bool = True,
+        banned: Sequence[int] = (),
     ) -> tuple[list[int], bool]:
-        """Stream an audio completion and return ``(tokens, stopped)``."""
+        """Stream an audio completion and return ``(tokens, stopped)``.
+
+        *banned* token ids are never sampled in this request.
+        """
         payload: dict = {
             "prompt": list(prompt),
             "n_predict": n_predict,
@@ -247,6 +251,8 @@ class LlamaServerClient:
             payload["top_k"] = top_k
         if seed is not None:
             payload["seed"] = seed
+        if banned:
+            payload["logit_bias"] = [[int(token), False] for token in banned]
         tokens: list[int] = []
         stopped = False
         headers = {"Accept": "text/event-stream"}

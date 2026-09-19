@@ -17,12 +17,9 @@ import { formatTime } from "./widget.js";
 
 const WORKFLOW_ID = "tts";
 const CHANNEL = "tts";
-// Keep previews separate from chat playback.
 const PREVIEW_CHANNEL = "tts-preview";
-// Give failed preview decodes time to report before showing an error.
 const PREVIEW_START_GRACE_MS = 1500;
 
-// Backend-specific settings. `clone` is the built-in Spark control.
 const BACKEND_FIELDS = {
   edge: ["voice", "language", "rate", "pitch"],
   kokoro: ["voice", "api_url", "language", "rate"],
@@ -70,27 +67,51 @@ export function initConfigPanel(sharedConfig) {
   registerAction(WORKFLOW_ID, "voiceClear", () => clearVoiceReference());
   registerAction(WORKFLOW_ID, "cloneSetup", () => runCloneSetup());
   registerAction(WORKFLOW_ID, "cloneGpu", (el) => saveCloneGpu(el));
+  registerAction(WORKFLOW_ID, "cloneMode", (el) => selectCloneMode(el.dataset.mode));
+  registerAction(WORKFLOW_ID, "referenceText", (el) => {
+    cloned.referenceText = el.value;
+  });
+  registerAction(WORKFLOW_ID, "playExcerpt", () => playExcerpt());
   onChannel(PREVIEW_CHANNEL, onPreviewEvent);
 }
 
-// The codec is enough for enrollment, so list it before the voice model.
 const CLONE_FEATURES = [
   { id: "spark_tts_codec", label: "voice codec" },
   { id: "spark_tts_llm", label: "voice model" },
 ];
+const ADVANCED_FEATURES = [
+  { id: "spark_tts_reference", label: "reference reader" },
+  { id: "speech_recognizer", label: "speech recognizer" },
+];
+const SEMANTIC_RATE = 50;
 
 let memberId = null;
-let cardId = null; // the card the open profile belongs to; the clone API is keyed on it
-let mlStatus = null; // last /local-ml/status; null means "not asked yet, assume fine"
+let cardId = null;
+let mlStatus = null;
 let mlPending = false;
 let setupBusy = false;
-let setupStep = ""; // the download in flight, said where the button was pressed
-let enrolling = ""; // the file being enrolled, shown in the drop zone until the route answers
-// Keep the server-owned voice tokens outside the editable form.
-let cloned = { tokens: [], name: "" };
+let setupStep = "";
+let enrolling = "";
+let cloned = emptyClone();
+let referenceNote = "";
 let loadedProfile = null;
 let previewRaf = null;
-let previewPending = 0; // start deadline while a preview is decoding, 0 once it plays
+let previewPending = 0;
+let previewWhat = "Preview";
+
+function emptyClone() {
+  return { tokens: [], name: "", mode: "basic", referenceTokens: [], referenceText: "" };
+}
+
+function cloneFromProfile(profile) {
+  return {
+    tokens: profile.speaker_tokens || [],
+    name: profile.speaker_ref_name || "",
+    mode: profile.clone_mode === "advanced" ? "advanced" : "basic",
+    referenceTokens: profile.reference_tokens || [],
+    referenceText: profile.reference_text || "",
+  };
+}
 
 function triggerUrl() {
   return convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger");
@@ -257,7 +278,8 @@ async function populateProfile() {
     return;
   }
   cardId = pr?.character_id || null;
-  cloned = { tokens: profile.speaker_tokens || [], name: profile.speaker_ref_name || "" };
+  cloned = cloneFromProfile(profile);
+  referenceNote = "";
   el.innerHTML = profileFormHtml(profile, backends, cast);
   setProfileActions(true);
   applyFieldVisibility(profile.backend);
@@ -338,10 +360,13 @@ function ensureMlStatus({ refresh = false } = {}) {
     });
 }
 
-/** Describe setup still required before speech can run. */
+function cloneFeatures() {
+  return cloned.mode === "advanced" ? [...CLONE_FEATURES, ...ADVANCED_FEATURES] : CLONE_FEATURES;
+}
+
 function setupNoticeHtml() {
   if (!mlStatus) return "";
-  const pending = CLONE_FEATURES.filter((f) => !featureReady(f.id));
+  const pending = cloneFeatures().filter((f) => !featureReady(f.id));
   const unavailable = pending.find((f) => !mlFeature(f.id).deps_ok);
   if (unavailable) {
     const cmd = mlStatus.install_cmd || "pip install -r requirements-ml.txt";
@@ -356,14 +381,19 @@ function setupNoticeHtml() {
     ...pending.filter((f) => mlFeature(f.id).present && !mlFeature(f.id).enabled).map((f) => f.label),
   ];
   const size = missing.reduce((mb, f) => mb + (mlFeature(f.id).size_mb || 0), runtime ? 150 : 0);
-  const sentence = setupStep || `Voice cloning needs ${names.join(" and ")}.`;
+  const what = cloned.mode === "advanced" ? "Advanced cloning" : "Voice cloning";
+  const sentence = setupStep || `${what} needs ${listPhrase(names)}.`;
   return `<span class="tts-setup">
       <span class="tts-note">${sentence}</span>
       <button class="btn btn-sm" type="button" data-wf-action="tts:cloneSetup"${setupBusy ? " disabled" : ""}>${setupLabel(Boolean(missing.length || runtime), size)}</button>
     </span>`;
 }
 
-// The button downloads missing files and enables disabled features.
+function listPhrase(items) {
+  if (items.length < 3) return items.join(" and ");
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
 function setupLabel(download, sizeMb) {
   if (setupBusy) return download ? "Downloading…" : "Turning on…";
   if (!download) return "Turn on";
@@ -372,14 +402,25 @@ function setupLabel(download, sizeMb) {
 
 const ICON_WAVE = `<svg class="tts-drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 10v3"/><path d="M6 6v11"/><path d="M10 3v18"/><path d="M14 8v7"/><path d="M18 5v13"/><path d="M22 10v3"/></svg>`;
 
+function cloneTabsHtml() {
+  const tab = (mode, label) => {
+    const on = cloned.mode === mode;
+    return `<button type="button" class="tab${on ? " active" : ""}" role="tab" aria-selected="${on}" data-mode="${mode}" data-wf-action="tts:cloneMode">${label}</button>`;
+  };
+  return `<div class="tabs tts-clone-tabs" role="tablist" aria-label="Cloning mode">${tab("basic", "Basic")}${tab("advanced", "Advanced")}</div>`;
+}
+
 function cloneControlHtml(p) {
   const enrolled = Boolean(p.speaker_tokens?.length);
+  const advanced = cloned.mode === "advanced";
   const live = featureReady("spark_tts_codec") && !enrolling;
   let title = `Drop a clip of this character speaking, or <span class="tts-drop-link">choose a file</span>`;
-  let note = "The whole clip is used, up to two minutes. One speaker, no music.";
+  let note = advanced
+    ? "Orb picks about ten seconds of clear speech from it and transcribes them. One speaker, no music."
+    : "The whole clip is used, up to two minutes. One speaker, no music.";
   if (enrolling) {
     title = `Enrolling ${esc(enrolling)}…`;
-    note = "Reading the voice from the whole clip.";
+    note = advanced ? "Reading the voice and transcribing an excerpt." : "Reading the voice from the whole clip.";
   } else if (enrolled) {
     title = esc(p.speaker_ref_name || "Uploaded clip");
     note = `${featureReady("spark_tts_llm") ? "Every reply from this character uses it." : "This character speaks once the voice model is ready."} Drop another clip to replace it.`;
@@ -396,15 +437,70 @@ function cloneControlHtml(p) {
     enrolled && !enrolling
       ? `<button class="tts-clone-remove" type="button" data-wf-action="tts:voiceClear">Remove</button>`
       : "";
+  const intro = advanced
+    ? "Also copies the clip's pacing and accent, more accurate."
+    : "Copies the voice's timbre from the whole clip.";
   return `<div class="tts-field tts-clone">
       <span class="tts-clone-head"><label for="tts-pf-voicefile">Cloned voice</label>${remove}</span>
+      ${cloneTabsHtml()}
+      <span class="tts-note">${intro}</span>
       ${setupNoticeHtml()}
       ${zone}
+      ${advanced && enrolled && !enrolling ? referenceHtml() : ""}
       ${engineRowHtml()}
     </div>`;
 }
 
-/** Render the GPU switch with the voice model's state as its note. */
+function referenceHtml() {
+  const tokens = cloned.referenceTokens;
+  if (!tokens.length) {
+    const ready = ADVANCED_FEATURES.every((f) => featureReady(f.id));
+    const why = referenceNote || (ready ? "This clip was enrolled before advanced cloning was set up." : "");
+    if (!why) return "";
+    return `<span class="tts-note">${esc(why)} ${ready ? "Drop the clip again to prepare its excerpt." : ""}</span>`;
+  }
+  const seconds = (tokens.length / SEMANTIC_RATE).toFixed(1);
+  const typed = cloned.referenceText.trim();
+  const status = typed
+    ? "It must say exactly what the excerpt says. Fix mistakes, then save the voice."
+    : `${esc(referenceNote || "The excerpt has no transcript yet.")} Until it has one, replies use Basic cloning.`;
+  return `<div class="tts-reference">
+      <span class="tts-control-row">
+        <button class="btn btn-sm" type="button" data-wf-action="tts:playExcerpt">Play excerpt</button>
+        <span class="tts-note">${seconds} s taken from the clip</span>
+      </span>
+      <label class="tts-field" for="tts-pf-reftext">Transcript
+        <textarea id="tts-pf-reftext" rows="3" placeholder="Type exactly what the excerpt says" data-wf-action="tts:referenceText" data-wf-on="input">${esc(cloned.referenceText)}</textarea>
+      </label>
+      <span class="tts-note">${status}</span>
+    </div>`;
+}
+
+function selectCloneMode(mode) {
+  if (mode !== "basic" && mode !== "advanced") return;
+  if (cloned.mode === mode) return;
+  cloned.mode = mode;
+  renderCloneControl();
+}
+
+async function playExcerpt() {
+  if (!statusLine()) return;
+  setStatus("Loading the excerpt…");
+  setPreviewTime("");
+  try {
+    const res = await query("reference_audio", readForm());
+    if (!statusLine()) return;
+    if (!res?.audio_b64) {
+      setStatus(res?.error || "Could not play the excerpt");
+      return;
+    }
+    playPreview(res.audio_b64, res.mime, "Excerpt");
+  } catch (e) {
+    console.error("tts: excerpt playback failed", e);
+    setStatus("Could not play the excerpt");
+  }
+}
+
 function engineRowHtml() {
   const llm = mlFeature("spark_tts_llm");
   if (!llm.deps_ok || !llm.present || llm.runtime_ok === false) return "";
@@ -418,7 +514,6 @@ function engineRowHtml() {
     </label>`;
 }
 
-// The next spoken line picks up the new GPU setting.
 async function saveCloneGpu(box) {
   try {
     await api.post("/local-ml/spark_tts_llm/config", { gpu: box.checked });
@@ -430,7 +525,6 @@ async function saveCloneGpu(box) {
   renderCloneControl(); // a failed write redraws the box as it was
 }
 
-// Cloned voices do not support rate or pitch controls.
 function renderCloneControl() {
   const el = document.getElementById("tts-pf-clone");
   if (!el) return;
@@ -438,13 +532,11 @@ function renderCloneControl() {
   ensureMlStatus();
 }
 
-// Handle dragover, dragleave, and drop on the same target.
 function onVoiceDrop(el, ev) {
   if (ev.type === "dragleave") {
     el.classList.remove("tts-drop-over");
     return;
   }
-  // Prevent the browser from navigating to the dropped file.
   ev.preventDefault();
   if (enrolling) return; // one clip at a time; the zone already says which
   const live = featureReady("spark_tts_codec");
@@ -460,15 +552,15 @@ function onVoiceDrop(el, ev) {
   enrollFile(ev.dataTransfer?.files?.[0]);
 }
 
-/** Download missing model files and enable their features. */
 async function runCloneSetup() {
   if (setupBusy) return;
   setupBusy = true;
   renderCloneControl();
   try {
-    for (const feature of CLONE_FEATURES) {
+    const features = cloneFeatures();
+    for (const feature of features) {
       if (!mlFeature(feature.id).present) {
-        setupStep = `Downloading the ${feature.label} (${mlFeature(feature.id).size_mb || "?"} MB) — this takes a while.`;
+        setupStep = `Downloading the ${feature.label} (${mlFeature(feature.id).size_mb || "?"} MB).`;
         renderCloneControl();
         await api.post(`/local-ml/${feature.id}/download`, {});
       }
@@ -485,7 +577,8 @@ async function runCloneSetup() {
         renderCloneControl();
       }
     }
-    setStatus(CLONE_FEATURES.every((f) => featureReady(f.id)) ? "Voice cloning is ready" : "");
+    const what = cloned.mode === "advanced" ? "Advanced cloning" : "Voice cloning";
+    setStatus(features.every((f) => featureReady(f.id)) ? `${what} is ready` : "");
   } catch (e) {
     console.warn("tts: voice cloning setup failed", e);
     setStatus(e?.message || "Could not set up voice cloning");
@@ -496,7 +589,6 @@ async function runCloneSetup() {
   }
 }
 
-/** Enroll one selected or dropped file. */
 async function enrollFile(file) {
   if (!file) return;
   if (!cardId) {
@@ -508,9 +600,10 @@ async function enrollFile(file) {
   setPreviewTime("");
   renderCloneControl();
   try {
-    const res = await api.upload(`/characters/${encodeURIComponent(cardId)}/voice-reference`, file);
-    // Refill the form from the profile written by the enrollment route.
+    const url = `/characters/${encodeURIComponent(cardId)}/voice-reference?mode=${cloned.mode}`;
+    const res = await api.upload(url, file);
     enrolling = "";
+    referenceNote = res?.reference_note || "";
     applyProfile(res?.profile);
     setStatus("Voice saved");
   } catch (e) {
@@ -529,6 +622,7 @@ async function clearVoiceReference() {
   if (!window.confirm("Remove this character's cloned voice?")) return;
   try {
     const res = await api.del(`/characters/${encodeURIComponent(cardId)}/voice-reference`);
+    referenceNote = "";
     applyProfile(res?.profile);
     setStatus("Cloned voice removed");
   } catch (e) {
@@ -537,15 +631,13 @@ async function clearVoiceReference() {
   }
 }
 
-// Push server-owned clone fields into the open form.
 function applyProfile(profile) {
   if (!profile) return;
-  cloned = { tokens: profile.speaker_tokens || [], name: profile.speaker_ref_name || "" };
+  cloned = cloneFromProfile(profile);
   const backend = document.getElementById("tts-pf-backend");
   if (backend && profile.backend) backend.value = profile.backend;
   const voice = document.getElementById("tts-pf-voice");
   if (voice && profile.voice_id) voice.innerHTML = opt(profile.voice_id, profile.voice_id, true);
-  // Enrollment and clearing also toggle the character state.
   const enabled = document.getElementById("tts-pf-enabled");
   if (enabled) enabled.checked = Boolean(profile.enabled);
   applyFieldVisibility(profile.backend || backend?.value || "edge");
@@ -553,7 +645,6 @@ function applyProfile(profile) {
   loadedProfile = readForm();
 }
 
-// Keep footer order consistent with the other modals.
 function settingsActionsHtml(hasProfile) {
   return `
     ${hasProfile ? `<button class="btn" type="button" data-wf-action="tts:preview">Preview</button>` : ""}
@@ -583,6 +674,9 @@ function readForm() {
     voice_id: val("tts-pf-voice")?.value || "",
     speaker_tokens: cloned.tokens,
     speaker_ref_name: cloned.name,
+    clone_mode: cloned.mode,
+    reference_tokens: cloned.referenceTokens,
+    reference_text: cloned.referenceText,
     language: val("tts-pf-language")?.value || "en",
     model: val("tts-pf-model")?.value || "",
     api_url: val("tts-pf-api_url")?.value || "",
@@ -674,14 +768,14 @@ function setPreviewTime(text) {
 function onPreviewEvent(ev) {
   if (ev.type === "play") {
     previewPending = 0;
-    setStatus("Playing preview");
+    setStatus(`Playing ${previewWhat.toLowerCase()}`);
     armPreviewRaf();
     return;
   }
   if (ev.type !== "close" || ev.reason === "superseded") return; // a newer preview owns the line
   cancelPreviewRaf();
   setPreviewTime("");
-  setStatus(ev.reason === "ended" ? "Preview finished" : "");
+  setStatus(ev.reason === "ended" ? `${previewWhat} finished` : "");
 }
 
 function armPreviewRaf() {
@@ -708,14 +802,15 @@ function tickPreview(now) {
   armPreviewRaf();
 }
 
-function playPreview(b64, mime) {
+function playPreview(b64, mime, what = "Preview") {
   stopChannel(CHANNEL); // a preview should not talk over a message that is playing
+  previewWhat = what;
   previewPending = performance.now() + PREVIEW_START_GRACE_MS;
   playAudio({
     channel: PREVIEW_CHANNEL,
     segments: [{ b64, mime: mime || "audio/wav" }],
     volume: cfg.volume,
-    source: { label: "Voice preview", dock: false },
+    source: { label: `Voice ${what.toLowerCase()}`, dock: false },
   });
   armPreviewRaf();
 }

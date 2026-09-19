@@ -8,7 +8,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from typing import Any
 
-from ..toolkit import markup_axes, spark_voice_clean_tokens, speech_input
+from ..toolkit import (
+    markup_axes,
+    spark_voice_clean_reference_text,
+    spark_voice_clean_reference_tokens,
+    spark_voice_clean_tokens,
+    speech_input,
+)
 from .engine.base import SpeakableChunk
 from .engine.regex_extractor import regex_extract
 from .engine.router import get_adapter
@@ -33,20 +39,18 @@ PROFILE_DEFAULTS: dict = {
     "api_url": "",
     "api_key": "",
     "model": "",
-    # The built-in Spark-TTS cloner's whole notion of a voice: 32 FSQ codes
-    # from BiCodec's speaker encoder, ~200 bytes, so they live inline in the
-    # profile rather than in a table of their own. `speaker_ref_name` is the
-    # uploaded file's name, kept only so the panel can say which clip this is.
+    # Built-in Spark-TTS voice data.
     "speaker_tokens": [],
     "speaker_ref_name": "",
+    # Optional advanced-cloning reference.
+    "clone_mode": "basic",
+    "reference_tokens": [],
+    "reference_text": "",
 }
 
-# Reproduction-record keys carried in an attachment's generation_metadata.
-# These plus the source text are sufficient to re-synthesize the identical
-# audio from a context that has no character or turn state (reroll, rehydrate).
-# `speaker_tokens` is in the set because it IS the voice for the built-in
-# Spark backend: without it a rerolled cloned line would be re-synthesized from
-# a metadata record that names no speaker, and come back in a different voice.
+CLONE_MODES = ("basic", "advanced")
+
+# Reproduction fields stored in attachment metadata.
 _METADATA_KEYS = (
     "backend",
     "voice_id",
@@ -57,6 +61,9 @@ _METADATA_KEYS = (
     "api_key",
     "model",
     "speaker_tokens",
+    "clone_mode",
+    "reference_tokens",
+    "reference_text",
 )
 
 
@@ -83,12 +90,31 @@ def normalize_profile(raw: object) -> dict:
     out["rate"] = _as_float(out["rate"], 1.0)
     out["pitch"] = _as_float(out["pitch"], 1.0)
     out["enabled"] = bool(out["enabled"])
-    # A malformed voice must become "no voice" here rather than reach the codec,
-    # which answers a wrong-length array with an exception from inside an
-    # einsum. Everything that reads a profile reads it through this function.
+    # Invalid voice data is treated as no voice.
     out["speaker_tokens"] = spark_voice_clean_tokens(out.get("speaker_tokens"))
     out["speaker_ref_name"] = str(out.get("speaker_ref_name") or "")
+    out["clone_mode"] = out["clone_mode"] if out["clone_mode"] in CLONE_MODES else "basic"
+    out["reference_tokens"] = spark_voice_clean_reference_tokens(out.get("reference_tokens"))
+    out["reference_text"] = spark_voice_clean_reference_text(out.get("reference_text"))
     return out
+
+
+def speaks_advanced(profile: Mapping[str, Any]) -> bool:
+    """Whether *profile* uses its advanced reference."""
+    return bool(
+        profile.get("backend") == "spark"
+        and profile.get("clone_mode") == "advanced"
+        and profile.get("reference_tokens")
+        and profile.get("reference_text")
+    )
+
+
+def _voice_record(profile: Mapping[str, Any]) -> dict:
+    """Return reproduction fields, including the reference only when used."""
+    record = {k: profile.get(k, PROFILE_DEFAULTS.get(k, "")) for k in _METADATA_KEYS}
+    if not speaks_advanced(profile):
+        record.update(clone_mode="basic", reference_tokens=[], reference_text="")
+    return record
 
 
 # Local backends that stitch per-chunk clips together and emit WAV; every
@@ -167,7 +193,8 @@ def compute_seed(text: str, profile: dict, blocks: list[dict] | None = None) -> 
     source text), used as the attachment ``seed``. Non-empty, so the row is
     rehydratable. The api_key is excluded -- a credential is not part of what
     the audio sounds like, and the seed is client-visible."""
-    basis = "|".join(str(profile.get(k, "")) for k in _METADATA_KEYS if k != "api_key")
+    record = _voice_record(profile)
+    basis = "|".join(str(record[k]) for k in _METADATA_KEYS if k != "api_key")
     if blocks is not None:
         basis += "|" + json.dumps([b.get("chunk") for b in blocks], sort_keys=True)
     return hashlib.md5((basis + "|" + text).encode("utf-8"), usedforsecurity=False).hexdigest()
@@ -180,7 +207,7 @@ def build_generation_metadata(text: str, profile: dict, blocks: list[dict] | Non
     reroll/rehydrate -- whose context has no character to read the profile
     from -- can reproduce the audio from this dict alone.
     """
-    md = {k: profile.get(k, PROFILE_DEFAULTS.get(k, "")) for k in _METADATA_KEYS}
+    md = _voice_record(profile)
     md["text"] = text
     if blocks is not None:
         md["speech_chunks"] = [b["chunk"] for b in blocks]
@@ -191,14 +218,19 @@ def _backend_kwargs(profile: dict, settings: Mapping[str, Any] | None) -> dict:
     """Profile fields only some backends read, passed to all of them.
 
     Every adapter takes ``**kwargs``, so this stays one call shape rather than a
-    branch per backend. ``speaker_tokens`` is the built-in Spark cloner's voice;
+    branch per backend. ``speaker_tokens`` is the built-in Spark cloner's voice,
+    and ``reference_tokens``/``reference_text`` its advanced reference, sent
+    only when the profile speaks with it;
     ``settings`` is how a local backend reads its own Local ML gates, and stays
     ``None`` when the caller had none — preview and reroll both synthesize from
     a context that carries no settings, and making this path fetch them would
     put a database read in front of every remote backend that never looks.
     """
+    advanced = speaks_advanced(profile)
     return {
         "speaker_tokens": list(profile.get("speaker_tokens") or []),
+        "reference_tokens": list(profile.get("reference_tokens") or []) if advanced else [],
+        "reference_text": str(profile.get("reference_text") or "") if advanced else "",
         "settings": settings,
     }
 

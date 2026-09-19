@@ -132,13 +132,20 @@ pieces from the cloned-voice control:
 - **Voice codec** (391 MB, two files) — turns an uploaded clip into a voice and
   voices back into audio. CPU only; ONNX Runtime has no Vulkan provider, and the
   vocoder is not the bottleneck.
+- **Reference reader** (491 MB) — turns a short excerpt into the semantic tokens
+  used by Advanced cloning. It runs on the CPU and is only needed while enrolling
+  a voice.
+- **Speech recognizer** (250 MB) — transcribes that excerpt so Advanced cloning
+  can copy its delivery. It runs on the CPU and is only needed while enrolling.
 - **llama-server runtime** (about 150 MB) — shared with the Prose Rewriter and
   fetched automatically when the voice model needs it.
 
-The two download separately and you can enrol a voice as soon as the codec is
-present, before the model finishes. The model is unloaded after a couple of
-minutes idle so it does not hold VRAM against a local Writer or the Prose
-Rewriter.
+The codec and voice model download separately, and Basic cloning can enrol a
+voice as soon as the codec is present. Advanced cloning downloads the reference
+reader and speech recognizer as well; those two are used only during enrollment,
+so an already prepared Advanced voice can still speak when they are unloaded or
+disabled. The voice model is unloaded after a couple of minutes idle so it does
+not hold VRAM against a local Writer or the Prose Rewriter.
 
 #### Built-in cloner implementation notes
 
@@ -147,10 +154,11 @@ TTS profile. Orb decodes an uploaded clip only while enrolling it and never
 stores the audio. Profiles created for the former `spark` sidecar backend are
 migrated to `spark_remote`; new `spark` profiles select the built-in cloner.
 
-The built-in feature transfers timbre only. Spark-TTS's upstream
-transcript-conditioned path can also copy reference pacing, but it depends on
-wav2vec2 and the BiCodec encoder — roughly 1.4 GB of additional weights — so it
-is deliberately outside this feature's scope.
+Basic cloning transfers timbre only. Advanced cloning also keeps a short excerpt
+and its transcript, allowing Spark-TTS to continue the reference speaker's
+delivery. Orb stores the excerpt as semantic tokens and never stores the
+uploaded audio; if transcription is incomplete, the panel lets you listen to
+the reconstructed excerpt and type the exact transcript.
 
 The codec artifacts have separate responsibilities:
 

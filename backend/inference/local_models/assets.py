@@ -11,7 +11,7 @@ from .catalog import MODELS, ModelFileSpec, ModelVariantSpec
 #: puts on disk must end in one of these, or the file becomes unclaimable
 #: garbage that nothing ever cleans up on a model bump. Asserted by
 #: ``test_local_models_catalog``.
-MANAGED_SUFFIXES = (".gguf", ".onnx")
+MANAGED_SUFFIXES = (".gguf", ".onnx", ".json")
 
 #: The repo root: four directories up from ``backend/inference/local_models/``.
 #: A wrong count here does not raise — it silently creates a second, empty
