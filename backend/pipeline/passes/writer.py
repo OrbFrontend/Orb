@@ -198,6 +198,7 @@ async def writer_stage(
     ``content``→``token`` and ``reasoning``→``reasoning`` events, and accumulates
     the writer's wall time into ``state.latency``.
     """
+    yield {"event": "step_start", "data": {"step": "writer"}}
     # Probe only the message shape that chooses the transport. The final text
     # cannot affect that choice; images in the frozen history or current
     # attachments can. ModelLane then combines it with the actual frozen tools

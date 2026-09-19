@@ -21,10 +21,8 @@ import {
   _relightWorkflowPipelinePass,
   _syncGenerationStatusVisibility,
   appendReasoningDelta,
-  clearWorkflowPhase,
   REASONING_PASSES,
   renderInspector,
-  setWorkflowPhase,
 } from "./chat_inspector.js";
 import { clearInspectedMessage } from "./chat_messages.js";
 import { _mergeWorkflowRejections } from "./chat_workflow.js";
@@ -33,6 +31,7 @@ import {
   optimisticDropDirectionNotesFrom,
   renderDirectionNotesPanel,
 } from "./direction_notes_panel.js";
+import { generationStepLabel, WAITING_LABEL } from "./generation_status.js";
 import { restNotice, speakerAvatarCell, unansweredHint } from "./group_cast.js";
 import { consumeSpeakerOverride, refreshSheetProposals, renderGroupCast } from "./group_setup.js";
 import { refreshCharacters } from "./library.js";
@@ -55,39 +54,21 @@ import {
   toast,
 } from "./utils.js";
 
-// Generation entry points share the SSE handling in this module.
-
 export function stopConversation(convId) {
   fetch(`/api/conversations/${convId}/stop`, { method: "POST" }).catch(() => {});
 }
 
-const PHASE_ORDER = { pending: 0, directing: 0, generating: 1, refining: 2 };
-const PHASE_LABELS = {
-  pending: "Waiting for response…",
-  directing: "Director analyzing scene…",
-  generating: "Generating response…",
-  refining: "Refining response…",
-};
-
-const PHASE_STAGES = { pending: "", directing: "director pass", generating: "writer pass", refining: "editor pass" };
-
+// Use the visible step when an error has no explicit stage.
 function phaseStage() {
-  return PHASE_STAGES[S.generationPhase] || "";
+  return (S.generationStep || "").replace(/(…|\.\.\.)$/, "");
 }
 
-export function setGenerationPhase(phase) {
-  if (!phase) {
-    S.generationPhase = null;
-  } else if (S.generationPhase && PHASE_ORDER[phase] < PHASE_ORDER[S.generationPhase]) {
-    return; // never go backwards
-  } else {
-    S.generationPhase = phase;
-  }
+// Empty means waiting; null means no active turn.
+function setGenerationStep(label) {
+  S.generationStep = label;
   _syncGenerationStatusVisibility();
-  const el = $("generation-status");
-  if (!S.generationPhase || !el) return;
-  el.querySelector(".gen-text").textContent = PHASE_LABELS[S.generationPhase] || "Processing…";
-  el.querySelector(".gen-dot").className = `gen-dot${S.generationPhase === "refining" ? " spin" : ""}`;
+  const text = $("generation-status")?.querySelector(".gen-text");
+  if (text && label !== null) text.textContent = label || WAITING_LABEL;
 }
 
 // Coalesce expensive full-body renders to one paint per animation frame.
@@ -261,8 +242,7 @@ export async function afterStream() {
   S.pendingUserMsg = null;
   S.wasAborted = false;
   S.hideStreamingBox = false; // Ensure streaming box is visible after streaming ends
-  setGenerationPhase(null);
-  clearWorkflowPhase();
+  setGenerationStep(null);
 
   if (!S.activeConvId) {
     S.streamingBodyEl = null;
@@ -445,6 +425,7 @@ export async function processSSEStream(resp, container, holder, signal) {
         S.currentExchangeId = parsed.exchange_id;
         S.currentSpeaker = parsed;
         resetSpeakerTurnState();
+        setGenerationStep("");
         holder.el = createStreamingDiv(parsed.name, parsed.member_id);
         if (!S.hideUntilBaked) container.appendChild(holder.el);
         onTurnStart();
@@ -491,7 +472,7 @@ export async function processSSEStream(resp, container, holder, signal) {
       }
     };
     try {
-      handleSSEEvent(event, data, container, holder.el, onToken, onRewrite);
+      handleSSEEvent(event, data, holder.el, onToken, onRewrite);
     } catch (e) {
       console.error(`SSE handler for "${event}" threw:`, e);
       if (!dispatchErrorToasted) {
@@ -534,10 +515,10 @@ function parseFailure(data) {
   return { headline: unescapeSSE(raw), sentence: "", kind: "internal" };
 }
 
-function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
+function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
   switch (event) {
     case "director_start":
-      setGenerationPhase("directing");
+      setGenerationStep(generationStepLabel("director"));
       S.lastDirectorData = null;
       S.inspectedMsgId = null;
       S.inspectedDirectorData = null;
@@ -551,14 +532,15 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
       renderInspector();
       break;
     }
-    case "token":
-      setGenerationPhase("generating");
-      onToken();
-      break;
-    case "writer_done":
+    case "step_start": {
       try {
-        if (JSON.parse(data).editor_will_run) setGenerationPhase("refining");
+        const label = generationStepLabel(JSON.parse(data).step);
+        if (label) setGenerationStep(label);
       } catch (_) {}
+      break;
+    }
+    case "token":
+      onToken();
       break;
     case "draft_update":
       try {
@@ -567,7 +549,6 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
       } catch (_) {}
       break;
     case "writer_rewrite":
-      setGenerationPhase("refining");
       _advanceReasoningPass(2); // writer done, editor starting → move to Editor dot
       try {
         swapStreamingDraft(JSON.parse(data).refined_text, onRewrite);
@@ -626,12 +607,9 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
     case "phase_status": {
       try {
         const d = JSON.parse(data);
-        const channel = d.channel;
-        if (typeof channel === "string" && channel.startsWith("workflow:")) {
-          const label = typeof d.label === "string" ? d.label : "";
-          if (d.state === "done" || !label.trim()) clearWorkflowPhase(channel);
-          else setWorkflowPhase(channel, label);
-        }
+        // Turn workflow steps use the primary status line.
+        const label = typeof d.label === "string" ? d.label.trim() : "";
+        if (label && d.state !== "done") setGenerationStep(label);
       } catch (_) {}
       break;
     }
@@ -749,7 +727,7 @@ export async function runStreamRequest(
 ) {
   S.consumedSpeakerId = body?.speaker_member_id || null;
   setStreaming(true);
-  setGenerationPhase("pending");
+  setGenerationStep("");
   $("send-btn").disabled = true;
   S.turnError = null; // this attempt supersedes the last failure
 

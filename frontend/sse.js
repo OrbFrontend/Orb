@@ -55,7 +55,7 @@ export function unescapeSSE(data) {
 export function streamPost(path, body, signal) {
   return fetch(`/api${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
     body: JSON.stringify(body),
     signal,
   });

@@ -115,6 +115,11 @@ async def test_ordered_fragments_edit_before_feedback_workflow_and_persistence(c
 
     [writer_done] = [event for event in events if event.get("event") == "writer_done"]
     assert writer_done["data"]["editor_will_run"] is True
+    assert [event["data"]["step"] for event in events if event.get("event") == "step_start"] == [
+        "writer",
+        "post_processing",
+        "feedback",
+    ]
     assert [event["data"]["draft"] for event in events if event.get("event") == "draft_update"] == [
         "Hey there.",
         "Hey, friend.",
@@ -187,10 +192,15 @@ async def test_post_processing_receives_output_auditors_edited_draft(client, llm
     )
     llm_mock.enqueue_post_processing(_call("She whispered.", "She spoke softly.", call_id="post1"))
 
-    await _drain(handle_turn(cid, "hello"))
+    events = await _drain(handle_turn(cid, "hello"))
 
     calls = [name for name, _ in llm_mock.calls]
     assert calls.index("editor") < calls.index("post_processing")
+    assert [event["data"]["step"] for event in events if event.get("event") == "step_start"] == [
+        "writer",
+        "output_auditor",
+        "post_processing",
+    ]
     post_call = next(call for call in llm_mock.captured if call["pass"] == "post_processing")
     assert post_call["messages"][-2]["content"] == "She whispered. He whispered back."
     assistant = [message for message in await dbmod.get_messages(cid) if message["role"] == "assistant"][-1]

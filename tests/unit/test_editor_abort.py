@@ -140,5 +140,5 @@ async def test_editor_iteration_exception_propagates():
     # Iteration 1's successful patch surfaces as a draft_update before the
     # failure; the final "done" must NOT be yielded because the generator
     # aborted mid-loop (fake_complete produced no reasoning events).
-    assert [e["type"] for e in events] == ["draft_update"]
-    assert events[0]["draft"] == "Fixed 0. Sentence 1."
+    assert [e["type"] for e in events] == ["step", "draft_update"]
+    assert events[1]["draft"] == "Fixed 0. Sentence 1."

@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
+from types import SimpleNamespace
 
+from backend.api.routes import workflows as routes
 from backend.database import (
     add_message,
+    get_conversation,
+    get_workflow_attachments_for_message,
     insert_workflow_attachment_row,
     set_active_leaf,
 )
 from backend.workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
+from backend.workflows.errors import WorkflowUserFacingError
 
 from ._fixtures import (
     make_workflow,
@@ -438,3 +444,41 @@ async def test_regenerate_on_sibling_tags_rejection_with_root_id(client):
     rej = body["rejected_workflow_atts"][0]
     assert rej["originating_attachment_id"] == root_id
     assert rej["originating_attachment_id"] != sibling_id
+
+
+async def test_streamed_regenerate_failure_carries_the_status(client):
+    cid, mid = await seed_message(client)
+    aid = await _seed_workflow_attachment(mid, wid="refused")
+
+    async def regen(ctx, body):
+        raise WorkflowUserFacingError("refused")
+
+    wf = make_workflow("refused", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
+    with register_for_test(wf):
+        resp = await client.post(
+            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate",
+            json={},
+            headers={"Accept": "text/event-stream"},
+        )
+    assert resp.text == 'event: regenerate_error\ndata: {"status":502,"detail":"refused"}\n\n'
+
+
+async def test_streamed_regenerate_lands_the_sibling_after_the_client_drops(client):
+    cid, mid = await seed_message(client)
+    aid = await _seed_workflow_attachment(mid, wid="dropped")
+    release = asyncio.Event()
+
+    async def regen(ctx, body):
+        ctx.phase("Rendering...")
+        await release.wait()
+        return [{"filename": "v.png", "mime": "image/png", "data": b"V"}]
+
+    wf = make_workflow("dropped", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
+    request = SimpleNamespace(headers={"accept": "text/event-stream"})
+    with register_for_test(wf):
+        frames = (await routes.api_regenerate_attachment(cid, mid, aid, request, {}, await get_conversation(cid))).body_iterator
+        assert "Rendering..." in await anext(frames)
+        await frames.aclose()  # the browser went away mid-render
+        release.set()
+        await asyncio.gather(*routes._DETACHED)
+    assert len(await get_workflow_attachments_for_message(mid)) == 2

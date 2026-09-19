@@ -68,7 +68,7 @@ def _make_base() -> CachedBase:
 
 
 async def _run(client: LLMClient, audits: list[AuditReport], draft: str, **kwargs) -> list[dict]:
-    """Drive editor_pass with a scripted audit sequence; return yielded events."""
+    """Run editor_pass with a scripted audit sequence and strip its step marker."""
     audit_iter = iter(audits)
 
     async def fake_audit(draft, phrase_bank, prev_msgs, audit_toggles=None, user_message=""):
@@ -93,7 +93,8 @@ async def _run(client: LLMClient, audits: list[AuditReport], draft: str, **kwarg
             **kwargs,
         ):
             events.append(event)
-    return events
+    assert events[0] == {"type": "step", "step": "output_auditor"}
+    return events[1:]
 
 
 def _patch_call(patches: list[dict]) -> dict:

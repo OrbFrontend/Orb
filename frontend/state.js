@@ -77,7 +77,7 @@ export const S = {
   pendingUserMsg: null,
   attachments: [],
   wasAborted: false,
-  generationPhase: null,
+  generationStep: null, // empty while waiting; null when idle
   hideStreamingBox: false,
   contextSize: null,
   pendingRefineDiff: null, // writer/editor diff for the current stream

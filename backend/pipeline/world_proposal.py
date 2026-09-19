@@ -75,6 +75,7 @@ async def world_proposal_stage(
     if not worlds:
         return
 
+    yield {"event": "step_start", "data": {"step": "world_changes"}}
     writer_msg = state.writer_content or state.user_message
     # The steered paths hand the writer an OOC instruction; the step must judge
     # what the user actually said instead (see build_world_change_prompt).

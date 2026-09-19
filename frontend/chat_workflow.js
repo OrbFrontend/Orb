@@ -3,6 +3,7 @@ import { ICON_CHEVRON, ICON_DEL, ICON_REGEN, ICON_REROLL, renderMessages, setMes
 import { clearWorkflowPhase, setWorkflowPhase, workflowPhaseLabel } from "./chat_inspector.js";
 import { renderDefaultWidget } from "./default_widget.js";
 import { closeModal, showModal } from "./modal.js";
+import { sseEvents, streamPost } from "./sse.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
 import { broadcastWorkflowMutation, requestSendPermission, setWorkflowMutationCallback } from "./tabLock.js";
 import { $, boolFlag, convUrl, esc, escAttr, markChatProgrammaticScroll, toast } from "./utils.js";
@@ -342,6 +343,19 @@ function _showActionFailure(container, cls, action, e) {
   container.appendChild(cap);
 }
 
+// A stream that ends without a verdict throws a status-less TypeError, so the caller recovers the sibling.
+async function _regenerateStreamed(path, onPhase) {
+  const resp = await streamPost(path, {});
+  if (!resp.ok) throw Object.assign(new Error((await resp.json().catch(() => ({}))).detail), { status: resp.status });
+  for await (const { event, data } of sseEvents(resp.body)) {
+    const payload = JSON.parse(data);
+    if (event === "phase_status") onPhase(payload.label);
+    else if (event === "regenerate_done") return payload;
+    else if (event === "regenerate_error") throw Object.assign(new Error(payload.detail), { status: payload.status });
+  }
+  throw new TypeError("regenerate stream ended without a result");
+}
+
 function _rootSiblingIds(msg, rootId) {
   const atts = msg?.workflow_attachments || [];
   return new Set(atts.filter((a) => (a.parent_attachment_id || a.id) === rootId).map((a) => a.id));
@@ -484,7 +498,10 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
   );
   try {
     setWorkflowPhase(ch, workflowPhaseLabel(wid, "regenerating..."));
-    const result = await api.post(convUrl(convId, "messages", msgId, "workflow-attachments", attId, "regenerate"), {});
+    const result = await _regenerateStreamed(
+      convUrl(convId, "messages", msgId, "workflow-attachments", attId, "regenerate"),
+      (label) => setWorkflowPhase(ch, label),
+    );
     const incoming = result && Array.isArray(result.rejected_workflow_atts) ? result.rejected_workflow_atts : [];
     _mergeWorkflowRejections(msgId, rootId, incoming);
     setMessages(await api.get(convUrl(convId, "messages")));

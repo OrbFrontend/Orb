@@ -126,10 +126,10 @@
              and aria-relevant="additions" keeps a mid-stream repaint from
              re-reading the whole conversation. -->
         <div id="chat-messages" role="log" aria-live="polite" aria-relevant="additions" aria-label="Conversation"><div class="empty-state"><div class="icon">📜</div><div>Select a character to begin</div></div></div>
-    <div id="generation-status" class="gen-status hidden">
+    <div id="generation-status" class="gen-status hidden" role="status" aria-live="polite" aria-atomic="true">
       <div class="gen-bar"></div>
       <span class="gen-dot"></span>
-      <span class="gen-text">Processing…</span>
+      <span class="gen-text"></span>
       <span class="gen-text-secondary" id="gen-text-secondary"></span>
     </div>
     <div id="chat-input-area">

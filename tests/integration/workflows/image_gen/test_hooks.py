@@ -437,6 +437,24 @@ async def test_regenerate_recomposes_under_the_current_style_as_a_sibling(client
     assert captured["reasoning_on"] is False
 
 
+@pytest.mark.asyncio
+async def test_regenerate_streams_the_render_phase_a_fresh_generate_shows(client, monkeypatch):
+    mid = await _seed("ig-regen-phase")
+    aid = await _attach(mid)
+
+    async def render(adapter, request, *, progress=None, **kwargs):
+        progress("rendering", {})
+        return _image()
+
+    _stub(monkeypatch, render=render)
+    url = f"/api/conversations/ig-regen-phase/messages/{mid}/workflow-attachments/{aid}/regenerate"
+    response = await client.post(url, json={}, headers={"Accept": "text/event-stream"})
+    assert _events(response.text) == [
+        ("phase_status", {"label": "Rendering in ComfyUI..."}),
+        ("regenerate_done", {"attachments": [(await _sibling(mid, aid))["id"]], "rejected_workflow_atts": []}),
+    ]
+
+
 # ── camera ───────────────────────────────────────────────────────────────────
 
 

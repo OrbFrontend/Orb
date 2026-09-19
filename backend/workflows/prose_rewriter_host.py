@@ -70,6 +70,8 @@ async def post_pipeline(ctx):
         len(draft),
         cfg["variant_id"],
     )
+    channel = f"workflow:{FEATURE}"
+    yield {"event": "phase_status", "data": {"channel": channel, "label": "Rewriting prose…"}}
     async for event in rewrite_events(draft, cfg):
         if event["type"] == "draft_update":
             yield {"event": "draft_update", "data": {"draft": event["draft"]}}
@@ -84,6 +86,7 @@ async def post_pipeline(ctx):
             }
         elif event["type"] == "rewritten" and event["draft"] != draft:
             yield {"type": EV_DRAFT_REPLACED, "draft": event["draft"]}
+    yield {"event": "phase_status", "data": {"channel": channel, "state": "done"}}
 
 
 def _spawn(coro, *also: set[asyncio.Task]) -> None:

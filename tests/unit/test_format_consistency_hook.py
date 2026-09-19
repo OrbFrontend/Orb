@@ -69,8 +69,9 @@ def _classifier_absent(monkeypatch):
     monkeypatch.setattr(assets, "present", lambda feature: False)
 
 
-async def _collect(ctx) -> list[dict]:
-    return [ev async for ev in hooks.post_pipeline(ctx)]
+async def _collect(ctx, *, include_status: bool = False) -> list[dict]:
+    events = [ev async for ev in hooks.post_pipeline(ctx)]
+    return events if include_status else [ev for ev in events if ev.get("event") != "phase_status"]
 
 
 async def _labels(msg) -> tuple[str, str] | None:
@@ -86,6 +87,29 @@ async def test_yields_draft_replaced_on_drift():
     events = await _collect(_ctx(DRIFTING_DRAFT, history))
 
     assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
+
+
+async def test_reports_format_check_progress_to_the_turn_status(monkeypatch):
+    history = [{"role": "assistant", "content": QUOTED_BASELINE}]
+
+    async def voice_enabled(_ctx):
+        return True
+
+    async def hold_voice(_ctx, text, _window, _styles):
+        return text
+
+    monkeypatch.setattr(hooks, "_voice_enabled", voice_enabled)
+    monkeypatch.setattr(hooks, "_hold_voice", hold_voice)
+
+    events = await _collect(_ctx(CONSISTENT_DRAFT, history), include_status=True)
+
+    assert events == [
+        {
+            "event": "phase_status",
+            "data": {"channel": "workflow:format_consistency", "label": "Matching voice and format…"},
+        },
+        {"event": "phase_status", "data": {"channel": "workflow:format_consistency", "state": "done"}},
+    ]
 
 
 async def test_no_yield_when_baseline_unstable():

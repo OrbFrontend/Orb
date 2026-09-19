@@ -48,18 +48,11 @@
   50%      { opacity: 1;  transform: scale(1.2); }
 }
 
-.gen-dot.spin {
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--accent);
-  border-top-color: transparent;
-  border-radius: 50%;
-  background: none;
-  animation: gen-spin .8s linear infinite;
-}
-
-@keyframes gen-spin {
-  to { transform: rotate(360deg); }
-}
-
 .gen-text { color: var(--text-primary); }
+
+@media (prefers-reduced-motion: reduce) {
+  .gen-bar,
+  .gen-dot {
+    animation: none;
+  }
+}
