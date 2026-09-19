@@ -17,6 +17,66 @@
 // container -> Map(key -> html string produced for it last pass).
 const _signatures = new WeakMap();
 
+// Attribute snapshots describe rendered markup, not interactive state (e.g.
+// a disclosure opened while the reply streams). Only source changes overwrite
+// attributes; unchanged src/style attributes must not restart media/animations.
+const _renderedAttributes = new WeakMap();
+
+function rememberAttributes(node) {
+  if (node.nodeType !== 1) return;
+  _renderedAttributes.set(node, new Map(Array.from(node.attributes, (attr) => [attr.name, attr.value])));
+  for (const child of node.children) rememberAttributes(child);
+}
+
+function patchChildren(parent, desired) {
+  let current = parent.firstChild;
+  for (const next of Array.from(desired.childNodes)) {
+    const following = current?.nextSibling;
+    if (
+      !current ||
+      current.nodeType !== next.nodeType ||
+      current.nodeName !== next.nodeName ||
+      current.namespaceURI !== next.namespaceURI
+    ) {
+      rememberAttributes(next);
+      if (current) current.replaceWith(next);
+      else parent.appendChild(next);
+    } else if (current.nodeType === 1) {
+      const previous =
+        _renderedAttributes.get(current) || new Map(Array.from(current.attributes, (attr) => [attr.name, attr.value]));
+      const attrs = new Map(Array.from(next.attributes, (attr) => [attr.name, attr.value]));
+      for (const name of previous.keys()) {
+        if (!attrs.has(name)) current.removeAttribute(name);
+      }
+      for (const [name, value] of attrs) {
+        if (previous.get(name) !== value) current.setAttributeNS(next.getAttributeNode(name).namespaceURI, name, value);
+      }
+      _renderedAttributes.set(current, attrs);
+      patchChildren(current, next);
+    } else if (current.nodeValue !== next.nodeValue) {
+      current.nodeValue = next.nodeValue;
+    }
+    current = following;
+  }
+  while (current) {
+    const following = current.nextSibling;
+    current.remove();
+    current = following;
+  }
+}
+
+/**
+ * Patch an evolving HTML body in place, retaining compatible nodes at each
+ * position. Call only with sanitised renderer output; this is not a sanitiser.
+ * Structural changes replace the affected nodes, while append-only streams
+ * keep existing images, controls and CSS animations connected.
+ */
+export function patchHtml(container, html) {
+  const scratch = document.createElement("div");
+  scratch.innerHTML = html;
+  patchChildren(container, scratch);
+}
+
 function signaturesFor(container) {
   let sigs = _signatures.get(container);
   if (!sigs) {

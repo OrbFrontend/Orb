@@ -527,15 +527,18 @@ function finish(html, scope) {
 }
 
 /** Render model markup through the sanitise, layout and CSS-scope pipeline. */
-export function renderMessageHtml(text, { streaming = false } = {}) {
+export function renderMessageHtml(text, { streaming = false, scope = null } = {}) {
   if (!text) return "";
   const source = streaming ? trimIncompleteMarkup(text) : text;
   if (!source) return "";
-  const cached = cacheGet(source);
+  // A streaming bubble owns a stable scope: hashing its growing source would
+  // rename every keyframe on every token, restarting even retained DOM nodes.
+  // Custom scopes must not read or populate the source-only render cache.
+  const cached = scope === null ? cacheGet(source) : undefined;
   if (cached !== undefined) return cached;
-  const html = finish(formatProse(escapeUnknownTags(source, isKnownTag)), cssScope(source));
+  const html = finish(formatProse(escapeUnknownTags(source, isKnownTag)), scope ?? cssScope(source));
   // Streaming snapshots are transient and are not cached.
-  if (!streaming) cachePut(source, html);
+  if (!streaming && scope === null) cachePut(source, html);
   return html;
 }
 

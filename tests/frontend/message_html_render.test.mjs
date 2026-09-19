@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { patchHtml } from "../../frontend/dom_reconcile.js";
 
 // The render boundary, driven end to end against a real DOM: escapeUnknownTags
 // -> formatProse -> DOMPurify -> chrome rebuild -> CSS containment -> serialise
@@ -53,6 +54,91 @@ if (dom) {
 
 const it = dom ? test : test.skip;
 const render = (text) => mod.renderMessageHtml(text);
+
+it("streaming retains styled nodes and media without rewriting their attributes or stylesheet", () => {
+  const body = document.createElement("div");
+  document.body.appendChild(body);
+  const prefix = '<style>@keyframes pulse { to { opacity: .5 } }.card { animation: pulse 2s infinite }</style>' +
+    '<div class="card"><img src="https://cdn.test/a.png"><span>';
+  const paint = (tail) => patchHtml(body, mod.renderMessageHtml(prefix + tail, { streaming: true, scope: "msg-stream-test" }));
+  paint("Hello");
+  const card = body.querySelector(".custom-card");
+  const img = body.querySelector("img");
+  const style = body.querySelector("style");
+  const text = body.querySelector("span").firstChild;
+  const observer = new dom.window.MutationObserver(() => {});
+  observer.observe(body, { subtree: true, childList: true, attributes: true, characterData: true });
+  paint("Hello world</span></div>");
+  assert.equal(body.querySelector(".custom-card"), card);
+  assert.equal(body.querySelector("img"), img);
+  assert.equal(body.querySelector("style"), style);
+  assert.equal(body.querySelector("span").firstChild, text);
+  assert.equal(text.data, "Hello world");
+  const mutations = observer.takeRecords();
+  assert.ok(mutations.length > 0);
+  assert.ok(mutations.every((record) => record.type === "characterData" && record.target === text));
+  assert.match(style.textContent, /msg-stream-test-pulse/);
+  observer.disconnect();
+  body.remove();
+});
+
+it("streaming preserves open disclosures and edited controls as their text grows", () => {
+  const body = document.createElement("div");
+  const prefix = '<details><summary>Notes</summary><input type="checkbox"><input value="initial"><p>';
+  const paint = (tail) => patchHtml(body, mod.renderMessageHtml(prefix + tail, { streaming: true }));
+  paint("First");
+  const details = body.querySelector("details");
+  const checkbox = body.querySelector('input[type="checkbox"]');
+  const input = body.querySelector('input[value]');
+  details.open = true;
+  checkbox.checked = true;
+  input.value = "typed while streaming";
+  paint("First sentence.</p></details>");
+  assert.equal(body.querySelector("details"), details);
+  assert.equal(details.open, true);
+  assert.equal(body.querySelector('input[type="checkbox"]'), checkbox);
+  assert.equal(checkbox.checked, true);
+  assert.equal(input.value, "typed while streaming");
+});
+
+it("patched streams apply changed attributes, remove old content and retain sanitisation", () => {
+  const body = document.createElement("div");
+  const paint = (source) => patchHtml(body, mod.renderMessageHtml(source, { streaming: true }));
+  paint('<div title="old"><img src="https://cdn.test/a.png"><b>old</b><i>removed</i></div>');
+  const img = body.querySelector("img");
+  paint('<div><img src="https://cdn.test/b.png" onerror="alert(1)"><em>new</em><script>alert(2)</script></div>');
+  assert.equal(body.querySelector("img"), img);
+  assert.equal(img.getAttribute("src"), "https://cdn.test/b.png");
+  assert.equal(body.firstChild.hasAttribute("title"), false);
+  assert.equal(body.querySelector("em").textContent, "new");
+  assert.equal(body.querySelector("b, i, script, [onerror]"), null);
+  paint("");
+  assert.equal(body.childNodes.length, 0);
+});
+
+it("custom streaming scopes stay isolated from cached and other bubbles' CSS", () => {
+  const source = '<style>p { color: red }</style><p>Hello</p>';
+  const cached = render(source);
+  const first = mod.renderMessageHtml(source, { streaming: true, scope: "msg-stream-one" });
+  const second = mod.renderMessageHtml(source, { streaming: true, scope: "msg-stream-two" });
+  assert.match(first, /\.msg-stream-one p/);
+  assert.match(second, /\.msg-stream-two p/);
+  assert.ok(!second.includes("msg-stream-one"));
+  mod.renderMessageHtml(source, { scope: "msg-stream-final" });
+  assert.equal(render(source), cached);
+});
+
+it("incomplete streaming markup waits without replacing already rendered content", () => {
+  const body = document.createElement("div");
+  const paint = (source) => patchHtml(body, mod.renderMessageHtml(source, { streaming: true }));
+  paint('<p>Hello</p><img src="https://cdn.test/a');
+  const paragraph = body.firstChild;
+  assert.equal(body.textContent, "Hello");
+  assert.equal(body.querySelector("img"), null);
+  paint('<p>Hello</p><img src="https://cdn.test/a.png">');
+  assert.equal(body.firstChild, paragraph);
+  assert.equal(body.querySelector("img").getAttribute("src"), "https://cdn.test/a.png");
+});
 
 /** Re-parse rendered markup the way `innerHTML` does at the call sites. */
 function reparse(html) {

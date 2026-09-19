@@ -31,6 +31,7 @@ import {
   optimisticDropDirectionNotesFrom,
   renderDirectionNotesPanel,
 } from "./direction_notes_panel.js";
+import { patchHtml } from "./dom_reconcile.js";
 import { generationStepLabel, WAITING_LABEL } from "./generation_status.js";
 import { restNotice, speakerAvatarCell, unansweredHint } from "./group_cast.js";
 import { consumeSpeakerOverride, refreshSheetProposals, renderGroupCast } from "./group_setup.js";
@@ -76,6 +77,13 @@ function setGenerationStep(label) {
 let _paintFrame = 0;
 let _paintPending = null;
 let _paintedHtml = "";
+let _streamScopeId = 0;
+const _streamScopes = new WeakMap();
+
+function streamingScope(body) {
+  if (!_streamScopes.has(body)) _streamScopes.set(body, `msg-stream-${++_streamScopeId}`);
+  return _streamScopes.get(body);
+}
 
 function streamingDisplaySource(content) {
   return messageDisplaySource({ role: "assistant", content, speaker_member_id: S.currentSpeaker?.member_id });
@@ -90,10 +98,10 @@ function paintStreamingBody(text) {
     _paintPending = null;
     const body = S.streamingBodyEl;
     if (!body || pending === null) return;
-    const html = renderMessageHtml(streamingDisplaySource(pending), { streaming: true });
+    const html = renderMessageHtml(streamingDisplaySource(pending), { streaming: true, scope: streamingScope(body) });
     if (html !== _paintedHtml) {
       _paintedHtml = html;
-      body.innerHTML = html;
+      patchHtml(body, html);
     }
     scrollToBottom();
   });
