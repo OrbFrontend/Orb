@@ -1,234 +1,76 @@
 # Text-to-Speech
 
-Orb can read character dialogue aloud. Speech settings are global, while each
-character has its own voice.
+Orb can turn character replies into audio. Playback controls are global; the
+voice and speech settings belong to each character.
 
-## Playback controls
+## Start listening
 
-In **Settings**, configure:
+1. Open **Text-to-Speech** in the tools panel and choose **Settings**.
+2. Under **Playback**, choose whether new speech should play automatically and
+   set the volume.
+3. Under **Message interaction**, choose whether clicking speaks a whole reply,
+   one block, or nothing. You can also choose whether a click plays that unit or
+   the whole reply, and whether Orb highlights words as they are spoken.
+4. When a reply has audio, use its speaker control to play or pause it.
 
-- **Audio/TTS enabled**: turn speech playback on or off
-- **Auto-speak**: play speech for each new assistant reply
-- **Volume**: set playback volume
+If you want audio generated for every reply from one character, turn on
+**Auto-generate speech for this character's replies** in that character's voice
+profile. This setting generates audio; **Play new speech automatically** controls
+whether generated audio starts playing on its own.
 
-Select the speaker icon on an assistant reply to read it. Select a spoken line to
-read only that line. Orb highlights the line currently playing.
+## Choose a character's voice
 
-## Character voices
+Open a conversation, then open **Text-to-Speech → Settings**. The **Voice
+profile** section applies to the current character. Choose a backend, language,
+voice, and any options it offers. Use **Preview** before **Save voice**.
 
-Open the **Text-to-Speech** card in the tools panel, then **Settings**. Its
-**Voice profile** section applies to the current conversation's character only,
-and sets:
-
-- Whether the voice is enabled
-- Backend and connection settings
-- Language and voice
-- Speed and pitch
-- Preview playback
-
-In a group chat, choose a **Cast member** in the Voice panel. Each reply uses the
-voice of the member who wrote it, regardless of which member is selected in the
-panel.
-
-### Cloning a voice
-
-**Spark-TTS (built-in)** replaces the voice picker with a drop zone. Drop an
-audio file of the character speaking onto it — or select it to pick a file — and
-that character speaks in that voice from then on. There is no server to run and
-nothing else to press: the clip enrols as it lands, and Orb points the profile
-at the built-in backend and switches this character's speech on for you. Use
-**Preview** to hear the result, and **Remove voice** to forget it, which also
-stops the automatic speech that enrolling turned on.
-
-When a required download or switch is missing, the control says which and fixes
-it in place. It installs the codec first, so a voice can be enrolled while the
-shared runtime and voice model download. Once ready, it also shows the model's
-**Run on GPU** switch and load state. None of this appears under **Settings →
-Local ML**: the cloned-voice control is the only place the cloner is managed.
-
-The **whole clip, up to two minutes**, is considered. Orb removes silent edges
-and shortens long silent gaps before enrollment, so scene transitions do not
-dilute the voice signal. The cloned voice shifts with which few seconds it
-hears, so a clip of several lines leaves less to chance than one line does. A
-clip under six seconds after silence cleanup is repeated to fill six. **Clean
-audio matters more than length:** music or ambience under the voice costs more
-than extra seconds recover, so prefer a short clean clip to a long noisy one.
-One speaker only.
-
-What is stored is 32 integers — the speaker's timbre as the model encodes it —
-which live in the character's voice profile and travel with it. The uploaded
-clip is used only for enrollment; the compact tokens are all synthesis needs.
-
-**Speed and pitch do not apply to a cloned voice**, and the panel hides them.
-Spark-TTS accepts prosody attributes only when it is inventing a speaker; a
-cloned voice takes its delivery from the model, not from a slider. Timbre
-transfers; pacing does not.
-
-Enrollment reads WAV and FLAC out of the box. MP3, M4A and anything else need
-`ffmpeg` on your `PATH`; without it, convert the clip to WAV first.
-
-## How speech is made
-
-1. Orb reads the message's dialogue/narration convention with the same markup
-   classifier used by Format Consistency, when that Local ML model is available
-   and enabled. Otherwise it uses the shared format heuristics. This works
-   independently of whether the Format Consistency workflow is enabled.
-2. Shared quote and emphasis segmentation selects speech. It recognizes quoted
-   dialogue and bare dialogue between marked action beats, including underscore
-   beats and inline emphasis. Recognized action beats such as `*laughs*` can
-   become pauses or emotion tags for compatible backends.
-3. The selected backend synthesizes each speech block. The browser plays the
-   audio and highlights its words. Orb caches generated audio for replay.
-
-Orb recognizes straight, curly, guillemet, CJK, fullwidth, and other supported
-Unicode quote pairs. Paired em-dash dialogue supports consecutive lines at prose
-boundaries, including inline emphasis within each line.
-Inline narrative dash asides are left out. Parenthetical asides, OOC notes,
-protected formatting (code fences, bold runs and dividers), and recognized
-attributed thoughts are excluded. Ordinary parentheses inside dialogue remain
-spoken.
-
-The classifier identifies a whole-message convention, not the speaker or the
-role of every sentence. For unmarked chat such as `Hello. Let's get to know each
-other.`, it can return `unknown` for both conventions. TTS reads that plain text
-as speech, while still excluding text positively classified as narration. This
-fallback requires the model's reading; the heuristic fallback alone cannot
-reliably recognize plain chat. Mixed bare narration and speech cannot always be
-separated reliably: speech selection follows the classified convention, without
-discarding bare dialogue merely because it begins with words such as “The” or
-“She”. An ambiguous unmarked narrative may also be read. TTS does not
-infer different speakers inside one reply. Voice previews read their literal
-input without dialogue extraction.
-
-New audio attachments save the exact synthesis chunks in
-`generation_metadata.speech_chunks`, and each playback block includes
-`consumption_metadata.blocks[].spoken_text`. Replay uses those saved chunks
-without rerunning the classifier, and highlighting uses the stored spoken text.
-Older attachments retain their original extraction rules for replay; regenerating
-an attachment applies the current segmentation and Local ML settings.
+In a group chat, choose a **Cast member** first. Each reply uses the voice of the
+character who wrote it; the selected cast member only controls which profile you
+are editing.
 
 ## Available backends
 
-| Backend | Setup | API key | Notes |
-|---|---|---|---|
-| Microsoft Edge TTS | Included in `requirements.txt` | None | 400+ voices in 80+ languages |
-| OpenAI-compatible | HTTP endpoint | Required | Uses `POST /v1/audio/speech`; voices and models depend on the provider |
-| Kokoro-82M | HTTP endpoint | None | Local server with 54 voices and 9 languages |
-| Spark-TTS (built-in) | Local ML download | None | Runs inside Orb. Clone a character's voice from one audio file; no server, no speed/pitch. |
-| Spark-TTS (sidecar) | HTTP endpoint | Optional | The standalone server, kept for setups that already run it. Voices built from gender/pitch/speed attributes. |
-| Fish Speech | HTTP endpoint | Optional | Local server with voice references |
-| ElevenLabs | HTTP endpoint | Required | Cloud voices and emotion tags |
+The backends available in your installation are shown in the Voice profile.
 
-### The built-in backend
+| Backend | What it needs |
+|---|---|
+| Microsoft Edge TTS | An internet connection. No API key. |
+| OpenAI-compatible | An API URL, and usually an API key, model, and voice. Works with compatible hosted or local endpoints. |
+| Kokoro-82M | A running Kokoro service and its API URL. |
+| Spark-TTS (built-in) | Optional local model downloads. No separate server; supports cloned voices. |
+| Spark-TTS (sidecar) | A running Spark-TTS service and its API URL. |
+| Fish Speech | A running Fish Speech service and, if required, its API URL or key. |
+| ElevenLabs | An ElevenLabs API key and a voice. |
 
-**Spark-TTS (built-in)** is the only backend that needs no server. Install the
-optional ML extras (`pip install -r requirements-ml.txt`), then download its
-pieces from the cloned-voice control:
+## Clone a voice
 
-- **Voice model** (520 MB) — speaks. Runs through the same llama-server runtime
-  as the Prose Rewriter and has the same **Run on GPU** switch; it is the half
-  that benefits from the GPU build. Changing the switch takes effect on the next
-  spoken line.
-- **Voice codec** (391 MB, two files) — turns an uploaded clip into a voice and
-  voices back into audio. CPU only; ONNX Runtime has no Vulkan provider, and the
-  vocoder is not the bottleneck.
-- **Reference reader** (491 MB) — turns a short excerpt into the semantic tokens
-  used by Advanced cloning. It runs on the CPU and is only needed while enrolling
-  a voice.
-- **Speech recognizer** (250 MB) — transcribes that excerpt so Advanced cloning
-  can copy its delivery. It runs on the CPU and is only needed while enrolling.
-- **llama-server runtime** (about 150 MB) — shared with the Prose Rewriter and
-  fetched automatically when the voice model needs it.
+The built-in **Spark-TTS** backend can learn a character's voice from one audio
+clip. Select it in the character's Voice profile. If Orb asks for downloads,
+use the setup button in that panel.
 
-The codec and voice model download separately, and Basic cloning can enrol a
-voice as soon as the codec is present. Advanced cloning downloads the reference
-reader and speech recognizer as well; those two are used only during enrollment,
-so an already prepared Advanced voice can still speak when they are unloaded or
-disabled. The voice model is unloaded after a couple of minutes idle so it does
-not hold VRAM against a local Writer or the Prose Rewriter.
+Choose a mode:
 
-#### Built-in cloner implementation notes
+- **Basic** copies the voice's timbre from the whole clip, up to two minutes.
+- **Advanced** uses a short clear excerpt and can also follow its pacing and
+  accent. If Orb asks for a transcript, type exactly what the excerpt says.
 
-An enrolled voice is 32 BiCodec global-token indices stored in the character's
-TTS profile. Orb decodes an uploaded clip only while enrolling it and never
-stores the audio. Profiles created for the former `spark` sidecar backend are
-migrated to `spark_remote`; new `spark` profiles select the built-in cloner.
+For either mode, use one speaker and avoid music or background noise. WAV and
+FLAC work directly; other formats may need `ffmpeg`. Uploading a clip saves the
+voice to that character and enables its speech profile. Drop another clip to
+replace it, or choose **Remove** to forget the cloned voice and stop speech for
+that character.
 
-Basic cloning transfers timbre only. Advanced cloning also keeps a short excerpt
-and its transcript, allowing Spark-TTS to continue the reference speaker's
-delivery. Orb stores the excerpt as semantic tokens and never stores the
-uploaded audio; if transcription is incomplete, the panel lets you listen to
-the reconstructed excerpt and type the exact transcript.
+## What gets spoken
 
-The codec artifacts have separate responsibilities:
+Orb picks dialogue from a reply and leaves out roleplay action and other text it
+recognizes as narration. It understands quoted dialogue, em-dash dialogue, and
+common roleplay markup. It can also speak plainly written dialogue when the
+message's style is clear.
 
-- The speaker encoder is a small CPU-only ONNX graph. It reads a 16 kHz mel
-  spectrogram and produces the 32 global-token indices used for enrollment.
-- The decoder is also CPU-only ONNX. It turns generated semantic-token indices
-  and the enrolled global tokens into 16 kHz PCM.
+When a reply is ambiguous, the split between speech and narration may not be
+perfect. The generated audio is shown on the reply, so you can listen before
+relying on auto-play. Voice previews read the preview text literally.
 
-A llama-server child generates the semantic tokens from the 0.5B GGUF. It is
-the only cloner component affected by **Run on GPU**, and is released after
-inactivity. The shared llama-server runtime is obtained through the generic
-Local ML runtime route; the Prose Rewriter uses that runtime too, but does not
-own it.
-
-All BiCodec tokens are GGUF control tokens, so llama-server receives an integer
-prompt and returns generated token IDs; Orb does not parse completion text. The
-pinned token ranges are:
-
-| Family | Index range | Token-ID range |
-|---|---:|---:|
-| global | 0–4095 | 151665–155760 |
-| semantic | 0–8191 | 155761–163952 |
-
-Orb tokenizes user text with special-token parsing disabled and ignores any
-generated IDs outside the semantic range before decoding. `UBATCH_SIZE = 8` is
-a correctness limit for the pinned llama.cpp Vulkan build: larger prompt
-batches can corrupt the model's prompt. Do not raise it without an end-to-end
-audio regression check.
-
-The mel parameters and volume normalization match Spark-TTS. After volume
-normalization, silent edges are removed and interior silence longer than 300 ms
-is shortened to 200 ms. References shorter than six seconds after that cleanup
-are tiled to six seconds; longer clips are retained up to the two-minute limit,
-because clean additional speech yields a more stable speaker representation.
-Generated clips also have silent edges removed before playback, leaving the
-workflow's designed inter-block gap as the only pause between blocks. WAV, FLAC,
-and OGG use the optional audio dependency; other formats use `ffmpeg` when
-available. To regenerate the speaker-encoder ONNX artifact, run
-`scripts/export_spark_speaker_encoder.py`. A replacement must preserve the
-32-token output contract and update the catalog checksum and enrollment golden
-test.
-
-### Local server backends
-
-Kokoro-82M, Spark-TTS (sidecar), and Fish Speech run as local servers. Orb ships
-the client, not the server: run one yourself, then point that voice's **API URL**
-at it.
-
-Kokoro-82M (default `http://localhost:9200`) and Spark-TTS's sidecar (default
-`http://localhost:9300`) each expose:
-
-- `GET /v1/voices` — returns `[{id, name, language, gender}]`
-- `POST /v1/tts` — returns WAV
-
-Their request bodies differ. Kokoro takes `{text, voice, speed, lang}`, where
-`lang` is its own single-letter code (`a` for American English, `b` for
-British, and so on). Spark-TTS takes `{text, voice, speed, pitch, lang}`, where
-`lang` is a full locale. Voice profiles saved before the built-in backend
-existed keep working: they are moved to **Spark-TTS (sidecar)** automatically
-and still point at the server you already run. Fish Speech uses its own native API instead: `POST
-/v1/tts` keyed by `reference_id`, and `GET /v1/references/list`.
-
-Orb sends one request per speech block and joins the clips itself, inserting
-real silence for pauses, so a server only ever synthesizes one block at a time.
-`speed` and `pitch` arrive as float multipliers where `1.0` means the voice's
-own level.
-
-## Add a backend
-
-Backends live in `backend/workflows/tts/engine/` and implement the `TTSAdapter` base class. The
-router registers an adapter when its dependencies are available. Implement
-`list_voices()`, `list_models()` when needed, and `synthesize()`, plus the adapter
-metadata properties. `backend/workflows/tts/engine/edge_adapter.py` is a reference.
+Orb keeps the audio with the reply for replay. Word highlighting follows the
+text that was actually synthesized, so replay does not have to guess the
+dialogue boundaries again.
