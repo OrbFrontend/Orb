@@ -237,8 +237,16 @@ body {
     -webkit-box-orient: vertical;
   }
 
+  /* The toggle takes the whole row and its modes share it, so the last one is
+     never clipped by the modal's edge. */
+  .view-toggle {
+    flex: 1 1 auto;
+  }
+
   .view-toggle-btn {
-    padding: 7px 12px;
+    flex: 1 1 0;
+    justify-content: center;
+    padding: 7px 8px;
     font-size: 12px;
   }
 
@@ -294,6 +302,26 @@ body {
   .modal-actions {
     flex-wrap: wrap;
     row-gap: 8px;
+  }
+
+  /* The row has no width to spare for a status beside its buttons, so the status
+     drops to a line of its own under them, and only while it has something to
+     say. */
+  .modal-actions > .modal-action-status {
+    order: 1;
+    flex-basis: 100%;
+    text-align: right;
+    scroll-margin-bottom: 16px; /* the modal's padding, when it scrolls into view */
+  }
+
+  .modal-actions > .modal-action-status:empty {
+    display: none;
+  }
+
+  /* Paired fields stack: side by side, a label whose hint wraps onto a second
+     line pushes its input below its neighbour's. */
+  .field-row {
+    display: block;
   }
 
   /* Card scripts: the row gives back some padding so the header -- title, the
@@ -422,6 +450,14 @@ body {
 
   .modal h2 {
     font-size: 16px;
+  }
+
+  /* A phone is too narrow for four icon-and-label modes in a line, so each mode
+     stacks its icon over its label rather than losing either. */
+  .view-toggle-btn {
+    flex-direction: column;
+    gap: 3px;
+    padding: 6px 4px;
   }
 
   .char-browser-grid {

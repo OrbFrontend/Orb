@@ -572,6 +572,9 @@ function setCharEditStatus(message, { error = false } = {}) {
   // a discard. The next edit clears the status and puts "Cancel" back.
   const cancel = $("ce-cancel-btn");
   if (cancel) cancel.textContent = message && !error ? "Close" : "Cancel";
+  // On a phone the status takes a line under the buttons, which can land below
+  // the fold of a scrolled editor.
+  if (message) el.scrollIntoView({ block: "nearest" });
 }
 
 function clearCharEditStatus() {

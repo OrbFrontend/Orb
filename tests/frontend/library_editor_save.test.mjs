@@ -7,8 +7,10 @@ globalThis.window = dom.window;
 for (const key of ["document", "Node", "NodeFilter", "Element", "HTMLElement", "DOMParser", "MutationObserver"]) {
   globalThis[key] = dom.window[key];
 }
-// jsdom has no scroller; the chat repaint the save triggers calls into one.
+// jsdom has no scroller; the chat repaint the save triggers calls into one, and
+// the save status scrolls itself into view.
 dom.window.Element.prototype.scrollTo = function scrollTo() {};
+dom.window.Element.prototype.scrollIntoView = function scrollIntoView() {};
 const { api } = await import("../../frontend/api.js");
 const { saveCharEdit, showCharEditModal } = await import("../../frontend/library.js");
 
