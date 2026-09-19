@@ -79,3 +79,30 @@ def test_pov_download_uses_the_upstream_name_but_stores_the_versioned_alias(tmp_
     monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(hf_hub_download=fetch))
     assets.download("pov_classifier")
     assert Path(assets.resolve_path("pov_classifier")).read_bytes() == b"downloaded v2"
+
+
+def test_generic_upstream_names_are_stored_under_their_own(tmp_path, monkeypatch):
+    """Whisper's ``config.json`` would otherwise be every future model's
+    ``config.json``; and the download's ``onnx/`` mirror must not outlive it."""
+    import sys
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(assets, "_ROOT", str(tmp_path))
+    spec = assets.MODELS["speech_recognizer"]
+    upstream = {spec.filename, *(f.path for f in spec.extra_files)}
+
+    def fetch(*, repo_id, filename, revision, local_dir):
+        assert filename in upstream
+        target = Path(local_dir) / filename
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(filename.encode())
+        return str(target)
+
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(hf_hub_download=fetch))
+    monkeypatch.setattr(assets, "_verify", lambda path, expected: None)
+    assets.download("speech_recognizer")
+
+    stored = sorted(p.name for p in Path(assets.model_dir()).iterdir())
+    assert stored == sorted(spec.all_names())
+    assert all(name.startswith("whisper-small-") for name in stored)
+    assert assets.present("speech_recognizer")

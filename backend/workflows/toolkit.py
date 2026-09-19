@@ -152,7 +152,10 @@ __all__ = [
     "local_model_identity",
     "narration_only",
     "overlay_enable_tools",
+    "spark_voice_clean_reference_text",
+    "spark_voice_clean_reference_tokens",
     "spark_voice_clean_tokens",
+    "spark_voice_reference_audio",
     "spark_voice_speak",
     "protected_runs",
     "run_audit",
@@ -233,13 +236,41 @@ def spark_voice_clean_tokens(raw: object) -> list[int]:
     return _spark_tts_host.clean_tokens(raw)
 
 
+def spark_voice_clean_reference_tokens(raw: object) -> list[int]:
+    """A stored advanced reference's semantic tokens, validated, or ``[]``."""
+    return _spark_tts_host.clean_reference_tokens(raw)
+
+
+def spark_voice_clean_reference_text(raw: object) -> str:
+    """A stored advanced reference's transcript on one line, within the model's limit."""
+    return _spark_tts_host.clean_reference_text(raw)
+
+
 async def spark_voice_speak(
     text: str,
     speaker_tokens: Sequence[int],
     settings: Mapping[str, Any],
+    *,
+    reference_tokens: Sequence[int] = (),
+    reference_text: str = "",
 ) -> tuple[bytes, int]:
-    """Speak *text* in an enrolled voice. Returns ``(pcm16, sample_rate)``."""
-    return await _spark_tts_host.synthesize(text, speaker_tokens, settings)
+    """Speak *text* in an enrolled voice. Returns ``(pcm16, sample_rate)``.
+
+    Passing a reference excerpt and its transcript speaks with the excerpt's
+    delivery as well as the voice's timbre.
+    """
+    return await _spark_tts_host.synthesize(
+        text,
+        speaker_tokens,
+        settings,
+        reference_tokens=reference_tokens,
+        reference_text=reference_text,
+    )
+
+
+async def spark_voice_reference_audio(reference_tokens: Sequence[int], speaker_tokens: Sequence[int]) -> tuple[bytes, int]:
+    """An advanced voice's reference excerpt as ``(pcm16, sample_rate)``, rebuilt from its tokens."""
+    return await _spark_tts_host.reference_audio(reference_tokens, speaker_tokens)
 
 
 async def get_scene_cast(conversation_id: str) -> TurnCast:

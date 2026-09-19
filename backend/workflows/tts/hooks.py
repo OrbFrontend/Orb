@@ -11,9 +11,11 @@ from ..toolkit import (
     get_workflow_config,
     insert_workflow_attachment,
     set_workflow_character_state,
+    spark_voice_reference_audio,
 )
 from .config import normalize_config
 from .engine.router import get_adapter, list_backends
+from .engine.wav import pcm_to_wav
 from .synth import (
     WORKFLOW_ID,
     audio_mime_ext,
@@ -196,6 +198,8 @@ async def query(ctx, body):
         return await _list_models(body)
     if action == "preview":
         return await _preview(body)
+    if action == "reference_audio":
+        return await _reference_audio(body)
     return {"error": f"unknown action: {action!r}"}
 
 
@@ -246,3 +250,18 @@ async def _preview(body) -> dict:
         logger.exception("tts preview failed")
         return {"error": "preview synthesis failed"}
     return {"audio_b64": base64.b64encode(audio).decode("ascii"), "mime": mime}
+
+
+async def _reference_audio(body) -> dict:
+    """The form's advanced reference excerpt as audio, to check its transcript by ear."""
+    profile = normalize_profile(body)
+    if not profile["reference_tokens"] or not profile["speaker_tokens"]:
+        return {"error": "This voice has no reference excerpt yet."}
+    try:
+        pcm, rate = await spark_voice_reference_audio(profile["reference_tokens"], profile["speaker_tokens"])
+    except ValueError as exc:  # the codec is missing or switched off: the message is the fix
+        return {"error": str(exc) or "could not play the excerpt"}
+    except Exception:
+        logger.exception("tts reference excerpt failed")
+        return {"error": "could not play the excerpt"}
+    return {"audio_b64": base64.b64encode(pcm_to_wav(pcm, rate)).decode("ascii"), "mime": "audio/wav"}

@@ -384,6 +384,30 @@ async def test_query_route_previews_from_the_request_profile(client, fake_adapte
     assert body["mime"] == "audio/mpeg"
 
 
+async def test_query_route_plays_the_advanced_excerpt_from_its_tokens(client, monkeypatch):
+    """Orb keeps no uploaded audio; the excerpt is rebuilt from what the profile stores."""
+    seen = {}
+
+    async def fake_reference_audio(reference_tokens, speaker_tokens):
+        seen["args"] = (list(reference_tokens), list(speaker_tokens))
+        return b"\x00\x00" * 160, 16000
+
+    monkeypatch.setattr(hooks, "spark_voice_reference_audio", fake_reference_audio)
+    resp = await client.post(
+        "/api/workflows/tts/query",
+        json={"action": "reference_audio", "speaker_tokens": list(range(32)), "reference_tokens": [4, 5, 6]},
+    )
+    body = resp.json()
+    assert seen["args"] == ([4, 5, 6], list(range(32)))
+    assert body["mime"] == "audio/wav"
+    assert base64.b64decode(body["audio_b64"])[:4] == b"RIFF"
+
+
+async def test_query_route_says_when_there_is_no_excerpt(client):
+    resp = await client.post("/api/workflows/tts/query", json={"action": "reference_audio", "speaker_tokens": list(range(32))})
+    assert "no reference excerpt" in resp.json()["error"]
+
+
 async def test_query_route_rejects_unknown_action_in_band(client):
     resp = await client.post("/api/workflows/tts/query", json={"action": "does_not_exist"})
     assert resp.status_code == 200

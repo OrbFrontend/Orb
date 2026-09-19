@@ -223,9 +223,16 @@ const LOCAL_ML_DESCS = {
   markup_classifier: "For more accurate format consistency.",
 };
 
-// Models with a single consumer are managed by it: Spark-TTS in the TTS
-// cloned-voice control, the Prose Rewriter in its workflow card.
-const LOCAL_ML_MANAGED_ELSEWHERE = new Set(["spark_tts_llm", "spark_tts_codec", "prose_rewriter"]);
+// Models with a single consumer are managed by it: Spark-TTS and the speech
+// recognizer in the TTS cloned-voice control, the Prose Rewriter in its
+// workflow card.
+const LOCAL_ML_MANAGED_ELSEWHERE = new Set([
+  "spark_tts_llm",
+  "spark_tts_codec",
+  "spark_tts_reference",
+  "speech_recognizer",
+  "prose_rewriter",
+]);
 
 const settingsFeatures = (features) =>
   Object.fromEntries(Object.entries(features).filter(([f]) => !LOCAL_ML_MANAGED_ELSEWHERE.has(f)));

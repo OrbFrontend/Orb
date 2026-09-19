@@ -356,7 +356,8 @@ async def api_delete_expressions(card_id: str):
 # The whole user-facing workflow for the built-in Spark-TTS backend: upload one
 # audio file to a character, and the character speaks in that voice from then
 # on. Enrollment produces 32 integers, which are all synthesis needs and go
-# directly into the card's TTS profile.
+# directly into the card's TTS profile. When the advanced-cloning models are
+# present, the same upload also yields a reference excerpt and its transcript.
 
 
 def _voice_profile_error(exc: Exception) -> HTTPException:
@@ -374,8 +375,18 @@ def _voice_profile_error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=500, detail="Voice enrollment failed; see server logs")
 
 
-async def _store_speaker_tokens(card_id: str, tokens: list[int], source_name: str) -> dict:
+async def _store_voice(
+    card_id: str,
+    enrollment: spark_tts_host.Enrollment | None,
+    source_name: str,
+    mode: str | None = None,
+) -> dict:
     """Write the enrolled voice into the card's TTS profile and return it.
+
+    ``None`` clears the voice. A new clip always replaces the reference too:
+    an excerpt from the previous clip would pair one speaker's delivery with
+    another's timbre. *mode* is the tab the clip was dropped on; ``None``
+    keeps the profile's.
 
     Read-modify-write under the same lock the workflow uses, because this is
     the one place outside the workflow that edits its slot and a settings save
@@ -384,9 +395,13 @@ async def _store_speaker_tokens(card_id: str, tokens: list[int], source_name: st
     async with workflow_character_state_lock(card_id, tts_synth.WORKFLOW_ID):
         stored = await get_workflow_character_state(card_id, tts_synth.WORKFLOW_ID)
         profile = tts_synth.normalize_profile(stored)
-        profile["speaker_tokens"] = tokens
+        profile["speaker_tokens"] = enrollment.speaker_tokens if enrollment else []
         profile["speaker_ref_name"] = source_name
-        if tokens:
+        profile["reference_tokens"] = enrollment.reference_tokens if enrollment else []
+        profile["reference_text"] = enrollment.reference_text if enrollment else ""
+        if mode in tts_synth.CLONE_MODES:
+            profile["clone_mode"] = mode
+        if enrollment:
             # An enrolled voice is only reachable through the built-in backend,
             # and `cloned` is the only voice id it has. Selecting it here is
             # what makes "upload a file" the complete workflow — otherwise the
@@ -408,12 +423,22 @@ async def _store_speaker_tokens(card_id: str, tokens: list[int], source_name: st
 
 
 @router.post("/api/characters/{card_id}/voice-reference")
-async def api_upload_voice_reference(card_id: str, file: Annotated[UploadFile, File(...)]):
+async def api_upload_voice_reference(
+    card_id: str,
+    file: Annotated[UploadFile, File(...)],
+    mode: str | None = None,
+):
     """Enroll a character's voice from one uploaded audio file.
 
     Returns the stored voice, on a profile that is now pointed at the built-in
     backend AND switched on, so the next reply is spoken without a second trip
     through the panel. Use the profile's Preview action to hear it sooner.
+
+    ``?mode=basic|advanced`` is the tab the clip was dropped on. The advanced
+    reference is prepared whenever its models are ready, whichever tab that
+    was, so switching tabs later needs no second upload.
+    ``reference_note`` explains a reference that is missing or needs its
+    transcript typed; enrollment itself succeeded either way.
     """
     if not await get_character_card(card_id):
         raise HTTPException(status_code=404, detail="Character card not found")
@@ -425,14 +450,16 @@ async def api_upload_voice_reference(card_id: str, file: Annotated[UploadFile, F
     if not ok:
         raise HTTPException(status_code=503, detail=reason)
     source_name = os.path.basename(file.filename or "")[:120]
+    with_reference, reference_reason = spark_tts_host.reference_ready(settings)
     try:
-        tokens = await spark_tts_host.enroll_upload(content, filename=source_name)
+        enrollment = await spark_tts_host.enroll_upload(content, filename=source_name, with_reference=with_reference)
     except Exception as exc:
         raise _voice_profile_error(exc) from exc
-    profile = await _store_speaker_tokens(card_id, tokens, source_name)
+    profile = await _store_voice(card_id, enrollment, source_name, mode)
     return {
-        "speaker_tokens": tokens,
+        "speaker_tokens": enrollment.speaker_tokens,
         "source_name": source_name,
+        "reference_note": enrollment.reference_note if with_reference else reference_reason,
         "profile": profile,
     }
 
@@ -443,5 +470,5 @@ async def api_delete_voice_reference(card_id: str):
 
     The backend selection survives so the next clip can go straight in.
     """
-    profile = await _store_speaker_tokens(card_id, [], "")
+    profile = await _store_voice(card_id, None, "")
     return {"ok": True, "profile": profile}

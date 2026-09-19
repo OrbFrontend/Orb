@@ -137,6 +137,17 @@ async def test_generate_tokens_omits_optional_sampling_keys(monkeypatch):
 
     assert "top_k" not in sent[0]
     assert "seed" not in sent[0]
+    assert "logit_bias" not in sent[0]
+
+
+async def test_generate_tokens_bans_tokens_through_logit_bias(monkeypatch):
+    """``false`` is llama-server's "never sample this", not a large negative bias."""
+    sent: list[dict] = []
+    server = _token_client(monkeypatch, sent, _AUDIO_STREAM)
+
+    await server.generate_tokens([1], n_predict=1, temperature=0.8, top_p=0.95, banned=(151643, 151645))
+
+    assert sent[0]["logit_bias"] == [[151643, False], [151645, False]]
 
 
 async def test_generate_tokens_survives_a_build_that_batches_chunks(monkeypatch):

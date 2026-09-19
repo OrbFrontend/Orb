@@ -7,6 +7,7 @@ from ..catalog import MODELS
 
 FEATURE_LLM = "spark_tts_llm"
 FEATURE_CODEC = "spark_tts_codec"
+FEATURE_REFERENCE = "spark_tts_reference"
 
 
 def decoder_path() -> str:
@@ -17,6 +18,23 @@ def decoder_path() -> str:
 def speaker_encoder_path() -> str:
     """The speaker encoder's absolute path (may not exist)."""
     return assets.file_path(next(iter(MODELS[FEATURE_CODEC].extra_files)))
+
+
+def semantic_tokenizer_path() -> str:
+    """The advanced-cloning semantic tokenizer's absolute path (may not exist)."""
+    return assets.resolve_path(FEATURE_REFERENCE)
+
+
+def reference_ready() -> tuple[bool, str]:
+    """Return whether reference excerpts can be turned into semantic tokens."""
+    ok, reason = dependencies.deps_ok(FEATURE_REFERENCE)
+    if not ok:
+        return False, reason
+    if not onnx_runtime.runtime_ok():
+        return False, "onnxruntime is not installed."
+    if assets.missing_files(FEATURE_REFERENCE):
+        return False, "The Spark-TTS reference reader is not downloaded."
+    return True, ""
 
 
 def codec_ready() -> tuple[bool, str]:
@@ -47,8 +65,11 @@ def llm_ready() -> tuple[bool, str]:
 __all__ = [
     "FEATURE_CODEC",
     "FEATURE_LLM",
+    "FEATURE_REFERENCE",
     "codec_ready",
     "decoder_path",
     "llm_ready",
+    "reference_ready",
+    "semantic_tokenizer_path",
     "speaker_encoder_path",
 ]

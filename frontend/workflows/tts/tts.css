@@ -222,9 +222,9 @@
   white-space: nowrap;
 }
 
-/* The cloned voice: its heading, an optional setup line, the drop zone, then
-   the GPU switch. A touch more air than a plain field, since the zone is a box
-   of its own. */
+/* The cloned voice: its heading, the mode tabs, an optional setup line, the drop
+   zone, the advanced excerpt, then the GPU switch. A touch more air than a plain
+   field, since the zone is a box of its own. */
 .tts-clone {
   gap: 8px;
 }
@@ -250,6 +250,33 @@
 .tts-clone-remove:hover,
 .tts-clone-remove:focus-visible {
   color: var(--red);
+}
+
+/* Basic / Advanced: the app's modal tabs, as buttons so they take the keyboard.
+   The tab chosen is how the voice speaks, saved with the rest of the profile. */
+.tts-clone-tabs {
+  margin-bottom: 0;
+}
+
+.tts-clone-tabs .tab {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font-family: inherit;
+}
+
+.tts-clone-tabs .tab.active {
+  border-bottom-color: var(--accent);
+}
+
+/* The advanced voice's excerpt: a play button, then its editable transcript. */
+.tts-reference {
+  display: grid;
+  gap: 6px;
+}
+
+.tts-reference textarea {
+  resize: vertical;
 }
 
 /* The cloned-voice drop zone. A label wrapping a visually hidden file input, so

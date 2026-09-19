@@ -20,6 +20,8 @@ import pytest
 from backend.workflows import spark_tts_host
 
 VALID = list(range(32))
+EXCERPT = [7, 8, 9] * 150
+SAID = "To fight the abyss, one must know it."
 
 
 def _wav(seconds: float = 1.0, rate: int = 16000) -> bytes:
@@ -46,14 +48,31 @@ async def _profile(client, card_id: str) -> dict:
 
 @pytest.fixture
 def enrolled(monkeypatch):
-    """Stand in for the codec half: enrollment succeeds."""
+    """Stand in for the codec half: enrollment succeeds. Advanced cloning is
+    not set up unless a test says so."""
 
-    async def fake_enroll(data: bytes, *, filename: str = ""):
+    async def fake_enroll(data: bytes, *, filename: str = "", with_reference: bool = False):
         assert data, "the route must pass the uploaded bytes through"
-        return list(VALID)
+        if not with_reference:
+            return spark_tts_host.Enrollment(list(VALID))
+        return spark_tts_host.Enrollment(list(VALID), list(EXCERPT), SAID)
 
     monkeypatch.setattr(spark_tts_host, "enrollment_ready", lambda settings: (True, ""))
+    monkeypatch.setattr(spark_tts_host, "reference_ready", lambda settings: (False, "Advanced cloning needs a download."))
     monkeypatch.setattr(spark_tts_host, "enroll_upload", fake_enroll)
+
+
+@pytest.fixture
+def advanced_ready(monkeypatch, enrolled):
+    monkeypatch.setattr(spark_tts_host, "reference_ready", lambda settings: (True, ""))
+
+
+async def _upload(client, card_id: str, mode: str | None = None):
+    query = f"?mode={mode}" if mode else ""
+    return await client.post(
+        f"/api/characters/{card_id}/voice-reference{query}",
+        files={"file": ("memo.wav", _wav(), "audio/wav")},
+    )
 
 
 async def test_upload_stores_the_voice_and_selects_the_backend(client, enrolled):
@@ -115,6 +134,67 @@ async def test_enrollment_leaves_the_rest_of_the_profile_intact(client, enrolled
     assert stored["rate"] == 1.4
     assert stored["enabled"] is True
     assert stored["backend"] == "spark"
+
+
+async def test_an_upload_also_prepares_the_advanced_reference_when_it_can(client, advanced_ready):
+    card_id = await _make_char(client)
+
+    response = await _upload(client, card_id, "advanced")
+    assert response.status_code == 200
+    assert response.json()["reference_note"] == ""
+    stored = await _profile(client, card_id)
+    assert stored["clone_mode"] == "advanced"
+    assert stored["reference_tokens"] == EXCERPT
+    assert stored["reference_text"] == SAID
+
+
+async def test_the_reference_is_prepared_from_the_basic_tab_too(client, advanced_ready):
+    """So switching to Advanced later needs no second upload."""
+    card_id = await _make_char(client)
+    await _upload(client, card_id, "basic")
+    stored = await _profile(client, card_id)
+    assert stored["clone_mode"] == "basic"
+    assert stored["reference_tokens"] == EXCERPT
+
+
+async def test_without_the_advanced_models_the_upload_enrolls_and_says_why(client, enrolled):
+    card_id = await _make_char(client)
+    response = await _upload(client, card_id, "advanced")
+    assert response.status_code == 200
+    assert response.json()["reference_note"] == "Advanced cloning needs a download."
+    stored = await _profile(client, card_id)
+    assert stored["speaker_tokens"] == VALID
+    assert stored["clone_mode"] == "advanced"  # the tab it was dropped on, speaking Basic until it can
+    assert stored["reference_tokens"] == []
+
+
+async def test_a_new_clip_replaces_the_old_reference(client, monkeypatch, advanced_ready):
+    """An excerpt of the last clip would pair its delivery with the new clip's timbre."""
+    card_id = await _make_char(client)
+    await _upload(client, card_id, "advanced")
+    monkeypatch.setattr(spark_tts_host, "reference_ready", lambda settings: (False, "switched off"))
+    await _upload(client, card_id)
+
+    stored = await _profile(client, card_id)
+    assert stored["reference_tokens"] == []
+    assert stored["reference_text"] == ""
+    assert stored["clone_mode"] == "advanced"  # no mode given keeps the profile's
+
+
+async def test_an_unknown_mode_keeps_the_profiles(client, advanced_ready):
+    card_id = await _make_char(client)
+    await _upload(client, card_id, "advanced")
+    await _upload(client, card_id, "expert")
+    assert (await _profile(client, card_id))["clone_mode"] == "advanced"
+
+
+async def test_clearing_removes_the_reference(client, advanced_ready):
+    card_id = await _make_char(client)
+    await _upload(client, card_id, "advanced")
+    await client.delete(f"/api/characters/{card_id}/voice-reference")
+    stored = await _profile(client, card_id)
+    assert stored["reference_tokens"] == []
+    assert stored["reference_text"] == ""
 
 
 async def test_an_unknown_card_is_404(client, enrolled):

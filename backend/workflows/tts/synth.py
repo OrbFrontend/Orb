@@ -8,7 +8,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from typing import Any
 
-from ..toolkit import markup_axes, spark_voice_clean_tokens, speech_input
+from ..toolkit import (
+    markup_axes,
+    spark_voice_clean_reference_text,
+    spark_voice_clean_reference_tokens,
+    spark_voice_clean_tokens,
+    speech_input,
+)
 from .engine.base import SpeakableChunk
 from .engine.regex_extractor import regex_extract
 from .engine.router import get_adapter
@@ -39,7 +45,16 @@ PROFILE_DEFAULTS: dict = {
     # uploaded file's name, kept only so the panel can say which clip this is.
     "speaker_tokens": [],
     "speaker_ref_name": "",
+    # Advanced cloning: a ~10 s excerpt of the same clip as BiCodec semantic
+    # tokens (50 a second) plus what it says. `clone_mode` is the panel tab
+    # the voice speaks with; the reference is kept while `basic` is selected so
+    # switching back needs no new upload.
+    "clone_mode": "basic",
+    "reference_tokens": [],
+    "reference_text": "",
 }
+
+CLONE_MODES = ("basic", "advanced")
 
 # Reproduction-record keys carried in an attachment's generation_metadata.
 # These plus the source text are sufficient to re-synthesize the identical
@@ -57,6 +72,9 @@ _METADATA_KEYS = (
     "api_key",
     "model",
     "speaker_tokens",
+    "clone_mode",
+    "reference_tokens",
+    "reference_text",
 )
 
 
@@ -88,7 +106,31 @@ def normalize_profile(raw: object) -> dict:
     # einsum. Everything that reads a profile reads it through this function.
     out["speaker_tokens"] = spark_voice_clean_tokens(out.get("speaker_tokens"))
     out["speaker_ref_name"] = str(out.get("speaker_ref_name") or "")
+    out["clone_mode"] = out["clone_mode"] if out["clone_mode"] in CLONE_MODES else "basic"
+    out["reference_tokens"] = spark_voice_clean_reference_tokens(out.get("reference_tokens"))
+    out["reference_text"] = spark_voice_clean_reference_text(out.get("reference_text"))
     return out
+
+
+def speaks_advanced(profile: Mapping[str, Any]) -> bool:
+    """Whether *profile* speaks with its reference excerpt's delivery.
+
+    Needs the Advanced tab selected and both halves of the reference: the
+    excerpt without its transcript is only something to listen to.
+    """
+    return bool(profile.get("clone_mode") == "advanced" and profile.get("reference_tokens") and profile.get("reference_text"))
+
+
+def _voice_record(profile: Mapping[str, Any]) -> dict:
+    """*profile*'s reproduction fields, with the reference only when it is spoken.
+
+    A basic voice that still holds a reference would otherwise copy ~500 unused
+    tokens into every attachment it makes.
+    """
+    record = {k: profile.get(k, PROFILE_DEFAULTS.get(k, "")) for k in _METADATA_KEYS}
+    if not speaks_advanced(profile):
+        record.update(clone_mode="basic", reference_tokens=[], reference_text="")
+    return record
 
 
 # Local backends that stitch per-chunk clips together and emit WAV; every
@@ -167,7 +209,8 @@ def compute_seed(text: str, profile: dict, blocks: list[dict] | None = None) -> 
     source text), used as the attachment ``seed``. Non-empty, so the row is
     rehydratable. The api_key is excluded -- a credential is not part of what
     the audio sounds like, and the seed is client-visible."""
-    basis = "|".join(str(profile.get(k, "")) for k in _METADATA_KEYS if k != "api_key")
+    record = _voice_record(profile)
+    basis = "|".join(str(record[k]) for k in _METADATA_KEYS if k != "api_key")
     if blocks is not None:
         basis += "|" + json.dumps([b.get("chunk") for b in blocks], sort_keys=True)
     return hashlib.md5((basis + "|" + text).encode("utf-8"), usedforsecurity=False).hexdigest()
@@ -180,7 +223,7 @@ def build_generation_metadata(text: str, profile: dict, blocks: list[dict] | Non
     reroll/rehydrate -- whose context has no character to read the profile
     from -- can reproduce the audio from this dict alone.
     """
-    md = {k: profile.get(k, PROFILE_DEFAULTS.get(k, "")) for k in _METADATA_KEYS}
+    md = _voice_record(profile)
     md["text"] = text
     if blocks is not None:
         md["speech_chunks"] = [b["chunk"] for b in blocks]
@@ -191,14 +234,19 @@ def _backend_kwargs(profile: dict, settings: Mapping[str, Any] | None) -> dict:
     """Profile fields only some backends read, passed to all of them.
 
     Every adapter takes ``**kwargs``, so this stays one call shape rather than a
-    branch per backend. ``speaker_tokens`` is the built-in Spark cloner's voice;
+    branch per backend. ``speaker_tokens`` is the built-in Spark cloner's voice,
+    and ``reference_tokens``/``reference_text`` its advanced reference, sent
+    only when the profile speaks with it;
     ``settings`` is how a local backend reads its own Local ML gates, and stays
     ``None`` when the caller had none — preview and reroll both synthesize from
     a context that carries no settings, and making this path fetch them would
     put a database read in front of every remote backend that never looks.
     """
+    advanced = speaks_advanced(profile)
     return {
         "speaker_tokens": list(profile.get("speaker_tokens") or []),
+        "reference_tokens": list(profile.get("reference_tokens") or []) if advanced else [],
+        "reference_text": str(profile.get("reference_text") or "") if advanced else "",
         "settings": settings,
     }
 
