@@ -27,11 +27,7 @@ class BuiltinSparkAdapter(TTSAdapter):
         api_key: str | None = None,
         **kwargs,
     ) -> SynthesisResult:
-        """Synthesize each chunk in the enrolled voice and join the clips.
-
-        ``reference_tokens`` and ``reference_text`` arrive together when the
-        voice speaks in advanced mode, and are empty otherwise.
-        """
+        """Synthesize and join chunks in the enrolled voice."""
         speaker_tokens = kwargs.get("speaker_tokens") or []
         reference_tokens = kwargs.get("reference_tokens") or []
         reference_text = kwargs.get("reference_text") or ""

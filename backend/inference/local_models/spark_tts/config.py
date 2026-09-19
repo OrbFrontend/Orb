@@ -16,8 +16,7 @@ ALIAS = "spark-tts"
 #: TTS synthesizes chunks serially.
 PARALLEL = 1
 
-#: What an advanced voice adds to the prompt: the start-of-speech token, the
-#: reference excerpt, and its transcript at up to two tokens a character.
+#: Context reserved for an advanced reference.
 REFERENCE_ALLOWANCE = 1 + MAX_REFERENCE_TOKENS + 2 * MAX_REFERENCE_TEXT
 
 #: Context for the prompt and maximum generation.

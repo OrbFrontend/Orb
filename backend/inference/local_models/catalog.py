@@ -32,7 +32,7 @@ class ModelFileSpec:
     revision: str  # pinned commit sha
     size_mb: int
     sha256: str = ""  # verified after download when set; see assets.download
-    local_filename: str = ""  # on-disk name when upstream's basename is generic (``config.json``)
+    local_filename: str = ""  # alternate on-disk name
 
     @property
     def local_name(self) -> str:
@@ -118,12 +118,9 @@ _SPARK_CODEC_REPO = "chartreuse-verte/Spark-TTS-0.5B-ONNX"
 _SPARK_CODEC_REV = "4fa08a1c26784030ddd92d9cf2ab7a2efee3ffc4"
 _SPARK_SPEAKER_REPO = _SPARK_CODEC_REPO
 _SPARK_SPEAKER_REV = _SPARK_CODEC_REV
-# Added to the same repo later, so it pins the commit that introduced it; the
-# two older files are unchanged there and keep their own pin.
 _SPARK_REFERENCE_REPO = _SPARK_CODEC_REPO
 _SPARK_REFERENCE_REV = "8e19dd20fa11cdbcb0d71dc4bc4766fd33eb3ce8"
 
-# --- Whisper, the speech recognizer -----------------------------------------
 _WHISPER_REPO = "onnx-community/whisper-small"
 _WHISPER_REV = "36050c46d777d46dc4b5f43f6d90574fc38f8732"
 
@@ -234,10 +231,7 @@ MODELS: dict[str, ModelSpec] = {
             ),
         ),
     ),
-    # Advanced cloning's reader: wav2vec2 (its first 16 layers) and BiCodec's
-    # encoder in one graph, turning a reference excerpt into the semantic
-    # tokens a prompt continues from. Weights are stored as float16 and
-    # computed in float32; see the export script for why not int8.
+    # Advanced-cloning semantic tokenizer.
     "spark_tts_reference": ModelSpec(
         repo_id=_SPARK_REFERENCE_REPO,
         filename="spark-semantic-tokenizer.onnx",
@@ -246,11 +240,7 @@ MODELS: dict[str, ModelSpec] = {
         runtime="onnx",
         sha256="07238cf951fe28500a2ac77abe32f96f363404b58914ebc6a71c65192ffed3c2",
     ),
-    # Whisper small, int8, as Optimum's ONNX export: the encoder, the merged
-    # decoder (one graph for the first pass and the cached ones), and the
-    # three files that describe them. The JSON files are what keep token ids
-    # out of Orb's code — languages, tasks and suppressed tokens are read from
-    # `generation_config.json`, the text vocabulary from `vocab.json`.
+    # Whisper small ONNX encoder, decoder, vocabulary, and generation config.
     "speech_recognizer": ModelSpec(
         repo_id=_WHISPER_REPO,
         filename="onnx/encoder_model_int8.onnx",

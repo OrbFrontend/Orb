@@ -352,12 +352,6 @@ async def api_delete_expressions(card_id: str):
 
 
 # --- Cloned voices ----------------------------------------------------------
-#
-# The whole user-facing workflow for the built-in Spark-TTS backend: upload one
-# audio file to a character, and the character speaks in that voice from then
-# on. Enrollment produces 32 integers, which are all synthesis needs and go
-# directly into the card's TTS profile. When the advanced-cloning models are
-# present, the same upload also yields a reference excerpt and its transcript.
 
 
 def _voice_profile_error(exc: Exception) -> HTTPException:
@@ -381,17 +375,7 @@ async def _store_voice(
     source_name: str,
     mode: str | None = None,
 ) -> dict:
-    """Write the enrolled voice into the card's TTS profile and return it.
-
-    ``None`` clears the voice. A new clip always replaces the reference too:
-    an excerpt from the previous clip would pair one speaker's delivery with
-    another's timbre. *mode* is the tab the clip was dropped on; ``None``
-    keeps the profile's.
-
-    Read-modify-write under the same lock the workflow uses, because this is
-    the one place outside the workflow that edits its slot and a settings save
-    landing between the read and the write would otherwise lose one of them.
-    """
+    """Store or clear an enrolled voice in the character's TTS profile."""
     async with workflow_character_state_lock(card_id, tts_synth.WORKFLOW_ID):
         stored = await get_workflow_character_state(card_id, tts_synth.WORKFLOW_ID)
         profile = tts_synth.normalize_profile(stored)
@@ -402,21 +386,12 @@ async def _store_voice(
         if mode in tts_synth.CLONE_MODES:
             profile["clone_mode"] = mode
         if enrollment:
-            # An enrolled voice is only reachable through the built-in backend,
-            # and `cloned` is the only voice id it has. Selecting it here is
-            # what makes "upload a file" the complete workflow — otherwise the
-            # user uploads a clip and then has to find two more dropdowns.
+            # Uploading a voice selects the built-in backend and voice.
             profile["backend"] = "spark"
             profile["voice_id"] = builtin_spark_adapter.VOICE_ID
-            # And the same argument for the switch that actually makes the
-            # character speak: "upload one file and that character speaks in
-            # that voice from then on" is the whole feature, so an upload that
-            # left auto-generation off would deliver a stored voice and silence.
             profile["enabled"] = True
         else:
-            # Clearing is the inverse statement. The backend selection stays so
-            # the next clip can go straight in, but a `spark` profile with no
-            # tokens can only fail once per turn, so it must not stay armed.
+            # Keep the backend selected for the next upload, but disable speech.
             profile["enabled"] = False
         await set_workflow_character_state(card_id, tts_synth.WORKFLOW_ID, profile)
     return profile
@@ -428,18 +403,7 @@ async def api_upload_voice_reference(
     file: Annotated[UploadFile, File(...)],
     mode: str | None = None,
 ):
-    """Enroll a character's voice from one uploaded audio file.
-
-    Returns the stored voice, on a profile that is now pointed at the built-in
-    backend AND switched on, so the next reply is spoken without a second trip
-    through the panel. Use the profile's Preview action to hear it sooner.
-
-    ``?mode=basic|advanced`` is the tab the clip was dropped on. The advanced
-    reference is prepared whenever its models are ready, whichever tab that
-    was, so switching tabs later needs no second upload.
-    ``reference_note`` explains a reference that is missing or needs its
-    transcript typed; enrollment itself succeeded either way.
-    """
+    """Enroll a character's voice from one uploaded audio file."""
     if not await get_character_card(card_id):
         raise HTTPException(status_code=404, detail="Character card not found")
     content = await file.read()

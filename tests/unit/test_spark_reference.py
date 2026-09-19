@@ -19,7 +19,7 @@ RATE = reference.SAMPLE_RATE
 
 
 def _clip(*parts: tuple[str, float]) -> np.ndarray:
-    """Concatenate ``("speech"|"pause", seconds)`` parts: a tone, or silence."""
+    """Build a tone-and-silence test clip."""
     pieces = []
     for kind, seconds in parts:
         n = int(RATE * seconds)
@@ -52,8 +52,7 @@ def test_a_short_clip_is_taken_whole_with_a_little_edge():
 
 
 def test_long_pauses_inside_the_excerpt_are_shortened():
-    """A dramatic silence in the reference is copied as a habit, and generation
-    trails off instead of ending: measured as whole lines running to budget."""
+    """Long internal pauses are shortened."""
     clip = _clip(("speech", 2.5), ("pause", 2.0), ("speech", 2.5), ("pause", 1.5), ("speech", 2.5))
     excerpt = reference.select_excerpt(clip)
     assert len(excerpt) / RATE == pytest.approx(7.5 + 2 * reference.KEEP_PAUSE_MS / 1000, abs=0.05)
@@ -61,16 +60,15 @@ def test_long_pauses_inside_the_excerpt_are_shortened():
 
 
 def test_the_excerpt_opens_and_closes_at_a_break_rather_than_mid_clause():
-    """A 250 ms gap is a breath inside a sentence; starting there opens the
-    excerpt mid-thought, which Whisper then mishears."""
+    """Prefer sentence breaks over mid-clause cuts."""
     clip = _clip(
         ("speech", 1.5),
         ("pause", 0.25),
         ("speech", 4.0),
         ("pause", 0.25),
-        ("speech", 4.0),  # 1.75-10.0 is the most speech that fits, but opens mid-sentence
+        ("speech", 4.0),
         ("pause", 1.0),
-        ("speech", 3.0),  # 11.0: a sentence starts
+        ("speech", 3.0),
         ("pause", 0.25),
         ("speech", 3.0),
         ("pause", 1.0),
@@ -83,8 +81,7 @@ def test_the_excerpt_opens_and_closes_at_a_break_rather_than_mid_clause():
 
 
 def test_a_break_is_not_worth_most_of_the_excerpt():
-    """Long sentences leave only a short run between breaks; the longer
-    mid-sentence run carries more delivery and wins."""
+    """Prefer a longer run when break alignment would lose too much speech."""
     clip = _clip(
         ("speech", 2.0),
         ("pause", 0.25),
@@ -100,7 +97,7 @@ def test_a_break_is_not_worth_most_of_the_excerpt():
 
 
 def test_a_clip_spoken_without_breaks_still_yields_an_excerpt():
-    """Continuous speech is cut at its quietest point rather than refused."""
+    """Continuous speech still yields an excerpt."""
     rng = np.random.default_rng(0)
     speech = _clip(("speech", 30.0))
     speech *= (0.6 + 0.4 * np.sin(np.arange(speech.size) * 2 * np.pi * 0.7 / RATE) ** 2).astype(np.float32)

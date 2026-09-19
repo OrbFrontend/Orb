@@ -64,9 +64,7 @@ async def test_a_basic_voice_is_one_unconstrained_generation(fake):
 
 
 async def test_an_advanced_voice_cannot_end_at_its_first_token(fake):
-    """Measured: after a slow speaker's excerpt, top-k left some lines ending at
-    token one every time. The first token is sampled with ending banned; the
-    rest continues from it, unconstrained."""
+    """Ban end tokens on the first continuation token."""
     server = fake((_speech(3), False), (_speech(4, 5), True))
     pcm, _rate = await service.synthesize("Hello there.", VALID, reference=Reference("One must know it.", EXCERPT))
 
@@ -78,7 +76,6 @@ async def test_an_advanced_voice_cannot_end_at_its_first_token(fake):
     assert rest["prompt"] == first["prompt"] + _speech(3)
     assert rest["n_predict"] == tokens.token_budget("Hello there.") - 1
     assert len(pcm) == 2 * 3  # the first token is part of the line
-    # The transcript is read with the line, as one piece of content.
     assert server.tokenized == ["One must know it. Hello there."]
 
 

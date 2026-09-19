@@ -32,7 +32,7 @@ def test_reference_readiness_needs_the_codec_first(monkeypatch):
 def stubbed(monkeypatch):
     """Excerpt, tokenizer and recognizer stand-ins; records what was released."""
     released: list[str] = []
-    heard = {"value": whisper.Transcript(text="  One must   know it. ", language="en", complete=True)}
+    heard = {"value": whisper.Transcript(text="  One must   know it. ", complete=True)}
     monkeypatch.setattr(host.audio_in, "volume_normalize", lambda wav: wav)
     monkeypatch.setattr(reference, "select_excerpt", lambda wav: wav)
     monkeypatch.setattr(reference, "semantic_tokens", lambda excerpt: list(EXCERPT))
@@ -51,7 +51,7 @@ def test_a_prepared_reference_is_tokens_and_a_tidy_transcript(stubbed):
 
 def test_an_unfinished_transcript_keeps_the_excerpt_and_asks_for_typing(stubbed):
     _released, heard = stubbed
-    heard["value"] = whisper.Transcript(text="you you you", language="en", complete=False)
+    heard["value"] = whisper.Transcript(text="you you you", complete=False)
     tokens, text, note = host._prepare_reference([0.0])
     assert tokens == EXCERPT and text == ""
     assert "type what it says" in note

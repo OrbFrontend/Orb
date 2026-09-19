@@ -17,12 +17,9 @@ import { formatTime } from "./widget.js";
 
 const WORKFLOW_ID = "tts";
 const CHANNEL = "tts";
-// Keep previews separate from chat playback.
 const PREVIEW_CHANNEL = "tts-preview";
-// Give failed preview decodes time to report before showing an error.
 const PREVIEW_START_GRACE_MS = 1500;
 
-// Backend-specific settings. `clone` is the built-in Spark control.
 const BACKEND_FIELDS = {
   edge: ["voice", "language", "rate", "pitch"],
   kokoro: ["voice", "api_url", "language", "rate"],
@@ -78,36 +75,29 @@ export function initConfigPanel(sharedConfig) {
   onChannel(PREVIEW_CHANNEL, onPreviewEvent);
 }
 
-// The codec is enough for enrollment, so list it before the voice model.
 const CLONE_FEATURES = [
   { id: "spark_tts_codec", label: "voice codec" },
   { id: "spark_tts_llm", label: "voice model" },
 ];
-// Advanced cloning adds what reads an excerpt out of the clip. Speaking an
-// advanced voice needs neither; only enrolling one does.
 const ADVANCED_FEATURES = [
   { id: "spark_tts_reference", label: "reference reader" },
   { id: "speech_recognizer", label: "speech recognizer" },
 ];
-// Spark-TTS reads 50 semantic tokens per second of audio.
 const SEMANTIC_RATE = 50;
 
 let memberId = null;
-let cardId = null; // the card the open profile belongs to; the clone API is keyed on it
-let mlStatus = null; // last /local-ml/status; null means "not asked yet, assume fine"
+let cardId = null;
+let mlStatus = null;
 let mlPending = false;
 let setupBusy = false;
-let setupStep = ""; // the download in flight, said where the button was pressed
-let enrolling = ""; // the file being enrolled, shown in the drop zone until the route answers
-// Keep the server-owned voice tokens outside the editable form. The mode and
-// transcript are editable, but live here too: the clone control re-renders on
-// every status change, and a textarea redrawn from the DOM would lose edits.
+let setupStep = "";
+let enrolling = "";
 let cloned = emptyClone();
-let referenceNote = ""; // why the last upload has no usable reference, from the route
+let referenceNote = "";
 let loadedProfile = null;
 let previewRaf = null;
-let previewPending = 0; // start deadline while a preview is decoding, 0 once it plays
-let previewWhat = "Preview"; // what the preview channel is playing, for the status line
+let previewPending = 0;
+let previewWhat = "Preview";
 
 function emptyClone() {
   return { tokens: [], name: "", mode: "basic", referenceTokens: [], referenceText: "" };
@@ -370,12 +360,10 @@ function ensureMlStatus({ refresh = false } = {}) {
     });
 }
 
-/** The downloads the open tab needs. */
 function cloneFeatures() {
   return cloned.mode === "advanced" ? [...CLONE_FEATURES, ...ADVANCED_FEATURES] : CLONE_FEATURES;
 }
 
-/** Describe setup still required before speech can run. */
 function setupNoticeHtml() {
   if (!mlStatus) return "";
   const pending = cloneFeatures().filter((f) => !featureReady(f.id));
@@ -406,7 +394,6 @@ function listPhrase(items) {
   return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
-// The button downloads missing files and enables disabled features.
 function setupLabel(download, sizeMb) {
   if (setupBusy) return download ? "Downloading…" : "Turning on…";
   if (!download) return "Turn on";
@@ -464,7 +451,6 @@ function cloneControlHtml(p) {
     </div>`;
 }
 
-/** The excerpt an advanced voice speaks from: play it, and correct its transcript. */
 function referenceHtml() {
   const tokens = cloned.referenceTokens;
   if (!tokens.length) {
@@ -497,7 +483,6 @@ function selectCloneMode(mode) {
   renderCloneControl();
 }
 
-/** Play the stored excerpt, rebuilt from its tokens, on the preview channel. */
 async function playExcerpt() {
   if (!statusLine()) return;
   setStatus("Loading the excerpt…");
@@ -516,7 +501,6 @@ async function playExcerpt() {
   }
 }
 
-/** Render the GPU switch with the voice model's state as its note. */
 function engineRowHtml() {
   const llm = mlFeature("spark_tts_llm");
   if (!llm.deps_ok || !llm.present || llm.runtime_ok === false) return "";
@@ -530,7 +514,6 @@ function engineRowHtml() {
     </label>`;
 }
 
-// The next spoken line picks up the new GPU setting.
 async function saveCloneGpu(box) {
   try {
     await api.post("/local-ml/spark_tts_llm/config", { gpu: box.checked });
@@ -542,7 +525,6 @@ async function saveCloneGpu(box) {
   renderCloneControl(); // a failed write redraws the box as it was
 }
 
-// Cloned voices do not support rate or pitch controls.
 function renderCloneControl() {
   const el = document.getElementById("tts-pf-clone");
   if (!el) return;
@@ -550,13 +532,11 @@ function renderCloneControl() {
   ensureMlStatus();
 }
 
-// Handle dragover, dragleave, and drop on the same target.
 function onVoiceDrop(el, ev) {
   if (ev.type === "dragleave") {
     el.classList.remove("tts-drop-over");
     return;
   }
-  // Prevent the browser from navigating to the dropped file.
   ev.preventDefault();
   if (enrolling) return; // one clip at a time; the zone already says which
   const live = featureReady("spark_tts_codec");
@@ -572,7 +552,6 @@ function onVoiceDrop(el, ev) {
   enrollFile(ev.dataTransfer?.files?.[0]);
 }
 
-/** Download missing model files and enable their features. */
 async function runCloneSetup() {
   if (setupBusy) return;
   setupBusy = true;
@@ -610,7 +589,6 @@ async function runCloneSetup() {
   }
 }
 
-/** Enroll one selected or dropped file. */
 async function enrollFile(file) {
   if (!file) return;
   if (!cardId) {
@@ -624,7 +602,6 @@ async function enrollFile(file) {
   try {
     const url = `/characters/${encodeURIComponent(cardId)}/voice-reference?mode=${cloned.mode}`;
     const res = await api.upload(url, file);
-    // Refill the form from the profile written by the enrollment route.
     enrolling = "";
     referenceNote = res?.reference_note || "";
     applyProfile(res?.profile);
@@ -654,7 +631,6 @@ async function clearVoiceReference() {
   }
 }
 
-// Push server-owned clone fields into the open form.
 function applyProfile(profile) {
   if (!profile) return;
   cloned = cloneFromProfile(profile);
@@ -662,7 +638,6 @@ function applyProfile(profile) {
   if (backend && profile.backend) backend.value = profile.backend;
   const voice = document.getElementById("tts-pf-voice");
   if (voice && profile.voice_id) voice.innerHTML = opt(profile.voice_id, profile.voice_id, true);
-  // Enrollment and clearing also toggle the character state.
   const enabled = document.getElementById("tts-pf-enabled");
   if (enabled) enabled.checked = Boolean(profile.enabled);
   applyFieldVisibility(profile.backend || backend?.value || "edge");
@@ -670,7 +645,6 @@ function applyProfile(profile) {
   loadedProfile = readForm();
 }
 
-// Keep footer order consistent with the other modals.
 function settingsActionsHtml(hasProfile) {
   return `
     ${hasProfile ? `<button class="btn" type="button" data-wf-action="tts:preview">Preview</button>` : ""}

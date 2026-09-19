@@ -113,7 +113,7 @@ def _scripted(history):
 
 def test_transcribes_greedily_in_the_language_it_hears(monkeypatch, tmp_path):
     result, decoder = _run(monkeypatch, tmp_path, _scripted)
-    assert result == module.Transcript(text="Hello there.", language="en", complete=True)
+    assert result == module.Transcript(text="Hello there.", complete=True)
     assert decoder.history[:4] == [SOT, EN, TRANSCRIBE, NO_TIMESTAMPS]
     # One pass to hear the language, one for the prompt, one per token after.
     assert decoder.passes == 2 + 3
