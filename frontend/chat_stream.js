@@ -21,7 +21,6 @@ import {
   _relightWorkflowPipelinePass,
   _syncGenerationStatusVisibility,
   appendReasoningDelta,
-  clearWorkflowPhase,
   REASONING_PASSES,
   renderInspector,
 } from "./chat_inspector.js";
@@ -61,13 +60,14 @@ export function stopConversation(convId) {
   fetch(`/api/conversations/${convId}/stop`, { method: "POST" }).catch(() => {});
 }
 
+// A failure's stage when the backend named none: the running step's status text.
 function phaseStage() {
-  return S.generationStep || "";
+  return (S.generationStep || "").replace(/(…|\.\.\.)$/, "");
 }
 
 // The status bar describes the step the backend says is running. "" is a turn that
 // has started but not reached its first step; null is no turn.
-export function setGenerationStep(label) {
+function setGenerationStep(label) {
   S.generationStep = label;
   _syncGenerationStatusVisibility();
   const text = $("generation-status")?.querySelector(".gen-text");
@@ -246,7 +246,6 @@ export async function afterStream() {
   S.wasAborted = false;
   S.hideStreamingBox = false; // Ensure streaming box is visible after streaming ends
   setGenerationStep(null);
-  clearWorkflowPhase();
 
   if (!S.activeConvId) {
     S.streamingBodyEl = null;
