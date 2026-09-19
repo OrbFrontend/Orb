@@ -37,7 +37,7 @@ Deep mode sends excerpts of your library to the Agent endpoint. Choose a
 provider you trust with that data. The research is read-only; it cannot change
 your library.
 
-<details>
+<details markdown="1">
 <summary>What Deep mode can read</summary>
 
 Deep mode can query only these read-only views and columns:
