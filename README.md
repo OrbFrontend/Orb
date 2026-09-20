@@ -20,20 +20,21 @@ An **Editor** audits the LLM's response then surgically fixes it.
 2. **Customizability**: Customizable prompt injection that's automatically used by Director model
 3. **Anti-slop**: Get rid of overused words, phrases, and patterns often seen in LLM outputs
 4. **Anti-repetition**: Detect various types of repetition from outputs and surgically fix them
-5. **Length Guard**: Actively or passively protect from length degradation as context grows
-6. **Super-regenerate**: Normal regens may give samey outputs, ask for a different take (mileage varies)
-7. **Magic Rewrite**: Rewrite the target message in a user-defined direction
-8. **Compress History**: Summarize chat context and move it to a new conversation
-9. **Mobile-compatibility**: UI for mobile devices
-10. **TTS**: Easy Text-to-speech that supports multiple providers
-11. **Character Browser**: Fetch character cards from various sites on the Internet
-12. **AI Feedback**: Give suggestions and commentary on what to do next, solving writer's block
-13. **Text Completion**: Advanced harness optimizations when an endpoint supports raw text completion
-14. **Assisted Document Mode**: A version of Mikupad where you don't need to worry about special tokens
-15. **Image Generation**: One-click image-gen workflow that's compatible with ComfyUI and several Cloud Providers, 
+5. **Post-processing/Recast**: User-defined modifications after the Writer draft has been written
+6. **Length Guard**: Actively or passively protect from length degradation as context grows
+7. **Super-regenerate**: Normal regens may give samey outputs, ask for a different take (mileage varies)
+8. **Magic Rewrite**: Rewrite the target message in a user-defined direction
+9. **Compress History**: Summarize chat context and move it to a new conversation
+10. **Mobile-compatibility**: UI for mobile devices
+11. **TTS**: Easy Text-to-speech with a high quality built-in voice cloner
+12. **Character Browser**: Fetch character cards from various sites on the Internet
+13. **AI Feedback**: Give suggestions and commentary on what to do next, solving writer's block
+14. **Text Completion**: Advanced harness optimizations when an endpoint supports raw text completion
+15. **Assisted Document Mode**: A version of Mikupad where you don't need to worry about special tokens
+16. **Image Generation**: One-click image-gen workflow that's compatible with ComfyUI and several Cloud Providers, 
 support reference images so you don't generate a different character every time
-16. **Dynamic Lorebooks**: Lorebook entries can be managed by agents, either write or read
-17. **Local ML Integration**: Prose humanizer and various classifiers that run entirely in CPU
+17. **Dynamic Lorebooks**: Lorebook entries can be managed by agents, either write or read
+18. **Local ML Integration**: Prose humanizer and various classifiers that run entirely in CPU
 
 ## Architecture
 
