@@ -143,6 +143,27 @@ async def test_create_model_config_persists_to_db(client, db):
     assert row["max_tokens"] == 2048
 
 
+async def test_model_config_hyperparameters_can_be_explicitly_null(client, db):
+    endpoint = (await client.post("/api/endpoints", json={"url": "https://api.nullable.test"})).json()
+    config = await client.post(
+        f"/api/endpoints/{endpoint['id']}/models",
+        json={"model_name": "provider-defaults", "temperature": None, "max_tokens": None},
+    )
+    assert config.status_code == 200
+    assert config.json()["temperature"] is None
+    assert config.json()["max_tokens"] is None
+
+    updated = await client.put(f"/api/models/{config.json()['id']}", json={"top_p": None})
+    assert updated.status_code == 200
+    assert updated.json()["top_p"] is None
+
+    async with db.execute(
+        "SELECT temperature, top_p, max_tokens FROM model_configs WHERE id = ?", (config.json()["id"],)
+    ) as cur:
+        row = await cur.fetchone()
+    assert dict(row) == {"temperature": None, "top_p": None, "max_tokens": None}
+
+
 async def test_create_model_config_rejects_unknown_role(client):
     endpoint_resp = await client.post(
         "/api/endpoints",

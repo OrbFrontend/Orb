@@ -84,8 +84,10 @@ async def get_settings() -> SettingsRow:
                             "extra_headers",
                             "extra_body",
                         ):
-                            if mc.get(field) is not None:
-                                s[field] = mc[field]
+                            # A NULL sampler is an explicit instruction to omit
+                            # that request key.  Do not retain the legacy flat
+                            # setting beneath it, or it would be sent anyway.
+                            s[field] = mc.get(field)
                         if mc.get("system_prompt") is not None:
                             s["system_prompt"] = mc["system_prompt"]
 
@@ -134,8 +136,9 @@ async def get_settings() -> SettingsRow:
                             "extra_headers",
                             "extra_body",
                         ):
-                            if amc.get(field) is not None:
-                                s[f"agent_{field}"] = amc[field]
+                            # Keep NULL as a present agent-lane override; the
+                            # extractor distinguishes it from no agent config.
+                            s[f"agent_{field}"] = amc.get(field)
                         if amc.get("system_prompt") is not None:
                             s["agent_system_prompt"] = amc["system_prompt"]
         # Transport mode defaults: no active endpoint => 'chat'; agent sharing the

@@ -34,6 +34,17 @@ def test_defaults_only_fill_keys_no_lane_supplied():
     assert params == {"temperature": 0.8, "max_tokens": 2048}
 
 
+def test_explicit_null_omits_a_parameter_without_falling_back_to_call_defaults():
+    params = extract_hyperparams({**_WRITER, "temperature": None}, defaults={"temperature": 0.25, "max_tokens": 2048})
+    assert "temperature" not in params
+    assert params["max_tokens"] == 4096
+
+
+def test_agent_explicit_null_does_not_fall_back_to_writer_value():
+    params = extract_hyperparams({**_WRITER, "agent_temperature": None}, lane="agent")
+    assert "temperature" not in params
+
+
 def test_the_budget_goes_out_as_configured():
     # No call raises it: the setting a user can see is the budget every call sends.
     assert extract_hyperparams({"max_tokens": 600}) == {"max_tokens": 600}

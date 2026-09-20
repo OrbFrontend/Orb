@@ -167,12 +167,15 @@ class ModelConfigCreate(BaseModel):
 
     model_name: str
     system_prompt: str = ""
-    temperature: float = 0.8
-    min_p: float = 0.0
-    top_k: int = 40
-    top_p: float = 0.95
-    repetition_penalty: float = 1.0
-    max_tokens: int = 4096
+    # ``null`` is deliberate: it means omit this key from the provider request
+    # and let that endpoint apply its own default.  The numeric defaults still
+    # apply when a field is absent while creating a config.
+    temperature: float | None = 0.8
+    min_p: float | None = 0.0
+    top_k: int | None = 40
+    top_p: float | None = 0.95
+    repetition_penalty: float | None = 1.0
+    max_tokens: int | None = 4096
     role: AgentLane = "writer"
     reasoning_effort: str = ""
     reasoning_effort_param: str = ""
@@ -201,7 +204,8 @@ class ModelConfigUpdate(BaseModel):
     extra_headers: str | None = None
     extra_body: str | None = None
 
-    # None means "field absent from the PATCH" and is passed through unvalidated.
+    # ``exclude_unset=True`` distinguishes an absent PATCH field from an explicit
+    # ``null``.  The latter clears a model-config value and omits it on the wire.
     @field_validator("extra_headers")
     @classmethod
     def _validate_extra_headers(cls, v: str | None) -> str | None:

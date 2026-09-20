@@ -76,10 +76,11 @@ Editor, and workflow tool calls read the Agent model config's temperature,
 budget, and samplers; they fall back to the Writer's whenever the Agent lane does
 not resolve, which is what one endpoint serving both lanes means.
 
-Every call sends the configured **Max Tokens** of the lane it calls, unchanged.
-No call raises it, lowers it, or substitutes a budget of its own, so the number in
-settings is the number on the wire. A forced tool call has to fit its whole answer
-in that budget. A reply cut off at it is never accepted as a complete answer.
+Calls built from a lane preset send its numeric **Max Tokens** value unchanged. A
+cleared value is omitted so the provider applies its own default. No normal pass
+raises or lowers a numeric configured budget, so the number in settings is the
+number on the wire. A forced tool call has to fit its whole answer in that budget.
+A reply cut off at it is never accepted as a complete answer.
 Features that report errors name the setting to raise: *Agent Max Tokens* when a
 separate Agent lane resolves, otherwise *Max Tokens*. The document Output Auditor
 patches on the Writer endpoint to keep byte parity with the prompt that generated
@@ -98,7 +99,10 @@ Reasoning-on maps to adaptive thinking with summarized display, and supported
 effort levels map to `output_config.effort`. Reasoning-off omits `thinking`.
 Sampling controls are sent optimistically. A specific rejection teaches Orb to
 omit them for later calls to that endpoint/model pair; names never stand in for
-capability evidence. `min_p`, repetition penalties, and logprobs are never sent
+capability evidence. In a model config, a number sends that parameter and an
+explicit `null` omits it, leaving the provider default in control; a missing
+field in a PATCH means no configuration change. The settings UI represents
+`null` as a cleared numeric input. `min_p`, repetition penalties, and logprobs are never sent
 to Anthropic. Consequently, Document mode's per-token steering is not available
 on native Anthropic endpoints.
 

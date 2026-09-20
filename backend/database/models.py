@@ -66,12 +66,12 @@ class _SettingsBase(TypedDict):
     endpoint_url: str
     api_key: str
     model_name: str
-    temperature: float
-    min_p: float
-    top_k: int
-    top_p: float
-    repetition_penalty: float
-    max_tokens: int
+    temperature: float | None
+    min_p: float | None
+    top_k: int | None
+    top_p: float | None
+    repetition_penalty: float | None
+    max_tokens: int | None
     shared_system_prompt: str
     system_prompt: str
     user_name: str
@@ -170,12 +170,12 @@ class SettingsRow(_SettingsBase, total=False):
     agent_endpoint_url: str
     agent_api_key: str
     agent_model_name: str
-    agent_temperature: float
-    agent_min_p: float
-    agent_top_k: int
-    agent_top_p: float
-    agent_repetition_penalty: float
-    agent_max_tokens: int
+    agent_temperature: float | None
+    agent_min_p: float | None
+    agent_top_k: int | None
+    agent_top_p: float | None
+    agent_repetition_penalty: float | None
+    agent_max_tokens: int | None
     agent_system_prompt: str
 
 
@@ -402,12 +402,12 @@ class ModelConfigRow(TypedDict):
     endpoint_id: int
     model_name: str
     system_prompt: str
-    temperature: float
-    min_p: float
-    top_k: int
-    top_p: float
-    repetition_penalty: float
-    max_tokens: int
+    temperature: float | None
+    min_p: float | None
+    top_k: int | None
+    top_p: float | None
+    repetition_penalty: float | None
+    max_tokens: int | None
     role: AgentLane
     reasoning_effort: str
     reasoning_effort_param: str

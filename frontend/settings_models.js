@@ -61,7 +61,10 @@ const SETTING_FIELDS = [
 
 const FIELD_GROUPS = [
   { l: "Prompts", cls: " ep-chat-only", keys: ["shared_system_prompt", "system_prompt"] },
-  { l: "Sampling", keys: ["temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty"] },
+  {
+    l: "Sampling (clear a field to use the provider default)",
+    keys: ["temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty"],
+  },
   { l: "Advanced", keys: ["reasoning_effort", "extra_headers", "extra_body"] },
 ];
 
@@ -856,7 +859,12 @@ async function _syncModelConfigRecord(ctx, modelName, hyperparams) {
     }
     await api.put(`/endpoints/${S[ctx.endpointIdKey]}`, { [ctx.activeConfigDbField]: existing.id });
   } else {
-    const get = (key, def) => hyperparams[`${p}${key}`] ?? def;
+    // Undefined means the form did not supply the field; null means the user
+    // cleared it and wants the provider default (omit the request parameter).
+    const get = (key, def) => {
+      const formKey = `${p}${key}`;
+      return formKey in hyperparams ? hyperparams[formKey] : def;
+    };
     const mc = await api.post(`/endpoints/${S[ctx.endpointIdKey]}/models`, {
       role: ctx.role,
       model_name: modelName,
@@ -891,7 +899,7 @@ function _saveEndpointSetting(ctx, el) {
 
 async function _doSaveEndpointSetting(ctx, el) {
   let v = el.value;
-  if (el.type === "number") v = parseFloat(v);
+  if (el.type === "number") v = v.trim() === "" ? null : parseFloat(v);
   const key = el.dataset.key;
   const p = ctx.hyperparamPrefix;
   const baseKey = p ? key.replace(p, "") : key;
@@ -909,7 +917,10 @@ async function _doSaveEndpointSetting(ctx, el) {
       const fieldEl = document.querySelector(`[data-key="${k}"]`);
       if (!fieldEl) return;
       if (fieldEl.type === "number") {
-        if (fieldEl.value.trim() === "") return;
+        if (fieldEl.value.trim() === "") {
+          payload[k] = null;
+          return;
+        }
         const parsed = parseFloat(fieldEl.value);
         if (Number.isNaN(parsed)) return;
         payload[k] = parsed;

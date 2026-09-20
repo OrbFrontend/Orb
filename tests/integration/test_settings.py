@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from backend.core import extract_hyperparams
 from backend.database.queries.settings import get_settings
 from backend.inference import client_from_settings
 
@@ -73,6 +74,19 @@ async def test_hyperparam_edit_via_model_config_reflected_in_get_settings(client
     updated = (await client.get("/api/settings")).json()
     assert updated["max_tokens"] == 1234
     assert updated["temperature"] == 0.33
+
+
+async def test_null_hyperparam_overrides_the_legacy_setting_and_is_omitted(client):
+    settings = (await client.get("/api/settings")).json()
+    endpoint_id = settings["active_endpoint_id"]
+    active_mc_id = (await client.get(f"/api/endpoints/{endpoint_id}")).json()["active_model_config_id"]
+
+    resp = await client.put(f"/api/models/{active_mc_id}", json={"temperature": None})
+    assert resp.status_code == 200
+
+    updated = await get_settings()
+    assert updated["temperature"] is None
+    assert "temperature" not in extract_hyperparams(updated)
 
 
 async def test_endpoint_proxy_overlay_and_client_threading(client):

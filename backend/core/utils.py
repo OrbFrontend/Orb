@@ -57,30 +57,35 @@ def extract_hyperparams(
     resolves, so single-model mode falls through to the writer's values -- which is
     the same endpoint it is calling. Passing the writer's lane to an agent call is
     not a harmless default: it sends one endpoint's preset to another. The fallback
-    is per key rather than whole-row only as a guard for partial mappings; the six
-    columns behind these keys are all NOT NULL, so a resolved agent lane carries
-    every twin and an unresolved one carries none.
+    is per key rather than whole-row only as a guard for partial mappings. A present
+    key with a ``None`` value is different from a missing key: it explicitly omits
+    that parameter from the provider request.
 
     ``max_tokens`` goes out exactly as configured, on every call. A call whose
     whole answer must fit in one reply gets no hidden raise: the setting is the
     only budget, and a reply cut at it is reported against that setting.
 
-    Optionally fills in *defaults* for any keys not present in settings. Note that
-    both ``settings`` and ``model_configs`` declare all six columns NOT NULL, so
-    *defaults* only ever fires for a partial mapping, never for a real row -- it is
-    not a way to override a configured value.
+    Optionally fills in *defaults* for keys absent from settings. It never overrides
+    an explicit ``None`` from a model config.
     """
     prefix = "agent_" if lane == "agent" else ""
     params: dict[str, Any] = {}
+    explicit: set[str] = set()
     for key in _HYPERPARAM_KEYS:
-        value = settings.get(f"{prefix}{key}") if prefix else None
-        if value is None:
-            value = settings.get(key)
+        lane_key = f"{prefix}{key}"
+        if prefix and lane_key in settings:
+            value = settings[lane_key]
+            explicit.add(key)
+        elif key in settings:
+            value = settings[key]
+            explicit.add(key)
+        else:
+            value = None
         if value is not None:
             params[key] = value
     if defaults:
         for k, v in defaults.items():
-            if k not in params:
+            if k not in params and k not in explicit:
                 params[k] = v
     return params
 
