@@ -62,7 +62,7 @@ const SETTING_FIELDS = [
 const FIELD_GROUPS = [
   { l: "Prompts", cls: " ep-chat-only", keys: ["shared_system_prompt", "system_prompt"] },
   {
-    l: "Sampling (clear a field to use the provider default)",
+    l: "Sampling",
     keys: ["temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty"],
   },
   { l: "Advanced", keys: ["reasoning_effort", "extra_headers", "extra_body"] },
