@@ -45,7 +45,8 @@ def test_convention_does_not_invent_spans_in_ambiguous_prose():
 def test_shared_underscore_beats_keep_tts_prosody():
     chunks = regex_extract('"Hello." _she sighs_ "Fine."', supports_emotion_tags=True)
     assert chunks[1].text == "[sigh] Fine."
-    assert chunks[1].pause_before_ms == 400
+    # The performed sigh needs no silence standing in for it.
+    assert chunks[1].pause_before_ms == 300
     assert chunks[1].emotion == "soft"
 
 
@@ -155,7 +156,7 @@ def test_dash_scanning_preserves_narration_and_exclusions(text):
 def test_consecutive_dash_dialogue_keeps_beat_prosody():
     chunks = regex_extract("—Hello.— _she sighs_ —Fine.— —Goodbye.—", supports_emotion_tags=True)
     assert [chunk.text for chunk in chunks] == ["Hello.", "[sigh] Fine.", "Goodbye."]
-    assert [chunk.pause_before_ms for chunk in chunks] == [0, 400, 300]
+    assert [chunk.pause_before_ms for chunk in chunks] == [0, 300, 300]
 
 
 @pytest.mark.parametrize("thought", ['"Maybe tomorrow,"', "—Maybe tomorrow,—", "*Maybe tomorrow,*"])

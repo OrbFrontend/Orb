@@ -83,6 +83,11 @@ function _tick() {
   }
   const slot = cur.segPlan[st.segmentIndex];
   if (!slot || slot.gap) {
+    // A narration gap runs long enough that a held highlight reads as stuck.
+    if (slot?.gap && cur.lastUnit != null) {
+      cur.session.markActive(null);
+      cur.lastUnit = null;
+    }
     _arm();
     return;
   }

@@ -137,7 +137,13 @@ def _speech_spans(para: str) -> list[tuple[str, int, int]]:
     return result
 
 
-def speech_segments(text: str, style: AxisStyle | None = None, *, input_prepared: bool = False) -> list[tuple[str, str]]:
+def speech_segments(
+    text: str,
+    style: AxisStyle | None = None,
+    *,
+    input_prepared: bool = False,
+    include_narration: bool = False,
+) -> list[tuple[str, str]]:
     """Ordered speech/action text under the message's markup convention.
 
     Shares format consistency's quotation, emphasis and inline-role decisions.
@@ -146,6 +152,8 @@ def speech_segments(text: str, style: AxisStyle | None = None, *, input_prepared
     narration reading still excludes the unquoted prose.
     Parenthetical asides, OOC and protected formatting are never spoken.
     Set input_prepared only for the result of speech_input used to classify it.
+    Set include_narration to also receive the dropped prose as ``narration``
+    segments, for a caller that renders silence in its place.
     """
     if not input_prepared:
         text = speech_input(text)
@@ -157,6 +165,10 @@ def speech_segments(text: str, style: AxisStyle | None = None, *, input_prepared
     if plain_speech:
         dialogue = Dialogue.BARE
     segments: list[tuple[str, str]] = []
+
+    def narrate(raw: str) -> None:
+        if include_narration and raw.strip():
+            segments.append(("narration", raw))
 
     for para in split_paragraphs(text):
         spans = _speech_spans(para)
@@ -182,6 +194,7 @@ def speech_segments(text: str, style: AxisStyle | None = None, *, input_prepared
                 tail = para[end:]
                 next_speech = next((s for kind, s, _ in spans[i + 1 :] if kind == "SPEECH"), len(para))
                 silent_until = min(next_speech, end + next(sentence_boundary_ends(tail), len(tail)))
+                narrate(raw + para[end:silent_until])
                 continue
             if typ == "SPEECH":
                 flush()
@@ -194,5 +207,6 @@ def speech_segments(text: str, style: AxisStyle | None = None, *, input_prepared
                 pending += raw
             else:
                 flush()
+                narrate(raw)
         flush()
     return segments

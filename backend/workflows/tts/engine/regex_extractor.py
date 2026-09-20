@@ -167,6 +167,31 @@ def _spoken_text(text: str) -> str:
     return " ".join(text.split())
 
 
+# Narration pacing
+
+# Narration is never read aloud, so the gap before the next line stands in for
+# it. Hyperbolic in its length, so GAP_MAX_MS is an asymptote rather than a
+# plateau every long beat flattens onto.
+GAP_MIN_MS = 300
+GAP_MAX_MS = 3000
+GAP_HALF_WORDS = 10  # narration length spending half the range above the floor
+UNVOICED_BEAT_MS = 200  # room for a sound the backend cannot perform
+TAG_BEAT_WORDS = 3  # words a performed tag stands in for
+_CHARS_PER_WORD = 6  # sizes a script that spaces no words, where tokens read as one
+
+
+def _narration_words(text: str) -> int:
+    content = (sum(1 for char in token if char.isalnum()) for token in text.split())
+    return sum(max(1, count // _CHARS_PER_WORD) for count in content if count)
+
+
+def narration_pause_ms(words: int, *, unvoiced_beat: bool = False) -> int:
+    """Silence standing in for ``words`` of narration between two spoken lines."""
+    words = max(0, words)
+    pause = GAP_MIN_MS + round((GAP_MAX_MS - GAP_MIN_MS) * words / (words + GAP_HALF_WORDS))
+    return min(pause + (UNVOICED_BEAT_MS if unvoiced_beat else 0), GAP_MAX_MS)
+
+
 # Emotion heuristics
 
 
@@ -256,11 +281,18 @@ def regex_extract(
     if not text or not text.strip():
         return []
 
-    events = _legacy_segments(text) if legacy else speech_segments(text, style, input_prepared=input_prepared)
+    if legacy:
+        events = _legacy_segments(text)
+    else:
+        events = speech_segments(text, style, input_prepared=input_prepared, include_narration=True)
 
     chunks: list[SpeakableChunk] = []
     last_beat = None  # Most recent beat before the next dialogue
+    gap_words = 0  # Narration, beats included, since the previous spoken line
     for event_type, segment_text in events:
+        if event_type == "narration":
+            gap_words += _narration_words(segment_text)
+            continue
         if event_type == "beat":
             action = _extract_beat_action(segment_text)
             last_beat = {
@@ -268,27 +300,29 @@ def regex_extract(
                 "is_audible": action in AUDIBLE_BEATS or action in AUDIBLE_EMOTION_MAP,
                 "emotion": AUDIBLE_EMOTION_MAP.get(action, ""),
                 "tag": AUDIBLE_TAG_MAP.get(action, ""),
+                "words": _narration_words(segment_text),
             }
+            gap_words += last_beat["words"]
             continue
 
         dialogue_text = _spoken_text(segment_text)
         if not dialogue_text:
             continue
 
-        pause_before = 0
         beat_emotion = ""
         beat_tag = ""
+        unvoiced_beat = False
         if last_beat:
             if last_beat["is_audible"]:
-                pause_before = 400
                 beat_emotion = last_beat.get("emotion", "")
                 if supports_emotion_tags and last_beat["tag"]:
                     beat_tag = last_beat["tag"]
-            else:
-                pause_before = 200
+                    gap_words -= min(last_beat["words"], TAG_BEAT_WORDS)
+                else:
+                    unvoiced_beat = True
             last_beat = None
-        if chunks and pause_before == 0:
-            pause_before = 300
+        pause_before = narration_pause_ms(gap_words, unvoiced_beat=unvoiced_beat)
+        gap_words = 0
 
         emotion = _infer_emotion(dialogue_text)
         if beat_emotion and emotion == "neutral":

@@ -295,7 +295,7 @@ async def test_saved_speech_replays_without_classification(monkeypatch):
     reader.side_effect = AssertionError("replay must not classify")
     assert await synth.synthesize_blocks_from_metadata(metadata) == original
     assert reader.await_count == 1
-    assert metadata["speech_chunks"][1]["pause_before_ms"] == 400
+    assert metadata["speech_chunks"][1]["pause_before_ms"] == 950
     playback = synth.consumption_blocks(original[2])
     assert [b["spoken_text"] for b in playback] == ["Come here.", "Fine."]
     assert all("chunk" not in b for b in playback)

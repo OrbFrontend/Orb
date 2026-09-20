@@ -9,9 +9,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from backend.analysis import AxisStyle, Dialogue, Narration
 from backend.workflows.tts.engine.regex_extractor import (
+    GAP_MAX_MS,
+    GAP_MIN_MS,
+    UNVOICED_BEAT_MS,
     _extract_beat_action,
     _infer_emotion,
+    narration_pause_ms,
     regex_extract,
 )
 
@@ -354,10 +359,52 @@ class TestInternalDictKeysUsed:
     back later in the pipeline. These tests verify the full pipeline uses them."""
 
     def test_action_key_affects_is_audible(self):
-        # An audible beat (*laughs*) → is_audible=True → 400ms pause
-        # A silent beat (*smiles*) → is_audible=False → 200ms pause
+        # Equal-length beats, so only is_audible separates their gaps.
         text = '"One." *she laughs* "Two." *she smiles* "Three."'
         chunks = regex_extract(text)
         assert len(chunks) == 3
-        assert chunks[1].pause_before_ms == 400  # audible
-        assert chunks[2].pause_before_ms == 200  # silent
+        assert chunks[1].pause_before_ms == chunks[2].pause_before_ms + UNVOICED_BEAT_MS  # audible
+        assert chunks[2].pause_before_ms == narration_pause_ms(2)  # silent
+
+
+class TestNarrationPacing:
+    """Narration is never read aloud, so its length sizes the silence for it."""
+
+    STYLE = AxisStyle(Dialogue.QUOTED, Narration.BARE)
+
+    def gaps(self, narration: str) -> int:
+        chunks = regex_extract(f'"One." {narration} "Two."', style=self.STYLE)
+        assert len(chunks) == 2
+        return chunks[1].pause_before_ms
+
+    def test_longer_narration_pauses_longer(self):
+        short = self.gaps("She looked away.")
+        medium = self.gaps("She looked away, then crossed to the window and stood there a while.")
+        long = self.gaps(
+            "She looked away, then crossed to the window and stood there a while, "
+            "watching the street below fill with people she would never meet, "
+            "before finally turning back to face him again."
+        )
+        assert GAP_MIN_MS < short < medium < long
+
+    def test_nothing_between_two_lines_is_a_breath(self):
+        chunks = regex_extract('"One." "Two."', style=self.STYLE)
+        assert chunks[1].pause_before_ms == GAP_MIN_MS
+
+    def test_no_narration_outruns_the_ceiling(self):
+        # The unvoiced-beat allowance stacks onto an already saturated gap.
+        chunks = regex_extract('"One." *she laughs* ' + "and paced the floor " * 200 + '"Two."')
+        assert chunks[1].pause_before_ms == GAP_MAX_MS
+
+    def test_unspaced_script_narration_is_not_read_as_one_word(self):
+        # Counting tokens alone would leave a breath where an action happened.
+        assert self.gaps("她转身走到窗边，望着楼下的街道，久久没有说话。") > self.gaps("She turned.")
+
+    def test_performed_beat_is_audio_rather_than_silence(self):
+        text = '"One." *she sighs* "Two."'
+        assert regex_extract(text, supports_emotion_tags=True)[1].pause_before_ms == GAP_MIN_MS
+        assert regex_extract(text, supports_emotion_tags=False)[1].pause_before_ms > GAP_MIN_MS
+
+    def test_a_tag_does_not_absorb_the_rest_of_its_beat(self):
+        text = '"One." *she sighs, gathering the scattered papers off the floor one by one* "Two."'
+        assert regex_extract(text, supports_emotion_tags=True)[1].pause_before_ms > GAP_MIN_MS

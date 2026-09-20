@@ -67,6 +67,11 @@ recognizes as narration. It understands quoted dialogue, em-dash dialogue, and
 common roleplay markup. It can also speak plainly written dialogue when the
 message's style is clear.
 
+Narration is not read out, so Orb pauses in its place. The pause grows with
+the length of the narration it replaces and never runs longer than three
+seconds. A beat the voice can perform, such as a sigh or a laugh, is spoken
+instead on backends that support it.
+
 When a reply is ambiguous, the split between speech and narration may not be
 perfect. The generated audio is shown on the reply, so you can listen before
 relying on auto-play. Voice previews read the preview text literally.
