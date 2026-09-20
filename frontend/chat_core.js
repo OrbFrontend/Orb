@@ -143,7 +143,7 @@ export function buildMsgToolbar(m) {
 
   const slopBtn =
     isAssistant && m.id && S.settings?.local_ml_enabled?.slop_classifier !== false
-      ? `<button class="msg-btn-slop" onclick="scoreSlop(${m.id},this)" title="Score AI-slop">AI</button>`
+      ? `<button class="msg-btn-slop" onclick="scoreSlop(${m.id},this)" title="Score AI-slop">%</button>`
       : "";
 
   const delBtn = !m.id

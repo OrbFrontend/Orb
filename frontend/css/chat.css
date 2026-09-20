@@ -401,9 +401,9 @@
   vertical-align: super;
 }
 .msg-toolbar .msg-btn-slop {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: .5px;
+  line-height: 1;
 }
 .slop-chip {
   display: inline-block;
