@@ -27,7 +27,7 @@ An **Editor** audits the LLM's response then surgically fixes it.
 9. **Compress History**: Summarize chat context and move it to a new conversation
 10. **Mobile-compatibility**: UI for mobile devices
 11. **TTS**: Easy Text-to-speech with a high quality built-in voice cloner
-12. **Library tools**: Internet card downloader, auto-tagger, dupe finder, tailored card-generator that reads your chats
+12. **Library Tools**: Internet card downloader, auto-tagger, dupe finder, tailored card-generator that reads your chats
 14. **AI Feedback**: Give suggestions and commentary on what to do next, solving writer's block
 15. **Text Completion**: Advanced harness optimizations when an endpoint supports raw text completion
 16. **Assisted Document Mode**: A version of Mikupad where you don't need to worry about special tokens
