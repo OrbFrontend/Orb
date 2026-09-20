@@ -27,14 +27,14 @@ An **Editor** audits the LLM's response then surgically fixes it.
 9. **Compress History**: Summarize chat context and move it to a new conversation
 10. **Mobile-compatibility**: UI for mobile devices
 11. **TTS**: Easy Text-to-speech with a high quality built-in voice cloner
-12. **Character Browser**: Fetch character cards from various sites on the Internet
-13. **AI Feedback**: Give suggestions and commentary on what to do next, solving writer's block
-14. **Text Completion**: Advanced harness optimizations when an endpoint supports raw text completion
-15. **Assisted Document Mode**: A version of Mikupad where you don't need to worry about special tokens
-16. **Image Generation**: One-click image-gen workflow that's compatible with ComfyUI and several Cloud Providers, 
+12. **Library tools**: Internet card downloader, auto-tagger, dupe finder, tailored card-generator that reads your chats
+14. **AI Feedback**: Give suggestions and commentary on what to do next, solving writer's block
+15. **Text Completion**: Advanced harness optimizations when an endpoint supports raw text completion
+16. **Assisted Document Mode**: A version of Mikupad where you don't need to worry about special tokens
+17. **Image Generation**: One-click image-gen workflow that's compatible with ComfyUI and several Cloud Providers, 
 support reference images so you don't generate a different character every time
-17. **Dynamic Lorebooks**: Lorebook entries can be managed by agents, either write or read
-18. **Local ML Integration**: Prose humanizer and various classifiers that run entirely in CPU
+18. **Dynamic Lorebooks**: Lorebook entries can be managed by agents, either write or read
+19. **Local ML Integration**: Prose humanizer and various classifiers that run entirely in CPU
 
 ## Architecture
 
@@ -86,6 +86,8 @@ For a visual walkthrough of the cache mechanism across all three passes and the 
 
 1. **Speed**: Multiple passes will obviously have a longer time to final response
 2. **Cost**: Neligible cost increase, which comes naturally with multiple passes, somewhat alleviated by KV cache reuse strategy
+
+You're basically trading speed and money for steerability and quality.
 
 ## Requirements
 1. A model with solid tool/function calling capabilities (recommended: Gemma 4)
