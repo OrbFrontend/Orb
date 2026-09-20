@@ -11,12 +11,14 @@ from typing import Any
 from ..toolkit import (
     WorkflowEventStream,
     build_offturn_prefix,
+    conversation_macros,
     get_message_by_id,
     get_workflow_character_state,
     get_workflow_config,
     insert_workflow_attachment,
     set_workflow_character_state,
 )
+from . import macros as macros_mod
 from . import pov as pov_mod
 from . import subjects as subjects_mod
 from .composer import (
@@ -366,7 +368,14 @@ async def _generate_fresh(
     history = _history_through(history if history is not None else ctx.history, int(message["id"]))
     if prefix is None:
         prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
-    selected_style = resolve_style(config, style_id)
+    # Saved image-gen text carries the same macros card text does, and it is expanded
+    # once, here, before anything reads it. Once because the composer is *told* what
+    # the image model receives outside its tool output: a second expansion could pick
+    # a different `{{random}}` and have it write around wording nothing ever sends.
+    # Fresh rolls rather than the conversation's seed -- a render is an explicit
+    # action like sending a message, and none of this text sits in the shared prefix.
+    macros = await conversation_macros(ctx.conversation_id, ctx.settings, seed="")
+    selected_style = macros_mod.expand_style(resolve_style(config, style_id), macros)
     adapter = get_adapter(config, selected_style)
     target = adapter.resolve_target(None)
     # The order is load-bearing, and each step depends on the one above it:
@@ -383,21 +392,28 @@ async def _generate_fresh(
     # person back in. `addressable_subjects` is the join, and it costs no extra call.
     pov, pov_source = await pov_mod.resolve(mode=config["pov_mode"], history=history)
     logger.info("[image_gen] camera: %s (from %s)", pov, pov_source)
-    subjects = await subjects_mod.resolve(
-        conversation_id=ctx.conversation_id,
-        history=history,
-        anchor_id=int(message["id"]),
-        character_id=getattr(ctx, "character_id", None),
-        character=getattr(ctx, "character", None),
-        profile=profile,
+    subjects = macros_mod.expand_subjects(
+        await subjects_mod.resolve(
+            conversation_id=ctx.conversation_id,
+            history=history,
+            anchor_id=int(message["id"]),
+            character_id=getattr(ctx, "character_id", None),
+            character=getattr(ctx, "character", None),
+            profile=profile,
+        ),
+        macros,
     )
+    # The anchor's sheet, read back off its own subject so the negative prompt this
+    # render sends and the appearance the composer was shown resolved `{{char}}` to
+    # the same person -- in a group that is the member's name, not the scene title.
+    profile = subjects[0].profile if subjects else macros_mod.expand_profile(profile, macros)
     selection = (
         await read_image_skills(
             client=ctx.agent_client,
             model_name=ctx.agent_model_name,
             prefix=prefix,
             settings=ctx.settings,
-            skills=config.get("scene_skills") or (),
+            skills=macros_mod.expand_skills(config.get("scene_skills") or (), macros),
             pov=pov,
             reasoning_on=bool(config.get("prompter_reasoning")),
             subjects=subjects,
@@ -435,7 +451,7 @@ async def _generate_fresh(
         style_negative_prompt=str(selected_style.get("negative_prompt") or ""),
         profile_negative_prompt=str(profile.get("negative_prompt") or ""),
     )
-    prompt, negative, style = assemble_prompts(config, style_id, profile, scene, avoid)
+    prompt, negative = assemble_prompts(selected_style, profile, scene, avoid)
     if not prompt.strip():
         raise ImageGenerationError("the composed image prompt came out empty; try generating again")
     seed = _fresh_seed()
@@ -454,7 +470,7 @@ async def _generate_fresh(
     )
     md = _metadata(
         source=adapter.source_id,
-        style=style,
+        style=selected_style,
         result=result,
         prompt=prompt,
         negative_prompt=negative,
@@ -463,7 +479,7 @@ async def _generate_fresh(
         pov_source=pov_source,
         composition_skills=[{"id": skill["id"], "label": skill["label"]} for skill in selection.skills],
     )
-    consumption = _consumption(style, prompt, negative, result, md, source_label=adapter.label)
+    consumption = _consumption(selected_style, prompt, negative, result, md, source_label=adapter.label)
     if unfilled > 0:
         consumption.setdefault("notes", []).append(_unfilled_note(unfilled, len(references)))
     # Read the adapter's record rather than the plan: it is the authoritative list of

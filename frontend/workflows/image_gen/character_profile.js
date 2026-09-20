@@ -152,7 +152,7 @@ export async function populateProfile() {
     };
     el.innerHTML = `<div class="ig-profile-fields">
         ${cast ? memberPickerHtml(cast) : ""}
-        <label>Positive prompt<textarea id="ig-appearance" placeholder="Permanent tags, fill with permanent traits (e.g. Hatsune Miku, black and white)">${esc(res.profile.appearance_prompt || "")}</textarea></label>
+        <label>Positive prompt<textarea id="ig-appearance" placeholder="Permanent tags, fill with permanent traits (e.g. Hatsune Miku, black and white). {{char}} means this character.">${esc(res.profile.appearance_prompt || "")}</textarea></label>
         <label>Negative prompt<textarea id="ig-profile-negative" placeholder="Describe what to avoid (e.g. 3D, color). Quality and scene-specific negatives are handled automatically.">${esc(res.profile.negative_prompt || "")}</textarea></label>
         <div class="ig-profile-reference">
           <span class="ig-profile-reference-label">Reference image</span>

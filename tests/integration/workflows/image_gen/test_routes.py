@@ -21,6 +21,7 @@ from backend.workflows import (
     set_workflow_character_state,
     set_workflow_config,
 )
+from backend.workflows.image_gen.composer import SkillSelection, _sheets
 from backend.workflows.image_gen.config import (
     CONFIG_DEFAULTS,
     active_style,
@@ -173,6 +174,145 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
     assert attachment["mime_type"] == "image/png"
     assert attachment["seed"]
     assert json.loads(attachment["generation_metadata"])["backend_model"] == "anime.safetensors"
+
+
+@pytest.mark.asyncio
+async def test_saved_style_and_appearance_macros_resolve_against_this_conversation(client, monkeypatch):
+    """A style is saved once and used in every chat, so `{{char}}` is a render-time fact.
+
+    Asserted on both sides of the composer, because they are two different readers of
+    the same saved text: the prompter is *told* what the image model will receive, and
+    the image model is sent it. Either one left raw is a bug the other would hide.
+    """
+    await create_character_card({"id": "mac-char", "name": "Iris"})
+    await create_conversation("mac-conv", "Images", "Iris", "A moonlit room", character_card_id="mac-char")
+    mid, _ = await add_message("mac-conv", "assistant", "Iris turns from the window.", 0)
+    await set_active_leaf("mac-conv", mid)
+    await set_workflow_config(
+        "image_gen",
+        {
+            "source": "external_comfy",
+            "default_style": "macro",
+            "external_comfy": {"api_url": "http://127.0.0.1:8188"},
+            "styles": [
+                {
+                    "id": "macro",
+                    "label": "Macro",
+                    "prompt_format": "tags",
+                    "prompt": "masterpiece, portrait of {{char}}",
+                    "negative_prompt": "{{user}} in frame",
+                    # The reason this feature exists: an edit model addresses its
+                    # reference images positionally and needs to be told who is who.
+                    "extra_instructions": "<image1> is {{char}}, drawn for {{user}}.",
+                    "workflow_id": "",
+                }
+            ],
+        },
+    )
+    await set_workflow_character_state(
+        "mac-char",
+        "image_gen",
+        {"appearance_prompt": "{{char}} has long silver hair", "negative_prompt": "{{char}} wearing a hat"},
+    )
+
+    captured: dict = {}
+
+    async def fake_compose(**kwargs):
+        captured["compose"] = kwargs
+        return "1girl, silver hair, window, night", "daylight", "single_call"
+
+    async def fake_render(adapter, request, **kwargs):
+        captured["request"] = request
+        return _image(backend_model="macro.safetensors")
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
+
+    response = await client.post(
+        "/api/conversations/mac-conv/workflows/image_gen/trigger",
+        json={"action": "generate", "message_id": mid, "style_id": "macro"},
+    )
+    assert response.status_code == 200
+    assert "event: image_gen_done" in response.text
+
+    compose = captured["compose"]
+    assert compose["extra_instructions"] == "<image1> is Iris, drawn for User."
+    assert compose["style_prompt"] == "masterpiece, portrait of Iris"
+    assert compose["style_negative_prompt"] == "User in frame"
+    assert compose["profile_negative_prompt"] == "Iris wearing a hat"
+    # The appearance sheet reaches the prompter through the subject roster, resolved
+    # against that subject's own name.
+    assert [(s.name, s.appearance) for s in _sheets(compose["subjects"])] == [("Iris", "Iris has long silver hair")]
+
+    # And the same wording is what actually leaves for the image model.
+    request = captured["request"]
+    assert request.prompt.startswith("1girl, masterpiece, portrait of Iris")
+    assert "{{" not in request.prompt
+    assert request.negative_prompt == "Iris wearing a hat, daylight, User in frame"
+
+    stored = json.loads((await _attachment_from(response))["generation_metadata"])
+    assert stored["prompt"] == request.prompt
+    assert stored["negative_prompt"] == request.negative_prompt
+
+
+@pytest.mark.asyncio
+async def test_composition_skill_prose_resolves_but_its_id_stays_addressable(client, monkeypatch):
+    await create_character_card({"id": "skill-char", "name": "Iris"})
+    await create_conversation("skill-conv", "Images", "Iris", "A moonlit room", character_card_id="skill-char")
+    mid, _ = await add_message("skill-conv", "assistant", "Iris turns from the window.", 0)
+    await set_active_leaf("skill-conv", mid)
+    await set_workflow_config(
+        "image_gen",
+        {
+            "source": "external_comfy",
+            "default_style": "anime",
+            "external_comfy": {"api_url": "http://127.0.0.1:8188"},
+            "scene_skills_enabled": True,
+            "scene_skills": [
+                {
+                    "id": "over_shoulder",
+                    "label": "Over the shoulder",
+                    "description": "Use when someone stands behind {{char}}.",
+                    "instructions": "Frame from behind {{char}}.",
+                    "enabled": True,
+                }
+            ],
+        },
+    )
+
+    captured: dict = {}
+
+    async def fake_select(**kwargs):
+        captured["select"] = kwargs
+        # The selector can only answer with an id, so the id must survive expansion.
+        return SkillSelection((dict(kwargs["skills"][0]),), ("Iris",), True)
+
+    async def fake_compose(**kwargs):
+        captured["compose"] = kwargs
+        return "1girl, from behind", "", "scene_skills"
+
+    async def fake_render(adapter, request, **kwargs):
+        return _image(backend_model="anime.safetensors")
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.read_image_skills", fake_select)
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
+
+    response = await client.post(
+        "/api/conversations/skill-conv/workflows/image_gen/trigger",
+        json={"action": "generate", "message_id": mid, "style_id": "anime"},
+    )
+    assert response.status_code == 200
+
+    offered = captured["select"]["skills"][0]
+    assert offered["id"] == "over_shoulder"
+    assert offered["description"] == "Use when someone stands behind Iris."
+    assert offered["instructions"] == "Frame from behind Iris."
+    assert captured["compose"]["selected_skills"][0]["instructions"] == "Frame from behind Iris."
+    # The label is an identifier shown next to the render, not prompter prose.
+    assert json.loads((await _attachment_from(response))["generation_metadata"])["composition_skills"] == [
+        {"id": "over_shoulder", "label": "Over the shoulder"}
+    ]
 
 
 async def _stream_generate(client, monkeypatch, render, conv_id):

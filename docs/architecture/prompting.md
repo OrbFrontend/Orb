@@ -77,3 +77,10 @@ card definitions remain canonical. Group history uses the original speaker's
 card scripts, independent of the currently generating speaker; unattributed
 rows have no owning card. Pipeline and off-turn workflow prefixes share this
 contract. See [Card render scripts](../features/card-render-scripts.md).
+
+Workflow-owned text composed outside that prefix -- saved configuration a
+workflow reuses in every conversation -- resolves against the same identity
+through `toolkit.conversation_macros`, which shares the prefix's persona-lock
+precedence so one call cannot name the user two ways. Such text rides a per-call
+tail rather than the shared prefix, so it may pass `seed=""` and roll
+`{{random}}` fresh each call without affecting prefix reuse.

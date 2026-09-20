@@ -2,7 +2,9 @@
 
 A macro is a placeholder that Orb replaces with a value. Macros work in messages,
 greetings, personas, scenarios, example messages, lorebook entries, fragments,
-and direction notes.
+and direction notes. They also work in the image-generation settings: style
+prompts, extra instructions, character appearance prompts, and composition
+skills.
 
 | Macro | Result |
 |---|---|
@@ -53,12 +55,35 @@ location of the macro:
 | Character greeting | When you open a conversation, then frozen after your first message |
 | Persona, scenario, or example message | Once per conversation |
 | Mood-fragment prompt text | Once per conversation |
+| An image-generation setting | Every render |
 | A value written by the Director | Every turn |
 
 `{{time}}` and `{{date}}` use the current value. In a message they freeze when
 sent; in persona or scenario text they update each turn.
 
 Checkpoints inherit the random values from their parent conversation.
+
+## Macros in image generation
+
+Image-generation settings are saved once and used in every chat, so `{{char}}`
+there means the character of the conversation you generate from. This is how you
+tell an image model which person a reference image shows:
+
+```
+<image1> is {{char}}.
+```
+
+Macros work in a style's positive and negative prompt, its extra instructions,
+and in a composition skill's description and instructions. They also work in a
+character's appearance and negative prompt under **This Character Only**, where
+`{{char}}` always means that character -- in a group chat it is the member's
+name, not the scene title.
+
+A composition skill's **Name** is left alone, because Orb uses it to identify the
+skill and shows it under the finished image.
+
+The prompt shown in **Render details** is the finished text. Macros are already
+resolved there, and **Reroll** sends exactly what that box says.
 
 ## Show a macro as text
 

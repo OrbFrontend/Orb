@@ -163,6 +163,7 @@ __all__ = [
     "speech_segments",
     "speech_input",
     "build_offturn_prefix",
+    "conversation_macros",
     "set_workflow_character_state",
     "set_workflow_config",
     "set_workflow_message_state",
@@ -275,6 +276,63 @@ async def get_scene_cast(conversation_id: str) -> TurnCast:
     return await resolve_cast(conv) if conv is not None else TurnCast(False, ())
 
 
+async def _turn_macros(
+    conv: Mapping[str, Any],
+    settings: Mapping[str, Any],
+    card: Mapping[str, Any] | None,
+    cast: TurnCast,
+    *,
+    seed: str | None = None,
+) -> tuple[Macros, Mapping[str, Any] | None]:
+    """Return one conversation's identity macros and the persona they resolved against.
+
+    Shared by the off-turn prefix and by `conversation_macros`, because the persona
+    a workflow's text resolves `{{user}}` against has to be the one the prefix above
+    it already used — a locked persona that only one of them honoured would name the
+    user two ways inside a single call.
+    """
+    persona_id = (
+        conv.get("persona_lock_id") or (card.get("persona_lock_id") if card else None) or settings.get("active_persona_id")
+    )
+    persona = await get_user_persona(persona_id) if persona_id else None
+    macro_char, cast_names = _macro_identity(conv, cast)
+    conversation_seed = conv.get("macro_seed") or conv.get("id", "")
+    macros = Macros.from_settings(
+        settings,
+        macro_char,
+        persona,
+        seed=conversation_seed if seed is None else seed,
+        cast=cast_names,
+    )
+    return macros, persona
+
+
+async def conversation_macros(
+    conversation_id: str,
+    settings: Mapping[str, Any],
+    *,
+    seed: str | None = None,
+) -> Macros:
+    """Return the `{{user}}`/`{{char}}`/`{{cast}}` macros for one conversation.
+
+    The identity the off-turn prefix resolves against, for workflow-owned text that
+    is composed outside that prefix — saved configuration a workflow reuses in every
+    chat, where `{{char}}` can only mean something at call time.
+
+    *seed* defaults to the conversation's own, which freezes `{{random}}` and
+    `{{roll}}` per conversation so prefix text stays byte-stable turn over turn.
+    Pass `""` for text that rides a per-call tail instead of the shared prefix and
+    should roll fresh on every call.
+    """
+    conv = await get_conversation(conversation_id)
+    if conv is None:
+        return Macros(user=str(settings.get("user_name") or "User"), char="", seed=seed or "")
+    card_id = conv.get("character_card_id")
+    card = await get_character_card(card_id) if card_id else None
+    macros, _persona = await _turn_macros(conv, settings, card, await resolve_cast(conv), seed=seed)
+    return macros
+
+
 async def build_offturn_prefix(
     conversation_id: str,
     history,
@@ -305,14 +363,7 @@ async def build_offturn_prefix(
             card=card,
             shared_key="agent_shared_system_prompt",
         )
-    persona_id = (
-        conv.get("persona_lock_id") or (card.get("persona_lock_id") if card else None) or settings.get("active_persona_id")
-    )
-    persona = await get_user_persona(persona_id) if persona_id else None
-    macro_char, cast_names = _macro_identity(conv, turn_cast)
-    macros = Macros.from_settings(
-        settings, macro_char, persona, seed=conv.get("macro_seed") or conv.get("id", ""), cast=cast_names
-    )
+    macros, persona = await _turn_macros(conv, settings, card, turn_cast)
     speaker_names = await get_speaker_names(conversation_id) if turn_cast.grouped else {}
     speaker_scripts = await get_group_member_scripts(conversation_id) if turn_cast.grouped else {}
     user_description = persona.get("description", "") if persona else settings.get("user_description", "")

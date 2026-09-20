@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, NamedTuple
 
 from ..toolkit import forced_tool_call
-from .config import DEFAULT_PROMPT_FORMAT, resolve_style
+from .config import DEFAULT_PROMPT_FORMAT
 from .pov import THIRD
 from .prompts import OFFER_TOOLS, compose_ooc, select_skills_ooc
 from .scrub import (
@@ -195,13 +195,16 @@ async def compose_scene(
 
 
 def assemble_prompts(
-    config: Mapping[str, Any],
-    style_id: str,
+    style: Mapping[str, Any],
     profile: Mapping[str, Any],
     scene: str,
     avoid: str,
-) -> tuple[str, str, dict]:
-    style = resolve_style(config, style_id)
+) -> tuple[str, str]:
+    """Join style, character, and scene text into the final positive/negative pair.
+
+    Takes the resolved style rather than looking one up, so the wording here is the
+    same object the composer was shown: the two must not be able to disagree.
+    """
     prompt_format = normalize_prompt_format(str(style.get("prompt_format") or ""))
     if prompt_format == "prose":
         scene_body = strip_prose_count_prefix(scene)
@@ -211,4 +214,4 @@ def assemble_prompts(
         count_lead, scene_body = split_lead_count(scene)
         positive = join((count_lead, style.get("prompt"), scene_body))
     negative = join((profile.get("negative_prompt"), avoid, style.get("negative_prompt")))
-    return positive, negative, style
+    return positive, negative

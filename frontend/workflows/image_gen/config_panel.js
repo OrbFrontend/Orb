@@ -529,7 +529,7 @@ function styleBody(style, index, connection) {
       <label>Positive style prompt<textarea ${styleField("prompt")} placeholder="Optional style prompt">${esc(style.prompt || "")}</textarea></label>
       <label>Negative style prompt<textarea ${styleField("negative_prompt")} placeholder="Optional negative prompt">${esc(style.negative_prompt || "")}</textarea></label>
       ${negativeNote(connection)}
-      <label>Extra instructions<textarea ${styleField("extra_instructions")} placeholder="Optional guidance for the prompter model (e.g. emphasize hand placement and use full-body framing).">${esc(style.extra_instructions || "")}</textarea></label>
+      <label>Extra instructions<textarea ${styleField("extra_instructions")} placeholder="Optional guidance for the prompter model. Macros work here, e.g. &quot;&lt;image1&gt; is {{char}}&quot;.">${esc(style.extra_instructions || "")}</textarea></label>
       ${backendFields(style, connection)}
       <button class="btn btn-sm ig-danger" data-wf-action="image_gen:styleRemove" data-style-index="${index}">Remove style</button>`;
 }
@@ -1125,7 +1125,7 @@ function openSettings(expandStyleId = "") {
       <details class="ig-advanced">
         <summary>Composition skills<span class="ig-summary-note" id="ig-skill-summary">${draft.scene_skills.length ? `${draft.scene_skills.length} saved` : "none"}</span></summary>
         <div class="ig-advanced-body">
-          <div class="image-gen-note">The selector sees names and “When to use” summaries. Only selected instruction bodies are sent to the prompt composer.</div>
+          <div class="image-gen-note">The selector sees names and “When to use” summaries. Only selected instruction bodies are sent to the prompt composer. Macros work in both, but not in the name.</div>
           <div id="ig-skill-list" class="ig-skill-list">${sceneSkillRows()}</div>
           <button class="btn btn-sm" data-wf-action="image_gen:skillAdd">Add skill</button>
         </div>

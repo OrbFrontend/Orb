@@ -198,6 +198,9 @@ Use **This Character Only** to add fixed appearance details for a character:
 Do not add a character-count tag such as `1girl`; Orb adds the count from the
 scene. Style and scene prompts are separate from this character setting.
 
+Both fields take [macros](../features/macros.md). `{{char}}` means the character
+the setting is saved on, so it names the right person in a group chat too.
+
 ## Styles
 
 Orb includes **Realistic** and **Anime** styles. Select **Add style** to make
@@ -216,6 +219,17 @@ another one. A style contains:
 
 Tags and Hybrid formats use character-count tags such as `1girl` or `1boy`.
 Prose does not. Match the format to the workflow's text encoder.
+
+The prompt, negative prompt, and extra instructions take
+[macros](../features/macros.md), resolved for the conversation you generate from.
+Use them to name a person an edit model receives as a reference image:
+
+```
+<image1> is {{char}}.
+```
+
+Macros resolve when the image is generated, so the prompt in **Render details**
+already shows the finished text.
 
 Switching a style's connection keeps its other saved settings. A style can retain
 both its ComfyUI workflow and cloud model while you switch between them.
@@ -248,8 +262,9 @@ remove entries. Each skill has:
   visible-detail guidance shown only to the prompt composer when selected.
 
 Write narrow skills for one composition problem. Explain observable geometry and
-branching conditions directly, choose compatible guidance, and avoid macros --
-instructions are used as plain text. Orb can select up to four enabled
+branching conditions directly, and choose compatible guidance. **When to use** and
+**Instructions** take [macros](../features/macros.md); **Name** does not, because
+Orb identifies the skill by it. Orb can select up to four enabled
 skills and prefers the smallest compatible set. Orb ships a starter library of
 first-person framings -- front hug, kiss, both back-hug directions, and close-up --
 which are ordinary editable entries: change or remove any of them, and a removal
