@@ -15,6 +15,7 @@ import {
   registerClickHandler,
   resumeChannel,
   setWorkflowPhase,
+  workflowAttachmentUrl,
 } from "/static/workflow_api.js";
 import { alignableKeys, alignBlocks, alignmentKey, attachmentBlocks } from "./extract.js";
 import { startKaraoke } from "./karaoke.js";
@@ -49,8 +50,9 @@ export function initWidget(sharedConfig) {
   registerAction(WORKFLOW_ID, "regenerate", (el) => {
     window.workflowRegenerate?.(Number(el.dataset.msgId), Number(el.dataset.att), takeMenuAnchor(el));
   });
-  registerAction(WORKFLOW_ID, "reroll", (el) => {
-    window.workflowReroll?.(Number(el.dataset.msgId), Number(el.dataset.att), takeMenuAnchor(el));
+  registerAction(WORKFLOW_ID, "download", (el) => {
+    closeMenu();
+    download(Number(el.dataset.att));
   });
   registerAction(WORKFLOW_ID, "step", (el) => {
     closeMenu();
@@ -222,6 +224,18 @@ function attById(attId) {
     }
   }
   return null;
+}
+
+function download(attId) {
+  const att = attById(attId);
+  const href = att && !att.evicted ? workflowAttachmentUrl(att) : "";
+  if (!href) return;
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = att.filename || "speech";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 function msgIdForAtt(attId) {
@@ -470,8 +484,8 @@ export function attachmentRenderer(ctx) {
   const item = `type="button" role="menuitem" class="wf-claim-item tts-menu-item"`;
   const stepButtons =
     total > 1
-      ? `<button ${item} data-wf-action="tts:step" data-instance-id="${instanceId}" data-delta="-1"${index <= 0 || !canEdit ? " disabled" : ""}>Previous take</button>
-       <button ${item} data-wf-action="tts:step" data-instance-id="${instanceId}" data-delta="1"${index < 0 || index >= total - 1 || !canEdit ? " disabled" : ""}>Next take</button>`
+      ? `<button ${item} data-wf-action="tts:step" data-instance-id="${instanceId}" data-delta="1"${index < 0 || index >= total - 1 || !canEdit ? " disabled" : ""}>Next take</button>
+       <button ${item} data-wf-action="tts:step" data-instance-id="${instanceId}" data-delta="-1"${index <= 0 || !canEdit ? " disabled" : ""}>Previous take</button>`
       : "";
   const evicted = Boolean(att.evicted);
   const restore = evicted
@@ -486,8 +500,8 @@ export function attachmentRenderer(ctx) {
     <template class="tts-menu-items">
       ${restore}
       <button ${item} data-wf-action="tts:regenerate" data-msg-id="${msg?.id || ""}" data-att="${att.id}"${mutationDisabled}>Regenerate speech</button>
-      <button ${item} data-wf-action="tts:reroll" data-msg-id="${msg?.id || ""}" data-att="${att.id}"${mutationDisabled}>New take</button>
       ${stepButtons}
+      <button ${item} data-wf-action="tts:download" data-att="${att.id}"${evicted ? " disabled" : ""}>Download audio</button>
       <button type="button" role="menuitem" class="wf-claim-item tts-menu-item danger" data-wf-action="tts:delete" data-instance-id="${instanceId}"${mutationDisabled}>Delete speech</button>
     </template>
   </span>`;
