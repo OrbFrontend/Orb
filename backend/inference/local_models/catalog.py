@@ -106,10 +106,10 @@ class ModelSpec:
 # share them and a half-updated pin is a silently different model. The two
 # lines version independently — upstream releases the sizes on their own
 # cadence, so a mismatched pair of version numbers here is not a typo.
-_PROSE_1_7B_REPO = "chartreuse-verte/prose-rewriter-1.7b-v2"
-_PROSE_1_7B_REV = "e5c1b8282385365ba031a5966aec7f1fc0ef2fc1"
-_PROSE_4B_REPO = "chartreuse-verte/prose-rewriter-4b-v2"
-_PROSE_4B_REV = "33bcd356dfb172e8c7fa9d7427d24cd274230b9c"
+_PROSE_1_7B_REPO = "chartreuse-verte/prose-rewriter-1.7b-v2.1"
+_PROSE_1_7B_REV = "af1c790a1a43885d35dcd0a45a5bb13ed4dc4385"
+_PROSE_4B_REPO = "chartreuse-verte/prose-rewriter-4b-v2.1"
+_PROSE_4B_REV = "1962dc4701c669db9667214edcb768696af8bbf6"
 
 # --- Spark-TTS, the built-in voice cloner -----------------------------------
 _SPARK_LLM_REPO = "mradermacher/Spark-TTS-0.5B-GGUF"
@@ -163,7 +163,7 @@ MODELS: dict[str, ModelSpec] = {
     # here must also be claimed by prune_stale.
     "prose_rewriter": ModelSpec(
         repo_id=_PROSE_4B_REPO,
-        filename="GGUF/prose-rewriter-4b-v2-Q8_0.gguf",
+        filename="GGUF/prose-rewriter-4b-v2.1-Q8_0.gguf",
         size_mb=4694,
         revision=_PROSE_4B_REV,
         runtime="llama_server",
@@ -173,7 +173,7 @@ MODELS: dict[str, ModelSpec] = {
                 label="1.7B · Q8_0",
                 detail="Fastest, good enough.",
                 repo_id=_PROSE_1_7B_REPO,
-                path="GGUF/prose-rewriter-1.7b-v2-Q8_0.gguf",
+                path="GGUF/prose-rewriter-1.7b-v2.1-Q8_0.gguf",
                 revision=_PROSE_1_7B_REV,
                 size_mb=2165,
             ),
@@ -182,7 +182,7 @@ MODELS: dict[str, ModelSpec] = {
                 label="4B · Q4_K_M",
                 detail="Medium quality.",
                 repo_id=_PROSE_4B_REPO,
-                path="GGUF/prose-rewriter-4b-v2-Q4_K_M.gguf",
+                path="GGUF/prose-rewriter-4b-v2.1-Q4_K_M.gguf",
                 revision=_PROSE_4B_REV,
                 size_mb=2716,
             ),
@@ -191,7 +191,7 @@ MODELS: dict[str, ModelSpec] = {
                 label="4B · Q8_0",
                 detail="Best quality, invents the least.",
                 repo_id=_PROSE_4B_REPO,
-                path="GGUF/prose-rewriter-4b-v2-Q8_0.gguf",
+                path="GGUF/prose-rewriter-4b-v2.1-Q8_0.gguf",
                 revision=_PROSE_4B_REV,
                 size_mb=4694,
             ),
