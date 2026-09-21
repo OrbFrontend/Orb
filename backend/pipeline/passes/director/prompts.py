@@ -26,9 +26,7 @@ def _moods_options_block(
         for fragment in mood_fragments
         if fragment["id"] not in resting
     )
-    resting_moods = [fragment["id"] for fragment in mood_fragments if fragment["id"] in resting]
-    resting_line = f"\nResting (unavailable this turn): {', '.join(resting_moods)}" if resting_moods else ""
-    return f"Previously active moods: {moods}\n\nAvailable writing moods:\n{fragments}{resting_line}"
+    return f"Previously active moods: {moods}\n\nAvailable writing moods:\n{fragments}"
 
 
 def build_director_tool_prompt(
