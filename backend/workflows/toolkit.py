@@ -31,6 +31,7 @@ from ..analysis.text.roleplay_segmentation import (
 from ..core import (
     CardScripts,
     Macros,
+    card_description,
     workflow_character_state_lock,
     workflow_config_lock,
     workflow_state_lock,
@@ -297,6 +298,7 @@ async def _turn_macros(
         persona,
         seed=conversation_seed if seed is None else seed,
         cast=cast_names,
+        description=card_description(card),
     )
     return macros, persona
 

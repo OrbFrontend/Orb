@@ -63,6 +63,9 @@ The following rules apply in every mode:
   scene's own post-history instructions are shared by every speaker.
 - `{{cast}}` is always the roster. `{{char}}` is the group title outside member
   card text and the member's name inside that member's context.
+- `{{description}}` scopes with `{{char}}`: inside a member's context it is that
+  member's `private_sheet` (the scene override when set, else the card join),
+  and outside it there is no single card to read, so it stays unresolved.
 - Card-linked Worlds and card fragments are scene-wide. Context mode does not
   make lore private.
 

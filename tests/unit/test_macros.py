@@ -13,6 +13,7 @@ import time
 
 from backend.core.macros import (
     Macros,
+    card_description,
     has_inline_macros,
     resolve_inline,
     resolve_message,
@@ -364,3 +365,98 @@ def test_trim_is_idempotent_and_resolves_in_messages():
     assert once == "Alice said: hi Bot"
     assert resolve_message(once, "Alice", "Bot") == once
     assert Macros("Alice", "Bot", seed="conv-t").resolve_message("a\n{{trim}}\nb") == "ab"
+
+
+# ── {{description}} (the one macro that substitutes prose, not a name) ───────
+
+
+def test_description_expands_into_text():
+    m = Macros("Alice", "Bot", description="A tall woman with a limp.")
+    assert m.resolve_message("Subject: {{description}}") == "Subject: A tall woman with a limp."
+
+
+def test_description_is_case_insensitive():
+    m = Macros("Alice", "Bot", description="prose")
+    assert m.resolve_message("{{DESCRIPTION}} {{Description}}") == "prose prose"
+
+
+def test_description_resolves_its_own_macros():
+    # The ordering the feature rests on: descriptions are written with
+    # {{char}}/{{user}} in them, so the injection has to happen before the name
+    # substitution rather than after it.
+    m = Macros("Alice", "Bot", description="{{char}} distrusts {{user}}.")
+    assert m.resolve_message("Sheet: {{description}}") == "Sheet: Bot distrusts Alice."
+
+
+def test_description_resolves_cast_inside_itself():
+    m = Macros("Alice", "Campfire", cast="Aria, Kael", description="Present: {{cast}}.")
+    assert m.resolve_message("{{description}}") == "Present: Aria, Kael."
+
+
+def test_description_inline_macros_fire_in_messages_not_prompts():
+    # resolve_prompt exists so historical text does not re-roll; injected
+    # description prose inherits that rule rather than escaping it.
+    m = Macros("Alice", "Bot", description="a beast with {{roll::3d1}} limbs")
+    assert m.resolve_message("{{description}}") == "a beast with 3 limbs"
+    assert m.resolve_prompt("{{description}}") == "a beast with {{roll::3d1}} limbs"
+
+
+def test_seeded_description_is_byte_stable():
+    # The description lands in per-turn-rebuilt prompt fields, so a {{random}}
+    # inside it must not re-roll and bust the shared KV prefix.
+    m = Macros("Alice", "Bot", seed="conv-d", description="mood: {{random::calm::furious::wry}}")
+    first = m.resolve_message("{{description}}")
+    assert first == m.resolve_message("{{description}}")
+    assert "{{random" not in first
+
+
+def test_empty_description_leaves_the_macro_raw():
+    # Same call {{cast}} makes in a solo chat: unresolved says "no value yet"
+    # and survives to a later pass; blanking would delete the author's text.
+    assert Macros("Alice", "Bot").resolve_message("x {{description}} y") == "x {{description}} y"
+    assert Macros("Alice", "Bot", description="").resolve_prompt("{{description}}") == "{{description}}"
+
+
+def test_self_reference_terminates_after_one_pass():
+    m = Macros("Alice", "Bot", description="I am {{description}} incarnate.")
+    assert m.resolve_message("{{description}}") == "I am  incarnate."
+
+
+def test_description_containing_regex_template_syntax_is_literal():
+    # A name never carries a backslash; a description does. Passed as a plain
+    # re.sub replacement these would be read as template syntax -- \g<1> would
+    # raise and \n would become a newline.
+    m = Macros("Alice", "Bot", description=r"writes \g<1> and \n on the wall")
+    assert m.resolve_message("{{description}}") == r"writes \g<1> and \n on the wall"
+
+
+def test_backticked_description_stays_literal():
+    m = Macros("Alice", "Bot", description="prose")
+    assert m.resolve_message("use `{{description}}` in a fragment") == "use `{{description}}` in a fragment"
+
+
+def test_description_is_not_an_inline_macro():
+    # It resolves on read, like {{user}}/{{char}} -- the persist boundary must
+    # store it raw rather than baking one turn's card into history.
+    assert not has_inline_macros("{{description}}")
+    assert resolve_inline("{{description}}") == "{{description}}"
+
+
+def test_from_settings_carries_the_description():
+    m = Macros.from_settings({"user_name": "Alice"}, "Bot", description="prose")
+    assert m.description == "prose"
+    assert m.resolve_message("{{description}}") == "prose"
+
+
+def test_card_description_is_the_field_not_the_persona_join():
+    # resolve_char_context joins description + personality for the persona
+    # block; the macro is named after the field, so it carries the field alone.
+    card = {"description": "A tall woman with a limp.", "personality": "Wry, guarded"}
+    assert card_description(card) == "A tall woman with a limp."
+
+
+def test_card_description_handles_a_missing_card_or_field():
+    assert card_description(None) == ""
+    assert card_description({}) == ""
+    assert card_description({"description": None}) == ""
+    assert card_description({"description": "  padded  "}) == "padded"

@@ -481,7 +481,9 @@ async def api_summarize_conversation(
     # lock overrides the global active persona) so a summary stays consistent.
     card, active_persona = await resolve_card_and_persona(conv, settings)
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
-    macros, user_description = persona_macros(settings, char_name, active_persona, seed=conversation_macro_seed(conv))
+    macros, user_description = persona_macros(
+        settings, char_name, active_persona, seed=conversation_macro_seed(conv), card=card
+    )
     macros = macros._replace(cast=cast_names)
     speaker_names = await get_speaker_names(cid) if summary_cast.grouped else {}
 
@@ -699,7 +701,7 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     mood_frags = merge_fragments_by_id([f for f in await get_mood_fragments() if f.get("enabled", True)], card_moods)
     lorebook_entries = await get_active_lorebook_entries()
     macro_char, cast_names = macro_identity(conv, turn_cast)
-    macros, user_desc = persona_macros(settings, macro_char, active_persona, seed=conversation_macro_seed(conv))
+    macros, user_desc = persona_macros(settings, macro_char, active_persona, seed=conversation_macro_seed(conv), card=card)
     macros = macros._replace(cast=cast_names)
 
     # Resolve character context

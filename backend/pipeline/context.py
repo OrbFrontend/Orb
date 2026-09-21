@@ -8,7 +8,14 @@ from types import MappingProxyType
 from typing import Any
 
 from .. import database as db
-from ..core import CardScripts, CastMember, ChatMessage, Macros, TurnCast
+from ..core import (
+    CardScripts,
+    CastMember,
+    ChatMessage,
+    Macros,
+    TurnCast,
+    card_description,
+)
 from ..database.models import (
     ActiveLorebookEntryRow,
     CharacterCardRow,
@@ -180,15 +187,23 @@ def conversation_macro_seed(conv: Mapping[str, Any]) -> str:
 
 
 def persona_macros(
-    settings: Mapping[str, Any], char_name: str, persona: Mapping[str, Any] | None, seed: str = ""
+    settings: Mapping[str, Any],
+    char_name: str,
+    persona: Mapping[str, Any] | None,
+    seed: str = "",
+    card: Mapping[str, Any] | None = None,
 ) -> tuple[Macros, str]:
     """Build the turn :class:`Macros` plus the resolved user description.
 
     The description falls back to the global ``user_description`` setting when
     no persona row is active. *seed* (:func:`conversation_macro_seed`) keeps
     {{random}} in per-turn-resolved prompt fields byte-stable per conversation.
+
+    *card* is the character's, and feeds ``{{description}}``; the returned
+    string is the *user's*. The two are unrelated despite the shared word --
+    one names a card field, the other a persona row's.
     """
-    macros = Macros.from_settings(settings, char_name, persona, seed=seed)
+    macros = Macros.from_settings(settings, char_name, persona, seed=seed, description=card_description(card))
     user_description = persona.get("description", "") if persona else settings.get("user_description", "")
     return macros, user_description
 
@@ -204,7 +219,9 @@ def _build_prefix_from_ctx(
     """Build the LLM prefix from ctx."""
     conv = ctx.conv
     macro_char, cast_names = macro_identity(conv, ctx.cast)
-    macros, user_description = persona_macros(ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(conv))
+    macros, user_description = persona_macros(
+        ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(conv), card=ctx.card
+    )
     macros = macros._replace(cast=cast_names)
     cast = ctx.cast._replace(speaker=speaker) if ctx.cast.grouped else ctx.cast
 
@@ -292,7 +309,12 @@ async def _prepare_turn(
     """Load and freeze per-turn context."""
     macro_char, cast_names = macro_identity(ctx.conv, ctx.cast)
     macros = Macros.from_settings(
-        ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(ctx.conv), cast=cast_names
+        ctx.settings,
+        macro_char,
+        ctx.active_persona,
+        seed=conversation_macro_seed(ctx.conv),
+        cast=cast_names,
+        description=card_description(ctx.card),
     )
 
     prefix_base, agent_prefix_base = _build_prefixes(ctx, history)

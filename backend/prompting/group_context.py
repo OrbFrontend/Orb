@@ -81,10 +81,15 @@ def member_macros(macros: Macros | None, member: CastMember, roster: str) -> Mac
     a card reading "{{char}} never lies" would start being about the scene
     title. Only the seed and user name ride along untouched, so per-member
     resolution stays byte-stable turn over turn.
+
+    ``{{description}}`` scopes for the same reason, to the member's own sheet.
+    A group has no single card to read it off, and the sheet is the group's
+    counterpart: it honours a scene override where the card cannot, at the cost
+    of carrying the personality line that the solo macro leaves behind.
     """
     if macros is None:
         return None
-    return macros._replace(char=member.name, cast=roster)
+    return macros._replace(char=member.name, cast=roster, description=member.private_sheet)
 
 
 def _resolver(macros: Macros | None):

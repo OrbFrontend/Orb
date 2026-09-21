@@ -25,8 +25,13 @@ def _expanded(source: Mapping[str, Any], fields: Sequence[str], macros: Macros) 
 
 
 def _for_subject(macros: Macros, name: str) -> Macros:
-    """Use a subject's name for `{{char}}` while preserving other macros."""
-    return Macros(user=macros.user, char=name or macros.char, seed=macros.seed, cast=macros.cast)
+    """Use a subject's name for `{{char}}` while preserving other macros.
+
+    ``_replace`` rather than a field-by-field rebuild: a macro added to
+    :class:`Macros` should ride along here by default, since the only thing a
+    subject rescopes is which character ``{{char}}`` names.
+    """
+    return macros._replace(char=name or macros.char)
 
 
 def expand_style(style: Mapping[str, Any], macros: Macros) -> dict:

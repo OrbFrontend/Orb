@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from ...core.macros import Macros, resolve_inline
+from ...core.macros import Macros, card_description, resolve_inline
 from ...database import (
     clear_writer_draft,
     delete_message_with_descendants,
@@ -566,7 +566,7 @@ async def api_autocomplete(
         char_name = conv.get("character_name") or (card or {}).get("name") or "Character"
         summary_source = (card or {}).get("description") or ""
 
-    macros = Macros(user=user_name, char=char_name, cast=cast_names)
+    macros = Macros(user=user_name, char=char_name, cast=cast_names, description=card_description(card))
     messages = await get_messages(cid)
     recent = [
         {

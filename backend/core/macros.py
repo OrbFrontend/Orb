@@ -55,6 +55,41 @@ def _sub_cast(text: str, cast_names: str) -> str:
     return _outside_literals(text, lambda value: re.sub(r"\{\{cast\}\}", cast_names, value, flags=re.IGNORECASE))
 
 
+_DESCRIPTION_RE = re.compile(r"\{\{description\}\}", re.IGNORECASE)
+
+
+def _sub_description(text: str, description: str) -> str:
+    """Replace {{description}} with the character's own description prose.
+
+    This is the only macro that substitutes a *body of text* rather than a
+    name, which forces two departures from the three above:
+
+    * the replacement is a callable, so a backslash or ``\\g<1>`` inside a card
+      description is inserted literally instead of being read as ``re.sub``
+      template syntax -- names rarely contain either, descriptions do;
+    * a ``{{description}}`` written *inside* the description is dropped rather
+      than expanded again, so self-reference terminates after one pass.
+
+    An empty description leaves the macro raw, the same call {{cast}} makes in
+    a solo chat: unresolved reads as "no value here yet" and survives to a
+    later pass, where blanking would silently delete the author's text.
+    """
+    if not text or not isinstance(text, str) or not description:
+        return text or ""
+    value = _DESCRIPTION_RE.sub("", description)
+    return _outside_literals(text, lambda t: _DESCRIPTION_RE.sub(lambda _m: value, t))
+
+
+def card_description(card: Mapping[str, Any] | None) -> str:
+    """The ``{{description}}`` value for a solo conversation.
+
+    The card's own ``description`` field, alone -- not the ``description`` +
+    ``personality`` join that ``resolve_char_context`` builds for the persona
+    block. The macro is named after the field, so it carries the field.
+    """
+    return str((card or {}).get("description") or "").strip()
+
+
 _COMMENT_BODY = r"\{\{//(?:\{\{[^{}]*\}\}|(?!\}\})[\s\S])*\}\}"
 _COMMENT_RE = re.compile(rf"^[ \t]*(?:{_COMMENT_BODY}[ \t]*)+\r?\n|{_COMMENT_BODY}", re.MULTILINE)
 _ROLL_RE = re.compile(r"\{\{roll::(\d+)d(\d+)\}\}", re.IGNORECASE)
@@ -218,7 +253,12 @@ def resolve_prompt(text: str, user_name: str, char_name: str) -> str:
 
 
 class Macros(NamedTuple):
-    """Resolve {{user}}/{{char}} and inline macros for a conversation turn.
+    """Resolve {{description}}, {{user}}/{{char}}, {{cast}} and inline macros for a turn.
+
+    {{description}} expands *first*, so the description's own {{char}},
+    {{user}} and {{roll}} resolve once it is in place -- card descriptions are
+    written with them, and a description injected after substitution would
+    reach the model still holding raw macros.
 
     *seed* (normally the conversation id) makes {{random}} and {{roll}}
     deterministic in :meth:`resolve_message`, so per-turn-rebuilt prompt
@@ -231,6 +271,11 @@ class Macros(NamedTuple):
     char: str
     seed: str = ""
     cast: str = ""
+    # {{description}}: the character's own description prose, from
+    # :func:`card_description` solo and from the member's sheet in a group
+    # (``prompting.group_context.member_macros``). Unlike the three above it is
+    # a body of text, not a name -- see :func:`_sub_description`.
+    description: str = ""
 
     @classmethod
     def from_settings(
@@ -240,17 +285,20 @@ class Macros(NamedTuple):
         active_persona: Mapping[str, Any] | None = None,
         seed: str = "",
         cast: str = "",
+        description: str = "",
     ) -> Macros:
         user = active_persona.get("name", "User") if active_persona else settings.get("user_name", "User")
-        return cls(user=user, char=char_name, seed=seed, cast=cast)
+        return cls(user=user, char=char_name, seed=seed, cast=cast, description=description)
 
     def resolve_message(self, text: str) -> str:
-        """Full macro resolution ({{user}}/{{char}} + inline) for a text string."""
-        return _sub_cast(resolve_message(text, self.user, self.char, seed=self.seed), self.cast)
+        """Full macro resolution ({{description}}, {{user}}/{{char}}, {{cast}} + inline)."""
+        return _sub_cast(
+            resolve_message(_sub_description(text, self.description), self.user, self.char, seed=self.seed), self.cast
+        )
 
     def resolve_prompt(self, text: str) -> str:
-        """Only {{user}}/{{char}} substitution (no inline macros)."""
-        return _sub_cast(resolve_prompt(text, self.user, self.char), self.cast)
+        """Only substitution — {{description}}, {{user}}/{{char}}, {{cast}} (no inline macros)."""
+        return _sub_cast(resolve_prompt(_sub_description(text, self.description), self.user, self.char), self.cast)
 
     def _resolve_prompt_on_message(self, msg: Mapping[str, Any]) -> dict:
         """Apply prompt-level resolution (substitution only) to a single message dict."""

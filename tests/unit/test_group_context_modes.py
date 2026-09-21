@@ -15,6 +15,7 @@ from backend.pipeline.passes.writer import SHEET_FRAMING, build_writer_content
 from backend.prompting import build_prefix
 from backend.prompting.group_context import (
     context_size_components,
+    member_macros,
     render_active_card,
     render_cast_section,
 )
@@ -372,3 +373,26 @@ def test_the_scenes_own_directive_reaches_every_mode_and_a_cards_never_reaches_t
     tail = _tail(mode, speaker)
     assert "CARD DIRECTIVE" in tail
     assert "SCENE DIRECTIVE" not in tail
+
+
+def test_description_scopes_to_the_member_like_char_does():
+    """`{{description}}` follows `{{char}}` into the member, not the scene.
+
+    A group has no single card, so the shared macro would resolve to nothing at
+    all. The member's sheet is the group's counterpart -- and, since it is the
+    override when a scene sets one, it tracks a scene that has moved while the
+    card still asserts turn one.
+    """
+    scoped = member_macros(MACROS, KAEL, "Aria, Kael")
+    assert scoped.resolve_message("{{char}}: {{description}}") == "Kael: KAEL SHEET"
+    # ARIA carries a scene override, which _private_sheet returns in place of
+    # the card join -- the macro reads the same field, so it inherits that.
+    assert member_macros(MACROS, ARIA, "Aria, Kael").description == ARIA.private_sheet
+    # The scene-level macros are untouched: rescoping is per call, not in place.
+    assert MACROS.description == ""
+
+
+def test_scoped_description_resolves_the_members_own_char_macro():
+    aria = _member("a", "Aria", private="{{char}} keeps watch over {{user}}")
+    scoped = member_macros(MACROS, aria, "Aria, Kael")
+    assert scoped.resolve_message("{{description}}") == "Aria keeps watch over User"

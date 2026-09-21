@@ -10,6 +10,7 @@ skills.
 |---|---|
 | `{{user}}` | Your name or the active persona's name |
 | `{{char}}` | The character's name |
+| `{{description}}` | The character's description, in full |
 | `{{roll::NdM}}` | The total from N dice with M sides, such as `{{roll::2d6}}` |
 | `{{random::a::b::c}}` | One randomly selected option |
 | `{{pick::a::b::c}}` | Alias for `{{random}}` |
@@ -31,6 +32,32 @@ behind; a note sitting mid-line takes only itself. Macros inside a note are
 removed along with it rather than resolved, so `{{// ask {{user}} later }}`
 disappears completely and rolls nothing.
 
+## `{{description}}`
+
+`{{description}}` is the only macro that expands to a body of prose rather than
+a name or a word. It resolves to the character's **Description** field -- the
+field itself, not the Description and Personality that Orb joins together for
+the prompt. In a group chat it is the speaking member's sheet, the same way
+`{{char}}` is the speaking member's name.
+
+Macros inside the description resolve after it lands, so a description reading
+"{{char}} distrusts {{user}}" arrives with both names already filled in.
+
+Two things to know before using it:
+
+- **It is a prompt macro, not a display macro.** Written into a chat message it
+  reaches the model expanded, but the message bubble still shows
+  `{{description}}` -- the chat view does not hold the card's description.
+- **A description is long, and length costs.** Dropping one into text that is
+  already sent every turn pays for the same words twice, and anywhere a model
+  is asked a narrow question about the current scene, prose that does not bear
+  on the question measurably drags the answer toward the middle. A sentence you
+  write yourself usually beats the whole field.
+
+With no description to give -- a group scene with no sheet, a chat with no card
+-- `{{description}}` is left alone rather than blanked, the same as `{{cast}}`
+in a solo chat, so nothing silently disappears.
+
 `{{trim}}` joins the lines on either side of it, which is mainly how a card
 drops the blank line a note would otherwise leave behind when something follows
 it on the same line:
@@ -46,8 +73,8 @@ the macro are kept -- only newlines go.
 
 ## When values are chosen
 
-`{{user}}` and `{{char}}` always use the current names. Random values use the
-location of the macro:
+`{{user}}`, `{{char}}` and `{{description}}` always use the current values.
+Random values use the location of the macro:
 
 | Location | When it is chosen |
 |---|---|

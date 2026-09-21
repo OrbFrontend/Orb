@@ -18,7 +18,13 @@ from .locks import (
     workflow_state_lock,
     world_apply_lock,
 )
-from .macros import Macros, has_inline_macros, resolve_inline, resolve_stored_random
+from .macros import (
+    Macros,
+    card_description,
+    has_inline_macros,
+    resolve_inline,
+    resolve_stored_random,
+)
 from .reasoning import (
     CALL_BREAK,
     ReasoningChannel,
@@ -60,6 +66,7 @@ __all__ = [
     # macros — string/message transforms
     "Macros",
     "CardScripts",
+    "card_description",
     "has_inline_macros",
     "resolve_inline",
     "resolve_stored_random",

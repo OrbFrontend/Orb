@@ -163,13 +163,13 @@ async def reevaluate_changeset(changeset: Mapping[str, Any]):
     if not prefix:
         raise db.OverlayStateConflict("cannot re-evaluate: the Agent context is unavailable")
 
-    _, persona = await resolve_card_and_persona(conv, settings)
+    card, persona = await resolve_card_and_persona(conv, settings)
     # Same three substitutions the turn made, so the replayed exchange resolves
     # the way it did when it was written: a group's {{char}} is the scene title
     # (read live, so a rename follows) and {{cast}} is its roster.
     turn_cast = await db.resolve_cast(conv)
     macro_char = (conv.get("title") if turn_cast.grouped else conv.get("character_name")) or ""
-    macros, _ = persona_macros(settings, macro_char, persona, seed=conversation_macro_seed(conv))
+    macros, _ = persona_macros(settings, macro_char, persona, seed=conversation_macro_seed(conv), card=card)
     if turn_cast.grouped:
         macros = macros._replace(cast=", ".join(member.name for member in turn_cast.members))
     client = client_from_settings(settings)
