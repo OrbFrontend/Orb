@@ -178,12 +178,6 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
 
 @pytest.mark.asyncio
 async def test_saved_style_and_appearance_macros_resolve_against_this_conversation(client, monkeypatch):
-    """A style is saved once and used in every chat, so `{{char}}` is a render-time fact.
-
-    Asserted on both sides of the composer, because they are two different readers of
-    the same saved text: the prompter is *told* what the image model will receive, and
-    the image model is sent it. Either one left raw is a bug the other would hide.
-    """
     await create_character_card({"id": "mac-char", "name": "Iris"})
     await create_conversation("mac-conv", "Images", "Iris", "A moonlit room", character_card_id="mac-char")
     mid, _ = await add_message("mac-conv", "assistant", "Iris turns from the window.", 0)
@@ -201,8 +195,6 @@ async def test_saved_style_and_appearance_macros_resolve_against_this_conversati
                     "prompt_format": "tags",
                     "prompt": "masterpiece, portrait of {{char}}",
                     "negative_prompt": "{{user}} in frame",
-                    # The reason this feature exists: an edit model addresses its
-                    # reference images positionally and needs to be told who is who.
                     "extra_instructions": "<image1> is {{char}}, drawn for {{user}}.",
                     "workflow_id": "",
                 }
@@ -240,11 +232,8 @@ async def test_saved_style_and_appearance_macros_resolve_against_this_conversati
     assert compose["style_prompt"] == "masterpiece, portrait of Iris"
     assert compose["style_negative_prompt"] == "User in frame"
     assert compose["profile_negative_prompt"] == "Iris wearing a hat"
-    # The appearance sheet reaches the prompter through the subject roster, resolved
-    # against that subject's own name.
     assert [(s.name, s.appearance) for s in _sheets(compose["subjects"])] == [("Iris", "Iris has long silver hair")]
 
-    # And the same wording is what actually leaves for the image model.
     request = captured["request"]
     assert request.prompt.startswith("1girl, masterpiece, portrait of Iris")
     assert "{{" not in request.prompt
@@ -284,7 +273,6 @@ async def test_composition_skill_prose_resolves_but_its_id_stays_addressable(cli
 
     async def fake_select(**kwargs):
         captured["select"] = kwargs
-        # The selector can only answer with an id, so the id must survive expansion.
         return SkillSelection((dict(kwargs["skills"][0]),), ("Iris",), True)
 
     async def fake_compose(**kwargs):
@@ -309,7 +297,6 @@ async def test_composition_skill_prose_resolves_but_its_id_stays_addressable(cli
     assert offered["description"] == "Use when someone stands behind Iris."
     assert offered["instructions"] == "Frame from behind Iris."
     assert captured["compose"]["selected_skills"][0]["instructions"] == "Frame from behind Iris."
-    # The label is an identifier shown next to the render, not prompter prose.
     assert json.loads((await _attachment_from(response))["generation_metadata"])["composition_skills"] == [
         {"id": "over_shoulder", "label": "Over the shoulder"}
     ]

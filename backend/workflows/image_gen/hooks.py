@@ -368,12 +368,6 @@ async def _generate_fresh(
     history = _history_through(history if history is not None else ctx.history, int(message["id"]))
     if prefix is None:
         prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
-    # Saved image-gen text carries the same macros card text does, and it is expanded
-    # once, here, before anything reads it. Once because the composer is *told* what
-    # the image model receives outside its tool output: a second expansion could pick
-    # a different `{{random}}` and have it write around wording nothing ever sends.
-    # Fresh rolls rather than the conversation's seed -- a render is an explicit
-    # action like sending a message, and none of this text sits in the shared prefix.
     macros = await conversation_macros(ctx.conversation_id, ctx.settings, seed="")
     selected_style = macros_mod.expand_style(resolve_style(config, style_id), macros)
     adapter = get_adapter(config, selected_style)
@@ -403,9 +397,6 @@ async def _generate_fresh(
         ),
         macros,
     )
-    # The anchor's sheet, read back off its own subject so the negative prompt this
-    # render sends and the appearance the composer was shown resolved `{{char}}` to
-    # the same person -- in a group that is the member's name, not the scene title.
     profile = subjects[0].profile if subjects else macros_mod.expand_profile(profile, macros)
     selection = (
         await read_image_skills(

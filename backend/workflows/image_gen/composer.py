@@ -200,11 +200,7 @@ def assemble_prompts(
     scene: str,
     avoid: str,
 ) -> tuple[str, str]:
-    """Join style, character, and scene text into the final positive/negative pair.
-
-    Takes the resolved style rather than looking one up, so the wording here is the
-    same object the composer was shown: the two must not be able to disagree.
-    """
+    """Join resolved style, character, and scene text into a prompt pair."""
     prompt_format = normalize_prompt_format(str(style.get("prompt_format") or ""))
     if prompt_format == "prose":
         scene_body = strip_prose_count_prefix(scene)

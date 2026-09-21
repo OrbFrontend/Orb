@@ -1,9 +1,4 @@
-"""Macro expansion in saved image-gen text.
-
-The fields here are authored once and reused in every chat, so the contract is
-that `{{char}}` means whoever *this* render is a picture of -- which is what makes
-an edit-model instruction like "`<image1>` is `{{char}}`" work at all.
-"""
+"""Macro expansion in saved image-generation text."""
 
 from __future__ import annotations
 
@@ -40,12 +35,10 @@ def test_style_text_resolves_and_machine_fields_stay_literal():
     assert expanded["prompt"] == "masterpiece, Iris in frame"
     assert expanded["negative_prompt"] == "Chi visible"
     assert expanded["extra_instructions"] == "<image1> is Iris. Never draw Chi."
-    # Identifiers and connection wiring are machine values, not prose.
     assert expanded["id"] == "anime"
     assert expanded["label"] == "Anime"
     assert expanded["prompt_format"] == "tags"
     assert expanded["reference_source"] == "character"
-    # The caller's dict is never mutated: the saved config is read again on reroll.
     assert style["prompt"] == "masterpiece, {{char}} in frame"
 
 
@@ -76,8 +69,6 @@ def test_skill_prose_resolves_while_id_and_label_stay_addressable():
 
     assert expanded["description"] == "Use when Chi stands behind Iris."
     assert expanded["instructions"] == "Frame from behind Iris."
-    # The selector answers with an id and the render discloses the label, so both
-    # have to survive the round trip unchanged.
     assert expanded["id"] == "over_shoulder"
     assert expanded["label"] == "Over {{char}}'s shoulder"
     assert expanded["enabled"] is True
@@ -85,24 +76,19 @@ def test_skill_prose_resolves_while_id_and_label_stay_addressable():
 
 def test_each_subject_sheet_resolves_to_its_own_name():
     subjects = (
-        _subject("Mara", "{{char}} has short black hair", "{{char}} smiling"),
+        _subject(
+            "Mara",
+            "{{char}} has short black hair for {{user}} in {{cast}}",
+            "{{char}} smiling",
+        ),
         _subject("Ren", "{{char}} wears a blue jacket"),
     )
-    # A group chat's {{char}} is the scene title; a sheet saved on a card is not
-    # about the scene.
     mara, ren = macros_mod.expand_subjects(subjects, _macros(char="A quiet room", cast="Mara, Ren"))
 
-    assert mara.profile["appearance_prompt"] == "Mara has short black hair"
+    assert mara.profile["appearance_prompt"] == "Mara has short black hair for Chi in Mara, Ren"
     assert mara.profile["negative_prompt"] == "Mara smiling"
     assert ren.profile["appearance_prompt"] == "Ren wears a blue jacket"
-    # Everything else about the subject survives the rewrite.
     assert (ren.member_id, ren.card_id, ren.name) == ("member-Ren", "card-Ren", "Ren")
-
-
-def test_subject_scoping_leaves_the_other_identities_alone():
-    scoped = macros_mod.for_subject(_macros(char="A quiet room", user="Chi", cast="Mara, Ren"), "Mara")
-
-    assert (scoped.char, scoped.user, scoped.cast) == ("Mara", "Chi", "Mara, Ren")
 
 
 def test_an_unnamed_subject_keeps_the_conversation_identity():

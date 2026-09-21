@@ -284,13 +284,7 @@ async def _turn_macros(
     *,
     seed: str | None = None,
 ) -> tuple[Macros, Mapping[str, Any] | None]:
-    """Return one conversation's identity macros and the persona they resolved against.
-
-    Shared by the off-turn prefix and by `conversation_macros`, because the persona
-    a workflow's text resolves `{{user}}` against has to be the one the prefix above
-    it already used — a locked persona that only one of them honoured would name the
-    user two ways inside a single call.
-    """
+    """Build identity macros and return the persona used for `{{user}}`."""
     persona_id = (
         conv.get("persona_lock_id") or (card.get("persona_lock_id") if card else None) or settings.get("active_persona_id")
     )
@@ -313,23 +307,13 @@ async def conversation_macros(
     *,
     seed: str | None = None,
 ) -> Macros:
-    """Return the `{{user}}`/`{{char}}`/`{{cast}}` macros for one conversation.
-
-    The identity the off-turn prefix resolves against, for workflow-owned text that
-    is composed outside that prefix — saved configuration a workflow reuses in every
-    chat, where `{{char}}` can only mean something at call time.
-
-    *seed* defaults to the conversation's own, which freezes `{{random}}` and
-    `{{roll}}` per conversation so prefix text stays byte-stable turn over turn.
-    Pass `""` for text that rides a per-call tail instead of the shared prefix and
-    should roll fresh on every call.
-    """
+    """Build the macros for workflow-owned text in a conversation."""
     conv = await get_conversation(conversation_id)
     if conv is None:
         return Macros(user=str(settings.get("user_name") or "User"), char="", seed=seed or "")
     card_id = conv.get("character_card_id")
     card = await get_character_card(card_id) if card_id else None
-    macros, _persona = await _turn_macros(conv, settings, card, await resolve_cast(conv), seed=seed)
+    macros, _ = await _turn_macros(conv, settings, card, await resolve_cast(conv), seed=seed)
     return macros
 
 
