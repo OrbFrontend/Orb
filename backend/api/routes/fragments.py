@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from ...database import (
+    InteractiveFragmentReorderLaneMismatch,
     create_interactive_fragment,
     create_mood_fragment,
     delete_interactive_fragment,
@@ -13,11 +14,13 @@ from ...database import (
     get_interactive_fragments,
     get_mood_fragment,
     get_mood_fragments,
+    reorder_interactive_fragments,
     update_interactive_fragment,
     update_mood_fragment,
 )
 from ..schemas import (
     InteractiveFragmentCreate,
+    InteractiveFragmentReorder,
     InteractiveFragmentUpdate,
     MoodFragmentCreate,
     MoodFragmentUpdate,
@@ -74,6 +77,17 @@ async def api_create_interactive_fragment(data: InteractiveFragmentCreate):
     if not result:
         raise HTTPException(status_code=500, detail="Failed to create interactive fragment")
     return result
+
+
+@router.put("/api/interactive-fragments/reorder")
+async def api_reorder_interactive_fragments(data: InteractiveFragmentReorder):
+    try:
+        reordered = await reorder_interactive_fragments([(item.id, item.sort_order) for item in data.items])
+    except InteractiveFragmentReorderLaneMismatch as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    if not reordered:
+        raise HTTPException(status_code=404, detail="One or more interactive fragments no longer exist")
+    return {"ok": True}
 
 
 @router.put("/api/interactive-fragments/{fid}")

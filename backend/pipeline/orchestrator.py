@@ -155,6 +155,7 @@ async def _run_pipeline(
         effective_msg=user_message,
         active_moods=director["active_moods"],
         macro_choices=dict(director.get("macro_choices") or {}),
+        fragment_cooldowns=dict(director.get("fragment_cooldowns") or {}),
     )
     # A group exchange runs one Director for every speaker, so speakers 2..n start
     # from its result instead of re-deriving it. Which fields that covers is

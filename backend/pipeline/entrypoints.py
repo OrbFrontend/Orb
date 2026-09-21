@@ -22,7 +22,7 @@ from .context import (
 )
 from .failures import describe_failure
 from .orchestrator import _consume_direction_note_step, _run_pipeline
-from .passes.director import direction_note_step, director_stage, progressive
+from .passes.director import cooldown, direction_note_step, director_stage, progressive
 from .passes.editor.editor import AUDIT_BASELINE_WINDOW
 from .persistence import _consume_pipeline, _conversation_log_writer
 from .predicates import direction_note_recording_active
@@ -190,6 +190,7 @@ async def _prepare_regen_context(
     moods_before = await db.get_moods_before_turn(conversation_id, target["turn_index"] - 1)
     ctx.director["active_moods"] = moods_before
     ctx.director["progressive_fields"] = progressive.branch_baseline(history)
+    ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(history)
     await _load_direction_notes(ctx, conversation_id, history)
     attachments = await db.get_user_attachments_for_message(parent_msg["id"]) if parent_msg.get("role") == "user" else []
     return history, attachments
@@ -336,6 +337,7 @@ async def _generate_group_exchange(
         effective_msg=setup.macros.resolve_message(user_message),
         active_moods=ctx.director["active_moods"],
         macro_choices=dict(ctx.director.get("macro_choices") or {}),
+        fragment_cooldowns=dict(ctx.director.get("fragment_cooldowns") or {}),
     )
     async for ev in director_stage(
         cfg,
@@ -644,6 +646,7 @@ async def handle_turn(
 
         # Read progressive_fields from the grandparent node (branch-aware, unlike conversation_logs).
         ctx.director["progressive_fields"] = progressive.branch_baseline(messages)
+        ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(messages)
         await _load_direction_notes(ctx, conversation_id, messages)
 
         exchange_id: str | None = None
@@ -729,6 +732,7 @@ async def handle_speak(
         messages = await db.get_messages(conversation_id)
         await _load_direction_notes(ctx, conversation_id, messages)
         ctx.director["progressive_fields"] = progressive.branch_baseline(messages)
+        ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(messages)
         next_turn = (messages[-1]["turn_index"] + 1) if messages else 0
         async for event in _generate_group_exchange(
             ctx,
@@ -792,6 +796,7 @@ async def handle_fork_edit(
         # Reset director to branch-point baseline (branch-aware progressive_fields).
         ctx.director["active_moods"] = await db.get_moods_before_turn(conversation_id, turn_index)
         ctx.director["progressive_fields"] = progressive.branch_baseline(history)
+        ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(history)
         await _load_direction_notes(ctx, conversation_id, history)
 
         # Carry original attachments onto the new sibling.

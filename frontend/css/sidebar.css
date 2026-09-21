@@ -456,7 +456,41 @@
 
 .fragment-item:hover { background: var(--bg-hover); }
 
-#interactive-frag-list > .fragment-item {
+/* Director and Editor fragments are separated by a band behind the whole lane
+   rather than by a tint on each row -- the rows themselves stay exactly as they
+   are under Mood Fragments, and the band shows through the gaps between them.
+
+   Each hue is cut with the theme's own text colour, which drags it to whichever
+   end of the scale that theme reads against, so the band always steps away from
+   the surface in the legible direction -- darker on light themes, lighter on
+   dark ones. Themes cannot reach these lanes otherwise: no accent, background
+   image or palette recolours them or flattens them into their surface, and at
+   12% the hue only has to tell the two lanes apart, never carry the text. */
+.frag-lane {
+  border-radius: var(--radius);
+  padding: 4px 0 2px;
+  margin-bottom: 8px;
+}
+.frag-lane-director {
+  background: color-mix(in srgb, color-mix(in srgb, #4a7fe0 70%, var(--text-primary)) 12%, transparent);
+}
+.frag-lane-editor {
+  background: color-mix(in srgb, color-mix(in srgb, #e07a3c 70%, var(--text-primary)) 12%, transparent);
+}
+
+/* The band does the separating, so the heading only has to name the lane: no
+   flanking rules, and quiet enough to settle into the band rather than announce
+   itself over it. */
+.frag-lane-heading {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  opacity: 0.7;
+  padding: 0 10px 4px;
+}
+
+#interactive-frag-list .fragment-item {
   padding-left: 0;
 }
 
@@ -515,8 +549,9 @@
   background: none;
   border: none;
   font-family: inherit;
-  /* See .cast-drag: a pointer drag needs the gesture, not a scroll. */
-  touch-action: none;
+  -webkit-touch-callout: none;
+  /* See .cast-drag: a held press drags, a swipe across it still scrolls. */
+  touch-action: pan-y;
 }
 
 @media (pointer: coarse) {

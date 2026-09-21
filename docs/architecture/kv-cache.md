@@ -116,6 +116,11 @@ warms and reuses its own lane across turns.
 The exact cache hit is provider-specific. Provider `usage` is the source of
 truth; Orb's local tracker is only a diagnostic signal.
 
+Fragment cooldowns follow the same rule as the speaking-plan roster and
+per-fragment required fields: their volatile availability is stated in the
+trailing Director prompt and enforced server-side, never by changing the tool
+schema.
+
 Endpoints with `structured_tool_calls` use a response schema and omit tool
 schemas from every chat request. Native text-completion mode also omits tools
 from the prompt and uses a grammar or client-side parsing. These modes keep the

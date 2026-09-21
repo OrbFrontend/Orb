@@ -22,13 +22,14 @@ async def create_mood_fragment(data: dict) -> MoodFragmentRow:
     async with get_db() as db:
         enabled = data.get("enabled", 1)
         await db.execute(
-            "INSERT INTO mood_fragments (id, label, description, prompt_text, negative_prompt, enabled) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO mood_fragments (id, label, description, prompt_text, negative_prompt, cooldown_turns, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 data["id"],
                 data["label"],
                 data["description"],
                 data["prompt_text"],
                 data.get("negative_prompt", ""),
+                data.get("cooldown_turns", 0),
                 enabled,
             ),
         )
@@ -40,7 +41,7 @@ async def create_mood_fragment(data: dict) -> MoodFragmentRow:
 
 async def update_mood_fragment(fid: str, data: dict) -> MoodFragmentRow | None:
     async with get_db() as db:
-        allowed = ["label", "description", "prompt_text", "negative_prompt", "enabled"]
+        allowed = ["label", "description", "prompt_text", "negative_prompt", "cooldown_turns", "enabled"]
         sets, vals = _build_set_clause(allowed, data)
         if sets:
             vals.append(fid)

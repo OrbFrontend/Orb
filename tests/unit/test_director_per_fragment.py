@@ -66,7 +66,7 @@ class _FakeClient:
     is_aborted = False
 
 
-async def _run(base, fragments, settings, director=None):
+async def _run(base, fragments, settings, director=None, resting=frozenset()):
     events = [
         e
         async for e in director_pass(
@@ -78,6 +78,7 @@ async def _run(base, fragments, settings, director=None):
             _MOODS,
             fragments,
             {"direct_scene": True},
+            resting=resting,
         )
     ]
     return events[-1]["result"]
@@ -250,6 +251,31 @@ class TestPerFragmentLoop:
         assert len(base.calls) == 1
         assert result.extra_fields == {"user_intent": "x", "keywords": ["k"]}
         assert result.active_moods == ["tense"]
+
+    async def test_resting_fragment_skips_its_call(self):
+        responses = [
+            _ds_message({"keywords": ["a"]}),
+            _ds_message({"next_event": "she leaves"}),
+            _ds_message({"moods": []}),
+        ]
+        base = _FakeBase(_FRAGMENTS, responses)
+        result = await _run(base, _FRAGMENTS, self._toggle_on(), resting=frozenset({"user_intent"}))
+
+        assert len(base.calls) == 3
+        assert result.extra_fields == {"keywords": ["a"], "next_event": "she leaves"}
+        assert all("Fill ONLY the 'user_intent'" not in prompt for _, prompt in base.calls)
+
+    async def test_all_resting_still_uses_per_fragment_path(self):
+        base = _FakeBase(_FRAGMENTS, [_ds_message({"moods": []})])
+        await _run(
+            base,
+            _FRAGMENTS,
+            self._toggle_on(),
+            resting=frozenset(fragment["id"] for fragment in _FRAGMENTS),
+        )
+
+        assert len(base.calls) == 1
+        assert "Fill ONLY: moods" in base.calls[0][1]
 
 
 class TestDirectSceneRequiredStripped:

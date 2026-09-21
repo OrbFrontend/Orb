@@ -120,6 +120,7 @@ async def _persist_result(
             parent_id=user_msg_id,
             attachments=staged,
             progressive_fields=res.progressive_fields,
+            fragment_cooldowns=res.fragment_cooldowns,
             speaker_member_id=speaker_member_id,
             exchange_id=exchange_id,
             # Captured after Editor and before Prose Rewriter, so an on-demand
@@ -197,6 +198,7 @@ async def _fallback_persist(
                 accumulated_text,
                 turn_index,
                 parent_id=user_msg_id,
+                fragment_cooldowns=res.fragment_cooldowns,
                 speaker_member_id=speaker_member_id,
                 exchange_id=exchange_id,
                 # The writer stage did not finish on this abort path, so its

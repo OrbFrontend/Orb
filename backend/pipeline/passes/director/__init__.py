@@ -1,4 +1,4 @@
-from . import progressive
+from . import cooldown, progressive
 from .direction_note import (
     DirectionNoteResult,
     direction_note_step,
@@ -22,6 +22,7 @@ __all__ = [
     "build_direct_scene_override",
     "speaking_plan_instruction",
     "progressive",
+    "cooldown",
     "DirectionNoteResult",
     "extract_direction_notes",
     "direction_note_step",

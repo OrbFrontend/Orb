@@ -15,10 +15,20 @@ DIRECTOR_PREAMBLE = (
 )
 
 
-def _moods_options_block(active_moods: Sequence[str], mood_fragments: Sequence[Mapping[str, Any]]) -> str:
+def _moods_options_block(
+    active_moods: Sequence[str],
+    mood_fragments: Sequence[Mapping[str, Any]],
+    resting: frozenset[str] = frozenset(),
+) -> str:
     moods = ", ".join(active_moods) or "none"
-    fragments = "\n".join(f"* [{fragment['id']}] - use in case: {fragment['description']}" for fragment in mood_fragments)
-    return f"Previously active moods: {moods}\n\nAvailable writing moods:\n{fragments}"
+    fragments = "\n".join(
+        f"* [{fragment['id']}] - use in case: {fragment['description']}"
+        for fragment in mood_fragments
+        if fragment["id"] not in resting
+    )
+    resting_moods = [fragment["id"] for fragment in mood_fragments if fragment["id"] in resting]
+    resting_line = f"\nResting (unavailable this turn): {', '.join(resting_moods)}" if resting_moods else ""
+    return f"Previously active moods: {moods}\n\nAvailable writing moods:\n{fragments}{resting_line}"
 
 
 def build_director_tool_prompt(
@@ -31,6 +41,7 @@ def build_director_tool_prompt(
     progressive_state: dict | None = None,
     tool_schema: dict | None = None,
     cast_instruction: str = "",
+    resting: frozenset[str] = frozenset(),
 ) -> str:
     """Build the combined Director request for one tool."""
     tool = get_tool(tool_name)
@@ -49,7 +60,10 @@ def build_director_tool_prompt(
         ]
         if progressive_lines:
             parts.append("Previous progressive fields - dynamically update these:\n" + "\n".join(progressive_lines))
-        parts.append(_moods_options_block(active_moods, mood_fragments))
+        resting_fields = [fragment["id"] for fragment in (interactive_fragments or []) if fragment["id"] in resting]
+        if resting_fields:
+            parts.append(f"Resting interactive fields (unavailable this turn): {', '.join(resting_fields)}")
+        parts.append(_moods_options_block(active_moods, mood_fragments, resting))
         parts.append(f'User\'s next message (for context, take this into account when directing):\n"""{user_message}"""')
     return "\n\n".join(parts) + "]"
 
@@ -69,6 +83,7 @@ def build_director_scene_step_prompt(
     decided_fields: Sequence[tuple[str, Any]] = (),
     progressive_prior: Any = None,
     cast_instruction: str = "",
+    resting: frozenset[str] = frozenset(),
 ) -> str:
     """Build one ``direct_scene`` request targeting a single output."""
     schema = tool_schema if tool_schema is not None else require_tool("direct_scene")["schema"]
@@ -80,7 +95,7 @@ def build_director_scene_step_prompt(
         scene = [f"- {label}: {_render_decided(value)}" for label, value in decided_fields if value]
         if scene:
             parts.append("Scene direction decided this turn (pick moods that fit it):\n" + "\n".join(scene))
-        parts.append(_moods_options_block(active_moods, mood_fragments))
+        parts.append(_moods_options_block(active_moods, mood_fragments, resting))
     else:
         fragment_id = target_fragment["id"]
         hint = {

@@ -98,10 +98,12 @@ from .queries.group_members import (
     sync_group_members,
 )
 from .queries.interactive_fragments import (
+    InteractiveFragmentReorderLaneMismatch,
     create_interactive_fragment,
     delete_interactive_fragment,
     get_interactive_fragment,
     get_interactive_fragments,
+    reorder_interactive_fragments,
     update_interactive_fragment,
 )
 from .queries.library_dedupe import (
@@ -238,6 +240,7 @@ __all__ = [
     "DB_PATH",
     "DEFAULT_ENABLED_TOOLS",
     "DEFAULT_SETTINGS",
+    "InteractiveFragmentReorderLaneMismatch",
     "OverlayStateConflict",
     "PROPOSAL_STATUSES",
     "REVIEW_STATUSES",
@@ -331,6 +334,7 @@ __all__ = [
     "get_group_member_scripts",
     "get_interactive_fragment",
     "get_interactive_fragments",
+    "reorder_interactive_fragments",
     "get_lorebook_entries",
     "get_lorebook_entry",
     "get_message_by_id",

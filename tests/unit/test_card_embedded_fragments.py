@@ -22,6 +22,7 @@ def test_happy_path_shapes():
                         "description": "dark",
                         "prompt_text": "be moody",
                         "negative_prompt": "stop moping",
+                        "cooldown_turns": 4,
                         "enabled": True,
                     }
                 ],
@@ -34,6 +35,7 @@ def test_happy_path_shapes():
                         "required": True,
                         "injection_label": "Trust level",
                         "direction_note_timing": "pre_writer",
+                        "cooldown_turns": 7,
                     }
                 ],
             }
@@ -46,6 +48,7 @@ def test_happy_path_shapes():
             "description": "dark",
             "prompt_text": "be moody",
             "negative_prompt": "stop moping",
+            "cooldown_turns": 4,
             "enabled": 1,
         }
     ]
@@ -60,6 +63,7 @@ def test_happy_path_shapes():
             "injection_label": "Trust level",
             "sort_order": 10_000,
             "direction_note_timing": "pre_writer",
+            "cooldown_turns": 7,
         }
     ]
 
@@ -155,6 +159,22 @@ def test_non_string_text_fields_coerced_to_defaults():
     assert moods[0]["prompt_text"] == ""
     # injection_label falls back to the label when unusable
     assert interactive[0]["injection_label"] == "B"
+
+
+def test_cooldown_defaults_and_clamps():
+    moods, interactive = card_embedded_fragments(
+        _card(
+            {
+                "mood": [
+                    {"id": "a", "label": "A", "cooldown_turns": -2},
+                    {"id": "b", "label": "B", "cooldown_turns": "9"},
+                ],
+                "interactive": [{"id": "c", "label": "C", "cooldown_turns": 99}],
+            }
+        )
+    )
+    assert [fragment["cooldown_turns"] for fragment in moods] == [0, 0]
+    assert interactive[0]["cooldown_turns"] == 50
 
 
 def test_sort_order_offsets_by_array_position():

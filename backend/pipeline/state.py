@@ -67,6 +67,7 @@ _RESULT_FIELDS = (
     "inj_block",
     "extra_fields",
     "progressive_fields",
+    "fragment_cooldowns",
     "reasoning_director",
     "reasoning_writer",
     "reasoning_editor",
@@ -88,6 +89,7 @@ _DIRECTOR_SEED_FIELDS = (
     "latency",
     "extra_fields",
     "progressive_fields",
+    "fragment_cooldowns",
     "selected_lorebook_entries",
     "inj_block",
     "scene_direction",
@@ -123,6 +125,7 @@ class TurnState:
     latency: int = 0
     extra_fields: dict = field(default_factory=dict)
     progressive_fields: dict = field(default_factory=dict)
+    fragment_cooldowns: dict[str, int] = field(default_factory=dict)
     selected_lorebook_entries: list[str] = field(default_factory=list)
     inj_block: str = ""
     # Scene Direction before direction notes are appended.
