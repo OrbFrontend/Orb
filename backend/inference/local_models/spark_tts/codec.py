@@ -32,7 +32,9 @@ def decode(semantic: Sequence[int], speaker_tokens: Sequence[int], *, trim: bool
     )[0]
     waveform = np.asarray(audio).reshape(-1)
     if trim:
-        waveform = silence.trim_silence_edges(waveform)
+        # Cut the dead air but keep the release, then end on a short silence so
+        # the line does not stop dead on its last audible sample.
+        waveform = silence.pad_tail(silence.trim_silence_edges(waveform))
     return to_pcm16(waveform)
 
 
