@@ -198,23 +198,26 @@ export function renderInteractiveFragments() {
 
   const html = lanes
     .map((lane) => {
-      if (!grouped) return lane.items.map((f) => _interactiveFragmentRowHtml(f, null)).join("");
-      const heading = `<div class="frag-lane-heading" title="${escAttr(lane.hint)}">${esc(lane.label)}</div>`;
-      return heading + lane.items.map((f) => _interactiveFragmentRowHtml(f, lane.id)).join("");
+      const rows = lane.items.map(_interactiveFragmentRowHtml).join("");
+      if (!grouped) return rows;
+      // One band behind the whole lane, rather than a tint per row: the rows
+      // keep the same shape and spacing they have under Mood Fragments.
+      return `<div class="frag-lane frag-lane-${lane.id}">
+      <div class="frag-lane-heading" title="${escAttr(lane.hint)}">${esc(lane.label)}</div>${rows}
+    </div>`;
     })
     .join("");
 
   el.innerHTML = html + addBtn + cardHtml;
 }
 
-function _interactiveFragmentRowHtml(f, laneId) {
+function _interactiveFragmentRowHtml(f) {
   const enabled = boolFlag(f.enabled);
   const toggleId = `interactive-frag-toggle-${f.id}`;
   const userBadge = _interactiveTypeBadge(f);
   const { disabled: featureDisabled, title: itemTitle } = _featureGate(f);
-  const laneClass = laneId ? ` frag-lane-${laneId}` : "";
   return `
-    <div class="fragment-item${laneClass}${featureDisabled ? " frag-feature-disabled" : ""}" data-id="${escAttr(f.id)}" title="${escAttr(itemTitle)}" onclick="showInteractiveFragmentModal('${escHandlerArg(f.id)}')">
+    <div class="fragment-item${featureDisabled ? " frag-feature-disabled" : ""}" data-id="${escAttr(f.id)}" title="${escAttr(itemTitle)}" onclick="showInteractiveFragmentModal('${escHandlerArg(f.id)}')">
       <button type="button" class="frag-drag-handle" title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(f.label)}" onclick="event.stopPropagation()">${GRIP_ICON}</button>
       <div style="flex:1; min-width:0;">
         <span class="frag-label">${esc(f.label)}</span>${userBadge}${_cooldownBadge(f)}
