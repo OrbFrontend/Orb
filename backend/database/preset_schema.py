@@ -112,6 +112,12 @@ PRESERVED_COLUMNS: dict[str, tuple[str, ...]] = {
         "workflow_enabled",
         "local_ml_enabled",
         "local_ml_config",
+        # Which cards this user let call out to the decision classifier, and at
+        # which definitions. Consent belongs to the machine that gave it: a
+        # shared preset must not be able to pre-approve a card's questions, and
+        # an imported `enabled` flag must not be able to supply the approval it
+        # cannot carry.
+        "decision_card_approvals",
     ),
 }
 

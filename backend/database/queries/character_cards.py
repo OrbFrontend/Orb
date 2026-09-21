@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import re
 from collections.abc import Mapping, Sequence
@@ -9,7 +10,15 @@ from typing import Any, cast
 
 import aiosqlite
 
-from ...core import TurnCast, has_inline_macros, resolve_inline
+from ...core import (
+    DECISION_COLUMNS,
+    DECISION_FIELD_TYPE,
+    OUTCOME_KEYS,
+    TurnCast,
+    has_inline_macros,
+    parse_decision_definition,
+    resolve_inline,
+)
 from ...core.card_scripts import card_render_options, is_display_script
 from ..connection import (
     _build_set_clause,
@@ -104,7 +113,14 @@ _INTERACTIVE_FIELD_TYPES = {
     "feedback",
     "direction_note",
     "post_processing",
+    DECISION_FIELD_TYPE,
 }
+
+# A card's decision definitions can be arbitrarily long prose, so they are
+# bounded before they are rendered, logged, or fingerprinted. This is the hard
+# import bound the plan asks for: a large card payload must not be able to walk
+# past the per-request budgets by arriving as configuration.
+_CARD_DECISION_TEXT_LIMIT = 8_000
 
 
 def _card_fragment_entries(raw: Any) -> list[dict]:
@@ -177,35 +193,123 @@ def card_embedded_fragments(
 
     interactive: list[InteractiveFragmentRow] = []
     for i, entry in enumerate(_card_fragment_entries(frags.get("interactive"))):
-        field_type = _text(entry, "field_type", "string")
+        raw_type = _text(entry, "field_type", "string")
         timing = _text(entry, "direction_note_timing", "post_turn")
-        interactive.append(
-            cast(
-                InteractiveFragmentRow,
-                {
-                    "id": entry["id"],
-                    "label": entry["label"],
-                    "description": _text(entry, "description"),
-                    "field_type": field_type if field_type in _INTERACTIVE_FIELD_TYPES else "string",
-                    "required": int(bool(entry.get("required"))),
-                    "enabled": 1,
-                    "injection_label": _text(entry, "injection_label") or entry["label"],
-                    # Array order in the card is authoritative; the offset keeps
-                    # card fragments after globals on any sort_order re-sort.
-                    "sort_order": 10_000 + i,
-                    "direction_note_timing": timing if timing in ("pre_writer", "post_turn") else "post_turn",
-                    "cooldown_turns": _int(entry, "cooldown_turns", 0, 0, 50),
-                },
-            )
+        row = cast(
+            InteractiveFragmentRow,
+            {
+                "id": entry["id"],
+                "label": entry["label"],
+                "description": _text(entry, "description"),
+                "field_type": raw_type if raw_type in _INTERACTIVE_FIELD_TYPES else "string",
+                "required": int(bool(entry.get("required"))),
+                "enabled": 1,
+                "injection_label": _text(entry, "injection_label") or entry["label"],
+                # Array order in the card is authoritative; the offset keeps
+                # card fragments after globals on any sort_order re-sort.
+                "sort_order": 10_000 + i,
+                "direction_note_timing": timing if timing in ("pre_writer", "post_turn") else "post_turn",
+                "cooldown_turns": _int(entry, "cooldown_turns", 0, 0, 50),
+                **{column: None for column in DECISION_COLUMNS},
+            },
         )
+        if raw_type == DECISION_FIELD_TYPE:
+            # A decision is all-or-nothing. An unknown variant or a malformed
+            # definition is *skipped*, never demoted to a plain string field: a
+            # card naming a decision type Orb does not implement must contribute
+            # nothing rather than a fragment that means something else entirely
+            # and quietly joins the Director's tool schema.
+            decision = _card_decision_columns(entry)
+            if decision is None:
+                continue
+            row.update(cast(Any, decision))
+        interactive.append(row)
 
     return moods, interactive
+
+
+def _card_decision_columns(entry: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Decode one card entry's decision columns, or ``None`` if unusable.
+
+    The trust boundary for card-authored decisions: every nesting level is
+    type-checked, prose is length-capped before it can be rendered or
+    fingerprinted, and the whole set is then validated by the same
+    ``core.decisions`` parser the authoring API uses -- so a card cannot express a
+    definition the editor would reject.
+    """
+    columns: dict[str, Any] = {
+        "decision_type": _text(entry, "decision_type", "noul"),
+        "decision_placement": _text(entry, "decision_placement", "before_director"),
+        "decision_state_template": _text(entry, "decision_state_template")[:_CARD_DECISION_TEXT_LIMIT],
+        "decision_instructions": _text(entry, "decision_instructions")[:_CARD_DECISION_TEXT_LIMIT],
+        "decision_criteria": _card_outcome_map(entry.get("decision_criteria")),
+        "decision_outputs": _card_outcome_map(entry.get("decision_outputs")),
+        "decision_default": _text(entry, "decision_default", "false"),
+        "decision_resolution": _text(entry, "decision_resolution", "threshold"),
+        "decision_threshold": _card_threshold(entry.get("decision_threshold")),
+    }
+    probe = {"id": entry["id"], "label": entry["label"], "field_type": DECISION_FIELD_TYPE, **columns}
+    return columns if parse_decision_definition(probe) is not None else None
+
+
+def _card_outcome_map(raw: Any) -> dict[str, str] | None:
+    """An outcome-keyed string map from card data, length-capped, or ``None``."""
+    if not isinstance(raw, Mapping):
+        return None
+    out: dict[str, str] = {}
+    for key in OUTCOME_KEYS:
+        value = raw.get(key)
+        if not isinstance(value, str):
+            return None
+        out[key] = value[:_CARD_DECISION_TEXT_LIMIT]
+    return out
+
+
+def _card_threshold(raw: Any) -> float | None:
+    """A card-supplied threshold, or ``None`` for absent/unusable.
+
+    ``None`` is also the valid value in roll mode, so an unusable number and an
+    intentionally absent one land in the same place and the definition validator
+    decides whether that was allowed.
+    """
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    return float(raw)
+
+
+def card_decision_fingerprint(card: Mapping[str, Any] | None) -> str:
+    """A stable digest of a card's *valid* decision definitions.
+
+    What a per-card approval is recorded against. Only the fields that decide what
+    leaves this machine are hashed -- the question, its criteria, the state
+    template, and the variant -- so relabelling a decision or editing its authored
+    guidance keeps the approval, while changing what would be sent revokes it.
+    ``""`` when the card contributes no valid decision, which is the same value an
+    un-approvable card produces and therefore never matches a stored approval.
+    """
+    _, interactive = card_embedded_fragments(card)
+    definitions = [parse_decision_definition(row) for row in interactive if row.get("field_type") == DECISION_FIELD_TYPE]
+    payload = [
+        {
+            "id": definition.fragment_id,
+            "type": definition.decision_type,
+            "placement": definition.placement,
+            "state_template": definition.state_template,
+            "instructions": definition.instructions,
+            "criteria": {key: definition.criteria[key] for key in OUTCOME_KEYS if key in definition.criteria},
+        }
+        for definition in definitions
+        if definition is not None
+    ]
+    if not payload:
+        return ""
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 async def cast_embedded_fragments(
     card: Mapping[str, Any] | None,
     cast_: TurnCast | None = None,
-) -> tuple[list[MoodFragmentRow], list[InteractiveFragmentRow]]:
+) -> tuple[list[MoodFragmentRow], list[InteractiveFragmentRow], dict[str, str]]:
     """Every fragment a turn's characters contribute: the solo card's, or the cast's.
 
     A group has no single card, so its fragments are the union of its members'.
@@ -215,10 +319,20 @@ async def cast_embedded_fragments(
 
     Cards are visited once each in roster order, so two members sharing a card
     contribute one copy and the merge order stays byte-stable.
+
+    The third element maps interactive-fragment id -> contributing card id. Card
+    attribution is not decoration: a decision fragment needs a per-card approval
+    before it may run, its share of the per-exchange budget is capped per card,
+    and the Inspector has to be able to name the card an imported decision came
+    from. Deriving it here rather than re-reading the cards is what keeps that
+    free -- the rows are already in hand.
     """
     moods, interactive = card_embedded_fragments(card)
+    sources: dict[str, str] = {}
+    if card and card.get("id"):
+        sources.update({row["id"]: str(card["id"]) for row in interactive})
     if cast_ is None or not cast_.grouped:
-        return moods, interactive
+        return moods, interactive, sources
     seen: set[str] = set()
     for member in cast_.members:
         if not member.card_id or member.card_id in seen:
@@ -227,7 +341,11 @@ async def cast_embedded_fragments(
         member_moods, member_interactive = card_embedded_fragments(await get_character_card(member.card_id))
         moods.extend(member_moods)
         interactive.extend(member_interactive)
-    return moods, interactive
+        # First card wins, matching ``merge_fragments_by_id``: two members naming
+        # the same id contribute one fragment, so it has one source.
+        for row in member_interactive:
+            sources.setdefault(row["id"], member.card_id)
+    return moods, interactive, sources
 
 
 def merge_fragments_by_id(base: list, extra: Sequence[Mapping[str, Any]]) -> list:

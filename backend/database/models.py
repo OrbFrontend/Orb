@@ -119,6 +119,15 @@ class SettingsRow(_SettingsBase, total=False):
     active_persona_id: int | None
     active_endpoint_id: int | None
     agent_endpoint_id: int | None
+    # Decision classifier configuration. ``decision_endpoint_id`` is None until
+    # the user points decisions at an endpoint; until then enabled decisions use
+    # their authored fallback and make no request.
+    decision_endpoint_id: int | None
+    decision_model: str
+    decision_url: str
+    decision_config_revision: int
+    # card id -> approved definitions fingerprint, decoded by get_settings().
+    decision_card_approvals: dict[str, str]
     attachment_cache_budget_bytes: int
     attachment_access_counter: int
     generated_chars: int | None
@@ -250,11 +259,12 @@ class ConversationListRow(ConversationRow, total=False):
 class MessageRow(TypedDict):
     """A row from the ``messages`` table.
 
-    NOTE: ``progressive_fields`` and ``fragment_cooldowns`` are JSON-*decoded*
-    dicts, which is how get_path_to_leaf()/get_messages() expose them.
-    ``get_message_by_id()`` does a plain ``dict(row)`` and leaves both as raw
-    JSON *strings* -- a pre-existing inconsistency this label makes visible
-    rather than fixes.
+    NOTE: ``progressive_fields``, ``fragment_cooldowns``, ``decision_cooldowns``
+    and ``decision_evaluations`` are JSON-*decoded*, which is how
+    get_path_to_leaf()/get_messages() expose them. ``get_message_by_id()`` does a
+    plain ``dict(row)`` and leaves them as raw JSON *strings* -- a pre-existing
+    inconsistency this label makes visible rather than fixes. Readers that need a
+    decoded record from a single row use ``decision_evaluations_of()``.
     """
 
     id: int
@@ -274,6 +284,82 @@ class MessageRow(TypedDict):
     workflow_state: str | None
     speaker_member_id: str | None
     exchange_id: str | None
+    # This reply's own decision records (see :class:`DecisionEvaluations`) and
+    # the decision cooldown state as of this reply.
+    decision_evaluations: DecisionEvaluations
+    decision_cooldowns: dict[str, int]
+
+
+class DecisionEvaluationRow(TypedDict, total=False):
+    """One decision occurrence as it is persisted on a reply.
+
+    Written by ``pipeline/passes/decisions``; this is the storage shape, spelled
+    here because the row is what survives a restart and a branch copy. Optional
+    keys are genuinely absent rather than empty: a fallback has no probability to
+    record, and a threshold resolution has no draw.
+    """
+
+    fragment_id: str
+    fragment_label: str
+    injection_label: str
+    # 'global' or 'card:<card id>' — which definition list contributed it.
+    source: str
+    placement: str
+    # 'solo' or 'group'; a before-Director group decision is scene-wide.
+    scope: str
+    occurrence_id: str
+    # The message the classifier input was read from. Remapped through the
+    # message-copy mapping on a checkpoint or branch copy; a missing anchor
+    # becomes an explicit invalidation reason, never unrelated history.
+    input_branch_anchor: int | None
+    rendered_state: str
+    rendered_instructions: str
+    rendered_criteria: dict[str, str]
+    raw_request_fingerprint: str
+    resolution_policy_fingerprint: str
+    outputs: dict[str, str]
+    requested_model: str
+    returned_model: str
+    probability: float
+    draw: float
+    outcome: str
+    guidance: str
+    # 'live' | 'cache' | 'replay' | 'fallback'
+    answer_source: str
+    fallback_reason: str
+    request_id: str
+    elapsed_ms: int
+    usage: dict
+    # Set on exactly one evaluation per shared request, so a batch's usage is
+    # not counted once per fragment.
+    usage_owner: int
+
+
+class DecisionSkipRow(TypedDict, total=False):
+    """A decision that did not run, recorded for Inspector diagnostics.
+
+    It deliberately carries no outcome: a skipped decision resolved to nothing,
+    and inventing ``false`` for it would make the Inspector lie about what
+    reached the story.
+    """
+
+    fragment_id: str
+    fragment_label: str
+    source: str
+    reason: str
+
+
+class DecisionEvaluations(TypedDict, total=False):
+    """The versioned envelope stored in ``messages.decision_evaluations``.
+
+    ``version`` is read before anything else: a record written by a later Orb is
+    left alone rather than half-understood, which is what makes replay safe
+    across upgrades.
+    """
+
+    version: int
+    evaluations: list[DecisionEvaluationRow]
+    skipped: list[DecisionSkipRow]
 
 
 class UserAttachmentRow(TypedDict, total=False):
@@ -575,6 +661,19 @@ class InteractiveFragmentRow(TypedDict):
     # 'pre_writer' | 'post_turn'; which recording step fills the note. Read only for direction_note fragments.
     direction_note_timing: str
     cooldown_turns: int
+    # Decision authoring; NULL for every other field_type. ``decision_criteria``
+    # and ``decision_outputs`` are JSON-*decoded* dicts on the query paths that
+    # read this table, and validated as a set by
+    # ``backend.core.decisions.parse_decision_definition``.
+    decision_type: str | None
+    decision_placement: str | None
+    decision_state_template: str | None
+    decision_instructions: str | None
+    decision_criteria: dict[str, str] | None
+    decision_outputs: dict[str, str] | None
+    decision_default: str | None
+    decision_resolution: str | None
+    decision_threshold: float | None
 
 
 class MoodFragmentRow(TypedDict):
@@ -644,6 +743,12 @@ class ConversationLogRow(TypedDict):
     reasoning_writer: str | None
     reasoning_editor: str | None
     feedback: dict
+    # The reply's decision records, joined from ``messages`` rather than stored
+    # again here: the rendered state alone can be 16 KiB, and the message copy is
+    # already the authoritative one that replay reads. The log read is where
+    # every Inspector and log consumer meets them, so a join gives them the
+    # evaluations without a second copy per turn. ``{}`` for a turn with none.
+    decision_evaluations: dict
 
 
 class CharacterCardRow(TypedDict, total=False):

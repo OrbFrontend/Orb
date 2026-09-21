@@ -236,11 +236,30 @@ class MoodFragmentUpdate(BaseModel):
     enabled: bool | None = None
 
 
-class InteractiveFragmentCreate(BaseModel):
+# The authoring fields a decision carries. Mixed into both the create and the
+# update contract so the two cannot drift, and typed with the closed enums the
+# first release supports: an unknown variant is rejected here rather than stored
+# and skipped later, which is the difference between an author being told and an
+# author wondering.
+class _DecisionFields(BaseModel):
+    decision_type: Literal["noul"] | None = None
+    decision_placement: Literal["before_director"] | None = None
+    decision_state_template: str | None = None
+    decision_instructions: str | None = None
+    decision_criteria: dict[str, str] | None = None
+    decision_outputs: dict[str, str] | None = None
+    decision_default: Literal["true", "false"] | None = None
+    decision_resolution: Literal["threshold", "roll"] | None = None
+    decision_threshold: float | None = Field(None, ge=0.0, le=1.0)
+
+
+class InteractiveFragmentCreate(_DecisionFields):
     id: str
     label: str
     description: str
-    field_type: Literal["string", "array", "progressive", "feedback", "direction_note", "post_processing"] = "string"
+    field_type: Literal["string", "array", "progressive", "feedback", "direction_note", "post_processing", "decision"] = (
+        "string"
+    )
     required: bool = False
     enabled: bool = True
     injection_label: str
@@ -249,10 +268,12 @@ class InteractiveFragmentCreate(BaseModel):
     cooldown_turns: int = Field(0, ge=0, le=50)
 
 
-class InteractiveFragmentUpdate(BaseModel):
+class InteractiveFragmentUpdate(_DecisionFields):
     label: str | None = None
     description: str | None = None
-    field_type: Literal["string", "array", "progressive", "feedback", "direction_note", "post_processing"] | None = None
+    field_type: (
+        Literal["string", "array", "progressive", "feedback", "direction_note", "post_processing", "decision"] | None
+    ) = None
     required: bool | None = None
     enabled: bool | None = None
     injection_label: str | None = None
@@ -274,6 +295,43 @@ class InteractiveFragmentReorder(BaseModel):
         if len({item.id for item in self.items}) != len(self.items):
             raise ValueError("Each interactive fragment may appear only once in a reorder")
         return self
+
+
+class DecisionConfigUpdate(BaseModel):
+    """The classifier configuration. Credentials come from the endpoint row.
+
+    ``decision_url`` overrides the route derived from that endpoint; it exists
+    because the gateway's REST spelling is the part of the contract a release
+    gate still has to confirm, and a user should not need a new build to correct
+    it.
+    """
+
+    decision_endpoint_id: int | None = None
+    decision_model: str | None = None
+    decision_url: str | None = None
+
+
+class DecisionPreviewRequest(BaseModel):
+    """One decision definition, rendered as the turn would render it.
+
+    *conversation_id* renders against that conversation's current branch; without
+    it the preview uses the sample scene, so the editor works before any chat
+    exists. Either way the rendering contract is the pipeline's own.
+    """
+
+    fragment: dict
+    conversation_id: str | None = None
+
+
+class DecisionCardApproval(BaseModel):
+    """Local, per-card consent to send that card's questions to a provider.
+
+    ``fingerprint`` is the card's current decision definitions, echoed back from
+    a read so an approval cannot be granted against definitions the user did not
+    see. Absent means revoke.
+    """
+
+    fingerprint: str | None = None
 
 
 class WorldCreate(BaseModel):

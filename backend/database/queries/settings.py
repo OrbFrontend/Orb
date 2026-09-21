@@ -37,6 +37,7 @@ async def get_settings() -> SettingsRow:
             s.get("document_audit_toggles")
             or '{"banned_phrases":true,"repetitive_openers":true,"repetitive_templates":true,"contrastive_negation":true}'
         )
+        s["decision_card_approvals"] = json.loads(s.get("decision_card_approvals") or "{}")
         s["workflow_enabled"] = json.loads(s.get("workflow_enabled") or "{}")
         s["local_ml_enabled"] = json.loads(s.get("local_ml_enabled") or "{}")
         s["local_ml_config"] = json.loads(s.get("local_ml_config") or "{}")
@@ -336,3 +337,61 @@ async def update_settings(data: dict) -> SettingsRow:
             )
             await db.commit()
         return await get_settings()
+
+
+# ── Decision classifier configuration
+# Its own writer rather than three more entries on ``update_settings``'s
+# allowlist, because the revision bump is not optional: the raw-answer cache
+# namespace is derived from it, so a configuration change that forgot to bump it
+# would keep serving the previous configuration's answers for ten minutes.
+_DECISION_CONFIG_COLUMNS = ("decision_endpoint_id", "decision_model", "decision_url")
+
+
+async def update_decision_config(data: Mapping[str, Any]) -> SettingsRow:
+    """Write the classifier configuration and bump its revision.
+
+    A write with no recognised key is a no-op, revision included: bumping on an
+    empty PUT would invalidate a warm cache for nothing.
+    """
+    sets, vals = _build_set_clause(list(_DECISION_CONFIG_COLUMNS), dict(data))
+    if not sets:
+        return await get_settings()
+    async with get_db() as db:
+        await db.execute(
+            # One statement, so the new configuration and its revision can never
+            # be observed apart.
+            f"UPDATE settings SET {', '.join(sets)}, "  # nosec B608 — cols from a hardcoded allowlist, values parameterised
+            "decision_config_revision = decision_config_revision + 1 WHERE id = 1",
+            vals,
+        )
+        await db.commit()
+    return await get_settings()
+
+
+async def set_decision_card_approval(card_id: str, fingerprint: str | None) -> dict[str, str]:
+    """Approve *card_id*'s decisions at *fingerprint*, or revoke with ``None``.
+
+    Stored as the fingerprint rather than a boolean so a later change to the
+    card's decision definitions revokes the approval by not matching it -- the
+    user approved specific questions being sent to a provider, not the card's
+    permanent right to send anything.
+
+    One ``json_set``/``json_remove`` per call, which is atomic at the SQL layer,
+    so two concurrent approvals of different cards cannot lose one another.
+    """
+    async with get_db() as db:
+        if fingerprint is None:
+            await db.execute(
+                "UPDATE settings SET decision_card_approvals = "
+                "json_remove(COALESCE(decision_card_approvals, '{}'), '$.' || ?) WHERE id = 1",
+                (card_id,),
+            )
+        else:
+            await db.execute(
+                "UPDATE settings SET decision_card_approvals = "
+                "json_set(COALESCE(decision_card_approvals, '{}'), '$.' || ?, ?) WHERE id = 1",
+                (card_id, fingerprint),
+            )
+        await db.commit()
+        rows = list(await db.execute_fetchall("SELECT decision_card_approvals FROM settings WHERE id = 1"))
+    return json.loads(rows[0]["decision_card_approvals"] or "{}") if rows else {}

@@ -121,6 +121,14 @@ async def _persist_result(
             attachments=staged,
             progressive_fields=res.progressive_fields,
             fragment_cooldowns=res.fragment_cooldowns,
+            # Atomic with the reply, by being in its INSERT: the decisions that
+            # produced this prose and the cooldowns they started commit together
+            # with it or not at all. A stop after partial Writer output therefore
+            # retains the decisions behind that output, and a cancellation or
+            # failure that retains no reply commits no decision cooldown state --
+            # retrying such an attempt creates fresh occurrences.
+            decision_evaluations=res.decision_evaluations,
+            decision_cooldowns=res.decision_cooldowns,
             speaker_member_id=speaker_member_id,
             exchange_id=exchange_id,
             # Captured after Editor and before Prose Rewriter, so an on-demand
@@ -199,6 +207,11 @@ async def _fallback_persist(
                 turn_index,
                 parent_id=user_msg_id,
                 fragment_cooldowns=res.fragment_cooldowns,
+                # A stop after partial Writer output retains the decisions that
+                # produced it, so the saved row stays inspectable and regenerable
+                # for exactly the same reason a complete one does.
+                decision_evaluations=res.decision_evaluations,
+                decision_cooldowns=res.decision_cooldowns,
                 speaker_member_id=speaker_member_id,
                 exchange_id=exchange_id,
                 # The writer stage did not finish on this abort path, so its

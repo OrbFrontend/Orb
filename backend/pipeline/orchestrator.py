@@ -17,6 +17,7 @@ from .failures import (
     STAGE_WRITER,
     mark_stage,
 )
+from .passes.decisions import DecisionsResult
 from .passes.director import direction_note_step, director_stage
 from .passes.editor import editor_stage
 from .passes.writer import strip_speaker_label, writer_stage
@@ -96,6 +97,7 @@ async def _run_pipeline(
     context_mode: GroupContextMode = "private",
     run_director: bool = True,
     director_seed: TurnState | None = None,
+    decisions: DecisionsResult | None = None,
     run_exchange_final: bool = True,
 ) -> AsyncIterator[dict]:
     """Run the director → writer → editor passes for one turn.
@@ -137,9 +139,13 @@ async def _run_pipeline(
     # Feedback and post-processing fragments are handled after the Writer, and
     # direction-note fragments by the direction-note step; the rest shape the
     # Writer prompt.
-    writer_fragments, feedback_fragments, direction_note_fragments, post_processing_fragments = _split_interactive_fragments(
-        interactive_fragments
-    )
+    (
+        writer_fragments,
+        feedback_fragments,
+        direction_note_fragments,
+        post_processing_fragments,
+        _decision_fragments,
+    ) = _split_interactive_fragments(interactive_fragments)
 
     # Each direction-note fragment chooses its own recording placement, so a turn may run a
     # pre-writer step, a post-turn step, or both. The shared tool blob still carries the union
@@ -157,6 +163,14 @@ async def _run_pipeline(
         macro_choices=dict(director.get("macro_choices") or {}),
         fragment_cooldowns=dict(director.get("fragment_cooldowns") or {}),
     )
+    # Resolved before this call, by the stage that owns the frozen snapshot. The
+    # records ride the TurnState so persistence commits them in the same INSERT as
+    # the reply they produced; a group exchange's shared result reaches later
+    # speakers through ``director_seed`` instead, and is not re-resolved.
+    if decisions is not None:
+        state.decision_evaluations = decisions.as_envelope()
+        state.decision_cooldowns = dict(decisions.cooldowns)
+        state.decision_guidance = decisions.guidance
     # A group exchange runs one Director for every speaker, so speakers 2..n start
     # from its result instead of re-deriving it. Which fields that covers is
     # ``TurnState``'s to say (``_DIRECTOR_SEED_FIELDS``), not this module's --
@@ -179,6 +193,7 @@ async def _run_pipeline(
                 kv_tracker=kv_tracker,
                 lorebook=lorebook,
                 macros=macros,
+                decision_guidance=state.decision_guidance,
             ),
         ):
             yield ev

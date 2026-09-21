@@ -183,6 +183,18 @@ def _apply_content(content: str | list | None, fn) -> str | list | None:
 # Module-level functions
 
 
+def outside_literals(text: str, fn: Callable[[str], str]) -> str:
+    """Apply *fn* to *text*, leaving single-backticked spans verbatim.
+
+    The public seam onto :func:`_outside_literals`, for a resolver that owns its
+    own macro set rather than the grammar above -- the decision renderer, whose
+    supported macros are deliberately a short explicit list. Exported so
+    "backticked macro examples stay literal" is one implementation shared by
+    every resolver instead of a convention each one re-approximates.
+    """
+    return _outside_literals(text, fn)
+
+
 def resolve_message(text: str, user_name: str, char_name: str, seed: str = "") -> str:
     """Resolve all macros: {{user}}, {{char}}, and inline macros like {{roll}}.
 

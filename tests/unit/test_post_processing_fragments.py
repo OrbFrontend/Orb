@@ -30,19 +30,21 @@ def _fragment(fid: str, field_type: str, sort_order: int = 0) -> dict:
     }
 
 
-def test_fragment_split_has_four_disjoint_groups():
+def test_fragment_split_has_five_disjoint_groups():
     fragments = [
         _fragment("plot", "string"),
         _fragment("feedback", "feedback"),
         _fragment("note", "direction_note"),
         _fragment("humanize", "post_processing"),
+        _fragment("outcome", "decision"),
     ]
-    writer, feedback, notes, post_processing = _split_interactive_fragments(fragments)
-    assert [[f["id"] for f in group] for group in (writer, feedback, notes, post_processing)] == [
+    writer, feedback, notes, post_processing, decisions = _split_interactive_fragments(fragments)
+    assert [[f["id"] for f in group] for group in (writer, feedback, notes, post_processing, decisions)] == [
         ["plot"],
         ["feedback"],
         ["note"],
         ["humanize"],
+        ["outcome"],
     ]
 
 

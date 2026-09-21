@@ -54,7 +54,25 @@ CREATE TABLE IF NOT EXISTS settings (
     local_ml_config TEXT NOT NULL DEFAULT '{}',
     attachment_cache_budget_bytes INTEGER NOT NULL DEFAULT 524288000,
     attachment_access_counter INTEGER NOT NULL DEFAULT 0,
-    generated_chars INTEGER DEFAULT NULL
+    generated_chars INTEGER DEFAULT NULL,
+    -- Decision classifier configuration. Deliberately not in model_configs:
+    -- chat-generation hyperparameters and the Writer/Agent roles do not apply
+    -- to a classifier, and the endpoint row is referenced only for credentials.
+    decision_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
+    decision_model TEXT NOT NULL DEFAULT 'typesafe/jev-1.13',
+    -- Empty means "derive the alpha decisions route from the endpoint URL".
+    -- An override exists because that spelling is the part of the gateway
+    -- contract the release gate still has to confirm.
+    decision_url TEXT NOT NULL DEFAULT '',
+    -- Bumped on every classifier configuration write. It is part of the
+    -- raw-answer cache namespace, so a config change makes the previous
+    -- namespace's cached answers unreachable instead of mixing two configs.
+    decision_config_revision INTEGER NOT NULL DEFAULT 0,
+    -- card id -> the definitions fingerprint the user approved. Local trust
+    -- state, never part of exported card data and never taken from an imported
+    -- preset (see PRESERVED_COLUMNS in preset_schema.py): an imported `enabled`
+    -- flag must not be able to supply consent to call out to a provider.
+    decision_card_approvals TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS mood_fragments (
@@ -174,7 +192,15 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL,
     workflow_state TEXT DEFAULT NULL,
     speaker_member_id TEXT DEFAULT NULL REFERENCES group_members(id) ON DELETE SET NULL,
-    exchange_id TEXT DEFAULT NULL
+    exchange_id TEXT DEFAULT NULL,
+    -- This reply's own decision evaluations, versioned. The authoritative
+    -- replay record: regenerating this reply loads *its* records, not its
+    -- parent's baseline, which does not contain them.
+    decision_evaluations TEXT NOT NULL DEFAULT '{}',
+    -- Decision cooldowns as of this reply. Deliberately separate from
+    -- fragment_cooldowns: a decision counts completed exchanges, a Director
+    -- fragment counts firings, and one snapshot cannot mean both.
+    decision_cooldowns TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_exchange ON messages(conversation_id, exchange_id);
@@ -199,7 +225,20 @@ CREATE TABLE IF NOT EXISTS interactive_fragments (
     injection_label TEXT NOT NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
     direction_note_timing TEXT NOT NULL DEFAULT 'post_turn',
-    cooldown_turns INTEGER NOT NULL DEFAULT 0
+    cooldown_turns INTEGER NOT NULL DEFAULT 0,
+    -- Decision authoring, read only when field_type = 'decision' and NULL for
+    -- every other type. Validated together rather than per column: a decision
+    -- with criteria but no question is not a partly-configured decision, it is
+    -- an unusable one, so backend/core/decisions.py judges the whole set.
+    decision_type TEXT DEFAULT NULL,
+    decision_placement TEXT DEFAULT NULL,
+    decision_state_template TEXT DEFAULT NULL,
+    decision_instructions TEXT DEFAULT NULL,
+    decision_criteria TEXT DEFAULT NULL,
+    decision_outputs TEXT DEFAULT NULL,
+    decision_default TEXT DEFAULT NULL,
+    decision_resolution TEXT DEFAULT NULL,
+    decision_threshold REAL DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS conversation_logs (

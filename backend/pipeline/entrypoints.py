@@ -8,8 +8,8 @@ from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from typing import Any
 
 from .. import database as db
-from ..core import resolve_inline
-from ..inference import AbortToken
+from ..core import card_description, resolve_inline
+from ..inference import AbortToken, DecisionCancelled
 from ..prompting import prefix_is_speaker_scoped, tail_carries_identity
 from .cast import parse_speaking_plan, plan_cue, round_robin_member
 from .config import _resolve_pipeline_config, _split_interactive_fragments
@@ -22,6 +22,16 @@ from .context import (
 )
 from .failures import describe_failure
 from .orchestrator import _consume_direction_note_step, _run_pipeline
+from .passes.decisions import (
+    DecisionsResult,
+    DecisionsTurn,
+    advance_decision_cooldowns,
+    build_snapshot,
+    decision_cooldown_baseline,
+    run_decisions,
+    stage_has_work,
+    stored_evaluations,
+)
 from .passes.director import cooldown, direction_note_step, director_stage, progressive
 from .passes.editor.editor import AUDIT_BASELINE_WINDOW
 from .persistence import _consume_pipeline, _conversation_log_writer
@@ -128,6 +138,112 @@ async def _run_turn_handler(
         yield {"event": "error", "data": describe_failure(e)}
 
 
+async def _run_decision_stage(
+    ctx: PipelineContext,
+    *,
+    history: Sequence[Mapping[str, Any]],
+    current_request: str,
+    macros: Any,
+    anchor_message_id: int | None,
+) -> AsyncIterator[dict | DecisionsResult]:
+    """Freeze this exchange's decision input, evaluate it, and publish once.
+
+    Placed by its callers, not by a fragment list: ``sort_order`` orders decisions
+    within the stage and says nothing about where the stage sits. Every caller runs
+    it after context, branch history, persona and fragments are resolved and before
+    the Director's first request.
+
+    Yields SSE events, then exactly one :class:`DecisionsResult`. The result is
+    yielded even when nothing was eligible, because the cooldowns still have to
+    age: leaving that to "there was work to do" is how disabling every decision
+    would freeze the timers of the ones still resting.
+    """
+    prior = ctx.director.get("decision_cooldowns") or {}
+    turn = DecisionsTurn(
+        snapshot=build_snapshot(
+            history=history,
+            current_request=current_request,
+            macros=macros,
+            scope="group" if ctx.cast.grouped else "solo",
+            speaker_names=ctx.speaker_names,
+            scripts=ctx.card_scripts,
+            speaker_scripts=ctx.speaker_scripts,
+            # A group exchange has no selected speaker, so there is no single card
+            # to read {{description}} off. None, not "": a template that needs it
+            # falls back with a visible reason rather than asking about nobody.
+            description=None if ctx.cast.grouped else card_description(ctx.card),
+            anchor_message_id=anchor_message_id,
+        ),
+        candidates=ctx.decision_candidates,
+        config=ctx.decision_config,
+        prior_cooldowns=prior,
+        replay_records=tuple(ctx.director.get("decision_replay") or ()),
+        approved_cards=ctx.approved_decision_cards,
+    )
+    if not stage_has_work(turn):
+        yield DecisionsResult(cooldowns=advance_decision_cooldowns(prior, [], []))
+        return
+    yield {"event": "step_start", "data": {"step": "decisions"}}
+    try:
+        result = await run_decisions(turn, abort=ctx.client.abort_token)
+    except DecisionCancelled:
+        # A stop, not a provider failure: no fallback guidance, no advanced
+        # cooldowns, and the caller's existing abort check ends the turn. The prior
+        # state is carried verbatim so a reply that somehow still persists cannot
+        # record cooldowns this exchange never earned.
+        logger.info("Decision stage cancelled by stop")
+        yield DecisionsResult(cooldowns=dict(prior))
+        return
+    yield {"event": "decisions", "data": result.as_event_data()}
+    yield result
+
+
+def _exchange_decision_input(
+    history: Sequence[Mapping[str, Any]],
+    user_message: str,
+    parent_message_id: int | None,
+    *,
+    exchange_id: str | None,
+) -> tuple[Sequence[Mapping[str, Any]], str, int | None]:
+    """The classifier input for an exchange, reconstructed when regenerating into it.
+
+    A same-speaker regeneration of a *later* speaker is handed a branch that
+    already contains the exchange's earlier replies, and no current request of
+    its own — the target's parent is a reply, not the user's message. Taking that
+    at face value would ask the question about prose the exchange produced
+    instead of about the request it answered, so the stored answer would never
+    match and every later-speaker regeneration would silently re-ask and reroll.
+
+    Naming the target's exchange trims back to the row the exchange started
+    from. ``None`` means "this request brought its own input" — a fresh send, a
+    fork-edit, or a steered regeneration, whose steering *is* the new request and
+    deserves a new occurrence.
+    """
+    if exchange_id is None:
+        return history, user_message, parent_message_id
+    first = next((index for index, row in enumerate(history) if str(row.get("exchange_id") or "") == exchange_id), None)
+    if first is None:
+        return history, user_message, parent_message_id
+    row = history[first]
+    before = history[:first]
+    if row.get("role") == "user":
+        return before, str(row.get("content") or ""), row.get("id")
+    # No user row in the exchange: a cast-chip reply on a resting scene. Its input
+    # was the branch as it stood, anchored on the row it began from.
+    return before, "", (before[-1]["id"] if before else None)
+
+
+def _decision_replay_records(target: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The regeneration target's *own* decision records.
+
+    Loaded explicitly from the target, because the previous assistant message's
+    baseline does not contain them: cooldowns come from before the target, the
+    outcomes to replay come from the target itself, and reading one where the other
+    belongs is how a regeneration silently rerolls.
+    """
+    return stored_evaluations(db.decision_evaluations_of(target))
+
+
 async def _load_direction_notes(ctx: PipelineContext, conversation_id: str, path: Sequence[Mapping[str, Any]]) -> None:
     """Seed ``ctx.director['direction_notes']`` with the active-branch notes.
 
@@ -191,6 +307,17 @@ async def _prepare_regen_context(
     ctx.director["active_moods"] = moods_before
     ctx.director["progressive_fields"] = progressive.branch_baseline(history)
     ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(history)
+    # The decision baseline is the state from before the *exchange*, not before the
+    # message. In a group, a later speaker's immediate parent is an earlier reply in
+    # the same exchange and already carries the exchange's advanced snapshot; naming
+    # the target's exchange steps over those replies. In a solo chat the exchange id
+    # is absent and this is the plain branch baseline.
+    ctx.director["decision_cooldowns"] = decision_cooldown_baseline(
+        history, before_exchange_id=str(target.get("exchange_id") or "") or None
+    )
+    # The target's own records, loaded explicitly: the baseline above is the state
+    # before it and does not contain its outcomes.
+    ctx.director["decision_replay"] = _decision_replay_records(target)
     await _load_direction_notes(ctx, conversation_id, history)
     attachments = await db.get_user_attachments_for_message(parent_msg["id"]) if parent_msg.get("role") == "user" else []
     return history, attachments
@@ -234,6 +361,25 @@ async def _generate_reply(
             yield ev
     assert setup is not None
 
+    # prepare context → decisions → Director → Writer → Editor. The stage runs here,
+    # between the two, rather than inside ``_run_pipeline``: it owns the frozen
+    # snapshot and must be evaluated exactly once per exchange, which for a group is
+    # once for several ``_run_pipeline`` calls.
+    decisions: DecisionsResult | None = None
+    async for ev in _run_decision_stage(
+        ctx,
+        history=history,
+        # What the Writer actually receives, so Magic Rewrite / super-regenerate
+        # steering is part of the state and its fingerprint.
+        current_request=user_message,
+        macros=setup.macros,
+        anchor_message_id=user_msg_id if user_msg_id is not None else (history[-1]["id"] if history else None),
+    ):
+        if isinstance(ev, DecisionsResult):
+            decisions = ev
+        else:
+            yield ev
+
     pipeline = _run_pipeline(
         ctx.client,
         settings,
@@ -258,6 +404,7 @@ async def _generate_reply(
         schema_overrides=setup.schema_overrides,
         history=history,
         world_proposal=setup.world_proposal,
+        decisions=decisions,
     )
     async for event in _consume_pipeline(
         pipeline,
@@ -285,8 +432,15 @@ async def _generate_group_exchange(
     append_user_to_history: bool = True,
     source_user_message_id: int | None = None,
     editor_audit_msgs: list[str] | None = None,
+    decision_exchange_id: str | None = None,
 ) -> AsyncIterator[dict]:
-    """Run one shared Director setup followed by zero or more speaker pipelines."""
+    """Run one shared Director setup followed by zero or more speaker pipelines.
+
+    *decision_exchange_id* names the exchange a regeneration is replacing a reply
+    inside, so the decision stage reconstructs that exchange's original input
+    rather than reading a later speaker's reply as the current request (see
+    :func:`_exchange_decision_input`).
+    """
     settings = ctx.settings
     rows = list(ctx.group_members)
     eligible = [m for m in rows if not m.get("muted")]
@@ -331,7 +485,7 @@ async def _generate_group_exchange(
         phrase_bank=ctx.phrase_bank,
         schema_overrides=setup.schema_overrides,
     )
-    writer_fragments, _, direction_note_fragments, _ = _split_interactive_fragments(ctx.interactive_fragments)
+    writer_fragments, _, direction_note_fragments, _, _ = _split_interactive_fragments(ctx.interactive_fragments)
     shared = TurnState(
         user_message=setup.macros.resolve_message(user_message),
         effective_msg=setup.macros.resolve_message(user_message),
@@ -339,6 +493,38 @@ async def _generate_group_exchange(
         macro_choices=dict(ctx.director.get("macro_choices") or {}),
         fragment_cooldowns=dict(ctx.director.get("fragment_cooldowns") or {}),
     )
+
+    # Once per exchange, alongside the group Director and before it: the state is
+    # scene-wide and has no selected speaker, so there is one evaluation for the
+    # whole exchange. Every reply then carries a copy of these records, which is
+    # what keeps each one independently inspectable and regenerable without
+    # re-evaluating or rerolling for later speakers.
+    decisions: DecisionsResult | None = None
+    # The exchange's own input, so a same-speaker regeneration reconstructs
+    # decision state from the row the exchange began at and never from a later
+    # speaker's message.
+    decision_history, decision_request, decision_anchor = _exchange_decision_input(
+        history, user_message, parent_message_id, exchange_id=decision_exchange_id
+    )
+    async for ev in _run_decision_stage(
+        ctx,
+        history=decision_history,
+        current_request=decision_request,
+        macros=setup.macros,
+        anchor_message_id=decision_anchor,
+    ):
+        if isinstance(ev, DecisionsResult):
+            decisions = ev
+        else:
+            yield ev
+    if decisions is not None:
+        shared.decision_evaluations = decisions.as_envelope()
+        shared.decision_cooldowns = dict(decisions.cooldowns)
+        shared.decision_guidance = decisions.guidance
+    if ctx.client.is_aborted:
+        yield {"event": "done"}
+        return
+
     async for ev in director_stage(
         cfg,
         shared,
@@ -356,6 +542,7 @@ async def _generate_group_exchange(
         # Same list the plan is validated against below, so the request cannot
         # advertise a key `parse_speaking_plan` would then reject.
         speaker_keys=", ".join(str(member["speaker_key"]) for member in eligible),
+        decision_guidance=shared.decision_guidance,
     ):
         yield ev
     if ctx.client.is_aborted:
@@ -647,6 +834,9 @@ async def handle_turn(
         # Read progressive_fields from the grandparent node (branch-aware, unlike conversation_logs).
         ctx.director["progressive_fields"] = progressive.branch_baseline(messages)
         ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(messages)
+        # A fresh send creates new occurrences even for identical input text, so no
+        # replay records are seeded here.
+        ctx.director["decision_cooldowns"] = decision_cooldown_baseline(messages)
         await _load_direction_notes(ctx, conversation_id, messages)
 
         exchange_id: str | None = None
@@ -733,6 +923,7 @@ async def handle_speak(
         await _load_direction_notes(ctx, conversation_id, messages)
         ctx.director["progressive_fields"] = progressive.branch_baseline(messages)
         ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(messages)
+        ctx.director["decision_cooldowns"] = decision_cooldown_baseline(messages)
         next_turn = (messages[-1]["turn_index"] + 1) if messages else 0
         async for event in _generate_group_exchange(
             ctx,
@@ -797,6 +988,9 @@ async def handle_fork_edit(
         ctx.director["active_moods"] = await db.get_moods_before_turn(conversation_id, turn_index)
         ctx.director["progressive_fields"] = progressive.branch_baseline(history)
         ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(history)
+        # A fork-edit is a new branch and a new occurrence, even when the edited
+        # text happens to match: nothing is replayed onto it.
+        ctx.director["decision_cooldowns"] = decision_cooldown_baseline(history)
         await _load_direction_notes(ctx, conversation_id, history)
 
         # Carry original attachments onto the new sibling.
@@ -897,6 +1091,10 @@ async def handle_regenerate(
                 exchange_id=str(target.get("exchange_id") or uuid.uuid4()),
                 pinned_speaker_id=str(speaker_id),
                 source_user_message_id=source_user_id,
+                # A plain regeneration replaces one reply inside an existing
+                # exchange, so the decisions are the *exchange's* -- reconstructed
+                # from its own input, then replayed from the target's records.
+                decision_exchange_id=str(target.get("exchange_id") or "") or None,
             ):
                 yield event
             return

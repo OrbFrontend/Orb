@@ -113,8 +113,45 @@ async def get_path_to_leaf(cid: str, leaf_id: int) -> list[MessageWithAttachment
             msg["progressive_fields"] = json.loads(raw_pf) if raw_pf else {}
             raw_fc = msg.get("fragment_cooldowns")
             msg["fragment_cooldowns"] = json.loads(raw_fc) if raw_fc else {}
+            msg["decision_cooldowns"] = _decoded_json_object(msg.get("decision_cooldowns"))
+            msg["decision_evaluations"] = _decoded_json_object(msg.get("decision_evaluations"))
             path.append(cast(MessageWithAttachments, msg))
         return path
+
+
+def _decoded_json_object(raw: object) -> dict:
+    """A JSON object column as a dict; ``{}`` for empty, missing, or malformed.
+
+    Malformed decodes to empty rather than raising: these columns are snapshots
+    and diagnostics, and one unreadable row must not make a whole conversation
+    unopenable.
+    """
+    if isinstance(raw, Mapping):
+        return dict(raw)
+    if not isinstance(raw, str) or not raw.strip():
+        return {}
+    try:
+        decoded = json.loads(raw)
+    except ValueError:
+        return {}
+    return decoded if isinstance(decoded, dict) else {}
+
+
+def decision_evaluations_of(message: Mapping[str, Any] | None) -> dict:
+    """The decision-evaluation envelope on *message*, decoded.
+
+    ``get_message_by_id`` returns raw JSON strings while the path readers return
+    decoded dicts (see :class:`MessageRow`), and the regenerate path reads the
+    target through the former. One accessor so neither caller has to know which
+    shape it holds.
+    """
+    return _decoded_json_object((message or {}).get("decision_evaluations"))
+
+
+def decision_cooldowns_of(message: Mapping[str, Any] | None) -> dict[str, int]:
+    """The decision cooldown snapshot on *message*, decoded, ints only."""
+    raw = _decoded_json_object((message or {}).get("decision_cooldowns"))
+    return {str(key): int(value) for key, value in raw.items() if isinstance(value, int) and not isinstance(value, bool)}
 
 
 _USER_ATTACHMENT_COLUMNS = "id, message_id, mime_type, data_b64, filename, size, created_at"
@@ -308,6 +345,8 @@ async def add_message(
     speaker_member_id: str | None = None,
     exchange_id: str | None = None,
     writer_draft: str | None = None,
+    decision_evaluations: Mapping[str, Any] | None = None,
+    decision_cooldowns: Mapping[str, int] | None = None,
     advance_leaf: bool = False,
 ) -> tuple[int, list[dict]]:
     """Insert a message and return its id and rejected attachments."""
@@ -334,7 +373,7 @@ async def add_message(
         now = datetime.now(UTC).isoformat()
         try:
             cur = await db.execute(
-                "INSERT INTO messages (conversation_id, role, content, writer_draft, turn_index, parent_id, progressive_fields, fragment_cooldowns, created_at, speaker_member_id, exchange_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO messages (conversation_id, role, content, writer_draft, turn_index, parent_id, progressive_fields, fragment_cooldowns, created_at, speaker_member_id, exchange_id, decision_evaluations, decision_cooldowns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     cid,
                     role,
@@ -347,6 +386,13 @@ async def add_message(
                     now,
                     speaker_member_id,
                     exchange_id,
+                    # In the same INSERT as the reply, which is what makes
+                    # "persist evaluations and decision cooldown changes
+                    # atomically with a retained reply" true rather than
+                    # best-effort: a reply cannot exist without the decisions
+                    # that produced it, and neither can outlive the other.
+                    json.dumps(dict(decision_evaluations or {}), ensure_ascii=False),
+                    json.dumps(dict(decision_cooldowns or {})),
                 ),
             )
         except sqlite3.IntegrityError as e:

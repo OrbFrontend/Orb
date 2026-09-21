@@ -12,6 +12,7 @@ from .connection import (
     open_wal_anchor,
 )
 from .queries.character_cards import (
+    card_decision_fingerprint,
     card_embedded_fragments,
     cast_embedded_fragments,
     create_character_card,
@@ -139,6 +140,8 @@ from .queries.member_sheets import (
 from .queries.messages import (
     add_message,
     clear_writer_draft,
+    decision_cooldowns_of,
+    decision_evaluations_of,
     delete_message_with_descendants,
     get_active_path,
     get_deepest_descendant,
@@ -175,10 +178,12 @@ from .queries.phrase_bank import (
 from .queries.settings import (
     get_settings,
     get_workflow_config,
+    set_decision_card_approval,
     set_local_ml_config,
     set_local_ml_enabled,
     set_workflow_config,
     set_workflow_enabled,
+    update_decision_config,
     update_settings,
 )
 from .queries.stats import add_generated_chars, get_generated_chars, get_global_stats
@@ -261,10 +266,13 @@ __all__ = [
     "apply_avatar_dhash",
     "apply_changeset",
     "apply_sheet_proposal",
+    "card_decision_fingerprint",
     "card_embedded_fragments",
     "cast_embedded_fragments",
     "checkpoint_wal",
     "clear_writer_draft",
+    "decision_cooldowns_of",
+    "decision_evaluations_of",
     "close_wal_anchor",
     "convert_to_group",
     "count_pending_changesets",
@@ -401,6 +409,7 @@ __all__ = [
     "resolve_char_context",
     "set_active_leaf",
     "set_character_expressions",
+    "set_decision_card_approval",
     "set_local_ml_config",
     "set_local_ml_enabled",
     "set_public_profile",
@@ -426,6 +435,7 @@ __all__ = [
     "update_model_config",
     "update_mood_fragment",
     "update_phrase_group",
+    "update_decision_config",
     "update_settings",
     "update_user_persona",
     "update_world",

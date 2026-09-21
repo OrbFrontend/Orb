@@ -68,6 +68,8 @@ _RESULT_FIELDS = (
     "extra_fields",
     "progressive_fields",
     "fragment_cooldowns",
+    "decision_evaluations",
+    "decision_cooldowns",
     "reasoning_director",
     "reasoning_writer",
     "reasoning_editor",
@@ -90,6 +92,13 @@ _DIRECTOR_SEED_FIELDS = (
     "extra_fields",
     "progressive_fields",
     "fragment_cooldowns",
+    # The exchange's decisions are resolved once, before the Director, and every
+    # speaker's reply carries the same records so any one of them stays
+    # independently inspectable and regenerable. Copies of a shared evaluation
+    # never re-advance the cooldown — that already happened for the exchange.
+    "decision_evaluations",
+    "decision_cooldowns",
+    "decision_guidance",
     "selected_lorebook_entries",
     "inj_block",
     "scene_direction",
@@ -126,6 +135,13 @@ class TurnState:
     extra_fields: dict = field(default_factory=dict)
     progressive_fields: dict = field(default_factory=dict)
     fragment_cooldowns: dict[str, int] = field(default_factory=dict)
+    # The versioned decision record for this reply, the decision cooldown state
+    # as of it, and the guidance block those decisions produced. The guidance is
+    # carried rather than recomputed so the Director's tail and the Writer's Scene
+    # Guidance are byte-identical.
+    decision_evaluations: dict = field(default_factory=dict)
+    decision_cooldowns: dict[str, int] = field(default_factory=dict)
+    decision_guidance: str = ""
     selected_lorebook_entries: list[str] = field(default_factory=list)
     inj_block: str = ""
     # Scene Direction before direction notes are appended.

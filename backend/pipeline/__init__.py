@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from .context import conversation_macro_seed, persona_macros, resolve_card_and_persona
+from .context import (
+    conversation_macro_seed,
+    decision_preview_snapshot,
+    persona_macros,
+    resolve_card_and_persona,
+    resolve_decision_config,
+)
 from .entrypoints import (
     handle_fork_edit,
     handle_magic_rewrite,
@@ -11,6 +17,7 @@ from .entrypoints import (
     handle_super_regenerate,
     handle_turn,
 )
+from .passes.decisions import remap_anchors as remap_decision_anchors
 from .predicates import agent_enabled, resolve_persona_id
 from .state import LorebookTurn, ModelLane, TurnState, _PipelineConfig
 
@@ -29,6 +36,10 @@ __all__ = [
     "conversation_macro_seed",
     "persona_macros",
     "resolve_card_and_persona",
+    # decisions — the surfaces the api layer needs from the decision stage
+    "decision_preview_snapshot",
+    "remap_decision_anchors",
+    "resolve_decision_config",
     # state — per-turn contracts
     "LorebookTurn",
     "ModelLane",

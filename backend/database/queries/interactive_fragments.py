@@ -1,64 +1,107 @@
 from __future__ import annotations
 
-from typing import cast
+import json
+from collections.abc import Mapping
+from typing import Any, cast
 
+from ...core import DECISION_COLUMNS
 from ..connection import _build_set_clause, get_db, immediate_tx
 from ..models import InteractiveFragmentRow
 
 _EDITOR_LANE_FIELD_TYPES = frozenset(("feedback", "post_processing"))
+
+# The decision columns that hold JSON objects. Decoded here, at the read
+# boundary, so every consumer sees a mapping and none of them re-implements the
+# decode. A malformed value decodes to None rather than raising: an unusable
+# definition must degrade to "not a valid decision", which is a fallback with a
+# visible reason, not a 500 on the fragment list.
+_DECISION_JSON_COLUMNS = ("decision_criteria", "decision_outputs")
+
+# Authoring columns a create or update may write, besides the decision ones.
+_BASE_WRITE_COLUMNS = (
+    "label",
+    "description",
+    "field_type",
+    "required",
+    "enabled",
+    "injection_label",
+    "sort_order",
+    "direction_note_timing",
+    "cooldown_turns",
+)
 
 
 class InteractiveFragmentReorderLaneMismatch(ValueError):
     """A reorder attempted to mix the Director and Editor priority lanes."""
 
 
+def _decoded(row: Any) -> InteractiveFragmentRow:
+    fragment = dict(row)
+    for column in _DECISION_JSON_COLUMNS:
+        raw = fragment.get(column)
+        if isinstance(raw, str):
+            try:
+                fragment[column] = json.loads(raw) if raw.strip() else None
+            except ValueError:
+                fragment[column] = None
+    return cast(InteractiveFragmentRow, fragment)
+
+
+def _encoded_decision_values(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Serialize the JSON-valued decision fields present in *data*.
+
+    Callers pass the in-memory shape (a mapping); the column holds text. Absent
+    keys stay absent so a partial update does not blank a field it never
+    mentioned.
+    """
+    out = dict(data)
+    for column in _DECISION_JSON_COLUMNS:
+        if column in out and out[column] is not None and not isinstance(out[column], str):
+            out[column] = json.dumps(out[column], ensure_ascii=False)
+    return out
+
+
 async def get_interactive_fragments() -> list[InteractiveFragmentRow]:
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT * FROM interactive_fragments ORDER BY sort_order ASC, label ASC"))
-        return [cast(InteractiveFragmentRow, dict(r)) for r in rows]
+        return [_decoded(r) for r in rows]
 
 
 async def get_interactive_fragment(fid: str) -> InteractiveFragmentRow | None:
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT * FROM interactive_fragments WHERE id = ?", (fid,)))
-        return cast(InteractiveFragmentRow, dict(rows[0])) if rows else None
+        return _decoded(rows[0]) if rows else None
 
 
 async def create_interactive_fragment(data: dict) -> InteractiveFragmentRow | None:
+    payload = _encoded_decision_values(data)
+    columns = ("id", *_BASE_WRITE_COLUMNS, *DECISION_COLUMNS)
+    values = (
+        payload["id"],
+        payload["label"],
+        payload["description"],
+        payload.get("field_type", "string"),
+        1 if payload.get("required", False) else 0,
+        1 if payload.get("enabled", True) else 0,
+        payload["injection_label"],
+        payload.get("sort_order", 0),
+        payload.get("direction_note_timing", "post_turn"),
+        payload.get("cooldown_turns", 0),
+        *(payload.get(column) for column in DECISION_COLUMNS),
+    )
     async with get_db() as db:
         await db.execute(
-            "INSERT INTO interactive_fragments (id, label, description, field_type, required, enabled, injection_label, sort_order, direction_note_timing, cooldown_turns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                data["id"],
-                data["label"],
-                data["description"],
-                data.get("field_type", "string"),
-                1 if data.get("required", False) else 0,
-                1 if data.get("enabled", True) else 0,
-                data["injection_label"],
-                data.get("sort_order", 0),
-                data.get("direction_note_timing", "post_turn"),
-                data.get("cooldown_turns", 0),
-            ),
+            f"INSERT INTO interactive_fragments ({', '.join(columns)}) "  # nosec B608 — columns from module literals
+            f"VALUES ({', '.join('?' for _ in columns)})",
+            values,
         )
         await db.commit()
-        return await get_interactive_fragment(data["id"])
+        return await get_interactive_fragment(payload["id"])
 
 
 async def update_interactive_fragment(fid: str, data: dict) -> InteractiveFragmentRow | None:
     async with get_db() as db:
-        allowed = [
-            "label",
-            "description",
-            "field_type",
-            "required",
-            "enabled",
-            "injection_label",
-            "sort_order",
-            "direction_note_timing",
-            "cooldown_turns",
-        ]
-        sets, vals = _build_set_clause(allowed, data)
+        sets, vals = _build_set_clause([*_BASE_WRITE_COLUMNS, *DECISION_COLUMNS], _encoded_decision_values(data))
         if sets:
             vals.append(fid)
             await db.execute(

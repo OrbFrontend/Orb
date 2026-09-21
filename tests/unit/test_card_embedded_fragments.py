@@ -4,7 +4,13 @@ shapes the pipeline can consume."""
 
 from __future__ import annotations
 
+from backend.core import DECISION_COLUMNS
 from backend.database import card_embedded_fragments
+
+# Every interactive row carries the decision columns, null for the types that do
+# not use them, so one reader can ask any fragment whether it is a decision
+# without first asking what kind of fragment it is.
+NO_DECISION = {column: None for column in DECISION_COLUMNS}
 
 
 def _card(frags):
@@ -64,6 +70,7 @@ def test_happy_path_shapes():
             "sort_order": 10_000,
             "direction_note_timing": "pre_writer",
             "cooldown_turns": 7,
+            **NO_DECISION,
         }
     ]
 

@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
+from urllib.parse import urlsplit
 
 from .. import database as db
 from ..core import (
@@ -15,6 +16,8 @@ from ..core import (
     Macros,
     TurnCast,
     card_description,
+    is_decision_row,
+    parse_decision_definition,
 )
 from ..database.models import (
     ActiveLorebookEntryRow,
@@ -36,6 +39,7 @@ from ..inference import (
     _KVCacheTracker,
     agent_client_from_settings,
     client_from_settings,
+    decisions_url,
     separate_agent_lane_configured,
 )
 from ..prompting import build_prefix, macro_identity
@@ -46,6 +50,12 @@ from ..prompting.lorebook import (
     compute_lorebook_injection_block,
 )
 from .config import _build_writer_tools_blob
+from .passes.decisions import (
+    DecisionCandidate,
+    DecisionConfig,
+    DecisionSnapshot,
+    build_snapshot,
+)
 from .predicates import agent_enabled, resolve_persona_id, world_proposal_active
 from .state import LorebookTurn, WorldProposalTurn
 from .workflow_bridge import _iterate_pre_pipeline_hooks
@@ -89,6 +99,13 @@ class PipelineContext:
     speaker_scripts: Mapping[str, CardScripts] = field(default_factory=dict)
     card_scripts: CardScripts = field(default_factory=CardScripts)
     group_members: tuple[Mapping[str, Any], ...] = ()
+    # Decision definitions this conversation may evaluate, in fragment order, each
+    # attributed to the card that contributed it (``None`` = a global). The
+    # classifier configuration and this machine's per-card approvals travel with
+    # them: a definition is reusable, while consent and credentials are not.
+    decision_candidates: tuple[DecisionCandidate, ...] = ()
+    decision_config: DecisionConfig = field(default_factory=DecisionConfig)
+    approved_decision_cards: frozenset[str] = frozenset()
 
 
 async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
@@ -114,7 +131,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     speaker_scripts = await db.get_group_member_scripts(conversation_id, members=all_group_members) if cast.grouped else {}
     # Card-embedded fragments merge into the global lists for this turn only
     # (the context is rebuilt per turn); on id collision the global wins.
-    card_moods, card_interactive = await db.cast_embedded_fragments(card, cast)
+    card_moods, card_interactive, card_fragment_sources = await db.cast_embedded_fragments(card, cast)
     mood_fragments = db.merge_fragments_by_id([f for f in await db.get_mood_fragments() if f.get("enabled", True)], card_moods)
     # Prune active moods that reference disabled fragments.
     if director and director.get("active_moods"):
@@ -123,6 +140,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     interactive_fragments = db.merge_fragments_by_id(
         [df for df in await db.get_interactive_fragments() if df.get("enabled", True)], card_interactive
     )
+    decision_candidates = _decision_candidates(interactive_fragments, card_fragment_sources)
     phrase_bank = await db.get_phrase_bank()
     lorebook_entries = await db.get_active_lorebook_entries()
     worlds = await db.get_worlds()
@@ -160,7 +178,123 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         card_scripts=CardScripts.from_extensions(card.get("extensions") if card else None),
         speaker_names={m["id"]: m["display_name"] for m in all_group_members},
         group_members=tuple(m for m in all_group_members if m.get("active")),
+        decision_candidates=decision_candidates,
+        decision_config=await resolve_decision_config(settings),
+        approved_decision_cards=await _approved_decision_cards(settings, decision_candidates, card),
     )
+
+
+def _decision_candidates(
+    fragments: Sequence[Mapping[str, Any]],
+    card_fragment_sources: Mapping[str, str],
+) -> tuple[DecisionCandidate, ...]:
+    """The valid decision definitions among *fragments*, in fragment order.
+
+    An unparseable definition is dropped here rather than carried as a candidate
+    that would fall back every turn: a row that is not a decision has nothing for
+    the stage to ask, and the editor is where an author is told why. Order is the
+    merged global-then-card order, which is what gives the stage a deterministic
+    budget priority.
+    """
+    candidates: list[DecisionCandidate] = []
+    for row in fragments:
+        if not is_decision_row(row):
+            continue
+        definition = parse_decision_definition(row)
+        if definition is None:
+            continue
+        candidates.append(DecisionCandidate(definition=definition, card_id=card_fragment_sources.get(row["id"])))
+    return tuple(candidates)
+
+
+async def resolve_decision_config(settings: Mapping[str, Any]) -> DecisionConfig:
+    """Resolve the classifier route and credentials from the configured endpoint.
+
+    An unset or dangling endpoint yields an unconfigured config, which is not an
+    error: enabled decisions then use their authored fallback and make no request,
+    and the editor says so rather than hiding the fragment.
+    """
+    endpoint_id = settings.get("decision_endpoint_id")
+    model = str(settings.get("decision_model") or "")
+    if not endpoint_id or not model:
+        return DecisionConfig()
+    endpoint = await db.get_endpoint(int(endpoint_id))
+    if endpoint is None:
+        return DecisionConfig()
+    override = str(settings.get("decision_url") or "")
+    return DecisionConfig(
+        url=override or decisions_url(endpoint["url"]),
+        api_key=endpoint.get("api_key", ""),
+        model=model,
+        proxy=endpoint.get("proxy", "") or "",
+        # Identity, never the credential: this string becomes a cache namespace.
+        endpoint_identity=f"{urlsplit(endpoint['url']).netloc}#{endpoint['id']}",
+        revision=int(settings.get("decision_config_revision") or 0),
+    )
+
+
+async def decision_preview_snapshot(conversation_id: str) -> DecisionSnapshot | None:
+    """The snapshot the *next* turn of *conversation_id* would freeze.
+
+    The editor's preview and the Inspector use the same rendering contract as the
+    turn, and this is where that promise is kept: same projection, same scope,
+    same identity macros. ``None`` when the conversation is gone.
+
+    Read-only. It loads context and builds a snapshot; it evaluates nothing,
+    advances no cooldown, and writes no record.
+    """
+    ctx = await _load_pipeline_context(conversation_id)
+    if ctx is None:
+        return None
+    messages = await db.get_messages(conversation_id)
+    # The branch as the next turn would see it: a trailing user row is the current
+    # request, and everything before it is the input branch.
+    trailing_user = bool(messages) and messages[-1]["role"] == "user"
+    current = str(messages[-1]["content"]) if trailing_user else ""
+    history = messages[:-1] if trailing_user else messages
+    macro_char, cast_names = macro_identity(ctx.conv, ctx.cast)
+    macros, _ = persona_macros(
+        ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(ctx.conv), card=ctx.card
+    )
+    return build_snapshot(
+        history=history,
+        current_request=current,
+        macros=macros._replace(cast=cast_names),
+        scope="group" if ctx.cast.grouped else "solo",
+        speaker_names=ctx.speaker_names,
+        scripts=ctx.card_scripts,
+        speaker_scripts=ctx.speaker_scripts,
+        description=None if ctx.cast.grouped else card_description(ctx.card),
+        anchor_message_id=messages[-1]["id"] if messages else None,
+    )
+
+
+async def _approved_decision_cards(
+    settings: Mapping[str, Any],
+    candidates: Sequence[DecisionCandidate],
+    solo_card: Mapping[str, Any] | None,
+) -> frozenset[str]:
+    """Cards whose decision definitions this machine has approved, as they stand.
+
+    Only cards that actually contribute a decision are read, so a scene whose cast
+    embeds none pays nothing for this. The stored value is the definitions
+    fingerprint rather than a flag: a card that changed what it would send no
+    longer matches, so the approval is revoked by the change itself instead of by
+    someone remembering to revoke it.
+    """
+    card_ids = {candidate.card_id for candidate in candidates if candidate.card_id}
+    if not card_ids:
+        return frozenset()
+    approvals = settings.get("decision_card_approvals") or {}
+    approved: set[str] = set()
+    for card_id in sorted(card_ids):
+        stored = approvals.get(card_id)
+        if not stored:
+            continue
+        row = solo_card if solo_card and solo_card.get("id") == card_id else await db.get_character_card(card_id)
+        if row is not None and db.card_decision_fingerprint(row) == stored:
+            approved.add(card_id)
+    return frozenset(approved)
 
 
 async def resolve_card_and_persona(
