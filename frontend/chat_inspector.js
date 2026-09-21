@@ -442,17 +442,12 @@ function _renderDirectorPanel({ activeIds, latency, toolCalls, injection, feedba
         `<span class="style-tag ${activeIds.includes(f.id) ? "active" : ""} ${restingIds.has(f.id) ? "resting" : ""}">${esc(f.label)}</span>`,
     )
     .join("");
-  const restingHtml = Object.entries(resting || {})
-    .filter(([, turns]) => Number(turns) >= 1)
-    .map(([id, turns]) => `<span class="style-tag resting">${esc(id)} · ${esc(String(turns))}</span>`)
-    .join("");
   withReasoningScroll(() => {
     $("inspector-content").innerHTML = `
       <div class="inspector-block" id="inspector-context-size"></div>
       <div class="inspector-block"><h4>Moods</h4>
         <div>${stylesHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
       </div>
-      ${restingHtml ? `<div class="inspector-block"><h4>Resting Fragments</h4><div>${restingHtml}</div></div>` : ""}
       ${_buildReasoningHtml()}
       ${buildFeedbackHtml(feedback)}
       ${buildDirectionNotesHtml(directionNotes)}
