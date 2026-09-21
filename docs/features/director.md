@@ -63,3 +63,7 @@ Fragments run from top to bottom within their stage. Earlier Director values can
 provide context for later values, and the Writer sees them in the same order.
 Post-processing fragments run afterward as Editor tasks and do not enter the
 Director schema or Scene Guidance.
+
+The Interactive Fragments sidebar separates Director and Editor work into
+lanes. Reorder within a lane to set that lane's priority; fragments cannot move
+between lanes, and changing one lane does not renumber the other.

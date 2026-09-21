@@ -40,11 +40,18 @@ export function dropTargetIndex(rects, y) {
  * Make `container`'s items reorderable by dragging their handle, or by pressing
  * ArrowUp/ArrowDown while the handle has focus. Touch and pen have to hold the
  * handle still for a moment before the row is picked up. `onReorder(container)`
- * fires once per committed reorder. Returns a teardown function.
+ * fires once per committed reorder. ``itemContainer`` can narrow an item's
+ * reorder scope to a nested list; it receives the row and the root container.
+ * This lets one surface present independent sortable lanes without allowing a
+ * row to cross from one lane into another. Returns a teardown function.
  */
-export function initDragReorder(container, { itemSelector, handleSelector, onReorder = null } = {}) {
+export function initDragReorder(
+  container,
+  { itemSelector, handleSelector, itemContainer = null, onReorder = null } = {},
+) {
   let item = null;
   let handleEl = null;
+  let reorderContainer = null;
   let pointerId = null;
   let startIndex = -1;
   let startX = 0;
@@ -57,8 +64,14 @@ export function initDragReorder(container, { itemSelector, handleSelector, onReo
   let scroller = null;
   let rafId = 0;
   let keyCommitTimer = 0;
+  let keyReorderContainer = null;
 
-  const items = () => [...container.querySelectorAll(itemSelector)];
+  function containerFor(row) {
+    const scoped = itemContainer?.(row, container);
+    return scoped && container.contains(scoped) && scoped.contains(row) ? scoped : container;
+  }
+
+  const items = () => [...(reorderContainer || container).querySelectorAll(itemSelector)];
 
   function scrollportFor(el) {
     for (let node = el.parentElement; node; node = node.parentElement) {
@@ -144,6 +157,7 @@ export function initDragReorder(container, { itemSelector, handleSelector, onReo
     holdTimer = 0;
     if (rafId) cancelAnimationFrame(rafId);
     rafId = 0;
+    const committedContainer = reorderContainer || container;
     const moved = armed && items().indexOf(item) !== startIndex;
     const wasDragged = dragged;
     item.classList.remove("dragging");
@@ -159,13 +173,14 @@ export function initDragReorder(container, { itemSelector, handleSelector, onReo
     document.removeEventListener("touchmove", blockScroll);
     item = null;
     handleEl = null;
+    reorderContainer = null;
     pointerId = null;
     scroller = null;
     armed = false;
     heldPickup = false;
     dragged = false;
     if (wasDragged) swallowNextClick();
-    if (moved) onReorder?.(container);
+    if (moved) onReorder?.(committedContainer);
   }
 
   function onPointerMove(e) {
@@ -194,6 +209,7 @@ export function initDragReorder(container, { itemSelector, handleSelector, onReo
     if (!row) return;
     item = row;
     handleEl = handle;
+    reorderContainer = containerFor(row);
     pointerId = e.pointerId;
     startIndex = items().indexOf(row);
     startX = e.clientX;
@@ -222,13 +238,16 @@ export function initDragReorder(container, { itemSelector, handleSelector, onReo
     if (!handle || !container.contains(handle)) return;
     const row = handle.closest(itemSelector);
     if (!row) return;
-    const rows = items();
+    const scope = containerFor(row);
+    const rows = [...scope.querySelectorAll(itemSelector)];
     const to = rows.indexOf(row) + (e.key === "ArrowUp" ? -1 : 1);
     if (to < 0 || to >= rows.length) return;
     e.preventDefault();
     if (e.key === "ArrowUp") rows[to].before(row);
     else rows[to].after(row);
     handle.focus();
+    if (keyCommitTimer && keyReorderContainer !== scope) commitKeyMoves();
+    keyReorderContainer = scope;
     clearTimeout(keyCommitTimer);
     keyCommitTimer = setTimeout(commitKeyMoves, KEY_COMMIT_MS);
   }
@@ -237,7 +256,9 @@ export function initDragReorder(container, { itemSelector, handleSelector, onReo
     if (!keyCommitTimer) return;
     clearTimeout(keyCommitTimer);
     keyCommitTimer = 0;
-    onReorder?.(container);
+    const scope = keyReorderContainer || container;
+    keyReorderContainer = null;
+    onReorder?.(scope);
   }
 
   container.addEventListener("pointerdown", onPointerDown);

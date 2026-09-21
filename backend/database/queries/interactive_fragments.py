@@ -2,8 +2,14 @@ from __future__ import annotations
 
 from typing import cast
 
-from ..connection import _build_set_clause, get_db
+from ..connection import _build_set_clause, get_db, immediate_tx
 from ..models import InteractiveFragmentRow
+
+_EDITOR_LANE_FIELD_TYPES = frozenset(("feedback", "post_processing"))
+
+
+class InteractiveFragmentReorderLaneMismatch(ValueError):
+    """A reorder attempted to mix the Director and Editor priority lanes."""
 
 
 async def get_interactive_fragments() -> list[InteractiveFragmentRow]:
@@ -61,6 +67,36 @@ async def update_interactive_fragment(fid: str, data: dict) -> InteractiveFragme
             )
             await db.commit()
         return await get_interactive_fragment(fid)
+
+
+async def reorder_interactive_fragments(items: list[tuple[str, int]]) -> bool:
+    """Atomically update a lane's existing fragment-priority slots.
+
+    Callers send only the fragments in the reordered lane. All ids are checked
+    while holding SQLite's write lock, so a stale, mixed-lane, or malformed
+    batch cannot partly update priorities.
+    """
+    if not items:
+        return True
+
+    ids = [fid for fid, _ in items]
+    placeholders = ", ".join("?" for _ in ids)
+    async with immediate_tx() as db:
+        rows = list(
+            await db.execute_fetchall(
+                f"SELECT id, field_type FROM interactive_fragments WHERE id IN ({placeholders})",  # nosec B608 -- placeholder count derives solely from bound ids
+                ids,
+            )
+        )
+        if {str(row["id"]) for row in rows} != set(ids):
+            return False
+        lanes = {"editor" if row["field_type"] in _EDITOR_LANE_FIELD_TYPES else "director" for row in rows}
+        if len(lanes) != 1:
+            raise InteractiveFragmentReorderLaneMismatch("Fragments must belong to the same priority lane")
+        await db.executemany(
+            "UPDATE interactive_fragments SET sort_order = ? WHERE id = ?", [(order, fid) for fid, order in items]
+        )
+    return True
 
 
 async def delete_interactive_fragment(fid: str) -> bool:

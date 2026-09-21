@@ -173,7 +173,6 @@ export async function loadInteractiveFragments() {
 export function renderInteractiveFragments() {
   const el = document.getElementById("interactive-frag-list");
   if (!el) return;
-  setupDragAndDrop(el);
   const cardHtml = _cardInteractiveSidepanelHtml();
   const addBtn = `<button class="btn btn-block btn-sm" onclick="showInteractiveFragmentModal()" style="margin-top:6px">+ Add Interactive Fragment</button>`;
   if ((!S.interactiveFragments || S.interactiveFragments.length === 0) && !cardHtml) {
@@ -209,6 +208,7 @@ export function renderInteractiveFragments() {
     .join("");
 
   el.innerHTML = html + addBtn + cardHtml;
+  setupDragAndDrop(el);
 }
 
 function _interactiveFragmentRowHtml(f) {
@@ -238,30 +238,32 @@ function setupDragAndDrop(container) {
   initDragReorder(container, {
     itemSelector: ".fragment-item",
     handleSelector: ".frag-drag-handle",
+    itemContainer: (item, root) => item.closest(".frag-lane") || root,
     onReorder: updateFragmentOrder,
   });
 }
 
 function updateFragmentOrder(container) {
   const items = container.querySelectorAll(".fragment-item");
+  // A lane's order is its priority for the passes that consume it. Retain the
+  // lane's existing global priority slots instead of renumbering every
+  // fragment: that keeps Director and Editor priorities independent.
+  const prioritySlots = Array.from(items)
+    .map((item) => {
+      const fragment = S.interactiveFragments.find((f) => f.id === item.dataset.id);
+      return Number(fragment?.sort_order) || 0;
+    })
+    .sort((a, b) => a - b);
   const updatedOrder = Array.from(items).map((item, index) => ({
     id: item.dataset.id,
-    sort_order: index,
+    sort_order: prioritySlots[index],
   }));
   updatedOrder.forEach(({ id, sort_order }) => {
     const frag = S.interactiveFragments.find((f) => f.id === id);
     if (frag) frag.sort_order = sort_order;
   });
-  // A row dragged across the lane boundary keeps its lane, so the DOM it landed
-  // in would contradict the headings. Re-render to put it back among its own.
-  const laneOrder = updatedOrder.map(({ id }) => {
-    const frag = S.interactiveFragments.find((f) => f.id === id);
-    return frag ? _interactiveLane(frag) : INTERACTIVE_LANES[0].id;
-  });
-  if (laneOrder.some((lane, i) => i > 0 && lane === "director" && laneOrder[i - 1] === "editor")) {
-    renderInteractiveFragments();
-  }
-  Promise.all(updatedOrder.map(({ id, sort_order }) => api.put(`/interactive-fragments/${id}`, { sort_order })))
+  api
+    .put("/interactive-fragments/reorder", { items: updatedOrder })
     .then(() => {
       toast("Interactive fragments reordered");
     })

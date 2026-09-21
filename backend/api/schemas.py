@@ -261,6 +261,21 @@ class InteractiveFragmentUpdate(BaseModel):
     cooldown_turns: int | None = Field(None, ge=0, le=50)
 
 
+class InteractiveFragmentOrderItem(BaseModel):
+    id: str
+    sort_order: int
+
+
+class InteractiveFragmentReorder(BaseModel):
+    items: list[InteractiveFragmentOrderItem] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _unique_ids(self):
+        if len({item.id for item in self.items}) != len(self.items):
+            raise ValueError("Each interactive fragment may appear only once in a reorder")
+        return self
+
+
 class WorldCreate(BaseModel):
     name: str
 

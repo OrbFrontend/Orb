@@ -99,6 +99,51 @@ async def test_update_nonexistent_interactive_fragment_returns_404(client, db):
     assert resp.status_code == 404
 
 
+async def test_reorder_interactive_fragments_updates_a_lane_atomically(client, db):
+    await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
+    await client.post("/api/interactive-fragments", json={**_BASE_PAYLOAD, "id": "focus", "label": "Focus", "sort_order": 11})
+
+    response = await client.put(
+        "/api/interactive-fragments/reorder",
+        json={"items": [{"id": "pacing", "sort_order": 11}, {"id": "focus", "sort_order": 10}]},
+    )
+
+    assert response.status_code == 200
+    async with db.execute(
+        "SELECT id, sort_order FROM interactive_fragments WHERE id IN ('pacing', 'focus') ORDER BY id"
+    ) as cur:
+        rows = await cur.fetchall()
+    assert [(row["id"], row["sort_order"]) for row in rows] == [("focus", 10), ("pacing", 11)]
+
+
+async def test_reorder_interactive_fragments_rejects_a_missing_item_without_partial_update(client, db):
+    await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
+
+    response = await client.put(
+        "/api/interactive-fragments/reorder",
+        json={"items": [{"id": "pacing", "sort_order": 99}, {"id": "gone", "sort_order": 10}]},
+    )
+
+    assert response.status_code == 404
+    async with db.execute("SELECT sort_order FROM interactive_fragments WHERE id = 'pacing'") as cur:
+        row = await cur.fetchone()
+    assert row["sort_order"] == 10
+
+
+async def test_reorder_interactive_fragments_rejects_mixed_lanes(client, db):
+    await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
+
+    response = await client.put(
+        "/api/interactive-fragments/reorder",
+        json={"items": [{"id": "pacing", "sort_order": 5}, {"id": "suggested_actions", "sort_order": 10}]},
+    )
+
+    assert response.status_code == 422
+    async with db.execute("SELECT sort_order FROM interactive_fragments WHERE id = 'pacing'") as cur:
+        row = await cur.fetchone()
+    assert row["sort_order"] == 10
+
+
 async def test_delete_interactive_fragment_removes_from_db(client, db):
     await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
     resp = await client.delete("/api/interactive-fragments/pacing")
