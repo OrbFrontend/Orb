@@ -640,7 +640,7 @@ function applyProfile(profile) {
   if (voice && profile.voice_id) voice.innerHTML = opt(profile.voice_id, profile.voice_id, true);
   const enabled = document.getElementById("tts-pf-enabled");
   if (enabled) enabled.checked = Boolean(profile.enabled);
-  applyFieldVisibility(profile.backend || backend?.value || "edge");
+  applyFieldVisibility(profile.backend || backend?.value || "spark");
   renderCloneControl();
   loadedProfile = readForm();
 }
@@ -670,7 +670,7 @@ function readForm() {
   const val = (id) => document.getElementById(id);
   return {
     enabled: !!val("tts-pf-enabled")?.checked,
-    backend: val("tts-pf-backend")?.value || "edge",
+    backend: val("tts-pf-backend")?.value || "spark",
     voice_id: val("tts-pf-voice")?.value || "",
     speaker_tokens: cloned.tokens,
     speaker_ref_name: cloned.name,
@@ -687,7 +687,7 @@ function readForm() {
 }
 
 function onBackendChange() {
-  const backend = document.getElementById("tts-pf-backend")?.value || "edge";
+  const backend = document.getElementById("tts-pf-backend")?.value || "spark";
   const apiUrl = document.getElementById("tts-pf-api_url");
   if (apiUrl && !apiUrl.value && DEFAULT_API_URL[backend]) apiUrl.value = DEFAULT_API_URL[backend];
   applyFieldVisibility(backend);

@@ -72,7 +72,8 @@ def _patch_adapter(monkeypatch):
 
 def test_normalize_profile_fills_defaults():
     p = synth.normalize_profile(None)
-    assert p["backend"] == "edge"
+    assert p["backend"] == "spark"
+    assert p["voice_id"] == "cloned"
     assert p["enabled"] is False
     assert "endpoint_id" not in p
 

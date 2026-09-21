@@ -30,8 +30,8 @@ WORKFLOW_ID = "tts"
 # Voice identity and credentials both live here; ``enabled`` gates automatic
 # per-turn generation for the character.
 PROFILE_DEFAULTS: dict = {
-    "backend": "edge",
-    "voice_id": "en-US-JennyNeural",
+    "backend": "spark",
+    "voice_id": "cloned",
     "language": "en-US",
     "rate": 1.0,
     "pitch": 1.0,
@@ -241,7 +241,7 @@ async def synthesize(text: str, profile: dict, *, settings: Mapping[str, Any] | 
     Raises ``ValueError`` for an unknown backend (from ``get_adapter``) or
     when the backend produces no audio.
     """
-    backend = profile.get("backend") or "edge"
+    backend = profile.get("backend") or "spark"
     adapter = get_adapter(backend)
     # Preview is literal input, not an RP message needing dialogue discovery.
     spoken = " ".join(text.split())
@@ -363,7 +363,7 @@ async def synthesize_blocks(
     legacy: bool = False,
 ) -> tuple[bytes, str, list[dict]]:
     """Render each speakable block as a self-contained clip."""
-    backend = profile.get("backend") or "edge"
+    backend = profile.get("backend") or "spark"
     adapter = get_adapter(backend)
     if speech_chunks is not None:
         chunks = [SpeakableChunk(**chunk) for chunk in speech_chunks]

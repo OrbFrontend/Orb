@@ -78,7 +78,7 @@ async def post_pipeline(ctx):
         logger.exception("tts auto-generation failed")
         return
 
-    att = _attachment(text, profile, audio, mime, profile.get("backend", "edge"), blocks)
+    att = _attachment(text, profile, audio, mime, profile.get("backend", "spark"), blocks)
     att["source"] = f"workflow:{WORKFLOW_ID}"
     yield {"type": "attach_artifact", "attachment": att}
     yield {"event": "phase_status", "data": {"channel": f"workflow:{WORKFLOW_ID}", "state": "done"}}
@@ -105,7 +105,7 @@ async def regenerate(ctx, body):
     except Exception:
         logger.exception("tts regenerate failed for attachment %s", ctx.attachment_id)
         return []
-    return [_attachment(text, profile, audio, mime, profile.get("backend", "edge"), blocks)]
+    return [_attachment(text, profile, audio, mime, profile.get("backend", "spark"), blocks)]
 
 
 async def reroll_gen(ctx, params, seed):
@@ -156,7 +156,7 @@ async def _create(ctx, body) -> dict:
         logger.exception("tts create failed for message %s", mid)
         return {"error": "synthesis failed"}
     new_id, rejected = await insert_workflow_attachment(
-        mid, _attachment(text, profile, audio, mime, profile.get("backend", "edge"), blocks)
+        mid, _attachment(text, profile, audio, mime, profile.get("backend", "spark"), blocks)
     )
     if new_id is None:
         return {"error": "attachment rejected", "reason": (rejected or {}).get("reason")}
@@ -204,7 +204,7 @@ async def query(ctx, body):
 
 
 async def _list_voices(body) -> dict:
-    backend = body.get("backend") or "edge"
+    backend = body.get("backend") or "spark"
     try:
         adapter = get_adapter(backend)
         voices = await adapter.list_voices(
@@ -220,7 +220,7 @@ async def _list_voices(body) -> dict:
 
 
 async def _list_models(body) -> dict:
-    backend = body.get("backend") or "edge"
+    backend = body.get("backend") or "spark"
     try:
         adapter = get_adapter(backend)
         models = await adapter.list_models(
