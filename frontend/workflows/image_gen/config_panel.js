@@ -231,6 +231,7 @@ export async function refreshCardReadiness() {
     };
   }
   refreshCard();
+  if (cardReadiness.failure) probeStyleWorkflow(cardReadiness.failure.style_id);
 }
 
 /** Probe the selected ComfyUI workflow. */
