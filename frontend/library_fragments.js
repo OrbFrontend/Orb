@@ -146,6 +146,20 @@ export async function toggleMoodFragmentEnabled(id, newEnabled) {
   }
 }
 
+// Interactive fragments run in one of two lanes: the Director shapes the scene
+// the writer works from, the Editor acts on the reply once it exists. The
+// sidepanel groups by lane so the two never read as one undifferentiated list.
+const EDITOR_LANE_FIELD_TYPES = new Set(["feedback", "post_processing"]);
+
+const INTERACTIVE_LANES = [
+  { id: "director", label: "Director", hint: "Directs the scene the writer works from" },
+  { id: "editor", label: "Editor", hint: "Acts on the reply after it is written" },
+];
+
+function _interactiveLane(f) {
+  return EDITOR_LANE_FIELD_TYPES.has(f.field_type) ? "editor" : "director";
+}
+
 export async function loadInteractiveFragments() {
   try {
     S.interactiveFragments = await api.get("/interactive-fragments");
@@ -174,14 +188,33 @@ export function renderInteractiveFragments() {
     return a.id.localeCompare(b.id);
   });
 
-  const html = sorted
-    .map((f) => {
-      const enabled = boolFlag(f.enabled);
-      const toggleId = `interactive-frag-toggle-${f.id}`;
-      const userBadge = _interactiveTypeBadge(f);
-      const { disabled: featureDisabled, title: itemTitle } = _featureGate(f);
-      return `
-    <div class="fragment-item${featureDisabled ? " frag-feature-disabled" : ""}" data-id="${escAttr(f.id)}" title="${escAttr(itemTitle)}" onclick="showInteractiveFragmentModal('${escHandlerArg(f.id)}')">
+  const lanes = INTERACTIVE_LANES.map((lane) => ({
+    ...lane,
+    items: sorted.filter((f) => _interactiveLane(f) === lane.id),
+  })).filter((lane) => lane.items.length);
+  // Only one lane in play needs no grouping at all: the section header already
+  // accounts for it, and tinting every row would be decoration without a point.
+  const grouped = lanes.length > 1;
+
+  const html = lanes
+    .map((lane) => {
+      if (!grouped) return lane.items.map((f) => _interactiveFragmentRowHtml(f, null)).join("");
+      const heading = `<div class="frag-lane-heading" title="${escAttr(lane.hint)}">${esc(lane.label)}</div>`;
+      return heading + lane.items.map((f) => _interactiveFragmentRowHtml(f, lane.id)).join("");
+    })
+    .join("");
+
+  el.innerHTML = html + addBtn + cardHtml;
+}
+
+function _interactiveFragmentRowHtml(f, laneId) {
+  const enabled = boolFlag(f.enabled);
+  const toggleId = `interactive-frag-toggle-${f.id}`;
+  const userBadge = _interactiveTypeBadge(f);
+  const { disabled: featureDisabled, title: itemTitle } = _featureGate(f);
+  const laneClass = laneId ? ` frag-lane-${laneId}` : "";
+  return `
+    <div class="fragment-item${laneClass}${featureDisabled ? " frag-feature-disabled" : ""}" data-id="${escAttr(f.id)}" title="${escAttr(itemTitle)}" onclick="showInteractiveFragmentModal('${escHandlerArg(f.id)}')">
       <button type="button" class="frag-drag-handle" title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(f.label)}" onclick="event.stopPropagation()">${GRIP_ICON}</button>
       <div style="flex:1; min-width:0;">
         <span class="frag-label">${esc(f.label)}</span>${userBadge}${_cooldownBadge(f)}
@@ -194,10 +227,6 @@ export function renderInteractiveFragments() {
         </label>
       </div>
     </div>`;
-    })
-    .join("");
-
-  el.innerHTML = html + addBtn + cardHtml;
 }
 
 function setupDragAndDrop(container) {
@@ -220,6 +249,15 @@ function updateFragmentOrder(container) {
     const frag = S.interactiveFragments.find((f) => f.id === id);
     if (frag) frag.sort_order = sort_order;
   });
+  // A row dragged across the lane boundary keeps its lane, so the DOM it landed
+  // in would contradict the headings. Re-render to put it back among its own.
+  const laneOrder = updatedOrder.map(({ id }) => {
+    const frag = S.interactiveFragments.find((f) => f.id === id);
+    return frag ? _interactiveLane(frag) : INTERACTIVE_LANES[0].id;
+  });
+  if (laneOrder.some((lane, i) => i > 0 && lane === "director" && laneOrder[i - 1] === "editor")) {
+    renderInteractiveFragments();
+  }
   Promise.all(updatedOrder.map(({ id, sort_order }) => api.put(`/interactive-fragments/${id}`, { sort_order })))
     .then(() => {
       toast("Interactive fragments reordered");
