@@ -2,7 +2,7 @@
 // imports workflow_registry.js, also DOM-free), so it loads under node --test.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { charactersView, localMlReady, notify, S, subscribe } from "../../frontend/state.js";
+import { charactersView, localMlReady, notify, restingCooldowns, S, subscribe } from "../../frontend/state.js";
 
 test("charactersView returns the full set when allCharacters is populated", () => {
   S.allCharacters = [{ id: 1 }, { id: 2 }];
@@ -85,4 +85,57 @@ test("localMlReady only holds runtime_ok against a feature that reports one", ()
   };
   assert.equal(localMlReady("in_process"), true); // no runtime of its own to be missing
   assert.equal(localMlReady("llama_server"), false);
+});
+
+// A solo branch where `stormy` fires on reply 3 with a two-turn cooldown: it is
+// held out of replies 5 and 7, and free again on 9. Each row carries the state
+// its own turn leaves behind, which is why reading a turn's resting set off its
+// own row would mark `stormy` on 3 (the turn it fired) and clear it on 7 (a turn
+// it is still held out of).
+const soloPath = [
+  { id: 1, role: "assistant", fragment_cooldowns: {} },
+  { id: 2, role: "user" },
+  { id: 3, role: "assistant", fragment_cooldowns: { stormy: 2 } },
+  { id: 4, role: "user" },
+  { id: 5, role: "assistant", fragment_cooldowns: { stormy: 1 } },
+  { id: 6, role: "user" },
+  { id: 7, role: "assistant", fragment_cooldowns: {} },
+  { id: 8, role: "user" },
+  { id: 9, role: "assistant", fragment_cooldowns: {} },
+];
+
+test("restingCooldowns leaves the turn a fragment fires on free", () => {
+  S.messages = soloPath;
+  assert.deepEqual(restingCooldowns(3), {});
+});
+
+test("restingCooldowns rests a fragment for every turn its cooldown covers", () => {
+  S.messages = soloPath;
+  assert.deepEqual(restingCooldowns(5), { stormy: 2 });
+  assert.deepEqual(restingCooldowns(7), { stormy: 1 });
+});
+
+test("restingCooldowns frees a fragment once its cooldown has run out", () => {
+  S.messages = soloPath;
+  assert.deepEqual(restingCooldowns(9), {});
+});
+
+test("restingCooldowns reads past a group exchange, not the previous speaker", () => {
+  // One Director run covers the whole exchange, so every speaker row carries the
+  // same state it leaves behind. Speaker two must not read speaker one's row.
+  S.messages = [
+    { id: 1, role: "assistant", exchange_id: "e1", fragment_cooldowns: { sulky: 2 } },
+    { id: 2, role: "user" },
+    { id: 3, role: "assistant", exchange_id: "e2", fragment_cooldowns: { flirty: 1 } },
+    { id: 4, role: "assistant", exchange_id: "e2", fragment_cooldowns: { flirty: 1 } },
+  ];
+  assert.deepEqual(restingCooldowns(3), { sulky: 2 });
+  assert.deepEqual(restingCooldowns(4), { sulky: 2 });
+});
+
+test("restingCooldowns rests nothing for a first reply or an unknown message", () => {
+  S.messages = soloPath;
+  assert.deepEqual(restingCooldowns(1), {});
+  assert.deepEqual(restingCooldowns(404), {});
+  assert.deepEqual(restingCooldowns(null), {});
 });

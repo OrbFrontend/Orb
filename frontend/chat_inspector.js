@@ -4,7 +4,7 @@ import { USER_NOTE_ID } from "./direction_notes_panel.js";
 import { CHEVRON_RIGHT_ICON } from "./icons.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { preserveScroll } from "./scroll_follow.js";
-import { effectiveWorkflowEnabled, interactiveFragmentsView, moodFragmentsView, S } from "./state.js";
+import { effectiveWorkflowEnabled, interactiveFragmentsView, moodFragmentsView, restingCooldowns, S } from "./state.js";
 import { $, esc, escAttr, escHandlerArg, sentenceTail } from "./utils.js";
 
 export const REASONING_PASSES = [
@@ -493,7 +493,7 @@ function _renderInspectorMain() {
       injection: insp.injection_block || "",
       feedback: insp.feedback,
       directionNotes: insp.direction_notes,
-      resting: S.messages.find((message) => message.id === S.inspectedMsgId)?.fragment_cooldowns || {},
+      resting: restingCooldowns(S.inspectedMsgId),
     });
     return;
   }
@@ -520,6 +520,12 @@ function _renderInspectorMain() {
   const ds = S.directorState || {};
   const ld = S.lastDirectorData || {};
   const lastAssistant = [...S.messages].reverse().find((message) => message.role === "assistant");
+  // Director data from this session describes the turn that just ran, so its
+  // resting moods are the ones held over from before that turn. Without it the
+  // panel describes the turn about to run, whose resting moods are the ones the
+  // latest reply carries -- which is also what a turn still streaming reads,
+  // since its own reply is not synced until the stream ends.
+  const turnJustRan = Boolean(S.lastDirectorData) && !S.isStreaming && lastAssistant?.id != null;
   _renderDirectorPanel({
     activeIds: ld.active_moods || ds.active_moods || [],
     latency: ld.agent_latency_ms || 0,
@@ -527,7 +533,7 @@ function _renderInspectorMain() {
     injection: ld.injection_block || "",
     feedback: S.lastFeedback?.values,
     directionNotes: S.lastDirectionNotes?.notes,
-    resting: ld.fragment_cooldowns ?? lastAssistant?.fragment_cooldowns ?? {},
+    resting: turnJustRan ? restingCooldowns(lastAssistant.id) : lastAssistant?.fragment_cooldowns || {},
   });
 }
 
