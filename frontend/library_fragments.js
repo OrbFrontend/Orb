@@ -8,11 +8,6 @@ import { validate } from "./validate.js";
 
 const _dragAndDropContainers = new WeakSet();
 
-function _cooldownBadge(fragment) {
-  const turns = Number(fragment.cooldown_turns) || 0;
-  return turns ? ` <span class="frag-type-badge" title="Cooldown: ${turns} turns">C${turns}</span>` : "";
-}
-
 export async function loadMoodFragments() {
   try {
     S.moodFragments = await api.get("/fragments");
@@ -39,7 +34,7 @@ export function renderMoodFragments() {
       return `
     <div class="fragment-item" style="cursor:pointer" title="${escAttr(f.description)}" onclick="showMoodFragmentModal('${escHandlerArg(f.id)}')">
       <div style="flex:1; min-width:0;">
-        <span class="frag-label">${esc(f.label)}</span>${_cooldownBadge(f)}
+        <span class="frag-label">${esc(f.label)}</span>
       </div>
       <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
         <label class="tog" for="${toggleId}">
@@ -220,7 +215,7 @@ function _interactiveFragmentRowHtml(f) {
     <div class="fragment-item${featureDisabled ? " frag-feature-disabled" : ""}" data-id="${escAttr(f.id)}" title="${escAttr(itemTitle)}" onclick="showInteractiveFragmentModal('${escHandlerArg(f.id)}')">
       <button type="button" class="frag-drag-handle" title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(f.label)}" onclick="event.stopPropagation()">${GRIP_ICON}</button>
       <div style="flex:1; min-width:0;">
-        <span class="frag-label">${esc(f.label)}</span>${userBadge}${_cooldownBadge(f)}
+        <span class="frag-label">${esc(f.label)}</span>${userBadge}
       </div>
       <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
         <label class="tog" for="${toggleId}">
@@ -506,9 +501,7 @@ function _featureGate(f) {
 function _cardMoodSidepanelHtml() {
   const frags = S.cardMoodFragments || [];
   if (!frags.length) return "";
-  const items = frags
-    .map((f) => `<span title="${escAttr(f.description || "")}">${esc(f.label)}${_cooldownBadge(f)}</span>`)
-    .join("");
+  const items = frags.map((f) => `<span title="${escAttr(f.description || "")}">${esc(f.label)}</span>`).join("");
   return `<div class="frag-divider">From character</div><div class="frag-card-list">${items}</div>`;
 }
 
@@ -518,7 +511,7 @@ function _cardInteractiveSidepanelHtml() {
   const items = frags
     .map((f) => {
       const { disabled, title } = _featureGate(f);
-      return `<span${disabled ? ' class="frag-feature-disabled"' : ""} title="${escAttr(title)}">${esc(f.label)}${_interactiveTypeBadge(f)}${_cooldownBadge(f)}</span>`;
+      return `<span${disabled ? ' class="frag-feature-disabled"' : ""} title="${escAttr(title)}">${esc(f.label)}${_interactiveTypeBadge(f)}</span>`;
     })
     .join("");
   return `<div class="frag-divider">From character</div><div class="frag-card-list">${items}</div>`;
@@ -543,7 +536,7 @@ export function renderCardFragmentsTab() {
   const row = (type, f) => `
     <div class="fragment-item" data-type="${escAttr(type)}" data-id="${escAttr(f.id)}">
       <div style="flex:1; min-width:0;">
-        <span class="frag-label">${esc(f.label || f.id)}</span>${type === "mood" ? "" : _interactiveTypeBadge(f)}${_cooldownBadge(f)}
+        <span class="frag-label">${esc(f.label || f.id)}</span>${type === "mood" ? "" : _interactiveTypeBadge(f)}
         ${f.description ? `<div class="frag-desc">${esc(f.description)}</div>` : ""}
       </div>
       <div class="frag-toggle-wrapper" data-action="toggle">
