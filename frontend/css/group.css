@@ -175,9 +175,11 @@
   padding: 2px 4px;
   line-height: 1;
   user-select: none;
-  /* The drag is pointer-driven; without this the browser claims the touch for
-     scrolling and no pointermove ever arrives. */
-  touch-action: none;
+  -webkit-touch-callout: none;
+  /* A touch press has to be held before it picks the row up (drag_reorder.js),
+     so the browser has to keep the scroll until then. Only `none` here would
+     make the handle a dead zone for every swipe that crosses it. */
+  touch-action: pan-y;
 }
 
 .cast-drag:active {

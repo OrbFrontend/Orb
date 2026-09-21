@@ -549,8 +549,9 @@
   background: none;
   border: none;
   font-family: inherit;
-  /* See .cast-drag: a pointer drag needs the gesture, not a scroll. */
-  touch-action: none;
+  -webkit-touch-callout: none;
+  /* See .cast-drag: a held press drags, a swipe across it still scrolls. */
+  touch-action: pan-y;
 }
 
 @media (pointer: coarse) {
