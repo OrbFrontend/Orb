@@ -452,6 +452,11 @@ class TestComputeStyleInjectionBlock:
         result = compute_style_injection_block(["tense"], [], frags, [], True, {"plot_summary": "x"})
         assert "Write with tension." in result
 
+    def test_negative_prompt_fires_when_last_mood_deactivates(self):
+        frags = self._make_mood_frags()
+        result = compute_style_injection_block([], ["tense"], frags, [], True, {})
+        assert "Relax." in result
+
     def test_extra_fields_rendered_dynamically(self):
         dir_frags = self._make_director_frags()
         extra = {"plot_summary": "The hero fell.", "next_event": "She escapes."}

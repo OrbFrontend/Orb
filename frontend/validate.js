@@ -228,6 +228,11 @@ export function validateMoodFragment(data) {
   const negLen = maxLength(negativePrompt, MAX_FRAGMENT_NEGATIVE_PROMPT, "Negative prompt");
   if (!negLen.valid) return negLen;
 
+  const cooldownRange = numberRange(data.cooldown_turns, 0, 50, "Cooldown");
+  if (!cooldownRange.valid) return cooldownRange;
+  const cooldownInteger = isInteger(data.cooldown_turns, "Cooldown");
+  if (!cooldownInteger.valid) return cooldownInteger;
+
   return { valid: true };
 }
 
@@ -266,6 +271,11 @@ export function validateInteractiveFragment(data) {
   if (data.field_type !== undefined && !FRAGMENT_FIELD_TYPES.includes(data.field_type)) {
     return { valid: false, error: `Field type must be one of: ${FRAGMENT_FIELD_TYPES.join(", ")}` };
   }
+
+  const cooldownRange = numberRange(data.cooldown_turns, 0, 50, "Cooldown");
+  if (!cooldownRange.valid) return cooldownRange;
+  const cooldownInteger = isInteger(data.cooldown_turns, "Cooldown");
+  if (!cooldownInteger.valid) return cooldownInteger;
 
   return { valid: true };
 }

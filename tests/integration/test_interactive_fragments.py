@@ -11,6 +11,7 @@ _BASE_PAYLOAD = {
     "enabled": True,
     "injection_label": "Pacing",
     "sort_order": 10,
+    "cooldown_turns": 3,
 }
 
 
@@ -33,6 +34,7 @@ async def test_create_interactive_fragment_persists_to_db(client, db):
     assert body["label"] == "Pacing"
     assert body["injection_label"] == "Pacing"
     assert body["field_type"] == "string"
+    assert body["cooldown_turns"] == 3
 
     async with db.execute("SELECT * FROM interactive_fragments WHERE id = 'pacing'") as cur:
         row = await cur.fetchone()
@@ -40,6 +42,7 @@ async def test_create_interactive_fragment_persists_to_db(client, db):
     assert row["label"] == "Pacing"
     assert row["injection_label"] == "Pacing"
     assert row["field_type"] == "string"
+    assert row["cooldown_turns"] == 3
 
 
 async def test_create_duplicate_interactive_fragment_returns_400(client, db):
@@ -55,20 +58,33 @@ async def test_create_interactive_fragment_with_array_type(client, db):
     assert resp.json()["field_type"] == "array"
 
 
+async def test_interactive_fragment_cooldown_is_bounded(client, db):
+    for value in (-1, 51):
+        response = await client.post(
+            "/api/interactive-fragments",
+            json={**_BASE_PAYLOAD, "id": f"invalid-{value}", "cooldown_turns": value},
+        )
+        assert response.status_code == 422
+
+
 async def test_update_interactive_fragment_persists_to_db(client, db):
     await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
     resp = await client.put(
         "/api/interactive-fragments/pacing",
-        json={"label": "Scene Pacing", "injection_label": "Scene pacing"},
+        json={"label": "Scene Pacing", "injection_label": "Scene pacing", "cooldown_turns": 5},
     )
     assert resp.status_code == 200
     assert resp.json()["label"] == "Scene Pacing"
     assert resp.json()["injection_label"] == "Scene pacing"
+    assert resp.json()["cooldown_turns"] == 5
 
-    async with db.execute("SELECT label, injection_label FROM interactive_fragments WHERE id = 'pacing'") as cur:
+    async with db.execute(
+        "SELECT label, injection_label, cooldown_turns FROM interactive_fragments WHERE id = 'pacing'"
+    ) as cur:
         row = await cur.fetchone()
     assert row["label"] == "Scene Pacing"
     assert row["injection_label"] == "Scene pacing"
+    assert row["cooldown_turns"] == 5
 
 
 async def test_update_enabled_flag(client, db):

@@ -27,7 +27,7 @@ from ....prompting.tool_catalog import require_tool
 from ....prompting.tool_schemas import build_direct_scene_tool
 from ...predicates import direction_note_to_director, direction_note_to_writer
 from ...tools import DIRECTOR_LOOP_TOOL_NAMES
-from . import progressive
+from . import cooldown, progressive
 from .direction_note_prompts import render_direction_notes_block
 from .lorebook_select import LorebookSelectResult, lorebook_select_step
 from .prompts import build_director_scene_step_prompt, build_director_tool_prompt
@@ -206,6 +206,7 @@ async def director_pass(
     progressive_state: dict | None = None,
     direction_notes_block: str = "",
     speaker_keys: str = "",
+    resting: frozenset[str] = frozenset(),
 ) -> AsyncIterator[dict]:
     """Yield reasoning chunks during each tool call, then a single done dict.
 
@@ -268,7 +269,11 @@ async def director_pass(
             # resolved last, in a call of their own, so they are picked to fit the
             # scene already directed (the moods step is shown the decided fields).
             decided: list[tuple[str, Any]] = []
-            stages = [*interactive_fragments, *([SPEAKING_PLAN_STAGE] if plans_speakers else []), None]
+            stages = [
+                *(fragment for fragment in interactive_fragments if fragment["id"] not in resting),
+                *([SPEAKING_PLAN_STAGE] if plans_speakers else []),
+                None,
+            ]
             for stage in stages:
                 if client.is_aborted:
                     break
@@ -287,6 +292,7 @@ async def director_pass(
                         if speaker_keys and stage is not None and stage["id"] == SPEAKING_PLAN_FIELD
                         else ""
                     ),
+                    resting=resting,
                 )
                 step_tail = lorebook_prefix + notes_prefix + step_tail
                 content = build_multimodal_content(step_tail, attachments)
@@ -350,6 +356,7 @@ async def director_pass(
             progressive_state=progressive_state,
             tool_schema=tool_schema,
             cast_instruction=speaking_plan_instruction(speaker_keys) if speaker_keys else "",
+            resting=resting,
         )
         tail = lorebook_prefix + (notes_prefix if name == "direct_scene" else "") + tool_tail
         content = build_multimodal_content(tail, attachments)
@@ -441,6 +448,8 @@ async def director_stage(
     # state) the style-injection block — the symmetric counterpart of the output
     # filter below.
     prior_progressive = progressive.select(director.get("progressive_fields", {}), writer_fragments)
+    prior_cooldowns = director.get("fragment_cooldowns") or {}
+    resting = cooldown.blocked(prior_cooldowns)
 
     # Render the stored direction notes once; the director receives them in its
     # direct_scene prompt when it is a chosen recipient (so it steers consistent with
@@ -468,6 +477,7 @@ async def director_stage(
             progressive_state=prior_progressive,
             direction_notes_block=notes_block if direction_note_to_director(settings) else "",
             speaker_keys=speaker_keys,
+            resting=resting,
         ):
             if event["type"] == "reasoning":
                 yield {
@@ -481,7 +491,6 @@ async def director_stage(
                 state.calls = result.calls
                 state.latency = result.latency
                 state.extra_fields = result.extra_fields
-                state.progressive_fields = progressive.select(state.extra_fields, writer_fragments)
 
     # Bail out if stop was clicked during the director pass: skip style injection,
     # director_done, and the writer-lorebook computation, exactly as before. The
@@ -490,6 +499,26 @@ async def director_stage(
     # either is equivalent.
     if cfg.agent_lane.client.is_aborted:
         return
+
+    # Cooldowns are a volatile per-turn constraint: the schema remains stable,
+    # and anything the model returned for a resting fragment is rejected here.
+    # Progressive fields retain their previous value while resting, but that
+    # carried value does not count as firing again.
+    state.active_moods = [fragment_id for fragment_id in state.active_moods if fragment_id not in resting]
+    state.extra_fields = {fragment_id: value for fragment_id, value in state.extra_fields.items() if fragment_id not in resting}
+    fired = [*state.active_moods, *state.extra_fields]
+    progressive_by_id = {
+        fragment["id"]: fragment for fragment in writer_fragments if fragment.get("field_type") == "progressive"
+    }
+    for fragment_id in resting:
+        if fragment_id in progressive_by_id and fragment_id in prior_progressive:
+            state.extra_fields[fragment_id] = prior_progressive[fragment_id]
+    state.progressive_fields = progressive.select(state.extra_fields, writer_fragments)
+    state.fragment_cooldowns = cooldown.advance(
+        prior_cooldowns,
+        fired,
+        [*mood_fragments, *writer_fragments],
+    )
 
     # Its own forced select_lorebook call, independent of direct_scene, so agentic
     # lorebook works whether or not the Director's scene-direction tool is enabled.
@@ -536,7 +565,11 @@ async def director_stage(
     state.inj_block = macros.resolve_message(
         compute_style_injection_block(
             state.active_moods,
-            director["active_moods"],
+            # A mood suppressed by its cooldown is resting, not deliberately
+            # deactivated. Keep its negative prompt for ordinary Director
+            # removals, but do not emit it merely because cooldown enforcement
+            # filtered the mood out this turn.
+            [fragment_id for fragment_id in director["active_moods"] if fragment_id not in resting],
             inj_mood_fragments,
             writer_fragments,
             direct_scene_enabled,
@@ -561,6 +594,7 @@ async def director_stage(
             "tool_calls": state.calls,
             "agent_latency_ms": state.latency,
             "extra_fields": state.extra_fields,
+            "fragment_cooldowns": state.fragment_cooldowns,
         },
     }
 

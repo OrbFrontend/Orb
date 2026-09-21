@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS mood_fragments (
     description TEXT NOT NULL,
     prompt_text TEXT NOT NULL,
     negative_prompt TEXT NOT NULL DEFAULT '',
+    cooldown_turns INTEGER NOT NULL DEFAULT 0,
     enabled BOOLEAN NOT NULL DEFAULT 1
 );
 
@@ -169,6 +170,7 @@ CREATE TABLE IF NOT EXISTS messages (
     turn_index INTEGER NOT NULL,
     parent_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
     progressive_fields TEXT NOT NULL DEFAULT '{}',
+    fragment_cooldowns TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
     workflow_state TEXT DEFAULT NULL,
     speaker_member_id TEXT DEFAULT NULL REFERENCES group_members(id) ON DELETE SET NULL,
@@ -196,7 +198,8 @@ CREATE TABLE IF NOT EXISTS interactive_fragments (
     enabled BOOLEAN NOT NULL DEFAULT 1,
     injection_label TEXT NOT NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
-    direction_note_timing TEXT NOT NULL DEFAULT 'post_turn'
+    direction_note_timing TEXT NOT NULL DEFAULT 'post_turn',
+    cooldown_turns INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS conversation_logs (

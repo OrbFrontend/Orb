@@ -223,6 +223,7 @@ class MoodFragmentCreate(BaseModel):
     description: str
     prompt_text: str
     negative_prompt: str = ""
+    cooldown_turns: int = Field(0, ge=0, le=50)
     enabled: bool = True
 
 
@@ -231,6 +232,7 @@ class MoodFragmentUpdate(BaseModel):
     description: str | None = None
     prompt_text: str | None = None
     negative_prompt: str | None = None
+    cooldown_turns: int | None = Field(None, ge=0, le=50)
     enabled: bool | None = None
 
 
@@ -244,6 +246,7 @@ class InteractiveFragmentCreate(BaseModel):
     injection_label: str
     sort_order: int = 0
     direction_note_timing: Literal["pre_writer", "post_turn"] = "post_turn"
+    cooldown_turns: int = Field(0, ge=0, le=50)
 
 
 class InteractiveFragmentUpdate(BaseModel):
@@ -255,6 +258,7 @@ class InteractiveFragmentUpdate(BaseModel):
     injection_label: str | None = None
     sort_order: int | None = None
     direction_note_timing: Literal["pre_writer", "post_turn"] | None = None
+    cooldown_turns: int | None = Field(None, ge=0, le=50)
 
 
 class WorldCreate(BaseModel):

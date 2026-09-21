@@ -22,6 +22,10 @@ Each mood has:
 - **Prompt text**: instructions sent to the Writer while it is active
 - **Negative prompt**: optional instructions sent to the Writer when the mood is turned off
 
+When a cooldown makes a mood unavailable, Orb pauses it without sending its
+negative prompt. Negative prompts are reserved for ordinary Director-driven
+deactivation.
+
 ## Interactive fragments
 
 An interactive fragment is a value the Director fills in for the current turn.

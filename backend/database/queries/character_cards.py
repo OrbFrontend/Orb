@@ -133,6 +133,13 @@ def _text(entry: Mapping[str, Any], key: str, default: str = "") -> str:
     return v if isinstance(v, str) else default
 
 
+def _int(entry: Mapping[str, Any], key: str, default: int, lo: int, hi: int) -> int:
+    value = entry.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return default
+    return max(lo, min(hi, value))
+
+
 def card_embedded_fragments(
     card: Mapping[str, Any] | None,
 ) -> tuple[list[MoodFragmentRow], list[InteractiveFragmentRow]]:
@@ -162,6 +169,7 @@ def card_embedded_fragments(
                     "description": _text(entry, "description"),
                     "prompt_text": _text(entry, "prompt_text"),
                     "negative_prompt": _text(entry, "negative_prompt"),
+                    "cooldown_turns": _int(entry, "cooldown_turns", 0, 0, 50),
                     "enabled": 1,
                 },
             )
@@ -186,6 +194,7 @@ def card_embedded_fragments(
                     # card fragments after globals on any sort_order re-sort.
                     "sort_order": 10_000 + i,
                     "direction_note_timing": timing if timing in ("pre_writer", "post_turn") else "post_turn",
+                    "cooldown_turns": _int(entry, "cooldown_turns", 0, 0, 50),
                 },
             )
         )

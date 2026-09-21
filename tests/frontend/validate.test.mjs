@@ -51,3 +51,28 @@ test("interactive fragments accept post-processing field type", () => {
   });
   assert.equal(result.valid, true);
 });
+
+test("fragment cooldowns must be whole turns between zero and fifty", () => {
+  const mood = {
+    id: "tense",
+    label: "Tense",
+    description: "Tension.",
+    prompt_text: "Be tense.",
+  };
+  const interactive = {
+    id: "pacing",
+    label: "Pacing",
+    injection_label: "Pacing",
+    description: "Scene pace.",
+    field_type: "string",
+  };
+
+  for (const cooldown_turns of [0, 3, 50]) {
+    assert.equal(validate.validateMoodFragment({ ...mood, cooldown_turns }).valid, true);
+    assert.equal(validate.validateInteractiveFragment({ ...interactive, cooldown_turns }).valid, true);
+  }
+  for (const cooldown_turns of [-1, 2.5, 51]) {
+    assert.equal(validate.validateMoodFragment({ ...mood, cooldown_turns }).valid, false);
+    assert.equal(validate.validateInteractiveFragment({ ...interactive, cooldown_turns }).valid, false);
+  }
+});

@@ -8,6 +8,11 @@ import { validate } from "./validate.js";
 
 const _dragAndDropContainers = new WeakSet();
 
+function _cooldownBadge(fragment) {
+  const turns = Number(fragment.cooldown_turns) || 0;
+  return turns ? ` <span class="frag-type-badge" title="Cooldown: ${turns} turns">C${turns}</span>` : "";
+}
+
 export async function loadMoodFragments() {
   try {
     S.moodFragments = await api.get("/fragments");
@@ -34,7 +39,7 @@ export function renderMoodFragments() {
       return `
     <div class="fragment-item" style="cursor:pointer" title="${escAttr(f.description)}" onclick="showMoodFragmentModal('${escHandlerArg(f.id)}')">
       <div style="flex:1; min-width:0;">
-        <span class="frag-label">${esc(f.label)}</span>
+        <span class="frag-label">${esc(f.label)}</span>${_cooldownBadge(f)}
       </div>
       <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
         <label class="tog" for="${toggleId}">
@@ -65,6 +70,10 @@ function _moodFragFormHtml(d, isEdit) {
     <div class="field">
       <label>Negative Prompt <span style="font-size:10px;color:var(--text-muted)">(injected if this fragment is removed next turn)</span></label>
       <textarea id="frag-neg" rows="3" placeholder="Stop writing like it's a haiku.">${esc(d.negative_prompt || "")}</textarea>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Cooldown (turns)</label>
+        <input id="frag-cooldown" type="number" min="0" max="50" step="1" value="${escAttr(d.cooldown_turns || 0)}"></div>
     </div>`;
 }
 
@@ -75,13 +84,14 @@ function _readMoodFragForm() {
     description: $("frag-desc").value.trim(),
     prompt_text: $("frag-text").value.trim(),
     negative_prompt: $("frag-neg").value.trim(),
+    cooldown_turns: parseInt($("frag-cooldown").value, 10) || 0,
   };
 }
 
 export function showMoodFragmentModal(fragId = null) {
   const f = fragId ? S.moodFragments.find((x) => x.id === fragId) : null;
   const isEdit = !!f;
-  const d = f || { id: "", label: "", description: "", prompt_text: "", negative_prompt: "" };
+  const d = f || { id: "", label: "", description: "", prompt_text: "", negative_prompt: "", cooldown_turns: 0 };
 
   showModal(`
     <h2>${isEdit ? "Edit Mood Fragment" : "New Mood Fragment"}</h2>
@@ -174,7 +184,7 @@ export function renderInteractiveFragments() {
     <div class="fragment-item${featureDisabled ? " frag-feature-disabled" : ""}" data-id="${escAttr(f.id)}" title="${escAttr(itemTitle)}" onclick="showInteractiveFragmentModal('${escHandlerArg(f.id)}')">
       <button type="button" class="frag-drag-handle" title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(f.label)}" onclick="event.stopPropagation()">${GRIP_ICON}</button>
       <div style="flex:1; min-width:0;">
-        <span class="frag-label">${esc(f.label)}</span>${userBadge}
+        <span class="frag-label">${esc(f.label)}</span>${userBadge}${_cooldownBadge(f)}
       </div>
       <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
         <label class="tog" for="${toggleId}">
@@ -329,6 +339,10 @@ function _interactiveFragFormHtml(d, isEdit) {
         <option value="pre_writer" ${d.direction_note_timing === "pre_writer" ? "selected" : ""}>Before writer</option>
       </select>
     </div>
+    <div class="field-row" id="interactive-frag-cooldown-row">
+      <div class="field"><label>Cooldown (turns)</label>
+        <input id="interactive-frag-cooldown" type="number" min="0" max="50" step="1" value="${escAttr(d.cooldown_turns || 0)}"></div>
+    </div>
     <div class="field"><label>Description <span id="interactive-frag-desc-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.desc_hint)})</span></label>
       <textarea id="interactive-frag-desc" rows="4" placeholder="${escAttr(ex.description)}">${esc(d.description)}</textarea></div>
     <div class="field-row" id="interactive-frag-required-row" style="${d.field_type === "post_processing" ? "display:none" : ""}">
@@ -350,6 +364,7 @@ function _readInteractiveFragForm() {
     required: fieldType === "post_processing" ? false : document.getElementById("interactive-frag-required").checked,
     injection_label: document.getElementById("interactive-frag-inj-label").value.trim(),
     direction_note_timing: document.getElementById("interactive-frag-timing-select").value,
+    cooldown_turns: parseInt(document.getElementById("interactive-frag-cooldown").value, 10) || 0,
   };
 }
 
@@ -365,6 +380,7 @@ export function showInteractiveFragmentModal(fragId = null) {
     injection_label: "",
     sort_order: 0,
     direction_note_timing: "post_turn",
+    cooldown_turns: 0,
   };
 
   showModal(`
@@ -447,7 +463,9 @@ function _featureGate(f) {
 function _cardMoodSidepanelHtml() {
   const frags = S.cardMoodFragments || [];
   if (!frags.length) return "";
-  const items = frags.map((f) => `<span title="${escAttr(f.description || "")}">${esc(f.label)}</span>`).join("");
+  const items = frags
+    .map((f) => `<span title="${escAttr(f.description || "")}">${esc(f.label)}${_cooldownBadge(f)}</span>`)
+    .join("");
   return `<div class="frag-divider">From character</div><div class="frag-card-list">${items}</div>`;
 }
 
@@ -457,7 +475,7 @@ function _cardInteractiveSidepanelHtml() {
   const items = frags
     .map((f) => {
       const { disabled, title } = _featureGate(f);
-      return `<span${disabled ? ' class="frag-feature-disabled"' : ""} title="${escAttr(title)}">${esc(f.label)}${_interactiveTypeBadge(f)}</span>`;
+      return `<span${disabled ? ' class="frag-feature-disabled"' : ""} title="${escAttr(title)}">${esc(f.label)}${_interactiveTypeBadge(f)}${_cooldownBadge(f)}</span>`;
     })
     .join("");
   return `<div class="frag-divider">From character</div><div class="frag-card-list">${items}</div>`;
@@ -482,7 +500,7 @@ export function renderCardFragmentsTab() {
   const row = (type, f) => `
     <div class="fragment-item" data-type="${escAttr(type)}" data-id="${escAttr(f.id)}">
       <div style="flex:1; min-width:0;">
-        <span class="frag-label">${esc(f.label || f.id)}</span>${type === "mood" ? "" : _interactiveTypeBadge(f)}
+        <span class="frag-label">${esc(f.label || f.id)}</span>${type === "mood" ? "" : _interactiveTypeBadge(f)}${_cooldownBadge(f)}
         ${f.description ? `<div class="frag-desc">${esc(f.description)}</div>` : ""}
       </div>
       <div class="frag-toggle-wrapper" data-action="toggle">
@@ -564,7 +582,7 @@ function _showCardFragModal(type, kind, fragId, blank, formHtml) {
 }
 
 export function showCardMoodFragmentModal(fragId = null) {
-  const blank = { id: "", label: "", description: "", prompt_text: "", negative_prompt: "" };
+  const blank = { id: "", label: "", description: "", prompt_text: "", negative_prompt: "", cooldown_turns: 0 };
   _showCardFragModal("mood", "Mood", fragId, blank, _moodFragFormHtml);
 }
 
@@ -577,6 +595,7 @@ export function showCardInteractiveFragmentModal(fragId = null) {
     required: false,
     injection_label: "",
     direction_note_timing: "post_turn",
+    cooldown_turns: 0,
   };
   _showCardFragModal("interactive", "Interactive", fragId, blank, _interactiveFragFormHtml);
 }

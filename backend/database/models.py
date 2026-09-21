@@ -250,10 +250,11 @@ class ConversationListRow(ConversationRow, total=False):
 class MessageRow(TypedDict):
     """A row from the ``messages`` table.
 
-    NOTE: ``progressive_fields`` is the JSON-*decoded* dict, which is how
-    get_path_to_leaf()/get_messages() expose it. ``get_message_by_id()`` does a
-    plain ``dict(row)`` and leaves it as the raw JSON *string* -- a pre-existing
-    inconsistency this label makes visible rather than fixes.
+    NOTE: ``progressive_fields`` and ``fragment_cooldowns`` are JSON-*decoded*
+    dicts, which is how get_path_to_leaf()/get_messages() expose them.
+    ``get_message_by_id()`` does a plain ``dict(row)`` and leaves both as raw
+    JSON *strings* -- a pre-existing inconsistency this label makes visible
+    rather than fixes.
     """
 
     id: int
@@ -268,6 +269,7 @@ class MessageRow(TypedDict):
     turn_index: int
     parent_id: int | None
     progressive_fields: dict
+    fragment_cooldowns: dict[str, int]
     created_at: str
     workflow_state: str | None
     speaker_member_id: str | None
@@ -572,6 +574,7 @@ class InteractiveFragmentRow(TypedDict):
     sort_order: int
     # 'pre_writer' | 'post_turn'; which recording step fills the note. Read only for direction_note fragments.
     direction_note_timing: str
+    cooldown_turns: int
 
 
 class MoodFragmentRow(TypedDict):
@@ -582,6 +585,7 @@ class MoodFragmentRow(TypedDict):
     description: str
     prompt_text: str
     negative_prompt: str
+    cooldown_turns: int
     enabled: int
 
 
