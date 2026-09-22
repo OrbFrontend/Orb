@@ -210,6 +210,13 @@ def _decision_candidates(
 
 
 async def resolve_decision_config(settings: Mapping[str, Any]) -> DecisionConfig:
+    """The classifier's live configuration, or an unconfigured one.
+
+    The route comes from the judge endpoint's URL and nowhere else:
+    ``decisions_url`` keeps a URL that already names a ``decisions`` route, so
+    pasting the gateway's own spelling into the endpoint is the escape hatch a
+    separate override setting used to be.
+    """
     endpoint_id = settings.get("decision_endpoint_id")
     model = str(settings.get("decision_model") or "")
     if not endpoint_id or not model:
@@ -217,9 +224,8 @@ async def resolve_decision_config(settings: Mapping[str, Any]) -> DecisionConfig
     endpoint = await db.get_endpoint(int(endpoint_id))
     if endpoint is None:
         return DecisionConfig()
-    override = str(settings.get("decision_url") or "")
     return DecisionConfig(
-        url=override or decisions_url(endpoint["url"]),
+        url=decisions_url(endpoint["url"]),
         api_key=endpoint.get("api_key", ""),
         model=model,
         proxy=endpoint.get("proxy", "") or "",

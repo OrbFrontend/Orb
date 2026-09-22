@@ -311,10 +311,9 @@ function _innerHtml() {
 }
 
 function _statusHtml(config) {
-  if (config.configured) {
-    return `<div class="decision-status decision-status-ok">Judge: <code>${esc(config.decision_model || "")}</code> at <code>${esc(config.resolved_url || "")}</code>. The rendered situation below is sent to that provider.</div>`;
+  if (!config.configured) {
+    return `<div class="decision-status decision-status-warn">No Judge endpoint is configured, so enabled decisions are skipped and inject nothing. Set one in the Endpoints panel under <strong>Judge</strong>.</div>`;
   }
-  return `<div class="decision-status decision-status-warn">No Judge endpoint is configured, so enabled decisions are skipped and inject nothing. Set one in the Endpoints panel under <strong>Judge</strong>.</div>`;
 }
 
 function _primaryHtml(config) {

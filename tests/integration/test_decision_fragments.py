@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import json
 
+import httpx
 import pytest
 
 import backend.database as dbmod
 from backend.inference import RAW_ANSWER_CACHE, DecisionCancelled, DecisionResponse
+from backend.inference.errors import llm_call_error
 from backend.pipeline import handle_magic_rewrite, handle_regenerate, handle_turn
 from backend.pipeline.passes.decisions import stage as stage_module
 
@@ -67,9 +69,9 @@ class Gateway:
         monkeypatch.setattr(stage_module.DecisionClient, "decide", _decide)
 
 
-async def _configure(client, *, agent: bool = True) -> None:
-    """Point decisions at an endpoint and set the Agent lane."""
-    endpoint = (await client.post("/api/endpoints", json={"url": "https://openrouter.ai/api/v1", "api_key": "k"})).json()
+async def _configure(client, *, agent: bool = True, url: str = "https://openrouter.ai/api/v1") -> None:
+    """Point decisions at a judge endpoint of their own and set the Agent lane."""
+    endpoint = (await client.post("/api/endpoints", json={"url": url, "api_key": "k", "kind": "judge"})).json()
     response = await client.put(
         "/api/decisions/config",
         json={"decision_endpoint_id": endpoint["id"], "decision_model": "typesafe/jev-1.13"},
@@ -231,10 +233,43 @@ async def test_configuration_derives_the_route_and_bumps_a_revision(client, db):
     assert after["budgets"]["per_exchange"] >= 1
 
 
-async def test_an_explicit_url_override_wins_over_the_derived_route(client, db):
+async def test_a_judge_endpoint_that_names_the_route_keeps_that_spelling(client, db):
+    # No second override field: the endpoint URL is the one place the route is
+    # configured, and pasting the gateway's own spelling is how it is corrected.
+    await _configure(client, url="https://gw.test/v2/judge/decisions")
+    config = (await client.get("/api/decisions/config")).json()
+    assert config["resolved_url"] == "https://gw.test/v2/judge/decisions"
+
+
+async def test_the_route_prefix_is_not_doubled_when_the_endpoint_already_carries_it(client, db):
+    await _configure(client, url="https://openrouter.ai/api/alpha")
+    config = (await client.get("/api/decisions/config")).json()
+    assert config["resolved_url"] == "https://openrouter.ai/api/alpha/decisions"
+
+
+async def test_a_chat_endpoint_cannot_be_selected_as_the_judge(client, db):
+    chat = (await client.post("/api/endpoints", json={"url": "https://openrouter.ai/api/v1"})).json()
+    response = await client.put(
+        "/api/decisions/config", json={"decision_endpoint_id": chat["id"], "decision_model": "typesafe/jev-1.13"}
+    )
+    assert response.status_code == 422
+    assert (await client.get("/api/decisions/config")).json()["configured"] is False
+
+
+async def test_the_two_endpoint_pools_are_listed_apart(client, db):
     await _configure(client)
-    updated = (await client.put("/api/decisions/config", json={"decision_url": "https://gw.test/decide"})).json()
-    assert updated["resolved_url"] == "https://gw.test/decide"
+    chat = (await client.post("/api/endpoints", json={"url": "https://openrouter.ai/api/v1"})).json()
+
+    chat_pool = (await client.get("/api/endpoints", params={"kind": "chat"})).json()
+    judge_pool = (await client.get("/api/endpoints", params={"kind": "judge"})).json()
+
+    assert [row["id"] for row in chat_pool] == [row["id"] for row in chat_pool if row["kind"] == "chat"]
+    assert chat["id"] in [row["id"] for row in chat_pool]
+    assert chat["id"] not in [row["id"] for row in judge_pool]
+    assert [row["kind"] for row in judge_pool] == ["judge"]
+    # A judge row has no model configs: the classifier takes a model name and
+    # nothing a model config carries.
+    assert (await client.get(f"/api/endpoints/{judge_pool[0]['id']}/models")).json() == []
 
 
 async def test_preview_renders_the_sample_scene_with_its_sizes(client, db):
@@ -274,6 +309,29 @@ async def test_the_connection_test_reports_a_failure_as_a_result(client, db, mon
     body = (await client.post("/api/decisions/test")).json()
     assert body["ok"] is False
     assert "boom" in body["error"]
+
+
+async def test_a_rejected_test_names_the_status_and_what_to_look_at(client, db, monkeypatch):
+    # The whole symptom of the doubled route was a bare "Not Found" next to a
+    # resolved URL the panel was already showing. The status leads, and a 404
+    # says which field is wrong.
+    await _configure(client)
+    request = httpx.Request("POST", "https://openrouter.ai/api/alpha/decisions")
+    rejection = llm_call_error(
+        response=httpx.Response(404, text="Not Found", request=request),
+        body="Not Found",
+        url="https://openrouter.ai/api/alpha/decisions",
+        model="typesafe/jev-1.13",
+        api_key="k",
+    )
+    Gateway(monkeypatch, error=rejection)
+
+    body = (await client.post("/api/decisions/test")).json()
+    assert body["ok"] is False
+    assert body["status"] == 404
+    assert body["error"].startswith("HTTP 404")
+    assert "Judge Endpoint URL" in body["error"]
+    assert body["url"] == "https://openrouter.ai/api/alpha/decisions"
 
 
 async def test_the_connection_test_says_so_when_nothing_is_configured(client, db):

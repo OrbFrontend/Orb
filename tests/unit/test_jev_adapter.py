@@ -63,10 +63,27 @@ def _payload(**overrides) -> dict:
         "https://openrouter.ai/api/v1/",
         "https://openrouter.ai/api/v1/chat/completions",
         "https://openrouter.ai/api",
+        # The route itself, and the prefix the panel's own placeholder shows.
+        # Deriving from either must land on the same URL: appending blindly is
+        # what produced /api/alpha/alpha/decisions and a 404 with no explanation.
+        "https://openrouter.ai/api/alpha",
+        "https://openrouter.ai/api/alpha/",
+        "https://openrouter.ai/api/alpha/decisions",
     ],
 )
 def test_the_decisions_route_is_derived_from_the_chat_base(base):
     assert decisions_url(base) == "https://openrouter.ai/api/alpha/decisions"
+
+
+def test_deriving_the_route_twice_changes_nothing():
+    once = decisions_url("https://openrouter.ai/api/v1")
+    assert decisions_url(once) == once
+
+
+def test_a_gateway_that_spells_the_route_itself_keeps_that_spelling():
+    # The escape hatch that replaced the separate override setting: a URL that
+    # already names a decisions route is the route, wherever it is mounted.
+    assert decisions_url("https://gw.test/v2/judge/decisions") == "https://gw.test/v2/judge/decisions"
 
 
 def test_a_non_openrouter_base_keeps_its_own_path():

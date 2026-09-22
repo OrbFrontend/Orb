@@ -37,10 +37,28 @@ class DecisionTransportError(Exception):
     pass
 
 
+# Path segments that belong to a chat route rather than to the gateway itself,
+# plus the route prefix this module appends. A trailing ``alpha`` is stripped for
+# the same reason the rest are: the judge URL a user pastes is as likely to be
+# the decisions route as the chat base, and appending to one that already ends in
+# ``alpha`` produced ``/alpha/alpha/decisions`` -- a 404 whose only symptom was
+# the Test button.
+_ROUTE_SUFFIXES = ("chat", "completions", "v1", "responses", "alpha")
+
+
 def decisions_url(base_url: str) -> str:
+    """The alpha decisions route for *base_url*, derived idempotently.
+
+    A URL that already names a ``decisions`` route is returned as the user spelled
+    it, so a gateway that mounts the contract somewhere else needs no second
+    setting -- pasting the route is the override. Everything else is treated as a
+    base: chat-route tails come off and ``alpha/decisions`` goes on.
+    """
     parts = urlsplit(base_url.strip().rstrip("/"))
     segments = [segment for segment in parts.path.split("/") if segment]
-    while segments and segments[-1] in ("chat", "completions", "v1", "responses"):
+    if segments and segments[-1] == "decisions":
+        return urlunsplit((parts.scheme, parts.netloc, "/" + "/".join(segments), "", ""))
+    while segments and segments[-1] in _ROUTE_SUFFIXES:
         segments.pop()
     return urlunsplit((parts.scheme, parts.netloc, "/" + "/".join((*segments, "alpha", "decisions")), "", ""))
 

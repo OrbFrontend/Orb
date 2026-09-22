@@ -6,6 +6,10 @@ from typing import Literal, NamedTuple, TypeAlias
 
 AgentLane: TypeAlias = Literal["writer", "agent"]
 CompletionMode: TypeAlias = Literal["chat", "text"]
+# Which lane an ``endpoints`` row belongs to. The Writer and Agent share the
+# ``chat`` pool; ``judge`` rows are the decision classifier's own connections and
+# are never offered to the chat lanes.
+EndpointKind: TypeAlias = Literal["chat", "judge"]
 MessageRole: TypeAlias = Literal["user", "assistant"]
 
 # Which character information every group generation carries. Stored on
@@ -41,4 +45,4 @@ class TurnCast(NamedTuple):
     context_mode: GroupContextMode = "private"
 
 
-__all__ = ["AgentLane", "CastMember", "CompletionMode", "GroupContextMode", "MessageRole", "TurnCast"]
+__all__ = ["AgentLane", "CastMember", "CompletionMode", "EndpointKind", "GroupContextMode", "MessageRole", "TurnCast"]

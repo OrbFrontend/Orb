@@ -57,13 +57,11 @@ CREATE TABLE IF NOT EXISTS settings (
     generated_chars INTEGER DEFAULT NULL,
     -- Decision classifier configuration. Deliberately not in model_configs:
     -- chat-generation hyperparameters and the Writer/Agent roles do not apply
-    -- to a classifier, and the endpoint row is referenced only for credentials.
+    -- to a classifier. The endpoint is a 'judge' row of its own, carrying the
+    -- classifier's URL, key and proxy; the route is derived from that URL, and
+    -- a gateway that spells it differently is configured by pasting the route.
     decision_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
     decision_model TEXT NOT NULL DEFAULT 'typesafe/jev-1.13',
-    -- Empty means "derive the alpha decisions route from the endpoint URL".
-    -- An override exists because that spelling is the part of the gateway
-    -- contract the release gate still has to confirm.
-    decision_url TEXT NOT NULL DEFAULT '',
     -- Bumped on every classifier configuration write. It is part of the
     -- raw-answer cache namespace, so a config change makes the previous
     -- namespace's cached answers unreachable instead of mixing two configs.
@@ -316,7 +314,15 @@ CREATE TABLE IF NOT EXISTS endpoints (
     active_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL,
     agent_active_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL,
     completion_mode TEXT NOT NULL DEFAULT 'chat' CHECK (completion_mode IN ('chat', 'text')),
-    proxy TEXT NOT NULL DEFAULT ''
+    proxy TEXT NOT NULL DEFAULT '',
+    -- Which lane may select this row. 'chat' is the Writer/Agent pair; 'judge'
+    -- is the decision classifier, which shares no model config, sampling
+    -- parameters or completion mode with them and is almost never the same
+    -- provider. One table because credentials, proxy and deletion behave
+    -- identically for both; separate lists because offering a lane a row it
+    -- cannot use is how the Judge came to be configured from the Writer's list.
+    -- Fixed at creation: a row's lane never changes.
+    kind TEXT NOT NULL DEFAULT 'chat' CHECK (kind IN ('chat', 'judge'))
 );
 
 CREATE TABLE IF NOT EXISTS model_configs (

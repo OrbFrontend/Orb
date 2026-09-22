@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from ..core.domain_types import AgentLane, CompletionMode
+from ..core.domain_types import AgentLane, CompletionMode, EndpointKind
 
 
 class SettingsUpdate(BaseModel):
@@ -91,8 +91,15 @@ class WorkflowEnabledUpdate(BaseModel):
 
 
 class EndpointCreate(BaseModel):
+    """A saved connection. ``kind`` picks the lane that may select it: the
+    Writer/Agent ``chat`` pool, or the decision classifier's own ``judge`` rows.
+    It is set once, at creation, and ``EndpointUpdate`` deliberately omits it —
+    a row that changed lanes would silently take its credentials somewhere the
+    user never pointed them."""
+
     url: str
     api_key: str = ""
+    kind: EndpointKind = "chat"
 
 
 class EndpointUpdate(BaseModel):
@@ -298,17 +305,17 @@ class InteractiveFragmentReorder(BaseModel):
 
 
 class DecisionConfigUpdate(BaseModel):
-    """The classifier configuration. Credentials come from the endpoint row.
+    """The classifier configuration: which judge endpoint, and which model.
 
-    ``decision_url`` overrides the route derived from that endpoint; it exists
-    because the gateway's REST spelling is the part of the contract a release
-    gate still has to confirm, and a user should not need a new build to correct
-    it.
+    The route is derived from that endpoint's URL rather than configured
+    separately. Derivation keeps a URL that already names a ``decisions`` route,
+    so a gateway that spells the contract differently is corrected by saving the
+    route as the endpoint URL — one field to get right instead of two that can
+    disagree.
     """
 
     decision_endpoint_id: int | None = None
     decision_model: str | None = None
-    decision_url: str | None = None
 
 
 class DecisionCardApproval(BaseModel):

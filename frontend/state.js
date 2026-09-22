@@ -23,7 +23,11 @@ export const S = {
 
   settings: {},
   localMlFeatures: {}, // last /local-ml/status features map; other cards gate on it
+  // The chat pool (Writer and Agent). Judge endpoints are a separate list:
+  // they answer the decisions route, not chat completions, so a lane offered
+  // the wrong pool can only be configured wrong.
   endpoints: [],
+  judgeEndpoints: [],
   activeEndpointId: null,
   modelConfigs: [],
   activeModelConfigId: null,

@@ -344,7 +344,7 @@ async def update_settings(data: dict) -> SettingsRow:
 # allowlist, because the revision bump is not optional: the raw-answer cache
 # namespace is derived from it, so a configuration change that forgot to bump it
 # would keep serving the previous configuration's answers for ten minutes.
-_DECISION_CONFIG_COLUMNS = ("decision_endpoint_id", "decision_model", "decision_url")
+_DECISION_CONFIG_COLUMNS = ("decision_endpoint_id", "decision_model")
 
 
 async def update_decision_config(data: Mapping[str, Any]) -> SettingsRow:

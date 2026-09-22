@@ -12,6 +12,7 @@ from ...database import (
     card_decision_fingerprint,
     card_embedded_fragments,
     get_character_card,
+    get_endpoint,
     get_settings,
     set_decision_card_approval,
     update_decision_config,
@@ -42,7 +43,6 @@ def _config_payload(settings, config) -> dict:
     return {
         "decision_endpoint_id": settings.get("decision_endpoint_id"),
         "decision_model": settings.get("decision_model", ""),
-        "decision_url": settings.get("decision_url", ""),
         "resolved_url": config.url,
         "configured": config.configured,
         "revision": config.revision,
@@ -71,9 +71,41 @@ async def api_get_decision_config():
 
 @router.put("/api/decisions/config")
 async def api_update_decision_config(data: DecisionConfigUpdate):
-    settings = await update_decision_config(data.model_dump(exclude_unset=True))
+    update = data.model_dump(exclude_unset=True)
+    endpoint_id = update.get("decision_endpoint_id")
+    if endpoint_id is not None:
+        # Refuse a chat endpoint rather than storing one and failing at the
+        # gateway: a Writer row has neither the classifier's URL nor its key,
+        # and the resulting 404 reads like a broken feature, not a misselection.
+        endpoint = await get_endpoint(int(endpoint_id))
+        if endpoint is None:
+            raise HTTPException(status_code=404, detail="Endpoint not found")
+        if endpoint["kind"] != "judge":
+            raise HTTPException(
+                status_code=422, detail="That endpoint belongs to the chat lanes; save a Judge endpoint instead"
+            )
+    settings = await update_decision_config(update)
     RAW_ANSWER_CACHE.clear()
     return _config_payload(settings, await resolve_decision_config(settings))
+
+
+def _rejection_sentence(error: LLMCallError) -> str:
+    """Word a provider rejection so it names what was wrong with *this* request.
+
+    The provider's own sentence alone is not diagnostic: a bare "Not Found" next
+    to a route the panel is already showing reads as "the feature is broken"
+    rather than "nothing answers at that URL". The status code always leads, and
+    a 404 says which of the two fields to look at.
+    """
+    status = error.response.status_code
+    parts = [f"HTTP {status}"]
+    if error.sentence:
+        parts.append(error.sentence)
+    if status == 404:
+        parts.append("no decisions route answered at this URL — check the Judge Endpoint URL")
+    elif status in (401, 403):
+        parts.append("the endpoint's API key was rejected")
+    return " · ".join(parts)
 
 
 @router.post("/api/decisions/test")
@@ -84,7 +116,7 @@ async def api_test_decision_endpoint():
     except LLMCallError as error:
         return {
             "ok": False,
-            "error": error.sentence or str(error),
+            "error": _rejection_sentence(error),
             "url": config.url,
             "status": error.response.status_code,
         }

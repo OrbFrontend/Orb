@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal, TypedDict
 
-from ..core.domain_types import AgentLane, CompletionMode, MessageRole
+from ..core.domain_types import AgentLane, CompletionMode, EndpointKind, MessageRole
 
 
 # A phrase-bank group is one of three shapes. ``get_phrase_bank()`` emits the
@@ -120,11 +120,10 @@ class SettingsRow(_SettingsBase, total=False):
     active_endpoint_id: int | None
     agent_endpoint_id: int | None
     # Decision classifier configuration. ``decision_endpoint_id`` is None until
-    # the user points decisions at an endpoint; until then enabled decisions are
-    # skipped and make no request.
+    # the user saves a judge endpoint; until then enabled decisions are skipped
+    # and make no request.
     decision_endpoint_id: int | None
     decision_model: str
-    decision_url: str
     decision_config_revision: int
     # card id -> approved definitions fingerprint, decoded by get_settings().
     decision_card_approvals: dict[str, str]
@@ -494,6 +493,10 @@ class EndpointRow(TypedDict):
     agent_active_model_config_id: int | None
     completion_mode: CompletionMode
     proxy: str
+    # 'chat' for the Writer/Agent pool, 'judge' for a decision classifier row.
+    # The model-config, completion-mode and sampling columns above are dead on a
+    # judge row: the classifier takes a model name and nothing else.
+    kind: EndpointKind
 
 
 class ModelConfigRow(TypedDict):

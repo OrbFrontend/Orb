@@ -5,6 +5,7 @@ from __future__ import annotations
 import httpx
 from fastapi import APIRouter, HTTPException
 
+from ...core.domain_types import EndpointKind
 from ...database import (
     create_endpoint,
     create_model_config,
@@ -28,8 +29,9 @@ router = APIRouter()
 
 
 @router.get("/api/endpoints")
-async def api_get_endpoints():
-    return await get_endpoints()
+async def api_get_endpoints(kind: EndpointKind | None = None):
+    """Saved endpoints, narrowed to one lane's pool when *kind* is given."""
+    return await get_endpoints(kind)
 
 
 @router.get("/api/endpoints/{endpoint_id}")
@@ -42,7 +44,7 @@ async def api_get_endpoint(endpoint_id: int):
 
 @router.post("/api/endpoints")
 async def api_create_endpoint(data: EndpointCreate):
-    return await create_endpoint(data.url, data.api_key)
+    return await create_endpoint(data.url, data.api_key, data.kind)
 
 
 @router.put("/api/endpoints/{endpoint_id}")

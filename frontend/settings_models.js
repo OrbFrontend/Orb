@@ -287,14 +287,30 @@ export function renderEndpoints() {
 }
 
 // ── Judge lane ───────────────────────────────────────────────────────────────
-// The classifier that answers decision fragments. Deliberately three fields: a
-// classifier has no temperature and no system prompt, and the Writer's endpoint
-// is almost never the right one, so there is no sampling group and no "same as
-// Writer" toggle to get wrong. All three already exist as settings columns, so
-// this lane adds no backend surface.
+// The classifier that answers decision fragments. It owns its endpoints rather
+// than picking one of the Writer's: the decisions gateway is a different route
+// with a different key, and a chat endpoint selected here could only ever 404.
+// So the lane is a connection of its own -- URL, key, proxy, model -- and no
+// sampling group or "same as Writer" toggle, because a classifier has neither a
+// temperature nor a system prompt.
+//
+// The route is derived from the URL and shown below the Test button. Derivation
+// keeps a URL that already ends in `decisions`, so a gateway that mounts the
+// contract somewhere else is configured by pasting its route into the same
+// field -- the job the removed Route Override used to do with a second field
+// that could disagree with the first.
+
+const JUDGE_KEY_ICON = `<svg class="eye-show" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><svg class="eye-hide" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+
+/** The judge endpoint the stored config points at, or undefined. */
+function _judgeEndpoint() {
+  const id = decisionConfig()?.decision_endpoint_id;
+  return id == null ? undefined : S.judgeEndpoints.find((e) => e.id === id);
+}
 
 function _judgeLaneHtml() {
   const config = decisionConfig();
+  const endpoint = _judgeEndpoint();
   return `
     <div class="ep-chat-only" id="judge-lane">
       <div style="display:flex;align-items:center;gap:12px;margin:12px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Judge</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
@@ -303,19 +319,25 @@ function _judgeLaneHtml() {
         Decisions stay editable with no Judge set; they are skipped until one is.
       </div>
       <div class="field"><label>Judge Endpoint URL</label>
-        <div class="cb-root" data-combobox="decision_endpoint_url">
+        <div class="cb-root" data-combobox="judge_endpoint_url">
           <div class="cb-control">
-            <input type="text" class="cb-input" value="${escAttr(_judgeEndpointUrl(config))}" data-key="decision_endpoint_url" placeholder="https://openrouter.ai/api/alpha" autocomplete="off">
+            <input type="text" class="cb-input" value="${escAttr(endpoint?.url || "")}" data-key="judge_endpoint_url" placeholder="https://openrouter.ai/api/alpha/decisions" autocomplete="off">
             <span class="cb-arrow"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4 6,8 10,4"/></svg></span>
           </div>
           <div class="cb-dropdown" hidden><div class="cb-list"></div></div>
         </div>
       </div>
-      <div class="field"><label>Judge Model Name</label>
-        <input type="text" value="${escAttr(config?.decision_model || "")}" data-key="decision_model" placeholder="typesafe/jev-1.13" autocomplete="off">
+      <div class="field"><label>Judge API Key</label>
+        <div class="api-key-wrap">
+          <input type="text" class="api-key-input" value="${escAttr(endpoint?.api_key || "")}" data-key="judge_api_key" autocomplete="off">
+          <button type="button" class="api-key-toggle" aria-label="Show/hide API key">${JUDGE_KEY_ICON}</button>
+        </div>
       </div>
-      <div class="field"><label>Route Override <span class="decision-hint">blank = derived from the endpoint</span></label>
-        <input type="text" value="${escAttr(config?.decision_url || "")}" data-key="decision_url" placeholder="https://openrouter.ai/api/alpha/decisions" autocomplete="off">
+      <div class="field"><label>Judge Model Name</label>
+        <input type="text" value="${escAttr(config?.decision_model || "")}" data-key="judge_model" placeholder="typesafe/jev-1.13" autocomplete="off">
+      </div>
+      <div class="field"><label>Judge Proxy</label>
+        <input type="text" value="${escAttr(endpoint?.proxy || "")}" data-key="judge_proxy" placeholder="socks5://127.0.0.1:1080" autocomplete="off">
       </div>
       <div class="judge-actions">
         <button type="button" class="btn btn-sm" id="judge-test-btn">Test</button>
@@ -323,11 +345,6 @@ function _judgeLaneHtml() {
       </div>
       <div id="judge-status" class="judge-status"></div>
     </div>`;
-}
-
-function _judgeEndpointUrl(config) {
-  const id = config?.decision_endpoint_id;
-  return (id != null && S.endpoints.find((e) => e.id === id)?.url) || "";
 }
 
 /** Repaint the derived read-outs: the resolved route and whether it is usable. */
@@ -345,41 +362,86 @@ export function refreshJudgeLane() {
   status.classList.toggle("judge-status-warn", !config.configured);
 }
 
-async function _saveJudgeSetting(key, value) {
-  try {
-    setDecisionConfig(await api.put("/decisions/config", { [key]: value }));
-  } catch (e) {
-    toast(`Failed: ${e.message}`, true);
+/** Repaint the whole lane in place, after its endpoint row or config changed. */
+function _repaintJudgeLane() {
+  const lane = document.getElementById("judge-lane");
+  if (!lane) return;
+  lane.outerHTML = _judgeLaneHtml();
+  initComboboxes();
+  refreshJudgeLane();
+}
+
+async function _saveDecisionConfig(patch) {
+  setDecisionConfig(await api.put("/decisions/config", patch));
+  refreshJudgeLane();
+}
+
+/**
+ * Select, or create, the judge endpoint at *url*.
+ *
+ * Creating one here is the point: requiring the URL to already exist is what
+ * made this lane unusable, because the only place to create it was a chat lane
+ * that would then be carrying a decisions gateway it cannot talk to.
+ */
+async function _syncJudgeEndpoint(url) {
+  if (!url) {
+    await _saveDecisionConfig({ decision_endpoint_id: null });
     return;
   }
-  refreshJudgeLane();
-  toast("Judge settings saved");
+  const apiKey = document.querySelector('[data-key="judge_api_key"]')?.value.trim() ?? "";
+  const proxy = document.querySelector('[data-key="judge_proxy"]')?.value.trim() ?? "";
+  let endpoint = S.judgeEndpoints.find((e) => e.url === url);
+  if (endpoint) {
+    const patch = {};
+    if (endpoint.api_key !== apiKey) patch.api_key = apiKey;
+    if ((endpoint.proxy || "") !== proxy) patch.proxy = proxy;
+    if (Object.keys(patch).length) Object.assign(endpoint, await api.put(`/endpoints/${endpoint.id}`, patch));
+  } else {
+    endpoint = await api.post("/endpoints", { url, api_key: apiKey, kind: "judge" });
+    endpoint.proxy = proxy;
+    if (proxy) await api.put(`/endpoints/${endpoint.id}`, { proxy });
+    S.judgeEndpoints.push(endpoint);
+  }
+  await _saveDecisionConfig({ decision_endpoint_id: endpoint.id });
 }
+
+/** Write one field of the judge endpoint row. Nothing to write before a URL is saved. */
+async function _saveJudgeEndpointField(patch) {
+  const endpoint = _judgeEndpoint();
+  if (!endpoint) return; // The URL handler reads these fields when it creates the row.
+  Object.assign(endpoint, await api.put(`/endpoints/${endpoint.id}`, patch));
+}
+
+const JUDGE_SAVERS = {
+  judge_endpoint_url: (value) => _syncJudgeEndpoint(value),
+  judge_model: (value) => _saveDecisionConfig({ decision_model: value }),
+  judge_api_key: (value) => _saveJudgeEndpointField({ api_key: value }),
+  judge_proxy: (value) => _saveJudgeEndpointField({ proxy: value }),
+};
 
 document.addEventListener("change", (event) => {
   const el = event.target.closest("[data-key]");
-  if (!el) return;
-  const key = el.dataset.key;
-  if (key === "decision_model" || key === "decision_url") {
-    _saveJudgeSetting(key, el.value.trim());
-  } else if (key === "decision_endpoint_url") {
-    // The lane stores an endpoint id, not a URL: credentials and proxy come
-    // from the endpoint row, exactly as the Writer and Agent lanes do. Only an
-    // endpoint that already exists can be chosen -- this lane does not create
-    // one, because an endpoint with no key saved is not a usable Judge.
-    const url = el.value.trim();
-    const match = S.endpoints.find((e) => e.url === url);
-    if (url && !match) {
-      toast("Save that endpoint in the Writer or Agent lane first, then pick it here", true);
-      return;
-    }
-    _saveJudgeSetting("decision_endpoint_id", match ? match.id : null);
-  }
+  const saver = el && JUDGE_SAVERS[el.dataset.key];
+  if (!saver) return;
+  saver(el.value.trim()).then(
+    () => {
+      if (el.dataset.key === "judge_endpoint_url") _repaintJudgeLane();
+      toast("Judge settings saved");
+    },
+    (error) => toast(`Failed: ${error.message}`, true),
+  );
 });
 
+// One delegated listener for the lane, which is repainted in place and would
+// otherwise have to re-bind its buttons on every repaint.
 document.addEventListener("click", (event) => {
-  if (!event.target.closest("#judge-test-btn")) return;
-  _runJudgeTest();
+  if (!event.target.closest("#judge-lane")) return;
+  if (event.target.closest("#judge-test-btn")) {
+    _runJudgeTest();
+    return;
+  }
+  const toggle = event.target.closest(".api-key-toggle");
+  if (toggle) window.toggleApiKeyVisibility(toggle);
 });
 
 async function _runJudgeTest() {
@@ -411,7 +473,7 @@ async function _runJudgeTest() {
  *
  * Repaints only the lane, not the whole endpoints form: a full re-render would
  * throw away the Writer and Agent comboboxes -- and anything half-typed into
- * them -- to fill in three fields that nothing else depends on.
+ * them -- to fill in fields that nothing else depends on.
  */
 export async function loadJudgeConfig() {
   try {
@@ -419,11 +481,7 @@ export async function loadJudgeConfig() {
   } catch (_e) {
     return;
   }
-  const lane = document.getElementById("judge-lane");
-  if (!lane) return;
-  lane.outerHTML = _judgeLaneHtml();
-  initComboboxes();
-  refreshJudgeLane();
+  _repaintJudgeLane();
 }
 
 function _reasoningLevelExtras(prefix) {
@@ -571,21 +629,27 @@ export function initComboboxes() {
   const agentEpRoot = document.querySelector('[data-combobox="agent_endpoint_url"]');
   if (agentEpRoot)
     initCombobox(agentEpRoot, () => S.endpoints.map((e) => ({ value: e.url, id: e.id, type: "endpoint" })), {
-      isAgent: true,
+      lane: "agent",
     });
   const agentMdRoot = document.querySelector('[data-combobox="agent_model_name"]');
   if (agentMdRoot)
     initCombobox(agentMdRoot, () => _modelChoices(AGENT_CTX), {
-      isAgent: true,
+      lane: "agent",
       searchable: true,
       loadItems: () => _loadAvailableModels(AGENT_CTX),
     });
-  const judgeEpRoot = document.querySelector('[data-combobox="decision_endpoint_url"]');
+  // The judge pool, never the chat one: a Writer endpoint offered here is a
+  // choice the backend refuses, and one the user has no reason to know is wrong.
+  const judgeEpRoot = document.querySelector('[data-combobox="judge_endpoint_url"]');
   if (judgeEpRoot)
-    initCombobox(judgeEpRoot, () => S.endpoints.map((e) => ({ value: e.url, id: e.id, type: "endpoint" })));
+    initCombobox(judgeEpRoot, () => S.judgeEndpoints.map((e) => ({ value: e.url, id: e.id, type: "endpoint" })), {
+      lane: "judge",
+    });
 }
 
-window.deleteComboboxItem = (_btn, type, id, isAgent = false) => {
+// *lane* is which list the row was offered from: "writer", "agent" or "judge".
+window.deleteComboboxItem = (_btn, type, id, lane = "writer") => {
+  const isAgent = lane === "agent";
   const typeName = type === "endpoint" ? "endpoint" : "model configuration";
   showConfirmModal(
     {
@@ -597,6 +661,19 @@ window.deleteComboboxItem = (_btn, type, id, isAgent = false) => {
     async () => {
       try {
         let wasActive = false;
+        if (type === "endpoint" && lane === "judge") {
+          await api.del(`/endpoints/${id}`);
+          const index = S.judgeEndpoints.findIndex((e) => e.id === id);
+          if (index > -1) S.judgeEndpoints.splice(index, 1);
+          // Clear the selection explicitly rather than trusting the FK's
+          // ON DELETE SET NULL: the stored id is what the next turn resolves.
+          if (decisionConfig()?.decision_endpoint_id === id) {
+            setDecisionConfig(await api.put("/decisions/config", { decision_endpoint_id: null }));
+          }
+          _repaintJudgeLane();
+          toast("Deleted");
+          return;
+        }
         if (type === "endpoint") {
           await api.del(`/endpoints/${id}`);
           _invalidateAvailableModels(id);
@@ -661,7 +738,7 @@ window.deleteComboboxItem = (_btn, type, id, isAgent = false) => {
   );
 };
 
-function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, loadItems = null } = {}) {
+function initCombobox(rootEl, getItems, { lane = "writer", searchable = false, loadItems = null } = {}) {
   const input = rootEl.querySelector(".cb-input");
   const control = rootEl.querySelector(".cb-control");
   const dropdown = rootEl.querySelector(".cb-dropdown");
@@ -691,12 +768,12 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
         const value = item.value;
         const id = item.id;
         const type = item.type;
-        const agentArg = isAgent ? ", true" : "";
+        const laneArg = `, '${lane}'`;
         const idAttrs = id == null ? "" : ` data-id="${id}"`;
         const deleteHtml =
           id == null
             ? ""
-            : `<button class="cb-delete-btn" title="Delete" onclick="event.stopPropagation(); deleteComboboxItem(this, '${type}', ${id}${agentArg})">${CLOSE_ICON}</button>`;
+            : `<button class="cb-delete-btn" title="Delete" onclick="event.stopPropagation(); deleteComboboxItem(this, '${type}', ${id}${laneArg})">${CLOSE_ICON}</button>`;
         return `
               <div class="cb-option${i === activeIdx ? " active" : ""}" data-value="${escAttr(value)}"${idAttrs} data-type="${escAttr(type)}">
                 <span class="cb-option-text">${highlightMatch(value, q)}</span>
@@ -850,7 +927,7 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
     if (!tap || list.scrollTop !== tap.scrollTop) return;
     e.preventDefault();
     if (tap.deleteBtn) {
-      window.deleteComboboxItem(tap.deleteBtn, tap.option.dataset.type, Number(tap.option.dataset.id), isAgent);
+      window.deleteComboboxItem(tap.deleteBtn, tap.option.dataset.type, Number(tap.option.dataset.id), lane);
       return;
     }
     void selectVal(tap.option.dataset.value);
@@ -892,7 +969,12 @@ function initCombobox(rootEl, getItems, { isAgent = false, searchable = false, l
 
 export async function loadEndpoints() {
   try {
-    S.endpoints = await api.get("/endpoints");
+    // Two reads, two lists: the chat lanes and the Judge each see only the rows
+    // they can actually use.
+    [S.endpoints, S.judgeEndpoints] = await Promise.all([
+      api.get("/endpoints?kind=chat"),
+      api.get("/endpoints?kind=judge"),
+    ]);
     S.activeEndpointId = S.settings.active_endpoint_id || null;
     const activeEp = S.endpoints.find((e) => e.id === S.activeEndpointId);
     S.activeModelConfigId = activeEp?.active_model_config_id || null;
@@ -905,6 +987,7 @@ export async function loadEndpoints() {
   } catch (e) {
     console.error("Failed to load endpoints:", e);
     S.endpoints = [];
+    S.judgeEndpoints = [];
   }
 }
 
