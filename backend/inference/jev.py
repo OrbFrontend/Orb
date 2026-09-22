@@ -51,7 +51,6 @@ class DecisionQuestion:
     instructions: str
     criteria: Mapping[str, str] | Sequence[str]
     question_type: str = "noul"
-    cache_identity: str = ""
 
     def payload(self) -> dict[str, Any]:
         criteria: dict[str, str] | list[str]
@@ -238,7 +237,7 @@ def cache_namespace(*, endpoint_identity: str, config_revision: int) -> str:
 
 
 def cache_key(namespace: str, model: str, state: str, question: DecisionQuestion) -> str:
-    return "\x1f".join((namespace, model, state, question.cache_identity, question.canonical()))
+    return "\x1f".join((namespace, model, state, question.canonical()))
 
 
 class RawAnswerCache:

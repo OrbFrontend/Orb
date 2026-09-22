@@ -31,9 +31,9 @@ import { esc, escAttr } from "./utils.js";
  *
  * The stage records the answer's shape rather than the definition's type, and
  * the shapes do not overlap: noul answers carry a bare probability, score
- * answers a weighted mean, choice answers a selected key. A gated facet, which
- * has no answer to read, falls back to the authored outcome space -- the only
- * other thing on the row that distinguishes the three.
+ * answers a weighted mean, choice answers a selected key. A gated decision,
+ * which has no answer to read, falls back to the authored outcome space -- the
+ * only other thing on the row that distinguishes the three.
  */
 function _typeOf(record) {
   if (record.probability !== undefined) return "noul";
@@ -132,59 +132,12 @@ function _guidanceHtml(record) {
   return `<div class="decision-guidance">${esc(guidance)}</div>`;
 }
 
-function _facetHtml(facet) {
-  const type = facet.type || _typeOf(facet);
-  const gated = isGatedReason(facet.skip_reason);
-  const meta = _answerMeta(facet);
-  if (facet.branch) meta.unshift(`branch ${facet.branch}`);
-  if (facet.answer_source) meta.push(answerSourceText(facet.answer_source));
-  return `<div class="decision-facet-row${gated ? " decision-facet-gated" : ""}">
-    <div class="decision-facet-line">
-      <span class="decision-facet-name">${esc(facet.label || facet.key || "")}</span>
-      ${_outcomeChip(facet, type)}
-      <span class="decision-meta">${esc(meta.join(" · "))}</span>
-    </div>
-    ${
-      facet.skip_reason
-        ? `<div class="decision-reason${gated ? " decision-reason-gated" : ""}">${esc(
-            gated
-              ? "Gated below the confidence floor — the returned answer below was not used and nothing was injected."
-              : `${skipReasonText(facet.skip_reason)} — nothing was injected for this facet.`,
-          )}</div>`
-        : ""
-    }
-    ${_distributionHtml(facet, _selectedKey(facet), facet.skip_reason ? "Returned, not used" : "")}
-    ${facet.skip_reason ? "" : _guidanceHtml(facet)}
-  </div>`;
-}
-
-function _discardedHtml(record) {
-  const discarded = Array.isArray(record.discarded_branches) ? record.discarded_branches : [];
-  if (!discarded.length) return "";
-  const rows = discarded
-    .map((branch) => {
-      const meta = _answerMeta(branch);
-      if (branch.skip_reason) meta.push(skipReasonText(branch.skip_reason));
-      return `<div class="decision-discarded-row">
-        <span class="decision-facet-name">${esc(branch.label || branch.key || "")}</span>
-        <span class="decision-branch-tag">${esc(branch.branch || "")}</span>
-        <span class="decision-meta">${esc(meta.join(" · "))}</span>
-        ${_distributionHtml(branch, null)}
-      </div>`;
-    })
-    .join("");
-  return `<details class="decision-discarded">
-    <summary><span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>Discarded branches (${discarded.length})</summary>
-    <div class="decision-discarded-body">${rows}</div>
-  </details>`;
-}
-
 /**
  * The shared request's usage, shown once on the record that owns it.
  *
- * A fan-out is one request for the whole batch, so repeating its cost per
- * decision would multiply a number that was only paid once. A gateway that
- * reports no cost is labelled unavailable rather than rendered as zero.
+ * One request carries every decision that shares a situation, so repeating its
+ * cost per decision would multiply a number that was only paid once. A gateway
+ * that reports no cost is labelled unavailable rather than rendered as zero.
  */
 function _usageHtml(record) {
   if (!record.usage_owner) return "";
@@ -204,7 +157,6 @@ function _evaluationHtml(record) {
   if (record.replayed_from) meta.push(`was ${answerSourceText(record.replayed_from)}`);
   if (Number.isFinite(record.elapsed_ms) && record.elapsed_ms) meta.push(`${record.elapsed_ms}ms`);
   const label = record.injection_label || record.fragment_label || record.fragment_id;
-  const facets = Array.isArray(record.facets) ? record.facets : [];
   return `<details class="decision-eval">
     <summary>
       <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
@@ -223,8 +175,6 @@ function _evaluationHtml(record) {
       }
       ${_distributionHtml(record, _selectedKey(record))}
       ${_guidanceHtml(record)}
-      ${facets.length ? `<div class="decision-facets">${facets.map(_facetHtml).join("")}</div>` : ""}
-      ${_discardedHtml(record)}
       ${_usageHtml(record)}
       ${
         record.rendered_state

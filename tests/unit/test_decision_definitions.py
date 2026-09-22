@@ -94,7 +94,7 @@ def test_unknown_variants_are_rejected_rather_than_defaulted():
         assert parse_decision_definition(_row(**{field: value})) is None, field
 
 
-def test_choice_score_and_dependent_facets_derive_their_outcome_spaces():
+def test_choice_and_score_derive_their_outcome_spaces():
     choice = parse_decision_definition(
         _row(
             decision_type="choice",
@@ -103,40 +103,22 @@ def test_choice_score_and_dependent_facets_derive_their_outcome_spaces():
             decision_resolution="argmax",
             decision_threshold=None,
             decision_confidence_floor=0.5,
-            decision_facets=[
-                {
-                    "key": "cost",
-                    "label": "Cost",
-                    "type": "score",
-                    "criteria": ["Low", "High"],
-                    "instructions": {"clean": "Assume a clean win.", "messy": "Assume a messy win."},
-                    "outputs": {"0": "Low", "1": "High"},
-                    "confidence_floor": 0.4,
-                }
-            ],
         )
     )
     assert choice is not None
     assert choice.outcome_keys == ("clean", "messy")
-    assert choice.facets[0].outcome_keys == ("0", "1")
 
-
-def test_facet_branches_must_exactly_match_the_primary_outcomes():
-    problems = decision_definition_errors(
+    score = parse_decision_definition(
         _row(
-            decision_facets=[
-                {
-                    "key": "beat",
-                    "label": "Beat",
-                    "type": "choice",
-                    "criteria": {"clean": "Clean", "messy": "Messy"},
-                    "instructions": {"true": "Only one branch"},
-                    "outputs": {"clean": "Clean", "messy": "Messy"},
-                }
-            ]
+            decision_type="score",
+            decision_criteria=["Low", "High"],
+            decision_outputs={"0": "Low", "1": "High"},
+            decision_resolution="nearest",
+            decision_threshold=None,
         )
     )
-    assert any("instructions must have exactly" in problem for problem in problems)
+    assert score is not None
+    assert score.outcome_keys == ("0", "1")
 
 
 def test_criteria_may_arrive_as_json_text():

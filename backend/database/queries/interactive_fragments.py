@@ -15,7 +15,7 @@ _EDITOR_LANE_FIELD_TYPES = frozenset(("feedback", "post_processing"))
 # decode. A malformed value decodes to None rather than raising: an unusable
 # definition must degrade to "not a valid decision", which is a skip with a
 # visible reason, not a 500 on the fragment list.
-_DECISION_JSON_COLUMNS = ("decision_criteria", "decision_outputs", "decision_facets")
+_DECISION_JSON_COLUMNS = ("decision_criteria", "decision_outputs")
 
 # Authoring columns a create or update may write, besides the decision ones.
 _BASE_WRITE_COLUMNS = (

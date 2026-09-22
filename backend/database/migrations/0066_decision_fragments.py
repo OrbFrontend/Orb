@@ -30,9 +30,11 @@ _FRAGMENT_COLUMNS: tuple[tuple[str, str], ...] = (
     ("decision_outputs", "TEXT DEFAULT NULL"),
     ("decision_resolution", "TEXT DEFAULT NULL"),
     ("decision_threshold", "REAL DEFAULT NULL"),
-    ("decision_facets", "TEXT DEFAULT NULL"),
     ("decision_confidence_floor", "REAL DEFAULT NULL"),
 )
+
+# Built on this branch, then cut before release. Dropped if a database has them.
+_LEGACY_FRAGMENT_COLUMNS: tuple[str, ...] = ("decision_default", "decision_facets")
 
 _MESSAGE_COLUMNS: tuple[tuple[str, str], ...] = (
     ("decision_evaluations", "TEXT NOT NULL DEFAULT '{}'"),
@@ -106,7 +108,6 @@ def _seed_outcome(conn: sqlite3.Connection) -> None:
         "decision_outputs",
         "decision_resolution",
         "decision_threshold",
-        "decision_facets",
         "decision_confidence_floor",
     }
     if (
@@ -120,8 +121,8 @@ def _seed_outcome(conn: sqlite3.Connection) -> None:
     conn.execute(
         "INSERT INTO interactive_fragments (id, label, description, field_type, required, enabled, injection_label, sort_order, "
         "decision_type, decision_placement, decision_state_template, decision_instructions, decision_criteria, decision_outputs, "
-        "decision_resolution, decision_threshold, decision_facets, decision_confidence_floor) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "decision_resolution, decision_threshold, decision_confidence_floor) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             outcome["id"],
             outcome["label"],
@@ -140,17 +141,21 @@ def _seed_outcome(conn: sqlite3.Connection) -> None:
             outcome["decision_resolution"],
             None,
             None,
-            None,
         ),
     )
 
 
-def _cleanup_legacy_shape(conn: sqlite3.Connection) -> tuple[bool, bool]:
-    """Remove the pre-squash fallback column and restore the settings FK."""
-    needs_column_cleanup = "decision_default" in _columns(conn, "interactive_fragments")
+def _cleanup_legacy_shape(conn: sqlite3.Connection) -> tuple[list[str], bool]:
+    """Remove pre-squash columns and restore the settings FK.
+
+    ``decision_default`` and ``decision_facets`` were both built and then cut
+    before release, so a development database can carry either.
+    """
+    fragment_columns = _columns(conn, "interactive_fragments")
+    stale = [column for column in _LEGACY_FRAGMENT_COLUMNS if column in fragment_columns]
     needs_settings_rebuild = bool(_columns(conn, "settings")) and not _has_decision_endpoint_fk(conn)
-    if not (needs_column_cleanup or needs_settings_rebuild):
-        return False, False
+    if not (stale or needs_settings_rebuild):
+        return [], False
 
     # DROP COLUMN and DROP/RENAME both require foreign-key enforcement to be off
     # during the shape change. Commit first because SQLite ignores this pragma
@@ -159,14 +164,14 @@ def _cleanup_legacy_shape(conn: sqlite3.Connection) -> tuple[bool, bool]:
     had_foreign_keys = conn.execute("PRAGMA foreign_keys").fetchone()[0]
     conn.execute("PRAGMA foreign_keys = OFF")
     try:
-        if needs_column_cleanup:
-            conn.execute("ALTER TABLE interactive_fragments DROP COLUMN decision_default")
+        for column in stale:
+            conn.execute(f"ALTER TABLE interactive_fragments DROP COLUMN {column}")  # nosec B608 -- module literals
         if needs_settings_rebuild:
             _rebuild_settings(conn)
         conn.commit()
     finally:
         conn.execute(f"PRAGMA foreign_keys = {had_foreign_keys}")
-    return needs_column_cleanup, needs_settings_rebuild
+    return stale, needs_settings_rebuild
 
 
 def migrate(conn: sqlite3.Connection) -> None:
@@ -177,8 +182,8 @@ def migrate(conn: sqlite3.Connection) -> None:
     )
     _seed_outcome(conn)
     conn.commit()
-    dropped_legacy_column, rebuilt_settings = _cleanup_legacy_shape(conn)
+    dropped, rebuilt_settings = _cleanup_legacy_shape(conn)
     print(
         f"[migrations] 0066: added {added} decision column(s), "
-        f"dropped legacy fallback={dropped_legacy_column}, rebuilt settings={rebuilt_settings}"
+        f"dropped legacy column(s)={dropped or 'none'}, rebuilt settings={rebuilt_settings}"
     )

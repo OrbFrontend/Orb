@@ -290,27 +290,6 @@ class MessageRow(TypedDict):
     decision_cooldowns: dict[str, int]
 
 
-class DecisionFacetEvaluationRow(TypedDict, total=False):
-    key: str
-    label: str
-    type: str
-    branch: str
-    rendered_instructions: str
-    rendered_criteria: dict[str, str] | list[str]
-    outputs: dict[str, str]
-    outcome: str
-    guidance: str
-    answer_source: str
-    # Present when this facet contributed nothing: gated below its confidence
-    # floor, or unanswered. Such a facet has no outcome and no guidance.
-    skip_reason: str
-    probability: float
-    distribution: dict[str, float]
-    confidence: float
-    score: float
-    draw: float
-
-
 class DecisionEvaluationRow(TypedDict, total=False):
     """One decision occurrence as it is persisted on a reply.
 
@@ -357,8 +336,6 @@ class DecisionEvaluationRow(TypedDict, total=False):
     distribution: dict[str, float]
     confidence: float
     score: float
-    facets: list[DecisionFacetEvaluationRow]
-    discarded_branches: list[DecisionFacetEvaluationRow]
 
 
 class DecisionSkipRow(TypedDict, total=False):
@@ -709,7 +686,6 @@ class InteractiveFragmentRow(TypedDict):
     decision_outputs: dict[str, str] | None
     decision_resolution: str | None
     decision_threshold: float | None
-    decision_facets: list[dict] | None
     decision_confidence_floor: float | None
 
 

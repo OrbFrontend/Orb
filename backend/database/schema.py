@@ -238,7 +238,6 @@ CREATE TABLE IF NOT EXISTS interactive_fragments (
     decision_outputs TEXT DEFAULT NULL,
     decision_resolution TEXT DEFAULT NULL,
     decision_threshold REAL DEFAULT NULL,
-    decision_facets TEXT DEFAULT NULL,
     decision_confidence_floor REAL DEFAULT NULL
 );
 

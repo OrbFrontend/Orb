@@ -185,8 +185,8 @@ async def _seed_interactive_fragments(db) -> None:
         await db.execute(
             "INSERT INTO interactive_fragments (id, label, description, field_type, required, enabled, injection_label, sort_order, "
             "decision_type, decision_placement, decision_state_template, decision_instructions, decision_criteria, decision_outputs, "
-            "decision_resolution, decision_threshold, decision_facets, decision_confidence_floor) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "decision_resolution, decision_threshold, decision_confidence_floor) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 df["id"],
                 df["label"],
@@ -204,7 +204,6 @@ async def _seed_interactive_fragments(db) -> None:
                 json.dumps(df["decision_outputs"], ensure_ascii=False) if "decision_outputs" in df else None,
                 df.get("decision_resolution"),
                 df.get("decision_threshold"),
-                json.dumps(df["decision_facets"], ensure_ascii=False) if "decision_facets" in df else None,
                 df.get("decision_confidence_floor"),
             ),
         )

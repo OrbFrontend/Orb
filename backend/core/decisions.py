@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import math
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias
@@ -28,9 +27,7 @@ OUTCOME_KEYS = ("true", "false")
 MAX_CHOICE_OPTIONS = 255
 MIN_SCORE_LEVELS = 2
 MAX_SCORE_LEVELS = 10
-MAX_DECISION_FACETS = 16
-MAX_DECISION_QUESTIONS = 128
-MAX_FACET_KEY_LENGTH = 64
+MAX_OPTION_KEY_LENGTH = 64
 DECISION_COLUMNS = (
     "decision_type",
     "decision_placement",
@@ -40,30 +37,9 @@ DECISION_COLUMNS = (
     "decision_outputs",
     "decision_resolution",
     "decision_threshold",
-    "decision_facets",
     "decision_confidence_floor",
 )
 DEFAULT_STATE_TEMPLATE = "Previous reply:\n{{last_assistant_message}}\n\nCurrent request:\n{{last_message}}"
-_FACET_KEY = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
-
-
-@dataclass(frozen=True, slots=True)
-class DecisionFacet:
-    key: str
-    label: str
-    decision_type: str
-    criteria: DecisionCriteria
-    instructions: str | Mapping[str, str]
-    outputs: Mapping[str, str]
-    confidence_floor: float | None = None
-
-    @property
-    def outcome_keys(self) -> tuple[str, ...]:
-        return criteria_outcome_keys(self.decision_type, self.criteria)
-
-    @property
-    def resolution(self) -> str:
-        return "threshold" if self.decision_type == "noul" else "argmax"
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +55,6 @@ class DecisionDefinition:
     outputs: Mapping[str, str]
     resolution: str
     threshold: float | None
-    facets: tuple[DecisionFacet, ...] = ()
     confidence_floor: float | None = None
     cooldown_turns: int = 0
 
@@ -143,8 +118,8 @@ def _criteria(value: Any, decision_type: str) -> tuple[DecisionCriteria, str]:
         if not 2 <= len(value) <= MAX_CHOICE_OPTIONS:
             return {}, f"must contain 2 to {MAX_CHOICE_OPTIONS} options"
         keys = tuple(value)
-        if any(not isinstance(key, str) or not key or len(key) > MAX_FACET_KEY_LENGTH for key in keys):
-            return {}, f"option keys must be nonempty strings up to {MAX_FACET_KEY_LENGTH} characters"
+        if any(not isinstance(key, str) or not key or len(key) > MAX_OPTION_KEY_LENGTH for key in keys):
+            return {}, f"option keys must be nonempty strings up to {MAX_OPTION_KEY_LENGTH} characters"
     else:
         return {}, "cannot be validated for an unknown decision type"
     for key in keys:
@@ -190,92 +165,6 @@ def _threshold(row: Mapping[str, Any], decision_type: str, resolution: str) -> t
     return value, ""
 
 
-def _facets(value: Any, primary_keys: Sequence[str]) -> tuple[tuple[DecisionFacet, ...], list[str]]:
-    value = _json(value)
-    if value is None:
-        return (), []
-    if not isinstance(value, list):
-        return (), ["decision_facets must be a JSON array"]
-    if len(value) > MAX_DECISION_FACETS:
-        return (), [f"decision_facets must contain at most {MAX_DECISION_FACETS} facets"]
-    facets: list[DecisionFacet] = []
-    errors: list[str] = []
-    seen: set[str] = set()
-    questions = 1
-    for index, raw in enumerate(value):
-        prefix = f"decision_facets[{index}]"
-        if not isinstance(raw, Mapping):
-            errors.append(f"{prefix} must be an object")
-            continue
-        if "facets" in raw:
-            errors.append(f"{prefix} facets cannot nest")
-        key = raw.get("key")
-        if not isinstance(key, str) or not _FACET_KEY.fullmatch(key) or len(key) > MAX_FACET_KEY_LENGTH:
-            errors.append(
-                f"{prefix}.key must use lowercase letters, numbers, '_' or '-' and be at most {MAX_FACET_KEY_LENGTH} characters"
-            )
-            key = ""
-        elif key in seen:
-            errors.append(f"{prefix}.key must be unique")
-        else:
-            seen.add(key)
-        label = raw.get("label")
-        if not isinstance(label, str) or not label.strip():
-            errors.append(f"{prefix}.label must not be empty")
-            label = key
-        decision_type = raw.get("type")
-        if decision_type not in DECISION_TYPES:
-            errors.append(f"{prefix}.type must be one of {', '.join(sorted(DECISION_TYPES))}")
-            continue
-        criteria, error = _criteria(raw.get("criteria"), decision_type)
-        if error:
-            errors.append(f"{prefix}.criteria {error}")
-            continue
-        facet_keys = criteria_outcome_keys(decision_type, criteria)
-        outputs, error = _outputs(raw.get("outputs"), facet_keys)
-        if error:
-            errors.append(f"{prefix}.outputs {error}")
-        instructions = raw.get("instructions")
-        parsed_instructions: str | Mapping[str, str]
-        if isinstance(instructions, str):
-            if not instructions.strip():
-                errors.append(f"{prefix}.instructions must not be empty")
-            parsed_instructions = instructions
-            questions += 1
-        elif isinstance(instructions, Mapping):
-            if set(instructions) != set(primary_keys):
-                errors.append(f"{prefix}.instructions must have exactly the keys {', '.join(primary_keys)}")
-            if any(
-                not isinstance(instructions.get(branch), str) or not str(instructions.get(branch)).strip()
-                for branch in primary_keys
-            ):
-                errors.append(f"{prefix}.instructions branches must be nonempty strings")
-            parsed_instructions = {branch: str(instructions.get(branch) or "") for branch in primary_keys}
-            questions += len(primary_keys)
-        else:
-            errors.append(f"{prefix}.instructions must be a string or an object keyed by the primary outcomes")
-            parsed_instructions = ""
-        confidence, error = _confidence(
-            raw.get("confidence_floor"), decision_type=decision_type, field=f"{prefix}.confidence_floor"
-        )
-        if error:
-            errors.append(error)
-        facets.append(
-            DecisionFacet(
-                key=key,
-                label=str(label),
-                decision_type=decision_type,
-                criteria=criteria,
-                instructions=parsed_instructions,
-                outputs=outputs,
-                confidence_floor=confidence,
-            )
-        )
-    if questions > MAX_DECISION_QUESTIONS:
-        errors.append(f"decision fan-out must contain at most {MAX_DECISION_QUESTIONS} questions")
-    return tuple(facets), errors
-
-
 def decision_definition_errors(row: Mapping[str, Any]) -> list[str]:
     errors: list[str] = []
     decision_type = _text(row, "decision_type")
@@ -306,8 +195,6 @@ def decision_definition_errors(row: Mapping[str, Any]) -> list[str]:
     _, error = _confidence(row.get("decision_confidence_floor"), decision_type=decision_type, field="decision_confidence_floor")
     if error:
         errors.append(error)
-    _, facet_errors = _facets(row.get("decision_facets"), keys)
-    errors.extend(facet_errors)
     return errors
 
 
@@ -323,7 +210,6 @@ def parse_decision_definition(row: Mapping[str, Any]) -> DecisionDefinition | No
     confidence, _ = _confidence(
         row.get("decision_confidence_floor"), decision_type=decision_type, field="decision_confidence_floor"
     )
-    facets, _ = _facets(row.get("decision_facets"), keys)
     label = str(row.get("label") or "")
     return DecisionDefinition(
         fragment_id=str(row["id"]),
@@ -337,7 +223,6 @@ def parse_decision_definition(row: Mapping[str, Any]) -> DecisionDefinition | No
         outputs=outputs,
         resolution=resolution,
         threshold=threshold,
-        facets=facets,
         confidence_floor=confidence,
         cooldown_turns=int(row.get("cooldown_turns") or 0),
     )

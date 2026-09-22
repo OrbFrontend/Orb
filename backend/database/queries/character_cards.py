@@ -13,7 +13,6 @@ import aiosqlite
 from ...core import (
     DECISION_COLUMNS,
     DECISION_FIELD_TYPE,
-    MAX_DECISION_FACETS,
     TurnCast,
     has_inline_macros,
     parse_decision_definition,
@@ -227,7 +226,6 @@ def _card_decision_columns(entry: Mapping[str, Any]) -> dict[str, Any] | None:
         "decision_outputs": _card_text_map(entry.get("decision_outputs")),
         "decision_resolution": _text(entry, "decision_resolution", "threshold"),
         "decision_threshold": _card_threshold(entry.get("decision_threshold")),
-        "decision_facets": _card_facets(entry.get("decision_facets")),
         "decision_confidence_floor": _card_threshold(entry.get("decision_confidence_floor")),
     }
     probe = {"id": entry["id"], "label": entry["label"], "field_type": DECISION_FIELD_TYPE, **columns}
@@ -253,34 +251,6 @@ def _card_criteria(raw: Any) -> dict[str, str] | list[str] | None:
     return None
 
 
-def _card_facets(raw: Any) -> list[dict[str, Any]] | None:
-    if raw is None:
-        return None
-    if not isinstance(raw, list) or len(raw) > MAX_DECISION_FACETS:
-        return None
-    facets: list[dict[str, Any]] = []
-    for facet in raw:
-        if not isinstance(facet, Mapping):
-            return None
-        instructions = facet.get("instructions")
-        if isinstance(instructions, str):
-            safe_instructions: str | dict[str, str] | None = instructions[:_CARD_DECISION_TEXT_LIMIT]
-        else:
-            safe_instructions = _card_text_map(instructions)
-        facets.append(
-            {
-                "key": _text(facet, "key")[:64],
-                "label": _text(facet, "label")[:_CARD_DECISION_TEXT_LIMIT],
-                "type": _text(facet, "type"),
-                "criteria": _card_criteria(facet.get("criteria")),
-                "instructions": safe_instructions,
-                "outputs": _card_text_map(facet.get("outputs")),
-                "confidence_floor": _card_threshold(facet.get("confidence_floor")),
-            }
-        )
-    return facets
-
-
 def _card_threshold(raw: Any) -> float | None:
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         return None
@@ -298,15 +268,6 @@ def card_decision_fingerprint(card: Mapping[str, Any] | None) -> str:
             "state_template": definition.state_template,
             "instructions": definition.instructions,
             "criteria": definition.criteria,
-            "facets": [
-                {
-                    "key": facet.key,
-                    "type": facet.decision_type,
-                    "criteria": facet.criteria,
-                    "instructions": facet.instructions,
-                }
-                for facet in definition.facets
-            ],
         }
         for definition in definitions
         if definition is not None

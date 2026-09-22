@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import time
 import uuid
@@ -11,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from ....core import DecisionDefinition, DecisionFacet
+from ....core import DecisionDefinition
 from ....inference import (
     MAX_QUESTION_BYTES,
     MAX_QUESTIONS_PER_EXCHANGE,
@@ -89,7 +87,6 @@ _EVENT_FIELDS = (
     "confidence",
     "score",
     "draw",
-    "facets",
     "elapsed_ms",
 )
 
@@ -158,19 +155,7 @@ class DecisionsResult:
     requests: int = 0
 
     def as_event_data(self) -> dict[str, Any]:
-        evaluations: list[dict[str, Any]] = []
-        for row in self.evaluations:
-            projected = {key: row[key] for key in _EVENT_FIELDS if key in row}
-            if "facets" in projected:
-                projected["facets"] = [
-                    {
-                        key: value
-                        for key, value in facet.items()
-                        if key not in {"rendered_instructions", "rendered_criteria", "outputs"}
-                    }
-                    for facet in projected["facets"]
-                ]
-            evaluations.append(projected)
+        evaluations = [{key: row[key] for key in _EVENT_FIELDS if key in row} for row in self.evaluations]
         return {"evaluations": evaluations, "skipped": self.skipped, "cooldowns": self.cooldowns}
 
     def as_envelope(self) -> dict[str, Any]:
@@ -188,8 +173,6 @@ class _PreparedQuestion:
     instructions: str
     criteria: Criteria
     question_type: str
-    facet: DecisionFacet | None = None
-    branch: str = ""
     failure: str = ""
     answer: Answer | None = None
     answer_source: str = ""
@@ -200,8 +183,7 @@ class _PreparedQuestion:
     usage_owner: bool = False
 
     def question(self) -> DecisionQuestion:
-        identity = f"{self.facet.key}:{self.branch}" if self.facet else ""
-        return DecisionQuestion(self.key, self.instructions, self.criteria, self.question_type, identity)
+        return DecisionQuestion(self.key, self.instructions, self.criteria, self.question_type)
 
     @property
     def fingerprint(self) -> str:
@@ -211,8 +193,6 @@ class _PreparedQuestion:
             instructions=self.instructions,
             criteria=self.criteria,
             question_type=self.question_type,
-            facet_key=self.facet.key if self.facet else "",
-            branch_key=self.branch,
         )
 
 
@@ -222,8 +202,7 @@ class _Prepared:
     model: str = ""
     state: str = ""
     outputs: dict[str, str] = field(default_factory=dict)
-    facet_outputs: dict[str, dict[str, str]] = field(default_factory=dict)
-    questions: list[_PreparedQuestion] = field(default_factory=list)
+    question: _PreparedQuestion | None = None
     raw_fingerprint: str = ""
     policy_fingerprint: str = ""
     skip_reason: str = ""
@@ -233,10 +212,6 @@ class _Prepared:
     @property
     def definition(self) -> DecisionDefinition:
         return self.candidate.definition
-
-    @property
-    def primary(self) -> _PreparedQuestion | None:
-        return self.questions[0] if self.questions and self.questions[0].facet is None else None
 
 
 def _resolve_text(text: str, snapshot: DecisionSnapshot) -> str:
@@ -303,10 +278,6 @@ def _prepare(candidate: DecisionCandidate, turn: DecisionsTurn, *, over_budget: 
     prepared.policy_fingerprint = resolution_policy_fingerprint(definition, scope=turn.scope)
     try:
         prepared.outputs = {key: _resolve_text(value, turn.snapshot) for key, value in definition.outputs.items()}
-        prepared.facet_outputs = {
-            facet.key: {key: _resolve_text(value, turn.snapshot) for key, value in facet.outputs.items()}
-            for facet in definition.facets
-        }
     except UnavailableMacro:
         prepared.skip_reason = SkipReason.UNAVAILABLE_CONTEXT
         return prepared
@@ -322,7 +293,7 @@ def _prepare(candidate: DecisionCandidate, turn: DecisionsTurn, *, over_budget: 
     used = set(macros_used(definition.state_template))
     try:
         prepared.state = render(definition.state_template, turn.snapshot, allowed=STATE_MACROS)
-        primary = _PreparedQuestion(
+        question = _PreparedQuestion(
             owner=prepared,
             key=definition.fragment_id,
             instructions=_resolve_text(definition.instructions, turn.snapshot),
@@ -335,42 +306,17 @@ def _prepare(candidate: DecisionCandidate, turn: DecisionsTurn, *, over_budget: 
     if used and used <= _SITUATION_MACROS and not any((turn.snapshot.value(macro) or "").strip() for macro in used):
         prepared.skip_reason = SkipReason.EMPTY_INPUT
         return prepared
-    if oversized_state(prepared.state) or oversized_question(primary.instructions, primary.criteria):
-        texts = primary.criteria.values() if isinstance(primary.criteria, Mapping) else primary.criteria
+    if oversized_state(prepared.state) or oversized_question(question.instructions, question.criteria):
+        texts = question.criteria.values() if isinstance(question.criteria, Mapping) else question.criteria
         prepared.oversize = (
             len(prepared.state.encode()),
-            len(primary.instructions.encode()) + sum(len(text.encode()) for text in texts),
+            len(question.instructions.encode()) + sum(len(text.encode()) for text in texts),
         )
         prepared.state = ""
         prepared.skip_reason = SkipReason.OVERSIZED_INPUT
         return prepared
-    prepared.questions.append(primary)
-    for facet_index, facet in enumerate(definition.facets):
-        branches: list[tuple[str, str]]
-        if isinstance(facet.instructions, str):
-            branches = [("", facet.instructions)]
-        else:
-            branches = [(branch, facet.instructions[branch]) for branch in definition.outcome_keys]
-        for branch_index, (branch, instructions) in enumerate(branches):
-            question = _PreparedQuestion(
-                owner=prepared,
-                key=f"{definition.fragment_id}__{facet.key}__{facet_index}_{branch_index}",
-                instructions="",
-                criteria=(),
-                question_type=facet.decision_type,
-                facet=facet,
-                branch=branch,
-            )
-            try:
-                question.instructions = _resolve_text(instructions, turn.snapshot)
-                question.criteria = _render_criteria(facet.criteria, turn.snapshot)
-            except UnavailableMacro:
-                question.failure = SkipReason.UNAVAILABLE_CONTEXT
-            if not question.failure and oversized_question(question.instructions, question.criteria):
-                question.failure = SkipReason.OVERSIZED_INPUT
-            prepared.questions.append(question)
-    fingerprints = [question.fingerprint for question in prepared.questions]
-    prepared.raw_fingerprint = hashlib.sha256(json.dumps(fingerprints, separators=(",", ":")).encode()).hexdigest()
+    prepared.question = question
+    prepared.raw_fingerprint = question.fingerprint
     return prepared
 
 
@@ -411,28 +357,15 @@ def _resolve_answer(
     raise ValueError("answer primitive did not match its definition")
 
 
-def _question_details(question: _PreparedQuestion) -> dict[str, Any]:
-    details: dict[str, Any] = {}
-    if question.answer_source:
-        details["answer_source"] = question.answer_source
-    if question.answer is not None:
-        details.update(_answer_fields(question.answer))
-    if question.failure:
-        details["skip_reason"] = question.failure
-    if question.elapsed_ms:
-        details["elapsed_ms"] = question.elapsed_ms
-    return details
-
-
 def _is_gated(question: _PreparedQuestion, answer: Answer) -> bool:
-    floor = question.facet.confidence_floor if question.facet else question.owner.definition.confidence_floor
+    floor = question.owner.definition.confidence_floor
     confidence = getattr(answer, "confidence", None)
     return floor is not None and confidence is not None and confidence < floor
 
 
 def _base_record(prepared: _Prepared, turn: DecisionsTurn, occurrence_id: str | None = None) -> dict[str, Any]:
     definition = prepared.definition
-    primary = prepared.primary
+    question = prepared.question
     record: dict[str, Any] = {
         "fragment_id": definition.fragment_id,
         "fragment_label": definition.label,
@@ -443,25 +376,22 @@ def _base_record(prepared: _Prepared, turn: DecisionsTurn, occurrence_id: str | 
         "occurrence_id": occurrence_id or str(uuid.uuid4()),
         "input_branch_anchor": turn.snapshot.anchor_message_id,
         "rendered_state": prepared.state,
-        "rendered_instructions": primary.instructions if primary else "",
-        "rendered_criteria": primary.criteria if primary else {},
+        "rendered_instructions": question.instructions if question else "",
+        "rendered_criteria": question.criteria if question else {},
         "raw_request_fingerprint": prepared.raw_fingerprint,
         "resolution_policy_fingerprint": prepared.policy_fingerprint,
         "outputs": dict(prepared.outputs),
         "requested_model": turn.config.model,
-        "returned_model": primary.returned_model if primary else "",
-        "facets": [],
-        "discarded_branches": [],
-        "elapsed_ms": max((q.elapsed_ms for q in prepared.questions), default=0),
+        "returned_model": question.returned_model if question else "",
+        "elapsed_ms": question.elapsed_ms if question else 0,
     }
     if prepared.replay_invalidated:
         record["replay_invalidated"] = prepared.replay_invalidated
-    usage_question = next((q for q in prepared.questions if q.usage_owner and q.usage), None)
-    if usage_question:
-        record["usage"] = dict(usage_question.usage)
+    if question is not None and question.usage_owner and question.usage:
+        record["usage"] = dict(question.usage)
         record["usage_owner"] = 1
-        if usage_question.request_id:
-            record["request_id"] = usage_question.request_id
+        if question.request_id:
+            record["request_id"] = question.request_id
     return record
 
 
@@ -498,17 +428,17 @@ def _resolved_record(prepared: _Prepared, turn: DecisionsTurn) -> dict[str, Any]
     outcome and no guidance, and the caller turns it into a skip row.
     """
     definition = prepared.definition
-    primary = prepared.primary
-    if primary is None or primary.answer is None:
-        prepared.skip_reason = (primary.failure if primary else "") or prepared.skip_reason or SkipReason.INVALID_ANSWER
+    question = prepared.question
+    if question is None or question.answer is None:
+        prepared.skip_reason = (question.failure if question else "") or prepared.skip_reason or SkipReason.INVALID_ANSWER
         return None
-    confidence = getattr(primary.answer, "confidence", None)
+    confidence = getattr(question.answer, "confidence", None)
     if definition.confidence_floor is not None and confidence is not None and confidence < definition.confidence_floor:
         prepared.skip_reason = SkipReason.LOW_CONFIDENCE
         return None
     try:
         outcome, draw = _resolve_answer(
-            primary.answer,
+            question.answer,
             decision_type=definition.decision_type,
             resolution=definition.resolution,
             keys=definition.outcome_keys,
@@ -522,63 +452,13 @@ def _resolved_record(prepared: _Prepared, turn: DecisionsTurn) -> dict[str, Any]
         {
             "outcome": outcome,
             "guidance": prepared.outputs.get(outcome, ""),
-            "answer_source": primary.answer_source,
-            **_answer_fields(primary.answer),
+            "answer_source": question.answer_source,
+            **_answer_fields(question.answer),
         }
     )
     if draw is not None:
         record["draw"] = draw
 
-    for facet in definition.facets:
-        questions = [q for q in prepared.questions if q.facet is facet]
-        selected = next((q for q in questions if not q.branch or q.branch == outcome), None)
-        for discarded in questions:
-            if discarded is selected or discarded.answer is None:
-                continue
-            record["discarded_branches"].append(
-                {"key": facet.key, "label": facet.label, "branch": discarded.branch, **_question_details(discarded)}
-            )
-        facet_record: dict[str, Any] = {
-            "key": facet.key,
-            "label": facet.label,
-            "type": facet.decision_type,
-            "branch": selected.branch if selected else outcome,
-            "rendered_instructions": selected.instructions if selected else "",
-            "rendered_criteria": selected.criteria if selected else {},
-            "outputs": dict(prepared.facet_outputs.get(facet.key, {})),
-        }
-        if selected is None or selected.answer is None:
-            facet_record.update(
-                {
-                    "skip_reason": (selected.failure if selected else "") or SkipReason.INVALID_FACET_ANSWER,
-                    "guidance": "",
-                }
-            )
-            record["facets"].append(facet_record)
-            continue
-        facet_record.update(_answer_fields(selected.answer))
-        facet_record["answer_source"] = selected.answer_source
-        facet_confidence = getattr(selected.answer, "confidence", None)
-        if facet.confidence_floor is not None and facet_confidence is not None and facet_confidence < facet.confidence_floor:
-            facet_record.update({"skip_reason": SkipReason.LOW_CONFIDENCE, "guidance": ""})
-            record["facets"].append(facet_record)
-            continue
-        try:
-            facet_outcome, facet_draw = _resolve_answer(
-                selected.answer,
-                decision_type=facet.decision_type,
-                resolution=facet.resolution,
-                keys=facet.outcome_keys,
-                threshold=0.5,
-            )
-        except ValueError:
-            facet_record.update({"skip_reason": SkipReason.INVALID_FACET_ANSWER, "guidance": ""})
-        else:
-            facet_record["outcome"] = facet_outcome
-            facet_record["guidance"] = prepared.facet_outputs.get(facet.key, {}).get(facet_outcome, "")
-            if facet_draw is not None:
-                facet_record["draw"] = facet_draw
-        record["facets"].append(facet_record)
     return record
 
 
@@ -595,17 +475,6 @@ def _replayed(prepared: _Prepared, turn: DecisionsTurn, stored: Mapping[str, Any
             "guidance": prepared.outputs.get(str(stored.get("outcome") or ""), ""),
         }
     )
-    facets = []
-    by_key = {facet.key: facet for facet in prepared.definition.facets}
-    for raw in stored.get("facets", []):
-        if not isinstance(raw, Mapping) or (facet := by_key.get(str(raw.get("key") or ""))) is None:
-            continue
-        item = dict(raw)
-        item["answer_source"] = "replay"
-        item["outputs"] = dict(prepared.facet_outputs.get(facet.key, {}))
-        item["guidance"] = item["outputs"].get(str(item.get("outcome") or ""), "")
-        facets.append(item)
-    record["facets"] = facets
     return record
 
 
@@ -661,25 +530,23 @@ async def run_decisions(turn: DecisionsTurn, *, abort: AbortToken | None = None)
             continue
         if invalidated_anchor(turn.replay_records, fid):
             item.replay_invalidated = SkipReason.MISSING_ANCHOR
-        for question in item.questions:
-            if question.failure:
-                continue
-            if question_budget <= 0:
-                question.failure = SkipReason.BUDGET_EXHAUSTED
-                continue
-            question_budget -= 1
-            key = cache_key(turn.config.namespace, turn.config.model, item.state, question.question())
-            hit = RAW_ANSWER_CACHE.get(key)
+        question = item.question
+        if question is None or question.failure:
+            continue
+        if question_budget <= 0:
+            question.failure = SkipReason.BUDGET_EXHAUSTED
+            continue
+        question_budget -= 1
+        key = cache_key(turn.config.namespace, turn.config.model, item.state, question.question())
+        hit = RAW_ANSWER_CACHE.get(key)
+        if hit is not None and not _is_gated(question, hit.answer):
+            question.answer = hit.answer
+            question.answer_source = "cache"
+            question.returned_model = hit.returned_model
+        else:
             if hit is not None:
-                if _is_gated(question, hit.answer):
-                    RAW_ANSWER_CACHE.discard(key)
-                    pending.append(question)
-                    continue
-                question.answer = hit.answer
-                question.answer_source = "cache"
-                question.returned_model = hit.returned_model
-            else:
-                pending.append(question)
+                RAW_ANSWER_CACHE.discard(key)
+            pending.append(question)
 
     requests = await _issue(pending, turn, started=started, abort=abort) if pending else 0
     for item in prepared:
@@ -758,7 +625,7 @@ async def _issue(
             question.usage_owner = index == 0
             answer = response.answers.get(question.key)
             if answer is None:
-                question.failure = SkipReason.INVALID_ANSWER if question.facet is None else SkipReason.INVALID_FACET_ANSWER
+                question.failure = SkipReason.INVALID_ANSWER
                 continue
             question.answer = answer
             question.answer_source = "live"

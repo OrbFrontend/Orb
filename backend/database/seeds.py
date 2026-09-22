@@ -107,7 +107,6 @@ SEED_INTERACTIVE_FRAGMENTS = [
         },
         "decision_resolution": "roll",
         "decision_threshold": None,
-        "decision_facets": None,
         "decision_confidence_floor": None,
     },
     {

@@ -10,14 +10,10 @@ FALSE = "false"
 class SkipReason:
     """Why a decision produced nothing this turn.
 
-    One vocabulary, because there is now one outcome for a decision that cannot
+    One vocabulary, because there is one outcome for a decision that cannot
     answer: it is skipped and the turn goes on without it. Nothing is injected
     and nothing is invented, so an author reading a reason is never being told
     about a value that reached the story.
-
-    The same constants name a gated facet on an otherwise resolved decision --
-    that facet contributed nothing for the same reason the whole decision would
-    have contributed nothing.
     """
 
     NOT_APPROVED = "not_approved"
@@ -31,7 +27,6 @@ class SkipReason:
     TRANSPORT_FAILURE = "transport_failure"
     TIMEOUT = "timeout"
     INVALID_ANSWER = "invalid_answer"
-    INVALID_FACET_ANSWER = "invalid_facet_answer"
     LOW_CONFIDENCE = "low_confidence"
     MISSING_ANCHOR = "missing_anchor"
 
@@ -49,7 +44,6 @@ FAILURE_REASONS = frozenset(
         SkipReason.TRANSPORT_FAILURE,
         SkipReason.TIMEOUT,
         SkipReason.INVALID_ANSWER,
-        SkipReason.INVALID_FACET_ANSWER,
     }
 )
 

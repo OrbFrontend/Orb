@@ -165,51 +165,31 @@ async def test_a_live_answer_resolves_injects_and_records(monkeypatch):
     assert result.requests == 1
 
 
-async def test_fanout_selects_one_branch_and_gates_only_that_facet(monkeypatch):
-    facets = [
-        {
-            "key": "cost",
-            "label": "Cost",
-            "type": "score",
-            "criteria": ["Low", "High"],
-            "instructions": {"true": "Assume success.", "false": "Assume failure."},
-            "outputs": {"0": "low cost", "1": "high cost"},
-            "confidence_floor": 0.8,
-        },
-        {
-            "key": "beat",
-            "label": "Beat",
-            "type": "choice",
-            "criteria": {"clean": "Clean", "messy": "Messy"},
-            "instructions": "What beat is this?",
-            "outputs": {"clean": "clean beat", "messy": "messy beat"},
-            "confidence_floor": None,
-        },
-    ]
-    answers = {
-        "outcome": 0.9,
-        "outcome__cost__0_0": ScoreAnswer(0.8, {"0": 0.2, "1": 0.8}, 0.5, {"0": "Low", "1": "High"}),
-        "outcome__cost__0_1": ScoreAnswer(0.1, {"0": 0.9, "1": 0.1}, 0.9, {"0": "Low", "1": "High"}),
-        "outcome__beat__1_0": ChoiceAnswer("messy", {"clean": 0.1, "messy": 0.9}, 0.9),
-    }
-    gateway = FakeGateway(answers=answers).install(monkeypatch)
-    candidate = _candidate(decision_facets=facets)
-    first = await run_decisions(_turn(candidate))
+async def test_an_answer_below_the_confidence_floor_is_gated_and_not_cached(monkeypatch):
+    """A gated answer resolves to nothing and must not be served again from cache.
 
-    assert len(gateway.batches) == 1
-    assert len(gateway.batches[0]) == 4
-    record = first.evaluations[0]
-    assert record["outcome"] == "true"
-    assert record["facets"][0]["skip_reason"] == SkipReason.LOW_CONFIDENCE
-    assert "outcome" not in record["facets"][0]
-    assert record["facets"][1]["outcome"] == "messy"
-    assert record["discarded_branches"][0]["branch"] == "false"
-    assert "Cost:" not in first.guidance
-    assert "Beat: messy beat" in first.guidance
+    The floor means "this answer is not good enough to act on", so caching it
+    would make one weak answer decide every later turn with the same situation.
+    """
+    answers = {"outcome": ChoiceAnswer("messy", {"clean": 0.4, "messy": 0.6}, 0.5)}
+    gateway = FakeGateway(answers=answers).install(monkeypatch)
+    candidate = _candidate(
+        decision_type="choice",
+        decision_criteria={"clean": "Clean win", "messy": "Messy win"},
+        decision_outputs={"clean": "clean beat", "messy": "messy beat"},
+        decision_resolution="argmax",
+        decision_threshold=None,
+        decision_confidence_floor=0.8,
+    )
+    result = await run_decisions(_turn(candidate))
+
+    assert not result.evaluations
+    assert result.skipped[0]["reason"] == SkipReason.LOW_CONFIDENCE
+    assert result.guidance == ""
 
     gateway.batches.clear()
     await run_decisions(_turn(candidate))
-    assert gateway.batches == [["outcome__cost__0_0"]]
+    assert gateway.batches == [["outcome"]]
 
 
 async def test_an_empty_selected_output_suppresses_injection_but_still_records(monkeypatch):

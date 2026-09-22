@@ -1,16 +1,10 @@
 // The decision half of the Interactive Fragment editor.
 //
-// A decision is one primary question plus zero or more dependent facets, all
-// issued in a single fan-out request. Two things about this form are load-
-// bearing and easy to undo by accident:
-//
-//  1. Criteria and guidance are different fields and are the single most
-//     confusable pair in the feature, so they sit on one row: "if this outcome
-//     -> what it looks like -> what the story does".
-//  2. Each facet branch is asked to the provider exactly as written. The system
-//     never synthesises the other branch -- mechanical negations were measured
-//     against hand-written ones and none of them resolved. An author who fills
-//     one branch gets a validation error, not a generated second one.
+// A decision is one question about the scene. One thing about this form is
+// load-bearing and easy to undo by accident: criteria and guidance are
+// different fields and are the single most confusable pair in the feature, so
+// they sit on one row: "if this outcome -> what it looks like -> what the
+// story does".
 //
 // The type list, resolution policies, macros and bounds all come from
 // `GET /api/decisions/config`; nothing here restates them.
@@ -109,23 +103,6 @@ function _blankOptions(type) {
   ];
 }
 
-function _facetFrom(raw, primaryKeys) {
-  const type = typeof raw?.type === "string" ? raw.type : "choice";
-  const instructions = raw?.instructions;
-  const single = typeof instructions === "string";
-  const branchMap = instructions && typeof instructions === "object" ? instructions : {};
-  return {
-    key: String(raw?.key ?? ""),
-    label: String(raw?.label ?? ""),
-    type,
-    options: _optionsFrom(type, raw?.criteria, raw?.outputs),
-    single,
-    singleInstruction: single ? instructions : "",
-    branches: primaryKeys.map((key) => String(branchMap[key] ?? "")),
-    confidence_floor: Number.isFinite(raw?.confidence_floor) ? raw.confidence_floor : null,
-  };
-}
-
 /**
  * Start (or clear) the decision draft for the fragment about to be edited.
  *
@@ -141,8 +118,6 @@ export function initDecisionDraft(fragment) {
   const options = fragment?.decision_criteria
     ? _optionsFrom(type, fragment.decision_criteria, fragment.decision_outputs)
     : _blankOptions(type);
-  const primaryKeys = _keysOf(type, options);
-  const rawFacets = Array.isArray(fragment?.decision_facets) ? fragment.decision_facets : [];
   _draft = {
     type,
     placement: String(fragment?.decision_placement || DEFAULT_PLACEMENT),
@@ -152,17 +127,11 @@ export function initDecisionDraft(fragment) {
     resolution: String(fragment?.decision_resolution || _policiesFor(type)[0] || ""),
     threshold: Number.isFinite(fragment?.decision_threshold) ? fragment.decision_threshold : null,
     confidence_floor: Number.isFinite(fragment?.decision_confidence_floor) ? fragment.decision_confidence_floor : null,
-    facets: rawFacets.map((raw) => _facetFrom(raw, primaryKeys)),
   };
   // Guidance an author already wrote is theirs: mirroring must never overwrite
   // it, so everything non-empty starts out touched.
   _draft.options.forEach((option, index) => {
     if (option.output) _touched.add(`p:${index}`);
-  });
-  _draft.facets.forEach((facet, facetIndex) => {
-    facet.options.forEach((option, index) => {
-      if (option.output) _touched.add(`f:${facetIndex}:${index}`);
-    });
   });
   if (!_draft.state_template) _draft.state_template = _cfg()?.default_state_template || "";
 }
@@ -178,7 +147,7 @@ export function clearDecisionDraft() {
 // ── Reading the form ─────────────────────────────────────────────────────────
 
 /**
- * The eleven decision columns, always all of them.
+ * The nine decision columns, always all of them.
  *
  * For decision columns an explicit `null` is a write, not an omission: it is
  * the only way to clear one. Switching to `roll` has to send
@@ -188,7 +157,6 @@ export function clearDecisionDraft() {
 export function readDecisionFields() {
   _syncFromDom();
   if (!_draft) return {};
-  const keys = _keysOf(_draft.type, _draft.options);
   const isNoul = _draft.type === "noul";
   return {
     decision_type: _draft.type,
@@ -200,19 +168,6 @@ export function readDecisionFields() {
     decision_resolution: _draft.resolution,
     decision_threshold: isNoul && _draft.resolution === "threshold" ? _draft.threshold : null,
     decision_confidence_floor: isNoul ? null : _draft.confidence_floor,
-    decision_facets: _draft.facets.length
-      ? _draft.facets.map((facet) => ({
-          key: facet.key,
-          label: facet.label,
-          type: facet.type,
-          criteria: _wireCriteria(facet.type, facet.options),
-          outputs: _wireOutputs(facet.type, facet.options),
-          instructions: facet.single
-            ? facet.singleInstruction
-            : Object.fromEntries(keys.map((key, index) => [key, facet.branches[index] ?? ""])),
-          confidence_floor: facet.type === "noul" ? null : facet.confidence_floor,
-        }))
-      : null,
   };
 }
 
@@ -248,42 +203,14 @@ function _syncFromDom() {
     const option = _draft.options[Number(el.dataset.decOutput)];
     if (option) option.output = el.value;
   }
-  for (const card of root.querySelectorAll("[data-facet]")) {
-    const facet = _draft.facets[Number(card.dataset.facet)];
-    if (!facet) continue;
-    for (const el of card.querySelectorAll("[data-facet-field]")) {
-      const field = el.dataset.facetField;
-      if (field === "confidence_floor") facet.confidence_floor = _number(el.value);
-      else if (field === "single") facet.single = el.checked;
-      else if (field === "key") facet.key = el.value.trim();
-      else facet[field] = el.value;
-    }
-    for (const el of card.querySelectorAll("[data-facet-criterion-key]")) {
-      const option = facet.options[Number(el.dataset.facetCriterionKey)];
-      if (option) option.key = el.value.trim();
-    }
-    for (const el of card.querySelectorAll("[data-facet-criterion]")) {
-      const option = facet.options[Number(el.dataset.facetCriterion)];
-      if (option) option.text = el.value;
-    }
-    for (const el of card.querySelectorAll("[data-facet-output]")) {
-      const option = facet.options[Number(el.dataset.facetOutput)];
-      if (option) option.output = el.value;
-    }
-    for (const el of card.querySelectorAll("[data-facet-branch]")) {
-      facet.branches[Number(el.dataset.facetBranch)] = el.value;
-    }
-    const single = card.querySelector("[data-facet-single-instruction]");
-    if (single) facet.singleInstruction = single.value;
-  }
 }
 
 // ── Problems from a 422 ──────────────────────────────────────────────────────
 
 // Validation runs on the merged row and comes back as problems joined by "; ".
 // Each is rendered against the field it names rather than thrown at a toast,
-// because "decision_facets[1].instructions must have exactly the keys true,
-// false" is only actionable next to the facet it is about.
+// because "decision_outputs must have exactly the keys true, false" is only
+// actionable next to the outcome table it is about.
 const PROBLEM_ANCHORS = [
   [/^decision_type\b/, "type"],
   // No anchor for decision_placement: there is one placement and so no control
@@ -296,8 +223,6 @@ const PROBLEM_ANCHORS = [
   [/^decision_resolution\b/, "resolution"],
   [/^decision_threshold\b/, "threshold"],
   [/^decision_confidence_floor\b/, "confidence_floor"],
-  [/^decision fan-out\b/, "facets"],
-  [/^(decision_facets|Facet text)\b/, "facets"],
 ];
 
 /**
@@ -316,12 +241,6 @@ export function applyDecisionProblems(detail) {
   if (!problems.length) return false;
   let placed = false;
   for (const problem of problems) {
-    const indexed = problem.match(/^decision_facets\[(\d+)\]/);
-    if (indexed) {
-      _push(`facet:${indexed[1]}`, problem);
-      placed = true;
-      continue;
-    }
     const anchor = PROBLEM_ANCHORS.find(([pattern]) => pattern.test(problem));
     if (anchor) {
       _push(anchor[1], problem);
@@ -388,8 +307,6 @@ function _innerHtml() {
       ? `<div class="decision-problem">${_generalProblems.map((problem) => esc(problem)).join("<br>")}</div>`
       : "",
     _primaryHtml(config),
-    _facetsHtml(config),
-    _budgetHtml(config),
   ].join("");
 }
 
@@ -449,7 +366,7 @@ function _primaryHtml(config) {
       <textarea data-dec="instructions" rows="2" placeholder="The action described in the current request succeeds.">${esc(_draft.instructions)}</textarea>
       ${_problemHtml("instructions")}
     </div>
-    ${_optionsHtml(config, type, _draft.options, { scope: "primary" })}
+    ${_optionsHtml(config, type, _draft.options)}
     ${_problemHtml("criteria")}`;
 }
 
@@ -466,9 +383,7 @@ function _optionLabel(type, key, option) {
  * the story if that outcome lands. They are adjacent because authors conflate
  * them constantly, and the header names both jobs in plain words.
  */
-function _optionsHtml(config, type, options, { scope, facetIndex = null }) {
-  const isFacet = scope === "facet";
-  const prefix = isFacet ? `data-facet-` : `data-dec-`;
+function _optionsHtml(config, type, options) {
   const bounds =
     type === "choice"
       ? `2 to ${config.choice?.max_options ?? ""} options`
@@ -480,23 +395,23 @@ function _optionsHtml(config, type, options, { scope, facetIndex = null }) {
     .map((option, index) => {
       const keyCell =
         type === "choice"
-          ? `<input class="decision-key-input" ${prefix}${isFacet ? "criterion-key" : "key"}="${index}" value="${escAttr(option.key)}" placeholder="option_key">`
+          ? `<input class="decision-key-input" data-dec-key="${index}" value="${escAttr(option.key)}" placeholder="option_key">`
           : `<span class="decision-key-fixed">${esc(_optionLabel(type, _keysOf(type, options)[index], option))}</span>`;
       const removeBtn =
         canEditCount && options.length > 2
-          ? `<button type="button" class="btn-icon btn-square decision-row-remove" data-dec-act="${isFacet ? "del-facet-option" : "del-option"}" data-index="${index}"${isFacet ? ` data-facet-index="${facetIndex}"` : ""} title="Remove this outcome" aria-label="Remove this outcome">${CLOSE_ICON}</button>`
+          ? `<button type="button" class="btn-icon btn-square decision-row-remove" data-dec-act="del-option" data-index="${index}" title="Remove this outcome" aria-label="Remove this outcome">${CLOSE_ICON}</button>`
           : "";
       return `
       <div class="decision-option-row">
         <div class="decision-option-key">${keyCell}</div>
-        <textarea rows="2" ${prefix}criterion="${index}" placeholder="What this outcome looks like in the scene">${esc(option.text)}</textarea>
-        <textarea rows="2" ${prefix}output="${index}" data-mirror="${isFacet ? `f:${facetIndex}:${index}` : `p:${index}`}" placeholder="What the story does if it lands">${esc(option.output)}</textarea>
+        <textarea rows="2" data-dec-criterion="${index}" placeholder="What this outcome looks like in the scene">${esc(option.text)}</textarea>
+        <textarea rows="2" data-dec-output="${index}" data-mirror="p:${index}" placeholder="What the story does if it lands">${esc(option.output)}</textarea>
         ${removeBtn}
       </div>`;
     })
     .join("");
   const addBtn = canEditCount
-    ? `<button type="button" class="btn btn-sm" data-dec-act="${isFacet ? "add-facet-option" : "add-option"}"${isFacet ? ` data-facet-index="${facetIndex}"` : ""}>+ Add outcome</button>`
+    ? `<button type="button" class="btn btn-sm" data-dec-act="add-option">+ Add outcome</button>`
     : "";
   return `
     <div class="decision-options">
@@ -509,99 +424,6 @@ function _optionsHtml(config, type, options, { scope, facetIndex = null }) {
       ${rows}
       <div class="decision-options-foot">${addBtn}${bounds ? _hint(bounds) : ""}</div>
     </div>`;
-}
-
-function _facetsHtml(config) {
-  const keys = _keysOf(_draft.type, _draft.options);
-  const cards = _draft.facets.map((facet, index) => _facetHtml(config, facet, index, keys)).join("");
-  return `
-    <div class="frag-divider">Facets ${_hint("extra questions answered in the same request")}</div>
-    <div class="decision-note">
-      A facet is asked once per primary outcome, and only the branch the primary lands on is used.
-      <strong>Each branch is sent exactly as you write it</strong> -- nothing is generated from the other branch,
-      because mechanically negated branch text was measured and does not resolve. Write both.
-    </div>
-    ${_problemHtml("facets")}
-    ${cards}
-    <button type="button" class="btn btn-sm" data-dec-act="add-facet">+ Add facet</button>`;
-}
-
-function _facetHtml(config, facet, index, primaryKeys) {
-  const policies = _policiesFor(facet.type);
-  const typeOptions = _types()
-    .map(
-      (value) => `<option value="${escAttr(value)}"${value === facet.type ? " selected" : ""}>${esc(value)}</option>`,
-    )
-    .join("");
-  const branchRows = primaryKeys
-    .map(
-      (key, branchIndex) => `
-      <div class="decision-branch-row">
-        <span class="decision-branch-key">${esc(_optionLabel(_draft.type, key, _draft.options[branchIndex]))}</span>
-        <textarea rows="2" data-facet-branch="${branchIndex}" placeholder="Assume this outcome happened, in your own words, then ask the facet's question">${esc(facet.branches[branchIndex] ?? "")}</textarea>
-      </div>`,
-    )
-    .join("");
-  return `
-    <div class="decision-facet" data-facet="${index}">
-      <div class="decision-facet-head">
-        <div class="field">
-          <label>Key ${_hint("lowercase id")}</label>
-          <input data-facet-field="key" value="${escAttr(facet.key)}" placeholder="cost">
-        </div>
-        <div class="field">
-          <label>Label</label>
-          <input data-facet-field="label" value="${escAttr(facet.label)}" placeholder="Cost">
-        </div>
-        <div class="field">
-          <label>Type</label>
-          <select data-facet-field="type" data-dec-act="retype-facet" data-facet-index="${index}">${typeOptions}</select>
-        </div>
-        <button type="button" class="btn btn-sm btn-danger btn-square decision-facet-remove" data-dec-act="del-facet" data-facet-index="${index}" title="Remove this facet" aria-label="Remove this facet">${CLOSE_ICON}</button>
-      </div>
-      ${
-        facet.type === "noul"
-          ? ""
-          : `<div class="field decision-facet-floor">
-        <label>Confidence floor ${_hint("blank = no gating; below it this facet alone falls back")}</label>
-        <input type="number" min="0" max="1" step="0.01" data-facet-field="confidence_floor" value="${escAttr(facet.confidence_floor ?? "")}" placeholder="none">
-      </div>`
-      }
-      ${_optionsHtml(config, facet.type, facet.options, { scope: "facet", facetIndex: index })}
-      <div class="decision-branches">
-        <div class="decision-branches-head">
-          <span>Instructions per primary outcome</span>
-          <label class="modal-checkbox-label">
-            <input type="checkbox" data-facet-field="single" data-dec-act="toggle-single" data-facet-index="${index}" ${facet.single ? "checked" : ""}>
-            Same for every outcome
-          </label>
-        </div>
-        ${
-          facet.single
-            ? `<textarea rows="2" data-facet-single-instruction placeholder="Asked once, whatever the primary resolves to">${esc(facet.singleInstruction)}</textarea>`
-            : branchRows
-        }
-      </div>
-      ${_problemHtml(`facet:${index}`)}
-      ${policies.length ? "" : `<div class="decision-problem">No resolution policy is available for this type.</div>`}
-    </div>`;
-}
-
-/**
- * The fan-out size, against the budget the stage enforces.
- *
- * One request carries `1 + sum(facets x branches)` questions. Batching is
- * effectively free -- latency is flat from 2 to 32 questions -- so this is a
- * budget readout, not a warning to stay small.
- */
-function _budgetHtml(config) {
-  const branches = _keysOf(_draft.type, _draft.options).length;
-  const questions = _draft.facets.reduce((total, facet) => total + (facet.single ? 1 : branches), 1);
-  const limit = config.max_questions_per_exchange;
-  const over = Number.isFinite(limit) && questions > limit;
-  return `<div class="decision-budget${over ? " decision-budget-over" : ""}">
-    ${questions} question${questions === 1 ? "" : "s"} in one request${Number.isFinite(limit) ? ` (limit ${limit} per exchange)` : ""}
-  </div>`;
 }
 
 // ── Structural edits ─────────────────────────────────────────────────────────
@@ -629,18 +451,6 @@ function _retypePrimary(nextType) {
   _draft.resolution = _policiesFor(nextType)[0] || "";
   if (nextType !== "noul" || _draft.resolution !== "threshold") _draft.threshold = null;
   if (nextType === "noul") _draft.confidence_floor = null;
-  // Unconditional: the branch list is aligned to the primary's outcomes, and a
-  // retype is exactly when that count moves. Resizing to the same length copies
-  // the existing text through, so there is nothing to guard.
-  _resizeBranches(_keysOf(nextType, _draft.options).length);
-}
-
-function _resizeBranches(length) {
-  for (const facet of _draft.facets) {
-    const next = new Array(length).fill("");
-    for (let index = 0; index < Math.min(length, facet.branches.length); index++) next[index] = facet.branches[index];
-    facet.branches = next;
-  }
 }
 
 function _addOption() {
@@ -650,17 +460,12 @@ function _addOption() {
     text: "",
     output: "",
   });
-  // Facet branch text is aligned to the primary's option order, so a new
-  // primary outcome means a new, empty branch on every facet -- which the author
-  // then has to write, exactly as intended.
-  _resizeBranches(_draft.options.length);
 }
 
 function _deleteOption(index) {
   if (_draft.options.length <= 2) return;
   _draft.options.splice(index, 1);
   if (_draft.type === "score") _draft.options = _draft.options.map((option, i) => ({ ...option, key: String(i) }));
-  for (const facet of _draft.facets) facet.branches.splice(index, 1);
   _shiftTouched("p:", index);
 }
 
@@ -680,59 +485,6 @@ function _shiftTouched(prefix, removed) {
   _touched = next;
 }
 
-// Facet marks carry the facet's own index, so removing one renumbers every mark
-// behind it for the same reason _shiftTouched renumbers option marks.
-function _shiftFacetTouched(removed) {
-  const next = new Set();
-  for (const mark of _touched) {
-    if (!mark.startsWith("f:")) {
-      next.add(mark);
-      continue;
-    }
-    const [, facetIndex, optionIndex] = mark.split(":");
-    const at = Number(facetIndex);
-    if (at === removed) continue;
-    next.add(`f:${at > removed ? at - 1 : at}:${optionIndex}`);
-  }
-  _touched = next;
-}
-
-function _addFacet() {
-  const branches = _keysOf(_draft.type, _draft.options).length;
-  _draft.facets.push({
-    key: "",
-    label: "",
-    type: "choice",
-    options: _blankOptions("choice"),
-    single: false,
-    singleInstruction: "",
-    branches: new Array(branches).fill(""),
-    confidence_floor: null,
-  });
-}
-
-function _retypeFacet(facetIndex, nextType) {
-  const facet = _draft.facets[facetIndex];
-  if (!facet) return;
-  facet.type = nextType;
-  if (nextType === "noul") {
-    const [first, second] = facet.options;
-    facet.options = [
-      { key: "true", text: first?.text ?? "", output: first?.output ?? "" },
-      { key: "false", text: second?.text ?? "", output: second?.output ?? "" },
-    ];
-    facet.confidence_floor = null;
-  } else if (nextType === "score") {
-    if (facet.options.length < 2) facet.options = _blankOptions("score");
-    facet.options = facet.options.map((option, index) => ({ ...option, key: String(index) }));
-  } else {
-    facet.options = facet.options.map((option, index) => ({
-      ...option,
-      key: /^[^\s]+$/.test(option.key) ? option.key : `option_${index + 1}`,
-    }));
-  }
-}
-
 // ── Events ───────────────────────────────────────────────────────────────────
 
 document.addEventListener("click", (event) => {
@@ -741,45 +493,16 @@ document.addEventListener("click", (event) => {
   const action = button.dataset.decAct;
   // The selects carry their own actions and fire on change, not click.
   if (button.tagName === "SELECT" || button.tagName === "INPUT") return;
-  const facetIndex = Number(button.dataset.facetIndex);
   const index = Number(button.dataset.index);
   if (action === "add-option") _mutate(() => _addOption());
   else if (action === "del-option") _mutate(() => _deleteOption(index));
-  else if (action === "add-facet") _mutate(() => _addFacet());
-  else if (action === "del-facet")
-    _mutate(() => {
-      _draft.facets.splice(facetIndex, 1);
-      _shiftFacetTouched(facetIndex);
-    });
-  else if (action === "add-facet-option")
-    _mutate(() => {
-      const facet = _draft.facets[facetIndex];
-      if (!facet) return;
-      const next = facet.options.length;
-      facet.options.push({ key: facet.type === "score" ? String(next) : `option_${next + 1}`, text: "", output: "" });
-    });
-  else if (action === "del-facet-option")
-    _mutate(() => {
-      const facet = _draft.facets[facetIndex];
-      if (!facet || facet.options.length <= 2) return;
-      facet.options.splice(index, 1);
-      if (facet.type === "score") facet.options = facet.options.map((option, i) => ({ ...option, key: String(i) }));
-      _shiftTouched(`f:${facetIndex}:`, index);
-    });
 });
 
 document.addEventListener("change", (event) => {
   const el = event.target.closest("[data-dec-act]");
   if (!el || !document.getElementById("decision-section")?.contains(el)) return;
   const action = el.dataset.decAct;
-  const facetIndex = Number(el.dataset.facetIndex);
   if (action === "retype") _mutate(() => _retypePrimary(el.value));
-  else if (action === "retype-facet") _mutate(() => _retypeFacet(facetIndex, el.value));
-  else if (action === "toggle-single")
-    _mutate(() => {
-      const facet = _draft.facets[facetIndex];
-      if (facet) facet.single = el.checked;
-    });
   else if (action === "repaint") _mutate(() => {});
 });
 
@@ -795,8 +518,7 @@ document.addEventListener("input", (event) => {
     _touched.add(mirrorTarget);
     return;
   }
-  const index = el.dataset.decCriterion ?? el.dataset.facetCriterion;
-  if (index === undefined) return;
+  if (el.dataset.decCriterion === undefined) return;
   const row = el.closest(".decision-option-row");
   const output = row?.querySelector("[data-mirror]");
   if (!output || _touched.has(output.dataset.mirror)) return;

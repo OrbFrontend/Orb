@@ -53,8 +53,8 @@ export function outcomeLabel(type, key) {
   return key;
 }
 
-// Every `SkipReason` the decision stage can report, on a skipped decision or a
-// gated facet. A reason with no entry here is shown verbatim rather than
+// Every `SkipReason` the decision stage can report. A reason with no entry
+// here is shown verbatim rather than
 // swallowed. A skip has no outcome at all: the callers of skipReasonText must
 // never paint one of these as a resolved `false`.
 const SKIP_REASONS = {
@@ -69,7 +69,6 @@ const SKIP_REASONS = {
   transport_failure: "The provider could not be reached",
   timeout: "The provider did not answer in time",
   invalid_answer: "The answer was missing or unusable",
-  invalid_facet_answer: "The facet's answer was missing or unusable",
   low_confidence: "Gated below the confidence floor",
   missing_anchor: "The message this was anchored to is gone",
 };

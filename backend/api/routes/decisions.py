@@ -106,7 +106,6 @@ async def _card_approval(card_id: str) -> dict:
     for fragment in fragments:
         if fragment.get("field_type") != "decision":
             continue
-        facets = fragment.get("decision_facets") or []
         questions.append(
             {
                 "id": fragment["id"],
@@ -114,17 +113,6 @@ async def _card_approval(card_id: str) -> dict:
                 "type": fragment.get("decision_type"),
                 "instructions": fragment.get("decision_instructions"),
                 "criteria": fragment.get("decision_criteria"),
-                "facets": [
-                    {
-                        "key": facet.get("key"),
-                        "label": facet.get("label"),
-                        "type": facet.get("type"),
-                        "instructions": facet.get("instructions"),
-                        "criteria": facet.get("criteria"),
-                    }
-                    for facet in facets
-                    if isinstance(facet, dict)
-                ],
             }
         )
     stored = ((await get_settings()).get("decision_card_approvals") or {}).get(card_id)

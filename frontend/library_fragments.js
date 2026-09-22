@@ -389,8 +389,8 @@ export function updateInteractiveFragmentExample(fieldType) {
   const decisionSection = document.getElementById("decision-section");
   if (decisionSection) decisionSection.style.display = isDecision ? "" : "none";
   const leaving = document.getElementById("interactive-frag-decision-warning");
-  // Switching a stored decision to another type clears every decision column,
-  // facets included. Say so before the save rather than after it.
+  // Switching a stored decision to another type clears every decision column.
+  // Say so before the save rather than after it.
   if (leaving) leaving.style.display = _editingStoredDecision && !isDecision ? "" : "none";
 }
 
@@ -439,7 +439,7 @@ function _interactiveFragFormHtml(d, isEdit) {
       </div>
     </div>
     <div class="field-warning" id="interactive-frag-decision-warning" style="display:none">
-      Saving this as another field type clears the question, its outcomes, its guidance and every facet.
+      Saving this as another field type clears the question, its outcomes and its guidance.
     </div>
     ${decisionSectionHtml(d.field_type)}`;
 }
@@ -509,7 +509,7 @@ export async function saveInteractiveFragment(isEdit) {
   } catch (e) {
     // The whole definition is validated on the merged row and comes back as
     // problems joined by "; ". Render them against the fields they name -- a
-    // toast would scroll a facet's key rule away from the facet it is about.
+    // toast would scroll a rule away from the field it is about.
     if (e.status === 422 && d.field_type === "decision" && applyDecisionProblems(e.message)) {
       toast("This decision is not valid yet; see the highlighted fields", true);
       return;

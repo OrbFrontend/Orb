@@ -585,6 +585,31 @@ real narrative inputs; it does not establish that all extra prose dilutes every
 answer. Context can supply decisive facts. The default template must earn its
 place through evaluation rather than assuming author-written summaries exist.
 
+### Facets, built and cut
+
+A `decision_facets` column briefly let one fragment carry dependent follow-up
+questions, fanned out so that every branch was asked and the ones the primary
+did not select were discarded. Measurement against the live route cut it:
+
+- Batch composition moves an answer by at most 0.017, so questions sharing a
+  request are answered independently. Batching across separate fragments
+  already keys on the rendered state, so facets bought nothing there.
+- A premise carried in a question's `instructions` separates the answer by
+  +0.04; the identical premise carried in the `state` separates it by +0.877.
+  Branch text is read as padding, not as a premise, so a fanned-out branch
+  cannot condition its follow-up and the mechanism could not do its job.
+- Questions do track the shared state on their own: over a single-axis ladder a
+  dependent "cost" question correlated with the primary at r = -0.98. Two
+  ordinary fragments on one situation template cohere with no new mechanism.
+- Where the joint outcome matters, one `choice` question over the joint space
+  beats independent marginals, whose outer product over-weighted cells the
+  scene rules out by up to 0.20 (total variation 0.14-0.25 over three rungs).
+
+Conditioning a follow-up on a resolved outcome therefore needs a second wave
+with that outcome written into a new state, which is a separate feature and is
+not in this plan. Small samples on one scenario family: directional, not
+guarantees.
+
 Before releasing the feature:
 
 - Pin and fixture the gateway contract, including mixed valid/invalid questions,

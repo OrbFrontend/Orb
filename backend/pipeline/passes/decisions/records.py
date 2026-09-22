@@ -23,8 +23,6 @@ def raw_request_fingerprint(
     instructions: str,
     criteria: Mapping[str, str] | Sequence[str],
     question_type: str,
-    facet_key: str = "",
-    branch_key: str = "",
 ) -> str:
     return _digest(
         {
@@ -39,8 +37,6 @@ def raw_request_fingerprint(
                 if isinstance(criteria, Mapping)
                 else list(criteria)
             ),
-            "facet_key": facet_key,
-            "branch_key": branch_key,
         }
     )
 
@@ -54,15 +50,6 @@ def resolution_policy_fingerprint(definition: DecisionDefinition, *, scope: str)
             "resolution": definition.resolution,
             "threshold": definition.threshold,
             "confidence_floor": definition.confidence_floor,
-            "facets": [
-                {
-                    "key": facet.key,
-                    "type": facet.decision_type,
-                    "resolution": facet.resolution,
-                    "confidence_floor": facet.confidence_floor,
-                }
-                for facet in definition.facets
-            ],
         }
     )
 

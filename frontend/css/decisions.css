@@ -111,8 +111,7 @@
 
 /* rows="2" already asks for two lines; the global 60px textarea floor would
    otherwise add a blank third to every cell of the table. */
-.decision-option-row textarea,
-.decision-branches textarea {
+.decision-option-row textarea {
   width: 100%;
   min-height: 48px;
   resize: vertical;
@@ -145,93 +144,6 @@
   gap: 10px;
   margin-top: 8px;
 }
-
-.decision-facet {
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent-dim);
-  border-radius: var(--radius);
-  padding: 10px;
-  margin-bottom: 10px;
-}
-
-/* End-alignment aligns margin boxes, not controls, so the fields have to drop
-   their stacked-field margin first: 8px of margin under the selects is 8px the
-   button beside them sinks (the same trap as .setting-row in forms.css). */
-.decision-facet-head {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr auto;
-  gap: 8px;
-  align-items: end;
-  margin-bottom: 8px;
-}
-
-.decision-facet-head .field { margin-bottom: 0; }
-
-/* Half the difference between the 22px button and the 34px controls it sits
-   beside, so the button is centred on them rather than resting on their floor. */
-.decision-facet-head .decision-facet-remove { margin-bottom: 6px; }
-
-/* Unlike the primary's pair, this field shares its row with nothing, so only
-   the input is held to a probability's width; the label keeps the facet's full
-   width and its hint stays on one line. */
-.decision-facet-floor { margin-bottom: 8px; }
-.decision-facet-floor input { max-width: 240px; }
-
-.decision-branches {
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-  margin-top: 4px;
-}
-
-.decision-branches-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: .4px;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-}
-
-/* The toggle is one half of a heading, not a form field in its own right: at
-   the shared 13px primary it shouts down the caption it sits beside. Its 20px
-   stacked-field margin has to go with it -- centring aligns margin boxes, so
-   that margin is 10px of lift on the words alone (same trap as .setting-row
-   in forms.css) -- and so does its flex-start default. */
-.decision-branches-head .modal-checkbox-label {
-  align-self: center;
-  margin: 0;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.decision-branch-row {
-  display: grid;
-  grid-template-columns: 96px 1fr;
-  gap: 8px;
-  align-items: start;
-  margin-bottom: 6px;
-}
-
-.decision-branch-key {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-secondary);
-  padding-top: 9px;
-}
-
-.decision-budget {
-  font-size: 10px;
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-  margin-top: 8px;
-}
-
-.decision-budget-over { color: var(--red); }
 
 /* ── Judge lane ───────────────────────────────────────────────────────────── */
 
@@ -300,12 +212,6 @@
   margin-bottom: 8px;
 }
 
-.card-decision-facet {
-  border-left: 2px solid var(--accent-dim);
-  padding-left: 8px;
-  margin-top: 8px;
-}
-
 .card-decision-head {
   display: flex;
   align-items: baseline;
@@ -341,9 +247,9 @@
   color: var(--text-muted);
 }
 
-/* Wide enough for a typical outcome key, so criteria and branch instructions
-   start on one left edge instead of stepping in and out with the key's length.
-   A longer key pushes its own line out rather than widening every other. */
+/* Wide enough for a typical outcome key, so the criteria start on one left
+   edge instead of stepping in and out with the key's length. A longer key
+   pushes its own line out rather than widening every other. */
 .card-decision-key {
   display: inline-block;
   min-width: 54px;
@@ -383,7 +289,7 @@
 
 .decision-block > .decision-eval { margin-bottom: 6px; }
 
-.decision-block :is(.decision-eval, .decision-discarded, .decision-state) > summary {
+.decision-block :is(.decision-eval, .decision-state) > summary {
   list-style: none;
   cursor: pointer;
   display: flex;
@@ -393,11 +299,11 @@
   user-select: none;
 }
 
-.decision-block :is(.decision-eval, .decision-discarded, .decision-state) > summary::-webkit-details-marker {
+.decision-block :is(.decision-eval, .decision-state) > summary::-webkit-details-marker {
   display: none;
 }
 
-.decision-block :is(.decision-eval, .decision-discarded, .decision-state)[open] > summary .reasoning-summary-arrow {
+.decision-block :is(.decision-eval, .decision-state)[open] > summary .reasoning-summary-arrow {
   transform: rotate(90deg);
 }
 
@@ -407,8 +313,7 @@
 .decision-eval > summary { padding-left: 16px; }
 .decision-eval > summary > .reasoning-summary-arrow { margin-left: -16px; }
 
-.decision-eval-name,
-.decision-facet-name {
+.decision-eval-name {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
@@ -446,7 +351,6 @@
   margin-bottom: 6px;
 }
 
-.decision-reason-gated { font-style: italic; }
 
 .decision-guidance {
   font-size: 11px;
@@ -511,49 +415,11 @@
 .decision-dist-selected .decision-dist-bar > span { background: var(--accent); }
 .decision-dist-value { text-align: right; }
 
-.decision-facets { margin-top: 8px; }
-
-.decision-facet-row {
-  border-left: 2px solid var(--accent-dim);
-  padding-left: 8px;
-  margin-bottom: 8px;
-}
-
-.decision-facet-gated { border-left-color: var(--dec-warn); }
-
-.decision-facet-line {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-bottom: 2px;
-}
-
-.decision-discarded { margin-top: 6px; }
-
-.decision-discarded > summary,
 .decision-state > summary {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: .4px;
   color: var(--text-muted);
-}
-
-.decision-discarded-body { padding: 6px 0 0 16px; }
-
-.decision-discarded-row {
-  opacity: .7;
-  margin-bottom: 6px;
-}
-
-.decision-branch-tag {
-  font-size: 9px;
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0 5px;
-  margin-left: 6px;
 }
 
 .decision-usage {

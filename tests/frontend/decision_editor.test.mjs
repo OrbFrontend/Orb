@@ -2,8 +2,7 @@
 //
 // The rules under test are the ones the backend rejects a save over, and that
 // an author cannot see going wrong: an explicit null is the only way to clear a
-// decision column, a facet's instruction map must be keyed by the primary's
-// outcomes exactly, and the outcome space is per type.
+// decision column, and the outcome space is per type.
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { JSDOM } from "jsdom";
@@ -55,7 +54,6 @@ const NOUL_FRAGMENT = {
   decision_resolution: "threshold",
   decision_threshold: 0.5,
   decision_confidence_floor: null,
-  decision_facets: null,
 };
 
 function mount(fragment) {
@@ -96,7 +94,6 @@ test("every decision column is written, so a cleared one is cleared", () => {
     "decision_outputs",
     "decision_resolution",
     "decision_threshold",
-    "decision_facets",
     "decision_confidence_floor",
   ]) {
     assert.ok(column in fields, `${column} must be written, not omitted`);
@@ -117,11 +114,6 @@ test("switching to roll sends an explicit null threshold in the same request", (
 test("a noul question never writes a confidence floor", () => {
   mount({ ...NOUL_FRAGMENT, decision_confidence_floor: 0.8 });
   assert.strictEqual(readDecisionFields().decision_confidence_floor, null);
-});
-
-test("no facets writes null, not an empty array", () => {
-  mount(NOUL_FRAGMENT);
-  assert.strictEqual(readDecisionFields().decision_facets, null);
 });
 
 test("choice keeps its authored key order; score is indexed from zero", () => {
@@ -149,14 +141,7 @@ test("choice keeps its authored key order; score is indexed from zero", () => {
   assert.deepEqual(Object.keys(scored.decision_outputs), ["0", "1", "2"]);
 });
 
-test("a facet's instructions are keyed by the primary's outcomes, exactly", () => {
-  mount(NOUL_FRAGMENT);
-  click('[data-dec-act="add-facet"]');
-  const [facet] = readDecisionFields().decision_facets;
-  assert.deepEqual(Object.keys(facet.instructions), ["true", "false"]);
-});
-
-test("adding a primary outcome adds an empty branch to every facet, never a generated one", () => {
+test("adding a primary outcome appends a fresh key, leaving the authored ones alone", () => {
   mount({
     ...NOUL_FRAGMENT,
     decision_type: "choice",
@@ -165,21 +150,17 @@ test("adding a primary outcome adds an empty branch to every facet, never a gene
     decision_resolution: "argmax",
     decision_threshold: null,
   });
-  click('[data-dec-act="add-facet"]');
-  document.querySelector('[data-facet="0"] [data-facet-branch="0"]').value = "Assume they win. How costly?";
-  document.querySelector('[data-facet="0"] [data-facet-branch="1"]').value = "Assume they lose. How costly?";
   click('[data-dec-act="add-option"]');
 
-  const [facet] = readDecisionFields().decision_facets;
-  assert.equal(Object.keys(facet.instructions).length, 3);
-  // The authored branches survive; the new one is empty and the author writes
-  // it. Nothing is synthesised from the branch beside it.
-  assert.equal(facet.instructions.win, "Assume they win. How costly?");
-  assert.equal(facet.instructions.lose, "Assume they lose. How costly?");
-  assert.equal(facet.instructions.option_3, "");
+  const fields = readDecisionFields();
+  // The authored outcomes survive; the new one is empty and the author writes
+  // it. Nothing is synthesised from the outcome beside it.
+  assert.deepEqual(Object.keys(fields.decision_criteria), ["win", "lose", "option_3"]);
+  assert.equal(fields.decision_criteria.win, "Wins.");
+  assert.equal(fields.decision_criteria.option_3, "");
 });
 
-test("deleting a primary outcome drops that branch and keeps the rest aligned", () => {
+test("deleting a primary outcome drops it and keeps criteria and guidance aligned", () => {
   mount({
     ...NOUL_FRAGMENT,
     decision_type: "choice",
@@ -188,27 +169,11 @@ test("deleting a primary outcome drops that branch and keeps the rest aligned", 
     decision_resolution: "argmax",
     decision_threshold: null,
   });
-  click('[data-dec-act="add-facet"]');
-  const card = '[data-facet="0"]';
-  document.querySelector(`${card} [data-facet-branch="0"]`).value = "branch a";
-  document.querySelector(`${card} [data-facet-branch="1"]`).value = "branch b";
-  document.querySelector(`${card} [data-facet-branch="2"]`).value = "branch c";
   click('[data-dec-act="del-option"][data-index="1"]');
 
   const fields = readDecisionFields();
   assert.deepEqual(Object.keys(fields.decision_criteria), ["a", "c"]);
-  assert.deepEqual(fields.decision_facets[0].instructions, { a: "branch a", c: "branch c" });
-});
-
-test("an outcome-independent facet is written as one string, so it is asked once", () => {
-  mount(NOUL_FRAGMENT);
-  click('[data-dec-act="add-facet"]');
-  document.querySelector('[data-facet="0"] [data-facet-single-instruction]');
-  const toggle = document.querySelector('[data-dec-act="toggle-single"]');
-  toggle.checked = true;
-  toggle.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
-  type('[data-facet-single-instruction]', "How tense is this scene?");
-  assert.equal(readDecisionFields().decision_facets[0].instructions, "How tense is this scene?");
+  assert.deepEqual(fields.decision_outputs, { a: "", c: "" });
 });
 
 test("retyping the primary re-picks a policy its own type allows", () => {
@@ -247,7 +212,7 @@ test("an empty guidance field stays empty: no implicit echo of the criterion", (
 test("validation problems land against the fields they name", () => {
   mount(NOUL_FRAGMENT);
   const placed = applyDecisionProblems(
-    "decision_instructions must not be empty; decision_facets[0].instructions must have exactly the keys true, false",
+    "decision_instructions must not be empty; decision_outputs must have exactly the keys true, false",
   );
   assert.equal(placed, true);
   const instructionField = document.querySelector('[data-dec="instructions"]').closest(".field");
@@ -258,21 +223,6 @@ test("a problem naming no rendered field is still shown, not swallowed", () => {
   mount(NOUL_FRAGMENT);
   assert.equal(applyDecisionProblems("decision_placement must be one of before_director"), true);
   assert.match(document.body.innerHTML, /decision_placement/);
-});
-
-test("the fan-out readout counts one question per facet branch, plus the primary", () => {
-  mount(NOUL_FRAGMENT);
-  assert.match(document.querySelector(".decision-budget").textContent, /^\s*1 question/);
-
-  // One noul primary (2 outcomes) and one per-branch facet: 1 + 2 = 3.
-  click('[data-dec-act="add-facet"]');
-  assert.match(document.querySelector(".decision-budget").textContent, /^\s*3 questions/);
-
-  // An outcome-independent facet is asked once, not once per branch: 1 + 1 = 2.
-  const toggle = document.querySelector('[data-dec-act="toggle-single"]');
-  toggle.checked = true;
-  toggle.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
-  assert.match(document.querySelector(".decision-budget").textContent, /^\s*2 questions/);
 });
 
 test("the section renders its controls from the config payload, not from constants", () => {

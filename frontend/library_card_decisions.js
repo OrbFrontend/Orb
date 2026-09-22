@@ -2,8 +2,8 @@
 //
 // An imported card's decisions arrive disabled and unapproved, and approving
 // them is what lets their question text leave this machine. So the panel shows
-// the text that would actually be sent -- every facet branch included, because
-// those are questions too -- and approves against the fingerprint it just read.
+// the text that would actually be sent, and approves against the fingerprint it
+// just read.
 // A 409 means the definitions moved under the reader, and their consent was for
 // something they are no longer looking at.
 import { api } from "./api.js";
@@ -69,22 +69,7 @@ function _criteriaHtml(criteria) {
     .join("")}</ul>`;
 }
 
-// A facet's instructions are either one string (asked once) or one per primary
-// outcome. Both are shown in full: a branch that is never selected is still a
-// question that was sent.
-function _instructionsHtml(instructions) {
-  if (typeof instructions === "string") return `<div class="card-decision-question">${esc(instructions)}</div>`;
-  if (!instructions || typeof instructions !== "object") return "";
-  return Object.entries(instructions)
-    .map(
-      ([branch, text]) =>
-        `<div class="card-decision-question"><span class="card-decision-key">${esc(branch)}</span>${esc(String(text ?? ""))}</div>`,
-    )
-    .join("");
-}
-
 function _questionHtml(question) {
-  const facets = Array.isArray(question.facets) ? question.facets : [];
   return `<div class="card-decision-item">
     <div class="card-decision-head">
       <span class="card-decision-label">${esc(question.label || question.id || "")}</span>
@@ -92,18 +77,6 @@ function _questionHtml(question) {
     </div>
     <div class="card-decision-question">${esc(String(question.instructions ?? ""))}</div>
     ${_criteriaHtml(question.criteria)}
-    ${facets
-      .map(
-        (facet) => `<div class="card-decision-facet">
-        <div class="card-decision-head">
-          <span class="card-decision-label">${esc(facet.label || facet.key || "")}</span>
-          <span class="card-decision-type">${esc(facet.type || "")}</span>
-        </div>
-        ${_instructionsHtml(facet.instructions)}
-        ${_criteriaHtml(facet.criteria)}
-      </div>`,
-      )
-      .join("")}
   </div>`;
 }
 
