@@ -189,6 +189,25 @@ export function interactiveFragmentsView() {
     : S.interactiveFragments;
 }
 
+/**
+ * Fragment cooldowns the Director read before the turn that produced *msgId*.
+ *
+ * A reply carries the state its own turn *leaves behind*, so the fragments
+ * resting on a turn are the ones the reply before it carries: a fragment that
+ * fired on this turn entered its cooldown here and was not resting on it. Group
+ * speakers share one Director run and one snapshot, so the lookup steps back
+ * past the whole exchange rather than onto the previous speaker.
+ */
+export function restingCooldowns(msgId) {
+  const at = S.messages.findIndex((message) => message.id === msgId);
+  if (at < 0) return {};
+  const exchangeId = S.messages[at].exchange_id ?? null;
+  const prior = S.messages
+    .slice(0, at)
+    .findLast((message) => message.role === "assistant" && (exchangeId == null || message.exchange_id !== exchangeId));
+  return prior?.fragment_cooldowns || {};
+}
+
 const TOPICS = new Set([
   "messages",
   "conversations",
