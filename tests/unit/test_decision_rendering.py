@@ -177,12 +177,12 @@ def test_group_snapshot_labels_speakers_and_withholds_the_description():
     assert snapshot.description is None
 
 
-def test_recent_history_is_the_last_four_completed_messages_oldest_first():
+def test_recent_history_is_the_last_six_completed_messages_oldest_first():
     rows = _history(*({"role": "user" if i % 2 == 0 else "assistant", "content": str(i)} for i in range(8)))
     snapshot = build_snapshot(history=rows, current_request="now", macros=MACROS, scope="solo")
     lines = snapshot.recent_history.split("\n\n")
     assert len(lines) == RECENT_HISTORY_DEPTH
-    assert [line.split(": ", 1)[1] for line in lines] == ["4", "5", "6", "7"]
+    assert [line.split(": ", 1)[1] for line in lines] == ["2", "3", "4", "5", "6", "7"]
     # The current request is not part of history; it has its own macro.
     assert "now" not in snapshot.recent_history
 

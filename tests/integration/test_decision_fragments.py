@@ -357,7 +357,7 @@ async def test_a_resolved_decision_reaches_the_director_tail_and_the_writer(clie
 
     # The Writer's Scene Guidance carries the authored words, not the dice.
     injection = _event(events, "director_done")["injection_block"]
-    assert "**Resolved Decisions**\nDoorway: Alric holds the doorway." in injection
+    assert "**Resolved Decisions**\n\nDoorway: Alric holds the doorway." in injection
     assert "0.9" not in injection
 
     # So does the Director's own trailing request.

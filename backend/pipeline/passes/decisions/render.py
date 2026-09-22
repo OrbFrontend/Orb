@@ -10,7 +10,7 @@ from ....inference import MAX_QUESTION_BYTES, MAX_STATE_BYTES
 from ....prompting import format_message_with_attachments, group_speaker_label
 
 DECISION_RENDERER_VERSION = "1"
-RECENT_HISTORY_DEPTH = 4
+RECENT_HISTORY_DEPTH = 6
 STATE_MACROS = frozenset({"last_message", "last_assistant_message", "recent_history", "user", "char", "cast", "description"})
 TEXT_MACROS = frozenset({"user", "char", "cast"})
 LATER_STAGE_MACROS = frozenset({"scene_guidance", "draft"})

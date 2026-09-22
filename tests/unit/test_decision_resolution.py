@@ -268,7 +268,7 @@ def test_guidance_is_labelled_authored_text_and_nothing_about_dice():
             }
         ]
     )
-    assert block == "**Resolved Decisions**\nDoorway: He holds the door."
+    assert block == "**Resolved Decisions**\n\nDoorway: He holds the door."
     assert "0.93" not in block and "0.12" not in block and "true" not in block
 
 

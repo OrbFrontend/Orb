@@ -140,7 +140,7 @@ set explicit and validate availability both when saving and at execution time.
 |---|---|
 | `{{last_message}}` | Current user request; empty on a continuation without new user text |
 | `{{last_assistant_message}}` | Latest assistant message on the input branch, with a speaker label in groups |
-| `{{recent_history}}` | Last four completed messages on the input branch, excluding the current request, oldest first and role/speaker labelled |
+| `{{recent_history}}` | Last six completed messages on the input branch, excluding the current request, oldest first and role/speaker labelled |
 | `{{user}}` | Persona name under the same precedence as the main prompt |
 | `{{char}}` | Solo character name, or group title for the exchange-level stage |
 | `{{cast}}` | Group roster names; empty in solo chat |
