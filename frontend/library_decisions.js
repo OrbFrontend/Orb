@@ -348,7 +348,7 @@ const COPY = {
     outcomeHint: "",
     criterion: "What this option means",
     criterionPlaceholder: "What picking this option means; the Judge reads it as part of the question",
-    note: 'Every turn lands on one option. For turns that should pass, add an option that means "nothing here" and leave its guidance empty.',
+    note: 'If the fragment should sometimes do nothing, add a catch-all option (e.g. "none of these") and leave its guidance empty to inject nothing.',
   },
   score: {
     question: "what the Judge places on the scale below",

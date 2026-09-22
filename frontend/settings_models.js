@@ -315,8 +315,7 @@ function _judgeLaneHtml() {
     <div class="ep-chat-only" id="judge-lane">
       <div style="display:flex;align-items:center;gap:12px;margin:12px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Judge</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
       <div class="judge-note">
-        Answers decision fragments. The rendered scene text of every enabled decision is sent to this provider.
-        Decisions stay editable with no Judge set; they are skipped until one is.
+        Handles decision fragments.
       </div>
       <div class="field"><label>Judge Endpoint URL</label>
         <div class="cb-root" data-combobox="judge_endpoint_url">
