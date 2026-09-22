@@ -46,7 +46,6 @@ def _definition(**overrides):
         "decision_instructions": "Does Alric prevail?",
         "decision_criteria": {"true": "He wins.", "false": "He loses."},
         "decision_outputs": {"true": "He holds the door.", "false": "He is driven back."},
-        "decision_default": "false",
         "decision_resolution": "threshold",
         "decision_threshold": 0.5,
     }
@@ -194,7 +193,6 @@ def test_the_policy_fingerprint_covers_resolution_and_scope_only():
     base = resolution_policy_fingerprint(_definition(), scope="solo")
     assert resolution_policy_fingerprint(_definition(), scope="group") != base
     assert resolution_policy_fingerprint(_definition(decision_threshold=0.7), scope="solo") != base
-    assert resolution_policy_fingerprint(_definition(decision_default="true"), scope="solo") != base
     assert resolution_policy_fingerprint(_definition(decision_resolution="roll", decision_threshold=None), scope="solo") != base
     # Labels and authored guidance are not classifier inputs and do not change a
     # resolution, so editing them must cost neither a call nor a reroll.

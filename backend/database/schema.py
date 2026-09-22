@@ -236,7 +236,6 @@ CREATE TABLE IF NOT EXISTS interactive_fragments (
     decision_instructions TEXT DEFAULT NULL,
     decision_criteria TEXT DEFAULT NULL,
     decision_outputs TEXT DEFAULT NULL,
-    decision_default TEXT DEFAULT NULL,
     decision_resolution TEXT DEFAULT NULL,
     decision_threshold REAL DEFAULT NULL,
     decision_facets TEXT DEFAULT NULL,

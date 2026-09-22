@@ -435,7 +435,7 @@
 }
 
 .decision-chip-resolved { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow); }
-.decision-chip-fallback { color: var(--dec-warn); border-color: var(--dec-warn); }
+.decision-chip-failed { color: var(--dec-warn); border-color: var(--dec-warn); }
 .decision-chip-gated { color: var(--dec-warn); border-color: var(--dec-warn); background: transparent; }
 .decision-chip-skipped { color: var(--text-muted); border-color: var(--border); }
 
@@ -582,6 +582,10 @@
   flex-wrap: wrap;
   margin-bottom: 4px;
 }
+
+.decision-skipped-failed .decision-eval-name { color: var(--dec-warn); }
+
+.decision-skipped-row .decision-reason { flex-basis: 100%; }
 
 .decision-unreadable {
   font-size: 11px;

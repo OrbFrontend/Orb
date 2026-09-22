@@ -225,7 +225,6 @@ def _card_decision_columns(entry: Mapping[str, Any]) -> dict[str, Any] | None:
         "decision_instructions": _text(entry, "decision_instructions")[:_CARD_DECISION_TEXT_LIMIT],
         "decision_criteria": _card_criteria(entry.get("decision_criteria")),
         "decision_outputs": _card_text_map(entry.get("decision_outputs")),
-        "decision_default": _text(entry, "decision_default", "false"),
         "decision_resolution": _text(entry, "decision_resolution", "threshold"),
         "decision_threshold": _card_threshold(entry.get("decision_threshold")),
         "decision_facets": _card_facets(entry.get("decision_facets")),

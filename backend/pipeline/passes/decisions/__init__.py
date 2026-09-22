@@ -25,7 +25,7 @@ from .render import (
     template_errors,
 )
 from .resolve import (
-    FallbackReason,
+    FAILURE_REASONS,
     SkipReason,
     resolve_argmax,
     resolve_nearest,

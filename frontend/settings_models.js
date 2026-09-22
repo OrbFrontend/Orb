@@ -300,7 +300,7 @@ function _judgeLaneHtml() {
       <div style="display:flex;align-items:center;gap:12px;margin:12px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Judge</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
       <div class="judge-note">
         Answers decision fragments. The rendered scene text of every enabled decision is sent to this provider.
-        Decisions stay editable with no Judge set; they resolve to their fallback outcome until one is.
+        Decisions stay editable with no Judge set; they are skipped until one is.
       </div>
       <div class="field"><label>Judge Endpoint URL</label>
         <div class="cb-root" data-combobox="decision_endpoint_url">
@@ -341,7 +341,7 @@ export function refreshJudgeLane() {
   }
   status.textContent = config.configured
     ? `Resolved route: ${config.resolved_url}`
-    : "Not configured — enabled decisions resolve to their fallback outcome.";
+    : "Not configured — enabled decisions are skipped.";
   status.classList.toggle("judge-status-warn", !config.configured);
 }
 

@@ -120,8 +120,8 @@ class SettingsRow(_SettingsBase, total=False):
     active_endpoint_id: int | None
     agent_endpoint_id: int | None
     # Decision classifier configuration. ``decision_endpoint_id`` is None until
-    # the user points decisions at an endpoint; until then enabled decisions use
-    # their authored fallback and make no request.
+    # the user points decisions at an endpoint; until then enabled decisions are
+    # skipped and make no request.
     decision_endpoint_id: int | None
     decision_model: str
     decision_url: str
@@ -301,7 +301,9 @@ class DecisionFacetEvaluationRow(TypedDict, total=False):
     outcome: str
     guidance: str
     answer_source: str
-    fallback_reason: str
+    # Present when this facet contributed nothing: gated below its confidence
+    # floor, or unanswered. Such a facet has no outcome and no guidance.
+    skip_reason: str
     probability: float
     distribution: dict[str, float]
     confidence: float
@@ -313,9 +315,10 @@ class DecisionEvaluationRow(TypedDict, total=False):
     """One decision occurrence as it is persisted on a reply.
 
     Written by ``pipeline/passes/decisions``; this is the storage shape, spelled
-    here because the row is what survives a restart and a branch copy. Optional
-    keys are genuinely absent rather than empty: a fallback has no probability to
-    record, and a threshold resolution has no draw.
+    here because the row is what survives a restart and a branch copy. Every
+    stored record resolved from a real answer -- a decision that could not answer
+    is a skip row, not an evaluation. Optional keys are genuinely absent rather
+    than empty: a threshold resolution has no draw.
     """
 
     fragment_id: str
@@ -343,9 +346,8 @@ class DecisionEvaluationRow(TypedDict, total=False):
     draw: float
     outcome: str
     guidance: str
-    # 'live' | 'cache' | 'replay' | 'fallback'
+    # 'live' | 'cache' | 'replay'
     answer_source: str
-    fallback_reason: str
     request_id: str
     elapsed_ms: int
     usage: dict
@@ -364,13 +366,23 @@ class DecisionSkipRow(TypedDict, total=False):
 
     It deliberately carries no outcome: a skipped decision resolved to nothing,
     and inventing ``false`` for it would make the Inspector lie about what
-    reached the story.
+    reached the story. Every decision that cannot answer ends up here, so this
+    row is the only record that it was ever meant to run.
     """
 
     fragment_id: str
     fragment_label: str
     source: str
     reason: str
+    # 1 when the reason is a failure rather than a routine skip (cooldown, or a
+    # card the user has not approved). Clients use it to decide what is worth
+    # surfacing unprompted.
+    failed: int
+    # Only on ``oversized_input``: what was rendered against what fits.
+    oversize_state_bytes: int
+    oversize_question_bytes: int
+    state_limit: int
+    question_limit: int
 
 
 class DecisionEvaluations(TypedDict, total=False):
@@ -695,7 +707,6 @@ class InteractiveFragmentRow(TypedDict):
     decision_instructions: str | None
     decision_criteria: dict[str, str] | list[str] | None
     decision_outputs: dict[str, str] | None
-    decision_default: str | None
     decision_resolution: str | None
     decision_threshold: float | None
     decision_facets: list[dict] | None

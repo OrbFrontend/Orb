@@ -7,9 +7,23 @@ TRUE = "true"
 FALSE = "false"
 
 
-class FallbackReason:
-    NOT_CONFIGURED = "not_configured"
+class SkipReason:
+    """Why a decision produced nothing this turn.
+
+    One vocabulary, because there is now one outcome for a decision that cannot
+    answer: it is skipped and the turn goes on without it. Nothing is injected
+    and nothing is invented, so an author reading a reason is never being told
+    about a value that reached the story.
+
+    The same constants name a gated facet on an otherwise resolved decision --
+    that facet contributed nothing for the same reason the whole decision would
+    have contributed nothing.
+    """
+
+    NOT_APPROVED = "not_approved"
+    RESTING = "resting"
     INVALID_DEFINITION = "invalid_definition"
+    NOT_CONFIGURED = "not_configured"
     EMPTY_INPUT = "empty_input"
     UNAVAILABLE_CONTEXT = "unavailable_context"
     OVERSIZED_INPUT = "oversized_input"
@@ -22,13 +36,22 @@ class FallbackReason:
     MISSING_ANCHOR = "missing_anchor"
 
 
-class SkipReason:
-    NOT_APPROVED = "not_approved"
-    RESTING = "resting"
-    # Shares its spelling with the fallback of the same name on purpose: an author
-    # reading either one is being told the same thing about their definition. They
-    # stay separate constants because a skip has no outcome and a fallback does.
-    INVALID_DEFINITION = "invalid_definition"
+# The reasons that mean something went wrong, as opposed to the routine ones an
+# author configured on purpose. Only these are worth interrupting anybody about.
+FAILURE_REASONS = frozenset(
+    {
+        SkipReason.NOT_CONFIGURED,
+        SkipReason.INVALID_DEFINITION,
+        SkipReason.EMPTY_INPUT,
+        SkipReason.UNAVAILABLE_CONTEXT,
+        SkipReason.OVERSIZED_INPUT,
+        SkipReason.BUDGET_EXHAUSTED,
+        SkipReason.TRANSPORT_FAILURE,
+        SkipReason.TIMEOUT,
+        SkipReason.INVALID_ANSWER,
+        SkipReason.INVALID_FACET_ANSWER,
+    }
+)
 
 
 def resolve_threshold(probability: float, threshold: float) -> str:

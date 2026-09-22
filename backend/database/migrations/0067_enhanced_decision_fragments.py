@@ -23,8 +23,8 @@ def migrate(conn: sqlite3.Connection) -> None:
         conn.execute(
             "INSERT INTO interactive_fragments (id, label, description, field_type, required, enabled, injection_label, sort_order, "
             "decision_type, decision_placement, decision_state_template, decision_instructions, decision_criteria, decision_outputs, "
-            "decision_default, decision_resolution, decision_threshold, decision_facets, decision_confidence_floor) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "decision_resolution, decision_threshold, decision_facets, decision_confidence_floor) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 outcome["id"],
                 outcome["label"],
@@ -40,7 +40,6 @@ def migrate(conn: sqlite3.Connection) -> None:
                 outcome["decision_instructions"],
                 json.dumps(outcome["decision_criteria"], ensure_ascii=False),
                 json.dumps(outcome["decision_outputs"], ensure_ascii=False),
-                outcome["decision_default"],
                 outcome["decision_resolution"],
                 None,
                 None,

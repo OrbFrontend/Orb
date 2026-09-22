@@ -26,6 +26,7 @@ import {
 } from "./chat_inspector.js";
 import { clearInspectedMessage } from "./chat_messages.js";
 import { _mergeWorkflowRejections } from "./chat_workflow.js";
+import { skipNoticeText } from "./decisions.js";
 import {
   clearDirectionNotesRegenCut,
   optimisticDropDirectionNotesFrom,
@@ -604,6 +605,12 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
       try {
         S.lastDecisions = JSON.parse(data);
         renderInspector();
+        // A decision that could not answer injects nothing and the turn carries
+        // on without it. That is quiet enough to miss, so say it once -- as a
+        // transient toast, not an error box: the turn did not fail, and the
+        // per-decision detail is already in the Inspector.
+        const notice = skipNoticeText(S.lastDecisions.skipped);
+        if (notice) toast(notice);
       } catch (_) {}
       break;
     }

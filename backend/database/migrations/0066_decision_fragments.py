@@ -3,7 +3,7 @@
 Three groups of columns, all additive and all nullable or defaulted, so an
 upgraded database has no decisions and behaves exactly as before:
 
-* ``interactive_fragments`` gains the nine authoring columns;
+* ``interactive_fragments`` gains the eight authoring columns;
 * ``messages`` gains the per-reply evaluation record and decision cooldown
   snapshot;
 * ``settings`` gains the classifier configuration and this machine's per-card
@@ -21,7 +21,6 @@ _FRAGMENT_COLUMNS: tuple[tuple[str, str], ...] = (
     ("decision_instructions", "TEXT DEFAULT NULL"),
     ("decision_criteria", "TEXT DEFAULT NULL"),
     ("decision_outputs", "TEXT DEFAULT NULL"),
-    ("decision_default", "TEXT DEFAULT NULL"),
     ("decision_resolution", "TEXT DEFAULT NULL"),
     ("decision_threshold", "REAL DEFAULT NULL"),
 )

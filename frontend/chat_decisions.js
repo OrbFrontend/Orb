@@ -4,9 +4,9 @@
 // actually reached the story:
 //
 //  1. Render a skipped decision as a `false` outcome. A skip carries no outcome
-//     at all -- it never ran -- so skips live in their own list with a reason
-//     and no outcome chip.
-//  2. Show a `low_confidence` fallback as an answer. The gate means a returned
+//     at all -- it never ran, or it could not answer -- so skips live in their
+//     own list with a reason and no outcome chip.
+//  2. Show a `low_confidence` gate as an answer. The gate means a returned
 //     answer was deliberately discarded; showing the discarded value as the
 //     outcome inverts the gate's meaning.
 //  3. Half-render an envelope it does not know. The version is read first and a
@@ -15,7 +15,6 @@ import {
   answerSourceText,
   decisionSourceText,
   distributionPairs,
-  fallbackReasonText,
   formatProbability,
   formatScore,
   isGatedReason,
@@ -32,9 +31,9 @@ import { esc, escAttr } from "./utils.js";
  *
  * The stage records the answer's shape rather than the definition's type, and
  * the shapes do not overlap: noul answers carry a bare probability, score
- * answers a weighted mean, choice answers a selected key. A fallback with no
- * answer at all falls back to the authored outcome space, which is the only
- * other thing on the record that distinguishes the three.
+ * answers a weighted mean, choice answers a selected key. A gated facet, which
+ * has no answer to read, falls back to the authored outcome space -- the only
+ * other thing on the row that distinguishes the three.
  */
 function _typeOf(record) {
   if (record.probability !== undefined) return "noul";
@@ -67,13 +66,12 @@ function _criterionText(record, key) {
 /**
  * The key the distribution actually produced, or null when it produced none.
  *
- * A fallback outcome -- gated, timed out, unparseable -- did not come out of
- * this distribution: it is the authored default. Highlighting its row would
- * dress the author's own fallback up as the Judge's answer, which is the exact
- * confusion the gate exists to prevent.
+ * A gated row's answer was deliberately discarded and injected nothing, so
+ * highlighting its winning key would dress a discarded number up as the outcome
+ * -- the exact confusion the gate exists to prevent.
  */
 function _selectedKey(record) {
-  return record.answer_source === "fallback" ? null : record.outcome;
+  return record.skip_reason ? null : record.outcome;
 }
 
 /** The distribution as rows, with the produced key marked. */
@@ -114,19 +112,16 @@ function _chip(text, kind) {
 /**
  * The outcome chip for one record.
  *
- * A gated record gets "gated", never its discarded answer; a fallback gets
- * "fallback" beside the outcome it actually used, so the authored fallback is
- * never mistaken for something the Judge said.
+ * A row that contributed nothing says so and shows no outcome, gated or
+ * otherwise: there is no outcome to show, because nothing was injected on its
+ * behalf.
  */
 function _outcomeChip(record, type) {
-  const gated = isGatedReason(record.fallback_reason);
-  if (record.outcome === undefined || record.outcome === null) {
-    return _chip(gated ? "gated" : "no outcome", gated ? "gated" : "fallback");
+  if (record.skip_reason) {
+    return _chip(isGatedReason(record.skip_reason) ? "gated" : "no outcome", "skipped");
   }
-  const label = outcomeLabel(type, String(record.outcome));
-  if (gated) return `${_chip(label, "fallback")}${_chip("gated", "gated")}`;
-  if (record.answer_source === "fallback") return `${_chip(label, "fallback")}${_chip("fallback", "fallback")}`;
-  return _chip(label, "resolved");
+  if (record.outcome === undefined || record.outcome === null) return _chip("no outcome", "skipped");
+  return _chip(outcomeLabel(type, String(record.outcome)), "resolved");
 }
 
 function _guidanceHtml(record) {
@@ -139,7 +134,7 @@ function _guidanceHtml(record) {
 
 function _facetHtml(facet) {
   const type = facet.type || _typeOf(facet);
-  const gated = isGatedReason(facet.fallback_reason);
+  const gated = isGatedReason(facet.skip_reason);
   const meta = _answerMeta(facet);
   if (facet.branch) meta.unshift(`branch ${facet.branch}`);
   if (facet.answer_source) meta.push(answerSourceText(facet.answer_source));
@@ -150,16 +145,16 @@ function _facetHtml(facet) {
       <span class="decision-meta">${esc(meta.join(" · "))}</span>
     </div>
     ${
-      facet.fallback_reason
+      facet.skip_reason
         ? `<div class="decision-reason${gated ? " decision-reason-gated" : ""}">${esc(
             gated
               ? "Gated below the confidence floor — the returned answer below was not used and nothing was injected."
-              : fallbackReasonText(facet.fallback_reason),
+              : `${skipReasonText(facet.skip_reason)} — nothing was injected for this facet.`,
           )}</div>`
         : ""
     }
-    ${_distributionHtml(facet, _selectedKey(facet), facet.fallback_reason ? "Returned, not used" : "")}
-    ${facet.fallback_reason ? "" : _guidanceHtml(facet)}
+    ${_distributionHtml(facet, _selectedKey(facet), facet.skip_reason ? "Returned, not used" : "")}
+    ${facet.skip_reason ? "" : _guidanceHtml(facet)}
   </div>`;
 }
 
@@ -169,7 +164,7 @@ function _discardedHtml(record) {
   const rows = discarded
     .map((branch) => {
       const meta = _answerMeta(branch);
-      if (branch.fallback_reason) meta.push(fallbackReasonText(branch.fallback_reason));
+      if (branch.skip_reason) meta.push(skipReasonText(branch.skip_reason));
       return `<div class="decision-discarded-row">
         <span class="decision-facet-name">${esc(branch.label || branch.key || "")}</span>
         <span class="decision-branch-tag">${esc(branch.branch || "")}</span>
@@ -204,14 +199,12 @@ function _usageHtml(record) {
 
 function _evaluationHtml(record) {
   const type = _typeOf(record);
-  const gated = isGatedReason(record.fallback_reason);
   const meta = _answerMeta(record);
   if (record.answer_source) meta.push(answerSourceText(record.answer_source));
   if (record.replayed_from) meta.push(`was ${answerSourceText(record.replayed_from)}`);
   if (Number.isFinite(record.elapsed_ms) && record.elapsed_ms) meta.push(`${record.elapsed_ms}ms`);
   const label = record.injection_label || record.fragment_label || record.fragment_id;
   const facets = Array.isArray(record.facets) ? record.facets : [];
-  const oversize = record.oversize_state_bytes || record.oversize_question_bytes;
   return `<details class="decision-eval">
     <summary>
       <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
@@ -224,25 +217,11 @@ function _evaluationHtml(record) {
         record.returned_model ? ` · ${esc(record.returned_model)}` : ""
       }</div>
       ${
-        record.fallback_reason
-          ? `<div class="decision-reason${gated ? " decision-reason-gated" : ""}">${esc(
-              gated
-                ? "Gated below the confidence floor — the returned answer below was not used; the fallback outcome was injected instead."
-                : `Fell back: ${fallbackReasonText(record.fallback_reason)}`,
-            )}</div>`
-          : ""
-      }
-      ${
         record.replay_invalidated
           ? `<div class="decision-reason">The message this was anchored to is gone, so the stored answer was not replayed.</div>`
           : ""
       }
-      ${
-        oversize
-          ? `<div class="decision-reason">Rendered input was over the limit (state ${record.oversize_state_bytes || 0}/${record.state_limit || 0} bytes, question ${record.oversize_question_bytes || 0}/${record.question_limit || 0} bytes).</div>`
-          : ""
-      }
-      ${_distributionHtml(record, _selectedKey(record), record.fallback_reason ? "Returned, not used" : "")}
+      ${_distributionHtml(record, _selectedKey(record))}
       ${_guidanceHtml(record)}
       ${facets.length ? `<div class="decision-facets">${facets.map(_facetHtml).join("")}</div>` : ""}
       ${_discardedHtml(record)}
@@ -259,10 +238,19 @@ function _evaluationHtml(record) {
 function _skippedHtml(entry) {
   // No outcome chip, ever: this decision resolved to nothing and injected
   // nothing. Painting a `false` here would be the panel inventing a result.
-  return `<div class="decision-skipped-row">
+  //
+  // The oversize numbers are the one skip detail worth spelling out, because
+  // "too big" is not actionable without the size that was too big.
+  const oversize = entry.oversize_state_bytes || entry.oversize_question_bytes;
+  return `<div class="decision-skipped-row${entry.failed ? " decision-skipped-failed" : ""}">
     <span class="decision-eval-name">${esc(entry.fragment_label || entry.fragment_id || "")}</span>
-    ${_chip("skipped", "skipped")}
+    ${_chip(entry.failed ? "failed" : "skipped", entry.failed ? "failed" : "skipped")}
     <span class="decision-meta">${esc(skipReasonText(entry.reason))} · ${esc(decisionSourceText(entry.source))}</span>
+    ${
+      oversize
+        ? `<div class="decision-reason">Rendered input was over the limit (state ${entry.oversize_state_bytes || 0}/${entry.state_limit || 0} bytes, question ${entry.oversize_question_bytes || 0}/${entry.question_limit || 0} bytes).</div>`
+        : ""
+    }
   </div>`;
 }
 

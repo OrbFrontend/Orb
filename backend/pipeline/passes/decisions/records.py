@@ -53,7 +53,6 @@ def resolution_policy_fingerprint(definition: DecisionDefinition, *, scope: str)
             "scope": scope,
             "resolution": definition.resolution,
             "threshold": definition.threshold,
-            "default": definition.default_outcome,
             "confidence_floor": definition.confidence_floor,
             "facets": [
                 {

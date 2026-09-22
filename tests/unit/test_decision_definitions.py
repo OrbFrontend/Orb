@@ -31,7 +31,6 @@ def _row(**overrides) -> dict:
         "decision_instructions": "Does Alric prevail in this exchange?",
         "decision_criteria": {"true": "Alric ends in control.", "false": "Alric is driven back."},
         "decision_outputs": {"true": "Alric holds the doorway.", "false": ""},
-        "decision_default": "false",
         "decision_resolution": "threshold",
         "decision_threshold": 0.5,
     }
@@ -58,7 +57,6 @@ def test_a_complete_definition_parses():
     assert definition.fragment_id == "outcome"
     assert definition.resolution == "threshold"
     assert definition.threshold == 0.5
-    assert definition.default_outcome == "false"
     # An empty output is a real authored value: "nothing to add for this outcome".
     assert definition.output_for("false") == ""
 
@@ -92,7 +90,6 @@ def test_unknown_variants_are_rejected_rather_than_defaulted():
         ("decision_type", "unknown"),
         ("decision_placement", "after_director"),
         ("decision_resolution", "weighted"),
-        ("decision_default", "maybe"),
     ):
         assert parse_decision_definition(_row(**{field: value})) is None, field
 
@@ -103,7 +100,6 @@ def test_choice_score_and_dependent_facets_derive_their_outcome_spaces():
             decision_type="choice",
             decision_criteria={"clean": "Clean win", "messy": "Messy win"},
             decision_outputs={"clean": "Clean", "messy": "Messy"},
-            decision_default="messy",
             decision_resolution="argmax",
             decision_threshold=None,
             decision_confidence_floor=0.5,
@@ -152,7 +148,7 @@ def test_criteria_may_arrive_as_json_text():
 
 def test_every_error_is_reported_at_once():
     problems = decision_definition_errors(
-        _row(decision_type="", decision_instructions="", decision_default="", decision_resolution="")
+        _row(decision_type="", decision_instructions="", decision_state_template="", decision_resolution="")
     )
     assert len(problems) >= 4
 

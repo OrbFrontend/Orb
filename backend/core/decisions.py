@@ -38,7 +38,6 @@ DECISION_COLUMNS = (
     "decision_instructions",
     "decision_criteria",
     "decision_outputs",
-    "decision_default",
     "decision_resolution",
     "decision_threshold",
     "decision_facets",
@@ -78,7 +77,6 @@ class DecisionDefinition:
     instructions: str
     criteria: DecisionCriteria
     outputs: Mapping[str, str]
-    default_outcome: str
     resolution: str
     threshold: float | None
     facets: tuple[DecisionFacet, ...] = ()
@@ -296,8 +294,6 @@ def decision_definition_errors(row: Mapping[str, Any]) -> list[str]:
     _, error = _outputs(row.get("decision_outputs"), keys)
     if error:
         errors.append(f"decision_outputs {error}")
-    if _text(row, "decision_default") not in keys:
-        errors.append(f"decision_default must be one of {', '.join(keys)}")
 
     resolution = _text(row, "decision_resolution")
     policies = DECISION_RESOLUTIONS_BY_TYPE.get(decision_type, ())
@@ -339,7 +335,6 @@ def parse_decision_definition(row: Mapping[str, Any]) -> DecisionDefinition | No
         instructions=str(row["decision_instructions"]),
         criteria=criteria,
         outputs=outputs,
-        default_outcome=_text(row, "decision_default"),
         resolution=resolution,
         threshold=threshold,
         facets=facets,

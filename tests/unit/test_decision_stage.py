@@ -1,9 +1,11 @@
 """The decision stage end to end, against a stubbed gateway.
 
 Every path a decision can take is here: replayed, served from cache, asked live,
-or fallen back — and every reason a fallback fires. The gateway is stubbed at
-the transport boundary (``DecisionClient.decide``) so the adapter's own strict
-normalization is exercised separately in ``test_jev_adapter.py``.
+or skipped — and every reason it is skipped. A decision that cannot answer never
+produces an outcome: the turn goes on without it and the skip is reported. The
+gateway is stubbed at the transport boundary (``DecisionClient.decide``) so the
+adapter's own strict normalization is exercised separately in
+``test_jev_adapter.py``.
 """
 
 from __future__ import annotations
@@ -32,7 +34,6 @@ from backend.pipeline.passes.decisions import (
     DecisionConfig,
     DecisionSnapshot,
     DecisionsTurn,
-    FallbackReason,
     SkipReason,
     envelope,
     run_decisions,
@@ -79,7 +80,6 @@ def _definition(fragment_id: str = "outcome", **overrides):
         "decision_instructions": f"Does {fragment_id} happen?",
         "decision_criteria": {"true": "It does.", "false": "It does not."},
         "decision_outputs": {"true": f"{fragment_id} succeeded.", "false": f"{fragment_id} failed."},
-        "decision_default": "false",
         "decision_resolution": "threshold",
         "decision_threshold": 0.5,
     }
@@ -142,6 +142,10 @@ def _by_id(result):
     return {record["fragment_id"]: record for record in result.evaluations}
 
 
+def _skips(result):
+    return {row["fragment_id"]: row for row in result.skipped}
+
+
 # ── the happy path ───────────────────────────────────────────────────────────
 
 
@@ -196,7 +200,7 @@ async def test_fanout_selects_one_branch_and_gates_only_that_facet(monkeypatch):
     assert len(gateway.batches[0]) == 4
     record = first.evaluations[0]
     assert record["outcome"] == "true"
-    assert record["facets"][0]["fallback_reason"] == FallbackReason.LOW_CONFIDENCE
+    assert record["facets"][0]["skip_reason"] == SkipReason.LOW_CONFIDENCE
     assert "outcome" not in record["facets"][0]
     assert record["facets"][1]["outcome"] == "messy"
     assert record["discarded_branches"][0]["branch"] == "false"
@@ -265,11 +269,15 @@ async def test_one_invalid_sibling_answer_is_isolated(monkeypatch):
     FakeGateway(answers={"good": 0.9}).install(monkeypatch)
     result = await run_decisions(_turn(_candidate("good"), _candidate("bad")))
 
-    records = _by_id(result)
-    assert records["good"]["answer_source"] == "live"
-    assert records["bad"]["answer_source"] == "fallback"
-    assert records["bad"]["fallback_reason"] == FallbackReason.INVALID_ANSWER
-    assert "probability" not in records["bad"]
+    assert _by_id(result)["good"]["answer_source"] == "live"
+    assert "bad" not in _by_id(result)
+    assert _skips(result)["bad"] == {
+        "fragment_id": "bad",
+        "fragment_label": "Bad",
+        "source": "global",
+        "reason": SkipReason.INVALID_ANSWER,
+        "failed": 1,
+    }
 
 
 async def test_batch_usage_is_owned_by_exactly_one_record(monkeypatch):
@@ -330,7 +338,7 @@ async def test_a_cache_hit_still_draws_fresh_dice(monkeypatch):
     assert len(draws) > 1
 
 
-async def test_a_fallback_is_never_cached(monkeypatch):
+async def test_an_unanswered_question_is_never_cached(monkeypatch):
     gateway = FakeGateway(answers={}).install(monkeypatch)
     await run_decisions(_turn(_candidate()))
     gateway.answers = {"outcome": 0.9}
@@ -339,35 +347,61 @@ async def test_a_fallback_is_never_cached(monkeypatch):
     assert len(gateway.batches) == 2
 
 
-# ── fallbacks ────────────────────────────────────────────────────────────────
+# ── decisions that cannot answer ─────────────────────────────────────────────
 
 
-async def test_missing_configuration_falls_back_without_a_request(monkeypatch):
+async def test_missing_configuration_skips_without_a_request(monkeypatch):
     gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
     result = await run_decisions(_turn(_candidate(), config=DecisionConfig()))
 
-    record = _by_id(result)["outcome"]
-    assert record["fallback_reason"] == FallbackReason.NOT_CONFIGURED
-    assert record["outcome"] == "false"
-    assert record["guidance"] == "outcome failed."
-    assert "probability" not in record
+    # No outcome, no guidance, nothing injected -- and no invented `false`.
+    assert result.evaluations == []
+    assert result.guidance == ""
+    assert _skips(result)["outcome"]["reason"] == SkipReason.NOT_CONFIGURED
+    assert _skips(result)["outcome"]["failed"] == 1
     assert gateway.batches == []
 
 
-async def test_an_unavailable_macro_falls_back_rather_than_inferring_a_member(monkeypatch):
+async def test_the_rest_of_the_stage_runs_when_one_decision_cannot_answer(monkeypatch):
+    gateway = FakeGateway(answers={"good": 0.9}).install(monkeypatch)
+    result = await run_decisions(
+        _turn(
+            _candidate("good"),
+            _candidate("broken", decision_state_template="About {{description}}: {{last_message}}"),
+            snapshot=DecisionSnapshot(last_message="hi", description=None, scope="group"),
+        )
+    )
+
+    assert gateway.batches == [["good"]]
+    assert _by_id(result)["good"]["outcome"] == "true"
+    assert result.guidance == "**Resolved Decisions**\nGood: good succeeded."
+    assert _skips(result)["broken"]["reason"] == SkipReason.UNAVAILABLE_CONTEXT
+
+
+async def test_a_skipped_decision_does_not_spend_its_cooldown(monkeypatch):
+    FakeGateway(answers={}).install(monkeypatch)
+    result = await run_decisions(_turn(_candidate(cooldown_turns=3)))
+
+    # Nothing was injected, so there is nothing to rest from: a decision that
+    # could not answer is eligible again on the very next turn.
+    assert result.evaluations == []
+    assert result.cooldowns == {}
+
+
+async def test_an_unavailable_macro_skips_rather_than_inferring_a_member(monkeypatch):
     FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
     group = DecisionSnapshot(last_message="hi", description=None, scope="group")
     result = await run_decisions(
         _turn(_candidate(decision_state_template="About {{description}}: {{last_message}}"), snapshot=group)
     )
-    assert _by_id(result)["outcome"]["fallback_reason"] == FallbackReason.UNAVAILABLE_CONTEXT
+    assert _skips(result)["outcome"]["reason"] == SkipReason.UNAVAILABLE_CONTEXT
 
 
-async def test_empty_message_inputs_fall_back_with_empty_input(monkeypatch):
+async def test_empty_message_inputs_skip_with_empty_input(monkeypatch):
     FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
     empty = DecisionSnapshot(last_message="", last_assistant_message="", scope="solo")
     result = await run_decisions(_turn(_candidate(), snapshot=empty))
-    assert _by_id(result)["outcome"]["fallback_reason"] == FallbackReason.EMPTY_INPUT
+    assert _skips(result)["outcome"]["reason"] == SkipReason.EMPTY_INPUT
 
 
 async def test_a_custom_template_supplying_its_own_situation_is_not_empty_input(monkeypatch):
@@ -379,40 +413,42 @@ async def test_a_custom_template_supplying_its_own_situation_is_not_empty_input(
     assert _by_id(result)["outcome"]["answer_source"] == "live"
 
 
-async def test_an_oversized_state_falls_back_instead_of_being_truncated(monkeypatch):
+async def test_an_oversized_state_skips_instead_of_being_truncated(monkeypatch):
     gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
     huge = DecisionSnapshot(last_message="x" * 20_000, last_assistant_message="y", scope="solo")
     result = await run_decisions(_turn(_candidate(), snapshot=huge))
 
-    assert _by_id(result)["outcome"]["fallback_reason"] == FallbackReason.OVERSIZED_INPUT
+    assert result.evaluations == []
     assert gateway.batches == []
-    # Nothing is sent, and the record keeps the measurement rather than the prose:
+    # Nothing is sent, and the skip keeps the measurement rather than the prose:
     # truncating would drop a possibly decisive fact, and echoing an over-limit
     # state onto the reply would store exactly the bytes the limit exists to avoid.
-    record = _by_id(result)["outcome"]
-    assert record["rendered_state"] == ""
-    assert record["oversize_state_bytes"] > record["state_limit"]
+    row = _skips(result)["outcome"]
+    assert row["reason"] == SkipReason.OVERSIZED_INPUT
+    assert "rendered_state" not in row
+    assert row["oversize_state_bytes"] > row["state_limit"]
 
 
 @pytest.mark.parametrize(
     ("error", "reason"),
     [
-        (httpx.ReadTimeout("slow"), FallbackReason.TIMEOUT),
-        (DecisionTransportError("unreadable"), FallbackReason.TRANSPORT_FAILURE),
-        (httpx.ConnectError("refused"), FallbackReason.TRANSPORT_FAILURE),
+        (httpx.ReadTimeout("slow"), SkipReason.TIMEOUT),
+        (DecisionTransportError("unreadable"), SkipReason.TRANSPORT_FAILURE),
+        (httpx.ConnectError("refused"), SkipReason.TRANSPORT_FAILURE),
     ],
 )
-async def test_transport_problems_fall_back_for_their_whole_batch(monkeypatch, error, reason):
+async def test_transport_problems_skip_their_whole_batch(monkeypatch, error, reason):
     gateway = FakeGateway(answers={"a": 0.9, "b": 0.9}).install(monkeypatch)
     gateway.error = error
     result = await run_decisions(_turn(_candidate("a"), _candidate("b")))
 
-    assert {record["fallback_reason"] for record in result.evaluations} == {reason}
+    assert result.evaluations == []
+    assert {row["reason"] for row in result.skipped} == {reason}
     # No retry and no split-and-retry in the interactive path.
     assert len(gateway.batches) == 1
 
 
-async def test_a_provider_rejection_falls_back_without_extra_attempts(monkeypatch):
+async def test_a_provider_rejection_skips_without_extra_attempts(monkeypatch):
     request = httpx.Request("POST", CONFIG.url)
     gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
     gateway.error = LLMCallError(
@@ -425,11 +461,11 @@ async def test_a_provider_rejection_falls_back_without_extra_attempts(monkeypatc
         model=CONFIG.model,
     )
     result = await run_decisions(_turn(_candidate()))
-    assert _by_id(result)["outcome"]["fallback_reason"] == FallbackReason.TRANSPORT_FAILURE
+    assert _skips(result)["outcome"]["reason"] == SkipReason.TRANSPORT_FAILURE
     assert len(gateway.batches) == 1
 
 
-# ── skips are not fallbacks ──────────────────────────────────────────────────
+# ── routine skips ────────────────────────────────────────────────────────────
 
 
 async def test_a_resting_decision_is_skipped_with_no_request_and_no_guidance(monkeypatch):
@@ -461,15 +497,15 @@ async def test_an_unapproved_card_decision_is_skipped_before_cache_or_replay(mon
 # ── budgets ──────────────────────────────────────────────────────────────────
 
 
-async def test_over_budget_decisions_use_their_default_and_stay_visible(monkeypatch):
+async def test_over_budget_decisions_are_skipped_and_stay_visible(monkeypatch):
     ids = [f"q{i}" for i in range(MAX_DECISIONS_PER_EXCHANGE + 2)]
     FakeGateway(answers=dict.fromkeys(ids, 0.9)).install(monkeypatch)
     result = await run_decisions(_turn(*(_candidate(fragment_id) for fragment_id in ids)))
 
-    records = _by_id(result)
-    assert len(records) == len(ids)
-    over = [record for record in result.evaluations if record.get("fallback_reason") == FallbackReason.BUDGET_EXHAUSTED]
-    assert [record["fragment_id"] for record in over] == ids[MAX_DECISIONS_PER_EXCHANGE:]
+    # Over budget is still reported: the author sees which ones were dropped.
+    assert [record["fragment_id"] for record in result.evaluations] == ids[:MAX_DECISIONS_PER_EXCHANGE]
+    over = [row for row in result.skipped if row["reason"] == SkipReason.BUDGET_EXHAUSTED]
+    assert [row["fragment_id"] for row in over] == ids[MAX_DECISIONS_PER_EXCHANGE:]
 
 
 async def test_one_card_cannot_take_more_than_its_share(monkeypatch):
@@ -479,11 +515,11 @@ async def test_one_card_cannot_take_more_than_its_share(monkeypatch):
         _turn(*(_candidate(fragment_id, card_id="c") for fragment_id in ids), approved_cards=frozenset({"c"}))
     )
 
-    over = [record for record in result.evaluations if record.get("fallback_reason") == FallbackReason.BUDGET_EXHAUSTED]
-    assert [record["fragment_id"] for record in over] == ids[MAX_DECISIONS_PER_CARD:]
+    over = [row for row in result.skipped if row["reason"] == SkipReason.BUDGET_EXHAUSTED]
+    assert [row["fragment_id"] for row in over] == ids[MAX_DECISIONS_PER_CARD:]
 
 
-async def test_the_request_attempt_cap_falls_the_rest_back(monkeypatch):
+async def test_the_request_attempt_cap_skips_the_rest(monkeypatch):
     monkeypatch.setattr(stage_module, "MAX_REQUEST_ATTEMPTS", 2)
     ids = [f"q{i}" for i in range(4)]
     gateway = FakeGateway(answers=dict.fromkeys(ids, 0.9)).install(monkeypatch)
@@ -492,7 +528,7 @@ async def test_the_request_attempt_cap_falls_the_rest_back(monkeypatch):
         _turn(*(_candidate(i, decision_state_template=f"State {i}: {{{{last_message}}}}") for i in ids))
     )
     assert len(gateway.batches) == 2
-    exhausted = [r for r in result.evaluations if r.get("fallback_reason") == FallbackReason.BUDGET_EXHAUSTED]
+    exhausted = [row for row in result.skipped if row["reason"] == SkipReason.BUDGET_EXHAUSTED]
     assert len(exhausted) == 2
 
 
@@ -501,13 +537,13 @@ async def test_an_exhausted_stage_budget_stops_further_requests(monkeypatch):
     gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
     result = await run_decisions(_turn(_candidate()))
     assert gateway.batches == []
-    assert _by_id(result)["outcome"]["fallback_reason"] == FallbackReason.BUDGET_EXHAUSTED
+    assert _skips(result)["outcome"]["reason"] == SkipReason.BUDGET_EXHAUSTED
 
 
 # ── cancellation ─────────────────────────────────────────────────────────────
 
 
-async def test_a_stop_propagates_rather_than_producing_fallback_guidance(monkeypatch):
+async def test_a_stop_propagates_rather_than_producing_guidance(monkeypatch):
     gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
     gateway.error = DecisionCancelled("stopped")
     abort = AbortToken()
@@ -604,20 +640,20 @@ async def test_a_changed_policy_may_still_reuse_a_cached_answer_but_rerolls(monk
     assert "draw" in record
 
 
-async def test_a_fallback_record_replays_as_a_fallback(monkeypatch):
+async def test_a_skipped_decision_stores_nothing_and_is_asked_again(monkeypatch):
     FakeGateway(answers={}).install(monkeypatch)
-    original = (await run_decisions(_turn(_candidate()))).evaluations
-    assert original[0]["fallback_reason"] == FallbackReason.INVALID_ANSWER
+    first = await run_decisions(_turn(_candidate()))
+    assert first.evaluations == []
+    assert _skips(first)["outcome"]["reason"] == SkipReason.INVALID_ANSWER
 
+    # There is no stored outcome to replay, so the regeneration genuinely retries
+    # rather than reinstating an answer that never existed.
     gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
-    replayed = await run_decisions(_turn(_candidate(), replay_records=tuple(original)))
+    replayed = await run_decisions(_turn(_candidate(), replay_records=tuple(first.evaluations)))
 
-    record = _by_id(replayed)["outcome"]
-    # Regeneration alone does not retry a failed classification.
-    assert gateway.batches == []
-    assert record["answer_source"] == "replay"
-    assert record["fallback_reason"] == FallbackReason.INVALID_ANSWER
-    assert record["outcome"] == "false"
+    assert gateway.batches == [["outcome"]]
+    assert _by_id(replayed)["outcome"]["answer_source"] == "live"
+    assert _by_id(replayed)["outcome"]["outcome"] == "true"
 
 
 async def test_a_lost_branch_anchor_re_asks_and_says_why(monkeypatch):
@@ -633,7 +669,7 @@ async def test_a_lost_branch_anchor_re_asks_and_says_why(monkeypatch):
     record = _by_id(fresh)["outcome"]
     assert gateway.batches == [["outcome"]]
     assert record["answer_source"] == "live"
-    assert record["replay_invalidated"] == FallbackReason.MISSING_ANCHOR
+    assert record["replay_invalidated"] == SkipReason.MISSING_ANCHOR
 
 
 # ── the empty stage ──────────────────────────────────────────────────────────

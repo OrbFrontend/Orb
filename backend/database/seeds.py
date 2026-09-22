@@ -105,7 +105,6 @@ SEED_INTERACTIVE_FRAGMENTS = [
             "true": "That action comes off as intended.",
             "false": "That action fails, is stopped, or backfires.",
         },
-        "decision_default": "false",
         "decision_resolution": "roll",
         "decision_threshold": None,
         "decision_facets": None,

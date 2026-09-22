@@ -52,7 +52,7 @@ from .render import (
     template_errors,
 )
 from .resolve import (
-    FallbackReason,
+    FAILURE_REASONS,
     SkipReason,
     draw_uniform,
     resolve_argmax,
@@ -83,7 +83,6 @@ _EVENT_FIELDS = (
     "outcome",
     "guidance",
     "answer_source",
-    "fallback_reason",
     "replay_invalidated",
     "probability",
     "distribution",
@@ -227,7 +226,7 @@ class _Prepared:
     questions: list[_PreparedQuestion] = field(default_factory=list)
     raw_fingerprint: str = ""
     policy_fingerprint: str = ""
-    fallback_reason: str = ""
+    skip_reason: str = ""
     oversize: tuple[int, int] = (0, 0)
     replay_invalidated: str = ""
 
@@ -258,6 +257,7 @@ def _eligible(turn: DecisionsTurn) -> tuple[list[DecisionCandidate], list[dict[s
             "fragment_label": broken.label,
             "source": broken.source,
             "reason": SkipReason.INVALID_DEFINITION,
+            "failed": 1,
         }
         for broken in turn.invalid
     ]
@@ -308,16 +308,16 @@ def _prepare(candidate: DecisionCandidate, turn: DecisionsTurn, *, over_budget: 
             for facet in definition.facets
         }
     except UnavailableMacro:
-        prepared.fallback_reason = FallbackReason.UNAVAILABLE_CONTEXT
+        prepared.skip_reason = SkipReason.UNAVAILABLE_CONTEXT
         return prepared
     if over_budget:
-        prepared.fallback_reason = FallbackReason.BUDGET_EXHAUSTED
+        prepared.skip_reason = SkipReason.BUDGET_EXHAUSTED
         return prepared
     if not turn.config.configured:
-        prepared.fallback_reason = FallbackReason.NOT_CONFIGURED
+        prepared.skip_reason = SkipReason.NOT_CONFIGURED
         return prepared
     if template_errors(definition.state_template, allowed=STATE_MACROS):
-        prepared.fallback_reason = FallbackReason.INVALID_DEFINITION
+        prepared.skip_reason = SkipReason.INVALID_DEFINITION
         return prepared
     used = set(macros_used(definition.state_template))
     try:
@@ -330,10 +330,10 @@ def _prepare(candidate: DecisionCandidate, turn: DecisionsTurn, *, over_budget: 
             question_type=definition.decision_type,
         )
     except UnavailableMacro:
-        prepared.fallback_reason = FallbackReason.UNAVAILABLE_CONTEXT
+        prepared.skip_reason = SkipReason.UNAVAILABLE_CONTEXT
         return prepared
     if used and used <= _SITUATION_MACROS and not any((turn.snapshot.value(macro) or "").strip() for macro in used):
-        prepared.fallback_reason = FallbackReason.EMPTY_INPUT
+        prepared.skip_reason = SkipReason.EMPTY_INPUT
         return prepared
     if oversized_state(prepared.state) or oversized_question(primary.instructions, primary.criteria):
         texts = primary.criteria.values() if isinstance(primary.criteria, Mapping) else primary.criteria
@@ -342,7 +342,7 @@ def _prepare(candidate: DecisionCandidate, turn: DecisionsTurn, *, over_budget: 
             len(primary.instructions.encode()) + sum(len(text.encode()) for text in texts),
         )
         prepared.state = ""
-        prepared.fallback_reason = FallbackReason.OVERSIZED_INPUT
+        prepared.skip_reason = SkipReason.OVERSIZED_INPUT
         return prepared
     prepared.questions.append(primary)
     for facet_index, facet in enumerate(definition.facets):
@@ -365,9 +365,9 @@ def _prepare(candidate: DecisionCandidate, turn: DecisionsTurn, *, over_budget: 
                 question.instructions = _resolve_text(instructions, turn.snapshot)
                 question.criteria = _render_criteria(facet.criteria, turn.snapshot)
             except UnavailableMacro:
-                question.failure = FallbackReason.UNAVAILABLE_CONTEXT
+                question.failure = SkipReason.UNAVAILABLE_CONTEXT
             if not question.failure and oversized_question(question.instructions, question.criteria):
-                question.failure = FallbackReason.OVERSIZED_INPUT
+                question.failure = SkipReason.OVERSIZED_INPUT
             prepared.questions.append(question)
     fingerprints = [question.fingerprint for question in prepared.questions]
     prepared.raw_fingerprint = hashlib.sha256(json.dumps(fingerprints, separators=(",", ":")).encode()).hexdigest()
@@ -412,11 +412,13 @@ def _resolve_answer(
 
 
 def _question_details(question: _PreparedQuestion) -> dict[str, Any]:
-    details: dict[str, Any] = {"answer_source": question.answer_source or "fallback"}
+    details: dict[str, Any] = {}
+    if question.answer_source:
+        details["answer_source"] = question.answer_source
     if question.answer is not None:
         details.update(_answer_fields(question.answer))
     if question.failure:
-        details["fallback_reason"] = question.failure
+        details["skip_reason"] = question.failure
     if question.elapsed_ms:
         details["elapsed_ms"] = question.elapsed_ms
     return details
@@ -452,9 +454,6 @@ def _base_record(prepared: _Prepared, turn: DecisionsTurn, occurrence_id: str | 
         "discarded_branches": [],
         "elapsed_ms": max((q.elapsed_ms for q in prepared.questions), default=0),
     }
-    if prepared.oversize != (0, 0):
-        record["oversize_state_bytes"], record["oversize_question_bytes"] = prepared.oversize
-        record["state_limit"], record["question_limit"] = MAX_STATE_BYTES, MAX_QUESTION_BYTES
     if prepared.replay_invalidated:
         record["replay_invalidated"] = prepared.replay_invalidated
     usage_question = next((q for q in prepared.questions if q.usage_owner and q.usage), None)
@@ -466,43 +465,47 @@ def _base_record(prepared: _Prepared, turn: DecisionsTurn, occurrence_id: str | 
     return record
 
 
-def _fallback(prepared: _Prepared, turn: DecisionsTurn, reason: str) -> dict[str, Any]:
-    record = _base_record(prepared, turn)
-    outcome = prepared.definition.default_outcome
-    record.update(
-        {
-            "outcome": outcome,
-            "guidance": prepared.outputs.get(outcome, ""),
-            "answer_source": "fallback",
-            "fallback_reason": reason,
-        }
-    )
-    primary = prepared.primary
-    if primary and primary.answer is not None:
-        record.update(_answer_fields(primary.answer))
-    for question in prepared.questions:
-        if question.facet is not None and question.answer is not None:
-            record["discarded_branches"].append(
-                {
-                    "key": question.facet.key,
-                    "label": question.facet.label,
-                    "branch": question.branch,
-                    **_question_details(question),
-                }
-            )
-    return record
+def _skipped_row(prepared: _Prepared, turn: DecisionsTurn, reason: str) -> dict[str, Any]:
+    """The row for a decision that produced nothing.
+
+    Deliberately thin: a skipped decision injected no guidance and resolved to
+    no outcome, so there is nothing to record but who it was and why it did not
+    run. The oversize numbers are the one exception -- they are the only reason
+    an author cannot act on without being told the size they overran.
+    """
+    definition = prepared.definition
+    row: dict[str, Any] = {
+        "fragment_id": definition.fragment_id,
+        "fragment_label": definition.label,
+        "source": prepared.candidate.source,
+        "reason": reason,
+    }
+    # Separates "something broke" from the routine skips an author configured on
+    # purpose, so the client can decide what is worth saying out loud without
+    # keeping its own copy of this vocabulary.
+    if reason in FAILURE_REASONS:
+        row["failed"] = 1
+    if prepared.oversize != (0, 0):
+        row["oversize_state_bytes"], row["oversize_question_bytes"] = prepared.oversize
+        row["state_limit"], row["question_limit"] = MAX_STATE_BYTES, MAX_QUESTION_BYTES
+    return row
 
 
-def _resolved_record(prepared: _Prepared, turn: DecisionsTurn) -> dict[str, Any]:
+def _resolved_record(prepared: _Prepared, turn: DecisionsTurn) -> dict[str, Any] | None:
+    """The evaluation record, or ``None`` with ``prepared.skip_reason`` set.
+
+    Returning nothing is the whole point: an unanswered decision contributes no
+    outcome and no guidance, and the caller turns it into a skip row.
+    """
     definition = prepared.definition
     primary = prepared.primary
     if primary is None or primary.answer is None:
-        return _fallback(
-            prepared, turn, primary.failure if primary else prepared.fallback_reason or FallbackReason.INVALID_ANSWER
-        )
+        prepared.skip_reason = (primary.failure if primary else "") or prepared.skip_reason or SkipReason.INVALID_ANSWER
+        return None
     confidence = getattr(primary.answer, "confidence", None)
     if definition.confidence_floor is not None and confidence is not None and confidence < definition.confidence_floor:
-        return _fallback(prepared, turn, FallbackReason.LOW_CONFIDENCE)
+        prepared.skip_reason = SkipReason.LOW_CONFIDENCE
+        return None
     try:
         outcome, draw = _resolve_answer(
             primary.answer,
@@ -512,7 +515,8 @@ def _resolved_record(prepared: _Prepared, turn: DecisionsTurn) -> dict[str, Any]
             threshold=definition.threshold,
         )
     except ValueError:
-        return _fallback(prepared, turn, FallbackReason.INVALID_ANSWER)
+        prepared.skip_reason = SkipReason.INVALID_ANSWER
+        return None
     record = _base_record(prepared, turn)
     record.update(
         {
@@ -546,8 +550,7 @@ def _resolved_record(prepared: _Prepared, turn: DecisionsTurn) -> dict[str, Any]
         if selected is None or selected.answer is None:
             facet_record.update(
                 {
-                    "answer_source": "fallback",
-                    "fallback_reason": (selected.failure if selected else "") or FallbackReason.INVALID_FACET_ANSWER,
+                    "skip_reason": (selected.failure if selected else "") or SkipReason.INVALID_FACET_ANSWER,
                     "guidance": "",
                 }
             )
@@ -557,7 +560,7 @@ def _resolved_record(prepared: _Prepared, turn: DecisionsTurn) -> dict[str, Any]
         facet_record["answer_source"] = selected.answer_source
         facet_confidence = getattr(selected.answer, "confidence", None)
         if facet.confidence_floor is not None and facet_confidence is not None and facet_confidence < facet.confidence_floor:
-            facet_record.update({"answer_source": "fallback", "fallback_reason": FallbackReason.LOW_CONFIDENCE, "guidance": ""})
+            facet_record.update({"skip_reason": SkipReason.LOW_CONFIDENCE, "guidance": ""})
             record["facets"].append(facet_record)
             continue
         try:
@@ -569,9 +572,7 @@ def _resolved_record(prepared: _Prepared, turn: DecisionsTurn) -> dict[str, Any]
                 threshold=0.5,
             )
         except ValueError:
-            facet_record.update(
-                {"answer_source": "fallback", "fallback_reason": FallbackReason.INVALID_FACET_ANSWER, "guidance": ""}
-            )
+            facet_record.update({"skip_reason": SkipReason.INVALID_FACET_ANSWER, "guidance": ""})
         else:
             facet_record["outcome"] = facet_outcome
             facet_record["guidance"] = prepared.facet_outputs.get(facet.key, {}).get(facet_outcome, "")
@@ -591,7 +592,7 @@ def _replayed(prepared: _Prepared, turn: DecisionsTurn, stored: Mapping[str, Any
             "outputs": dict(prepared.outputs),
             "answer_source": "replay",
             "replayed_from": str(stored.get("answer_source") or ""),
-            "guidance": prepared.outputs.get(str(stored.get("outcome") or prepared.definition.default_outcome), ""),
+            "guidance": prepared.outputs.get(str(stored.get("outcome") or ""), ""),
         }
     )
     facets = []
@@ -638,13 +639,16 @@ async def run_decisions(turn: DecisionsTurn, *, abort: AbortToken | None = None)
     over = _over_budget(running)
     prepared = [_prepare(candidate, turn, over_budget=candidate.definition.fragment_id in over) for candidate in running]
     records: dict[str, dict[str, Any]] = {}
+    # Keyed rather than appended so the skip list stays in candidate order no
+    # matter which pass gave up on a decision.
+    failed: dict[str, dict[str, Any]] = {}
     pending: list[_PreparedQuestion] = []
     question_budget = MAX_QUESTIONS_PER_EXCHANGE
 
     for item in prepared:
         fid = item.definition.fragment_id
-        if item.fallback_reason:
-            records[fid] = _fallback(item, turn, item.fallback_reason)
+        if item.skip_reason:
+            failed[fid] = _skipped_row(item, turn, item.skip_reason)
             continue
         stored = matching_replay(
             turn.replay_records,
@@ -656,12 +660,12 @@ async def run_decisions(turn: DecisionsTurn, *, abort: AbortToken | None = None)
             records[fid] = _replayed(item, turn, stored)
             continue
         if invalidated_anchor(turn.replay_records, fid):
-            item.replay_invalidated = FallbackReason.MISSING_ANCHOR
+            item.replay_invalidated = SkipReason.MISSING_ANCHOR
         for question in item.questions:
             if question.failure:
                 continue
             if question_budget <= 0:
-                question.failure = FallbackReason.BUDGET_EXHAUSTED
+                question.failure = SkipReason.BUDGET_EXHAUSTED
                 continue
             question_budget -= 1
             key = cache_key(turn.config.namespace, turn.config.model, item.state, question.question())
@@ -680,8 +684,16 @@ async def run_decisions(turn: DecisionsTurn, *, abort: AbortToken | None = None)
     requests = await _issue(pending, turn, started=started, abort=abort) if pending else 0
     for item in prepared:
         fid = item.definition.fragment_id
-        if fid not in records:
-            records[fid] = _resolved_record(item, turn)
+        if fid in records or fid in failed:
+            continue
+        # A decision that could not answer drops out here and the turn carries on
+        # with the ones that did. Nothing is injected on its behalf.
+        record = _resolved_record(item, turn)
+        if record is None:
+            failed[fid] = _skipped_row(item, turn, item.skip_reason)
+        else:
+            records[fid] = record
+    skipped.extend(failed[item.definition.fragment_id] for item in prepared if item.definition.fragment_id in failed)
     result = DecisionsResult(
         evaluations=[records[item.definition.fragment_id] for item in prepared if item.definition.fragment_id in records],
         skipped=skipped,
@@ -718,7 +730,7 @@ async def _issue(
             raise DecisionCancelled("stopped during the decision stage")
         if issued >= MAX_REQUEST_ATTEMPTS or remaining <= 0:
             for question in batch:
-                question.failure = FallbackReason.BUDGET_EXHAUSTED
+                question.failure = SkipReason.BUDGET_EXHAUSTED
             continue
         issued += 1
         try:
@@ -732,12 +744,12 @@ async def _issue(
             raise
         except httpx.TimeoutException:
             for question in batch:
-                question.failure = FallbackReason.TIMEOUT
+                question.failure = SkipReason.TIMEOUT
             continue
         except (LLMCallError, DecisionTransportError, httpx.HTTPError) as error:
-            logger.warning("Decision batch of %d failed (%r); using authored fallbacks", len(batch), error)
+            logger.warning("Decision batch of %d failed (%r); skipping those decisions", len(batch), error)
             for question in batch:
-                question.failure = FallbackReason.TRANSPORT_FAILURE
+                question.failure = SkipReason.TRANSPORT_FAILURE
             continue
         for index, question in enumerate(batch):
             question.elapsed_ms = response.elapsed_ms
@@ -746,9 +758,7 @@ async def _issue(
             question.usage_owner = index == 0
             answer = response.answers.get(question.key)
             if answer is None:
-                question.failure = (
-                    FallbackReason.INVALID_ANSWER if question.facet is None else FallbackReason.INVALID_FACET_ANSWER
-                )
+                question.failure = SkipReason.INVALID_ANSWER if question.facet is None else SkipReason.INVALID_FACET_ANSWER
                 continue
             question.answer = answer
             question.answer_source = "live"

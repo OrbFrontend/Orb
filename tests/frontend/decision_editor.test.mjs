@@ -52,7 +52,6 @@ const NOUL_FRAGMENT = {
   decision_instructions: "The action described in the current request succeeds.",
   decision_criteria: { true: "It works.", false: "It does not." },
   decision_outputs: { true: "They pull it off.", false: "It fails." },
-  decision_default: "false",
   decision_resolution: "threshold",
   decision_threshold: 0.5,
   decision_confidence_floor: null,
@@ -95,7 +94,6 @@ test("every decision column is written, so a cleared one is cleared", () => {
     "decision_instructions",
     "decision_criteria",
     "decision_outputs",
-    "decision_default",
     "decision_resolution",
     "decision_threshold",
     "decision_facets",
@@ -132,7 +130,6 @@ test("choice keeps its authored key order; score is indexed from zero", () => {
     decision_type: "choice",
     decision_criteria: { stalemate: "Neither gives.", decisive: "One wins." },
     decision_outputs: { stalemate: "Hold.", decisive: "Break it." },
-    decision_default: "stalemate",
     decision_resolution: "argmax",
     decision_threshold: null,
   });
@@ -144,7 +141,6 @@ test("choice keeps its authored key order; score is indexed from zero", () => {
     decision_type: "score",
     decision_criteria: ["None", "Some", "A lot"],
     decision_outputs: { 0: "a", 1: "b", 2: "c" },
-    decision_default: "0",
     decision_resolution: "nearest",
     decision_threshold: null,
   });
@@ -166,7 +162,6 @@ test("adding a primary outcome adds an empty branch to every facet, never a gene
     decision_type: "choice",
     decision_criteria: { win: "Wins.", lose: "Loses." },
     decision_outputs: { win: "", lose: "" },
-    decision_default: "lose",
     decision_resolution: "argmax",
     decision_threshold: null,
   });
@@ -190,7 +185,6 @@ test("deleting a primary outcome drops that branch and keeps the rest aligned", 
     decision_type: "choice",
     decision_criteria: { a: "A.", b: "B.", c: "C." },
     decision_outputs: { a: "", b: "", c: "" },
-    decision_default: "a",
     decision_resolution: "argmax",
     decision_threshold: null,
   });
@@ -227,11 +221,12 @@ test("retyping the primary re-picks a policy its own type allows", () => {
   assert.strictEqual(fields.decision_threshold, null);
 });
 
-test("retyping moves the fallback outcome into the new outcome space", () => {
+test("retyping rebuilds the outcome space for the new type", () => {
   mount(NOUL_FRAGMENT);
   setValue('[data-dec="type"]', "score");
   const fields = readDecisionFields();
-  assert.ok(Object.keys(fields.decision_outputs).includes(fields.decision_default));
+  assert.deepEqual(Object.keys(fields.decision_outputs), ["0", "1"]);
+  assert.ok(Array.isArray(fields.decision_criteria));
 });
 
 test("guidance mirrors an untouched criterion and never overwrites a written one", () => {

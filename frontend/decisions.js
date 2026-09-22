@@ -53,9 +53,13 @@ export function outcomeLabel(type, key) {
   return key;
 }
 
-// Every fallback reason `FallbackReason` in the decision stage can attach to a
-// record. A reason with no entry here is shown verbatim rather than swallowed.
-const FALLBACK_REASONS = {
+// Every `SkipReason` the decision stage can report, on a skipped decision or a
+// gated facet. A reason with no entry here is shown verbatim rather than
+// swallowed. A skip has no outcome at all: the callers of skipReasonText must
+// never paint one of these as a resolved `false`.
+const SKIP_REASONS = {
+  not_approved: "Not approved for this character",
+  resting: "Resting on cooldown",
   not_configured: "No Judge endpoint is configured",
   invalid_definition: "The definition is not valid",
   empty_input: "The situation rendered empty",
@@ -70,32 +74,35 @@ const FALLBACK_REASONS = {
   missing_anchor: "The message this was anchored to is gone",
 };
 
-// `SkipReason`. A skip has no outcome at all: the callers of skipReasonText
-// must never paint one of these as a resolved `false`.
-const SKIP_REASONS = {
-  not_approved: "Not approved for this character",
-  resting: "Resting on cooldown",
-  invalid_definition: "The definition is not valid",
-};
-
-export function fallbackReasonText(reason) {
-  return FALLBACK_REASONS[reason] || String(reason || "");
-}
-
 export function skipReasonText(reason) {
   return SKIP_REASONS[reason] || String(reason || "");
 }
 
-/** Is this fallback the confidence gate rather than a failure? */
+/** Is this skip the confidence gate rather than something going wrong? */
 export function isGatedReason(reason) {
   return reason === "low_confidence";
+}
+
+/**
+ * One line for a turn's failed skips, or "" when nothing failed.
+ *
+ * The backend flags which skips are failures; this only has to word them. One
+ * line for the whole turn, because a provider that is down takes every decision
+ * with it and the author needs to be told once, not once per fragment.
+ */
+export function skipNoticeText(skipped) {
+  const failed = (Array.isArray(skipped) ? skipped : []).filter((entry) => entry?.failed);
+  if (!failed.length) return "";
+  const names = failed.map((entry) => entry.fragment_label || entry.fragment_id || "A decision");
+  const reasons = [...new Set(failed.map((entry) => skipReasonText(entry.reason)))];
+  const subject = failed.length === 1 ? names[0] : `${failed.length} decisions`;
+  return `${subject} skipped: ${reasons.join("; ").toLowerCase()}`;
 }
 
 const ANSWER_SOURCES = {
   live: "live",
   cache: "cached",
   replay: "replayed",
-  fallback: "fallback",
 };
 
 export function answerSourceText(source) {

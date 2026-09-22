@@ -29,7 +29,6 @@ DEFINITION = {
     "decision_instructions": "Does Alric prevail in this exchange?",
     "decision_criteria": {"true": "Alric ends in control.", "false": "Alric is driven back."},
     "decision_outputs": {"true": "Alric holds the doorway.", "false": "Alric is forced back a step."},
-    "decision_default": "false",
     "decision_resolution": "threshold",
     "decision_threshold": 0.5,
 }
@@ -159,7 +158,6 @@ async def test_a_valid_decision_round_trips_through_the_api(client, db):
     [
         {"decision_criteria": {"true": "only"}},
         {"decision_instructions": ""},
-        {"decision_default": "maybe"},
         {"decision_threshold": 2.0},
         {"decision_resolution": "roll"},  # a threshold left behind in roll mode
         {"decision_state_template": "Judge {{scene_guidance}}"},
@@ -353,7 +351,7 @@ async def test_the_low_outcome_selects_the_other_authored_guidance(client, db, l
     assert "Doorway: Alric is forced back a step." in _event(events, "director_done")["injection_block"]
 
 
-async def test_no_endpoint_means_the_fallback_and_no_request(client, db, llm_mock, monkeypatch):
+async def test_no_endpoint_means_a_skip_and_no_request(client, db, llm_mock, monkeypatch):
     cid = "conv-decision-unconfigured"
     await dbmod.create_conversation(cid, "scene", "Maren", "a doorway")
     await client.put("/api/settings", json={"enable_agent": True, "enabled_tools": {"direct_scene": True}})
@@ -361,13 +359,14 @@ async def test_no_endpoint_means_the_fallback_and_no_request(client, db, llm_moc
     gateway = Gateway(monkeypatch)
 
     events = await _turn(llm_mock, cid, "one", director={"moods": []})
-    record = _event(events, "decisions")["evaluations"][0]
+    decisions = _event(events, "decisions")
 
     assert gateway.batches == []
-    assert record["answer_source"] == "fallback"
-    assert record["fallback_reason"] == "not_configured"
-    assert "probability" not in record
-    assert "Doorway: Alric is forced back a step." in _event(events, "director_done")["injection_block"]
+    assert decisions["evaluations"] == []
+    assert decisions["skipped"][0]["reason"] == "not_configured"
+    assert decisions["skipped"][0]["failed"] == 1
+    # Nothing is injected on its behalf: the turn runs as if it were not there.
+    assert "Doorway:" not in _event(events, "director_done")["injection_block"]
 
 
 # ── persistence ──────────────────────────────────────────────────────────────
@@ -676,7 +675,7 @@ async def test_a_group_decision_reaches_every_speakers_writer(client, db, llm_mo
     assert all("Doorway: Alric holds the doorway." in tail for tail in writer_tails)
 
 
-async def test_a_group_template_needing_the_description_falls_back(client, db, llm_mock, monkeypatch):
+async def test_a_group_template_needing_the_description_is_skipped(client, db, llm_mock, monkeypatch):
     conv = await _group(client)
     await _configure(client)
     await _add_decision(client, decision_state_template="About {{description}}: {{last_message}}")
@@ -686,10 +685,10 @@ async def test_a_group_template_needing_the_description_falls_back(client, db, l
     llm_mock.enqueue_writer("aria speaks")
     events = await _drain(handle_turn(conv["id"], "one"))
 
-    record = _event(events, "decisions")["evaluations"][0]
+    decisions = _event(events, "decisions")
     assert gateway.batches == []
-    assert record["fallback_reason"] == "unavailable_context"
-    assert record["scope"] == "group"
+    assert decisions["evaluations"] == []
+    assert decisions["skipped"][0]["reason"] == "unavailable_context"
 
 
 async def test_a_later_speaker_regeneration_reuses_the_exchange_input(client, db, llm_mock, monkeypatch):
@@ -821,6 +820,7 @@ async def test_an_unparseable_global_decision_is_recorded_as_skipped(client, db,
         "fragment_label": "Outcome",
         "source": "global",
         "reason": "invalid_definition",
+        "failed": 1,
     }
 
 
@@ -833,7 +833,7 @@ async def test_a_stop_during_the_decision_stage_ends_the_turn(client, db, llm_mo
     `director_pass` already refuses to call once the token is set, so nothing was
     ever billed. What the solo path was missing is the group driver's early
     return: without it a cancelled turn still announced a directing phase it was
-    not going to run, and no fallback guidance is produced either way.
+    not going to run, and no decision guidance is produced either way.
     """
     cid = await _solo_scene(client)
     gateway = Gateway(monkeypatch)

@@ -558,9 +558,9 @@ function _featureGate(f) {
   const feedbackOff = f.field_type === "feedback" && !S.feedbackEnabled;
   const noteOff = f.field_type === "direction_note" && !S.directionNotesRecord;
   const postProcessingOff = f.field_type === "post_processing" && !S.agentEnabled;
-  // A decision without a Judge is not disabled -- it still resolves, to its
-  // authored fallback outcome, without calling anything. Say which, rather than
-  // greying out a fragment that is doing exactly what it was configured to do.
+  // A decision without a Judge is not disabled -- it is simply skipped every
+  // turn, injecting nothing. Say so, rather than greying out a fragment whose
+  // definition is perfectly good and will run the moment a Judge is set.
   const judgeOff = f.field_type === "decision" && decisionConfig()?.configured === false;
   const title = feedbackOff
     ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
@@ -569,7 +569,7 @@ function _featureGate(f) {
       : postProcessingOff
         ? "Agent is disabled -- enable it to use this post-processing fragment"
         : judgeOff
-          ? "No Judge endpoint is configured -- this decision resolves to its fallback outcome"
+          ? "No Judge endpoint is configured -- this decision is skipped and injects nothing"
           : f.description || "";
   return { disabled: feedbackOff || noteOff || postProcessingOff, title };
 }

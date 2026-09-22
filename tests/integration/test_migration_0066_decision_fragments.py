@@ -14,7 +14,6 @@ _FRAGMENT_COLUMNS = (
     "decision_instructions",
     "decision_criteria",
     "decision_outputs",
-    "decision_default",
     "decision_resolution",
     "decision_threshold",
 )
@@ -63,8 +62,8 @@ def test_adds_classifier_configuration_unconfigured_by_default():
         "SELECT decision_endpoint_id, decision_model, decision_url, decision_config_revision, decision_card_approvals "
         "FROM settings"
     ).fetchone()
-    # No endpoint means enabled decisions use their authored fallback and make no
-    # request -- the state a fresh install also starts in.
+    # No endpoint means enabled decisions are skipped and make no request -- the
+    # state a fresh install also starts in.
     assert row == (None, "typesafe/jev-1.13", "", 0, "{}")
 
 

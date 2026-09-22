@@ -149,7 +149,6 @@ export function initDecisionDraft(fragment) {
     state_template: String(fragment?.decision_state_template ?? ""),
     instructions: String(fragment?.decision_instructions ?? ""),
     options,
-    default_outcome: String(fragment?.decision_default ?? primaryKeys[0] ?? ""),
     resolution: String(fragment?.decision_resolution || _policiesFor(type)[0] || ""),
     threshold: Number.isFinite(fragment?.decision_threshold) ? fragment.decision_threshold : null,
     confidence_floor: Number.isFinite(fragment?.decision_confidence_floor) ? fragment.decision_confidence_floor : null,
@@ -198,7 +197,6 @@ export function readDecisionFields() {
     decision_instructions: _draft.instructions,
     decision_criteria: _wireCriteria(_draft.type, _draft.options),
     decision_outputs: _wireOutputs(_draft.type, _draft.options),
-    decision_default: _draft.default_outcome,
     decision_resolution: _draft.resolution,
     decision_threshold: isNoul && _draft.resolution === "threshold" ? _draft.threshold : null,
     decision_confidence_floor: isNoul ? null : _draft.confidence_floor,
@@ -295,7 +293,6 @@ const PROBLEM_ANCHORS = [
   [/^(decision_instructions|Question)\b/, "instructions"],
   [/^(decision_criteria|Outcome description)\b/, "criteria"],
   [/^(decision_outputs|Guidance)\b/, "criteria"],
-  [/^decision_default\b/, "default_outcome"],
   [/^decision_resolution\b/, "resolution"],
   [/^decision_threshold\b/, "threshold"],
   [/^decision_confidence_floor\b/, "confidence_floor"],
@@ -368,13 +365,7 @@ function _mutate(change) {
   _syncFromDom();
   if (!_draft) return;
   change();
-  _reconcileDefault();
   repaintDecisionSection();
-}
-
-function _reconcileDefault() {
-  const keys = _keysOf(_draft.type, _draft.options);
-  if (!keys.includes(_draft.default_outcome)) _draft.default_outcome = keys[0] || "";
 }
 
 function _hint(text) {
@@ -406,13 +397,12 @@ function _statusHtml(config) {
   if (config.configured) {
     return `<div class="decision-status decision-status-ok">Judge: <code>${esc(config.decision_model || "")}</code> at <code>${esc(config.resolved_url || "")}</code>. The rendered situation below is sent to that provider.</div>`;
   }
-  return `<div class="decision-status decision-status-warn">No Judge endpoint is configured, so enabled decisions resolve to their fallback outcome without calling anything. Set one in the Endpoints panel under <strong>Judge</strong>.</div>`;
+  return `<div class="decision-status decision-status-warn">No Judge endpoint is configured, so enabled decisions are skipped and inject nothing. Set one in the Endpoints panel under <strong>Judge</strong>.</div>`;
 }
 
 function _primaryHtml(config) {
   const type = _draft.type;
   const policies = _policiesFor(type);
-  const keys = _keysOf(type, _draft.options);
   const showThreshold = type === "noul" && _draft.resolution === "threshold";
   const typeOptions = _types()
     .map((value) => `<option value="${escAttr(value)}"${value === type ? " selected" : ""}>${esc(value)}</option>`)
@@ -423,15 +413,6 @@ function _primaryHtml(config) {
         `<option value="${escAttr(value)}"${value === _draft.resolution ? " selected" : ""}>${esc(value)}</option>`,
     )
     .join("");
-  const defaultOptions = keys
-    .map(
-      (key, index) =>
-        `<option value="${escAttr(key)}"${key === _draft.default_outcome ? " selected" : ""}>${esc(
-          _optionLabel(type, key, _draft.options[index]),
-        )}</option>`,
-    )
-    .join("");
-
   return `
     <div class="frag-divider">Question</div>
     <div class="field-row">
@@ -469,12 +450,7 @@ function _primaryHtml(config) {
       ${_problemHtml("instructions")}
     </div>
     ${_optionsHtml(config, type, _draft.options, { scope: "primary" })}
-    ${_problemHtml("criteria")}
-    <div class="field">
-      <label>Fallback outcome ${_hint("used when the Judge cannot answer")}</label>
-      <select data-dec="default_outcome">${defaultOptions}</select>
-      ${_problemHtml("default_outcome")}
-    </div>`;
+    ${_problemHtml("criteria")}`;
 }
 
 function _optionLabel(type, key, option) {
