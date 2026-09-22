@@ -34,6 +34,7 @@ from .stage import (
     DecisionConfig,
     DecisionsResult,
     DecisionsTurn,
+    InvalidDecision,
     run_decisions,
     stage_has_work,
 )

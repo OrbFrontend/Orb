@@ -28,6 +28,7 @@ from .passes.decisions import (
     build_snapshot,
     decision_cooldown_baseline,
     run_decisions,
+    stage_has_work,
     stored_evaluations,
 )
 from .passes.director import cooldown, direction_note_step, director_stage, progressive
@@ -162,8 +163,10 @@ async def _run_decision_stage(
         prior_cooldowns=prior,
         replay_records=tuple(ctx.director.get("decision_replay") or ()),
         approved_cards=ctx.approved_decision_cards,
+        invalid=ctx.invalid_decisions,
     )
-    if turn.candidates:
+    has_work = stage_has_work(turn)
+    if has_work:
         yield {"event": "step_start", "data": {"step": "decisions"}}
     try:
         result = await run_decisions(turn, abort=ctx.client.abort_token)
@@ -171,7 +174,7 @@ async def _run_decision_stage(
         logger.info("Decision stage cancelled by stop")
         yield DecisionsResult(cooldowns=dict(prior))
         return
-    if turn.candidates:
+    if has_work:
         yield {"event": "decisions", "data": result.as_event_data()}
     yield result
 
@@ -182,7 +185,20 @@ def _exchange_decision_input(
     parent_message_id: int | None,
     *,
     exchange_id: str | None,
+    steering: str = "",
 ) -> tuple[Sequence[Mapping[str, Any]], str, int | None]:
+    """The decision input for a regeneration inside *exchange_id*.
+
+    Rewinds to what the exchange was originally asked about, rather than to the
+    branch the target happens to sit on: regenerating the third speaker must not
+    show the decision the first two speakers' replies, nor the reply it is
+    replacing, as if they had been part of its own input.
+
+    *steering* is Magic Rewrite's or super-regenerate's OOC message. It joins the
+    rewound request rather than replacing it, because it is genuinely part of
+    what is being asked for now -- so it reaches the classifier and its
+    fingerprint, and the turn correctly becomes a new occurrence.
+    """
     if exchange_id is None:
         return history, user_message, parent_message_id
     first = next((index for index, row in enumerate(history) if str(row.get("exchange_id") or "") == exchange_id), None)
@@ -190,9 +206,9 @@ def _exchange_decision_input(
         return history, user_message, parent_message_id
     row = history[first]
     before = history[:first]
-    if row.get("role") == "user":
-        return before, str(row.get("content") or ""), row.get("id")
-    return before, "", (before[-1]["id"] if before else None)
+    original = str(row.get("content") or "") if row.get("role") == "user" else ""
+    anchor = row.get("id") if row.get("role") == "user" else (before[-1]["id"] if before else None)
+    return before, "\n\n".join(part for part in (original, steering) if part), anchor
 
 
 def _decision_replay_records(target: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -321,6 +337,12 @@ async def _generate_reply(
             decisions = ev
         else:
             yield ev
+    # The same guard the group driver has. Cancellation is not a provider
+    # failure: the director pass already refuses to call once the token is set,
+    # but without this the turn still announces a directing phase it will not run.
+    if ctx.client.is_aborted:
+        yield {"event": "done"}
+        return
 
     pipeline = _run_pipeline(
         ctx.client,
@@ -375,6 +397,7 @@ async def _generate_group_exchange(
     source_user_message_id: int | None = None,
     editor_audit_msgs: list[str] | None = None,
     decision_exchange_id: str | None = None,
+    decision_steering: str = "",
 ) -> AsyncIterator[dict]:
     """Run one shared Director setup followed by zero or more speaker pipelines."""
     settings = ctx.settings
@@ -432,7 +455,7 @@ async def _generate_group_exchange(
 
     decisions: DecisionsResult | None = None
     decision_history, decision_request, decision_anchor = _exchange_decision_input(
-        history, user_message, parent_message_id, exchange_id=decision_exchange_id
+        history, user_message, parent_message_id, exchange_id=decision_exchange_id, steering=decision_steering
     )
     async for ev in _run_decision_stage(
         ctx,
@@ -1108,6 +1131,13 @@ async def _regenerate_with_steering(
                 append_user_to_history=False,
                 source_user_message_id=source_user_id,
                 editor_audit_msgs=editor_audit_msgs,
+                # Same rewind as `handle_regenerate`: `extended_history` exists so
+                # the *writer* can see what it wrote, but a decision asked against
+                # it would read the reply being replaced as the previous reply and
+                # the exchange's earlier speakers as its history. The steering is
+                # passed on its own so it still reaches the classifier.
+                decision_exchange_id=str(target.get("exchange_id") or "") or None,
+                decision_steering=steer_msg,
             ):
                 yield event
             return

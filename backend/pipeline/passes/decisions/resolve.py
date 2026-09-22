@@ -22,6 +22,10 @@ class FallbackReason:
 class SkipReason:
     NOT_APPROVED = "not_approved"
     RESTING = "resting"
+    # Shares its spelling with the fallback of the same name on purpose: an author
+    # reading either one is being told the same thing about their definition. They
+    # stay separate constants because a skip has no outcome and a fallback does.
+    INVALID_DEFINITION = "invalid_definition"
 
 
 def resolve_threshold(probability: float, threshold: float) -> str:

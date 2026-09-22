@@ -13,8 +13,8 @@ import json
 import pytest
 
 import backend.database as dbmod
-from backend.inference import RAW_ANSWER_CACHE, DecisionResponse
-from backend.pipeline import handle_regenerate, handle_turn
+from backend.inference import RAW_ANSWER_CACHE, DecisionCancelled, DecisionResponse
+from backend.pipeline import handle_magic_rewrite, handle_regenerate, handle_turn
 from backend.pipeline.passes.decisions import stage as stage_module
 
 DEFINITION = {
@@ -724,3 +724,181 @@ async def test_a_later_speaker_regeneration_reuses_the_exchange_input(client, db
     assert record["answer_source"] == "replay"
     assert record["occurrence_id"] == original["occurrence_id"]
     assert regenerated["decision_cooldowns"] == {"outcome": 2}
+
+
+async def test_a_preset_cannot_arm_a_decision_it_carries(client, db):
+    """An imported preset installs decisions disabled, however they were exported.
+
+    The card path gates consent on a fingerprint the user has to echo back, but a
+    *global* decision has no card to hang that on -- and `interactive_fragments`
+    is in the `fragments` preset domain, so a shared preset is the easier way to
+    hand someone a question that calls out to their configured endpoint. The
+    import is allowed to carry the definition; arming it stays the local user's
+    own act.
+    """
+    await _add_decision(client, enabled=True)
+    name = (await client.post("/api/presets/export", json={"domains": ["fragments"], "label": "shared"})).json()["name"]
+    await client.delete("/api/interactive-fragments/outcome")
+
+    assert (await client.post(f"/api/presets/{name}/apply")).status_code == 200
+
+    imported = next(f for f in (await client.get("/api/interactive-fragments")).json() if f["id"] == "outcome")
+    # The definition survives, so it stays inspectable and one toggle away.
+    assert imported["decision_instructions"] == DEFINITION["decision_instructions"]
+    assert imported["enabled"] == 0
+
+
+async def test_an_imported_preset_leaves_local_decisions_alone(client, db):
+    """Only the rows the preset actually supplied are disarmed."""
+    await _add_decision(client, enabled=True)
+    name = (await client.post("/api/presets/export", json={"domains": ["fragments"], "label": "shared"})).json()["name"]
+    await client.delete("/api/interactive-fragments/outcome")
+    await _add_decision(client, id="mine", label="Mine", enabled=True)
+
+    await client.post(f"/api/presets/{name}/apply")
+
+    listed = {f["id"]: f for f in (await client.get("/api/interactive-fragments")).json()}
+    assert listed["outcome"]["enabled"] == 0
+    assert listed["mine"]["enabled"] == 1
+
+
+# ── payload shape ────────────────────────────────────────────────────────────
+
+
+async def test_the_message_listing_does_not_carry_evaluation_records(client, db, llm_mock, monkeypatch):
+    """A rendered state is up to 16 KiB and the Inspector fetches it separately.
+
+    Shipping every record on every conversation open would put the whole
+    diagnostic envelope -- rendered state, criteria and both authored outputs,
+    per decision, per message -- on the wire for a panel most opens never open.
+    """
+    cid = await _solo_scene(client)
+    Gateway(monkeypatch)
+    await _turn(llm_mock, cid, "I shove the door.", director={"moods": []})
+
+    listed = (await client.get(f"/api/conversations/{cid}/messages")).json()
+    reply = next(message for message in reversed(listed) if message["role"] == "assistant")
+    assert "decision_evaluations" not in reply
+    assert reply["has_decisions"] is True
+
+    # The Inspector's own route still carries them in full.
+    log = (await client.get(f"/api/conversations/{cid}/messages/{reply['id']}/director-log")).json()
+    assert log["decision_evaluations"]["evaluations"][0]["rendered_state"]
+
+
+async def test_the_live_event_summarises_rather_than_streaming_every_record(client, db, llm_mock, monkeypatch):
+    cid = await _solo_scene(client)
+    Gateway(monkeypatch)
+    events = await _turn(llm_mock, cid, "I shove the door.", director={"moods": []})
+
+    published = _event(events, "decisions")["evaluations"][0]
+    assert published["outcome"] == "true"
+    assert published["fragment_id"] == "outcome"
+    # The progress indicator needs the outcome, not the classifier input.
+    assert "rendered_state" not in published
+    assert "outputs" not in published
+
+
+# ── diagnostics for definitions that cannot run ──────────────────────────────
+
+
+async def test_an_unparseable_global_decision_is_recorded_as_skipped(client, db, llm_mock, monkeypatch):
+    """A row that cannot be parsed is reported, not silently dropped.
+
+    The authoring API rejects these on write, so the rows that reach here arrived
+    another way -- a preset import, or a definition a later schema invalidated.
+    Those are exactly the cases where an author needs to be told.
+    """
+    cid = await _solo_scene(client)
+    await db.execute("UPDATE interactive_fragments SET decision_criteria = '{\"true\": \"only\"}' WHERE id = 'outcome'")
+    await db.commit()
+    gateway = Gateway(monkeypatch)
+
+    events = await _turn(llm_mock, cid, "one", director={"moods": []})
+
+    published = _event(events, "decisions")
+    assert gateway.batches == []
+    assert published["evaluations"] == []
+    assert published["skipped"][0] == {
+        "fragment_id": "outcome",
+        "fragment_label": "Outcome",
+        "source": "global",
+        "reason": "invalid_definition",
+    }
+
+
+# ── cancellation ─────────────────────────────────────────────────────────────
+
+
+async def test_a_stop_during_the_decision_stage_ends_the_turn(client, db, llm_mock, monkeypatch):
+    """Cancellation stops the turn; it is not a provider failure.
+
+    `director_pass` already refuses to call once the token is set, so nothing was
+    ever billed. What the solo path was missing is the group driver's early
+    return: without it a cancelled turn still announced a directing phase it was
+    not going to run, and no fallback guidance is produced either way.
+    """
+    cid = await _solo_scene(client)
+    gateway = Gateway(monkeypatch)
+    token = llm_mock.abort_token
+
+    async def _decide(self, state, questions, *, timeout=None, abort=None):  # noqa: ANN001
+        gateway.batches.append([question.key for question in questions])
+        token.abort()
+        raise DecisionCancelled("stopped")
+
+    monkeypatch.setattr(stage_module.DecisionClient, "decide", _decide)
+
+    events = await _drain(handle_turn(cid, "I shove the door.", abort_token=token))
+
+    assert gateway.batches == [["outcome"]]
+    assert _captured(llm_mock, "director") == []
+    assert _captured(llm_mock, "writer") == []
+    # The decision step starts, then the turn ends: no director_start for a
+    # directing phase that will not happen.
+    assert [event["event"] for event in events if event["event"] != "user_message_created"] == ["step_start", "done"]
+    assert _events(events, "step_start") == [{"step": "decisions"}]
+    # No reply was retained, so no decision cooldown was committed either.
+    assert [m for m in await dbmod.get_messages(cid) if m["role"] == "assistant"] == []
+
+
+# ── steered regeneration ─────────────────────────────────────────────────────
+
+
+async def test_a_steered_group_regeneration_reuses_the_exchange_input(client, db, llm_mock, monkeypatch):
+    """Magic rewrite rewinds to the exchange's own input, like a plain regenerate.
+
+    Without the rewind the decision reads the replaced reply as
+    ``{{last_assistant_message}}`` and the earlier speakers as
+    ``{{recent_history}}`` -- substituting later speakers' messages for the
+    original exchange input, and in roll mode drawing again.
+    """
+    conv = await _group(client)
+    await _configure(client)
+    await _add_decision(client)
+    gateway = Gateway(monkeypatch)
+
+    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — go", "kael — then you"]))
+    llm_mock.enqueue_writer("aria speaks")
+    llm_mock.enqueue_writer("kael speaks")
+    await _drain(handle_turn(conv["id"], "I shove the door."))
+
+    later = [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"][-1]
+    RAW_ANSWER_CACHE.clear()
+
+    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["kael — again"]))
+    llm_mock.enqueue_writer("kael again")
+    await _drain(handle_magic_rewrite(conv["id"], later["id"], "slower, more reluctant"))
+
+    regenerated = [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"][-1]
+    record = regenerated["decision_evaluations"]["evaluations"][0]
+
+    # The steering is part of the current request, so this is a new occurrence
+    # and a second call -- but it is asked about the exchange's own input, with
+    # neither speaker's reply standing in for it.
+    assert len(gateway.batches) == 2
+    assert "aria speaks" not in gateway.states[-1]
+    assert "kael speaks" not in gateway.states[-1]
+    assert "I shove the door." in gateway.states[-1]
+    assert "slower, more reluctant" in gateway.states[-1]
+    assert record["answer_source"] == "live"

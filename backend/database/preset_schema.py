@@ -121,6 +121,28 @@ PRESERVED_COLUMNS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Touch when: an imported row gains the power to act on its own -- to reach a
+# network service, run code, or spend money -- and the file cannot carry the
+# consent for it. Maps ``table -> (discriminator column, its value, the column
+# that arms the row, the disarmed value)``. The import writes the definition in
+# full and then clears that one column, on exactly the rows the file supplied.
+#
+# Decisions are the first entry. A decision fragment sends rendered scene text to
+# the configured classifier endpoint, and ``decision_card_approvals`` above can
+# only gate the card-embedded ones -- a *global* decision has no card to hang a
+# fingerprint on. Since ``interactive_fragments`` is in the ``fragments`` domain,
+# a shared preset would otherwise arm a stranger's question on import. The
+# definition still lands, visible and inspectable and one toggle away; what it
+# does not do is start asking.
+#
+# The cost is that a domain-scoped restore of your *own* fragments comes back
+# disabled. That is the conservative direction, and it is the only one available:
+# the engine cannot tell whose file it is holding. A full restore is unaffected --
+# it swaps the database file and never runs the merge.
+DISARMED_ON_IMPORT: dict[str, tuple[str, str, str, int]] = {
+    "interactive_fragments": ("field_type", "decision", "enabled", 0),
+}
+
 # The tripwire behind the SECRET_COLUMNS check: any column whose name ends with one
 # of these suffixes (or contains "secret") must appear in SECRET_COLUMNS, or the
 # coverage test fails -- so a new secret can't slip into a shared preset unnoticed.

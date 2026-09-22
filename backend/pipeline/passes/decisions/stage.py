@@ -66,6 +66,28 @@ _SITUATION_MACROS = frozenset({"last_message", "last_assistant_message", "recent
 
 _GLOBAL_SOURCE = "global"
 
+#: The evaluation fields that ride the turn stream (see ``as_event_data``). Every
+#: unbounded one -- rendered state, question, criteria, both authored outputs --
+#: is deliberately absent; so are the fingerprints and usage, which only the
+#: Inspector reads.
+_EVENT_FIELDS = (
+    "fragment_id",
+    "fragment_label",
+    "injection_label",
+    "source",
+    "placement",
+    "scope",
+    "occurrence_id",
+    "outcome",
+    "guidance",
+    "answer_source",
+    "fallback_reason",
+    "replay_invalidated",
+    "probability",
+    "draw",
+    "elapsed_ms",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class DecisionConfig:
@@ -96,6 +118,26 @@ class DecisionCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class InvalidDecision:
+    """A ``decision`` row that could not be parsed into a definition.
+
+    Carried to the stage rather than dropped where it is read. The authoring API
+    rejects these on write, so a row that reaches here arrived another way -- a
+    preset import, or a definition a later schema invalidated -- and those are
+    exactly the cases where an author needs to be told rather than left wondering
+    why their question never fires.
+    """
+
+    fragment_id: str
+    label: str = ""
+    card_id: str | None = None
+
+    @property
+    def source(self) -> str:
+        return f"card:{self.card_id}" if self.card_id else _GLOBAL_SOURCE
+
+
+@dataclass(frozen=True, slots=True)
 class DecisionsTurn:
     snapshot: DecisionSnapshot
     candidates: tuple[DecisionCandidate, ...] = ()
@@ -103,6 +145,7 @@ class DecisionsTurn:
     prior_cooldowns: Mapping[str, int] = field(default_factory=dict)
     replay_records: tuple[Mapping[str, Any], ...] = ()
     approved_cards: frozenset[str] = frozenset()
+    invalid: tuple[InvalidDecision, ...] = ()
 
     @property
     def scope(self) -> str:
@@ -119,7 +162,18 @@ class DecisionsResult:
     requests: int = 0
 
     def as_event_data(self) -> dict[str, Any]:
-        return {"evaluations": self.evaluations, "skipped": self.skipped, "cooldowns": self.cooldowns}
+        """The stage result as the turn stream publishes it.
+
+        A projection rather than the stored record: a rendered state is up to
+        16 KiB, and nothing watching a turn go by needs the classifier's input --
+        the Inspector fetches the full record from the reply it is stored on.
+        What stays is what identifies the decision and says how it resolved.
+        """
+        return {
+            "evaluations": [{key: row[key] for key in _EVENT_FIELDS if key in row} for row in self.evaluations],
+            "skipped": self.skipped,
+            "cooldowns": self.cooldowns,
+        }
 
     def as_envelope(self) -> dict[str, Any]:
         return envelope(self.evaluations, self.skipped)
@@ -167,6 +221,16 @@ def _eligible(turn: DecisionsTurn) -> tuple[list[DecisionCandidate], list[dict[s
                 "fragment_label": candidate.definition.label,
                 "source": candidate.source,
                 "reason": reason,
+            }
+        )
+
+    for broken in turn.invalid:
+        skipped.append(
+            {
+                "fragment_id": broken.fragment_id,
+                "fragment_label": broken.label,
+                "source": broken.source,
+                "reason": SkipReason.INVALID_DEFINITION,
             }
         )
 
@@ -398,7 +462,10 @@ def _batch_bytes(batch: Sequence[_Prepared]) -> int:
 
 
 def stage_has_work(turn: DecisionsTurn) -> bool:
-    return bool(turn.candidates)
+    """Whether this turn has anything to publish -- a decision to run, or one to
+    report as unrunnable. An unparseable definition counts: saying nothing is how
+    it went unnoticed."""
+    return bool(turn.candidates or turn.invalid)
 
 
 async def run_decisions(turn: DecisionsTurn, *, abort: AbortToken | None = None) -> DecisionsResult:

@@ -1,7 +1,17 @@
 # Decision fragments — implementation plan
 
-Status: design, ready for a bounded prototype. Existing synthetic probes support
-trying the feature; usefulness on actual Orb conversations remains a release gate.
+Status: **backend implemented; frontend outstanding.** Everything below from the
+provider contract through persistence, group scope, replay, cooldowns, budgets
+and the HTTP surface is built and covered by tests. What remains is the authoring
+UI, the endpoint-setup panel, and Inspector rendering — see [Frontend
+contract](#frontend-contract) for the shapes they code against. Existing
+synthetic probes support trying the feature; usefulness on actual Orb
+conversations remains a release gate, and the gateway contract itself is still
+unverified against the live route.
+
+Where the built behavior differs from the design below, the design text has been
+corrected rather than annotated; the differences worth knowing about are called
+out where they land.
 
 A **decision** is an interactive fragment that asks one question about the scene,
 resolves the answer, and supplies its own authored guidance. The first release
@@ -177,6 +187,12 @@ including criteria. Oversized inputs use the fallback and a visible reason;
 never silently truncate potentially decisive facts. These are conservative Orb
 limits, to be verified against the adapter before release.
 
+An oversized evaluation records the *measurement* and not the prose: the record
+carries `oversize_state_bytes`, `oversize_question_bytes` and both limits, and
+its rendered fields are empty. Nothing was sent, and echoing an over-limit state
+onto the reply would store exactly the bytes the limit exists to avoid. The
+editor's preview is where an author sees the text that did not fit.
+
 ## Stage placement and consumers
 
 The first-release path is:
@@ -307,9 +323,8 @@ full 6-second budget; observed successful calls do not establish a worst case.
 
 ## Persistence and regeneration
 
-Store versioned `decision_evaluations` JSON on messages and include evaluations in
-conversation logs. Define the row shape in `database/models.py`. An evaluation
-contains:
+Store versioned `decision_evaluations` JSON on messages. Define the row shape in
+`database/models.py`. An evaluation contains:
 
 - fragment identity and source, placement, scope, occurrence ID, and input branch
   anchor;
@@ -320,9 +335,21 @@ contains:
 - source (`live`, `cache`, `replay`, or `fallback`), fallback/skip reason where
   applicable, request correlation ID, elapsed time, and available usage/cost.
 
+Store them once. The reply's copy is authoritative — replay reads it there — and
+the conversation-log read left-joins it from the reply rather than keeping a
+second per-turn copy, because a single rendered state can be 16 KiB and the log
+is the fastest-growing purely diagnostic table in the schema. Every log and
+Inspector consumer still meets the evaluations; a turn with none reads `{}`, and
+a log row whose message was deleted still reads.
+
 Record skipped decisions for Inspector diagnostics without inventing an outcome.
-Batch usage belongs to the shared request record; do not count the full batch
-cost once per fragment. Never store API keys in these records.
+A definition that cannot be parsed at all is recorded the same way, with reason
+`invalid_definition`: the authoring API rejects these on write, so a row that
+reaches the stage arrived somewhere that does not validate — a preset import, or
+a definition a later schema invalidated — and contributing nothing silently is
+how that goes unnoticed. Batch usage belongs to the shared request record; do not
+count the full batch cost once per fragment. Never store API keys in these
+records.
 
 The raw-request fingerprint covers classifier input. The resolution-policy
 fingerprint covers placement/scope, renderer contract version, threshold or roll
@@ -391,11 +418,128 @@ supply it. Changes to a card's decision definitions invalidate that approval.
 Import validation preserves valid disabled decisions for inspection and skips
 invalid definitions. Apply approval before response-cache or replay lookup.
 
+Approval lives in a `settings` JSON column (`decision_card_approvals`, card id →
+approved definitions fingerprint), not a table of its own: a new table must map
+to a preset export domain, which would have let a shared preset carry consent.
+The column is in `PRESERVED_COLUMNS`, so an import never overwrites it. The
+fingerprint covers what actually leaves the machine — state template,
+instructions, criteria — so editing those revokes approval, while editing the
+authored outputs does not.
+
+A fingerprint needs a card to hang on, so it cannot gate a **global** decision —
+and `interactive_fragments` is in the `fragments` preset domain, which makes a
+shared preset the easier way to hand someone a question that calls their
+endpoint. A preset import therefore lands every decision it carries with
+`enabled = 0`, scoped by identity to the rows the file supplied
+(`DISARMED_ON_IMPORT` in `database/preset_schema.py`). The definition arrives
+whole and inspectable; arming it stays the local user's own act. A full restore
+swaps the database file and never runs the merge, so it is unaffected; a
+domain-scoped restore of your own fragments does come back disabled, which is the
+only direction available to an engine that cannot tell whose file it holds.
+
 Basic Inspector support ships with evaluation. Show the exact rendered state,
 question, outcome, selected guidance, probability and draw, timing, response
 source, and fallback/skip reason. Show shared request usage once and label missing
 cost data as unavailable. Imported fragments must be traceable to their card.
 The editor's preview and Inspector use the same rendering contract.
+
+Those full records come from the director-log route, not from the message
+listing or the turn stream: both of those carry a projection instead, because a
+rendered state is up to 16 KiB and neither surface can be skipped by a client
+that does not open the panel. [Frontend contract](#frontend-contract) says which
+fields live where.
+
+## Frontend contract
+
+The backend surface is settled; this is what the authoring UI, the endpoint panel
+and the Inspector code against. Every route below exists and is covered by
+`tests/integration/test_decision_fragments.py`.
+
+### Authoring
+
+Decisions are interactive fragments with `field_type: "decision"`, created and
+updated through the existing `/api/interactive-fragments` routes. The nine
+authoring fields travel as ordinary columns; `decision_criteria` and
+`decision_outputs` are JSON objects in both directions, not strings.
+
+Validation runs on the **merged** row, so a partial update is checked as a whole
+definition and rejects with `422` whose `detail` is the problems joined by `"; "`.
+Two consequences the editor has to respect:
+
+- For decision columns an explicit `null` is a *write*, not an omission — which
+  is the only way to clear a value. Switching a fragment to `roll` therefore
+  means sending `decision_threshold: null` in the same request; omitting it
+  leaves the stored threshold in the merged row and the update is refused.
+- Every other field keeps the old rule, where `null` means "not supplied".
+- Changing `field_type` away from `decision` nulls all nine columns, so a later
+  type switch cannot resurrect a half-configured question.
+
+`GET/PUT /api/decisions/config` reads and writes the classifier configuration
+(`decision_endpoint_id`, `decision_model`, `decision_url`) and returns, alongside
+them, `resolved_url`, `configured`, `revision`, the `budgets` the stage enforces
+(`per_exchange`, `per_card`, `stage_seconds`), the `state_macros` and
+`text_macros` a template may use, and `default_state_template`. Render the macro
+lists from this payload rather than restating them, so the editor cannot drift
+from the renderer. Every write bumps `revision`, which is part of the raw-answer
+cache namespace.
+
+`POST /api/decisions/preview` takes `{fragment, conversation_id?}` and renders
+through the pipeline's own contract — the sample scene without a conversation id,
+that conversation's current branch with one. It answers either
+`{ok: false, problems: [...], unavailable_macro?}` or `{ok: true, state,
+instructions, criteria, outputs, state_bytes, state_limit, question_bytes,
+question_limit, oversized}`. This is the only place an author sees what a
+template actually produces, so show `state` and both size readings against their
+limits before enabling the fragment.
+
+`POST /api/decisions/test` sends a synthetic scene — never conversation content —
+and returns `{ok, url, requested_model, returned_model, probability, elapsed_ms,
+usage, error}`. It is an explicit editor action and changes no chat cooldowns or
+evaluation history.
+
+### Card approval
+
+`GET /api/decisions/card-approval/{card_id}` returns `{card_id, fingerprint,
+has_decisions, approved, stale}`. `PUT` the same path with `{fingerprint}` to
+approve, or `{fingerprint: null}` to revoke. The fingerprint must be the one just
+read, so consent cannot be granted against definitions the user did not see: a
+mismatch is `409` and a card with no valid decisions is `422`. `stale` is the
+state to surface loudly — the card's questions changed and are no longer running.
+
+### Reading evaluations
+
+Three surfaces carry decisions, at three different weights. Use the lightest one
+that answers the question:
+
+| Surface | Carries | For |
+|---|---|---|
+| `GET /api/conversations/{cid}/messages` | `has_decisions` (bool) | The badge that says a reply has something to inspect. |
+| `decisions` SSE event | identity, `placement`, `scope`, `occurrence_id`, `outcome`, `guidance`, `answer_source`, `fallback_reason`, `replay_invalidated`, `probability`, `draw`, `elapsed_ms`; plus `skipped` and `cooldowns` | Live progress while the turn runs. |
+| `GET /api/conversations/{cid}/messages/{id}/director-log` | `decision_evaluations`: the full versioned envelope | The Inspector panel, on open. |
+
+The listing and the stream deliberately omit `rendered_state`,
+`rendered_instructions`, `rendered_criteria`, `outputs`, the fingerprints and
+`usage`. A rendered state is up to 16 KiB per decision per message, copied onto
+every speaker's reply in a group exchange, and neither surface is optional for a
+client that never opens the panel. Fetch the full record when the panel opens.
+
+Read `version` before anything else: an envelope from a later Orb is left alone
+rather than half-rendered. `skipped` entries carry `fragment_id`,
+`fragment_label`, `source` and `reason` (`not_approved`, `resting`,
+`invalid_definition`) and no outcome — a skipped decision resolved to nothing,
+and showing `false` for it would make the Inspector lie about what reached the
+story. `source` is `"global"` or `"card:<id>"`, which is how an imported fragment
+stays traceable to its card.
+
+### Turn stream
+
+`step_start` gains a `decisions` step, which fires before `director_start` and
+only when the turn had a decision to run or to report. The `decisions` event
+follows it once per turn and once per group exchange. A stop during the stage
+ends the turn at `done` with no `director_start`: cancellation is not a provider
+failure, produces no fallback guidance, and commits no cooldown.
+
+See [SSE](../architecture/sse-stream.md) for both entries in the event table.
 
 ## Architecture and implementation touch points
 
@@ -416,6 +560,10 @@ Read [prompting](../architecture/prompting.md),
 | `backend/api/schemas.py`, fragment/settings routes | Typed validation and configuration/preview/test contracts |
 | Fragment and card editors | Definition fields, fallback, preview, endpoint status, local approval |
 | `frontend/chat_inspector.js` and stream contracts | Evaluation visibility without changing existing event meanings |
+
+Every backend row above is implemented. The two rows that remain are the fragment
+and card editors and the Inspector; both are described in [Frontend
+contract](#frontend-contract).
 
 Pass-specific prompt construction stays beside the pass. Only shared,
 deterministic model-facing rendering belongs in `prompting/`. Database writes
@@ -464,7 +612,8 @@ Required implementation regression coverage:
 | Replay | Identical regeneration; cold cache; changed question/input/policy; output-only edit; fallback replay; branch/checkpoint copy |
 | Groups/cooldowns | One exchange evaluation; no repeated draw or decrement per speaker; later-speaker regeneration; skipped versus evaluated decisions |
 | Pipeline | Director enabled/disabled; guidance survives Director parsing; stable schemas; cancellation before and after partial output |
-| Imports/Inspector | Local approval cannot be imported; changed definitions revoke it; malformed decisions skip; shared usage is not double-counted |
+| Imports/Inspector | Local approval cannot be imported; changed definitions revoke it; malformed decisions skip; shared usage is not double-counted; a preset cannot arm a decision it carries, and disarms only the rows it supplied |
+| Payload shape | The message listing carries `has_decisions` and not the records; the live event omits the rendered state and the authored outputs |
 
 Run narrow tests while iterating, then repository formatting, lint, and tests:
 
@@ -482,10 +631,15 @@ Review the final diff and keep Pyright at zero errors.
 1. **Contract and input experiment.** Verify the gateway, save fixtures, implement
    the pure renderer in isolation, and test the actual default on held-out scenes.
    Resolve provider limits and input quality before exposing authoring controls.
+   *The renderer is built and tested; the live gateway is still unverified, and
+   `decision_url` exists so a corrected route needs no new build.*
 2. **Complete first slice.** Ship configuration, Noul definitions, threshold/roll
    resolution, the before-Director stage, group scope, budgets, card approval,
    replay, cooldowns, and Inspector together. Keep incomplete authoring paths
-   unavailable until the full behavior is implemented.
+   unavailable until the full behavior is implemented. *Backend done; the
+   authoring UI, endpoint panel and Inspector are what is left, and the slice is
+   not shippable until they land — a decision with no editor cannot be authored,
+   and one with no Inspector cannot be debugged.*
 3. **Conversation trial.** Evaluate the first slice against the release gates.
    Tune defaults and limits from observed failures and story outcomes. Publish
    the measured limits and model version used in the trial.

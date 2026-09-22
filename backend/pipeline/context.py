@@ -54,6 +54,7 @@ from .passes.decisions import (
     DecisionCandidate,
     DecisionConfig,
     DecisionSnapshot,
+    InvalidDecision,
     build_snapshot,
 )
 from .predicates import agent_enabled, resolve_persona_id, world_proposal_active
@@ -100,6 +101,7 @@ class PipelineContext:
     card_scripts: CardScripts = field(default_factory=CardScripts)
     group_members: tuple[Mapping[str, Any], ...] = ()
     decision_candidates: tuple[DecisionCandidate, ...] = ()
+    invalid_decisions: tuple[InvalidDecision, ...] = ()
     decision_config: DecisionConfig = field(default_factory=DecisionConfig)
     approved_decision_cards: frozenset[str] = frozenset()
 
@@ -136,7 +138,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     interactive_fragments = db.merge_fragments_by_id(
         [df for df in await db.get_interactive_fragments() if df.get("enabled", True)], card_interactive
     )
-    decision_candidates = _decision_candidates(interactive_fragments, card_fragment_sources)
+    decision_candidates, invalid_decisions = _decision_candidates(interactive_fragments, card_fragment_sources)
     phrase_bank = await db.get_phrase_bank()
     lorebook_entries = await db.get_active_lorebook_entries()
     worlds = await db.get_worlds()
@@ -175,6 +177,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         speaker_names={m["id"]: m["display_name"] for m in all_group_members},
         group_members=tuple(m for m in all_group_members if m.get("active")),
         decision_candidates=decision_candidates,
+        invalid_decisions=invalid_decisions,
         decision_config=await resolve_decision_config(settings),
         approved_decision_cards=await _approved_decision_cards(settings, decision_candidates, card),
     )
@@ -183,16 +186,27 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
 def _decision_candidates(
     fragments: Sequence[Mapping[str, Any]],
     card_fragment_sources: Mapping[str, str],
-) -> tuple[DecisionCandidate, ...]:
+) -> tuple[tuple[DecisionCandidate, ...], tuple[InvalidDecision, ...]]:
+    """Split this turn's ``decision`` rows into runnable definitions and broken ones.
+
+    The broken ones are carried rather than dropped so the stage can report them:
+    the authoring API validates on write, so a row that fails to parse here came
+    from somewhere that does not -- a preset import, or a schema change that
+    invalidated a stored definition -- and silently contributing nothing is how
+    that goes unnoticed.
+    """
     candidates: list[DecisionCandidate] = []
+    invalid: list[InvalidDecision] = []
     for row in fragments:
         if not is_decision_row(row):
             continue
+        card_id = card_fragment_sources.get(row["id"])
         definition = parse_decision_definition(row)
         if definition is None:
+            invalid.append(InvalidDecision(fragment_id=str(row["id"]), label=str(row.get("label") or ""), card_id=card_id))
             continue
-        candidates.append(DecisionCandidate(definition=definition, card_id=card_fragment_sources.get(row["id"])))
-    return tuple(candidates)
+        candidates.append(DecisionCandidate(definition=definition, card_id=card_id))
+    return tuple(candidates), tuple(invalid)
 
 
 async def resolve_decision_config(settings: Mapping[str, Any]) -> DecisionConfig:

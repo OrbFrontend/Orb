@@ -67,7 +67,8 @@ pass being skipped.
 |---|---|---|
 | `user_message_created` | `{id, content}` | Replaces the optimistic user row with its saved id and text. `/send` only. |
 | `director_start` | — | Starts the directing phase. |
-| `step_start` | `{step}` | Names the step that is starting: `lorebook`, `direction_notes`, `writer`, `output_auditor`, `length_guard`, `post_processing`, `feedback`, `world_changes`, or `sheet_updates`. |
+| `decisions` | `{evaluations, skipped, cooldowns}` | Publishes the resolved decision fragments, once per turn and once per group exchange, before the directing phase. Sent only when the turn had a decision to run or to report. |
+| `step_start` | `{step}` | Names the step that is starting: `decisions`, `lorebook`, `direction_notes`, `writer`, `output_auditor`, `length_guard`, `post_processing`, `feedback`, `world_changes`, or `sheet_updates`. |
 | `reasoning` | `{pass, delta}` | Adds thinking text to a pass's reasoning buffer. |
 | `director_done` | Director data | Updates the inspector. |
 | `token` | Text delta | Appends visible Writer output. |
@@ -80,6 +81,13 @@ pass being skipped.
 | `warning` | Warning data | Shows a non-terminal warning; the turn continues. |
 | `error` | JSON object or string | Terminal failure. |
 | `done` | — | Terminal success; the stream closes. |
+
+`decisions` carries a projection, not the stored record: each evaluation has its
+identity, `outcome`, `guidance`, `answer_source` and `probability`/`draw`, but not
+the rendered classifier state, question, criteria or the authored output map. The
+Inspector reads those in full from the reply's director-log route, which keeps a
+16 KiB rendered state off a stream the client cannot skip. `skipped` entries carry
+no outcome at all — a skipped decision resolved to nothing.
 
 Each pass shares one reasoning buffer across repeated calls and sub-steps. The
 backend inserts one blank line at each call boundary in both the stream and the
