@@ -13,7 +13,7 @@ import aiosqlite
 from ...core import (
     DECISION_COLUMNS,
     DECISION_FIELD_TYPE,
-    OUTCOME_KEYS,
+    MAX_DECISION_FACETS,
     TurnCast,
     has_inline_macros,
     parse_decision_definition,
@@ -223,26 +223,63 @@ def _card_decision_columns(entry: Mapping[str, Any]) -> dict[str, Any] | None:
         "decision_placement": _text(entry, "decision_placement", "before_director"),
         "decision_state_template": _text(entry, "decision_state_template")[:_CARD_DECISION_TEXT_LIMIT],
         "decision_instructions": _text(entry, "decision_instructions")[:_CARD_DECISION_TEXT_LIMIT],
-        "decision_criteria": _card_outcome_map(entry.get("decision_criteria")),
-        "decision_outputs": _card_outcome_map(entry.get("decision_outputs")),
+        "decision_criteria": _card_criteria(entry.get("decision_criteria")),
+        "decision_outputs": _card_text_map(entry.get("decision_outputs")),
         "decision_default": _text(entry, "decision_default", "false"),
         "decision_resolution": _text(entry, "decision_resolution", "threshold"),
         "decision_threshold": _card_threshold(entry.get("decision_threshold")),
+        "decision_facets": _card_facets(entry.get("decision_facets")),
+        "decision_confidence_floor": _card_threshold(entry.get("decision_confidence_floor")),
     }
     probe = {"id": entry["id"], "label": entry["label"], "field_type": DECISION_FIELD_TYPE, **columns}
     return columns if parse_decision_definition(probe) is not None else None
 
 
-def _card_outcome_map(raw: Any) -> dict[str, str] | None:
+def _card_text_map(raw: Any) -> dict[str, str] | None:
     if not isinstance(raw, Mapping):
         return None
     out: dict[str, str] = {}
-    for key in OUTCOME_KEYS:
-        value = raw.get(key)
-        if not isinstance(value, str):
+    for key, value in raw.items():
+        if not isinstance(key, str) or not isinstance(value, str):
             return None
         out[key] = value[:_CARD_DECISION_TEXT_LIMIT]
     return out
+
+
+def _card_criteria(raw: Any) -> dict[str, str] | list[str] | None:
+    if isinstance(raw, Mapping):
+        return _card_text_map(raw)
+    if isinstance(raw, list) and all(isinstance(item, str) for item in raw):
+        return [item[:_CARD_DECISION_TEXT_LIMIT] for item in raw]
+    return None
+
+
+def _card_facets(raw: Any) -> list[dict[str, Any]] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or len(raw) > MAX_DECISION_FACETS:
+        return None
+    facets: list[dict[str, Any]] = []
+    for facet in raw:
+        if not isinstance(facet, Mapping):
+            return None
+        instructions = facet.get("instructions")
+        if isinstance(instructions, str):
+            safe_instructions: str | dict[str, str] | None = instructions[:_CARD_DECISION_TEXT_LIMIT]
+        else:
+            safe_instructions = _card_text_map(instructions)
+        facets.append(
+            {
+                "key": _text(facet, "key")[:64],
+                "label": _text(facet, "label")[:_CARD_DECISION_TEXT_LIMIT],
+                "type": _text(facet, "type"),
+                "criteria": _card_criteria(facet.get("criteria")),
+                "instructions": safe_instructions,
+                "outputs": _card_text_map(facet.get("outputs")),
+                "confidence_floor": _card_threshold(facet.get("confidence_floor")),
+            }
+        )
+    return facets
 
 
 def _card_threshold(raw: Any) -> float | None:
@@ -261,7 +298,16 @@ def card_decision_fingerprint(card: Mapping[str, Any] | None) -> str:
             "placement": definition.placement,
             "state_template": definition.state_template,
             "instructions": definition.instructions,
-            "criteria": {key: definition.criteria[key] for key in OUTCOME_KEYS if key in definition.criteria},
+            "criteria": definition.criteria,
+            "facets": [
+                {
+                    "key": facet.key,
+                    "type": facet.decision_type,
+                    "criteria": facet.criteria,
+                    "instructions": facet.instructions,
+                }
+                for facet in definition.facets
+            ],
         }
         for definition in definitions
         if definition is not None

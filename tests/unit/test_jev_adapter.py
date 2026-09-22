@@ -19,13 +19,16 @@ from backend.inference import (
     DECISION_CONTRACT_VERSION,
     AbortToken,
     CachedAnswer,
+    ChoiceAnswer,
     DecisionCancelled,
     DecisionClient,
+    DecisionQuestion,
     DecisionRequest,
     DecisionTransportError,
     LLMCallError,
     NoulQuestion,
     RawAnswerCache,
+    ScoreAnswer,
     cache_key,
     cache_namespace,
     decisions_url,
@@ -143,6 +146,33 @@ def test_a_mixed_batch_keeps_its_valid_answers():
     response = normalize_response(_payload(answers={"outcome": {"noul": 0.4}, "other": {"noul": "nope"}}), questions)
     assert response.answers == {"outcome": 0.4}
     assert response.invalid == ("other",)
+
+
+def test_choice_and_score_answers_normalize_without_coercion():
+    choice = DecisionQuestion("beat", "Beat?", {"clean": "Clean", "messy": "Messy"}, "choice")
+    score = DecisionQuestion("cost", "Cost?", ("Low", "High"), "score")
+    response = normalize_response(
+        {
+            "answers": {
+                "beat": {
+                    "type": "choice",
+                    "choice": "messy",
+                    "probabilities": {"clean": 0.2, "messy": 0.8},
+                    "confidence": 0.7,
+                },
+                "cost": {
+                    "type": "score",
+                    "score": 0.75,
+                    "legend": {"0": "Low", "1": "High"},
+                    "probabilities": {"0": 0.25, "1": 0.75},
+                    "confidence": 0.9,
+                },
+            }
+        },
+        [choice, score],
+    )
+    assert response.answers["beat"] == ChoiceAnswer("messy", {"clean": 0.2, "messy": 0.8}, 0.7)
+    assert response.answers["cost"] == ScoreAnswer(0.75, {"0": 0.25, "1": 0.75}, 0.9, {"0": "Low", "1": "High"})
 
 
 @pytest.mark.parametrize("payload", [None, [], "text", {"no_answers": 1}, {"answers": []}])

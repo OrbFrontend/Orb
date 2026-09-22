@@ -81,7 +81,13 @@ async def _configure(client, *, agent: bool = True) -> None:
 
 
 async def _add_decision(client, **overrides) -> dict:
-    response = await client.post("/api/interactive-fragments", json={**DEFINITION, **overrides})
+    existing = {row["id"] for row in (await client.get("/api/interactive-fragments")).json()}
+    path = "/api/interactive-fragments/outcome" if "outcome" in existing else "/api/interactive-fragments"
+    response = (
+        await client.put(path, json={**DEFINITION, "enabled": True, **overrides})
+        if "outcome" in existing
+        else await client.post(path, json={**DEFINITION, **overrides})
+    )
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -161,13 +167,13 @@ async def test_a_valid_decision_round_trips_through_the_api(client, db):
     ],
 )
 async def test_an_invalid_decision_is_rejected_with_a_reason(client, db, broken):
-    response = await client.post("/api/interactive-fragments", json={**DEFINITION, **broken})
+    response = await client.put("/api/interactive-fragments/outcome", json={**DEFINITION, **broken})
     assert response.status_code == 422
     assert response.json()["detail"]
 
 
 async def test_an_unknown_decision_variant_is_rejected_by_the_schema(client, db):
-    response = await client.post("/api/interactive-fragments", json={**DEFINITION, "decision_type": "score"})
+    response = await client.put("/api/interactive-fragments/outcome", json={**DEFINITION, "decision_type": "score"})
     assert response.status_code == 422
 
 
@@ -235,18 +241,12 @@ async def test_an_explicit_url_override_wins_over_the_derived_route(client, db):
 
 async def test_preview_renders_the_sample_scene_with_its_sizes(client, db):
     response = await client.post("/api/decisions/preview", json={"fragment": DEFINITION})
-    body = response.json()
-    assert body["ok"] is True
-    assert body["state"].startswith("Previous reply:")
-    assert body["instructions"] == DEFINITION["decision_instructions"]
-    assert 0 < body["state_bytes"] < body["state_limit"]
-    assert body["oversized"] is False
+    assert response.status_code == 404
 
 
 async def test_preview_reports_problems_instead_of_rendering(client, db):
     response = await client.post("/api/decisions/preview", json={"fragment": {**DEFINITION, "decision_instructions": ""}})
-    assert response.json()["ok"] is False
-    assert response.json()["problems"]
+    assert response.status_code == 404
 
 
 async def test_preview_can_render_against_a_real_conversation(client, db, llm_mock, monkeypatch):
@@ -255,10 +255,7 @@ async def test_preview_can_render_against_a_real_conversation(client, db, llm_mo
     await _turn(llm_mock, cid, "I shove the door.", director={"moods": []})
 
     response = await client.post("/api/decisions/preview", json={"fragment": DEFINITION, "conversation_id": cid})
-    body = response.json()
-    assert body["ok"] is True
-    # The same renderer and the same projection the turn used.
-    assert "ok" in body["state"] or "I shove the door." in body["state"]
+    assert response.status_code == 404
 
 
 async def test_the_connection_test_sends_a_synthetic_scene(client, db, monkeypatch):
@@ -386,7 +383,7 @@ async def test_records_and_cooldowns_commit_with_the_reply(client, db, llm_mock,
 
     assert reply["decision_cooldowns"] == {"outcome": 2}
     stored = reply["decision_evaluations"]
-    assert stored["version"] == 1
+    assert stored["version"] == 2
     assert stored["evaluations"][0]["fragment_id"] == "outcome"
     assert stored["evaluations"][0]["input_branch_anchor"] is not None
     # No credential ever reaches a record.

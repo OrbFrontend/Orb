@@ -8,7 +8,7 @@ from typing import Any
 from ....core import OUTCOME_KEYS, DecisionDefinition
 from .render import DECISION_RENDERER_VERSION
 
-EVALUATIONS_VERSION = 1
+EVALUATIONS_VERSION = 2
 
 
 def _digest(payload: Any) -> str:
@@ -17,7 +17,14 @@ def _digest(payload: Any) -> str:
 
 
 def raw_request_fingerprint(
-    *, model: str, state: str, instructions: str, criteria: Mapping[str, str], question_type: str
+    *,
+    model: str,
+    state: str,
+    instructions: str,
+    criteria: Mapping[str, str] | Sequence[str],
+    question_type: str,
+    facet_key: str = "",
+    branch_key: str = "",
 ) -> str:
     return _digest(
         {
@@ -25,7 +32,15 @@ def raw_request_fingerprint(
             "state": state,
             "type": question_type,
             "instructions": instructions,
-            "criteria": [[key, criteria[key]] for key in OUTCOME_KEYS if key in criteria],
+            "criteria": (
+                [[key, criteria[key]] for key in OUTCOME_KEYS if key in criteria]
+                if question_type == "noul" and isinstance(criteria, Mapping)
+                else list(criteria.items())
+                if isinstance(criteria, Mapping)
+                else list(criteria)
+            ),
+            "facet_key": facet_key,
+            "branch_key": branch_key,
         }
     )
 
@@ -39,6 +54,16 @@ def resolution_policy_fingerprint(definition: DecisionDefinition, *, scope: str)
             "resolution": definition.resolution,
             "threshold": definition.threshold,
             "default": definition.default_outcome,
+            "confidence_floor": definition.confidence_floor,
+            "facets": [
+                {
+                    "key": facet.key,
+                    "type": facet.decision_type,
+                    "resolution": facet.resolution,
+                    "confidence_floor": facet.confidence_floor,
+                }
+                for facet in definition.facets
+            ],
         }
     )
 

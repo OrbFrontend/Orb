@@ -18,11 +18,12 @@ from .errors import llm_call_error
 
 logger = logging.getLogger(__name__)
 
-DECISION_CONTRACT_VERSION = "jev/1"
+DECISION_CONTRACT_VERSION = "jev/2"
 DEFAULT_DECISION_MODEL = "typesafe/jev-1.13"
 MAX_STATE_BYTES = 16 * 1024
 MAX_QUESTION_BYTES = 8 * 1024
-MAX_QUESTIONS_PER_REQUEST = 16
+MAX_QUESTIONS_PER_REQUEST = 32
+MAX_QUESTIONS_PER_EXCHANGE = 128
 MAX_REQUEST_BYTES = 64 * 1024
 CACHE_CAPACITY = 512
 CACHE_TTL_SECONDS = 600.0
@@ -45,17 +46,24 @@ def decisions_url(base_url: str) -> str:
 
 
 @dataclass(frozen=True, slots=True)
-class NoulQuestion:
+class DecisionQuestion:
     key: str
     instructions: str
-    criteria: Mapping[str, str]
+    criteria: Mapping[str, str] | Sequence[str]
     question_type: str = "noul"
+    cache_identity: str = ""
 
     def payload(self) -> dict[str, Any]:
+        criteria: dict[str, str] | list[str]
+        if isinstance(self.criteria, Mapping):
+            keys = OUTCOME_KEYS if self.question_type == "noul" else tuple(self.criteria)
+            criteria = {key: self.criteria[key] for key in keys if key in self.criteria}
+        else:
+            criteria = list(self.criteria)
         return {
             "type": self.question_type,
             "instructions": self.instructions,
-            "criteria": {key: self.criteria[key] for key in OUTCOME_KEYS if key in self.criteria},
+            "criteria": criteria,
         }
 
     def canonical(self) -> str:
@@ -65,11 +73,34 @@ class NoulQuestion:
         return len(self.canonical().encode())
 
 
+NoulQuestion = DecisionQuestion
+
+
+@dataclass(frozen=True, slots=True)
+class ChoiceAnswer:
+    selected: str
+    probabilities: Mapping[str, float]
+    confidence: float
+    answer_type: str = "choice"
+
+
+@dataclass(frozen=True, slots=True)
+class ScoreAnswer:
+    score: float
+    probabilities: Mapping[str, float]
+    confidence: float
+    legend: Mapping[str, str]
+    answer_type: str = "score"
+
+
+NormalizedAnswer = float | ChoiceAnswer | ScoreAnswer
+
+
 @dataclass(frozen=True, slots=True)
 class DecisionRequest:
     model: str
     state: str
-    questions: tuple[NoulQuestion, ...]
+    questions: tuple[DecisionQuestion, ...]
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -84,7 +115,7 @@ class DecisionRequest:
 
 @dataclass(frozen=True, slots=True)
 class DecisionResponse:
-    answers: Mapping[str, float]
+    answers: Mapping[str, NormalizedAnswer]
     invalid: tuple[str, ...] = ()
     returned_model: str = ""
     usage: Mapping[str, Any] = field(default_factory=dict)
@@ -99,23 +130,88 @@ def _probability(value: Any) -> float | None:
     return number if math.isfinite(number) and 0 <= number <= 1 else None
 
 
+def _finite(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _distribution(value: Any, keys: Sequence[str]) -> dict[str, float] | None:
+    if not isinstance(value, Mapping) or set(value) != set(keys):
+        return None
+    result: dict[str, float] = {}
+    for key in keys:
+        probability = _probability(value.get(key))
+        if probability is None:
+            return None
+        result[key] = probability
+    total = sum(result.values())
+    return result if math.isclose(total, 1.0, rel_tol=0.0, abs_tol=0.02) else None
+
+
+def _answer(entry: Any, question: DecisionQuestion) -> NormalizedAnswer | None:
+    if not isinstance(entry, Mapping):
+        return None
+    tagged_type = entry.get("type")
+    if tagged_type is not None and tagged_type != question.question_type:
+        return None
+    if question.question_type == "noul":
+        return _probability(entry.get("noul"))
+    if question.question_type == "choice":
+        if not isinstance(question.criteria, Mapping):
+            return None
+        keys = tuple(question.criteria)
+        selected = entry.get("choice")
+        probabilities = _distribution(entry.get("probabilities"), keys)
+        confidence = _probability(entry.get("confidence"))
+        if not isinstance(selected, str) or selected not in keys or probabilities is None or confidence is None:
+            return None
+        return ChoiceAnswer(selected=selected, probabilities=probabilities, confidence=confidence)
+    if question.question_type == "score":
+        if isinstance(question.criteria, Mapping):
+            return None
+        keys = tuple(str(index) for index in range(len(question.criteria)))
+        score = _finite(entry.get("score"))
+        probabilities = _distribution(entry.get("probabilities"), keys)
+        confidence = _probability(entry.get("confidence"))
+        legend = entry.get("legend")
+        if (
+            score is None
+            or not 0 <= score <= len(keys) - 1
+            or probabilities is None
+            or confidence is None
+            or not isinstance(legend, Mapping)
+            or set(legend) != set(keys)
+            or any(not isinstance(legend.get(key), str) for key in keys)
+        ):
+            return None
+        return ScoreAnswer(
+            score=score,
+            probabilities=probabilities,
+            confidence=confidence,
+            legend={key: str(legend[key]) for key in keys},
+        )
+    return None
+
+
 def normalize_response(
-    payload: Any, questions: Sequence[NoulQuestion], *, elapsed_ms: int = 0, request_id: str = ""
+    payload: Any, questions: Sequence[DecisionQuestion], *, elapsed_ms: int = 0, request_id: str = ""
 ) -> DecisionResponse:
     if not isinstance(payload, Mapping):
         raise DecisionTransportError("decision response was not a JSON object")
     raw_answers = payload.get("answers")
     if not isinstance(raw_answers, Mapping):
         raise DecisionTransportError("decision response carried no 'answers' object")
-    answers: dict[str, float] = {}
+    answers: dict[str, NormalizedAnswer] = {}
     invalid: list[str] = []
     for question in questions:
         entry = raw_answers.get(question.key)
-        probability = _probability(entry.get(question.question_type)) if isinstance(entry, Mapping) else None
-        if probability is None:
+        answer = _answer(entry, question)
+        if answer is None:
             invalid.append(question.key)
         else:
-            answers[question.key] = probability
+            answers[question.key] = answer
     usage, model, response_id = payload.get("usage"), payload.get("model"), payload.get("id")
     return DecisionResponse(
         answers=answers,
@@ -129,16 +225,20 @@ def normalize_response(
 
 @dataclass(frozen=True, slots=True)
 class CachedAnswer:
-    probability: float
+    answer: NormalizedAnswer
     returned_model: str
+
+    @property
+    def probability(self) -> float | None:
+        return self.answer if isinstance(self.answer, float) else None
 
 
 def cache_namespace(*, endpoint_identity: str, config_revision: int) -> str:
     return f"{DECISION_CONTRACT_VERSION}|{endpoint_identity}|r{config_revision}"
 
 
-def cache_key(namespace: str, model: str, state: str, question: NoulQuestion) -> str:
-    return "\x1f".join((namespace, model, state, question.canonical()))
+def cache_key(namespace: str, model: str, state: str, question: DecisionQuestion) -> str:
+    return "\x1f".join((namespace, model, state, question.cache_identity, question.canonical()))
 
 
 class RawAnswerCache:
@@ -162,6 +262,9 @@ class RawAnswerCache:
         self._entries[key] = (time.monotonic(), answer)
         while len(self._entries) > self.capacity:
             self._entries.pop(next(iter(self._entries)))
+
+    def discard(self, key: str) -> None:
+        self._entries.pop(key, None)
 
     def clear(self) -> None:
         self._entries.clear()
@@ -202,11 +305,16 @@ class DecisionClient:
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
 
-    def request_for(self, state: str, questions: Sequence[NoulQuestion]) -> DecisionRequest:
+    def request_for(self, state: str, questions: Sequence[DecisionQuestion]) -> DecisionRequest:
         return DecisionRequest(self.model, state, tuple(questions))
 
     async def decide(
-        self, state: str, questions: Sequence[NoulQuestion], *, timeout: float | None = None, abort: AbortToken | None = None
+        self,
+        state: str,
+        questions: Sequence[DecisionQuestion],
+        *,
+        timeout: float | None = None,
+        abort: AbortToken | None = None,
     ) -> DecisionResponse:
         if abort is not None and abort.is_aborted:
             raise DecisionCancelled("stopped before the decision request was sent")

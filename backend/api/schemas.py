@@ -242,15 +242,17 @@ class MoodFragmentUpdate(BaseModel):
 # and skipped later, which is the difference between an author being told and an
 # author wondering.
 class _DecisionFields(BaseModel):
-    decision_type: Literal["noul"] | None = None
+    decision_type: Literal["noul", "choice", "score"] | None = None
     decision_placement: Literal["before_director"] | None = None
     decision_state_template: str | None = None
     decision_instructions: str | None = None
-    decision_criteria: dict[str, str] | None = None
+    decision_criteria: dict[str, str] | list[str] | None = None
     decision_outputs: dict[str, str] | None = None
-    decision_default: Literal["true", "false"] | None = None
-    decision_resolution: Literal["threshold", "roll"] | None = None
+    decision_default: str | None = None
+    decision_resolution: Literal["threshold", "roll", "argmax", "weighted", "nearest"] | None = None
     decision_threshold: float | None = Field(None, ge=0.0, le=1.0)
+    decision_facets: list[dict[str, Any]] | None = None
+    decision_confidence_floor: float | None = Field(None, ge=0.0, le=1.0)
 
 
 class InteractiveFragmentCreate(_DecisionFields):
@@ -309,18 +311,6 @@ class DecisionConfigUpdate(BaseModel):
     decision_endpoint_id: int | None = None
     decision_model: str | None = None
     decision_url: str | None = None
-
-
-class DecisionPreviewRequest(BaseModel):
-    """One decision definition, rendered as the turn would render it.
-
-    *conversation_id* renders against that conversation's current branch; without
-    it the preview uses the sample scene, so the editor works before any chat
-    exists. Either way the rendering contract is the pipeline's own.
-    """
-
-    fragment: dict
-    conversation_id: str | None = None
 
 
 class DecisionCardApproval(BaseModel):

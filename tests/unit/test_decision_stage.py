@@ -18,10 +18,12 @@ from backend.core import DEFAULT_STATE_TEMPLATE, parse_decision_definition
 from backend.inference import (
     RAW_ANSWER_CACHE,
     AbortToken,
+    ChoiceAnswer,
     DecisionCancelled,
     DecisionResponse,
     DecisionTransportError,
     LLMCallError,
+    ScoreAnswer,
 )
 from backend.pipeline.passes.decisions import (
     MAX_DECISIONS_PER_CARD,
@@ -108,7 +110,7 @@ def _turn(*candidates: DecisionCandidate, **overrides) -> DecisionsTurn:
 class FakeGateway:
     """Stands in for the gateway, recording every batch it was asked."""
 
-    answers: dict[str, float] = field(default_factory=dict)
+    answers: dict[str, float | ChoiceAnswer | ScoreAnswer] = field(default_factory=dict)
     error: Exception | None = None
     returned_model: str = "typesafe/jev-1.13.2"
     usage: dict = field(default_factory=lambda: {"total_tokens": 11})
@@ -159,6 +161,53 @@ async def test_a_live_answer_resolves_injects_and_records(monkeypatch):
     assert result.requests == 1
 
 
+async def test_fanout_selects_one_branch_and_gates_only_that_facet(monkeypatch):
+    facets = [
+        {
+            "key": "cost",
+            "label": "Cost",
+            "type": "score",
+            "criteria": ["Low", "High"],
+            "instructions": {"true": "Assume success.", "false": "Assume failure."},
+            "outputs": {"0": "low cost", "1": "high cost"},
+            "confidence_floor": 0.8,
+        },
+        {
+            "key": "beat",
+            "label": "Beat",
+            "type": "choice",
+            "criteria": {"clean": "Clean", "messy": "Messy"},
+            "instructions": "What beat is this?",
+            "outputs": {"clean": "clean beat", "messy": "messy beat"},
+            "confidence_floor": None,
+        },
+    ]
+    answers = {
+        "outcome": 0.9,
+        "outcome__cost__0_0": ScoreAnswer(0.8, {"0": 0.2, "1": 0.8}, 0.5, {"0": "Low", "1": "High"}),
+        "outcome__cost__0_1": ScoreAnswer(0.1, {"0": 0.9, "1": 0.1}, 0.9, {"0": "Low", "1": "High"}),
+        "outcome__beat__1_0": ChoiceAnswer("messy", {"clean": 0.1, "messy": 0.9}, 0.9),
+    }
+    gateway = FakeGateway(answers=answers).install(monkeypatch)
+    candidate = _candidate(decision_facets=facets)
+    first = await run_decisions(_turn(candidate))
+
+    assert len(gateway.batches) == 1
+    assert len(gateway.batches[0]) == 4
+    record = first.evaluations[0]
+    assert record["outcome"] == "true"
+    assert record["facets"][0]["fallback_reason"] == FallbackReason.LOW_CONFIDENCE
+    assert "outcome" not in record["facets"][0]
+    assert record["facets"][1]["outcome"] == "messy"
+    assert record["discarded_branches"][0]["branch"] == "false"
+    assert "Cost:" not in first.guidance
+    assert "Beat: messy beat" in first.guidance
+
+    gateway.batches.clear()
+    await run_decisions(_turn(candidate))
+    assert gateway.batches == [["outcome__cost__0_0"]]
+
+
 async def test_an_empty_selected_output_suppresses_injection_but_still_records(monkeypatch):
     FakeGateway(answers={"outcome": 0.1}).install(monkeypatch)
     result = await run_decisions(_turn(_candidate(decision_outputs={"true": "held", "false": ""})))
@@ -206,9 +255,9 @@ async def test_a_batch_is_packed_within_the_question_limit(monkeypatch):
     gateway = FakeGateway(answers=dict.fromkeys(ids, 0.9)).install(monkeypatch)
     await run_decisions(_turn(*(_candidate(fragment_id) for fragment_id in ids)))
 
-    assert len(gateway.batches) == 2
+    assert len(gateway.batches) == 1
     assert all(len(batch) <= stage_module.MAX_QUESTIONS_PER_REQUEST for batch in gateway.batches)
-    assert sorted(key for batch in gateway.batches for key in batch) == sorted(ids)
+    assert sorted(key for batch in gateway.batches for key in batch) == sorted(ids[:MAX_DECISIONS_PER_EXCHANGE])
 
 
 async def test_one_invalid_sibling_answer_is_isolated(monkeypatch):

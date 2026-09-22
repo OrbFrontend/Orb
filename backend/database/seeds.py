@@ -85,6 +85,33 @@ SEED_MOOD_FRAGMENTS = [
 
 SEED_INTERACTIVE_FRAGMENTS = [
     {
+        "id": "outcome",
+        "label": "Outcome",
+        "description": "Resolve whether the action in the current request succeeds.",
+        "field_type": "decision",
+        "required": False,
+        "enabled": False,
+        "injection_label": "Outcome",
+        "sort_order": -100,
+        "decision_type": "noul",
+        "decision_placement": "before_director",
+        "decision_state_template": "Previous reply:\n{{last_assistant_message}}\n\nCurrent request:\n{{last_message}}",
+        "decision_instructions": "The action described in the current request succeeds.",
+        "decision_criteria": {
+            "true": "That action comes off as intended.",
+            "false": "That action fails, is stopped, or backfires.",
+        },
+        "decision_outputs": {
+            "true": "That action comes off as intended.",
+            "false": "That action fails, is stopped, or backfires.",
+        },
+        "decision_default": "false",
+        "decision_resolution": "roll",
+        "decision_threshold": None,
+        "decision_facets": None,
+        "decision_confidence_floor": None,
+    },
+    {
         "id": "user_intent",
         "label": "User Intent",
         "description": (

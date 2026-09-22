@@ -290,6 +290,25 @@ class MessageRow(TypedDict):
     decision_cooldowns: dict[str, int]
 
 
+class DecisionFacetEvaluationRow(TypedDict, total=False):
+    key: str
+    label: str
+    type: str
+    branch: str
+    rendered_instructions: str
+    rendered_criteria: dict[str, str] | list[str]
+    outputs: dict[str, str]
+    outcome: str
+    guidance: str
+    answer_source: str
+    fallback_reason: str
+    probability: float
+    distribution: dict[str, float]
+    confidence: float
+    score: float
+    draw: float
+
+
 class DecisionEvaluationRow(TypedDict, total=False):
     """One decision occurrence as it is persisted on a reply.
 
@@ -314,7 +333,7 @@ class DecisionEvaluationRow(TypedDict, total=False):
     input_branch_anchor: int | None
     rendered_state: str
     rendered_instructions: str
-    rendered_criteria: dict[str, str]
+    rendered_criteria: dict[str, str] | list[str]
     raw_request_fingerprint: str
     resolution_policy_fingerprint: str
     outputs: dict[str, str]
@@ -333,6 +352,11 @@ class DecisionEvaluationRow(TypedDict, total=False):
     # Set on exactly one evaluation per shared request, so a batch's usage is
     # not counted once per fragment.
     usage_owner: int
+    distribution: dict[str, float]
+    confidence: float
+    score: float
+    facets: list[DecisionFacetEvaluationRow]
+    discarded_branches: list[DecisionFacetEvaluationRow]
 
 
 class DecisionSkipRow(TypedDict, total=False):
@@ -669,11 +693,13 @@ class InteractiveFragmentRow(TypedDict):
     decision_placement: str | None
     decision_state_template: str | None
     decision_instructions: str | None
-    decision_criteria: dict[str, str] | None
+    decision_criteria: dict[str, str] | list[str] | None
     decision_outputs: dict[str, str] | None
     decision_default: str | None
     decision_resolution: str | None
     decision_threshold: float | None
+    decision_facets: list[dict] | None
+    decision_confidence_floor: float | None
 
 
 class MoodFragmentRow(TypedDict):

@@ -18,8 +18,11 @@ from backend.pipeline.passes.decisions import (
     raw_request_fingerprint,
     remap_anchors,
     resolution_policy_fingerprint,
+    resolve_argmax,
+    resolve_nearest,
     resolve_roll,
     resolve_threshold,
+    resolve_weighted,
     resting_decisions,
     stored_evaluations,
 )
@@ -87,6 +90,20 @@ def test_draws_are_in_the_half_open_unit_interval():
     assert all(0.0 <= draw < 1.0 for draw in draws)
     # Not a distribution test: only that this is a draw and not a constant.
     assert len(set(draws)) > 1
+
+
+def test_argmax_and_nearest_are_distinct_score_policies():
+    probabilities = {"0": 0.0, "1": 0.34, "2": 0.31, "3": 0.35}
+    keys = tuple(probabilities)
+    assert resolve_argmax(probabilities, keys) == "3"
+    assert resolve_nearest(2.01, keys) == "2"
+
+
+def test_weighted_resolution_uses_one_draw_against_authored_order():
+    probabilities = {"a": 0.2, "b": 0.3, "c": 0.5}
+    assert resolve_weighted(probabilities, tuple(probabilities), 0.0) == "a"
+    assert resolve_weighted(probabilities, tuple(probabilities), 0.2) == "b"
+    assert resolve_weighted(probabilities, tuple(probabilities), 0.99) == "c"
 
 
 # ── decision cooldowns ───────────────────────────────────────────────────────

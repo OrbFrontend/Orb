@@ -3,31 +3,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ....core import OUTCOME_KEYS, decision_definition_errors, parse_decision_definition
+from ....core import decision_definition_errors
 from ....inference import (
-    MAX_QUESTION_BYTES,
-    MAX_STATE_BYTES,
     DecisionClient,
     NoulQuestion,
 )
 from .render import (
     TEXT_MACROS,
-    DecisionSnapshot,
-    UnavailableMacro,
     macro_errors,
-    render,
     template_errors,
 )
 from .stage import REQUEST_TIMEOUT_SECONDS, DecisionConfig
 
-SAMPLE_SNAPSHOT = DecisionSnapshot(
-    last_message="I put my shoulder to the door and shove.",
-    last_assistant_message="Maren braces both hands against the frame, breathing hard. The latch has not caught.",
-    recent_history="User: I follow her into the passage.\n\nAssistant: She reaches the door first and turns, blocking it with her body.",
-    user="You",
-    char="Maren",
-    description="A wizard, unarmoured, quick with her hands and quicker with her temper.",
-)
 CONNECTION_TEST_STATE = "Alric attempts to force Maren back from the doorway."
 CONNECTION_TEST_QUESTION = NoulQuestion(
     key="connection_test",
@@ -44,48 +31,49 @@ _TEXT_FIELDS = (
 )
 
 
+def _facet_texts(facet: object) -> list[str]:
+    if not isinstance(facet, Mapping):
+        return []
+    texts: list[str] = []
+    instructions = facet.get("instructions")
+    if isinstance(instructions, str):
+        texts.append(instructions)
+    elif isinstance(instructions, Mapping):
+        texts.extend(text for text in instructions.values() if isinstance(text, str))
+    criteria = facet.get("criteria")
+    if isinstance(criteria, Mapping):
+        texts.extend(text for text in criteria.values() if isinstance(text, str))
+    elif isinstance(criteria, list):
+        texts.extend(text for text in criteria if isinstance(text, str))
+    outputs = facet.get("outputs")
+    if isinstance(outputs, Mapping):
+        texts.extend(text for text in outputs.values() if isinstance(text, str))
+    return texts
+
+
 def definition_problems(row: Mapping[str, Any]) -> list[str]:
     problems = list(decision_definition_errors(row))
     if isinstance(template := row.get("decision_state_template"), str):
         problems.extend(template_errors(template, field="Situation template"))
     for key, label in _TEXT_FIELDS:
         value = row.get(key)
-        texts = value.values() if isinstance(value, Mapping) else [value] if isinstance(value, str) else []
+        texts = (
+            value.values()
+            if isinstance(value, Mapping)
+            else value
+            if isinstance(value, list)
+            else [value]
+            if isinstance(value, str)
+            else []
+        )
         for text in texts:
             problems.extend(macro_errors(text, allowed=TEXT_MACROS, field=label))
+    facets = row.get("decision_facets")
+    if isinstance(facets, list):
+        for facet in facets:
+            for text in _facet_texts(facet):
+                problems.extend(macro_errors(text, allowed=TEXT_MACROS, field="Facet text"))
     return problems
-
-
-def preview(row: Mapping[str, Any], snapshot: DecisionSnapshot = SAMPLE_SNAPSHOT) -> dict[str, Any]:
-    definition = parse_decision_definition(row)
-    if definition is None:
-        return {"ok": False, "problems": definition_problems(row)}
-    try:
-        state = render(definition.state_template, snapshot)
-        instructions = render(definition.instructions, snapshot, allowed=TEXT_MACROS)
-        criteria = {key: render(definition.criteria[key], snapshot, allowed=TEXT_MACROS) for key in OUTCOME_KEYS}
-        outputs = {key: render(definition.outputs[key], snapshot, allowed=TEXT_MACROS) for key in OUTCOME_KEYS}
-    except UnavailableMacro as unavailable:
-        return {
-            "ok": False,
-            "problems": [f"{{{{{unavailable.macro}}}}} is not available in this scope"],
-            "unavailable_macro": unavailable.macro,
-        }
-    state_bytes = len(state.encode())
-    question_bytes = len(instructions.encode()) + sum(len(text.encode()) for text in criteria.values())
-    return {
-        "ok": True,
-        "problems": [],
-        "state": state,
-        "instructions": instructions,
-        "criteria": criteria,
-        "outputs": outputs,
-        "state_bytes": state_bytes,
-        "state_limit": MAX_STATE_BYTES,
-        "question_bytes": question_bytes,
-        "question_limit": MAX_QUESTION_BYTES,
-        "oversized": state_bytes > MAX_STATE_BYTES or question_bytes > MAX_QUESTION_BYTES,
-    }
 
 
 async def connection_test(config: DecisionConfig) -> dict[str, Any]:

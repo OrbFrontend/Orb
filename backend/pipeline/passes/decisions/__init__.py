@@ -1,6 +1,6 @@
 # ruff: noqa: F401
 
-from .authoring import SAMPLE_SNAPSHOT, connection_test, definition_problems, preview
+from .authoring import connection_test, definition_problems
 from .cooldown import advance as advance_decision_cooldowns
 from .cooldown import blocked as resting_decisions
 from .cooldown import branch_baseline as decision_cooldown_baseline
@@ -24,7 +24,15 @@ from .render import (
     render,
     template_errors,
 )
-from .resolve import FallbackReason, SkipReason, resolve_roll, resolve_threshold
+from .resolve import (
+    FallbackReason,
+    SkipReason,
+    resolve_argmax,
+    resolve_nearest,
+    resolve_roll,
+    resolve_threshold,
+    resolve_weighted,
+)
 from .stage import (
     MAX_DECISIONS_PER_CARD,
     MAX_DECISIONS_PER_EXCHANGE,

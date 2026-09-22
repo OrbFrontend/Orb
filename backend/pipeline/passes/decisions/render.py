@@ -140,5 +140,6 @@ def oversized_state(state: str) -> bool:
     return len(state.encode()) > MAX_STATE_BYTES
 
 
-def oversized_question(instructions: str, criteria: Mapping[str, str]) -> bool:
-    return len(instructions.encode()) + sum(len(text.encode()) for text in criteria.values()) > MAX_QUESTION_BYTES
+def oversized_question(instructions: str, criteria: Mapping[str, str] | Sequence[str]) -> bool:
+    texts = criteria.values() if isinstance(criteria, Mapping) else criteria
+    return len(instructions.encode()) + sum(len(text.encode()) for text in texts) > MAX_QUESTION_BYTES
