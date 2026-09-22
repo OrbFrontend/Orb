@@ -92,19 +92,35 @@ SEED_INTERACTIVE_FRAGMENTS = [
         "enabled": False,
         "injection_label": "Outcome",
         "sort_order": -100,
-        "decision_type": "noul",
+        # One question over the joint space of "did it work" and "how hard", rather
+        # than an outcome fragment with a severity fragment chained behind it.
+        # Severity cannot be chained: every decision in a stage reads the same
+        # frozen snapshot, so a second question never learns what the first
+        # resolved to -- least of all the roll, which lives nowhere in the state.
+        # Asking once also lets the Judge rule out the cells the scene forbids,
+        # which independent marginals cannot do.
+        "decision_type": "choice",
         "decision_placement": "before_director",
         "decision_state_template": "Previous reply:\n{{last_assistant_message}}\n\nCurrent request:\n{{last_message}}",
-        "decision_instructions": "The action described in the current request succeeds.",
+        "decision_instructions": "How does the action described in the current request turn out?",
+        # Authored order is resolution order: it breaks argmax ties and walks the
+        # weighted draw, so the options run worst to best.
         "decision_criteria": {
-            "true": "That action comes off as intended.",
-            "false": "That action fails, is stopped, or backfires.",
+            "crushing_failure": "The attempt fails outright and the situation turns against them: they are overmatched, exposed, or left worse off than before they tried.",
+            "costly_failure": "The attempt does not land, or lands only in part, and it costs them something real: ground given up, a resource spent, an opening handed over.",
+            "narrow_success": "The attempt works, but barely: by a margin, at the last moment, or in a way that leaves them spent or shaken.",
+            "decisive_success": "The attempt works cleanly and on their own terms, with room to spare.",
         },
         "decision_outputs": {
-            "true": "That action comes off as intended.",
-            "false": "That action fails, is stopped, or backfires.",
+            "crushing_failure": "That action fails hard. Let it cost them, and leave the situation worse than it started.",
+            "costly_failure": "That action falls short. They are stopped, or get only part of what they wanted, and pay something for the attempt.",
+            "narrow_success": "That action comes off, but only just. Show the effort, and what it nearly cost.",
+            "decisive_success": "That action comes off as intended, cleanly and without much trouble.",
         },
-        "decision_resolution": "roll",
+        # The choice-side counterpart to the roll this seed used to carry: the
+        # draw walks the Judge's distribution, so a long shot stays a long shot
+        # instead of being rounded away to the likeliest cell.
+        "decision_resolution": "weighted",
         "decision_threshold": None,
         "decision_confidence_floor": None,
     },

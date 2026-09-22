@@ -145,6 +145,10 @@
   margin-top: 8px;
 }
 
+/* Its own line under the foot: the advice is a sentence, and the foot is a flex
+   row sized for a button and a bounds hint. */
+.decision-options-note { margin-top: 6px; }
+
 /* ── Judge lane ───────────────────────────────────────────────────────────── */
 
 .judge-note {

@@ -5,6 +5,7 @@ import { GRIP_ICON } from "./icons.js";
 import {
   applyDecisionProblems,
   clearDecisionDraft,
+  decisionDraftProblems,
   decisionSectionHtml,
   ensureDecisionConfig,
   initDecisionDraft,
@@ -497,6 +498,14 @@ export async function saveInteractiveFragment(isEdit) {
   const validation = validate.validateInteractiveFragment(d);
   if (!validation.valid) {
     toast(validation.error, true);
+    return;
+  }
+  // Option names collapse into the JSON objects the columns are sent as, so a
+  // blank or repeated one has to be caught before the request or it is caught
+  // by nobody. Routed through the same renderer as a 422.
+  const draftProblems = d.field_type === "decision" ? decisionDraftProblems() : "";
+  if (draftProblems && applyDecisionProblems(draftProblems)) {
+    toast("This decision is not valid yet; see the highlighted fields", true);
     return;
   }
   try {

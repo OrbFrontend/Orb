@@ -16,6 +16,7 @@ for (const key of ["document", "Node", "Element", "HTMLElement", "Event", "Mouse
 const { setDecisionConfig } = await import("../../frontend/decisions.js");
 const {
   applyDecisionProblems,
+  decisionDraftProblems,
   decisionSectionHtml,
   initDecisionDraft,
   readDecisionFields,
@@ -41,6 +42,19 @@ const CONFIG = {
   max_questions_per_exchange: 128,
   choice: { min_options: 2, max_options: 255 },
   score: { min_levels: 2, max_levels: 10 },
+};
+
+const CHOICE_FRAGMENT = {
+  field_type: "decision",
+  decision_type: "choice",
+  decision_placement: "before_director",
+  decision_state_template: "Current request:\n{{last_message}}",
+  decision_instructions: "Which of these best describes how she takes it?",
+  decision_criteria: { win: "Wins.", lose: "Loses." },
+  decision_outputs: { win: "", lose: "" },
+  decision_resolution: "argmax",
+  decision_threshold: null,
+  decision_confidence_floor: null,
 };
 
 const NOUL_FRAGMENT = {
@@ -141,23 +155,17 @@ test("choice keeps its authored key order; score is indexed from zero", () => {
   assert.deepEqual(Object.keys(scored.decision_outputs), ["0", "1", "2"]);
 });
 
-test("adding a primary outcome appends a fresh key, leaving the authored ones alone", () => {
-  mount({
-    ...NOUL_FRAGMENT,
-    decision_type: "choice",
-    decision_criteria: { win: "Wins.", lose: "Loses." },
-    decision_outputs: { win: "", lose: "" },
-    decision_resolution: "argmax",
-    decision_threshold: null,
-  });
+test("adding a primary outcome appends an unnamed row, leaving the authored ones alone", () => {
+  mount(CHOICE_FRAGMENT);
   click('[data-dec-act="add-option"]');
 
+  // The authored outcomes survive. The new one is unnamed, because a choice key
+  // is prompt text: a generated `option_3` would go to the Judge as the name of
+  // an option and tell it nothing.
+  const keys = [...document.querySelectorAll("[data-dec-key]")].map((el) => el.value);
+  assert.deepEqual(keys, ["win", "lose", ""]);
   const fields = readDecisionFields();
-  // The authored outcomes survive; the new one is empty and the author writes
-  // it. Nothing is synthesised from the outcome beside it.
-  assert.deepEqual(Object.keys(fields.decision_criteria), ["win", "lose", "option_3"]);
   assert.equal(fields.decision_criteria.win, "Wins.");
-  assert.equal(fields.decision_criteria.option_3, "");
 });
 
 test("deleting a primary outcome drops it and keeps criteria and guidance aligned", () => {

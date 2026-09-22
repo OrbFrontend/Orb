@@ -3,8 +3,12 @@
 // A decision is one question about the scene. One thing about this form is
 // load-bearing and easy to undo by accident: criteria and guidance are
 // different fields and are the single most confusable pair in the feature, so
-// they sit on one row: "if this outcome -> what it looks like -> what the
-// story does".
+// they sit on one row: the outcome, what it means to the Judge, and what the
+// story does when it lands.
+//
+// Each question type words that row -- and the question above it -- for itself,
+// from `COPY`. They are not the same question: a noul scores one statement, a
+// choice picks a named option, a score places the scene on a ladder.
 //
 // The type list, resolution policies, macros and bounds all come from
 // `GET /api/decisions/config`; nothing here restates them.
@@ -97,9 +101,13 @@ function _blankOptions(type) {
       { key: "1", text: "", output: "" },
     ];
   }
+  // A choice key is not an id. It goes to the Judge as the option's name and
+  // comes back as the answer, so a generated `option_1` is a worse prompt than
+  // no prompt: it is a name that says nothing about the option it names. The
+  // author writes it, and `decisionDraftProblems` refuses a save without it.
   return [
-    { key: "option_1", text: "", output: "" },
-    { key: "option_2", text: "", output: "" },
+    { key: "", text: "", output: "" },
+    { key: "", text: "", output: "" },
   ];
 }
 
@@ -169,6 +177,40 @@ export function readDecisionFields() {
     decision_threshold: isNoul && _draft.resolution === "threshold" ? _draft.threshold : null,
     decision_confidence_floor: isNoul ? null : _draft.confidence_floor,
   };
+}
+
+/**
+ * Problems the editor has to catch itself, or "" when the draft can be sent.
+ *
+ * Option names are the one part of a choice that cannot survive to the backend
+ * to be complained about. `decision_criteria` and `decision_outputs` go out as
+ * JSON objects, so a blank or repeated name is already gone -- collapsed into
+ * its twin -- by the time the row is validated. Three options with two names
+ * save cleanly as two, losing one silently; two unnamed options arrive as one
+ * and come back as "must contain 2 to 255 options", which is not what went
+ * wrong. Both are checked here, while the rows still exist.
+ *
+ * Phrased and prefixed like a backend problem so `applyDecisionProblems` can
+ * route it to the outcome table: one rendering path for every rule.
+ */
+export function decisionDraftProblems() {
+  _syncFromDom();
+  if (_draft?.type !== "choice") return "";
+  const problems = [];
+  const seen = new Set();
+  const repeated = new Set();
+  let unnamed = false;
+  for (const option of _draft.options) {
+    const key = String(option.key || "").trim();
+    if (!key) unnamed = true;
+    else if (seen.has(key)) repeated.add(key);
+    else seen.add(key);
+  }
+  if (unnamed)
+    problems.push("decision_criteria: every option needs a name, because the Judge reads it and answers with it");
+  if (repeated.size)
+    problems.push(`decision_criteria: option names must differ (repeated: ${[...repeated].join(", ")})`);
+  return problems.join("; ");
 }
 
 /** Is a decision section currently open? */
@@ -287,6 +329,40 @@ function _mutate(change) {
   repaintDecisionSection();
 }
 
+// The words each type uses for the question and for its outcome table. Nothing
+// here is a contract -- but for most authors it is the only description of the
+// feature they will ever read, and the shared noul wording it replaces made a
+// `choice` look like a true/false question it is not.
+const COPY = {
+  noul: {
+    question: "a statement the Judge scores",
+    questionPlaceholder: "The action described in the current request succeeds.",
+    outcome: "If this outcome",
+    criterion: "What it looks like",
+    criterionPlaceholder: "What this outcome looks like in the scene",
+  },
+  choice: {
+    question: "a question the Judge answers by picking one option below",
+    questionPlaceholder: "Which of these best describes how {{char}} takes the current request?",
+    outcome: "Option",
+    outcomeHint: "",
+    criterion: "What this option means",
+    criterionPlaceholder: "What picking this option means; the Judge reads it as part of the question",
+    note: 'Every turn lands on one option. For turns that should pass, add an option that means "nothing here" and leave its guidance empty.',
+  },
+  score: {
+    question: "what the Judge places on the scale below",
+    questionPlaceholder: "How far the current request pushes {{char}} past their patience.",
+    outcome: "Level",
+    criterion: "What this level looks like",
+    criterionPlaceholder: "What this level looks like in the scene",
+  },
+};
+
+function _copy(type) {
+  return COPY[type] || COPY.noul;
+}
+
 function _hint(text) {
   return `<span class="decision-hint">${esc(text)}</span>`;
 }
@@ -361,8 +437,8 @@ function _primaryHtml(config) {
       ${_problemHtml("state_template")}
     </div>
     <div class="field">
-      <label>Question ${_hint(`a statement the Judge scores; macros: ${_macroHint(config.text_macros)}`)}</label>
-      <textarea data-dec="instructions" rows="2" placeholder="The action described in the current request succeeds.">${esc(_draft.instructions)}</textarea>
+      <label>Question ${_hint(`${_copy(type).question}; macros: ${_macroHint(config.text_macros)}`)}</label>
+      <textarea data-dec="instructions" rows="2" placeholder="${escAttr(_copy(type).questionPlaceholder)}">${esc(_draft.instructions)}</textarea>
       ${_problemHtml("instructions")}
     </div>
     ${_optionsHtml(config, type, _draft.options)}
@@ -380,9 +456,10 @@ function _optionLabel(type, key, option) {
  *
  * Criteria describe the world to the Judge; guidance is what gets injected into
  * the story if that outcome lands. They are adjacent because authors conflate
- * them constantly, and the header names both jobs in plain words.
+ * them constantly, and the header names both jobs in this type's own words.
  */
 function _optionsHtml(config, type, options) {
+  const copy = _copy(type);
   const bounds =
     type === "choice"
       ? `2 to ${config.choice?.max_options ?? ""} options`
@@ -394,7 +471,7 @@ function _optionsHtml(config, type, options) {
     .map((option, index) => {
       const keyCell =
         type === "choice"
-          ? `<input class="decision-key-input" data-dec-key="${index}" value="${escAttr(option.key)}" placeholder="option_key">`
+          ? `<input class="decision-key-input" data-dec-key="${index}" value="${escAttr(option.key)}" placeholder="name">`
           : `<span class="decision-key-fixed">${esc(_optionLabel(type, _keysOf(type, options)[index], option))}</span>`;
       const removeBtn =
         canEditCount && options.length > 2
@@ -403,7 +480,7 @@ function _optionsHtml(config, type, options) {
       return `
       <div class="decision-option-row">
         <div class="decision-option-key">${keyCell}</div>
-        <textarea rows="2" data-dec-criterion="${index}" placeholder="What this outcome looks like in the scene">${esc(option.text)}</textarea>
+        <textarea rows="2" data-dec-criterion="${index}" placeholder="${escAttr(copy.criterionPlaceholder)}">${esc(option.text)}</textarea>
         <textarea rows="2" data-dec-output="${index}" data-mirror="p:${index}" placeholder="What the story does if it lands">${esc(option.output)}</textarea>
         ${removeBtn}
       </div>`;
@@ -415,13 +492,14 @@ function _optionsHtml(config, type, options) {
   return `
     <div class="decision-options">
       <div class="decision-option-head">
-        <span>If this outcome</span>
-        <span>What it looks like ${_hint("sent to the Judge")}</span>
+        <span>${esc(copy.outcome)}${copy.outcomeHint ? ` ${_hint(copy.outcomeHint)}` : ""}</span>
+        <span>${esc(copy.criterion)} ${_hint("sent to the Judge")}</span>
         <span>What the story does ${_hint("injected as guidance")}</span>
         <span></span>
       </div>
       ${rows}
       <div class="decision-options-foot">${addBtn}${bounds ? _hint(bounds) : ""}</div>
+      ${copy.note ? `<div class="decision-options-note">${_hint(copy.note)}</div>` : ""}
     </div>`;
 }
 
@@ -439,10 +517,12 @@ function _retypePrimary(nextType) {
     if (_draft.options.length < 2) _draft.options = _blankOptions("score");
     _draft.options = _draft.options.map((option, index) => ({ ...option, key: String(index) }));
   } else {
-    _draft.options = _draft.options.map((option, index) => ({
-      ...option,
-      key: /^[^\s]+$/.test(option.key) ? option.key : `option_${index + 1}`,
-    }));
+    // Whatever the keys were, they were the other type's: `true`/`false` from a
+    // noul, level indices from a score. Carrying them over asks the Judge to
+    // pick between two options called "true" and "false", which is a noul with
+    // its threshold taken away. The criteria and guidance are the author's and
+    // survive; the names do not.
+    _draft.options = _draft.options.map((option) => ({ ...option, key: "" }));
   }
   // The policies are per type and do not overlap between noul and the rest, so
   // a retype always re-picks rather than keeping a policy the stage would
@@ -455,7 +535,7 @@ function _retypePrimary(nextType) {
 function _addOption() {
   const index = _draft.options.length;
   _draft.options.push({
-    key: _draft.type === "score" ? String(index) : `option_${index + 1}`,
+    key: _draft.type === "score" ? String(index) : "",
     text: "",
     output: "",
   });
