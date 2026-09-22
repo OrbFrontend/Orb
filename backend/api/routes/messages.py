@@ -109,9 +109,7 @@ def _row_for_client(message: Mapping[str, Any]) -> dict:
     # open, and a decision record holds its rendered classifier state (up to
     # 16 KiB) plus both authored outputs, per decision, per message -- copied
     # onto every speaker's reply in a group exchange. The Inspector reads the
-    # full record from the director-log route when it is actually opened, so the
-    # listing carries only the flag that says there is something to open.
-    row["has_decisions"] = bool(row.get("decision_evaluations"))
+    # full record from the director-log route when it is actually opened.
     row.pop("decision_evaluations", None)
     return row
 

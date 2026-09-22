@@ -278,19 +278,6 @@
 
 /* ── Inspector ─────────────────────────────────────────────── */
 
-.msg-decision-badge {
-  display: inline-block;
-  font-size: 9px;
-  font-family: var(--font-mono);
-  font-weight: 700;
-  color: var(--accent);
-  border: 1px solid var(--accent-dim);
-  border-radius: 999px;
-  padding: 0 5px;
-  vertical-align: middle;
-  margin-left: 2px;
-}
-
 /* The rows carry disclosure arrows of their own, so they step in from the
    section's: two arrow columns at one x read as one flat list, not as a list
    inside a section. */

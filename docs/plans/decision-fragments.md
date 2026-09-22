@@ -513,7 +513,6 @@ that answers the question:
 
 | Surface | Carries | For |
 |---|---|---|
-| `GET /api/conversations/{cid}/messages` | `has_decisions` (bool) | The badge that says a reply has something to inspect. |
 | `decisions` SSE event | identity, `placement`, `scope`, `occurrence_id`, `outcome`, `guidance`, `answer_source`, `fallback_reason`, `replay_invalidated`, `probability`, `draw`, `elapsed_ms`; plus `skipped` and `cooldowns` | Live progress while the turn runs. |
 | `GET /api/conversations/{cid}/messages/{id}/director-log` | `decision_evaluations`: the full versioned envelope | The Inspector panel, on open. |
 
@@ -638,7 +637,7 @@ Required implementation regression coverage:
 | Groups/cooldowns | One exchange evaluation; no repeated draw or decrement per speaker; later-speaker regeneration; skipped versus evaluated decisions |
 | Pipeline | Director enabled/disabled; guidance survives Director parsing; stable schemas; cancellation before and after partial output |
 | Imports/Inspector | Local approval cannot be imported; changed definitions revoke it; malformed decisions skip; shared usage is not double-counted; a preset cannot arm a decision it carries, and disarms only the rows it supplied |
-| Payload shape | The message listing carries `has_decisions` and not the records; the live event omits the rendered state and the authored outputs |
+| Payload shape | The message listing carries neither `has_decisions` nor the records; the live event omits the rendered state and the authored outputs |
 
 Run narrow tests while iterating, then repository formatting, lint, and tests:
 

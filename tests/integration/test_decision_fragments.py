@@ -833,7 +833,6 @@ async def test_the_message_listing_does_not_carry_evaluation_records(client, db,
     listed = (await client.get(f"/api/conversations/{cid}/messages")).json()
     reply = next(message for message in reversed(listed) if message["role"] == "assistant")
     assert "decision_evaluations" not in reply
-    assert reply["has_decisions"] is True
 
     # The Inspector's own route still carries them in full.
     log = (await client.get(f"/api/conversations/{cid}/messages/{reply['id']}/director-log")).json()
