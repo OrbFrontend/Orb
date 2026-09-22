@@ -116,10 +116,6 @@ _INTERACTIVE_FIELD_TYPES = {
     DECISION_FIELD_TYPE,
 }
 
-# A card's decision definitions can be arbitrarily long prose, so they are
-# bounded before they are rendered, logged, or fingerprinted. This is the hard
-# import bound the plan asks for: a large card payload must not be able to walk
-# past the per-request budgets by arriving as configuration.
 _CARD_DECISION_TEXT_LIMIT = 8_000
 
 
@@ -205,8 +201,6 @@ def card_embedded_fragments(
                 "required": int(bool(entry.get("required"))),
                 "enabled": 1,
                 "injection_label": _text(entry, "injection_label") or entry["label"],
-                # Array order in the card is authoritative; the offset keeps
-                # card fragments after globals on any sort_order re-sort.
                 "sort_order": 10_000 + i,
                 "direction_note_timing": timing if timing in ("pre_writer", "post_turn") else "post_turn",
                 "cooldown_turns": _int(entry, "cooldown_turns", 0, 0, 50),
@@ -214,11 +208,6 @@ def card_embedded_fragments(
             },
         )
         if raw_type == DECISION_FIELD_TYPE:
-            # A decision is all-or-nothing. An unknown variant or a malformed
-            # definition is *skipped*, never demoted to a plain string field: a
-            # card naming a decision type Orb does not implement must contribute
-            # nothing rather than a fragment that means something else entirely
-            # and quietly joins the Director's tool schema.
             decision = _card_decision_columns(entry)
             if decision is None:
                 continue
@@ -229,14 +218,6 @@ def card_embedded_fragments(
 
 
 def _card_decision_columns(entry: Mapping[str, Any]) -> dict[str, Any] | None:
-    """Decode one card entry's decision columns, or ``None`` if unusable.
-
-    The trust boundary for card-authored decisions: every nesting level is
-    type-checked, prose is length-capped before it can be rendered or
-    fingerprinted, and the whole set is then validated by the same
-    ``core.decisions`` parser the authoring API uses -- so a card cannot express a
-    definition the editor would reject.
-    """
     columns: dict[str, Any] = {
         "decision_type": _text(entry, "decision_type", "noul"),
         "decision_placement": _text(entry, "decision_placement", "before_director"),
@@ -253,7 +234,6 @@ def _card_decision_columns(entry: Mapping[str, Any]) -> dict[str, Any] | None:
 
 
 def _card_outcome_map(raw: Any) -> dict[str, str] | None:
-    """An outcome-keyed string map from card data, length-capped, or ``None``."""
     if not isinstance(raw, Mapping):
         return None
     out: dict[str, str] = {}
@@ -266,27 +246,12 @@ def _card_outcome_map(raw: Any) -> dict[str, str] | None:
 
 
 def _card_threshold(raw: Any) -> float | None:
-    """A card-supplied threshold, or ``None`` for absent/unusable.
-
-    ``None`` is also the valid value in roll mode, so an unusable number and an
-    intentionally absent one land in the same place and the definition validator
-    decides whether that was allowed.
-    """
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         return None
     return float(raw)
 
 
 def card_decision_fingerprint(card: Mapping[str, Any] | None) -> str:
-    """A stable digest of a card's *valid* decision definitions.
-
-    What a per-card approval is recorded against. Only the fields that decide what
-    leaves this machine are hashed -- the question, its criteria, the state
-    template, and the variant -- so relabelling a decision or editing its authored
-    guidance keeps the approval, while changing what would be sent revokes it.
-    ``""`` when the card contributes no valid decision, which is the same value an
-    un-approvable card produces and therefore never matches a stored approval.
-    """
     _, interactive = card_embedded_fragments(card)
     definitions = [parse_decision_definition(row) for row in interactive if row.get("field_type") == DECISION_FIELD_TYPE]
     payload = [
@@ -320,12 +285,7 @@ async def cast_embedded_fragments(
     Cards are visited once each in roster order, so two members sharing a card
     contribute one copy and the merge order stays byte-stable.
 
-    The third element maps interactive-fragment id -> contributing card id. Card
-    attribution is not decoration: a decision fragment needs a per-card approval
-    before it may run, its share of the per-exchange budget is capped per card,
-    and the Inspector has to be able to name the card an imported decision came
-    from. Deriving it here rather than re-reading the cards is what keeps that
-    free -- the rows are already in hand.
+    The third element maps interactive-fragment id to its contributing card id.
     """
     moods, interactive = card_embedded_fragments(card)
     sources: dict[str, str] = {}
@@ -341,8 +301,6 @@ async def cast_embedded_fragments(
         member_moods, member_interactive = card_embedded_fragments(await get_character_card(member.card_id))
         moods.extend(member_moods)
         interactive.extend(member_interactive)
-        # First card wins, matching ``merge_fragments_by_id``: two members naming
-        # the same id contribute one fragment, so it has one source.
         for row in member_interactive:
             sources.setdefault(row["id"], member.card_id)
     return moods, interactive, sources

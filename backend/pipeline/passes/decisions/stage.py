@@ -1,24 +1,3 @@
-"""The before-Director decision stage: eligibility, batching, budgets, outcomes.
-
-The stage runs once per exchange, after context, branch history, persona and
-fragments are resolved and before the Director's first request. Its shape is
-fixed by three invariants:
-
-1. **One frozen snapshot per stage.** Every decision reads the same
-   :class:`~.render.DecisionSnapshot`, so no decision can observe a sibling's
-   result. That is why the snapshot is built by the caller and handed in whole.
-2. **All-or-nothing visibility.** Nothing the stage produces is published until
-   it finishes, whatever order the requests completed in.
-3. **A failure is always the author's fallback, never a guess.** Missing
-   configuration, unavailable context, an oversized input, an exhausted budget, a
-   transport failure, a timeout, and an invalid answer all land on the outcome
-   the author chose -- with a reason recorded and no fabricated probability.
-
-Budgets are counted in requests *after* grouping and packing, because grouping is
-what makes a batch cheap and counting before it would price the feature as if it
-had never been designed.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -77,20 +56,12 @@ from .resolve import (
 
 logger = logging.getLogger(__name__)
 
-# ── Server-side budgets, to be validated during the prototype ────────────────
-#: Eligible decisions per exchange, and the share any one card may take of them.
 MAX_DECISIONS_PER_EXCHANGE = 32
 MAX_DECISIONS_PER_CARD = 8
-#: Outbound requests per exchange, counted after grouping and packing.
 MAX_REQUEST_ATTEMPTS = 4
-#: Seconds per request, and for the whole stage. Two sequential timeouts can
-#: consume the entire stage budget; observed successful calls do not establish a
-#: worst case, so the stage budget is the one that actually bounds a turn.
 REQUEST_TIMEOUT_SECONDS = 3.0
 STAGE_BUDGET_SECONDS = 6.0
 
-#: The macros that supply scene content. When a template uses only these and all
-#: of them render empty, there is no situation to classify.
 _SITUATION_MACROS = frozenset({"last_message", "last_assistant_message", "recent_history"})
 
 _GLOBAL_SOURCE = "global"
@@ -98,13 +69,6 @@ _GLOBAL_SOURCE = "global"
 
 @dataclass(frozen=True, slots=True)
 class DecisionConfig:
-    """The resolved classifier configuration for one turn.
-
-    Credentials come from an existing endpoint row; ``endpoint_identity`` is the
-    host and row id, never the key, because it is part of a cache namespace that
-    must not carry a secret.
-    """
-
     url: str = ""
     api_key: str = ""
     model: str = ""
@@ -123,10 +87,7 @@ class DecisionConfig:
 
 @dataclass(frozen=True, slots=True)
 class DecisionCandidate:
-    """One enabled decision definition and where it came from."""
-
     definition: DecisionDefinition
-    #: ``global`` or the contributing card id. Card decisions need approval.
     card_id: str | None = None
 
     @property
@@ -136,19 +97,11 @@ class DecisionCandidate:
 
 @dataclass(frozen=True, slots=True)
 class DecisionsTurn:
-    """Everything the stage may read, frozen before it runs.
-
-    The stage has no other inputs on purpose: no ``PipelineContext``, no
-    database, no filesystem. What is not here is not available to a decision.
-    """
-
     snapshot: DecisionSnapshot
     candidates: tuple[DecisionCandidate, ...] = ()
     config: DecisionConfig = field(default_factory=DecisionConfig)
     prior_cooldowns: Mapping[str, int] = field(default_factory=dict)
-    #: The regeneration target's own evaluation records, if this is a regenerate.
     replay_records: tuple[Mapping[str, Any], ...] = ()
-    #: Cards whose decision definitions this machine has approved, as they stand.
     approved_cards: frozenset[str] = frozenset()
 
     @property
@@ -158,8 +111,6 @@ class DecisionsTurn:
 
 @dataclass(slots=True)
 class DecisionsResult:
-    """What the stage publishes, all at once, when it is done."""
-
     evaluations: list[dict[str, Any]] = field(default_factory=list)
     skipped: list[dict[str, Any]] = field(default_factory=list)
     cooldowns: dict[str, int] = field(default_factory=dict)
@@ -168,20 +119,14 @@ class DecisionsResult:
     requests: int = 0
 
     def as_event_data(self) -> dict[str, Any]:
-        """The Inspector payload. Probabilities and draws belong here, not in a prompt."""
         return {"evaluations": self.evaluations, "skipped": self.skipped, "cooldowns": self.cooldowns}
 
     def as_envelope(self) -> dict[str, Any]:
         return envelope(self.evaluations, self.skipped)
 
 
-# ── Preparation: one rendered, fingerprinted, budget-checked candidate ────────
-
-
 @dataclass(slots=True)
 class _Prepared:
-    """A candidate carried through the stage with everything it needs."""
-
     candidate: DecisionCandidate
     state: str = ""
     instructions: str = ""
@@ -189,11 +134,8 @@ class _Prepared:
     outputs: dict[str, str] = field(default_factory=dict)
     raw_fingerprint: str = ""
     policy_fingerprint: str = ""
-    #: Set when the decision cannot be asked; it resolves to its fallback.
     fallback_reason: str = ""
-    #: Recorded for an oversized input, whose text is deliberately not kept.
     oversize: tuple[int, int] = (0, 0)
-    #: Why a stored record for this fragment was not replayed, when one existed.
     replay_invalidated: str = ""
 
     @property
@@ -210,24 +152,10 @@ class _Prepared:
 
 
 def _resolve_text(text: str, snapshot: DecisionSnapshot) -> str:
-    """Resolve the three identity macros allowed in authored decision text.
-
-    Resolved before fingerprinting and before injection, so the cache key and
-    the Inspector both show what the classifier actually read. Random, clock and
-    date macros are not supported here: the first would fragment the cache, and
-    the second two would make an unchanged question look different every minute.
-    """
     return render(text, snapshot, allowed=TEXT_MACROS)
 
 
 def _eligible(turn: DecisionsTurn) -> tuple[list[DecisionCandidate], list[dict[str, Any]]]:
-    """Split candidates into those that run this exchange and those skipped.
-
-    Deterministic order decides who fits: candidates arrive in fragment order --
-    the existing global/card merge with its offset keeping card fragments after
-    globals -- so reordering decisions changes budget priority, and nothing else
-    does.
-    """
     running: list[DecisionCandidate] = []
     skipped: list[dict[str, Any]] = []
     resting = cooldown.blocked(turn.prior_cooldowns)
@@ -245,28 +173,16 @@ def _eligible(turn: DecisionsTurn) -> tuple[list[DecisionCandidate], list[dict[s
     for candidate in turn.candidates:
         definition = candidate.definition
         if candidate.card_id and candidate.card_id not in turn.approved_cards:
-            # Checked before the response cache and before replay: an
-            # unapproved card must not be able to reach a stored answer either,
-            # or approval would only gate the first turn.
             _skip(candidate, SkipReason.NOT_APPROVED)
             continue
         if definition.fragment_id in resting:
             _skip(candidate, SkipReason.RESTING)
             continue
-        # Budget is not eligibility: an over-budget decision is eligible and
-        # records a fallback, which ``_over_budget`` decides on the surviving
-        # order. Only the three reasons above mean "did not run at all".
         running.append(candidate)
     return running, skipped
 
 
 def _over_budget(running: Sequence[DecisionCandidate]) -> set[str]:
-    """Which eligible decisions exceed the per-exchange and per-card caps.
-
-    They still appear in the Inspector, with their authored default as the
-    outcome: an enabled decision that silently vanished would leave an author
-    debugging a scene that never asked its question.
-    """
     over: set[str] = set()
     per_card: dict[str, int] = {}
     for index, candidate in enumerate(running):
@@ -284,11 +200,6 @@ def _over_budget(running: Sequence[DecisionCandidate]) -> set[str]:
 
 
 def _prepare(candidate: DecisionCandidate, turn: DecisionsTurn, *, over_budget: bool) -> _Prepared:
-    """Render and validate one candidate against the frozen snapshot.
-
-    Independently of its siblings: a template that will not render is this
-    decision's problem, and its neighbours still get asked.
-    """
     definition = candidate.definition
     prepared = _Prepared(candidate=candidate)
     snapshot = turn.snapshot
@@ -311,8 +222,6 @@ def _prepare(candidate: DecisionCandidate, turn: DecisionsTurn, *, over_budget: 
         prepared.instructions = _resolve_text(definition.instructions, snapshot)
         prepared.criteria = {key: _resolve_text(value, snapshot) for key, value in definition.criteria.items()}
     except UnavailableMacro as unavailable:
-        # A solo fragment using {{description}} in a group. Never infer an owning
-        # or speaking member: the answer would be about a character nobody chose.
         logger.info(
             "Decision %s: {{%s}} is unavailable in %s scope; using the authored fallback",
             definition.fragment_id,
@@ -322,20 +231,10 @@ def _prepare(candidate: DecisionCandidate, turn: DecisionsTurn, *, over_budget: 
         prepared.fallback_reason = FallbackReason.UNAVAILABLE_CONTEXT
         return prepared
 
-    # The emptiness test is on the macro *values*, not on the rendered text: a
-    # template whose only macros are scene content and whose scene content is all
-    # empty has nothing to classify, however much literal prose frames it. A
-    # custom template that supplies an explicit situation uses some other macro
-    # (or none) and is therefore never caught here.
     if used and used <= _SITUATION_MACROS and not any((snapshot.value(macro) or "").strip() for macro in used):
         prepared.fallback_reason = FallbackReason.EMPTY_INPUT
         return prepared
     if oversized_state(prepared.state) or oversized_question(prepared.instructions, prepared.criteria):
-        # Never silently truncate what is *sent* -- the dropped half is exactly as
-        # likely to hold the fact that decides the answer -- so nothing is sent at
-        # all. The record keeps the measurements rather than the prose: an author
-        # needs the number, and echoing an over-limit state back onto every reply
-        # would store the bytes the limit exists to avoid.
         prepared.oversize = (
             len(prepared.state.encode("utf-8")),
             len(prepared.instructions.encode("utf-8")) + sum(len(text.encode("utf-8")) for text in prepared.criteria.values()),
@@ -356,9 +255,6 @@ def _prepare(candidate: DecisionCandidate, turn: DecisionsTurn, *, over_budget: 
     return prepared
 
 
-# ── Records ──────────────────────────────────────────────────────────────────
-
-
 def _record(
     prepared: _Prepared,
     turn: DecisionsTurn,
@@ -375,12 +271,6 @@ def _record(
     usage_owner: bool = False,
     occurrence_id: str | None = None,
 ) -> dict[str, Any]:
-    """Build one evaluation record.
-
-    Every record snapshots the guidance actually used, so the Inspector shows the
-    words that reached the model on *this* turn rather than whatever the fragment
-    says now.
-    """
     definition = prepared.definition
     record: dict[str, Any] = {
         "fragment_id": definition.fragment_id,
@@ -409,11 +299,7 @@ def _record(
         record["state_limit"] = MAX_STATE_BYTES
         record["question_limit"] = MAX_QUESTION_BYTES
     if prepared.replay_invalidated:
-        # A fresh occurrence on an otherwise-unchanged reply needs a stated
-        # reason, or the Inspector shows a reroll nobody asked for.
         record["replay_invalidated"] = prepared.replay_invalidated
-    # Absent rather than null: a fallback has no probability to report, and
-    # writing one would invite a reader to average it with real answers.
     if probability is not None:
         record["probability"] = probability
     if draw is not None:
@@ -424,8 +310,6 @@ def _record(
         record["request_id"] = request_id
     if usage:
         record["usage"] = dict(usage)
-        # One owner per shared request, so a batch's cost is reported once
-        # instead of being counted again for every fragment that rode it.
         record["usage_owner"] = 1 if usage_owner else 0
     return record
 
@@ -448,7 +332,6 @@ def _resolved(
     usage: Mapping[str, Any] | None = None,
     usage_owner: bool = False,
 ) -> dict[str, Any]:
-    """Resolve a probability into an outcome by the definition's own policy."""
     definition = prepared.definition
     if definition.resolution == "roll":
         draw = draw_uniform()
@@ -472,13 +355,6 @@ def _resolved(
 
 
 def _replayed(prepared: _Prepared, turn: DecisionsTurn, stored: Mapping[str, Any]) -> dict[str, Any]:
-    """Reuse the target's own outcome, with this turn's guidance.
-
-    The answer, the draw and the outcome come from the stored record; the
-    rendered guidance is resolved fresh. That split is what lets an author edit
-    an output and see the change on the next regeneration without another
-    classifier call and without a new roll.
-    """
     record = _record(
         prepared,
         turn,
@@ -490,23 +366,11 @@ def _replayed(prepared: _Prepared, turn: DecisionsTurn, stored: Mapping[str, Any
         fallback_reason=str(stored.get("fallback_reason") or ""),
         occurrence_id=str(stored.get("occurrence_id") or "") or None,
     )
-    # A replayed fallback stays a fallback: pressing regenerate asked for a
-    # different reply, not for a retry of the provider that just failed.
     record["replayed_from"] = str(stored.get("answer_source") or "")
     return record
 
 
-# ── Batching ─────────────────────────────────────────────────────────────────
-
-
 def _batches(pending: Sequence[_Prepared]) -> list[list[_Prepared]]:
-    """Group by identical rendered state, then pack within the request limits.
-
-    Adjacency is neither required nor sufficient: two decisions batch because
-    they ask about the same state, not because they sit next to each other in the
-    list. Unrelated states are never concatenated to force a batch -- that would
-    change the question every one of them is answering.
-    """
     by_state: dict[str, list[_Prepared]] = {}
     for prepared in pending:
         by_state.setdefault(prepared.state, []).append(prepared)
@@ -529,37 +393,20 @@ def _batches(pending: Sequence[_Prepared]) -> list[list[_Prepared]]:
 
 
 def _batch_bytes(batch: Sequence[_Prepared]) -> int:
-    """An upper bound on one batch's serialized body.
-
-    The shared state is counted once, because it is sent once -- which is the
-    whole economic argument for batching in the first place.
-    """
     state = len(batch[0].state.encode("utf-8")) if batch else 0
     return state + sum(prepared.question().rendered_bytes() for prepared in batch) + 64 * len(batch)
 
 
-# ── The stage ────────────────────────────────────────────────────────────────
-
-
 def stage_has_work(turn: DecisionsTurn) -> bool:
-    """Whether this exchange has any decision to evaluate or record."""
     return bool(turn.candidates)
 
 
 async def run_decisions(turn: DecisionsTurn, *, abort: AbortToken | None = None) -> DecisionsResult:
-    """Evaluate every eligible decision and publish the outcomes together.
-
-    Raises :class:`DecisionCancelled` if the user stops. A stop is not a provider
-    failure: it must not produce fallback guidance and must not let generation
-    continue, so it propagates rather than being folded into a result.
-    """
     started = time.monotonic()
     running, skipped = _eligible(turn)
     over_budget = _over_budget(running)
     prepared = [_prepare(candidate, turn, over_budget=candidate.definition.fragment_id in over_budget) for candidate in running]
 
-    # Fragment order throughout, so the published guidance order is the authored
-    # order regardless of which batch answered first.
     records: dict[str, dict[str, Any]] = {}
     pending: list[_Prepared] = []
     for item in prepared:
@@ -587,8 +434,6 @@ async def run_decisions(turn: DecisionsTurn, *, abort: AbortToken | None = None)
         if hit is None:
             still_pending.append(item)
             continue
-        # A cache hit reuses the recorded answer, and roll mode still draws
-        # fresh: this is a new occurrence, so it gets its own dice.
         records[item.definition.fragment_id] = _resolved(
             item, turn, hit.probability, answer_source="cache", returned_model=hit.returned_model
         )
@@ -604,9 +449,6 @@ async def run_decisions(turn: DecisionsTurn, *, abort: AbortToken | None = None)
         requests=requests,
     )
     result.guidance = decision_guidance_block(result.evaluations)
-    # Cooldowns advance for every evaluation -- live, cached, replayed or fallen
-    # back -- and age even when nothing was eligible, so disabling every decision
-    # cannot freeze a timer.
     result.cooldowns = cooldown.advance(
         turn.prior_cooldowns,
         [record["fragment_id"] for record in result.evaluations],
@@ -623,12 +465,6 @@ async def _issue(
     started: float,
     abort: AbortToken | None,
 ) -> int:
-    """Send the grouped batches sequentially and fold their answers in.
-
-    Sequential in the first release, which buys simple cancellation and a budget
-    that is actually the sum of what ran. Returns the number of requests issued,
-    counted after grouping and packing.
-    """
     client = DecisionClient(
         turn.config.url,
         api_key=turn.config.api_key,
@@ -651,8 +487,6 @@ async def _issue(
             response = await client.decide(
                 batch[0].state,
                 [item.question() for item in batch],
-                # Capped by the exchange's remaining decision time, so two
-                # sequential timeouts cannot exceed the stage budget between them.
                 timeout=min(REQUEST_TIMEOUT_SECONDS, remaining),
                 abort=abort,
             )
@@ -664,9 +498,6 @@ async def _issue(
                 records.setdefault(item.definition.fragment_id, _fallback(item, turn, FallbackReason.TIMEOUT))
             continue
         except (LLMCallError, DecisionTransportError, httpx.HTTPError) as error:
-            # No retry and no split-and-retry in the interactive path: a rate
-            # limit or a refused batch must not become unbounded extra attempts
-            # inside a turn the user is waiting on.
             logger.warning("Decision batch of %d failed (%r); using authored fallbacks", len(batch), error)
             for item in batch:
                 records.setdefault(item.definition.fragment_id, _fallback(item, turn, FallbackReason.TRANSPORT_FAILURE))
@@ -676,8 +507,6 @@ async def _issue(
         for item in batch:
             probability = response.answers.get(item.definition.fragment_id)
             if probability is None:
-                # One invalid sibling is isolated: a partially valid response
-                # still supplies its valid answers.
                 records.setdefault(item.definition.fragment_id, _fallback(item, turn, FallbackReason.INVALID_ANSWER))
                 continue
             RAW_ANSWER_CACHE.put(
@@ -697,18 +526,3 @@ async def _issue(
             )
             first = False
     return issued
-
-
-__all__ = [
-    "MAX_DECISIONS_PER_CARD",
-    "MAX_DECISIONS_PER_EXCHANGE",
-    "MAX_REQUEST_ATTEMPTS",
-    "REQUEST_TIMEOUT_SECONDS",
-    "STAGE_BUDGET_SECONDS",
-    "DecisionCandidate",
-    "DecisionConfig",
-    "DecisionsResult",
-    "DecisionsTurn",
-    "run_decisions",
-    "stage_has_work",
-]
