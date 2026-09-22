@@ -87,7 +87,6 @@ SEED_INTERACTIVE_FRAGMENTS = [
     {
         "id": "outcome",
         "label": "Outcome",
-        "description": "Resolve whether the action in the current request succeeds.",
         "field_type": "decision",
         "required": False,
         "enabled": False,

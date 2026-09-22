@@ -330,9 +330,7 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
     id: "e.g. outcome",
     label: "e.g. Outcome",
     injection_label: "e.g. Outcome",
-    description: "What this question decides, e.g. 'whether the attempt in the current request succeeds'",
-    inj_hint: "labels the injected guidance",
-    desc_hint: "for you; the Judge reads the question below, not this",
+    inj_hint: "for Director & Writer",
   },
   post_processing: {
     id: "e.g. tighten_dialogue",
@@ -352,9 +350,6 @@ let _editingStoredDecision = false;
 function _openDecisionDraft(fragment) {
   _editingStoredDecision = fragment.field_type === "decision";
   initDecisionDraft(fragment);
-  // The draft renders from the cached config. If the cache is cold the section
-  // paints its "cannot render controls" state, and this repaints it in place
-  // once the payload lands.
   ensureDecisionConfig().then(() => {
     repaintDecisionSection();
   });
@@ -362,6 +357,7 @@ function _openDecisionDraft(fragment) {
 
 export function updateInteractiveFragmentExample(fieldType) {
   const ex = INTERACTIVE_FRAGMENT_EXAMPLES[fieldType] || INTERACTIVE_FRAGMENT_EXAMPLES.string;
+  const isDecision = fieldType === "decision";
   const set = (elId, placeholder) => {
     const el = document.getElementById(elId);
     if (el) el.placeholder = placeholder;
@@ -369,16 +365,19 @@ export function updateInteractiveFragmentExample(fieldType) {
   set("interactive-frag-id", ex.id);
   set("interactive-frag-label", ex.label);
   set("interactive-frag-inj-label", ex.injection_label);
-  set("interactive-frag-desc", ex.description);
+  set("interactive-frag-desc", ex.description || "");
   const setHint = (elId, text) => {
     const el = document.getElementById(elId);
     if (el) el.textContent = `(${text})`;
   };
   setHint("interactive-frag-inj-hint", ex.inj_hint);
-  setHint("interactive-frag-desc-hint", ex.desc_hint);
+  setHint("interactive-frag-desc-hint", ex.desc_hint || "");
   const timingRow = document.getElementById("interactive-frag-timing-row");
   if (timingRow) timingRow.style.display = fieldType === "direction_note" ? "" : "none";
-  const isDecision = fieldType === "decision";
+  // A decision carries no description: the Judge reads the question and the
+  // outcomes, and nothing else reads it either, so the field is not shown.
+  const descRow = document.getElementById("interactive-frag-desc-row");
+  if (descRow) descRow.style.display = isDecision ? "none" : "";
   // A decision is never a Director tool property -- its guidance is injected as
   // trailing context -- so "required" has nothing to be required of.
   const hideRequired = fieldType === "post_processing" || isDecision;
@@ -429,8 +428,9 @@ function _interactiveFragFormHtml(d, isEdit) {
       <div class="field"><label>Cooldown (turns)</label>
         <input id="interactive-frag-cooldown" type="number" min="0" max="50" step="1" value="${escAttr(d.cooldown_turns || 0)}"></div>
     </div>
-    <div class="field"><label>Description <span id="interactive-frag-desc-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.desc_hint)})</span></label>
-      <textarea id="interactive-frag-desc" rows="4" placeholder="${escAttr(ex.description)}">${esc(d.description)}</textarea></div>
+    <div class="field" id="interactive-frag-desc-row" style="${d.field_type === "decision" ? "display:none" : ""}">
+      <label>Description <span id="interactive-frag-desc-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.desc_hint || "")})</span></label>
+      <textarea id="interactive-frag-desc" rows="4" placeholder="${escAttr(ex.description || "")}">${esc(d.description)}</textarea></div>
     <div class="field-row" id="interactive-frag-required-row" style="${d.field_type === "post_processing" || d.field_type === "decision" ? "display:none" : ""}">
       <div class="field" style="align-self:flex-end;padding-bottom:4px">
         <label class="modal-checkbox-label">
@@ -449,7 +449,7 @@ function _readInteractiveFragForm() {
   const base = {
     id: document.getElementById("interactive-frag-id").value.trim(),
     label: document.getElementById("interactive-frag-label").value.trim(),
-    description: document.getElementById("interactive-frag-desc").value.trim(),
+    description: fieldType === "decision" ? "" : document.getElementById("interactive-frag-desc").value.trim(),
     field_type: fieldType,
     required:
       fieldType === "post_processing" || fieldType === "decision"

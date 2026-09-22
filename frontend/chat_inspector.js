@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 import { renderContextSize, renderMessages } from "./chat_core.js";
-import { currentDecisionsHtml } from "./chat_decisions.js";
+import { currentDecisionsHtml, DECISIONS_SECTION_ID } from "./chat_decisions.js";
 import { USER_NOTE_ID } from "./direction_notes_panel.js";
 import { CHEVRON_RIGHT_ICON } from "./icons.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
@@ -114,6 +114,22 @@ document.addEventListener("change", (e) => {
   if (e.target.id === "reasoning-prefill")
     api.put("/settings", { reasoning_prefill_passes: { ...S.reasoningPrefill } });
 });
+// `toggle` does not bubble, so the Decisions block is watched in the capture
+// phase rather than given an inline `ontoggle` like the sections above it.
+//
+// Firefox fires `toggle` for a `<details open>` that arrives through innerHTML,
+// and the Inspector rebuilds its whole panel on every repaint -- so the state is
+// compared before it is written. The section is rendered *from* this flag, which
+// makes a repaint's event always a no-op and a click always a real change.
+document.addEventListener(
+  "toggle",
+  (e) => {
+    if (e.target.id !== DECISIONS_SECTION_ID || S.decisionsOpen === e.target.open) return;
+    S.decisionsOpen = e.target.open;
+    saveInspectorOpenStates();
+  },
+  true,
+);
 
 function _refreshReasoningSection() {
   const existing = document.getElementById("reasoning-section");
@@ -412,6 +428,7 @@ export function saveInspectorOpenStates() {
         tool_calls: S.toolCallsOpen,
         injection_block: S.injectionBlockOpen,
         context_size: S.contextSizeOpen,
+        decisions: S.decisionsOpen,
       },
     })
     .catch(() => {});

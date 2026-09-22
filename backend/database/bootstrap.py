@@ -190,7 +190,8 @@ async def _seed_interactive_fragments(db) -> None:
             (
                 df["id"],
                 df["label"],
-                df["description"],
+                # A decision seeds no description: nothing reads one.
+                df.get("description", ""),
                 df["field_type"],
                 1 if df["required"] else 0,
                 1 if df.get("enabled", True) else 0,

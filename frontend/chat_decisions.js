@@ -13,7 +13,6 @@
 //     newer one is left alone.
 import {
   answerSourceText,
-  decisionSourceText,
   distributionPairs,
   formatProbability,
   formatScore,
@@ -118,7 +117,8 @@ function _chip(text, kind) {
  */
 function _outcomeChip(record, type) {
   if (record.skip_reason) {
-    return _chip(isGatedReason(record.skip_reason) ? "gated" : "no outcome", "skipped");
+    const gated = isGatedReason(record.skip_reason);
+    return _chip(gated ? "gated" : "no outcome", gated ? "gated" : "skipped");
   }
   if (record.outcome === undefined || record.outcome === null) return _chip("no outcome", "skipped");
   return _chip(outcomeLabel(type, String(record.outcome)), "resolved");
@@ -130,24 +130,6 @@ function _guidanceHtml(record) {
     return `<div class="decision-guidance decision-guidance-empty">Nothing injected for this outcome.</div>`;
   }
   return `<div class="decision-guidance">${esc(guidance)}</div>`;
-}
-
-/**
- * The shared request's usage, shown once on the record that owns it.
- *
- * One request carries every decision that shares a situation, so repeating its
- * cost per decision would multiply a number that was only paid once. A gateway
- * that reports no cost is labelled unavailable rather than rendered as zero.
- */
-function _usageHtml(record) {
-  if (!record.usage_owner) return "";
-  const usage = record.usage || {};
-  const bits = [];
-  const tokens = usage.total_tokens ?? usage.prompt_tokens;
-  if (Number.isFinite(tokens)) bits.push(`${tokens} tokens`);
-  bits.push(Number.isFinite(usage.cost) ? `$${Number(usage.cost).toFixed(6)}` : "cost unavailable");
-  if (record.request_id) bits.push(esc(record.request_id));
-  return `<div class="decision-usage">Shared request: ${bits.join(" · ")}</div>`;
 }
 
 function _evaluationHtml(record) {
@@ -165,17 +147,13 @@ function _evaluationHtml(record) {
       <span class="decision-meta">${esc(meta.join(" · "))}</span>
     </summary>
     <div class="decision-eval-body">
-      <div class="decision-meta decision-eval-source">${esc(decisionSourceText(record.source))}${
-        record.returned_model ? ` · ${esc(record.returned_model)}` : ""
-      }</div>
       ${
         record.replay_invalidated
           ? `<div class="decision-reason">The message this was anchored to is gone, so the stored answer was not replayed.</div>`
           : ""
       }
-      ${_distributionHtml(record, _selectedKey(record))}
+      ${_distributionHtml(record, _selectedKey(record), record.skip_reason ? "answer discarded" : "")}
       ${_guidanceHtml(record)}
-      ${_usageHtml(record)}
       ${
         record.rendered_state
           ? `<details class="decision-state"><summary><span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>Situation sent</summary><div class="injection-box">${esc(record.rendered_state)}</div></details>`
@@ -190,18 +168,41 @@ function _skippedHtml(entry) {
   // nothing. Painting a `false` here would be the panel inventing a result.
   //
   // The oversize numbers are the one skip detail worth spelling out, because
-  // "too big" is not actionable without the size that was too big.
+  // "too big" is not actionable without the size that was too big. Only the
+  // numbers: the reason beside the chip has already said what went wrong.
   const oversize = entry.oversize_state_bytes || entry.oversize_question_bytes;
   return `<div class="decision-skipped-row${entry.failed ? " decision-skipped-failed" : ""}">
-    <span class="decision-eval-name">${esc(entry.fragment_label || entry.fragment_id || "")}</span>
+    <span class="decision-skipped-name">${esc(entry.fragment_label || entry.fragment_id || "")}</span>
     ${_chip(entry.failed ? "failed" : "skipped", entry.failed ? "failed" : "skipped")}
-    <span class="decision-meta">${esc(skipReasonText(entry.reason))} · ${esc(decisionSourceText(entry.source))}</span>
+    <span class="decision-meta">${esc(skipReasonText(entry.reason))}</span>
     ${
       oversize
-        ? `<div class="decision-reason">Rendered input was over the limit (state ${entry.oversize_state_bytes || 0}/${entry.state_limit || 0} bytes, question ${entry.oversize_question_bytes || 0}/${entry.question_limit || 0} bytes).</div>`
+        ? `<div class="decision-skipped-sizes">state ${entry.oversize_state_bytes || 0}/${entry.state_limit || 0} B · question ${entry.oversize_question_bytes || 0}/${entry.question_limit || 0} B</div>`
         : ""
     }
   </div>`;
+}
+
+/** The id the Inspector's toggle listener watches to persist this block's open state. */
+export const DECISIONS_SECTION_ID = "decisions-section";
+
+/**
+ * The block's outer shell.
+ *
+ * A `details`, like Reasoning, Tool Calls and Injection Block beside it: this is
+ * the only Inspector section whose height grows with the turn, so it is the one
+ * that most needs folding away -- and a section whose rows carry disclosure
+ * arrows while its own heading carries none reads as though the first row's
+ * arrow belongs to the heading.
+ */
+function _sectionHtml(body) {
+  return `<details class="inspector-block decision-block" id="${DECISIONS_SECTION_ID}"${S.decisionsOpen ? " open" : ""}>
+    <summary class="reasoning-summary">
+      <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
+      <h4>Decisions</h4>
+    </summary>
+    <div class="decision-block-body">${body}</div>
+  </details>`;
 }
 
 /**
@@ -217,20 +218,19 @@ export function buildDecisionsHtml(source, { live = false } = {}) {
     // A newer envelope than this client knows. Say so rather than rendering the
     // fields that happen to be recognisable.
     if (source.version !== undefined) {
-      return `<div class="inspector-block"><h4>Decisions</h4>
-        <div class="decision-unreadable">This turn's decisions were recorded by a newer version of Orb and are not shown here.</div>
-      </div>`;
+      return _sectionHtml(
+        `<div class="decision-unreadable">This turn's decisions were recorded by a newer version of Orb and are not shown here.</div>`,
+      );
     }
     return "";
   }
   const evaluations = Array.isArray(source.evaluations) ? source.evaluations : [];
   const skipped = Array.isArray(source.skipped) ? source.skipped : [];
   if (!evaluations.length && !skipped.length) return "";
-  return `<div class="inspector-block decision-block">
-    <h4>Decisions</h4>
-    ${evaluations.map(_evaluationHtml).join("")}
-    ${skipped.length ? `<div class="decision-skipped">${skipped.map(_skippedHtml).join("")}</div>` : ""}
-  </div>`;
+  return _sectionHtml(
+    evaluations.map(_evaluationHtml).join("") +
+      (skipped.length ? `<div class="decision-skipped">${skipped.map(_skippedHtml).join("")}</div>` : ""),
+  );
 }
 
 /**

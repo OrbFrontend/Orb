@@ -116,6 +116,7 @@ export const S = {
   reasoningOpen: true,
   toolCallsOpen: false,
   injectionBlockOpen: false,
+  decisionsOpen: true,
   contextSizeOpen: true,
   inspectedMsgId: null, // message shown in the Inspector
   inspectedDirectorData: null, // director data for the inspected message

@@ -272,7 +272,7 @@
 .card-decision-status { font-size: 11px; line-height: 1.4; color: var(--text-muted); }
 .card-decision-status-error { color: var(--red); }
 
-/* ── Inspector ────────────────────────────────────────────────────────────── */
+/* ── Inspector ─────────────────────────────────────────────── */
 
 .msg-decision-badge {
   display: inline-block;
@@ -287,7 +287,17 @@
   margin-left: 2px;
 }
 
-.decision-block > .decision-eval { margin-bottom: 6px; }
+/* The rows carry disclosure arrows of their own, so they step in from the
+   section's: two arrow columns at one x read as one flat list, not as a list
+   inside a section. */
+.decision-block-body { margin-top: 8px; padding-left: 8px; }
+
+.decision-block-body > .decision-eval { margin-bottom: 6px; }
+
+/* An expanded row ends in prose or a nested box; the next row's name follows
+   immediately under it. The extra step is what says the body stopped, without
+   spending a rule on saying it. */
+.decision-block-body > .decision-eval[open] { margin-bottom: 12px; }
 
 .decision-block :is(.decision-eval, .decision-state) > summary {
   list-style: none;
@@ -309,8 +319,10 @@
 
 /* The meta almost always wraps at the Inspector's width. Hanging the arrow in
    the gutter puts the wrapped line under the name rather than under the arrow,
-   on the same 16px the body below it uses. */
-.decision-eval > summary { padding-left: 16px; }
+   on the same 16px the body below it uses -- and the skip rows, which carry no
+   arrow of their own, take the same inset so the block has one left edge. */
+.decision-eval > summary,
+.decision-skipped-row { padding-left: 16px; }
 .decision-eval > summary > .reasoning-summary-arrow { margin-left: -16px; }
 
 .decision-eval-name {
@@ -325,8 +337,7 @@
   color: var(--text-muted);
 }
 
-.decision-eval-body { padding: 6px 0 8px 16px; }
-.decision-eval-source { margin-bottom: 6px; }
+.decision-eval-body { padding: 4px 0 0 16px; }
 
 .decision-chip {
   display: inline-block;
@@ -351,23 +362,22 @@
   margin-bottom: 6px;
 }
 
-
+/* A quotation, not a panel. The guidance is one line of prose two levels deep
+   in a 340px column, and a filled, bordered card at that depth boxes a box --
+   the same reason .decision-problem and .feedback-row.user-note mark their
+   text with a rule instead. The accent still says "this is what was injected". */
 .decision-guidance {
   font-size: 11px;
   line-height: 1.5;
   color: var(--text-secondary);
-  background: var(--accent-glow);
-  border: 1px solid var(--accent-dim);
-  border-radius: var(--radius);
-  padding: 6px 8px;
+  border-left: 2px solid var(--accent-dim);
+  padding: 1px 0 1px 9px;
   margin: 6px 0;
   white-space: pre-wrap;
 }
 
 .decision-guidance-empty {
-  background: transparent;
-  border-style: dashed;
-  border-color: var(--border);
+  border-left-color: var(--border);
   color: var(--text-muted);
   font-style: italic;
 }
@@ -415,21 +425,14 @@
 .decision-dist-selected .decision-dist-bar > span { background: var(--accent); }
 .decision-dist-value { text-align: right; }
 
+.decision-state { margin-top: 8px; }
+
 .decision-state > summary {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: .4px;
   color: var(--text-muted);
 }
-
-.decision-usage {
-  font-size: 10px;
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-  margin-top: 8px;
-}
-
-.decision-state { margin-top: 6px; }
 
 .decision-state .injection-box { margin-top: 6px; }
 
@@ -446,12 +449,30 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
-.decision-skipped-failed .decision-eval-name { color: var(--dec-warn); }
+/* Quieter than an evaluation's name: this decision resolved to nothing, and a
+   row that reached the story should not have to compete with one that did not. */
+.decision-skipped-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
 
-.decision-skipped-row .decision-reason { flex-basis: 100%; }
+.decision-skipped-failed .decision-skipped-name { color: var(--dec-warn); }
+
+.decision-skipped-sizes {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--dec-warn);
+  margin-top: 2px;
+}
+
+/* Name and chip on the first line, the reason under them: at this width the
+   reason otherwise wraps somewhere in its own middle. */
+.decision-skipped-row > :is(.decision-meta, .decision-reason, .decision-skipped-sizes) { flex-basis: 100%; }
+.decision-skipped-row .decision-reason { margin: 2px 0 0; }
 
 .decision-unreadable {
   font-size: 11px;

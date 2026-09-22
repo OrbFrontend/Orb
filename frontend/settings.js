@@ -100,6 +100,7 @@ export async function loadSettings() {
     if (typeof ios.tool_calls === "boolean") S.toolCallsOpen = ios.tool_calls;
     if (typeof ios.injection_block === "boolean") S.injectionBlockOpen = ios.injection_block;
     if (typeof ios.context_size === "boolean") S.contextSizeOpen = ios.context_size;
+    if (typeof ios.decisions === "boolean") S.decisionsOpen = ios.decisions;
   }
 
   if (typeof S.settings.show_editor_diff === "number") S.showEditorDiff = S.settings.show_editor_diff !== 0;

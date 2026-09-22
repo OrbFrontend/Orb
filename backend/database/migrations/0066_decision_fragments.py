@@ -139,7 +139,7 @@ def _seed_outcome(conn: sqlite3.Connection) -> None:
         (
             outcome["id"],
             outcome["label"],
-            outcome["description"],
+            outcome.get("description", ""),
             outcome["field_type"],
             0,
             0,
