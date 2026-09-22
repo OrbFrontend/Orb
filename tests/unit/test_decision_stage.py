@@ -161,7 +161,7 @@ async def test_a_live_answer_resolves_injects_and_records(monkeypatch):
     assert record["returned_model"] == "typesafe/jev-1.13.2"
     assert record["input_branch_anchor"] == 42
     assert "draw" not in record  # threshold mode has no draw to report
-    assert result.guidance == "**Resolved Decisions**\n\nOutcome: outcome succeeded."
+    assert result.guidance == "**Major Decisions**\n\nOutcome: outcome succeeded."
     assert result.requests == 1
 
 
@@ -354,7 +354,7 @@ async def test_the_rest_of_the_stage_runs_when_one_decision_cannot_answer(monkey
 
     assert gateway.batches == [["good"]]
     assert _by_id(result)["good"]["outcome"] == "true"
-    assert result.guidance == "**Resolved Decisions**\n\nGood: good succeeded."
+    assert result.guidance == "**Major Decisions**\n\nGood: good succeeded."
     assert _skips(result)["broken"]["reason"] == SkipReason.UNAVAILABLE_CONTEXT
 
 
@@ -584,7 +584,7 @@ async def test_editing_only_the_output_changes_the_prompt_with_no_call_and_no_re
     assert record["answer_source"] == "replay"
     assert record["draw"] == original[0]["draw"]
     assert record["guidance"] == "New words for the same outcome."
-    assert replayed.guidance == "**Resolved Decisions**\n\nRenamed: New words for the same outcome."
+    assert replayed.guidance == "**Major Decisions**\n\nRenamed: New words for the same outcome."
 
 
 async def test_a_changed_question_creates_a_new_occurrence(monkeypatch):

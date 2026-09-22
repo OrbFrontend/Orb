@@ -357,7 +357,7 @@ async def test_a_resolved_decision_reaches_the_director_tail_and_the_writer(clie
 
     # The Writer's Scene Guidance carries the authored words, not the dice.
     injection = _event(events, "director_done")["injection_block"]
-    assert "**Resolved Decisions**\n\nDoorway: Alric holds the doorway." in injection
+    assert "**Major Decisions**\n\nDoorway: Alric holds the doorway." in injection
     assert "0.9" not in injection
 
     # So does the Director's own trailing request.
@@ -471,7 +471,7 @@ async def test_a_resting_decision_is_recorded_as_skipped_without_an_outcome(clie
     published = _event(events, "decisions")
     assert published["evaluations"] == []
     assert published["skipped"][0]["reason"] == "resting"
-    assert "Resolved Decisions" not in _event(events, "director_done")["injection_block"]
+    assert "Major Decisions" not in _event(events, "director_done")["injection_block"]
     assert len(gateway.batches) == 1
     # The timer still ages while resting.
     assert (await _last_assistant(cid))["decision_cooldowns"] == {"outcome": 1}

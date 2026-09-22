@@ -1,7 +1,7 @@
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-HEADING = "**Resolved Decisions**"
+HEADING = "**Major Decisions**"
 
 
 def decision_guidance_block(evaluations: Sequence[Mapping[str, Any]]) -> str:

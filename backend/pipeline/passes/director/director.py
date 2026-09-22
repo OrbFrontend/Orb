@@ -600,12 +600,13 @@ async def director_stage(
     state.scene_direction = state.inj_block
     if notes_block and direction_note_to_writer(settings):
         state.inj_block = (state.inj_block + "\n\n" + notes_block).strip()
-    # Appended here, after the Director's result has already been folded in, so
-    # parsing that result cannot overwrite it -- and appended whether or not the
+    # Prepended here, after the Director's result has already been folded in, so
+    # parsing that result cannot overwrite it -- and prepended whether or not the
     # Director ran at all, because a disabled Director must not silently drop the
-    # guidance the decisions produced.
+    # guidance the decisions produced. Major Decisions leads the block so the
+    # writer reads the constraints before the scene guidance.
     if decision_guidance:
-        state.inj_block = (state.inj_block + "\n\n" + decision_guidance).strip()
+        state.inj_block = (decision_guidance + "\n\n" + state.inj_block).strip()
 
     yield {
         "event": "director_done",
