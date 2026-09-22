@@ -94,13 +94,13 @@ function _distributionHtml(record, selected, caption = "") {
   }${rows}</div>`;
 }
 
-/** The numbers behind an outcome: probability and draw, or mean and confidence. */
+/** The numbers behind an outcome: probability and roll, or average and confidence. */
 function _answerMeta(record) {
   const bits = [];
-  if (record.probability !== undefined) bits.push(`p ${formatProbability(record.probability)}`);
-  if (record.score !== undefined) bits.push(`mean ${formatScore(record.score)}`);
-  if (record.confidence !== undefined) bits.push(`conf ${formatProbability(record.confidence)}`);
-  if (record.draw !== undefined) bits.push(`draw ${formatProbability(record.draw)}`);
+  if (record.probability !== undefined) bits.push(`odds ${formatProbability(record.probability)}`);
+  if (record.score !== undefined) bits.push(`average ${formatScore(record.score)}`);
+  if (record.confidence !== undefined) bits.push(`confidence ${formatProbability(record.confidence)}`);
+  if (record.draw !== undefined) bits.push(`roll ${formatProbability(record.draw)}`);
   return bits;
 }
 

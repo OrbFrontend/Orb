@@ -15,18 +15,15 @@
    full width too; the sidebar's 10px inset would hang them off the fields. */
 .decision-section .frag-divider { padding: 0; margin: 14px 0 6px; }
 
-/* Paired fields have to start their controls on one line, and the labels above
-   them are rarely the same height: one carries a hint that wraps, its neighbour
-   carries none. Giving every hint its own line and every label the room for two
-   settles it from above, which end-alignment could not -- a validation problem
-   under one control of a pair would have pushed the other one down by its
-   height. */
-.decision-section .field-row > .field > label { min-height: 26px; }
-.decision-section .field-row > .field > label .decision-hint { display: block; }
-
-/* A probability is four characters wide. Left to itself it takes the whole row,
-   because the field it shares one with is hidden for most question types. */
-.decision-section .field-row > .decision-field-num { flex: 0 1 240px; }
+/* A paired column is too narrow to hold a field's name and its hint on one
+   line, so the hint takes its own -- and needs the leading a wrapped line would
+   have come with. The labels keep the same 4px step to their control as every
+   other field in the modal: the two fields that carry hints here are mutually
+   exclusive, so a pair is never a short label beside a tall one. */
+.decision-section .field-row > .field > label .decision-hint {
+  display: block;
+  margin-top: 3px;
+}
 
 .decision-hint {
   font-size: 10px;

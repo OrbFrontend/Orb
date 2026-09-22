@@ -392,6 +392,16 @@ function _statusHtml(config) {
   }
 }
 
+// Layman labels for the resolution policies the backend serves. The select's
+// `value` stays the raw wire string; only the displayed text differs.
+const RESOLUTION_LABELS = {
+  threshold: "Cutoff",
+  roll: "Random roll",
+  argmax: "Most likely",
+  weighted: "Random by odds",
+  nearest: "Closest level",
+};
+
 function _primaryHtml(config) {
   const type = _draft.type;
   const policies = _policiesFor(type);
@@ -402,7 +412,9 @@ function _primaryHtml(config) {
   const policyOptions = policies
     .map(
       (value) =>
-        `<option value="${escAttr(value)}"${value === _draft.resolution ? " selected" : ""}>${esc(value)}</option>`,
+        `<option value="${escAttr(value)}"${value === _draft.resolution ? " selected" : ""}>${esc(
+          RESOLUTION_LABELS[value] || value,
+        )}</option>`,
     )
     .join("");
   return `
@@ -414,18 +426,18 @@ function _primaryHtml(config) {
         ${_problemHtml("type")}
       </div>
       <div class="field">
-        <label>Resolution ${_hint("how the answer becomes an outcome")}</label>
+        <label>Resolution</label>
         <select data-dec="resolution" data-dec-act="repaint">${policyOptions}</select>
         ${_problemHtml("resolution")}
       </div>
     </div>
     <div class="field-row">
-      <div class="field decision-field-num"${showThreshold ? "" : ' style="display:none"'}>
+      <div class="field field-half"${showThreshold ? "" : ' style="display:none"'}>
         <label>Threshold ${_hint("resolves true at or above this probability")}</label>
         <input type="number" min="0" max="1" step="0.01" data-dec="threshold" value="${escAttr(_draft.threshold ?? "")}" placeholder="0.5">
         ${_problemHtml("threshold")}
       </div>
-      <div class="field decision-field-num"${type === "noul" ? ' style="display:none"' : ""}>
+      <div class="field field-half"${type === "noul" ? ' style="display:none"' : ""}>
         <label>Confidence floor ${_hint("blank = no gating")}</label>
         <input type="number" min="0" max="1" step="0.01" data-dec="confidence_floor" value="${escAttr(_draft.confidence_floor ?? "")}" placeholder="none">
         ${_problemHtml("confidence_floor")}

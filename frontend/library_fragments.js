@@ -426,7 +426,7 @@ function _interactiveFragFormHtml(d, isEdit) {
       </select>
     </div>
     <div class="field-row" id="interactive-frag-cooldown-row">
-      <div class="field"><label>Cooldown (turns)</label>
+      <div class="field field-half"><label>Cooldown (turns)</label>
         <input id="interactive-frag-cooldown" type="number" min="0" max="50" step="1" value="${escAttr(d.cooldown_turns || 0)}"></div>
     </div>
     <div class="field" id="interactive-frag-desc-row" style="${d.field_type === "decision" ? "display:none" : ""}">

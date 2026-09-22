@@ -234,6 +234,11 @@ label {
 .field-row { display: flex; gap: 8px; }
 .field-row .field { flex: 1; }
 
+/* A control only a few characters wide keeps its column instead of stretching
+   across the whole row -- including a row it has to itself, so a lone number
+   still lines its edges up with the paired rows above and below it. */
+.field-row > .field-half { flex: 0 1 calc(50% - 4px); }
+
 
 
 
