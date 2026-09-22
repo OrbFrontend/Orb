@@ -15,6 +15,7 @@
 // The type list, resolution policies, macros and bounds all come from
 // `GET /api/decisions/config`; nothing here restates them.
 import { decisionConfig, loadDecisionConfig, outcomeLabel } from "./decisions.js";
+import { CLOSE_ICON } from "./icons.js";
 import { esc, escAttr } from "./utils.js";
 
 // The working copy of the decision fields for the fragment currently open in
@@ -446,12 +447,12 @@ function _primaryHtml(config) {
       </div>
     </div>
     <div class="field-row">
-      <div class="field"${showThreshold ? "" : ' style="display:none"'}>
+      <div class="field decision-field-num"${showThreshold ? "" : ' style="display:none"'}>
         <label>Threshold ${_hint("resolves true at or above this probability")}</label>
         <input type="number" min="0" max="1" step="0.01" data-dec="threshold" value="${escAttr(_draft.threshold ?? "")}" placeholder="0.5">
         ${_problemHtml("threshold")}
       </div>
-      <div class="field"${type === "noul" ? ' style="display:none"' : ""}>
+      <div class="field decision-field-num"${type === "noul" ? ' style="display:none"' : ""}>
         <label>Confidence floor ${_hint("blank = no gating")}</label>
         <input type="number" min="0" max="1" step="0.01" data-dec="confidence_floor" value="${escAttr(_draft.confidence_floor ?? "")}" placeholder="none">
         ${_problemHtml("confidence_floor")}
@@ -459,7 +460,7 @@ function _primaryHtml(config) {
     </div>
     <div class="field">
       <label>Situation template ${_hint(`macros: ${_macroHint(config.state_macros)}`)}</label>
-      <textarea data-dec="state_template" rows="4" placeholder="${escAttr(config.default_state_template || "")}">${esc(_draft.state_template)}</textarea>
+      <textarea data-dec="state_template" rows="5" placeholder="${escAttr(config.default_state_template || "")}">${esc(_draft.state_template)}</textarea>
       ${_problemHtml("state_template")}
     </div>
     <div class="field">
@@ -507,8 +508,8 @@ function _optionsHtml(config, type, options, { scope, facetIndex = null }) {
           : `<span class="decision-key-fixed">${esc(_optionLabel(type, _keysOf(type, options)[index], option))}</span>`;
       const removeBtn =
         canEditCount && options.length > 2
-          ? `<button type="button" class="decision-row-remove" data-dec-act="${isFacet ? "del-facet-option" : "del-option"}" data-index="${index}"${isFacet ? ` data-facet-index="${facetIndex}"` : ""} title="Remove this outcome" aria-label="Remove this outcome">&times;</button>`
-          : `<span class="decision-row-remove-spacer"></span>`;
+          ? `<button type="button" class="btn-icon btn-square decision-row-remove" data-dec-act="${isFacet ? "del-facet-option" : "del-option"}" data-index="${index}"${isFacet ? ` data-facet-index="${facetIndex}"` : ""} title="Remove this outcome" aria-label="Remove this outcome">${CLOSE_ICON}</button>`
+          : "";
       return `
       <div class="decision-option-row">
         <div class="decision-option-key">${keyCell}</div>
@@ -580,7 +581,7 @@ function _facetHtml(config, facet, index, primaryKeys) {
           <label>Type</label>
           <select data-facet-field="type" data-dec-act="retype-facet" data-facet-index="${index}">${typeOptions}</select>
         </div>
-        <button type="button" class="btn btn-danger btn-sm" data-dec-act="del-facet" data-facet-index="${index}">Remove</button>
+        <button type="button" class="btn btn-sm btn-danger btn-square decision-facet-remove" data-dec-act="del-facet" data-facet-index="${index}" title="Remove this facet" aria-label="Remove this facet">${CLOSE_ICON}</button>
       </div>
       ${
         facet.type === "noul"

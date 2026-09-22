@@ -1,9 +1,32 @@
 /* Decision fragments: the editor section, the Judge lane, the card-approval
    panel and the Inspector's Decisions block. */
 
+/* The amber this app already spends on "read this, then carry on" (.field-warning
+   in forms.css, .ce-script-warning in modals.css). It is not a theme token yet,
+   so it is named once here: a theme that defines --warning wins, and the dozen
+   call sites below stay in step either way. --red every theme already defines. */
+:root { --dec-warn: var(--warning, #c8a84b); }
+
 /* ── Editor ───────────────────────────────────────────────────────────────── */
 
 .decision-section { margin-top: 4px; }
+
+/* The section's dividers separate full-width fields, so their rules run the
+   full width too; the sidebar's 10px inset would hang them off the fields. */
+.decision-section .frag-divider { padding: 0; margin: 14px 0 6px; }
+
+/* Paired fields have to start their controls on one line, and the labels above
+   them are rarely the same height: one carries a hint that wraps, its neighbour
+   carries none. Giving every hint its own line and every label the room for two
+   settles it from above, which end-alignment could not -- a validation problem
+   under one control of a pair would have pushed the other one down by its
+   height. */
+.decision-section .field-row > .field > label { min-height: 26px; }
+.decision-section .field-row > .field > label .decision-hint { display: block; }
+
+/* A probability is four characters wide. Left to itself it takes the whole row,
+   because the field it shares one with is hidden for most question types. */
+.decision-section .field-row > .decision-field-num { flex: 0 1 240px; }
 
 .decision-hint {
   font-size: 10px;
@@ -13,7 +36,15 @@
   text-transform: none;
 }
 
-.decision-note,
+/* Prose, not a control: no box, so it cannot be mistaken for a disabled
+   textarea (which is exactly what --bg-deep inside a border looks like). */
+.decision-note {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
 .decision-status {
   font-size: 11px;
   line-height: 1.5;
@@ -26,7 +57,7 @@
 }
 
 .decision-status-ok { border-color: var(--accent-dim); }
-.decision-status-warn { border-color: #c8a84b; color: #c8a84b; }
+.decision-status-warn { border-color: var(--dec-warn); color: var(--dec-warn); }
 
 .decision-status code {
   font-family: var(--font-mono);
@@ -37,8 +68,8 @@
 .decision-problem {
   font-size: 11px;
   line-height: 1.45;
-  color: var(--red, #d06060);
-  border-left: 2px solid var(--red, #d06060);
+  color: var(--red);
+  border-left: 2px solid var(--red);
   padding: 2px 0 2px 8px;
   margin: 6px 0;
 }
@@ -62,43 +93,57 @@
 
 .decision-option-head {
   font-size: 10px;
+  line-height: 1.4;
   text-transform: uppercase;
   letter-spacing: .4px;
   color: var(--text-muted);
   margin-bottom: 6px;
 }
 
-.decision-option-row { margin-bottom: 8px; }
-.decision-option-row textarea { width: 100%; resize: vertical; }
+/* No column is wide enough to hold a name and its hint on one line, so the hint
+   takes its own: every column heading then starts on the same line instead of
+   wrapping mid-phrase at whatever width it happens to get. */
+.decision-option-head .decision-hint { display: block; }
 
+/* The foot's own margin collapses against the last row's, so one 8px step
+   carries the whole table: row to row, and last row to the add button. */
+.decision-option-row { margin-bottom: 8px; }
+
+/* rows="2" already asks for two lines; the global 60px textarea floor would
+   otherwise add a blank third to every cell of the table. */
+.decision-option-row textarea,
+.decision-branches textarea {
+  width: 100%;
+  min-height: 48px;
+  resize: vertical;
+}
+
+/* Sits level with the first line of the criterion beside it: 1px border plus
+   7px padding of the textarea, against this span's smaller line box. */
 .decision-key-fixed {
   display: inline-block;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-secondary);
-  padding-top: 6px;
+  padding-top: 9px;
 }
 
 .decision-key-input { width: 100%; font-family: var(--font-mono); font-size: 11px; }
 
+/* Centred on the first line of the row's textareas rather than on the row. */
 .decision-row-remove {
-  background: none;
-  border: none;
+  --btn-square-size: 22px;
+  margin-top: 5px;
   color: var(--text-muted);
-  cursor: pointer;
-  font-size: 15px;
-  line-height: 1;
-  padding: 6px 0 0;
 }
 
-.decision-row-remove:hover { color: var(--red, #d06060); }
-.decision-row-remove-spacer { display: block; }
+.decision-row-remove:hover { color: var(--red); }
 
 .decision-options-foot {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
 .decision-facet {
@@ -109,14 +154,28 @@
   margin-bottom: 10px;
 }
 
+/* End-alignment aligns margin boxes, not controls, so the fields have to drop
+   their stacked-field margin first: 8px of margin under the selects is 8px the
+   button beside them sinks (the same trap as .setting-row in forms.css). */
 .decision-facet-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
   gap: 8px;
-  align-items: flex-end;
+  align-items: end;
+  margin-bottom: 8px;
 }
 
-.decision-facet-head .field { flex: 1; margin-bottom: 8px; }
-.decision-facet-floor { max-width: 220px; }
+.decision-facet-head .field { margin-bottom: 0; }
+
+/* Half the difference between the 22px button and the 34px controls it sits
+   beside, so the button is centred on them rather than resting on their floor. */
+.decision-facet-head .decision-facet-remove { margin-bottom: 6px; }
+
+/* Unlike the primary's pair, this field shares its row with nothing, so only
+   the input is held to a probability's width; the label keeps the facet's full
+   width and its hint stays on one line. */
+.decision-facet-floor { margin-bottom: 8px; }
+.decision-facet-floor input { max-width: 240px; }
 
 .decision-branches {
   border-top: 1px solid var(--border);
@@ -136,7 +195,19 @@
   margin-bottom: 6px;
 }
 
-.decision-branches textarea { width: 100%; resize: vertical; }
+/* The toggle is one half of a heading, not a form field in its own right: at
+   the shared 13px primary it shouts down the caption it sits beside. Its 20px
+   stacked-field margin has to go with it -- centring aligns margin boxes, so
+   that margin is 10px of lift on the words alone (same trap as .setting-row
+   in forms.css) -- and so does its flex-start default. */
+.decision-branches-head .modal-checkbox-label {
+  align-self: center;
+  margin: 0;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
 
 .decision-branch-row {
   display: grid;
@@ -150,7 +221,7 @@
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-secondary);
-  padding-top: 6px;
+  padding-top: 9px;
 }
 
 .decision-budget {
@@ -160,7 +231,7 @@
   margin-top: 8px;
 }
 
-.decision-budget-over { color: var(--red, #d06060); }
+.decision-budget-over { color: var(--red); }
 
 /* ── Judge lane ───────────────────────────────────────────────────────────── */
 
@@ -178,6 +249,10 @@
   margin-bottom: 6px;
 }
 
+/* A failed test reports the transport's own message, which is long. Without
+   this the row buys the space for it out of the button's label. */
+.judge-actions .btn { flex-shrink: 0; }
+
 .judge-test-result {
   font-size: 11px;
   font-family: var(--font-mono);
@@ -186,16 +261,18 @@
 }
 
 .judge-test-ok { color: var(--accent); }
-.judge-test-fail { color: var(--red, #d06060); }
+.judge-test-fail { color: var(--red); }
 
+/* Either a resolved route or a sentence. `anywhere` breaks the URL, which has
+   no break opportunity of its own, without also breaking the sentence's words. */
 .judge-status {
   font-size: 10px;
   font-family: var(--font-mono);
   color: var(--text-muted);
-  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
-.judge-status-warn { color: #c8a84b; }
+.judge-status-warn { color: var(--dec-warn); }
 
 /* ── Card approval ────────────────────────────────────────────────────────── */
 
@@ -209,8 +286,8 @@
 .card-decision-stale {
   font-size: 11px;
   line-height: 1.5;
-  color: #c8a84b;
-  border: 1px solid #c8a84b;
+  color: var(--dec-warn);
+  border: 1px solid var(--dec-warn);
   border-radius: var(--radius);
   padding: 8px 10px;
   margin-bottom: 8px;
@@ -254,16 +331,22 @@
   white-space: pre-wrap;
 }
 
+/* The keys are the list markers, so a disc beside them is a second one. */
 .card-decision-criteria {
+  list-style: none;
   margin: 4px 0 0;
-  padding-left: 14px;
+  padding: 0;
   font-size: 11px;
   line-height: 1.5;
   color: var(--text-muted);
 }
 
+/* Wide enough for a typical outcome key, so criteria and branch instructions
+   start on one left edge instead of stepping in and out with the key's length.
+   A longer key pushes its own line out rather than widening every other. */
 .card-decision-key {
   display: inline-block;
+  min-width: 54px;
   font-family: var(--font-mono);
   font-size: 9px;
   color: var(--accent);
@@ -277,8 +360,11 @@
   margin-top: 8px;
 }
 
+/* The 409 message beside it is two lines long; the button must not pay for it. */
+.card-decision-actions .btn { flex-shrink: 0; }
+
 .card-decision-status { font-size: 11px; line-height: 1.4; color: var(--text-muted); }
-.card-decision-status-error { color: var(--red, #d06060); }
+.card-decision-status-error { color: var(--red); }
 
 /* ── Inspector ────────────────────────────────────────────────────────────── */
 
@@ -297,9 +383,7 @@
 
 .decision-block > .decision-eval { margin-bottom: 6px; }
 
-.decision-eval > summary,
-.decision-discarded > summary,
-.decision-state > summary {
+.decision-block :is(.decision-eval, .decision-discarded, .decision-state) > summary {
   list-style: none;
   cursor: pointer;
   display: flex;
@@ -309,13 +393,19 @@
   user-select: none;
 }
 
-.decision-eval > summary::-webkit-details-marker,
-.decision-discarded > summary::-webkit-details-marker,
-.decision-state > summary::-webkit-details-marker { display: none; }
+.decision-block :is(.decision-eval, .decision-discarded, .decision-state) > summary::-webkit-details-marker {
+  display: none;
+}
 
-.decision-eval[open] > summary .reasoning-summary-arrow,
-.decision-discarded[open] > summary .reasoning-summary-arrow,
-.decision-state[open] > summary .reasoning-summary-arrow { transform: rotate(90deg); }
+.decision-block :is(.decision-eval, .decision-discarded, .decision-state)[open] > summary .reasoning-summary-arrow {
+  transform: rotate(90deg);
+}
+
+/* The meta almost always wraps at the Inspector's width. Hanging the arrow in
+   the gutter puts the wrapped line under the name rather than under the arrow,
+   on the same 16px the body below it uses. */
+.decision-eval > summary { padding-left: 16px; }
+.decision-eval > summary > .reasoning-summary-arrow { margin-left: -16px; }
 
 .decision-eval-name,
 .decision-facet-name {
@@ -345,18 +435,18 @@
 }
 
 .decision-chip-resolved { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow); }
-.decision-chip-fallback { color: #c8a84b; border-color: #c8a84b; }
-.decision-chip-gated { color: #c8a84b; border-color: #c8a84b; background: transparent; }
+.decision-chip-fallback { color: var(--dec-warn); border-color: var(--dec-warn); }
+.decision-chip-gated { color: var(--dec-warn); border-color: var(--dec-warn); background: transparent; }
 .decision-chip-skipped { color: var(--text-muted); border-color: var(--border); }
 
 .decision-reason {
   font-size: 11px;
   line-height: 1.45;
-  color: #c8a84b;
+  color: var(--dec-warn);
   margin-bottom: 6px;
 }
 
-.decision-reason-gated { color: #c8a84b; font-style: italic; }
+.decision-reason-gated { font-style: italic; }
 
 .decision-guidance {
   font-size: 11px;
@@ -385,7 +475,7 @@
   font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: .4px;
-  color: #c8a84b;
+  color: var(--dec-warn);
   margin-bottom: 3px;
 }
 
@@ -429,7 +519,7 @@
   margin-bottom: 8px;
 }
 
-.decision-facet-gated { border-left-color: #c8a84b; }
+.decision-facet-gated { border-left-color: var(--dec-warn); }
 
 .decision-facet-line {
   display: flex;
@@ -441,7 +531,8 @@
 
 .decision-discarded { margin-top: 6px; }
 
-.decision-discarded > summary {
+.decision-discarded > summary,
+.decision-state > summary {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: .4px;
@@ -474,16 +565,15 @@
 
 .decision-state { margin-top: 6px; }
 
-.decision-state > summary {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: .4px;
-  color: var(--text-muted);
-}
-
 .decision-state .injection-box { margin-top: 6px; }
 
-.decision-skipped { margin-top: 8px; }
+/* A skip carries no outcome, so the rule is what separates these from the
+   evaluations above rather than a chip the eye could read as one more result. */
+.decision-skipped {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
 
 .decision-skipped-row {
   display: flex;

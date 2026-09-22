@@ -314,7 +314,7 @@ function _judgeLaneHtml() {
       <div class="field"><label>Judge Model Name</label>
         <input type="text" value="${escAttr(config?.decision_model || "")}" data-key="decision_model" placeholder="typesafe/jev-1.13" autocomplete="off">
       </div>
-      <div class="field"><label>Route Override <span style="font-size:10px;color:var(--text-muted)">(blank = derived from the endpoint)</span></label>
+      <div class="field"><label>Route Override <span class="decision-hint">blank = derived from the endpoint</span></label>
         <input type="text" value="${escAttr(config?.decision_url || "")}" data-key="decision_url" placeholder="https://openrouter.ai/api/alpha/decisions" autocomplete="off">
       </div>
       <div class="judge-actions">
