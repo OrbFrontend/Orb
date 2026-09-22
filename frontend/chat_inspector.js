@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { renderContextSize, renderMessages } from "./chat_core.js";
+import { currentDecisionsHtml } from "./chat_decisions.js";
 import { USER_NOTE_ID } from "./direction_notes_panel.js";
 import { CHEVRON_RIGHT_ICON } from "./icons.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
@@ -449,6 +450,7 @@ function _renderDirectorPanel({ activeIds, latency, toolCalls, injection, feedba
         <div>${stylesHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
       </div>
       ${_buildReasoningHtml()}
+      ${currentDecisionsHtml()}
       ${buildFeedbackHtml(feedback)}
       ${buildDirectionNotesHtml(directionNotes)}
       ${toolCalls.length ? _buildToolCallsHtml(toolCalls) : ""}
@@ -475,6 +477,7 @@ function _renderInspectorMain() {
          <div>${pendingMoodsHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
        </div>
        ${_buildReasoningHtml()}
+       ${currentDecisionsHtml()}
        <div style="color:var(--text-muted);font-size:12px;display:flex;align-items:center;gap:8px">
          <span class="typing-indicator"><span></span><span></span><span></span></span> Director thinking…
        </div>`;
@@ -505,13 +508,15 @@ function _renderInspectorMain() {
   if (!hasDirectorData) {
     const fbHtml = buildFeedbackHtml(S.lastFeedback?.values);
     const pnHtml = buildDirectionNotesHtml(S.lastDirectionNotes?.notes);
+    const decHtml = currentDecisionsHtml();
     withReasoningScroll(() => {
       $("inspector-content").innerHTML = `
        <div class="inspector-block" id="inspector-context-size"></div>
        ${_buildReasoningHtml()}
+       ${decHtml}
        ${fbHtml}
        ${pnHtml}
-       ${fbHtml || pnHtml ? "" : `<div style="color:var(--text-muted);font-size:12px;">Send a message to see director output</div>`}`;
+       ${fbHtml || pnHtml || decHtml ? "" : `<div style="color:var(--text-muted);font-size:12px;">Send a message to see director output</div>`}`;
     });
     renderContextSize();
     return;

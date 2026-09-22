@@ -369,8 +369,14 @@ function _messageHtml(m, avatars) {
   const rewritingHtml = isProseRewriting
     ? `<span class="msg-rewriting"><span class="dot"></span>Rewriting prose…</span>`
     : "";
+  // The listing carries only this flag -- the records themselves are far too
+  // large to ship per message -- so the badge says "there is something to open"
+  // and the Inspector fetches the rest when it is opened on this message.
+  const decisionBadge = m.has_decisions
+    ? `<span class="msg-decision-badge" title="Decisions ran on this turn — open the Inspector for the details">?</span>`
+    : "";
   return `<div class="message ${m.role}${isProseRewriting ? " prose-rewriting" : ""}" data-msg-id="${m.id}">
-        ${avatars ? speakerAvatarCell(m) : ""}<div class="msg-role">${esc(speakerLabel(m))} ${branchHtml}${rewritingHtml}</div>
+        ${avatars ? speakerAvatarCell(m) : ""}<div class="msg-role">${esc(speakerLabel(m))} ${branchHtml}${decisionBadge}${rewritingHtml}</div>
         ${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${proposalsHtml}${toolbar}
       </div>`;
 }

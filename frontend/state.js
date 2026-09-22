@@ -101,6 +101,11 @@ export const S = {
   reasoningEditor: "", // includes editor feedback reasoning
   lastFeedback: null, // editor feedback for the current turn
   lastDirectionNotes: null, // direction notes recorded for the current turn
+  // Live decision results for the turn in flight: {evaluations, skipped,
+  // cooldowns}. Not a stored envelope -- it carries no version, because it came
+  // from this build's own stream. The Inspector reads the stored envelope off
+  // the director-log route once the reply exists.
+  lastDecisions: null,
   reasoningPassActive: 0,
   reasoningPassSelected: 0,
   reasoningUserOverride: false,

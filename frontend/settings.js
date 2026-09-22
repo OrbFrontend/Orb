@@ -4,7 +4,13 @@ import { CLOSE_ICON } from "./icons.js";
 import { renderInteractiveFragments } from "./library_fragments.js";
 import { closeModal, confirmDelete, showModal, showSubConfirmModal } from "./modal.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
-import { initComboboxes, loadAgentModelConfigs, loadEndpoints, renderEndpoints } from "./settings_models.js";
+import {
+  initComboboxes,
+  loadAgentModelConfigs,
+  loadEndpoints,
+  loadJudgeConfig,
+  renderEndpoints,
+} from "./settings_models.js";
 import { loadPersonas, updateUserBtn } from "./settings_personas.js";
 import { effectiveWorkflowEnabled, localMlReady, S } from "./state.js";
 import { $, esc, escAttr, formatBytes, toast } from "./utils.js";
@@ -137,6 +143,9 @@ export async function loadSettings() {
   renderSettings();
   await loadEndpoints();
   initComboboxes(); // Re-initialize comboboxes with loaded endpoints
+  // After the endpoints, so the Judge lane can name the endpoint its stored id
+  // points at rather than painting a blank URL and then correcting itself.
+  loadJudgeConfig();
   renderToolsPanel();
   await loadPersonas();
   updateUserBtn();

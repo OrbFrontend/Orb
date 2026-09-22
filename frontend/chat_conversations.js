@@ -106,6 +106,7 @@ export function resetChatUI() {
   stashSceneCards(null);
   S.messages = [];
   S.lastDirectorData = null;
+  S.lastDecisions = null;
   S.directorState = null;
   S.inspectedMsgId = null;
   S.inspectedDirectorData = null;
@@ -202,6 +203,7 @@ export async function selectConversation(id) {
   }
   S.activeConvId = id;
   S.lastDirectorData = null;
+  S.lastDecisions = null;
   S.reasoningDirector = "";
   S.reasoningWriter = "";
   S.reasoningEditor = "";

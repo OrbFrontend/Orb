@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { renderInspector } from "./chat.js";
+import { decisionConfig, loadDecisionConfig, setDecisionConfig } from "./decisions.js";
 import { CLOSE_ICON } from "./icons.js";
 import { showConfirmModal } from "./modal.js";
 import { filterModelChoices, mergeModelChoices } from "./model_catalog.js";
@@ -276,11 +277,153 @@ export function renderEndpoints() {
         ${renderForm(AGENT_SETTING_FIELDS, true)}
       </div>
     </div>
+    ${_judgeLaneHtml()}
   `;
   initComboboxes();
   updateReasoningEffortFields();
   updateAgentModelWarning();
   updateEndpointsLabel();
+  refreshJudgeLane();
+}
+
+// ── Judge lane ───────────────────────────────────────────────────────────────
+// The classifier that answers decision fragments. Deliberately three fields: a
+// classifier has no temperature and no system prompt, and the Writer's endpoint
+// is almost never the right one, so there is no sampling group and no "same as
+// Writer" toggle to get wrong. All three already exist as settings columns, so
+// this lane adds no backend surface.
+
+function _judgeLaneHtml() {
+  const config = decisionConfig();
+  return `
+    <div class="ep-chat-only" id="judge-lane">
+      <div style="display:flex;align-items:center;gap:12px;margin:12px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Judge</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
+      <div class="judge-note">
+        Answers decision fragments. The rendered scene text of every enabled decision is sent to this provider.
+        Decisions stay editable with no Judge set; they resolve to their fallback outcome until one is.
+      </div>
+      <div class="field"><label>Judge Endpoint URL</label>
+        <div class="cb-root" data-combobox="decision_endpoint_url">
+          <div class="cb-control">
+            <input type="text" class="cb-input" value="${escAttr(_judgeEndpointUrl(config))}" data-key="decision_endpoint_url" placeholder="https://openrouter.ai/api/alpha" autocomplete="off">
+            <span class="cb-arrow"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4 6,8 10,4"/></svg></span>
+          </div>
+          <div class="cb-dropdown" hidden><div class="cb-list"></div></div>
+        </div>
+      </div>
+      <div class="field"><label>Judge Model Name</label>
+        <input type="text" value="${escAttr(config?.decision_model || "")}" data-key="decision_model" placeholder="typesafe/jev-1.13" autocomplete="off">
+      </div>
+      <div class="field"><label>Route Override <span style="font-size:10px;color:var(--text-muted)">(blank = derived from the endpoint)</span></label>
+        <input type="text" value="${escAttr(config?.decision_url || "")}" data-key="decision_url" placeholder="https://openrouter.ai/api/alpha/decisions" autocomplete="off">
+      </div>
+      <div class="judge-actions">
+        <button type="button" class="btn btn-sm" id="judge-test-btn">Test</button>
+        <span id="judge-test-result" class="judge-test-result"></span>
+      </div>
+      <div id="judge-status" class="judge-status"></div>
+    </div>`;
+}
+
+function _judgeEndpointUrl(config) {
+  const id = config?.decision_endpoint_id;
+  return (id != null && S.endpoints.find((e) => e.id === id)?.url) || "";
+}
+
+/** Repaint the derived read-outs: the resolved route and whether it is usable. */
+export function refreshJudgeLane() {
+  const status = document.getElementById("judge-status");
+  if (!status) return;
+  const config = decisionConfig();
+  if (!config) {
+    status.textContent = "";
+    return;
+  }
+  status.textContent = config.configured
+    ? `Resolved route: ${config.resolved_url}`
+    : "Not configured — enabled decisions resolve to their fallback outcome.";
+  status.classList.toggle("judge-status-warn", !config.configured);
+}
+
+async function _saveJudgeSetting(key, value) {
+  try {
+    setDecisionConfig(await api.put("/decisions/config", { [key]: value }));
+  } catch (e) {
+    toast(`Failed: ${e.message}`, true);
+    return;
+  }
+  refreshJudgeLane();
+  toast("Judge settings saved");
+}
+
+document.addEventListener("change", (event) => {
+  const el = event.target.closest("[data-key]");
+  if (!el) return;
+  const key = el.dataset.key;
+  if (key === "decision_model" || key === "decision_url") {
+    _saveJudgeSetting(key, el.value.trim());
+  } else if (key === "decision_endpoint_url") {
+    // The lane stores an endpoint id, not a URL: credentials and proxy come
+    // from the endpoint row, exactly as the Writer and Agent lanes do. Only an
+    // endpoint that already exists can be chosen -- this lane does not create
+    // one, because an endpoint with no key saved is not a usable Judge.
+    const url = el.value.trim();
+    const match = S.endpoints.find((e) => e.url === url);
+    if (url && !match) {
+      toast("Save that endpoint in the Writer or Agent lane first, then pick it here", true);
+      return;
+    }
+    _saveJudgeSetting("decision_endpoint_id", match ? match.id : null);
+  }
+});
+
+document.addEventListener("click", (event) => {
+  if (!event.target.closest("#judge-test-btn")) return;
+  _runJudgeTest();
+});
+
+async function _runJudgeTest() {
+  const button = document.getElementById("judge-test-btn");
+  const out = document.getElementById("judge-test-result");
+  if (!button || !out) return;
+  button.disabled = true;
+  out.classList.remove("judge-test-ok", "judge-test-fail");
+  out.textContent = "Testing…";
+  try {
+    const result = await api.post("/decisions/test", {});
+    if (result.ok) {
+      out.textContent = `${result.returned_model || "answered"} · p=${Number(result.probability).toFixed(2)} · ${result.elapsed_ms}ms`;
+      out.classList.add("judge-test-ok");
+    } else {
+      out.textContent = result.error || "Failed";
+      out.classList.add("judge-test-fail");
+    }
+  } catch (e) {
+    out.textContent = e.message;
+    out.classList.add("judge-test-fail");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/**
+ * Load the classifier config and repaint the Judge lane. Called at boot.
+ *
+ * Repaints only the lane, not the whole endpoints form: a full re-render would
+ * throw away the Writer and Agent comboboxes -- and anything half-typed into
+ * them -- to fill in three fields that nothing else depends on.
+ */
+export async function loadJudgeConfig() {
+  try {
+    await loadDecisionConfig();
+  } catch (_e) {
+    return;
+  }
+  const lane = document.getElementById("judge-lane");
+  if (!lane) return;
+  lane.outerHTML = _judgeLaneHtml();
+  initComboboxes();
+  refreshJudgeLane();
 }
 
 function _reasoningLevelExtras(prefix) {
@@ -437,6 +580,9 @@ export function initComboboxes() {
       searchable: true,
       loadItems: () => _loadAvailableModels(AGENT_CTX),
     });
+  const judgeEpRoot = document.querySelector('[data-combobox="decision_endpoint_url"]');
+  if (judgeEpRoot)
+    initCombobox(judgeEpRoot, () => S.endpoints.map((e) => ({ value: e.url, id: e.id, type: "endpoint" })));
 }
 
 window.deleteComboboxItem = (_btn, type, id, isAgent = false) => {

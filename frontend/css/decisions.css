@@ -1,0 +1,501 @@
+/* Decision fragments: the editor section, the Judge lane, the card-approval
+   panel and the Inspector's Decisions block. */
+
+/* ── Editor ───────────────────────────────────────────────────────────────── */
+
+.decision-section { margin-top: 4px; }
+
+.decision-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.decision-note,
+.decision-status {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.decision-status-ok { border-color: var(--accent-dim); }
+.decision-status-warn { border-color: #c8a84b; color: #c8a84b; }
+
+.decision-status code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  word-break: break-all;
+}
+
+.decision-problem {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--red, #d06060);
+  border-left: 2px solid var(--red, #d06060);
+  padding: 2px 0 2px 8px;
+  margin: 6px 0;
+}
+
+/* The criteria table. Criterion and guidance sit on one row because they are
+   the pair authors conflate: one describes the world, the other changes it. */
+.decision-options {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  margin-bottom: 10px;
+}
+
+.decision-option-head,
+.decision-option-row {
+  display: grid;
+  grid-template-columns: 96px 1fr 1fr 22px;
+  gap: 8px;
+  align-items: start;
+}
+
+.decision-option-head {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.decision-option-row { margin-bottom: 8px; }
+.decision-option-row textarea { width: 100%; resize: vertical; }
+
+.decision-key-fixed {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding-top: 6px;
+}
+
+.decision-key-input { width: 100%; font-family: var(--font-mono); font-size: 11px; }
+
+.decision-row-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 6px 0 0;
+}
+
+.decision-row-remove:hover { color: var(--red, #d06060); }
+.decision-row-remove-spacer { display: block; }
+
+.decision-options-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.decision-facet {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-dim);
+  border-radius: var(--radius);
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.decision-facet-head {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.decision-facet-head .field { flex: 1; margin-bottom: 8px; }
+.decision-facet-floor { max-width: 220px; }
+
+.decision-branches {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
+.decision-branches-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.decision-branches textarea { width: 100%; resize: vertical; }
+
+.decision-branch-row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 8px;
+  align-items: start;
+  margin-bottom: 6px;
+}
+
+.decision-branch-key {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding-top: 6px;
+}
+
+.decision-budget {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+.decision-budget-over { color: var(--red, #d06060); }
+
+/* ── Judge lane ───────────────────────────────────────────────────────────── */
+
+.judge-note {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.judge-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.judge-test-result {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  word-break: break-word;
+}
+
+.judge-test-ok { color: var(--accent); }
+.judge-test-fail { color: var(--red, #d06060); }
+
+.judge-status {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.judge-status-warn { color: #c8a84b; }
+
+/* ── Card approval ────────────────────────────────────────────────────────── */
+
+.card-decision-note {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.card-decision-stale {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #c8a84b;
+  border: 1px solid #c8a84b;
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.card-decision-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.card-decision-facet {
+  border-left: 2px solid var(--accent-dim);
+  padding-left: 8px;
+  margin-top: 8px;
+}
+
+.card-decision-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.card-decision-label { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+
+.card-decision-type {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--text-muted);
+}
+
+.card-decision-question {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  white-space: pre-wrap;
+}
+
+.card-decision-criteria {
+  margin: 4px 0 0;
+  padding-left: 14px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.card-decision-key {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--accent);
+  margin-right: 6px;
+}
+
+.card-decision-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.card-decision-status { font-size: 11px; line-height: 1.4; color: var(--text-muted); }
+.card-decision-status-error { color: var(--red, #d06060); }
+
+/* ── Inspector ────────────────────────────────────────────────────────────── */
+
+.msg-decision-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+  border-radius: 999px;
+  padding: 0 5px;
+  vertical-align: middle;
+  margin-left: 2px;
+}
+
+.decision-block > .decision-eval { margin-bottom: 6px; }
+
+.decision-eval > summary,
+.decision-discarded > summary,
+.decision-state > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  user-select: none;
+}
+
+.decision-eval > summary::-webkit-details-marker,
+.decision-discarded > summary::-webkit-details-marker,
+.decision-state > summary::-webkit-details-marker { display: none; }
+
+.decision-eval[open] > summary .reasoning-summary-arrow,
+.decision-discarded[open] > summary .reasoning-summary-arrow,
+.decision-state[open] > summary .reasoning-summary-arrow { transform: rotate(90deg); }
+
+.decision-eval-name,
+.decision-facet-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.decision-meta {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.decision-eval-body { padding: 6px 0 8px 16px; }
+.decision-eval-source { margin-bottom: 6px; }
+
+.decision-chip {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  border-radius: 999px;
+  padding: 1px 6px;
+  border: 1px solid;
+}
+
+.decision-chip-resolved { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow); }
+.decision-chip-fallback { color: #c8a84b; border-color: #c8a84b; }
+.decision-chip-gated { color: #c8a84b; border-color: #c8a84b; background: transparent; }
+.decision-chip-skipped { color: var(--text-muted); border-color: var(--border); }
+
+.decision-reason {
+  font-size: 11px;
+  line-height: 1.45;
+  color: #c8a84b;
+  margin-bottom: 6px;
+}
+
+.decision-reason-gated { color: #c8a84b; font-style: italic; }
+
+.decision-guidance {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: var(--accent-glow);
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  margin: 6px 0;
+  white-space: pre-wrap;
+}
+
+.decision-guidance-empty {
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--border);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.decision-dist { margin: 6px 0; }
+
+.decision-dist-caption {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: #c8a84b;
+  margin-bottom: 3px;
+}
+
+.decision-dist-row {
+  display: grid;
+  grid-template-columns: 76px 1fr 34px;
+  gap: 6px;
+  align-items: center;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.decision-dist-selected { color: var(--accent); }
+
+.decision-dist-key { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.decision-dist-bar {
+  display: block;
+  height: 5px;
+  background: var(--bg-elevated);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.decision-dist-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent-dim);
+}
+
+.decision-dist-selected .decision-dist-bar > span { background: var(--accent); }
+.decision-dist-value { text-align: right; }
+
+.decision-facets { margin-top: 8px; }
+
+.decision-facet-row {
+  border-left: 2px solid var(--accent-dim);
+  padding-left: 8px;
+  margin-bottom: 8px;
+}
+
+.decision-facet-gated { border-left-color: #c8a84b; }
+
+.decision-facet-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 2px;
+}
+
+.decision-discarded { margin-top: 6px; }
+
+.decision-discarded > summary {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: var(--text-muted);
+}
+
+.decision-discarded-body { padding: 6px 0 0 16px; }
+
+.decision-discarded-row {
+  opacity: .7;
+  margin-bottom: 6px;
+}
+
+.decision-branch-tag {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 5px;
+  margin-left: 6px;
+}
+
+.decision-usage {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+.decision-state { margin-top: 6px; }
+
+.decision-state > summary {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: var(--text-muted);
+}
+
+.decision-state .injection-box { margin-top: 6px; }
+
+.decision-skipped { margin-top: 8px; }
+
+.decision-skipped-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.decision-unreadable {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  font-style: italic;
+}

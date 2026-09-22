@@ -1,6 +1,16 @@
 import { api } from "./api.js";
+import { decisionConfig } from "./decisions.js";
 import { initDragReorder } from "./drag_reorder.js";
 import { GRIP_ICON } from "./icons.js";
+import {
+  applyDecisionProblems,
+  clearDecisionDraft,
+  decisionSectionHtml,
+  ensureDecisionConfig,
+  initDecisionDraft,
+  readDecisionFields,
+  repaintDecisionSection,
+} from "./library_decisions.js";
 import { closeModal, closeSubModal, confirmDelete, showModal, showSubModal } from "./modal.js";
 import { S } from "./state.js";
 import { $, boolFlag, esc, escAttr, escHandlerArg, toast } from "./utils.js";
@@ -157,6 +167,10 @@ function _interactiveLane(f) {
 
 export async function loadInteractiveFragments() {
   try {
+    // Warm the classifier config here rather than on modal open: the decision
+    // editor renders its type, policy and macro controls from that payload, and
+    // a form that paints its controls a beat late reads as a broken form.
+    ensureDecisionConfig();
     S.interactiveFragments = await api.get("/interactive-fragments");
     renderInteractiveFragments();
   } catch (error) {
@@ -312,6 +326,14 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
     inj_hint: "shown to you",
     desc_hint: "tells the Editor what this is about",
   },
+  decision: {
+    id: "e.g. outcome",
+    label: "e.g. Outcome",
+    injection_label: "e.g. Outcome",
+    description: "What this question decides, e.g. 'whether the attempt in the current request succeeds'",
+    inj_hint: "labels the injected guidance",
+    desc_hint: "for you; the Judge reads the question below, not this",
+  },
   post_processing: {
     id: "e.g. tighten_dialogue",
     label: "e.g. Tighten Dialogue",
@@ -322,6 +344,21 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
     desc_hint: "editing instruction followed by the Editor",
   },
 };
+
+// Whether the fragment open in the modal was stored as a decision. Only that
+// case can lose decision columns by switching type, so only that case warns.
+let _editingStoredDecision = false;
+
+function _openDecisionDraft(fragment) {
+  _editingStoredDecision = fragment.field_type === "decision";
+  initDecisionDraft(fragment);
+  // The draft renders from the cached config. If the cache is cold the section
+  // paints its "cannot render controls" state, and this repaints it in place
+  // once the payload lands.
+  ensureDecisionConfig().then(() => {
+    repaintDecisionSection();
+  });
+}
 
 export function updateInteractiveFragmentExample(fieldType) {
   const ex = INTERACTIVE_FRAGMENT_EXAMPLES[fieldType] || INTERACTIVE_FRAGMENT_EXAMPLES.string;
@@ -341,10 +378,20 @@ export function updateInteractiveFragmentExample(fieldType) {
   setHint("interactive-frag-desc-hint", ex.desc_hint);
   const timingRow = document.getElementById("interactive-frag-timing-row");
   if (timingRow) timingRow.style.display = fieldType === "direction_note" ? "" : "none";
+  const isDecision = fieldType === "decision";
+  // A decision is never a Director tool property -- its guidance is injected as
+  // trailing context -- so "required" has nothing to be required of.
+  const hideRequired = fieldType === "post_processing" || isDecision;
   const requiredRow = document.getElementById("interactive-frag-required-row");
-  if (requiredRow) requiredRow.style.display = fieldType === "post_processing" ? "none" : "";
+  if (requiredRow) requiredRow.style.display = hideRequired ? "none" : "";
   const required = document.getElementById("interactive-frag-required");
-  if (required && fieldType === "post_processing") required.checked = false;
+  if (required && hideRequired) required.checked = false;
+  const decisionSection = document.getElementById("decision-section");
+  if (decisionSection) decisionSection.style.display = isDecision ? "" : "none";
+  const leaving = document.getElementById("interactive-frag-decision-warning");
+  // Switching a stored decision to another type clears every decision column,
+  // facets included. Say so before the save rather than after it.
+  if (leaving) leaving.style.display = _editingStoredDecision && !isDecision ? "" : "none";
 }
 
 function _interactiveFragFormHtml(d, isEdit) {
@@ -367,6 +414,7 @@ function _interactiveFragFormHtml(d, isEdit) {
           <option value="feedback" ${d.field_type === "feedback" ? "selected" : ""}>feedback (note to you)</option>
           <option value="direction_note" ${d.field_type === "direction_note" ? "selected" : ""}>direction note (persists)</option>
           <option value="post_processing" ${d.field_type === "post_processing" ? "selected" : ""}>post-processing (edits reply)</option>
+          <option value="decision" ${d.field_type === "decision" ? "selected" : ""}>decision (asks a question)</option>
         </select>
       </div>
     </div>
@@ -383,27 +431,38 @@ function _interactiveFragFormHtml(d, isEdit) {
     </div>
     <div class="field"><label>Description <span id="interactive-frag-desc-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.desc_hint)})</span></label>
       <textarea id="interactive-frag-desc" rows="4" placeholder="${escAttr(ex.description)}">${esc(d.description)}</textarea></div>
-    <div class="field-row" id="interactive-frag-required-row" style="${d.field_type === "post_processing" ? "display:none" : ""}">
+    <div class="field-row" id="interactive-frag-required-row" style="${d.field_type === "post_processing" || d.field_type === "decision" ? "display:none" : ""}">
       <div class="field" style="align-self:flex-end;padding-bottom:4px">
         <label class="modal-checkbox-label">
           <input type="checkbox" id="interactive-frag-required" ${d.required ? "checked" : ""}> Required
         </label>
       </div>
-    </div>`;
+    </div>
+    <div class="field-warning" id="interactive-frag-decision-warning" style="display:none">
+      Saving this as another field type clears the question, its outcomes, its guidance and every facet.
+    </div>
+    ${decisionSectionHtml(d.field_type)}`;
 }
 
 function _readInteractiveFragForm() {
   const fieldType = document.getElementById("interactive-frag-type").value;
-  return {
+  const base = {
     id: document.getElementById("interactive-frag-id").value.trim(),
     label: document.getElementById("interactive-frag-label").value.trim(),
     description: document.getElementById("interactive-frag-desc").value.trim(),
     field_type: fieldType,
-    required: fieldType === "post_processing" ? false : document.getElementById("interactive-frag-required").checked,
+    required:
+      fieldType === "post_processing" || fieldType === "decision"
+        ? false
+        : document.getElementById("interactive-frag-required").checked,
     injection_label: document.getElementById("interactive-frag-inj-label").value.trim(),
     direction_note_timing: document.getElementById("interactive-frag-timing-select").value,
     cooldown_turns: parseInt(document.getElementById("interactive-frag-cooldown").value, 10) || 0,
   };
+  // Another field type sends no decision columns at all: the backend nulls them
+  // itself whenever a write names a non-decision field_type, so spelling them
+  // out here would only be a second copy of that rule.
+  return fieldType === "decision" ? { ...base, ...readDecisionFields() } : base;
 }
 
 export function showInteractiveFragmentModal(fragId = null) {
@@ -420,6 +479,7 @@ export function showInteractiveFragmentModal(fragId = null) {
     direction_note_timing: "post_turn",
     cooldown_turns: 0,
   };
+  _openDecisionDraft(d);
 
   showModal(`
     <h2>${isEdit ? "Edit" : "New"} Interactive Fragment</h2>
@@ -443,9 +503,17 @@ export async function saveInteractiveFragment(isEdit) {
     if (isEdit) await api.put(`/interactive-fragments/${d.id}`, d);
     else await api.post("/interactive-fragments", d);
     closeModal();
+    clearDecisionDraft();
     await loadInteractiveFragments();
     toast("Interactive fragment saved");
   } catch (e) {
+    // The whole definition is validated on the merged row and comes back as
+    // problems joined by "; ". Render them against the fields they name -- a
+    // toast would scroll a facet's key rule away from the facet it is about.
+    if (e.status === 422 && d.field_type === "decision" && applyDecisionProblems(e.message)) {
+      toast("This decision is not valid yet; see the highlighted fields", true);
+      return;
+    }
     toast(e.message, true);
   }
 }
@@ -481,20 +549,28 @@ function _interactiveTypeBadge(f) {
       ? ` <span class="frag-type-badge" title="Direction-note fragment">D</span>`
       : f.field_type === "post_processing"
         ? ` <span class="frag-type-badge" title="Post-processing fragment">P</span>`
-        : "";
+        : f.field_type === "decision"
+          ? ` <span class="frag-type-badge" title="Decision fragment">?</span>`
+          : "";
 }
 
 function _featureGate(f) {
   const feedbackOff = f.field_type === "feedback" && !S.feedbackEnabled;
   const noteOff = f.field_type === "direction_note" && !S.directionNotesRecord;
   const postProcessingOff = f.field_type === "post_processing" && !S.agentEnabled;
+  // A decision without a Judge is not disabled -- it still resolves, to its
+  // authored fallback outcome, without calling anything. Say which, rather than
+  // greying out a fragment that is doing exactly what it was configured to do.
+  const judgeOff = f.field_type === "decision" && decisionConfig()?.configured === false;
   const title = feedbackOff
     ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
     : noteOff
       ? "Direction Notes recording is off -- turn on Writing in the Agents panel to use this fragment"
       : postProcessingOff
         ? "Agent is disabled -- enable it to use this post-processing fragment"
-        : f.description || "";
+        : judgeOff
+          ? "No Judge endpoint is configured -- this decision resolves to its fallback outcome"
+          : f.description || "";
   return { disabled: feedbackOff || noteOff || postProcessingOff, title };
 }
 
@@ -605,6 +681,7 @@ function _wireCardFragModal(type, isEdit, fragId) {
 function _showCardFragModal(type, kind, fragId, blank, formHtml) {
   const f = fragId ? _cardFragPending[type].find((x) => x.id === fragId) : null;
   const isEdit = !!f;
+  if (type === "interactive") _openDecisionDraft(f || blank);
   showSubModal(`
     <h2>${isEdit ? "Edit" : "New"} Character ${kind} Fragment</h2>
     ${formHtml(f || blank, isEdit)}

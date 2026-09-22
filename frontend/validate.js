@@ -236,7 +236,15 @@ export function validateMoodFragment(data) {
   return { valid: true };
 }
 
-const FRAGMENT_FIELD_TYPES = ["string", "array", "progressive", "feedback", "direction_note", "post_processing"];
+const FRAGMENT_FIELD_TYPES = [
+  "string",
+  "array",
+  "progressive",
+  "feedback",
+  "direction_note",
+  "post_processing",
+  "decision",
+];
 
 export function validateInteractiveFragment(data) {
   const id = (data.id || "").trim();

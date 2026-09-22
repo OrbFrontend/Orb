@@ -56,6 +56,11 @@ LAYERS = {
     "message_css.js": 0,
     # L1 state + shared pure helpers.
     "state.js": 1,
+    # The decision-fragment vocabulary: the cached /api/decisions/config read,
+    # the outcome-space rule, and the wording for each machine reason the stage
+    # reports. Imports only api.js, so it sits with the other shared helpers and
+    # all four decision surfaces can read it.
+    "decisions.js": 1,
     "model_catalog.js": 1,
     "workflow_registry.js": 1,
     "utils.js": 1,
@@ -96,6 +101,7 @@ LAYERS = {
     "chat_stream.js": 5,
     "chat_messages.js": 5,
     "chat_inspector.js": 5,
+    "chat_decisions.js": 5,
     "chat_workflow.js": 5,
     "chat_conversations.js": 5,
     "chat_composer.js": 5,
@@ -108,6 +114,8 @@ LAYERS = {
     "library_card_scripts.js": 5,
     "library_dedupe.js": 5,
     "library_fragments.js": 5,
+    "library_decisions.js": 5,
+    "library_card_decisions.js": 5,
     "lorebooks.js": 5,
     "settings.js": 5,
     "settings_models.js": 5,

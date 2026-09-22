@@ -393,6 +393,10 @@ export async function processSSEStream(resp, container, holder, signal) {
   S.reasoningEditor = "";
   S.lastFeedback = null;
   S.lastDirectionNotes = null;
+  // Cleared once per turn, not per speaker: the decision stage runs for the
+  // whole exchange and the later speakers replay its answers, so a speaker that
+  // reports no new work must not blank a panel that is still current.
+  S.lastDecisions = null;
   S.reasoningByPass = {};
   S.reasoningPassActive = 0; // tracks streaming progress (for dot lighting)
   S.reasoningPassSelected = 0; // tracks what the user is viewing
@@ -593,6 +597,13 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
           break;
         }
         console.warn("Unrouted reasoning event for pass id:", passKey, d);
+      } catch (_) {}
+      break;
+    }
+    case "decisions": {
+      try {
+        S.lastDecisions = JSON.parse(data);
+        renderInspector();
       } catch (_) {}
       break;
     }
