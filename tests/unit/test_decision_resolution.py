@@ -9,6 +9,7 @@ would be a worse tool than a threshold.
 from __future__ import annotations
 
 from backend.core import DEFAULT_STATE_TEMPLATE, parse_decision_definition
+from backend.inference import DecisionQuestion
 from backend.pipeline.passes.decisions import (
     EVALUATIONS_VERSION,
     advance_decision_cooldowns,
@@ -167,7 +168,8 @@ def _raw(**overrides) -> str:
         "question_type": "noul",
     }
     args.update(overrides)
-    return raw_request_fingerprint(**args)
+    question = DecisionQuestion("outcome", args["instructions"], args["criteria"], args["question_type"])
+    return raw_request_fingerprint(args["model"], args["state"], question)
 
 
 def test_the_raw_fingerprint_covers_every_classifier_input():
@@ -182,11 +184,6 @@ def test_the_raw_fingerprint_covers_every_classifier_input():
 def test_the_raw_fingerprint_does_not_normalize_prose():
     assert _raw(instructions="does alric prevail?") != _raw()
     assert _raw(instructions="Does  Alric prevail?") != _raw()
-
-
-def test_the_raw_fingerprint_ignores_criteria_key_order():
-    reversed_criteria = {"false": "He loses.", "true": "He wins."}
-    assert _raw(criteria=reversed_criteria) == _raw()
 
 
 def test_the_policy_fingerprint_covers_resolution_and_scope_only():

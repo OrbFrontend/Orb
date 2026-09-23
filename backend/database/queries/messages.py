@@ -148,12 +148,6 @@ def decision_evaluations_of(message: Mapping[str, Any] | None) -> dict:
     return _decoded_json_object((message or {}).get("decision_evaluations"))
 
 
-def decision_cooldowns_of(message: Mapping[str, Any] | None) -> dict[str, int]:
-    """The decision cooldown snapshot on *message*, decoded, ints only."""
-    raw = _decoded_json_object((message or {}).get("decision_cooldowns"))
-    return {str(key): int(value) for key, value in raw.items() if isinstance(value, int) and not isinstance(value, bool)}
-
-
 _USER_ATTACHMENT_COLUMNS = "id, message_id, mime_type, data_b64, filename, size, created_at"
 _WORKFLOW_ATTACHMENT_COLUMNS = (
     "id, message_id, mime_type, data_b64, filename, created_at, "
@@ -386,11 +380,6 @@ async def add_message(
                     now,
                     speaker_member_id,
                     exchange_id,
-                    # In the same INSERT as the reply, which is what makes
-                    # "persist evaluations and decision cooldown changes
-                    # atomically with a retained reply" true rather than
-                    # best-effort: a reply cannot exist without the decisions
-                    # that produced it, and neither can outlive the other.
                     json.dumps(dict(decision_evaluations or {}), ensure_ascii=False),
                     json.dumps(dict(decision_cooldowns or {})),
                 ),

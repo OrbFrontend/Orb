@@ -6,14 +6,13 @@ import time
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from ....core import DecisionDefinition
 from ....inference import (
     MAX_QUESTION_BYTES,
-    MAX_QUESTIONS_PER_EXCHANGE,
     MAX_QUESTIONS_PER_REQUEST,
     MAX_REQUEST_BYTES,
     MAX_STATE_BYTES,
@@ -29,7 +28,6 @@ from ....inference import (
     LLMCallError,
     ScoreAnswer,
     cache_key,
-    cache_namespace,
 )
 from . import cooldown
 from .guidance import decision_guidance_block
@@ -45,15 +43,13 @@ from .render import (
     TEXT_MACROS,
     DecisionSnapshot,
     UnavailableMacro,
+    macro_errors,
     macros_used,
-    oversized_question,
-    oversized_state,
     render,
-    template_errors,
 )
 from .resolve import (
     DRAWN_RESOLUTIONS,
-    FAILURE_REASONS,
+    ROUTINE_REASONS,
     SkipReason,
     draw_uniform,
     resolve_argmax,
@@ -63,15 +59,19 @@ from .resolve import (
     resolve_weighted,
 )
 
+if TYPE_CHECKING:
+    from ...state import TurnState
+
 logger = logging.getLogger(__name__)
 
+# Also keeps every exchange within the gateway's MAX_QUESTIONS_PER_EXCHANGE:
+# each decision asks exactly one question.
 MAX_DECISIONS_PER_EXCHANGE = 32
 MAX_DECISIONS_PER_CARD = 8
 MAX_REQUEST_ATTEMPTS = 4
 REQUEST_TIMEOUT_SECONDS = 3.0
 STAGE_BUDGET_SECONDS = 6.0
 _SITUATION_MACROS = frozenset({"last_message", "last_assistant_message", "recent_history"})
-_GLOBAL_SOURCE = "global"
 
 _EVENT_FIELDS = (
     "fragment_id",
@@ -93,6 +93,8 @@ _EVENT_FIELDS = (
     "elapsed_ms",
 )
 
+Answer = float | ChoiceAnswer | ScoreAnswer
+
 
 @dataclass(frozen=True, slots=True)
 class DecisionConfig:
@@ -100,16 +102,14 @@ class DecisionConfig:
     api_key: str = ""
     model: str = ""
     proxy: str = ""
-    endpoint_identity: str = ""
-    revision: int = 0
 
     @property
     def configured(self) -> bool:
         return bool(self.url and self.model)
 
-    @property
-    def namespace(self) -> str:
-        return cache_namespace(endpoint_identity=self.endpoint_identity, config_revision=self.revision)
+
+def _source(card_id: str | None) -> str:
+    return f"card:{card_id}" if card_id else "global"
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,20 +117,12 @@ class DecisionCandidate:
     definition: DecisionDefinition
     card_id: str | None = None
 
-    @property
-    def source(self) -> str:
-        return f"card:{self.card_id}" if self.card_id else _GLOBAL_SOURCE
-
 
 @dataclass(frozen=True, slots=True)
 class InvalidDecision:
     fragment_id: str
     label: str = ""
     card_id: str | None = None
-
-    @property
-    def source(self) -> str:
-        return f"card:{self.card_id}" if self.card_id else _GLOBAL_SOURCE
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,10 +135,6 @@ class DecisionsTurn:
     approved_cards: frozenset[str] = frozenset()
     invalid: tuple[InvalidDecision, ...] = ()
 
-    @property
-    def scope(self) -> str:
-        return self.snapshot.scope
-
 
 @dataclass(slots=True)
 class DecisionsResult:
@@ -154,110 +142,72 @@ class DecisionsResult:
     skipped: list[dict[str, Any]] = field(default_factory=list)
     cooldowns: dict[str, int] = field(default_factory=dict)
     guidance: str = ""
-    latency_ms: int = 0
     requests: int = 0
 
     def as_event_data(self) -> dict[str, Any]:
         evaluations = [{key: row[key] for key in _EVENT_FIELDS if key in row} for row in self.evaluations]
         return {"evaluations": evaluations, "skipped": self.skipped, "cooldowns": self.cooldowns}
 
-    def as_envelope(self) -> dict[str, Any]:
-        return envelope(self.evaluations, self.skipped)
-
-
-Criteria = Mapping[str, str] | tuple[str, ...]
-Answer = float | ChoiceAnswer | ScoreAnswer
+    def apply_to(self, state: TurnState) -> None:
+        """Carry the result on *state* so persistence commits it in the reply's own INSERT."""
+        state.decision_evaluations = envelope(self.evaluations, self.skipped)
+        state.decision_cooldowns = dict(self.cooldowns)
+        state.decision_guidance = self.guidance
 
 
 @dataclass(slots=True)
-class _PreparedQuestion:
-    owner: _Prepared
-    key: str
-    instructions: str
-    criteria: Criteria
-    question_type: str
-    failure: str = ""
+class _Item:
+    """One running decision: its rendered question, then its answer or why it has none."""
+
+    candidate: DecisionCandidate
+    policy_fingerprint: str
+    outputs: dict[str, str] = field(default_factory=dict)
+    state: str = ""
+    question: DecisionQuestion | None = None
+    raw_fingerprint: str = ""
+    skip_reason: str = ""
+    oversize: tuple[int, int] | None = None
+    replay_invalidated: str = ""
     answer: Answer | None = None
     answer_source: str = ""
     replayed_from: str = ""
     returned_model: str = ""
-    request_id: str = ""
     elapsed_ms: int = 0
-    usage: Mapping[str, Any] = field(default_factory=dict)
-    usage_owner: bool = False
-
-    def question(self) -> DecisionQuestion:
-        return DecisionQuestion(self.key, self.instructions, self.criteria, self.question_type)
-
-    @property
-    def fingerprint(self) -> str:
-        return raw_request_fingerprint(
-            model=self.owner.model,
-            state=self.owner.state,
-            instructions=self.instructions,
-            criteria=self.criteria,
-            question_type=self.question_type,
-        )
-
-
-@dataclass(slots=True)
-class _Prepared:
-    candidate: DecisionCandidate
-    model: str = ""
-    state: str = ""
-    outputs: dict[str, str] = field(default_factory=dict)
-    question: _PreparedQuestion | None = None
-    raw_fingerprint: str = ""
-    policy_fingerprint: str = ""
-    skip_reason: str = ""
-    oversize: tuple[int, int] = (0, 0)
-    replay_invalidated: str = ""
 
     @property
     def definition(self) -> DecisionDefinition:
         return self.candidate.definition
 
 
-def _resolve_text(text: str, snapshot: DecisionSnapshot) -> str:
-    return render(text, snapshot, allowed=TEXT_MACROS)
-
-
-def _render_criteria(criteria: Criteria, snapshot: DecisionSnapshot) -> Criteria:
-    if isinstance(criteria, Mapping):
-        return {key: _resolve_text(value, snapshot) for key, value in criteria.items()}
-    return tuple(_resolve_text(value, snapshot) for value in criteria)
-
-
 def _eligible(turn: DecisionsTurn) -> tuple[list[DecisionCandidate], list[dict[str, Any]]]:
-    running: list[DecisionCandidate] = []
     skipped = [
         {
             "fragment_id": broken.fragment_id,
             "fragment_label": broken.label,
-            "source": broken.source,
+            "source": _source(broken.card_id),
             "reason": SkipReason.INVALID_DEFINITION,
             "failed": 1,
         }
         for broken in turn.invalid
     ]
+    running: list[DecisionCandidate] = []
     resting = cooldown.blocked(turn.prior_cooldowns)
     for candidate in turn.candidates:
-        reason = ""
         if candidate.card_id and candidate.card_id not in turn.approved_cards:
             reason = SkipReason.NOT_APPROVED
         elif candidate.definition.fragment_id in resting:
             reason = SkipReason.RESTING
-        if reason:
-            skipped.append(
-                {
-                    "fragment_id": candidate.definition.fragment_id,
-                    "fragment_label": candidate.definition.label,
-                    "source": candidate.source,
-                    "reason": reason,
-                }
-            )
         else:
             running.append(candidate)
+            continue
+        skipped.append(
+            {
+                "fragment_id": candidate.definition.fragment_id,
+                "fragment_label": candidate.definition.label,
+                "source": _source(candidate.card_id),
+                "reason": reason,
+            }
+        )
     return running, skipped
 
 
@@ -265,63 +215,55 @@ def _over_budget(running: Sequence[DecisionCandidate]) -> set[str]:
     over: set[str] = set()
     per_card: dict[str, int] = {}
     for index, candidate in enumerate(running):
-        if index >= MAX_DECISIONS_PER_EXCHANGE:
+        if candidate.card_id:
+            per_card[candidate.card_id] = per_card.get(candidate.card_id, 0) + 1
+        if index >= MAX_DECISIONS_PER_EXCHANGE or (candidate.card_id and per_card[candidate.card_id] > MAX_DECISIONS_PER_CARD):
             over.add(candidate.definition.fragment_id)
-        elif candidate.card_id:
-            count = per_card.get(candidate.card_id, 0)
-            if count >= MAX_DECISIONS_PER_CARD:
-                over.add(candidate.definition.fragment_id)
-            else:
-                per_card[candidate.card_id] = count + 1
     return over
 
 
-def _prepare(candidate: DecisionCandidate, turn: DecisionsTurn, *, over_budget: bool) -> _Prepared:
-    definition = candidate.definition
-    prepared = _Prepared(candidate=candidate, model=turn.config.model)
-    prepared.policy_fingerprint = resolution_policy_fingerprint(definition, scope=turn.scope)
+def _prepare(candidate: DecisionCandidate, turn: DecisionsTurn, *, over_budget: bool) -> _Item:
+    item = _Item(candidate, resolution_policy_fingerprint(candidate.definition, scope=turn.snapshot.scope))
+    item.skip_reason = _render_question(item, turn, over_budget=over_budget)
+    return item
+
+
+def _render_question(item: _Item, turn: DecisionsTurn, *, over_budget: bool) -> str:
+    """Render *item*'s request, or return why it cannot be asked."""
+    definition, snapshot = item.definition, turn.snapshot
     try:
-        prepared.outputs = {key: _resolve_text(value, turn.snapshot) for key, value in definition.outputs.items()}
+        item.outputs = {key: render(value, snapshot, allowed=TEXT_MACROS) for key, value in definition.outputs.items()}
     except UnavailableMacro:
-        prepared.skip_reason = SkipReason.UNAVAILABLE_CONTEXT
-        return prepared
+        return SkipReason.UNAVAILABLE_CONTEXT
     if over_budget:
-        prepared.skip_reason = SkipReason.BUDGET_EXHAUSTED
-        return prepared
+        return SkipReason.BUDGET_EXHAUSTED
     if not turn.config.configured:
-        prepared.skip_reason = SkipReason.NOT_CONFIGURED
-        return prepared
-    if template_errors(definition.state_template, allowed=STATE_MACROS):
-        prepared.skip_reason = SkipReason.INVALID_DEFINITION
-        return prepared
-    used = set(macros_used(definition.state_template))
+        return SkipReason.NOT_CONFIGURED
+    if macro_errors(definition.state_template):
+        return SkipReason.INVALID_DEFINITION
     try:
-        prepared.state = render(definition.state_template, turn.snapshot, allowed=STATE_MACROS)
-        question = _PreparedQuestion(
-            owner=prepared,
-            key=definition.fragment_id,
-            instructions=_resolve_text(definition.instructions, turn.snapshot),
-            criteria=_render_criteria(definition.criteria, turn.snapshot),
-            question_type=definition.decision_type,
-        )
+        state = render(definition.state_template, snapshot, allowed=STATE_MACROS)
+        instructions = render(definition.instructions, snapshot, allowed=TEXT_MACROS)
+        if isinstance(definition.criteria, Mapping):
+            criteria: Mapping[str, str] | tuple[str, ...] = {
+                key: render(value, snapshot, allowed=TEXT_MACROS) for key, value in definition.criteria.items()
+            }
+        else:
+            criteria = tuple(render(value, snapshot, allowed=TEXT_MACROS) for value in definition.criteria)
     except UnavailableMacro:
-        prepared.skip_reason = SkipReason.UNAVAILABLE_CONTEXT
-        return prepared
-    if used and used <= _SITUATION_MACROS and not any((turn.snapshot.value(macro) or "").strip() for macro in used):
-        prepared.skip_reason = SkipReason.EMPTY_INPUT
-        return prepared
-    if oversized_state(prepared.state) or oversized_question(question.instructions, question.criteria):
-        texts = question.criteria.values() if isinstance(question.criteria, Mapping) else question.criteria
-        prepared.oversize = (
-            len(prepared.state.encode()),
-            len(question.instructions.encode()) + sum(len(text.encode()) for text in texts),
-        )
-        prepared.state = ""
-        prepared.skip_reason = SkipReason.OVERSIZED_INPUT
-        return prepared
-    prepared.question = question
-    prepared.raw_fingerprint = question.fingerprint
-    return prepared
+        return SkipReason.UNAVAILABLE_CONTEXT
+    used = set(macros_used(definition.state_template))
+    if used and used <= _SITUATION_MACROS and not any((snapshot.value(macro) or "").strip() for macro in used):
+        return SkipReason.EMPTY_INPUT
+    texts = criteria.values() if isinstance(criteria, Mapping) else criteria
+    sizes = (len(state.encode()), len(instructions.encode()) + sum(len(text.encode()) for text in texts))
+    if sizes[0] > MAX_STATE_BYTES or sizes[1] > MAX_QUESTION_BYTES:
+        item.oversize = sizes
+        return SkipReason.OVERSIZED_INPUT
+    item.state = state
+    item.question = DecisionQuestion(definition.fragment_id, instructions, criteria, definition.decision_type)
+    item.raw_fingerprint = raw_request_fingerprint(turn.config.model, state, item.question)
+    return ""
 
 
 def _answer_fields(answer: Answer) -> dict[str, Any]:
@@ -337,135 +279,96 @@ def _answer_fields(answer: Answer) -> dict[str, Any]:
     }
 
 
-def _resolve_answer(
-    answer: Answer,
-    *,
-    decision_type: str,
-    resolution: str,
-    keys: Sequence[str],
-    threshold: float | None = None,
-) -> tuple[str, float | None]:
-    if decision_type == "noul" and isinstance(answer, (int, float)):
-        probability = float(answer)
-        if resolution == "roll":
-            draw = draw_uniform()
-            return resolve_roll(probability, draw), draw
-        return resolve_threshold(probability, threshold if threshold is not None else 0.5), None
+def _resolve_answer(answer: Answer, definition: DecisionDefinition) -> tuple[str, float | None]:
+    keys = definition.outcome_keys
+    draw = draw_uniform() if definition.resolution in DRAWN_RESOLUTIONS else None
+    if definition.decision_type == "noul" and isinstance(answer, (int, float)):
+        if draw is not None:
+            return resolve_roll(float(answer), draw), draw
+        return resolve_threshold(float(answer), definition.threshold if definition.threshold is not None else 0.5), None
     if isinstance(answer, (ChoiceAnswer, ScoreAnswer)):
-        if resolution == "weighted":
-            draw = draw_uniform()
+        if draw is not None:
             return resolve_weighted(answer.probabilities, keys, draw), draw
-        if resolution == "nearest" and isinstance(answer, ScoreAnswer):
+        if definition.resolution == "nearest" and isinstance(answer, ScoreAnswer):
             return resolve_nearest(answer.score, keys), None
         return resolve_argmax(answer.probabilities, keys), None
     raise ValueError("answer primitive did not match its definition")
 
 
-def _is_gated(question: _PreparedQuestion, answer: Answer) -> bool:
-    floor = question.owner.definition.confidence_floor
+def _gated(definition: DecisionDefinition, answer: Answer) -> bool:
     confidence = getattr(answer, "confidence", None)
-    return floor is not None and confidence is not None and confidence < floor
+    return definition.confidence_floor is not None and confidence is not None and confidence < definition.confidence_floor
 
 
-def _base_record(prepared: _Prepared, turn: DecisionsTurn, occurrence_id: str | None = None) -> dict[str, Any]:
-    definition = prepared.definition
-    question = prepared.question
-    record: dict[str, Any] = {
-        "fragment_id": definition.fragment_id,
-        "fragment_label": definition.label,
-        "injection_label": definition.injection_label,
-        "source": prepared.candidate.source,
-        "placement": definition.placement,
-        "scope": turn.scope,
-        "occurrence_id": occurrence_id or str(uuid.uuid4()),
-        "input_branch_anchor": turn.snapshot.anchor_message_id,
-        "rendered_state": prepared.state,
-        "rendered_instructions": question.instructions if question else "",
-        "rendered_criteria": question.criteria if question else {},
-        "raw_request_fingerprint": prepared.raw_fingerprint,
-        "resolution_policy_fingerprint": prepared.policy_fingerprint,
-        "outputs": dict(prepared.outputs),
-        "requested_model": turn.config.model,
-        "returned_model": question.returned_model if question else "",
-        "elapsed_ms": question.elapsed_ms if question else 0,
-    }
-    if prepared.replay_invalidated:
-        record["replay_invalidated"] = prepared.replay_invalidated
-    if question is not None and question.usage_owner and question.usage:
-        record["usage"] = dict(question.usage)
-        record["usage_owner"] = 1
-        if question.request_id:
-            record["request_id"] = question.request_id
-    return record
-
-
-def _skipped_row(prepared: _Prepared, turn: DecisionsTurn, reason: str) -> dict[str, Any]:
-    """The row for a decision that produced nothing.
-
-    Deliberately thin: a skipped decision injected no guidance and resolved to
-    no outcome, so there is nothing to record but who it was and why it did not
-    run. The oversize numbers are the one exception -- they are the only reason
-    an author cannot act on without being told the size they overran.
-    """
-    definition = prepared.definition
-    row: dict[str, Any] = {
-        "fragment_id": definition.fragment_id,
-        "fragment_label": definition.label,
-        "source": prepared.candidate.source,
-        "reason": reason,
-    }
-    # Separates "something broke" from the routine skips an author configured on
-    # purpose, so the client can decide what is worth saying out loud without
-    # keeping its own copy of this vocabulary.
-    if reason in FAILURE_REASONS:
-        row["failed"] = 1
-    if prepared.oversize != (0, 0):
-        row["oversize_state_bytes"], row["oversize_question_bytes"] = prepared.oversize
-        row["state_limit"], row["question_limit"] = MAX_STATE_BYTES, MAX_QUESTION_BYTES
-    return row
-
-
-def _resolved_record(prepared: _Prepared, turn: DecisionsTurn) -> dict[str, Any] | None:
-    """The evaluation record, or ``None`` with ``prepared.skip_reason`` set.
+def _resolved_record(item: _Item, turn: DecisionsTurn) -> dict[str, Any] | None:
+    """The evaluation record, or ``None`` with ``item.skip_reason`` set.
 
     Returning nothing is the whole point: an unanswered decision contributes no
     outcome and no guidance, and the caller turns it into a skip row.
     """
-    definition = prepared.definition
-    question = prepared.question
-    if question is None or question.answer is None:
-        prepared.skip_reason = (question.failure if question else "") or prepared.skip_reason or SkipReason.INVALID_ANSWER
+    definition, question, answer = item.definition, item.question, item.answer
+    if question is None or answer is None:
+        item.skip_reason = SkipReason.INVALID_ANSWER
         return None
-    confidence = getattr(question.answer, "confidence", None)
-    if definition.confidence_floor is not None and confidence is not None and confidence < definition.confidence_floor:
-        prepared.skip_reason = SkipReason.LOW_CONFIDENCE
+    if _gated(definition, answer):
+        item.skip_reason = SkipReason.LOW_CONFIDENCE
         return None
     try:
-        outcome, draw = _resolve_answer(
-            question.answer,
-            decision_type=definition.decision_type,
-            resolution=definition.resolution,
-            keys=definition.outcome_keys,
-            threshold=definition.threshold,
-        )
+        outcome, draw = _resolve_answer(answer, definition)
     except ValueError:
-        prepared.skip_reason = SkipReason.INVALID_ANSWER
+        item.skip_reason = SkipReason.INVALID_ANSWER
         return None
-    record = _base_record(prepared, turn)
-    record.update(
-        {
-            "outcome": outcome,
-            "guidance": prepared.outputs.get(outcome, ""),
-            "answer_source": question.answer_source,
-            **_answer_fields(question.answer),
-        }
-    )
-    if question.replayed_from:
-        record["replayed_from"] = question.replayed_from
+    record: dict[str, Any] = {
+        "fragment_id": definition.fragment_id,
+        "fragment_label": definition.label,
+        "injection_label": definition.injection_label,
+        "source": _source(item.candidate.card_id),
+        "placement": definition.placement,
+        "scope": turn.snapshot.scope,
+        "occurrence_id": str(uuid.uuid4()),
+        "input_branch_anchor": turn.snapshot.anchor_message_id,
+        "rendered_state": item.state,
+        "rendered_instructions": question.instructions,
+        "rendered_criteria": question.criteria,
+        "raw_request_fingerprint": item.raw_fingerprint,
+        "resolution_policy_fingerprint": item.policy_fingerprint,
+        "outputs": item.outputs,
+        "requested_model": turn.config.model,
+        "returned_model": item.returned_model,
+        "elapsed_ms": item.elapsed_ms,
+        "outcome": outcome,
+        "guidance": item.outputs.get(outcome, ""),
+        "answer_source": item.answer_source,
+        **_answer_fields(answer),
+    }
+    if item.replay_invalidated:
+        record["replay_invalidated"] = item.replay_invalidated
+    if item.replayed_from:
+        record["replayed_from"] = item.replayed_from
     if draw is not None:
         record["draw"] = draw
-
     return record
+
+
+def _skipped_row(item: _Item) -> dict[str, Any]:
+    """The row for a decision that produced nothing: who it was and why it did not run.
+
+    The oversize numbers are the one extra -- they are the only reason an author
+    cannot act on without being told the size they overran. ``failed`` separates
+    "something broke" from the routine skips an author configured on purpose.
+    """
+    row: dict[str, Any] = {
+        "fragment_id": item.definition.fragment_id,
+        "fragment_label": item.definition.label,
+        "source": _source(item.candidate.card_id),
+        "reason": item.skip_reason,
+    }
+    if item.skip_reason not in ROUTINE_REASONS:
+        row["failed"] = 1
+    if item.oversize is not None:
+        row["oversize_state_bytes"], row["oversize_question_bytes"] = item.oversize
+        row["state_limit"], row["question_limit"] = MAX_STATE_BYTES, MAX_QUESTION_BYTES
+    return row
 
 
 def _origin(stored: Mapping[str, Any]) -> str:
@@ -488,79 +391,69 @@ def _stored_answer(stored: Mapping[str, Any], decision_type: str) -> Answer | No
         return None
 
 
-def _redraw(question: _PreparedQuestion, stored: Mapping[str, Any]) -> bool:
-    """Arm *question* with the stored answer so it resolves with a fresh draw.
+def _redraw(item: _Item, stored: Mapping[str, Any]) -> bool:
+    """Arm *item* with the stored answer so it resolves with a fresh draw.
 
     A drawn outcome is the dice, not the classifier: keeping it would make every
     regeneration land on the same side of the odds the author asked to roll
     against. The answer is kept, so rerolling costs no request.
     """
-    answer = _stored_answer(stored, question.question_type)
+    answer = _stored_answer(stored, item.definition.decision_type)
     if answer is None:
         return False
-    question.answer = answer
-    question.answer_source = "replay"
-    question.replayed_from = _origin(stored)
-    question.returned_model = str(stored.get("returned_model") or "")
+    item.answer, item.answer_source, item.replayed_from = answer, "replay", _origin(stored)
+    item.returned_model = str(stored.get("returned_model") or "")
     return True
 
 
-def _replayed(prepared: _Prepared, turn: DecisionsTurn, stored: Mapping[str, Any]) -> dict[str, Any]:
-    record = dict(stored)
-    record.update(
-        {
-            "fragment_label": prepared.definition.label,
-            "injection_label": prepared.definition.injection_label,
-            "source": prepared.candidate.source,
-            "outputs": dict(prepared.outputs),
-            "answer_source": "replay",
-            "replayed_from": _origin(stored),
-            "guidance": prepared.outputs.get(str(stored.get("outcome") or ""), ""),
-        }
-    )
-    return record
+def _replayed(item: _Item, stored: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        **stored,
+        "fragment_label": item.definition.label,
+        "injection_label": item.definition.injection_label,
+        "source": _source(item.candidate.card_id),
+        "outputs": item.outputs,
+        "answer_source": "replay",
+        "replayed_from": _origin(stored),
+        "guidance": item.outputs.get(str(stored.get("outcome") or ""), ""),
+    }
 
 
-def _batches(pending: Sequence[_PreparedQuestion]) -> list[list[_PreparedQuestion]]:
-    by_state: dict[str, list[_PreparedQuestion]] = {}
-    for question in pending:
-        by_state.setdefault(question.owner.state, []).append(question)
-    batches: list[list[_PreparedQuestion]] = []
-    for group in by_state.values():
-        current: list[_PreparedQuestion] = []
-        for question in group:
-            probe = [*current, question]
-            size = len(question.owner.state.encode()) + sum(q.question().rendered_bytes() + 64 for q in probe)
-            if current and (len(probe) > MAX_QUESTIONS_PER_REQUEST or size > MAX_REQUEST_BYTES):
+def _cache_key(item: _Item, turn: DecisionsTurn) -> str:
+    assert item.question is not None
+    return cache_key(turn.config.url, turn.config.model, item.state, item.question)
+
+
+def _batches(pending: Sequence[_Item]) -> list[list[_Item]]:
+    by_state: dict[str, list[_Item]] = {}
+    for item in pending:
+        by_state.setdefault(item.state, []).append(item)
+    batches: list[list[_Item]] = []
+    for state, group in by_state.items():
+        current: list[_Item] = []
+        size = len(state.encode())
+        for item in group:
+            assert item.question is not None
+            cost = len(item.question.canonical().encode()) + 64
+            if current and (len(current) >= MAX_QUESTIONS_PER_REQUEST or size + cost > MAX_REQUEST_BYTES):
                 batches.append(current)
-                current = [question]
-            else:
-                current = probe
-        if current:
-            batches.append(current)
+                current, size = [], len(state.encode())
+            current.append(item)
+            size += cost
+        batches.append(current)
     return batches
-
-
-def stage_has_work(turn: DecisionsTurn) -> bool:
-    return bool(turn.candidates or turn.invalid)
 
 
 async def run_decisions(turn: DecisionsTurn, *, abort: AbortToken | None = None) -> DecisionsResult:
     started = time.monotonic()
     running, skipped = _eligible(turn)
     over = _over_budget(running)
-    prepared = [_prepare(candidate, turn, over_budget=candidate.definition.fragment_id in over) for candidate in running]
-    records: dict[str, dict[str, Any]] = {}
-    # Keyed rather than appended so the skip list stays in candidate order no
-    # matter which pass gave up on a decision.
-    failed: dict[str, dict[str, Any]] = {}
-    pending: list[_PreparedQuestion] = []
-    question_budget = MAX_QUESTIONS_PER_EXCHANGE
-
-    for item in prepared:
+    items = [_prepare(candidate, turn, over_budget=candidate.definition.fragment_id in over) for candidate in running]
+    replayed: dict[str, dict[str, Any]] = {}
+    pending: list[_Item] = []
+    for item in items:
         fid = item.definition.fragment_id
         if item.skip_reason:
-            failed[fid] = _skipped_row(item, turn, item.skip_reason)
             continue
         stored = matching_replay(
             turn.replay_records,
@@ -568,90 +461,63 @@ async def run_decisions(turn: DecisionsTurn, *, abort: AbortToken | None = None)
             raw_fingerprint=item.raw_fingerprint,
             policy_fingerprint=item.policy_fingerprint,
         )
-        question = item.question
         if stored is not None:
             if item.definition.resolution not in DRAWN_RESOLUTIONS:
-                records[fid] = _replayed(item, turn, stored)
+                replayed[fid] = _replayed(item, stored)
                 continue
-            if question is not None and _redraw(question, stored):
+            if _redraw(item, stored):
                 continue
         if invalidated_anchor(turn.replay_records, fid):
             item.replay_invalidated = SkipReason.MISSING_ANCHOR
-        if question is None or question.failure:
-            continue
-        if question_budget <= 0:
-            question.failure = SkipReason.BUDGET_EXHAUSTED
-            continue
-        question_budget -= 1
-        key = cache_key(turn.config.namespace, turn.config.model, item.state, question.question())
-        hit = RAW_ANSWER_CACHE.get(key)
-        if hit is not None and not _is_gated(question, hit.answer):
-            question.answer = hit.answer
-            question.answer_source = "cache"
-            question.returned_model = hit.returned_model
+        if (hit := RAW_ANSWER_CACHE.get(_cache_key(item, turn))) is not None:
+            item.answer, item.answer_source, item.returned_model = hit.answer, "cache", hit.returned_model
         else:
-            if hit is not None:
-                RAW_ANSWER_CACHE.discard(key)
-            pending.append(question)
+            pending.append(item)
 
     requests = await _issue(pending, turn, started=started, abort=abort) if pending else 0
-    for item in prepared:
-        fid = item.definition.fragment_id
-        if fid in records or fid in failed:
-            continue
+    evaluations: list[dict[str, Any]] = []
+    for item in items:
         # A decision that could not answer drops out here and the turn carries on
         # with the ones that did. Nothing is injected on its behalf.
-        record = _resolved_record(item, turn)
+        record = replayed.get(item.definition.fragment_id)
+        if record is None and not item.skip_reason:
+            record = _resolved_record(item, turn)
         if record is None:
-            failed[fid] = _skipped_row(item, turn, item.skip_reason)
+            skipped.append(_skipped_row(item))
         else:
-            records[fid] = record
-    skipped.extend(failed[item.definition.fragment_id] for item in prepared if item.definition.fragment_id in failed)
-    result = DecisionsResult(
-        evaluations=[records[item.definition.fragment_id] for item in prepared if item.definition.fragment_id in records],
+            evaluations.append(record)
+    return DecisionsResult(
+        evaluations=evaluations,
         skipped=skipped,
-        latency_ms=int((time.monotonic() - started) * 1000),
+        cooldowns=cooldown.advance(
+            turn.prior_cooldowns,
+            [record["fragment_id"] for record in evaluations],
+            [candidate.definition for candidate in turn.candidates],
+        ),
+        guidance=decision_guidance_block(evaluations),
         requests=requests,
     )
-    result.guidance = decision_guidance_block(result.evaluations)
-    result.cooldowns = cooldown.advance(
-        turn.prior_cooldowns,
-        [record["fragment_id"] for record in result.evaluations],
-        [candidate.definition for candidate in turn.candidates],
-    )
-    return result
 
 
-async def _issue(
-    pending: Sequence[_PreparedQuestion],
-    turn: DecisionsTurn,
-    *,
-    started: float,
-    abort: AbortToken | None,
-) -> int:
-    client = DecisionClient(
-        turn.config.url,
-        api_key=turn.config.api_key,
-        model=turn.config.model,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-        proxy=turn.config.proxy,
-    )
+async def _issue(pending: Sequence[_Item], turn: DecisionsTurn, *, started: float, abort: AbortToken | None) -> int:
+    config = turn.config
+    client = DecisionClient(config.url, config.api_key, config.model, timeout=REQUEST_TIMEOUT_SECONDS, proxy=config.proxy)
     if abort is not None and abort.is_aborted:
         raise DecisionCancelled("stopped during the decision stage")
     remaining = STAGE_BUDGET_SECONDS - (time.monotonic() - started)
     batches = _batches(pending)
     sent = batches[:MAX_REQUEST_ATTEMPTS] if remaining > 0 else []
     for batch in batches[len(sent) :]:
-        for question in batch:
-            question.failure = SkipReason.BUDGET_EXHAUSTED
+        for item in batch:
+            item.skip_reason = SkipReason.BUDGET_EXHAUSTED
     # No batch reads another's answer, so none waits on another: the judge answers
     # each in about the same time, and the stage costs its slowest request
     # instead of their sum (four states: 2.5 s sequential, 0.7 s together).
     outcomes = await asyncio.gather(
         *(
             client.decide(
-                batch[0].owner.state,
-                [question.question() for question in batch],
+                batch[0].state,
+                [item.question for item in batch if item.question is not None],
                 timeout=min(REQUEST_TIMEOUT_SECONDS, remaining),
                 abort=abort,
             )
@@ -663,34 +529,29 @@ async def _issue(
         raise cancelled
     for batch, outcome in zip(sent, outcomes, strict=True):
         if isinstance(outcome, httpx.TimeoutException):
-            for question in batch:
-                question.failure = SkipReason.TIMEOUT
+            reason = SkipReason.TIMEOUT
         elif isinstance(outcome, (LLMCallError, DecisionTransportError, httpx.HTTPError)):
             logger.warning("Decision batch of %d failed (%r); skipping those decisions", len(batch), outcome)
-            for question in batch:
-                question.failure = SkipReason.TRANSPORT_FAILURE
+            reason = SkipReason.TRANSPORT_FAILURE
         elif isinstance(outcome, BaseException):
             raise outcome
         else:
             _apply(batch, outcome, turn)
+            continue
+        for item in batch:
+            item.skip_reason = reason
     return len(sent)
 
 
-def _apply(batch: Sequence[_PreparedQuestion], response: DecisionResponse, turn: DecisionsTurn) -> None:
-    for index, question in enumerate(batch):
-        question.elapsed_ms = response.elapsed_ms
-        question.request_id = response.request_id
-        question.usage = response.usage
-        question.usage_owner = index == 0
-        answer = response.answers.get(question.key)
+def _apply(batch: Sequence[_Item], response: DecisionResponse, turn: DecisionsTurn) -> None:
+    for item in batch:
+        item.elapsed_ms = response.elapsed_ms
+        answer = response.answers.get(item.definition.fragment_id)
         if answer is None:
-            question.failure = SkipReason.INVALID_ANSWER
+            item.skip_reason = SkipReason.INVALID_ANSWER
             continue
-        question.answer = answer
-        question.answer_source = "live"
-        question.returned_model = response.returned_model
-        if not _is_gated(question, answer):
-            RAW_ANSWER_CACHE.put(
-                cache_key(turn.config.namespace, turn.config.model, question.owner.state, question.question()),
-                CachedAnswer(answer, response.returned_model),
-            )
+        item.answer, item.answer_source, item.returned_model = answer, "live", response.returned_model
+        # A gated answer is not cached, so the next turn asks again rather than
+        # replaying a verdict the author said was too unsure to use.
+        if not _gated(item.definition, answer):
+            RAW_ANSWER_CACHE.put(_cache_key(item, turn), CachedAnswer(answer, response.returned_model))

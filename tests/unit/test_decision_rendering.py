@@ -18,13 +18,10 @@ from backend.pipeline.passes.decisions import (
     macro_errors,
     macros_used,
     render,
-    template_errors,
 )
 from backend.pipeline.passes.decisions.render import (
     RECENT_HISTORY_DEPTH,
     UnavailableMacro,
-    oversized_question,
-    oversized_state,
 )
 
 MACROS = Macros(user="Tester", char="Maren", description="A wizard.")
@@ -109,12 +106,8 @@ def test_macros_used_is_ordered_deduplicated_and_ignores_literals():
 
 
 def test_later_stage_macros_get_their_own_explanation():
-    problems = template_errors("{{draft}}")
+    problems = macro_errors("{{draft}}")
     assert problems and "before the Director" in problems[0]
-
-
-def test_an_empty_template_is_an_error_but_an_empty_output_is_not():
-    assert template_errors("  ") == ["Template must not be empty"]
     assert macro_errors("") == []
 
 
@@ -124,16 +117,6 @@ def test_every_supported_state_macro_resolves():
     )
     for macro in STATE_MACROS:
         assert render(f"<{{{{{macro}}}}}>", snapshot) != f"<{{{{{macro}}}}}>", macro
-
-
-# ── size limits ──────────────────────────────────────────────────────────────
-
-
-def test_size_limits_are_measured_in_utf8_bytes():
-    assert not oversized_state("é" * 8_000)
-    assert oversized_state("é" * 8_193)
-    assert not oversized_question("x" * 100, {"true": "y" * 100, "false": "z" * 100})
-    assert oversized_question("x" * 8_192, {"true": "y", "false": "z"})
 
 
 # ── snapshot construction ────────────────────────────────────────────────────

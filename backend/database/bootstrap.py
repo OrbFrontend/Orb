@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
+from ..core import DECISION_COLUMNS
 from .connection import get_db
 from .schema import CREATE_TABLES_SQL
 from .seeds import (
@@ -181,32 +182,14 @@ async def _seed_mood_fragments(db) -> None:
 
 
 async def _seed_interactive_fragments(db) -> None:
+    columns = ("id", "label", "description", "field_type", "required", "enabled", "injection_label", "sort_order")
+    columns += DECISION_COLUMNS
     for df in SEED_INTERACTIVE_FRAGMENTS:
+        row = {"description": "", "enabled": True, **df}
+        values = [row.get(column) for column in columns]
         await db.execute(
-            "INSERT INTO interactive_fragments (id, label, description, field_type, required, enabled, injection_label, sort_order, "
-            "decision_type, decision_placement, decision_state_template, decision_instructions, decision_criteria, decision_outputs, "
-            "decision_resolution, decision_threshold, decision_confidence_floor) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                df["id"],
-                df["label"],
-                # A decision seeds no description: nothing reads one.
-                df.get("description", ""),
-                df["field_type"],
-                1 if df["required"] else 0,
-                1 if df.get("enabled", True) else 0,
-                df["injection_label"],
-                df["sort_order"],
-                df.get("decision_type"),
-                df.get("decision_placement"),
-                df.get("decision_state_template"),
-                df.get("decision_instructions"),
-                json.dumps(df["decision_criteria"], ensure_ascii=False) if "decision_criteria" in df else None,
-                json.dumps(df["decision_outputs"], ensure_ascii=False) if "decision_outputs" in df else None,
-                df.get("decision_resolution"),
-                df.get("decision_threshold"),
-                df.get("decision_confidence_floor"),
-            ),
+            f"INSERT INTO interactive_fragments ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",  # nosec B608
+            [json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value for value in values],
         )
 
 

@@ -115,8 +115,6 @@ _INTERACTIVE_FIELD_TYPES = {
     DECISION_FIELD_TYPE,
 }
 
-_CARD_DECISION_TEXT_LIMIT = 8_000
-
 
 def _card_fragment_entries(raw: Any) -> list[dict]:
     """Filter a raw fragments list down to well-formed, enabled, unique entries."""
@@ -217,44 +215,12 @@ def card_embedded_fragments(
 
 
 def _card_decision_columns(entry: Mapping[str, Any]) -> dict[str, Any] | None:
-    columns: dict[str, Any] = {
-        "decision_type": _text(entry, "decision_type", "noul"),
-        "decision_placement": _text(entry, "decision_placement", "before_director"),
-        "decision_state_template": _text(entry, "decision_state_template")[:_CARD_DECISION_TEXT_LIMIT],
-        "decision_instructions": _text(entry, "decision_instructions")[:_CARD_DECISION_TEXT_LIMIT],
-        "decision_criteria": _card_criteria(entry.get("decision_criteria")),
-        "decision_outputs": _card_text_map(entry.get("decision_outputs")),
-        "decision_resolution": _text(entry, "decision_resolution", "threshold"),
-        "decision_threshold": _card_threshold(entry.get("decision_threshold")),
-        "decision_confidence_floor": _card_threshold(entry.get("decision_confidence_floor")),
-    }
+    """The entry's decision columns, or None when they do not form a valid definition."""
+    columns = {column: entry.get(column) for column in DECISION_COLUMNS}
+    defaults = {"decision_type": "noul", "decision_placement": "before_director", "decision_resolution": "threshold"}
+    columns.update({column: value for column, value in defaults.items() if not columns[column]})
     probe = {"id": entry["id"], "label": entry["label"], "field_type": DECISION_FIELD_TYPE, **columns}
     return columns if parse_decision_definition(probe) is not None else None
-
-
-def _card_text_map(raw: Any) -> dict[str, str] | None:
-    if not isinstance(raw, Mapping):
-        return None
-    out: dict[str, str] = {}
-    for key, value in raw.items():
-        if not isinstance(key, str) or not isinstance(value, str):
-            return None
-        out[key] = value[:_CARD_DECISION_TEXT_LIMIT]
-    return out
-
-
-def _card_criteria(raw: Any) -> dict[str, str] | list[str] | None:
-    if isinstance(raw, Mapping):
-        return _card_text_map(raw)
-    if isinstance(raw, list) and all(isinstance(item, str) for item in raw):
-        return [item[:_CARD_DECISION_TEXT_LIMIT] for item in raw]
-    return None
-
-
-def _card_threshold(raw: Any) -> float | None:
-    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-        return None
-    return float(raw)
 
 
 def card_decision_fingerprint(card: Mapping[str, Any] | None) -> str:

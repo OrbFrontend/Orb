@@ -6,7 +6,6 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
-from urllib.parse import urlsplit
 
 from .. import database as db
 from ..core import (
@@ -50,13 +49,7 @@ from ..prompting.lorebook import (
     compute_lorebook_injection_block,
 )
 from .config import _build_writer_tools_blob
-from .passes.decisions import (
-    DecisionCandidate,
-    DecisionConfig,
-    DecisionSnapshot,
-    InvalidDecision,
-    build_snapshot,
-)
+from .passes.decisions import DecisionCandidate, DecisionConfig, InvalidDecision
 from .predicates import agent_enabled, resolve_persona_id, world_proposal_active
 from .state import LorebookTurn, WorldProposalTurn
 from .workflow_bridge import _iterate_pre_pipeline_hooks
@@ -229,33 +222,6 @@ async def resolve_decision_config(settings: Mapping[str, Any]) -> DecisionConfig
         api_key=endpoint.get("api_key", ""),
         model=model,
         proxy=endpoint.get("proxy", "") or "",
-        endpoint_identity=f"{urlsplit(endpoint['url']).netloc}#{endpoint['id']}",
-        revision=int(settings.get("decision_config_revision") or 0),
-    )
-
-
-async def decision_preview_snapshot(conversation_id: str) -> DecisionSnapshot | None:
-    ctx = await _load_pipeline_context(conversation_id)
-    if ctx is None:
-        return None
-    messages = await db.get_messages(conversation_id)
-    trailing_user = bool(messages) and messages[-1]["role"] == "user"
-    current = str(messages[-1]["content"]) if trailing_user else ""
-    history = messages[:-1] if trailing_user else messages
-    macro_char, cast_names = macro_identity(ctx.conv, ctx.cast)
-    macros, _ = persona_macros(
-        ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(ctx.conv), card=ctx.card
-    )
-    return build_snapshot(
-        history=history,
-        current_request=current,
-        macros=macros._replace(cast=cast_names),
-        scope="group" if ctx.cast.grouped else "solo",
-        speaker_names=ctx.speaker_names,
-        scripts=ctx.card_scripts,
-        speaker_scripts=ctx.speaker_scripts,
-        description=None if ctx.cast.grouped else card_description(ctx.card),
-        anchor_message_id=messages[-1]["id"] if messages else None,
     )
 
 

@@ -35,21 +35,9 @@ class SkipReason:
     MISSING_ANCHOR = "missing_anchor"
 
 
-# The reasons that mean something went wrong, as opposed to the routine ones an
-# author configured on purpose. Only these are worth interrupting anybody about.
-FAILURE_REASONS = frozenset(
-    {
-        SkipReason.NOT_CONFIGURED,
-        SkipReason.INVALID_DEFINITION,
-        SkipReason.EMPTY_INPUT,
-        SkipReason.UNAVAILABLE_CONTEXT,
-        SkipReason.OVERSIZED_INPUT,
-        SkipReason.BUDGET_EXHAUSTED,
-        SkipReason.TRANSPORT_FAILURE,
-        SkipReason.TIMEOUT,
-        SkipReason.INVALID_ANSWER,
-    }
-)
+# The skips an author configured on purpose. Every other reason means something
+# went wrong, and only those are worth interrupting anybody about.
+ROUTINE_REASONS = frozenset({SkipReason.NOT_APPROVED, SkipReason.RESTING, SkipReason.LOW_CONFIDENCE})
 
 
 def resolve_threshold(probability: float, threshold: float) -> str:

@@ -140,7 +140,6 @@ from .queries.member_sheets import (
 from .queries.messages import (
     add_message,
     clear_writer_draft,
-    decision_cooldowns_of,
     decision_evaluations_of,
     delete_message_with_descendants,
     get_active_path,
@@ -271,7 +270,6 @@ __all__ = [
     "cast_embedded_fragments",
     "checkpoint_wal",
     "clear_writer_draft",
-    "decision_cooldowns_of",
     "decision_evaluations_of",
     "close_wal_anchor",
     "convert_to_group",

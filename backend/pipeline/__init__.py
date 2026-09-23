@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from .context import (
     conversation_macro_seed,
-    decision_preview_snapshot,
     persona_macros,
     resolve_card_and_persona,
     resolve_decision_config,
@@ -37,7 +36,6 @@ __all__ = [
     "persona_macros",
     "resolve_card_and_persona",
     # decisions — the surfaces the api layer needs from the decision stage
-    "decision_preview_snapshot",
     "remap_decision_anchors",
     "resolve_decision_config",
     # state — per-turn contracts

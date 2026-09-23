@@ -6,24 +6,20 @@ import logging
 import math
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
-from ..core import OUTCOME_KEYS
 from .client import AbortToken
 from .errors import llm_call_error
 
 logger = logging.getLogger(__name__)
 
-DECISION_CONTRACT_VERSION = "jev/2"
-DEFAULT_DECISION_MODEL = "typesafe/jev-1.13"
 MAX_STATE_BYTES = 16 * 1024
 MAX_QUESTION_BYTES = 8 * 1024
 MAX_QUESTIONS_PER_REQUEST = 32
-MAX_QUESTIONS_PER_EXCHANGE = 128
 MAX_REQUEST_BYTES = 64 * 1024
 CACHE_CAPACITY = 512
 CACHE_TTL_SECONDS = 600.0
@@ -71,26 +67,11 @@ class DecisionQuestion:
     question_type: str = "noul"
 
     def payload(self) -> dict[str, Any]:
-        criteria: dict[str, str] | list[str]
-        if isinstance(self.criteria, Mapping):
-            keys = OUTCOME_KEYS if self.question_type == "noul" else tuple(self.criteria)
-            criteria = {key: self.criteria[key] for key in keys if key in self.criteria}
-        else:
-            criteria = list(self.criteria)
-        return {
-            "type": self.question_type,
-            "instructions": self.instructions,
-            "criteria": criteria,
-        }
+        criteria = dict(self.criteria) if isinstance(self.criteria, Mapping) else list(self.criteria)
+        return {"type": self.question_type, "instructions": self.instructions, "criteria": criteria}
 
     def canonical(self) -> str:
         return json.dumps(self.payload(), ensure_ascii=False, separators=(",", ":"))
-
-    def rendered_bytes(self) -> int:
-        return len(self.canonical().encode())
-
-
-NoulQuestion = DecisionQuestion
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +79,6 @@ class ChoiceAnswer:
     selected: str
     probabilities: Mapping[str, float]
     confidence: float
-    answer_type: str = "choice"
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,51 +87,27 @@ class ScoreAnswer:
     probabilities: Mapping[str, float]
     confidence: float
     legend: Mapping[str, str]
-    answer_type: str = "score"
 
 
 NormalizedAnswer = float | ChoiceAnswer | ScoreAnswer
 
 
 @dataclass(frozen=True, slots=True)
-class DecisionRequest:
-    model: str
-    state: str
-    questions: tuple[DecisionQuestion, ...]
-
-    def payload(self) -> dict[str, Any]:
-        return {
-            "model": self.model,
-            "state": self.state,
-            "questions": {question.key: question.payload() for question in self.questions},
-        }
-
-    def body(self) -> bytes:
-        return json.dumps(self.payload(), ensure_ascii=False, separators=(",", ":")).encode()
-
-
-@dataclass(frozen=True, slots=True)
 class DecisionResponse:
     answers: Mapping[str, NormalizedAnswer]
-    invalid: tuple[str, ...] = ()
     returned_model: str = ""
-    usage: Mapping[str, Any] = field(default_factory=dict)
-    request_id: str = ""
     elapsed_ms: int = 0
-
-
-def _probability(value: Any) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    number = float(value)
-    return number if math.isfinite(number) and 0 <= number <= 1 else None
 
 
 def _finite(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    number = float(value)
-    return number if math.isfinite(number) else None
+    return float(value) if math.isfinite(value) else None
+
+
+def _probability(value: Any) -> float | None:
+    number = _finite(value)
+    return number if number is not None and 0 <= number <= 1 else None
 
 
 def _distribution(value: Any, keys: Sequence[str]) -> dict[str, float] | None:
@@ -159,35 +115,28 @@ def _distribution(value: Any, keys: Sequence[str]) -> dict[str, float] | None:
         return None
     result: dict[str, float] = {}
     for key in keys:
-        probability = _probability(value.get(key))
-        if probability is None:
+        if (probability := _probability(value[key])) is None:
             return None
         result[key] = probability
-    total = sum(result.values())
-    return result if math.isclose(total, 1.0, rel_tol=0.0, abs_tol=0.02) else None
+    return result if math.isclose(sum(result.values()), 1.0, rel_tol=0.0, abs_tol=0.02) else None
 
 
 def _answer(entry: Any, question: DecisionQuestion) -> NormalizedAnswer | None:
     if not isinstance(entry, Mapping):
         return None
-    tagged_type = entry.get("type")
-    if tagged_type is not None and tagged_type != question.question_type:
+    if entry.get("type") not in (None, question.question_type):
         return None
     if question.question_type == "noul":
         return _probability(entry.get("noul"))
-    if question.question_type == "choice":
-        if not isinstance(question.criteria, Mapping):
-            return None
+    if question.question_type == "choice" and isinstance(question.criteria, Mapping):
         keys = tuple(question.criteria)
         selected = entry.get("choice")
         probabilities = _distribution(entry.get("probabilities"), keys)
         confidence = _probability(entry.get("confidence"))
-        if not isinstance(selected, str) or selected not in keys or probabilities is None or confidence is None:
+        if selected not in keys or probabilities is None or confidence is None:
             return None
-        return ChoiceAnswer(selected=selected, probabilities=probabilities, confidence=confidence)
-    if question.question_type == "score":
-        if isinstance(question.criteria, Mapping):
-            return None
+        return ChoiceAnswer(selected=str(selected), probabilities=probabilities, confidence=confidence)
+    if question.question_type == "score" and not isinstance(question.criteria, Mapping):
         keys = tuple(str(index) for index in range(len(question.criteria)))
         score = _finite(entry.get("score"))
         probabilities = _distribution(entry.get("probabilities"), keys)
@@ -200,42 +149,25 @@ def _answer(entry: Any, question: DecisionQuestion) -> NormalizedAnswer | None:
             or confidence is None
             or not isinstance(legend, Mapping)
             or set(legend) != set(keys)
-            or any(not isinstance(legend.get(key), str) for key in keys)
+            or any(not isinstance(legend[key], str) for key in keys)
         ):
             return None
-        return ScoreAnswer(
-            score=score,
-            probabilities=probabilities,
-            confidence=confidence,
-            legend={key: str(legend[key]) for key in keys},
-        )
+        return ScoreAnswer(score=score, probabilities=probabilities, confidence=confidence, legend=dict(legend))
     return None
 
 
-def normalize_response(
-    payload: Any, questions: Sequence[DecisionQuestion], *, elapsed_ms: int = 0, request_id: str = ""
-) -> DecisionResponse:
+def normalize_response(payload: Any, questions: Sequence[DecisionQuestion], *, elapsed_ms: int = 0) -> DecisionResponse:
+    """Keep the answers that match their question; a missing or malformed one is simply absent."""
     if not isinstance(payload, Mapping):
         raise DecisionTransportError("decision response was not a JSON object")
     raw_answers = payload.get("answers")
     if not isinstance(raw_answers, Mapping):
         raise DecisionTransportError("decision response carried no 'answers' object")
-    answers: dict[str, NormalizedAnswer] = {}
-    invalid: list[str] = []
-    for question in questions:
-        entry = raw_answers.get(question.key)
-        answer = _answer(entry, question)
-        if answer is None:
-            invalid.append(question.key)
-        else:
-            answers[question.key] = answer
-    usage, model, response_id = payload.get("usage"), payload.get("model"), payload.get("id")
+    answers = {question.key: _answer(raw_answers.get(question.key), question) for question in questions}
+    model = payload.get("model")
     return DecisionResponse(
-        answers=answers,
-        invalid=tuple(invalid),
+        answers={key: answer for key, answer in answers.items() if answer is not None},
         returned_model=model if isinstance(model, str) else "",
-        usage=dict(usage) if isinstance(usage, Mapping) else {},
-        request_id=request_id or (response_id if isinstance(response_id, str) else ""),
         elapsed_ms=elapsed_ms,
     )
 
@@ -245,32 +177,23 @@ class CachedAnswer:
     answer: NormalizedAnswer
     returned_model: str
 
-    @property
-    def probability(self) -> float | None:
-        return self.answer if isinstance(self.answer, float) else None
 
-
-def cache_namespace(*, endpoint_identity: str, config_revision: int) -> str:
-    return f"{DECISION_CONTRACT_VERSION}|{endpoint_identity}|r{config_revision}"
-
-
-def cache_key(namespace: str, model: str, state: str, question: DecisionQuestion) -> str:
-    return "\x1f".join((namespace, model, state, question.canonical()))
+def cache_key(url: str, model: str, state: str, question: DecisionQuestion) -> str:
+    return "\x1f".join((url, model, state, question.canonical()))
 
 
 class RawAnswerCache:
+    """A small TTL cache that evicts the oldest entry once it is over capacity."""
+
     def __init__(self, capacity: int = CACHE_CAPACITY, ttl: float = CACHE_TTL_SECONDS) -> None:
         self.capacity = capacity
         self.ttl = ttl
         self._entries: dict[str, tuple[float, CachedAnswer]] = {}
 
     def get(self, key: str) -> CachedAnswer | None:
-        entry = self._entries.get(key)
-        if entry is None:
-            return None
-        stored_at, answer = entry
-        if time.monotonic() - stored_at > self.ttl:
-            self._entries.pop(key, None)
+        stored_at, answer = self._entries.get(key, (0.0, None))
+        if answer is not None and time.monotonic() - stored_at > self.ttl:
+            del self._entries[key]
             return None
         return answer
 
@@ -280,50 +203,20 @@ class RawAnswerCache:
         while len(self._entries) > self.capacity:
             self._entries.pop(next(iter(self._entries)))
 
-    def discard(self, key: str) -> None:
-        self._entries.pop(key, None)
-
     def clear(self) -> None:
         self._entries.clear()
-
-    def clear_namespace(self, namespace: str) -> int:
-        prefix = namespace + "\x1f"
-        stale = [key for key in self._entries if key.startswith(prefix)]
-        for key in stale:
-            self._entries.pop(key)
-        return len(stale)
-
-    def __len__(self) -> int:
-        return len(self._entries)
 
 
 RAW_ANSWER_CACHE = RawAnswerCache()
 
 
 class DecisionClient:
-    def __init__(
-        self,
-        url: str,
-        api_key: str = "",
-        model: str = DEFAULT_DECISION_MODEL,
-        *,
-        timeout: float = 3.0,
-        proxy: str | None = None,
-    ) -> None:
+    def __init__(self, url: str, api_key: str, model: str, *, timeout: float, proxy: str | None = None) -> None:
         self.url = url
         self.api_key = api_key
         self.model = model
         self.timeout = timeout
         self.proxy = proxy or None
-
-    def _headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-        return headers
-
-    def request_for(self, state: str, questions: Sequence[DecisionQuestion]) -> DecisionRequest:
-        return DecisionRequest(self.model, state, tuple(questions))
 
     async def decide(
         self,
@@ -335,15 +228,16 @@ class DecisionClient:
     ) -> DecisionResponse:
         if abort is not None and abort.is_aborted:
             raise DecisionCancelled("stopped before the decision request was sent")
-        request = self.request_for(state, questions)
+        body = {"model": self.model, "state": state, "questions": {q.key: q.payload() for q in questions}}
         started = time.monotonic()
-        call = asyncio.ensure_future(self._post(request.body(), timeout if timeout is not None else self.timeout))
+        encoded = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
+        call = asyncio.ensure_future(self._post(encoded, timeout if timeout is not None else self.timeout))
         try:
             payload = await self._race_abort(call, abort)
         finally:
             if not call.done():
                 call.cancel()
-        return normalize_response(payload, request.questions, elapsed_ms=int((time.monotonic() - started) * 1000))
+        return normalize_response(payload, questions, elapsed_ms=int((time.monotonic() - started) * 1000))
 
     async def _race_abort(self, call: asyncio.Future, abort: AbortToken | None) -> Any:
         if abort is None:
@@ -358,8 +252,11 @@ class DecisionClient:
             waiter.cancel()
 
     async def _post(self, body: bytes, timeout: float) -> Any:
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         async with httpx.AsyncClient(timeout=timeout, proxy=self.proxy) as client:
-            response = await client.post(self.url, content=body, headers=self._headers())
+            response = await client.post(self.url, content=body, headers=headers)
             if response.status_code >= 400:
                 logger.error("Decision HTTP %d from %s: %s", response.status_code, self.url, response.text)
                 raise llm_call_error(

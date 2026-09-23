@@ -40,13 +40,15 @@ _FRAGMENT_COLUMNS: tuple[tuple[str, str], ...] = (
     ("decision_confidence_floor", "REAL DEFAULT NULL"),
 )
 
+_DECISION_COLUMNS = tuple(name for name, _ in _FRAGMENT_COLUMNS)
+
 # Built on this branch, then cut before release. Dropped if a database has them.
 _LEGACY_FRAGMENT_COLUMNS: tuple[str, ...] = ("decision_default", "decision_facets")
 # Same story on settings: the classifier's route was a second field that could
 # disagree with the endpoint it was derived from. It is now derived from the
 # judge endpoint's URL alone, and a database carrying an override folds it into
 # that endpoint (see _adopt_judge_endpoint) before the column goes.
-_LEGACY_SETTINGS_COLUMNS: tuple[str, ...] = ("decision_url",)
+_LEGACY_SETTINGS_COLUMNS: tuple[str, ...] = ("decision_url", "decision_config_revision")
 
 _ENDPOINT_COLUMNS: tuple[tuple[str, str], ...] = (("kind", "TEXT NOT NULL DEFAULT 'chat' CHECK (kind IN ('chat', 'judge'))"),)
 
@@ -60,7 +62,6 @@ _SETTINGS_COLUMNS: tuple[tuple[str, str], ...] = (
     # SQLite cannot add a REFERENCES clause to an existing table with ALTER.
     ("decision_endpoint_id", "INTEGER DEFAULT NULL"),
     ("decision_model", "TEXT NOT NULL DEFAULT 'typesafe/jev-1.13'"),
-    ("decision_config_revision", "INTEGER NOT NULL DEFAULT 0"),
     ("decision_card_approvals", "TEXT NOT NULL DEFAULT '{}'"),
 )
 
@@ -103,58 +104,18 @@ def _rebuild_settings(conn: sqlite3.Connection) -> None:
 
 
 def _seed_outcome(conn: sqlite3.Connection) -> None:
-    fragment_columns = _columns(conn, "interactive_fragments")
-    seed_columns = {
-        "id",
-        "label",
-        "description",
-        "field_type",
-        "required",
-        "enabled",
-        "injection_label",
-        "sort_order",
-        "decision_type",
-        "decision_placement",
-        "decision_state_template",
-        "decision_instructions",
-        "decision_criteria",
-        "decision_outputs",
-        "decision_resolution",
-        "decision_threshold",
-        "decision_confidence_floor",
-    }
     if (
-        not fragment_columns
-        or not seed_columns <= fragment_columns
-        or conn.execute("SELECT 1 FROM interactive_fragments WHERE id = 'outcome'").fetchone() is not None
+        not _columns(conn, "interactive_fragments")
+        or conn.execute("SELECT 1 FROM interactive_fragments WHERE id = 'outcome'").fetchone()
     ):
         return
-
     outcome = next(row for row in SEED_INTERACTIVE_FRAGMENTS if row["id"] == "outcome")
+    columns = ("id", "label", "description", "field_type", "required", "enabled", "injection_label", "sort_order")
+    columns += _DECISION_COLUMNS
+    values = [outcome.get(column, "") for column in columns]
     conn.execute(
-        "INSERT INTO interactive_fragments (id, label, description, field_type, required, enabled, injection_label, sort_order, "
-        "decision_type, decision_placement, decision_state_template, decision_instructions, decision_criteria, decision_outputs, "
-        "decision_resolution, decision_threshold, decision_confidence_floor) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            outcome["id"],
-            outcome["label"],
-            outcome.get("description", ""),
-            outcome["field_type"],
-            0,
-            0,
-            outcome["injection_label"],
-            outcome["sort_order"],
-            outcome["decision_type"],
-            outcome["decision_placement"],
-            outcome["decision_state_template"],
-            outcome["decision_instructions"],
-            json.dumps(outcome["decision_criteria"], ensure_ascii=False),
-            json.dumps(outcome["decision_outputs"], ensure_ascii=False),
-            outcome["decision_resolution"],
-            None,
-            None,
-        ),
+        f"INSERT INTO interactive_fragments ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",  # nosec B608 -- literals
+        [json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value for value in values],
     )
 
 

@@ -58,7 +58,7 @@ def test_a_complete_definition_parses():
     assert definition.resolution == "threshold"
     assert definition.threshold == 0.5
     # An empty output is a real authored value: "nothing to add for this outcome".
-    assert definition.output_for("false") == ""
+    assert definition.outputs["false"] == ""
 
 
 def test_criteria_need_both_outcomes_and_neither_may_be_empty():
@@ -119,6 +119,13 @@ def test_choice_and_score_derive_their_outcome_spaces():
     )
     assert score is not None
     assert score.outcome_keys == ("0", "1")
+
+
+def test_noul_criteria_are_normalized_to_outcome_order():
+    # The canonical question form identifies a question for caching, so two
+    # definitions differing only in dict order must ask the same question.
+    definition = parse_decision_definition(_row(decision_criteria={"false": "b", "true": "a"}))
+    assert definition is not None and list(definition.criteria) == ["true", "false"]
 
 
 def test_criteria_may_arrive_as_json_text():
@@ -189,11 +196,6 @@ def test_a_malformed_card_decision_is_skipped():
     ):
         _, interactive = card_embedded_fragments(_card([_card_entry(**broken)]))
         assert interactive == [], broken
-
-
-def test_card_decision_prose_is_length_capped_before_it_can_be_rendered():
-    _, interactive = card_embedded_fragments(_card([_card_entry(decision_instructions="x" * 50_000)]))
-    assert len(interactive[0]["decision_instructions"]) == 8_000
 
 
 def test_non_decision_card_fragments_still_carry_null_decision_columns():

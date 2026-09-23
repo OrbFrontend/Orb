@@ -124,7 +124,6 @@ class SettingsRow(_SettingsBase, total=False):
     # and make no request.
     decision_endpoint_id: int | None
     decision_model: str
-    decision_config_revision: int
     # card id -> approved definitions fingerprint, decoded by get_settings().
     decision_card_approvals: dict[str, str]
     attachment_cache_budget_bytes: int
@@ -283,97 +282,11 @@ class MessageRow(TypedDict):
     workflow_state: str | None
     speaker_member_id: str | None
     exchange_id: str | None
-    # This reply's own decision records (see :class:`DecisionEvaluations`) and
-    # the decision cooldown state as of this reply.
-    decision_evaluations: DecisionEvaluations
+    # This reply's own versioned decision envelope
+    # (``{version, evaluations, skipped}``, written by pipeline/passes/decisions)
+    # and the decision cooldown state as of this reply.
+    decision_evaluations: dict
     decision_cooldowns: dict[str, int]
-
-
-class DecisionEvaluationRow(TypedDict, total=False):
-    """One decision occurrence as it is persisted on a reply.
-
-    Written by ``pipeline/passes/decisions``; this is the storage shape, spelled
-    here because the row is what survives a restart and a branch copy. Every
-    stored record resolved from a real answer -- a decision that could not answer
-    is a skip row, not an evaluation. Optional keys are genuinely absent rather
-    than empty: a threshold resolution has no draw.
-    """
-
-    fragment_id: str
-    fragment_label: str
-    injection_label: str
-    # 'global' or 'card:<card id>' — which definition list contributed it.
-    source: str
-    placement: str
-    # 'solo' or 'group'; a before-Director group decision is scene-wide.
-    scope: str
-    occurrence_id: str
-    # The message the classifier input was read from. Remapped through the
-    # message-copy mapping on a checkpoint or branch copy; a missing anchor
-    # becomes an explicit invalidation reason, never unrelated history.
-    input_branch_anchor: int | None
-    rendered_state: str
-    rendered_instructions: str
-    rendered_criteria: dict[str, str] | list[str]
-    raw_request_fingerprint: str
-    resolution_policy_fingerprint: str
-    outputs: dict[str, str]
-    requested_model: str
-    returned_model: str
-    probability: float
-    draw: float
-    outcome: str
-    guidance: str
-    # 'live' | 'cache' | 'replay'
-    answer_source: str
-    # On a replay, the source the stored answer originally came from.
-    replayed_from: str
-    request_id: str
-    elapsed_ms: int
-    usage: dict
-    # Set on exactly one evaluation per shared request, so a batch's usage is
-    # not counted once per fragment.
-    usage_owner: int
-    distribution: dict[str, float]
-    confidence: float
-    score: float
-
-
-class DecisionSkipRow(TypedDict, total=False):
-    """A decision that did not run, recorded for Inspector diagnostics.
-
-    It deliberately carries no outcome: a skipped decision resolved to nothing,
-    and inventing ``false`` for it would make the Inspector lie about what
-    reached the story. Every decision that cannot answer ends up here, so this
-    row is the only record that it was ever meant to run.
-    """
-
-    fragment_id: str
-    fragment_label: str
-    source: str
-    reason: str
-    # 1 when the reason is a failure rather than a routine skip (cooldown, or a
-    # card the user has not approved). Clients use it to decide what is worth
-    # surfacing unprompted.
-    failed: int
-    # Only on ``oversized_input``: what was rendered against what fits.
-    oversize_state_bytes: int
-    oversize_question_bytes: int
-    state_limit: int
-    question_limit: int
-
-
-class DecisionEvaluations(TypedDict, total=False):
-    """The versioned envelope stored in ``messages.decision_evaluations``.
-
-    ``version`` is read before anything else: a record written by a later Orb is
-    left alone rather than half-understood, which is what makes replay safe
-    across upgrades.
-    """
-
-    version: int
-    evaluations: list[DecisionEvaluationRow]
-    skipped: list[DecisionSkipRow]
 
 
 class UserAttachmentRow(TypedDict, total=False):

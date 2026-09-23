@@ -61,8 +61,6 @@ class Gateway:
             return DecisionResponse(
                 answers={q.key: gateway.answers[q.key] for q in questions if q.key in gateway.answers},
                 returned_model="typesafe/jev-1.13.2",
-                usage={"total_tokens": 9},
-                request_id="req-1",
                 elapsed_ms=4,
             )
 
@@ -220,7 +218,7 @@ async def test_a_decision_shares_the_director_priority_lane(client, db):
 # ── configuration, preview, and the connection test ──────────────────────────
 
 
-async def test_configuration_derives_the_route_and_bumps_a_revision(client, db):
+async def test_configuration_derives_the_route(client, db):
     before = (await client.get("/api/decisions/config")).json()
     assert before["configured"] is False
     assert before["default_state_template"]
@@ -229,8 +227,6 @@ async def test_configuration_derives_the_route_and_bumps_a_revision(client, db):
     await _configure(client)
     after = (await client.get("/api/decisions/config")).json()
     assert after["resolved_url"] == "https://openrouter.ai/api/alpha/decisions"
-    assert after["revision"] == before["revision"] + 1
-    assert after["budgets"]["per_exchange"] >= 1
 
 
 async def test_a_judge_endpoint_that_names_the_route_keeps_that_spelling(client, db):

@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from ....core import Macros, outside_literals
-from ....inference import MAX_QUESTION_BYTES, MAX_STATE_BYTES
 from ....prompting import format_message_with_attachments, group_speaker_label
 
 DECISION_RENDERER_VERSION = "1"
@@ -111,10 +110,6 @@ def macro_errors(text: str, *, allowed: frozenset[str] = STATE_MACROS, field: st
     return errors
 
 
-def template_errors(template: str, *, allowed: frozenset[str] = STATE_MACROS, field: str = "Template") -> list[str]:
-    return [f"{field} must not be empty"] if not template.strip() else macro_errors(template, allowed=allowed, field=field)
-
-
 class UnavailableMacro(Exception):
     def __init__(self, macro: str) -> None:
         super().__init__(macro)
@@ -134,12 +129,3 @@ def render(template: str, snapshot: DecisionSnapshot, *, allowed: frozenset[str]
         return _MACRO_RE.sub(one, body)
 
     return outside_literals(template, substitute)
-
-
-def oversized_state(state: str) -> bool:
-    return len(state.encode()) > MAX_STATE_BYTES
-
-
-def oversized_question(instructions: str, criteria: Mapping[str, str] | Sequence[str]) -> bool:
-    texts = criteria.values() if isinstance(criteria, Mapping) else criteria
-    return len(instructions.encode()) + sum(len(text.encode()) for text in texts) > MAX_QUESTION_BYTES

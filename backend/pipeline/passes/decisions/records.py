@@ -5,7 +5,8 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from ....core import OUTCOME_KEYS, DecisionDefinition
+from ....core import DecisionDefinition
+from ....inference import DecisionQuestion
 from .render import DECISION_RENDERER_VERSION
 
 EVALUATIONS_VERSION = 2
@@ -16,29 +17,8 @@ def _digest(payload: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def raw_request_fingerprint(
-    *,
-    model: str,
-    state: str,
-    instructions: str,
-    criteria: Mapping[str, str] | Sequence[str],
-    question_type: str,
-) -> str:
-    return _digest(
-        {
-            "model": model,
-            "state": state,
-            "type": question_type,
-            "instructions": instructions,
-            "criteria": (
-                [[key, criteria[key]] for key in OUTCOME_KEYS if key in criteria]
-                if question_type == "noul" and isinstance(criteria, Mapping)
-                else list(criteria.items())
-                if isinstance(criteria, Mapping)
-                else list(criteria)
-            ),
-        }
-    )
+def raw_request_fingerprint(model: str, state: str, question: DecisionQuestion) -> str:
+    return _digest([model, state, question.canonical()])
 
 
 def resolution_policy_fingerprint(definition: DecisionDefinition, *, scope: str) -> str:
@@ -93,16 +73,10 @@ def invalidated_anchor(records: Sequence[Mapping[str, Any]], fragment_id: str) -
 def remap_anchors(stored: Mapping[str, Any] | None, id_map: Mapping[int, int]) -> dict[str, Any]:
     if not readable(stored) or stored is None:
         return {}
-    out = {
-        "version": stored.get("version", EVALUATIONS_VERSION),
-        "evaluations": [],
-        "skipped": [dict(row) for row in stored.get("skipped", []) if isinstance(row, Mapping)],
-    }
-    for record in stored_evaluations(stored):
+    evaluations = stored_evaluations(stored)
+    for record in evaluations:
         if (anchor := record.get("input_branch_anchor")) is not None:
-            mapped = id_map.get(int(anchor))
-            record["input_branch_anchor"] = mapped
-            if mapped is None:
+            record["input_branch_anchor"] = id_map.get(int(anchor))
+            if record["input_branch_anchor"] is None:
                 record["anchor_invalidated"] = True
-        out["evaluations"].append(record)
-    return out
+    return {**stored, "evaluations": evaluations}

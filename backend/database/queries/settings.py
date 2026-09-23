@@ -340,58 +340,28 @@ async def update_settings(data: dict) -> SettingsRow:
 
 
 # ── Decision classifier configuration
-# Its own writer rather than three more entries on ``update_settings``'s
-# allowlist, because the revision bump is not optional: the raw-answer cache
-# namespace is derived from it, so a configuration change that forgot to bump it
-# would keep serving the previous configuration's answers for ten minutes.
-_DECISION_CONFIG_COLUMNS = ("decision_endpoint_id", "decision_model")
-
-
+# Its own writer rather than entries on ``update_settings``'s allowlist, so the
+# judge-endpoint check in the decisions route cannot be bypassed.
 async def update_decision_config(data: Mapping[str, Any]) -> SettingsRow:
-    """Write the classifier configuration and bump its revision.
-
-    A write with no recognised key is a no-op, revision included: bumping on an
-    empty PUT would invalidate a warm cache for nothing.
-    """
-    sets, vals = _build_set_clause(list(_DECISION_CONFIG_COLUMNS), dict(data))
-    if not sets:
-        return await get_settings()
-    async with get_db() as db:
-        await db.execute(
-            # One statement, so the new configuration and its revision can never
-            # be observed apart.
-            f"UPDATE settings SET {', '.join(sets)}, "  # nosec B608 — cols from a hardcoded allowlist, values parameterised
-            "decision_config_revision = decision_config_revision + 1 WHERE id = 1",
-            vals,
-        )
-        await db.commit()
+    sets, vals = _build_set_clause(["decision_endpoint_id", "decision_model"], dict(data))
+    if sets:
+        async with get_db() as db:
+            await db.execute(f"UPDATE settings SET {', '.join(sets)} WHERE id = 1", vals)  # nosec B608 — hardcoded allowlist
+            await db.commit()
     return await get_settings()
 
 
-async def set_decision_card_approval(card_id: str, fingerprint: str | None) -> dict[str, str]:
+async def set_decision_card_approval(card_id: str, fingerprint: str | None) -> None:
     """Approve *card_id*'s decisions at *fingerprint*, or revoke with ``None``.
 
     Stored as the fingerprint rather than a boolean so a later change to the
-    card's decision definitions revokes the approval by not matching it -- the
-    user approved specific questions being sent to a provider, not the card's
-    permanent right to send anything.
-
-    One ``json_set``/``json_remove`` per call, which is atomic at the SQL layer,
-    so two concurrent approvals of different cards cannot lose one another.
+    card's decision definitions revokes the approval by not matching it. One
+    ``json_set``/``json_remove`` per call keeps concurrent approvals atomic.
     """
+    if fingerprint is None:
+        sql, params = "json_remove(COALESCE(decision_card_approvals, '{}'), '$.' || ?)", (card_id,)
+    else:
+        sql, params = "json_set(COALESCE(decision_card_approvals, '{}'), '$.' || ?, ?)", (card_id, fingerprint)
     async with get_db() as db:
-        if fingerprint is None:
-            await db.execute(
-                "UPDATE settings SET decision_card_approvals = "
-                "json_remove(COALESCE(decision_card_approvals, '{}'), '$.' || ?) WHERE id = 1",
-                (card_id,),
-            )
-        else:
-            await db.execute(
-                "UPDATE settings SET decision_card_approvals = "
-                "json_set(COALESCE(decision_card_approvals, '{}'), '$.' || ?, ?) WHERE id = 1",
-                (card_id, fingerprint),
-            )
+        await db.execute(f"UPDATE settings SET decision_card_approvals = {sql} WHERE id = 1", params)  # nosec B608 — literal SQL
         await db.commit()
-        rows = list(await db.execute_fetchall("SELECT decision_card_approvals FROM settings WHERE id = 1"))
-    return json.loads(rows[0]["decision_card_approvals"] or "{}") if rows else {}

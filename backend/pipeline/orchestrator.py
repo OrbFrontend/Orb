@@ -139,13 +139,9 @@ async def _run_pipeline(
     # Feedback and post-processing fragments are handled after the Writer, and
     # direction-note fragments by the direction-note step; the rest shape the
     # Writer prompt.
-    (
-        writer_fragments,
-        feedback_fragments,
-        direction_note_fragments,
-        post_processing_fragments,
-        _decision_fragments,
-    ) = _split_interactive_fragments(interactive_fragments)
+    writer_fragments, feedback_fragments, direction_note_fragments, post_processing_fragments = _split_interactive_fragments(
+        interactive_fragments
+    )
 
     # Each direction-note fragment chooses its own recording placement, so a turn may run a
     # pre-writer step, a post-turn step, or both. The shared tool blob still carries the union
@@ -168,9 +164,7 @@ async def _run_pipeline(
     # the reply they produced; a group exchange's shared result reaches later
     # speakers through ``director_seed`` instead, and is not re-resolved.
     if decisions is not None:
-        state.decision_evaluations = decisions.as_envelope()
-        state.decision_cooldowns = dict(decisions.cooldowns)
-        state.decision_guidance = decisions.guidance
+        decisions.apply_to(state)
     # A group exchange runs one Director for every speaker, so speakers 2..n start
     # from its result instead of re-deriving it. Which fields that covers is
     # ``TurnState``'s to say (``_DIRECTOR_SEED_FIELDS``), not this module's --

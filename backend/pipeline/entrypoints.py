@@ -28,7 +28,6 @@ from .passes.decisions import (
     build_snapshot,
     decision_cooldown_baseline,
     run_decisions,
-    stage_has_work,
     stored_evaluations,
 )
 from .passes.director import cooldown, direction_note_step, director_stage, progressive
@@ -165,7 +164,7 @@ async def _run_decision_stage(
         approved_cards=ctx.approved_decision_cards,
         invalid=ctx.invalid_decisions,
     )
-    has_work = stage_has_work(turn)
+    has_work = bool(turn.candidates or turn.invalid)
     if has_work:
         yield {"event": "step_start", "data": {"step": "decisions"}}
     try:
@@ -209,10 +208,6 @@ def _exchange_decision_input(
     original = str(row.get("content") or "") if row.get("role") == "user" else ""
     anchor = row.get("id") if row.get("role") == "user" else (before[-1]["id"] if before else None)
     return before, "\n\n".join(part for part in (original, steering) if part), anchor
-
-
-def _decision_replay_records(target: Mapping[str, Any]) -> list[dict[str, Any]]:
-    return stored_evaluations(db.decision_evaluations_of(target))
 
 
 async def _load_direction_notes(ctx: PipelineContext, conversation_id: str, path: Sequence[Mapping[str, Any]]) -> None:
@@ -281,7 +276,7 @@ async def _prepare_regen_context(
     ctx.director["decision_cooldowns"] = decision_cooldown_baseline(
         history, before_exchange_id=str(target.get("exchange_id") or "") or None
     )
-    ctx.director["decision_replay"] = _decision_replay_records(target)
+    ctx.director["decision_replay"] = stored_evaluations(db.decision_evaluations_of(target))
     await _load_direction_notes(ctx, conversation_id, history)
     attachments = await db.get_user_attachments_for_message(parent_msg["id"]) if parent_msg.get("role") == "user" else []
     return history, attachments
@@ -444,7 +439,7 @@ async def _generate_group_exchange(
         phrase_bank=ctx.phrase_bank,
         schema_overrides=setup.schema_overrides,
     )
-    writer_fragments, _, direction_note_fragments, _, _ = _split_interactive_fragments(ctx.interactive_fragments)
+    writer_fragments, _, direction_note_fragments, _ = _split_interactive_fragments(ctx.interactive_fragments)
     shared = TurnState(
         user_message=setup.macros.resolve_message(user_message),
         effective_msg=setup.macros.resolve_message(user_message),
@@ -469,9 +464,7 @@ async def _generate_group_exchange(
         else:
             yield ev
     if decisions is not None:
-        shared.decision_evaluations = decisions.as_envelope()
-        shared.decision_cooldowns = dict(decisions.cooldowns)
-        shared.decision_guidance = decisions.guidance
+        decisions.apply_to(shared)
     if ctx.client.is_aborted:
         yield {"event": "done"}
         return

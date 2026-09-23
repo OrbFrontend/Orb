@@ -1,6 +1,10 @@
+from collections.abc import Mapping
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 
 from ...core import (
+    DECISION_FIELD_TYPE,
     DECISION_RESOLUTIONS_BY_TYPE,
     DECISION_TYPES,
     DEFAULT_STATE_TEMPLATE,
@@ -17,23 +21,9 @@ from ...database import (
     set_decision_card_approval,
     update_decision_config,
 )
-from ...inference import (
-    MAX_QUESTIONS_PER_EXCHANGE,
-    MAX_QUESTIONS_PER_REQUEST,
-    RAW_ANSWER_CACHE,
-    DecisionCancelled,
-    DecisionTransportError,
-    LLMCallError,
-)
+from ...inference import RAW_ANSWER_CACHE, DecisionTransportError, LLMCallError
 from ...pipeline import resolve_decision_config
-from ...pipeline.passes.decisions import (
-    MAX_DECISIONS_PER_CARD,
-    MAX_DECISIONS_PER_EXCHANGE,
-    STAGE_BUDGET_SECONDS,
-    STATE_MACROS,
-    TEXT_MACROS,
-    connection_test,
-)
+from ...pipeline.passes.decisions import STATE_MACROS, TEXT_MACROS, connection_test
 from ..schemas import DecisionCardApproval, DecisionConfigUpdate
 
 router = APIRouter()
@@ -45,19 +35,11 @@ def _config_payload(settings, config) -> dict:
         "decision_model": settings.get("decision_model", ""),
         "resolved_url": config.url,
         "configured": config.configured,
-        "revision": config.revision,
-        "budgets": {
-            "per_exchange": MAX_DECISIONS_PER_EXCHANGE,
-            "per_card": MAX_DECISIONS_PER_CARD,
-            "stage_seconds": STAGE_BUDGET_SECONDS,
-        },
         "state_macros": sorted(STATE_MACROS),
         "text_macros": sorted(TEXT_MACROS),
         "default_state_template": DEFAULT_STATE_TEMPLATE,
         "question_types": sorted(DECISION_TYPES),
         "resolution_policies": {key: list(value) for key, value in DECISION_RESOLUTIONS_BY_TYPE.items()},
-        "max_questions_per_request": MAX_QUESTIONS_PER_REQUEST,
-        "max_questions_per_exchange": MAX_QUESTIONS_PER_EXCHANGE,
         "choice": {"min_options": 2, "max_options": MAX_CHOICE_OPTIONS},
         "score": {"min_levels": MIN_SCORE_LEVELS, "max_levels": MAX_SCORE_LEVELS},
     }
@@ -122,34 +104,34 @@ async def api_test_decision_endpoint():
         }
     except DecisionTransportError as error:
         return {"ok": False, "error": str(error), "url": config.url}
-    except DecisionCancelled:
-        return {"ok": False, "error": "Cancelled", "url": config.url}
     except Exception as error:  # noqa: BLE001 -- this diagnostic endpoint reports failures
         return {"ok": False, "error": repr(error), "url": config.url}
 
 
-async def _card_approval(card_id: str) -> dict:
+async def _card(card_id: str) -> Mapping[str, Any]:
     card = await get_character_card(card_id)
     if card is None:
         raise HTTPException(status_code=404, detail="Character card not found")
+    return card
+
+
+async def _card_approval(card: Mapping[str, Any]) -> dict:
     fingerprint = card_decision_fingerprint(card)
     _, fragments = card_embedded_fragments(card)
-    questions = []
-    for fragment in fragments:
-        if fragment.get("field_type") != "decision":
-            continue
-        questions.append(
-            {
-                "id": fragment["id"],
-                "label": fragment["label"],
-                "type": fragment.get("decision_type"),
-                "instructions": fragment.get("decision_instructions"),
-                "criteria": fragment.get("decision_criteria"),
-            }
-        )
-    stored = ((await get_settings()).get("decision_card_approvals") or {}).get(card_id)
+    questions = [
+        {
+            "id": fragment["id"],
+            "label": fragment["label"],
+            "type": fragment.get("decision_type"),
+            "instructions": fragment.get("decision_instructions"),
+            "criteria": fragment.get("decision_criteria"),
+        }
+        for fragment in fragments
+        if fragment.get("field_type") == DECISION_FIELD_TYPE
+    ]
+    stored = ((await get_settings()).get("decision_card_approvals") or {}).get(card["id"])
     return {
-        "card_id": card_id,
+        "card_id": card["id"],
         "fingerprint": fingerprint,
         "has_decisions": bool(fingerprint),
         "approved": bool(fingerprint) and stored == fingerprint,
@@ -160,14 +142,12 @@ async def _card_approval(card_id: str) -> dict:
 
 @router.get("/api/decisions/card-approval/{card_id}")
 async def api_get_card_decision_approval(card_id: str):
-    return await _card_approval(card_id)
+    return await _card_approval(await _card(card_id))
 
 
 @router.put("/api/decisions/card-approval/{card_id}")
 async def api_set_card_decision_approval(card_id: str, data: DecisionCardApproval):
-    card = await get_character_card(card_id)
-    if card is None:
-        raise HTTPException(status_code=404, detail="Character card not found")
+    card = await _card(card_id)
     current = card_decision_fingerprint(card)
     if data.fingerprint is not None:
         if not current:
@@ -175,4 +155,4 @@ async def api_set_card_decision_approval(card_id: str, data: DecisionCardApprova
         if data.fingerprint != current:
             raise HTTPException(status_code=409, detail="This character's decisions changed since you reviewed them; reload")
     await set_decision_card_approval(card_id, current if data.fingerprint is not None else None)
-    return await _card_approval(card_id)
+    return await _card_approval(card)

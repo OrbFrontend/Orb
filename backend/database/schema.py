@@ -62,10 +62,6 @@ CREATE TABLE IF NOT EXISTS settings (
     -- a gateway that spells it differently is configured by pasting the route.
     decision_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
     decision_model TEXT NOT NULL DEFAULT 'typesafe/jev-1.13',
-    -- Bumped on every classifier configuration write. It is part of the
-    -- raw-answer cache namespace, so a config change makes the previous
-    -- namespace's cached answers unreachable instead of mixing two configs.
-    decision_config_revision INTEGER NOT NULL DEFAULT 0,
     -- card id -> the definitions fingerprint the user approved. Local trust
     -- state, never part of exported card data and never taken from an imported
     -- preset (see PRESERVED_COLUMNS in preset_schema.py): an imported `enabled`

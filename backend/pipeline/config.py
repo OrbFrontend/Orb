@@ -121,29 +121,23 @@ def _split_interactive_fragments(
     list[Mapping[str, Any]],
     list[Mapping[str, Any]],
     list[Mapping[str, Any]],
-    list[Mapping[str, Any]],
 ]:
-    """Split interactive fragments into writer, feedback, direction-note, post-processing, and decision groups.
+    """Split interactive fragments into writer, feedback, direction-note, and post-processing groups.
 
     Feedback-type fragments surface to the user via the post-writer feedback step;
     direction-note-type fragments feed the direction-note step; post-processing
-    fragments edit the completed draft; decision fragments run before the Director
-    and contribute only trailing guidance; all others shape the ``direct_scene``
-    tool and Scene Direction block. The five groups are disjoint.
-
-    Decisions are excluded from the writer group deliberately and not as an
-    optimization: a decision that reached ``direct_scene`` would become a Director
-    tool property, which changes the shared tool blob and therefore the cached
-    prefix (kv-cache.md, Invariant 3) — and would also invite the Director to
-    answer a question that was already resolved.
+    fragments edit the completed draft; all others shape the ``direct_scene``
+    tool and Scene Direction block. Decision fragments belong to none of them:
+    they run before the Director, and as a ``direct_scene`` property one would
+    change the cached tool blob (kv-cache.md, Invariant 3) and invite the Director
+    to answer a question that was already resolved.
     """
     lanes = ("feedback", "direction_note", "post_processing", DECISION_FIELD_TYPE)
     writer = [df for df in fragments if df.get("field_type") not in lanes]
     feedback = [df for df in fragments if df.get("field_type") == "feedback"]
     direction_note_fragments = [df for df in fragments if df.get("field_type") == "direction_note"]
     post_processing = [df for df in fragments if df.get("field_type") == "post_processing"]
-    decisions = [df for df in fragments if df.get("field_type") == DECISION_FIELD_TYPE]
-    return writer, feedback, direction_note_fragments, post_processing, decisions
+    return writer, feedback, direction_note_fragments, post_processing
 
 
 def _build_writer_tools_blob(
@@ -156,7 +150,7 @@ def _build_writer_tools_blob(
     grouped: bool = False,
 ) -> dict:
     """Build the tool schemas shared by cached calls."""
-    writer_fragments, feedback_fragments, direction_note_fragments, post_processing_fragments, _ = _split_interactive_fragments(
+    writer_fragments, feedback_fragments, direction_note_fragments, post_processing_fragments = _split_interactive_fragments(
         interactive_fragments
     )
     direct_scene = build_direct_scene_override(writer_fragments, grouped=grouped)

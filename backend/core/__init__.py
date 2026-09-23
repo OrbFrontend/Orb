@@ -6,8 +6,6 @@ from .card_scripts import CardScripts
 from .decisions import (
     DECISION_COLUMNS,
     DECISION_FIELD_TYPE,
-    DECISION_PLACEMENTS,
-    DECISION_RESOLUTIONS,
     DECISION_RESOLUTIONS_BY_TYPE,
     DECISION_TYPES,
     DEFAULT_STATE_TEMPLATE,
@@ -16,14 +14,8 @@ from .decisions import (
     MIN_SCORE_LEVELS,
     OUTCOME_KEYS,
     DecisionDefinition,
-    DecisionOutcome,
-    DecisionPlacement,
-    DecisionResolution,
-    DecisionType,
-    criteria_outcome_keys,
     decision_definition_errors,
     is_decision_row,
-    outcome_keys,
     parse_decision_definition,
 )
 from .domain_types import CastMember, GroupContextMode, TurnCast
@@ -83,8 +75,6 @@ __all__ = [
     # decisions — the decision-fragment authoring contract
     "DECISION_COLUMNS",
     "DECISION_FIELD_TYPE",
-    "DECISION_PLACEMENTS",
-    "DECISION_RESOLUTIONS",
     "DECISION_RESOLUTIONS_BY_TYPE",
     "DECISION_TYPES",
     "DEFAULT_STATE_TEMPLATE",
@@ -93,14 +83,8 @@ __all__ = [
     "MIN_SCORE_LEVELS",
     "OUTCOME_KEYS",
     "DecisionDefinition",
-    "DecisionOutcome",
-    "DecisionPlacement",
-    "DecisionResolution",
-    "DecisionType",
-    "criteria_outcome_keys",
     "decision_definition_errors",
     "is_decision_row",
-    "outcome_keys",
     "parse_decision_definition",
     # locks — process-level asyncio locks
     "maintenance_lock",

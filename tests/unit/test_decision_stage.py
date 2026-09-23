@@ -28,8 +28,6 @@ from backend.inference import (
     ScoreAnswer,
 )
 from backend.pipeline.passes.decisions import (
-    MAX_DECISIONS_PER_CARD,
-    MAX_DECISIONS_PER_EXCHANGE,
     DecisionCandidate,
     DecisionConfig,
     DecisionSnapshot,
@@ -37,16 +35,17 @@ from backend.pipeline.passes.decisions import (
     SkipReason,
     envelope,
     run_decisions,
-    stage_has_work,
 )
 from backend.pipeline.passes.decisions import stage as stage_module
+from backend.pipeline.passes.decisions.stage import (
+    MAX_DECISIONS_PER_CARD,
+    MAX_DECISIONS_PER_EXCHANGE,
+)
 
 CONFIG = DecisionConfig(
     url="https://example.test/api/alpha/decisions",
     api_key="secret",
     model="typesafe/jev-1.13",
-    endpoint_identity="example.test#1",
-    revision=1,
 )
 
 SNAPSHOT = DecisionSnapshot(
@@ -113,7 +112,6 @@ class FakeGateway:
     answers: dict[str, float | ChoiceAnswer | ScoreAnswer] = field(default_factory=dict)
     error: Exception | None = None
     returned_model: str = "typesafe/jev-1.13.2"
-    usage: dict = field(default_factory=lambda: {"total_tokens": 11})
     batches: list[list[str]] = field(default_factory=list)
     states: list[str] = field(default_factory=list)
 
@@ -127,10 +125,7 @@ class FakeGateway:
                 raise gateway.error
             return DecisionResponse(
                 answers={q.key: gateway.answers[q.key] for q in questions if q.key in gateway.answers},
-                invalid=tuple(q.key for q in questions if q.key not in gateway.answers),
                 returned_model=gateway.returned_model,
-                usage=dict(gateway.usage),
-                request_id="req-1",
                 elapsed_ms=7,
             )
 
@@ -285,14 +280,6 @@ async def test_one_invalid_sibling_answer_is_isolated(monkeypatch):
     }
 
 
-async def test_batch_usage_is_owned_by_exactly_one_record(monkeypatch):
-    FakeGateway(answers={"a": 0.9, "b": 0.9}).install(monkeypatch)
-    result = await run_decisions(_turn(_candidate("a"), _candidate("b")))
-    owners = [record for record in result.evaluations if record.get("usage_owner")]
-    assert len(owners) == 1
-    assert sum(record.get("usage", {}).get("total_tokens", 0) for record in owners) == 11
-
-
 # ── the raw-answer cache ─────────────────────────────────────────────────────
 
 
@@ -322,11 +309,11 @@ async def test_changing_a_classifier_input_invalidates_the_cache(monkeypatch, ch
     assert len(gateway.batches) == 2
 
 
-async def test_changing_the_model_or_the_configuration_revision_invalidates_the_cache(monkeypatch):
+async def test_changing_the_model_or_the_endpoint_invalidates_the_cache(monkeypatch):
     gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
     await run_decisions(_turn(_candidate()))
     await run_decisions(_turn(_candidate(), config=replace(CONFIG, model="typesafe/jev-2")))
-    await run_decisions(_turn(_candidate(), config=replace(CONFIG, revision=2)))
+    await run_decisions(_turn(_candidate(), config=replace(CONFIG, url="https://other.test/alpha/decisions")))
     assert len(gateway.batches) == 3
 
 
@@ -761,11 +748,6 @@ async def test_a_lost_branch_anchor_re_asks_and_says_why(monkeypatch):
 
 
 # ── the empty stage ──────────────────────────────────────────────────────────
-
-
-def test_an_exchange_with_no_candidates_has_no_work():
-    assert not stage_has_work(_turn())
-    assert stage_has_work(_turn(_candidate()))
 
 
 async def test_a_stage_with_no_candidates_still_ages_cooldowns():
