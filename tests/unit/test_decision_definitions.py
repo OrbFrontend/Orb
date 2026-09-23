@@ -180,15 +180,16 @@ def test_a_valid_card_decision_decodes_with_its_columns():
     assert parse_decision_definition(interactive[0]) is not None
 
 
-def test_an_unknown_card_variant_is_skipped_not_demoted_to_a_string_field():
-    # The rule the plan states outright: a card naming a decision type Orb does
-    # not implement contributes nothing, rather than a fragment that silently
-    # means something else and joins the Director's tool schema.
+def test_an_invalid_card_variant_stays_a_decision_not_a_string_field():
+    # A card naming a shape Orb cannot run must never silently mean something
+    # else and join the Director's tool schema. It stays a decision that does not
+    # parse, which the judge stage reports as an invalid definition.
     _, interactive = card_embedded_fragments(_card([_card_entry(decision_type="score")]))
-    assert interactive == []
+    assert interactive[0]["field_type"] == "decision"
+    assert parse_decision_definition(interactive[0]) is None
 
 
-def test_a_malformed_card_decision_is_skipped():
+def test_a_malformed_card_decision_is_kept_as_an_invalid_decision():
     for broken in (
         {"decision_criteria": {"true": "only"}},
         {"decision_instructions": ""},
@@ -196,7 +197,8 @@ def test_a_malformed_card_decision_is_skipped():
         {"decision_threshold": "high"},
     ):
         _, interactive = card_embedded_fragments(_card([_card_entry(**broken)]))
-        assert interactive == [], broken
+        assert interactive[0]["field_type"] == "decision", broken
+        assert parse_decision_definition(interactive[0]) is None, broken
 
 
 def test_non_decision_card_fragments_still_carry_null_decision_columns():

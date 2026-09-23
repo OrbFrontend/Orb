@@ -83,7 +83,8 @@ export function readDecisionFields() {
       type === "score" ? options.map((o) => o.text) : Object.fromEntries(options.map((o) => [o.key, o.text])),
     decision_outputs: Object.fromEntries(options.map((o) => [o.key, o.output])),
     decision_resolution: resolution,
-    decision_threshold: type === "noul" && resolution === "threshold" ? _draft.threshold : null,
+    // Blank sends the 0.5 the field shows as its placeholder, not a refused null.
+    decision_threshold: type === "noul" && resolution === "threshold" ? (_draft.threshold ?? 0.5) : null,
     decision_confidence_floor: type === "noul" ? null : _draft.confidence_floor,
   };
 }

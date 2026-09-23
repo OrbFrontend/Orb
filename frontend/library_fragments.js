@@ -503,11 +503,7 @@ export async function saveInteractiveFragment(isEdit) {
   // Option names collapse into the JSON objects the columns are sent as, so a
   // blank or repeated one has to be caught before the request or it is caught
   // by nobody. Routed through the same renderer as a 422.
-  const draftProblems = d.field_type === "decision" ? decisionDraftProblems() : "";
-  if (draftProblems && applyDecisionProblems(draftProblems)) {
-    toast("This decision is not valid yet; see the highlighted fields", true);
-    return;
-  }
+  if (d.field_type === "decision" && _showDecisionProblems(decisionDraftProblems())) return;
   try {
     if (isEdit) await api.put(`/interactive-fragments/${d.id}`, d);
     else await api.post("/interactive-fragments", d);
@@ -518,12 +514,16 @@ export async function saveInteractiveFragment(isEdit) {
     // The whole definition is validated on the merged row and comes back as
     // problems joined by "; ". Render them against the fields they name -- a
     // toast would scroll a rule away from the field it is about.
-    if (e.status === 422 && d.field_type === "decision" && applyDecisionProblems(e.message)) {
-      toast("This decision is not valid yet; see the highlighted fields", true);
-      return;
-    }
+    if (e.status === 422 && d.field_type === "decision" && _showDecisionProblems(e.message)) return;
     toast(e.message, true);
   }
+}
+
+/** Render *detail*'s problems against the decision fields; false when there were none. */
+function _showDecisionProblems(detail) {
+  if (!applyDecisionProblems(detail)) return false;
+  toast("This decision is not valid yet; see the highlighted fields", true);
+  return true;
 }
 
 export async function deleteInteractiveFragment(id) {
@@ -665,12 +665,23 @@ function _wireCardFragModal(type, isEdit, fragId) {
       renderCardFragmentsTab();
     });
   }
-  $("card-frag-save").addEventListener("click", () => {
+  $("card-frag-save").addEventListener("click", async () => {
     const d = type === "mood" ? _readMoodFragForm() : _readInteractiveFragForm();
     const validation = type === "mood" ? validate.validateMoodFragment(d) : validate.validateInteractiveFragment(d);
     if (!validation.valid) {
       toast(validation.error, true);
       return;
+    }
+    // A card decision is saved inside the card, past the fragment routes that
+    // validate a global one, so it is checked here or not until a turn skips it.
+    if (d.field_type === "decision") {
+      if (_showDecisionProblems(decisionDraftProblems())) return;
+      try {
+        await api.post("/decisions/validate", d);
+      } catch (e) {
+        if (!(e.status === 422 && _showDecisionProblems(e.message))) toast(e.message, true);
+        return;
+      }
     }
     const globals = type === "mood" ? S.moodFragments : S.interactiveFragments;
     if (!isEdit && (globals.some((g) => g.id === d.id) || _cardFragPending[type].some((f) => f.id === d.id))) {

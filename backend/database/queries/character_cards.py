@@ -14,7 +14,6 @@ from ...core import (
     DECISION_FIELD_TYPE,
     TurnCast,
     has_inline_macros,
-    parse_decision_definition,
     resolve_inline,
 )
 from ...core.card_scripts import card_render_options, is_display_script
@@ -204,22 +203,23 @@ def card_embedded_fragments(
             },
         )
         if raw_type == DECISION_FIELD_TYPE:
-            decision = _card_decision_columns(entry)
-            if decision is None:
-                continue
-            row.update(cast(Any, decision))
+            row.update(cast(Any, _card_decision_columns(entry)))
         interactive.append(row)
 
     return moods, interactive
 
 
-def _card_decision_columns(entry: Mapping[str, Any]) -> dict[str, Any] | None:
-    """The entry's decision columns, or None when they do not form a valid definition."""
+def _card_decision_columns(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """The entry's decision columns, with the defaults an older card may omit.
+
+    Kept even when they do not form a valid definition: the row stays a
+    ``decision``, so it never reaches the Director, and the judge stage reports
+    it as invalid instead of the card author never learning it did not run.
+    """
     columns = {column: entry.get(column) for column in DECISION_COLUMNS}
     defaults = {"decision_type": "noul", "decision_placement": "before_director", "decision_resolution": "threshold"}
     columns.update({column: value for column, value in defaults.items() if not columns[column]})
-    probe = {"id": entry["id"], "label": entry["label"], "field_type": DECISION_FIELD_TYPE, **columns}
-    return columns if parse_decision_definition(probe) is not None else None
+    return columns
 
 
 async def cast_embedded_fragments(

@@ -68,4 +68,6 @@ skipped: it contributes nothing and the turn continues.
 ## Character cards
 
 Cards can carry decision fragments. Like a card's other fragments, they run
-whenever that character is in the scene.
+whenever that character is in the scene. The card editor checks a decision when
+you save it. A broken one in an imported card is skipped every turn and reported
+as invalid, so it never runs silently.

@@ -638,7 +638,7 @@ async def test_a_card_decision_runs_like_any_other_card_fragment(client, db, llm
     assert gateway.batches == [["card_outcome"]]
 
 
-async def test_a_malformed_card_decision_contributes_nothing(client, db, llm_mock, monkeypatch):
+async def test_a_malformed_card_decision_is_reported_and_asks_nothing(client, db, llm_mock, monkeypatch):
     card_id = await _card_with_decision(client, decision_criteria={"true": "only"})
     cid = "conv-decision-card-broken"
     await dbmod.create_conversation(cid, "scene", "Alric", "a doorway", character_card_id=card_id)
@@ -647,12 +647,22 @@ async def test_a_malformed_card_decision_contributes_nothing(client, db, llm_moc
 
     events = await _turn(llm_mock, cid, "one", director={"moods": []})
 
-    # Nothing was contributed, so the stage has no work: no step, no published
-    # result, no request.
-    assert _events(events, "decisions") == []
-    assert {"step": "judge"} not in _events(events, "step_start")
+    # Reported, not dropped: a card is saved past the fragment routes' validation,
+    # so the skip is how its author learns the decision never ran. Nothing is asked.
+    (skip,) = _event(events, "decisions")["skipped"]
+    assert skip["reason"] == "invalid_definition" and skip["failed"] == 1
+    assert skip["source"] == f"card:{card_id}"
+    assert _event(events, "decisions")["evaluations"] == []
     assert gateway.batches == []
-    assert (await _last_assistant(cid))["decision_evaluations"] == {}
+
+
+async def test_validate_route_reports_a_card_decisions_problems(client):
+    entry = {key: value for key, value in DEFINITION.items() if key != "description"}
+    assert (await client.post("/api/decisions/validate", json=entry)).json() == {"ok": True}
+
+    response = await client.post("/api/decisions/validate", json={**entry, "decision_instructions": ""})
+    assert response.status_code == 422
+    assert "decision_instructions must not be empty" in response.json()["detail"]
 
 
 # ── group scope ──────────────────────────────────────────────────────────────

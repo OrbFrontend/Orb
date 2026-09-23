@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 
 from ...core import (
@@ -15,7 +17,12 @@ from ...database import (
 )
 from ...inference import RAW_ANSWER_CACHE, DecisionTransportError, LLMCallError
 from ...pipeline import resolve_judge_config
-from ...pipeline.passes.judge import STATE_MACROS, TEXT_MACROS, connection_test
+from ...pipeline.passes.judge import (
+    STATE_MACROS,
+    TEXT_MACROS,
+    connection_test,
+    definition_problems,
+)
 from ..schemas import DecisionConfigUpdate
 
 router = APIRouter()
@@ -61,6 +68,20 @@ async def api_update_decision_config(data: DecisionConfigUpdate):
     settings = await update_decision_config(update)
     RAW_ANSWER_CACHE.clear()
     return _config_payload(settings, await resolve_judge_config(settings))
+
+
+@router.post("/api/decisions/validate")
+async def api_validate_decision(data: dict[str, Any]):
+    """Check a decision definition without storing it.
+
+    For card-embedded decisions, which are saved inside the card rather than
+    through the fragment routes, so nothing else validates them before a turn.
+    Problems come back the way a fragment write reports them: 422, joined by "; ".
+    """
+    problems = definition_problems({"id": "", **data})
+    if problems:
+        raise HTTPException(status_code=422, detail="; ".join(problems))
+    return {"ok": True}
 
 
 def _rejection_sentence(error: LLMCallError) -> str:

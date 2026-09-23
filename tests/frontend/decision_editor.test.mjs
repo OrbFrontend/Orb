@@ -125,6 +125,12 @@ test("switching to roll sends an explicit null threshold in the same request", (
   assert.strictEqual(fields.decision_threshold, null);
 });
 
+test("a blank threshold sends the 0.5 its placeholder shows", () => {
+  mount({ ...NOUL_FRAGMENT, decision_threshold: null });
+  setValue('[data-dec="threshold"]', "");
+  assert.equal(readDecisionFields().decision_threshold, 0.5);
+});
+
 test("a noul question never writes a confidence floor", () => {
   mount({ ...NOUL_FRAGMENT, decision_confidence_floor: 0.8 });
   assert.strictEqual(readDecisionFields().decision_confidence_floor, null);
