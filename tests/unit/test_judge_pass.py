@@ -1,0 +1,848 @@
+"""Cover Judge pass results with a stubbed gateway."""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass, field, replace
+
+import httpx
+import pytest
+
+from backend.core import DEFAULT_STATE_TEMPLATE, parse_decision_definition
+from backend.inference import (
+    RAW_ANSWER_CACHE,
+    AbortToken,
+    ChoiceAnswer,
+    DecisionCancelled,
+    DecisionResponse,
+    DecisionTransportError,
+    LLMCallError,
+    ScoreAnswer,
+)
+from backend.pipeline.passes.judge import (
+    DecisionCandidate,
+    DecisionSnapshot,
+    JudgeConfig,
+    JudgeTurn,
+    SkipReason,
+    envelope,
+    judge_pass,
+)
+from backend.pipeline.passes.judge import judge as judge_module
+from backend.pipeline.passes.judge.judge import (
+    MAX_DECISIONS_PER_CARD,
+    MAX_DECISIONS_PER_EXCHANGE,
+)
+
+CONFIG = JudgeConfig(
+    url="https://example.test/api/alpha/decisions",
+    api_key="secret",
+    model="typesafe/jev-1.13",
+)
+
+SNAPSHOT = DecisionSnapshot(
+    last_message="I shove the door.",
+    last_assistant_message="She braces against the frame.",
+    user="Tester",
+    char="Maren",
+    description="A wizard.",
+    scope="solo",
+    anchor_message_id=42,
+)
+
+
+@pytest.fixture(autouse=True)
+def _clean_cache():
+    RAW_ANSWER_CACHE.clear()
+    yield
+    RAW_ANSWER_CACHE.clear()
+
+
+def _definition(fragment_id: str = "outcome", **overrides):
+    row = {
+        "id": fragment_id,
+        "label": fragment_id.title(),
+        "injection_label": fragment_id.title(),
+        "field_type": "decision",
+        "cooldown_turns": overrides.pop("cooldown_turns", 0),
+        "decision_type": "noul",
+        "decision_placement": "before_director",
+        "decision_state_template": DEFAULT_STATE_TEMPLATE,
+        "decision_instructions": f"Does {fragment_id} happen?",
+        "decision_criteria": {"true": "It does.", "false": "It does not."},
+        "decision_outputs": {"true": f"{fragment_id} succeeded.", "false": f"{fragment_id} failed."},
+        "decision_resolution": "threshold",
+        "decision_threshold": 0.5,
+    }
+    row.update(overrides)
+    definition = parse_decision_definition(row)
+    assert definition is not None, row
+    return definition
+
+
+def _candidate(fragment_id: str = "outcome", card_id: str | None = None, **overrides) -> DecisionCandidate:
+    return DecisionCandidate(definition=_definition(fragment_id, **overrides), card_id=card_id)
+
+
+def _turn(*candidates: DecisionCandidate, **overrides) -> JudgeTurn:
+    options = {
+        "snapshot": SNAPSHOT,
+        "candidates": tuple(candidates),
+        "config": CONFIG,
+        "prior_cooldowns": {},
+        "replay_records": (),
+    }
+    options.update(overrides)
+    return JudgeTurn(**options)
+
+
+@dataclass
+class FakeGateway:
+    """Stands in for the gateway, recording every batch it was asked."""
+
+    answers: dict[str, float | ChoiceAnswer | ScoreAnswer] = field(default_factory=dict)
+    error: Exception | None = None
+    returned_model: str = "typesafe/jev-1.13.2"
+    batches: list[list[str]] = field(default_factory=list)
+    states: list[str] = field(default_factory=list)
+
+    def install(self, monkeypatch):
+        gateway = self
+
+        async def _decide(self, state, questions, *, timeout=None, abort=None):  # noqa: ANN001
+            gateway.batches.append([question.key for question in questions])
+            gateway.states.append(state)
+            if gateway.error is not None:
+                raise gateway.error
+            return DecisionResponse(
+                answers={q.key: gateway.answers[q.key] for q in questions if q.key in gateway.answers},
+                returned_model=gateway.returned_model,
+                elapsed_ms=7,
+            )
+
+        monkeypatch.setattr(judge_module.DecisionClient, "decide", _decide)
+        return gateway
+
+
+def _by_id(result):
+    return {record["fragment_id"]: record for record in result.evaluations}
+
+
+def _skips(result):
+    return {row["fragment_id"]: row for row in result.skipped}
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"decision_instructions": "Does {{draft}} succeed?"},
+        {"decision_criteria": {"true": "{{last_message}}", "false": "No"}},
+        {"decision_outputs": {"true": "{{scene_guidance}}", "false": ""}},
+    ],
+)
+async def test_imported_decisions_obey_authoring_macro_rules(monkeypatch, overrides):
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    result = await judge_pass(_turn(_candidate(card_id="imported", **overrides)))
+    assert result.evaluations == []
+    assert _skips(result)["outcome"]["reason"] == SkipReason.INVALID_DEFINITION
+    assert gateway.batches == []
+
+
+# ── inline macros ────────────────────────────────────────────────────────────
+
+_ROLLING = {
+    "decision_state_template": "{{// hidden}}Omen: {{random::a::b::c::d::e::f::g::h}}\n{{last_message}}",
+    "decision_outputs": {"true": "Damage {{roll::1d1}}.", "false": ""},
+}
+
+
+async def test_inline_macros_resolve_before_the_judge_and_in_guidance(monkeypatch):
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    result = await judge_pass(_turn(_candidate(**_ROLLING), snapshot=replace(SNAPSHOT, seed="conv")))
+    assert "{{" not in gateway.states[0] and gateway.states[0].startswith("Omen: ")
+    assert _by_id(result)["outcome"]["guidance"] == "Damage 1."
+
+
+async def test_a_rolled_situation_is_shared_so_equal_templates_still_batch(monkeypatch):
+    gateway = FakeGateway(answers={f"f{i}": 0.9 for i in range(6)}).install(monkeypatch)
+    candidates = [_candidate(f"f{i}", **_ROLLING) for i in range(6)]
+    result = await judge_pass(_turn(*candidates, snapshot=replace(SNAPSHOT, seed="conv")))
+    assert len(gateway.batches) == 1 and len(gateway.batches[0]) == 6
+    assert len({record["rendered_state"] for record in result.evaluations}) == 1
+
+
+async def test_seeded_rolls_let_a_regeneration_replay_and_a_new_exchange_reroll(monkeypatch):
+    candidate = _candidate(**_ROLLING)
+    seeded = replace(SNAPSHOT, seed="conv")
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    original = (await judge_pass(_turn(candidate, snapshot=seeded))).evaluations
+    RAW_ANSWER_CACHE.clear()
+
+    replayed = await judge_pass(_turn(candidate, snapshot=seeded, replay_records=tuple(original)))
+    assert _by_id(replayed)["outcome"]["answer_source"] == "replay"
+    assert len(gateway.batches) == 1
+
+    states = {original[0]["rendered_state"]}
+    for anchor in range(43, 48):
+        states.add(
+            (await judge_pass(_turn(candidate, snapshot=replace(seeded, anchor_message_id=anchor)))).evaluations[0][
+                "rendered_state"
+            ]
+        )
+    assert len(states) > 1
+
+
+# ── the happy path ───────────────────────────────────────────────────────────
+
+
+async def test_a_live_answer_resolves_injects_and_records(monkeypatch):
+    FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    result = await judge_pass(_turn(_candidate()))
+
+    record = _by_id(result)["outcome"]
+    assert record["answer_source"] == "live"
+    assert record["probability"] == 0.9
+    assert record["outcome"] == "true"
+    assert record["guidance"] == "outcome succeeded."
+    assert record["returned_model"] == "typesafe/jev-1.13.2"
+    assert record["input_branch_anchor"] == 42
+    assert "draw" not in record  # threshold mode has no draw to report
+    assert result.guidance == "**Major Decisions**\n\nOutcome: outcome succeeded."
+    assert result.requests == 1
+
+
+async def test_an_answer_below_the_confidence_floor_is_gated_and_not_cached(monkeypatch):
+    """A gated answer resolves to nothing and must not be served again from cache.
+
+    The floor means "this answer is not good enough to act on", so caching it
+    would make one weak answer decide every later turn with the same situation.
+    """
+    answers = {"outcome": ChoiceAnswer("messy", {"clean": 0.4, "messy": 0.6}, 0.5)}
+    gateway = FakeGateway(answers=answers).install(monkeypatch)
+    candidate = _candidate(
+        decision_type="choice",
+        decision_criteria={"clean": "Clean win", "messy": "Messy win"},
+        decision_outputs={"clean": "clean beat", "messy": "messy beat"},
+        decision_resolution="argmax",
+        decision_threshold=None,
+        decision_confidence_floor=0.8,
+    )
+    result = await judge_pass(_turn(candidate))
+
+    assert not result.evaluations
+    assert result.skipped[0]["reason"] == SkipReason.LOW_CONFIDENCE
+    assert result.guidance == ""
+
+    gateway.batches.clear()
+    await judge_pass(_turn(candidate))
+    assert gateway.batches == [["outcome"]]
+
+
+async def test_an_empty_selected_output_suppresses_injection_but_still_records(monkeypatch):
+    FakeGateway(answers={"outcome": 0.1}).install(monkeypatch)
+    result = await judge_pass(_turn(_candidate(decision_outputs={"true": "held", "false": ""})))
+
+    assert _by_id(result)["outcome"]["outcome"] == "false"
+    assert result.guidance == ""
+    assert result.evaluations  # invisible to the model, visible to the Inspector
+
+
+async def test_publication_order_is_fragment_order(monkeypatch):
+    FakeGateway(answers={"a": 0.9, "b": 0.9, "c": 0.9}).install(monkeypatch)
+    result = await judge_pass(_turn(_candidate("a"), _candidate("b"), _candidate("c")))
+    assert [record["fragment_id"] for record in result.evaluations] == ["a", "b", "c"]
+
+
+# ── batching ─────────────────────────────────────────────────────────────────
+
+
+async def test_identical_states_share_one_request(monkeypatch):
+    gateway = FakeGateway(answers={"a": 0.9, "b": 0.2}).install(monkeypatch)
+    result = await judge_pass(_turn(_candidate("a"), _candidate("b")))
+
+    assert gateway.batches == [["a", "b"]]
+    assert result.requests == 1
+    assert _by_id(result)["a"]["outcome"] == "true"
+    assert _by_id(result)["b"]["outcome"] == "false"
+
+
+async def test_different_states_split_and_are_never_concatenated(monkeypatch):
+    gateway = FakeGateway(answers={"a": 0.9, "b": 0.9}).install(monkeypatch)
+    await judge_pass(
+        _turn(
+            _candidate("a"),
+            _candidate("b", decision_state_template="Only the request: {{last_message}}"),
+        )
+    )
+    assert sorted(sorted(batch) for batch in gateway.batches) == [["a"], ["b"]]
+    assert len(set(gateway.states)) == 2
+    # Unrelated states must never be welded together to force a batch.
+    assert all("Previous reply" not in state or "Only the request" not in state for state in gateway.states)
+
+
+async def test_different_states_are_asked_at_once_and_fail_alone(monkeypatch):
+    # Each request holds until both are in flight, so a stage that waited on one
+    # before sending the next would time out here instead of finishing.
+    in_flight = 0
+    both = asyncio.Event()
+
+    async def _held(self, state, questions, *, timeout=None, abort=None):  # noqa: ANN001
+        nonlocal in_flight
+        in_flight += 1
+        if in_flight == 2:
+            both.set()
+        await asyncio.wait_for(both.wait(), 1)
+        if state.startswith("Only the request"):
+            raise httpx.ReadTimeout("slow")
+        return DecisionResponse(answers={q.key: 0.9 for q in questions}, returned_model="m")
+
+    monkeypatch.setattr(judge_module.DecisionClient, "decide", _held)
+    result = await judge_pass(
+        _turn(_candidate("a"), _candidate("b", decision_state_template="Only the request: {{last_message}}"))
+    )
+    assert result.requests == 2
+    assert _by_id(result)["a"]["answer_source"] == "live"
+    assert _skips(result)["b"]["reason"] == SkipReason.TIMEOUT
+
+
+async def test_a_batch_is_packed_within_the_question_limit(monkeypatch):
+    ids = [f"q{i}" for i in range(judge_module.MAX_QUESTIONS_PER_REQUEST + 3)]
+    gateway = FakeGateway(answers=dict.fromkeys(ids, 0.9)).install(monkeypatch)
+    await judge_pass(_turn(*(_candidate(fragment_id) for fragment_id in ids)))
+
+    assert len(gateway.batches) == 1
+    assert all(len(batch) <= judge_module.MAX_QUESTIONS_PER_REQUEST for batch in gateway.batches)
+    assert sorted(key for batch in gateway.batches for key in batch) == sorted(ids[:MAX_DECISIONS_PER_EXCHANGE])
+
+
+async def test_one_invalid_sibling_answer_is_isolated(monkeypatch):
+    # A partially valid response still supplies its valid answers.
+    FakeGateway(answers={"good": 0.9}).install(monkeypatch)
+    result = await judge_pass(_turn(_candidate("good"), _candidate("bad")))
+
+    assert _by_id(result)["good"]["answer_source"] == "live"
+    assert "bad" not in _by_id(result)
+    assert _skips(result)["bad"] == {
+        "fragment_id": "bad",
+        "fragment_label": "Bad",
+        "source": "global",
+        "reason": SkipReason.INVALID_ANSWER,
+        "failed": 1,
+    }
+
+
+# ── the raw-answer cache ─────────────────────────────────────────────────────
+
+
+async def test_an_identical_question_is_served_from_cache_without_a_request(monkeypatch):
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    await judge_pass(_turn(_candidate()))
+    second = await judge_pass(_turn(_candidate()))
+
+    assert len(gateway.batches) == 1
+    assert _by_id(second)["outcome"]["answer_source"] == "cache"
+    assert _by_id(second)["outcome"]["returned_model"] == "typesafe/jev-1.13.2"
+    assert second.requests == 0
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"decision_instructions": "A different question?"},
+        {"decision_criteria": {"true": "other", "false": "other"}},
+        {"decision_state_template": "Only: {{last_message}}"},
+    ],
+)
+async def test_changing_a_classifier_input_invalidates_the_cache(monkeypatch, change):
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    await judge_pass(_turn(_candidate()))
+    await judge_pass(_turn(_candidate(**change)))
+    assert len(gateway.batches) == 2
+
+
+async def test_changing_the_model_or_the_endpoint_invalidates_the_cache(monkeypatch):
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    await judge_pass(_turn(_candidate()))
+    await judge_pass(_turn(_candidate(), config=replace(CONFIG, model="typesafe/jev-2")))
+    await judge_pass(_turn(_candidate(), config=replace(CONFIG, url="https://other.test/alpha/decisions")))
+    assert len(gateway.batches) == 3
+
+
+async def test_a_cache_hit_still_draws_fresh_dice(monkeypatch):
+    FakeGateway(answers={"outcome": 0.5}).install(monkeypatch)
+    roll = {"decision_resolution": "roll", "decision_threshold": None}
+    first = await judge_pass(_turn(_candidate(**roll)))
+    draws = {first.evaluations[0]["draw"]}
+    for _ in range(20):
+        result = await judge_pass(_turn(_candidate(**roll)))
+        assert result.evaluations[0]["answer_source"] == "cache"
+        draws.add(result.evaluations[0]["draw"])
+    # A new occurrence gets its own dice even when the answer was reused.
+    assert len(draws) > 1
+
+
+async def test_an_unanswered_question_is_never_cached(monkeypatch):
+    gateway = FakeGateway(answers={}).install(monkeypatch)
+    await judge_pass(_turn(_candidate()))
+    gateway.answers = {"outcome": 0.9}
+    result = await judge_pass(_turn(_candidate()))
+    assert _by_id(result)["outcome"]["answer_source"] == "live"
+    assert len(gateway.batches) == 2
+
+
+# ── decisions that cannot answer ─────────────────────────────────────────────
+
+
+async def test_missing_configuration_skips_without_a_request(monkeypatch):
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    result = await judge_pass(_turn(_candidate(), config=JudgeConfig()))
+
+    # No outcome, no guidance, nothing injected -- and no invented `false`.
+    assert result.evaluations == []
+    assert result.guidance == ""
+    assert _skips(result)["outcome"]["reason"] == SkipReason.NOT_CONFIGURED
+    assert _skips(result)["outcome"]["failed"] == 1
+    assert gateway.batches == []
+
+
+async def test_the_rest_of_the_stage_runs_when_one_decision_cannot_answer(monkeypatch):
+    gateway = FakeGateway(answers={"good": 0.9}).install(monkeypatch)
+    result = await judge_pass(
+        _turn(
+            _candidate("good"),
+            _candidate("broken", decision_state_template="About {{description}}: {{last_message}}"),
+            snapshot=DecisionSnapshot(last_message="hi", description=None, scope="group"),
+        )
+    )
+
+    assert gateway.batches == [["good"]]
+    assert _by_id(result)["good"]["outcome"] == "true"
+    assert result.guidance == "**Major Decisions**\n\nGood: good succeeded."
+    assert _skips(result)["broken"]["reason"] == SkipReason.UNAVAILABLE_CONTEXT
+
+
+async def test_a_skipped_decision_does_not_spend_its_cooldown(monkeypatch):
+    FakeGateway(answers={}).install(monkeypatch)
+    result = await judge_pass(_turn(_candidate(cooldown_turns=3)))
+
+    # Nothing was injected, so there is nothing to rest from: a decision that
+    # could not answer is eligible again on the very next turn.
+    assert result.evaluations == []
+    assert result.cooldowns == {}
+
+
+async def test_an_unavailable_macro_skips_rather_than_inferring_a_member(monkeypatch):
+    FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    group = DecisionSnapshot(last_message="hi", description=None, scope="group")
+    result = await judge_pass(
+        _turn(_candidate(decision_state_template="About {{description}}: {{last_message}}"), snapshot=group)
+    )
+    assert _skips(result)["outcome"]["reason"] == SkipReason.UNAVAILABLE_CONTEXT
+
+
+async def test_empty_message_inputs_skip_with_empty_input(monkeypatch):
+    FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    empty = DecisionSnapshot(last_message="", last_assistant_message="", scope="solo")
+    result = await judge_pass(_turn(_candidate(), snapshot=empty))
+    assert _skips(result)["outcome"]["reason"] == SkipReason.EMPTY_INPUT
+
+
+async def test_a_custom_template_supplying_its_own_situation_is_not_empty_input(monkeypatch):
+    FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    empty = DecisionSnapshot(last_message="", last_assistant_message="", char="Maren", scope="solo")
+    result = await judge_pass(_turn(_candidate(decision_state_template="{{char}} stands alone in the dark."), snapshot=empty))
+    assert _by_id(result)["outcome"]["answer_source"] == "live"
+
+
+async def test_an_oversized_state_skips_instead_of_being_truncated(monkeypatch):
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    huge = DecisionSnapshot(last_message="x" * 20_000, last_assistant_message="y", scope="solo")
+    result = await judge_pass(_turn(_candidate(), snapshot=huge))
+
+    assert result.evaluations == []
+    assert gateway.batches == []
+    # Nothing is sent, and the skip keeps the measurement rather than the prose:
+    # truncating would drop a possibly decisive fact, and echoing an over-limit
+    # state onto the reply would store exactly the bytes the limit exists to avoid.
+    row = _skips(result)["outcome"]
+    assert row["reason"] == SkipReason.OVERSIZED_INPUT
+    assert "rendered_state" not in row
+    assert row["oversize_state_bytes"] > row["state_limit"]
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (httpx.ReadTimeout("slow"), SkipReason.TIMEOUT),
+        (DecisionTransportError("unreadable"), SkipReason.TRANSPORT_FAILURE),
+        (httpx.ConnectError("refused"), SkipReason.TRANSPORT_FAILURE),
+    ],
+)
+async def test_transport_problems_skip_their_whole_batch(monkeypatch, error, reason):
+    gateway = FakeGateway(answers={"a": 0.9, "b": 0.9}).install(monkeypatch)
+    gateway.error = error
+    result = await judge_pass(_turn(_candidate("a"), _candidate("b")))
+
+    assert result.evaluations == []
+    assert {row["reason"] for row in result.skipped} == {reason}
+    # No retry and no split-and-retry in the interactive path.
+    assert len(gateway.batches) == 1
+
+
+async def test_a_provider_rejection_skips_without_extra_attempts(monkeypatch):
+    request = httpx.Request("POST", CONFIG.url)
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    gateway.error = LLMCallError(
+        "HTTP 429",
+        request=request,
+        response=httpx.Response(429, request=request),
+        sentence="rate limited",
+        body="",
+        host="example.test",
+        model=CONFIG.model,
+    )
+    result = await judge_pass(_turn(_candidate()))
+    assert _skips(result)["outcome"]["reason"] == SkipReason.TRANSPORT_FAILURE
+    assert len(gateway.batches) == 1
+
+
+# ── routine skips ────────────────────────────────────────────────────────────
+
+
+async def test_a_resting_decision_is_skipped_with_no_request_and_no_guidance(monkeypatch):
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    result = await judge_pass(_turn(_candidate(cooldown_turns=3), prior_cooldowns={"outcome": 2}))
+
+    assert result.evaluations == []
+    assert result.skipped == [
+        {"fragment_id": "outcome", "fragment_label": "Outcome", "source": "global", "reason": SkipReason.RESTING}
+    ]
+    assert result.guidance == ""
+    assert gateway.batches == []
+    # Resting is silence, not a remembered answer: the timer still ages.
+    assert result.cooldowns == {"outcome": 1}
+
+
+# ── budgets ──────────────────────────────────────────────────────────────────
+
+
+async def test_over_budget_decisions_are_skipped_and_stay_visible(monkeypatch):
+    ids = [f"q{i}" for i in range(MAX_DECISIONS_PER_EXCHANGE + 2)]
+    FakeGateway(answers=dict.fromkeys(ids, 0.9)).install(monkeypatch)
+    result = await judge_pass(_turn(*(_candidate(fragment_id) for fragment_id in ids)))
+
+    # Over budget is still reported: the author sees which ones were dropped.
+    assert [record["fragment_id"] for record in result.evaluations] == ids[:MAX_DECISIONS_PER_EXCHANGE]
+    over = [row for row in result.skipped if row["reason"] == SkipReason.BUDGET_EXHAUSTED]
+    assert [row["fragment_id"] for row in over] == ids[MAX_DECISIONS_PER_EXCHANGE:]
+
+
+async def test_one_card_cannot_take_more_than_its_share(monkeypatch):
+    ids = [f"q{i}" for i in range(MAX_DECISIONS_PER_CARD + 2)]
+    FakeGateway(answers=dict.fromkeys(ids, 0.9)).install(monkeypatch)
+    result = await judge_pass(_turn(*(_candidate(fragment_id, card_id="c") for fragment_id in ids)))
+
+    over = [row for row in result.skipped if row["reason"] == SkipReason.BUDGET_EXHAUSTED]
+    assert [row["fragment_id"] for row in over] == ids[MAX_DECISIONS_PER_CARD:]
+
+
+async def test_the_batch_cap_skips_the_rest(monkeypatch):
+    monkeypatch.setattr(judge_module, "MAX_BATCHES", 2)
+    ids = [f"q{i}" for i in range(4)]
+    gateway = FakeGateway(answers=dict.fromkeys(ids, 0.9)).install(monkeypatch)
+    # One distinct state each, so grouping cannot merge them.
+    result = await judge_pass(_turn(*(_candidate(i, decision_state_template=f"State {i}: {{{{last_message}}}}") for i in ids)))
+    assert len(gateway.batches) == 2
+    exhausted = [row for row in result.skipped if row["reason"] == SkipReason.BUDGET_EXHAUSTED]
+    assert len(exhausted) == 2
+
+
+# ── cancellation ─────────────────────────────────────────────────────────────
+
+
+async def test_a_stop_propagates_rather_than_producing_guidance(monkeypatch):
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    gateway.error = DecisionCancelled("stopped")
+    abort = AbortToken()
+    with pytest.raises(DecisionCancelled):
+        await judge_pass(_turn(_candidate()), abort=abort)
+
+
+async def test_a_stop_before_the_first_request_asks_for_nothing(monkeypatch):
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    abort = AbortToken()
+    abort.abort()
+    with pytest.raises(DecisionCancelled):
+        await judge_pass(_turn(_candidate()), abort=abort)
+    assert gateway.batches == []
+
+
+# ── replay ───────────────────────────────────────────────────────────────────
+
+
+async def _record_for(candidate: DecisionCandidate, monkeypatch, probability: float | ChoiceAnswer | ScoreAnswer = 0.9):
+    FakeGateway(answers={candidate.definition.fragment_id: probability}).install(monkeypatch)
+    result = await judge_pass(_turn(candidate))
+    RAW_ANSWER_CACHE.clear()
+    return result.evaluations
+
+
+def _draws(monkeypatch, *values: float) -> None:
+    sequence = iter(values)
+    monkeypatch.setattr(judge_module, "draw_uniform", lambda: next(sequence))
+
+
+_CHOICE = {
+    "decision_type": "choice",
+    "decision_criteria": {"clean": "Clean win", "messy": "Messy win"},
+    "decision_outputs": {"clean": "clean beat", "messy": "messy beat"},
+    "decision_threshold": None,
+}
+_SCORE = {
+    "decision_type": "score",
+    "decision_criteria": ["Low", "High"],
+    "decision_outputs": {"0": "low beat", "1": "high beat"},
+    "decision_threshold": None,
+}
+_CHOICE_ANSWER = ChoiceAnswer("messy", {"clean": 0.4, "messy": 0.6}, 0.9)
+_SCORE_ANSWER = ScoreAnswer(0.6, {"0": 0.4, "1": 0.6}, 0.9, {"0": "Low", "1": "High"})
+
+
+@pytest.mark.parametrize(
+    ("overrides", "answer"),
+    [
+        ({}, 0.9),
+        ({**_CHOICE, "decision_resolution": "argmax"}, _CHOICE_ANSWER),
+        ({**_SCORE, "decision_resolution": "argmax"}, _SCORE_ANSWER),
+        ({**_SCORE, "decision_resolution": "nearest"}, _SCORE_ANSWER),
+    ],
+    ids=["threshold", "choice-argmax", "score-argmax", "nearest"],
+)
+async def test_an_identical_regeneration_replays_a_read_off_outcome_without_a_request(monkeypatch, overrides, answer):
+    candidate = _candidate(**overrides)
+    original = await _record_for(candidate, monkeypatch, probability=answer)
+
+    gateway = FakeGateway(answers={"outcome": answer}).install(monkeypatch)
+    replayed = await judge_pass(_turn(candidate, replay_records=tuple(original)))
+
+    record = _by_id(replayed)["outcome"]
+    assert gateway.batches == []  # cold cache, and still no call
+    assert record["answer_source"] == "replay"
+    assert record["outcome"] == original[0]["outcome"]
+    assert record["occurrence_id"] == original[0]["occurrence_id"]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "answer", "first", "second"),
+    [
+        ({"decision_resolution": "roll", "decision_threshold": None}, 0.5, "true", "false"),
+        ({**_CHOICE, "decision_resolution": "weighted"}, _CHOICE_ANSWER, "clean", "messy"),
+        ({**_SCORE, "decision_resolution": "weighted"}, _SCORE_ANSWER, "0", "1"),
+    ],
+    ids=["roll", "choice-weighted", "score-weighted"],
+)
+async def test_an_identical_regeneration_redraws_on_the_stored_odds(monkeypatch, overrides, answer, first, second):
+    """A drawn outcome is rolled again; the classifier's answer it is drawn against is not.
+
+    Replaying the draw would make regenerate unable to ever land on the other
+    side of odds the author chose to roll against, and asking again would spend
+    a request on an answer that is already on the record.
+    """
+    candidate = _candidate(**overrides)
+    _draws(monkeypatch, 0.1, 0.9)
+    original = await _record_for(candidate, monkeypatch, probability=answer)
+    assert original[0]["outcome"] == first
+
+    gateway = FakeGateway(answers={}).install(monkeypatch)
+    rerolled = await judge_pass(_turn(candidate, replay_records=tuple(original)))
+
+    record = _by_id(rerolled)["outcome"]
+    assert gateway.batches == []  # cold cache, and still no call
+    assert rerolled.requests == 0
+    assert record["answer_source"] == "replay"
+    assert record["replayed_from"] == "live"
+    assert record["returned_model"] == original[0]["returned_model"]
+    assert record["draw"] == 0.9
+    assert record["outcome"] == second
+    assert record["guidance"] == candidate.definition.outputs[second]
+    assert record["occurrence_id"] != original[0]["occurrence_id"]
+    for key in ("probability", "distribution", "confidence", "score", "legend", "returned_choice"):
+        assert record.get(key) == original[0].get(key)
+
+    # Regenerating the rerolled reply still traces the answer to its first source.
+    _draws(monkeypatch, 0.5)
+    again = await judge_pass(_turn(candidate, replay_records=tuple(rerolled.evaluations)))
+    assert _by_id(again)["outcome"]["replayed_from"] == "live"
+
+
+async def test_a_drawn_record_whose_answer_cannot_be_read_back_is_asked_again(monkeypatch):
+    candidate = _candidate(decision_resolution="roll", decision_threshold=None)
+    original = await _record_for(candidate, monkeypatch, probability=0.5)
+    damaged = [{key: value for key, value in original[0].items() if key != "probability"}]
+
+    gateway = FakeGateway(answers={"outcome": 0.5}).install(monkeypatch)
+    fresh = await judge_pass(_turn(candidate, replay_records=tuple(damaged)))
+
+    assert gateway.batches == [["outcome"]]
+    assert _by_id(fresh)["outcome"]["answer_source"] == "live"
+
+
+async def test_editing_only_the_output_changes_the_prompt_with_no_call_and_no_reroll(monkeypatch):
+    candidate = _candidate()
+    original = await _record_for(candidate, monkeypatch, probability=1.0)
+
+    edited = _candidate(
+        label="Renamed",
+        injection_label="Renamed",
+        decision_outputs={"true": "New words for the same outcome.", "false": ""},
+    )
+    gateway = FakeGateway(answers={"outcome": 1.0}).install(monkeypatch)
+    replayed = await judge_pass(_turn(edited, replay_records=tuple(original)))
+
+    record = _by_id(replayed)["outcome"]
+    assert gateway.batches == []
+    assert record["answer_source"] == "replay"
+    assert record["occurrence_id"] == original[0]["occurrence_id"]
+    assert record["guidance"] == "New words for the same outcome."
+    assert replayed.guidance == "**Major Decisions**\n\nRenamed: New words for the same outcome."
+
+
+async def test_a_changed_question_creates_a_new_occurrence(monkeypatch):
+    original = await _record_for(_candidate(), monkeypatch)
+    gateway = FakeGateway(answers={"outcome": 0.1}).install(monkeypatch)
+    fresh = await judge_pass(_turn(_candidate(decision_instructions="Something else?"), replay_records=tuple(original)))
+
+    record = _by_id(fresh)["outcome"]
+    assert gateway.batches == [["outcome"]]
+    assert record["answer_source"] == "live"
+    assert record["occurrence_id"] != original[0]["occurrence_id"]
+
+
+async def test_a_changed_resolution_policy_creates_a_new_occurrence(monkeypatch):
+    original = await _record_for(_candidate(), monkeypatch)
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    fresh = await judge_pass(_turn(_candidate(decision_threshold=0.95), replay_records=tuple(original)))
+
+    assert gateway.batches == [["outcome"]]
+    assert _by_id(fresh)["outcome"]["outcome"] == "false"
+
+
+async def test_a_changed_policy_may_still_reuse_a_cached_answer_but_rerolls(monkeypatch):
+    gateway = FakeGateway(answers={"outcome": 0.5}).install(monkeypatch)
+    original = (await judge_pass(_turn(_candidate()))).evaluations  # warms the cache
+
+    roll = _candidate(decision_resolution="roll", decision_threshold=None)
+    replayed = await judge_pass(_turn(roll, replay_records=tuple(original)))
+
+    record = _by_id(replayed)["outcome"]
+    assert len(gateway.batches) == 1  # the cache served the second
+    assert record["answer_source"] == "cache"
+    assert "draw" in record
+
+
+async def test_a_skipped_decision_stores_nothing_and_is_asked_again(monkeypatch):
+    FakeGateway(answers={}).install(monkeypatch)
+    first = await judge_pass(_turn(_candidate()))
+    assert first.evaluations == []
+    assert _skips(first)["outcome"]["reason"] == SkipReason.INVALID_ANSWER
+
+    # There is no stored outcome to replay, so the regeneration genuinely retries
+    # rather than reinstating an answer that never existed.
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    replayed = await judge_pass(_turn(_candidate(), replay_records=tuple(first.evaluations)))
+
+    assert gateway.batches == [["outcome"]]
+    assert _by_id(replayed)["outcome"]["answer_source"] == "live"
+    assert _by_id(replayed)["outcome"]["outcome"] == "true"
+
+
+async def test_a_lost_branch_anchor_re_asks_and_says_why(monkeypatch):
+    original = await _record_for(_candidate(), monkeypatch)
+    copied = envelope(original, [])
+    from backend.pipeline.passes.judge import remap_anchors
+
+    orphaned = remap_anchors(copied, {})["evaluations"]
+
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    fresh = await judge_pass(_turn(_candidate(), replay_records=tuple(orphaned)))
+
+    record = _by_id(fresh)["outcome"]
+    assert gateway.batches == [["outcome"]]
+    assert record["answer_source"] == "live"
+    assert record["replay_invalidated"] == SkipReason.MISSING_ANCHOR
+
+
+# ── the empty stage ──────────────────────────────────────────────────────────
+
+
+async def test_a_stage_with_no_candidates_still_ages_cooldowns():
+    result = await judge_pass(_turn(prior_cooldowns={"gone": 2}))
+    assert result.cooldowns == {"gone": 1}
+    assert result.evaluations == [] and result.guidance == ""
+
+
+async def test_stage_results_are_published_only_once_the_stage_finishes(monkeypatch):
+    # Two states, so two requests; the first answer to land must not be
+    # observable before the other has also landed. The result object is the only
+    # publication point, which is what makes that true by construction.
+    started = asyncio.Event()
+
+    async def _slow(self, state, questions, *, timeout=None, abort=None):  # noqa: ANN001
+        started.set()
+        await asyncio.sleep(0)
+        return DecisionResponse(answers={q.key: 0.9 for q in questions}, returned_model="m")
+
+    monkeypatch.setattr(judge_module.DecisionClient, "decide", _slow)
+    task = asyncio.ensure_future(
+        judge_pass(_turn(_candidate("a"), _candidate("b", decision_state_template="Other: {{last_message}}")))
+    )
+    await started.wait()
+    assert not task.done()
+    result = await task
+    assert len(result.evaluations) == 2
+
+
+_GATED = {
+    "decision_type": "choice",
+    "decision_criteria": {"none": "Nothing is attempted", "fail": "It fails", "win": "It works"},
+    "decision_outputs": {"none": "", "fail": "fail beat", "win": "win beat"},
+    "decision_resolution": "gated",
+    "decision_threshold": None,
+}
+
+
+async def test_a_holding_gate_resolves_to_it_without_a_draw_or_guidance(monkeypatch):
+    """The idle-turn leak: a weighted draw would land on fail/win 15% of the time here."""
+    _draws(monkeypatch)  # an empty sequence: any draw raises
+    answer = ChoiceAnswer("none", {"none": 0.85, "fail": 0.05, "win": 0.10}, 0.9)
+    FakeGateway(answers={"outcome": answer}).install(monkeypatch)
+    result = await judge_pass(_turn(_candidate(**_GATED)))
+
+    record = _by_id(result)["outcome"]
+    assert record["outcome"] == "none"
+    assert "draw" not in record
+    assert record["guidance"] == ""
+    assert result.guidance == ""
+
+
+async def test_a_gate_that_does_not_hold_draws_among_the_rest(monkeypatch):
+    _draws(monkeypatch, 0.26)
+    # Without the gate the rest split 0.25 / 0.75, so 0.26 lands on win; a plain
+    # weighted draw at 0.26 would have landed on fail.
+    answer = ChoiceAnswer("win", {"none": 0.2, "fail": 0.2, "win": 0.6}, 0.9)
+    FakeGateway(answers={"outcome": answer}).install(monkeypatch)
+    record = _by_id(await judge_pass(_turn(_candidate(**_GATED))))["outcome"]
+    assert (record["outcome"], record["draw"]) == ("win", 0.26)
+    assert record["guidance"] == "win beat"
+
+
+async def test_regenerating_a_held_gate_keeps_it_without_a_request(monkeypatch):
+    candidate = _candidate(**_GATED)
+    answer = ChoiceAnswer("none", {"none": 0.85, "fail": 0.05, "win": 0.10}, 0.9)
+    original = await _record_for(candidate, monkeypatch, probability=answer)
+
+    _draws(monkeypatch)
+    gateway = FakeGateway(answers={}).install(monkeypatch)
+    record = _by_id(await judge_pass(_turn(candidate, replay_records=tuple(original))))["outcome"]
+    assert gateway.batches == []
+    assert (record["outcome"], record["answer_source"]) == ("none", "replay")

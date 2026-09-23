@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from ..core.domain_types import AgentLane, CompletionMode
+from ..core.domain_types import AgentLane, CompletionMode, EndpointKind
 
 
 class SettingsUpdate(BaseModel):
@@ -91,8 +91,15 @@ class WorkflowEnabledUpdate(BaseModel):
 
 
 class EndpointCreate(BaseModel):
+    """A saved connection. ``kind`` picks the lane that may select it: the
+    Writer/Agent ``chat`` pool, or the decision classifier's own ``judge`` rows.
+    It is set once, at creation, and ``EndpointUpdate`` deliberately omits it —
+    a row that changed lanes would silently take its credentials somewhere the
+    user never pointed them."""
+
     url: str
     api_key: str = ""
+    kind: EndpointKind = "chat"
 
 
 class EndpointUpdate(BaseModel):
@@ -236,11 +243,26 @@ class MoodFragmentUpdate(BaseModel):
     enabled: bool | None = None
 
 
-class InteractiveFragmentCreate(BaseModel):
+# Shared decision authoring fields for create and update schemas.
+class _DecisionFields(BaseModel):
+    decision_type: Literal["noul", "choice", "score"] | None = None
+    decision_placement: Literal["before_director"] | None = None
+    decision_state_template: str | None = None
+    decision_instructions: str | None = None
+    decision_criteria: dict[str, str] | list[str] | None = None
+    decision_outputs: dict[str, str] | None = None
+    decision_resolution: Literal["threshold", "roll", "argmax", "weighted", "gated", "nearest"] | None = None
+    decision_threshold: float | None = Field(None, ge=0.0, le=1.0)
+    decision_confidence_floor: float | None = Field(None, ge=0.0, le=1.0)
+
+
+class InteractiveFragmentCreate(_DecisionFields):
     id: str
     label: str
     description: str
-    field_type: Literal["string", "array", "progressive", "feedback", "direction_note", "post_processing"] = "string"
+    field_type: Literal["string", "array", "progressive", "feedback", "direction_note", "post_processing", "decision"] = (
+        "string"
+    )
     required: bool = False
     enabled: bool = True
     injection_label: str
@@ -249,10 +271,12 @@ class InteractiveFragmentCreate(BaseModel):
     cooldown_turns: int = Field(0, ge=0, le=50)
 
 
-class InteractiveFragmentUpdate(BaseModel):
+class InteractiveFragmentUpdate(_DecisionFields):
     label: str | None = None
     description: str | None = None
-    field_type: Literal["string", "array", "progressive", "feedback", "direction_note", "post_processing"] | None = None
+    field_type: (
+        Literal["string", "array", "progressive", "feedback", "direction_note", "post_processing", "decision"] | None
+    ) = None
     required: bool | None = None
     enabled: bool | None = None
     injection_label: str | None = None
@@ -274,6 +298,13 @@ class InteractiveFragmentReorder(BaseModel):
         if len({item.id for item in self.items}) != len(self.items):
             raise ValueError("Each interactive fragment may appear only once in a reorder")
         return self
+
+
+class DecisionConfigUpdate(BaseModel):
+    """Judge endpoint and model; the decisions route is derived from the URL."""
+
+    decision_endpoint_id: int | None = None
+    decision_model: str | None = None
 
 
 class WorldCreate(BaseModel):

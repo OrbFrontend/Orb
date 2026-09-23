@@ -1,6 +1,7 @@
 // Labels for backend step_start ids; director_start uses "director".
 const STEP_LABELS = {
   director: "Directing the scene…",
+  judge: "Judging decisions…",
   lorebook: "Consulting the lorebook…",
   direction_notes: "Updating direction notes…",
   writer: "Writing the reply…",

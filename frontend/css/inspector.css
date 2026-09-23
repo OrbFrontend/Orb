@@ -120,6 +120,9 @@ details.inspector-block > summary {
 .reasoning-section > summary::-webkit-details-marker,
 details.inspector-block > summary::-webkit-details-marker { display: none; }
 
+/* The heading is the summary's own label, so it brings no block margin with it. */
+details.inspector-block > summary h4 { margin: 0; }
+
 .reasoning-summary-arrow {
   --ui-icon-size: 10px;
   --ui-icon-stroke: 3.2;
@@ -129,8 +132,10 @@ details.inspector-block > summary::-webkit-details-marker { display: none; }
   align-items: center;
 }
 
-.reasoning-section[open] .reasoning-summary-arrow,
-details.inspector-block[open] .reasoning-summary-arrow {
+/* Own summary only: a section that nests its own disclosures (Decisions) would
+   otherwise turn every arrow inside it the moment the section opened. */
+.reasoning-section[open] > summary .reasoning-summary-arrow,
+details.inspector-block[open] > summary .reasoning-summary-arrow {
   transform: rotate(90deg);
 }
 

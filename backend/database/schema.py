@@ -54,7 +54,10 @@ CREATE TABLE IF NOT EXISTS settings (
     local_ml_config TEXT NOT NULL DEFAULT '{}',
     attachment_cache_budget_bytes INTEGER NOT NULL DEFAULT 524288000,
     attachment_access_counter INTEGER NOT NULL DEFAULT 0,
-    generated_chars INTEGER DEFAULT NULL
+    generated_chars INTEGER DEFAULT NULL,
+    -- The Judge has a dedicated endpoint and model; its route is derived from the URL.
+    decision_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
+    decision_model TEXT NOT NULL DEFAULT 'typesafe/jev-1.13'
 );
 
 CREATE TABLE IF NOT EXISTS mood_fragments (
@@ -174,7 +177,11 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL,
     workflow_state TEXT DEFAULT NULL,
     speaker_member_id TEXT DEFAULT NULL REFERENCES group_members(id) ON DELETE SET NULL,
-    exchange_id TEXT DEFAULT NULL
+    exchange_id TEXT DEFAULT NULL,
+    -- Versioned evaluations for this reply, used as its replay record.
+    decision_evaluations TEXT NOT NULL DEFAULT '{}',
+    -- Decision cooldowns count completed exchanges; Director cooldowns count firings.
+    decision_cooldowns TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_exchange ON messages(conversation_id, exchange_id);
@@ -199,7 +206,17 @@ CREATE TABLE IF NOT EXISTS interactive_fragments (
     injection_label TEXT NOT NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
     direction_note_timing TEXT NOT NULL DEFAULT 'post_turn',
-    cooldown_turns INTEGER NOT NULL DEFAULT 0
+    cooldown_turns INTEGER NOT NULL DEFAULT 0,
+    -- Decision-only fields; NULL for other fragment types and validated together.
+    decision_type TEXT DEFAULT NULL,
+    decision_placement TEXT DEFAULT NULL,
+    decision_state_template TEXT DEFAULT NULL,
+    decision_instructions TEXT DEFAULT NULL,
+    decision_criteria TEXT DEFAULT NULL,
+    decision_outputs TEXT DEFAULT NULL,
+    decision_resolution TEXT DEFAULT NULL,
+    decision_threshold REAL DEFAULT NULL,
+    decision_confidence_floor REAL DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS conversation_logs (
@@ -277,7 +294,10 @@ CREATE TABLE IF NOT EXISTS endpoints (
     active_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL,
     agent_active_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL,
     completion_mode TEXT NOT NULL DEFAULT 'chat' CHECK (completion_mode IN ('chat', 'text')),
-    proxy TEXT NOT NULL DEFAULT ''
+    proxy TEXT NOT NULL DEFAULT '',
+    -- 'chat' endpoints serve Writer/Agent; 'judge' endpoints serve decision fragments.
+    -- Credentials and proxy share a table, but the lanes have separate endpoint lists.
+    kind TEXT NOT NULL DEFAULT 'chat' CHECK (kind IN ('chat', 'judge'))
 );
 
 CREATE TABLE IF NOT EXISTS model_configs (

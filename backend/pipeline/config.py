@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from ..core import ChatMessage, Macros
+from ..core import DECISION_FIELD_TYPE, ChatMessage, Macros
 from ..database.models import PhraseGroup
 from ..inference import (
     CachedBase,
@@ -122,14 +122,9 @@ def _split_interactive_fragments(
     list[Mapping[str, Any]],
     list[Mapping[str, Any]],
 ]:
-    """Split interactive fragments into writer, feedback, direction-note, and post-processing groups.
-
-    Feedback-type fragments surface to the user via the post-writer feedback step;
-    direction-note-type fragments feed the direction-note step; post-processing
-    fragments edit the completed draft; all others shape the ``direct_scene`` tool
-    and Scene Direction block. The four groups are disjoint.
-    """
-    writer = [df for df in fragments if df.get("field_type") not in ("feedback", "direction_note", "post_processing")]
+    """Split fragments by pipeline stage; decisions run before the Director."""
+    lanes = ("feedback", "direction_note", "post_processing", DECISION_FIELD_TYPE)
+    writer = [df for df in fragments if df.get("field_type") not in lanes]
     feedback = [df for df in fragments if df.get("field_type") == "feedback"]
     direction_note_fragments = [df for df in fragments if df.get("field_type") == "direction_note"]
     post_processing = [df for df in fragments if df.get("field_type") == "post_processing"]

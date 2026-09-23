@@ -19,6 +19,7 @@ from .failures import (
 )
 from .passes.director import direction_note_step, director_stage
 from .passes.editor import editor_stage
+from .passes.judge import JudgeResult
 from .passes.writer import strip_speaker_label, writer_stage
 from .predicates import direction_note_recording_active
 from .sheet_update import sheet_update_stage
@@ -96,6 +97,7 @@ async def _run_pipeline(
     context_mode: GroupContextMode = "private",
     run_director: bool = True,
     director_seed: TurnState | None = None,
+    judge: JudgeResult | None = None,
     run_exchange_final: bool = True,
 ) -> AsyncIterator[dict]:
     """Run the director → writer → editor passes for one turn.
@@ -157,6 +159,12 @@ async def _run_pipeline(
         macro_choices=dict(director.get("macro_choices") or {}),
         fragment_cooldowns=dict(director.get("fragment_cooldowns") or {}),
     )
+    # Resolved before this call, by the stage that owns the frozen snapshot. The
+    # records ride the TurnState so persistence commits them in the same INSERT as
+    # the reply they produced; a group exchange's shared result reaches later
+    # speakers through ``director_seed`` instead, and is not re-resolved.
+    if judge is not None:
+        judge.apply_to(state)
     # A group exchange runs one Director for every speaker, so speakers 2..n start
     # from its result instead of re-deriving it. Which fields that covers is
     # ``TurnState``'s to say (``_DIRECTOR_SEED_FIELDS``), not this module's --
@@ -179,6 +187,7 @@ async def _run_pipeline(
                 kv_tracker=kv_tracker,
                 lorebook=lorebook,
                 macros=macros,
+                decision_guidance=state.decision_guidance,
             ),
         ):
             yield ev

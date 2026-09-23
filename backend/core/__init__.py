@@ -3,6 +3,21 @@
 from __future__ import annotations
 
 from .card_scripts import CardScripts
+from .decisions import (
+    DECISION_COLUMNS,
+    DECISION_FIELD_TYPE,
+    DECISION_RESOLUTIONS_BY_TYPE,
+    DECISION_TYPES,
+    DEFAULT_STATE_TEMPLATE,
+    MAX_CHOICE_OPTIONS,
+    MAX_SCORE_LEVELS,
+    MIN_SCORE_LEVELS,
+    OUTCOME_KEYS,
+    DecisionDefinition,
+    decision_definition_errors,
+    is_decision_row,
+    parse_decision_definition,
+)
 from .domain_types import CastMember, GroupContextMode, TurnCast
 from .llm_types import (
     AssistantToolMessage,
@@ -22,6 +37,7 @@ from .macros import (
     Macros,
     card_description,
     has_inline_macros,
+    outside_literals,
     resolve_inline,
     resolve_stored_random,
 )
@@ -56,6 +72,20 @@ __all__ = [
     "CastMember",
     "GroupContextMode",
     "TurnCast",
+    # decisions — the decision-fragment authoring contract
+    "DECISION_COLUMNS",
+    "DECISION_FIELD_TYPE",
+    "DECISION_RESOLUTIONS_BY_TYPE",
+    "DECISION_TYPES",
+    "DEFAULT_STATE_TEMPLATE",
+    "MAX_CHOICE_OPTIONS",
+    "MAX_SCORE_LEVELS",
+    "MIN_SCORE_LEVELS",
+    "OUTCOME_KEYS",
+    "DecisionDefinition",
+    "decision_definition_errors",
+    "is_decision_row",
+    "parse_decision_definition",
     # locks — process-level asyncio locks
     "maintenance_lock",
     "wal_anchor_lock",
@@ -68,6 +98,7 @@ __all__ = [
     "CardScripts",
     "card_description",
     "has_inline_macros",
+    "outside_literals",
     "resolve_inline",
     "resolve_stored_random",
     # reasoning — per-pass thinking buffers (one blank line between calls)

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import cast
 
+from ...core.domain_types import EndpointKind
 from ..connection import _build_set_clause, get_db
 from ..models import EndpointRow, ModelConfigRow
 
 # The EndpointRow projection. Spelled once so every read of the table returns the
 # same columns — `SELECT *` would leak future columns into the row contract.
-_ENDPOINT_COLS = "id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode, proxy"
+_ENDPOINT_COLS = "id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode, proxy, kind"
 
 
 async def _endpoint_on(db, endpoint_id: int) -> EndpointRow | None:
@@ -16,9 +17,16 @@ async def _endpoint_on(db, endpoint_id: int) -> EndpointRow | None:
     return cast(EndpointRow, dict(rows[0])) if rows else None
 
 
-async def get_endpoints() -> list[EndpointRow]:
+async def get_endpoints(kind: EndpointKind | None = None) -> list[EndpointRow]:
+    """Return all endpoints or those selectable by one lane."""
+    where = "" if kind is None else " WHERE kind = ?"
     async with get_db() as db:
-        rows = list(await db.execute_fetchall(f"SELECT {_ENDPOINT_COLS} FROM endpoints ORDER BY id ASC"))  # nosec B608
+        rows = list(
+            await db.execute_fetchall(
+                f"SELECT {_ENDPOINT_COLS} FROM endpoints{where} ORDER BY id ASC",  # nosec B608
+                () if kind is None else (kind,),
+            )
+        )
         return [cast(EndpointRow, dict(r)) for r in rows]
 
 
@@ -27,11 +35,17 @@ async def get_endpoint(endpoint_id: int) -> EndpointRow | None:
         return await _endpoint_on(db, endpoint_id)
 
 
-async def create_endpoint(url: str, api_key: str = "") -> EndpointRow:
+async def create_endpoint(url: str, api_key: str = "", kind: EndpointKind = "chat") -> EndpointRow:
+    """Create an endpoint and add Writer/Agent configs for chat endpoints."""
     async with get_db() as db:
-        cur = await db.execute("INSERT INTO endpoints (url, api_key) VALUES (?, ?)", (url, api_key))
+        cur = await db.execute("INSERT INTO endpoints (url, api_key, kind) VALUES (?, ?, ?)", (url, api_key, kind))
         assert cur.lastrowid is not None
         endpoint_id = cur.lastrowid
+        if kind != "chat":
+            await db.commit()
+            created = await _endpoint_on(db, endpoint_id)
+            assert created is not None
+            return created
         cur_w = await db.execute(
             "INSERT INTO model_configs (endpoint_id, model_name, system_prompt, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, role) VALUES (?, 'default', '', 0.8, 0.0, 40, 0.95, 1.0, 4096, 'writer')",
             (endpoint_id,),

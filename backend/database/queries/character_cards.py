@@ -9,7 +9,13 @@ from typing import Any, cast
 
 import aiosqlite
 
-from ...core import TurnCast, has_inline_macros, resolve_inline
+from ...core import (
+    DECISION_COLUMNS,
+    DECISION_FIELD_TYPE,
+    TurnCast,
+    has_inline_macros,
+    resolve_inline,
+)
 from ...core.card_scripts import card_render_options, is_display_script
 from ..connection import (
     _build_set_clause,
@@ -104,6 +110,7 @@ _INTERACTIVE_FIELD_TYPES = {
     "feedback",
     "direction_note",
     "post_processing",
+    DECISION_FIELD_TYPE,
 }
 
 
@@ -177,35 +184,43 @@ def card_embedded_fragments(
 
     interactive: list[InteractiveFragmentRow] = []
     for i, entry in enumerate(_card_fragment_entries(frags.get("interactive"))):
-        field_type = _text(entry, "field_type", "string")
+        raw_type = _text(entry, "field_type", "string")
         timing = _text(entry, "direction_note_timing", "post_turn")
-        interactive.append(
-            cast(
-                InteractiveFragmentRow,
-                {
-                    "id": entry["id"],
-                    "label": entry["label"],
-                    "description": _text(entry, "description"),
-                    "field_type": field_type if field_type in _INTERACTIVE_FIELD_TYPES else "string",
-                    "required": int(bool(entry.get("required"))),
-                    "enabled": 1,
-                    "injection_label": _text(entry, "injection_label") or entry["label"],
-                    # Array order in the card is authoritative; the offset keeps
-                    # card fragments after globals on any sort_order re-sort.
-                    "sort_order": 10_000 + i,
-                    "direction_note_timing": timing if timing in ("pre_writer", "post_turn") else "post_turn",
-                    "cooldown_turns": _int(entry, "cooldown_turns", 0, 0, 50),
-                },
-            )
+        row = cast(
+            InteractiveFragmentRow,
+            {
+                "id": entry["id"],
+                "label": entry["label"],
+                "description": _text(entry, "description"),
+                "field_type": raw_type if raw_type in _INTERACTIVE_FIELD_TYPES else "string",
+                "required": int(bool(entry.get("required"))),
+                "enabled": 1,
+                "injection_label": _text(entry, "injection_label") or entry["label"],
+                "sort_order": 10_000 + i,
+                "direction_note_timing": timing if timing in ("pre_writer", "post_turn") else "post_turn",
+                "cooldown_turns": _int(entry, "cooldown_turns", 0, 0, 50),
+                **{column: None for column in DECISION_COLUMNS},
+            },
         )
+        if raw_type == DECISION_FIELD_TYPE:
+            row.update(cast(Any, _card_decision_columns(entry)))
+        interactive.append(row)
 
     return moods, interactive
+
+
+def _card_decision_columns(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """Read decision fields with defaults, leaving invalid rows for the Judge to report."""
+    columns = {column: entry.get(column) for column in DECISION_COLUMNS}
+    defaults = {"decision_type": "noul", "decision_placement": "before_director", "decision_resolution": "threshold"}
+    columns.update({column: value for column, value in defaults.items() if not columns[column]})
+    return columns
 
 
 async def cast_embedded_fragments(
     card: Mapping[str, Any] | None,
     cast_: TurnCast | None = None,
-) -> tuple[list[MoodFragmentRow], list[InteractiveFragmentRow]]:
+) -> tuple[list[MoodFragmentRow], list[InteractiveFragmentRow], dict[str, str]]:
     """Every fragment a turn's characters contribute: the solo card's, or the cast's.
 
     A group has no single card, so its fragments are the union of its members'.
@@ -215,10 +230,15 @@ async def cast_embedded_fragments(
 
     Cards are visited once each in roster order, so two members sharing a card
     contribute one copy and the merge order stays byte-stable.
+
+    The third element maps interactive-fragment id to its contributing card id.
     """
     moods, interactive = card_embedded_fragments(card)
+    sources: dict[str, str] = {}
+    if card and card.get("id"):
+        sources.update({row["id"]: str(card["id"]) for row in interactive})
     if cast_ is None or not cast_.grouped:
-        return moods, interactive
+        return moods, interactive, sources
     seen: set[str] = set()
     for member in cast_.members:
         if not member.card_id or member.card_id in seen:
@@ -227,7 +247,9 @@ async def cast_embedded_fragments(
         member_moods, member_interactive = card_embedded_fragments(await get_character_card(member.card_id))
         moods.extend(member_moods)
         interactive.extend(member_interactive)
-    return moods, interactive
+        for row in member_interactive:
+            sources.setdefault(row["id"], member.card_id)
+    return moods, interactive, sources
 
 
 def merge_fragments_by_id(base: list, extra: Sequence[Mapping[str, Any]]) -> list:

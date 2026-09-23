@@ -103,7 +103,7 @@ class TestBuildDirectSceneTool:
         tool = build_direct_scene_tool(SEED_INTERACTIVE_FRAGMENTS)
         props = tool["function"]["parameters"]["properties"]
         for frag in SEED_INTERACTIVE_FRAGMENTS:
-            if frag["field_type"] == "post_processing":
+            if frag["field_type"] in ("post_processing", "decision"):
                 assert frag["id"] not in props
             else:
                 assert frag["id"] in props
@@ -494,6 +494,7 @@ class TestSeedInteractiveFragments:
                 "feedback",
                 "direction_note",
                 "post_processing",
+                "decision",
             ), frag["id"]
 
 

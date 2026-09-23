@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
+from ..core import DECISION_COLUMNS
 from .connection import get_db
 from .schema import CREATE_TABLES_SQL
 from .seeds import (
@@ -181,19 +182,14 @@ async def _seed_mood_fragments(db) -> None:
 
 
 async def _seed_interactive_fragments(db) -> None:
+    columns = ("id", "label", "description", "field_type", "required", "enabled", "injection_label", "sort_order")
+    columns += DECISION_COLUMNS
     for df in SEED_INTERACTIVE_FRAGMENTS:
+        row = {"description": "", "enabled": True, **df}
+        values = [row.get(column) for column in columns]
         await db.execute(
-            "INSERT INTO interactive_fragments (id, label, description, field_type, required, enabled, injection_label, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                df["id"],
-                df["label"],
-                df["description"],
-                df["field_type"],
-                1 if df["required"] else 0,
-                1 if df.get("enabled", True) else 0,
-                df["injection_label"],
-                df["sort_order"],
-            ),
+            f"INSERT INTO interactive_fragments ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",  # nosec B608
+            [json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value for value in values],
         )
 
 

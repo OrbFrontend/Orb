@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal, TypedDict
 
-from ..core.domain_types import AgentLane, CompletionMode, MessageRole
+from ..core.domain_types import AgentLane, CompletionMode, EndpointKind, MessageRole
 
 
 # A phrase-bank group is one of three shapes. ``get_phrase_bank()`` emits the
@@ -119,6 +119,11 @@ class SettingsRow(_SettingsBase, total=False):
     active_persona_id: int | None
     active_endpoint_id: int | None
     agent_endpoint_id: int | None
+    # Decision classifier configuration. ``decision_endpoint_id`` is None until
+    # the user saves a judge endpoint; until then enabled decisions are skipped
+    # and make no request.
+    decision_endpoint_id: int | None
+    decision_model: str
     attachment_cache_budget_bytes: int
     attachment_access_counter: int
     generated_chars: int | None
@@ -250,11 +255,12 @@ class ConversationListRow(ConversationRow, total=False):
 class MessageRow(TypedDict):
     """A row from the ``messages`` table.
 
-    NOTE: ``progressive_fields`` and ``fragment_cooldowns`` are JSON-*decoded*
-    dicts, which is how get_path_to_leaf()/get_messages() expose them.
-    ``get_message_by_id()`` does a plain ``dict(row)`` and leaves both as raw
-    JSON *strings* -- a pre-existing inconsistency this label makes visible
-    rather than fixes.
+    NOTE: ``progressive_fields``, ``fragment_cooldowns``, ``decision_cooldowns``
+    and ``decision_evaluations`` are JSON-*decoded*, which is how
+    get_path_to_leaf()/get_messages() expose them. ``get_message_by_id()`` does a
+    plain ``dict(row)`` and leaves them as raw JSON *strings* -- a pre-existing
+    inconsistency this label makes visible rather than fixes. Readers that need a
+    decoded record from a single row use ``decision_evaluations_of()``.
     """
 
     id: int
@@ -274,6 +280,11 @@ class MessageRow(TypedDict):
     workflow_state: str | None
     speaker_member_id: str | None
     exchange_id: str | None
+    # This reply's own versioned decision envelope
+    # (``{version, evaluations, skipped}``, written by pipeline/passes/judge)
+    # and the decision cooldown state as of this reply.
+    decision_evaluations: dict
+    decision_cooldowns: dict[str, int]
 
 
 class UserAttachmentRow(TypedDict, total=False):
@@ -395,6 +406,8 @@ class EndpointRow(TypedDict):
     agent_active_model_config_id: int | None
     completion_mode: CompletionMode
     proxy: str
+    # 'chat' for Writer/Agent endpoints, 'judge' for classifier endpoints.
+    kind: EndpointKind
 
 
 class ModelConfigRow(TypedDict):
@@ -575,6 +588,17 @@ class InteractiveFragmentRow(TypedDict):
     # 'pre_writer' | 'post_turn'; which recording step fills the note. Read only for direction_note fragments.
     direction_note_timing: str
     cooldown_turns: int
+    # Decision fields are NULL for other fragment types; JSON fields are decoded
+    # at query boundaries and the definition is validated as a whole.
+    decision_type: str | None
+    decision_placement: str | None
+    decision_state_template: str | None
+    decision_instructions: str | None
+    decision_criteria: dict[str, str] | list[str] | None
+    decision_outputs: dict[str, str] | None
+    decision_resolution: str | None
+    decision_threshold: float | None
+    decision_confidence_floor: float | None
 
 
 class MoodFragmentRow(TypedDict):
@@ -644,6 +668,8 @@ class ConversationLogRow(TypedDict):
     reasoning_writer: str | None
     reasoning_editor: str | None
     feedback: dict
+    # Decision records joined from the reply message; empty when the turn had none.
+    decision_evaluations: dict
 
 
 class CharacterCardRow(TypedDict, total=False):

@@ -23,7 +23,9 @@ export const S = {
 
   settings: {},
   localMlFeatures: {}, // last /local-ml/status features map; other cards gate on it
+  // Chat endpoints and Judge endpoints are separate pools.
   endpoints: [],
+  judgeEndpoints: [],
   activeEndpointId: null,
   modelConfigs: [],
   activeModelConfigId: null,
@@ -101,12 +103,15 @@ export const S = {
   reasoningEditor: "", // includes editor feedback reasoning
   lastFeedback: null, // editor feedback for the current turn
   lastDirectionNotes: null, // direction notes recorded for the current turn
+  // In-flight decisions; the Inspector reads stored records after the reply exists.
+  lastDecisions: null,
   reasoningPassActive: 0,
   reasoningPassSelected: 0,
   reasoningUserOverride: false,
   reasoningOpen: true,
   toolCallsOpen: false,
   injectionBlockOpen: false,
+  decisionsOpen: true,
   contextSizeOpen: true,
   inspectedMsgId: null, // message shown in the Inspector
   inspectedDirectorData: null, // director data for the inspected message

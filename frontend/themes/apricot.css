@@ -45,6 +45,12 @@
   --scrollbar-track:transparent;
 }
 
+/* The apricot surface and its hover sit 61 degrees from the green accent, close
+   to where the default lane triad parks the Editor, which then passes for a
+   hovered row or a titlebar band. At 88 every lane clears the surface, hover
+   and accent by 30 degrees or more. */
+:root { --frag-lane-offset: 88; }
+
 :root {
   --mobile-overlay-color:rgba(74,49,32,0.34) !important;
   --mobile-panel-shadow-left:12px 0 30px rgba(47,38,32,0.34) !important;

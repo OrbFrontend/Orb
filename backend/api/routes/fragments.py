@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 
+from ...core import DECISION_COLUMNS, DECISION_FIELD_TYPE
 from ...database import (
     InteractiveFragmentReorderLaneMismatch,
     create_interactive_fragment,
@@ -18,6 +21,7 @@ from ...database import (
     update_interactive_fragment,
     update_mood_fragment,
 )
+from ...pipeline.passes.judge import definition_problems
 from ..schemas import (
     InteractiveFragmentCreate,
     InteractiveFragmentReorder,
@@ -27,6 +31,20 @@ from ..schemas import (
 )
 
 router = APIRouter()
+
+
+def _checked_decision_write(payload: dict, existing: dict[str, Any] | None = None) -> dict:
+    """Validate the merged decision definition and clear its fields on type changes."""
+    merged = {**(existing or {}), **payload}
+    if merged.get("field_type") != DECISION_FIELD_TYPE:
+        # A partial update that omits field_type leaves the existing type alone.
+        if "field_type" in payload:
+            payload.update({column: None for column in DECISION_COLUMNS})
+        return payload
+    problems = definition_problems(merged)
+    if problems:
+        raise HTTPException(status_code=422, detail="; ".join(problems))
+    return payload
 
 
 # Mood Fragments ──
@@ -73,7 +91,7 @@ async def api_create_interactive_fragment(data: InteractiveFragmentCreate):
     existing = await get_interactive_fragment(data.id)
     if existing:
         raise HTTPException(status_code=400, detail="Interactive fragment with this ID already exists")
-    result = await create_interactive_fragment(data.model_dump())
+    result = await create_interactive_fragment(_checked_decision_write(data.model_dump()))
     if not result:
         raise HTTPException(status_code=500, detail="Failed to create interactive fragment")
     return result
@@ -92,7 +110,16 @@ async def api_reorder_interactive_fragments(data: InteractiveFragmentReorder):
 
 @router.put("/api/interactive-fragments/{fid}")
 async def api_update_interactive_fragment(fid: str, data: InteractiveFragmentUpdate):
-    result = await update_interactive_fragment(fid, data.model_dump(exclude_none=True))
+    existing = await get_interactive_fragment(fid)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Interactive fragment not found")
+    # For legacy fields, null means "not supplied". Decision fields use null to
+    # clear values such as the threshold when switching to roll mode.
+    payload = {
+        key: value for key, value in data.model_dump(exclude_unset=True).items() if value is not None or key in DECISION_COLUMNS
+    }
+    payload = _checked_decision_write(payload, dict(existing))
+    result = await update_interactive_fragment(fid, payload)
     if not result:
         raise HTTPException(status_code=404, detail="Interactive fragment not found")
     return result

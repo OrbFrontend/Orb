@@ -57,38 +57,51 @@ async def get_moods_before_turn(cid: str, turn_index: int) -> list[str]:
         return []
 
 
+def _decoded_log(row) -> dict:
+    """Decode log JSON columns and attach the reply's decision records if present."""
+    d = dict(row)
+    d["tool_calls"] = json.loads(d["tool_calls"]) if d["tool_calls"] else []
+    d["active_moods_after"] = json.loads(d["active_moods_after"]) if d["active_moods_after"] else []
+    d["feedback"] = json.loads(d["feedback"]) if d.get("feedback") else {}
+    raw_decisions = d.pop("message_decision_evaluations", None)
+    try:
+        decoded = json.loads(raw_decisions) if raw_decisions else {}
+    except ValueError:
+        decoded = {}
+    d["decision_evaluations"] = decoded if isinstance(decoded, dict) else {}
+    return d
+
+
+#: The log projection plus the reply's decision records. Spelled once so both
+#: readers below attach them identically.
+_LOG_SELECT = (
+    "SELECT l.*, m.decision_evaluations AS message_decision_evaluations "
+    "FROM conversation_logs l LEFT JOIN messages m ON m.id = l.message_id"
+)
+
+
 async def get_conversation_logs(cid: str) -> list[ConversationLogRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                "SELECT * FROM conversation_logs WHERE conversation_id = ? ORDER BY turn_index ASC",
+                f"{_LOG_SELECT} WHERE l.conversation_id = ? ORDER BY l.turn_index ASC",  # nosec B608 -- module literal
                 (cid,),
             )
         )
-        result = []
-        for r in rows:
-            d = dict(r)
-            d["tool_calls"] = json.loads(d["tool_calls"]) if d["tool_calls"] else []
-            d["active_moods_after"] = json.loads(d["active_moods_after"]) if d["active_moods_after"] else []
-            d["feedback"] = json.loads(d["feedback"]) if d.get("feedback") else {}
-            result.append(cast(ConversationLogRow, d))
-        return result
+        return [cast(ConversationLogRow, _decoded_log(r)) for r in rows]
 
 
 async def get_director_log_for_message(message_id: int) -> ConversationLogRow | None:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                "SELECT * FROM conversation_logs WHERE message_id = ? ORDER BY id DESC LIMIT 1",
+                f"{_LOG_SELECT} WHERE l.message_id = ? ORDER BY l.id DESC LIMIT 1",  # nosec B608 -- module literal
                 (message_id,),
             )
         )
         if not rows:
             return None
-        d = dict(rows[0])
-        d["tool_calls"] = json.loads(d["tool_calls"]) if d["tool_calls"] else []
-        d["active_moods_after"] = json.loads(d["active_moods_after"]) if d["active_moods_after"] else []
-        d["feedback"] = json.loads(d["feedback"]) if d.get("feedback") else {}
+        d = _decoded_log(rows[0])
         d.setdefault("reasoning_director", "")
         d.setdefault("reasoning_writer", "")
         d.setdefault("reasoning_editor", "")

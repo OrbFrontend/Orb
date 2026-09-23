@@ -26,6 +26,7 @@ import {
 } from "./chat_inspector.js";
 import { clearInspectedMessage } from "./chat_messages.js";
 import { _mergeWorkflowRejections } from "./chat_workflow.js";
+import { skipNoticeText } from "./decisions.js";
 import {
   clearDirectionNotesRegenCut,
   optimisticDropDirectionNotesFrom,
@@ -393,6 +394,8 @@ export async function processSSEStream(resp, container, holder, signal) {
   S.reasoningEditor = "";
   S.lastFeedback = null;
   S.lastDirectionNotes = null;
+  // Reset once per exchange; later speakers reuse its result.
+  S.lastDecisions = null;
   S.reasoningByPass = {};
   S.reasoningPassActive = 0; // tracks streaming progress (for dot lighting)
   S.reasoningPassSelected = 0; // tracks what the user is viewing
@@ -593,6 +596,16 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
           break;
         }
         console.warn("Unrouted reasoning event for pass id:", passKey, d);
+      } catch (_) {}
+      break;
+    }
+    case "decisions": {
+      try {
+        S.lastDecisions = JSON.parse(data);
+        renderInspector();
+        // Show new skips once; inherited results did not ask again.
+        const notice = S.lastDecisions.inherited ? "" : skipNoticeText(S.lastDecisions.skipped);
+        if (notice) toast(notice);
       } catch (_) {}
       break;
     }

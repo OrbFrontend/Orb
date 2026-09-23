@@ -15,6 +15,8 @@ from ..core import (
     Macros,
     TurnCast,
     card_description,
+    is_decision_row,
+    parse_decision_definition,
 )
 from ..database.models import (
     ActiveLorebookEntryRow,
@@ -36,6 +38,7 @@ from ..inference import (
     _KVCacheTracker,
     agent_client_from_settings,
     client_from_settings,
+    decisions_url,
     separate_agent_lane_configured,
 )
 from ..prompting import build_prefix, macro_identity
@@ -46,6 +49,7 @@ from ..prompting.lorebook import (
     compute_lorebook_injection_block,
 )
 from .config import _build_writer_tools_blob
+from .passes.judge import DecisionCandidate, InvalidDecision, JudgeConfig
 from .predicates import agent_enabled, resolve_persona_id, world_proposal_active
 from .state import LorebookTurn, WorldProposalTurn
 from .workflow_bridge import _iterate_pre_pipeline_hooks
@@ -89,6 +93,9 @@ class PipelineContext:
     speaker_scripts: Mapping[str, CardScripts] = field(default_factory=dict)
     card_scripts: CardScripts = field(default_factory=CardScripts)
     group_members: tuple[Mapping[str, Any], ...] = ()
+    decision_candidates: tuple[DecisionCandidate, ...] = ()
+    invalid_decisions: tuple[InvalidDecision, ...] = ()
+    judge_config: JudgeConfig = field(default_factory=JudgeConfig)
 
 
 async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
@@ -114,7 +121,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     speaker_scripts = await db.get_group_member_scripts(conversation_id, members=all_group_members) if cast.grouped else {}
     # Card-embedded fragments merge into the global lists for this turn only
     # (the context is rebuilt per turn); on id collision the global wins.
-    card_moods, card_interactive = await db.cast_embedded_fragments(card, cast)
+    card_moods, card_interactive, card_fragment_sources = await db.cast_embedded_fragments(card, cast)
     mood_fragments = db.merge_fragments_by_id([f for f in await db.get_mood_fragments() if f.get("enabled", True)], card_moods)
     # Prune active moods that reference disabled fragments.
     if director and director.get("active_moods"):
@@ -123,6 +130,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     interactive_fragments = db.merge_fragments_by_id(
         [df for df in await db.get_interactive_fragments() if df.get("enabled", True)], card_interactive
     )
+    decision_candidates, invalid_decisions = _decision_candidates(interactive_fragments, card_fragment_sources)
     phrase_bank = await db.get_phrase_bank()
     lorebook_entries = await db.get_active_lorebook_entries()
     worlds = await db.get_worlds()
@@ -160,6 +168,45 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         card_scripts=CardScripts.from_extensions(card.get("extensions") if card else None),
         speaker_names={m["id"]: m["display_name"] for m in all_group_members},
         group_members=tuple(m for m in all_group_members if m.get("active")),
+        decision_candidates=decision_candidates,
+        invalid_decisions=invalid_decisions,
+        judge_config=await resolve_judge_config(settings),
+    )
+
+
+def _decision_candidates(
+    fragments: Sequence[Mapping[str, Any]],
+    card_fragment_sources: Mapping[str, str],
+) -> tuple[tuple[DecisionCandidate, ...], tuple[InvalidDecision, ...]]:
+    """Split decision rows into runnable definitions and rows to report as invalid."""
+    candidates: list[DecisionCandidate] = []
+    invalid: list[InvalidDecision] = []
+    for row in fragments:
+        if not is_decision_row(row):
+            continue
+        card_id = card_fragment_sources.get(row["id"])
+        definition = parse_decision_definition(row)
+        if definition is None:
+            invalid.append(InvalidDecision(fragment_id=str(row["id"]), label=str(row.get("label") or ""), card_id=card_id))
+            continue
+        candidates.append(DecisionCandidate(definition=definition, card_id=card_id))
+    return tuple(candidates), tuple(invalid)
+
+
+async def resolve_judge_config(settings: Mapping[str, Any]) -> JudgeConfig:
+    """Resolve the Judge endpoint and derive its decisions route."""
+    endpoint_id = settings.get("decision_endpoint_id")
+    model = str(settings.get("decision_model") or "")
+    if not endpoint_id or not model:
+        return JudgeConfig()
+    endpoint = await db.get_endpoint(int(endpoint_id))
+    if endpoint is None:
+        return JudgeConfig()
+    return JudgeConfig(
+        url=decisions_url(endpoint["url"]),
+        api_key=endpoint.get("api_key", ""),
+        model=model,
+        proxy=endpoint.get("proxy", "") or "",
     )
 
 

@@ -68,6 +68,8 @@ _RESULT_FIELDS = (
     "extra_fields",
     "progressive_fields",
     "fragment_cooldowns",
+    "decision_evaluations",
+    "decision_cooldowns",
     "reasoning_director",
     "reasoning_writer",
     "reasoning_editor",
@@ -90,6 +92,10 @@ _DIRECTOR_SEED_FIELDS = (
     "extra_fields",
     "progressive_fields",
     "fragment_cooldowns",
+    # Shared exchange decisions are copied to each speaker without advancing cooldowns again.
+    "decision_evaluations",
+    "decision_cooldowns",
+    "decision_guidance",
     "selected_lorebook_entries",
     "inj_block",
     "scene_direction",
@@ -126,6 +132,10 @@ class TurnState:
     extra_fields: dict = field(default_factory=dict)
     progressive_fields: dict = field(default_factory=dict)
     fragment_cooldowns: dict[str, int] = field(default_factory=dict)
+    # Persisted decision record, cooldown snapshot, and shared Director/Writer guidance.
+    decision_evaluations: dict = field(default_factory=dict)
+    decision_cooldowns: dict[str, int] = field(default_factory=dict)
+    decision_guidance: str = ""
     selected_lorebook_entries: list[str] = field(default_factory=list)
     inj_block: str = ""
     # Scene Direction before direction notes are appended.

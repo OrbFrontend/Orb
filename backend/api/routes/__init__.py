@@ -5,6 +5,7 @@ from __future__ import annotations
 from . import (
     characters,
     conversations,
+    decisions,
     documents,
     endpoints,
     fragments,
@@ -29,6 +30,7 @@ ROUTERS = [
     settings.router,
     endpoints.router,
     fragments.router,
+    decisions.router,
     worlds.router,
     phrase_bank.router,
     personas.router,

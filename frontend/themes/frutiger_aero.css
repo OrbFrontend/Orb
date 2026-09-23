@@ -33,6 +33,12 @@
   --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
 }
 
+/* The sidebar gradient runs from sky blue into leaf green. Over the green end
+   the sky-blue hover tints the same way as the default triad's Judge, which
+   then passes for a hovered row. At 68 every lane clears the hover, both ends
+   of the gradient and the accent by 30 degrees or more. */
+:root { --frag-lane-offset: 68; }
+
 body {
   background: #67c5ea url("/static/themes/assets/frutiger-aero-landscape.jpg") center / cover no-repeat !important;
   background-attachment: scroll !important;

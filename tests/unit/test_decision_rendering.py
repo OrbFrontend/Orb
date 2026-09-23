@@ -1,0 +1,281 @@
+"""Cover decision snapshots, macro validation, and rendering."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+
+import pytest
+
+from backend.core import DEFAULT_STATE_TEMPLATE, CastMember, Macros
+from backend.pipeline.passes.judge import (
+    STATE_MACROS,
+    TEXT_MACROS,
+    DecisionSnapshot,
+    build_snapshot,
+    card_snapshots,
+    macro_errors,
+    macros_used,
+    render,
+)
+from backend.pipeline.passes.judge.render import (
+    RECENT_HISTORY_DEPTH,
+    UnavailableMacro,
+)
+
+MACROS = Macros(user="Tester", char="Maren", description="A wizard.")
+
+
+def _snapshot(**overrides) -> DecisionSnapshot:
+    base = {
+        "last_message": "I shove the door.",
+        "last_assistant_message": "She braces against the frame.",
+        "user": "Tester",
+        "char": "Maren",
+        "description": "A wizard.",
+    }
+    base.update(overrides)
+    return DecisionSnapshot(**base)
+
+
+# ── the default template, exactly ────────────────────────────────────────────
+
+
+def test_the_default_template_renders_the_documented_text():
+    assert render(DEFAULT_STATE_TEMPLATE, _snapshot()) == (
+        "Previous reply:\nShe braces against the frame.\n\nCurrent request:\nI shove the door."
+    )
+
+
+def test_missing_prior_history_renders_as_an_empty_previous_reply():
+    assert render(DEFAULT_STATE_TEMPLATE, _snapshot(last_assistant_message="")) == (
+        "Previous reply:\n\n\nCurrent request:\nI shove the door."
+    )
+
+
+# ── one pass, never recursive ────────────────────────────────────────────────
+
+
+def test_message_bodies_are_inserted_as_opaque_values():
+    # A character wrote "{{char}}" in a reply. It is prose, not a macro: expanding
+    # it would let the story rewrite the classifier's question.
+    snapshot = _snapshot(last_assistant_message="She said the word {{char}} aloud, and then {{random::a::b}}.")
+    rendered = render(DEFAULT_STATE_TEMPLATE, snapshot)
+    assert "{{char}}" in rendered
+    assert "{{random::a::b}}" in rendered
+    assert "Maren aloud" not in rendered
+
+
+def test_backticked_macros_stay_literal():
+    assert render("Write `{{last_message}}` to mean the request.", _snapshot()) == (
+        "Write `{{last_message}}` to mean the request."
+    )
+
+
+def test_unsupported_macros_are_left_raw_rather_than_blanked():
+    # Validation is what rejects them; the renderer must not silently delete an
+    # author's text on a path that skipped it.
+    assert render("A {{nonsense}} and a {{draft}}", _snapshot()) == "A {{nonsense}} and a {{draft}}"
+
+
+# ── inline macros ────────────────────────────────────────────────────────────
+
+
+def test_the_template_resolves_the_inline_macro_grammar():
+    rendered = render("{{// author note}}Roll {{roll::1d1}}, pick {{pick::only}}.\n{{trim}}\n{{last_message}}", _snapshot())
+    assert rendered == "Roll 1, pick only.I shove the door."
+
+
+def test_a_seeded_render_is_byte_stable_and_the_seed_matters():
+    template = "{{roll::1d1000000}} {{random::a::b::c::d::e::f::g::h}}"
+    first = render(template, _snapshot(), seed="s|1|outcome|state")
+    assert first == render(template, _snapshot(), seed="s|1|outcome|state")
+    assert {render(template, _snapshot(), seed=f"s|{anchor}|outcome|state") for anchor in range(5)} != {first}
+
+
+def test_inline_macros_inside_inserted_values_never_fire():
+    # Only the author's template is evaluated; a comment or roll in the story is prose.
+    snapshot = _snapshot(last_message="I say {{roll::1d6}} and {{// hush}}.")
+    assert render("{{last_message}}", snapshot) == "I say {{roll::1d6}} and {{// hush}}."
+
+
+def test_names_resolve_inside_a_random_as_they_do_in_the_main_prompt():
+    rendered = render("{{random::{{char}}::{{char}}}}", _snapshot(), allowed=TEXT_MACROS, seed="s")
+    assert rendered == "Maren"
+    assert macro_errors("{{pick::{{char}}::{{user}}}}", allowed=TEXT_MACROS) == []
+
+
+def test_a_message_macro_nested_in_an_inline_macro_is_rejected():
+    problems = macro_errors("{{random::{{last_message}}::calm}}")
+    assert problems and "inside {{random}}" in problems[0]
+    assert macro_errors("`{{random::{{last_message}}::calm}}`") == []
+
+
+def test_roll_seed_is_per_exchange_fragment_and_field_and_empty_without_a_seed():
+    snapshot = _snapshot(seed="conv", anchor_message_id=7)
+    seeds = {
+        snapshot.roll_seed(None, "state"),
+        snapshot.roll_seed("b", "state"),
+        snapshot.roll_seed("a", "instructions"),
+        replace(snapshot, anchor_message_id=8).roll_seed("a", "state"),
+    }
+    assert len(seeds) == 4
+    assert _snapshot().roll_seed("a", "state") == ""
+
+
+def test_inline_macros_validate_in_every_field_and_comments_hide_their_contents():
+    assert macro_errors("{{time}} {{date}} {{trim}} {{roll::1d6}} {{random::a::b}}") == []
+    assert macro_errors("{{roll::1d6}} {{time}}", allowed=TEXT_MACROS) == []
+    assert macro_errors("{{// {{draft}} is not ready yet }}{{last_message}}") == []
+    assert macros_used("{{// {{recent_history}} }}{{last_message}}") == ["last_message"]
+
+
+def test_text_fields_resolve_only_the_three_identity_macros():
+    rendered = render("Does {{char}} beat {{user}}? {{last_message}}", _snapshot(), allowed=TEXT_MACROS)
+    assert rendered == "Does Maren beat Tester? {{last_message}}"
+
+
+# ── an unavailable macro raises rather than rendering empty ──────────────────
+
+
+def test_description_is_unavailable_at_the_group_exchange_stage():
+    group = _snapshot(description=None, scope="group")
+    with pytest.raises(UnavailableMacro) as raised:
+        render("About {{description}}", group)
+    assert raised.value.macro == "description"
+
+
+def test_an_empty_description_is_not_the_same_as_an_unavailable_one():
+    assert render("About {{description}}", _snapshot(description="")) == "About "
+
+
+# ── validation ───────────────────────────────────────────────────────────────
+
+
+def test_macros_used_is_ordered_deduplicated_and_ignores_literals():
+    assert macros_used("{{char}} and {{user}} and {{char}} but not `{{cast}}`") == ["char", "user"]
+
+
+def test_later_stage_macros_get_their_own_explanation():
+    problems = macro_errors("{{draft}}")
+    assert problems and "before the Director" in problems[0]
+    assert macro_errors("") == []
+
+
+def test_every_supported_state_macro_resolves():
+    snapshot = DecisionSnapshot(
+        last_message="a", last_assistant_message="b", recent_history="c", user="d", char="e", cast="f", description="g"
+    )
+    for macro in STATE_MACROS:
+        assert render(f"<{{{{{macro}}}}}>", snapshot) != f"<{{{{{macro}}}}}>", macro
+
+
+# ── snapshot construction ────────────────────────────────────────────────────
+
+
+def _history(*rows) -> list[dict]:
+    return [dict(row) for row in rows]
+
+
+def test_solo_snapshot_reads_the_last_assistant_message_unlabelled():
+    snapshot = build_snapshot(
+        history=_history(
+            {"role": "user", "content": "one"},
+            {"role": "assistant", "content": "two"},
+        ),
+        current_request="three",
+        macros=MACROS,
+        scope="solo",
+        description="A wizard.",
+    )
+    assert snapshot.last_assistant_message == "two"
+    assert snapshot.last_message == "three"
+    assert snapshot.description == "A wizard."
+
+
+def test_group_snapshot_labels_speakers_and_withholds_the_description():
+    snapshot = build_snapshot(
+        history=_history(
+            {"role": "user", "content": "who is there"},
+            {"role": "assistant", "content": "me", "speaker_member_id": "m1"},
+        ),
+        current_request="hello",
+        macros=MACROS,
+        scope="group",
+        speaker_names={"m1": "Maren"},
+        description=None,
+    )
+    assert snapshot.last_assistant_message == "Maren: me"
+    assert snapshot.recent_history.endswith("Maren: me")
+    # No selected speaker at the exchange stage, so no single card to read.
+    assert snapshot.description is None
+
+
+def test_recent_history_is_the_last_six_completed_messages_oldest_first():
+    rows = _history(*({"role": "user" if i % 2 == 0 else "assistant", "content": str(i)} for i in range(8)))
+    snapshot = build_snapshot(history=rows, current_request="now", macros=MACROS, scope="solo")
+    lines = snapshot.recent_history.split("\n\n")
+    assert len(lines) == RECENT_HISTORY_DEPTH
+    assert [line.split(": ", 1)[1] for line in lines] == ["2", "3", "4", "5", "6", "7"]
+    # The current request is not part of history; it has its own macro.
+    assert "now" not in snapshot.recent_history
+
+
+def test_attachment_bytes_never_reach_the_classifier_state():
+    snapshot = build_snapshot(
+        history=_history(
+            {
+                "role": "user",
+                "content": "look at this",
+                "user_attachments": [{"mime_type": "image/png", "data_b64": "AAAABBBBCCCC"}],
+            },
+            {"role": "assistant", "content": "I see it."},
+        ),
+        current_request="and now?",
+        macros=MACROS,
+        scope="solo",
+    )
+    assert "AAAABBBBCCCC" not in snapshot.recent_history
+    assert "look at this" in snapshot.recent_history
+
+
+def test_steering_reaches_the_state_through_the_current_request():
+    # Magic Rewrite and super-regenerate send an OOC message as the writer input.
+    # It must not disappear from the classifier's view.
+    snapshot = build_snapshot(
+        history=_history({"role": "assistant", "content": "the reply being replaced"}),
+        current_request="[OOC: Rewrite it darker.]",
+        macros=MACROS,
+        scope="solo",
+    )
+    assert "[OOC: Rewrite it darker.]" in render(DEFAULT_STATE_TEMPLATE, snapshot)
+
+
+def test_the_description_resolves_like_the_writers():
+    card = "{{char}} distrusts {{user}}. `{{char}}` {{random::a::b}}"
+    macros = Macros(user="Tester", char="Maren", seed="conv")
+    snapshot = build_snapshot(history=[], current_request="hi", macros=macros, scope="solo", description=card)
+    # The same bytes the Writer's {{description}} produces, seeded per conversation.
+    assert snapshot.description == macros._replace(description=card).resolve_message("{{description}}")
+    assert snapshot.description is not None and snapshot.description.startswith("Maren distrusts Tester. `{{char}}` ")
+    assert snapshot.seed == "conv"
+
+
+def _member(card_id: str, name: str, sheet: str) -> CastMember:
+    return CastMember(
+        member_id=card_id,
+        speaker_key=card_id,
+        card_id=card_id,
+        name=name,
+        kind="character",
+        public_profile="",
+        private_sheet=sheet,
+        mes_example="",
+        post_history="",
+    )
+
+
+def test_a_card_snapshot_resolves_its_own_sheet_as_its_member():
+    base = _snapshot(description=None, scope="group", seed="conv")
+    scoped = card_snapshots(base, [_member("c1", "Ivo", "{{char}} is sly."), _member("c2", "Ada", "")])
+    assert scoped["c1"].description == "Ivo is sly."
+    assert scoped["c2"].description == ""  # empty, not unavailable

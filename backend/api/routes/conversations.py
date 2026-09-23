@@ -26,6 +26,7 @@ from ...database import (
     create_conversation,
     create_direction_notes,
     create_group_conversation,
+    decision_evaluations_of,
     delete_conversation,
     delete_direction_note,
     delete_group_family,
@@ -81,6 +82,7 @@ from ...pipeline import (
     agent_enabled,
     conversation_macro_seed,
     persona_macros,
+    remap_decision_anchors,
     resolve_card_and_persona,
 )
 from ...prompting import (
@@ -559,6 +561,8 @@ async def api_compress_conversation(
     await set_active_leaf(new_cid, prev_id)
 
     # Carry user uploads onto the fork; workflow attachments are regenerable and dropped.
+    # Keep records inspectable, but invalidate anchors removed by compression.
+    compression_map: dict[int, int] = {}
     for i, msg in enumerate(tail):
         prev_id, _ = await add_message(
             new_cid,
@@ -570,6 +574,8 @@ async def api_compress_conversation(
             speaker_member_id=member_map.get(str(msg.get("speaker_member_id"))) if msg.get("speaker_member_id") else None,
             exchange_id=msg.get("exchange_id"),
             writer_draft=msg.get("writer_draft"),
+            decision_evaluations=remap_decision_anchors(decision_evaluations_of(msg), compression_map),
+            decision_cooldowns=msg.get("decision_cooldowns") or {},
         )
         await set_active_leaf(new_cid, prev_id)
 
@@ -605,6 +611,11 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
             speaker_member_id=member_map.get(str(msg.get("speaker_member_id"))) if msg.get("speaker_member_id") else None,
             exchange_id=msg.get("exchange_id"),
             writer_draft=msg.get("writer_draft"),
+            # Anchors are remapped through the same id map the logs below use.
+            # The path is copied root-to-leaf, so a reply's own anchor -- always
+            # an earlier row -- is already in the map by the time it is read.
+            decision_evaluations=remap_decision_anchors(decision_evaluations_of(msg), id_map),
+            decision_cooldowns=msg.get("decision_cooldowns") or {},
         )
         id_map[msg["id"]] = new_id
         prev_id = new_id
@@ -694,7 +705,7 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     turn_cast = await resolve_cast(conv)
     # The same reader and the same merge the turn uses (globals win on id
     # collision), so the estimate cannot bill a different fragment set.
-    card_moods, card_interactive = await cast_embedded_fragments(card, turn_cast)
+    card_moods, card_interactive, _card_sources = await cast_embedded_fragments(card, turn_cast)
     director_frags = merge_fragments_by_id(
         [f for f in await get_interactive_fragments() if f.get("enabled", True)], card_interactive
     )
@@ -828,6 +839,8 @@ async def api_get_message_director_log(
             "reasoning_editor": "",
             "feedback": {},
             "direction_notes": direction_notes,
+            # Read records from the reply when its diagnostic log is unavailable.
+            "decision_evaluations": decision_evaluations_of(msg),
         }
     return {
         "active_moods": log.get("active_moods_after", []),
@@ -839,6 +852,8 @@ async def api_get_message_director_log(
         "reasoning_editor": log.get("reasoning_editor") or "",
         "feedback": log.get("feedback", {}) or {},
         "direction_notes": direction_notes,
+        # Joined from the reply so logs do not store a duplicate copy.
+        "decision_evaluations": log.get("decision_evaluations", {}) or {},
     }
 
 

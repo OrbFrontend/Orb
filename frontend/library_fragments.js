@@ -1,6 +1,16 @@
 import { api } from "./api.js";
+import { decisionConfig, loadDecisionConfig } from "./decisions.js";
 import { initDragReorder } from "./drag_reorder.js";
 import { GRIP_ICON } from "./icons.js";
+import {
+  applyDecisionProblems,
+  decisionDraftProblems,
+  decisionSectionHtml,
+  fitDecisionTextareas,
+  initDecisionDraft,
+  readDecisionFields,
+  repaintDecisionSection,
+} from "./library_decisions.js";
 import { closeModal, closeSubModal, confirmDelete, showModal, showSubModal } from "./modal.js";
 import { S } from "./state.js";
 import { $, boolFlag, esc, escAttr, escHandlerArg, toast } from "./utils.js";
@@ -141,22 +151,24 @@ export async function toggleMoodFragmentEnabled(id, newEnabled) {
   }
 }
 
-// Interactive fragments run in one of two lanes: the Director shapes the scene
-// the writer works from, the Editor acts on the reply once it exists. The
-// sidepanel groups by lane so the two never read as one undifferentiated list.
+// Group interactive fragments by Judge, Director, and Editor stages.
 const EDITOR_LANE_FIELD_TYPES = new Set(["feedback", "post_processing"]);
 
 const INTERACTIVE_LANES = [
+  { id: "judge", label: "Judge", hint: "Decides questions before the Director runs" },
   { id: "director", label: "Director", hint: "Directs the scene the writer works from" },
   { id: "editor", label: "Editor", hint: "Acts on the reply after it is written" },
 ];
 
 function _interactiveLane(f) {
+  if (f.field_type === "decision") return "judge";
   return EDITOR_LANE_FIELD_TYPES.has(f.field_type) ? "editor" : "director";
 }
 
 export async function loadInteractiveFragments() {
   try {
+    // Load config before opening the editor so its controls are ready to render.
+    loadDecisionConfig();
     S.interactiveFragments = await api.get("/interactive-fragments");
     renderInteractiveFragments();
   } catch (error) {
@@ -242,7 +254,7 @@ function updateFragmentOrder(container) {
   const items = container.querySelectorAll(".fragment-item");
   // A lane's order is its priority for the passes that consume it. Retain the
   // lane's existing global priority slots instead of renumbering every
-  // fragment: that keeps Director and Editor priorities independent.
+  // fragment: that keeps each lane's priorities independent.
   const prioritySlots = Array.from(items)
     .map((item) => {
       const fragment = S.interactiveFragments.find((f) => f.id === item.dataset.id);
@@ -312,6 +324,12 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
     inj_hint: "shown to you",
     desc_hint: "tells the Editor what this is about",
   },
+  decision: {
+    id: "e.g. outcome",
+    label: "e.g. Outcome",
+    injection_label: "e.g. Outcome",
+    inj_hint: "for Director & Writer",
+  },
   post_processing: {
     id: "e.g. tighten_dialogue",
     label: "e.g. Tighten Dialogue",
@@ -323,8 +341,18 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
   },
 };
 
+// Track whether changing the current type will clear saved decision fields.
+let _editingStoredDecision = false;
+
+function _openDecisionDraft(fragment) {
+  _editingStoredDecision = fragment.field_type === "decision";
+  initDecisionDraft(fragment);
+  loadDecisionConfig().then(repaintDecisionSection);
+}
+
 export function updateInteractiveFragmentExample(fieldType) {
   const ex = INTERACTIVE_FRAGMENT_EXAMPLES[fieldType] || INTERACTIVE_FRAGMENT_EXAMPLES.string;
+  const isDecision = fieldType === "decision";
   const set = (elId, placeholder) => {
     const el = document.getElementById(elId);
     if (el) el.placeholder = placeholder;
@@ -332,29 +360,42 @@ export function updateInteractiveFragmentExample(fieldType) {
   set("interactive-frag-id", ex.id);
   set("interactive-frag-label", ex.label);
   set("interactive-frag-inj-label", ex.injection_label);
-  set("interactive-frag-desc", ex.description);
+  set("interactive-frag-desc", ex.description || "");
   const setHint = (elId, text) => {
     const el = document.getElementById(elId);
     if (el) el.textContent = `(${text})`;
   };
   setHint("interactive-frag-inj-hint", ex.inj_hint);
-  setHint("interactive-frag-desc-hint", ex.desc_hint);
+  setHint("interactive-frag-desc-hint", ex.desc_hint || "");
   const timingRow = document.getElementById("interactive-frag-timing-row");
   if (timingRow) timingRow.style.display = fieldType === "direction_note" ? "" : "none";
+  // Decision definitions use their own question and outcome fields.
+  const descRow = document.getElementById("interactive-frag-desc-row");
+  if (descRow) descRow.style.display = isDecision ? "none" : "";
+  // Decisions do not use the Director's required-field tool setting.
+  const hideRequired = fieldType === "post_processing" || isDecision;
   const requiredRow = document.getElementById("interactive-frag-required-row");
-  if (requiredRow) requiredRow.style.display = fieldType === "post_processing" ? "none" : "";
+  if (requiredRow) requiredRow.style.display = hideRequired ? "none" : "";
   const required = document.getElementById("interactive-frag-required");
-  if (required && fieldType === "post_processing") required.checked = false;
+  if (required && hideRequired) required.checked = false;
+  const decisionSection = document.getElementById("decision-section");
+  if (decisionSection) decisionSection.style.display = isDecision ? "" : "none";
+  if (isDecision) fitDecisionTextareas();
+  const leaving = document.getElementById("interactive-frag-decision-warning");
+  // Warn before a type change clears the saved decision fields.
+  if (leaving) leaving.style.display = _editingStoredDecision && !isDecision ? "" : "none";
 }
 
 function _interactiveFragFormHtml(d, isEdit) {
   const ex = INTERACTIVE_FRAGMENT_EXAMPLES[d.field_type] || INTERACTIVE_FRAGMENT_EXAMPLES.string;
-  return `
+  return `<div class="ifrag-form">
     <div class="field-row">
       <div class="field"><label>ID <span style="font-size:10px;color:var(--text-muted)">(For tool-calling)</span></label>
         <input id="interactive-frag-id" value="${escAttr(d.id)}" ${isEdit ? "disabled" : ""} placeholder="${escAttr(ex.id)}"></div>
       <div class="field"><label>Label <span style="font-size:10px;color:var(--text-muted)">(For display only)</span></label>
         <input id="interactive-frag-label" value="${escAttr(d.label)}" placeholder="${escAttr(ex.label)}"></div>
+      <div class="field field-narrow"><label>Cooldown</label>
+        <input id="interactive-frag-cooldown" type="number" min="0" max="50" step="1" value="${escAttr(d.cooldown_turns || 0)}" title="Turns to wait before this fragment can fire again"></div>
     </div>
     <div class="field-row">
       <div class="field"><label>Injection Label <span id="interactive-frag-inj-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.inj_hint)})</span></label>
@@ -367,6 +408,7 @@ function _interactiveFragFormHtml(d, isEdit) {
           <option value="feedback" ${d.field_type === "feedback" ? "selected" : ""}>feedback (note to you)</option>
           <option value="direction_note" ${d.field_type === "direction_note" ? "selected" : ""}>direction note (persists)</option>
           <option value="post_processing" ${d.field_type === "post_processing" ? "selected" : ""}>post-processing (edits reply)</option>
+          <option value="decision" ${d.field_type === "decision" ? "selected" : ""}>decision (asks a question)</option>
         </select>
       </div>
     </div>
@@ -377,33 +419,40 @@ function _interactiveFragFormHtml(d, isEdit) {
         <option value="pre_writer" ${d.direction_note_timing === "pre_writer" ? "selected" : ""}>Before writer</option>
       </select>
     </div>
-    <div class="field-row" id="interactive-frag-cooldown-row">
-      <div class="field"><label>Cooldown (turns)</label>
-        <input id="interactive-frag-cooldown" type="number" min="0" max="50" step="1" value="${escAttr(d.cooldown_turns || 0)}"></div>
-    </div>
-    <div class="field"><label>Description <span id="interactive-frag-desc-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.desc_hint)})</span></label>
-      <textarea id="interactive-frag-desc" rows="4" placeholder="${escAttr(ex.description)}">${esc(d.description)}</textarea></div>
-    <div class="field-row" id="interactive-frag-required-row" style="${d.field_type === "post_processing" ? "display:none" : ""}">
+    <div class="field" id="interactive-frag-desc-row" style="${d.field_type === "decision" ? "display:none" : ""}">
+      <label>Description <span id="interactive-frag-desc-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.desc_hint || "")})</span></label>
+      <textarea id="interactive-frag-desc" rows="4" placeholder="${escAttr(ex.description || "")}">${esc(d.description)}</textarea></div>
+    <div class="field-row" id="interactive-frag-required-row" style="${d.field_type === "post_processing" || d.field_type === "decision" ? "display:none" : ""}">
       <div class="field" style="align-self:flex-end;padding-bottom:4px">
         <label class="modal-checkbox-label">
           <input type="checkbox" id="interactive-frag-required" ${d.required ? "checked" : ""}> Required
         </label>
       </div>
-    </div>`;
+    </div>
+    <div class="field-warning" id="interactive-frag-decision-warning" style="display:none">
+      Saving this as another field type clears the question, its outcomes and its guidance.
+    </div>
+    ${decisionSectionHtml(d.field_type)}
+  </div>`;
 }
 
 function _readInteractiveFragForm() {
   const fieldType = document.getElementById("interactive-frag-type").value;
-  return {
+  const base = {
     id: document.getElementById("interactive-frag-id").value.trim(),
     label: document.getElementById("interactive-frag-label").value.trim(),
-    description: document.getElementById("interactive-frag-desc").value.trim(),
+    description: fieldType === "decision" ? "" : document.getElementById("interactive-frag-desc").value.trim(),
     field_type: fieldType,
-    required: fieldType === "post_processing" ? false : document.getElementById("interactive-frag-required").checked,
+    required:
+      fieldType === "post_processing" || fieldType === "decision"
+        ? false
+        : document.getElementById("interactive-frag-required").checked,
     injection_label: document.getElementById("interactive-frag-inj-label").value.trim(),
     direction_note_timing: document.getElementById("interactive-frag-timing-select").value,
     cooldown_turns: parseInt(document.getElementById("interactive-frag-cooldown").value, 10) || 0,
   };
+  // The backend clears decision fields when a write names another type.
+  return fieldType === "decision" ? { ...base, ...readDecisionFields() } : base;
 }
 
 export function showInteractiveFragmentModal(fragId = null) {
@@ -420,6 +469,7 @@ export function showInteractiveFragmentModal(fragId = null) {
     direction_note_timing: "post_turn",
     cooldown_turns: 0,
   };
+  _openDecisionDraft(d);
 
   showModal(`
     <h2>${isEdit ? "Edit" : "New"} Interactive Fragment</h2>
@@ -439,6 +489,10 @@ export async function saveInteractiveFragment(isEdit) {
     toast(validation.error, true);
     return;
   }
+  // Option names collapse into the JSON objects the columns are sent as, so a
+  // blank or repeated one has to be caught before the request or it is caught
+  // by nobody. Routed through the same renderer as a 422.
+  if (d.field_type === "decision" && _showDecisionProblems(decisionDraftProblems())) return;
   try {
     if (isEdit) await api.put(`/interactive-fragments/${d.id}`, d);
     else await api.post("/interactive-fragments", d);
@@ -446,8 +500,19 @@ export async function saveInteractiveFragment(isEdit) {
     await loadInteractiveFragments();
     toast("Interactive fragment saved");
   } catch (e) {
+    // The whole definition is validated on the merged row and comes back as
+    // problems joined by "; ". Render them against the fields they name -- a
+    // toast would scroll a rule away from the field it is about.
+    if (e.status === 422 && d.field_type === "decision" && _showDecisionProblems(e.message)) return;
     toast(e.message, true);
   }
+}
+
+/** Render *detail*'s problems against the decision fields; false when there were none. */
+function _showDecisionProblems(detail) {
+  if (!applyDecisionProblems(detail)) return false;
+  toast("This decision is not valid yet; see the highlighted fields", true);
+  return true;
 }
 
 export async function deleteInteractiveFragment(id) {
@@ -481,20 +546,26 @@ function _interactiveTypeBadge(f) {
       ? ` <span class="frag-type-badge" title="Direction-note fragment">D</span>`
       : f.field_type === "post_processing"
         ? ` <span class="frag-type-badge" title="Post-processing fragment">P</span>`
-        : "";
+        : f.field_type === "decision"
+          ? ` <span class="frag-type-badge" title="Decision fragment">?</span>`
+          : "";
 }
 
 function _featureGate(f) {
   const feedbackOff = f.field_type === "feedback" && !S.feedbackEnabled;
   const noteOff = f.field_type === "direction_note" && !S.directionNotesRecord;
   const postProcessingOff = f.field_type === "post_processing" && !S.agentEnabled;
+  // Without a Judge, decisions remain enabled but are skipped at runtime.
+  const judgeOff = f.field_type === "decision" && decisionConfig()?.configured === false;
   const title = feedbackOff
     ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
     : noteOff
       ? "Direction Notes recording is off -- turn on Writing in the Agents panel to use this fragment"
       : postProcessingOff
         ? "Agent is disabled -- enable it to use this post-processing fragment"
-        : f.description || "";
+        : judgeOff
+          ? "No Judge endpoint is configured -- this decision is skipped"
+          : f.description || "";
   return { disabled: feedbackOff || noteOff || postProcessingOff, title };
 }
 
@@ -581,12 +652,22 @@ function _wireCardFragModal(type, isEdit, fragId) {
       renderCardFragmentsTab();
     });
   }
-  $("card-frag-save").addEventListener("click", () => {
+  $("card-frag-save").addEventListener("click", async () => {
     const d = type === "mood" ? _readMoodFragForm() : _readInteractiveFragForm();
     const validation = type === "mood" ? validate.validateMoodFragment(d) : validate.validateInteractiveFragment(d);
     if (!validation.valid) {
       toast(validation.error, true);
       return;
+    }
+    // Card decisions bypass fragment routes, so validate them before saving.
+    if (d.field_type === "decision") {
+      if (_showDecisionProblems(decisionDraftProblems())) return;
+      try {
+        await api.post("/decisions/validate", d);
+      } catch (e) {
+        if (!(e.status === 422 && _showDecisionProblems(e.message))) toast(e.message, true);
+        return;
+      }
     }
     const globals = type === "mood" ? S.moodFragments : S.interactiveFragments;
     if (!isEdit && (globals.some((g) => g.id === d.id) || _cardFragPending[type].some((f) => f.id === d.id))) {
@@ -605,6 +686,7 @@ function _wireCardFragModal(type, isEdit, fragId) {
 function _showCardFragModal(type, kind, fragId, blank, formHtml) {
   const f = fragId ? _cardFragPending[type].find((x) => x.id === fragId) : null;
   const isEdit = !!f;
+  if (type === "interactive") _openDecisionDraft(f || blank);
   showSubModal(`
     <h2>${isEdit ? "Edit" : "New"} Character ${kind} Fragment</h2>
     ${formHtml(f || blank, isEdit)}

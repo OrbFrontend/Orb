@@ -205,6 +205,7 @@ async def director_pass(
     lorebook_block: str = "",
     progressive_state: dict | None = None,
     direction_notes_block: str = "",
+    decision_guidance: str = "",
     speaker_keys: str = "",
     resting: frozenset[str] = frozenset(),
 ) -> AsyncIterator[dict]:
@@ -212,6 +213,10 @@ async def director_pass(
 
     *speaker_keys* is the exchange's castable roster, comma-joined. It reaches the
     model only through the trailing request, never the cached tool blob.
+
+    *decision_guidance* is the same, and for a second reason as well: a decision
+    must never become a ``direct_scene`` property, or the resolved question would
+    reappear as something for the Director to answer.
 
     Yields:
         ``{"type": "reasoning", "delta": str}``       — zero or more reasoning chunks
@@ -250,6 +255,11 @@ async def director_pass(
     # direction notes in view.
     lorebook_prefix = ("___\n\n" + lorebook_block + "\n\n") if lorebook_block else ""
     notes_prefix = ("___\n\n" + direction_notes_block + "\n\n") if direction_notes_block else ""
+    # Already-settled facts the Director plans *around*, so they ride the context
+    # section of the tail rather than the instruction. Nothing about probabilities
+    # or dice is in the block (see passes/judge/guidance.py) — a rolled outcome
+    # reaches the model as the story constraint its author wrote.
+    decisions_prefix = ("___\n\n" + decision_guidance + "\n\n") if decision_guidance else ""
 
     t0 = time.monotonic()
     for name in tool_names:
@@ -294,7 +304,7 @@ async def director_pass(
                     ),
                     resting=resting,
                 )
-                step_tail = lorebook_prefix + notes_prefix + step_tail
+                step_tail = lorebook_prefix + notes_prefix + decisions_prefix + step_tail
                 content = build_multimodal_content(step_tail, attachments)
                 trailing = [{"role": "user", "content": content}]
                 resp = {}
@@ -358,7 +368,7 @@ async def director_pass(
             cast_instruction=speaking_plan_instruction(speaker_keys) if speaker_keys else "",
             resting=resting,
         )
-        tail = lorebook_prefix + (notes_prefix if name == "direct_scene" else "") + tool_tail
+        tail = lorebook_prefix + ((notes_prefix + decisions_prefix) if name == "direct_scene" else "") + tool_tail
         content = build_multimodal_content(tail, attachments)
         trailing: list[ChatMessage] = [{"role": "user", "content": content}]
         resp: dict = {}
@@ -434,6 +444,7 @@ async def director_stage(
     lorebook: LorebookTurn,
     macros: Macros,
     speaker_keys: str = "",
+    decision_guidance: str = "",
 ) -> AsyncIterator[dict]:
     """Input-prep + director pass + all post-processing for the director stage.
 
@@ -476,6 +487,8 @@ async def director_stage(
             lorebook_block=lorebook.block,
             progressive_state=prior_progressive,
             direction_notes_block=notes_block if direction_note_to_director(settings) else "",
+            # Always pass resolved decisions to the Director; an empty block is a no-op.
+            decision_guidance=decision_guidance,
             speaker_keys=speaker_keys,
             resting=resting,
         ):
@@ -585,6 +598,9 @@ async def director_stage(
     state.scene_direction = state.inj_block
     if notes_block and direction_note_to_writer(settings):
         state.inj_block = (state.inj_block + "\n\n" + notes_block).strip()
+    # Keep decision guidance even when the Director is disabled, and place it first.
+    if decision_guidance:
+        state.inj_block = (decision_guidance + "\n\n" + state.inj_block).strip()
 
     yield {
         "event": "director_done",

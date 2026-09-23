@@ -139,6 +139,7 @@ from .queries.member_sheets import (
 from .queries.messages import (
     add_message,
     clear_writer_draft,
+    decision_evaluations_of,
     delete_message_with_descendants,
     get_active_path,
     get_deepest_descendant,
@@ -179,6 +180,7 @@ from .queries.settings import (
     set_local_ml_enabled,
     set_workflow_config,
     set_workflow_enabled,
+    update_decision_config,
     update_settings,
 )
 from .queries.stats import add_generated_chars, get_generated_chars, get_global_stats
@@ -265,6 +267,7 @@ __all__ = [
     "cast_embedded_fragments",
     "checkpoint_wal",
     "clear_writer_draft",
+    "decision_evaluations_of",
     "close_wal_anchor",
     "convert_to_group",
     "count_pending_changesets",
@@ -426,6 +429,7 @@ __all__ = [
     "update_model_config",
     "update_mood_fragment",
     "update_phrase_group",
+    "update_decision_config",
     "update_settings",
     "update_user_persona",
     "update_world",

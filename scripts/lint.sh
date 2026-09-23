@@ -9,6 +9,22 @@ if [ ! -d ".venv" ]; then
     python3 -m venv .venv
 fi
 
+# The frontend checks need the pinned devDependencies, so bootstrap them the
+# same way the venv above is bootstrapped. Worth doing rather than leaving to
+# the caller: the Biome step below falls back to a global install, so a missing
+# node_modules still lints clean and only surfaces further down as an
+# ERR_MODULE_NOT_FOUND stack out of whichever test first imports jsdom. Keyed on
+# the directory, so the install cost is paid once; `npm ci` rather than
+# `npm install` to match the lockfile exactly and leave it unmodified.
+if [ ! -d "node_modules" ] && [ -f "package.json" ]; then
+    echo "Installing frontend dev dependencies..."
+    if [ -f "package-lock.json" ]; then
+        npm ci
+    else
+        npm install
+    fi
+fi
+
 # A venv is bin/ on POSIX and Scripts/ on Windows (Git Bash runs this script
 # there too), so pick whichever layout the interpreter actually created.
 if [ -f ".venv/bin/activate" ]; then

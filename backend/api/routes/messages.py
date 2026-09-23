@@ -105,6 +105,8 @@ def _row_for_client(message: Mapping[str, Any]) -> dict:
     row = dict(message)
     row["has_writer_draft"] = _retained_draft(row) is not None
     row.pop("writer_draft", None)
+    # Fetch full decision records from the log route when the Inspector is opened.
+    row.pop("decision_evaluations", None)
     return row
 
 
