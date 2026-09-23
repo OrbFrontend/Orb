@@ -6,6 +6,10 @@ from collections.abc import Mapping, Sequence
 TRUE = "true"
 FALSE = "false"
 
+# The resolutions that draw against the classifier's odds instead of reading the
+# outcome straight off its answer. Regeneration keeps their answer but draws again.
+DRAWN_RESOLUTIONS = frozenset({"roll", "weighted"})
+
 
 class SkipReason:
     """Why a decision produced nothing this turn.

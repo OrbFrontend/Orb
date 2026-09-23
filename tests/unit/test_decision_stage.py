@@ -543,35 +543,118 @@ async def test_a_stop_before_the_first_request_asks_for_nothing(monkeypatch):
 # ── replay ───────────────────────────────────────────────────────────────────
 
 
-async def _record_for(candidate: DecisionCandidate, monkeypatch, probability: float = 0.9):
+async def _record_for(candidate: DecisionCandidate, monkeypatch, probability: float | ChoiceAnswer | ScoreAnswer = 0.9):
     FakeGateway(answers={candidate.definition.fragment_id: probability}).install(monkeypatch)
     result = await run_decisions(_turn(candidate))
     RAW_ANSWER_CACHE.clear()
     return result.evaluations
 
 
-async def test_an_identical_regeneration_replays_without_a_request(monkeypatch):
-    candidate = _candidate(decision_resolution="roll", decision_threshold=None)
-    original = await _record_for(candidate, monkeypatch, probability=0.5)
+def _draws(monkeypatch, *values: float) -> None:
+    sequence = iter(values)
+    monkeypatch.setattr(stage_module, "draw_uniform", lambda: next(sequence))
 
-    gateway = FakeGateway(answers={"outcome": 0.5}).install(monkeypatch)
+
+_CHOICE = {
+    "decision_type": "choice",
+    "decision_criteria": {"clean": "Clean win", "messy": "Messy win"},
+    "decision_outputs": {"clean": "clean beat", "messy": "messy beat"},
+    "decision_threshold": None,
+}
+_SCORE = {
+    "decision_type": "score",
+    "decision_criteria": ["Low", "High"],
+    "decision_outputs": {"0": "low beat", "1": "high beat"},
+    "decision_threshold": None,
+}
+_CHOICE_ANSWER = ChoiceAnswer("messy", {"clean": 0.4, "messy": 0.6}, 0.9)
+_SCORE_ANSWER = ScoreAnswer(0.6, {"0": 0.4, "1": 0.6}, 0.9, {"0": "Low", "1": "High"})
+
+
+@pytest.mark.parametrize(
+    ("overrides", "answer"),
+    [
+        ({}, 0.9),
+        ({**_CHOICE, "decision_resolution": "argmax"}, _CHOICE_ANSWER),
+        ({**_SCORE, "decision_resolution": "argmax"}, _SCORE_ANSWER),
+        ({**_SCORE, "decision_resolution": "nearest"}, _SCORE_ANSWER),
+    ],
+    ids=["threshold", "choice-argmax", "score-argmax", "nearest"],
+)
+async def test_an_identical_regeneration_replays_a_read_off_outcome_without_a_request(monkeypatch, overrides, answer):
+    candidate = _candidate(**overrides)
+    original = await _record_for(candidate, monkeypatch, probability=answer)
+
+    gateway = FakeGateway(answers={"outcome": answer}).install(monkeypatch)
     replayed = await run_decisions(_turn(candidate, replay_records=tuple(original)))
 
     record = _by_id(replayed)["outcome"]
     assert gateway.batches == []  # cold cache, and still no call
     assert record["answer_source"] == "replay"
     assert record["outcome"] == original[0]["outcome"]
-    assert record["draw"] == original[0]["draw"]
     assert record["occurrence_id"] == original[0]["occurrence_id"]
 
 
-async def test_editing_only_the_output_changes_the_prompt_with_no_call_and_no_reroll(monkeypatch):
+@pytest.mark.parametrize(
+    ("overrides", "answer", "first", "second"),
+    [
+        ({"decision_resolution": "roll", "decision_threshold": None}, 0.5, "true", "false"),
+        ({**_CHOICE, "decision_resolution": "weighted"}, _CHOICE_ANSWER, "clean", "messy"),
+        ({**_SCORE, "decision_resolution": "weighted"}, _SCORE_ANSWER, "0", "1"),
+    ],
+    ids=["roll", "choice-weighted", "score-weighted"],
+)
+async def test_an_identical_regeneration_redraws_on_the_stored_odds(monkeypatch, overrides, answer, first, second):
+    """A drawn outcome is rolled again; the classifier's answer it is drawn against is not.
+
+    Replaying the draw would make regenerate unable to ever land on the other
+    side of odds the author chose to roll against, and asking again would spend
+    a request on an answer that is already on the record.
+    """
+    candidate = _candidate(**overrides)
+    _draws(monkeypatch, 0.1, 0.9)
+    original = await _record_for(candidate, monkeypatch, probability=answer)
+    assert original[0]["outcome"] == first
+
+    gateway = FakeGateway(answers={}).install(monkeypatch)
+    rerolled = await run_decisions(_turn(candidate, replay_records=tuple(original)))
+
+    record = _by_id(rerolled)["outcome"]
+    assert gateway.batches == []  # cold cache, and still no call
+    assert rerolled.requests == 0
+    assert record["answer_source"] == "replay"
+    assert record["replayed_from"] == "live"
+    assert record["returned_model"] == original[0]["returned_model"]
+    assert record["draw"] == 0.9
+    assert record["outcome"] == second
+    assert record["guidance"] == candidate.definition.outputs[second]
+    assert record["occurrence_id"] != original[0]["occurrence_id"]
+    for key in ("probability", "distribution", "confidence", "score", "legend", "returned_choice"):
+        assert record.get(key) == original[0].get(key)
+
+    # Regenerating the rerolled reply still traces the answer to its first source.
+    _draws(monkeypatch, 0.5)
+    again = await run_decisions(_turn(candidate, replay_records=tuple(rerolled.evaluations)))
+    assert _by_id(again)["outcome"]["replayed_from"] == "live"
+
+
+async def test_a_drawn_record_whose_answer_cannot_be_read_back_is_asked_again(monkeypatch):
     candidate = _candidate(decision_resolution="roll", decision_threshold=None)
+    original = await _record_for(candidate, monkeypatch, probability=0.5)
+    damaged = [{key: value for key, value in original[0].items() if key != "probability"}]
+
+    gateway = FakeGateway(answers={"outcome": 0.5}).install(monkeypatch)
+    fresh = await run_decisions(_turn(candidate, replay_records=tuple(damaged)))
+
+    assert gateway.batches == [["outcome"]]
+    assert _by_id(fresh)["outcome"]["answer_source"] == "live"
+
+
+async def test_editing_only_the_output_changes_the_prompt_with_no_call_and_no_reroll(monkeypatch):
+    candidate = _candidate()
     original = await _record_for(candidate, monkeypatch, probability=1.0)
 
     edited = _candidate(
-        decision_resolution="roll",
-        decision_threshold=None,
         label="Renamed",
         injection_label="Renamed",
         decision_outputs={"true": "New words for the same outcome.", "false": ""},
@@ -582,7 +665,7 @@ async def test_editing_only_the_output_changes_the_prompt_with_no_call_and_no_re
     record = _by_id(replayed)["outcome"]
     assert gateway.batches == []
     assert record["answer_source"] == "replay"
-    assert record["draw"] == original[0]["draw"]
+    assert record["occurrence_id"] == original[0]["occurrence_id"]
     assert record["guidance"] == "New words for the same outcome."
     assert replayed.guidance == "**Major Decisions**\n\nRenamed: New words for the same outcome."
 

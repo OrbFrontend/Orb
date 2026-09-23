@@ -496,7 +496,6 @@ async def test_cooldowns_age_even_when_every_decision_is_disabled(client, db, ll
 
 async def test_regeneration_replays_the_targets_own_outcome(client, db, llm_mock, monkeypatch):
     cid = await _solo_scene(client)
-    await client.put("/api/interactive-fragments/outcome", json={"decision_resolution": "roll", "decision_threshold": None})
     gateway = Gateway(monkeypatch, answers={"outcome": 0.5})
 
     await _turn(llm_mock, cid, "I shove the door.", director={"moods": []})
@@ -512,7 +511,34 @@ async def test_regeneration_replays_the_targets_own_outcome(client, db, llm_mock
     assert len(gateway.batches) == 1  # no second call
     assert replayed["answer_source"] == "replay"
     assert replayed["outcome"] == original["outcome"]
-    assert replayed["draw"] == original["draw"]
+    assert replayed["occurrence_id"] == original["occurrence_id"]
+
+
+async def test_regeneration_rerolls_a_drawn_outcome_on_the_stored_odds(client, db, llm_mock, monkeypatch):
+    cid = await _solo_scene(client)
+    await client.put("/api/interactive-fragments/outcome", json={"decision_resolution": "roll", "decision_threshold": None})
+    gateway = Gateway(monkeypatch, answers={"outcome": 0.5})
+    draws = iter((0.1, 0.9))
+    monkeypatch.setattr(stage_module, "draw_uniform", lambda: next(draws))
+
+    await _turn(llm_mock, cid, "I shove the door.", director={"moods": []})
+    target = await _last_assistant(cid)
+    original = target["decision_evaluations"]["evaluations"][0]
+    RAW_ANSWER_CACHE.clear()  # the stored answer, not the cache, is what spares the call
+
+    llm_mock.enqueue_director(_direct_scene(moods=[]))
+    llm_mock.enqueue_writer("again")
+    events = await _drain(handle_regenerate(cid, target["id"]))
+    rerolled = (await _last_assistant(cid))["decision_evaluations"]["evaluations"][0]
+
+    assert len(gateway.batches) == 1  # no second call
+    assert (original["outcome"], rerolled["outcome"]) == ("true", "false")
+    assert rerolled["probability"] == original["probability"]
+    assert rerolled["draw"] == 0.9
+    assert rerolled["answer_source"] == "replay"
+    assert rerolled["replayed_from"] == "live"
+    assert rerolled["occurrence_id"] != original["occurrence_id"]
+    assert rerolled["guidance"] in _event(events, "director_done")["injection_block"]
 
 
 async def test_editing_the_guidance_changes_the_prompt_without_a_call_or_a_reroll(client, db, llm_mock, monkeypatch):

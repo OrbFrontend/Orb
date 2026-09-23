@@ -326,6 +326,8 @@ class DecisionEvaluationRow(TypedDict, total=False):
     guidance: str
     # 'live' | 'cache' | 'replay'
     answer_source: str
+    # On a replay, the source the stored answer originally came from.
+    replayed_from: str
     request_id: str
     elapsed_ms: int
     usage: dict

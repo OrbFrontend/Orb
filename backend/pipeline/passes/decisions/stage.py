@@ -50,6 +50,7 @@ from .render import (
     template_errors,
 )
 from .resolve import (
+    DRAWN_RESOLUTIONS,
     FAILURE_REASONS,
     SkipReason,
     draw_uniform,
@@ -176,6 +177,7 @@ class _PreparedQuestion:
     failure: str = ""
     answer: Answer | None = None
     answer_source: str = ""
+    replayed_from: str = ""
     returned_model: str = ""
     request_id: str = ""
     elapsed_ms: int = 0
@@ -456,10 +458,49 @@ def _resolved_record(prepared: _Prepared, turn: DecisionsTurn) -> dict[str, Any]
             **_answer_fields(question.answer),
         }
     )
+    if question.replayed_from:
+        record["replayed_from"] = question.replayed_from
     if draw is not None:
         record["draw"] = draw
 
     return record
+
+
+def _origin(stored: Mapping[str, Any]) -> str:
+    """Where *stored*'s answer first came from, through any number of regenerations."""
+    return str(stored.get("replayed_from") or stored.get("answer_source") or "")
+
+
+def _stored_answer(stored: Mapping[str, Any], decision_type: str) -> Answer | None:
+    """The classifier answer *stored* was resolved from, or ``None`` if it cannot be read back."""
+    try:
+        if decision_type == "noul":
+            return float(stored["probability"])
+        probabilities = {str(key): float(value) for key, value in stored["distribution"].items()}
+        confidence = float(stored["confidence"])
+        if decision_type == "choice":
+            return ChoiceAnswer(str(stored["returned_choice"]), probabilities, confidence)
+        legend = {str(key): str(value) for key, value in stored["legend"].items()}
+        return ScoreAnswer(float(stored["score"]), probabilities, confidence, legend)
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+
+
+def _redraw(question: _PreparedQuestion, stored: Mapping[str, Any]) -> bool:
+    """Arm *question* with the stored answer so it resolves with a fresh draw.
+
+    A drawn outcome is the dice, not the classifier: keeping it would make every
+    regeneration land on the same side of the odds the author asked to roll
+    against. The answer is kept, so rerolling costs no request.
+    """
+    answer = _stored_answer(stored, question.question_type)
+    if answer is None:
+        return False
+    question.answer = answer
+    question.answer_source = "replay"
+    question.replayed_from = _origin(stored)
+    question.returned_model = str(stored.get("returned_model") or "")
+    return True
 
 
 def _replayed(prepared: _Prepared, turn: DecisionsTurn, stored: Mapping[str, Any]) -> dict[str, Any]:
@@ -471,7 +512,7 @@ def _replayed(prepared: _Prepared, turn: DecisionsTurn, stored: Mapping[str, Any
             "source": prepared.candidate.source,
             "outputs": dict(prepared.outputs),
             "answer_source": "replay",
-            "replayed_from": str(stored.get("answer_source") or ""),
+            "replayed_from": _origin(stored),
             "guidance": prepared.outputs.get(str(stored.get("outcome") or ""), ""),
         }
     )
@@ -525,12 +566,15 @@ async def run_decisions(turn: DecisionsTurn, *, abort: AbortToken | None = None)
             raw_fingerprint=item.raw_fingerprint,
             policy_fingerprint=item.policy_fingerprint,
         )
+        question = item.question
         if stored is not None:
-            records[fid] = _replayed(item, turn, stored)
-            continue
+            if item.definition.resolution not in DRAWN_RESOLUTIONS:
+                records[fid] = _replayed(item, turn, stored)
+                continue
+            if question is not None and _redraw(question, stored):
+                continue
         if invalidated_anchor(turn.replay_records, fid):
             item.replay_invalidated = SkipReason.MISSING_ANCHOR
-        question = item.question
         if question is None or question.failure:
             continue
         if question_budget <= 0:

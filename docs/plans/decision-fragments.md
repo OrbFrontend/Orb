@@ -363,17 +363,22 @@ On regeneration:
    assistant message's baseline does not contain the target's outcomes.
 3. Recheck current enablement, local card approval, and cooldown eligibility.
 4. Re-render input at the target's evaluation scope. If fragment identity, raw
-   request, and resolution policy match, reuse the target's raw answer, draw,
-   and outcome without a request. Preserve fallback outcomes on a matching
-   replay as well; regeneration alone does not retry a failed classification.
+   request, and resolution policy match, reuse the target's raw answer without
+   a request. A threshold, argmax, or nearest outcome is read straight off that
+   answer, so the stored outcome and occurrence are replayed as they are. Roll
+   and weighted outcomes draw again against the stored odds as a new
+   occurrence: the answer is the classifier's, the draw is the dice, and
+   regenerating is how a user asks for the dice again. Preserve fallback
+   outcomes on a matching replay as well; regeneration alone does not retry a
+   failed classification.
 5. If input or resolution policy changed, create a new occurrence. A matching raw
    cache answer may still be reused, but roll mode gets a new draw.
 6. Resolve the current output mapping for the selected outcome. Editing guidance
    or labels can change the prompt without another classifier call or reroll.
 
 Fresh send, continue, and fork-edit operations create new occurrences even for
-identical input text. Repeated regeneration of an unchanged reply preserves its
-outcome. Checkpoints and branch copies retain evaluation snapshots and remap
+identical input text. Repeated regeneration of an unchanged reply preserves a
+read-off outcome and redraws a rolled or weighted one. Checkpoints and branch copies retain evaluation snapshots and remap
 branch anchors through the existing message-copy mapping; missing anchors must
 produce an explicit invalidation reason, never select unrelated history.
 
