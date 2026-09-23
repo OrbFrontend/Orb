@@ -26,6 +26,7 @@ from .render import (
     TEXT_MACROS,
     DecisionSnapshot,
     build_snapshot,
+    card_snapshots,
     macro_errors,
     macros_used,
     render,

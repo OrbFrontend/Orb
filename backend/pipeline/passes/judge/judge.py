@@ -36,6 +36,8 @@ from .records import (
     matching_replay,
     raw_request_fingerprint,
     resolution_policy_fingerprint,
+    stored_evaluations,
+    stored_skipped,
 )
 from .render import (
     STATE_MACROS,
@@ -136,6 +138,12 @@ class JudgeTurn:
     replay_records: tuple[Mapping[str, Any], ...] = ()
     approved_cards: frozenset[str] = frozenset()
     invalid: tuple[InvalidDecision, ...] = ()
+    # A group's card-embedded decisions read their own character as ``{{char}}``
+    # and ``{{description}}``, the way that card's text does in the prompt.
+    card_snapshots: Mapping[str, DecisionSnapshot] = field(default_factory=dict)
+
+    def snapshot_for(self, candidate: DecisionCandidate) -> DecisionSnapshot:
+        return self.card_snapshots.get(candidate.card_id or "", self.snapshot)
 
 
 @dataclass(slots=True)
@@ -145,10 +153,30 @@ class JudgeResult:
     cooldowns: dict[str, int] = field(default_factory=dict)
     guidance: str = ""
     requests: int = 0
+    inherited: bool = False
+
+    @classmethod
+    def committed(cls, stored: Mapping[str, Any] | None, cooldowns: Mapping[str, int]) -> JudgeResult:
+        """The result an earlier reply already committed its exchange to, taken as is.
+
+        Nothing is asked and nothing is drawn: a later speaker in the same
+        exchange must land on the outcome the earlier speakers already wrote.
+        """
+        evaluations = stored_evaluations(stored)
+        return cls(
+            evaluations=evaluations,
+            skipped=stored_skipped(stored),
+            cooldowns={str(key): int(value) for key, value in cooldowns.items()},
+            guidance=decision_guidance_block(evaluations),
+            inherited=True,
+        )
 
     def as_event_data(self) -> dict[str, Any]:
         evaluations = [{key: row[key] for key in _EVENT_FIELDS if key in row} for row in self.evaluations]
-        return {"evaluations": evaluations, "skipped": self.skipped, "cooldowns": self.cooldowns}
+        data: dict[str, Any] = {"evaluations": evaluations, "skipped": self.skipped, "cooldowns": self.cooldowns}
+        if self.inherited:
+            data["inherited"] = 1
+        return data
 
     def apply_to(self, state: TurnState) -> None:
         """Carry the result on *state* so persistence commits it in the reply's own INSERT."""
@@ -232,7 +260,7 @@ def _prepare(candidate: DecisionCandidate, turn: JudgeTurn, *, over_budget: bool
 
 def _render_question(item: _Item, turn: JudgeTurn, *, over_budget: bool) -> str:
     """Render *item*'s request, or return why it cannot be asked."""
-    definition, snapshot = item.definition, turn.snapshot
+    definition, snapshot = item.definition, turn.snapshot_for(item.candidate)
     try:
         item.outputs = {key: render(value, snapshot, allowed=TEXT_MACROS) for key, value in definition.outputs.items()}
     except UnavailableMacro:

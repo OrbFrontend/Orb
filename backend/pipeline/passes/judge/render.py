@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from typing import Any
 
-from ....core import Macros, outside_literals
+from ....core import CastMember, Macros, outside_literals
 from ....prompting import format_message_with_attachments, group_speaker_label
 
 DECISION_RENDERER_VERSION = "1"
@@ -83,6 +83,21 @@ def build_snapshot(
         scope=scope,
         anchor_message_id=anchor_message_id,
     )
+
+
+def card_snapshots(snapshot: DecisionSnapshot, members: Iterable[CastMember]) -> dict[str, DecisionSnapshot]:
+    """*snapshot* scoped to each member's card, keyed by card id.
+
+    The prompt scopes a card's text to its member (``member_macros``), so a card's
+    decision must read that member too: ``{{char}}`` is the character, not the
+    group title, and ``{{description}}`` is its scene sheet. The first member
+    holding a card speaks for it, the same card-once rule the fragments merge by.
+    """
+    scoped: dict[str, DecisionSnapshot] = {}
+    for member in members:
+        if member.card_id and member.card_id not in scoped:
+            scoped[member.card_id] = replace(snapshot, char=member.name, description=member.private_sheet)
+    return scoped
 
 
 def macros_used(text: str) -> list[str]:

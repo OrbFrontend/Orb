@@ -28,6 +28,7 @@ from .passes.judge import (
     JudgeResult,
     JudgeTurn,
     build_snapshot,
+    card_snapshots,
     decision_cooldown_baseline,
     judge_pass,
     stored_evaluations,
@@ -145,18 +146,20 @@ async def _run_judge(
     anchor_message_id: int | None,
 ) -> AsyncIterator[dict | JudgeResult]:
     prior = ctx.director.get("decision_cooldowns") or {}
+    snapshot = build_snapshot(
+        history=history,
+        current_request=current_request,
+        macros=macros,
+        scope="group" if ctx.cast.grouped else "solo",
+        speaker_names=ctx.speaker_names,
+        scripts=ctx.card_scripts,
+        speaker_scripts=ctx.speaker_scripts,
+        description=None if ctx.cast.grouped else card_description(ctx.card),
+        anchor_message_id=anchor_message_id,
+    )
     turn = JudgeTurn(
-        snapshot=build_snapshot(
-            history=history,
-            current_request=current_request,
-            macros=macros,
-            scope="group" if ctx.cast.grouped else "solo",
-            speaker_names=ctx.speaker_names,
-            scripts=ctx.card_scripts,
-            speaker_scripts=ctx.speaker_scripts,
-            description=None if ctx.cast.grouped else card_description(ctx.card),
-            anchor_message_id=anchor_message_id,
-        ),
+        snapshot=snapshot,
+        card_snapshots=card_snapshots(snapshot, ctx.cast.members) if ctx.cast.grouped else {},
         candidates=ctx.decision_candidates,
         config=ctx.judge_config,
         prior_cooldowns=prior,
@@ -186,28 +189,56 @@ def _exchange_decision_input(
     exchange_id: str | None,
     steering: str = "",
 ) -> tuple[Sequence[Mapping[str, Any]], str, int | None]:
-    """The decision input for a regeneration inside *exchange_id*.
+    """The decision input for a group exchange: ``(history, request, anchor)``.
 
-    Rewinds to what the exchange was originally asked about, rather than to the
-    branch the target happens to sit on: regenerating the third speaker must not
-    show the decision the first two speakers' replies, nor the reply it is
-    replacing, as if they had been part of its own input.
+    Inside *exchange_id* (a regeneration) this rewinds to what the exchange was
+    originally asked about, rather than to the branch the target happens to sit
+    on: regenerating the third speaker must not show the decision the first two
+    speakers' replies, nor the reply it is replacing, as if they had been part of
+    its own input.
+
+    An exchange with no request of its own that follows an unanswered user
+    message -- a member given the floor after the scene rested -- answers that
+    message, so it is the request. Without this the action would never reach
+    ``{{last_message}}`` at all, and a later regeneration (whose parent *is*
+    that message) would judge it for the first time.
 
     *steering* is Magic Rewrite's or super-regenerate's OOC message. It joins the
-    rewound request rather than replacing it, because it is genuinely part of
-    what is being asked for now -- so it reaches the classifier and its
-    fingerprint, and the turn correctly becomes a new occurrence.
+    request rather than replacing it, because it is genuinely part of what is
+    being asked for now -- so it reaches the classifier and its fingerprint, and
+    the turn correctly becomes a new occurrence.
     """
-    if exchange_id is None:
-        return history, user_message, parent_message_id
-    first = next((index for index, row in enumerate(history) if str(row.get("exchange_id") or "") == exchange_id), None)
-    if first is None:
-        return history, user_message, parent_message_id
-    row = history[first]
-    before = history[:first]
-    original = str(row.get("content") or "") if row.get("role") == "user" else ""
-    anchor = row.get("id") if row.get("role") == "user" else (before[-1]["id"] if before else None)
-    return before, "\n\n".join(part for part in (original, steering) if part), anchor
+    before, request, anchor = history, user_message, parent_message_id
+    if exchange_id is not None:
+        first = next((index for index, row in enumerate(history) if str(row.get("exchange_id") or "") == exchange_id), None)
+        if first is None:
+            return history, user_message, parent_message_id
+        row = history[first]
+        before = history[:first]
+        request = str(row.get("content") or "") if row.get("role") == "user" else ""
+        anchor = row.get("id") if row.get("role") == "user" else (before[-1]["id"] if before else None)
+    if not request and before and before[-1].get("role") == "user":
+        pending = before[-1]
+        before, request, anchor = before[:-1], str(pending.get("content") or ""), pending.get("id")
+    return before, "\n\n".join(part for part in (request, steering) if part), anchor
+
+
+def _committed_exchange_decisions(
+    history: Sequence[Mapping[str, Any]], parent_message_id: int | None, exchange_id: str | None
+) -> JudgeResult | None:
+    """The decisions an earlier speaker already committed *exchange_id* to, if any.
+
+    Regenerating a later speaker keeps that speaker's parent -- an earlier reply
+    in the same exchange -- on the branch, and that reply was written to the
+    exchange's outcome. Re-drawing (or, with steering, re-asking) could land on
+    the other side and contradict it, so the parent's result is taken as is.
+    """
+    if exchange_id is None or parent_message_id is None:
+        return None
+    parent = next((row for row in reversed(history) if row.get("id") == parent_message_id), None)
+    if parent is None or parent.get("role") != "assistant" or str(parent.get("exchange_id") or "") != exchange_id:
+        return None
+    return JudgeResult.committed(db.decision_evaluations_of(parent), parent.get("decision_cooldowns") or {})
 
 
 async def _load_direction_notes(ctx: PipelineContext, conversation_id: str, path: Sequence[Mapping[str, Any]]) -> None:
@@ -456,21 +487,25 @@ async def _generate_group_exchange(
         fragment_cooldowns=dict(ctx.director.get("fragment_cooldowns") or {}),
     )
 
-    judge: JudgeResult | None = None
-    decision_history, decision_request, decision_anchor = _exchange_decision_input(
-        history, user_message, parent_message_id, exchange_id=decision_exchange_id, steering=decision_steering
-    )
-    async for ev in _run_judge(
-        ctx,
-        history=decision_history,
-        current_request=decision_request,
-        macros=setup.macros,
-        anchor_message_id=decision_anchor,
-    ):
-        if isinstance(ev, JudgeResult):
-            judge = ev
-        else:
-            yield ev
+    judge = _committed_exchange_decisions(history, parent_message_id, decision_exchange_id)
+    if judge is not None:
+        if judge.evaluations or judge.skipped:
+            yield {"event": "decisions", "data": judge.as_event_data()}
+    else:
+        decision_history, decision_request, decision_anchor = _exchange_decision_input(
+            history, user_message, parent_message_id, exchange_id=decision_exchange_id, steering=decision_steering
+        )
+        async for ev in _run_judge(
+            ctx,
+            history=decision_history,
+            current_request=decision_request,
+            macros=setup.macros,
+            anchor_message_id=decision_anchor,
+        ):
+            if isinstance(ev, JudgeResult):
+                judge = ev
+            else:
+                yield ev
     if judge is not None:
         judge.apply_to(shared)
     if ctx.client.is_aborted:

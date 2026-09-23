@@ -16,7 +16,12 @@ import pytest
 import backend.database as dbmod
 from backend.inference import RAW_ANSWER_CACHE, DecisionCancelled, DecisionResponse
 from backend.inference.errors import llm_call_error
-from backend.pipeline import handle_magic_rewrite, handle_regenerate, handle_turn
+from backend.pipeline import (
+    handle_magic_rewrite,
+    handle_regenerate,
+    handle_speak,
+    handle_turn,
+)
 from backend.pipeline.passes.judge import judge as judge_module
 
 DEFINITION = {
@@ -794,11 +799,10 @@ async def test_a_later_speaker_regeneration_reuses_the_exchange_input(client, db
     regenerated = [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"][-1]
     record = regenerated["decision_evaluations"]["evaluations"][0]
 
-    # Replayed from the target's own record, so no second call and no reroll --
+    # The exchange's committed record, taken as is: no second call, no reroll,
     # and the cooldown is not charged to the exchange twice.
     assert len(gateway.batches) == 1
-    assert record["answer_source"] == "replay"
-    assert record["occurrence_id"] == original["occurrence_id"]
+    assert record == original
     assert regenerated["decision_cooldowns"] == {"outcome": 2}
 
 
@@ -942,12 +946,11 @@ async def test_a_stop_during_the_decision_stage_ends_the_turn(client, db, llm_mo
 
 
 async def test_a_steered_group_regeneration_reuses_the_exchange_input(client, db, llm_mock, monkeypatch):
-    """Magic rewrite rewinds to the exchange's own input, like a plain regenerate.
+    """Magic rewrite of an exchange's first speaker rewinds to the exchange's own input.
 
     Without the rewind the decision reads the replaced reply as
-    ``{{last_assistant_message}}`` and the earlier speakers as
-    ``{{recent_history}}`` -- substituting later speakers' messages for the
-    original exchange input, and in roll mode drawing again.
+    ``{{last_assistant_message}}`` -- substituting the reply for the original
+    exchange input. (A later speaker never asks at all; see the inheritance tests.)
     """
     conv = await _group(client)
     await _configure(client)
@@ -959,12 +962,12 @@ async def test_a_steered_group_regeneration_reuses_the_exchange_input(client, db
     llm_mock.enqueue_writer("kael speaks")
     await _drain(handle_turn(conv["id"], "I shove the door."))
 
-    later = [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"][-1]
+    first = [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"][0]
     RAW_ANSWER_CACHE.clear()
 
-    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["kael — again"]))
-    llm_mock.enqueue_writer("kael again")
-    await _drain(handle_magic_rewrite(conv["id"], later["id"], "slower, more reluctant"))
+    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — again"]))
+    llm_mock.enqueue_writer("aria again")
+    await _drain(handle_magic_rewrite(conv["id"], first["id"], "slower, more reluctant"))
 
     regenerated = [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"][-1]
     record = regenerated["decision_evaluations"]["evaluations"][0]
@@ -1000,3 +1003,149 @@ async def test_a_steered_solo_regeneration_reuses_the_turns_input(client, db, ll
     assert "I shove the door." in gateway.states[-1]
     assert "slower, more reluctant" in gateway.states[-1]
     assert record["answer_source"] == "live"
+
+
+async def _two_speaker_roll_exchange(client, llm_mock, monkeypatch, draws) -> tuple[dict, dict, dict, Gateway]:
+    conv = await _group(client)
+    await _configure(client)
+    await _add_decision(client, decision_resolution="roll", decision_threshold=None, cooldown_turns=2)
+    gateway = Gateway(monkeypatch, answers={"outcome": 0.5})
+    rolls = iter(draws)
+    monkeypatch.setattr(judge_module, "draw_uniform", lambda: next(rolls))
+    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — go", "kael — then you"]))
+    llm_mock.enqueue_writer("aria: you get through")
+    llm_mock.enqueue_writer("kael speaks")
+    await _drain(handle_turn(conv["id"], "I shove the door."))
+    first, later = [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"]
+    RAW_ANSWER_CACHE.clear()
+    return conv, first, later, gateway
+
+
+async def test_a_later_speaker_regeneration_keeps_the_rolled_outcome_its_parent_wrote(client, db, llm_mock, monkeypatch):
+    """Rerolling would put the other side of the odds under a reply already
+    written to this one, on the same branch. The draw after 0.1 would flip it."""
+    conv, first, later, gateway = await _two_speaker_roll_exchange(client, llm_mock, monkeypatch, (0.1, 0.9))
+
+    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["kael — again"]))
+    llm_mock.enqueue_writer("kael again")
+    events = await _drain(handle_regenerate(conv["id"], later["id"]))
+    regenerated = (await dbmod.get_messages(conv["id"]))[-1]
+
+    expected = first["decision_evaluations"]["evaluations"][0]
+    assert regenerated["parent_id"] == first["id"]
+    assert regenerated["decision_evaluations"]["evaluations"][0] == expected
+    assert regenerated["decision_cooldowns"] == first["decision_cooldowns"]
+    assert len(gateway.batches) == 1
+    assert _event(events, "decisions")["inherited"] == 1
+    assert expected["guidance"] in _tail_text(_captured(llm_mock, "writer")[-1])
+
+
+async def test_a_steered_later_speaker_keeps_its_exchanges_outcome(client, db, llm_mock, monkeypatch):
+    conv, first, later, gateway = await _two_speaker_roll_exchange(client, llm_mock, monkeypatch, (0.1, 0.9))
+
+    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["kael — again"]))
+    llm_mock.enqueue_writer("kael again")
+    await _drain(handle_magic_rewrite(conv["id"], later["id"], "slower, more reluctant"))
+    regenerated = (await dbmod.get_messages(conv["id"]))[-1]
+
+    assert len(gateway.batches) == 1
+    assert regenerated["decision_evaluations"] == first["decision_evaluations"]
+
+
+async def test_the_first_speaker_still_rerolls_on_regeneration(client, db, llm_mock, monkeypatch):
+    """Nothing on the new branch was written to the old draw, so the dice roll again."""
+    conv, first, _later, gateway = await _two_speaker_roll_exchange(client, llm_mock, monkeypatch, (0.1, 0.9))
+
+    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — again"]))
+    llm_mock.enqueue_writer("aria again")
+    await _drain(handle_regenerate(conv["id"], first["id"]))
+    record = (await dbmod.get_messages(conv["id"]))[-1]["decision_evaluations"]["evaluations"][0]
+
+    assert len(gateway.batches) == 1
+    assert (record["answer_source"], record["draw"], record["outcome"]) == ("replay", 0.9, "false")
+
+
+async def test_giving_the_floor_after_a_rest_judges_the_unanswered_message(client, db, llm_mock, monkeypatch):
+    """Manual mode with nobody picked rests; the chip click that follows is a
+    ``/speak`` with no message of its own, answering the one that rested."""
+    conv = await _group(client)
+    await client.put(f"/api/conversations/{conv['id']}", json={"group_turn_mode": "manual"})
+    await _configure(client)
+    await _add_decision(client)
+    gateway = Gateway(monkeypatch)
+
+    await _drain(handle_turn(conv["id"], "I shove the door."))
+    assert gateway.batches == []  # the rest runs nothing
+
+    member = (await dbmod.get_group_members(conv["id"]))[0]
+    llm_mock.enqueue_director(_direct_scene(moods=[]))
+    llm_mock.enqueue_writer("aria speaks")
+    events = await _drain(handle_speak(conv["id"], member["id"]))
+    assert _event(events, "decisions")["evaluations"][0]["outcome"] == "true"
+    assert gateway.states == ["Previous reply:\n\n\nCurrent request:\nI shove the door."]
+
+    reply = next(m for m in reversed(await dbmod.get_messages(conv["id"])) if m["role"] == "assistant")
+    RAW_ANSWER_CACHE.clear()
+    llm_mock.enqueue_director(_direct_scene(moods=[]))
+    llm_mock.enqueue_writer("aria again")
+    await _drain(handle_regenerate(conv["id"], reply["id"]))
+    record = (await dbmod.get_messages(conv["id"]))[-1]["decision_evaluations"]["evaluations"][0]
+
+    # The regeneration's parent is that message, so it reads the same input and replays.
+    assert len(gateway.batches) == 1
+    assert record["answer_source"] == "replay"
+
+
+async def test_giving_the_floor_with_nothing_to_judge_is_a_routine_skip(client, db, llm_mock, monkeypatch):
+    conv = await _group(client)
+    await _configure(client)
+    await _add_decision(client, decision_state_template="Current request:\n{{last_message}}")
+    gateway = Gateway(monkeypatch)
+
+    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — go"]))
+    llm_mock.enqueue_writer("aria speaks")
+    await _drain(handle_turn(conv["id"], "I shove the door."))
+
+    member = (await dbmod.get_group_members(conv["id"]))[1]
+    llm_mock.enqueue_director(_direct_scene(moods=[]))
+    llm_mock.enqueue_writer("kael speaks")
+    events = await _drain(handle_speak(conv["id"], member["id"]))
+
+    skipped = _event(events, "decisions")["skipped"][0]
+    assert len(gateway.batches) == 1
+    assert skipped["reason"] == "empty_input"
+    assert "failed" not in skipped
+
+
+async def test_a_card_decision_in_a_group_reads_its_own_character(client, db, llm_mock, monkeypatch):
+    card_id = await _card_with_decision(
+        client,
+        decision_state_template="{{char}}: {{description}}\n\n{{last_message}}",
+        decision_instructions="Does {{char}} hold the doorway?",
+    )
+    other = (await client.post("/api/characters", json={"name": "Kael"})).json()["id"]
+    conv = (
+        await client.post(
+            "/api/conversations",
+            json={
+                "kind": "group",
+                "title": "Doorway",
+                "group_turn_mode": "director",
+                "group_max_speakers": 1,
+                "members": [{"character_card_id": other}, {"character_card_id": card_id}],
+            },
+        )
+    ).json()
+    await _configure(client)
+    status = (await client.get(f"/api/decisions/card-approval/{card_id}")).json()
+    await client.put(f"/api/decisions/card-approval/{card_id}", json={"fingerprint": status["fingerprint"]})
+    gateway = Gateway(monkeypatch, answers={"card_outcome": 0.9})
+
+    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["kael — go"]))
+    llm_mock.enqueue_writer("kael speaks")
+    events = await _drain(handle_turn(conv["id"], "I shove the door."))
+
+    assert _event(events, "decisions")["skipped"] == []
+    assert gateway.states[0].startswith("Alric: ")
+    record = (await dbmod.get_messages(conv["id"]))[-1]["decision_evaluations"]["evaluations"][0]
+    assert record["rendered_instructions"] == "Does Alric hold the doorway?"

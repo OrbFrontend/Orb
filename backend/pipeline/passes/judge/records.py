@@ -52,6 +52,11 @@ def stored_evaluations(stored: Mapping[str, Any] | None) -> list[dict[str, Any]]
     return [dict(record) for record in records if isinstance(record, Mapping)] if isinstance(records, list) else []
 
 
+def stored_skipped(stored: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    rows = stored.get("skipped") if readable(stored) and stored else None
+    return [dict(row) for row in rows if isinstance(row, Mapping)] if isinstance(rows, list) else []
+
+
 def matching_replay(
     records: Sequence[Mapping[str, Any]], *, fragment_id: str, raw_fingerprint: str, policy_fingerprint: str
 ) -> dict[str, Any] | None:

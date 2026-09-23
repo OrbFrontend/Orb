@@ -35,9 +35,12 @@ class SkipReason:
     MISSING_ANCHOR = "missing_anchor"
 
 
-# The skips an author configured on purpose. Every other reason means something
-# went wrong, and only those are worth interrupting anybody about.
-ROUTINE_REASONS = frozenset({SkipReason.NOT_APPROVED, SkipReason.RESTING, SkipReason.LOW_CONFIDENCE})
+# The skips an author configured on purpose, or that the turn's shape explains.
+# Every other reason means something went wrong, and only those are worth
+# interrupting anybody about. An empty input is the second kind: a group member
+# given the floor with no message of their own leaves ``{{last_message}}``
+# empty, and every such click must not raise a failure notice.
+ROUTINE_REASONS = frozenset({SkipReason.NOT_APPROVED, SkipReason.RESTING, SkipReason.LOW_CONFIDENCE, SkipReason.EMPTY_INPUT})
 
 
 def resolve_threshold(probability: float, threshold: float) -> str:

@@ -608,8 +608,10 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
         // A decision that could not answer injects nothing and the turn carries
         // on without it. That is quiet enough to miss, so say it once -- as a
         // transient toast, not an error box: the turn did not fail, and the
-        // per-decision detail is already in the Inspector.
-        const notice = skipNoticeText(S.lastDecisions.skipped);
+        // per-decision detail is already in the Inspector. An inherited result
+        // (a later speaker regenerated inside its exchange) asked nothing, so
+        // its skips are old news.
+        const notice = S.lastDecisions.inherited ? "" : skipNoticeText(S.lastDecisions.skipped);
         if (notice) toast(notice);
       } catch (_) {}
       break;
