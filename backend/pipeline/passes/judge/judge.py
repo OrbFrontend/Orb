@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -52,7 +51,9 @@ from .resolve import (
     ROUTINE_REASONS,
     SkipReason,
     draw_uniform,
+    gate_holds,
     resolve_argmax,
+    resolve_gated,
     resolve_nearest,
     resolve_roll,
     resolve_threshold,
@@ -64,13 +65,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Also keeps every exchange within the gateway's MAX_QUESTIONS_PER_EXCHANGE:
+# Also keeps every exchange within the gateway's MAX_QUESTIONS_PER_REQUEST:
 # each decision asks exactly one question.
 MAX_DECISIONS_PER_EXCHANGE = 32
 MAX_DECISIONS_PER_CARD = 8
-MAX_REQUEST_ATTEMPTS = 4
+# Batches go out concurrently under one timeout, so this cap and the timeout are
+# the whole stage budget: the stage costs at most one REQUEST_TIMEOUT_SECONDS.
+MAX_BATCHES = 4
 REQUEST_TIMEOUT_SECONDS = 3.0
-STAGE_BUDGET_SECONDS = 6.0
 _SITUATION_MACROS = frozenset({"last_message", "last_assistant_message", "recent_history"})
 
 _EVENT_FIELDS = (
@@ -280,15 +282,18 @@ def _answer_fields(answer: Answer) -> dict[str, Any]:
 
 
 def _resolve_answer(answer: Answer, definition: DecisionDefinition) -> tuple[str, float | None]:
-    keys = definition.outcome_keys
-    draw = draw_uniform() if definition.resolution in DRAWN_RESOLUTIONS else None
+    keys, resolution = definition.outcome_keys, definition.resolution
+    if isinstance(answer, (ChoiceAnswer, ScoreAnswer)) and resolution == "gated" and gate_holds(answer.probabilities, keys):
+        return keys[0], None  # settled without a draw, so none is recorded
+    draw = draw_uniform() if resolution in DRAWN_RESOLUTIONS else None
     if definition.decision_type == "noul" and isinstance(answer, (int, float)):
         if draw is not None:
             return resolve_roll(float(answer), draw), draw
         return resolve_threshold(float(answer), definition.threshold if definition.threshold is not None else 0.5), None
     if isinstance(answer, (ChoiceAnswer, ScoreAnswer)):
         if draw is not None:
-            return resolve_weighted(answer.probabilities, keys, draw), draw
+            resolve = resolve_gated if resolution == "gated" else resolve_weighted
+            return resolve(answer.probabilities, keys, draw), draw
         if definition.resolution == "nearest" and isinstance(answer, ScoreAnswer):
             return resolve_nearest(answer.score, keys), None
         return resolve_argmax(answer.probabilities, keys), None
@@ -445,7 +450,6 @@ def _batches(pending: Sequence[_Item]) -> list[list[_Item]]:
 
 
 async def judge_pass(turn: JudgeTurn, *, abort: AbortToken | None = None) -> JudgeResult:
-    started = time.monotonic()
     running, skipped = _eligible(turn)
     over = _over_budget(running)
     items = [_prepare(candidate, turn, over_budget=candidate.definition.fragment_id in over) for candidate in running]
@@ -474,7 +478,7 @@ async def judge_pass(turn: JudgeTurn, *, abort: AbortToken | None = None) -> Jud
         else:
             pending.append(item)
 
-    requests = await _issue(pending, turn, started=started, abort=abort) if pending else 0
+    requests = await _issue(pending, turn, abort=abort) if pending else 0
     evaluations: list[dict[str, Any]] = []
     for item in items:
         # A decision that could not answer drops out here and the turn carries on
@@ -499,14 +503,13 @@ async def judge_pass(turn: JudgeTurn, *, abort: AbortToken | None = None) -> Jud
     )
 
 
-async def _issue(pending: Sequence[_Item], turn: JudgeTurn, *, started: float, abort: AbortToken | None) -> int:
+async def _issue(pending: Sequence[_Item], turn: JudgeTurn, *, abort: AbortToken | None) -> int:
     config = turn.config
     client = DecisionClient(config.url, config.api_key, config.model, timeout=REQUEST_TIMEOUT_SECONDS, proxy=config.proxy)
     if abort is not None and abort.is_aborted:
         raise DecisionCancelled("stopped during the judge pass")
-    remaining = STAGE_BUDGET_SECONDS - (time.monotonic() - started)
     batches = _batches(pending)
-    sent = batches[:MAX_REQUEST_ATTEMPTS] if remaining > 0 else []
+    sent = batches[:MAX_BATCHES]
     for batch in batches[len(sent) :]:
         for item in batch:
             item.skip_reason = SkipReason.BUDGET_EXHAUSTED
@@ -518,7 +521,7 @@ async def _issue(pending: Sequence[_Item], turn: JudgeTurn, *, started: float, a
             client.decide(
                 batch[0].state,
                 [item.question for item in batch if item.question is not None],
-                timeout=min(REQUEST_TIMEOUT_SECONDS, remaining),
+                timeout=REQUEST_TIMEOUT_SECONDS,
                 abort=abort,
             )
             for batch in sent

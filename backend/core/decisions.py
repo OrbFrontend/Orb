@@ -11,7 +11,7 @@ DecisionCriteria: TypeAlias = Mapping[str, str] | tuple[str, ...]
 DECISION_FIELD_TYPE = "decision"
 DECISION_RESOLUTIONS_BY_TYPE: Mapping[str, tuple[str, ...]] = {
     "noul": ("threshold", "roll"),
-    "choice": ("argmax", "weighted"),
+    "choice": ("argmax", "weighted", "gated"),
     "score": ("argmax", "weighted", "nearest"),
 }
 DECISION_TYPES = frozenset(DECISION_RESOLUTIONS_BY_TYPE)

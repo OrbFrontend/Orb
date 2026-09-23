@@ -32,7 +32,9 @@ from .render import (
 )
 from .resolve import (
     SkipReason,
+    gate_holds,
     resolve_argmax,
+    resolve_gated,
     resolve_nearest,
     resolve_roll,
     resolve_threshold,

@@ -255,7 +255,7 @@ class _DecisionFields(BaseModel):
     decision_instructions: str | None = None
     decision_criteria: dict[str, str] | list[str] | None = None
     decision_outputs: dict[str, str] | None = None
-    decision_resolution: Literal["threshold", "roll", "argmax", "weighted", "nearest"] | None = None
+    decision_resolution: Literal["threshold", "roll", "argmax", "weighted", "gated", "nearest"] | None = None
     decision_threshold: float | None = Field(None, ge=0.0, le=1.0)
     decision_confidence_floor: float | None = Field(None, ge=0.0, le=1.0)
 

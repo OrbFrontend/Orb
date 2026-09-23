@@ -296,6 +296,7 @@ async def _generate_reply(
     asst_turn_index: int,
     log_turn_index: int,
     editor_audit_msgs: list[str] | None = None,
+    decision_input: tuple[Sequence[Mapping[str, Any]], str] | None = None,
 ) -> AsyncIterator[dict]:
     """Run setup → pipeline → persist and stream all SSE events.
 
@@ -304,6 +305,10 @@ async def _generate_reply(
     *user_message* is what the writer actually receives; it may differ from
     *last_user_message* (the steered paths send an OOC message as the writer
     input while *last_user_message* carries the original).
+
+    *decision_input* is the ``(history, current request)`` the judge reads when
+    it must differ from the writer's, as on the steered paths; ``None`` means
+    the writer's own *history* and *user_message*.
     """
     setup: _TurnSetup | None = None
     async for ev in _prepare_turn(
@@ -320,13 +325,16 @@ async def _generate_reply(
             yield ev
     assert setup is not None
 
+    decision_history, decision_request = decision_input or (history, user_message)
     judge: JudgeResult | None = None
     async for ev in _run_judge(
         ctx,
-        history=history,
-        current_request=user_message,
+        history=decision_history,
+        current_request=decision_request,
         macros=setup.macros,
-        anchor_message_id=user_msg_id if user_msg_id is not None else (history[-1]["id"] if history else None),
+        anchor_message_id=(
+            user_msg_id if user_msg_id is not None else (decision_history[-1]["id"] if decision_history else None)
+        ),
     ):
         if isinstance(ev, JudgeResult):
             judge = ev
@@ -1148,6 +1156,10 @@ async def _regenerate_with_steering(
             asst_turn_index=target["turn_index"],
             log_turn_index=target["turn_index"],
             editor_audit_msgs=editor_audit_msgs,
+            # The solo form of the group rewind above: the decision reads the
+            # history before the replaced reply and the original request with the
+            # steering joined on, never the replaced reply as its previous reply.
+            decision_input=(history, "\n\n".join(part for part in (user_msg["content"], steer_msg) if part)),
         ):
             yield event
 

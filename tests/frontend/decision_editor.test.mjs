@@ -33,7 +33,7 @@ const CONFIG = {
   question_types: ["choice", "noul", "score"],
   resolution_policies: {
     noul: ["threshold", "roll"],
-    choice: ["argmax", "weighted"],
+    choice: ["argmax", "weighted", "gated"],
     score: ["argmax", "weighted", "nearest"],
   },
   state_macros: ["last_message", "char"],

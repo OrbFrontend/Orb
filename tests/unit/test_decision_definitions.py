@@ -15,6 +15,7 @@ from backend.core import (
     parse_decision_definition,
 )
 from backend.database import card_decision_fingerprint, card_embedded_fragments
+from backend.database.seeds import SEED_INTERACTIVE_FRAGMENTS
 from backend.pipeline.passes.judge import definition_problems
 
 
@@ -226,3 +227,10 @@ def test_a_card_with_no_valid_decision_has_no_fingerprint_to_approve():
     assert card_decision_fingerprint(_card([])) == ""
     assert card_decision_fingerprint(_card([_card_entry(decision_type="score")])) == ""
     assert card_decision_fingerprint(None) == ""
+
+
+def test_every_seeded_decision_is_a_valid_definition():
+    seeded = [row for row in SEED_INTERACTIVE_FRAGMENTS if is_decision_row(row)]
+    assert seeded
+    for row in seeded:
+        assert definition_problems(row) == [], row["id"]

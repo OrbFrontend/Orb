@@ -509,8 +509,8 @@ async def test_one_card_cannot_take_more_than_its_share(monkeypatch):
     assert [row["fragment_id"] for row in over] == ids[MAX_DECISIONS_PER_CARD:]
 
 
-async def test_the_request_attempt_cap_skips_the_rest(monkeypatch):
-    monkeypatch.setattr(judge_module, "MAX_REQUEST_ATTEMPTS", 2)
+async def test_the_batch_cap_skips_the_rest(monkeypatch):
+    monkeypatch.setattr(judge_module, "MAX_BATCHES", 2)
     ids = [f"q{i}" for i in range(4)]
     gateway = FakeGateway(answers=dict.fromkeys(ids, 0.9)).install(monkeypatch)
     # One distinct state each, so grouping cannot merge them.
@@ -518,14 +518,6 @@ async def test_the_request_attempt_cap_skips_the_rest(monkeypatch):
     assert len(gateway.batches) == 2
     exhausted = [row for row in result.skipped if row["reason"] == SkipReason.BUDGET_EXHAUSTED]
     assert len(exhausted) == 2
-
-
-async def test_an_exhausted_stage_budget_stops_further_requests(monkeypatch):
-    monkeypatch.setattr(judge_module, "STAGE_BUDGET_SECONDS", 0.0)
-    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
-    result = await judge_pass(_turn(_candidate()))
-    assert gateway.batches == []
-    assert _skips(result)["outcome"]["reason"] == SkipReason.BUDGET_EXHAUSTED
 
 
 # ── cancellation ─────────────────────────────────────────────────────────────
@@ -771,3 +763,49 @@ async def test_stage_results_are_published_only_once_the_stage_finishes(monkeypa
     assert not task.done()
     result = await task
     assert len(result.evaluations) == 2
+
+
+_GATED = {
+    "decision_type": "choice",
+    "decision_criteria": {"none": "Nothing is attempted", "fail": "It fails", "win": "It works"},
+    "decision_outputs": {"none": "", "fail": "fail beat", "win": "win beat"},
+    "decision_resolution": "gated",
+    "decision_threshold": None,
+}
+
+
+async def test_a_holding_gate_resolves_to_it_without_a_draw_or_guidance(monkeypatch):
+    """The idle-turn leak: a weighted draw would land on fail/win 15% of the time here."""
+    _draws(monkeypatch)  # an empty sequence: any draw raises
+    answer = ChoiceAnswer("none", {"none": 0.85, "fail": 0.05, "win": 0.10}, 0.9)
+    FakeGateway(answers={"outcome": answer}).install(monkeypatch)
+    result = await judge_pass(_turn(_candidate(**_GATED)))
+
+    record = _by_id(result)["outcome"]
+    assert record["outcome"] == "none"
+    assert "draw" not in record
+    assert record["guidance"] == ""
+    assert result.guidance == ""
+
+
+async def test_a_gate_that_does_not_hold_draws_among_the_rest(monkeypatch):
+    _draws(monkeypatch, 0.26)
+    # Without the gate the rest split 0.25 / 0.75, so 0.26 lands on win; a plain
+    # weighted draw at 0.26 would have landed on fail.
+    answer = ChoiceAnswer("win", {"none": 0.2, "fail": 0.2, "win": 0.6}, 0.9)
+    FakeGateway(answers={"outcome": answer}).install(monkeypatch)
+    record = _by_id(await judge_pass(_turn(_candidate(**_GATED))))["outcome"]
+    assert (record["outcome"], record["draw"]) == ("win", 0.26)
+    assert record["guidance"] == "win beat"
+
+
+async def test_regenerating_a_held_gate_keeps_it_without_a_request(monkeypatch):
+    candidate = _candidate(**_GATED)
+    answer = ChoiceAnswer("none", {"none": 0.85, "fail": 0.05, "win": 0.10}, 0.9)
+    original = await _record_for(candidate, monkeypatch, probability=answer)
+
+    _draws(monkeypatch)
+    gateway = FakeGateway(answers={}).install(monkeypatch)
+    record = _by_id(await judge_pass(_turn(candidate, replay_records=tuple(original))))["outcome"]
+    assert gateway.batches == []
+    assert (record["outcome"], record["answer_source"]) == ("none", "replay")

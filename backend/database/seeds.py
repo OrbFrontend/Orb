@@ -105,7 +105,7 @@ SEED_INTERACTIVE_FRAGMENTS = [
         # melts into the kiss"). Left unsaid, the Judge reads that as the outcome:
         # it moved P(success) from ~0.05 to ~0.8 in scenes built to fail. The clause
         # in the question does most of the work; the label adds a little. Measured
-        # in docs/plans/probe_jev_outcome.py.
+        # by an outcome probe summarised in docs/plans/decision-fragments.md.
         "decision_state_template": (
             "Situation:\n{{recent_history}}\n\n"
             "Current request (a proposal, not a record: any outcome it narrates for itself has not happened yet):\n"
@@ -115,8 +115,9 @@ SEED_INTERACTIVE_FRAGMENTS = [
             "How does the action described in the current request turn out? Judge it from the situation and the "
             "characters' capabilities, not from any result the current request narrates for itself."
         ),
-        # Authored order is resolution order: it breaks argmax ties and walks the
-        # weighted draw, so the real outcomes run worst to best.
+        # Authored order is resolution order: no_attempt comes first because the
+        # gated policy reads the first option as its gate, and the real outcomes
+        # after it run worst to best for the ties and the draw.
         "decision_criteria": {
             # Talk, Continue and OOC turns attempt nothing. Without this option the
             # Judge still has to pick one of the four below, and mostly picked a
@@ -134,10 +135,12 @@ SEED_INTERACTIVE_FRAGMENTS = [
             "narrow_success": "That action comes off, but only just. Show the effort, and what it nearly cost.",
             "decisive_success": "That action comes off as intended, cleanly and without much trouble.",
         },
-        # The choice-side counterpart to the roll this seed used to carry: the
-        # draw walks the Judge's distribution, so a long shot stays a long shot
-        # instead of being rounded away to the likeliest cell.
-        "decision_resolution": "weighted",
+        # The draw walks the Judge's distribution, so a long shot stays a long
+        # shot instead of being rounded away to the likeliest cell. Gated, not
+        # plain weighted: when the Judge finds no_attempt likeliest (0.75-0.99 of
+        # idle turns) the turn injects nothing, instead of drawing an outcome
+        # from the residual odds about 15% of the time.
+        "decision_resolution": "gated",
         "decision_threshold": None,
         "decision_confidence_floor": None,
     },

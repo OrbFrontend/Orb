@@ -1,17 +1,12 @@
 # Decision fragments — implementation plan
 
-Status: **backend implemented; frontend outstanding.** Everything below from the
-provider contract through persistence, group scope, replay, cooldowns, budgets
-and the HTTP surface is built and covered by tests. What remains is the authoring
-UI, the endpoint-setup panel, and Inspector rendering — see [Frontend
-contract](#frontend-contract) for the shapes they code against. Existing
-synthetic probes support trying the feature; usefulness on actual Orb
-conversations remains a release gate, and the gateway contract itself is still
-unverified against the live route.
-
-Where the built behavior differs from the design below, the design text has been
-corrected rather than annotated; the differences worth knowing about are called
-out where they land.
+Status: **historical.** Built, frontend included. The fallback outcome
+(`decision_default`) described below was later removed: a decision that cannot
+answer is skipped and injects nothing. `choice` and `score` shipped from
+[enhanced-decision-fragments.md](enhanced-decision-fragments.md), and the pass
+was renamed from `decisions` to `judge` (`backend/pipeline/passes/judge/`). For
+current behavior read [the feature doc](../features/decision-fragments.md) and
+the code; this plan records the reasoning and probe results.
 
 A **decision** is an interactive fragment that asks one question about the scene,
 resolves the answer, and supplies its own authored guidance. The first release
@@ -587,8 +582,8 @@ standard deviation around 0.006 over six identical calls, around 0.025 over five
 paraphrases, and successful-call median latency around 0.6 seconds. These are
 small-sample observations, not accuracy, determinism, or latency guarantees.
 
-[probe_jev_outcome.py](probe_jev_outcome.py) shaped the Outcome seed, over six
-synthetic scenes and the real renderer:
+An outcome probe (`probe_jev_outcome.py`, never committed) shaped the Outcome
+seed, over six synthetic scenes and the real renderer:
 
 - A request that narrates its own result ("she melts into the kiss") moved
   P(success) by +0.76 in scenes built to fail. A clause in the question telling

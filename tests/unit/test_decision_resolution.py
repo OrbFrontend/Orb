@@ -16,10 +16,12 @@ from backend.pipeline.passes.judge import (
     decision_cooldown_baseline,
     decision_guidance_block,
     envelope,
+    gate_holds,
     raw_request_fingerprint,
     remap_anchors,
     resolution_policy_fingerprint,
     resolve_argmax,
+    resolve_gated,
     resolve_nearest,
     resolve_roll,
     resolve_threshold,
@@ -104,6 +106,24 @@ def test_weighted_resolution_uses_one_draw_against_authored_order():
     assert resolve_weighted(probabilities, tuple(probabilities), 0.0) == "a"
     assert resolve_weighted(probabilities, tuple(probabilities), 0.2) == "b"
     assert resolve_weighted(probabilities, tuple(probabilities), 0.99) == "c"
+
+
+def test_the_gate_holds_only_when_the_first_option_is_likeliest():
+    keys = ("none", "fail", "win")
+    assert gate_holds({"none": 0.85, "fail": 0.05, "win": 0.10}, keys)
+    assert not gate_holds({"none": 0.10, "fail": 0.30, "win": 0.60}, keys)
+    # A tie goes to the gate, as argmax ties go to authored order.
+    assert gate_holds({"none": 0.5, "fail": 0.5, "win": 0.0}, keys)
+
+
+def test_a_gated_draw_never_lands_on_the_gate_and_rescales_the_rest():
+    probabilities = {"none": 0.2, "fail": 0.2, "win": 0.6}
+    keys = tuple(probabilities)
+    # Without the gate's 0.2 the rest split 0.25 / 0.75.
+    assert resolve_gated(probabilities, keys, 0.0) == "fail"
+    assert resolve_gated(probabilities, keys, 0.24) == "fail"
+    assert resolve_gated(probabilities, keys, 0.26) == "win"
+    assert resolve_gated(probabilities, keys, 0.999) == "win"
 
 
 # ── decision cooldowns ───────────────────────────────────────────────────────

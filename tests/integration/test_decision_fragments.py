@@ -978,3 +978,25 @@ async def test_a_steered_group_regeneration_reuses_the_exchange_input(client, db
     assert "I shove the door." in gateway.states[-1]
     assert "slower, more reluctant" in gateway.states[-1]
     assert record["answer_source"] == "live"
+
+
+async def test_a_steered_solo_regeneration_reuses_the_turns_input(client, db, llm_mock, monkeypatch):
+    """The solo form of the rewind: the replaced reply is not the previous reply,
+    and the original request is not dropped in favour of the steering alone."""
+    cid = await _solo_scene(client)
+    gateway = Gateway(monkeypatch)
+
+    await _turn(llm_mock, cid, "I shove the door.", director={"moods": []}, reply="the reply being replaced")
+    target = await _last_assistant(cid)
+    RAW_ANSWER_CACHE.clear()
+
+    llm_mock.enqueue_director(_direct_scene(moods=[]))
+    llm_mock.enqueue_writer("rewritten")
+    await _drain(handle_magic_rewrite(cid, target["id"], "slower, more reluctant"))
+    record = (await _last_assistant(cid))["decision_evaluations"]["evaluations"][0]
+
+    assert len(gateway.batches) == 2
+    assert "the reply being replaced" not in gateway.states[-1]
+    assert "I shove the door." in gateway.states[-1]
+    assert "slower, more reluctant" in gateway.states[-1]
+    assert record["answer_source"] == "live"

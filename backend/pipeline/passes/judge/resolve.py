@@ -8,7 +8,7 @@ FALSE = "false"
 
 # The resolutions that draw against the classifier's odds instead of reading the
 # outcome straight off its answer. Regeneration keeps their answer but draws again.
-DRAWN_RESOLUTIONS = frozenset({"roll", "weighted"})
+DRAWN_RESOLUTIONS = frozenset({"roll", "weighted", "gated"})
 
 
 class SkipReason:
@@ -66,6 +66,27 @@ def resolve_weighted(probabilities: Mapping[str, float], keys: Sequence[str], dr
     # A normalized provider distribution may finish at 0.999999 through float
     # addition. The final authored option owns that tiny tail.
     return keys[-1]
+
+
+def gate_holds(probabilities: Mapping[str, float], keys: Sequence[str]) -> bool:
+    """Whether the first authored option -- "this does not apply" under ``gated`` -- is the likeliest.
+
+    A plain weighted draw lets the residual odds of the real outcomes through on
+    turns the Judge says attempt nothing (about 15% of idle turns for the Outcome
+    seed); the gate settles that question first, without a draw.
+    """
+    return resolve_argmax(probabilities, keys) == keys[0]
+
+
+def resolve_gated(probabilities: Mapping[str, float], keys: Sequence[str], draw: float) -> str:
+    """Draw among every option but the gate, on odds rescaled to exclude it.
+
+    Only for a gate that did not hold, so some later option outweighs it and the
+    rescaling total is positive.
+    """
+    rest = keys[1:]
+    total = sum(probabilities[key] for key in rest)
+    return resolve_weighted({key: probabilities[key] / total for key in rest}, rest, draw)
 
 
 def resolve_nearest(mean: float, keys: Sequence[str]) -> str:

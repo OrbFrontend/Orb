@@ -35,7 +35,7 @@ export function setDecisionConfig(payload) {
 export function outcomeLabel(type, key) {
   if (type === "noul") return key === "true" ? "True" : "False";
   if (type === "score") return `Level ${key}`;
-  return key;
+  return String(key).replaceAll("_", " ");
 }
 
 // Every `SkipReason` the judge pass can report. A reason with no entry here

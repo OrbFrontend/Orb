@@ -189,7 +189,7 @@ const COPY = {
     outcome: "Option",
     criterion: "What it means",
     criterionPlaceholder: "What picking this option means",
-    note: 'Tip: a "none of these" option with empty guidance lets the fragment do nothing.',
+    note: 'Tip: for a "none of these" case, put that option first with empty guidance and resolve with "First option gates, else random". When the Judge finds it likeliest, nothing is rolled or injected.',
   },
   score: {
     question: "what the Judge places on the scale below",
@@ -207,6 +207,7 @@ const RESOLUTION_LABELS = {
   roll: "Random roll",
   argmax: "Most likely",
   weighted: "Random by odds",
+  gated: "First option gates, else random",
   nearest: "Closest level",
 };
 
