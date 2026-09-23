@@ -22,16 +22,16 @@ from .context import (
 )
 from .failures import describe_failure
 from .orchestrator import _consume_direction_note_step, _run_pipeline
-from .passes.decisions import (
-    DecisionsResult,
-    DecisionsTurn,
-    build_snapshot,
-    decision_cooldown_baseline,
-    run_decisions,
-    stored_evaluations,
-)
 from .passes.director import cooldown, direction_note_step, director_stage, progressive
 from .passes.editor.editor import AUDIT_BASELINE_WINDOW
+from .passes.judge import (
+    JudgeResult,
+    JudgeTurn,
+    build_snapshot,
+    decision_cooldown_baseline,
+    judge_pass,
+    stored_evaluations,
+)
 from .persistence import _consume_pipeline, _conversation_log_writer
 from .predicates import direction_note_recording_active
 from .state import SheetUpdateTurn, TurnState
@@ -136,16 +136,16 @@ async def _run_turn_handler(
         yield {"event": "error", "data": describe_failure(e)}
 
 
-async def _run_decision_stage(
+async def _run_judge(
     ctx: PipelineContext,
     *,
     history: Sequence[Mapping[str, Any]],
     current_request: str,
     macros: Any,
     anchor_message_id: int | None,
-) -> AsyncIterator[dict | DecisionsResult]:
+) -> AsyncIterator[dict | JudgeResult]:
     prior = ctx.director.get("decision_cooldowns") or {}
-    turn = DecisionsTurn(
+    turn = JudgeTurn(
         snapshot=build_snapshot(
             history=history,
             current_request=current_request,
@@ -158,7 +158,7 @@ async def _run_decision_stage(
             anchor_message_id=anchor_message_id,
         ),
         candidates=ctx.decision_candidates,
-        config=ctx.decision_config,
+        config=ctx.judge_config,
         prior_cooldowns=prior,
         replay_records=tuple(ctx.director.get("decision_replay") or ()),
         approved_cards=ctx.approved_decision_cards,
@@ -166,12 +166,12 @@ async def _run_decision_stage(
     )
     has_work = bool(turn.candidates or turn.invalid)
     if has_work:
-        yield {"event": "step_start", "data": {"step": "decisions"}}
+        yield {"event": "step_start", "data": {"step": "judge"}}
     try:
-        result = await run_decisions(turn, abort=ctx.client.abort_token)
+        result = await judge_pass(turn, abort=ctx.client.abort_token)
     except DecisionCancelled:
-        logger.info("Decision stage cancelled by stop")
-        yield DecisionsResult(cooldowns=dict(prior))
+        logger.info("Judge pass cancelled by stop")
+        yield JudgeResult(cooldowns=dict(prior))
         return
     if has_work:
         yield {"event": "decisions", "data": result.as_event_data()}
@@ -320,16 +320,16 @@ async def _generate_reply(
             yield ev
     assert setup is not None
 
-    decisions: DecisionsResult | None = None
-    async for ev in _run_decision_stage(
+    judge: JudgeResult | None = None
+    async for ev in _run_judge(
         ctx,
         history=history,
         current_request=user_message,
         macros=setup.macros,
         anchor_message_id=user_msg_id if user_msg_id is not None else (history[-1]["id"] if history else None),
     ):
-        if isinstance(ev, DecisionsResult):
-            decisions = ev
+        if isinstance(ev, JudgeResult):
+            judge = ev
         else:
             yield ev
     # The same guard the group driver has. Cancellation is not a provider
@@ -363,7 +363,7 @@ async def _generate_reply(
         schema_overrides=setup.schema_overrides,
         history=history,
         world_proposal=setup.world_proposal,
-        decisions=decisions,
+        judge=judge,
     )
     async for event in _consume_pipeline(
         pipeline,
@@ -448,23 +448,23 @@ async def _generate_group_exchange(
         fragment_cooldowns=dict(ctx.director.get("fragment_cooldowns") or {}),
     )
 
-    decisions: DecisionsResult | None = None
+    judge: JudgeResult | None = None
     decision_history, decision_request, decision_anchor = _exchange_decision_input(
         history, user_message, parent_message_id, exchange_id=decision_exchange_id, steering=decision_steering
     )
-    async for ev in _run_decision_stage(
+    async for ev in _run_judge(
         ctx,
         history=decision_history,
         current_request=decision_request,
         macros=setup.macros,
         anchor_message_id=decision_anchor,
     ):
-        if isinstance(ev, DecisionsResult):
-            decisions = ev
+        if isinstance(ev, JudgeResult):
+            judge = ev
         else:
             yield ev
-    if decisions is not None:
-        decisions.apply_to(shared)
+    if judge is not None:
+        judge.apply_to(shared)
     if ctx.client.is_aborted:
         yield {"event": "done"}
         return

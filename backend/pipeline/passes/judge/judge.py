@@ -97,7 +97,7 @@ Answer = float | ChoiceAnswer | ScoreAnswer
 
 
 @dataclass(frozen=True, slots=True)
-class DecisionConfig:
+class JudgeConfig:
     url: str = ""
     api_key: str = ""
     model: str = ""
@@ -126,10 +126,10 @@ class InvalidDecision:
 
 
 @dataclass(frozen=True, slots=True)
-class DecisionsTurn:
+class JudgeTurn:
     snapshot: DecisionSnapshot
     candidates: tuple[DecisionCandidate, ...] = ()
-    config: DecisionConfig = field(default_factory=DecisionConfig)
+    config: JudgeConfig = field(default_factory=JudgeConfig)
     prior_cooldowns: Mapping[str, int] = field(default_factory=dict)
     replay_records: tuple[Mapping[str, Any], ...] = ()
     approved_cards: frozenset[str] = frozenset()
@@ -137,7 +137,7 @@ class DecisionsTurn:
 
 
 @dataclass(slots=True)
-class DecisionsResult:
+class JudgeResult:
     evaluations: list[dict[str, Any]] = field(default_factory=list)
     skipped: list[dict[str, Any]] = field(default_factory=list)
     cooldowns: dict[str, int] = field(default_factory=dict)
@@ -179,7 +179,7 @@ class _Item:
         return self.candidate.definition
 
 
-def _eligible(turn: DecisionsTurn) -> tuple[list[DecisionCandidate], list[dict[str, Any]]]:
+def _eligible(turn: JudgeTurn) -> tuple[list[DecisionCandidate], list[dict[str, Any]]]:
     skipped = [
         {
             "fragment_id": broken.fragment_id,
@@ -222,13 +222,13 @@ def _over_budget(running: Sequence[DecisionCandidate]) -> set[str]:
     return over
 
 
-def _prepare(candidate: DecisionCandidate, turn: DecisionsTurn, *, over_budget: bool) -> _Item:
+def _prepare(candidate: DecisionCandidate, turn: JudgeTurn, *, over_budget: bool) -> _Item:
     item = _Item(candidate, resolution_policy_fingerprint(candidate.definition, scope=turn.snapshot.scope))
     item.skip_reason = _render_question(item, turn, over_budget=over_budget)
     return item
 
 
-def _render_question(item: _Item, turn: DecisionsTurn, *, over_budget: bool) -> str:
+def _render_question(item: _Item, turn: JudgeTurn, *, over_budget: bool) -> str:
     """Render *item*'s request, or return why it cannot be asked."""
     definition, snapshot = item.definition, turn.snapshot
     try:
@@ -300,7 +300,7 @@ def _gated(definition: DecisionDefinition, answer: Answer) -> bool:
     return definition.confidence_floor is not None and confidence is not None and confidence < definition.confidence_floor
 
 
-def _resolved_record(item: _Item, turn: DecisionsTurn) -> dict[str, Any] | None:
+def _resolved_record(item: _Item, turn: JudgeTurn) -> dict[str, Any] | None:
     """The evaluation record, or ``None`` with ``item.skip_reason`` set.
 
     Returning nothing is the whole point: an unanswered decision contributes no
@@ -419,7 +419,7 @@ def _replayed(item: _Item, stored: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _cache_key(item: _Item, turn: DecisionsTurn) -> str:
+def _cache_key(item: _Item, turn: JudgeTurn) -> str:
     assert item.question is not None
     return cache_key(turn.config.url, turn.config.model, item.state, item.question)
 
@@ -444,7 +444,7 @@ def _batches(pending: Sequence[_Item]) -> list[list[_Item]]:
     return batches
 
 
-async def run_decisions(turn: DecisionsTurn, *, abort: AbortToken | None = None) -> DecisionsResult:
+async def judge_pass(turn: JudgeTurn, *, abort: AbortToken | None = None) -> JudgeResult:
     started = time.monotonic()
     running, skipped = _eligible(turn)
     over = _over_budget(running)
@@ -486,7 +486,7 @@ async def run_decisions(turn: DecisionsTurn, *, abort: AbortToken | None = None)
             skipped.append(_skipped_row(item))
         else:
             evaluations.append(record)
-    return DecisionsResult(
+    return JudgeResult(
         evaluations=evaluations,
         skipped=skipped,
         cooldowns=cooldown.advance(
@@ -499,11 +499,11 @@ async def run_decisions(turn: DecisionsTurn, *, abort: AbortToken | None = None)
     )
 
 
-async def _issue(pending: Sequence[_Item], turn: DecisionsTurn, *, started: float, abort: AbortToken | None) -> int:
+async def _issue(pending: Sequence[_Item], turn: JudgeTurn, *, started: float, abort: AbortToken | None) -> int:
     config = turn.config
     client = DecisionClient(config.url, config.api_key, config.model, timeout=REQUEST_TIMEOUT_SECONDS, proxy=config.proxy)
     if abort is not None and abort.is_aborted:
-        raise DecisionCancelled("stopped during the decision stage")
+        raise DecisionCancelled("stopped during the judge pass")
     remaining = STAGE_BUDGET_SECONDS - (time.monotonic() - started)
     batches = _batches(pending)
     sent = batches[:MAX_REQUEST_ATTEMPTS] if remaining > 0 else []
@@ -511,7 +511,7 @@ async def _issue(pending: Sequence[_Item], turn: DecisionsTurn, *, started: floa
         for item in batch:
             item.skip_reason = SkipReason.BUDGET_EXHAUSTED
     # No batch reads another's answer, so none waits on another: the judge answers
-    # each in about the same time, and the stage costs its slowest request
+    # each in about the same time, and the pass costs its slowest request
     # instead of their sum (four states: 2.5 s sequential, 0.7 s together).
     outcomes = await asyncio.gather(
         *(
@@ -543,7 +543,7 @@ async def _issue(pending: Sequence[_Item], turn: DecisionsTurn, *, started: floa
     return len(sent)
 
 
-def _apply(batch: Sequence[_Item], response: DecisionResponse, turn: DecisionsTurn) -> None:
+def _apply(batch: Sequence[_Item], response: DecisionResponse, turn: JudgeTurn) -> None:
     for item in batch:
         item.elapsed_ms = response.elapsed_ms
         answer = response.answers.get(item.definition.fragment_id)

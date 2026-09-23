@@ -5,8 +5,8 @@ from typing import Any
 
 from ....core import decision_definition_errors
 from ....inference import DecisionClient, DecisionQuestion
+from .judge import REQUEST_TIMEOUT_SECONDS, JudgeConfig
 from .render import STATE_MACROS, TEXT_MACROS, macro_errors
-from .stage import REQUEST_TIMEOUT_SECONDS, DecisionConfig
 
 CONNECTION_TEST_STATE = "Alric attempts to force Maren back from the doorway."
 CONNECTION_TEST_QUESTION = DecisionQuestion(
@@ -37,7 +37,7 @@ def definition_problems(row: Mapping[str, Any]) -> list[str]:
     return problems
 
 
-async def connection_test(config: DecisionConfig) -> dict[str, Any]:
+async def connection_test(config: JudgeConfig) -> dict[str, Any]:
     if not config.configured:
         return {"ok": False, "error": "No decision endpoint is configured"}
     response = await DecisionClient(

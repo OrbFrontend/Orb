@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from backend.core import DEFAULT_STATE_TEMPLATE, parse_decision_definition
 from backend.inference import DecisionQuestion
-from backend.pipeline.passes.decisions import (
+from backend.pipeline.passes.judge import (
     EVALUATIONS_VERSION,
     advance_decision_cooldowns,
     decision_cooldown_baseline,
@@ -27,11 +27,11 @@ from backend.pipeline.passes.decisions import (
     resting_decisions,
     stored_evaluations,
 )
-from backend.pipeline.passes.decisions.records import (
+from backend.pipeline.passes.judge.records import (
     invalidated_anchor,
     matching_replay,
 )
-from backend.pipeline.passes.decisions.resolve import draw_uniform
+from backend.pipeline.passes.judge.resolve import draw_uniform
 
 
 def _definition(**overrides):

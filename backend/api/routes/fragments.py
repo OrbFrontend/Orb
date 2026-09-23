@@ -21,7 +21,7 @@ from ...database import (
     update_interactive_fragment,
     update_mood_fragment,
 )
-from ...pipeline.passes.decisions import definition_problems
+from ...pipeline.passes.judge import definition_problems
 from ..schemas import (
     InteractiveFragmentCreate,
     InteractiveFragmentReorder,

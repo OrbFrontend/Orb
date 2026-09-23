@@ -257,7 +257,7 @@ async def director_pass(
     notes_prefix = ("___\n\n" + direction_notes_block + "\n\n") if direction_notes_block else ""
     # Already-settled facts the Director plans *around*, so they ride the context
     # section of the tail rather than the instruction. Nothing about probabilities
-    # or dice is in the block (see passes/decisions/guidance.py) — a rolled outcome
+    # or dice is in the block (see passes/judge/guidance.py) — a rolled outcome
     # reaches the model as the story constraint its author wrote.
     decisions_prefix = ("___\n\n" + decision_guidance + "\n\n") if decision_guidance else ""
 

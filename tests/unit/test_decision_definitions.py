@@ -15,7 +15,7 @@ from backend.core import (
     parse_decision_definition,
 )
 from backend.database import card_decision_fingerprint, card_embedded_fragments
-from backend.pipeline.passes.decisions import definition_problems
+from backend.pipeline.passes.judge import definition_problems
 
 
 def _row(**overrides) -> dict:

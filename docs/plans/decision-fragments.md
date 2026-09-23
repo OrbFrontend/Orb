@@ -558,7 +558,7 @@ Read [prompting](../architecture/prompting.md),
 | Area | Responsibility |
 |---|---|
 | `backend/inference/jev.py` | Provider transport, request serialization, strict response normalization, raw-response cache |
-| `backend/pipeline/passes/decisions/` | Input snapshots, decision-scoped rendering, eligibility, batching orchestration, budgets, resolution, replay matching |
+| `backend/pipeline/passes/judge/` | Input snapshots, decision-scoped rendering, eligibility, batching orchestration, budgets, resolution, replay matching |
 | `backend/pipeline/orchestrator.py`, `entrypoints.py` | Solo stage and once-per-exchange group placement; explicit regeneration target records |
 | `backend/pipeline/config.py`, `prompting/tool_schemas.py` | Exclude decisions from Director tool fields and unrelated fragment consumers |
 | Director prompts and `prompting/scene_direction.py` | Append resolved guidance at the tail; preserve existing fragment output bytes |

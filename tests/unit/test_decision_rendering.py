@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from backend.core import DEFAULT_STATE_TEMPLATE, Macros
-from backend.pipeline.passes.decisions import (
+from backend.pipeline.passes.judge import (
     STATE_MACROS,
     TEXT_MACROS,
     DecisionSnapshot,
@@ -19,7 +19,7 @@ from backend.pipeline.passes.decisions import (
     macros_used,
     render,
 )
-from backend.pipeline.passes.decisions.render import (
+from backend.pipeline.passes.judge.render import (
     RECENT_HISTORY_DEPTH,
     UnavailableMacro,
 )

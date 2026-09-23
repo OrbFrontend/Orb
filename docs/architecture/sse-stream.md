@@ -68,7 +68,7 @@ pass being skipped.
 | `user_message_created` | `{id, content}` | Replaces the optimistic user row with its saved id and text. `/send` only. |
 | `director_start` | — | Starts the directing phase. |
 | `decisions` | `{evaluations, skipped, cooldowns}` | Publishes the resolved decision fragments, once per turn and once per group exchange, before the directing phase. Sent only when the turn had a decision to run or to report. |
-| `step_start` | `{step}` | Names the step that is starting: `decisions`, `lorebook`, `direction_notes`, `writer`, `output_auditor`, `length_guard`, `post_processing`, `feedback`, `world_changes`, or `sheet_updates`. |
+| `step_start` | `{step}` | Names the step that is starting: `judge`, `lorebook`, `direction_notes`, `writer`, `output_auditor`, `length_guard`, `post_processing`, `feedback`, `world_changes`, or `sheet_updates`. |
 | `reasoning` | `{pass, delta}` | Adds thinking text to a pass's reasoning buffer. |
 | `director_done` | Director data | Updates the inspector. |
 | `token` | Text delta | Appends visible Writer output. |

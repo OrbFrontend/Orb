@@ -38,7 +38,7 @@ export function outcomeLabel(type, key) {
   return key;
 }
 
-// Every `SkipReason` the decision stage can report. A reason with no entry here
+// Every `SkipReason` the judge pass can report. A reason with no entry here
 // is shown verbatim rather than swallowed. A skip has no outcome at all, so it
 // must never be painted as a resolved `false`.
 const SKIP_REASONS = {

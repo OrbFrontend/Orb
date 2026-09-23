@@ -394,7 +394,7 @@ export async function processSSEStream(resp, container, holder, signal) {
   S.reasoningEditor = "";
   S.lastFeedback = null;
   S.lastDirectionNotes = null;
-  // Cleared once per turn, not per speaker: the decision stage runs for the
+  // Cleared once per turn, not per speaker: the judge pass runs for the
   // whole exchange and the later speakers replay its answers, so a speaker that
   // reports no new work must not blank a panel that is still current.
   S.lastDecisions = null;

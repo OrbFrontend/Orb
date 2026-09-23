@@ -283,7 +283,7 @@ class MessageRow(TypedDict):
     speaker_member_id: str | None
     exchange_id: str | None
     # This reply's own versioned decision envelope
-    # (``{version, evaluations, skipped}``, written by pipeline/passes/decisions)
+    # (``{version, evaluations, skipped}``, written by pipeline/passes/judge)
     # and the decision cooldown state as of this reply.
     decision_evaluations: dict
     decision_cooldowns: dict[str, int]

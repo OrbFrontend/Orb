@@ -17,7 +17,7 @@ import backend.database as dbmod
 from backend.inference import RAW_ANSWER_CACHE, DecisionCancelled, DecisionResponse
 from backend.inference.errors import llm_call_error
 from backend.pipeline import handle_magic_rewrite, handle_regenerate, handle_turn
-from backend.pipeline.passes.decisions import stage as stage_module
+from backend.pipeline.passes.judge import judge as judge_module
 
 DEFINITION = {
     "id": "outcome",
@@ -64,7 +64,7 @@ class Gateway:
                 elapsed_ms=4,
             )
 
-        monkeypatch.setattr(stage_module.DecisionClient, "decide", _decide)
+        monkeypatch.setattr(judge_module.DecisionClient, "decide", _decide)
 
 
 async def _configure(client, *, agent: bool = True, url: str = "https://openrouter.ai/api/v1") -> None:
@@ -346,7 +346,7 @@ async def test_a_resolved_decision_reaches_the_director_tail_and_the_writer(clie
     events = await _turn(llm_mock, cid, "I shove the door.", director={"moods": []})
 
     # The stage announced itself and published its result once.
-    assert {"step": "decisions"} in _events(events, "step_start")
+    assert {"step": "judge"} in _events(events, "step_start")
     published = _event(events, "decisions")
     assert published["evaluations"][0]["outcome"] == "true"
     assert published["evaluations"][0]["probability"] == 0.9
@@ -515,7 +515,7 @@ async def test_regeneration_rerolls_a_drawn_outcome_on_the_stored_odds(client, d
     await client.put("/api/interactive-fragments/outcome", json={"decision_resolution": "roll", "decision_threshold": None})
     gateway = Gateway(monkeypatch, answers={"outcome": 0.5})
     draws = iter((0.1, 0.9))
-    monkeypatch.setattr(stage_module, "draw_uniform", lambda: next(draws))
+    monkeypatch.setattr(judge_module, "draw_uniform", lambda: next(draws))
 
     await _turn(llm_mock, cid, "I shove the door.", director={"moods": []})
     target = await _last_assistant(cid)
@@ -687,7 +687,7 @@ async def test_a_malformed_card_decision_contributes_nothing(client, db, llm_moc
     # Nothing was contributed, so the stage has no work: no step, no published
     # result, no request, and nothing to approve.
     assert _events(events, "decisions") == []
-    assert {"step": "decisions"} not in _events(events, "step_start")
+    assert {"step": "judge"} not in _events(events, "step_start")
     assert gateway.batches == []
     assert (await _last_assistant(cid))["decision_evaluations"] == {}
     assert (await client.get(f"/api/decisions/card-approval/{card_id}")).json()["has_decisions"] is False
@@ -923,7 +923,7 @@ async def test_a_stop_during_the_decision_stage_ends_the_turn(client, db, llm_mo
         token.abort()
         raise DecisionCancelled("stopped")
 
-    monkeypatch.setattr(stage_module.DecisionClient, "decide", _decide)
+    monkeypatch.setattr(judge_module.DecisionClient, "decide", _decide)
 
     events = await _drain(handle_turn(cid, "I shove the door.", abort_token=token))
 
@@ -933,7 +933,7 @@ async def test_a_stop_during_the_decision_stage_ends_the_turn(client, db, llm_mo
     # The decision step starts, then the turn ends: no director_start for a
     # directing phase that will not happen.
     assert [event["event"] for event in events if event["event"] != "user_message_created"] == ["step_start", "done"]
-    assert _events(events, "step_start") == [{"step": "decisions"}]
+    assert _events(events, "step_start") == [{"step": "judge"}]
     # No reply was retained, so no decision cooldown was committed either.
     assert [m for m in await dbmod.get_messages(cid) if m["role"] == "assistant"] == []
 

@@ -22,8 +22,8 @@ from ...database import (
     update_decision_config,
 )
 from ...inference import RAW_ANSWER_CACHE, DecisionTransportError, LLMCallError
-from ...pipeline import resolve_decision_config
-from ...pipeline.passes.decisions import STATE_MACROS, TEXT_MACROS, connection_test
+from ...pipeline import resolve_judge_config
+from ...pipeline.passes.judge import STATE_MACROS, TEXT_MACROS, connection_test
 from ..schemas import DecisionCardApproval, DecisionConfigUpdate
 
 router = APIRouter()
@@ -48,7 +48,7 @@ def _config_payload(settings, config) -> dict:
 @router.get("/api/decisions/config")
 async def api_get_decision_config():
     settings = await get_settings()
-    return _config_payload(settings, await resolve_decision_config(settings))
+    return _config_payload(settings, await resolve_judge_config(settings))
 
 
 @router.put("/api/decisions/config")
@@ -68,7 +68,7 @@ async def api_update_decision_config(data: DecisionConfigUpdate):
             )
     settings = await update_decision_config(update)
     RAW_ANSWER_CACHE.clear()
-    return _config_payload(settings, await resolve_decision_config(settings))
+    return _config_payload(settings, await resolve_judge_config(settings))
 
 
 def _rejection_sentence(error: LLMCallError) -> str:
@@ -92,7 +92,7 @@ def _rejection_sentence(error: LLMCallError) -> str:
 
 @router.post("/api/decisions/test")
 async def api_test_decision_endpoint():
-    config = await resolve_decision_config(await get_settings())
+    config = await resolve_judge_config(await get_settings())
     try:
         return await connection_test(config)
     except LLMCallError as error:

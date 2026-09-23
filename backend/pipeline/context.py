@@ -49,7 +49,7 @@ from ..prompting.lorebook import (
     compute_lorebook_injection_block,
 )
 from .config import _build_writer_tools_blob
-from .passes.decisions import DecisionCandidate, DecisionConfig, InvalidDecision
+from .passes.judge import DecisionCandidate, InvalidDecision, JudgeConfig
 from .predicates import agent_enabled, resolve_persona_id, world_proposal_active
 from .state import LorebookTurn, WorldProposalTurn
 from .workflow_bridge import _iterate_pre_pipeline_hooks
@@ -95,7 +95,7 @@ class PipelineContext:
     group_members: tuple[Mapping[str, Any], ...] = ()
     decision_candidates: tuple[DecisionCandidate, ...] = ()
     invalid_decisions: tuple[InvalidDecision, ...] = ()
-    decision_config: DecisionConfig = field(default_factory=DecisionConfig)
+    judge_config: JudgeConfig = field(default_factory=JudgeConfig)
     approved_decision_cards: frozenset[str] = frozenset()
 
 
@@ -171,7 +171,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         group_members=tuple(m for m in all_group_members if m.get("active")),
         decision_candidates=decision_candidates,
         invalid_decisions=invalid_decisions,
-        decision_config=await resolve_decision_config(settings),
+        judge_config=await resolve_judge_config(settings),
         approved_decision_cards=await _approved_decision_cards(settings, decision_candidates, card),
     )
 
@@ -202,7 +202,7 @@ def _decision_candidates(
     return tuple(candidates), tuple(invalid)
 
 
-async def resolve_decision_config(settings: Mapping[str, Any]) -> DecisionConfig:
+async def resolve_judge_config(settings: Mapping[str, Any]) -> JudgeConfig:
     """The classifier's live configuration, or an unconfigured one.
 
     The route comes from the judge endpoint's URL and nowhere else:
@@ -213,11 +213,11 @@ async def resolve_decision_config(settings: Mapping[str, Any]) -> DecisionConfig
     endpoint_id = settings.get("decision_endpoint_id")
     model = str(settings.get("decision_model") or "")
     if not endpoint_id or not model:
-        return DecisionConfig()
+        return JudgeConfig()
     endpoint = await db.get_endpoint(int(endpoint_id))
     if endpoint is None:
-        return DecisionConfig()
-    return DecisionConfig(
+        return JudgeConfig()
+    return JudgeConfig(
         url=decisions_url(endpoint["url"]),
         api_key=endpoint.get("api_key", ""),
         model=model,
