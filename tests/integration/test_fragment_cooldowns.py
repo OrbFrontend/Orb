@@ -82,7 +82,7 @@ async def test_resting_progressive_value_is_carried_without_restarting_cooldown(
     await _turn(llm_mock, cid, "one", {"moods": [], "trust": "guarded"})
     resting = _director_data(await _turn(llm_mock, cid, "two", {"moods": [], "trust": "model changed it"}))
     assert resting["extra_fields"]["trust"] == "guarded"
-    assert "Trust (Current trust level.): guarded" in resting["injection_block"]
+    assert "Trust: guarded" in resting["injection_block"]
     assert resting["fragment_cooldowns"] == {"trust": 1}
     assert (await _last_assistant(cid))["progressive_fields"] == {"trust": "guarded"}
 
