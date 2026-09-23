@@ -5,11 +5,11 @@ the current situation before the Director runs. The Judge selects an outcome
 using the fragment's resolution policy. Orb sends that outcome's guidance to
 the Director and Writer under **Major Decisions**.
 
-Decisions are independent because of their nature. Each sees the same turn snapshot;
-one decision cannot read another's result, and fragment order does not create a 
-dependency. Questions with the same rendered situation are batched where limits allow;
-separate batches run concurrently. If one result should affect another question, 
-combine them into one choice or score decision.
+Decision fragments run independently. Each sees the turn's situation, not another
+fragment's result, so their order does not create a sequence. Orb batches questions
+with the same rendered situation when limits allow; separate batches run at the
+same time. If one question depends on another's answer, combine them into a single
+choice or score decision.
 
 ## Create and configure
 
@@ -63,21 +63,33 @@ The **Situation** template is the context sent to the Judge. It supports
 messages. The current request is available separately as `{{last_message}}`.
 
 Question instructions, outcome descriptions, and guidance support `{{user}}`,
-`{{char}}`, and `{{cast}}`. In group chats, a card decision uses that card's
-character as `{{char}}` and its scene sheet as `{{description}}`. The
-description's own macros resolve as they do for the Writer.
+`{{char}}`, and `{{cast}}`. A group decision from a character card uses that
+character as `{{char}}` and its scene sheet as `{{description}}`. Macros inside
+the description resolve the same way they do for the Writer.
 
-Every field also supports the inline macros: `{{roll::1d20}}`,
-`{{random::a::b}}`/`{{pick::a::b}}`, `{{time}}`, `{{date}}`, `{{trim}}`, and
-`{{// comments}}`. They resolve in the template before the snapshot's values
-are inserted, so a macro typed inside a message is never evaluated. Rolls are
-fixed for an exchange: a regeneration sees the same values and can reuse the
-Judge's answer, and the next exchange rolls again. The Situation rolls once per
-exchange, so every decision sees the same world and equal templates still share
-a request; the other fields roll separately for each decision. `{{user}}`,
-`{{char}}`, and `{{cast}}` may sit inside `{{random}}` or `{{pick}}`; the
-situation macros may not. `{{time}}` in the Situation changes the request every
-minute, so it can stop a regeneration from reusing the answer.
+### Inline macros
+
+You can use these macros in any decision field:
+
+- `{{roll::1d20}}` rolls dice; `{{random::a::b}}` and `{{pick::a::b}}` choose
+  one of the listed options.
+- `{{time}}` and `{{date}}` insert the current local time and date.
+- `{{trim}}` removes the surrounding line breaks. `{{// note }}` adds a note
+  that Orb removes before sending the field to the Judge.
+
+Orb expands inline macros before inserting chat text such as `{{last_message}}`
+and `{{recent_history}}`. So text from a message is not evaluated a second time.
+
+Regeneration keeps the same rolls for the same request; a new exchange gets
+fresh rolls. All decisions in an exchange share the rolls in their Situation.
+Rolls in instructions, criteria, and guidance are separate for each decision.
+You can use `{{user}}`, `{{char}}`, and `{{cast}}` inside a `random` or
+`pick` option. Situation values such as `{{last_message}}`, `{{recent_history}}`,
+and `{{description}}` must stay outside those options.
+
+`{{time}}` and `{{date}}` use the current clock, so they can change the Judge's
+input between regenerations. For example, a Situation containing `{{time}}` may
+change when the minute changes, preventing Orb from reusing the earlier answer.
 
 The rendered situation limit is 16 KiB and the question limit is 8 KiB. An
 oversized request is skipped; the Inspector shows its size and limit. A macro
