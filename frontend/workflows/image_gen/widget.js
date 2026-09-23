@@ -16,9 +16,10 @@ import {
   streamPost,
   toast,
 } from "/static/workflow_api.js";
-import { attachmentDetailsHtml, hasAttachment, messageButtonHtml } from "./render.js";
+import { attachmentDetailsHtml, hasAttachment, messageButtonHtml, viewToggleHtml } from "./render.js";
 
 const WORKFLOW_ID = "image_gen";
+const FOCUS_VIEW_KEY = "orb.imageGen.focusView";
 const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 4 4 2-2 5 5"/></svg>`;
 let cfg;
 
@@ -27,13 +28,41 @@ const inFlight = new Map(); // msgId -> AbortController
 const pendingEdits = new Map(); // attId -> edited fields
 const rerollEditSnapshots = new Map(); // attId -> edit object submitted by the current reroll
 
+let focusView = loadFocusView(); // image fills the card, details hidden
+
 export function initWidget(sharedConfig) {
   cfg = sharedConfig;
   registerAction(WORKFLOW_ID, "generate", (el) => generate(Number(el.dataset.msgId), el));
   registerAction(WORKFLOW_ID, "savePrompt", savePrompt);
   registerAction(WORKFLOW_ID, "editPrompt", editPrompt);
+  registerAction(WORKFLOW_ID, "toggleDetails", toggleDetails);
   registerRerollParams(WORKFLOW_ID, rerollParams);
   registerRerollSuccess(WORKFLOW_ID, clearPendingEdit);
+}
+
+function loadFocusView() {
+  try {
+    return localStorage.getItem(FOCUS_VIEW_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+// One view for every card, flipped in place: requestRepaint is skipped while a
+// reply streams, which would leave the button dead until the stream ended.
+function toggleDetails(el) {
+  focusView = !focusView;
+  try {
+    localStorage.setItem(FOCUS_VIEW_KEY, focusView ? "1" : "0");
+  } catch (e) {
+    console.warn("persist image_gen focus view failed", e);
+  }
+  for (const card of document.querySelectorAll(".image-gen-attachment")) {
+    card.classList.toggle("image-gen-focus", focusView);
+    card.querySelector(".image-gen-view-btn").setAttribute("aria-pressed", String(!focusView));
+  }
+  // Cards around it resized too; a focus card is pane-sized, so the reveal alone places it.
+  el.closest(".image-gen-attachment").scrollIntoView({ block: "nearest", behavior: "instant" });
 }
 
 function editPrompt(el) {
@@ -159,12 +188,12 @@ async function pollForAttachment(msgId, signal, { timeoutMs = 120_000, intervalM
 export function attachmentRenderer(ctx) {
   const { att, buttons, defaultHtml } = ctx;
   const media = defaultHtml.replace(buttons.regen, "").replace(buttons.reroll, "");
-  const actions =
-    buttons.reroll || buttons.regen ? `<div class="image-gen-actions">${buttons.reroll}${buttons.regen}</div>` : "";
+  const actions = `<div class="image-gen-actions">${viewToggleHtml(focusView)}${buttons.reroll}${buttons.regen}</div>`;
   const pend = pendingEdits.get(att.id);
   const cm = att.consumption_metadata || {};
   const edited = (key) => pend && key in pend && pend[key] !== (cm[key] ?? "");
   const pending = edited("prompt") || edited("negative_prompt") ? pend : undefined;
   const details = attachmentDetailsHtml(att, { esc, escAttr, pending });
-  return `<div class="image-gen-attachment"><div class="image-gen-media">${media}${actions}</div>${details}</div>`;
+  const view = focusView ? " image-gen-focus" : "";
+  return `<div class="image-gen-attachment${view}"><div class="image-gen-media">${media}${actions}</div>${details}</div>`;
 }

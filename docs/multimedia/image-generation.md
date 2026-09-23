@@ -161,6 +161,10 @@ Select the image button again to cancel an active request. A submitted ComfyUI
 job may continue in ComfyUI after Orb cancels it; check that queue before starting
 another job.
 
+The info button (ⓘ) on an image hides the details and enlarges the image to fill
+its card. The choice applies to every image and is remembered in this browser.
+Select ⓘ again to bring the details back.
+
 ## Variants and rerendering
 
 Each image result is a variant of the selected reply.
@@ -180,7 +184,8 @@ workflow. Orb keeps the stored prompt and records any backend or style change in
 
 ## Edit a prompt
 
-1. Open **Render details** under the image.
+1. Open **Render details** beside the image. If only the image is showing,
+   select the info button (ⓘ) on it first.
 2. Select the pencil beside **Prompt** or **Negative**.
 3. Edit the text and click outside the field.
 4. Select **Reroll**.

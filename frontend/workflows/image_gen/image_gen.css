@@ -99,12 +99,21 @@
 
 @media (max-width:560px){.ig-grid{grid-template-columns:1fr}}
 
-.image-gen-attachment{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:flex-start;gap:14px}
-.image-gen-media{position:relative;flex:0 0 auto;line-height:0}
+.image-gen-attachment{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:flex-start;gap:14px;scroll-margin:46px 0 26px}
+.image-gen-media{position:relative;flex:0 1 auto;min-width:0;line-height:0}
 .image-gen-actions{position:absolute;right:6px;bottom:6px;display:flex;gap:4px;padding:3px;border-radius:calc(var(--radius) + 2px);background:rgba(0,0,0,.5);backdrop-filter:blur(3px);opacity:.6;transition:opacity .15s}
 .image-gen-media:hover .image-gen-actions,.image-gen-actions:focus-within{opacity:1}
 .image-gen-actions .workflow-regen-button,.image-gen-actions .workflow-reroll-button{border:none;background:transparent;color:#fff}
 .image-gen-actions .workflow-regen-button:hover:not(:disabled),.image-gen-actions .workflow-reroll-button:hover:not(:disabled){background:rgba(255,255,255,.2);color:#fff;border-color:transparent}
+.image-gen-view-btn{width:26px;height:26px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:var(--radius);background:transparent;color:#fff;cursor:pointer}
+.image-gen-view-btn[aria-pressed="true"]{background:rgba(255,255,255,.14)}
+.image-gen-view-btn:hover{background:rgba(255,255,255,.2)}
+
+/* Focus view: the image fills the card, capped so the card's header and counter
+   (the attachment's scroll margin) still fit in the chat pane beside it. */
+.image-gen-focus{justify-content:center}
+.image-gen-focus>.image-gen-details{display:none}
+.image-gen-focus .workflow-artifact-image{max-height:max(360px,calc(100dvh - 200px))}
 
 .image-gen-details{flex:1 1 220px;min-width:0;font-size:.88em}
 .image-gen-details>summary{display:flex;align-items:center;gap:6px;margin-bottom:8px;cursor:pointer;user-select:none;list-style:none}

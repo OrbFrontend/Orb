@@ -10,7 +10,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { attachmentDetailsHtml, hasAttachment, messageButtonHtml } from "../../frontend/workflows/image_gen/render.js";
+import {
+  attachmentDetailsHtml,
+  hasAttachment,
+  messageButtonHtml,
+  viewToggleHtml,
+} from "../../frontend/workflows/image_gen/render.js";
 
 const MARKERS = { esc: (v) => `«${v}»`, escAttr: (v) => `“${v}”` };
 const ICON = "<svg></svg>";
@@ -204,6 +209,15 @@ test("selected composition skills are shown by label and escaped", () => {
   assert.ok(html.includes(`«${HOSTILE}, crop»`));
   assert.ok(!html.replaceAll(`«${HOSTILE}, crop»`, "").includes("<script>"));
   assert.ok(!attachmentDetailsHtml({ consumption_metadata: { composition_skills: [] } }, MARKERS).includes("Composition skills"));
+});
+
+// ── view toggle ─────────────────────────────────────────────────────────────
+
+test("the info button is pressed while the details show", () => {
+  const details = viewToggleHtml(false);
+  assert.match(details, /data-wf-action="image_gen:toggleDetails"/);
+  assert.match(details, /aria-pressed="true"/);
+  assert.match(viewToggleHtml(true), /aria-pressed="false"/);
 });
 
 // ── seedless backends and cost ───────────────────────────────────────────────
