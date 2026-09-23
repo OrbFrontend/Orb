@@ -15,16 +15,6 @@
    full width too; the sidebar's 10px inset would hang them off the fields. */
 .decision-section .frag-divider { padding: 0; margin: 14px 0 6px; }
 
-/* A paired column is too narrow to hold a field's name and its hint on one
-   line, so the hint takes its own -- and needs the leading a wrapped line would
-   have come with. The labels keep the same 4px step to their control as every
-   other field in the modal: the two fields that carry hints here are mutually
-   exclusive, so a pair is never a short label beside a tall one. */
-.decision-section .field-row > .field > label .decision-hint {
-  display: block;
-  margin-top: 3px;
-}
-
 .decision-hint {
   font-size: 10px;
   color: var(--text-muted);
@@ -32,6 +22,20 @@
   letter-spacing: 0;
   text-transform: none;
 }
+
+/* The row's third slot: a 0-1 number, so it needs its label's width and no more. */
+.decision-section .field-row > .decision-knob { flex: 0 0 104px; min-width: 0; }
+
+/* The macros a textarea expands, under it: reference, not instruction, so it
+   stays out of the label, where it wrapped every label it sat in. */
+.decision-macros {
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+.decision-macros code { font-family: var(--font-mono); font-size: 10px; }
 
 /* Prose, not a control: no box, so it cannot be mistaken for a disabled
    textarea (which is exactly what --bg-deep inside a border looks like). */
@@ -42,19 +46,15 @@
   margin-bottom: 10px;
 }
 
+/* A rule, not a box: the same mark .decision-problem uses, in amber. */
 .decision-status {
   font-size: 11px;
   line-height: 1.5;
-  color: var(--text-secondary);
-  background: var(--bg-deep);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 8px 10px;
-  margin-bottom: 10px;
+  color: var(--dec-warn);
+  border-left: 2px solid var(--dec-warn);
+  padding: 1px 0 1px 8px;
+  margin: 6px 0 4px;
 }
-
-.decision-status-ok { border-color: var(--accent-dim); }
-.decision-status-warn { border-color: var(--dec-warn); color: var(--dec-warn); }
 
 .decision-status code {
   font-family: var(--font-mono);
@@ -71,21 +71,29 @@
   margin: 6px 0;
 }
 
-/* The criteria table. Criterion and guidance sit on one row because they are
-   the pair authors conflate: one describes the world, the other changes it. */
+/* The outcome table. Criterion and guidance sit on one row because they are
+   the pair authors conflate: one describes the world, the other changes it.
+   It runs flush with the fields above it -- a box around it only narrowed the
+   two columns that hold all the prose. */
 .decision-options {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 8px;
+  --dec-key-col: 64px;
   margin-bottom: 10px;
 }
+
+/* A choice's key is a name the author types, so it needs room to be read. */
+.decision-options:has(.decision-key-input) { --dec-key-col: 104px; }
 
 .decision-option-head,
 .decision-option-row {
   display: grid;
-  grid-template-columns: 96px 1fr 1fr 22px;
+  grid-template-columns: var(--dec-key-col) 1fr 1fr;
   gap: 8px;
   align-items: start;
+}
+
+/* Only a type whose rows can be removed spends a column on the button. */
+.decision-options-editable :is(.decision-option-head, .decision-option-row) {
+  grid-template-columns: var(--dec-key-col) 1fr 1fr 22px;
 }
 
 .decision-option-head {
@@ -94,25 +102,24 @@
   text-transform: uppercase;
   letter-spacing: .4px;
   color: var(--text-muted);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
-/* No column is wide enough to hold a name and its hint on one line, so the hint
-   takes its own: every column heading then starts on the same line instead of
-   wrapping mid-phrase at whatever width it happens to get. */
-.decision-option-head .decision-hint { display: block; }
+.decision-option-head .decision-hint { margin-left: 2px; }
 
-/* The foot's own margin collapses against the last row's, so one 8px step
-   carries the whole table: row to row, and last row to the add button. */
-.decision-option-row { margin-bottom: 8px; }
+.decision-option-row { margin-bottom: 6px; }
 
-/* rows="2" already asks for two lines; the global 60px textarea floor would
-   otherwise add a blank third to every cell of the table. */
-.decision-option-row textarea {
-  width: 100%;
-  min-height: 48px;
-  resize: vertical;
+/* Height follows the text (fitDecisionTextareas); the global 60px floor would
+   otherwise add a blank line under every short one. A long situation template
+   stops growing and scrolls instead of pushing the outcomes off the screen. */
+.decision-section textarea {
+  min-height: 0;
+  max-height: 320px;
+  resize: none;
+  overflow-y: auto;
 }
+
+.decision-option-row textarea { width: 100%; overflow: hidden; }
 
 /* Sits level with the first line of the criterion beside it: 1px border plus
    7px padding of the textarea, against this span's smaller line box. */
@@ -138,13 +145,77 @@
 .decision-options-foot {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 8px;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 2px;
 }
 
-/* Its own line under the foot: the advice is a sentence, and the foot is a flex
-   row sized for a button and a bounds hint. */
-.decision-options-note { margin-top: 6px; }
+/* The column heads, repeated on each cell for the phone layout below. A hidden
+   grid item takes no track, so on a wide screen they cost nothing. */
+.decision-cell-label { display: none; }
+
+/* ── Editor on a phone ──
+   mobile.css stacks every .field-row, which turned this form into one column
+   of eight full-width controls. Here the pairs stay pairs: the hint drops
+   under its label instead, and inputs align on their bottom edge, so a label
+   that wraps no longer pushes its own input out of line. */
+@media (max-width: 700px) {
+  .ifrag-form .field-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+  }
+
+  .ifrag-form .field-row > .field > label > span { display: block; }
+  .ifrag-form .field-row > .field-narrow { flex-basis: 76px; }
+  .ifrag-form .field-row > .field-half { flex-basis: calc(50% - 4px); }
+
+  /* A select holding "choice" needs less room than one holding "Random by odds". */
+  .decision-section .field-row > .field:first-child { flex: .7 1 0; min-width: 0; }
+  .decision-section .field-row > .field:nth-child(2) { flex: 1.3 1 0; min-width: 0; }
+  .decision-section .field-row > .decision-knob { flex-basis: 76px; }
+
+  /* Reference, not reading: one line that scrolls sideways, not three. */
+  .decision-macros {
+    white-space: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    /* The fade is the only sign the line goes on: the scrollbar is hidden. */
+    mask-image: linear-gradient(to right, #000 85%, transparent);
+  }
+
+  .decision-macros::-webkit-scrollbar { display: none; }
+
+  /* Each outcome becomes a small card: its key and remove button on top, then
+     criterion and guidance full width, each under its own column head. */
+  .decision-option-head { display: none; }
+
+  .decision-options .decision-option-row {
+    grid-template-columns: 1fr auto;
+    gap: 4px 8px;
+    padding: 8px 0 10px;
+    margin: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .decision-option-row > :first-child { grid-row: 1; grid-column: 1; align-self: center; }
+  .decision-option-row > :last-child:not(textarea) { grid-row: 1; grid-column: 2; margin-top: 0; }
+  .decision-option-row > :is(textarea, .decision-cell-label) { grid-column: 1 / -1; }
+
+  .decision-cell-label {
+    display: block;
+    margin-top: 4px;
+    font-size: 10px;
+    line-height: 1.4;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    color: var(--text-muted);
+  }
+
+  .decision-key-fixed { padding-top: 0; font-weight: 600; color: var(--text-primary); }
+  .decision-key-input { max-width: 200px; }
+  .decision-options-foot { padding-top: 10px; border-top: 1px solid var(--border); }
+}
 
 /* ── Judge lane ───────────────────────────────────────────────────────────── */
 

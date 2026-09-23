@@ -319,6 +319,7 @@ export function repaintDecisionSection() {
   const root = document.getElementById("decision-section");
   if (!root) return;
   root.innerHTML = _innerHtml();
+  fitDecisionTextareas(root);
 }
 
 /** Re-read the form, then repaint: every structural edit goes through here. */
@@ -337,7 +338,7 @@ const COPY = {
   noul: {
     question: "a statement the Judge scores",
     questionPlaceholder: "The action described in the current request succeeds.",
-    outcome: "If this outcome",
+    outcome: "Outcome",
     criterion: "What it looks like",
     criterionPlaceholder: "What this outcome looks like in the scene",
   },
@@ -345,16 +346,15 @@ const COPY = {
     question: "a question the Judge answers by picking one option below",
     questionPlaceholder: "Which of these best describes how {{char}} takes the current request?",
     outcome: "Option",
-    outcomeHint: "",
-    criterion: "What this option means",
-    criterionPlaceholder: "What picking this option means; the Judge reads it as part of the question",
-    note: 'If the fragment should sometimes do nothing, add a catch-all option (e.g. "none of these") and leave its guidance empty to inject nothing.',
+    criterion: "What it means",
+    criterionPlaceholder: "What picking this option means",
+    note: 'Tip: a "none of these" option with empty guidance lets the fragment do nothing.',
   },
   score: {
     question: "what the Judge places on the scale below",
     questionPlaceholder: "How far the current request pushes {{char}} past their patience.",
     outcome: "Level",
-    criterion: "What this level looks like",
+    criterion: "What it looks like",
     criterionPlaceholder: "What this level looks like in the scene",
   },
 };
@@ -367,8 +367,10 @@ function _hint(text) {
   return `<span class="decision-hint">${esc(text)}</span>`;
 }
 
-function _macroHint(list) {
-  return (list || []).map((macro) => `{{${macro}}}`).join(" ");
+/** The macros a textarea expands, as one quiet line under it rather than a label that wraps. */
+function _macrosHtml(list) {
+  if (!list?.length) return "";
+  return `<div class="decision-macros">${list.map((macro) => `<code>{{${esc(macro)}}}</code>`).join(" ")}</div>`;
 }
 
 function _innerHtml() {
@@ -388,8 +390,9 @@ function _innerHtml() {
 
 function _statusHtml(config) {
   if (!config.configured) {
-    return `<div class="decision-status decision-status-warn">No Judge endpoint is configured, so enabled decisions are skipped and inject nothing. Set one in the Endpoints panel under <strong>Judge</strong>.</div>`;
+    return `<div class="decision-status">No Judge endpoint configured: this decision is skipped. Set one under <strong>Endpoints → Judge</strong>.</div>`;
   }
+  return "";
 }
 
 // Layman labels for the resolution policies the backend serves. The select's
@@ -417,40 +420,43 @@ function _primaryHtml(config) {
         )}</option>`,
     )
     .join("");
+  // At most one knob applies to a type/policy pair, so it takes the row's third
+  // slot instead of a row of its own.
+  const knob = showThreshold
+    ? `<div class="field decision-knob">
+        <label title="Resolves true at or above this probability">Threshold</label>
+        <input type="number" min="0" max="1" step="0.01" data-dec="threshold" value="${escAttr(_draft.threshold ?? "")}" placeholder="0.5" title="Resolves true at or above this probability">
+      </div>`
+    : type !== "noul"
+      ? `<div class="field decision-knob">
+        <label title="Discard answers the Judge is less sure of than this; blank = never">Min confidence</label>
+        <input type="number" min="0" max="1" step="0.01" data-dec="confidence_floor" value="${escAttr(_draft.confidence_floor ?? "")}" placeholder="off" title="Discard answers the Judge is less sure of than this; blank = never">
+      </div>`
+      : "";
   return `
-    <div class="frag-divider">Question</div>
+    <div class="frag-divider">Decision</div>
     <div class="field-row">
       <div class="field">
-        <label>Question Type</label>
+        <label>Question type</label>
         <select data-dec="type" data-dec-act="retype">${typeOptions}</select>
-        ${_problemHtml("type")}
       </div>
       <div class="field">
         <label>Resolution</label>
         <select data-dec="resolution" data-dec-act="repaint">${policyOptions}</select>
-        ${_problemHtml("resolution")}
       </div>
+      ${knob}
     </div>
-    <div class="field-row">
-      <div class="field field-half"${showThreshold ? "" : ' style="display:none"'}>
-        <label>Threshold ${_hint("resolves true at or above this probability")}</label>
-        <input type="number" min="0" max="1" step="0.01" data-dec="threshold" value="${escAttr(_draft.threshold ?? "")}" placeholder="0.5">
-        ${_problemHtml("threshold")}
-      </div>
-      <div class="field field-half"${type === "noul" ? ' style="display:none"' : ""}>
-        <label>Confidence floor ${_hint("blank = no gating")}</label>
-        <input type="number" min="0" max="1" step="0.01" data-dec="confidence_floor" value="${escAttr(_draft.confidence_floor ?? "")}" placeholder="none">
-        ${_problemHtml("confidence_floor")}
-      </div>
-    </div>
+    ${_problemHtml("type")}${_problemHtml("resolution")}${_problemHtml("threshold")}${_problemHtml("confidence_floor")}
     <div class="field">
-      <label>Situation template ${_hint(`macros: ${_macroHint(config.state_macros)}`)}</label>
-      <textarea data-dec="state_template" rows="5" placeholder="${escAttr(config.default_state_template || "")}">${esc(_draft.state_template)}</textarea>
+      <label>Situation</label>
+      <textarea data-dec="state_template" rows="2" placeholder="${escAttr(config.default_state_template || "")}">${esc(_draft.state_template)}</textarea>
+      ${_macrosHtml(config.state_macros)}
       ${_problemHtml("state_template")}
     </div>
     <div class="field">
-      <label>Question ${_hint(`${_copy(type).question}; macros: ${_macroHint(config.text_macros)}`)}</label>
+      <label>Question ${_hint(_copy(type).question)}</label>
       <textarea data-dec="instructions" rows="2" placeholder="${escAttr(_copy(type).questionPlaceholder)}">${esc(_draft.instructions)}</textarea>
+      ${_macrosHtml(config.text_macros)}
       ${_problemHtml("instructions")}
     </div>
     ${_optionsHtml(config, type, _draft.options)}
@@ -472,47 +478,65 @@ function _optionLabel(type, key, option) {
  */
 function _optionsHtml(config, type, options) {
   const copy = _copy(type);
-  const bounds =
-    type === "choice"
-      ? `2 to ${config.choice?.max_options ?? ""} options`
-      : type === "score"
-        ? `${config.score?.min_levels ?? ""} to ${config.score?.max_levels ?? ""} levels, in order`
-        : "";
   const canEditCount = type !== "noul";
+  const max = type === "choice" ? config.choice?.max_options : type === "score" ? config.score?.max_levels : null;
+  const atMax = Number.isFinite(max) && options.length >= max;
   const rows = options
     .map((option, index) => {
       const keyCell =
         type === "choice"
-          ? `<input class="decision-key-input" data-dec-key="${index}" value="${escAttr(option.key)}" placeholder="name">`
+          ? `<input class="decision-key-input" data-dec-key="${index}" value="${escAttr(option.key)}" placeholder="name" aria-label="Option name">`
           : `<span class="decision-key-fixed">${esc(_optionLabel(type, _keysOf(type, options)[index], option))}</span>`;
       const removeBtn =
         canEditCount && options.length > 2
-          ? `<button type="button" class="btn-icon btn-square decision-row-remove" data-dec-act="del-option" data-index="${index}" title="Remove this outcome" aria-label="Remove this outcome">${CLOSE_ICON}</button>`
-          : "";
+          ? `<button type="button" class="btn-icon btn-square decision-row-remove" data-dec-act="del-option" data-index="${index}" title="Remove" aria-label="Remove this outcome">${CLOSE_ICON}</button>`
+          : canEditCount
+            ? "<span></span>"
+            : "";
       return `
       <div class="decision-option-row">
-        <div class="decision-option-key">${keyCell}</div>
-        <textarea rows="2" data-dec-criterion="${index}" placeholder="${escAttr(copy.criterionPlaceholder)}">${esc(option.text)}</textarea>
-        <textarea rows="2" data-dec-output="${index}" data-mirror="p:${index}" placeholder="What the story does if it lands">${esc(option.output)}</textarea>
+        ${keyCell}
+        <span class="decision-cell-label" aria-hidden="true">${esc(copy.criterion)} ${_hint("- to the Judge")}</span>
+        <textarea rows="2" data-dec-criterion="${index}" aria-label="${escAttr(copy.criterion)}" placeholder="${escAttr(copy.criterionPlaceholder)}">${esc(option.text)}</textarea>
+        <span class="decision-cell-label" aria-hidden="true">What the story does ${_hint("- injected")}</span>
+        <textarea rows="2" data-dec-output="${index}" data-mirror="p:${index}" aria-label="What the story does" placeholder="What the story does if it lands">${esc(option.output)}</textarea>
         ${removeBtn}
       </div>`;
     })
     .join("");
-  const addBtn = canEditCount
-    ? `<button type="button" class="btn btn-sm" data-dec-act="add-option">+ Add outcome</button>`
-    : "";
+  const addBtn =
+    canEditCount && !atMax
+      ? `<button type="button" class="btn btn-sm" data-dec-act="add-option">+ Add ${type === "score" ? "level" : "option"}</button>`
+      : "";
+  const note = copy.note ? _hint(copy.note) : type === "score" ? _hint("Lowest level first.") : "";
   return `
-    <div class="decision-options">
+    <div class="decision-options${canEditCount ? " decision-options-editable" : ""}">
       <div class="decision-option-head">
-        <span>${esc(copy.outcome)}${copy.outcomeHint ? ` ${_hint(copy.outcomeHint)}` : ""}</span>
-        <span>${esc(copy.criterion)} ${_hint("sent to the Judge")}</span>
-        <span>What the story does ${_hint("injected as guidance")}</span>
-        <span></span>
+        <span>${esc(copy.outcome)}</span>
+        <span>${esc(copy.criterion)} ${_hint("- to the Judge")}</span>
+        <span>What the story does ${_hint("- injected")}</span>
       </div>
       ${rows}
-      <div class="decision-options-foot">${addBtn}${bounds ? _hint(bounds) : ""}</div>
-      ${copy.note ? `<div class="decision-options-note">${_hint(copy.note)}</div>` : ""}
+      ${addBtn || note ? `<div class="decision-options-foot">${addBtn}${note}</div>` : ""}
     </div>`;
+}
+
+/**
+ * Grow the section's textareas to their text. Fixed row counts clipped the
+ * default situation and a third line of criterion mid-word, and in the outcome
+ * grid a drag handle per cell is more clutter than help.
+ */
+export function fitDecisionTextareas(root = document.getElementById("decision-section")) {
+  for (const el of root?.querySelectorAll("textarea") || []) _fit(el);
+}
+
+function _fit(el) {
+  // A hidden section measures 0; it is fitted again when it is shown.
+  if (!el.offsetParent) return;
+  // From zero, not "auto": auto is the rows attribute's height, a floor the
+  // measurement would never go under.
+  el.style.height = "0";
+  el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
 }
 
 // ── Structural edits ─────────────────────────────────────────────────────────
@@ -604,6 +628,7 @@ document.addEventListener("input", (event) => {
   const root = document.getElementById("decision-section");
   if (!root?.contains(event.target)) return;
   const el = event.target;
+  if (el.tagName === "TEXTAREA") _fit(el);
   const mirrorTarget = el.dataset.mirror;
   if (mirrorTarget) {
     _touched.add(mirrorTarget);
@@ -614,4 +639,5 @@ document.addEventListener("input", (event) => {
   const output = row?.querySelector("[data-mirror]");
   if (!output || _touched.has(output.dataset.mirror)) return;
   output.value = el.value;
+  _fit(output);
 });

@@ -239,6 +239,10 @@ label {
    still lines its edges up with the paired rows above and below it. */
 .field-row > .field-half { flex: 0 1 calc(50% - 4px); }
 
+/* A two- or three-digit number beside wider controls: a fixed sliver rather
+   than an equal share of the row. */
+.field-row > .field-narrow { flex: 0 0 88px; min-width: 0; }
+
 
 
 

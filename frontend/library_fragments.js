@@ -8,6 +8,7 @@ import {
   decisionDraftProblems,
   decisionSectionHtml,
   ensureDecisionConfig,
+  fitDecisionTextareas,
   initDecisionDraft,
   readDecisionFields,
   repaintDecisionSection,
@@ -392,6 +393,7 @@ export function updateInteractiveFragmentExample(fieldType) {
   if (required && hideRequired) required.checked = false;
   const decisionSection = document.getElementById("decision-section");
   if (decisionSection) decisionSection.style.display = isDecision ? "" : "none";
+  if (isDecision) fitDecisionTextareas();
   const leaving = document.getElementById("interactive-frag-decision-warning");
   // Switching a stored decision to another type clears every decision column.
   // Say so before the save rather than after it.
@@ -400,12 +402,14 @@ export function updateInteractiveFragmentExample(fieldType) {
 
 function _interactiveFragFormHtml(d, isEdit) {
   const ex = INTERACTIVE_FRAGMENT_EXAMPLES[d.field_type] || INTERACTIVE_FRAGMENT_EXAMPLES.string;
-  return `
+  return `<div class="ifrag-form">
     <div class="field-row">
       <div class="field"><label>ID <span style="font-size:10px;color:var(--text-muted)">(For tool-calling)</span></label>
         <input id="interactive-frag-id" value="${escAttr(d.id)}" ${isEdit ? "disabled" : ""} placeholder="${escAttr(ex.id)}"></div>
       <div class="field"><label>Label <span style="font-size:10px;color:var(--text-muted)">(For display only)</span></label>
         <input id="interactive-frag-label" value="${escAttr(d.label)}" placeholder="${escAttr(ex.label)}"></div>
+      <div class="field field-narrow"><label>Cooldown</label>
+        <input id="interactive-frag-cooldown" type="number" min="0" max="50" step="1" value="${escAttr(d.cooldown_turns || 0)}" title="Turns to wait before this fragment can fire again"></div>
     </div>
     <div class="field-row">
       <div class="field"><label>Injection Label <span id="interactive-frag-inj-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.inj_hint)})</span></label>
@@ -429,10 +433,6 @@ function _interactiveFragFormHtml(d, isEdit) {
         <option value="pre_writer" ${d.direction_note_timing === "pre_writer" ? "selected" : ""}>Before writer</option>
       </select>
     </div>
-    <div class="field-row" id="interactive-frag-cooldown-row">
-      <div class="field field-half"><label>Cooldown (turns)</label>
-        <input id="interactive-frag-cooldown" type="number" min="0" max="50" step="1" value="${escAttr(d.cooldown_turns || 0)}"></div>
-    </div>
     <div class="field" id="interactive-frag-desc-row" style="${d.field_type === "decision" ? "display:none" : ""}">
       <label>Description <span id="interactive-frag-desc-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.desc_hint || "")})</span></label>
       <textarea id="interactive-frag-desc" rows="4" placeholder="${escAttr(ex.description || "")}">${esc(d.description)}</textarea></div>
@@ -446,7 +446,8 @@ function _interactiveFragFormHtml(d, isEdit) {
     <div class="field-warning" id="interactive-frag-decision-warning" style="display:none">
       Saving this as another field type clears the question, its outcomes and its guidance.
     </div>
-    ${decisionSectionHtml(d.field_type)}`;
+    ${decisionSectionHtml(d.field_type)}
+  </div>`;
 }
 
 function _readInteractiveFragForm() {
@@ -582,7 +583,7 @@ function _featureGate(f) {
       : postProcessingOff
         ? "Agent is disabled -- enable it to use this post-processing fragment"
         : judgeOff
-          ? "No Judge endpoint is configured -- this decision is skipped and injects nothing"
+          ? "No Judge endpoint is configured -- this decision is skipped"
           : f.description || "";
   return { disabled: feedbackOff || noteOff || postProcessingOff, title };
 }
