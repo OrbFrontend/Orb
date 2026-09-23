@@ -9,3 +9,9 @@
   --font-prose-size:17px;
   --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
 }
+
+/* The wine surface and its hover sit 56 degrees from the orange accent, close
+   to where the default lane triad parks the Editor, which then passes for a
+   hovered row. At 92 every lane clears the surface, hover and accent by 30
+   degrees or more. */
+:root { --frag-lane-offset: 92; }

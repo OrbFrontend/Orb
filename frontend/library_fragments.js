@@ -152,17 +152,21 @@ export async function toggleMoodFragmentEnabled(id, newEnabled) {
   }
 }
 
-// Interactive fragments run in one of two lanes: the Director shapes the scene
-// the writer works from, the Editor acts on the reply once it exists. The
-// sidepanel groups by lane so the two never read as one undifferentiated list.
+// Interactive fragments run in one of three lanes: the Judge resolves decisions
+// before anything else, the Director shapes the scene the writer works from, and
+// the Editor acts on the reply once it exists. The sidepanel groups by lane so
+// the three never read as one undifferentiated list.
 const EDITOR_LANE_FIELD_TYPES = new Set(["feedback", "post_processing"]);
+const JUDGE_LANE_FIELD_TYPES = new Set(["decision"]);
 
 const INTERACTIVE_LANES = [
+  { id: "judge", label: "Judge", hint: "Decides questions before the Director runs" },
   { id: "director", label: "Director", hint: "Directs the scene the writer works from" },
   { id: "editor", label: "Editor", hint: "Acts on the reply after it is written" },
 ];
 
 function _interactiveLane(f) {
+  if (JUDGE_LANE_FIELD_TYPES.has(f.field_type)) return "judge";
   return EDITOR_LANE_FIELD_TYPES.has(f.field_type) ? "editor" : "director";
 }
 
@@ -257,7 +261,7 @@ function updateFragmentOrder(container) {
   const items = container.querySelectorAll(".fragment-item");
   // A lane's order is its priority for the passes that consume it. Retain the
   // lane's existing global priority slots instead of renumbering every
-  // fragment: that keeps Director and Editor priorities independent.
+  // fragment: that keeps each lane's priorities independent.
   const prioritySlots = Array.from(items)
     .map((item) => {
       const fragment = S.interactiveFragments.find((f) => f.id === item.dataset.id);

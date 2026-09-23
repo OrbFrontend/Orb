@@ -101,7 +101,7 @@ SEED_INTERACTIVE_FRAGMENTS = [
         # which independent marginals cannot do.
         "decision_type": "choice",
         "decision_placement": "before_director",
-        "decision_state_template": "Previous reply:\n{{last_assistant_message}}\n\nCurrent request:\n{{last_message}}",
+        "decision_state_template": "Situation:\n{{recent_history}}\n\nCurrent request:\n{{last_message}}",
         "decision_instructions": "How does the action described in the current request turn out?",
         # Authored order is resolution order: it breaks argmax ties and walks the
         # weighted draw, so the options run worst to best.

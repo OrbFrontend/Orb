@@ -456,27 +456,18 @@
 
 .fragment-item:hover { background: var(--bg-hover); }
 
-/* Director and Editor fragments are separated by a band behind the whole lane
-   rather than by a tint on each row -- the rows themselves stay exactly as they
-   are under Mood Fragments, and the band shows through the gaps between them.
-
-   Each hue is cut with the theme's own text colour, which drags it to whichever
-   end of the scale that theme reads against, so the band always steps away from
-   the surface in the legible direction -- darker on light themes, lighter on
-   dark ones. Themes cannot reach these lanes otherwise: no accent, background
-   image or palette recolours them or flattens them into their surface, and at
-   12% the hue only has to tell the two lanes apart, never carry the text. */
 .frag-lane {
   border-radius: var(--radius);
   padding: 4px 0 2px;
   margin-bottom: 8px;
+  background: oklch(
+    from var(--accent) 0.6 0.1 calc(h + var(--frag-lane-offset, 40) + var(--frag-lane-turn)) /
+      var(--frag-lane-alpha, 0.2)
+  );
 }
-.frag-lane-director {
-  background: color-mix(in srgb, color-mix(in srgb, #4a7fe0 70%, var(--text-primary)) 12%, transparent);
-}
-.frag-lane-editor {
-  background: color-mix(in srgb, color-mix(in srgb, #e07a3c 70%, var(--text-primary)) 12%, transparent);
-}
+.frag-lane-judge { --frag-lane-turn: 0; }
+.frag-lane-director { --frag-lane-turn: 120; }
+.frag-lane-editor { --frag-lane-turn: 240; }
 
 /* The band does the separating, so the heading only has to name the lane: no
    flanking rules, and quiet enough to settle into the band rather than announce

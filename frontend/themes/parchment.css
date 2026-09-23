@@ -9,3 +9,9 @@
   --font-prose-size:16px;
   --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
 }
+
+/* The paper surface sits 58 degrees from the oxblood accent, close to where the
+   default lane triad parks the Judge, which then reads as a darker sheet of the
+   same paper. At 86 every lane clears the surface and the accent by 30 degrees
+   or more. */
+:root { --frag-lane-offset: 86; }

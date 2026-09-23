@@ -11,6 +11,11 @@
   --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
 }
 
+/* The teal surface is the most saturated of any theme and eats the lane bands'
+   hue: at the default strength they tell apart less than they do elsewhere.
+   The triad is fine; it only needs to push harder through the tint. */
+:root { --frag-lane-alpha: 0.24; }
+
 body {
   background:
     radial-gradient(130% 60% at 50% -12%, rgba(140,230,245,0.20) 0%, rgba(140,230,245,0.05) 34%, rgba(140,230,245,0) 58%),
