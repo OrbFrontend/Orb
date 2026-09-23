@@ -37,7 +37,6 @@ async def get_settings() -> SettingsRow:
             s.get("document_audit_toggles")
             or '{"banned_phrases":true,"repetitive_openers":true,"repetitive_templates":true,"contrastive_negation":true}'
         )
-        s["decision_card_approvals"] = json.loads(s.get("decision_card_approvals") or "{}")
         s["workflow_enabled"] = json.loads(s.get("workflow_enabled") or "{}")
         s["local_ml_enabled"] = json.loads(s.get("local_ml_enabled") or "{}")
         s["local_ml_config"] = json.loads(s.get("local_ml_config") or "{}")
@@ -349,19 +348,3 @@ async def update_decision_config(data: Mapping[str, Any]) -> SettingsRow:
             await db.execute(f"UPDATE settings SET {', '.join(sets)} WHERE id = 1", vals)  # nosec B608 — hardcoded allowlist
             await db.commit()
     return await get_settings()
-
-
-async def set_decision_card_approval(card_id: str, fingerprint: str | None) -> None:
-    """Approve *card_id*'s decisions at *fingerprint*, or revoke with ``None``.
-
-    Stored as the fingerprint rather than a boolean so a later change to the
-    card's decision definitions revokes the approval by not matching it. One
-    ``json_set``/``json_remove`` per call keeps concurrent approvals atomic.
-    """
-    if fingerprint is None:
-        sql, params = "json_remove(COALESCE(decision_card_approvals, '{}'), '$.' || ?)", (card_id,)
-    else:
-        sql, params = "json_set(COALESCE(decision_card_approvals, '{}'), '$.' || ?, ?)", (card_id, fingerprint)
-    async with get_db() as db:
-        await db.execute(f"UPDATE settings SET decision_card_approvals = {sql} WHERE id = 1", params)  # nosec B608 — literal SQL
-        await db.commit()

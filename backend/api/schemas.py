@@ -318,17 +318,6 @@ class DecisionConfigUpdate(BaseModel):
     decision_model: str | None = None
 
 
-class DecisionCardApproval(BaseModel):
-    """Local, per-card consent to send that card's questions to a provider.
-
-    ``fingerprint`` is the card's current decision definitions, echoed back from
-    a read so an approval cannot be granted against definitions the user did not
-    see. Absent means revoke.
-    """
-
-    fingerprint: str | None = None
-
-
 class WorldCreate(BaseModel):
     name: str
 

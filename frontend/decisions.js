@@ -42,7 +42,6 @@ export function outcomeLabel(type, key) {
 // is shown verbatim rather than swallowed. A skip has no outcome at all, so it
 // must never be painted as a resolved `false`.
 const SKIP_REASONS = {
-  not_approved: "Not approved for this character",
   resting: "Resting on cooldown",
   not_configured: "No Judge endpoint is configured",
   invalid_definition: "The definition is not valid",

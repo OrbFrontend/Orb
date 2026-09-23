@@ -20,7 +20,6 @@ class SkipReason:
     about a value that reached the story.
     """
 
-    NOT_APPROVED = "not_approved"
     RESTING = "resting"
     INVALID_DEFINITION = "invalid_definition"
     NOT_CONFIGURED = "not_configured"
@@ -40,7 +39,7 @@ class SkipReason:
 # interrupting anybody about. An empty input is the second kind: a group member
 # given the floor with no message of their own leaves ``{{last_message}}``
 # empty, and every such click must not raise a failure notice.
-ROUTINE_REASONS = frozenset({SkipReason.NOT_APPROVED, SkipReason.RESTING, SkipReason.LOW_CONFIDENCE, SkipReason.EMPTY_INPUT})
+ROUTINE_REASONS = frozenset({SkipReason.RESTING, SkipReason.LOW_CONFIDENCE, SkipReason.EMPTY_INPUT})
 
 
 def resolve_threshold(probability: float, threshold: float) -> str:

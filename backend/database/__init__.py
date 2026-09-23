@@ -12,7 +12,6 @@ from .connection import (
     open_wal_anchor,
 )
 from .queries.character_cards import (
-    card_decision_fingerprint,
     card_embedded_fragments,
     cast_embedded_fragments,
     create_character_card,
@@ -177,7 +176,6 @@ from .queries.phrase_bank import (
 from .queries.settings import (
     get_settings,
     get_workflow_config,
-    set_decision_card_approval,
     set_local_ml_config,
     set_local_ml_enabled,
     set_workflow_config,
@@ -265,7 +263,6 @@ __all__ = [
     "apply_avatar_dhash",
     "apply_changeset",
     "apply_sheet_proposal",
-    "card_decision_fingerprint",
     "card_embedded_fragments",
     "cast_embedded_fragments",
     "checkpoint_wal",
@@ -407,7 +404,6 @@ __all__ = [
     "resolve_char_context",
     "set_active_leaf",
     "set_character_expressions",
-    "set_decision_card_approval",
     "set_local_ml_config",
     "set_local_ml_enabled",
     "set_public_profile",

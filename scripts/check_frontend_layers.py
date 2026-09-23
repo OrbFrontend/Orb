@@ -115,7 +115,6 @@ LAYERS = {
     "library_dedupe.js": 5,
     "library_fragments.js": 5,
     "library_decisions.js": 5,
-    "library_card_decisions.js": 5,
     "lorebooks.js": 5,
     "settings.js": 5,
     "settings_models.js": 5,

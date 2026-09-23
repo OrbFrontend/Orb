@@ -1,10 +1,6 @@
-from collections.abc import Mapping
-from typing import Any
-
 from fastapi import APIRouter, HTTPException
 
 from ...core import (
-    DECISION_FIELD_TYPE,
     DECISION_RESOLUTIONS_BY_TYPE,
     DECISION_TYPES,
     DEFAULT_STATE_TEMPLATE,
@@ -13,18 +9,14 @@ from ...core import (
     MIN_SCORE_LEVELS,
 )
 from ...database import (
-    card_decision_fingerprint,
-    card_embedded_fragments,
-    get_character_card,
     get_endpoint,
     get_settings,
-    set_decision_card_approval,
     update_decision_config,
 )
 from ...inference import RAW_ANSWER_CACHE, DecisionTransportError, LLMCallError
 from ...pipeline import resolve_judge_config
 from ...pipeline.passes.judge import STATE_MACROS, TEXT_MACROS, connection_test
-from ..schemas import DecisionCardApproval, DecisionConfigUpdate
+from ..schemas import DecisionConfigUpdate
 
 router = APIRouter()
 
@@ -106,53 +98,3 @@ async def api_test_decision_endpoint():
         return {"ok": False, "error": str(error), "url": config.url}
     except Exception as error:  # noqa: BLE001 -- this diagnostic endpoint reports failures
         return {"ok": False, "error": repr(error), "url": config.url}
-
-
-async def _card(card_id: str) -> Mapping[str, Any]:
-    card = await get_character_card(card_id)
-    if card is None:
-        raise HTTPException(status_code=404, detail="Character card not found")
-    return card
-
-
-async def _card_approval(card: Mapping[str, Any]) -> dict:
-    fingerprint = card_decision_fingerprint(card)
-    _, fragments = card_embedded_fragments(card)
-    questions = [
-        {
-            "id": fragment["id"],
-            "label": fragment["label"],
-            "type": fragment.get("decision_type"),
-            "instructions": fragment.get("decision_instructions"),
-            "criteria": fragment.get("decision_criteria"),
-        }
-        for fragment in fragments
-        if fragment.get("field_type") == DECISION_FIELD_TYPE
-    ]
-    stored = ((await get_settings()).get("decision_card_approvals") or {}).get(card["id"])
-    return {
-        "card_id": card["id"],
-        "fingerprint": fingerprint,
-        "has_decisions": bool(fingerprint),
-        "approved": bool(fingerprint) and stored == fingerprint,
-        "stale": bool(stored and fingerprint and stored != fingerprint),
-        "questions": questions,
-    }
-
-
-@router.get("/api/decisions/card-approval/{card_id}")
-async def api_get_card_decision_approval(card_id: str):
-    return await _card_approval(await _card(card_id))
-
-
-@router.put("/api/decisions/card-approval/{card_id}")
-async def api_set_card_decision_approval(card_id: str, data: DecisionCardApproval):
-    card = await _card(card_id)
-    current = card_decision_fingerprint(card)
-    if data.fingerprint is not None:
-        if not current:
-            raise HTTPException(status_code=422, detail="This character has no valid decision fragments to approve")
-        if data.fingerprint != current:
-            raise HTTPException(status_code=409, detail="This character's decisions changed since you reviewed them; reload")
-    await set_decision_card_approval(card_id, current if data.fingerprint is not None else None)
-    return await _card_approval(card)

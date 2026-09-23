@@ -12,8 +12,8 @@ no decisions and behaves exactly as before:
 * ``interactive_fragments`` gains the authoring and confidence-gating columns;
 * ``messages`` gains the per-reply evaluation record and decision cooldown
   snapshot;
-* ``settings`` gains the classifier configuration and this machine's per-card
-  approvals, including its endpoint foreign key;
+* ``settings`` gains the classifier configuration, including its endpoint
+  foreign key;
 * ``endpoints`` gains ``kind``, which separates the Writer/Agent pool from the
   classifier's own judge rows;
 * the disabled ``outcome`` seed is added when it is missing.
@@ -62,7 +62,6 @@ _SETTINGS_COLUMNS: tuple[tuple[str, str], ...] = (
     # SQLite cannot add a REFERENCES clause to an existing table with ALTER.
     ("decision_endpoint_id", "INTEGER DEFAULT NULL"),
     ("decision_model", "TEXT NOT NULL DEFAULT 'typesafe/jev-1.13'"),
-    ("decision_card_approvals", "TEXT NOT NULL DEFAULT '{}'"),
 )
 
 

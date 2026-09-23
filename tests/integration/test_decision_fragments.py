@@ -611,7 +611,7 @@ async def test_a_checkpoint_copies_records_and_remaps_their_anchors(client, db, 
     assert record["input_branch_anchor"] in copied_ids
 
 
-# ── card decisions and local approval ────────────────────────────────────────
+# ── card decisions ───────────────────────────────────────────────────────────
 
 
 async def _card_with_decision(client, **overrides) -> str:
@@ -625,7 +625,7 @@ async def _card_with_decision(client, **overrides) -> str:
     return response.json()["id"]
 
 
-async def test_a_card_decision_needs_local_approval_before_it_runs(client, db, llm_mock, monkeypatch):
+async def test_a_card_decision_runs_like_any_other_card_fragment(client, db, llm_mock, monkeypatch):
     card_id = await _card_with_decision(client)
     cid = "conv-decision-card"
     await dbmod.create_conversation(cid, "scene", "Alric", "a doorway", character_card_id=card_id)
@@ -633,51 +633,9 @@ async def test_a_card_decision_needs_local_approval_before_it_runs(client, db, l
     gateway = Gateway(monkeypatch, answers={"card_outcome": 0.9})
 
     events = await _turn(llm_mock, cid, "one", director={"moods": []})
-    published = _event(events, "decisions")
-    assert gateway.batches == []
-    assert published["evaluations"] == []
-    assert published["skipped"][0]["reason"] == "not_approved"
-    assert published["skipped"][0]["source"] == f"card:{card_id}"
 
-    status = (await client.get(f"/api/decisions/card-approval/{card_id}")).json()
-    assert status["has_decisions"] is True
-    assert status["approved"] is False
-    approved = await client.put(f"/api/decisions/card-approval/{card_id}", json={"fingerprint": status["fingerprint"]})
-    assert approved.status_code == 200
-    assert approved.json()["approved"] is True
-
-    events = await _turn(llm_mock, cid, "two", director={"moods": []})
     assert _event(events, "decisions")["evaluations"][0]["source"] == f"card:{card_id}"
     assert gateway.batches == [["card_outcome"]]
-
-
-async def test_approving_against_a_stale_fingerprint_is_refused(client, db):
-    card_id = await _card_with_decision(client)
-    response = await client.put(f"/api/decisions/card-approval/{card_id}", json={"fingerprint": "nonsense"})
-    assert response.status_code == 409
-
-
-async def test_changing_a_cards_decisions_revokes_its_approval(client, db):
-    card_id = await _card_with_decision(client)
-    status = (await client.get(f"/api/decisions/card-approval/{card_id}")).json()
-    await client.put(f"/api/decisions/card-approval/{card_id}", json={"fingerprint": status["fingerprint"]})
-
-    entry = {key: value for key, value in DEFINITION.items() if key not in ("injection_label", "description")}
-    entry.update({"id": "card_outcome", "label": "Card outcome", "decision_instructions": "A different question?"})
-    await client.put(
-        f"/api/characters/{card_id}",
-        json={"extensions": {"orb": {"fragments": {"interactive": [entry]}}}},
-    )
-
-    after = (await client.get(f"/api/decisions/card-approval/{card_id}")).json()
-    assert after["approved"] is False
-    assert after["stale"] is True
-
-
-async def test_an_imported_enabled_flag_cannot_supply_approval(client, db):
-    # `enabled` travels with the card; consent does not.
-    card_id = await _card_with_decision(client, enabled=True)
-    assert (await client.get(f"/api/decisions/card-approval/{card_id}")).json()["approved"] is False
 
 
 async def test_a_malformed_card_decision_contributes_nothing(client, db, llm_mock, monkeypatch):
@@ -690,12 +648,11 @@ async def test_a_malformed_card_decision_contributes_nothing(client, db, llm_moc
     events = await _turn(llm_mock, cid, "one", director={"moods": []})
 
     # Nothing was contributed, so the stage has no work: no step, no published
-    # result, no request, and nothing to approve.
+    # result, no request.
     assert _events(events, "decisions") == []
     assert {"step": "judge"} not in _events(events, "step_start")
     assert gateway.batches == []
     assert (await _last_assistant(cid))["decision_evaluations"] == {}
-    assert (await client.get(f"/api/decisions/card-approval/{card_id}")).json()["has_decisions"] is False
 
 
 # ── group scope ──────────────────────────────────────────────────────────────
@@ -806,16 +763,7 @@ async def test_a_later_speaker_regeneration_reuses_the_exchange_input(client, db
     assert regenerated["decision_cooldowns"] == {"outcome": 2}
 
 
-async def test_a_preset_cannot_arm_a_decision_it_carries(client, db):
-    """An imported preset installs decisions disabled, however they were exported.
-
-    The card path gates consent on a fingerprint the user has to echo back, but a
-    *global* decision has no card to hang that on -- and `interactive_fragments`
-    is in the `fragments` preset domain, so a shared preset is the easier way to
-    hand someone a question that calls out to their configured endpoint. The
-    import is allowed to carry the definition; arming it stays the local user's
-    own act.
-    """
+async def test_a_preset_round_trips_a_decision_like_any_other_fragment(client, db):
     await _add_decision(client, enabled=True)
     name = (await client.post("/api/presets/export", json={"domains": ["fragments"], "label": "shared"})).json()["name"]
     await client.delete("/api/interactive-fragments/outcome")
@@ -823,23 +771,8 @@ async def test_a_preset_cannot_arm_a_decision_it_carries(client, db):
     assert (await client.post(f"/api/presets/{name}/apply")).status_code == 200
 
     imported = next(f for f in (await client.get("/api/interactive-fragments")).json() if f["id"] == "outcome")
-    # The definition survives, so it stays inspectable and one toggle away.
     assert imported["decision_instructions"] == DEFINITION["decision_instructions"]
-    assert imported["enabled"] == 0
-
-
-async def test_an_imported_preset_leaves_local_decisions_alone(client, db):
-    """Only the rows the preset actually supplied are disarmed."""
-    await _add_decision(client, enabled=True)
-    name = (await client.post("/api/presets/export", json={"domains": ["fragments"], "label": "shared"})).json()["name"]
-    await client.delete("/api/interactive-fragments/outcome")
-    await _add_decision(client, id="mine", label="Mine", enabled=True)
-
-    await client.post(f"/api/presets/{name}/apply")
-
-    listed = {f["id"]: f for f in (await client.get("/api/interactive-fragments")).json()}
-    assert listed["outcome"]["enabled"] == 0
-    assert listed["mine"]["enabled"] == 1
+    assert imported["enabled"] == 1
 
 
 # ── payload shape ────────────────────────────────────────────────────────────
@@ -1137,8 +1070,6 @@ async def test_a_card_decision_in_a_group_reads_its_own_character(client, db, ll
         )
     ).json()
     await _configure(client)
-    status = (await client.get(f"/api/decisions/card-approval/{card_id}")).json()
-    await client.put(f"/api/decisions/card-approval/{card_id}", json={"fingerprint": status["fingerprint"]})
     gateway = Gateway(monkeypatch, answers={"card_outcome": 0.9})
 
     llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["kael — go"]))

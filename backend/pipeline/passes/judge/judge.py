@@ -136,7 +136,6 @@ class JudgeTurn:
     config: JudgeConfig = field(default_factory=JudgeConfig)
     prior_cooldowns: Mapping[str, int] = field(default_factory=dict)
     replay_records: tuple[Mapping[str, Any], ...] = ()
-    approved_cards: frozenset[str] = frozenset()
     invalid: tuple[InvalidDecision, ...] = ()
     # A group's card-embedded decisions read their own character as ``{{char}}``
     # and ``{{description}}``, the way that card's text does in the prompt.
@@ -223,11 +222,7 @@ def _eligible(turn: JudgeTurn) -> tuple[list[DecisionCandidate], list[dict[str, 
     running: list[DecisionCandidate] = []
     resting = cooldown.blocked(turn.prior_cooldowns)
     for candidate in turn.candidates:
-        if candidate.card_id and candidate.card_id not in turn.approved_cards:
-            reason = SkipReason.NOT_APPROVED
-        elif candidate.definition.fragment_id in resting:
-            reason = SkipReason.RESTING
-        else:
+        if candidate.definition.fragment_id not in resting:
             running.append(candidate)
             continue
         skipped.append(
@@ -235,7 +230,7 @@ def _eligible(turn: JudgeTurn) -> tuple[list[DecisionCandidate], list[dict[str, 
                 "fragment_id": candidate.definition.fragment_id,
                 "fragment_label": candidate.definition.label,
                 "source": _source(candidate.card_id),
-                "reason": reason,
+                "reason": SkipReason.RESTING,
             }
         )
     return running, skipped

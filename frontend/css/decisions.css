@@ -1,5 +1,5 @@
-/* Decision fragments: the editor section, the Judge lane, the card-approval
-   panel and the Inspector's Decisions block. */
+/* Decision fragments: the editor section, the Judge lane and the Inspector's
+   Decisions block. */
 
 /* The amber this app already spends on "read this, then carry on". Not a theme
    token yet: a theme that defines --warning wins. */
@@ -174,7 +174,7 @@
   .decision-options-foot { padding-top: 10px; border-top: 1px solid var(--border); }
 }
 
-/* ── Judge lane and card approval ─────────────────────────────────────────── */
+/* ── Judge lane ───────────────────────────────────────────────────────────── */
 
 .judge-note {
   font-size: 11px;
@@ -183,18 +183,15 @@
   margin-bottom: 10px;
 }
 
-.judge-actions,
-.card-decision-actions {
+.judge-actions {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-bottom: 6px;
 }
 
-.judge-actions { margin-bottom: 6px; }
-.card-decision-actions { margin-top: 8px; }
-
 /* The message beside the button can be long; the button must not pay for it. */
-:is(.judge-actions, .card-decision-actions) .btn { flex-shrink: 0; }
+.judge-actions .btn { flex-shrink: 0; }
 
 .judge-test-result,
 .judge-status {
@@ -208,76 +205,6 @@
 .judge-test-ok { color: var(--accent); }
 .judge-test-fail { color: var(--red); }
 .judge-status-warn { color: var(--dec-warn); }
-
-.card-decision-note {
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-}
-
-.card-decision-stale,
-.card-decision-item {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 8px 10px;
-  margin-bottom: 8px;
-}
-
-.card-decision-stale {
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--dec-warn);
-  border-color: var(--dec-warn);
-}
-
-.card-decision-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.card-decision-label { font-size: 12px; font-weight: 600; color: var(--text-primary); }
-
-.card-decision-type {
-  font-size: 9px;
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: .5px;
-  color: var(--text-muted);
-}
-
-.card-decision-question {
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-  white-space: pre-wrap;
-}
-
-/* The keys are the list markers, so a disc beside them is a second one. */
-.card-decision-criteria {
-  list-style: none;
-  margin: 4px 0 0;
-  padding: 0;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-muted);
-}
-
-/* Wide enough for a typical key, so the criteria start on one left edge. */
-.card-decision-key {
-  display: inline-block;
-  min-width: 54px;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--accent);
-  margin-right: 6px;
-}
-
-.card-decision-status { font-size: 11px; line-height: 1.4; color: var(--text-muted); }
-.card-decision-status-error { color: var(--red); }
 
 /* ── Inspector ────────────────────────────────────────────────────────────── */
 

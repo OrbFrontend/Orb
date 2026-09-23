@@ -164,7 +164,6 @@ async def _run_judge(
         config=ctx.judge_config,
         prior_cooldowns=prior,
         replay_records=tuple(ctx.director.get("decision_replay") or ()),
-        approved_cards=ctx.approved_decision_cards,
         invalid=ctx.invalid_decisions,
     )
     has_work = bool(turn.candidates or turn.invalid)

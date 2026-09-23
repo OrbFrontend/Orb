@@ -61,12 +61,7 @@ CREATE TABLE IF NOT EXISTS settings (
     -- classifier's URL, key and proxy; the route is derived from that URL, and
     -- a gateway that spells it differently is configured by pasting the route.
     decision_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
-    decision_model TEXT NOT NULL DEFAULT 'typesafe/jev-1.13',
-    -- card id -> the definitions fingerprint the user approved. Local trust
-    -- state, never part of exported card data and never taken from an imported
-    -- preset (see PRESERVED_COLUMNS in preset_schema.py): an imported `enabled`
-    -- flag must not be able to supply consent to call out to a provider.
-    decision_card_approvals TEXT NOT NULL DEFAULT '{}'
+    decision_model TEXT NOT NULL DEFAULT 'typesafe/jev-1.13'
 );
 
 CREATE TABLE IF NOT EXISTS mood_fragments (

@@ -96,7 +96,6 @@ class PipelineContext:
     decision_candidates: tuple[DecisionCandidate, ...] = ()
     invalid_decisions: tuple[InvalidDecision, ...] = ()
     judge_config: JudgeConfig = field(default_factory=JudgeConfig)
-    approved_decision_cards: frozenset[str] = frozenset()
 
 
 async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
@@ -172,7 +171,6 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         decision_candidates=decision_candidates,
         invalid_decisions=invalid_decisions,
         judge_config=await resolve_judge_config(settings),
-        approved_decision_cards=await _approved_decision_cards(settings, decision_candidates, card),
     )
 
 
@@ -223,26 +221,6 @@ async def resolve_judge_config(settings: Mapping[str, Any]) -> JudgeConfig:
         model=model,
         proxy=endpoint.get("proxy", "") or "",
     )
-
-
-async def _approved_decision_cards(
-    settings: Mapping[str, Any],
-    candidates: Sequence[DecisionCandidate],
-    solo_card: Mapping[str, Any] | None,
-) -> frozenset[str]:
-    card_ids = {candidate.card_id for candidate in candidates if candidate.card_id}
-    if not card_ids:
-        return frozenset()
-    approvals = settings.get("decision_card_approvals") or {}
-    approved: set[str] = set()
-    for card_id in sorted(card_ids):
-        stored = approvals.get(card_id)
-        if not stored:
-            continue
-        row = solo_card if solo_card and solo_card.get("id") == card_id else await db.get_character_card(card_id)
-        if row is not None and db.card_decision_fingerprint(row) == stored:
-            approved.add(card_id)
-    return frozenset(approved)
 
 
 async def resolve_card_and_persona(

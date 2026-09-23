@@ -2,7 +2,6 @@ import { api } from "./api.js";
 import { loadConversations, refreshSceneCardFragments, renderMessages, resetChatUI, stashSceneCards } from "./chat.js";
 import { createChipInput } from "./chips.js";
 import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
-import { renderCardDecisionApproval } from "./library_card_decisions.js";
 import { mountCardScriptsEditor } from "./library_card_scripts.js";
 import {
   initCardFragments,
@@ -295,7 +294,6 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
         <button class="btn btn-sm" id="ce-card-frag-add-interactive">+ Interactive</button>
         <button class="btn btn-sm" id="ce-card-frag-add-mood">+ Mood</button>
       </div>
-      <div id="ce-card-decisions"></div>
     </div>
     <div id="${prefix}-ta" class="tab-content">
       <div class="field">
@@ -536,9 +534,6 @@ export async function showCharEditModal(idOrData) {
   _charTagChips.render();
   _readCardScripts = mountCardScriptsEditor($("ce-scripts-editor"), _pendingExtensions.regex_scripts);
   renderCardFragmentsTab();
-  // The approval panel reads the card as saved, not the unsaved edits in this
-  // form: consent is granted against the definitions that would actually run.
-  renderCardDecisionApproval(c.id);
   $("ce-tab-frag")?.addEventListener("click", (e) => switchTab(e.currentTarget, "ce-tf"));
   $("ce-card-frag-add-mood")?.addEventListener("click", () => showCardMoodFragmentModal());
   $("ce-card-frag-add-interactive")?.addEventListener("click", () => showCardInteractiveFragmentModal());

@@ -124,8 +124,6 @@ class SettingsRow(_SettingsBase, total=False):
     # and make no request.
     decision_endpoint_id: int | None
     decision_model: str
-    # card id -> approved definitions fingerprint, decoded by get_settings().
-    decision_card_approvals: dict[str, str]
     attachment_cache_budget_bytes: int
     attachment_access_counter: int
     generated_chars: int | None

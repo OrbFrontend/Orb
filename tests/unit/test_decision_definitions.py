@@ -14,7 +14,7 @@ from backend.core import (
     is_decision_row,
     parse_decision_definition,
 )
-from backend.database import card_decision_fingerprint, card_embedded_fragments
+from backend.database import card_embedded_fragments
 from backend.database.seeds import SEED_INTERACTIVE_FRAGMENTS
 from backend.pipeline.passes.judge import definition_problems
 
@@ -202,31 +202,6 @@ def test_a_malformed_card_decision_is_skipped():
 def test_non_decision_card_fragments_still_carry_null_decision_columns():
     _, interactive = card_embedded_fragments(_card([{"id": "pacing", "label": "Pacing", "field_type": "string"}]))
     assert all(interactive[0][column] is None for column in DECISION_COLUMNS)
-
-
-# ── the approval fingerprint ─────────────────────────────────────────────────
-
-
-def test_fingerprint_covers_what_would_be_sent_and_ignores_what_would_not():
-    base = card_decision_fingerprint(_card([_card_entry()]))
-    assert base
-
-    # Labels and authored guidance never leave the machine, so editing them
-    # keeps the approval.
-    assert card_decision_fingerprint(_card([_card_entry(label="Renamed")])) == base
-    assert card_decision_fingerprint(_card([_card_entry(decision_outputs={"true": "different", "false": "x"})])) == base
-
-    # The question, its criteria and the situation template do leave, so each
-    # one revokes it.
-    assert card_decision_fingerprint(_card([_card_entry(decision_instructions="Something else?")])) != base
-    assert card_decision_fingerprint(_card([_card_entry(decision_criteria={"true": "x", "false": "y"})])) != base
-    assert card_decision_fingerprint(_card([_card_entry(decision_state_template="Only: {{last_message}}")])) != base
-
-
-def test_a_card_with_no_valid_decision_has_no_fingerprint_to_approve():
-    assert card_decision_fingerprint(_card([])) == ""
-    assert card_decision_fingerprint(_card([_card_entry(decision_type="score")])) == ""
-    assert card_decision_fingerprint(None) == ""
 
 
 def test_every_seeded_decision_is_a_valid_definition():

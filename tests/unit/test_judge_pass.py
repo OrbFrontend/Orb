@@ -99,7 +99,6 @@ def _turn(*candidates: DecisionCandidate, **overrides) -> JudgeTurn:
         "config": CONFIG,
         "prior_cooldowns": {},
         "replay_records": (),
-        "approved_cards": frozenset(),
     }
     options.update(overrides)
     return JudgeTurn(**options)
@@ -472,18 +471,6 @@ async def test_a_resting_decision_is_skipped_with_no_request_and_no_guidance(mon
     assert result.cooldowns == {"outcome": 1}
 
 
-async def test_an_unapproved_card_decision_is_skipped_before_cache_or_replay(monkeypatch):
-    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
-    # Warm the cache through an approved run, then revoke.
-    await judge_pass(_turn(_candidate(card_id="card-1"), approved_cards=frozenset({"card-1"})))
-    result = await judge_pass(_turn(_candidate(card_id="card-1")))
-
-    assert result.evaluations == []
-    assert result.skipped[0]["reason"] == SkipReason.NOT_APPROVED
-    assert result.skipped[0]["source"] == "card:card-1"
-    assert len(gateway.batches) == 1  # the approved run only
-
-
 # ── budgets ──────────────────────────────────────────────────────────────────
 
 
@@ -501,9 +488,7 @@ async def test_over_budget_decisions_are_skipped_and_stay_visible(monkeypatch):
 async def test_one_card_cannot_take_more_than_its_share(monkeypatch):
     ids = [f"q{i}" for i in range(MAX_DECISIONS_PER_CARD + 2)]
     FakeGateway(answers=dict.fromkeys(ids, 0.9)).install(monkeypatch)
-    result = await judge_pass(
-        _turn(*(_candidate(fragment_id, card_id="c") for fragment_id in ids), approved_cards=frozenset({"c"}))
-    )
+    result = await judge_pass(_turn(*(_candidate(fragment_id, card_id="c") for fragment_id in ids)))
 
     over = [row for row in result.skipped if row["reason"] == SkipReason.BUDGET_EXHAUSTED]
     assert [row["fragment_id"] for row in over] == ids[MAX_DECISIONS_PER_CARD:]

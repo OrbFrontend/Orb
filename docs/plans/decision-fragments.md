@@ -30,8 +30,8 @@ each answer, choose a fallback, and enable the fragment.**
   stage cannot affect another decision in the same stage.
 - Classifier responses, random draws, and authored outputs have separate
   lifecycles. Response caching does not implement regeneration replay.
-- Disabled fragments and unapproved card fragments have no effect and make no
-  request. Enabled fragments that cannot evaluate use their authored fallback.
+- Disabled fragments have no effect and make no request. Enabled fragments that
+  cannot evaluate use their authored fallback.
 - Existing fragments retain their API, ordering, cooldown, and SSE behavior.
 
 The first release includes solo and group chat, card import/export, fallback
@@ -115,7 +115,7 @@ validated together for `field_type = 'decision'`.
 Reuse `id`, `label`, `injection_label`, `enabled`, `sort_order`, and
 `cooldown_turns`. `description` remains an optional author-facing explanation.
 The question has its own field. A reusable definition contains no random seed,
-provider credential, evaluation result, or local import approval.
+provider credential, or evaluation result.
 
 JSON columns are decoded at database read boundaries. Database flags remain
 integers. Update schema definitions, migrations, row models, query write lists,
@@ -253,7 +253,7 @@ empty. Use it for missing configuration, unavailable context, oversized input,
 budget exhaustion, transport failure, timeout, or an invalid/missing answer.
 Do not fabricate a probability for fallback results.
 
-A disabled or unapproved fragment is skipped rather than resolved to fallback.
+A disabled fragment is skipped rather than resolved to fallback.
 A fragment on cooldown is also skipped: no request, outcome injection, fallback,
 or reuse of an earlier turn's guidance. User cancellation stops work; it is not a
 provider failure and must not trigger fallback guidance or continue generation.
@@ -262,7 +262,7 @@ provider failure and must not trigger fallback guidance or continue generation.
 
 At each stage:
 
-1. Apply enablement, card approval, and cooldown checks.
+1. Apply enablement and cooldown checks.
 2. Render and validate each decision independently against the frozen snapshot.
 3. Reuse matching target evaluation records on regeneration.
 4. Look up raw classifier responses for the remaining questions.
@@ -359,7 +359,7 @@ On regeneration:
 1. Restore branch cooldown baselines from the state before the target evaluation.
 2. Load the target reply's own evaluation records explicitly. The previous
    assistant message's baseline does not contain the target's outcomes.
-3. Recheck current enablement, local card approval, and cooldown eligibility.
+3. Recheck current enablement and cooldown eligibility.
 4. Re-render input at the target's evaluation scope. If fragment identity, raw
    request, and resolution policy match, reuse the target's raw answer without
    a request. A threshold, argmax, or nearest outcome is read straight off that
@@ -391,7 +391,7 @@ cooldown state. Retrying such an unsaved attempt creates fresh occurrences.
 For decisions, `cooldown_turns = N` means **skip the next N completed exchanges
 after an evaluation**, regardless of the answer or whether output was empty.
 Live, cached, replayed, and fallback evaluations all start that cooldown when
-their reply is retained. Disabled, unapproved, and already-resting decisions do
+their reply is retained. Disabled and already-resting decisions do
 not start it. The editor uses this wording rather than promising a particular
 API call frequency.
 
@@ -415,30 +415,11 @@ against the provider is an explicit editor action and changes no chat cooldowns
 or evaluation history.
 
 Endpoint setup explains that rendered scene text is sent to the selected external
-provider. Card decisions require a local per-card approval before they can run.
-Store approval outside exported card data; an imported `enabled` flag cannot
-supply it. Changes to a card's decision definitions invalidate that approval.
-Import validation preserves valid disabled decisions for inspection and skips
-invalid definitions. Apply approval before response-cache or replay lookup.
-
-Approval lives in a `settings` JSON column (`decision_card_approvals`, card id →
-approved definitions fingerprint), not a table of its own: a new table must map
-to a preset export domain, which would have let a shared preset carry consent.
-The column is in `PRESERVED_COLUMNS`, so an import never overwrites it. The
-fingerprint covers what actually leaves the machine — state template,
-instructions, criteria — so editing those revokes approval, while editing the
-authored outputs does not.
-
-A fingerprint needs a card to hang on, so it cannot gate a **global** decision —
-and `interactive_fragments` is in the `fragments` preset domain, which makes a
-shared preset the easier way to hand someone a question that calls their
-endpoint. A preset import therefore lands every decision it carries with
-`enabled = 0`, scoped by identity to the rows the file supplied
-(`DISARMED_ON_IMPORT` in `database/preset_schema.py`). The definition arrives
-whole and inspectable; arming it stays the local user's own act. A full restore
-swaps the database file and never runs the merge, so it is unaffected; a
-domain-scoped restore of your own fragments does come back disabled, which is the
-only direction available to an engine that cannot tell whose file it holds.
+provider. Card and preset decisions follow the same rules as every other card
+or preset fragment: no per-card approval and no disarming on import. Configuring
+a Judge endpoint is the opt-in, since a card or preset can author the question
+but never choose where it is sent; the per-card and per-exchange budgets bound
+the cost. Import validation skips invalid definitions.
 
 Basic Inspector support ships with evaluation. Show the exact rendered state,
 question, outcome, selected guidance, probability and draw, timing, response
@@ -500,15 +481,6 @@ and returns `{ok, url, requested_model, returned_model, probability, elapsed_ms,
 usage, error}`. It is an explicit editor action and changes no chat cooldowns or
 evaluation history.
 
-### Card approval
-
-`GET /api/decisions/card-approval/{card_id}` returns `{card_id, fingerprint,
-has_decisions, approved, stale}`. `PUT` the same path with `{fingerprint}` to
-approve, or `{fingerprint: null}` to revoke. The fingerprint must be the one just
-read, so consent cannot be granted against definitions the user did not see: a
-mismatch is `409` and a card with no valid decisions is `422`. `stale` is the
-state to surface loudly — the card's questions changed and are no longer running.
-
 ### Reading evaluations
 
 Three surfaces carry decisions, at three different weights. Use the lightest one
@@ -527,7 +499,7 @@ client that never opens the panel. Fetch the full record when the panel opens.
 
 Read `version` before anything else: an envelope from a later Orb is left alone
 rather than half-rendered. `skipped` entries carry `fragment_id`,
-`fragment_label`, `source` and `reason` (`not_approved`, `resting`,
+`fragment_label`, `source` and `reason` (`resting`,
 `invalid_definition`) and no outcome — a skipped decision resolved to nothing,
 and showing `false` for it would make the Inspector lie about what reached the
 story. `source` is `"global"` or `"card:<id>"`, which is how an imported fragment
@@ -558,9 +530,9 @@ Read [prompting](../architecture/prompting.md),
 | `backend/pipeline/config.py`, `prompting/tool_schemas.py` | Exclude decisions from Director tool fields and unrelated fragment consumers |
 | Director prompts and `prompting/scene_direction.py` | Append resolved guidance at the tail; preserve existing fragment output bytes |
 | `backend/pipeline/state.py`, `persistence.py` | Carry evaluations and decision cooldown snapshots to atomic message persistence and logs |
-| Database models, queries, migrations, schema | Definitions, classifier config, local card approval, evaluation/cooldown snapshots, branch-copy handling |
+| Database models, queries, migrations, schema | Definitions, classifier config, evaluation/cooldown snapshots, branch-copy handling |
 | `backend/api/schemas.py`, fragment/settings routes | Typed validation and configuration/preview/test contracts |
-| Fragment and card editors | Definition fields, fallback, preview, endpoint status, local approval |
+| Fragment and card editors | Definition fields, fallback, preview, endpoint status |
 | `frontend/chat_inspector.js` and stream contracts | Evaluation visibility without changing existing event meanings |
 
 Every backend row above is implemented. The two rows that remain are the fragment
@@ -655,7 +627,7 @@ Required implementation regression coverage:
 | Replay | Identical regeneration; cold cache; changed question/input/policy; output-only edit; fallback replay; branch/checkpoint copy |
 | Groups/cooldowns | One exchange evaluation; no repeated draw or decrement per speaker; later-speaker regeneration; skipped versus evaluated decisions |
 | Pipeline | Director enabled/disabled; guidance survives Director parsing; stable schemas; cancellation before and after partial output |
-| Imports/Inspector | Local approval cannot be imported; changed definitions revoke it; malformed decisions skip; shared usage is not double-counted; a preset cannot arm a decision it carries, and disarms only the rows it supplied |
+| Imports/Inspector | Malformed decisions skip; shared usage is not double-counted; a preset round-trips a decision like any other fragment |
 | Payload shape | The message listing carries neither `has_decisions` nor the records; the live event omits the rendered state and the authored outputs |
 
 Run narrow tests while iterating, then repository formatting, lint, and tests:
@@ -677,7 +649,7 @@ Review the final diff and keep Pyright at zero errors.
    *The renderer is built and tested; the live gateway is still unverified, and
    `decision_url` exists so a corrected route needs no new build.*
 2. **Complete first slice.** Ship configuration, Noul definitions, threshold/roll
-   resolution, the before-Director stage, group scope, budgets, card approval,
+   resolution, the before-Director stage, group scope, budgets,
    replay, cooldowns, and Inspector together. Keep incomplete authoring paths
    unavailable until the full behavior is implemented. *Backend done; the
    authoring UI, endpoint panel and Inspector are what is left, and the slice is

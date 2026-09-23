@@ -849,28 +849,6 @@ def _reconcile_crossref(conn, schema, fk: _FK, idmaps, cache, remap: bool) -> No
     )
 
 
-def _disarm_imported(conn: sqlite3.Connection, schema: _Schema, included: set[str]) -> None:
-    """Clear the arming column on rows this import supplied (DISARMED_ON_IMPORT).
-
-    Scoped by primary key to the rows actually present in the preset, so a
-    non-replacing apply leaves the local rows it did not touch alone -- including
-    ones the user armed themselves.
-    """
-    for table, (match_col, match_val, arm_col, disarmed) in ps.DISARMED_ON_IMPORT.items():
-        t = schema.tables.get(table)
-        if t is None or schema.domain_of(table) not in included:
-            continue
-        # A portable text identity is what makes "the rows the file supplied"
-        # expressible at all; a surrogate-keyed table would need a different scope.
-        assert t.kind == "stable" and len(t.pk) == 1, f"{table} cannot be scoped by identity"
-        (pk,) = t.pk
-        conn.execute(
-            f"UPDATE main.{table} SET {arm_col} = ? "  # nosec B608 — identifiers from the schema model and a hardcoded policy table
-            f"WHERE {match_col} = ? AND {pk} IN (SELECT {pk} FROM preset.{table})",
-            (disarmed, match_val),
-        )
-
-
 def _merge(conn: sqlite3.Connection, included: set[str], replace: bool) -> dict[str, int]:
     schema = _build_schema_model(conn)
     inc = [t for t in schema.order if schema.domain_of(t) in included]
@@ -911,9 +889,6 @@ def _merge(conn: sqlite3.Connection, included: set[str], replace: bool) -> dict[
     idmaps: dict[str, dict[int, int]] = {}
     for table in inc:
         _merge_table(conn, schema, table, idmaps, cache)
-
-    # C2. Disarm what the file was not allowed to arm (DISARMED_ON_IMPORT).
-    _disarm_imported(conn, schema, included)
 
     # D. Fix up deferred self/cycle back-pointers now that every id-map exists.
     for table, col in schema.deferred:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import re
 from collections.abc import Mapping, Sequence
@@ -221,26 +220,6 @@ def _card_decision_columns(entry: Mapping[str, Any]) -> dict[str, Any] | None:
     columns.update({column: value for column, value in defaults.items() if not columns[column]})
     probe = {"id": entry["id"], "label": entry["label"], "field_type": DECISION_FIELD_TYPE, **columns}
     return columns if parse_decision_definition(probe) is not None else None
-
-
-def card_decision_fingerprint(card: Mapping[str, Any] | None) -> str:
-    _, interactive = card_embedded_fragments(card)
-    definitions = [parse_decision_definition(row) for row in interactive if row.get("field_type") == DECISION_FIELD_TYPE]
-    payload = [
-        {
-            "id": definition.fragment_id,
-            "type": definition.decision_type,
-            "placement": definition.placement,
-            "state_template": definition.state_template,
-            "instructions": definition.instructions,
-            "criteria": definition.criteria,
-        }
-        for definition in definitions
-        if definition is not None
-    ]
-    if not payload:
-        return ""
-    return hashlib.sha256(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 async def cast_embedded_fragments(
