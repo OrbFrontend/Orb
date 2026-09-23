@@ -277,9 +277,11 @@ At each stage:
    per-question fallbacks. Publish outputs in fragment order.
 
 Adjacency is neither required nor sufficient for batching. Never concatenate
-unrelated states to force a batch. Independent groups run sequentially in the
-first release for simple cancellation and budget accounting. All stage results
-remain invisible until the stage finishes, regardless of request completion order.
+unrelated states to force a batch. Independent groups are sent concurrently: the
+first four batches go out at once and the rest are budget-exhausted, so the stage
+costs its slowest request rather than their sum (four states measured 2.5 s
+sequential, 0.7 s concurrent). All stage results remain invisible until the stage
+finishes, regardless of request completion order.
 
 The raw-response cache key includes adapter contract version, endpoint/provider
 identity, configuration revision, requested model, exact rendered state, question
@@ -318,8 +320,9 @@ response can still supply its valid answers. Connection failures and rate limits
 must not create unbounded extra attempts.
 
 Measure latency over whole decision stages. Summing sampled p95 values is not a
-measured end-to-end percentile. Two sequential 3-second timeouts can consume the
-full 6-second budget; observed successful calls do not establish a worst case.
+measured end-to-end percentile. Concurrent requests share one timeout of at most
+3 seconds, so the stage's worst case is one timeout rather than a sum of them;
+observed successful calls do not establish a worst case.
 
 ## Persistence and regeneration
 
@@ -583,6 +586,22 @@ Existing experiments are in [probe_jev.py](probe_jev.py),
 standard deviation around 0.006 over six identical calls, around 0.025 over five
 paraphrases, and successful-call median latency around 0.6 seconds. These are
 small-sample observations, not accuracy, determinism, or latency guarantees.
+
+[probe_jev_outcome.py](probe_jev_outcome.py) shaped the Outcome seed, over six
+synthetic scenes and the real renderer:
+
+- A request that narrates its own result ("she melts into the kiss") moved
+  P(success) by +0.76 in scenes built to fail. A clause in the question telling
+  the Judge to ignore narrated results cut that to +0.14; relabelling the state
+  alone only reached +0.52. Both together reach +0.06, and discrimination
+  between favourable and unfavourable scenes holds at +0.80.
+- Talk, Continue and OOC turns forced one of four outcomes, mostly a crushing
+  failure. A `no_attempt` option with empty guidance takes 0.75-0.99 of those
+  turns and 0.01 of real attempts, without moving the attempts' distribution.
+  The weighted draw still injects an outcome on about 15% of idle turns.
+- `{{recent_history}}` discriminates as well as the terse default when the
+  decisive fact is in the last reply (+0.54 vs +0.52), and alone sees one four
+  messages back (+0.60 vs +0.00).
 
 Some tested padding lowered the answer by roughly 0.08. This motivates testing
 real narrative inputs; it does not establish that all extra prose dilutes every

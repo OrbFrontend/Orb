@@ -234,6 +234,31 @@ async def test_different_states_split_and_are_never_concatenated(monkeypatch):
     assert all("Previous reply" not in state or "Only the request" not in state for state in gateway.states)
 
 
+async def test_different_states_are_asked_at_once_and_fail_alone(monkeypatch):
+    # Each request holds until both are in flight, so a stage that waited on one
+    # before sending the next would time out here instead of finishing.
+    in_flight = 0
+    both = asyncio.Event()
+
+    async def _held(self, state, questions, *, timeout=None, abort=None):  # noqa: ANN001
+        nonlocal in_flight
+        in_flight += 1
+        if in_flight == 2:
+            both.set()
+        await asyncio.wait_for(both.wait(), 1)
+        if state.startswith("Only the request"):
+            raise httpx.ReadTimeout("slow")
+        return DecisionResponse(answers={q.key: 0.9 for q in questions}, returned_model="m")
+
+    monkeypatch.setattr(stage_module.DecisionClient, "decide", _held)
+    result = await run_decisions(
+        _turn(_candidate("a"), _candidate("b", decision_state_template="Only the request: {{last_message}}"))
+    )
+    assert result.requests == 2
+    assert _by_id(result)["a"]["answer_source"] == "live"
+    assert _skips(result)["b"]["reason"] == SkipReason.TIMEOUT
+
+
 async def test_a_batch_is_packed_within_the_question_limit(monkeypatch):
     ids = [f"q{i}" for i in range(stage_module.MAX_QUESTIONS_PER_REQUEST + 3)]
     gateway = FakeGateway(answers=dict.fromkeys(ids, 0.9)).install(monkeypatch)
@@ -750,8 +775,8 @@ async def test_a_stage_with_no_candidates_still_ages_cooldowns():
 
 
 async def test_stage_results_are_published_only_once_the_stage_finishes(monkeypatch):
-    # Two states, so two sequential requests; the second's answer must not be
-    # observable before the first has also landed. The result object is the only
+    # Two states, so two requests; the first answer to land must not be
+    # observable before the other has also landed. The result object is the only
     # publication point, which is what makes that true by construction.
     started = asyncio.Event()
 

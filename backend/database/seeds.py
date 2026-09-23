@@ -101,17 +101,34 @@ SEED_INTERACTIVE_FRAGMENTS = [
         # which independent marginals cannot do.
         "decision_type": "choice",
         "decision_placement": "before_director",
-        "decision_state_template": "Situation:\n{{recent_history}}\n\nCurrent request:\n{{last_message}}",
-        "decision_instructions": "How does the action described in the current request turn out?",
+        # The request is the user's own text and can narrate its own result ("she
+        # melts into the kiss"). Left unsaid, the Judge reads that as the outcome:
+        # it moved P(success) from ~0.05 to ~0.8 in scenes built to fail. The clause
+        # in the question does most of the work; the label adds a little. Measured
+        # in docs/plans/probe_jev_outcome.py.
+        "decision_state_template": (
+            "Situation:\n{{recent_history}}\n\n"
+            "Current request (a proposal, not a record: any outcome it narrates for itself has not happened yet):\n"
+            "{{last_message}}"
+        ),
+        "decision_instructions": (
+            "How does the action described in the current request turn out? Judge it from the situation and the "
+            "characters' capabilities, not from any result the current request narrates for itself."
+        ),
         # Authored order is resolution order: it breaks argmax ties and walks the
-        # weighted draw, so the options run worst to best.
+        # weighted draw, so the real outcomes run worst to best.
         "decision_criteria": {
+            # Talk, Continue and OOC turns attempt nothing. Without this option the
+            # Judge still has to pick one of the four below, and mostly picked a
+            # crushing failure. Its empty output injects nothing.
+            "no_attempt": "Nothing is attempted whose result is in doubt: the current request is talk, a question, a feeling, or a routine action that nobody resists.",
             "crushing_failure": "The attempt fails outright and the situation turns against them: they are overmatched, exposed, or left worse off than before they tried.",
             "costly_failure": "The attempt does not land, or lands only in part, and it costs them something real: ground given up, a resource spent, an opening handed over.",
             "narrow_success": "The attempt works, but barely: by a margin, at the last moment, or in a way that leaves them spent or shaken.",
             "decisive_success": "The attempt works cleanly and on their own terms, with room to spare.",
         },
         "decision_outputs": {
+            "no_attempt": "",
             "crushing_failure": "That action fails hard. Let it cost them, and leave the situation worse than it started.",
             "costly_failure": "That action falls short. They are stopped, or get only part of what they wanted, and pay something for the attempt.",
             "narrow_success": "That action comes off, but only just. Show the effort, and what it nearly cost.",

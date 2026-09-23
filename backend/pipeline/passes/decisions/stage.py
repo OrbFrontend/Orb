@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -23,6 +24,7 @@ from ....inference import (
     DecisionCancelled,
     DecisionClient,
     DecisionQuestion,
+    DecisionResponse,
     DecisionTransportError,
     LLMCallError,
     ScoreAnswer,
@@ -634,49 +636,61 @@ async def _issue(
         timeout=REQUEST_TIMEOUT_SECONDS,
         proxy=turn.config.proxy,
     )
-    issued = 0
-    for batch in _batches(pending):
-        remaining = STAGE_BUDGET_SECONDS - (time.monotonic() - started)
-        if abort is not None and abort.is_aborted:
-            raise DecisionCancelled("stopped during the decision stage")
-        if issued >= MAX_REQUEST_ATTEMPTS or remaining <= 0:
-            for question in batch:
-                question.failure = SkipReason.BUDGET_EXHAUSTED
-            continue
-        issued += 1
-        try:
-            response = await client.decide(
+    if abort is not None and abort.is_aborted:
+        raise DecisionCancelled("stopped during the decision stage")
+    remaining = STAGE_BUDGET_SECONDS - (time.monotonic() - started)
+    batches = _batches(pending)
+    sent = batches[:MAX_REQUEST_ATTEMPTS] if remaining > 0 else []
+    for batch in batches[len(sent) :]:
+        for question in batch:
+            question.failure = SkipReason.BUDGET_EXHAUSTED
+    # No batch reads another's answer, so none waits on another: the judge answers
+    # each in about the same time, and the stage costs its slowest request
+    # instead of their sum (four states: 2.5 s sequential, 0.7 s together).
+    outcomes = await asyncio.gather(
+        *(
+            client.decide(
                 batch[0].owner.state,
                 [question.question() for question in batch],
                 timeout=min(REQUEST_TIMEOUT_SECONDS, remaining),
                 abort=abort,
             )
-        except DecisionCancelled:
-            raise
-        except httpx.TimeoutException:
+            for batch in sent
+        ),
+        return_exceptions=True,
+    )
+    if cancelled := next((outcome for outcome in outcomes if isinstance(outcome, DecisionCancelled)), None):
+        raise cancelled
+    for batch, outcome in zip(sent, outcomes, strict=True):
+        if isinstance(outcome, httpx.TimeoutException):
             for question in batch:
                 question.failure = SkipReason.TIMEOUT
-            continue
-        except (LLMCallError, DecisionTransportError, httpx.HTTPError) as error:
-            logger.warning("Decision batch of %d failed (%r); skipping those decisions", len(batch), error)
+        elif isinstance(outcome, (LLMCallError, DecisionTransportError, httpx.HTTPError)):
+            logger.warning("Decision batch of %d failed (%r); skipping those decisions", len(batch), outcome)
             for question in batch:
                 question.failure = SkipReason.TRANSPORT_FAILURE
+        elif isinstance(outcome, BaseException):
+            raise outcome
+        else:
+            _apply(batch, outcome, turn)
+    return len(sent)
+
+
+def _apply(batch: Sequence[_PreparedQuestion], response: DecisionResponse, turn: DecisionsTurn) -> None:
+    for index, question in enumerate(batch):
+        question.elapsed_ms = response.elapsed_ms
+        question.request_id = response.request_id
+        question.usage = response.usage
+        question.usage_owner = index == 0
+        answer = response.answers.get(question.key)
+        if answer is None:
+            question.failure = SkipReason.INVALID_ANSWER
             continue
-        for index, question in enumerate(batch):
-            question.elapsed_ms = response.elapsed_ms
-            question.request_id = response.request_id
-            question.usage = response.usage
-            question.usage_owner = index == 0
-            answer = response.answers.get(question.key)
-            if answer is None:
-                question.failure = SkipReason.INVALID_ANSWER
-                continue
-            question.answer = answer
-            question.answer_source = "live"
-            question.returned_model = response.returned_model
-            if not _is_gated(question, answer):
-                RAW_ANSWER_CACHE.put(
-                    cache_key(turn.config.namespace, turn.config.model, question.owner.state, question.question()),
-                    CachedAnswer(answer, response.returned_model),
-                )
-    return issued
+        question.answer = answer
+        question.answer_source = "live"
+        question.returned_model = response.returned_model
+        if not _is_gated(question, answer):
+            RAW_ANSWER_CACHE.put(
+                cache_key(turn.config.namespace, turn.config.model, question.owner.state, question.question()),
+                CachedAnswer(answer, response.returned_model),
+            )
