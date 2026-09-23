@@ -45,7 +45,8 @@
   margin-bottom: 10px;
 }
 
-.decision-options:has(.decision-key-input) { --dec-key-col: 104px; }
+/* Wide enough for the name input and the add button that sits under it. */
+.decision-options-editable { --dec-key-col: 104px; }
 
 .decision-option-head,
 .decision-option-row {

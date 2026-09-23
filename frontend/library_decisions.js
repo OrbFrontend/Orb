@@ -151,14 +151,12 @@ const COPY = {
     question: "a statement the Judge scores",
     questionPlaceholder: "The action described in the current request succeeds.",
     outcome: "Outcome",
-    criterion: "What it looks like",
-    criterionPlaceholder: "What this outcome looks like in the scene",
+    criterionPlaceholder: "What this outcome means",
   },
   choice: {
     question: "a question the Judge answers by picking one option below",
     questionPlaceholder: "Which of these best describes how {{char}} takes the current request?",
     outcome: "Option",
-    criterion: "What it means",
     criterionPlaceholder: "What picking this option means",
     note: 'Tip: for a "none of these" case, put that option first with empty guidance and resolve with "First option gates, else random". When the Judge finds it likeliest, nothing is rolled or injected.',
   },
@@ -166,9 +164,7 @@ const COPY = {
     question: "what the Judge places on the scale below",
     questionPlaceholder: "How far the current request pushes {{char}} past their patience.",
     outcome: "Level",
-    criterion: "What it looks like",
-    criterionPlaceholder: "What this level looks like in the scene",
-    note: "Lowest level first.",
+    criterionPlaceholder: "What this level means",
   },
 };
 
@@ -265,7 +261,7 @@ function _optionsHtml(config, type, copy) {
   const options = _draft.options;
   const editable = type !== "noul";
   const max = type === "choice" ? config.choice?.max_options : config.score?.max_levels;
-  const criterionHead = `${esc(copy.criterion)} ${_hint("- to the Judge")}`;
+  const criterionHead = `What it means ${_hint("- to the Judge")}`;
   const outputHead = `What the story does ${_hint("- injected")}`;
   const rows = options
     .map(
@@ -277,7 +273,7 @@ function _optionsHtml(config, type, copy) {
             : `<span class="decision-key-fixed">${esc(outcomeLabel(type, option.key))}</span>`
         }
         <span class="decision-cell-label" aria-hidden="true">${criterionHead}</span>
-        <textarea rows="2" data-opt="${index}" data-field="text" aria-label="${escAttr(copy.criterion)}" placeholder="${escAttr(copy.criterionPlaceholder)}">${esc(option.text)}</textarea>
+        <textarea rows="2" data-opt="${index}" data-field="text" aria-label="What it means" placeholder="${escAttr(copy.criterionPlaceholder)}">${esc(option.text)}</textarea>
         <span class="decision-cell-label" aria-hidden="true">${outputHead}</span>
         <textarea rows="2" data-opt="${index}" data-field="output" aria-label="What the story does" placeholder="What the story does on hit">${esc(option.output)}</textarea>
         ${
