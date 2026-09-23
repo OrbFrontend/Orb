@@ -255,7 +255,7 @@ function _innerHtml() {
         ? ["threshold", "Threshold", "Resolves true at or above this probability", "0.5"]
         : null;
   return `
-    ${config.configured ? "" : `<div class="decision-status">No Judge endpoint configured: this decision is skipped. Set one under <strong>Endpoints → Judge</strong>.</div>`}
+    ${config.configured ? "" : `<div class="decision-status">No Judge endpoint configured. Set one under <strong>Endpoints → Judge</strong>.</div>`}
     ${_problemHtml("general")}
     <div class="frag-divider">Decision</div>
     <div class="field-row">
@@ -302,7 +302,7 @@ function _optionsHtml(config, type, copy) {
         <span class="decision-cell-label" aria-hidden="true">${criterionHead}</span>
         <textarea rows="2" data-opt="${index}" data-field="text" aria-label="${escAttr(copy.criterion)}" placeholder="${escAttr(copy.criterionPlaceholder)}">${esc(option.text)}</textarea>
         <span class="decision-cell-label" aria-hidden="true">${outputHead}</span>
-        <textarea rows="2" data-opt="${index}" data-field="output" aria-label="What the story does" placeholder="What the story does if it lands">${esc(option.output)}</textarea>
+        <textarea rows="2" data-opt="${index}" data-field="output" aria-label="What the story does" placeholder="What the story does on hit">${esc(option.output)}</textarea>
         ${
           !editable
             ? ""
