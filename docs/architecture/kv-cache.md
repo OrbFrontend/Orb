@@ -229,6 +229,10 @@ caches, and without a session id it only becomes sticky after a cache hit, which
 a lane that changes upstream on every call may never get. Servers that do not
 read the header ignore it.
 
+Configuration wins over both: a top-level `cache_control` in the endpoint's extra
+body replaces the breakpoints, and an `x-session-id` in its extra headers (any
+casing) replaces the derived one.
+
 ## What the tracker tells you
 
 Orb records two kinds of cache information:

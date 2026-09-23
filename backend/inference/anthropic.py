@@ -12,7 +12,8 @@ from .schema import strictify_schema
 # Anthropic rejects unknown top-level fields. These are the only user-provided
 # extra_body keys accepted on a native Messages route; OpenAI-shaped escape
 # hatches therefore cannot turn an otherwise-valid request into a hard 400.
-EXTRA_BODY_ALLOWED: frozenset[str] = frozenset({"metadata", "service_tier"})
+# A configured ``cache_control`` (automatic caching) replaces Orb's breakpoints.
+EXTRA_BODY_ALLOWED: frozenset[str] = frozenset({"cache_control", "metadata", "service_tier"})
 DEFAULT_MAX_TOKENS = 4096
 
 # Sampling support is a capability of the concrete endpoint/model pair, not

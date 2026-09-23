@@ -301,9 +301,9 @@ class LLMClient:
         headers.update(self.extra_headers)
         return headers
 
-    def _headers_for(self, auth_family: endpoint_profiles.AuthFamily) -> dict:
-        """Return transport auth defaults with case-insensitive user overrides."""
-        base: dict[str, str] = {}
+    def _headers_for(self, auth_family: endpoint_profiles.AuthFamily, defaults: Mapping[str, str] | None = None) -> dict:
+        """Return transport auth and *defaults* with case-insensitive user overrides."""
+        base: dict[str, str] = dict(defaults or {})
         if self.api_key:
             if auth_family == "anthropic":
                 base["x-api-key"] = self.api_key
@@ -555,13 +555,7 @@ class LLMClient:
         # How many leading messages every call on this base shares; the cache
         # breakpoint that carries reuse across passes and turns sits there.
         cache_prefix_len = params.pop("cache_prefix_len", None)
-        # A header the user configured, in any casing, wins over the derived lane id.
-        configured_headers = {key.lower() for key in self.extra_headers}
-        affinity = {
-            key: value
-            for key, value in prompt_cache.affinity_headers(model, messages).items()
-            if key.lower() not in configured_headers
-        }
+        affinity = prompt_cache.affinity_headers(model, messages)
 
         def _plan() -> tuple[dict, str | None, bool]:
             """Resolve the current tool policy into ``(body, forced_name, structured)``.
@@ -836,7 +830,10 @@ class LLMClient:
                         api_key=self.api_key,
                     )
 
-            cache_markers = endpoint_profiles.sends_cache_markers(self.base_url, model)
+            # A top-level cache_control the user configured replaces the breakpoints.
+            cache_markers = "cache_control" not in self.extra_body and endpoint_profiles.sends_cache_markers(
+                self.base_url, model
+            )
             markers_withdrawn = False
             routes = endpoint_profiles.endpoint_candidates(self.base_url, model)
             route_index = 0
@@ -847,7 +844,7 @@ class LLMClient:
                 auth_retried = False
                 while True:
                     outbound = _outbound_body(body, route, cache_markers=cache_markers)
-                    headers = {**affinity, **self._headers_for(auth_family)}
+                    headers = self._headers_for(auth_family, affinity)
                     # No read timeout on streaming calls: a long prefill silence
                     # is normal; abort and disconnect close the stream instead.
                     async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, read=None), proxy=self.proxy) as client:
@@ -915,8 +912,6 @@ class LLMClient:
                                 )
                             if markers_withdrawn:
                                 endpoint_profiles.note_cache_markers_refused(self.base_url, model)
-                                logger.warning("LLM profile: %s refuses cache markers; sending none this session.", model)
-                                markers_withdrawn = False
                             if route.protocol == "anthropic":
                                 async for event in consume_anthropic(resp, route.url):
                                     yield event
@@ -1229,9 +1224,9 @@ class LLMClient:
         # /apply-template fails, the chat fallback below explicitly preserves
         # that invariant by withholding them there too.
         params.pop("tools_in_prompt", None)
-        # Chat-only: llama.cpp reuses its own slot prefix, so only the chat
-        # fallback below has a use for the breakpoint position.
-        cache_prefix_len = params.pop("cache_prefix_len", None)
+        # Chat-only, and not worth forwarding: the chat fallback below reaches the
+        # same llama.cpp server, which reuses its slot prefix without markers.
+        params.pop("cache_prefix_len", None)
         server_root = self._server_root()
         reasoning_on = text_completion.reasoning_enabled(params)
         fmt = await self._reasoning_format(server_root)
@@ -1244,15 +1239,7 @@ class LLMClient:
                 "text mode: /apply-template failed (%r); falling back to chat transport",
                 e,
             )
-            async for event in self._complete_chat(
-                messages,
-                model,
-                tools,
-                tool_choice,
-                tools_in_prompt=False,
-                cache_prefix_len=cache_prefix_len,
-                **params,
-            ):
+            async for event in self._complete_chat(messages, model, tools, tool_choice, tools_in_prompt=False, **params):
                 yield event
             return
 

@@ -996,6 +996,21 @@ async def test_configured_headers_override_the_derived_lane_id():
     assert sent == {"X-Session-Id": "mine"}
 
 
+@pytest.mark.parametrize("endpoint", ["https://openrouter.ai/api/v1", "https://api.anthropic.com/v1/messages"])
+async def test_configured_cache_control_replaces_the_breakpoints(endpoint):
+    automatic = {"type": "ephemeral", "ttl": "1h"}
+    done = [_line({"type": "message_stop"})] if endpoint.endswith("/messages") else OPENAI_DONE
+    fake = _HTTP([_Response(lines=done)])
+    client = LLMClient(endpoint, "key", extra_body=json.dumps({"cache_control": automatic}))
+
+    await _run_transcript(client, fake, "m", cache_prefix_len=3)
+
+    body = fake.requests[0]["body"]
+    assert body["cache_control"] == automatic
+    assert _marked_indexes(body["messages"]) == []
+    assert "cache_control" not in json.dumps(body["messages"]) + json.dumps(body.get("system"))
+
+
 async def test_refused_cache_markers_retry_unmarked_and_are_remembered():
     """A strict schema can refuse the one-part text list without naming the field."""
     rejection = '{"error":{"message":"messages[0].content: invalid type: sequence, expected a string"}}'
