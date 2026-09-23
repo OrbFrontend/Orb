@@ -171,6 +171,30 @@ def test_choice_and_score_answers_normalize_without_coercion():
     assert response.answers["cost"] == ScoreAnswer(0.75, {"0": 0.25, "1": 0.75}, 0.9, {"0": "Low", "1": "High"})
 
 
+@pytest.mark.parametrize("mass", [0.99, 1.01])
+def test_rounded_distributions_are_normalized_before_weighted_resolution(mass):
+    from backend.pipeline.passes.judge import resolve_weighted
+
+    question = DecisionQuestion("beat", "Beat?", {"first": "First", "second": "Second", "never": "Never"}, "choice")
+    response = normalize_response(
+        {
+            "answers": {
+                "beat": {
+                    "choice": "first",
+                    "probabilities": {"first": mass / 2, "second": mass / 2, "never": 0},
+                    "confidence": 0.9,
+                }
+            }
+        },
+        [question],
+    )
+    answer = response.answers["beat"]
+    assert isinstance(answer, ChoiceAnswer)
+    assert sum(answer.probabilities.values()) == pytest.approx(1)
+    assert resolve_weighted(answer.probabilities, tuple(question.criteria), 0.501) == "second"
+    assert resolve_weighted(answer.probabilities, tuple(question.criteria), 0.999) == "second"
+
+
 @pytest.mark.parametrize("payload", [None, [], "text", {"no_answers": 1}, {"answers": []}])
 def test_an_unreadable_envelope_raises_rather_than_answering(payload):
     with pytest.raises(DecisionTransportError):

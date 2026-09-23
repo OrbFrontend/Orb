@@ -41,8 +41,9 @@ six messages), `{{user}}`, `{{char}}`, `{{cast}}`, and, in solo chats only,
 `{{description}}`. Questions, outcome descriptions, and guidance may use
 `{{user}}`, `{{char}}`, and `{{cast}}`. In a group chat, a decision that came
 from a character card reads that character as `{{char}}` and its scene sheet as
-`{{description}}`, the same way the card's own text does. The editor preview shows the rendered
-situation and its size; situations over 16 KiB are skipped.
+`{{description}}`, the same way the card's own text does. The Inspector shows the
+situation sent for a resolved decision. Situations over 16 KiB are skipped,
+with their size and limit shown in the Inspector.
 
 Every decision in a turn sees the same situation, so one decision cannot see
 another's result. Decisions that share a situation go out in one API request.
@@ -52,7 +53,8 @@ another's result. Decisions that share a situation go out in one API request.
 Regenerating a reply reuses its stored answer without a new request. A
 **Threshold** or **Most likely** outcome stays the same; a **Roll** or **Random
 by odds** outcome is drawn again against the same odds. Magic Rewrite and
-Super-regenerate get asked again.
+Super-regenerate evaluate the steered situation afresh; an identical question
+and situation can still reuse a cached answer.
 
 In a group chat, decisions run once per exchange and every speaker receives the
 same result. Regenerating, rewriting, or super-regenerating a later speaker keeps

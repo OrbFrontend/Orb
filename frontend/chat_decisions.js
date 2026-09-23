@@ -10,6 +10,7 @@ import { esc, escAttr } from "./utils.js";
 
 /** The id the Inspector's toggle listener watches to persist this block's open state. */
 export const DECISIONS_SECTION_ID = "decisions-section";
+const EVALUATIONS_VERSION = 2;
 
 const ANSWER_SOURCES = { live: "live", cache: "cached", replay: "replayed" };
 
@@ -112,8 +113,9 @@ function _skippedHtml(entry) {
  * live event, which arrives before the message it belongs to exists.
  */
 export function currentDecisionsHtml() {
-  const source =
-    S.inspectedMsgId && S.inspectedDirectorData ? S.inspectedDirectorData.decision_evaluations : S.lastDecisions;
+  const inspecting = Boolean(S.inspectedMsgId);
+  const source = inspecting ? S.inspectedDirectorData?.decision_evaluations : S.lastDecisions;
+  if (inspecting && (!Number.isInteger(source?.version) || source.version > EVALUATIONS_VERSION)) return "";
   const evaluations = source?.evaluations || [];
   const skipped = source?.skipped || [];
   if (!evaluations.length && !skipped.length) return "";

@@ -140,6 +140,22 @@ def _skips(result):
     return {row["fragment_id"]: row for row in result.skipped}
 
 
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"decision_instructions": "Does {{draft}} succeed?"},
+        {"decision_criteria": {"true": "{{last_message}}", "false": "No"}},
+        {"decision_outputs": {"true": "{{scene_guidance}}", "false": ""}},
+    ],
+)
+async def test_imported_decisions_obey_authoring_macro_rules(monkeypatch, overrides):
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    result = await judge_pass(_turn(_candidate(card_id="imported", **overrides)))
+    assert result.evaluations == []
+    assert _skips(result)["outcome"]["reason"] == SkipReason.INVALID_DEFINITION
+    assert gateway.batches == []
+
+
 # ── the happy path ───────────────────────────────────────────────────────────
 
 

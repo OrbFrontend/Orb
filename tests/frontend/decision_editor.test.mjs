@@ -209,13 +209,19 @@ test("retyping rebuilds the outcome space for the new type", () => {
 });
 
 test("guidance mirrors an untouched criterion and never overwrites a written one", () => {
-  mount({ ...NOUL_FRAGMENT, decision_outputs: { true: "", false: "Authored." } });
+  mount({ ...NOUL_FRAGMENT, decision_outputs: { false: "Authored." } });
   type('[data-opt="0"][data-field="text"]', "They pull it off.");
   assert.equal(document.querySelector('[data-opt="0"][data-field="output"]').value, "They pull it off.");
 
   // The second row's guidance was authored, so it is the author's and stays.
   type('[data-opt="1"][data-field="text"]', "They do not.");
   assert.equal(document.querySelector('[data-opt="1"][data-field="output"]').value, "Authored.");
+});
+
+test("editing a saved criterion preserves deliberately empty guidance after reopening", () => {
+  mount(CHOICE_FRAGMENT);
+  type('[data-opt="0"][data-field="text"]', "Updated gate description.");
+  assert.equal(readDecisionFields().decision_outputs.win, "");
 });
 
 test("an empty guidance field stays empty: no implicit echo of the criterion", () => {

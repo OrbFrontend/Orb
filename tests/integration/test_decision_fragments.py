@@ -273,22 +273,8 @@ async def test_the_two_endpoint_pools_are_listed_apart(client, db):
     assert (await client.get(f"/api/endpoints/{judge_pool[0]['id']}/models")).json() == []
 
 
-async def test_preview_renders_the_sample_scene_with_its_sizes(client, db):
+async def test_the_removed_preview_route_is_not_available(client):
     response = await client.post("/api/decisions/preview", json={"fragment": DEFINITION})
-    assert response.status_code == 404
-
-
-async def test_preview_reports_problems_instead_of_rendering(client, db):
-    response = await client.post("/api/decisions/preview", json={"fragment": {**DEFINITION, "decision_instructions": ""}})
-    assert response.status_code == 404
-
-
-async def test_preview_can_render_against_a_real_conversation(client, db, llm_mock, monkeypatch):
-    cid = await _solo_scene(client, "conv-decision-preview")
-    Gateway(monkeypatch)
-    await _turn(llm_mock, cid, "I shove the door.", director={"moods": []})
-
-    response = await client.post("/api/decisions/preview", json={"fragment": DEFINITION, "conversation_id": cid})
     assert response.status_code == 404
 
 

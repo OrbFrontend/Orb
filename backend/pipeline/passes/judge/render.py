@@ -5,7 +5,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
-from ....core import CastMember, Macros, outside_literals
+from ....core import CastMember, DecisionDefinition, Macros, outside_literals
 from ....prompting import format_message_with_attachments, group_speaker_label
 
 DECISION_RENDERER_VERSION = "1"
@@ -122,6 +122,20 @@ def macro_errors(text: str, *, allowed: frozenset[str] = STATE_MACROS, field: st
             errors.append(f"{field} cannot use {{{{{name}}}}} before the Director: it does not exist yet at this stage")
         else:
             errors.append(f"{field} does not support {{{{{name}}}}} (available: {', '.join(sorted(allowed))})")
+    return errors
+
+
+def definition_macro_errors(definition: DecisionDefinition) -> list[str]:
+    """The renderer's full macro contract, shared by authoring and execution."""
+    errors = macro_errors(definition.state_template, field="Situation template")
+    criteria = definition.criteria.values() if isinstance(definition.criteria, Mapping) else definition.criteria
+    for texts, label in (
+        ((definition.instructions,), "Question"),
+        (criteria, "Outcome description"),
+        (definition.outputs.values(), "Guidance"),
+    ):
+        for text in texts:
+            errors.extend(macro_errors(text, allowed=TEXT_MACROS, field=label))
     return errors
 
 

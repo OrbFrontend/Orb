@@ -44,7 +44,7 @@ from .render import (
     TEXT_MACROS,
     DecisionSnapshot,
     UnavailableMacro,
-    macro_errors,
+    definition_macro_errors,
     macros_used,
     render,
 )
@@ -256,6 +256,8 @@ def _prepare(candidate: DecisionCandidate, turn: JudgeTurn, *, over_budget: bool
 def _render_question(item: _Item, turn: JudgeTurn, *, over_budget: bool) -> str:
     """Render *item*'s request, or return why it cannot be asked."""
     definition, snapshot = item.definition, turn.snapshot_for(item.candidate)
+    if definition_macro_errors(definition):
+        return SkipReason.INVALID_DEFINITION
     try:
         item.outputs = {key: render(value, snapshot, allowed=TEXT_MACROS) for key, value in definition.outputs.items()}
     except UnavailableMacro:
@@ -264,8 +266,6 @@ def _render_question(item: _Item, turn: JudgeTurn, *, over_budget: bool) -> str:
         return SkipReason.BUDGET_EXHAUSTED
     if not turn.config.configured:
         return SkipReason.NOT_CONFIGURED
-    if macro_errors(definition.state_template):
-        return SkipReason.INVALID_DEFINITION
     try:
         state = render(definition.state_template, snapshot, allowed=STATE_MACROS)
         instructions = render(definition.instructions, snapshot, allowed=TEXT_MACROS)

@@ -35,8 +35,8 @@ function _fixedKey(type, index) {
   return type === "score" ? String(index) : "";
 }
 
-function _option(key, text = "", output = "") {
-  return { key, text: String(text ?? ""), output: String(output ?? ""), touched: Boolean(output) };
+function _option(key, text = "", output = "", touched = false) {
+  return { key, text: String(text ?? ""), output: String(output ?? ""), touched };
 }
 
 /**
@@ -57,7 +57,9 @@ export function initDecisionDraft(fragment) {
     type,
     state_template: fragment.decision_state_template || decisionConfig()?.default_state_template || "",
     instructions: fragment.decision_instructions || "",
-    options: entries.map(([key, text]) => _option(key, text, outputs[key])),
+    // Saved empty guidance is intentional too: reopening must not re-enable
+    // mirroring and turn a no-injection outcome into story instructions.
+    options: entries.map(([key, text]) => _option(key, text, outputs[key], Object.hasOwn(outputs, key))),
     resolution: fragment.decision_resolution || _policiesFor(type)[0] || "",
     threshold: fragment.decision_threshold ?? null,
     confidence_floor: fragment.decision_confidence_floor ?? null,

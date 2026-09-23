@@ -118,7 +118,12 @@ def _distribution(value: Any, keys: Sequence[str]) -> dict[str, float] | None:
         if (probability := _probability(value[key])) is None:
             return None
         result[key] = probability
-    return result if math.isclose(sum(result.values()), 1.0, rel_tol=0.0, abs_tol=0.02) else None
+    total = sum(result.values())
+    if not math.isclose(total, 1.0, rel_tol=0.0, abs_tol=0.02):
+        return None
+    # Accept provider rounding, but do not assign its missing mass to the last
+    # option (which can have zero odds) or truncate the tail when mass exceeds 1.
+    return {key: probability / total for key, probability in result.items()}
 
 
 def _answer(entry: Any, question: DecisionQuestion) -> NormalizedAnswer | None:
