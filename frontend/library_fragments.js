@@ -151,10 +151,7 @@ export async function toggleMoodFragmentEnabled(id, newEnabled) {
   }
 }
 
-// Interactive fragments run in one of three lanes: the Judge resolves decisions
-// before anything else, the Director shapes the scene the writer works from, and
-// the Editor acts on the reply once it exists. The sidepanel groups by lane so
-// the three never read as one undifferentiated list.
+// Group interactive fragments by Judge, Director, and Editor stages.
 const EDITOR_LANE_FIELD_TYPES = new Set(["feedback", "post_processing"]);
 
 const INTERACTIVE_LANES = [
@@ -170,9 +167,7 @@ function _interactiveLane(f) {
 
 export async function loadInteractiveFragments() {
   try {
-    // Warm the classifier config here rather than on modal open: the decision
-    // editor renders its type, policy and macro controls from that payload, and
-    // a form that paints its controls a beat late reads as a broken form.
+    // Load config before opening the editor so its controls are ready to render.
     loadDecisionConfig();
     S.interactiveFragments = await api.get("/interactive-fragments");
     renderInteractiveFragments();
@@ -346,8 +341,7 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
   },
 };
 
-// Whether the fragment open in the modal was stored as a decision. Only that
-// case can lose decision columns by switching type, so only that case warns.
+// Track whether changing the current type will clear saved decision fields.
 let _editingStoredDecision = false;
 
 function _openDecisionDraft(fragment) {
@@ -375,12 +369,10 @@ export function updateInteractiveFragmentExample(fieldType) {
   setHint("interactive-frag-desc-hint", ex.desc_hint || "");
   const timingRow = document.getElementById("interactive-frag-timing-row");
   if (timingRow) timingRow.style.display = fieldType === "direction_note" ? "" : "none";
-  // A decision carries no description: the Judge reads the question and the
-  // outcomes, and nothing else reads it either, so the field is not shown.
+  // Decision definitions use their own question and outcome fields.
   const descRow = document.getElementById("interactive-frag-desc-row");
   if (descRow) descRow.style.display = isDecision ? "none" : "";
-  // A decision is never a Director tool property -- its guidance is injected as
-  // trailing context -- so "required" has nothing to be required of.
+  // Decisions do not use the Director's required-field tool setting.
   const hideRequired = fieldType === "post_processing" || isDecision;
   const requiredRow = document.getElementById("interactive-frag-required-row");
   if (requiredRow) requiredRow.style.display = hideRequired ? "none" : "";
@@ -390,8 +382,7 @@ export function updateInteractiveFragmentExample(fieldType) {
   if (decisionSection) decisionSection.style.display = isDecision ? "" : "none";
   if (isDecision) fitDecisionTextareas();
   const leaving = document.getElementById("interactive-frag-decision-warning");
-  // Switching a stored decision to another type clears every decision column.
-  // Say so before the save rather than after it.
+  // Warn before a type change clears the saved decision fields.
   if (leaving) leaving.style.display = _editingStoredDecision && !isDecision ? "" : "none";
 }
 
@@ -460,9 +451,7 @@ function _readInteractiveFragForm() {
     direction_note_timing: document.getElementById("interactive-frag-timing-select").value,
     cooldown_turns: parseInt(document.getElementById("interactive-frag-cooldown").value, 10) || 0,
   };
-  // Another field type sends no decision columns at all: the backend nulls them
-  // itself whenever a write names a non-decision field_type, so spelling them
-  // out here would only be a second copy of that rule.
+  // The backend clears decision fields when a write names another type.
   return fieldType === "decision" ? { ...base, ...readDecisionFields() } : base;
 }
 
@@ -566,9 +555,7 @@ function _featureGate(f) {
   const feedbackOff = f.field_type === "feedback" && !S.feedbackEnabled;
   const noteOff = f.field_type === "direction_note" && !S.directionNotesRecord;
   const postProcessingOff = f.field_type === "post_processing" && !S.agentEnabled;
-  // A decision without a Judge is not disabled -- it is simply skipped every
-  // turn, injecting nothing. Say so, rather than greying out a fragment whose
-  // definition is perfectly good and will run the moment a Judge is set.
+  // Without a Judge, decisions remain enabled but are skipped at runtime.
   const judgeOff = f.field_type === "decision" && decisionConfig()?.configured === false;
   const title = feedbackOff
     ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
@@ -672,8 +659,7 @@ function _wireCardFragModal(type, isEdit, fragId) {
       toast(validation.error, true);
       return;
     }
-    // A card decision is saved inside the card, past the fragment routes that
-    // validate a global one, so it is checked here or not until a turn skips it.
+    // Card decisions bypass fragment routes, so validate them before saving.
     if (d.field_type === "decision") {
       if (_showDecisionProblems(decisionDraftProblems())) return;
       try {

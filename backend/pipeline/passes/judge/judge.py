@@ -137,8 +137,7 @@ class JudgeTurn:
     prior_cooldowns: Mapping[str, int] = field(default_factory=dict)
     replay_records: tuple[Mapping[str, Any], ...] = ()
     invalid: tuple[InvalidDecision, ...] = ()
-    # A group's card-embedded decisions read their own character as ``{{char}}``
-    # and ``{{description}}``, the way that card's text does in the prompt.
+    # Card decisions use the owning member's ``{{char}}`` and ``{{description}}``.
     card_snapshots: Mapping[str, DecisionSnapshot] = field(default_factory=dict)
 
     def snapshot_for(self, candidate: DecisionCandidate) -> DecisionSnapshot:
@@ -156,11 +155,7 @@ class JudgeResult:
 
     @classmethod
     def committed(cls, stored: Mapping[str, Any] | None, cooldowns: Mapping[str, int]) -> JudgeResult:
-        """The result an earlier reply already committed its exchange to, taken as is.
-
-        Nothing is asked and nothing is drawn: a later speaker in the same
-        exchange must land on the outcome the earlier speakers already wrote.
-        """
+        """Reuse an exchange result already committed by an earlier reply."""
         evaluations = stored_evaluations(stored)
         return cls(
             evaluations=evaluations,
@@ -329,11 +324,7 @@ def _gated(definition: DecisionDefinition, answer: Answer) -> bool:
 
 
 def _resolved_record(item: _Item, turn: JudgeTurn) -> dict[str, Any] | None:
-    """The evaluation record, or ``None`` with ``item.skip_reason`` set.
-
-    Returning nothing is the whole point: an unanswered decision contributes no
-    outcome and no guidance, and the caller turns it into a skip row.
-    """
+    """Build an evaluation record, or set a skip reason and return ``None``."""
     definition, question, answer = item.definition, item.question, item.answer
     if question is None or answer is None:
         item.skip_reason = SkipReason.INVALID_ANSWER
@@ -379,12 +370,7 @@ def _resolved_record(item: _Item, turn: JudgeTurn) -> dict[str, Any] | None:
 
 
 def _skipped_row(item: _Item) -> dict[str, Any]:
-    """The row for a decision that produced nothing: who it was and why it did not run.
-
-    The oversize numbers are the one extra -- they are the only reason an author
-    cannot act on without being told the size they overran. ``failed`` separates
-    "something broke" from the routine skips an author configured on purpose.
-    """
+    """Build a skip row, including size limits for oversized requests."""
     row: dict[str, Any] = {
         "fragment_id": item.definition.fragment_id,
         "fragment_label": item.definition.label,
@@ -420,12 +406,7 @@ def _stored_answer(stored: Mapping[str, Any], decision_type: str) -> Answer | No
 
 
 def _redraw(item: _Item, stored: Mapping[str, Any]) -> bool:
-    """Arm *item* with the stored answer so it resolves with a fresh draw.
-
-    A drawn outcome is the dice, not the classifier: keeping it would make every
-    regeneration land on the same side of the odds the author asked to roll
-    against. The answer is kept, so rerolling costs no request.
-    """
+    """Reuse a stored classifier answer while allowing a fresh resolution draw."""
     answer = _stored_answer(stored, item.definition.decision_type)
     if answer is None:
         return False
@@ -536,9 +517,7 @@ async def _issue(pending: Sequence[_Item], turn: JudgeTurn, *, abort: AbortToken
     for batch in batches[len(sent) :]:
         for item in batch:
             item.skip_reason = SkipReason.BUDGET_EXHAUSTED
-    # No batch reads another's answer, so none waits on another: the judge answers
-    # each in about the same time, and the pass costs its slowest request
-    # instead of their sum (four states: 2.5 s sequential, 0.7 s together).
+        # Independent batches share one timeout budget by running concurrently.
     outcomes = await asyncio.gather(
         *(
             client.decide(

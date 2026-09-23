@@ -121,12 +121,7 @@ async def _persist_result(
             attachments=staged,
             progressive_fields=res.progressive_fields,
             fragment_cooldowns=res.fragment_cooldowns,
-            # Atomic with the reply, by being in its INSERT: the decisions that
-            # produced this prose and the cooldowns they started commit together
-            # with it or not at all. A stop after partial Writer output therefore
-            # retains the decisions behind that output, and a cancellation or
-            # failure that retains no reply commits no decision cooldown state --
-            # retrying such an attempt creates fresh occurrences.
+            # Commit decisions and cooldowns with the reply so partial output remains replayable.
             decision_evaluations=res.decision_evaluations,
             decision_cooldowns=res.decision_cooldowns,
             speaker_member_id=speaker_member_id,
@@ -207,9 +202,7 @@ async def _fallback_persist(
                 turn_index,
                 parent_id=user_msg_id,
                 fragment_cooldowns=res.fragment_cooldowns,
-                # A stop after partial Writer output retains the decisions that
-                # produced it, so the saved row stays inspectable and regenerable
-                # for exactly the same reason a complete one does.
+                # Keep decisions with partial output so the saved row remains inspectable.
                 decision_evaluations=res.decision_evaluations,
                 decision_cooldowns=res.decision_cooldowns,
                 speaker_member_id=speaker_member_id,

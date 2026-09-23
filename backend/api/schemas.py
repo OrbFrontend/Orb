@@ -243,11 +243,7 @@ class MoodFragmentUpdate(BaseModel):
     enabled: bool | None = None
 
 
-# The authoring fields a decision carries. Mixed into both the create and the
-# update contract so the two cannot drift, and typed with the closed enums the
-# first release supports: an unknown variant is rejected here rather than stored
-# and skipped later, which is the difference between an author being told and an
-# author wondering.
+# Shared decision authoring fields for create and update schemas.
 class _DecisionFields(BaseModel):
     decision_type: Literal["noul", "choice", "score"] | None = None
     decision_placement: Literal["before_director"] | None = None
@@ -305,14 +301,7 @@ class InteractiveFragmentReorder(BaseModel):
 
 
 class DecisionConfigUpdate(BaseModel):
-    """The classifier configuration: which judge endpoint, and which model.
-
-    The route is derived from that endpoint's URL rather than configured
-    separately. Derivation keeps a URL that already names a ``decisions`` route,
-    so a gateway that spells the contract differently is corrected by saving the
-    route as the endpoint URL — one field to get right instead of two that can
-    disagree.
-    """
+    """Judge endpoint and model; the decisions route is derived from the URL."""
 
     decision_endpoint_id: int | None = None
     decision_model: str | None = None

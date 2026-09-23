@@ -12,13 +12,7 @@ DRAWN_RESOLUTIONS = frozenset({"roll", "weighted", "gated"})
 
 
 class SkipReason:
-    """Why a decision produced nothing this turn.
-
-    One vocabulary, because there is one outcome for a decision that cannot
-    answer: it is skipped and the turn goes on without it. Nothing is injected
-    and nothing is invented, so an author reading a reason is never being told
-    about a value that reached the story.
-    """
+    """Reasons a decision may be skipped for a turn."""
 
     RESTING = "resting"
     INVALID_DEFINITION = "invalid_definition"
@@ -34,11 +28,7 @@ class SkipReason:
     MISSING_ANCHOR = "missing_anchor"
 
 
-# The skips an author configured on purpose, or that the turn's shape explains.
-# Every other reason means something went wrong, and only those are worth
-# interrupting anybody about. An empty input is the second kind: a group member
-# given the floor with no message of their own leaves ``{{last_message}}``
-# empty, and every such click must not raise a failure notice.
+# Routine skips do not produce a failure notice.
 ROUTINE_REASONS = frozenset({SkipReason.RESTING, SkipReason.LOW_CONFIDENCE, SkipReason.EMPTY_INPUT})
 
 
@@ -71,12 +61,7 @@ def resolve_weighted(probabilities: Mapping[str, float], keys: Sequence[str], dr
 
 
 def gate_holds(probabilities: Mapping[str, float], keys: Sequence[str]) -> bool:
-    """Whether the first authored option -- "this does not apply" under ``gated`` -- is the likeliest.
-
-    A plain weighted draw lets the residual odds of the real outcomes through on
-    turns the Judge says attempt nothing (about 15% of idle turns for the Outcome
-    seed); the gate settles that question first, without a draw.
-    """
+    """Whether the first authored option is likeliest and blocks the draw."""
     return resolve_argmax(probabilities, keys) == keys[0]
 
 

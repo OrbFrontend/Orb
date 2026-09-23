@@ -86,13 +86,7 @@ def build_snapshot(
 
 
 def card_snapshots(snapshot: DecisionSnapshot, members: Iterable[CastMember]) -> dict[str, DecisionSnapshot]:
-    """*snapshot* scoped to each member's card, keyed by card id.
-
-    The prompt scopes a card's text to its member (``member_macros``), so a card's
-    decision must read that member too: ``{{char}}`` is the character, not the
-    group title, and ``{{description}}`` is its scene sheet. The first member
-    holding a card speaks for it, the same card-once rule the fragments merge by.
-    """
+    """Scope card-embedded decisions to each card's first cast member."""
     scoped: dict[str, DecisionSnapshot] = {}
     for member in members:
         if member.card_id and member.card_id not in scoped:

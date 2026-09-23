@@ -1,9 +1,4 @@
-"""The decision definition contract: what is savable, and what a card may carry.
-
-These tests cover the trust boundary in both directions -- the authoring API's
-validator and the untrusted-card decoder -- because the plan requires them to
-agree: a card must not be able to express a definition the editor would reject.
-"""
+"""Cover decision validation for API writes and card-embedded definitions."""
 
 from __future__ import annotations
 

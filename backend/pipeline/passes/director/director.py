@@ -487,9 +487,7 @@ async def director_stage(
             lorebook_block=lorebook.block,
             progressive_state=prior_progressive,
             direction_notes_block=notes_block if direction_note_to_director(settings) else "",
-            # Unconditional, unlike direction notes: a decision's whole purpose is
-            # that the Director plans around the resolved outcome, so there is no
-            # routing choice to make. An empty block is the no-op.
+            # Always pass resolved decisions to the Director; an empty block is a no-op.
             decision_guidance=decision_guidance,
             speaker_keys=speaker_keys,
             resting=resting,
@@ -600,11 +598,7 @@ async def director_stage(
     state.scene_direction = state.inj_block
     if notes_block and direction_note_to_writer(settings):
         state.inj_block = (state.inj_block + "\n\n" + notes_block).strip()
-    # Prepended here, after the Director's result has already been folded in, so
-    # parsing that result cannot overwrite it -- and prepended whether or not the
-    # Director ran at all, because a disabled Director must not silently drop the
-    # guidance the decisions produced. Major Decisions leads the block so the
-    # writer reads the constraints before the scene guidance.
+    # Keep decision guidance even when the Director is disabled, and place it first.
     if decision_guidance:
         state.inj_block = (decision_guidance + "\n\n" + state.inj_block).strip()
 

@@ -105,11 +105,7 @@ def _row_for_client(message: Mapping[str, Any]) -> dict:
     row = dict(message)
     row["has_writer_draft"] = _retained_draft(row) is not None
     row.pop("writer_draft", None)
-    # Same reason the draft goes: the listing is fetched on every conversation
-    # open, and a decision record holds its rendered classifier state (up to
-    # 16 KiB) plus both authored outputs, per decision, per message -- copied
-    # onto every speaker's reply in a group exchange. The Inspector reads the
-    # full record from the director-log route when it is actually opened.
+    # Fetch full decision records from the log route when the Inspector is opened.
     row.pop("decision_evaluations", None)
     return row
 

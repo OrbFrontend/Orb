@@ -1,75 +1,109 @@
 # Decision Fragments
 
-A decision fragment asks the **Judge**, a small classifier model, one question
-about the scene before the Director runs. Orb resolves the answer to one of the
-outcomes you wrote and sends that outcome's guidance to the Director and the
-Writer under **Major Decisions**. The Director plans around the result; it does
-not answer the question itself.
+A decision fragment asks the **Judge**, a classifier model, one question about
+the current situation before the Director runs. The Judge selects an outcome
+using the fragment's resolution policy. Orb sends that outcome's guidance to
+the Director and Writer under **Major Decisions**.
 
-Create or edit an Interactive Fragment and choose **decision** as its Field
-Type. Orb seeds a disabled **Outcome** decision that judges how the action in
-your latest message turns out.
+Decisions are independent because of their nature. Each sees the same turn snapshot;
+one decision cannot read another's result, and fragment order does not create a 
+dependency. Questions with the same rendered situation are batched where limits allow;
+separate batches run concurrently. If one result should affect another question, 
+combine them into one choice or score decision.
 
-## Setup
+## Create and configure
 
-Fill in the **Judge** section of the Endpoints settings: its URL, API key, and
-model. **Test** sends a synthetic scene, never conversation content. Without a
-configured Judge, every decision is skipped and no request is made.
+Create or edit an Interactive Fragment and set **Field Type** to **Decision**.
+Orb includes a disabled **Outcome** seed that evaluates how the action in the
+current request turns out.
 
-## Question types
+In **Endpoints → Judge**, set the endpoint URL, API key, model, and optional
+proxy. Orb derives the decisions route from the URL; a URL that already ends in
+`/decisions` is used as given. **Test** sends a synthetic situation and does not
+include conversation content. Without a configured Judge, decisions are skipped
+and reported in the Inspector.
 
-| Type | Answer | Resolutions |
+## Question types and resolutions
+
+| Type | Judge answer | Available resolutions |
 |---|---|---|
-| **Yes/no** (`noul`) | Probability that the statement is true | **Threshold** (true at or above a cutoff) or **Roll** (random by odds) |
-| **Choice** | Probability for each option you name | **Most likely**, **Random by odds**, or **First option gates, else random** |
-| **Score** | A 2–10 level scale | **Most likely**, **Random by odds**, or **Closest level** |
+| **Yes/no** (`noul`) | Probability that the statement is true | **Threshold**, **Roll** |
+| **Choice** | Probability for each named option | **Most likely**, **Random by odds**, **First option gates, else random** |
+| **Score** | A score on a 2–10 level scale | **Most likely**, **Random by odds**, **Closest level** |
 
-Choice and score answers carry a confidence. A **Min confidence** skips the
-decision when the Judge is less sure than that.
+- **Threshold** resolves yes when its probability meets the configured cutoff.
+- **Roll** resolves yes according to the probability.
+- **Most likely** picks the option with the highest probability.
+- **Random by odds** draws among the options according to their probabilities.
+- **First option gates, else random** treats the first choice as a gate. If it is
+  the most likely option, it resolves directly; otherwise Orb draws among the
+  remaining options.
+- **Closest level** maps the Judge's score to the nearest level.
 
-Each outcome has its own guidance. Empty guidance injects nothing for that
-outcome.
+Choice and score answers include a confidence value. Set **Min confidence** to
+skip answers below a chosen value. Yes/no decisions do not use this setting.
 
-**First option gates, else random** is for a choice whose first option means
-"this does not apply", such as the Outcome seed's `no_attempt`. This fixes the case where a trivial good morning rolls into crushing failure by sheer chance.
+For choice questions, give every option a distinct name: the Judge uses those
+names in its answer. Option order breaks probability ties, and the gated
+resolution always uses the first option as its gate.
 
-## The situation
+Each outcome has two separate fields:
 
-The **Situation** is the text the Judge reads. It may use
-`{{last_message}}`, `{{last_assistant_message}}`, `{{recent_history}}` (the last
-six messages), `{{user}}`, `{{char}}`, `{{cast}}`, and, in solo chats only,
-`{{description}}`. Questions, outcome descriptions, and guidance may use
-`{{user}}`, `{{char}}`, and `{{cast}}`. In a group chat, a decision that came
-from a character card reads that character as `{{char}}` and its scene sheet as
-`{{description}}`, the same way the card's own text does. The Inspector shows the
-situation sent for a resolved decision. Situations over 16 KiB are skipped,
-with their size and limit shown in the Inspector.
+- **What it means** describes the outcome for the Judge to choose.
+- **What the story does** is guidance injected for the Director and Writer.
 
-Every decision in a turn sees the same situation, so one decision cannot see
-another's result. Decisions that share a situation go out in one API request.
+Empty guidance means that outcome adds no instructions.
 
-## Regeneration
+## Situation and macros
 
-Regenerating a reply reuses its stored answer without a new request. A
-**Threshold** or **Most likely** outcome stays the same; a **Roll** or **Random
-by odds** outcome is drawn again against the same odds. Magic Rewrite and
-Super-regenerate evaluate the steered situation afresh; an identical question
-and situation can still reuse a cached answer.
+The **Situation** template is the context sent to the Judge. It supports
+`{{last_message}}`, `{{last_assistant_message}}`, `{{recent_history}}`,
+`{{user}}`, `{{char}}`, `{{cast}}`, and `{{description}}` in solo chats.
+`{{recent_history}}` contains up to the last six completed user and assistant
+messages. The current request is available separately as `{{last_message}}`.
 
-In a group chat, decisions run once per exchange and every speaker receives the
-same result. Regenerating, rewriting, or super-regenerating a later speaker keeps
-the result the earlier speakers already wrote to, with no new request and no new
-roll. Giving a member the floor after an unanswered message judges that message.
+Question instructions, outcome descriptions, and guidance support `{{user}}`,
+`{{char}}`, and `{{cast}}`. In group chats, a card decision uses that card's
+character as `{{char}}` and its scene sheet as `{{description}}`.
 
-## Cooldowns and skips
+The rendered situation limit is 16 KiB and the question limit is 8 KiB. An
+oversized request is skipped; the Inspector shows its size and limit. A macro
+with no value on the current turn also causes a skip. For resolved decisions,
+the Inspector shows the situation sent and the Judge's answer distribution.
 
-A **Cooldown** rests a decision for that many turns after it resolves. A
-decision that cannot answer (rested, timed out, or given an unusable answer) is
-skipped: it contributes nothing and the turn continues.
+## Regeneration and group chats
+
+When a regeneration has the same classifier input, Orb can reuse the stored
+Judge answer. A changed or steered situation may need a new request. Draw-based
+resolutions (`Roll`, `Random by odds`, and `First option gates, else random`)
+draw again from the reused answer; the other resolutions keep their outcome.
+
+In a group chat, decisions run once per exchange and the result is shared by
+each speaker's reply. Regenerating a later speaker keeps the exchange's committed
+result. If a member is given the floor after an unanswered user message, that
+message becomes the decision's current request.
+
+## Cooldowns and skipped decisions
+
+A **Cooldown** rests a decision for that many completed turns, or group
+exchanges. A cooldown starts when a decision resolves; skipped decisions do not
+start one. A skipped decision contributes no outcome or guidance, while the rest
+of the turn continues. The Inspector reports why it was skipped.
 
 ## Character cards
 
-Cards can carry decision fragments. Like a card's other fragments, they run
-whenever that character is in the scene. The card editor checks a decision when
-you save it. A broken one in an imported card is skipped every turn and reported
-as invalid, so it never runs silently.
+Character cards can include decision fragments. They run when that character is
+in the scene, and the card editor validates them when saved. An invalid imported
+definition is reported as skipped in the Inspector instead of being silently
+ignored.
+
+## Authoring tips
+
+- Make each fragment answer one question that is independent of the others.
+  Combine dependent questions into one choice or score decision.
+- Write criteria that distinguish the outcomes clearly. Keep the story
+  instructions in **What the story does**.
+- If a question does not apply on every turn, include a first option such as
+  `no_attempt` with empty guidance and use **First option gates, else random**.
+  This lets ordinary conversation resolve without rolling into a dramatic
+  success or failure.

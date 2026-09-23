@@ -58,15 +58,7 @@ async def get_moods_before_turn(cid: str, turn_index: int) -> list[str]:
 
 
 def _decoded_log(row) -> dict:
-    """One log row with its JSON columns decoded and its decisions attached.
-
-    ``decision_evaluations`` rides the log read rather than a column of its own:
-    the reply already stores the authoritative record (replay reads it there), and
-    a rendered classifier state can be 16 KiB, so a second per-turn copy would
-    grow the fastest-growing purely diagnostic table in the schema for nothing.
-    The projection left-joins it, so a turn with no decisions reads ``{}`` and a
-    log row whose message was deleted still reads.
-    """
+    """Decode log JSON columns and attach the reply's decision records if present."""
     d = dict(row)
     d["tool_calls"] = json.loads(d["tool_calls"]) if d["tool_calls"] else []
     d["active_moods_after"] = json.loads(d["active_moods_after"]) if d["active_moods_after"] else []

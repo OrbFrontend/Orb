@@ -188,24 +188,10 @@ def _exchange_decision_input(
     exchange_id: str | None,
     steering: str = "",
 ) -> tuple[Sequence[Mapping[str, Any]], str, int | None]:
-    """The decision input for a group exchange: ``(history, request, anchor)``.
+    """Return the exchange's history, request, and anchor for decision replay.
 
-    Inside *exchange_id* (a regeneration) this rewinds to what the exchange was
-    originally asked about, rather than to the branch the target happens to sit
-    on: regenerating the third speaker must not show the decision the first two
-    speakers' replies, nor the reply it is replacing, as if they had been part of
-    its own input.
-
-    An exchange with no request of its own that follows an unanswered user
-    message -- a member given the floor after the scene rested -- answers that
-    message, so it is the request. Without this the action would never reach
-    ``{{last_message}}`` at all, and a later regeneration (whose parent *is*
-    that message) would judge it for the first time.
-
-    *steering* is Magic Rewrite's or super-regenerate's OOC message. It joins the
-    request rather than replacing it, because it is genuinely part of what is
-    being asked for now -- so it reaches the classifier and its fingerprint, and
-    the turn correctly becomes a new occurrence.
+    Regeneration rewinds to the exchange start. A turn without its own request
+    reuses the pending user message, and steering is appended to the request.
     """
     before, request, anchor = history, user_message, parent_message_id
     if exchange_id is not None:
@@ -225,13 +211,7 @@ def _exchange_decision_input(
 def _committed_exchange_decisions(
     history: Sequence[Mapping[str, Any]], parent_message_id: int | None, exchange_id: str | None
 ) -> JudgeResult | None:
-    """The decisions an earlier speaker already committed *exchange_id* to, if any.
-
-    Regenerating a later speaker keeps that speaker's parent -- an earlier reply
-    in the same exchange -- on the branch, and that reply was written to the
-    exchange's outcome. Re-drawing (or, with steering, re-asking) could land on
-    the other side and contradict it, so the parent's result is taken as is.
-    """
+    """Return the committed result when the parent belongs to this exchange."""
     if exchange_id is None or parent_message_id is None:
         return None
     parent = next((row for row in reversed(history) if row.get("id") == parent_message_id), None)
@@ -1166,11 +1146,7 @@ async def _regenerate_with_steering(
                 append_user_to_history=False,
                 source_user_message_id=source_user_id,
                 editor_audit_msgs=editor_audit_msgs,
-                # Same rewind as `handle_regenerate`: `extended_history` exists so
-                # the *writer* can see what it wrote, but a decision asked against
-                # it would read the reply being replaced as the previous reply and
-                # the exchange's earlier speakers as its history. The steering is
-                # passed on its own so it still reaches the classifier.
+                # Judge the original exchange input; include steering separately.
                 decision_exchange_id=str(target.get("exchange_id") or "") or None,
                 decision_steering=steer_msg,
             ):
@@ -1190,9 +1166,7 @@ async def _regenerate_with_steering(
             asst_turn_index=target["turn_index"],
             log_turn_index=target["turn_index"],
             editor_audit_msgs=editor_audit_msgs,
-            # The solo form of the group rewind above: the decision reads the
-            # history before the replaced reply and the original request with the
-            # steering joined on, never the replaced reply as its previous reply.
+            # Judge the original request plus steering, before the replaced reply.
             decision_input=(history, "\n\n".join(part for part in (user_msg["content"], steer_msg) if part)),
         ):
             yield event

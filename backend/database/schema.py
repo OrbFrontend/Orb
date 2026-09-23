@@ -55,11 +55,7 @@ CREATE TABLE IF NOT EXISTS settings (
     attachment_cache_budget_bytes INTEGER NOT NULL DEFAULT 524288000,
     attachment_access_counter INTEGER NOT NULL DEFAULT 0,
     generated_chars INTEGER DEFAULT NULL,
-    -- Decision classifier configuration. Deliberately not in model_configs:
-    -- chat-generation hyperparameters and the Writer/Agent roles do not apply
-    -- to a classifier. The endpoint is a 'judge' row of its own, carrying the
-    -- classifier's URL, key and proxy; the route is derived from that URL, and
-    -- a gateway that spells it differently is configured by pasting the route.
+    -- The Judge has a dedicated endpoint and model; its route is derived from the URL.
     decision_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
     decision_model TEXT NOT NULL DEFAULT 'typesafe/jev-1.13'
 );
@@ -182,13 +178,9 @@ CREATE TABLE IF NOT EXISTS messages (
     workflow_state TEXT DEFAULT NULL,
     speaker_member_id TEXT DEFAULT NULL REFERENCES group_members(id) ON DELETE SET NULL,
     exchange_id TEXT DEFAULT NULL,
-    -- This reply's own decision evaluations, versioned. The authoritative
-    -- replay record: regenerating this reply loads *its* records, not its
-    -- parent's baseline, which does not contain them.
+    -- Versioned evaluations for this reply, used as its replay record.
     decision_evaluations TEXT NOT NULL DEFAULT '{}',
-    -- Decision cooldowns as of this reply. Deliberately separate from
-    -- fragment_cooldowns: a decision counts completed exchanges, a Director
-    -- fragment counts firings, and one snapshot cannot mean both.
+    -- Decision cooldowns count completed exchanges; Director cooldowns count firings.
     decision_cooldowns TEXT NOT NULL DEFAULT '{}'
 );
 
@@ -215,10 +207,7 @@ CREATE TABLE IF NOT EXISTS interactive_fragments (
     sort_order INTEGER NOT NULL DEFAULT 0,
     direction_note_timing TEXT NOT NULL DEFAULT 'post_turn',
     cooldown_turns INTEGER NOT NULL DEFAULT 0,
-    -- Decision authoring, read only when field_type = 'decision' and NULL for
-    -- every other type. Validated together rather than per column: a decision
-    -- with criteria but no question is not a partly-configured decision, it is
-    -- an unusable one, so backend/core/decisions.py judges the whole set.
+    -- Decision-only fields; NULL for other fragment types and validated together.
     decision_type TEXT DEFAULT NULL,
     decision_placement TEXT DEFAULT NULL,
     decision_state_template TEXT DEFAULT NULL,
@@ -306,13 +295,8 @@ CREATE TABLE IF NOT EXISTS endpoints (
     agent_active_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL,
     completion_mode TEXT NOT NULL DEFAULT 'chat' CHECK (completion_mode IN ('chat', 'text')),
     proxy TEXT NOT NULL DEFAULT '',
-    -- Which lane may select this row. 'chat' is the Writer/Agent pair; 'judge'
-    -- is the decision classifier, which shares no model config, sampling
-    -- parameters or completion mode with them and is almost never the same
-    -- provider. One table because credentials, proxy and deletion behave
-    -- identically for both; separate lists because offering a lane a row it
-    -- cannot use is how the Judge came to be configured from the Writer's list.
-    -- Fixed at creation: a row's lane never changes.
+    -- 'chat' endpoints serve Writer/Agent; 'judge' endpoints serve decision fragments.
+    -- Credentials and proxy share a table, but the lanes have separate endpoint lists.
     kind TEXT NOT NULL DEFAULT 'chat' CHECK (kind IN ('chat', 'judge'))
 );
 

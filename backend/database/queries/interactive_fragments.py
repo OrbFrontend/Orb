@@ -10,11 +10,8 @@ from ..models import InteractiveFragmentRow
 
 _EDITOR_LANE_FIELD_TYPES = frozenset(("feedback", "post_processing"))
 
-# The decision columns that hold JSON objects. Decoded here, at the read
-# boundary, so every consumer sees a mapping and none of them re-implements the
-# decode. A malformed value decodes to None rather than raising: an unusable
-# definition must degrade to "not a valid decision", which is a skip with a
-# visible reason, not a 500 on the fragment list.
+# Decode decision JSON at the read boundary; malformed values remain invalid
+# definitions instead of failing the fragment list.
 _DECISION_JSON_COLUMNS = ("decision_criteria", "decision_outputs")
 
 # Authoring columns a create or update may write, besides the decision ones.

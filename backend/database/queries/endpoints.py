@@ -18,12 +18,7 @@ async def _endpoint_on(db, endpoint_id: int) -> EndpointRow | None:
 
 
 async def get_endpoints(kind: EndpointKind | None = None) -> list[EndpointRow]:
-    """Every endpoint, or only the rows one lane may select.
-
-    Callers filter rather than sharing one list: a judge row has no model config
-    and cannot answer a chat completion, and a chat row is not the classifier's
-    gateway. Offering either to the other lane is a setting that cannot work.
-    """
+    """Return all endpoints or those selectable by one lane."""
     where = "" if kind is None else " WHERE kind = ?"
     async with get_db() as db:
         rows = list(
@@ -41,12 +36,7 @@ async def get_endpoint(endpoint_id: int) -> EndpointRow | None:
 
 
 async def create_endpoint(url: str, api_key: str = "", kind: EndpointKind = "chat") -> EndpointRow:
-    """Create an endpoint for *kind*, with the writer/agent configs a chat row needs.
-
-    A judge row gets none: the classifier takes a model name and no sampling
-    parameters at all, so seeding two ``model_configs`` for it would leave rows
-    that nothing reads and that the Writer's model list would then offer.
-    """
+    """Create an endpoint and add Writer/Agent configs for chat endpoints."""
     async with get_db() as db:
         cur = await db.execute("INSERT INTO endpoints (url, api_key, kind) VALUES (?, ?, ?)", (url, api_key, kind))
         assert cur.lastrowid is not None

@@ -92,10 +92,7 @@ _DIRECTOR_SEED_FIELDS = (
     "extra_fields",
     "progressive_fields",
     "fragment_cooldowns",
-    # The exchange's decisions are resolved once, before the Director, and every
-    # speaker's reply carries the same records so any one of them stays
-    # independently inspectable and regenerable. Copies of a shared evaluation
-    # never re-advance the cooldown — that already happened for the exchange.
+    # Shared exchange decisions are copied to each speaker without advancing cooldowns again.
     "decision_evaluations",
     "decision_cooldowns",
     "decision_guidance",
@@ -135,10 +132,7 @@ class TurnState:
     extra_fields: dict = field(default_factory=dict)
     progressive_fields: dict = field(default_factory=dict)
     fragment_cooldowns: dict[str, int] = field(default_factory=dict)
-    # The versioned decision record for this reply, the decision cooldown state
-    # as of it, and the guidance block those decisions produced. The guidance is
-    # carried rather than recomputed so the Director's tail and the Writer's Scene
-    # Guidance are byte-identical.
+    # Persisted decision record, cooldown snapshot, and shared Director/Writer guidance.
     decision_evaluations: dict = field(default_factory=dict)
     decision_cooldowns: dict[str, int] = field(default_factory=dict)
     decision_guidance: str = ""

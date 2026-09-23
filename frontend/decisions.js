@@ -1,9 +1,5 @@
-// Shared decision-fragment vocabulary: the cached classifier config and the
-// human wording for every machine reason the stage can report.
-//
-// The type list, resolution policies, macros and bounds are NOT constants here.
-// They come from `GET /api/decisions/config`, so an editor can never offer a
-// policy the stage would reject.
+// Shared config cache and display labels for decision fragments.
+// Authoring options come from the server config.
 import { api } from "./api.js";
 
 let _config = null;
@@ -14,7 +10,7 @@ export function decisionConfig() {
   return _config;
 }
 
-/** Load (once) `GET /api/decisions/config`. Resolves null on failure, so a later call retries. */
+/** Load the config once; return null on failure so the next call retries. */
 export function loadDecisionConfig() {
   _request ??= api.get("/decisions/config").then(
     (payload) => (_config = payload),
@@ -38,9 +34,7 @@ export function outcomeLabel(type, key) {
   return String(key).replaceAll("_", " ");
 }
 
-// Every `SkipReason` the judge pass can report. A reason with no entry here
-// is shown verbatim rather than swallowed. A skip has no outcome at all, so it
-// must never be painted as a resolved `false`.
+// Unknown reasons remain visible instead of being swallowed.
 const SKIP_REASONS = {
   resting: "Resting on cooldown",
   not_configured: "No Judge endpoint is configured",
@@ -60,10 +54,7 @@ export function skipReasonText(reason) {
   return SKIP_REASONS[reason] || String(reason || "");
 }
 
-/**
- * One line for a turn's failed skips, or "" when nothing failed. One line for
- * the whole turn: a provider that is down takes every decision with it.
- */
+/** Summarize failed skips for the turn, or return an empty string. */
 export function skipNoticeText(skipped = []) {
   const failed = skipped.filter((entry) => entry.failed);
   if (!failed.length) return "";

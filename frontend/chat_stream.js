@@ -394,9 +394,7 @@ export async function processSSEStream(resp, container, holder, signal) {
   S.reasoningEditor = "";
   S.lastFeedback = null;
   S.lastDirectionNotes = null;
-  // Cleared once per turn, not per speaker: the judge pass runs for the
-  // whole exchange and the later speakers replay its answers, so a speaker that
-  // reports no new work must not blank a panel that is still current.
+  // Reset once per exchange; later speakers reuse its result.
   S.lastDecisions = null;
   S.reasoningByPass = {};
   S.reasoningPassActive = 0; // tracks streaming progress (for dot lighting)
@@ -605,12 +603,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
       try {
         S.lastDecisions = JSON.parse(data);
         renderInspector();
-        // A decision that could not answer injects nothing and the turn carries
-        // on without it. That is quiet enough to miss, so say it once -- as a
-        // transient toast, not an error box: the turn did not fail, and the
-        // per-decision detail is already in the Inspector. An inherited result
-        // (a later speaker regenerated inside its exchange) asked nothing, so
-        // its skips are old news.
+        // Show new skips once; inherited results did not ask again.
         const notice = S.lastDecisions.inherited ? "" : skipNoticeText(S.lastDecisions.skipped);
         if (notice) toast(notice);
       } catch (_) {}

@@ -1,12 +1,4 @@
-"""The judge pass end to end, against a stubbed gateway.
-
-Every path a decision can take is here: replayed, served from cache, asked live,
-or skipped — and every reason it is skipped. A decision that cannot answer never
-produces an outcome: the turn goes on without it and the skip is reported. The
-gateway is stubbed at the transport boundary (``DecisionClient.decide``) so the
-adapter's own strict normalization is exercised separately in
-``test_jev_adapter.py``.
-"""
+"""Cover Judge pass results with a stubbed gateway."""
 
 from __future__ import annotations
 

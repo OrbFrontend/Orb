@@ -178,14 +178,7 @@ def _decision_candidates(
     fragments: Sequence[Mapping[str, Any]],
     card_fragment_sources: Mapping[str, str],
 ) -> tuple[tuple[DecisionCandidate, ...], tuple[InvalidDecision, ...]]:
-    """Split this turn's ``decision`` rows into runnable definitions and broken ones.
-
-    The broken ones are carried rather than dropped so the stage can report them:
-    the authoring API validates on write, so a row that fails to parse here came
-    from somewhere that does not -- a preset import, or a schema change that
-    invalidated a stored definition -- and silently contributing nothing is how
-    that goes unnoticed.
-    """
+    """Split decision rows into runnable definitions and rows to report as invalid."""
     candidates: list[DecisionCandidate] = []
     invalid: list[InvalidDecision] = []
     for row in fragments:
@@ -201,13 +194,7 @@ def _decision_candidates(
 
 
 async def resolve_judge_config(settings: Mapping[str, Any]) -> JudgeConfig:
-    """The classifier's live configuration, or an unconfigured one.
-
-    The route comes from the judge endpoint's URL and nowhere else:
-    ``decisions_url`` keeps a URL that already names a ``decisions`` route, so
-    pasting the gateway's own spelling into the endpoint is the escape hatch a
-    separate override setting used to be.
-    """
+    """Resolve the Judge endpoint and derive its decisions route."""
     endpoint_id = settings.get("decision_endpoint_id")
     model = str(settings.get("decision_model") or "")
     if not endpoint_id or not model:

@@ -283,18 +283,8 @@ export function renderEndpoints() {
 }
 
 // ── Judge lane ───────────────────────────────────────────────────────────────
-// The classifier that answers decision fragments. It owns its endpoints rather
-// than picking one of the Writer's: the decisions gateway is a different route
-// with a different key, and a chat endpoint selected here could only ever 404.
-// So the lane is a connection of its own -- URL, key, proxy, model -- and no
-// sampling group or "same as Writer" toggle, because a classifier has neither a
-// temperature nor a system prompt.
-//
-// The route is derived from the URL and shown below the Test button. Derivation
-// keeps a URL that already ends in `decisions`, so a gateway that mounts the
-// contract somewhere else is configured by pasting its route into the same
-// field -- the job the removed Route Override used to do with a second field
-// that could disagree with the first.
+// The classifier has its own endpoint and model, with no chat sampling options.
+// Its route is derived from the URL, which may already include `/decisions`.
 
 const EYE_TOGGLE_ICON = `<svg class="eye-show" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><svg class="eye-hide" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
 
@@ -370,9 +360,7 @@ async function _saveDecisionConfig(patch) {
 /**
  * Select, or create, the judge endpoint at *url*.
  *
- * Creating one here is the point: requiring the URL to already exist is what
- * made this lane unusable, because the only place to create it was a chat lane
- * that would then be carrying a decisions gateway it cannot talk to.
+ * Create the endpoint here when no Judge row already uses this URL.
  */
 async function _syncJudgeEndpoint(url) {
   if (!url) {
@@ -423,8 +411,7 @@ document.addEventListener("change", (event) => {
   );
 });
 
-// One delegated listener for the lane, which is repainted in place and would
-// otherwise have to re-bind its buttons on every repaint.
+// Delegate clicks because the lane is repainted in place.
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#judge-lane")) return;
   if (event.target.closest("#judge-test-btn")) {
@@ -624,8 +611,7 @@ export function initComboboxes() {
       searchable: true,
       loadItems: () => _loadAvailableModels(AGENT_CTX),
     });
-  // The judge pool, never the chat one: a Writer endpoint offered here is a
-  // choice the backend refuses, and one the user has no reason to know is wrong.
+  // Populate the Judge selector from Judge endpoints only.
   const judgeEpRoot = document.querySelector('[data-combobox="judge_endpoint_url"]');
   if (judgeEpRoot)
     initCombobox(judgeEpRoot, () => S.judgeEndpoints.map((e) => ({ value: e.url, id: e.id, type: "endpoint" })), {
@@ -651,8 +637,7 @@ window.deleteComboboxItem = (_btn, type, id, lane = "writer") => {
           await api.del(`/endpoints/${id}`);
           const index = S.judgeEndpoints.findIndex((e) => e.id === id);
           if (index > -1) S.judgeEndpoints.splice(index, 1);
-          // Clear the selection explicitly rather than trusting the FK's
-          // ON DELETE SET NULL: the stored id is what the next turn resolves.
+          // Clear the stored selection before the next turn resolves it.
           if (decisionConfig()?.decision_endpoint_id === id) await _saveDecisionConfig({ decision_endpoint_id: null });
           _repaintJudgeLane();
           toast("Deleted");
@@ -953,8 +938,7 @@ function initCombobox(rootEl, getItems, { lane = "writer", searchable = false, l
 
 export async function loadEndpoints() {
   try {
-    // Two reads, two lists: the chat lanes and the Judge each see only the rows
-    // they can actually use.
+    // Load the chat and Judge endpoint pools separately.
     [S.endpoints, S.judgeEndpoints] = await Promise.all([
       api.get("/endpoints?kind=chat"),
       api.get("/endpoints?kind=judge"),

@@ -1,11 +1,4 @@
-"""The decision gateway adapter: strict normalization, cache keys, transport.
-
-The contract this adapter implements is documented but **not yet verified
-against the live gateway** — pinning it with saved fixtures is a release gate in
-``docs/plans/decision-fragments.md``. These tests therefore guard the property
-that makes a wrong guess safe rather than silently wrong: an answer this adapter
-cannot read is a failure for its own question, never an implicit ``false``.
-"""
+"""Cover decision gateway routing, normalization, caching, and transport."""
 
 from __future__ import annotations
 
@@ -74,8 +67,7 @@ def test_deriving_the_route_twice_changes_nothing():
 
 
 def test_a_gateway_that_spells_the_route_itself_keeps_that_spelling():
-    # The escape hatch that replaced the separate override setting: a URL that
-    # already names a decisions route is the route, wherever it is mounted.
+    # Preserve a custom URL that already names a decisions route.
     assert decisions_url("https://gw.test/v2/judge/decisions") == "https://gw.test/v2/judge/decisions"
 
 

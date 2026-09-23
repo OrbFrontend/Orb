@@ -1,21 +1,16 @@
-// The Inspector's Decisions panel.
-//
-// A skipped decision -- including one gated below its confidence floor -- has no
-// outcome at all, so skips live in their own list with a reason and no outcome
-// chip. Painting one as a `false` would be the panel inventing a result.
+// The Inspector's Decisions panel. Skips have no outcome chip.
 import { outcomeLabel, skipReasonText } from "./decisions.js";
 import { CHEVRON_RIGHT_ICON } from "./icons.js";
 import { S } from "./state.js";
 import { esc, escAttr } from "./utils.js";
 
-/** The id the Inspector's toggle listener watches to persist this block's open state. */
+/** Inspector toggle state key for this block. */
 export const DECISIONS_SECTION_ID = "decisions-section";
 const EVALUATIONS_VERSION = 2;
 
 const ANSWER_SOURCES = { live: "live", cache: "cached", replay: "replayed" };
 
-// The numbers behind an outcome, as [field, label, decimals]. A score's mean gets
-// three decimals: the mean and the argmax genuinely disagree.
+// [field, label, decimals] for numeric answer details.
 const ANSWER_NUMBERS = [
   ["probability", "odds", 2],
   ["score", "average", 3],
@@ -37,14 +32,7 @@ function _metaText(record) {
   return bits.join(" · ");
 }
 
-/**
- * The distribution as rows, the produced key marked.
- *
- * Authored order, not descending probability: an author reading the rows is
- * checking their own option list against what came back. A stored record
- * carries its criteria (score: an array of levels); the live event does not,
- * and falls back to the provider's key order.
- */
+/** Render the distribution in authored order, marking the resolved outcome. */
 function _distributionHtml(record, type) {
   const distribution = record.distribution;
   if (!distribution) return "";
@@ -64,7 +52,7 @@ function _distributionHtml(record, type) {
 }
 
 function _evaluationHtml(record) {
-  // Read off the answer's shape: noul carries a bare probability, score a mean.
+  // The stored answer shape identifies its question type.
   const type = record.probability != null ? "noul" : record.score != null ? "score" : "choice";
   const guidance = String(record.guidance || "").trim();
   return `<details class="decision-eval">
@@ -93,7 +81,7 @@ function _evaluationHtml(record) {
 
 function _skippedHtml(entry) {
   const kind = entry.failed ? "failed" : "skipped";
-  // "Too big" is not actionable without the size that was too big.
+  // Include byte counts so oversized inputs can be corrected.
   return `<div class="decision-skipped-row${entry.failed ? " decision-skipped-failed" : ""}">
     <span class="decision-skipped-name">${esc(entry.fragment_label || entry.fragment_id)}</span>
     ${_chip(kind, kind)}
@@ -106,12 +94,7 @@ function _skippedHtml(entry) {
   </div>`;
 }
 
-/**
- * The Decisions block for the Inspector, or "" when there is nothing to show.
- *
- * An inspected message reads its stored envelope; a turn in flight reads the
- * live event, which arrives before the message it belongs to exists.
- */
+/** Render stored or in-flight decisions for the Inspector. */
 export function currentDecisionsHtml() {
   const inspecting = Boolean(S.inspectedMsgId);
   const source = inspecting ? S.inspectedDirectorData?.decision_evaluations : S.lastDecisions;

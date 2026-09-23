@@ -55,9 +55,7 @@ async def api_update_decision_config(data: DecisionConfigUpdate):
     update = data.model_dump(exclude_unset=True)
     endpoint_id = update.get("decision_endpoint_id")
     if endpoint_id is not None:
-        # Refuse a chat endpoint rather than storing one and failing at the
-        # gateway: a Writer row has neither the classifier's URL nor its key,
-        # and the resulting 404 reads like a broken feature, not a misselection.
+        # Judge requests need a Judge endpoint; chat endpoints use another route and key.
         endpoint = await get_endpoint(int(endpoint_id))
         if endpoint is None:
             raise HTTPException(status_code=404, detail="Endpoint not found")
@@ -72,12 +70,7 @@ async def api_update_decision_config(data: DecisionConfigUpdate):
 
 @router.post("/api/decisions/validate")
 async def api_validate_decision(data: dict[str, Any]):
-    """Check a decision definition without storing it.
-
-    For card-embedded decisions, which are saved inside the card rather than
-    through the fragment routes, so nothing else validates them before a turn.
-    Problems come back the way a fragment write reports them: 422, joined by "; ".
-    """
+    """Validate card-embedded decision data without storing it."""
     problems = definition_problems({"id": "", **data})
     if problems:
         raise HTTPException(status_code=422, detail="; ".join(problems))
@@ -85,13 +78,7 @@ async def api_validate_decision(data: dict[str, Any]):
 
 
 def _rejection_sentence(error: LLMCallError) -> str:
-    """Word a provider rejection so it names what was wrong with *this* request.
-
-    The provider's own sentence alone is not diagnostic: a bare "Not Found" next
-    to a route the panel is already showing reads as "the feature is broken"
-    rather than "nothing answers at that URL". The status code always leads, and
-    a 404 says which of the two fields to look at.
-    """
+    """Include the HTTP status and a useful hint for common endpoint failures."""
     status = error.response.status_code
     parts = [f"HTTP {status}"]
     if error.sentence:

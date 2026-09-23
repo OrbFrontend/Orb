@@ -1,10 +1,4 @@
-"""Resolution rules, cooldown semantics, and the two fingerprints.
-
-The threshold equality rule and the roll's absolute ends are contract, not
-implementation detail: an author who sets 0.5 and gets exactly 0.5 has to be
-able to say which way it goes, and a weighted roll that could betray a certainty
-would be a worse tool than a threshold.
-"""
+"""Cover decision resolution, cooldowns, and replay fingerprints."""
 
 from __future__ import annotations
 

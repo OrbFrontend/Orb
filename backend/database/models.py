@@ -406,9 +406,7 @@ class EndpointRow(TypedDict):
     agent_active_model_config_id: int | None
     completion_mode: CompletionMode
     proxy: str
-    # 'chat' for the Writer/Agent pool, 'judge' for a decision classifier row.
-    # The model-config, completion-mode and sampling columns above are dead on a
-    # judge row: the classifier takes a model name and nothing else.
+    # 'chat' for Writer/Agent endpoints, 'judge' for classifier endpoints.
     kind: EndpointKind
 
 
@@ -590,10 +588,8 @@ class InteractiveFragmentRow(TypedDict):
     # 'pre_writer' | 'post_turn'; which recording step fills the note. Read only for direction_note fragments.
     direction_note_timing: str
     cooldown_turns: int
-    # Decision authoring; NULL for every other field_type. ``decision_criteria``
-    # and ``decision_outputs`` are JSON-*decoded* dicts on the query paths that
-    # read this table, and validated as a set by
-    # ``backend.core.decisions.parse_decision_definition``.
+    # Decision fields are NULL for other fragment types; JSON fields are decoded
+    # at query boundaries and the definition is validated as a whole.
     decision_type: str | None
     decision_placement: str | None
     decision_state_template: str | None
@@ -672,11 +668,7 @@ class ConversationLogRow(TypedDict):
     reasoning_writer: str | None
     reasoning_editor: str | None
     feedback: dict
-    # The reply's decision records, joined from ``messages`` rather than stored
-    # again here: the rendered state alone can be 16 KiB, and the message copy is
-    # already the authoritative one that replay reads. The log read is where
-    # every Inspector and log consumer meets them, so a join gives them the
-    # evaluations without a second copy per turn. ``{}`` for a turn with none.
+    # Decision records joined from the reply message; empty when the turn had none.
     decision_evaluations: dict
 
 

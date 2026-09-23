@@ -210,12 +210,7 @@ def card_embedded_fragments(
 
 
 def _card_decision_columns(entry: Mapping[str, Any]) -> dict[str, Any]:
-    """The entry's decision columns, with the defaults an older card may omit.
-
-    Kept even when they do not form a valid definition: the row stays a
-    ``decision``, so it never reaches the Director, and the judge stage reports
-    it as invalid instead of the card author never learning it did not run.
-    """
+    """Read decision fields with defaults, leaving invalid rows for the Judge to report."""
     columns = {column: entry.get(column) for column in DECISION_COLUMNS}
     defaults = {"decision_type": "noul", "decision_placement": "before_director", "decision_resolution": "threshold"}
     columns.update({column: value for column, value in defaults.items() if not columns[column]})

@@ -1,11 +1,4 @@
-"""Upgrade coverage for the decision-fragment schema.
-
-The interesting half is the cleanup: ``decision_default``, ``decision_facets``
-and ``decision_url`` were all built on this branch and cut before release, so a
-development database can carry any of them and none may survive the upgrade.
-The route override is the one with data to save -- it folds into the judge
-endpoint the classifier should have had instead of a borrowed Writer row.
-"""
+"""Cover decision-fragment schema upgrades and legacy endpoint migration."""
 
 from __future__ import annotations
 
@@ -56,12 +49,7 @@ def _pre_0066(*, legacy: tuple[str, ...] = ()) -> sqlite3.Connection:
 
 
 def _borrowed_judge(conn: sqlite3.Connection, *, override: str = "") -> int:
-    """The pre-squash shape: a chat endpoint lent to the classifier, plus a route.
-
-    ``decision_url`` is re-added here because the migration no longer creates it
-    -- a development database that ran the earlier 0066 is the only place it
-    exists.
-    """
+    """Build a legacy schema where the classifier borrowed a chat endpoint and route."""
     conn.execute("ALTER TABLE settings ADD COLUMN decision_url TEXT NOT NULL DEFAULT ''")
     cursor = conn.execute(
         "INSERT INTO endpoints (url, api_key, proxy) VALUES ('https://openrouter.ai/api/v1', 'writer-key', 'socks5://127.0.0.1:1080')"

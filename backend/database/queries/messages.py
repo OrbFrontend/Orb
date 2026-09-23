@@ -138,13 +138,7 @@ def _decoded_json_object(raw: object) -> dict:
 
 
 def decision_evaluations_of(message: Mapping[str, Any] | None) -> dict:
-    """The decision-evaluation envelope on *message*, decoded.
-
-    ``get_message_by_id`` returns raw JSON strings while the path readers return
-    decoded dicts (see :class:`MessageRow`), and the regenerate path reads the
-    target through the former. One accessor so neither caller has to know which
-    shape it holds.
-    """
+    """Return decoded decision evaluations for either raw or decoded message rows."""
     return _decoded_json_object((message or {}).get("decision_evaluations"))
 
 

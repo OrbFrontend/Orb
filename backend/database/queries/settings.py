@@ -338,9 +338,8 @@ async def update_settings(data: dict) -> SettingsRow:
         return await get_settings()
 
 
-# ── Decision classifier configuration
-# Its own writer rather than entries on ``update_settings``'s allowlist, so the
-# judge-endpoint check in the decisions route cannot be bypassed.
+# ── Decision classifier configuration ──
+# Keep endpoint-kind validation out of the generic settings writer.
 async def update_decision_config(data: Mapping[str, Any]) -> SettingsRow:
     sets, vals = _build_set_clause(["decision_endpoint_id", "decision_model"], dict(data))
     if sets:

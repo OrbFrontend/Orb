@@ -23,9 +23,7 @@ export const S = {
 
   settings: {},
   localMlFeatures: {}, // last /local-ml/status features map; other cards gate on it
-  // The chat pool (Writer and Agent). Judge endpoints are a separate list:
-  // they answer the decisions route, not chat completions, so a lane offered
-  // the wrong pool can only be configured wrong.
+  // Chat endpoints and Judge endpoints are separate pools.
   endpoints: [],
   judgeEndpoints: [],
   activeEndpointId: null,
@@ -105,10 +103,7 @@ export const S = {
   reasoningEditor: "", // includes editor feedback reasoning
   lastFeedback: null, // editor feedback for the current turn
   lastDirectionNotes: null, // direction notes recorded for the current turn
-  // Live decision results for the turn in flight: {evaluations, skipped,
-  // cooldowns}. Not a stored envelope -- it carries no version, because it came
-  // from this build's own stream. The Inspector reads the stored envelope off
-  // the director-log route once the reply exists.
+  // In-flight decisions; the Inspector reads stored records after the reply exists.
   lastDecisions: null,
   reasoningPassActive: 0,
   reasoningPassSelected: 0,

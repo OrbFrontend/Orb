@@ -1,35 +1,20 @@
-// The decision half of the Interactive Fragment editor.
-//
-// Criteria and guidance are the single most confusable pair in the feature, so
-// they sit on one row: the outcome, what it means to the Judge, and what the
-// story does when it lands. Each question type words that row -- and the
-// question above it -- for itself, from `COPY`.
-//
-// The type list, resolution policies, macros and bounds all come from
-// `GET /api/decisions/config`; nothing here restates them.
+// Decision fragment editor. Server config supplies its options and limits.
 import { decisionConfig, outcomeLabel } from "./decisions.js";
 import { CLOSE_ICON } from "./icons.js";
 import { esc, escAttr } from "./utils.js";
 
-// The working copy of the decision fields for the fragment open in the modal.
-// Criteria and guidance are one ordered `options` list, so every structural
-// edit is one operation on one list; the wire shapes are built in
-// readDecisionFields. An option's `touched` is set once its guidance is typed
-// into: until then the guidance mirrors its criterion.
+// Draft fields for the open fragment. Guidance mirrors the criterion until edited.
 let _draft = null;
-// Problems from the last 422 (or draft check), keyed by the field they render under.
+// Validation problems keyed by their display field.
 let _problems = {};
 
-// The one placement the stage accepts.
 const PLACEMENT = "before_director";
 
 function _policiesFor(type) {
   return decisionConfig()?.resolution_policies?.[type] || [];
 }
 
-// noul and score keys are positional. A choice key is the option's name as the
-// Judge reads it, so a generated `option_1` would be a worse prompt than none:
-// the author writes it, and decisionDraftProblems refuses a save without it.
+// Yes/no and score keys are positional; choice keys are authored names.
 function _fixedKey(type, index) {
   if (type === "noul") return index ? "false" : "true";
   return type === "score" ? String(index) : "";
@@ -40,8 +25,7 @@ function _option(key, text = "", output = "", touched = false) {
 }
 
 /**
- * Start the decision draft for the fragment about to be edited. Called for
- * every interactive fragment: one switched *to* `decision` needs defaults.
+ * Start a draft for the fragment being edited, including defaults for type changes.
  */
 export function initDecisionDraft(fragment) {
   _problems = {};
@@ -57,8 +41,7 @@ export function initDecisionDraft(fragment) {
     type,
     state_template: fragment.decision_state_template || decisionConfig()?.default_state_template || "",
     instructions: fragment.decision_instructions || "",
-    // Saved empty guidance is intentional too: reopening must not re-enable
-    // mirroring and turn a no-injection outcome into story instructions.
+    // Preserve intentionally empty guidance when reopening the draft.
     options: entries.map(([key, text]) => _option(key, text, outputs[key], Object.hasOwn(outputs, key))),
     resolution: fragment.decision_resolution || _policiesFor(type)[0] || "",
     threshold: fragment.decision_threshold ?? null,
@@ -68,11 +51,7 @@ export function initDecisionDraft(fragment) {
 
 // ── Reading the form ─────────────────────────────────────────────────────────
 
-/**
- * The nine decision columns, always all of them. An explicit `null` is the only
- * way to clear one: switching to `roll` must send `decision_threshold: null`,
- * or the stored threshold survives in the merged row and the update is refused.
- */
+/** Serialize all decision fields, using null to clear unused values. */
 export function readDecisionFields() {
   _syncFromDom();
   const { type, options, resolution } = _draft;
@@ -85,19 +64,13 @@ export function readDecisionFields() {
       type === "score" ? options.map((o) => o.text) : Object.fromEntries(options.map((o) => [o.key, o.text])),
     decision_outputs: Object.fromEntries(options.map((o) => [o.key, o.output])),
     decision_resolution: resolution,
-    // Blank sends the 0.5 the field shows as its placeholder, not a refused null.
+    // Match the displayed default when the threshold field is blank.
     decision_threshold: type === "noul" && resolution === "threshold" ? (_draft.threshold ?? 0.5) : null,
     decision_confidence_floor: type === "noul" ? null : _draft.confidence_floor,
   };
 }
 
-/**
- * Problems the editor has to catch itself, or "" when the draft can be sent.
- *
- * Choice names go out as JSON object keys, so a blank or repeated one has
- * collapsed into its twin before the backend could complain about it. Phrased
- * like a backend problem so applyDecisionProblems routes it the same way.
- */
+/** Catch choice names that would collapse when serialized as object keys. */
 export function decisionDraftProblems() {
   _syncFromDom();
   if (_draft.type !== "choice") return "";
@@ -130,10 +103,7 @@ function _syncFromDom() {
 
 // ── Problems from a 422 ──────────────────────────────────────────────────────
 
-// Validation comes back as problems joined by "; ". Each renders against the
-// field it names, because "decision_outputs must have exactly the keys true,
-// false" is only actionable next to the outcome table. Anything unmatched --
-// decision_placement has no control -- goes to the general list, not nowhere.
+// Map backend validation messages to the relevant editor fields.
 const PROBLEM_ANCHORS = [
   [/^decision_(type|resolution|threshold|confidence_floor)\b/, "policy"],
   [/^(decision_state_template|Situation template)\b/, "state_template"],
@@ -176,8 +146,6 @@ export function repaintDecisionSection() {
   fitDecisionTextareas(root);
 }
 
-// For most authors this is the only description of the feature they will ever
-// read, so each type words its question and outcome table in its own terms.
 const COPY = {
   noul: {
     question: "a statement the Judge scores",
@@ -204,7 +172,7 @@ const COPY = {
   },
 };
 
-// Layman labels for the resolution policies; the option value stays the wire string.
+// Display labels; option values remain the API strings.
 const RESOLUTION_LABELS = {
   threshold: "Cutoff",
   roll: "Random roll",
@@ -245,7 +213,7 @@ function _innerHtml() {
   }
   const { type, resolution } = _draft;
   const copy = COPY[type] || COPY.noul;
-  // At most one knob applies to a type/policy pair, so it takes the row's third slot.
+  // Each type/policy pair has at most one numeric setting.
   const knob =
     type !== "noul"
       ? [
@@ -357,15 +325,12 @@ function _mutate(change) {
 }
 
 function _retype(type) {
-  // The old keys were the old type's own (true/false, level indices), and a
-  // choice between options named "true" and "false" is a noul with its
-  // threshold taken away. Criteria and guidance survive; the names do not.
+  // Keep criteria and guidance, but rebuild keys for the new type.
   _draft.type = type;
   _draft.options = (type === "noul" ? _draft.options.slice(0, 2) : _draft.options).map((option, index) => ({
     ...option,
     key: _fixedKey(type, index),
   }));
-  // Policies are per type and do not overlap between noul and the rest.
   _draft.resolution = _policiesFor(type)[0] || "";
 }
 
@@ -387,14 +352,13 @@ document.addEventListener("click", (event) => {
   });
 });
 
-// Both selects repaint on change: the type rebuilds the table, the resolution swaps the knob.
+// Type changes rebuild the table; resolution changes swap the numeric control.
 document.addEventListener("change", (event) => {
   const select = _inSection(event.target.closest("select[data-dec]"));
   if (select) _mutate(() => select.dataset.dec === "type" && _retype(select.value));
 });
 
-// Guidance mirrors its criterion until the author types into it. That makes the
-// common case free without inventing an injection: empty still means "nothing".
+// Mirror the criterion into guidance until the author edits guidance directly.
 document.addEventListener("input", (event) => {
   const el = _inSection(event.target);
   if (!el) return;

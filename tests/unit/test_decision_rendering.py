@@ -1,9 +1,4 @@
-"""The decision renderer: one frozen snapshot, one pass, an explicit macro set.
-
-The two properties worth guarding here are the ones the plan spells out and that
-an ordinary macro resolver would violate: authored tokens resolve exactly once,
-and a macro the scope cannot supply raises rather than rendering empty.
-"""
+"""Cover decision snapshots, macro validation, and rendering."""
 
 from __future__ import annotations
 

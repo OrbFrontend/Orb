@@ -1,23 +1,4 @@
-"""Migration 0066: the complete decision-fragments schema.
-
-The feature has not shipped, so the authoring, evaluation, classifier, endpoint
-and enhanced decision columns are kept in one migration. Every step here is
-guarded and re-runnable, because that is what amending a single unshipped
-migration costs: the runner records migrations by id, so a development database
-that already applied this file has to be unstamped by hand
-(``DELETE FROM schema_migrations WHERE id = '0066_decision_fragments'``) to pick
-up an amendment, and it then replays the whole file. An upgraded database has
-no decisions and behaves exactly as before:
-
-* ``interactive_fragments`` gains the authoring and confidence-gating columns;
-* ``messages`` gains the per-reply evaluation record and decision cooldown
-  snapshot;
-* ``settings`` gains the classifier configuration, including its endpoint
-  foreign key;
-* ``endpoints`` gains ``kind``, which separates the Writer/Agent pool from the
-  classifier's own judge rows;
-* the disabled ``outcome`` seed is added when it is missing.
-"""
+"""Add decision-fragment fields, persisted results, Judge config, and the seed."""
 
 from __future__ import annotations
 
@@ -42,12 +23,9 @@ _FRAGMENT_COLUMNS: tuple[tuple[str, str], ...] = (
 
 _DECISION_COLUMNS = tuple(name for name, _ in _FRAGMENT_COLUMNS)
 
-# Built on this branch, then cut before release. Dropped if a database has them.
+# Remove columns from older local schema shapes when present.
 _LEGACY_FRAGMENT_COLUMNS: tuple[str, ...] = ("decision_default", "decision_facets")
-# Same story on settings: the classifier's route was a second field that could
-# disagree with the endpoint it was derived from. It is now derived from the
-# judge endpoint's URL alone, and a database carrying an override folds it into
-# that endpoint (see _adopt_judge_endpoint) before the column goes.
+# Fold any legacy route override into the Judge endpoint before dropping it.
 _LEGACY_SETTINGS_COLUMNS: tuple[str, ...] = ("decision_url", "decision_config_revision")
 
 _ENDPOINT_COLUMNS: tuple[tuple[str, str], ...] = (("kind", "TEXT NOT NULL DEFAULT 'chat' CHECK (kind IN ('chat', 'judge'))"),)
@@ -119,17 +97,7 @@ def _seed_outcome(conn: sqlite3.Connection) -> None:
 
 
 def _adopt_judge_endpoint(conn: sqlite3.Connection) -> int | None:
-    """Give a configured classifier a judge endpoint of its own.
-
-    The pre-squash shape borrowed a Writer/Agent endpoint for credentials and
-    kept the route in ``settings.decision_url``. Both fold into one judge row
-    here -- the URL the classifier should have carried all along (the override
-    when one was set, the borrowed base otherwise) with that endpoint's key and
-    proxy -- so the chat lanes stop listing a row the Judge configured and the
-    Judge stops depending on a row the Writer can delete or repoint.
-
-    Returns the judge endpoint's id, or None when there was nothing to adopt.
-    """
+    """Copy legacy classifier settings into a dedicated Judge endpoint."""
     settings_columns = _columns(conn, "settings")
     if "decision_endpoint_id" not in settings_columns or not _columns(conn, "endpoints"):
         return None
@@ -164,14 +132,7 @@ def _adopt_judge_endpoint(conn: sqlite3.Connection) -> int | None:
 
 
 def _cleanup_legacy_shape(conn: sqlite3.Connection) -> tuple[list[str], bool]:
-    """Remove pre-squash columns and restore the settings FK.
-
-    ``decision_default``, ``decision_facets`` and ``decision_url`` were all built
-    and then cut before release, so a development database can carry any of them.
-    A settings rebuild drops ``decision_url`` on its own -- it copies only the
-    columns the canonical DDL still has -- so the explicit drop is for the case
-    where the FK is already in place and no rebuild is due.
-    """
+    """Drop legacy columns and rebuild settings when its endpoint FK is missing."""
     fragment_columns = _columns(conn, "interactive_fragments")
     settings_columns = _columns(conn, "settings")
     stale = [column for column in _LEGACY_FRAGMENT_COLUMNS if column in fragment_columns]

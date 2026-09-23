@@ -92,20 +92,10 @@ SEED_INTERACTIVE_FRAGMENTS = [
         "enabled": False,
         "injection_label": "Outcome",
         "sort_order": -100,
-        # One question over the joint space of "did it work" and "how hard", rather
-        # than an outcome fragment with a severity fragment chained behind it.
-        # Severity cannot be chained: every decision in a stage reads the same
-        # frozen snapshot, so a second question never learns what the first
-        # resolved to -- least of all the roll, which lives nowhere in the state.
-        # Asking once also lets the Judge rule out the cells the scene forbids,
-        # which independent marginals cannot do.
+        # One choice captures both success and severity from the same snapshot.
         "decision_type": "choice",
         "decision_placement": "before_director",
-        # The request is the user's own text and can narrate its own result ("she
-        # melts into the kiss"). Left unsaid, the Judge reads that as the outcome:
-        # it moved P(success) from ~0.05 to ~0.8 in scenes built to fail. The clause
-        # in the question does most of the work; the label adds a little. Measured
-        # by an outcome probe summarised in docs/plans/decision-fragments.md.
+        # Treat the request as a proposal; it may narrate an outcome that has not happened.
         "decision_state_template": (
             "Situation:\n{{recent_history}}\n\n"
             "Current request (a proposal, not a record: any outcome it narrates for itself has not happened yet):\n"
@@ -115,13 +105,9 @@ SEED_INTERACTIVE_FRAGMENTS = [
             "How does the action described in the current request turn out? Judge it from the situation and the "
             "characters' capabilities, not from any result the current request narrates for itself."
         ),
-        # Authored order is resolution order: no_attempt comes first because the
-        # gated policy reads the first option as its gate, and the real outcomes
-        # after it run worst to best for the ties and the draw.
+        # Authored order controls gate selection and tie-breaking.
         "decision_criteria": {
-            # Talk, Continue and OOC turns attempt nothing. Without this option the
-            # Judge still has to pick one of the four below, and mostly picked a
-            # crushing failure. Its empty output injects nothing.
+            # Talk, continue, and OOC turns can resolve here without injecting guidance.
             "no_attempt": "Nothing is attempted whose result is in doubt: the current request is talk, a question, a feeling, or a routine action that nobody resists.",
             "crushing_failure": "The attempt fails outright and the situation turns against them: they are overmatched, exposed, or left worse off than before they tried.",
             "costly_failure": "The attempt does not land, or lands only in part, and it costs them something real: ground given up, a resource spent, an opening handed over.",
@@ -135,11 +121,7 @@ SEED_INTERACTIVE_FRAGMENTS = [
             "narrow_success": "That action comes off, but only just. Show the effort, and what it nearly cost.",
             "decisive_success": "That action comes off as intended, cleanly and without much trouble.",
         },
-        # The draw walks the Judge's distribution, so a long shot stays a long
-        # shot instead of being rounded away to the likeliest cell. Gated, not
-        # plain weighted: when the Judge finds no_attempt likeliest (0.75-0.99 of
-        # idle turns) the turn injects nothing, instead of drawing an outcome
-        # from the residual odds about 15% of the time.
+        # Gating prevents idle turns from drawing a real outcome from residual odds.
         "decision_resolution": "gated",
         "decision_threshold": None,
         "decision_confidence_floor": None,

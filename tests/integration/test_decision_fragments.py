@@ -235,8 +235,7 @@ async def test_configuration_derives_the_route(client, db):
 
 
 async def test_a_judge_endpoint_that_names_the_route_keeps_that_spelling(client, db):
-    # No second override field: the endpoint URL is the one place the route is
-    # configured, and pasting the gateway's own spelling is how it is corrected.
+    # The route is derived from the endpoint URL, including custom routes.
     await _configure(client, url="https://gw.test/v2/judge/decisions")
     config = (await client.get("/api/decisions/config")).json()
     assert config["resolved_url"] == "https://gw.test/v2/judge/decisions"

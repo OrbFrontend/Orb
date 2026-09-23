@@ -561,10 +561,7 @@ async def api_compress_conversation(
     await set_active_leaf(new_cid, prev_id)
 
     # Carry user uploads onto the fork; workflow attachments are regenerable and dropped.
-    # Decision records ride along so a compressed scene stays inspectable, with
-    # every anchor invalidated: compression drops the history the anchors named,
-    # so a later regeneration re-asks and says why rather than matching a record
-    # against a branch that no longer contains its input.
+    # Keep records inspectable, but invalidate anchors removed by compression.
     compression_map: dict[int, int] = {}
     for i, msg in enumerate(tail):
         prev_id, _ = await add_message(
@@ -842,9 +839,7 @@ async def api_get_message_director_log(
             "reasoning_editor": "",
             "feedback": {},
             "direction_notes": direction_notes,
-            # Read off the reply even with no log row: a turn can retain a reply
-            # (and its decisions) while its diagnostic log write is missing or
-            # has been reclaimed by log retention.
+            # Read records from the reply when its diagnostic log is unavailable.
             "decision_evaluations": decision_evaluations_of(msg),
         }
     return {
@@ -857,9 +852,7 @@ async def api_get_message_director_log(
         "reasoning_editor": log.get("reasoning_editor") or "",
         "feedback": log.get("feedback", {}) or {},
         "direction_notes": direction_notes,
-        # Joined onto the log read from the reply itself (see
-        # queries/conversation_logs._LOG_SELECT), so the Inspector meets the
-        # decisions without a second stored copy per turn.
+        # Joined from the reply so logs do not store a duplicate copy.
         "decision_evaluations": log.get("decision_evaluations", {}) or {},
     }
 
