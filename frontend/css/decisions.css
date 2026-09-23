@@ -112,12 +112,25 @@
 .decision-row-remove:hover { color: var(--red); }
 
 .decision-options-foot {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 10px;
+  display: grid;
+  grid-template-columns: var(--dec-key-col) 1fr 1fr;
+  gap: 8px;
+  align-items: start;
   margin-top: 2px;
 }
+
+.decision-options-editable .decision-options-foot { grid-template-columns: var(--dec-key-col) 1fr 1fr 22px; }
+
+.decision-options-foot > .btn {
+  grid-column: 1;
+  justify-content: center;
+  width: 100%;
+  padding: 7px 4px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.decision-options-foot > .decision-hint { grid-column: 2 / 4; align-self: center; }
 
 /* The column heads, repeated on each cell for the phone layout below. A hidden
    grid item takes no track, so on a wide screen they cost nothing. */
@@ -171,7 +184,16 @@
 
   .decision-key-fixed { padding-top: 0; font-weight: 600; color: var(--text-primary); }
   .decision-key-input { max-width: 200px; }
-  .decision-options-foot { padding-top: 10px; border-top: 1px solid var(--border); }
+  .decision-options .decision-options-foot {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+
+  .decision-options-foot > .btn { width: auto; padding: 5px 10px; }
 }
 
 /* ── Judge lane ───────────────────────────────────────────────────────────── */
