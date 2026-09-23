@@ -460,3 +460,25 @@ def test_card_description_handles_a_missing_card_or_field():
     assert card_description({}) == ""
     assert card_description({"description": None}) == ""
     assert card_description({"description": "  padded  "}) == "padded"
+
+
+# ── hostile values ───────────────────────────────────────────────────────────
+
+
+def test_names_are_inserted_literally_not_as_regex_templates():
+    shrug = r"¯\_(ツ)_/¯"
+    assert resolve_message("{{user}} and {{char}}", shrug, r"A\1\g<0>") == shrug + r" and A\1\g<0>"
+    assert Macros(user="U", char="C", cast=r"B\2").resolve_message("{{cast}}") == r"B\2"
+
+
+def test_a_roll_with_no_sides_or_too_many_dice_is_left_raw():
+    assert resolve_inline("{{roll::1d0}}") == "{{roll::1d0}}"
+    assert resolve_inline("{{roll::1001d6}}") == "{{roll::1001d6}}"
+    assert resolve_inline("{{roll::1000d1}}") == "1000"
+    assert resolve_inline("{{roll::0d6}}") == "0"
+
+
+def test_every_name_can_be_a_random_option():
+    macros = Macros(user="U", char="C", seed="s", cast="A, B")
+    assert macros.resolve_message("{{random::{{cast}}::{{cast}}}}") == "A, B"
+    assert macros.resolve_message("{{pick::{{user}}::{{user}}}}") == "U"

@@ -5,15 +5,29 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
-from ....core import CastMember, DecisionDefinition, Macros, outside_literals
+from ....core import (
+    CastMember,
+    DecisionDefinition,
+    Macros,
+    outside_literals,
+    resolve_inline,
+)
 from ....prompting import format_message_with_attachments, group_speaker_label
 
 DECISION_RENDERER_VERSION = "1"
 RECENT_HISTORY_DEPTH = 6
 STATE_MACROS = frozenset({"last_message", "last_assistant_message", "recent_history", "user", "char", "cast", "description"})
 TEXT_MACROS = frozenset({"user", "char", "cast"})
+# Names, resolved before inline macros as the main prompt path does, so they can
+# sit inside a {{random}} option. Message bodies are inserted after, and never can.
+_IDENTITY_MACROS = TEXT_MACROS
 LATER_STAGE_MACROS = frozenset({"scene_guidance", "draft"})
+# Inline macros resolve in every decision field; listed here as authors write them.
+INLINE_MACROS = ("roll::1d20", "random::a::b", "pick::a::b", "time", "date", "trim", "// note")
 _MACRO_RE = re.compile(r"\{\{\s*([a-z_]+)\s*\}\}", re.IGNORECASE)
+_NESTED_RE = re.compile(r"\{\{(?:random|pick|roll)::[^{}]*\{\{\s*([a-z_]+)\s*\}\}", re.IGNORECASE)
+# Validation resolves inline macros only to remove them; any fixed seed will do.
+_VALIDATION_SEED = "validate"
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,9 +41,25 @@ class DecisionSnapshot:
     description: str | None = None
     scope: str = "solo"
     anchor_message_id: int | None = None
+    seed: str = ""
 
     def value(self, macro: str) -> str | None:
         return self.description if macro == "description" else getattr(self, macro, None)
+
+    def roll_seed(self, fragment_id: str | None, field: str) -> str:
+        """Seed one field's inline macros: fixed within an exchange, fresh across exchanges.
+
+        A regeneration renders the same bytes, so replay and the answer cache still
+        match. ``None`` shares the seed across fragments -- the Situation's, so one
+        exchange shows every question the same world and equal templates still
+        batch. No seed means fresh rolls.
+        """
+        return f"{self.seed}|{self.anchor_message_id}|{fragment_id or ''}|{field}" if self.seed else ""
+
+
+def _resolved_description(macros: Macros, description: str | None) -> str | None:
+    """Resolve *description* the way the Writer's ``{{description}}`` does."""
+    return macros._replace(description=description).resolve_message("{{description}}") if description else description
 
 
 def _message_text(message: Mapping[str, Any], macros: Macros | None, scripts: Any = None) -> str:
@@ -79,9 +109,10 @@ def build_snapshot(
         user=macros.user,
         char=macros.char,
         cast=macros.cast,
-        description=description,
+        description=_resolved_description(macros, description),
         scope=scope,
         anchor_message_id=anchor_message_id,
+        seed=macros.seed,
     )
 
 
@@ -90,7 +121,9 @@ def card_snapshots(snapshot: DecisionSnapshot, members: Iterable[CastMember]) ->
     scoped: dict[str, DecisionSnapshot] = {}
     for member in members:
         if member.card_id and member.card_id not in scoped:
-            scoped[member.card_id] = replace(snapshot, char=member.name, description=member.private_sheet)
+            member_macros = Macros(user=snapshot.user, char=member.name, seed=snapshot.seed, cast=snapshot.cast)
+            description = _resolved_description(member_macros, member.private_sheet)
+            scoped[member.card_id] = replace(snapshot, char=member.name, description=description)
     return scoped
 
 
@@ -103,12 +136,28 @@ def macros_used(text: str) -> list[str]:
                 found.append(name)
         return body
 
+    outside_literals(resolve_inline(text, seed=_VALIDATION_SEED), collect)
+    return found
+
+
+def _nested_state_macros(text: str) -> list[str]:
+    found: list[str] = []
+
+    def collect(body: str) -> str:
+        for match in _NESTED_RE.finditer(body):
+            if (name := match.group(1).lower()) not in _IDENTITY_MACROS and name not in found:
+                found.append(name)
+        return body
+
     outside_literals(text, collect)
     return found
 
 
 def macro_errors(text: str, *, allowed: frozenset[str] = STATE_MACROS, field: str = "Template") -> list[str]:
-    errors = []
+    errors = [
+        f"{field} cannot put {{{{{name}}}}} inside {{{{random}}}}, {{{{pick}}}} or {{{{roll}}}}"
+        for name in _nested_state_macros(text)
+    ]
     for name in macros_used(text):
         if name in allowed:
             continue
@@ -139,16 +188,23 @@ class UnavailableMacro(Exception):
         self.macro = macro
 
 
-def render(template: str, snapshot: DecisionSnapshot, *, allowed: frozenset[str] = STATE_MACROS) -> str:
-    def substitute(body: str) -> str:
+def render(template: str, snapshot: DecisionSnapshot, *, allowed: frozenset[str] = STATE_MACROS, seed: str = "") -> str:
+    """Resolve names, then the template's inline macros, then insert values opaquely.
+
+    Message text and the description go in last, so they are never evaluated.
+    """
+
+    def substitute(names: frozenset[str]):
         def one(match: re.Match) -> str:
             name = match.group(1).lower()
-            if name not in allowed:
+            if name not in names:
                 return match.group(0)
             if (value := snapshot.value(name)) is None:
                 raise UnavailableMacro(name)
             return value
 
-        return _MACRO_RE.sub(one, body)
+        return lambda body: _MACRO_RE.sub(one, body)
 
-    return outside_literals(template, substitute)
+    identities = allowed & _IDENTITY_MACROS
+    named = resolve_inline(outside_literals(template, substitute(identities)), seed=seed)
+    return outside_literals(named, substitute(allowed - identities))

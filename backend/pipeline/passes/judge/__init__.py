@@ -22,6 +22,7 @@ from .records import (
     stored_evaluations,
 )
 from .render import (
+    INLINE_MACROS,
     STATE_MACROS,
     TEXT_MACROS,
     DecisionSnapshot,

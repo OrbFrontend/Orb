@@ -64,7 +64,20 @@ messages. The current request is available separately as `{{last_message}}`.
 
 Question instructions, outcome descriptions, and guidance support `{{user}}`,
 `{{char}}`, and `{{cast}}`. In group chats, a card decision uses that card's
-character as `{{char}}` and its scene sheet as `{{description}}`.
+character as `{{char}}` and its scene sheet as `{{description}}`. The
+description's own macros resolve as they do for the Writer.
+
+Every field also supports the inline macros: `{{roll::1d20}}`,
+`{{random::a::b}}`/`{{pick::a::b}}`, `{{time}}`, `{{date}}`, `{{trim}}`, and
+`{{// comments}}`. They resolve in the template before the snapshot's values
+are inserted, so a macro typed inside a message is never evaluated. Rolls are
+fixed for an exchange: a regeneration sees the same values and can reuse the
+Judge's answer, and the next exchange rolls again. The Situation rolls once per
+exchange, so every decision sees the same world and equal templates still share
+a request; the other fields roll separately for each decision. `{{user}}`,
+`{{char}}`, and `{{cast}}` may sit inside `{{random}}` or `{{pick}}`; the
+situation macros may not. `{{time}}` in the Situation changes the request every
+minute, so it can stop a regeneration from reusing the answer.
 
 The rendered situation limit is 16 KiB and the question limit is 8 KiB. An
 oversized request is skipped; the Inspector shows its size and limit. A macro

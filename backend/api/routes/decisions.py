@@ -18,6 +18,7 @@ from ...database import (
 from ...inference import RAW_ANSWER_CACHE, DecisionTransportError, LLMCallError
 from ...pipeline import resolve_judge_config
 from ...pipeline.passes.judge import (
+    INLINE_MACROS,
     STATE_MACROS,
     TEXT_MACROS,
     connection_test,
@@ -36,6 +37,7 @@ def _config_payload(settings, config) -> dict:
         "configured": config.configured,
         "state_macros": sorted(STATE_MACROS),
         "text_macros": sorted(TEXT_MACROS),
+        "inline_macros": list(INLINE_MACROS),
         "default_state_template": DEFAULT_STATE_TEMPLATE,
         "question_types": sorted(DECISION_TYPES),
         "resolution_policies": {key: list(value) for key, value in DECISION_RESOLUTIONS_BY_TYPE.items()},

@@ -253,8 +253,12 @@ def _render_question(item: _Item, turn: JudgeTurn, *, over_budget: bool) -> str:
     definition, snapshot = item.definition, turn.snapshot_for(item.candidate)
     if definition_macro_errors(definition):
         return SkipReason.INVALID_DEFINITION
+
+    def text(value: str, field: str) -> str:
+        return render(value, snapshot, allowed=TEXT_MACROS, seed=snapshot.roll_seed(definition.fragment_id, field))
+
     try:
-        item.outputs = {key: render(value, snapshot, allowed=TEXT_MACROS) for key, value in definition.outputs.items()}
+        item.outputs = {key: text(value, f"output:{key}") for key, value in definition.outputs.items()}
     except UnavailableMacro:
         return SkipReason.UNAVAILABLE_CONTEXT
     if over_budget:
@@ -262,14 +266,15 @@ def _render_question(item: _Item, turn: JudgeTurn, *, over_budget: bool) -> str:
     if not turn.config.configured:
         return SkipReason.NOT_CONFIGURED
     try:
-        state = render(definition.state_template, snapshot, allowed=STATE_MACROS)
-        instructions = render(definition.instructions, snapshot, allowed=TEXT_MACROS)
+        state_seed = snapshot.roll_seed(None, "state")
+        state = render(definition.state_template, snapshot, allowed=STATE_MACROS, seed=state_seed)
+        instructions = text(definition.instructions, "instructions")
         if isinstance(definition.criteria, Mapping):
             criteria: Mapping[str, str] | tuple[str, ...] = {
-                key: render(value, snapshot, allowed=TEXT_MACROS) for key, value in definition.criteria.items()
+                key: text(value, f"criteria:{key}") for key, value in definition.criteria.items()
             }
         else:
-            criteria = tuple(render(value, snapshot, allowed=TEXT_MACROS) for value in definition.criteria)
+            criteria = tuple(text(value, f"criteria:{index}") for index, value in enumerate(definition.criteria))
     except UnavailableMacro:
         return SkipReason.UNAVAILABLE_CONTEXT
     used = set(macros_used(definition.state_template))

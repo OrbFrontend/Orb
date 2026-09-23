@@ -148,6 +148,50 @@ async def test_imported_decisions_obey_authoring_macro_rules(monkeypatch, overri
     assert gateway.batches == []
 
 
+# ── inline macros ────────────────────────────────────────────────────────────
+
+_ROLLING = {
+    "decision_state_template": "{{// hidden}}Omen: {{random::a::b::c::d::e::f::g::h}}\n{{last_message}}",
+    "decision_outputs": {"true": "Damage {{roll::1d1}}.", "false": ""},
+}
+
+
+async def test_inline_macros_resolve_before_the_judge_and_in_guidance(monkeypatch):
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    result = await judge_pass(_turn(_candidate(**_ROLLING), snapshot=replace(SNAPSHOT, seed="conv")))
+    assert "{{" not in gateway.states[0] and gateway.states[0].startswith("Omen: ")
+    assert _by_id(result)["outcome"]["guidance"] == "Damage 1."
+
+
+async def test_a_rolled_situation_is_shared_so_equal_templates_still_batch(monkeypatch):
+    gateway = FakeGateway(answers={f"f{i}": 0.9 for i in range(6)}).install(monkeypatch)
+    candidates = [_candidate(f"f{i}", **_ROLLING) for i in range(6)]
+    result = await judge_pass(_turn(*candidates, snapshot=replace(SNAPSHOT, seed="conv")))
+    assert len(gateway.batches) == 1 and len(gateway.batches[0]) == 6
+    assert len({record["rendered_state"] for record in result.evaluations}) == 1
+
+
+async def test_seeded_rolls_let_a_regeneration_replay_and_a_new_exchange_reroll(monkeypatch):
+    candidate = _candidate(**_ROLLING)
+    seeded = replace(SNAPSHOT, seed="conv")
+    gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
+    original = (await judge_pass(_turn(candidate, snapshot=seeded))).evaluations
+    RAW_ANSWER_CACHE.clear()
+
+    replayed = await judge_pass(_turn(candidate, snapshot=seeded, replay_records=tuple(original)))
+    assert _by_id(replayed)["outcome"]["answer_source"] == "replay"
+    assert len(gateway.batches) == 1
+
+    states = {original[0]["rendered_state"]}
+    for anchor in range(43, 48):
+        states.add(
+            (await judge_pass(_turn(candidate, snapshot=replace(seeded, anchor_message_id=anchor)))).evaluations[0][
+                "rendered_state"
+            ]
+        )
+    assert len(states) > 1
+
+
 # ── the happy path ───────────────────────────────────────────────────────────
 
 

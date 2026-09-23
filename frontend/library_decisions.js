@@ -248,8 +248,14 @@ function _innerHtml() {
       }
     </div>
     ${_problemHtml("policy")}
-    ${_templateFieldHtml("state_template", "Situation", config.default_state_template || "", config.state_macros)}
-    ${_templateFieldHtml("instructions", `Question ${_hint(copy.question)}`, copy.questionPlaceholder, config.text_macros)}
+    ${_templateFieldHtml("state_template", "Situation", config.default_state_template || "", [
+      ...(config.state_macros || []),
+      ...(config.inline_macros || []),
+    ])}
+    ${_templateFieldHtml("instructions", `Question ${_hint(copy.question)}`, copy.questionPlaceholder, [
+      ...(config.text_macros || []),
+      ...(config.inline_macros || []),
+    ])}
     ${_optionsHtml(config, type, copy)}
     ${_problemHtml("criteria")}`;
 }

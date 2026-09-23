@@ -39,11 +39,13 @@ def _sub(text: str, user_name: str, char_name: str) -> str:
     if not text or not isinstance(text, str):
         return text or ""
 
+    # Callable replacements: a name is inserted literally, never read as
+    # ``re.sub`` template syntax (a persona called ``¯\_(ツ)_/¯`` would raise).
     def _fire(t: str) -> str:
         if user_name:
-            t = re.sub(r"\{\{user\}\}", user_name, t, flags=re.IGNORECASE)
+            t = re.sub(r"\{\{user\}\}", lambda _m: user_name, t, flags=re.IGNORECASE)
         if char_name:
-            t = re.sub(r"\{\{char\}\}", char_name, t, flags=re.IGNORECASE)
+            t = re.sub(r"\{\{char\}\}", lambda _m: char_name, t, flags=re.IGNORECASE)
         return t
 
     return _outside_literals(text, _fire)
@@ -52,7 +54,7 @@ def _sub(text: str, user_name: str, char_name: str) -> str:
 def _sub_cast(text: str, cast_names: str) -> str:
     if not text or not cast_names:
         return text or ""
-    return _outside_literals(text, lambda value: re.sub(r"\{\{cast\}\}", cast_names, value, flags=re.IGNORECASE))
+    return _outside_literals(text, lambda value: re.sub(r"\{\{cast\}\}", lambda _m: cast_names, value, flags=re.IGNORECASE))
 
 
 _DESCRIPTION_RE = re.compile(r"\{\{description\}\}", re.IGNORECASE)
@@ -62,13 +64,10 @@ def _sub_description(text: str, description: str) -> str:
     """Replace {{description}} with the character's own description prose.
 
     This is the only macro that substitutes a *body of text* rather than a
-    name, which forces two departures from the three above:
-
-    * the replacement is a callable, so a backslash or ``\\g<1>`` inside a card
-      description is inserted literally instead of being read as ``re.sub``
-      template syntax -- names rarely contain either, descriptions do;
-    * a ``{{description}}`` written *inside* the description is dropped rather
-      than expanded again, so self-reference terminates after one pass.
+    name. Like the names above, it is inserted through a callable, so a
+    backslash or ``\\g<1>`` is kept literally; unlike them, a ``{{description}}``
+    written *inside* the description is dropped rather than expanded again, so
+    self-reference terminates after one pass.
 
     An empty description leaves the macro raw, the same call {{cast}} makes in
     a solo chat: unresolved reads as "no value here yet" and survives to a
@@ -105,8 +104,14 @@ def _comment(m: re.Match, rng: Any) -> str:
     return ""
 
 
+# Rolling is a Python loop on the event loop, and card text can arrive from anywhere.
+MAX_DICE = 1000
+
+
 def _roll(m: re.Match, rng: Any) -> str:
     count, sides = int(m.group(1)), int(m.group(2))
+    if sides < 1 or count > MAX_DICE:
+        return m.group(0)  # no die to roll, or too many: left raw like any unresolvable macro
     return str(sum(rng.randint(1, sides) for _ in range(count)))
 
 
@@ -205,15 +210,16 @@ def resolve_message(text: str, user_name: str, char_name: str, seed: str = "") -
     return _resolve_inline(_sub(text, user_name, char_name), seed=seed)
 
 
-def resolve_inline(text: str) -> str:
-    """Fire inline macros ({{roll}}, {{random}}) with fresh rolls; no {{user}}/{{char}}.
+def resolve_inline(text: str, seed: str = "") -> str:
+    """Fire inline macros ({{roll}}, {{random}}); no {{user}}/{{char}}.
 
     The persist-boundary entry: user/assistant message content and greetings
     are resolved once with this right before the DB write, so stored history
     holds the final text and never re-rolls. {{user}}/{{char}} stay raw in
-    storage — the display and prompt paths substitute them on read.
+    storage — the display and prompt paths substitute them on read. Rolls are
+    fresh unless *seed* is given (see :func:`_resolve_inline`).
     """
-    return _resolve_inline(text)
+    return _resolve_inline(text, seed=seed)
 
 
 def has_inline_macros(text: str) -> bool:
@@ -303,10 +309,12 @@ class Macros(NamedTuple):
         return cls(user=user, char=char_name, seed=seed, cast=cast, description=description)
 
     def resolve_message(self, text: str) -> str:
-        """Full macro resolution ({{description}}, {{user}}/{{char}}, {{cast}} + inline)."""
-        return _sub_cast(
-            resolve_message(_sub_description(text, self.description), self.user, self.char, seed=self.seed), self.cast
-        )
+        """Full macro resolution ({{description}}, {{user}}/{{char}}, {{cast}} + inline).
+
+        Names go in before inline macros, so any of them can be a {{random}} option.
+        """
+        named = _sub_cast(_sub(_sub_description(text, self.description), self.user, self.char), self.cast)
+        return _resolve_inline(named, seed=self.seed)
 
     def resolve_prompt(self, text: str) -> str:
         """Only substitution — {{description}}, {{user}}/{{char}}, {{cast}} (no inline macros)."""
