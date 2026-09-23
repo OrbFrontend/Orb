@@ -101,7 +101,9 @@ class CachedBase:
 
         The cached bottom (prefix + tools + model) comes from ``self``; only
         *trailing* and *tool_choice* vary per call. The stack is resolved via
-        ``self.resolve`` if set, then handed to :func:`cached_complete`.
+        ``self.resolve`` if set, then handed to :func:`cached_complete`. The
+        prefix length rides along so the client can mark the base's end for
+        providers that cache only at marked positions.
         """
         messages: Sequence[Mapping[str, Any]] = [*self.prefix, *trailing]
         if self.resolve is not None:
@@ -116,6 +118,7 @@ class CachedBase:
             tool_choice=tool_choice,
             kv_tracker=kv_tracker,
             record=record,
+            cache_prefix_len=len(self.prefix),
             **params,
         )
 

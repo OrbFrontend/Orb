@@ -14,7 +14,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from backend.inference import anthropic
+from backend.inference import anthropic, prompt_cache
 from backend.inference import client as llm_mod
 from backend.inference import endpoint_profiles as ep
 from backend.inference.client import LLMClient, parse_tool_calls
@@ -220,7 +220,8 @@ async def test_builtin_tool_order_reaches_raw_http_transport_byte_exact(provider
 
     openai_body = {
         "model": model,
-        "messages": messages,
+        # The wire carries the cache breakpoints; the caller's messages do not.
+        "messages": prompt_cache.mark_cache_breakpoints(messages, None),
         "stream": True,
         "max_tokens": 100,
         "tools": tools,
@@ -230,7 +231,7 @@ async def test_builtin_tool_order_reaches_raw_http_transport_byte_exact(provider
     expected = anthropic.build_request_body(openai_body, endpoint, model) if provider == "anthropic" else openai_body
     assert captured == [json.dumps(expected, separators=(",", ":"), ensure_ascii=False)]
     expected_bytes = {
-        "openai": (5733, "4092a9f78f08c3d61da0cf5b728f1cd936433f82e2d3592e4c852fc78d61188c"),
-        "anthropic": (6105, "27a44e8676c3a936ff54752875acef1e6d1e2bcbdc630e299a1b8f0d138007a2"),
+        "openai": (5868, "ae26b7822910364adbacbec637dc6d0dca0d523deee05050f6ce0bc3014e14dd"),
+        "anthropic": (6215, "7d9d7ee216e97b1257a866715afd56ffba5b87389d14be5d77252757913fe7fb"),
     }
     assert (len(captured[0]), hashlib.sha256(captured[0].encode()).hexdigest()) == expected_bytes[provider]

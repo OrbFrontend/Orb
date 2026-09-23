@@ -10,7 +10,7 @@ from typing import Any, cast
 import httpx
 
 from ..core.llm_types import ReasoningReplay
-from . import anthropic, endpoint_profiles, text_completion
+from . import anthropic, endpoint_profiles, prompt_cache, text_completion
 from . import reasoning_format as rf
 from .errors import LLMCallError, llm_call_error, llm_stream_error
 from .gemma_tool_format import parse_gemma_tool_calls
@@ -552,6 +552,16 @@ class LLMClient:
         # narrows the schema exactly as it narrows the text-mode grammar.
         tools_in_prompt = params.pop("tools_in_prompt", True)
         schema_override = params.pop("json_schema", None)
+        # How many leading messages every call on this base shares; the cache
+        # breakpoint that carries reuse across passes and turns sits there.
+        cache_prefix_len = params.pop("cache_prefix_len", None)
+        # A header the user configured, in any casing, wins over the derived lane id.
+        configured_headers = {key.lower() for key in self.extra_headers}
+        affinity = {
+            key: value
+            for key, value in prompt_cache.affinity_headers(model, messages).items()
+            if key.lower() not in configured_headers
+        }
 
         def _plan() -> tuple[dict, str | None, bool]:
             """Resolve the current tool policy into ``(body, forced_name, structured)``.
@@ -636,7 +646,7 @@ class LLMClient:
                 logged_lines.add(line)
                 logger.info("%s", line)
 
-        def _outbound_body(body: dict, route: endpoint_profiles.EndpointRoute) -> dict:
+        def _outbound_body(body: dict, route: endpoint_profiles.EndpointRoute, *, cache_markers: bool) -> dict:
             """Copy the canonical OpenAI body into one route's wire dialect."""
             outbound = dict(body)
             if route.protocol == "openai" and self.extra_body:
@@ -644,6 +654,8 @@ class LLMClient:
                 _log_once(f"LLM extra body fields: {sorted(self.extra_body)}")
             for action in endpoint_profiles.prepare_request_body(self.base_url, model, outbound):
                 _log_once(f"LLM profile: {action}")
+            if cache_markers:
+                outbound["messages"] = prompt_cache.mark_cache_breakpoints(outbound["messages"], cache_prefix_len)
             if route.protocol == "anthropic":
                 return anthropic.build_request_body(outbound, self.base_url, model, self.extra_body)
             return outbound
@@ -824,6 +836,8 @@ class LLMClient:
                         api_key=self.api_key,
                     )
 
+            cache_markers = endpoint_profiles.sends_cache_markers(self.base_url, model)
+            markers_withdrawn = False
             routes = endpoint_profiles.endpoint_candidates(self.base_url, model)
             route_index = 0
             while route_index < len(routes):
@@ -832,13 +846,12 @@ class LLMClient:
                 auth_family = route.auth_family
                 auth_retried = False
                 while True:
-                    outbound = _outbound_body(body, route)
+                    outbound = _outbound_body(body, route, cache_markers=cache_markers)
+                    headers = {**affinity, **self._headers_for(auth_family)}
                     # No read timeout on streaming calls: a long prefill silence
                     # is normal; abort and disconnect close the stream instead.
                     async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, read=None), proxy=self.proxy) as client:
-                        async with client.stream(
-                            "POST", route.url, json=outbound, headers=self._headers_for(auth_family)
-                        ) as resp:
+                        async with client.stream("POST", route.url, json=outbound, headers=headers) as resp:
                             if resp.status_code >= 400:
                                 err_text = await _read_error_body(resp, route.url)
                                 # One attempt per independent quirk class: the profile
@@ -879,6 +892,20 @@ class LLMClient:
                                     )
                                     route_index += 1
                                     break
+                                # Last resort before failing: one unmarked retry. A strict
+                                # schema can refuse the markers' text-list shape without
+                                # naming anything recognizable, so the refusal is learned
+                                # only once that retry is accepted; a 400 the markers did
+                                # not cause costs one round-trip, never the cache.
+                                if cache_markers and resp.status_code in {400, 422}:
+                                    cache_markers = False
+                                    markers_withdrawn = True
+                                    logger.warning(
+                                        "LLM recovery: %s rejected the request (HTTP %d); retrying without cache markers.",
+                                        model,
+                                        resp.status_code,
+                                    )
+                                    continue
                                 raise llm_call_error(
                                     response=resp,
                                     body=err_text,
@@ -886,6 +913,10 @@ class LLMClient:
                                     model=model,
                                     api_key=self.api_key,
                                 )
+                            if markers_withdrawn:
+                                endpoint_profiles.note_cache_markers_refused(self.base_url, model)
+                                logger.warning("LLM profile: %s refuses cache markers; sending none this session.", model)
+                                markers_withdrawn = False
                             if route.protocol == "anthropic":
                                 async for event in consume_anthropic(resp, route.url):
                                     yield event
@@ -1198,6 +1229,9 @@ class LLMClient:
         # /apply-template fails, the chat fallback below explicitly preserves
         # that invariant by withholding them there too.
         params.pop("tools_in_prompt", None)
+        # Chat-only: llama.cpp reuses its own slot prefix, so only the chat
+        # fallback below has a use for the breakpoint position.
+        cache_prefix_len = params.pop("cache_prefix_len", None)
         server_root = self._server_root()
         reasoning_on = text_completion.reasoning_enabled(params)
         fmt = await self._reasoning_format(server_root)
@@ -1210,7 +1244,15 @@ class LLMClient:
                 "text mode: /apply-template failed (%r); falling back to chat transport",
                 e,
             )
-            async for event in self._complete_chat(messages, model, tools, tool_choice, tools_in_prompt=False, **params):
+            async for event in self._complete_chat(
+                messages,
+                model,
+                tools,
+                tool_choice,
+                tools_in_prompt=False,
+                cache_prefix_len=cache_prefix_len,
+                **params,
+            ):
                 yield event
             return
 

@@ -40,6 +40,7 @@ def _clear_learned_state():
     ep._TOOL_CHOICE_UNSUPPORTED.clear()
     ep._REASONING_EFFORT_UNSUPPORTED.clear()
     ep._REASONING_REPLAY_UNSUPPORTED.clear()
+    ep._CACHE_MARKERS_REFUSED.clear()
     anthropic._SAMPLING_UNSUPPORTED.clear()
     anthropic._THINKING_UNSUPPORTED.clear()
     yield
@@ -48,6 +49,7 @@ def _clear_learned_state():
     ep._TOOL_CHOICE_UNSUPPORTED.clear()
     ep._REASONING_EFFORT_UNSUPPORTED.clear()
     ep._REASONING_REPLAY_UNSUPPORTED.clear()
+    ep._CACHE_MARKERS_REFUSED.clear()
     anthropic._SAMPLING_UNSUPPORTED.clear()
     anthropic._THINKING_UNSUPPORTED.clear()
 
@@ -423,6 +425,7 @@ async def test_anthropic_wire_headers_body_and_stream_translation():
     )
     request = fake.requests[0]
     assert request["url"] == "https://api.anthropic.com/v1/messages"
+    assert request["headers"].pop("x-session-id")
     assert request["headers"] == {"x-api-key": "sk-test", "X-Custom": "yes", "anthropic-version": "2026-01-01"}
     assert "Authorization" not in request["headers"]
     assert request["body"]["max_tokens"] == 123
@@ -465,6 +468,7 @@ async def test_gemini_uses_normalized_openai_route_structured_output_and_effort(
     )
     request = fake.requests[0]
     assert request["url"] == "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    assert request["headers"].pop("x-session-id")
     assert request["headers"] == {"Authorization": "Bearer key"}
     assert "tools" not in request["body"] and "tool_choice" not in request["body"]
     assert request["body"]["reasoning_effort"] == "high"
@@ -689,6 +693,7 @@ async def test_ambiguous_endpoint_detects_messages_dialect_without_name_hints():
         "https://opaque.test/chat/completions",
         "https://opaque.test/messages",
     ]
+    assert fake.requests[0]["headers"].pop("x-session-id")
     assert fake.requests[0]["headers"] == {"Authorization": "Bearer key"}
     assert fake.requests[1]["headers"]["x-api-key"] == "key"
     assert fake.requests[2]["headers"]["x-api-key"] == "key"
@@ -944,3 +949,121 @@ async def test_doc_mode_on_anthropic_buffers_text_instead_of_streaming_it():
     )
     assert not [event for event in events if event["type"] == "content"]
     assert parse_tool_calls(events[-1]["message"]) == [{"name": "direct_scene", "arguments": {"mood": "eerie"}}]
+
+
+CACHE_TRANSCRIPT = [
+    {"role": "system", "content": "You narrate."},
+    {"role": "user", "content": "I open the door."},
+    {"role": "assistant", "content": "It creaks."},
+    {"role": "user", "content": "I step inside."},
+]
+OPENAI_DONE = ['data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}', "data: [DONE]"]
+
+
+async def _run_transcript(client: LLMClient, fake: _HTTP, model: str, **kwargs):
+    with patch.object(llm_mod.httpx, "AsyncClient", lambda *args, **kw: fake):
+        return [event async for event in client.complete(CACHE_TRANSCRIPT, model, **kwargs)]
+
+
+def _marked_indexes(messages):
+    return [
+        index
+        for index, message in enumerate(messages)
+        if isinstance(message["content"], list) and any("cache_control" in part for part in message["content"])
+    ]
+
+
+async def test_chat_requests_mark_the_shared_base_and_name_their_lane():
+    fake = _HTTP([_Response(lines=OPENAI_DONE)])
+    await _run_transcript(
+        LLMClient("https://openrouter.ai/api/v1", "key"), fake, "anthropic/claude-haiku-4.5", cache_prefix_len=3
+    )
+
+    request = fake.requests[0]
+    assert "cache_prefix_len" not in request["body"]
+    assert _marked_indexes(request["body"]["messages"]) == [0, 2, 3]
+    assert request["body"]["messages"][2]["content"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+    assert request["headers"]["x-session-id"]
+    # The pass's transcript is never rewritten in place.
+    assert CACHE_TRANSCRIPT[2]["content"] == "It creaks."
+
+
+async def test_configured_headers_override_the_derived_lane_id():
+    fake = _HTTP([_Response(lines=OPENAI_DONE)])
+    client = LLMClient("https://openrouter.ai/api/v1", "key", extra_headers="X-Session-Id: mine")
+    await _run_transcript(client, fake, "m")
+    sent = {key: value for key, value in fake.requests[0]["headers"].items() if key.lower() == "x-session-id"}
+    assert sent == {"X-Session-Id": "mine"}
+
+
+async def test_refused_cache_markers_retry_unmarked_and_are_remembered():
+    """A strict schema can refuse the one-part text list without naming the field."""
+    rejection = '{"error":{"message":"messages[0].content: invalid type: sequence, expected a string"}}'
+    fake = _HTTP([_Response(400, error=rejection), _Response(lines=OPENAI_DONE)])
+    client = LLMClient("https://api.deepseek.test", "key")
+
+    events = await _run_transcript(client, fake, "strict-model", cache_prefix_len=3)
+
+    assert _marked_indexes(fake.requests[0]["body"]["messages"]) == [0, 2, 3]
+    assert fake.requests[1]["body"]["messages"] == CACHE_TRANSCRIPT
+    assert events[-1]["message"]["content"] == "ok"
+
+    again = _HTTP([_Response(lines=OPENAI_DONE)])
+    await _run_transcript(client, again, "strict-model", cache_prefix_len=3)
+    assert again.requests[0]["body"]["messages"] == CACHE_TRANSCRIPT
+
+
+async def test_a_rejection_the_markers_did_not_cause_is_not_learned():
+    too_long = '{"error":{"message":"This model\'s maximum context length is 8192 tokens; your messages are longer."}}'
+    fake = _HTTP([_Response(400, error=too_long), _Response(400, error=too_long)])
+    client = LLMClient("https://compat.test/v1", "key")
+
+    with pytest.raises(LLMCallError):
+        await _run_transcript(client, fake, "m", cache_prefix_len=3)
+
+    assert len(fake.requests) == 2
+    assert ep.sends_cache_markers(client.base_url, "m")
+
+
+def test_anthropic_translation_carries_breakpoints_to_system_text_and_tool_results():
+    marked = {"type": "ephemeral", "ttl": "1h"}
+    messages = [
+        {"role": "system", "content": [{"type": "text", "text": "You narrate.", "cache_control": marked}]},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "look", "arguments": "{}"}}],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "c1",
+            "content": [{"type": "text", "text": "A door.", "cache_control": {"type": "ephemeral"}}],
+        },
+        {"role": "user", "content": [{"type": "text", "text": "Go.", "cache_control": {"type": "ephemeral"}}]},
+    ]
+
+    system, out = anthropic.translate_messages(messages)
+
+    assert system == [{"type": "text", "text": "You narrate.", "cache_control": marked}]
+    tool_result, user_text = out[1]["content"]
+    assert tool_result["cache_control"] == {"type": "ephemeral"}
+    assert tool_result["content"] == [{"type": "text", "text": "A door."}]
+    assert user_text == {"type": "text", "text": "Go.", "cache_control": {"type": "ephemeral"}}
+    # Unmarked system text keeps the plain-string shape.
+    assert anthropic.translate_messages([{"role": "system", "content": "Plain."}])[0] == "Plain."
+
+
+async def test_native_messages_route_sends_the_breakpoints():
+    fake = _HTTP([_Response(lines=[_line({"type": "message_stop"})])])
+    await _run_transcript(
+        LLMClient("https://api.anthropic.com/v1/messages", "sk"), fake, "claude-haiku-4-5", cache_prefix_len=3
+    )
+
+    body = fake.requests[0]["body"]
+    assert body["system"] == [{"type": "text", "text": "You narrate.", "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
+    assert body["messages"][1]["content"] == [
+        {"type": "text", "text": "It creaks.", "cache_control": {"type": "ephemeral", "ttl": "1h"}}
+    ]
+    assert body["messages"][2]["content"] == [
+        {"type": "text", "text": "I step inside.", "cache_control": {"type": "ephemeral"}}
+    ]
