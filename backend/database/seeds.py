@@ -108,7 +108,7 @@ SEED_INTERACTIVE_FRAGMENTS = [
         # Authored order controls gate selection and tie-breaking.
         "decision_criteria": {
             # Talk, continue, and OOC turns can resolve here without injecting guidance.
-            "no_attempt": "Nothing is attempted whose result is in doubt: the current request is talk, a question, a feeling, or a routine action that nobody resists.",
+            "no_attempt": "Nothing is attempted whose result is in doubt: the current request is mundane.",
             "crushing_failure": "The attempt fails outright and the situation turns against them: they are overmatched, exposed, or left worse off than before they tried.",
             "costly_failure": "The attempt does not land, or lands only in part, and it costs them something real: ground given up, a resource spent, an opening handed over.",
             "narrow_success": "The attempt works, but barely: by a margin, at the last moment, or in a way that leaves them spent or shaken.",
