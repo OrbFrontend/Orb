@@ -92,7 +92,7 @@ def build_style_injection(
         elif fragment["field_type"] == "progressive":
             old_value = (prior_progressive_state or {}).get(fragment["id"])
             transition = f"{old_value} -> {value}" if old_value and old_value != value else str(value)
-            parts.append(f"{label} ({fragment['description']}): {transition}")
+            parts.append(f"{label}: {transition}")
         else:
             parts.append(f"{label}: {value}")
     return "\n\n".join(parts)

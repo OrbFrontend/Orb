@@ -304,7 +304,7 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
     description:
       "How much the character trusts the user, as a percentage that shifts gradually, e.g. '10%' -> '25%' -> '40%'",
     inj_hint: "sent to the writer",
-    desc_hint: "sent in the Director's tool schema, and shown to the writer beside the value",
+    desc_hint: "tells the Director what this is about",
   },
   direction_note: {
     id: "e.g. trajectory",

@@ -332,6 +332,23 @@ class TestBuildStyleInjection:
         assert "- overuse of sighs" in result
         assert "- purple prose" in result
 
+    def test_progressive_field_rendered_as_transition_without_description(self):
+        # The description is Director-only, same as single and list fields.
+        frags = [
+            {
+                "id": "trust",
+                "field_type": "progressive",
+                "injection_label": "Trust",
+                "description": "How much the character trusts the user.",
+                "sort_order": 0,
+            }
+        ]
+        result = build_style_injection(
+            [], interactive_fragments=frags, extra_fields={"trust": "40%"}, prior_progressive_state={"trust": "25%"}
+        )
+        assert "Trust: 25% -> 40%" in result
+        assert "How much the character trusts" not in result
+
     def test_fields_omitted_when_not_in_extra_fields(self):
         frags = self._make_frags()
         result = build_style_injection([], interactive_fragments=frags, extra_fields={"plot_summary": "x"})
