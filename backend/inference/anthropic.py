@@ -12,7 +12,8 @@ from .schema import strictify_schema
 # Anthropic rejects unknown top-level fields. These are the only user-provided
 # extra_body keys accepted on a native Messages route; OpenAI-shaped escape
 # hatches therefore cannot turn an otherwise-valid request into a hard 400.
-EXTRA_BODY_ALLOWED: frozenset[str] = frozenset({"metadata", "service_tier"})
+# A configured ``cache_control`` (automatic caching) replaces Orb's breakpoints.
+EXTRA_BODY_ALLOWED: frozenset[str] = frozenset({"cache_control", "metadata", "service_tier"})
 DEFAULT_MAX_TOKENS = 4096
 
 # Sampling support is a capability of the concrete endpoint/model pair, not
@@ -37,7 +38,10 @@ def _text_parts(content: object) -> list[dict[str, Any]]:
             continue
         kind = part.get("type")
         if kind == "text" and isinstance(part.get("text"), str):
-            blocks.append({"type": "text", "text": part["text"]})
+            block: dict[str, Any] = {"type": "text", "text": part["text"]}
+            if isinstance(part.get("cache_control"), Mapping):
+                block["cache_control"] = dict(part["cache_control"])
+            blocks.append(block)
         elif kind == "image_url":
             image = part.get("image_url")
             url = image.get("url") if isinstance(image, Mapping) else image
@@ -90,9 +94,17 @@ def _tool_use_blocks(tool_calls: object) -> list[dict[str, Any]]:
     return out
 
 
-def translate_messages(messages: Sequence[Mapping[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
-    """Hoist system text and translate/coalesce Anthropic user/assistant turns."""
+def translate_messages(
+    messages: Sequence[Mapping[str, Any]],
+) -> tuple[str | list[dict[str, Any]], list[dict[str, Any]]]:
+    """Hoist system text and translate/coalesce Anthropic user/assistant turns.
+
+    A cache breakpoint on the system text turns ``system`` into a one-block list
+    carrying it; the text is the same either way. A breakpoint inside a tool
+    message moves onto its ``tool_result`` block.
+    """
     system_parts: list[str] = []
+    system_cache: dict[str, Any] | None = None
     translated: list[dict[str, Any]] = []
 
     def append(role: str, blocks: list[dict[str, Any]]) -> None:
@@ -110,24 +122,26 @@ def translate_messages(messages: Sequence[Mapping[str, Any]]) -> tuple[str, list
                 text = block.get("text")
                 if isinstance(text, str) and text:
                     system_parts.append(text)
+                    system_cache = block.get("cache_control") or system_cache
             continue
         if role == "tool":
             content = message.get("content", "")
             tool_content: str | list[dict[str, Any]]
+            tool_cache: dict[str, Any] | None = None
             if isinstance(content, str):
                 tool_content = content
             else:
                 tool_content = _text_parts(content)
-            append(
-                "user",
-                [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": str(message.get("tool_call_id") or ""),
-                        "content": tool_content,
-                    }
-                ],
-            )
+                for block in tool_content:
+                    tool_cache = block.pop("cache_control", None) or tool_cache
+            tool_result: dict[str, Any] = {
+                "type": "tool_result",
+                "tool_use_id": str(message.get("tool_call_id") or ""),
+                "content": tool_content,
+            }
+            if tool_cache:
+                tool_result["cache_control"] = tool_cache
+            append("user", [tool_result])
             continue
         if role not in {"user", "assistant"}:
             continue
@@ -135,7 +149,10 @@ def translate_messages(messages: Sequence[Mapping[str, Any]]) -> tuple[str, list
         if role == "assistant":
             blocks.extend(_tool_use_blocks(message.get("tool_calls")))
         append(role, blocks)
-    return "\n\n".join(system_parts), translated
+    system = "\n\n".join(system_parts)
+    if system and system_cache:
+        return [{"type": "text", "text": system, "cache_control": system_cache}], translated
+    return system, translated
 
 
 def translate_tools(tools: object) -> list[dict[str, Any]]:

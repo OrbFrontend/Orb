@@ -521,6 +521,13 @@ _REASONING_EFFORT_UNSUPPORTED: set[tuple[str, str]] = set()
 # prefix the same from call to call.
 _REASONING_REPLAY_UNSUPPORTED: dict[tuple[str, str], set[str]] = {}
 
+# Pairs that refused the prompt-cache markers this session. The markers turn a
+# message's string content into a one-part text list, which a strict schema can
+# refuse without ever naming ``cache_control`` (DeepSeek documents system and
+# assistant content as string-only), so the refusal is recognized by the
+# unmarked retry succeeding, not by the error text.
+_CACHE_MARKERS_REFUSED: set[tuple[str, str]] = set()
+
 _FIELD_REFUSAL_MARKERS = (
     "unsupported",
     "not supported",
@@ -612,6 +619,16 @@ def _refused_replay_fields(body: dict, status: int, text: str) -> set[str]:
         if field in message
     }
     return {field for field in carried if re.search(rf"(?<!\w){field}(?!\w)", low)}
+
+
+def sends_cache_markers(endpoint_url: str, model: str) -> bool:
+    """Whether requests to this pair still carry prompt-cache breakpoints."""
+    return (endpoint_url, model) not in _CACHE_MARKERS_REFUSED
+
+
+def note_cache_markers_refused(endpoint_url: str, model: str) -> None:
+    """Record that an unmarked retry succeeded where the marked request failed."""
+    _CACHE_MARKERS_REFUSED.add((endpoint_url, model))
 
 
 def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]:

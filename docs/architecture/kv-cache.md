@@ -190,6 +190,49 @@ prompt bytes but cannot reuse one another's provider lane within the turn.
 This is a deliberate trade-off when enabled. Keep the setting uniform when
 cross-pass reuse matters; each mode will still reuse its own lane across turns.
 
+## Providers that cache only where asked
+
+llama.cpp, DeepSeek, OpenAI, and most routed open models reuse any matching
+prefix on their own. Claude (natively or behind OpenRouter and NanoGPT), and
+Gemini and Qwen behind OpenRouter, cache nothing unless the request marks where
+a reusable prefix ends, and they find an entry again only at a position an
+earlier request marked. A single marker on the last block, which is what
+top-level automatic caching does, never matches in Orb: the trailing request
+differs on every call. Measured on Claude, that layout wrote the whole prompt on
+every call and read none of it.
+
+`backend/inference/prompt_cache.py` therefore marks three positions on every
+chat request:
+
+| Anchor | TTL | Reused by |
+|---|---|---|
+| End of the system prompt | 1 h | Every call on the lane, including edited histories and batch lanes |
+| Last message of the `CachedBase` prefix | 1 h | Every pass of the turn, and the next turn |
+| Final block | 5 min | The Editor extending the Writer's request, and its ReAct iterations |
+
+`CachedBase.complete` passes its prefix length as `cache_prefix_len`, so the
+base anchor sits exactly where the frozen base ends. Calls without a base get
+only the system and final anchors. The 1 h TTL on the base covers a reader's
+pause between turns: a miss there rewrites the whole conversation, while the
+longer TTL only doubles the price of each turn's new messages.
+
+Servers that do their own prefix caching ignore the markers. A marked message
+travels as a one-part text list instead of a string, and that renders to the
+same bytes (llama.cpp's template output and hosted token counts agree), so the
+marker moving between messages never changes the rendered prefix. A server
+whose schema refuses the list shape gets one unmarked retry; if that retry is
+accepted, the pair is sent no markers for the rest of the process.
+
+Each request also carries an `x-session-id` derived from the model and the
+lane's first message. OpenRouter spreads a model across upstreams with separate
+caches, and without a session id it only becomes sticky after a cache hit, which
+a lane that changes upstream on every call may never get. Servers that do not
+read the header ignore it.
+
+Configuration wins over both: a top-level `cache_control` in the endpoint's extra
+body replaces the breakpoints, and an `x-session-id` in its extra headers (any
+casing) replaces the derived one.
+
 ## What the tracker tells you
 
 Orb records two kinds of cache information:
