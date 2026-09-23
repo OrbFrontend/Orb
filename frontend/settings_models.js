@@ -182,10 +182,7 @@ export function renderEndpoints() {
       return `<div class="field"><label>${f.l}</label>
         <div class="api-key-wrap">
           <input type="text" class="api-key-input" value="${esc(v)}" data-key="${f.k}" autocomplete="off" onchange="${saveFn}(this)">
-          <button type="button" class="api-key-toggle" onclick="toggleApiKeyVisibility(this)" aria-label="Show/hide API key">
-            <svg class="eye-show" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            <svg class="eye-hide" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-          </button>
+          <button type="button" class="api-key-toggle" onclick="toggleApiKeyVisibility(this)" aria-label="Show/hide API key">${EYE_TOGGLE_ICON}</button>
         </div>
       </div>`;
     }
@@ -283,7 +280,6 @@ export function renderEndpoints() {
   updateReasoningEffortFields();
   updateAgentModelWarning();
   updateEndpointsLabel();
-  refreshJudgeLane();
 }
 
 // ── Judge lane ───────────────────────────────────────────────────────────────
@@ -300,7 +296,7 @@ export function renderEndpoints() {
 // field -- the job the removed Route Override used to do with a second field
 // that could disagree with the first.
 
-const JUDGE_KEY_ICON = `<svg class="eye-show" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><svg class="eye-hide" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+const EYE_TOGGLE_ICON = `<svg class="eye-show" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><svg class="eye-hide" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
 
 /** The judge endpoint the stored config points at, or undefined. */
 function _judgeEndpoint() {
@@ -329,7 +325,7 @@ function _judgeLaneHtml() {
       <div class="field"><label>Judge API Key</label>
         <div class="api-key-wrap">
           <input type="text" class="api-key-input" value="${escAttr(endpoint?.api_key || "")}" data-key="judge_api_key" autocomplete="off">
-          <button type="button" class="api-key-toggle" aria-label="Show/hide API key">${JUDGE_KEY_ICON}</button>
+          <button type="button" class="api-key-toggle" aria-label="Show/hide API key">${EYE_TOGGLE_ICON}</button>
         </div>
       </div>
       <div class="field"><label>Judge Model Name</label>
@@ -342,23 +338,19 @@ function _judgeLaneHtml() {
         <button type="button" class="btn btn-sm" id="judge-test-btn">Test</button>
         <span id="judge-test-result" class="judge-test-result"></span>
       </div>
-      <div id="judge-status" class="judge-status"></div>
+      ${_judgeStatusHtml()}
     </div>`;
 }
 
-/** Repaint the derived read-outs: the resolved route and whether it is usable. */
-export function refreshJudgeLane() {
-  const status = document.getElementById("judge-status");
-  if (!status) return;
+/** The derived read-out: the resolved route, or why there is none. */
+function _judgeStatusHtml() {
   const config = decisionConfig();
-  if (!config) {
-    status.textContent = "";
-    return;
-  }
-  status.textContent = config.configured
-    ? `Resolved route: ${config.resolved_url}`
-    : "Not configured — enabled decisions are skipped.";
-  status.classList.toggle("judge-status-warn", !config.configured);
+  const text = !config
+    ? ""
+    : config.configured
+      ? `Resolved route: ${config.resolved_url}`
+      : "Not configured — enabled decisions are skipped.";
+  return `<div id="judge-status" class="judge-status${config?.configured === false ? " judge-status-warn" : ""}">${esc(text)}</div>`;
 }
 
 /** Repaint the whole lane in place, after its endpoint row or config changed. */
@@ -367,12 +359,12 @@ function _repaintJudgeLane() {
   if (!lane) return;
   lane.outerHTML = _judgeLaneHtml();
   initComboboxes();
-  refreshJudgeLane();
 }
 
 async function _saveDecisionConfig(patch) {
   setDecisionConfig(await api.put("/decisions/config", patch));
-  refreshJudgeLane();
+  const status = document.getElementById("judge-status");
+  if (status) status.outerHTML = _judgeStatusHtml();
 }
 
 /**
@@ -475,12 +467,7 @@ async function _runJudgeTest() {
  * them -- to fill in fields that nothing else depends on.
  */
 export async function loadJudgeConfig() {
-  try {
-    await loadDecisionConfig();
-  } catch (_e) {
-    return;
-  }
-  _repaintJudgeLane();
+  if (await loadDecisionConfig()) _repaintJudgeLane();
 }
 
 function _reasoningLevelExtras(prefix) {
@@ -666,9 +653,7 @@ window.deleteComboboxItem = (_btn, type, id, lane = "writer") => {
           if (index > -1) S.judgeEndpoints.splice(index, 1);
           // Clear the selection explicitly rather than trusting the FK's
           // ON DELETE SET NULL: the stored id is what the next turn resolves.
-          if (decisionConfig()?.decision_endpoint_id === id) {
-            setDecisionConfig(await api.put("/decisions/config", { decision_endpoint_id: null }));
-          }
+          if (decisionConfig()?.decision_endpoint_id === id) await _saveDecisionConfig({ decision_endpoint_id: null });
           _repaintJudgeLane();
           toast("Deleted");
           return;

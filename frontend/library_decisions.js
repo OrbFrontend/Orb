@@ -1,228 +1,115 @@
 // The decision half of the Interactive Fragment editor.
 //
-// A decision is one question about the scene. One thing about this form is
-// load-bearing and easy to undo by accident: criteria and guidance are
-// different fields and are the single most confusable pair in the feature, so
+// Criteria and guidance are the single most confusable pair in the feature, so
 // they sit on one row: the outcome, what it means to the Judge, and what the
-// story does when it lands.
-//
-// Each question type words that row -- and the question above it -- for itself,
-// from `COPY`. They are not the same question: a noul scores one statement, a
-// choice picks a named option, a score places the scene on a ladder.
+// story does when it lands. Each question type words that row -- and the
+// question above it -- for itself, from `COPY`.
 //
 // The type list, resolution policies, macros and bounds all come from
 // `GET /api/decisions/config`; nothing here restates them.
-import { decisionConfig, loadDecisionConfig, outcomeLabel } from "./decisions.js";
+import { decisionConfig, outcomeLabel } from "./decisions.js";
 import { CLOSE_ICON } from "./icons.js";
 import { esc, escAttr } from "./utils.js";
 
-// The working copy of the decision fields for the fragment currently open in
-// the modal. Null whenever the open fragment is not a decision.
+// The working copy of the decision fields for the fragment open in the modal.
+// Criteria and guidance are one ordered `options` list, so every structural
+// edit is one operation on one list; the wire shapes are built in
+// readDecisionFields. An option's `touched` is set once its guidance is typed
+// into: until then the guidance mirrors its criterion.
 let _draft = null;
-// Guidance fields the author has typed into. An untouched one mirrors its
-// criterion, so the common case costs no extra typing; a touched one is never
-// overwritten.
-let _touched = new Set();
-// Problems from the last 422, already matched to the field they belong against.
-let _problems = new Map();
-let _generalProblems = [];
+// Problems from the last 422 (or draft check), keyed by the field they render under.
+let _problems = {};
 
-const DEFAULT_PLACEMENT = "before_director";
-
-/** Load the config so the selects have something to render from. */
-export async function ensureDecisionConfig() {
-  try {
-    await loadDecisionConfig();
-  } catch (_e) {
-    // A failed load leaves the section in its "cannot render controls" state,
-    // which says so; it must not block the rest of the fragment form.
-  }
-}
-
-function _cfg() {
-  return decisionConfig();
-}
+// The one placement the stage accepts.
+const PLACEMENT = "before_director";
 
 function _policiesFor(type) {
-  return _cfg()?.resolution_policies?.[type] || [];
+  return decisionConfig()?.resolution_policies?.[type] || [];
 }
 
-function _types() {
-  return _cfg()?.question_types || [];
+// noul and score keys are positional. A choice key is the option's name as the
+// Judge reads it, so a generated `option_1` would be a worse prompt than none:
+// the author writes it, and decisionDraftProblems refuses a save without it.
+function _fixedKey(type, index) {
+  if (type === "noul") return index ? "false" : "true";
+  return type === "score" ? String(index) : "";
 }
 
-// ── Draft shape ──────────────────────────────────────────────────────────────
-// Criteria and guidance are held as one ordered `options` array per question so
-// that every structural edit -- add, delete, rename, retype -- is one operation
-// on one list. The wire shapes (object for noul/choice, array for score) are
-// built only at read time, in _wireCriteria/_wireOutputs.
-
-function _optionsFrom(type, criteria, outputs) {
-  const out = outputs && typeof outputs === "object" && !Array.isArray(outputs) ? outputs : {};
-  if (type === "score") {
-    const levels = Array.isArray(criteria) ? criteria : [];
-    return levels.map((text, index) => ({
-      key: String(index),
-      text: String(text ?? ""),
-      output: String(out[String(index)] ?? ""),
-    }));
-  }
-  const map = criteria && typeof criteria === "object" && !Array.isArray(criteria) ? criteria : {};
-  return Object.keys(map).map((key) => ({
-    key,
-    text: String(map[key] ?? ""),
-    output: String(out[key] ?? ""),
-  }));
-}
-
-function _keysOf(type, options) {
-  return type === "score" ? options.map((_option, index) => String(index)) : options.map((option) => option.key);
-}
-
-function _wireCriteria(type, options) {
-  if (type === "score") return options.map((option) => option.text);
-  return Object.fromEntries(options.map((option) => [option.key, option.text]));
-}
-
-function _wireOutputs(type, options) {
-  return Object.fromEntries(_keysOf(type, options).map((key, index) => [key, options[index].output]));
-}
-
-function _blankOptions(type) {
-  if (type === "noul") {
-    return [
-      { key: "true", text: "", output: "" },
-      { key: "false", text: "", output: "" },
-    ];
-  }
-  if (type === "score") {
-    return [
-      { key: "0", text: "", output: "" },
-      { key: "1", text: "", output: "" },
-    ];
-  }
-  // A choice key is not an id. It goes to the Judge as the option's name and
-  // comes back as the answer, so a generated `option_1` is a worse prompt than
-  // no prompt: it is a name that says nothing about the option it names. The
-  // author writes it, and `decisionDraftProblems` refuses a save without it.
-  return [
-    { key: "", text: "", output: "" },
-    { key: "", text: "", output: "" },
-  ];
+function _option(key, text = "", output = "") {
+  return { key, text: String(text ?? ""), output: String(output ?? ""), touched: Boolean(output) };
 }
 
 /**
- * Start (or clear) the decision draft for the fragment about to be edited.
- *
- * Called for every interactive fragment, decision or not: a fragment being
- * switched *to* `decision` needs a draft with the shipped defaults, and one
- * being switched away needs the stale draft gone.
+ * Start the decision draft for the fragment about to be edited. Called for
+ * every interactive fragment: one switched *to* `decision` needs defaults.
  */
 export function initDecisionDraft(fragment) {
-  _touched = new Set();
-  _problems = new Map();
-  _generalProblems = [];
-  const type = typeof fragment?.decision_type === "string" && fragment.decision_type ? fragment.decision_type : "noul";
-  const options = fragment?.decision_criteria
-    ? _optionsFrom(type, fragment.decision_criteria, fragment.decision_outputs)
-    : _blankOptions(type);
+  _problems = {};
+  const type = fragment.decision_type || "noul";
+  const criteria = fragment.decision_criteria;
+  const outputs = fragment.decision_outputs || {};
+  const entries = Array.isArray(criteria)
+    ? criteria.map((text, index) => [String(index), text])
+    : criteria
+      ? Object.entries(criteria)
+      : [0, 1].map((index) => [_fixedKey(type, index), ""]);
   _draft = {
     type,
-    placement: String(fragment?.decision_placement || DEFAULT_PLACEMENT),
-    state_template: String(fragment?.decision_state_template ?? ""),
-    instructions: String(fragment?.decision_instructions ?? ""),
-    options,
-    resolution: String(fragment?.decision_resolution || _policiesFor(type)[0] || ""),
-    threshold: Number.isFinite(fragment?.decision_threshold) ? fragment.decision_threshold : null,
-    confidence_floor: Number.isFinite(fragment?.decision_confidence_floor) ? fragment.decision_confidence_floor : null,
+    state_template: fragment.decision_state_template || decisionConfig()?.default_state_template || "",
+    instructions: fragment.decision_instructions || "",
+    options: entries.map(([key, text]) => _option(key, text, outputs[key])),
+    resolution: fragment.decision_resolution || _policiesFor(type)[0] || "",
+    threshold: fragment.decision_threshold ?? null,
+    confidence_floor: fragment.decision_confidence_floor ?? null,
   };
-  // Guidance an author already wrote is theirs: mirroring must never overwrite
-  // it, so everything non-empty starts out touched.
-  _draft.options.forEach((option, index) => {
-    if (option.output) _touched.add(`p:${index}`);
-  });
-  if (!_draft.state_template) _draft.state_template = _cfg()?.default_state_template || "";
-}
-
-/** Drop the draft; called when the modal closes. */
-export function clearDecisionDraft() {
-  _draft = null;
-  _touched = new Set();
-  _problems = new Map();
-  _generalProblems = [];
 }
 
 // ── Reading the form ─────────────────────────────────────────────────────────
 
 /**
- * The nine decision columns, always all of them.
- *
- * For decision columns an explicit `null` is a write, not an omission: it is
- * the only way to clear one. Switching to `roll` has to send
- * `decision_threshold: null` in the same request, or the stored threshold
- * survives in the merged row the backend validates and the update is refused.
+ * The nine decision columns, always all of them. An explicit `null` is the only
+ * way to clear one: switching to `roll` must send `decision_threshold: null`,
+ * or the stored threshold survives in the merged row and the update is refused.
  */
 export function readDecisionFields() {
   _syncFromDom();
-  if (!_draft) return {};
-  const isNoul = _draft.type === "noul";
+  const { type, options, resolution } = _draft;
   return {
-    decision_type: _draft.type,
-    decision_placement: _draft.placement || DEFAULT_PLACEMENT,
+    decision_type: type,
+    decision_placement: PLACEMENT,
     decision_state_template: _draft.state_template,
     decision_instructions: _draft.instructions,
-    decision_criteria: _wireCriteria(_draft.type, _draft.options),
-    decision_outputs: _wireOutputs(_draft.type, _draft.options),
-    decision_resolution: _draft.resolution,
-    decision_threshold: isNoul && _draft.resolution === "threshold" ? _draft.threshold : null,
-    decision_confidence_floor: isNoul ? null : _draft.confidence_floor,
+    decision_criteria:
+      type === "score" ? options.map((o) => o.text) : Object.fromEntries(options.map((o) => [o.key, o.text])),
+    decision_outputs: Object.fromEntries(options.map((o) => [o.key, o.output])),
+    decision_resolution: resolution,
+    decision_threshold: type === "noul" && resolution === "threshold" ? _draft.threshold : null,
+    decision_confidence_floor: type === "noul" ? null : _draft.confidence_floor,
   };
 }
 
 /**
  * Problems the editor has to catch itself, or "" when the draft can be sent.
  *
- * Option names are the one part of a choice that cannot survive to the backend
- * to be complained about. `decision_criteria` and `decision_outputs` go out as
- * JSON objects, so a blank or repeated name is already gone -- collapsed into
- * its twin -- by the time the row is validated. Three options with two names
- * save cleanly as two, losing one silently; two unnamed options arrive as one
- * and come back as "must contain 2 to 255 options", which is not what went
- * wrong. Both are checked here, while the rows still exist.
- *
- * Phrased and prefixed like a backend problem so `applyDecisionProblems` can
- * route it to the outcome table: one rendering path for every rule.
+ * Choice names go out as JSON object keys, so a blank or repeated one has
+ * collapsed into its twin before the backend could complain about it. Phrased
+ * like a backend problem so applyDecisionProblems routes it the same way.
  */
 export function decisionDraftProblems() {
   _syncFromDom();
-  if (_draft?.type !== "choice") return "";
+  if (_draft.type !== "choice") return "";
+  const keys = _draft.options.map((o) => o.key);
+  const repeated = [...new Set(keys.filter((key, index) => key && keys.indexOf(key) !== index))];
   const problems = [];
-  const seen = new Set();
-  const repeated = new Set();
-  let unnamed = false;
-  for (const option of _draft.options) {
-    const key = String(option.key || "").trim();
-    if (!key) unnamed = true;
-    else if (seen.has(key)) repeated.add(key);
-    else seen.add(key);
-  }
-  if (unnamed)
+  if (keys.includes(""))
     problems.push("decision_criteria: every option needs a name, because the Judge reads it and answers with it");
-  if (repeated.size)
-    problems.push(`decision_criteria: option names must differ (repeated: ${[...repeated].join(", ")})`);
+  if (repeated.length) problems.push(`decision_criteria: option names must differ (repeated: ${repeated.join(", ")})`);
   return problems.join("; ");
-}
-
-/** Is a decision section currently open? */
-export function hasDecisionDraft() {
-  return _draft !== null;
 }
 
 function _number(raw) {
   const text = String(raw ?? "").trim();
-  if (!text) return null;
-  const value = Number(text);
-  return Number.isFinite(value) ? value : null;
+  return text && Number.isFinite(Number(text)) ? Number(text) : null;
 }
 
 function _syncFromDom() {
@@ -230,82 +117,46 @@ function _syncFromDom() {
   if (!root || !_draft) return;
   for (const el of root.querySelectorAll("[data-dec]")) {
     const field = el.dataset.dec;
-    if (field === "threshold" || field === "confidence_floor") _draft[field] = _number(el.value);
-    else _draft[field] = el.value;
+    _draft[field] = field === "threshold" || field === "confidence_floor" ? _number(el.value) : el.value;
   }
-  for (const el of root.querySelectorAll("[data-dec-key]")) {
-    const option = _draft.options[Number(el.dataset.decKey)];
-    if (option) option.key = el.value.trim();
-  }
-  for (const el of root.querySelectorAll("[data-dec-criterion]")) {
-    const option = _draft.options[Number(el.dataset.decCriterion)];
-    if (option) option.text = el.value;
-  }
-  for (const el of root.querySelectorAll("[data-dec-output]")) {
-    const option = _draft.options[Number(el.dataset.decOutput)];
-    if (option) option.output = el.value;
+  for (const el of root.querySelectorAll("[data-opt]")) {
+    const field = el.dataset.field;
+    _draft.options[Number(el.dataset.opt)][field] = field === "key" ? el.value.trim() : el.value;
   }
 }
 
 // ── Problems from a 422 ──────────────────────────────────────────────────────
 
-// Validation runs on the merged row and comes back as problems joined by "; ".
-// Each is rendered against the field it names rather than thrown at a toast,
-// because "decision_outputs must have exactly the keys true, false" is only
-// actionable next to the outcome table it is about.
+// Validation comes back as problems joined by "; ". Each renders against the
+// field it names, because "decision_outputs must have exactly the keys true,
+// false" is only actionable next to the outcome table. Anything unmatched --
+// decision_placement has no control -- goes to the general list, not nowhere.
 const PROBLEM_ANCHORS = [
-  [/^decision_type\b/, "type"],
-  // No anchor for decision_placement: there is one placement and so no control
-  // to hang it on, and a problem routed at a field that is not rendered is a
-  // problem the author never sees. It falls through to the general list.
+  [/^decision_(type|resolution|threshold|confidence_floor)\b/, "policy"],
   [/^(decision_state_template|Situation template)\b/, "state_template"],
   [/^(decision_instructions|Question)\b/, "instructions"],
-  [/^(decision_criteria|Outcome description)\b/, "criteria"],
-  [/^(decision_outputs|Guidance)\b/, "criteria"],
-  [/^decision_resolution\b/, "resolution"],
-  [/^decision_threshold\b/, "threshold"],
-  [/^decision_confidence_floor\b/, "confidence_floor"],
+  [/^(decision_criteria|decision_outputs|Outcome description|Guidance)\b/, "criteria"],
 ];
 
-/**
- * Route a `422` detail onto the fields it names.
- *
- * Returns true when at least one problem was placed, so the caller can fall
- * back to a toast for an error that is not about the decision at all.
- */
+/** Route a problem string onto the fields it names; false when there was nothing to route. */
 export function applyDecisionProblems(detail) {
-  _problems = new Map();
-  _generalProblems = [];
   const problems = String(detail || "")
     .split("; ")
     .map((problem) => problem.trim())
     .filter(Boolean);
   if (!problems.length) return false;
-  let placed = false;
+  _problems = {};
   for (const problem of problems) {
-    const anchor = PROBLEM_ANCHORS.find(([pattern]) => pattern.test(problem));
-    if (anchor) {
-      _push(anchor[1], problem);
-      placed = true;
-    } else {
-      _generalProblems.push(problem);
-    }
+    const anchor = PROBLEM_ANCHORS.find(([pattern]) => pattern.test(problem))?.[1] || "general";
+    _problems[anchor] = [...(_problems[anchor] || []), problem];
   }
-  if (!placed && !_generalProblems.length) return false;
   repaintDecisionSection();
   return true;
 }
 
-function _push(anchor, problem) {
-  const list = _problems.get(anchor) || [];
-  list.push(problem);
-  _problems.set(anchor, list);
-}
-
 function _problemHtml(anchor) {
-  const list = _problems.get(anchor);
-  if (!list?.length) return "";
-  return `<div class="decision-problem">${list.map((problem) => esc(problem)).join("<br>")}</div>`;
+  const list = _problems[anchor];
+  return list ? `<div class="decision-problem">${list.map((problem) => esc(problem)).join("<br>")}</div>` : "";
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────────
@@ -322,18 +173,8 @@ export function repaintDecisionSection() {
   fitDecisionTextareas(root);
 }
 
-/** Re-read the form, then repaint: every structural edit goes through here. */
-function _mutate(change) {
-  _syncFromDom();
-  if (!_draft) return;
-  change();
-  repaintDecisionSection();
-}
-
-// The words each type uses for the question and for its outcome table. Nothing
-// here is a contract -- but for most authors it is the only description of the
-// feature they will ever read, and the shared noul wording it replaces made a
-// `choice` look like a true/false question it is not.
+// For most authors this is the only description of the feature they will ever
+// read, so each type words its question and outcome table in its own terms.
 const COPY = {
   noul: {
     question: "a statement the Judge scores",
@@ -356,47 +197,11 @@ const COPY = {
     outcome: "Level",
     criterion: "What it looks like",
     criterionPlaceholder: "What this level looks like in the scene",
+    note: "Lowest level first.",
   },
 };
 
-function _copy(type) {
-  return COPY[type] || COPY.noul;
-}
-
-function _hint(text) {
-  return `<span class="decision-hint">${esc(text)}</span>`;
-}
-
-/** The macros a textarea expands, as one quiet line under it rather than a label that wraps. */
-function _macrosHtml(list) {
-  if (!list?.length) return "";
-  return `<div class="decision-macros">${list.map((macro) => `<code>{{${esc(macro)}}}</code>`).join(" ")}</div>`;
-}
-
-function _innerHtml() {
-  if (!_draft) return "";
-  const config = _cfg();
-  if (!config) {
-    return `<div class="decision-problem">Could not load the decision configuration, so the question controls cannot be rendered. Reopen this fragment once the app can reach <code>/api/decisions/config</code>.</div>`;
-  }
-  return [
-    _statusHtml(config),
-    _generalProblems.length
-      ? `<div class="decision-problem">${_generalProblems.map((problem) => esc(problem)).join("<br>")}</div>`
-      : "",
-    _primaryHtml(config),
-  ].join("");
-}
-
-function _statusHtml(config) {
-  if (!config.configured) {
-    return `<div class="decision-status">No Judge endpoint configured: this decision is skipped. Set one under <strong>Endpoints → Judge</strong>.</div>`;
-  }
-  return "";
-}
-
-// Layman labels for the resolution policies the backend serves. The select's
-// `value` stays the raw wire string; only the displayed text differs.
+// Layman labels for the resolution policies; the option value stays the wire string.
 const RESOLUTION_LABELS = {
   threshold: "Cutoff",
   roll: "Random roll",
@@ -405,127 +210,126 @@ const RESOLUTION_LABELS = {
   nearest: "Closest level",
 };
 
-function _primaryHtml(config) {
-  const type = _draft.type;
-  const policies = _policiesFor(type);
-  const showThreshold = type === "noul" && _draft.resolution === "threshold";
-  const typeOptions = _types()
-    .map((value) => `<option value="${escAttr(value)}"${value === type ? " selected" : ""}>${esc(value)}</option>`)
-    .join("");
-  const policyOptions = policies
+function _hint(text) {
+  return `<span class="decision-hint">${esc(text)}</span>`;
+}
+
+function _selectOptions(values, selected, label = (value) => value) {
+  return values
     .map(
       (value) =>
-        `<option value="${escAttr(value)}"${value === _draft.resolution ? " selected" : ""}>${esc(
-          RESOLUTION_LABELS[value] || value,
-        )}</option>`,
+        `<option value="${escAttr(value)}"${value === selected ? " selected" : ""}>${esc(label(value))}</option>`,
     )
     .join("");
-  // At most one knob applies to a type/policy pair, so it takes the row's third
-  // slot instead of a row of its own.
-  const knob = showThreshold
-    ? `<div class="field decision-knob">
-        <label title="Resolves true at or above this probability">Threshold</label>
-        <input type="number" min="0" max="1" step="0.01" data-dec="threshold" value="${escAttr(_draft.threshold ?? "")}" placeholder="0.5" title="Resolves true at or above this probability">
-      </div>`
-    : type !== "noul"
-      ? `<div class="field decision-knob">
-        <label title="Discard answers the Judge is less sure of than this; blank = never">Min confidence</label>
-        <input type="number" min="0" max="1" step="0.01" data-dec="confidence_floor" value="${escAttr(_draft.confidence_floor ?? "")}" placeholder="off" title="Discard answers the Judge is less sure of than this; blank = never">
-      </div>`
-      : "";
+}
+
+/** A template textarea, the macros it expands as one quiet line under it, and its problems. */
+function _templateFieldHtml(field, labelHtml, placeholder, macros = []) {
+  return `<div class="field">
+    <label>${labelHtml}</label>
+    <textarea data-dec="${field}" rows="2" placeholder="${escAttr(placeholder)}">${esc(_draft[field])}</textarea>
+    ${macros.length ? `<div class="decision-macros">${macros.map((macro) => `<code>{{${esc(macro)}}}</code>`).join(" ")}</div>` : ""}
+    ${_problemHtml(field)}
+  </div>`;
+}
+
+function _innerHtml() {
+  if (!_draft) return "";
+  const config = decisionConfig();
+  if (!config) {
+    return `<div class="decision-problem">Could not load the decision configuration, so the question controls cannot be rendered. Reopen this fragment once the app can reach <code>/api/decisions/config</code>.</div>`;
+  }
+  const { type, resolution } = _draft;
+  const copy = COPY[type] || COPY.noul;
+  // At most one knob applies to a type/policy pair, so it takes the row's third slot.
+  const knob =
+    type !== "noul"
+      ? [
+          "confidence_floor",
+          "Min confidence",
+          "Discard answers the Judge is less sure of than this; blank = never",
+          "off",
+        ]
+      : resolution === "threshold"
+        ? ["threshold", "Threshold", "Resolves true at or above this probability", "0.5"]
+        : null;
   return `
+    ${config.configured ? "" : `<div class="decision-status">No Judge endpoint configured: this decision is skipped. Set one under <strong>Endpoints → Judge</strong>.</div>`}
+    ${_problemHtml("general")}
     <div class="frag-divider">Decision</div>
     <div class="field-row">
       <div class="field">
         <label>Question type</label>
-        <select data-dec="type" data-dec-act="retype">${typeOptions}</select>
+        <select data-dec="type">${_selectOptions(config.question_types || [], type)}</select>
       </div>
       <div class="field">
         <label>Resolution</label>
-        <select data-dec="resolution" data-dec-act="repaint">${policyOptions}</select>
+        <select data-dec="resolution">${_selectOptions(_policiesFor(type), resolution, (value) => RESOLUTION_LABELS[value] || value)}</select>
       </div>
-      ${knob}
+      ${
+        knob
+          ? `<div class="field decision-knob">
+        <label title="${escAttr(knob[2])}">${knob[1]}</label>
+        <input type="number" min="0" max="1" step="0.01" data-dec="${knob[0]}" value="${escAttr(_draft[knob[0]] ?? "")}" placeholder="${knob[3]}" title="${escAttr(knob[2])}">
+      </div>`
+          : ""
+      }
     </div>
-    ${_problemHtml("type")}${_problemHtml("resolution")}${_problemHtml("threshold")}${_problemHtml("confidence_floor")}
-    <div class="field">
-      <label>Situation</label>
-      <textarea data-dec="state_template" rows="2" placeholder="${escAttr(config.default_state_template || "")}">${esc(_draft.state_template)}</textarea>
-      ${_macrosHtml(config.state_macros)}
-      ${_problemHtml("state_template")}
-    </div>
-    <div class="field">
-      <label>Question ${_hint(_copy(type).question)}</label>
-      <textarea data-dec="instructions" rows="2" placeholder="${escAttr(_copy(type).questionPlaceholder)}">${esc(_draft.instructions)}</textarea>
-      ${_macrosHtml(config.text_macros)}
-      ${_problemHtml("instructions")}
-    </div>
-    ${_optionsHtml(config, type, _draft.options)}
+    ${_problemHtml("policy")}
+    ${_templateFieldHtml("state_template", "Situation", config.default_state_template || "", config.state_macros)}
+    ${_templateFieldHtml("instructions", `Question ${_hint(copy.question)}`, copy.questionPlaceholder, config.text_macros)}
+    ${_optionsHtml(config, type, copy)}
     ${_problemHtml("criteria")}`;
 }
 
-function _optionLabel(type, key, option) {
-  if (type === "noul") return outcomeLabel(type, key);
-  if (type === "score") return `Level ${key}`;
-  return option?.key || key;
-}
-
-/**
- * The criteria table: one row per outcome, criterion and guidance side by side.
- *
- * Criteria describe the world to the Judge; guidance is what gets injected into
- * the story if that outcome lands. They are adjacent because authors conflate
- * them constantly, and the header names both jobs in this type's own words.
- */
-function _optionsHtml(config, type, options) {
-  const copy = _copy(type);
-  const canEditCount = type !== "noul";
-  const max = type === "choice" ? config.choice?.max_options : type === "score" ? config.score?.max_levels : null;
-  const atMax = Number.isFinite(max) && options.length >= max;
+/** The outcome table: one row per outcome, criterion and guidance side by side. */
+function _optionsHtml(config, type, copy) {
+  const options = _draft.options;
+  const editable = type !== "noul";
+  const max = type === "choice" ? config.choice?.max_options : config.score?.max_levels;
+  const criterionHead = `${esc(copy.criterion)} ${_hint("- to the Judge")}`;
+  const outputHead = `What the story does ${_hint("- injected")}`;
   const rows = options
-    .map((option, index) => {
-      const keyCell =
-        type === "choice"
-          ? `<input class="decision-key-input" data-dec-key="${index}" value="${escAttr(option.key)}" placeholder="name" aria-label="Option name">`
-          : `<span class="decision-key-fixed">${esc(_optionLabel(type, _keysOf(type, options)[index], option))}</span>`;
-      const removeBtn =
-        canEditCount && options.length > 2
-          ? `<button type="button" class="btn-icon btn-square decision-row-remove" data-dec-act="del-option" data-index="${index}" title="Remove" aria-label="Remove this outcome">${CLOSE_ICON}</button>`
-          : canEditCount
-            ? "<span></span>"
-            : "";
-      return `
+    .map(
+      (option, index) => `
       <div class="decision-option-row">
-        ${keyCell}
-        <span class="decision-cell-label" aria-hidden="true">${esc(copy.criterion)} ${_hint("- to the Judge")}</span>
-        <textarea rows="2" data-dec-criterion="${index}" aria-label="${escAttr(copy.criterion)}" placeholder="${escAttr(copy.criterionPlaceholder)}">${esc(option.text)}</textarea>
-        <span class="decision-cell-label" aria-hidden="true">What the story does ${_hint("- injected")}</span>
-        <textarea rows="2" data-dec-output="${index}" data-mirror="p:${index}" aria-label="What the story does" placeholder="What the story does if it lands">${esc(option.output)}</textarea>
-        ${removeBtn}
-      </div>`;
-    })
+        ${
+          type === "choice"
+            ? `<input class="decision-key-input" data-opt="${index}" data-field="key" value="${escAttr(option.key)}" placeholder="name" aria-label="Option name">`
+            : `<span class="decision-key-fixed">${esc(outcomeLabel(type, option.key))}</span>`
+        }
+        <span class="decision-cell-label" aria-hidden="true">${criterionHead}</span>
+        <textarea rows="2" data-opt="${index}" data-field="text" aria-label="${escAttr(copy.criterion)}" placeholder="${escAttr(copy.criterionPlaceholder)}">${esc(option.text)}</textarea>
+        <span class="decision-cell-label" aria-hidden="true">${outputHead}</span>
+        <textarea rows="2" data-opt="${index}" data-field="output" aria-label="What the story does" placeholder="What the story does if it lands">${esc(option.output)}</textarea>
+        ${
+          !editable
+            ? ""
+            : options.length > 2
+              ? `<button type="button" class="btn-icon btn-square decision-row-remove" data-dec-act="del-option" data-index="${index}" title="Remove" aria-label="Remove this outcome">${CLOSE_ICON}</button>`
+              : "<span></span>"
+        }
+      </div>`,
+    )
     .join("");
   const addBtn =
-    canEditCount && !atMax
+    editable && !(options.length >= max)
       ? `<button type="button" class="btn btn-sm" data-dec-act="add-option">+ Add ${type === "score" ? "level" : "option"}</button>`
       : "";
-  const note = copy.note ? _hint(copy.note) : type === "score" ? _hint("Lowest level first.") : "";
+  const note = copy.note ? _hint(copy.note) : "";
   return `
-    <div class="decision-options${canEditCount ? " decision-options-editable" : ""}">
+    <div class="decision-options${editable ? " decision-options-editable" : ""}">
       <div class="decision-option-head">
         <span>${esc(copy.outcome)}</span>
-        <span>${esc(copy.criterion)} ${_hint("- to the Judge")}</span>
-        <span>What the story does ${_hint("- injected")}</span>
+        <span>${criterionHead}</span>
+        <span>${outputHead}</span>
       </div>
       ${rows}
       ${addBtn || note ? `<div class="decision-options-foot">${addBtn}${note}</div>` : ""}
     </div>`;
 }
 
-/**
- * Grow the section's textareas to their text. Fixed row counts clipped the
- * default situation and a third line of criterion mid-word, and in the outcome
- * grid a drag handle per cell is more clutter than help.
- */
+/** Grow the section's textareas to their text. */
 export function fitDecisionTextareas(root = document.getElementById("decision-section")) {
   for (const el of root?.querySelectorAll("textarea") || []) _fit(el);
 }
@@ -541,103 +345,63 @@ function _fit(el) {
 
 // ── Structural edits ─────────────────────────────────────────────────────────
 
-function _retypePrimary(nextType) {
-  _draft.type = nextType;
-  if (nextType === "noul") {
-    const [first, second] = _draft.options;
-    _draft.options = [
-      { key: "true", text: first?.text ?? "", output: first?.output ?? "" },
-      { key: "false", text: second?.text ?? "", output: second?.output ?? "" },
-    ];
-  } else if (nextType === "score") {
-    if (_draft.options.length < 2) _draft.options = _blankOptions("score");
-    _draft.options = _draft.options.map((option, index) => ({ ...option, key: String(index) }));
-  } else {
-    // Whatever the keys were, they were the other type's: `true`/`false` from a
-    // noul, level indices from a score. Carrying them over asks the Judge to
-    // pick between two options called "true" and "false", which is a noul with
-    // its threshold taken away. The criteria and guidance are the author's and
-    // survive; the names do not.
-    _draft.options = _draft.options.map((option) => ({ ...option, key: "" }));
-  }
-  // The policies are per type and do not overlap between noul and the rest, so
-  // a retype always re-picks rather than keeping a policy the stage would
-  // reject on save.
-  _draft.resolution = _policiesFor(nextType)[0] || "";
-  if (nextType !== "noul" || _draft.resolution !== "threshold") _draft.threshold = null;
-  if (nextType === "noul") _draft.confidence_floor = null;
+/** Re-read the form, apply *change* to the draft, then repaint. */
+function _mutate(change) {
+  _syncFromDom();
+  change();
+  repaintDecisionSection();
 }
 
-function _addOption() {
-  const index = _draft.options.length;
-  _draft.options.push({
-    key: _draft.type === "score" ? String(index) : "",
-    text: "",
-    output: "",
-  });
+function _retype(type) {
+  // The old keys were the old type's own (true/false, level indices), and a
+  // choice between options named "true" and "false" is a noul with its
+  // threshold taken away. Criteria and guidance survive; the names do not.
+  _draft.type = type;
+  _draft.options = (type === "noul" ? _draft.options.slice(0, 2) : _draft.options).map((option, index) => ({
+    ...option,
+    key: _fixedKey(type, index),
+  }));
+  // Policies are per type and do not overlap between noul and the rest.
+  _draft.resolution = _policiesFor(type)[0] || "";
 }
 
-function _deleteOption(index) {
-  if (_draft.options.length <= 2) return;
-  _draft.options.splice(index, 1);
-  if (_draft.type === "score") _draft.options = _draft.options.map((option, i) => ({ ...option, key: String(i) }));
-  _shiftTouched("p:", index);
+function _inSection(el) {
+  return el && document.getElementById("decision-section")?.contains(el) ? el : null;
 }
-
-// The mirror flags are positional, so a delete has to shift them or the wrong
-// guidance field stops mirroring.
-function _shiftTouched(prefix, removed) {
-  const next = new Set();
-  for (const mark of _touched) {
-    if (!mark.startsWith(prefix)) {
-      next.add(mark);
-      continue;
-    }
-    const index = Number(mark.slice(prefix.length));
-    if (index === removed) continue;
-    next.add(`${prefix}${index > removed ? index - 1 : index}`);
-  }
-  _touched = next;
-}
-
-// ── Events ───────────────────────────────────────────────────────────────────
 
 document.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-dec-act]");
-  if (!button || !document.getElementById("decision-section")?.contains(button)) return;
-  const action = button.dataset.decAct;
-  // The selects carry their own actions and fire on change, not click.
-  if (button.tagName === "SELECT" || button.tagName === "INPUT") return;
-  const index = Number(button.dataset.index);
-  if (action === "add-option") _mutate(() => _addOption());
-  else if (action === "del-option") _mutate(() => _deleteOption(index));
+  const button = _inSection(event.target.closest("button[data-dec-act]"));
+  if (!button) return;
+  _mutate(() => {
+    const { options, type } = _draft;
+    if (button.dataset.decAct === "add-option") {
+      options.push(_option(_fixedKey(type, options.length)));
+    } else if (options.length > 2) {
+      options.splice(Number(button.dataset.index), 1);
+      if (type === "score") _draft.options = options.map((option, index) => ({ ...option, key: String(index) }));
+    }
+  });
 });
 
+// Both selects repaint on change: the type rebuilds the table, the resolution swaps the knob.
 document.addEventListener("change", (event) => {
-  const el = event.target.closest("[data-dec-act]");
-  if (!el || !document.getElementById("decision-section")?.contains(el)) return;
-  const action = el.dataset.decAct;
-  if (action === "retype") _mutate(() => _retypePrimary(el.value));
-  else if (action === "repaint") _mutate(() => {});
+  const select = _inSection(event.target.closest("select[data-dec]"));
+  if (select) _mutate(() => select.dataset.dec === "type" && _retype(select.value));
 });
 
-// Guidance mirrors its criterion until the author types into the guidance
-// field. That makes the common case free without ever inventing an injection:
-// an empty output still means "inject nothing", never an implicit echo.
+// Guidance mirrors its criterion until the author types into it. That makes the
+// common case free without inventing an injection: empty still means "nothing".
 document.addEventListener("input", (event) => {
-  const root = document.getElementById("decision-section");
-  if (!root?.contains(event.target)) return;
-  const el = event.target;
+  const el = _inSection(event.target);
+  if (!el) return;
   if (el.tagName === "TEXTAREA") _fit(el);
-  const mirrorTarget = el.dataset.mirror;
-  if (mirrorTarget) {
-    _touched.add(mirrorTarget);
-    return;
+  const option = _draft?.options[Number(el.dataset.opt)];
+  if (!option) return;
+  if (el.dataset.field === "output") {
+    option.touched = true;
+  } else if (el.dataset.field === "text" && !option.touched) {
+    const output = el.parentElement.querySelector('[data-field="output"]');
+    output.value = el.value;
+    _fit(output);
   }
-  if (el.dataset.decCriterion === undefined) return;
-  const row = el.closest(".decision-option-row");
-  const output = row?.querySelector("[data-mirror]");
-  if (!output || _touched.has(output.dataset.mirror)) return;
-  output.value = el.value;
-  _fit(output);
 });

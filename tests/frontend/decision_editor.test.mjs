@@ -162,7 +162,7 @@ test("adding a primary outcome appends an unnamed row, leaving the authored ones
   // The authored outcomes survive. The new one is unnamed, because a choice key
   // is prompt text: a generated `option_3` would go to the Judge as the name of
   // an option and tell it nothing.
-  const keys = [...document.querySelectorAll("[data-dec-key]")].map((el) => el.value);
+  const keys = [...document.querySelectorAll('[data-field="key"]')].map((el) => el.value);
   assert.deepEqual(keys, ["win", "lose", ""]);
   const fields = readDecisionFields();
   assert.equal(fields.decision_criteria.win, "Wins.");
@@ -204,12 +204,12 @@ test("retyping rebuilds the outcome space for the new type", () => {
 
 test("guidance mirrors an untouched criterion and never overwrites a written one", () => {
   mount({ ...NOUL_FRAGMENT, decision_outputs: { true: "", false: "Authored." } });
-  type('[data-dec-criterion="0"]', "They pull it off.");
-  assert.equal(document.querySelector('[data-dec-output="0"]').value, "They pull it off.");
+  type('[data-opt="0"][data-field="text"]', "They pull it off.");
+  assert.equal(document.querySelector('[data-opt="0"][data-field="output"]').value, "They pull it off.");
 
   // The second row's guidance was authored, so it is the author's and stays.
-  type('[data-dec-criterion="1"]', "They do not.");
-  assert.equal(document.querySelector('[data-dec-output="1"]').value, "Authored.");
+  type('[data-opt="1"][data-field="text"]', "They do not.");
+  assert.equal(document.querySelector('[data-opt="1"][data-field="output"]').value, "Authored.");
 });
 
 test("an empty guidance field stays empty: no implicit echo of the criterion", () => {

@@ -11,32 +11,22 @@ import { esc } from "./utils.js";
 
 let _state = null;
 
-function _mount() {
-  return document.getElementById("ce-card-decisions");
-}
-
 /** Load and paint the approval panel for *cardId*; a card with no decisions paints nothing. */
 export async function renderCardDecisionApproval(cardId) {
-  const el = _mount();
-  if (!el || !cardId) return;
-  try {
-    _state = await api.get(`/decisions/card-approval/${cardId}`);
-  } catch (_e) {
-    _state = null;
-    el.innerHTML = "";
-    return;
-  }
+  if (!cardId) return;
+  _state = await api.get(`/decisions/card-approval/${cardId}`).catch(() => null);
   _paint();
 }
 
 function _paint() {
-  const el = _mount();
+  const el = document.getElementById("ce-card-decisions");
   if (!el) return;
   if (!_state?.has_decisions) {
     el.innerHTML = "";
     return;
   }
-  const { approved, stale, questions } = _state;
+  const { stale, questions } = _state;
+  const approved = _state.approved && !stale;
   el.innerHTML = `
     <div class="frag-divider">Decisions on this character</div>
     ${
@@ -46,12 +36,12 @@ function _paint() {
     }
     <div class="card-decision-note">
       Approving sends the text below to the configured Judge provider on every turn these decisions run.
-      ${approved && !stale ? "Approved." : "Not approved — these decisions are skipped until you approve them."}
+      ${approved ? "Approved." : "Not approved — these decisions are skipped until you approve them."}
     </div>
     <div class="card-decision-list">${(questions || []).map(_questionHtml).join("")}</div>
     <div class="card-decision-actions">
-      <button type="button" class="btn btn-sm${approved && !stale ? "" : " btn-accent"}" data-card-decision="${approved && !stale ? "revoke" : "approve"}">
-        ${approved && !stale ? "Revoke approval" : "Approve these questions"}
+      <button type="button" class="btn btn-sm${approved ? "" : " btn-accent"}" data-card-decision="${approved ? "revoke" : "approve"}">
+        ${approved ? "Revoke approval" : "Approve these questions"}
       </button>
       <span class="card-decision-status" id="ce-card-decision-status"></span>
     </div>`;
@@ -60,9 +50,7 @@ function _paint() {
 function _criteriaHtml(criteria) {
   const entries = Array.isArray(criteria)
     ? criteria.map((text, index) => [String(index), text])
-    : criteria && typeof criteria === "object"
-      ? Object.entries(criteria)
-      : [];
+    : Object.entries(criteria || {});
   if (!entries.length) return "";
   return `<ul class="card-decision-criteria">${entries
     .map(([key, text]) => `<li><span class="card-decision-key">${esc(key)}</span>${esc(String(text ?? ""))}</li>`)

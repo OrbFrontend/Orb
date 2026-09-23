@@ -1,13 +1,11 @@
 import { api } from "./api.js";
-import { decisionConfig } from "./decisions.js";
+import { decisionConfig, loadDecisionConfig } from "./decisions.js";
 import { initDragReorder } from "./drag_reorder.js";
 import { GRIP_ICON } from "./icons.js";
 import {
   applyDecisionProblems,
-  clearDecisionDraft,
   decisionDraftProblems,
   decisionSectionHtml,
-  ensureDecisionConfig,
   fitDecisionTextareas,
   initDecisionDraft,
   readDecisionFields,
@@ -158,7 +156,6 @@ export async function toggleMoodFragmentEnabled(id, newEnabled) {
 // the Editor acts on the reply once it exists. The sidepanel groups by lane so
 // the three never read as one undifferentiated list.
 const EDITOR_LANE_FIELD_TYPES = new Set(["feedback", "post_processing"]);
-const JUDGE_LANE_FIELD_TYPES = new Set(["decision"]);
 
 const INTERACTIVE_LANES = [
   { id: "judge", label: "Judge", hint: "Decides questions before the Director runs" },
@@ -167,7 +164,7 @@ const INTERACTIVE_LANES = [
 ];
 
 function _interactiveLane(f) {
-  if (JUDGE_LANE_FIELD_TYPES.has(f.field_type)) return "judge";
+  if (f.field_type === "decision") return "judge";
   return EDITOR_LANE_FIELD_TYPES.has(f.field_type) ? "editor" : "director";
 }
 
@@ -176,7 +173,7 @@ export async function loadInteractiveFragments() {
     // Warm the classifier config here rather than on modal open: the decision
     // editor renders its type, policy and macro controls from that payload, and
     // a form that paints its controls a beat late reads as a broken form.
-    ensureDecisionConfig();
+    loadDecisionConfig();
     S.interactiveFragments = await api.get("/interactive-fragments");
     renderInteractiveFragments();
   } catch (error) {
@@ -356,9 +353,7 @@ let _editingStoredDecision = false;
 function _openDecisionDraft(fragment) {
   _editingStoredDecision = fragment.field_type === "decision";
   initDecisionDraft(fragment);
-  ensureDecisionConfig().then(() => {
-    repaintDecisionSection();
-  });
+  loadDecisionConfig().then(repaintDecisionSection);
 }
 
 export function updateInteractiveFragmentExample(fieldType) {
@@ -517,7 +512,6 @@ export async function saveInteractiveFragment(isEdit) {
     if (isEdit) await api.put(`/interactive-fragments/${d.id}`, d);
     else await api.post("/interactive-fragments", d);
     closeModal();
-    clearDecisionDraft();
     await loadInteractiveFragments();
     toast("Interactive fragment saved");
   } catch (e) {
