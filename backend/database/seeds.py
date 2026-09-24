@@ -86,33 +86,17 @@ SEED_MOOD_FRAGMENTS = [
 # Shared with migration 0067, which seeds the same rows into existing installs.
 STARTER_STATE_FRAGMENTS = [
     {
-        "id": "scene_continuity",
-        "label": "Scene continuity",
+        "id": "inventory",
+        "label": "Inventory",
         "description": (
-            "Where the scene stands for the reply about to be written: the place and time, who is present and where "
-            "they are, what they are wearing or holding, and any injury or condition that must carry over. Write "
-            "the whole picture in a few short sentences, replacing the previous one."
+            "Items the characters carry or own that matter to the story, one per entry, naming who holds it, such as "
+            '"Mara: the brass key". Add an item when someone gains it and retire it once it is used up or lost. '
+            "When an item changes hands, retire it and add it under its new holder."
         ),
         "field_type": "state",
         "required": False,
-        "injection_label": "Scene continuity",
+        "injection_label": "Inventory",
         "sort_order": 8,
-        "enabled": False,
-        "state_mode": "value",
-        "state_update": "before_writer",
-        "state_inject": "writer",
-    },
-    {
-        "id": "open_threads",
-        "label": "Open threads",
-        "description": (
-            "Promises, plans, questions, and conflicts the story has set up and not yet resolved, one per entry. "
-            "Add a thread when one opens; retire it once it is resolved or abandoned."
-        ),
-        "field_type": "state",
-        "required": False,
-        "injection_label": "Open threads",
-        "sort_order": 9,
         "enabled": False,
         "state_mode": "entries",
         "state_update": "after_reply",

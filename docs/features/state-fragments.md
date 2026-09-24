@@ -152,13 +152,9 @@ reason; and carried corrections that were dropped.
 
 ## Starter fragments
 
-Two disabled starters show the two modes in use. Enable them in **Interactive
-Fragments**, or use them as examples:
-
-- **Scene continuity**: one value, updated before the Writer, injected into the
-  Writer. Keeps place, time, positions, and conditions straight.
-- **Open threads**: multiple entries, updated after the reply, injected into
-  both. Tracks promises, questions, and plans that are still open.
+A disabled **Inventory** starter tracks the items each character holds:
+multiple entries, updated after the reply, injected into both. Enable it in
+**Interactive Fragments**, or use it as an example.
 
 A **Notes** fragment (multiple entries, manual only) holds free-form notes you
 write yourself.

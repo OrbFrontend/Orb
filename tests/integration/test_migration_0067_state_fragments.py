@@ -146,10 +146,8 @@ def test_converts_fragments_settings_and_every_branch_tip(tmp_path):
     assert fragments["arc"][:4] == ("state", "entries", "after_reply", "writer")
     # Human notes moved to an ordinary, enabled Notes fragment on the old inject target.
     assert fragments["notes"] == ("state", "entries", "manual", "writer", 1)
-    # The two starters ship disabled.
-    assert fragments["scene_continuity"][:4] == ("state", "value", "before_writer", "writer")
-    assert fragments["open_threads"][:4] == ("state", "entries", "after_reply", "both")
-    assert fragments["scene_continuity"][4] == fragments["open_threads"][4] == 0
+    # The starter ships disabled.
+    assert fragments["inventory"] == ("state", "entries", "after_reply", "both", 0)
     settings = conn.execute("SELECT state_updates, enabled_tools FROM settings").fetchone()
     assert settings[0] == 1
     assert json.loads(settings[1]) == {"direct_scene": True, "update_state": True}
