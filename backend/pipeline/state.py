@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..core import ChatMessage, ContentPart, Macros, StateView, joined_delta
+from ..database.models import DirectorStateRow
 from ..inference import CachedBase, LLMClient
 from ..prompting.lorebook import (
     AGENTIC_LOREBOOK_SCAN_DEPTH,
@@ -14,6 +15,25 @@ from ..prompting.lorebook import (
     compute_lorebook_block,
 )
 from .passes.editor.length_guard import LengthGuard
+
+
+class BranchBaseline(DirectorStateRow, total=False):
+    """The Director state a turn starts from, rebased onto the branch it extends.
+
+    ``get_director_state`` supplies the row; the turn handlers fill the rest from
+    the branch's own history, so a regeneration starts where the reply it
+    replaces did rather than where the conversation's latest turn left off.
+    """
+
+    # Resting counters for mood/interactive fragments and for decisions.
+    fragment_cooldowns: dict[str, int]
+    decision_cooldowns: dict[str, int]
+    # The replaced reply's stored Judge evaluations, replayed on a regeneration.
+    decision_replay: list[dict[str, Any]]
+    # The branch's folded state fragments, and the user corrections carried onto
+    # it from the reply a regeneration replaces.
+    fragment_state: StateView
+    state_carried: list[dict[str, Any]]
 
 
 @dataclass(frozen=True, slots=True)

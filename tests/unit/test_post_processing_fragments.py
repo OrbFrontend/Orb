@@ -55,22 +55,22 @@ def test_post_processing_activation_requires_agent_and_fragment():
 
 
 def test_tool_blob_activation_is_independent_of_output_auditor():
-    enabled_tools = {"direct_scene": True, "editor_apply_patch": False}
-    _build_writer_tools_blob(
+    requested = {"direct_scene": True, "editor_apply_patch": False}
+    _, enabled_tools = _build_writer_tools_blob(
         {"enable_agent": True},
         [_fragment("humanize", "post_processing")],
-        enabled_tools,
+        requested,
     )
     assert enabled_tools["editor_search_replace"] is True
     assert enabled_tools["editor_apply_patch"] is False
+    assert "editor_search_replace" not in requested
 
 
 def test_tool_blob_does_not_activate_when_agent_is_off():
-    enabled_tools = {"direct_scene": True}
-    _build_writer_tools_blob(
+    _, enabled_tools = _build_writer_tools_blob(
         {"enable_agent": False},
         [_fragment("humanize", "post_processing")],
-        enabled_tools,
+        {"direct_scene": True},
     )
     assert "editor_search_replace" not in enabled_tools
 

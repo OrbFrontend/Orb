@@ -12,7 +12,8 @@ import httpx
 from ..core.llm_types import ReasoningReplay
 from . import anthropic, endpoint_profiles, prompt_cache, text_completion
 from . import reasoning_format as rf
-from .errors import LLMCallError, llm_call_error, llm_stream_error
+from .chat_stream import ChatStream, consume_openai
+from .errors import LLMCallError, llm_call_error
 from .gemma_tool_format import parse_gemma_tool_calls
 from .retry import RetryPolicy
 from .schema import strictify_schema
@@ -68,31 +69,6 @@ def replay_reasoning(response: Mapping[str, Any]) -> ReasoningReplay:
     """
     fields = {field: response[field] for field in endpoint_profiles.REASONING_REPLAY_FIELDS if response.get(field)}
     return cast(ReasoningReplay, fields)
-
-
-def _merge_reasoning_details(blocks: list[dict], fragments: object) -> None:
-    """Fold one delta's ``reasoning_details`` fragments into whole blocks.
-
-    OpenRouter streams a block as pieces that share an ``index``: text and
-    summary arrive in slices, while signature, data and id arrive once. Replaying
-    the pieces as separate blocks is rejected, so they are joined back into one
-    block per index.
-    """
-    if not isinstance(fragments, list):
-        return
-    for fragment in fragments:
-        if not isinstance(fragment, Mapping):
-            continue
-        index = fragment.get("index")
-        block = blocks[-1] if blocks and index is not None and blocks[-1].get("index") == index else None
-        if block is None or block.get("type") != fragment.get("type"):
-            blocks.append(dict(fragment))
-            continue
-        for key, value in fragment.items():
-            if key in {"text", "summary"} and isinstance(value, str):
-                block[key] = (block.get(key) or "") + value
-            elif value is not None:
-                block[key] = value
 
 
 def apply_reasoning_effort(body: dict, effort: str, param: str = "", value: str = "") -> None:
@@ -176,20 +152,6 @@ def parse_extra_body(text: str) -> dict:
         logger.warning("Ignoring extra body: expected a JSON object, got %s", type(parsed).__name__)
         return {}
     return parsed
-
-
-def _parse_chat_logprobs(choice: Mapping[str, Any]) -> list[dict]:
-    """Normalize an OpenAI-compat ``choice.logprobs`` block to Orb's prob shape.
-
-    Thin wrapper over :func:`text_completion.normalize_prob_records`: the
-    ``logprobs.content`` records carry the same fields as llama.cpp's
-    OpenAI-style ``completion_probabilities`` variant, so one normalizer
-    serves both transports and the route frames both the same way.
-    """
-    logprobs = choice.get("logprobs")
-    if not isinstance(logprobs, dict):
-        return []
-    return text_completion.normalize_prob_records(logprobs.get("content"))
 
 
 def _text_message(content_parts: list[str], reasoning_parts: list[str], reasoning_key: str = "reasoning_content") -> dict:
@@ -654,16 +616,10 @@ class LLMClient:
                 return anthropic.build_request_body(outbound, self.base_url, model, self.extra_body)
             return outbound
 
-        content_parts: list[str] = []
-        reasoning_parts: list[str] = []
-        reasoning_key = "reasoning_content"
-        reasoning_details: list[dict] = []
-        tool_calls_acc: dict[int, dict] = {}
-        finish_reason: str | None = None
-        usage: dict | None = None
+        acc = ChatStream()
 
         async def _issue(body: dict, forced_name: str | None) -> AsyncIterator[dict]:
-            """Stream one request into the accumulators, replacing anything already there.
+            """Stream one request into a fresh ``acc``, replacing anything already there.
 
             Yielding is the reason this is a generator and not a coroutine: the
             content/reasoning deltas belong to the caller as they arrive. A
@@ -671,164 +627,8 @@ class LLMClient:
             two thinking runs in the pass's box -- the honest picture of what
             was spent, and bounded to once per model per process.
             """
-            nonlocal finish_reason, usage, reasoning_key
-            content_parts.clear()
-            reasoning_parts.clear()
-            reasoning_key = "reasoning_content"
-            reasoning_details.clear()
-            tool_calls_acc.clear()
-            finish_reason = None
-            usage = None
-
-            def tool_entry(index: int) -> dict:
-                if index not in tool_calls_acc:
-                    tool_calls_acc[index] = {
-                        "id": "",
-                        "type": "function",
-                        "function": {"name": "", "arguments": ""},
-                    }
-                return tool_calls_acc[index]
-
-            async def consume_openai(resp) -> AsyncIterator[dict]:
-                nonlocal finish_reason, usage, reasoning_key
-                # Slot last handed to an index-less delta; -1 before the first.
-                unindexed = -1
-
-                def slot_for(tc_delta: Mapping[str, Any]) -> int:
-                    """Resolve one tool-call delta to an accumulator slot.
-
-                    Google's OpenAI-compatible surface omits ``index`` from
-                    ``delta.tool_calls`` entirely, so keying on ``index`` with a
-                    default of 0 merged every parallel call into one entry --
-                    names concatenated, all but the first argument payload lost.
-                    Without an index, a delta that STARTS a call (it carries an
-                    ``id`` or a function ``name``, which the OpenAI contract
-                    sends only on a call's first chunk) opens the next free
-                    slot; a bare argument continuation appends to the newest.
-                    """
-                    nonlocal unindexed
-                    index = tc_delta.get("index")
-                    if isinstance(index, int) and not isinstance(index, bool):
-                        return index
-                    function = tc_delta.get("function")
-                    starts = bool(tc_delta.get("id")) or bool(isinstance(function, Mapping) and function.get("name"))
-                    if starts or unindexed < 0:
-                        unindexed = max([*tool_calls_acc, unindexed], default=-1) + 1
-                    return unindexed
-
-                async for payload in self._iter_sse_payloads(resp):
-                    try:
-                        chunk = json.loads(payload)
-                    except json.JSONDecodeError:
-                        continue
-                    u = chunk.get("usage")
-                    if isinstance(u, dict):
-                        usage = u
-                    choices = chunk.get("choices") or []
-                    if not choices:
-                        continue
-                    try:
-                        choice = choices[0]
-                        delta = choice.get("delta", {})
-                        rc_key = next((key for key in ("reasoning_content", "reasoning") if delta.get(key)), None)
-                        if rc_key:
-                            reasoning_key = rc_key
-                            reasoning_parts.append(delta[rc_key])
-                            yield {"type": "reasoning", "delta": delta[rc_key]}
-                        _merge_reasoning_details(reasoning_details, delta.get("reasoning_details"))
-                        content = delta.get("content")
-                        if content:
-                            content_parts.append(content)
-                            if forced_name is None:
-                                yield {"type": "content", "delta": content}
-                        for rec in _parse_chat_logprobs(choice):
-                            yield {"type": "token_probs", **rec}
-                        for tc_delta in delta.get("tool_calls") or []:
-                            entry = tool_entry(slot_for(tc_delta))
-                            if tc_delta.get("id"):
-                                entry["id"] = tc_delta["id"]
-                            fn = tc_delta.get("function", {})
-                            if fn.get("name"):
-                                entry["function"]["name"] += fn["name"]
-                            if fn.get("arguments"):
-                                entry["function"]["arguments"] += fn["arguments"]
-                        if choice.get("finish_reason"):
-                            finish_reason = choice["finish_reason"]
-                    except (KeyError, IndexError):
-                        continue
-
-            async def consume_anthropic(resp, url: str) -> AsyncIterator[dict]:
-                nonlocal finish_reason, usage
-                stopped = False
-                async for payload in self._iter_sse_payloads(resp):
-                    try:
-                        event = json.loads(payload)
-                    except json.JSONDecodeError:
-                        continue
-                    event_type = event.get("type")
-                    if event_type == "ping":
-                        continue
-                    if event_type == "error":
-                        raise llm_stream_error(payload=event, url=url, model=model, api_key=self.api_key)
-                    if event_type == "message_start":
-                        initial = (event.get("message") or {}).get("usage")
-                        if isinstance(initial, dict):
-                            usage = dict(initial)
-                    elif event_type == "content_block_start":
-                        index = event.get("index", 0)
-                        block = event.get("content_block") or {}
-                        if block.get("type") == "tool_use":
-                            entry = tool_entry(index)
-                            entry["id"] = block.get("id", "")
-                            entry["function"]["name"] = block.get("name", "")
-                            if block.get("input"):
-                                entry["function"]["arguments"] = json.dumps(block["input"], separators=(",", ":"))
-                        elif block.get("type") == "text" and block.get("text"):
-                            content_parts.append(block["text"])
-                            if forced_name is None:
-                                yield {"type": "content", "delta": block["text"]}
-                        elif block.get("type") == "thinking" and block.get("thinking"):
-                            reasoning_parts.append(block["thinking"])
-                            yield {"type": "reasoning", "delta": block["thinking"]}
-                    elif event_type == "content_block_delta":
-                        index = event.get("index", 0)
-                        delta = event.get("delta") or {}
-                        delta_type = delta.get("type")
-                        if delta_type == "text_delta" and delta.get("text"):
-                            content_parts.append(delta["text"])
-                            # Same gate as consume_openai: a forced pass buffers its
-                            # text as the tool-arguments payload instead of streaming
-                            # it, so the caller never sees a half-built JSON body.
-                            if forced_name is None:
-                                yield {"type": "content", "delta": delta["text"]}
-                        elif delta_type == "thinking_delta" and delta.get("thinking"):
-                            reasoning_parts.append(delta["thinking"])
-                            yield {"type": "reasoning", "delta": delta["thinking"]}
-                        elif delta_type == "input_json_delta" and delta.get("partial_json"):
-                            tool_entry(index)["function"]["arguments"] += delta["partial_json"]
-                    elif event_type == "message_delta":
-                        delta = event.get("delta") or {}
-                        stop_reason = delta.get("stop_reason")
-                        if stop_reason:
-                            finish_reason = {
-                                "end_turn": "stop",
-                                "stop_sequence": "stop",
-                                "tool_use": "tool_calls",
-                                "max_tokens": "length",
-                            }.get(stop_reason, stop_reason)
-                        update = event.get("usage")
-                        if isinstance(update, dict):
-                            usage = {**(usage or {}), **update}
-                    elif event_type == "message_stop":
-                        stopped = True
-                        break
-                if not stopped and not self.is_aborted:
-                    raise llm_stream_error(
-                        payload={"error": {"message": "Anthropic stream ended before message_stop"}},
-                        url=url,
-                        model=model,
-                        api_key=self.api_key,
-                    )
+            nonlocal acc
+            acc = ChatStream()
 
             # A top-level cache_control the user configured replaces the breakpoints.
             cache_markers = "cache_control" not in self.extra_body and endpoint_profiles.sends_cache_markers(
@@ -912,11 +712,29 @@ class LLMClient:
                                 )
                             if markers_withdrawn:
                                 endpoint_profiles.note_cache_markers_refused(self.base_url, model)
+                            payloads = self._iter_sse_payloads(resp, include_done=route.protocol != "anthropic")
+                            forced = forced_name is not None
                             if route.protocol == "anthropic":
-                                async for event in consume_anthropic(resp, route.url):
+                                async for event in anthropic.consume_stream(
+                                    payloads,
+                                    acc,
+                                    forced=forced,
+                                    url=route.url,
+                                    model=model,
+                                    api_key=self.api_key,
+                                    is_aborted=lambda: self.is_aborted,
+                                ):
                                     yield event
                             else:
-                                async for event in consume_openai(resp):
+                                async for event in consume_openai(
+                                    payloads,
+                                    acc,
+                                    forced=forced,
+                                    url=route.url,
+                                    model=model,
+                                    api_key=self.api_key,
+                                    is_aborted=lambda: self.is_aborted,
+                                ):
                                     yield event
                     endpoint_profiles.note_successful_route(self.base_url, model, route)
                     return
@@ -939,24 +757,24 @@ class LLMClient:
         # benefit and keeps its own degraded reply.
         # The tracker sees only the surviving attempt's usage, so a retried call
         # under-reports its true token cost by the discarded one.
-        if forced_name is not None and structured and tools_in_prompt and not tool_calls_acc:
-            if self._audit_structured_reply(model, "".join(content_parts), finish_reason):
+        if forced_name is not None and structured and tools_in_prompt and not acc.tool_calls:
+            if self._audit_structured_reply(model, "".join(acc.content_parts), acc.finish_reason):
                 body, forced_name, structured = _plan()
                 async for _ev in _issue(body, forced_name):
                     yield _ev
 
         # Assemble the final message dict (mirrors the non-streaming message format)
-        if forced_name is not None and not tool_calls_acc:
+        if forced_name is not None and not acc.tool_calls:
             # Structured forced call: the constrained content IS the arguments
             # JSON; re-synthesize the tool-call shape the pipeline expects. A
             # provider that answered with real tool_calls anyway wins below.
-            message = text_completion.forced_tool_message(forced_name, "".join(content_parts))
-            message.update(_text_message([], reasoning_parts, reasoning_key))
+            message = text_completion.forced_tool_message(forced_name, "".join(acc.content_parts))
+            message.update(_text_message([], acc.reasoning_parts, acc.reasoning_key))
         else:
-            message = _text_message(content_parts, reasoning_parts, reasoning_key)
-        if reasoning_details:
-            message["reasoning_details"] = list(reasoning_details)
-        if tool_calls_acc:
+            message = _text_message(acc.content_parts, acc.reasoning_parts, acc.reasoning_key)
+        if acc.reasoning_details:
+            message["reasoning_details"] = list(acc.reasoning_details)
+        if acc.tool_calls:
             message["tool_calls"] = [
                 {
                     "id": v["id"],
@@ -966,22 +784,24 @@ class LLMClient:
                         "arguments": v["function"]["arguments"],
                     },
                 }
-                for v in (tool_calls_acc[k] for k in sorted(tool_calls_acc))
+                for v in (acc.tool_calls[k] for k in sorted(acc.tool_calls))
             ]
-        if finish_reason:
-            message["finish_reason"] = finish_reason
+        if acc.finish_reason:
+            message["finish_reason"] = acc.finish_reason
 
-        yield _done("", message, usage)
+        yield _done("", message, acc.usage)
 
-    async def _iter_sse_payloads(self, resp) -> AsyncIterator[str]:
+    async def _iter_sse_payloads(self, resp, *, include_done: bool = False) -> AsyncIterator[str]:
         """Yield each SSE ``data:`` payload string, racing reads against abort.
 
         Each line read is raced against the abort signal so ``client.abort()``
         breaks out immediately, letting the caller's ``async with`` exit
         *normally* and cleanly close the TCP connection to the LLM server.
         (asyncio task cancellation instead would leave the connection open under
-        Python 3.11+ strict cancellation semantics.) Stops at ``[DONE]``. Shared
-        by the chat and text transports so the abort race lives in one place.
+        Python 3.11+ strict cancellation semantics.) Stops at ``[DONE]``; the
+        OpenAI chat parser asks to receive that marker so it can distinguish
+        normal completion from an unexpected EOF. Shared by the chat and text
+        transports so the abort race lives in one place.
         """
         aiter = resp.aiter_lines().__aiter__()
         abort_wait = asyncio.create_task(self.abort_token.wait())
@@ -1014,6 +834,8 @@ class LLMClient:
                     continue
                 payload = line[6:].strip()
                 if payload == "[DONE]":
+                    if include_done:
+                        yield payload
                     return
                 yield payload
         finally:

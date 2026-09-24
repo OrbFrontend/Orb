@@ -41,7 +41,7 @@ from .prompts import build_director_scene_step_prompt, build_director_tool_promp
 
 if TYPE_CHECKING:
     from ....core import Macros
-    from ...state import LorebookTurn, TurnState, _PipelineConfig
+    from ...state import BranchBaseline, LorebookTurn, TurnState, _PipelineConfig
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +201,7 @@ async def director_pass(
     base: CachedBase,
     user_message: str,
     settings: Mapping[str, Any],
-    director: Mapping[str, Any],
+    director: BranchBaseline,
     mood_fragments: Sequence[Mapping[str, Any]],
     interactive_fragments: Sequence[Mapping[str, Any]],
     enabled_tools: Mapping[str, bool],
@@ -461,7 +461,7 @@ async def director_stage(
     state: TurnState,
     *,
     settings: Mapping[str, Any],
-    director: Mapping[str, Any],
+    director: BranchBaseline,
     mood_fragments: Sequence[Mapping[str, Any]],
     scene_fragments: Sequence[Mapping[str, Any]],
     direct_scene_fragments: Sequence[Mapping[str, Any]],

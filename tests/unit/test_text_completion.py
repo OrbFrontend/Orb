@@ -12,9 +12,9 @@ import pytest
 
 from backend.inference import reasoning_format as rf
 from backend.inference import text_completion as tc
+from backend.inference.chat_stream import parse_chat_logprobs
 from backend.inference.client import (
     LLMClient,
-    _parse_chat_logprobs,
     parse_tool_calls,
     reasoning_cfg,
 )
@@ -243,7 +243,7 @@ def test_parse_chat_logprobs_exponentiates_to_linear():
             ]
         }
     }
-    [rec] = _parse_chat_logprobs(choice)
+    [rec] = parse_chat_logprobs(choice)
     assert rec["token"] == " the"
     assert rec["prob"] == pytest.approx(math.exp(-0.2))
     assert rec["top"][0] == {"t": " the", "p": pytest.approx(math.exp(-0.2))}
@@ -252,10 +252,10 @@ def test_parse_chat_logprobs_exponentiates_to_linear():
 
 def test_parse_chat_logprobs_absent_returns_empty():
     # Provider omitted logprobs entirely (graceful degrade → no popup).
-    assert _parse_chat_logprobs({}) == []
-    assert _parse_chat_logprobs({"logprobs": None}) == []
-    assert _parse_chat_logprobs({"logprobs": {}}) == []
-    assert _parse_chat_logprobs({"logprobs": {"content": None}}) == []
+    assert parse_chat_logprobs({}) == []
+    assert parse_chat_logprobs({"logprobs": None}) == []
+    assert parse_chat_logprobs({"logprobs": {}}) == []
+    assert parse_chat_logprobs({"logprobs": {"content": None}}) == []
 
 
 def test_parse_chat_logprobs_skips_malformed_records():
@@ -269,7 +269,7 @@ def test_parse_chat_logprobs_skips_malformed_records():
             ]
         }
     }
-    out = _parse_chat_logprobs(choice)
+    out = parse_chat_logprobs(choice)
     assert len(out) == 2
     assert out[0] == {"token": "x", "prob": 0.0, "top": []}
     assert out[1]["token"] == "y"

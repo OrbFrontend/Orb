@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import AsyncIterator
+from typing import Any, TypeVar
 
 import httpx
 
@@ -16,7 +17,7 @@ INTERNAL_SENTENCE_LIMIT = 300
 # Same cap the transport applies, for the branch that reads a body itself.
 BODY_LIMIT = 20_000
 
-# Which pass raised, written onto the exception by the orchestrator. An attribute
+# Which pass raised, written onto the exception by ``staged``. An attribute
 # rather than a parameter because the failure travels from inside a pass generator
 # to ``entrypoints._run_turn_handler`` with no shared object between them, and the
 # alternatives are worse: ``turn_scratch`` is part of the public workflow-hook
@@ -24,6 +25,7 @@ BODY_LIMIT = 20_000
 # passed to ``_run_pipeline`` at all.
 _STAGE_ATTR = "_orb_stage"
 
+STAGE_JUDGE = "judge pass"
 STAGE_DIRECTOR = "director pass"
 STAGE_WRITER = "writer pass"
 STAGE_EDITOR = "editor pass"
@@ -44,6 +46,19 @@ def mark_stage(exc: BaseException, stage: str) -> None:
         # __slots__), so this only covers an exotic type with a __setattr__ that
         # refuses. The stage is a nicety; never let labelling mask the failure.
         pass
+
+
+_Ev = TypeVar("_Ev")
+
+
+async def staged(stage: str, gen: AsyncIterator[_Ev]) -> AsyncIterator[_Ev]:
+    """Pass events through and label uncategorized failures."""
+    try:
+        async for ev in gen:
+            yield ev
+    except Exception as e:
+        mark_stage(e, stage)
+        raise
 
 
 def stage_of(exc: BaseException) -> str:

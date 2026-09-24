@@ -140,18 +140,22 @@ def _split_interactive_fragments(
 def _build_writer_tools_blob(
     settings: Mapping[str, Any],
     interactive_fragments: Sequence[Mapping[str, Any]],
-    enabled_tools: dict,
+    enabled_tools: Mapping[str, bool],
     *,
     agentic_lorebook: bool = False,
     dynamic_world: bool = False,
     grouped: bool = False,
     state_contract: StateContract | None = None,
-) -> dict:
+) -> tuple[dict, dict[str, bool]]:
     """Build the tool schemas shared by cached calls.
+
+    Returns ``(schema_overrides, enabled_tools)``: the overrides, and a copy of
+    *enabled_tools* with every tool this turn's features and fragments switch on.
 
     *state_contract* is the turn's captured state configuration; omitted, it is
     captured from the same *settings* and fragments.
     """
+    enabled_tools = dict(enabled_tools)
     _, feedback_fragments, state_fragments, post_processing_fragments = _split_interactive_fragments(interactive_fragments)
     contract = state_contract or StateContract.capture(settings, state_fragments)
     direct_scene = build_direct_scene_override(contract.direct_scene_rows(interactive_fragments), grouped=grouped)
@@ -177,4 +181,4 @@ def _build_writer_tools_blob(
     if tool_fragments := contract.tool_fragments():
         overrides["update_state"] = build_state_tool(tool_fragments)
         enabled_tools["update_state"] = True
-    return overrides
+    return overrides, enabled_tools

@@ -12,7 +12,7 @@ from ..core import card_description, resolve_inline
 from ..inference import AbortToken, DecisionCancelled
 from ..prompting import prefix_is_speaker_scoped, tail_carries_identity
 from .cast import parse_speaking_plan, plan_cue, round_robin_member
-from .config import _resolve_pipeline_config, _split_interactive_fragments
+from .config import _resolve_pipeline_config
 from .context import (
     PipelineContext,
     _build_prefixes,
@@ -20,9 +20,9 @@ from .context import (
     _prepare_turn,
     _TurnSetup,
 )
-from .failures import describe_failure
-from .orchestrator import _run_pipeline, seed_fragment_state
-from .passes.director import cooldown, director_stage, state_event_payload
+from .failures import STAGE_JUDGE, describe_failure, staged
+from .orchestrator import _run_pipeline, open_turn_state, run_director_stage
+from .passes.director import cooldown
 from .passes.editor.editor import AUDIT_BASELINE_WINDOW
 from .passes.judge import (
     JudgeResult,
@@ -34,7 +34,7 @@ from .passes.judge import (
     stored_evaluations,
 )
 from .persistence import _consume_pipeline, _conversation_log_writer
-from .state import SheetUpdateTurn, TurnState, empty_state_report
+from .state import SheetUpdateTurn, empty_state_report
 
 logger = logging.getLogger(__name__)
 
@@ -343,13 +343,16 @@ async def _generate_reply(
 
     decision_history, decision_request = decision_input or (history, user_message)
     judge: JudgeResult | None = None
-    async for ev in _run_judge(
-        ctx,
-        history=decision_history,
-        current_request=decision_request,
-        macros=setup.macros,
-        anchor_message_id=(
-            user_msg_id if user_msg_id is not None else (decision_history[-1]["id"] if decision_history else None)
+    async for ev in staged(
+        STAGE_JUDGE,
+        _run_judge(
+            ctx,
+            history=decision_history,
+            current_request=decision_request,
+            macros=setup.macros,
+            anchor_message_id=(
+                user_msg_id if user_msg_id is not None else (decision_history[-1]["id"] if decision_history else None)
+            ),
         ),
     ):
         if isinstance(ev, JudgeResult):
@@ -464,15 +467,7 @@ async def _generate_group_exchange(
         phrase_bank=ctx.phrase_bank,
         schema_overrides=setup.schema_overrides,
     )
-    scene_fragments, _, _, _ = _split_interactive_fragments(ctx.interactive_fragments)
-    shared = TurnState(
-        user_message=setup.macros.resolve_message(user_message),
-        effective_msg=setup.macros.resolve_message(user_message),
-        active_moods=ctx.director["active_moods"],
-        macro_choices=dict(ctx.director.get("macro_choices") or {}),
-        fragment_cooldowns=dict(ctx.director.get("fragment_cooldowns") or {}),
-    )
-    seed_fragment_state(shared, ctx.director)
+    shared = open_turn_state(ctx.director, setup.macros.resolve_message(user_message))
 
     judge = _committed_exchange_decisions(history, parent_message_id, decision_exchange_id)
     if judge is not None:
@@ -482,12 +477,15 @@ async def _generate_group_exchange(
         decision_history, decision_request, decision_anchor = _exchange_decision_input(
             history, user_message, parent_message_id, exchange_id=decision_exchange_id, steering=decision_steering
         )
-        async for ev in _run_judge(
-            ctx,
-            history=decision_history,
-            current_request=decision_request,
-            macros=setup.macros,
-            anchor_message_id=decision_anchor,
+        async for ev in staged(
+            STAGE_JUDGE,
+            _run_judge(
+                ctx,
+                history=decision_history,
+                current_request=decision_request,
+                macros=setup.macros,
+                anchor_message_id=decision_anchor,
+            ),
         ):
             if isinstance(ev, JudgeResult):
                 judge = ev
@@ -499,19 +497,16 @@ async def _generate_group_exchange(
         yield {"event": "done"}
         return
 
-    if shared.state_events or shared.state_report["dropped"]:
-        yield {"event": "state", "data": state_event_payload(shared)}
     # One Director stage for the whole exchange, including its before-Writer state
     # changes: they ride the exchange's first reply, the row `_consume_pipeline`
     # anchors them to, and every speaker writes with the resulting state.
-    async for ev in director_stage(
+    async for ev in run_director_stage(
         cfg,
         shared,
         settings=settings,
         director=ctx.director,
         mood_fragments=ctx.mood_fragments,
-        scene_fragments=scene_fragments,
-        direct_scene_fragments=ctx.state_contract.direct_scene_rows(ctx.interactive_fragments),
+        interactive_fragments=ctx.interactive_fragments,
         state_contract=ctx.state_contract,
         attachments=attachments,
         kv_tracker=setup.kv_tracker,
@@ -523,7 +518,6 @@ async def _generate_group_exchange(
         # Same list the plan is validated against below, so the request cannot
         # advertise a key `parse_speaking_plan` would then reject.
         speaker_keys=", ".join(str(member["speaker_key"]) for member in eligible),
-        decision_guidance=shared.decision_guidance,
     ):
         yield ev
     if ctx.client.is_aborted:

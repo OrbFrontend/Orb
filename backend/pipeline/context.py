@@ -52,7 +52,7 @@ from .config import _build_writer_tools_blob, _split_interactive_fragments
 from .passes.judge import DecisionCandidate, InvalidDecision, JudgeConfig
 from .passes.state import StateContract
 from .predicates import agent_enabled, resolve_persona_id, world_proposal_active
-from .state import LorebookTurn, WorldProposalTurn
+from .state import BranchBaseline, LorebookTurn, WorldProposalTurn
 from .workflow_bridge import _iterate_pre_pipeline_hooks
 
 
@@ -78,7 +78,7 @@ class PipelineContext:
     # Seeded from director_state, then carried as mutable per-turn director state
     # (active moods, cooldowns, the branch's folded state fragments); not all keys
     # are columns.
-    director: dict[str, Any]
+    director: BranchBaseline
     mood_fragments: list[MoodFragmentRow]
     interactive_fragments: list[InteractiveFragmentRow]
     phrase_bank: list[PhraseGroup]
@@ -121,7 +121,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     if not conv:
         return None
 
-    director: dict[str, Any] = dict(await db.get_director_state(conversation_id))
+    director: BranchBaseline = {**await db.get_director_state(conversation_id)}
     card, active_persona = await resolve_card_and_persona(conv, settings)
     cast = await db.resolve_cast(conv)
     all_group_members = await db.get_group_members(conversation_id, include_inactive=True) if cast.grouped else []
@@ -418,7 +418,7 @@ async def _prepare_turn(
     # Builds direct_scene plus any active fragment-driven Editor tools; must be
     # called once so all passes get byte-identical tool blobs (KV cache
     # Invariants 3 & 5).
-    overrides = _build_writer_tools_blob(
+    overrides, enabled_tools_pre_merge = _build_writer_tools_blob(
         settings,
         ctx.interactive_fragments,
         enabled_tools_pre_merge,

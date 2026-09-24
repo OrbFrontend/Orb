@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
-from typing import Any, TypeVar
+from typing import Any
 
 from ..core import (
     CardScripts,
@@ -24,6 +24,7 @@ from .failures import (
     STAGE_WORKFLOWS,
     STAGE_WRITER,
     mark_stage,
+    staged,
 )
 from .passes.director import (
     apply_state_step_result,
@@ -36,23 +37,18 @@ from .passes.judge import JudgeResult
 from .passes.state import StateContract, StateStepResult, state_step
 from .passes.writer import strip_speaker_label, writer_stage
 from .sheet_update import sheet_update_stage
-from .state import LorebookTurn, SheetUpdateTurn, TurnState, WorldProposalTurn
+from .state import (
+    BranchBaseline,
+    LorebookTurn,
+    SheetUpdateTurn,
+    TurnState,
+    WorldProposalTurn,
+    _PipelineConfig,
+)
 from .workflow_bridge import _PostPipelineResult, _run_post_pipeline
 from .world_proposal import world_proposal_stage
 
 logger = logging.getLogger(__name__)
-
-_Ev = TypeVar("_Ev")
-
-
-async def _staged(stage: str, gen: AsyncIterator[_Ev]) -> AsyncIterator[_Ev]:
-    """Pass events through and label uncategorized failures."""
-    try:
-        async for ev in gen:
-            yield ev
-    except Exception as e:
-        mark_stage(e, stage)
-        raise
 
 
 def _make_result(state: TurnState, staged: list[dict] | None = None, staged_state: dict | None = None) -> dict:
@@ -67,7 +63,7 @@ def _make_result(state: TurnState, staged: list[dict] | None = None, staged_stat
     return {"event": "_result", "data": state.as_result_event_data()}
 
 
-def seed_fragment_state(state: TurnState, director: Mapping[str, Any]) -> None:
+def seed_fragment_state(state: TurnState, director: BranchBaseline) -> None:
     """Start *state* from the branch's folded state plus any carried corrections.
 
     ``director["fragment_state"]`` is the parent path's fold. A regeneration also
@@ -86,10 +82,75 @@ def seed_fragment_state(state: TurnState, director: Mapping[str, Any]) -> None:
     state.state_report = {"rejected": [], "dropped": dropped}
 
 
+def open_turn_state(director: BranchBaseline, user_message: str) -> TurnState:
+    """Start a turn's working state from the branch baseline in *director*.
+
+    *user_message* is already macro-resolved. ``macro_choices`` is copied so
+    mutations stay turn-local until persistence commits them (regenerates then
+    re-read the committed map, like moods).
+    """
+    state = TurnState(
+        user_message=user_message,
+        effective_msg=user_message,
+        active_moods=director["active_moods"],
+        macro_choices=dict(director.get("macro_choices") or {}),
+        fragment_cooldowns=dict(director.get("fragment_cooldowns") or {}),
+    )
+    seed_fragment_state(state, director)
+    return state
+
+
+async def run_director_stage(
+    cfg: _PipelineConfig,
+    state: TurnState,
+    *,
+    settings: Mapping[str, Any],
+    director: BranchBaseline,
+    mood_fragments: Sequence[Mapping[str, Any]],
+    interactive_fragments: Sequence[Mapping[str, Any]],
+    state_contract: StateContract,
+    attachments: Sequence[Mapping[str, Any]],
+    kv_tracker: _KVCacheTracker,
+    lorebook: LorebookTurn,
+    macros: Macros,
+    speaker_keys: str = "",
+) -> AsyncIterator[dict]:
+    """Announce the state changes *state* was seeded with, then direct the turn.
+
+    The one Director entry for a solo turn and for a group exchange's shared
+    Director, so both label a failure as the Director's and read the Judge's
+    guidance from *state*.
+    """
+    try:
+        if state.state_events or state.state_report["dropped"]:
+            yield {"event": "state", "data": state_event_payload(state)}
+        scene_fragments, _, _, _ = _split_interactive_fragments(interactive_fragments)
+        async for ev in director_stage(
+            cfg,
+            state,
+            settings=settings,
+            director=director,
+            mood_fragments=mood_fragments,
+            scene_fragments=scene_fragments,
+            direct_scene_fragments=state_contract.direct_scene_rows(interactive_fragments),
+            state_contract=state_contract,
+            attachments=attachments,
+            kv_tracker=kv_tracker,
+            lorebook=lorebook,
+            macros=macros,
+            speaker_keys=speaker_keys,
+            decision_guidance=state.decision_guidance,
+        ):
+            yield ev
+    except Exception as exc:
+        mark_stage(exc, STAGE_DIRECTOR)
+        raise
+
+
 async def _run_pipeline(
     client: LLMClient,
     settings: Mapping[str, Any],
-    director: Mapping[str, Any],
+    director: BranchBaseline,
     mood_fragments: Sequence[Mapping[str, Any]],
     interactive_fragments: Sequence[Mapping[str, Any]],
     user_message: str,
@@ -159,30 +220,19 @@ async def _run_pipeline(
 
     # Feedback and post-processing fragments are handled after the Writer, and
     # state fragments by their own routing; scene fragments shape the Writer prompt.
-    scene_fragments, feedback_fragments, state_fragments, post_processing_fragments = _split_interactive_fragments(
-        interactive_fragments
-    )
+    _, feedback_fragments, state_fragments, post_processing_fragments = _split_interactive_fragments(interactive_fragments)
     # Captured once for the turn: tool construction, routing, validation and
     # commit all read this contract, never the live fragment settings.
     contract = state_contract or StateContract.capture(settings, state_fragments)
 
-    # Mutable state threaded through the three passes; seeded from director + user message.
-    # macro_choices is copied so mutations stay turn-local until persistence
-    # commits them (regenerates then re-read the committed map, like moods).
-    state = TurnState(
-        user_message=user_message,
-        effective_msg=user_message,
-        active_moods=director["active_moods"],
-        macro_choices=dict(director.get("macro_choices") or {}),
-        fragment_cooldowns=dict(director.get("fragment_cooldowns") or {}),
-    )
+    # Mutable state threaded through the three passes.
+    state = open_turn_state(director, user_message)
     # Resolved before this call, by the stage that owns the frozen snapshot. The
     # records ride the TurnState so persistence commits them in the same INSERT as
     # the reply they produced; a group exchange's shared result reaches later
     # speakers through ``director_seed`` instead, and is not re-resolved.
     if judge is not None:
         judge.apply_to(state)
-    seed_fragment_state(state, director)
     # A group exchange runs one Director for every speaker, so speakers 2..n start
     # from its result instead of re-deriving it. Which fields that covers is
     # ``TurnState``'s to say (``_DIRECTOR_SEED_FIELDS``), not this module's --
@@ -192,25 +242,18 @@ async def _run_pipeline(
         state.seed_from(director_seed)
 
     if run_director:
-        if state.state_events or state.state_report["dropped"]:
-            yield {"event": "state", "data": state_event_payload(state)}
-        async for ev in _staged(
-            STAGE_DIRECTOR,
-            director_stage(
-                cfg,
-                state,
-                settings=settings,
-                director=director,
-                mood_fragments=mood_fragments,
-                scene_fragments=scene_fragments,
-                direct_scene_fragments=contract.direct_scene_rows(interactive_fragments),
-                state_contract=contract,
-                attachments=attachments,
-                kv_tracker=kv_tracker,
-                lorebook=lorebook,
-                macros=macros,
-                decision_guidance=state.decision_guidance,
-            ),
+        async for ev in run_director_stage(
+            cfg,
+            state,
+            settings=settings,
+            director=director,
+            mood_fragments=mood_fragments,
+            interactive_fragments=interactive_fragments,
+            state_contract=contract,
+            attachments=attachments,
+            kv_tracker=kv_tracker,
+            lorebook=lorebook,
+            macros=macros,
         ):
             yield ev
 
@@ -223,7 +266,7 @@ async def _run_pipeline(
     # ``_result``: consumed by persistence and never sent to the browser.
     yield {"event": "_state_checkpoint", "data": {"state_events": list(state.state_events)}}
 
-    async for ev in _staged(
+    async for ev in staged(
         STAGE_WRITER,
         writer_stage(
             cfg,
@@ -246,7 +289,7 @@ async def _run_pipeline(
         kv_tracker.log_summary()
         return
 
-    async for ev in _staged(
+    async for ev in staged(
         STAGE_EDITOR,
         editor_stage(
             cfg,
@@ -286,7 +329,7 @@ async def _run_pipeline(
     # director_output is a plain dict (PostCtx expects a read-only mapping).
     director_output = state.as_director_output()
     post: _PostPipelineResult | None = None
-    async for ev in _staged(
+    async for ev in staged(
         STAGE_WORKFLOWS,
         _run_post_pipeline(
             draft=state.resp_text,
@@ -325,7 +368,7 @@ async def _run_pipeline(
     after_reply = [fragment for fragment in contract.after_reply() if fragment.id not in resting]
     if run_exchange_final and after_reply and state.resp_text.strip() and not client.is_aborted:
         yield {"event": "step_start", "data": {"step": "state"}}
-        async for ev in _staged(
+        async for ev in staged(
             STAGE_EDITOR,
             state_step(
                 cfg.agent_lane.client,
@@ -356,7 +399,7 @@ async def _run_pipeline(
     # hook. Same skip conditions as the after-reply state step -- an empty draft has
     # nothing to derive world state from, and a stop must not start a fresh call.
     if run_exchange_final and world_proposal is not None and state.resp_text.strip() and not client.is_aborted:
-        async for ev in _staged(
+        async for ev in staged(
             STAGE_EDITOR,
             world_proposal_stage(
                 cfg,
@@ -375,7 +418,7 @@ async def _run_pipeline(
     # once-per-speaker; the driver only builds a turn for the final speaker, and
     # the gate here is what keeps that true if another caller forgets.
     if run_exchange_final and sheet_update is not None and state.resp_text.strip() and not client.is_aborted:
-        async for ev in _staged(
+        async for ev in staged(
             STAGE_EDITOR,
             sheet_update_stage(cfg, state, settings=settings, turn=sheet_update),
         ):
