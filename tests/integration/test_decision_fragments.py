@@ -870,6 +870,31 @@ async def test_a_stop_during_the_decision_stage_ends_the_turn(client, db, llm_mo
     assert [m for m in await dbmod.get_messages(cid) if m["role"] == "assistant"] == []
 
 
+async def test_a_stop_during_the_decision_stage_ends_a_group_exchange(client, db, llm_mock, monkeypatch):
+    """The group driver opens its turn through the same step, so it stops the same way."""
+    conv = await _group(client)
+    await _configure(client)
+    await _add_decision(client)
+    gateway = Gateway(monkeypatch)
+    token = llm_mock.abort_token
+
+    async def _decide(self, state, questions, *, timeout=None, abort=None):  # noqa: ANN001
+        gateway.batches.append([question.key for question in questions])
+        token.abort()
+        raise DecisionCancelled("stopped")
+
+    monkeypatch.setattr(judge_module.DecisionClient, "decide", _decide)
+
+    events = await _drain(handle_turn(conv["id"], "I shove the door.", abort_token=token))
+
+    assert gateway.batches == [["outcome"]]
+    assert _captured(llm_mock, "director") == []
+    assert _captured(llm_mock, "writer") == []
+    # No speaking plan either: who speaks is the Director's to settle.
+    assert [event["event"] for event in events if event["event"] != "user_message_created"] == ["step_start", "done"]
+    assert [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"] == []
+
+
 # ── steered regeneration ─────────────────────────────────────────────────────
 
 

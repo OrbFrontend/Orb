@@ -5,13 +5,14 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from .. import database as db
 from ..core import card_description, resolve_inline
 from ..inference import AbortToken, DecisionCancelled
 from ..prompting import prefix_is_speaker_scoped, tail_carries_identity
-from .cast import parse_speaking_plan, plan_cue, round_robin_member
+from .cast import choose_speakers
 from .config import _resolve_pipeline_config
 from .context import (
     PipelineContext,
@@ -298,6 +299,74 @@ async def _prepare_regen_context(
     return history, attachments
 
 
+@dataclass(frozen=True, slots=True)
+class _OpenedTurn:
+    """What :func:`_open_turn` settled: the frozen per-turn context and the decisions."""
+
+    setup: _TurnSetup
+    judge: JudgeResult | None
+
+
+async def _open_turn(
+    ctx: PipelineContext,
+    conversation_id: str,
+    *,
+    history: Sequence[Mapping[str, Any]],
+    settings: Mapping[str, Any],
+    last_user_message: str,
+    lorebook_messages: Sequence[Mapping[str, Any]],
+    decision_history: Sequence[Mapping[str, Any]],
+    decision_request: str,
+    decision_anchor: int | None,
+    committed: JudgeResult | None = None,
+) -> AsyncIterator[dict | _OpenedTurn]:
+    """Freeze the turn's context, then settle its decisions, for either driver.
+
+    *committed* is a result an earlier reply of the same exchange already
+    persisted; it is re-announced rather than re-judged. Ends without an
+    ``_OpenedTurn`` when stop was pressed by then: cancellation is not a provider
+    failure, and the Director pass would refuse to call anyway, so the caller
+    closes the request instead of announcing a directing phase it will not run.
+    """
+    setup: _TurnSetup | None = None
+    async for ev in _prepare_turn(
+        ctx,
+        conversation_id,
+        history=history,
+        settings=settings,
+        last_user_message=last_user_message,
+        lorebook_messages=lorebook_messages,
+    ):
+        if isinstance(ev, _TurnSetup):
+            setup = ev
+        else:
+            yield ev
+    assert setup is not None
+
+    judge = committed
+    if judge is not None:
+        if judge.evaluations or judge.skipped:
+            yield {"event": "decisions", "data": judge.as_event_data()}
+    else:
+        async for ev in staged(
+            STAGE_JUDGE,
+            _run_judge(
+                ctx,
+                history=decision_history,
+                current_request=decision_request,
+                macros=setup.macros,
+                anchor_message_id=decision_anchor,
+            ),
+        ):
+            if isinstance(ev, JudgeResult):
+                judge = ev
+            else:
+                yield ev
+    if ctx.client.is_aborted:
+        return
+    yield _OpenedTurn(setup, judge)
+
+
 async def _generate_reply(
     ctx: PipelineContext,
     conversation_id: str,
@@ -326,45 +395,29 @@ async def _generate_reply(
     it must differ from the writer's, as on the steered paths; ``None`` means
     the writer's own *history* and *user_message*.
     """
-    setup: _TurnSetup | None = None
-    async for ev in _prepare_turn(
+    decision_history, decision_request = decision_input or (history, user_message)
+    opened: _OpenedTurn | None = None
+    async for ev in _open_turn(
         ctx,
         conversation_id,
         history=history,
         settings=settings,
         last_user_message=last_user_message,
         lorebook_messages=lorebook_messages,
-    ):
-        if isinstance(ev, _TurnSetup):
-            setup = ev
-        else:
-            yield ev
-    assert setup is not None
-
-    decision_history, decision_request = decision_input or (history, user_message)
-    judge: JudgeResult | None = None
-    async for ev in staged(
-        STAGE_JUDGE,
-        _run_judge(
-            ctx,
-            history=decision_history,
-            current_request=decision_request,
-            macros=setup.macros,
-            anchor_message_id=(
-                user_msg_id if user_msg_id is not None else (decision_history[-1]["id"] if decision_history else None)
-            ),
+        decision_history=decision_history,
+        decision_request=decision_request,
+        decision_anchor=(
+            user_msg_id if user_msg_id is not None else (decision_history[-1]["id"] if decision_history else None)
         ),
     ):
-        if isinstance(ev, JudgeResult):
-            judge = ev
+        if isinstance(ev, _OpenedTurn):
+            opened = ev
         else:
             yield ev
-    # The same guard the group driver has. Cancellation is not a provider
-    # failure: the director pass already refuses to call once the token is set,
-    # but without this the turn still announces a directing phase it will not run.
-    if ctx.client.is_aborted:
+    if opened is None:
         yield {"event": "done"}
         return
+    setup = opened.setup
 
     pipeline = _run_pipeline(
         ctx.client,
@@ -390,7 +443,7 @@ async def _generate_reply(
         schema_overrides=setup.schema_overrides,
         history=history,
         world_proposal=setup.world_proposal,
-        judge=judge,
+        judge=opened.judge,
         state_contract=ctx.state_contract,
     )
     async for event in _consume_pipeline(
@@ -440,21 +493,30 @@ async def _generate_group_exchange(
         yield {"event": "done"}
         return
 
-    setup: _TurnSetup | None = None
-    lorebook_messages = [*history, *([{"role": "user", "content": user_message}] if user_message else [])]
-    async for ev in _prepare_turn(
+    decision_history, decision_request, decision_anchor = _exchange_decision_input(
+        history, user_message, parent_message_id, exchange_id=decision_exchange_id, steering=decision_steering
+    )
+    opened: _OpenedTurn | None = None
+    async for ev in _open_turn(
         ctx,
         conversation_id,
         history=history,
         settings=settings,
         last_user_message=user_message,
-        lorebook_messages=lorebook_messages,
+        lorebook_messages=[*history, *([{"role": "user", "content": user_message}] if user_message else [])],
+        decision_history=decision_history,
+        decision_request=decision_request,
+        decision_anchor=decision_anchor,
+        committed=_committed_exchange_decisions(history, parent_message_id, decision_exchange_id),
     ):
-        if isinstance(ev, _TurnSetup):
-            setup = ev
+        if isinstance(ev, _OpenedTurn):
+            opened = ev
         else:
             yield ev
-    assert setup is not None
+    if opened is None:
+        yield {"event": "done"}
+        return
+    setup = opened.setup
 
     cfg = _resolve_pipeline_config(
         settings,
@@ -468,34 +530,8 @@ async def _generate_group_exchange(
         schema_overrides=setup.schema_overrides,
     )
     shared = open_turn_state(ctx.director, setup.macros.resolve_message(user_message))
-
-    judge = _committed_exchange_decisions(history, parent_message_id, decision_exchange_id)
-    if judge is not None:
-        if judge.evaluations or judge.skipped:
-            yield {"event": "decisions", "data": judge.as_event_data()}
-    else:
-        decision_history, decision_request, decision_anchor = _exchange_decision_input(
-            history, user_message, parent_message_id, exchange_id=decision_exchange_id, steering=decision_steering
-        )
-        async for ev in staged(
-            STAGE_JUDGE,
-            _run_judge(
-                ctx,
-                history=decision_history,
-                current_request=decision_request,
-                macros=setup.macros,
-                anchor_message_id=decision_anchor,
-            ),
-        ):
-            if isinstance(ev, JudgeResult):
-                judge = ev
-            else:
-                yield ev
-    if judge is not None:
-        judge.apply_to(shared)
-    if ctx.client.is_aborted:
-        yield {"event": "done"}
-        return
+    if opened.judge is not None:
+        opened.judge.apply_to(shared)
 
     # One Director stage for the whole exchange, including its before-Writer state
     # changes: they ride the exchange's first reply, the row `_consume_pipeline`
@@ -524,27 +560,14 @@ async def _generate_group_exchange(
         yield {"event": "done"}
         return
 
-    # Who speaks is settled here; what the Director wrote for whoever that turns
-    # out to be is settled by `plan_cue`. The two are separate questions -- a pin
-    # and round-robin answer the first without the plan and still deserve the
-    # second, or the Director is half-ignored on every path but `director`.
-    plan_rows: list[tuple[Mapping[str, Any], str]]
-    raw_plan = shared.extra_fields.get("speaking_plan")
-    if pinned_speaker_id:
-        pinned = next(m for m in eligible if m["id"] == pinned_speaker_id)
-        plan_rows = [(pinned, plan_cue(raw_plan, rows, pinned_speaker_id))]
-    elif ctx.conv.get("group_turn_mode") == "round_robin":
-        member = round_robin_member(rows, history)
-        plan_rows = [(member, plan_cue(raw_plan, rows, str(member["id"])))] if member else []
-    else:
-        parsed = parse_speaking_plan(raw_plan, rows, int(ctx.conv["group_max_speakers"]))
-        if parsed is None:
-            # Unusable plan, not merely an unused one: nothing in it resolved to a
-            # member, so there is no cue to carry over to the fallback speaker.
-            member = round_robin_member(rows, history)
-            plan_rows = [(member, "")] if member else []
-        else:
-            plan_rows = parsed
+    plan_rows = choose_speakers(
+        shared.extra_fields.get("speaking_plan"),
+        rows,
+        history,
+        mode=ctx.conv.get("group_turn_mode"),
+        cap=int(ctx.conv["group_max_speakers"]),
+        pinned_id=pinned_speaker_id,
+    )
 
     cast_by_id = {member.member_id: member for member in ctx.cast.members}
     # Only when this request brought no user message of its own: a `/send` starts a

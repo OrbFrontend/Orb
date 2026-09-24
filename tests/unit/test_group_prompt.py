@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from backend.core import CastMember, Macros, TurnCast, fold_events
 from backend.database.queries.group_members import allocate_speaker_key
-from backend.pipeline.cast import parse_speaking_plan, plan_cue, round_robin_member
+from backend.pipeline.cast import (
+    choose_speakers,
+    parse_speaking_plan,
+    plan_cue,
+    round_robin_member,
+)
 from backend.pipeline.passes.director import (
     build_direct_scene_override,
     speaking_plan_instruction,
@@ -169,6 +174,36 @@ def test_plan_cue_reads_the_cue_for_a_speaker_cast_without_the_plan():
     assert plan_cue([], members, "a") == ""
     assert plan_cue(None, members, "a") == ""
     assert plan_cue("aria — not a list", members, "a") == ""
+
+
+def test_choose_speakers_settles_who_speaks_for_every_reply_mode():
+    members = [
+        {"id": "a", "speaker_key": "aria", "display_name": "Aria", "active": 1, "muted": 0},
+        {"id": "k", "speaker_key": "kael", "display_name": "Kael", "active": 1, "muted": 0},
+        {"id": "m", "speaker_key": "mira", "display_name": "Mira", "active": 1, "muted": 1},
+    ]
+    history = [{"speaker_member_id": "a"}]
+    plan = ["aria — deflect the accusation", "kael — explode at her calm"]
+
+    def ids(mode: str | None, raw: object, pinned: str | None = None, cap: int = 3) -> list[tuple[str, str]]:
+        rows = choose_speakers(raw, members, history, mode=mode, cap=cap, pinned_id=pinned)
+        return [(member["id"], cue) for member, cue in rows]
+
+    # A pin wins in every mode and still reads its own cue from the plan.
+    for mode in ("manual", "round_robin", "director"):
+        assert ids(mode, plan, pinned="k") == [("k", "explode at her calm")]
+    # Manual with nobody picked is the scene resting.
+    assert ids("manual", plan) == []
+    # Round-robin chooses the member and carries the plan's cue for them.
+    assert ids("round_robin", plan) == [("k", "explode at her calm")]
+    assert ids("round_robin", None) == [("k", "")]
+    # The Director's plan is the cast, bounded by the speaker limit; [] is a rest.
+    assert ids("director", plan) == [("a", "deflect the accusation"), ("k", "explode at her calm")]
+    assert ids("director", plan, cap=1) == [("a", "deflect the accusation")]
+    assert ids("director", []) == []
+    # An unusable plan falls back to round-robin with no cue to carry over.
+    assert ids("director", ["unknown — wait"]) == [("k", "")]
+    assert ids("director", None) == [("k", "")]
 
 
 def test_every_director_seed_field_is_a_turn_state_field_and_is_copied_not_shared():
