@@ -45,8 +45,7 @@ them. Workflow plug-ins access shared capabilities through the stable toolkit.
 ## Byte and order contracts
 
 Prompt text, whitespace, delimiters, message order, parameter order, macro
-resolution timing, seeds, and stored random choices are public behavior for
-this refactor and must remain byte-for-byte stable.
+resolution timing, seeds, and stored random choices are public behavior and must remain byte-for-byte stable.
 
 Built-in tools use this order:
 
@@ -57,7 +56,7 @@ Built-in tools use this order:
     "editor_rewrite",
     "editor_search_replace",
     "give_feedback",
-    "record_direction_note",
+    "update_state",
     "select_lorebook",
     "propose_world_changes",
 )

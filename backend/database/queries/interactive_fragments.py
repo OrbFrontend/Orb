@@ -4,7 +4,7 @@ import json
 from collections.abc import Mapping
 from typing import Any, cast
 
-from ...core import DECISION_COLUMNS
+from ...core import DECISION_COLUMNS, STATE_COLUMNS
 from ..connection import _build_set_clause, get_db, immediate_tx
 from ..models import InteractiveFragmentRow
 
@@ -23,8 +23,8 @@ _BASE_WRITE_COLUMNS = (
     "enabled",
     "injection_label",
     "sort_order",
-    "direction_note_timing",
     "cooldown_turns",
+    *STATE_COLUMNS,
 )
 
 
@@ -82,8 +82,8 @@ async def create_interactive_fragment(data: dict) -> InteractiveFragmentRow | No
         1 if payload.get("enabled", True) else 0,
         payload["injection_label"],
         payload.get("sort_order", 0),
-        payload.get("direction_note_timing", "post_turn"),
         payload.get("cooldown_turns", 0),
+        *(payload.get(column) for column in STATE_COLUMNS),
         *(payload.get(column) for column in DECISION_COLUMNS),
     )
     async with get_db() as db:

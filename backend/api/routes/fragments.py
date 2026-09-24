@@ -6,7 +6,16 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from ...core import DECISION_COLUMNS, DECISION_FIELD_TYPE
+from ...core import (
+    DECISION_COLUMNS,
+    DECISION_FIELD_TYPE,
+    DEFAULT_STATE_INJECT,
+    DEFAULT_STATE_MODE,
+    DEFAULT_STATE_UPDATE,
+    RESERVED_FRAGMENT_IDS,
+    STATE_COLUMNS,
+    STATE_FIELD_TYPE,
+)
 from ...database import (
     InteractiveFragmentReorderLaneMismatch,
     create_interactive_fragment,
@@ -44,6 +53,35 @@ def _checked_decision_write(payload: dict, existing: dict[str, Any] | None = Non
     problems = definition_problems(merged)
     if problems:
         raise HTTPException(status_code=422, detail="; ".join(problems))
+    return payload
+
+
+_STATE_DEFAULTS = {
+    "state_mode": DEFAULT_STATE_MODE,
+    "state_update": DEFAULT_STATE_UPDATE,
+    "state_inject": DEFAULT_STATE_INJECT,
+}
+
+
+def _checked_state_write(payload: dict, existing: dict[str, Any] | None = None) -> dict:
+    """Keep state settings on state fragments only, filling defaults for a new one.
+
+    A type change away from state clears them. Changing a state fragment's mode
+    rewrites nothing: its saved entries keep their ids and fold the same way.
+    """
+    field_type = payload.get("field_type", (existing or {}).get("field_type"))
+    if field_type != STATE_FIELD_TYPE:
+        if "field_type" in payload:
+            payload.update({column: None for column in STATE_COLUMNS})
+        else:
+            for column in STATE_COLUMNS:
+                payload.pop(column, None)
+        return payload
+    for column, default in _STATE_DEFAULTS.items():
+        if payload.get(column) is None and not (existing or {}).get(column):
+            payload[column] = default
+        elif payload.get(column) is None:
+            payload.pop(column, None)
     return payload
 
 
@@ -88,10 +126,12 @@ async def api_list_interactive_fragments():
 
 @router.post("/api/interactive-fragments")
 async def api_create_interactive_fragment(data: InteractiveFragmentCreate):
+    if data.id in RESERVED_FRAGMENT_IDS:
+        raise HTTPException(status_code=400, detail=f"'{data.id}' is a reserved fragment ID")
     existing = await get_interactive_fragment(data.id)
     if existing:
         raise HTTPException(status_code=400, detail="Interactive fragment with this ID already exists")
-    result = await create_interactive_fragment(_checked_decision_write(data.model_dump()))
+    result = await create_interactive_fragment(_checked_state_write(_checked_decision_write(data.model_dump())))
     if not result:
         raise HTTPException(status_code=500, detail="Failed to create interactive fragment")
     return result
@@ -118,7 +158,7 @@ async def api_update_interactive_fragment(fid: str, data: InteractiveFragmentUpd
     payload = {
         key: value for key, value in data.model_dump(exclude_unset=True).items() if value is not None or key in DECISION_COLUMNS
     }
-    payload = _checked_decision_write(payload, dict(existing))
+    payload = _checked_state_write(_checked_decision_write(payload, dict(existing)), dict(existing))
     result = await update_interactive_fragment(fid, payload)
     if not result:
         raise HTTPException(status_code=404, detail="Interactive fragment not found")

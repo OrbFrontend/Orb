@@ -86,7 +86,7 @@ nav:
           - Agentic Lorebook: features/agentic-lorebook.md
           - Dynamic Worlds: features/dynamic-worlds.md
           - Feedback Fragments: features/feedback-fragments.md
-          - Direction Notes: features/direction-notes.md
+          - State Fragments: features/state-fragments.md
       - Editing and quality:
           - Anti-slop: features/anti-slop.md
           - Anti-repetition: features/anti-repetition.md

@@ -1,7 +1,6 @@
 import { api } from "./api.js";
 import { renderContextSize, renderMessages } from "./chat_core.js";
 import { currentDecisionsHtml, DECISIONS_SECTION_ID } from "./chat_decisions.js";
-import { USER_NOTE_ID } from "./direction_notes_panel.js";
 import { CHEVRON_RIGHT_ICON } from "./icons.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { preserveScroll } from "./scroll_follow.js";
@@ -397,21 +396,79 @@ export function buildFeedbackHtml(values) {
   </div>`;
 }
 
-export function buildDirectionNotesHtml(notes) {
-  if (!Array.isArray(notes) || !notes.length) return "";
-  const body = notes
-    .map((n) => {
-      const isUser = n.interactive_fragment_id === USER_NOTE_ID;
-      const badge = isUser ? ` <span class="notes-row-user-badge">You</span>` : "";
-      return `<div class="feedback-row${isUser ? " user-note" : ""}">
-        <span class="feedback-row-label">${esc(n.interactive_fragment_label || "")}${badge}</span>
-        <div class="feedback-row-value">${esc(String(n.content))}</div>
-      </div>`;
-    })
-    .join("");
+const STATE_OP_LABELS = { add: "Added", revise: "Changed", retire: "Retired" };
+// What an operation that did not apply tried to do.
+const STATE_ATTEMPT_LABELS = { set: "Set", add: "Add", revise: "Change", retire: "Retire", clear: "Clear" };
+
+function stateFragmentLabel(fragmentId, fallback) {
+  if (fallback) return fallback;
+  return interactiveFragmentsView().find((f) => f.id === fragmentId)?.label || fragmentId || "State";
+}
+
+// Changes the Agent did not make carry a badge naming who did.
+const STATE_SOURCE_BADGES = { user: "You", carried: "Carried" };
+
+function stateRowHtml(label, op, text, { source = "agent", detail = "" } = {}) {
+  const who = STATE_SOURCE_BADGES[source];
+  const badge = who ? ` <span class="state-badge">${who}</span>` : "";
+  const body = text ? `: ${esc(String(text))}` : "";
+  const why = detail ? `<div class="state-change-detail">${esc(detail)}</div>` : "";
+  return `<div class="feedback-row${who ? " user-note" : ""}">
+    <span class="feedback-row-label">${esc(label)}${badge}</span>
+    <div class="feedback-row-value"><span class="state-change-op">${esc(op)}</span>${body}${why}</div>
+  </div>`;
+}
+
+/**
+ * One turn's state: the changes it made, the operations it refused, and the
+ * carried corrections that could no longer apply. ``state`` is the ``state``
+ * SSE payload or the director log's ``state``.
+ */
+export function buildStateHtml(state) {
+  const changes = Array.isArray(state?.changes) ? state.changes : [];
+  const rejected = Array.isArray(state?.rejected) ? state.rejected : [];
+  const dropped = Array.isArray(state?.dropped) ? state.dropped : [];
+  if (!changes.length && !rejected.length && !dropped.length) return "";
+  const blocks = [];
+  if (changes.length) {
+    const rows = changes
+      .map((c) =>
+        stateRowHtml(stateFragmentLabel(c.fragment_id, c.fragment_label), STATE_OP_LABELS[c.op] || c.op, c.text, {
+          source: c.source,
+        }),
+      )
+      .join("");
+    blocks.push(`<div class="feedback-card">${rows}</div>`);
+  }
+  if (rejected.length) {
+    const rows = rejected
+      .map((r) =>
+        stateRowHtml(stateFragmentLabel(r.fragment_id), STATE_ATTEMPT_LABELS[r.op] || r.op || "Rejected", r.text, {
+          detail: r.detail || r.reason,
+        }),
+      )
+      .join("");
+    blocks.push(`<h4>Rejected</h4><div class="feedback-card state-rejected">${rows}</div>`);
+  }
+  if (dropped.length) {
+    const rows = dropped
+      .map((d) =>
+        stateRowHtml(
+          stateFragmentLabel(d.fragment_id, d.fragment_label),
+          d.op === "retire" ? "Retire" : "Change",
+          d.text,
+        ),
+      )
+      .join("");
+    blocks.push(
+      `<h4>Corrections not carried over</h4>
+       <div class="state-note">They changed entries from the discarded reply.</div>
+       <div class="feedback-card state-rejected">${rows}</div>`,
+    );
+  }
   return `<div class="inspector-block">
-    <h4>Direction Notes (this turn)</h4>
-    <div class="feedback-card">${body}</div>
+    <h4>State (this reply)</h4>
+    ${blocks.join("")}
   </div>`;
 }
 
@@ -458,7 +515,7 @@ export function renderInspector() {
   renderInspectorSecondary();
 }
 
-function _renderDirectorPanel({ activeIds, latency, toolCalls, injection, feedback, directionNotes, resting }) {
+function _renderDirectorPanel({ activeIds, latency, toolCalls, injection, feedback, stateChanges, resting }) {
   const restingIds = new Set(Object.keys(resting || {}).filter((id) => Number(resting[id]) >= 1));
   const stylesHtml = moodFragmentsView()
     .map(
@@ -475,7 +532,7 @@ function _renderDirectorPanel({ activeIds, latency, toolCalls, injection, feedba
       ${_buildReasoningHtml()}
       ${currentDecisionsHtml()}
       ${buildFeedbackHtml(feedback)}
-      ${buildDirectionNotesHtml(directionNotes)}
+      ${buildStateHtml(stateChanges)}
       ${toolCalls.length ? _buildToolCallsHtml(toolCalls) : ""}
       ${injection ? _buildInjectionBlockHtml(injection) : ""}
       ${
@@ -518,7 +575,7 @@ function _renderInspectorMain() {
       toolCalls: insp.tool_calls || [],
       injection: insp.injection_block || "",
       feedback: insp.feedback,
-      directionNotes: insp.direction_notes,
+      stateChanges: insp.state,
       resting: restingCooldowns(S.inspectedMsgId),
     });
     return;
@@ -530,7 +587,7 @@ function _renderInspectorMain() {
 
   if (!hasDirectorData) {
     const fbHtml = buildFeedbackHtml(S.lastFeedback?.values);
-    const pnHtml = buildDirectionNotesHtml(S.lastDirectionNotes?.notes);
+    const stateHtml = buildStateHtml(S.lastState);
     const decHtml = currentDecisionsHtml();
     withReasoningScroll(() => {
       $("inspector-content").innerHTML = `
@@ -538,8 +595,8 @@ function _renderInspectorMain() {
        ${_buildReasoningHtml()}
        ${decHtml}
        ${fbHtml}
-       ${pnHtml}
-       ${fbHtml || pnHtml || decHtml ? "" : `<div style="color:var(--text-muted);font-size:12px;">Send a message to see director output</div>`}`;
+       ${stateHtml}
+       ${fbHtml || stateHtml || decHtml ? "" : `<div style="color:var(--text-muted);font-size:12px;">Send a message to see director output</div>`}`;
     });
     renderContextSize();
     return;
@@ -560,7 +617,7 @@ function _renderInspectorMain() {
     toolCalls: ld.tool_calls || [],
     injection: ld.injection_block || "",
     feedback: S.lastFeedback?.values,
-    directionNotes: S.lastDirectionNotes?.notes,
+    stateChanges: S.lastState,
     resting: turnJustRan ? restingCooldowns(lastAssistant.id) : lastAssistant?.fragment_cooldowns || {},
   });
 }

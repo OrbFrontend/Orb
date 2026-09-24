@@ -264,9 +264,9 @@ async def create_group_conversation(
                 raise ValueError("Opening greeting speaker_key is not in the roster")
             cur = await db.execute(
                 """INSERT INTO messages
-                   (conversation_id, role, content, turn_index, parent_id, progressive_fields,
+                   (conversation_id, role, content, turn_index, parent_id,
                     created_at, speaker_member_id, exchange_id)
-                   VALUES (?, 'assistant', ?, 0, NULL, '{}', ?, ?, ?)""",
+                   VALUES (?, 'assistant', ?, 0, NULL, ?, ?, ?)""",
                 (cid, greeting.strip(), now, speaker_id, str(uuid.uuid4())),
             )
             await db.execute("UPDATE conversations SET active_leaf_id = ? WHERE id = ?", (cur.lastrowid, cid))

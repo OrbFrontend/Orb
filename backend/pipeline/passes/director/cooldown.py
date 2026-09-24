@@ -30,3 +30,18 @@ def advance(
         if turns > 0:
             state[fragment_id] = turns
     return state
+
+
+def fire(state: Mapping[str, int], fired: Sequence[str] | set[str], cooldowns: Mapping[str, int]) -> dict[str, int]:
+    """Start cooldowns for fragments that fired after the Director's aging step.
+
+    State fragments updated through the ``update_state`` tool fire later in the
+    turn than :func:`advance` runs; this adds their cooldowns to the same snapshot
+    without aging anything a second time.
+    """
+    out = dict(state)
+    for fragment_id in fired:
+        turns = int(cooldowns.get(fragment_id) or 0)
+        if turns > 0:
+            out[fragment_id] = turns
+    return out

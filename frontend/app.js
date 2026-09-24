@@ -57,14 +57,6 @@ import {
 } from "./chat.js";
 import { initComposer, triggerAttachImage } from "./chat_composer.js";
 import {
-  addUserDirectionNote,
-  deleteDirectionNote,
-  editDirectionNote,
-  saveDirectionNote,
-  saveUserDirectionNote,
-  toggleDirectionNotesPanel,
-} from "./direction_notes_panel.js";
-import {
   collapseDocs,
   createDocument,
   deleteDocument,
@@ -187,8 +179,6 @@ import {
   saveSetting,
   saveUserProfile,
   setAgentEnabled,
-  setDirectionNotesInject,
-  setDirectionNotesRecord,
   setPersonaCharacterLock,
   setPersonaConversationLock,
   showAddPhraseGroupModal,
@@ -292,14 +282,6 @@ Object.assign(window, {
   toggleAgenticLorebook,
   toggleFeedbackEnabled,
   toggleDirectorIndividualFragments,
-  setDirectionNotesRecord,
-  setDirectionNotesInject,
-  toggleDirectionNotesPanel,
-  addUserDirectionNote,
-  editDirectionNote,
-  saveDirectionNote,
-  saveUserDirectionNote,
-  deleteDirectionNote,
   toggleShowEditorDiff,
   toggleAuditType,
   toggleHideUntilBaked,

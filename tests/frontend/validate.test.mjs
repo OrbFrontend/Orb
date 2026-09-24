@@ -52,6 +52,17 @@ test("interactive fragments accept post-processing field type", () => {
   assert.equal(result.valid, true);
 });
 
+test("state fragments take explicit settings, and the progressive and direction-note types are refused", () => {
+  const base = { id: "threads", label: "Threads", injection_label: "Threads", description: "Open threads." };
+  const state = { ...base, field_type: "state", state_mode: "entries", state_update: "manual", state_inject: "off" };
+  assert.equal(validate.validateInteractiveFragment(state).valid, true);
+  assert.equal(validate.validateInteractiveFragment({ ...state, state_mode: "list" }).valid, false);
+  assert.equal(validate.validateInteractiveFragment({ ...state, state_update: "post_turn" }).valid, false);
+  for (const legacy of ["progressive", "direction_note"]) {
+    assert.equal(validate.validateInteractiveFragment({ ...base, field_type: legacy }).valid, false);
+  }
+});
+
 test("fragment cooldowns must be whole turns between zero and fifty", () => {
   const mood = {
     id: "tense",

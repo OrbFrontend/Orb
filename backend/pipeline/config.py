@@ -5,14 +5,14 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from ..core import DECISION_FIELD_TYPE, ChatMessage, Macros
+from ..core import STATE_FIELD_TYPE, ChatMessage, Macros
 from ..database.models import PhraseGroup
 from ..inference import (
     CachedBase,
     LLMClient,
 )
 from ..prompting.tool_catalog import enabled_schemas
-from ..prompting.tool_schemas import build_direction_note_tool
+from ..prompting.tool_schemas import build_state_tool
 from ..workflows.enablement import disabled_workflow_tool_names
 from .passes.director import build_direct_scene_override
 from .passes.editor import (
@@ -25,7 +25,9 @@ from .passes.editor.length_guard import (
     apply_length_guard_tools,
     resolve_length_guard,
 )
-from .predicates import agent_enabled, direction_note_recording_active, is_dual_model
+from .passes.state import StateContract
+from .passes.state.contract import NON_SCENE_FIELD_TYPES
+from .predicates import agent_enabled, is_dual_model
 from .state import ModelLane, _PipelineConfig
 
 
@@ -122,29 +124,41 @@ def _split_interactive_fragments(
     list[Mapping[str, Any]],
     list[Mapping[str, Any]],
 ]:
-    """Split fragments by pipeline stage; decisions run before the Director."""
-    lanes = ("feedback", "direction_note", "post_processing", DECISION_FIELD_TYPE)
-    writer = [df for df in fragments if df.get("field_type") not in lanes]
+    """Split fragments by pipeline stage; decisions run before the Director.
+
+    Returns ``(scene, feedback, state, post_processing)``. Scene fragments are
+    the Director's per-turn values. State fragments are routed by their own
+    settings (see :class:`StateContract`).
+    """
+    scene = [df for df in fragments if df.get("field_type") not in NON_SCENE_FIELD_TYPES]
     feedback = [df for df in fragments if df.get("field_type") == "feedback"]
-    direction_note_fragments = [df for df in fragments if df.get("field_type") == "direction_note"]
+    state = [df for df in fragments if df.get("field_type") == STATE_FIELD_TYPE]
     post_processing = [df for df in fragments if df.get("field_type") == "post_processing"]
-    return writer, feedback, direction_note_fragments, post_processing
+    return scene, feedback, state, post_processing
 
 
 def _build_writer_tools_blob(
     settings: Mapping[str, Any],
     interactive_fragments: Sequence[Mapping[str, Any]],
-    enabled_tools: dict,
+    enabled_tools: Mapping[str, bool],
     *,
     agentic_lorebook: bool = False,
     dynamic_world: bool = False,
     grouped: bool = False,
-) -> dict:
-    """Build the tool schemas shared by cached calls."""
-    writer_fragments, feedback_fragments, direction_note_fragments, post_processing_fragments = _split_interactive_fragments(
-        interactive_fragments
-    )
-    direct_scene = build_direct_scene_override(writer_fragments, grouped=grouped)
+    state_contract: StateContract | None = None,
+) -> tuple[dict, dict[str, bool]]:
+    """Build the tool schemas shared by cached calls.
+
+    Returns ``(schema_overrides, enabled_tools)``: the overrides, and a copy of
+    *enabled_tools* with every tool this turn's features and fragments switch on.
+
+    *state_contract* is the turn's captured state configuration; omitted, it is
+    captured from the same *settings* and fragments.
+    """
+    enabled_tools = dict(enabled_tools)
+    _, feedback_fragments, state_fragments, post_processing_fragments = _split_interactive_fragments(interactive_fragments)
+    contract = state_contract or StateContract.capture(settings, state_fragments)
+    direct_scene = build_direct_scene_override(contract.direct_scene_rows(interactive_fragments), grouped=grouped)
     # Per-fragment mode fills one field per call, so requiredness on the shared blob
     # is meaningless -- and a non-empty `required` contradicts the "Fill ONLY X, leave
     # others empty" step prompt, which confuses the reasoning pass on endpoints that
@@ -161,7 +175,10 @@ def _build_writer_tools_blob(
         enabled_tools["give_feedback"] = True
     if post_processing_active(post_processing_fragments, agent_on=agent_enabled(settings)):
         enabled_tools["editor_search_replace"] = True
-    if direction_note_recording_active(settings, direction_note_fragments, agent_on=agent_enabled(settings)):
-        overrides["record_direction_note"] = build_direction_note_tool(direction_note_fragments)
-        enabled_tools["record_direction_note"] = True
-    return overrides
+    # The union of every fragment the state tool may carry this turn, before or
+    # after the Writer, so both steps share one byte-stable blob. The schema
+    # depends only on configuration; state writes never rebuild it.
+    if tool_fragments := contract.tool_fragments():
+        overrides["update_state"] = build_state_tool(tool_fragments)
+        enabled_tools["update_state"] = True
+    return overrides, enabled_tools

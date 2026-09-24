@@ -6,6 +6,7 @@ from .base import (
     group_speaker_label,
     render_history,
 )
+from .fragment_state import STATE_BLOCK_HEADING, render_state_block
 from .group_context import (
     context_size_components,
     macro_identity,
@@ -21,6 +22,7 @@ from .scene_direction import (
 )
 
 __all__ = [
+    "STATE_BLOCK_HEADING",
     "build_prefix",
     "build_style_injection",
     "compute_style_injection_block",
@@ -28,6 +30,7 @@ __all__ = [
     "format_message_with_attachments",
     "group_speaker_label",
     "render_history",
+    "render_state_block",
     "macro_identity",
     "member_macros",
     "prefix_is_speaker_scoped",

@@ -3,7 +3,7 @@
 The prefill is a text-mode prompt tail (see tests/unit/test_text_completion.py for
 the transport bytes); what matters here is that the setting round-trips and that
 each pass receives *its own* resolved string on the wire — including the editor's
-sub-steps (feedback and the post-turn direction note, which ride the editor
+sub-steps (feedback and the after-reply state update, which ride the editor
 toggle and channel). The default-on ``verify_kv_prefix_invariants`` teardown
 proves the tail injection did not disturb the shared prefix.
 """
@@ -36,7 +36,6 @@ async def _setup(client) -> None:
             "length_guard_enabled": True,
             "length_guard_max_words": 5,
             "feedback_enabled": True,
-            "direction_notes_record": True,
             "reasoning_enabled_passes": {"director": True, "writer": True, "editor": True},
             "reasoning_prefill_passes": _PREFILLS,
         },
@@ -47,10 +46,12 @@ async def _setup(client) -> None:
             "id": "trajectory",
             "label": "Trajectory",
             "description": "Record the direction of travel.",
-            "field_type": "direction_note",
+            "field_type": "state",
+            "state_mode": "entries",
+            "state_update": "after_reply",
+            "state_inject": "both",
             "injection_label": "Direction of travel",
             "enabled": True,
-            "direction_note_timing": "post_turn",
         }
     )
 
@@ -76,7 +77,7 @@ async def test_each_pass_gets_its_own_resolved_prefill(client, db, llm_mock):
     llm_mock.enqueue_writer(_LONG_DRAFT)
     llm_mock.enqueue_editor(None)  # no tool call → the edit loop stops after iteration 0
     llm_mock.enqueue_feedback(_call("give_feedback", suggested_actions="Ask her name."))
-    llm_mock.enqueue_direction_note(_call("record_direction_note", trajectory="She warms to him."))
+    llm_mock.enqueue_state(_call("update_state", trajectory=["She warms to him."]))
 
     await _drain(handle_turn(cid, "hello"))
 
@@ -89,7 +90,7 @@ async def test_each_pass_gets_its_own_resolved_prefill(client, db, llm_mock):
     assert seen["writer"] == {"I will reason in character as Aria. First, "}
     # The editor's string also reaches its sub-steps.
     editor_text = "I will edit Aria's draft. First, "
-    for name in ("editor", "feedback", "direction_note"):
+    for name in ("editor", "feedback", "state"):
         assert seen[name] == {editor_text}, f"{name} got {seen.get(name)}"
 
 
@@ -108,7 +109,7 @@ async def test_prefill_absent_when_pass_reasoning_off(client, db, llm_mock):
     llm_mock.enqueue_writer(_LONG_DRAFT)
     llm_mock.enqueue_editor(None)
     llm_mock.enqueue_feedback(_call("give_feedback", suggested_actions="Ask her name."))
-    llm_mock.enqueue_direction_note(_call("record_direction_note", trajectory="She warms to him."))
+    llm_mock.enqueue_state(_call("update_state", trajectory=["She warms to him."]))
 
     await _drain(handle_turn(cid, "hello"))
 

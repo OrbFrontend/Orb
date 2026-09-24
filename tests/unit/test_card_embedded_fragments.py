@@ -4,13 +4,14 @@ shapes the pipeline can consume."""
 
 from __future__ import annotations
 
-from backend.core import DECISION_COLUMNS
+from backend.core import DECISION_COLUMNS, STATE_COLUMNS
 from backend.database import card_embedded_fragments
 
 # Every interactive row carries the decision columns, null for the types that do
 # not use them, so one reader can ask any fragment whether it is a decision
 # without first asking what kind of fragment it is.
 NO_DECISION = {column: None for column in DECISION_COLUMNS}
+NO_STATE = {column: None for column in STATE_COLUMNS}
 
 
 def _card(frags):
@@ -58,20 +59,76 @@ def test_happy_path_shapes():
             "enabled": 1,
         }
     ]
+    # A legacy progressive fragment is read as the state fragment it converts to:
+    # one value, updated before the Writer, injected into both passes.
     assert interactive == [
         {
             "id": "trust",
             "label": "Trust",
             "description": "how much",
-            "field_type": "progressive",
+            "field_type": "state",
             "required": 1,
             "enabled": 1,
             "injection_label": "Trust level",
             "sort_order": 10_000,
-            "direction_note_timing": "pre_writer",
+            "direction_note_timing": "post_turn",
             "cooldown_turns": 7,
+            "state_mode": "value",
+            "state_update": "before_writer",
+            "state_inject": "both",
             **NO_DECISION,
         }
+    ]
+
+
+def test_legacy_direction_note_maps_to_multiple_entries_on_its_own_timing():
+    _, interactive = card_embedded_fragments(
+        _card(
+            {
+                "interactive": [
+                    {"id": "pre", "label": "Pre", "field_type": "direction_note", "direction_note_timing": "pre_writer"},
+                    {"id": "post", "label": "Post", "field_type": "direction_note"},
+                ]
+            }
+        )
+    )
+    # Cards never carried an inject setting, so converted notes inject into both.
+    assert [(f["field_type"], f["state_mode"], f["state_update"], f["state_inject"]) for f in interactive] == [
+        ("state", "entries", "before_writer", "both"),
+        ("state", "entries", "after_reply", "both"),
+    ]
+
+
+def test_state_settings_are_read_and_unknown_values_fall_back():
+    _, interactive = card_embedded_fragments(
+        _card(
+            {
+                "interactive": [
+                    {
+                        "id": "threads",
+                        "label": "Threads",
+                        "field_type": "state",
+                        "state_mode": "entries",
+                        "state_update": "manual",
+                        "state_inject": "writer",
+                    },
+                    {
+                        "id": "odd",
+                        "label": "Odd",
+                        "field_type": "state",
+                        "state_mode": "several",
+                        "state_update": "sometimes",
+                        "state_inject": 3,
+                    },
+                    {"id": "plain", "label": "Plain", "field_type": "string", "state_mode": "entries"},
+                ]
+            }
+        )
+    )
+    assert [(f["state_mode"], f["state_update"], f["state_inject"]) for f in interactive] == [
+        ("entries", "manual", "writer"),
+        ("value", "after_reply", "both"),
+        (None, None, None),
     ]
 
 
@@ -107,6 +164,22 @@ def test_invalid_ids_skipped():
     assert [f["id"] for f in moods] == ["fine_id-2"]
 
 
+def test_reserved_interactive_ids_skipped():
+    # `moods` and `retire` are fixed tool parameters a fragment would overwrite.
+    _, interactive = card_embedded_fragments(
+        _card(
+            {
+                "interactive": [
+                    {"id": "moods", "label": "A", "description": "d"},
+                    {"id": "retire", "label": "B", "description": "d", "field_type": "state"},
+                    {"id": "threads", "label": "C", "description": "d", "field_type": "state"},
+                ]
+            }
+        )
+    )
+    assert [f["id"] for f in interactive] == ["threads"]
+
+
 def test_missing_or_blank_label_skipped():
     moods, _ = card_embedded_fragments(_card({"mood": [{"id": "a"}, {"id": "b", "label": "  "}, {"id": "c", "label": 7}]}))
     assert moods == []
@@ -117,7 +190,7 @@ def test_unknown_enums_fall_back():
         _card({"interactive": [{"id": "a", "label": "A", "field_type": "banana", "direction_note_timing": "whenever"}]})
     )
     assert interactive[0]["field_type"] == "string"
-    assert interactive[0]["direction_note_timing"] == "post_turn"
+    assert {column: interactive[0][column] for column in STATE_COLUMNS} == NO_STATE
 
 
 def test_post_processing_field_type_is_preserved():

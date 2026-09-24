@@ -6,7 +6,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..core import ChatMessage, ContentPart, Macros, joined_delta
+from ..core import ChatMessage, ContentPart, Macros, StateView, joined_delta
+from ..database.models import DirectorStateRow
 from ..inference import CachedBase, LLMClient
 from ..prompting.lorebook import (
     AGENTIC_LOREBOOK_SCAN_DEPTH,
@@ -14,6 +15,25 @@ from ..prompting.lorebook import (
     compute_lorebook_block,
 )
 from .passes.editor.length_guard import LengthGuard
+
+
+class BranchBaseline(DirectorStateRow, total=False):
+    """The Director state a turn starts from, rebased onto the branch it extends.
+
+    ``get_director_state`` supplies the row; the turn handlers fill the rest from
+    the branch's own history, so a regeneration starts where the reply it
+    replaces did rather than where the conversation's latest turn left off.
+    """
+
+    # Resting counters for mood/interactive fragments and for decisions.
+    fragment_cooldowns: dict[str, int]
+    decision_cooldowns: dict[str, int]
+    # The replaced reply's stored Judge evaluations, replayed on a regeneration.
+    decision_replay: list[dict[str, Any]]
+    # The branch's folded state fragments, and the user corrections carried onto
+    # it from the reply a regeneration replaces.
+    fragment_state: StateView
+    state_carried: list[dict[str, Any]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,7 +86,6 @@ _RESULT_FIELDS = (
     "writer_draft",
     "inj_block",
     "extra_fields",
-    "progressive_fields",
     "fragment_cooldowns",
     "decision_evaluations",
     "decision_cooldowns",
@@ -74,7 +93,8 @@ _RESULT_FIELDS = (
     "reasoning_writer",
     "reasoning_editor",
     "feedback_values",
-    "direction_notes",
+    "state_events",
+    "state_report",
     "staged_attachments",
     "staged_message_state",
     "macro_choices",
@@ -90,7 +110,6 @@ _DIRECTOR_SEED_FIELDS = (
     "calls",
     "latency",
     "extra_fields",
-    "progressive_fields",
     "fragment_cooldowns",
     # Shared exchange decisions are copied to each speaker without advancing cooldowns again.
     "decision_evaluations",
@@ -101,7 +120,13 @@ _DIRECTOR_SEED_FIELDS = (
     "scene_direction",
     "writer_lorebook_block",
     "reasoning_director",
-    "direction_notes",
+    # The exchange's before-Writer state changes and the working state they
+    # produced. The driver clears the events and report once the first reply
+    # has anchored them; the view stays, so later speakers read the same state.
+    "state_events",
+    "state_report",
+    "state_view",
+    "state_prior",
 )
 
 
@@ -112,8 +137,12 @@ _DIRECTOR_OUTPUT_FIELDS = (
     "calls",
     "latency",
     "extra_fields",
-    "progressive_fields",
 )
+
+
+def empty_state_report() -> dict[str, list[dict]]:
+    """The Inspector's record of operations a turn could not apply."""
+    return {"rejected": [], "dropped": []}
 
 
 @dataclass(slots=True)
@@ -130,7 +159,6 @@ class TurnState:
     calls: list[dict] = field(default_factory=list)
     latency: int = 0
     extra_fields: dict = field(default_factory=dict)
-    progressive_fields: dict = field(default_factory=dict)
     fragment_cooldowns: dict[str, int] = field(default_factory=dict)
     # Persisted decision record, cooldown snapshot, and shared Director/Writer guidance.
     decision_evaluations: dict = field(default_factory=dict)
@@ -138,7 +166,7 @@ class TurnState:
     decision_guidance: str = ""
     selected_lorebook_entries: list[str] = field(default_factory=list)
     inj_block: str = ""
-    # Scene Direction before direction notes are appended.
+    # Scene Direction before the state block and decision guidance are added.
     scene_direction: str = ""
     writer_lorebook_block: str = ""
 
@@ -151,7 +179,15 @@ class TurnState:
     reasoning_writer: str = ""
     reasoning_editor: str = ""
     feedback_values: dict = field(default_factory=dict)
-    direction_notes: list[dict] = field(default_factory=list)
+    # State changes to commit with this reply, in apply order: carried user
+    # corrections first, then the turn's own validated model changes.
+    state_events: list[dict] = field(default_factory=list)
+    # Rejected model operations and dropped carried corrections, for the Inspector.
+    state_report: dict = field(default_factory=empty_state_report)
+    # The working state: the branch's fold plus this turn's applied changes.
+    # ``state_prior`` is the state the turn started from, for ``old -> new``.
+    state_view: StateView = field(default_factory=StateView)
+    state_prior: StateView = field(default_factory=StateView)
 
     staged_attachments: list[dict] = field(default_factory=list)
     staged_message_state: dict = field(default_factory=dict)
@@ -166,7 +202,9 @@ class TurnState:
             if isinstance(value, list):
                 value = list(value)
             elif isinstance(value, dict):
-                value = dict(value)
+                value = {key: list(item) if isinstance(item, list) else item for key, item in value.items()}
+            elif isinstance(value, StateView):
+                value = value.copy()
             setattr(self, name, value)
 
     def add_reasoning(self, pass_name: str, event: Mapping[str, Any]) -> str:

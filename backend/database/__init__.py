@@ -31,6 +31,7 @@ from .queries.character_cards import (
     set_workflow_character_state,
     sync_conversations_for_card,
     update_character_card,
+    upgrade_card_fragment_types,
 )
 from .queries.character_expressions import (
     delete_character_expressions,
@@ -59,14 +60,6 @@ from .queries.conversations import (
     touch_conversation,
     update_conversation,
 )
-from .queries.direction_notes import (
-    create_direction_notes,
-    delete_direction_note,
-    direction_note_projection,
-    get_direction_notes_for_message,
-    get_direction_notes_for_path,
-    update_direction_note,
-)
 from .queries.director_state import get_director_state, update_director_state
 from .queries.documents import (
     create_document,
@@ -85,6 +78,15 @@ from .queries.endpoints import (
     get_model_configs,
     update_endpoint,
     update_model_config,
+)
+from .queries.fragment_state import (
+    add_state_events,
+    copy_state_events,
+    delete_fragment_state,
+    fold_path_state,
+    get_state_events_for_message,
+    get_state_events_for_path,
+    snapshot_state_to_message,
 )
 from .queries.group_members import (
     allocate_speaker_key,
@@ -235,9 +237,11 @@ from .queries.worlds import (
 from .seeds import (
     DEFAULT_ENABLED_TOOLS,
     DEFAULT_SETTINGS,
+    NOTES_STATE_FRAGMENT,
     SEED_INTERACTIVE_FRAGMENTS,
     SEED_MOOD_FRAGMENTS,
     SEED_PHRASE_BANK,
+    STARTER_STATE_FRAGMENTS,
 )
 
 __all__ = [
@@ -249,7 +253,9 @@ __all__ = [
     "PROPOSAL_STATUSES",
     "REVIEW_STATUSES",
     "RevisionConflict",
+    "NOTES_STATE_FRAGMENT",
     "SEED_INTERACTIVE_FRAGMENTS",
+    "STARTER_STATE_FRAGMENTS",
     "SEED_MOOD_FRAGMENTS",
     "SEED_PHRASE_BANK",
     "SheetProposalConflict",
@@ -260,6 +266,7 @@ __all__ = [
     "add_generated_chars",
     "add_message",
     "add_phrase_group",
+    "add_state_events",
     "allocate_speaker_key",
     "apply_auto_tags",
     "apply_avatar_dhash",
@@ -272,11 +279,11 @@ __all__ = [
     "decision_evaluations_of",
     "close_wal_anchor",
     "convert_to_group",
+    "copy_state_events",
     "count_pending_changesets",
     "create_and_apply_changeset",
     "create_character_card",
     "create_conversation",
-    "create_direction_notes",
     "create_document",
     "create_endpoint",
     "create_group_conversation",
@@ -291,9 +298,9 @@ __all__ = [
     "delete_character_card",
     "delete_character_expressions",
     "delete_conversation",
-    "delete_direction_note",
     "delete_document",
     "delete_endpoint",
+    "delete_fragment_state",
     "delete_group_family",
     "delete_interactive_fragment",
     "delete_lorebook_entry",
@@ -303,9 +310,9 @@ __all__ = [
     "delete_phrase_group",
     "delete_user_persona",
     "delete_world",
-    "direction_note_projection",
     "disable_character_linked_worlds",
     "entry_snapshot",
+    "fold_path_state",
     "fork_conversation",
     "get_active_dynamic_entries",
     "get_auto_tag_counts",
@@ -324,8 +331,6 @@ __all__ = [
     "get_conversation_logs",
     "get_db",
     "get_deepest_descendant",
-    "get_direction_notes_for_message",
-    "get_direction_notes_for_path",
     "get_director_log_for_message",
     "get_director_state",
     "get_document",
@@ -358,6 +363,8 @@ __all__ = [
     "get_settings",
     "get_sheet_proposals",
     "get_speaker_names",
+    "get_state_events_for_message",
+    "get_state_events_for_path",
     "get_user_attachment_by_id",
     "get_user_attachments_for_message",
     "get_persona_avatar",
@@ -416,6 +423,7 @@ __all__ = [
     "set_workflow_enabled",
     "set_workflow_message_state",
     "set_workflow_state",
+    "snapshot_state_to_message",
     "supersede_world_changeset",
     "switch_to_branch",
     "sync_conversations_for_card",
@@ -423,7 +431,6 @@ __all__ = [
     "touch_conversation",
     "update_character_card",
     "update_conversation",
-    "update_direction_note",
     "update_director_state",
     "update_document",
     "update_endpoint",
@@ -438,6 +445,7 @@ __all__ = [
     "update_user_persona",
     "update_world",
     "update_world_changeset",
+    "upgrade_card_fragment_types",
     "user_attachment_payloads",
     "wipe_logs_older_than",
 ]

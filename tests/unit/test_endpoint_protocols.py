@@ -634,6 +634,26 @@ async def test_anthropic_midstream_error_uses_sanitized_llm_error():
     assert "sk-secret" not in caught.value.body
 
 
+async def test_openai_midstream_error_uses_sanitized_llm_error():
+    lines = [
+        _line({"choices": [{"delta": {"content": "partial"}}]}),
+        _line({"error": {"message": "busy sk-secret"}}),
+        "data: [DONE]",
+    ]
+    with pytest.raises(LLMCallError) as caught:
+        await _run(LLMClient("https://openai.test/v1/chat/completions", "sk-secret"), _HTTP([_Response(lines=lines)]))
+    assert caught.value.response.status_code == 502
+    assert caught.value.sentence == "busy [redacted]"
+    assert "sk-secret" not in caught.value.body
+
+
+async def test_openai_unfinished_stream_does_not_return_a_partial_success():
+    lines = [_line({"choices": [{"delta": {"content": "partial"}}]})]
+    with pytest.raises(LLMCallError) as caught:
+        await _run(LLMClient("https://openai.test/v1/chat/completions"), _HTTP([_Response(lines=lines)]))
+    assert "before finish_reason or [DONE]" in caught.value.sentence
+
+
 async def test_ambiguous_endpoint_probes_bounded_routes_and_caches_success():
     wrong = '{"error":"Cannot POST /prefix/chat/completions"}'
     wrong_route = '{"error":"route not found"}'

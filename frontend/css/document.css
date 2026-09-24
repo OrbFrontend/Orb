@@ -2,7 +2,7 @@
 #document-main { display: none; }
 #app.document-mode #main,
 #app.document-mode #inspector,
-#app.document-mode #direction-notes-panel { display: none !important; }
+#app.document-mode #state-panel { display: none !important; }
 #app.document-mode #document-main {
   display: flex;
   flex: 1;

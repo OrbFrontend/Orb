@@ -54,10 +54,13 @@ def build_director_tool_prompt(
         progressive_lines = [
             f"* [{fragment['id']}] ({fragment['description']}): {(progressive_state or {}).get(fragment['id'])}"
             for fragment in (interactive_fragments or [])
-            if fragment.get("field_type") == "progressive" and (progressive_state or {}).get(fragment["id"])
+            if fragment.get("field_type") == "state" and (progressive_state or {}).get(fragment["id"])
         ]
         if progressive_lines:
-            parts.append("Previous progressive fields - dynamically update these:\n" + "\n".join(progressive_lines))
+            parts.append(
+                "Saved state fields - leave a field empty to keep it; write its complete new value only if it "
+                "changed:\n" + "\n".join(progressive_lines)
+            )
         resting_fields = [fragment["id"] for fragment in (interactive_fragments or []) if fragment["id"] in resting]
         if resting_fields:
             parts.append(f"Resting interactive fields (unavailable this turn): {', '.join(resting_fields)}")
@@ -98,7 +101,7 @@ def build_director_scene_step_prompt(
         fragment_id = target_fragment["id"]
         hint = {
             "array": "list of strings",
-            "progressive": "single value, evolves across turns",
+            "state": "single value, kept across turns",
         }.get(target_fragment["field_type"], "single value")
         parts.append(
             f"Call ONLY direct_scene - {description}\nFill ONLY the '{fragment_id}' parameter. "
@@ -110,8 +113,11 @@ def build_director_scene_step_prompt(
         prior = [f"- {label}: {_render_decided(value)}" for label, value in decided_fields if value]
         if prior:
             parts.append("Decided so far this turn (build on these, do not contradict):\n" + "\n".join(prior))
-        if target_fragment["field_type"] == "progressive" and progressive_prior:
-            parts.append(f"Previous value (update it): {progressive_prior}")
+        if target_fragment["field_type"] == "state" and progressive_prior:
+            parts.append(
+                f"Current value (leave the field empty to keep it; write the complete new value only if it changed): "
+                f"{progressive_prior}"
+            )
 
     parts.append(f'User\'s next message (context):\n"""{user_message}"""')
     return "\n\n".join(parts) + "]"

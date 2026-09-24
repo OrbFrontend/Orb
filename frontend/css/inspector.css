@@ -233,74 +233,176 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
 .reasoning-box::-webkit-scrollbar { width: 3px; }
 .reasoning-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-.notes-empty {
+/* ── State panel ── */
+
+.state-empty {
   color: var(--text-muted);
   font-size: 12px;
-  padding: 8px 0;
+  padding: 4px 0;
 }
 
-.notes-row {
+.state-note {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.state-frag {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 8px 10px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
-.notes-row-meta {
+.state-frag.full { border-color: var(--red); }
+.state-frag.read-only { opacity: .75; }
+
+.state-frag-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  min-height: 20px;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 4px;
 }
 
-.notes-row-frag {
+.state-frag-label {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.notes-row-turn {
+.state-frag-desc {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: .5px;
-  color: var(--text-secondary);
-  flex: none;
+  color: var(--text-muted);
+  margin: 2px 0 6px;
 }
 
-.notes-row-content {
-  font-size: 13px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin-bottom: 8px;
-}
-
-.notes-row-actions {
-  display: flex;
-  gap: 6px;
-  justify-content: flex-end;
-}
-
-.notes-row.user-note {
-  border-color: var(--accent-dim);
-  border-left: 3px solid var(--accent);
-  background: var(--accent-glow);
-}
-
-.feedback-row.user-note {
-  border-left: 3px solid var(--accent);
-  padding-left: 6px;
-}
-
-.notes-row-user-badge {
+.state-badge {
   display: inline-block;
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .5px;
-  color: var(--accent);
-  border: 1px solid var(--accent-dim);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
   border-radius: 999px;
   padding: 0 5px;
   vertical-align: middle;
 }
+
+.state-badge-warn {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.state-entry {
+  border-top: 1px solid var(--border);
+  padding: 6px 0;
+}
+
+/* The bar sits in the card's padding, so the text keeps its column. */
+.state-entry.user-entry,
+.feedback-row.user-note { position: relative; }
+
+.state-entry.user-entry::before,
+.feedback-row.user-note::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: -7px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+.feedback-row.user-note::before { top: 0; bottom: 0; left: -8px; }
+
+.state-entry-text {
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.state-entry-foot,
+.state-editor-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.state-entry-meta,
+.state-editor-count {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--text-muted);
+}
+
+.state-editor-count { margin-right: auto; }
+
+.state-entry-actions,
+.state-frag-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.state-frag-actions { margin-top: 6px; }
+
+.state-editor { padding: 6px 0; }
+
+.state-editor-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+}
+
+.state-history {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 6px 0 0;
+  border-top: 1px dashed var(--border);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.state-history-row { margin-bottom: 6px; }
+
+.state-history-meta {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--text-muted);
+}
+
+.state-history-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Inspector: this turn's state changes ── */
+
+.state-change-op {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.state-change-detail {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.inspector-block .feedback-card + h4 { margin-top: 12px; }
+
+.state-rejected .feedback-row-label { color: var(--red); }

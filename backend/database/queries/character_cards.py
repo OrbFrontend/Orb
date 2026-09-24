@@ -12,9 +12,18 @@ import aiosqlite
 from ...core import (
     DECISION_COLUMNS,
     DECISION_FIELD_TYPE,
+    DEFAULT_STATE_INJECT,
+    DEFAULT_STATE_MODE,
+    DEFAULT_STATE_UPDATE,
+    RESERVED_FRAGMENT_IDS,
+    STATE_FIELD_TYPE,
+    STATE_INJECTS,
+    STATE_MODES,
+    STATE_UPDATES,
     TurnCast,
     has_inline_macros,
     resolve_inline,
+    upgrade_legacy_fragment,
 )
 from ...core.card_scripts import card_render_options, is_display_script
 from ..connection import (
@@ -108,9 +117,8 @@ _CARD_FRAGMENT_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _INTERACTIVE_FIELD_TYPES = {
     "string",
     "array",
-    "progressive",
+    STATE_FIELD_TYPE,
     "feedback",
-    "direction_note",
     "post_processing",
     DECISION_FIELD_TYPE,
 }
@@ -140,6 +148,11 @@ def _card_fragment_entries(raw: Any) -> list[dict]:
 def _text(entry: Mapping[str, Any], key: str, default: str = "") -> str:
     v = entry.get(key, default)
     return v if isinstance(v, str) else default
+
+
+def _enum(entry: Mapping[str, Any], key: str, allowed: Sequence[str], default: str) -> str:
+    value = entry.get(key)
+    return value if isinstance(value, str) and value in allowed else default
 
 
 def _int(entry: Mapping[str, Any], key: str, default: int, lo: int, hi: int) -> int:
@@ -185,9 +198,14 @@ def card_embedded_fragments(
         )
 
     interactive: list[InteractiveFragmentRow] = []
-    for i, entry in enumerate(_card_fragment_entries(frags.get("interactive"))):
+    for i, raw_entry in enumerate(_card_fragment_entries(frags.get("interactive"))):
+        if raw_entry["id"] in RESERVED_FRAGMENT_IDS:
+            continue
+        # Shared card files keep the legacy progressive and direction-note types
+        # indefinitely, so they are mapped to state fragments here, permanently.
+        entry = upgrade_legacy_fragment(raw_entry)
         raw_type = _text(entry, "field_type", "string")
-        timing = _text(entry, "direction_note_timing", "post_turn")
+        is_state = raw_type == STATE_FIELD_TYPE
         row = cast(
             InteractiveFragmentRow,
             {
@@ -199,8 +217,11 @@ def card_embedded_fragments(
                 "enabled": 1,
                 "injection_label": _text(entry, "injection_label") or entry["label"],
                 "sort_order": 10_000 + i,
-                "direction_note_timing": timing if timing in ("pre_writer", "post_turn") else "post_turn",
+                "direction_note_timing": "post_turn",
                 "cooldown_turns": _int(entry, "cooldown_turns", 0, 0, 50),
+                "state_mode": _enum(entry, "state_mode", STATE_MODES, DEFAULT_STATE_MODE) if is_state else None,
+                "state_update": _enum(entry, "state_update", STATE_UPDATES, DEFAULT_STATE_UPDATE) if is_state else None,
+                "state_inject": _enum(entry, "state_inject", STATE_INJECTS, DEFAULT_STATE_INJECT) if is_state else None,
                 **{column: None for column in DECISION_COLUMNS},
             },
         )
@@ -209,6 +230,24 @@ def card_embedded_fragments(
         interactive.append(row)
 
     return moods, interactive
+
+
+def upgrade_card_fragment_types(extensions: Any) -> Any:
+    """Return card *extensions* with legacy state fragment types written explicitly.
+
+    Card export writes the new type with its settings spelled out, so the file
+    means the same thing to every reader; an older Orb reads the unknown type as
+    a plain string field. Everything else is returned untouched.
+    """
+    if not isinstance(extensions, dict):
+        return extensions
+    orb = extensions.get("orb")
+    frags = orb.get("fragments") if isinstance(orb, dict) else None
+    interactive = frags.get("interactive") if isinstance(frags, dict) else None
+    if not isinstance(orb, dict) or not isinstance(frags, dict) or not isinstance(interactive, list):
+        return extensions
+    upgraded = [upgrade_legacy_fragment(entry) if isinstance(entry, dict) else entry for entry in interactive]
+    return {**extensions, "orb": {**orb, "fragments": {**frags, "interactive": upgraded}}}
 
 
 def _card_decision_columns(entry: Mapping[str, Any]) -> dict[str, Any]:

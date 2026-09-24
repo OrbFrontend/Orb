@@ -85,3 +85,35 @@ def round_robin_member(members: Sequence[Mapping], messages: Sequence[Mapping]) 
         if member["id"] == last_id:
             return eligible[(index + 1) % len(eligible)]
     return eligible[0]
+
+
+def choose_speakers(
+    raw_plan: object,
+    members: Sequence[Mapping],
+    messages: Sequence[Mapping],
+    *,
+    mode: str | None,
+    cap: int,
+    pinned_id: str | None = None,
+) -> list[tuple[Mapping, str]]:
+    """Return an exchange's ``(member, cue)`` speakers in order; ``[]`` is a rest.
+
+    Who speaks and what the Director wrote for them are separate questions: a pin
+    and round-robin answer the first without the plan and still carry the
+    member's cue from it, or the Director is half-ignored on every path but
+    ``director``. A plan in which nothing resolved to a member falls back to
+    round-robin with no cue to carry over. *pinned_id* must name an unmuted member.
+    """
+    if pinned_id:
+        pinned = next(m for m in members if m["id"] == pinned_id and not m.get("muted"))
+        return [(pinned, plan_cue(raw_plan, members, pinned_id))]
+    if mode == "manual":
+        return []
+    if mode == "round_robin":
+        member = round_robin_member(members, messages)
+        return [(member, plan_cue(raw_plan, members, str(member["id"])))] if member else []
+    parsed = parse_speaking_plan(raw_plan, members, cap)
+    if parsed is not None:
+        return parsed
+    member = round_robin_member(members, messages)
+    return [(member, "")] if member else []

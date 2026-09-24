@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import base64
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Mapping, Sequence
 from typing import Any
 
+from .chat_stream import ChatStream
+from .errors import llm_stream_error
 from .schema import strictify_schema
 
 # Anthropic rejects unknown top-level fields. These are the only user-provided
@@ -283,3 +285,93 @@ def recover_sampling_error(endpoint_url: str, model: str, body: dict[str, Any], 
     for key in present:
         body.pop(key, None)
     return f"Model {model} rejected Anthropic sampling fields {present}; retrying without them."
+
+
+# Messages stop reasons in OpenAI ``finish_reason`` terms; others pass through.
+_FINISH_REASONS = {
+    "end_turn": "stop",
+    "stop_sequence": "stop",
+    "tool_use": "tool_calls",
+    "max_tokens": "length",
+}
+
+
+async def consume_stream(
+    payloads: AsyncIterable[str],
+    acc: ChatStream,
+    *,
+    forced: bool,
+    url: str,
+    model: str,
+    api_key: str,
+    is_aborted: Callable[[], bool],
+) -> AsyncIterator[dict]:
+    """Fold Messages stream payloads into *acc* in OpenAI terms, yielding live deltas.
+
+    An ``error`` event, or a stream that ends before ``message_stop`` without an
+    abort, raises the provider error *url*, *model* and *api_key* describe. A
+    *forced* call buffers its text as the tool-arguments payload, as on the
+    OpenAI surface.
+    """
+    stopped = False
+    async for payload in payloads:
+        try:
+            event = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        event_type = event.get("type")
+        if event_type == "ping":
+            continue
+        if event_type == "error":
+            raise llm_stream_error(payload=event, url=url, model=model, api_key=api_key)
+        if event_type == "message_start":
+            initial = (event.get("message") or {}).get("usage")
+            if isinstance(initial, dict):
+                acc.usage = dict(initial)
+        elif event_type == "content_block_start":
+            index = event.get("index", 0)
+            block = event.get("content_block") or {}
+            if block.get("type") == "tool_use":
+                entry = acc.tool_entry(index)
+                entry["id"] = block.get("id", "")
+                entry["function"]["name"] = block.get("name", "")
+                if block.get("input"):
+                    entry["function"]["arguments"] = json.dumps(block["input"], separators=(",", ":"))
+            elif block.get("type") == "text" and block.get("text"):
+                acc.content_parts.append(block["text"])
+                if not forced:
+                    yield {"type": "content", "delta": block["text"]}
+            elif block.get("type") == "thinking" and block.get("thinking"):
+                acc.reasoning_parts.append(block["thinking"])
+                yield {"type": "reasoning", "delta": block["thinking"]}
+        elif event_type == "content_block_delta":
+            index = event.get("index", 0)
+            delta = event.get("delta") or {}
+            delta_type = delta.get("type")
+            if delta_type == "text_delta" and delta.get("text"):
+                acc.content_parts.append(delta["text"])
+                if not forced:
+                    yield {"type": "content", "delta": delta["text"]}
+            elif delta_type == "thinking_delta" and delta.get("thinking"):
+                acc.reasoning_parts.append(delta["thinking"])
+                yield {"type": "reasoning", "delta": delta["thinking"]}
+            elif delta_type == "input_json_delta" and delta.get("partial_json"):
+                acc.tool_entry(index)["function"]["arguments"] += delta["partial_json"]
+        elif event_type == "message_delta":
+            delta = event.get("delta") or {}
+            stop_reason = delta.get("stop_reason")
+            if stop_reason:
+                acc.finish_reason = _FINISH_REASONS.get(stop_reason, stop_reason)
+            update = event.get("usage")
+            if isinstance(update, dict):
+                acc.usage = {**(acc.usage or {}), **update}
+        elif event_type == "message_stop":
+            stopped = True
+            break
+    if not stopped and not is_aborted():
+        raise llm_stream_error(
+            payload={"error": {"message": "Anthropic stream ended before message_stop"}},
+            url=url,
+            model=model,
+            api_key=api_key,
+        )

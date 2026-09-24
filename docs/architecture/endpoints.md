@@ -148,5 +148,8 @@ steering is unavailable on Gemini for the same reason it is on Anthropic.
 Endpoint routing is internal and ephemeral. Public API and browser SSE shapes,
 database settings, `LLMClient.complete()`, and `LLMClient.list_models()` do not
 change. Anthropic stream events are translated to Orb's existing `content`,
-`reasoning`, and terminal `done` events; provider error events inside an HTTP
-200 stream use the same sanitized `LLMCallError` path as HTTP rejections.
+`reasoning`, and terminal `done` events. Provider error events inside an HTTP
+200 stream use the same sanitized `LLMCallError` path as HTTP rejections on
+both Anthropic and OpenAI-compatible routes. An OpenAI-compatible stream must
+reach a finish reason or `[DONE]`; an earlier EOF is a provider failure unless
+the turn was stopped.

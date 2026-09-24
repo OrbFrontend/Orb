@@ -16,6 +16,7 @@ from ..models import (
     WorkflowAttachmentRowBase,
 )
 from .conversations import get_conversation
+from .fragment_state import insert_state_events
 from .workflow_attachments import EVICTED_MARKER
 
 
@@ -328,16 +329,21 @@ async def add_message(
     turn_index: int,
     parent_id: int | None = None,
     attachments: Sequence[Mapping[str, Any]] | None = None,
-    progressive_fields: dict | None = None,
     fragment_cooldowns: dict[str, int] | None = None,
     speaker_member_id: str | None = None,
     exchange_id: str | None = None,
     writer_draft: str | None = None,
     decision_evaluations: Mapping[str, Any] | None = None,
     decision_cooldowns: Mapping[str, int] | None = None,
+    state_events: Sequence[Mapping[str, Any]] | None = None,
     advance_leaf: bool = False,
 ) -> tuple[int, list[dict]]:
-    """Insert a message and return its id and rejected attachments."""
+    """Insert a message and return its id and rejected attachments.
+
+    *state_events* are the state-fragment changes the reply produced, in apply
+    order. They are anchored on the new row inside the same transaction, so a
+    saved reply and its state cannot diverge.
+    """
     # workflow atts are materialized into a fresh list[dict] the cache writer
     # owns and mutates (it tags rejects with a 'reason' and shallow-copies); the
     # read-only user atts stay as the caller's mappings.
@@ -361,7 +367,7 @@ async def add_message(
         now = datetime.now(UTC).isoformat()
         try:
             cur = await db.execute(
-                "INSERT INTO messages (conversation_id, role, content, writer_draft, turn_index, parent_id, progressive_fields, fragment_cooldowns, created_at, speaker_member_id, exchange_id, decision_evaluations, decision_cooldowns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO messages (conversation_id, role, content, writer_draft, turn_index, parent_id, fragment_cooldowns, created_at, speaker_member_id, exchange_id, decision_evaluations, decision_cooldowns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     cid,
                     role,
@@ -369,7 +375,6 @@ async def add_message(
                     writer_draft,
                     turn_index,
                     parent_id,
-                    json.dumps(progressive_fields or {}),
                     json.dumps(fragment_cooldowns or {}),
                     now,
                     speaker_member_id,
@@ -405,6 +410,7 @@ async def add_message(
                     "registered -- import backend.workflows before producing them"
                 )
             _, rejected_workflow_atts = await _workflow_attachment_persister(message_id, workflow_atts, db=db)
+        await insert_state_events(db, cid, message_id, state_events or (), now)
         if advance_leaf:
             await db.execute(
                 "UPDATE conversations SET updated_at = ?, active_leaf_id = ? WHERE id = ?",

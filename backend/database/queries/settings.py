@@ -307,8 +307,7 @@ async def update_settings(data: dict) -> SettingsRow:
             "agent_shared_system_prompt",
             "feedback_enabled",
             "director_individual_fragments",
-            "direction_notes_record",
-            "direction_notes_inject",
+            "state_updates",
             "inspector_open_states",
             "workflows_globally_enabled",
             # The artifact cache's size cap. Editable so artifacts self-trim at a

@@ -356,6 +356,32 @@ async def test_a_resolved_decision_reaches_the_director_tail_and_the_writer(clie
     assert "I shove the door." in gateway.states[0]
 
 
+async def test_the_after_reply_state_request_carries_no_guidance(client, db, llm_mock, monkeypatch):
+    cid = await _solo_scene(client)
+    Gateway(monkeypatch)
+    await client.post(
+        "/api/interactive-fragments",
+        json={
+            "id": "threads",
+            "label": "Threads",
+            "description": "Open threads.",
+            "field_type": "state",
+            "state_mode": "entries",
+            "state_update": "after_reply",
+            "injection_label": "Threads",
+        },
+    )
+    llm_mock.enqueue_director(_direct_scene(moods=[]))
+    llm_mock.enqueue_writer("He braces against the frame.")
+    llm_mock.enqueue_state([{"type": "function", "function": {"name": "update_state", "arguments": {}}}])
+    await _drain(handle_turn(cid, "I shove the door."))
+
+    # The guidance directed the Writer; the reply is the only record once it exists.
+    state_call = _captured(llm_mock, "state")[0]
+    assert "Major Decisions" not in _tail_text(state_call)
+    assert "Doorway: Alric holds the doorway." in json.dumps(state_call["messages"][-3]["content"])
+
+
 async def test_the_guidance_survives_the_directors_own_output(client, db, llm_mock, monkeypatch):
     cid = await _solo_scene(client)
     Gateway(monkeypatch)
@@ -868,6 +894,31 @@ async def test_a_stop_during_the_decision_stage_ends_the_turn(client, db, llm_mo
     assert _events(events, "step_start") == [{"step": "judge"}]
     # No reply was retained, so no decision cooldown was committed either.
     assert [m for m in await dbmod.get_messages(cid) if m["role"] == "assistant"] == []
+
+
+async def test_a_stop_during_the_decision_stage_ends_a_group_exchange(client, db, llm_mock, monkeypatch):
+    """The group driver opens its turn through the same step, so it stops the same way."""
+    conv = await _group(client)
+    await _configure(client)
+    await _add_decision(client)
+    gateway = Gateway(monkeypatch)
+    token = llm_mock.abort_token
+
+    async def _decide(self, state, questions, *, timeout=None, abort=None):  # noqa: ANN001
+        gateway.batches.append([question.key for question in questions])
+        token.abort()
+        raise DecisionCancelled("stopped")
+
+    monkeypatch.setattr(judge_module.DecisionClient, "decide", _decide)
+
+    events = await _drain(handle_turn(conv["id"], "I shove the door.", abort_token=token))
+
+    assert gateway.batches == [["outcome"]]
+    assert _captured(llm_mock, "director") == []
+    assert _captured(llm_mock, "writer") == []
+    # No speaking plan either: who speaks is the Director's to settle.
+    assert [event["event"] for event in events if event["event"] != "user_message_created"] == ["step_start", "done"]
+    assert [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"] == []
 
 
 # ── steered regeneration ─────────────────────────────────────────────────────

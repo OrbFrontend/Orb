@@ -5,14 +5,15 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from .. import database as db
 from ..core import card_description, resolve_inline
 from ..inference import AbortToken, DecisionCancelled
 from ..prompting import prefix_is_speaker_scoped, tail_carries_identity
-from .cast import parse_speaking_plan, plan_cue, round_robin_member
-from .config import _resolve_pipeline_config, _split_interactive_fragments
+from .cast import choose_speakers
+from .config import _resolve_pipeline_config
 from .context import (
     PipelineContext,
     _build_prefixes,
@@ -20,9 +21,9 @@ from .context import (
     _prepare_turn,
     _TurnSetup,
 )
-from .failures import describe_failure
-from .orchestrator import _consume_direction_note_step, _run_pipeline
-from .passes.director import cooldown, direction_note_step, director_stage, progressive
+from .failures import STAGE_JUDGE, describe_failure, staged
+from .orchestrator import _run_pipeline, open_turn_state, run_director_stage
+from .passes.director import cooldown
 from .passes.editor.editor import AUDIT_BASELINE_WINDOW
 from .passes.judge import (
     JudgeResult,
@@ -34,8 +35,7 @@ from .passes.judge import (
     stored_evaluations,
 )
 from .persistence import _consume_pipeline, _conversation_log_writer
-from .predicates import direction_note_recording_active
-from .state import SheetUpdateTurn, TurnState
+from .state import SheetUpdateTurn, empty_state_report
 
 logger = logging.getLogger(__name__)
 
@@ -220,20 +220,24 @@ def _committed_exchange_decisions(
     return JudgeResult.committed(db.decision_evaluations_of(parent), parent.get("decision_cooldowns") or {})
 
 
-async def _load_direction_notes(ctx: PipelineContext, conversation_id: str, path: Sequence[Mapping[str, Any]]) -> None:
-    """Seed ``ctx.director['direction_notes']`` with the active-branch notes.
+async def _load_fragment_state(
+    ctx: PipelineContext,
+    conversation_id: str,
+    path: Sequence[Mapping[str, Any]],
+    *,
+    replacing: Mapping[str, Any] | None = None,
+) -> None:
+    """Seed ``ctx.director`` with the branch's state-fragment state.
 
-    Reconstructed from the messages on *path*, so the set is branch-correct; each note
-    carries its authoring fragment's label and the turn it was recorded on (mapped from
-    the path). Always loaded (cheap, empty when no notes exist) -- whether the notes are
-    injected into the prompt or shown to the recording step is decided by their own gates
-    downstream, independent of one another.
+    ``fragment_state`` folds every event anchored on *path*, so the state is
+    branch-correct. When the turn regenerates *replacing*, the user-made changes
+    anchored on that reply ride along as ``state_carried``: the new reply is
+    written with the correction, while the discarded reply's model-made changes
+    are regenerated rather than copied.
     """
-    rows = await db.get_direction_notes_for_path(conversation_id, [m["id"] for m in path])
-    turn_by_message = {m["id"]: m.get("turn_index") for m in path}
-    ctx.director["direction_notes"] = [
-        {**db.direction_note_projection(r), "turn_index": turn_by_message.get(r["message_id"])} for r in rows
-    ]
+    ctx.director["fragment_state"] = await db.fold_path_state(conversation_id, [m["id"] for m in path])
+    carried = await db.get_state_events_for_message(replacing["id"], sources={"user"}) if replacing else []
+    ctx.director["state_carried"] = [dict(event) for event in carried]
 
 
 async def _resolve_target_and_parent(
@@ -270,9 +274,9 @@ async def _prepare_regen_context(
 ) -> tuple[Sequence[Mapping[str, Any]], Sequence[Mapping[str, Any]]]:
     """Load history and attachments for a regeneration, and reset the director.
 
-    Resets the director's active moods and progressive fields to the pre-turn
-    baseline so the regenerated reply starts from the same state as the original.
-    Returns ``(history, attachments)``.
+    Resets the director's active moods and state fragments to the pre-turn
+    baseline so the regenerated reply starts from the same state as the original,
+    plus the user's corrections anchored on it. Returns ``(history, attachments)``.
     """
     if parent_msg.get("role") == "user":
         history_parent_id: int | None = parent_msg.get("parent_id")
@@ -281,15 +285,86 @@ async def _prepare_regen_context(
     history = await db.get_path_to_leaf(conversation_id, history_parent_id) if history_parent_id is not None else []
     moods_before = await db.get_moods_before_turn(conversation_id, target["turn_index"] - 1)
     ctx.director["active_moods"] = moods_before
-    ctx.director["progressive_fields"] = progressive.branch_baseline(history)
     ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(history)
     ctx.director["decision_cooldowns"] = decision_cooldown_baseline(
         history, before_exchange_id=str(target.get("exchange_id") or "") or None
     )
     ctx.director["decision_replay"] = stored_evaluations(db.decision_evaluations_of(target))
-    await _load_direction_notes(ctx, conversation_id, history)
+    # State folds through the parent even when *history* stops short of it: a
+    # correction the user anchored on the parent user message (the leaf before
+    # this reply existed) is on this reply's path, exactly as on the first turn.
+    state_path = [*history, parent_msg] if parent_msg.get("role") == "user" else history
+    await _load_fragment_state(ctx, conversation_id, state_path, replacing=target)
     attachments = await db.get_user_attachments_for_message(parent_msg["id"]) if parent_msg.get("role") == "user" else []
     return history, attachments
+
+
+@dataclass(frozen=True, slots=True)
+class _OpenedTurn:
+    """What :func:`_open_turn` settled: the frozen per-turn context and the decisions."""
+
+    setup: _TurnSetup
+    judge: JudgeResult | None
+
+
+async def _open_turn(
+    ctx: PipelineContext,
+    conversation_id: str,
+    *,
+    history: Sequence[Mapping[str, Any]],
+    settings: Mapping[str, Any],
+    last_user_message: str,
+    lorebook_messages: Sequence[Mapping[str, Any]],
+    decision_history: Sequence[Mapping[str, Any]],
+    decision_request: str,
+    decision_anchor: int | None,
+    committed: JudgeResult | None = None,
+) -> AsyncIterator[dict | _OpenedTurn]:
+    """Freeze the turn's context, then settle its decisions, for either driver.
+
+    *committed* is a result an earlier reply of the same exchange already
+    persisted; it is re-announced rather than re-judged. Ends without an
+    ``_OpenedTurn`` when stop was pressed by then: cancellation is not a provider
+    failure, and the Director pass would refuse to call anyway, so the caller
+    closes the request instead of announcing a directing phase it will not run.
+    """
+    setup: _TurnSetup | None = None
+    async for ev in _prepare_turn(
+        ctx,
+        conversation_id,
+        history=history,
+        settings=settings,
+        last_user_message=last_user_message,
+        lorebook_messages=lorebook_messages,
+    ):
+        if isinstance(ev, _TurnSetup):
+            setup = ev
+        else:
+            yield ev
+    assert setup is not None
+
+    judge = committed
+    if judge is not None:
+        if judge.evaluations or judge.skipped:
+            yield {"event": "decisions", "data": judge.as_event_data()}
+    else:
+        async for ev in staged(
+            STAGE_JUDGE,
+            _run_judge(
+                ctx,
+                history=decision_history,
+                current_request=decision_request,
+                macros=setup.macros,
+                anchor_message_id=decision_anchor,
+            ),
+        ):
+            if isinstance(ev, JudgeResult):
+                judge = ev
+            else:
+                yield ev
+    if ctx.client.is_aborted:
+        return
+    yield _OpenedTurn(setup, judge)
 
 
 async def _generate_reply(
@@ -320,42 +395,29 @@ async def _generate_reply(
     it must differ from the writer's, as on the steered paths; ``None`` means
     the writer's own *history* and *user_message*.
     """
-    setup: _TurnSetup | None = None
-    async for ev in _prepare_turn(
+    decision_history, decision_request = decision_input or (history, user_message)
+    opened: _OpenedTurn | None = None
+    async for ev in _open_turn(
         ctx,
         conversation_id,
         history=history,
         settings=settings,
         last_user_message=last_user_message,
         lorebook_messages=lorebook_messages,
-    ):
-        if isinstance(ev, _TurnSetup):
-            setup = ev
-        else:
-            yield ev
-    assert setup is not None
-
-    decision_history, decision_request = decision_input or (history, user_message)
-    judge: JudgeResult | None = None
-    async for ev in _run_judge(
-        ctx,
-        history=decision_history,
-        current_request=decision_request,
-        macros=setup.macros,
-        anchor_message_id=(
+        decision_history=decision_history,
+        decision_request=decision_request,
+        decision_anchor=(
             user_msg_id if user_msg_id is not None else (decision_history[-1]["id"] if decision_history else None)
         ),
     ):
-        if isinstance(ev, JudgeResult):
-            judge = ev
+        if isinstance(ev, _OpenedTurn):
+            opened = ev
         else:
             yield ev
-    # The same guard the group driver has. Cancellation is not a provider
-    # failure: the director pass already refuses to call once the token is set,
-    # but without this the turn still announces a directing phase it will not run.
-    if ctx.client.is_aborted:
+    if opened is None:
         yield {"event": "done"}
         return
+    setup = opened.setup
 
     pipeline = _run_pipeline(
         ctx.client,
@@ -381,7 +443,8 @@ async def _generate_reply(
         schema_overrides=setup.schema_overrides,
         history=history,
         world_proposal=setup.world_proposal,
-        judge=judge,
+        judge=opened.judge,
+        state_contract=ctx.state_contract,
     )
     async for event in _consume_pipeline(
         pipeline,
@@ -430,21 +493,30 @@ async def _generate_group_exchange(
         yield {"event": "done"}
         return
 
-    setup: _TurnSetup | None = None
-    lorebook_messages = [*history, *([{"role": "user", "content": user_message}] if user_message else [])]
-    async for ev in _prepare_turn(
+    decision_history, decision_request, decision_anchor = _exchange_decision_input(
+        history, user_message, parent_message_id, exchange_id=decision_exchange_id, steering=decision_steering
+    )
+    opened: _OpenedTurn | None = None
+    async for ev in _open_turn(
         ctx,
         conversation_id,
         history=history,
         settings=settings,
         last_user_message=user_message,
-        lorebook_messages=lorebook_messages,
+        lorebook_messages=[*history, *([{"role": "user", "content": user_message}] if user_message else [])],
+        decision_history=decision_history,
+        decision_request=decision_request,
+        decision_anchor=decision_anchor,
+        committed=_committed_exchange_decisions(history, parent_message_id, decision_exchange_id),
     ):
-        if isinstance(ev, _TurnSetup):
-            setup = ev
+        if isinstance(ev, _OpenedTurn):
+            opened = ev
         else:
             yield ev
-    assert setup is not None
+    if opened is None:
+        yield {"event": "done"}
+        return
+    setup = opened.setup
 
     cfg = _resolve_pipeline_config(
         settings,
@@ -457,47 +529,21 @@ async def _generate_group_exchange(
         phrase_bank=ctx.phrase_bank,
         schema_overrides=setup.schema_overrides,
     )
-    writer_fragments, _, direction_note_fragments, _ = _split_interactive_fragments(ctx.interactive_fragments)
-    shared = TurnState(
-        user_message=setup.macros.resolve_message(user_message),
-        effective_msg=setup.macros.resolve_message(user_message),
-        active_moods=ctx.director["active_moods"],
-        macro_choices=dict(ctx.director.get("macro_choices") or {}),
-        fragment_cooldowns=dict(ctx.director.get("fragment_cooldowns") or {}),
-    )
+    shared = open_turn_state(ctx.director, setup.macros.resolve_message(user_message))
+    if opened.judge is not None:
+        opened.judge.apply_to(shared)
 
-    judge = _committed_exchange_decisions(history, parent_message_id, decision_exchange_id)
-    if judge is not None:
-        if judge.evaluations or judge.skipped:
-            yield {"event": "decisions", "data": judge.as_event_data()}
-    else:
-        decision_history, decision_request, decision_anchor = _exchange_decision_input(
-            history, user_message, parent_message_id, exchange_id=decision_exchange_id, steering=decision_steering
-        )
-        async for ev in _run_judge(
-            ctx,
-            history=decision_history,
-            current_request=decision_request,
-            macros=setup.macros,
-            anchor_message_id=decision_anchor,
-        ):
-            if isinstance(ev, JudgeResult):
-                judge = ev
-            else:
-                yield ev
-    if judge is not None:
-        judge.apply_to(shared)
-    if ctx.client.is_aborted:
-        yield {"event": "done"}
-        return
-
-    async for ev in director_stage(
+    # One Director stage for the whole exchange, including its before-Writer state
+    # changes: they ride the exchange's first reply, the row `_consume_pipeline`
+    # anchors them to, and every speaker writes with the resulting state.
+    async for ev in run_director_stage(
         cfg,
         shared,
         settings=settings,
         director=ctx.director,
         mood_fragments=ctx.mood_fragments,
-        writer_fragments=writer_fragments,
+        interactive_fragments=ctx.interactive_fragments,
+        state_contract=ctx.state_contract,
         attachments=attachments,
         kv_tracker=setup.kv_tracker,
         lorebook=setup.lorebook,
@@ -508,61 +554,20 @@ async def _generate_group_exchange(
         # Same list the plan is validated against below, so the request cannot
         # advertise a key `parse_speaking_plan` would then reject.
         speaker_keys=", ".join(str(member["speaker_key"]) for member in eligible),
-        decision_guidance=shared.decision_guidance,
     ):
         yield ev
     if ctx.client.is_aborted:
         yield {"event": "done"}
         return
 
-    # The pre-writer note step reflects on the scene direction the Director just
-    # set, and in a group that direction is set once for the whole exchange — so the
-    # step belongs here beside it, not inside a speaker's pipeline (which runs
-    # with the Director already done and would repeat it per reply). Its notes
-    # ride the exchange's first reply, the row `_consume_pipeline` anchors them to.
-    pre_writer_notes = [df for df in direction_note_fragments if df.get("direction_note_timing") == "pre_writer"]
-    if direction_note_recording_active(settings, pre_writer_notes, agent_on=cfg.agent_on) and cfg.enabled_tools.get(
-        "direct_scene"
-    ):
-        async for ev in _consume_direction_note_step(
-            direction_note_step(
-                cfg.agent_lane.client,
-                cfg.agent_lane.base,
-                settings=settings,
-                direction_note_fragments=pre_writer_notes,
-                active_notes=ctx.director.get("direction_notes") or [],
-                placement="pre_writer",
-                inj_block=shared.scene_direction,
-                kv_tracker=setup.kv_tracker,
-                reasoning_on=cfg.director_reasoning_on,
-                reasoning_prefill=cfg.director_reasoning_prefill,
-            ),
-            shared,
-            "director",
-        ):
-            yield ev
-
-    # Who speaks is settled here; what the Director wrote for whoever that turns
-    # out to be is settled by `plan_cue`. The two are separate questions -- a pin
-    # and round-robin answer the first without the plan and still deserve the
-    # second, or the Director is half-ignored on every path but `director`.
-    plan_rows: list[tuple[Mapping[str, Any], str]]
-    raw_plan = shared.extra_fields.get("speaking_plan")
-    if pinned_speaker_id:
-        pinned = next(m for m in eligible if m["id"] == pinned_speaker_id)
-        plan_rows = [(pinned, plan_cue(raw_plan, rows, pinned_speaker_id))]
-    elif ctx.conv.get("group_turn_mode") == "round_robin":
-        member = round_robin_member(rows, history)
-        plan_rows = [(member, plan_cue(raw_plan, rows, str(member["id"])))] if member else []
-    else:
-        parsed = parse_speaking_plan(raw_plan, rows, int(ctx.conv["group_max_speakers"]))
-        if parsed is None:
-            # Unusable plan, not merely an unused one: nothing in it resolved to a
-            # member, so there is no cue to carry over to the fallback speaker.
-            member = round_robin_member(rows, history)
-            plan_rows = [(member, "")] if member else []
-        else:
-            plan_rows = parsed
+    plan_rows = choose_speakers(
+        shared.extra_fields.get("speaking_plan"),
+        rows,
+        history,
+        mode=ctx.conv.get("group_turn_mode"),
+        cap=int(ctx.conv["group_max_speakers"]),
+        pinned_id=pinned_speaker_id,
+    )
 
     cast_by_id = {member.member_id: member for member in ctx.cast.members}
     # Only when this request brought no user message of its own: a `/send` starts a
@@ -617,7 +622,7 @@ async def _generate_group_exchange(
         if speaker is None:
             break
         # The exchange's last planned speaker carries every once-per-exchange step:
-        # the Dynamic Worlds proposal, the sheet pass, and the post-turn note step.
+        # the Dynamic Worlds proposal, the sheet pass, and the after-reply state step.
         is_final = index == len(plan_rows) - 1
         turn_index = first_turn_index + index
         yield {
@@ -704,6 +709,7 @@ async def _generate_group_exchange(
             run_director=False,
             director_seed=shared,
             run_exchange_final=is_final,
+            state_contract=ctx.state_contract,
         )
         persisted_id: int | None = None
         persisted_content = ""
@@ -728,10 +734,12 @@ async def _generate_group_exchange(
         if persisted_id is None:
             break
         spoke.append((speaker.member_id, speaker.name, persisted_content))
-        # The exchange's pre-writer notes have now landed on its first reply. They are
-        # one recording, not one per speaker, so the seed stops carrying them
-        # before the next speaker copies (and re-persists) the same rows.
-        shared.direction_notes = []
+        # The exchange's before-Writer state changes have now landed on its first
+        # reply. They are one update, not one per speaker, so the seed stops
+        # carrying them before the next speaker copies (and re-persists) the same
+        # rows; the resulting state view stays, so every speaker reads it.
+        shared.state_events = []
+        shared.state_report = empty_state_report()
         grown_history.append(
             {
                 "id": persisted_id,
@@ -797,11 +805,10 @@ async def handle_turn(
             history, user_msg_id = messages[:-1], messages[-1]["id"]
             user_turn = messages[-1]["turn_index"]
 
-        # Read progressive_fields from the grandparent node (branch-aware, unlike conversation_logs).
-        ctx.director["progressive_fields"] = progressive.branch_baseline(messages)
+        # Branch-aware state, unlike conversation_logs: folded from the active path.
         ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(messages)
         ctx.director["decision_cooldowns"] = decision_cooldown_baseline(messages)
-        await _load_direction_notes(ctx, conversation_id, messages)
+        await _load_fragment_state(ctx, conversation_id, messages)
 
         exchange_id: str | None = None
         if not skip_user_persist:
@@ -884,8 +891,7 @@ async def handle_speak(
             yield {"event": "error", "data": "Conversation is not a group"}
             return
         messages = await db.get_messages(conversation_id)
-        await _load_direction_notes(ctx, conversation_id, messages)
-        ctx.director["progressive_fields"] = progressive.branch_baseline(messages)
+        await _load_fragment_state(ctx, conversation_id, messages)
         ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(messages)
         ctx.director["decision_cooldowns"] = decision_cooldown_baseline(messages)
         next_turn = (messages[-1]["turn_index"] + 1) if messages else 0
@@ -948,12 +954,11 @@ async def handle_fork_edit(
         asst_turn = turn_index + 1
         history = await db.get_path_to_leaf(conversation_id, parent_id) if parent_id is not None else []
 
-        # Reset director to branch-point baseline (branch-aware progressive_fields).
+        # Reset director to the branch-point baseline (branch-aware state).
         ctx.director["active_moods"] = await db.get_moods_before_turn(conversation_id, turn_index)
-        ctx.director["progressive_fields"] = progressive.branch_baseline(history)
         ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(history)
         ctx.director["decision_cooldowns"] = decision_cooldown_baseline(history)
-        await _load_direction_notes(ctx, conversation_id, history)
+        await _load_fragment_state(ctx, conversation_id, history)
 
         # Carry original attachments onto the new sibling.
         carried_atts = await db.get_user_attachments_for_message(user_msg_id)

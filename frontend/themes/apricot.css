@@ -68,11 +68,11 @@ body {
   background-attachment: fixed !important;
 }
 
-#sidebar, #inspector, #tools-panel, #direction-notes-panel {
+#sidebar, #inspector, #tools-panel, #state-panel {
   background: var(--bg-primary) !important;
 }
 #sidebar { border-right: 2px solid var(--ink) !important; }
-#inspector.open, #tools-panel.open, #direction-notes-panel.open {
+#inspector.open, #tools-panel.open, #state-panel.open {
   border-left: 2px solid var(--ink) !important;
 }
 
@@ -88,10 +88,10 @@ body {
   #app { padding: 12px; }
 
   #sidebar { margin-right: 12px; }
-  #inspector.open, #tools-panel.open, #direction-notes-panel.open { margin-left: 12px; }
+  #inspector.open, #tools-panel.open, #state-panel.open { margin-left: 12px; }
 
   #sidebar,
-  #inspector.open, #tools-panel.open, #direction-notes-panel.open {
+  #inspector.open, #tools-panel.open, #state-panel.open {
     border: 2px solid var(--ink) !important;
     border-radius: 16px !important;
     box-shadow: var(--shadow-card) !important;

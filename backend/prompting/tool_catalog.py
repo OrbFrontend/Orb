@@ -14,12 +14,12 @@ from .tool_schemas import (
     GIVE_FEEDBACK_CHOICE,
     PROPOSE_WORLD_CHANGES_CHOICE,
     PROPOSE_WORLD_CHANGES_TOOL,
-    RECORD_DIRECTION_NOTE_CHOICE,
     SELECT_LOREBOOK_CHOICE,
     SELECT_LOREBOOK_TOOL,
+    UPDATE_STATE_CHOICE,
     build_direct_scene_tool,
-    build_direction_note_tool,
     build_feedback_tool,
+    build_state_tool,
 )
 
 BUILTIN_TOOL_ORDER = (
@@ -28,7 +28,7 @@ BUILTIN_TOOL_ORDER = (
     "editor_rewrite",
     "editor_search_replace",
     "give_feedback",
-    "record_direction_note",
+    "update_state",
     "select_lorebook",
     "propose_world_changes",
 )
@@ -55,9 +55,9 @@ _tools: dict[str, dict] = {
         "choice": deepcopy(GIVE_FEEDBACK_CHOICE),
         "schema": build_feedback_tool([]),
     },
-    "record_direction_note": {
-        "choice": deepcopy(RECORD_DIRECTION_NOTE_CHOICE),
-        "schema": build_direction_note_tool([]),
+    "update_state": {
+        "choice": deepcopy(UPDATE_STATE_CHOICE),
+        "schema": build_state_tool([]),
     },
     "select_lorebook": {
         "choice": deepcopy(SELECT_LOREBOOK_CHOICE),

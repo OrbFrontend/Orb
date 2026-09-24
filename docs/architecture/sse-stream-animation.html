@@ -398,7 +398,7 @@ const STEPS = [
     passDone: ["user", "director"], passActive: "writer", fePhase: "generating", fePhaseText: "Writing the reply…",
     dots: ["done", "active", ""], bubble: null,
     feline: `status → <b>Writing the reply…</b>`,
-    beNote: `Each core step announces itself as it starts: lorebook, direction notes, writer, and every Editor sub-step.`,
+    beNote: `Each core step announces itself as it starts: lorebook, state, writer, and every Editor sub-step.`,
     narr: `<span class="mw">step_start</span> carries only a step id. The FE looks up its status text — <span class="k">Writing the reply…</span>, <span class="k">Auditing the draft…</span>, <span class="k">Applying post-processing…</span>, <span class="k">Preparing feedback…</span>, … — and shows it until the next step starts. Steps that don't run this turn never announce, so the bar only ever describes real work.`,
   }),
 

@@ -710,8 +710,9 @@ function renderChatActionMenus() {
     "convert-to-group": !grouped && Boolean(S.activeConvId),
     inspector: true,
   };
+  // Only the actions this menu owns; the State button shows and hides itself.
   for (const item of document.querySelectorAll("[data-chat-action]")) {
-    item.hidden = !visible[item.dataset.chatAction];
+    if (item.dataset.chatAction in visible) item.hidden = !visible[item.dataset.chatAction];
   }
 }
 

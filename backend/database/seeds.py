@@ -83,6 +83,44 @@ SEED_MOOD_FRAGMENTS = [
     },
 ]
 
+# Shared with migration 0067, which seeds the same rows into existing installs.
+STARTER_STATE_FRAGMENTS = [
+    {
+        "id": "inventory",
+        "label": "Inventory",
+        "description": (
+            "Items the characters carry or own that matter to the story, one per entry, naming who holds it, such as "
+            '"Mara: the brass key". An entry contains only the item\'s name. '
+            "Add an item when someone gains it and retire it once it is used up or lost. "
+            "When an item changes hands, retire it and add it under its new holder."
+        ),
+        "field_type": "state",
+        "required": False,
+        "injection_label": "Inventory",
+        "sort_order": 8,
+        "enabled": False,
+        "state_mode": "entries",
+        "state_update": "after_reply",
+        "state_inject": "both",
+    },
+]
+
+# Free-form notes the user keeps by hand. Migration 0067 moves user-authored
+# direction notes here, taking its Inject setting from the old global one.
+NOTES_STATE_FRAGMENT = {
+    "id": "notes",
+    "label": "Notes",
+    "description": "Your own lasting notes for this conversation.",
+    "field_type": "state",
+    "required": False,
+    "injection_label": "Notes",
+    "sort_order": 10,
+    "enabled": False,
+    "state_mode": "entries",
+    "state_update": "manual",
+    "state_inject": "both",
+}
+
 SEED_INTERACTIVE_FRAGMENTS = [
     {
         "id": "outcome",
@@ -204,14 +242,17 @@ SEED_INTERACTIVE_FRAGMENTS = [
             "character's established characterization -- how they act, how they relate to the user "
             "and other characters, or what they believe about the world or themselves. A single "
             "character may change in several of these ways at once; record every change that "
-            "qualifies -- several, one, or none at all -- naming the character, the change, and its cause."
+            "qualifies -- several, one, or none at all -- naming the character, the change, and its cause. "
+            "Retire an entry once a later change supersedes it."
         ),
-        "field_type": "direction_note",
+        "field_type": "state",
         "required": False,
         "injection_label": "Characterization",
         "sort_order": 6,
         "enabled": False,
-        "direction_note_timing": "post_turn",
+        "state_mode": "entries",
+        "state_update": "after_reply",
+        "state_inject": "both",
     },
     {
         "id": "humanize_dialogue",
@@ -227,6 +268,9 @@ SEED_INTERACTIVE_FRAGMENTS = [
         "sort_order": 7,
         "enabled": False,
     },
+    # Starter state fragments, one per mode. Disabled until the user opts in.
+    *STARTER_STATE_FRAGMENTS,
+    NOTES_STATE_FRAGMENT,
 ]
 
 DEFAULT_ENABLED_TOOLS = {
@@ -285,8 +329,7 @@ DEFAULT_SETTINGS = {
     "agent_shared_system_prompt": "",
     "feedback_enabled": 0,
     "director_individual_fragments": 0,
-    "direction_notes_record": 0,
-    "direction_notes_inject": "off",
+    "state_updates": 1,
     "workflows_globally_enabled": 1,
 }
 

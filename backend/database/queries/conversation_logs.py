@@ -20,11 +20,12 @@ async def add_conversation_log(
     reasoning_writer: str = "",
     reasoning_editor: str = "",
     feedback: dict | None = None,
+    state_report: dict | None = None,
 ):
     async with get_db() as db:
         now = datetime.now(UTC).isoformat()
         await db.execute(
-            "INSERT INTO conversation_logs (conversation_id, turn_index, tool_calls, active_moods_after, injection_block, agent_latency_ms, created_at, message_id, reasoning_director, reasoning_writer, reasoning_editor, feedback) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO conversation_logs (conversation_id, turn_index, tool_calls, active_moods_after, injection_block, agent_latency_ms, created_at, message_id, reasoning_director, reasoning_writer, reasoning_editor, feedback, state_report) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 cid,
                 turn_index,
@@ -38,6 +39,7 @@ async def add_conversation_log(
                 reasoning_writer,
                 reasoning_editor,
                 json.dumps(feedback or {}),
+                json.dumps(state_report or {}, ensure_ascii=False),
             ),
         )
         await db.commit()
@@ -63,6 +65,11 @@ def _decoded_log(row) -> dict:
     d["tool_calls"] = json.loads(d["tool_calls"]) if d["tool_calls"] else []
     d["active_moods_after"] = json.loads(d["active_moods_after"]) if d["active_moods_after"] else []
     d["feedback"] = json.loads(d["feedback"]) if d.get("feedback") else {}
+    try:
+        report = json.loads(d["state_report"]) if d.get("state_report") else {}
+    except ValueError:
+        report = {}
+    d["state_report"] = report if isinstance(report, dict) else {}
     raw_decisions = d.pop("message_decision_evaluations", None)
     try:
         decoded = json.loads(raw_decisions) if raw_decisions else {}

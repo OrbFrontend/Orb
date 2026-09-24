@@ -34,12 +34,12 @@ def test_fragment_split_has_four_disjoint_groups_and_leaves_decisions_out():
     fragments = [
         _fragment("plot", "string"),
         _fragment("feedback", "feedback"),
-        _fragment("note", "direction_note"),
+        _fragment("note", "state"),
         _fragment("humanize", "post_processing"),
         _fragment("outcome", "decision"),
     ]
-    writer, feedback, notes, post_processing = _split_interactive_fragments(fragments)
-    assert [[f["id"] for f in group] for group in (writer, feedback, notes, post_processing)] == [
+    scene, feedback, state, post_processing = _split_interactive_fragments(fragments)
+    assert [[f["id"] for f in group] for group in (scene, feedback, state, post_processing)] == [
         ["plot"],
         ["feedback"],
         ["note"],
@@ -55,22 +55,22 @@ def test_post_processing_activation_requires_agent_and_fragment():
 
 
 def test_tool_blob_activation_is_independent_of_output_auditor():
-    enabled_tools = {"direct_scene": True, "editor_apply_patch": False}
-    _build_writer_tools_blob(
+    requested = {"direct_scene": True, "editor_apply_patch": False}
+    _, enabled_tools = _build_writer_tools_blob(
         {"enable_agent": True},
         [_fragment("humanize", "post_processing")],
-        enabled_tools,
+        requested,
     )
     assert enabled_tools["editor_search_replace"] is True
     assert enabled_tools["editor_apply_patch"] is False
+    assert "editor_search_replace" not in requested
 
 
 def test_tool_blob_does_not_activate_when_agent_is_off():
-    enabled_tools = {"direct_scene": True}
-    _build_writer_tools_blob(
+    _, enabled_tools = _build_writer_tools_blob(
         {"enable_agent": False},
         [_fragment("humanize", "post_processing")],
-        enabled_tools,
+        {"direct_scene": True},
     )
     assert "editor_search_replace" not in enabled_tools
 

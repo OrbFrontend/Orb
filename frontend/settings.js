@@ -13,6 +13,7 @@ import {
 } from "./settings_models.js";
 import { loadPersonas, updateUserBtn } from "./settings_personas.js";
 import { effectiveWorkflowEnabled, localMlReady, S } from "./state.js";
+import { refreshState } from "./state_panel.js";
 import { $, esc, escAttr, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
@@ -83,9 +84,7 @@ export async function loadSettings() {
 
   S.feedbackEnabled = Boolean(S.settings.feedback_enabled);
   S.directorIndividualFragments = Boolean(S.settings.director_individual_fragments);
-  S.directionNotesRecord = Boolean(S.settings.direction_notes_record);
-  S.directionNotesInject = S.settings.direction_notes_inject || "off";
-  updateDirectionNotesButton();
+  S.stateUpdates = S.settings.state_updates !== 0 && S.settings.state_updates !== false;
 
   if (S.settings.length_guard_max_words) S.lengthGuardMaxWords = S.settings.length_guard_max_words;
   if (S.settings.length_guard_max_paragraphs) S.lengthGuardMaxParagraphs = S.settings.length_guard_max_paragraphs;
@@ -433,6 +432,8 @@ export async function setAgentEnabled(on) {
 export async function toggleToolEnabled(id, on) {
   S.enabledTools[id] = on;
   renderToolsPanel();
+  // Direction gates before-Writer state updates, which the fragment list notes.
+  renderInteractiveFragments();
   await persistSettings({ enabled_tools: S.enabledTools });
 }
 
@@ -467,31 +468,16 @@ export async function toggleDirectorIndividualFragments(on) {
   await persistSettings({ director_individual_fragments: on });
 }
 
-export async function setDirectionNotesRecord(on) {
-  S.directionNotesRecord = on;
+$("tools-list")?.addEventListener("change", (e) => {
+  if (e.target.dataset?.toolsToggle === "state-updates") setStateUpdates(e.target.checked);
+});
+
+async function setStateUpdates(on) {
+  S.stateUpdates = on;
   renderToolsPanel();
   renderInteractiveFragments();
-  renderMessages();
-  updateDirectionNotesButton();
-  await persistSettings({ direction_notes_record: on });
-}
-
-export async function setDirectionNotesInject(val) {
-  S.directionNotesInject = val;
-  renderToolsPanel();
-  updateDirectionNotesButton();
-  await persistSettings({ direction_notes_inject: val });
-}
-
-function updateDirectionNotesButton() {
-  const on = S.directionNotesRecord || S.directionNotesInject !== "off";
-  for (const id of ["direction-notes-panel-btn", "mobile-direction-notes-btn"]) {
-    const el = $(id);
-    if (el) el.classList.toggle("hidden", !on);
-  }
-  if (!on && isUtilityPanelOpen("direction-notes-panel")) {
-    closeUtilityPanel("direction-notes-panel", "direction-notes-panel-btn");
-  }
+  await persistSettings({ state_updates: on });
+  refreshState();
 }
 
 export async function toggleShowEditorDiff(on) {
@@ -718,27 +704,16 @@ export function renderToolsPanel() {
     <div class="tool-card-desc">After each reply, surfaces a note to you (e.g. what you could do next). Runs only when at least one interactive fragment has its Field Type set to "feedback".</div>
   </div>`;
 
-  const dnRecord = S.directionNotesRecord === true;
-  const dnInject = S.directionNotesInject || "off";
-  const directionNotesCard = `<div class="tool-card ${dnRecord || dnInject !== "off" ? "tool-on" : ""}">
+  const stateOn = S.stateUpdates;
+  const stateUpdatesCard = `<div class="tool-card ${stateOn ? "tool-on" : ""}">
     <div class="tool-card-header">
-      <span class="tool-card-name">Direction Notes</span>
-    </div>
-    <div class="dn-config setting-row">
-      <label>Recording</label>
-      <label class="tog" onclick="event.stopPropagation()">
-        <input type="checkbox" ${dnRecord ? "checked" : ""} onchange="setDirectionNotesRecord(this.checked)">
+      <span class="tool-card-name">State Updates</span>
+      <label class="tog">
+        <input type="checkbox" ${stateOn ? "checked" : ""} data-tools-toggle="state-updates">
         <span class="tog-slider"></span>
       </label>
-      <label>Injection</label>
-      <select class="tool-card-select" onchange="setDirectionNotesInject(this.value)">
-        <option value="off" ${dnInject === "off" ? "selected" : ""}>Off</option>
-        <option value="director" ${dnInject === "director" ? "selected" : ""}>Director</option>
-        <option value="writer" ${dnInject === "writer" ? "selected" : ""}>Writer</option>
-        <option value="both" ${dnInject === "both" ? "selected" : ""}>Director and writer</option>
-      </select>
     </div>
-    <div class="tool-card-desc">Lets the Agent keep lasting notes as the story unfolds. <b>Recording</b> saves them; <b>Injection</b> feeds saved notes back to the director, writer, or both.</div>
+    <div class="tool-card-desc">Lets the Agent keep state fragments up to date. When off, saved state is still injected and editable in the State panel.</div>
   </div>`;
 
   const divider = (label) => `<div class="tools-divider"><span>${label}</span></div>`;
@@ -747,7 +722,7 @@ export function renderToolsPanel() {
     divider("Director") +
     cardById.direct_scene +
     agenticLorebookCard +
-    directionNotesCard +
+    stateUpdatesCard +
     divider("Editor") +
     cardById.editor_apply_patch +
     lengthGuardCard +

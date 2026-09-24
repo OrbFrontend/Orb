@@ -3,7 +3,7 @@ import { $ } from "./utils.js";
 const UTILITY_PANELS = [
   ["tools-panel", "tools-panel-btn"],
   ["inspector", "inspector-toggle"],
-  ["direction-notes-panel", "direction-notes-panel-btn"],
+  ["state-panel", "state-panel-btn"],
 ];
 
 function clearActive(btnId) {

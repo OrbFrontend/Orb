@@ -70,7 +70,7 @@ DATASETS = ("worlds", "characters", "personas", "chats", "groups")
 # them the INSERTs would fail halfway through, so they are checked up front.
 REQUIRED_COLUMNS = {
     "conversations": ("kind", "group_turn_mode", "group_context_mode", "group_sheet_updates", "macro_seed"),
-    "messages": ("turn_index", "parent_id", "progressive_fields", "speaker_member_id", "exchange_id"),
+    "messages": ("turn_index", "parent_id", "speaker_member_id", "exchange_id"),
     "character_cards": ("extensions", "world_id", "avatar_b64", "avatar_mime", "source_format"),
     "lorebook_entries": ("entry_layer", "overlay_action", "use_regex", "selective", "secondary_keys"),
     "group_members": ("speaker_key", "card_sheet_override", "public_profile_override", "member_kind"),
@@ -473,9 +473,9 @@ def insert_message(
 ) -> int:
     cursor = conn.execute(
         """INSERT INTO messages
-           (conversation_id, role, content, turn_index, parent_id, progressive_fields, created_at,
+           (conversation_id, role, content, turn_index, parent_id, created_at,
             speaker_member_id, exchange_id)
-           VALUES (?, ?, ?, ?, ?, '{}', ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (conversation_id, role, content, turn_index, parent_id, created_at, speaker_member_id, exchange_id),
     )
     message_id = cursor.lastrowid

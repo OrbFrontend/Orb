@@ -9,13 +9,12 @@ import {
 } from "./chat_core.js";
 import { clearInspectedMessage, clearWorkflowPhase, renderInspector, setWorkflowPhase } from "./chat_inspector.js";
 import { runStreamRequest, turnPayload } from "./chat_stream.js";
-import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageHtml } from "./message_html.js";
 import { confirmDelete } from "./modal.js";
-import { isUtilityPanelOpen } from "./panels.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { S } from "./state.js";
+import { refreshState } from "./state_panel.js";
 import { requestSendPermission } from "./tabLock.js";
 import {
   $,
@@ -86,6 +85,14 @@ export async function inspectMessage(msgId) {
   }
 }
 
+// A manual state edit lands on the branch's latest message. When the Inspector
+// shows that reply, re-read it so its state block lists the edit.
+document.addEventListener("state-changed", () => {
+  const leaf = S.messages.at(-1);
+  if (leaf?.role !== "assistant" || !leaf.id) return;
+  if (S.inspectedMsgId == null || S.inspectedMsgId === leaf.id) inspectMessage(leaf.id);
+});
+
 function focusEditTextarea(ta, onEscape) {
   if (!ta) return;
   ta.addEventListener("keydown", (e) => {
@@ -118,10 +125,12 @@ export async function deleteMessage(msgId) {
     try {
       setMessages(await api.del(convUrl(S.activeConvId, "messages", msgId)));
       S.lastDirectorData = null;
+      S.lastFeedback = null;
+      S.lastState = null;
       S.directorState = await api.get(convUrl(S.activeConvId, "director"));
       renderMessages();
       clearInspectedMessage();
-      if (isUtilityPanelOpen("direction-notes-panel")) await renderDirectionNotesPanel();
+      await refreshState();
       setChatFollowing(true);
       scrollToBottom();
       toast("Message deleted");
@@ -245,11 +254,13 @@ export async function switchBranch(msgId) {
     // Inspector-only state. It never feeds the message list, so it trails the
     // paint instead of holding it behind another round trip.
     S.lastDirectorData = null;
+    S.lastFeedback = null;
+    S.lastState = null;
     const directorState = await api.get(convUrl(S.activeConvId, "director"));
     if (seq !== _branchSwitchSeq) return;
     S.directorState = directorState;
     await inspectMessage(msgId);
-    if (isUtilityPanelOpen("direction-notes-panel")) await renderDirectionNotesPanel();
+    await refreshState();
   } catch (e) {
     toast(e.message, true);
   }

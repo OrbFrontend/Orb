@@ -28,7 +28,7 @@ _EDITOR_FUNCTION_NAMES = {"editor_apply_patch", "editor_rewrite"}
 _POST_PROCESSING_FUNCTION_NAMES = {"editor_search_replace"}
 _DIRECTOR_FUNCTION_NAMES = {"direct_scene"}
 _FEEDBACK_FUNCTION_NAMES = {"give_feedback"}
-_DIRECTION_NOTE_FUNCTION_NAMES = {"record_direction_note"}
+_STATE_FUNCTION_NAMES = {"update_state"}
 _WORLD_CHANGE_FUNCTION_NAMES = {"propose_world_changes"}
 # The library auto-tagger. Named here rather than left to the "workflow"
 # catch-all below because that branch is also the one *exempted* from the
@@ -97,8 +97,8 @@ def _pass_from_tool_choice(tool_choice: Any) -> str:
             return "director"
         if name in _FEEDBACK_FUNCTION_NAMES:
             return "feedback"
-        if name in _DIRECTION_NOTE_FUNCTION_NAMES:
-            return "direction_note"
+        if name in _STATE_FUNCTION_NAMES:
+            return "state"
         if name in _WORLD_CHANGE_FUNCTION_NAMES:
             return "world_change"
         if name in _AUTO_TAG_FUNCTION_NAMES:
@@ -140,7 +140,7 @@ class FakeLLMClient:
             "editor": [],
             "post_processing": [],
             "feedback": [],
-            "direction_note": [],
+            "state": [],
             "world_change": [],
             "auto_tag": [],
             "workflow": [],
@@ -162,7 +162,7 @@ class FakeLLMClient:
             "editor": [],
             "post_processing": [],
             "feedback": [],
-            "direction_note": [],
+            "state": [],
             "world_change": [],
             "auto_tag": [],
             "workflow": [],
@@ -221,10 +221,10 @@ class FakeLLMClient:
         _validate_tool_calls(tool_calls)
         self._queues["post_processing"].append({"tool_calls": tool_calls})
 
-    def enqueue_direction_note(self, tool_calls: list[dict]) -> None:
-        """Queue a director-notes response (the ``record_direction_note`` forced call)."""
+    def enqueue_state(self, tool_calls: list[dict]) -> None:
+        """Queue a state-update response (the ``update_state`` forced call)."""
         _validate_tool_calls(tool_calls)
-        self._queues["direction_note"].append({"tool_calls": tool_calls})
+        self._queues["state"].append({"tool_calls": tool_calls})
 
     def enqueue_world_change(self, tool_calls: list[dict]) -> None:
         """Queue a Dynamic Worlds response (the ``propose_world_changes`` forced call)."""
@@ -353,7 +353,7 @@ class FakeLLMClient:
             }
             return
 
-        if pass_name in ("direction_note", "world_change", "auto_tag"):
+        if pass_name in ("state", "world_change", "auto_tag"):
             payload = self._queues[pass_name].pop(0) if self._queues[pass_name] else {"tool_calls": []}
             yield {
                 "type": "done",

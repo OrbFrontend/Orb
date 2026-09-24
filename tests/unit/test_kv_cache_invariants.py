@@ -53,11 +53,12 @@ from backend.inference.kv_tracker import (
 )
 from backend.pipeline.orchestrator import _run_pipeline
 from backend.pipeline.passes.editor.editor import editor_pass
+from backend.pipeline.passes.state import StateContract
 from backend.prompting.tool_catalog import enabled_schemas
 from backend.prompting.tool_schemas import (
     build_direct_scene_tool,
-    build_direction_note_tool,
     build_feedback_tool,
+    build_state_tool,
 )
 
 
@@ -191,8 +192,8 @@ class CapturingClient:
                 return "editor"
             if name == "give_feedback":
                 return "feedback"
-            if name == "record_direction_note":
-                return "direction_note"
+            if name == "update_state":
+                return "update_state"
             if name == "direct_scene":
                 return f"director:{name}"
             return name or "editor"
@@ -246,7 +247,7 @@ class CapturingClient:
             }
             return
 
-        if label == "direction_note":
+        if label == "update_state":
             yield {
                 "type": "done",
                 "message": {
@@ -256,7 +257,7 @@ class CapturingClient:
                         {
                             "id": "p1",
                             "type": "function",
-                            "function": {"name": "record_direction_note", "arguments": '{"notes": []}'},
+                            "function": {"name": "update_state", "arguments": '{"trajectory": ["Heading north."]}'},
                         }
                     ],
                 },
@@ -313,25 +314,25 @@ async def _run_turn(
     agent_client: CapturingClient | None = None,
     agent_prefix: list[dict] | None = None,
     feedback_fragments: list[dict] | None = None,
-    direction_note_fragments: list[dict] | None = None,
+    state_fragments: list[dict] | None = None,
 ) -> tuple[_KVCacheTracker, CapturingClient, CapturingClient | None]:
     tracker = _KVCacheTracker(conversation_id=conversation_id)
-    director = {"active_moods": [], "progressive_fields": {}}
+    director = {"active_moods": []}
     enabled_tools = dict(settings["enabled_tools"])
-    # Writer-only fragments shape direct_scene; feedback and direction-note fragments
-    # are passed in alongside them so _run_pipeline's split sees all three. The caller
+    # Writer-only fragments shape direct_scene; feedback and state fragments are
+    # passed in alongside them so _run_pipeline's split sees all three. The caller
     # mirrors _prepare_turn: when a post-writer tool is active its schema rides the
     # shared blob (schema_overrides) and its enable bit is set.
     feedback_fragments = feedback_fragments or []
-    direction_note_fragments = direction_note_fragments or []
-    interactive_fragments = [*_INTERACTIVE_FRAGMENTS, *feedback_fragments, *direction_note_fragments]
+    state_fragments = state_fragments or []
+    interactive_fragments = [*_INTERACTIVE_FRAGMENTS, *feedback_fragments, *state_fragments]
     schema_overrides = {"direct_scene": build_direct_scene_tool(_INTERACTIVE_FRAGMENTS)}
     if bool(settings.get("feedback_enabled", 0)) and feedback_fragments:
         schema_overrides["give_feedback"] = build_feedback_tool(feedback_fragments)
         enabled_tools["give_feedback"] = True
-    if settings.get("direction_notes_record") and direction_note_fragments:
-        schema_overrides["record_direction_note"] = build_direction_note_tool(direction_note_fragments)
-        enabled_tools["record_direction_note"] = True
+    if tool_fragments := StateContract.capture(settings, state_fragments).tool_fragments():
+        schema_overrides["update_state"] = build_state_tool(tool_fragments)
+        enabled_tools["update_state"] = True
 
     gen = _run_pipeline(
         client,
@@ -539,21 +540,25 @@ async def test_feedback_step_reuses_shared_blob_no_cache_bust():
     )
 
 
-async def test_direction_note_step_reuses_shared_blob_no_cache_bust():
-    """The post-turn direction-note step must not diverge the tools blob: with the
-    feature on, ``record_direction_note`` rides the shared per-turn blob and the
-    ponder reuses the same cached base as director/writer/editor, replaying the
-    writer exchange rather than forking off ``base.prefix``."""
+async def test_state_step_reuses_shared_blob_no_cache_bust():
+    """The after-reply state step must not diverge the tools blob: with the
+    feature on, ``update_state`` rides the shared per-turn blob and the call
+    reuses the same cached base as director/writer/editor, replaying the writer
+    exchange rather than forking off ``base.prefix``."""
     prefix = _make_prefix("You are a vivid roleplay narrator.", n_pairs=4)
     tracker, client, _ = await _run_turn(
         prefix=prefix,
-        settings=_base_settings(direction_notes_record=True),
-        conversation_id="conv-dirnote-kv",
+        settings=_base_settings(),
+        conversation_id="conv-state-kv",
         client=CapturingClient("writer-model"),
-        direction_note_fragments=[
+        state_fragments=[
             {
                 "id": "trajectory",
-                "field_type": "direction_note",
+                "label": "Trajectory",
+                "field_type": "state",
+                "state_mode": "entries",
+                "state_update": "after_reply",
+                "state_inject": "both",
                 "description": "Where the story is heading.",
                 "injection_label": "Direction of travel",
                 "sort_order": 0,
@@ -566,28 +571,27 @@ async def test_direction_note_step_reuses_shared_blob_no_cache_bust():
     _reconcile_tracker_with_client(tracker, client)
 
     entries = {e["label"]: e for e in tracker._entries}
-    assert "direction_note" in entries, "direction-note step did not fire (mode=post_turn, agent on)"
+    assert "update_state" in entries, "state step did not fire (after_reply, agent on)"
 
     wire = _wire_tools_by_label(client)
     all_blobs = {b for blobs in wire.values() for b in blobs}
-    assert len(all_blobs) == 1, (
-        "CACHE BUST: the direction-note step diverged the tools blob. Distinct blob sizes: "
-        + json.dumps(sorted(len(b) for b in all_blobs))
+    assert len(all_blobs) == 1, "CACHE BUST: the state step diverged the tools blob. Distinct blob sizes: " + json.dumps(
+        sorted(len(b) for b in all_blobs)
     )
 
     the_blob = next(iter(all_blobs))
-    assert '"record_direction_note"' in the_blob, "record_direction_note schema is missing from the shared tools blob"
+    assert '"update_state"' in the_blob, "update_state schema is missing from the shared tools blob"
 
-    assert wire["direction_note"] == wire["writer"] == wire["editor"], (
-        "direction_note/writer/editor tools blobs differ -- the notes step is not reusing the frozen shared base."
+    assert wire["update_state"] == wire["writer"] == wire["editor"], (
+        "state/writer/editor tools blobs differ -- the state step is not reusing the frozen shared base."
     )
 
     prefix_bytes = _serialize_messages(prefix)
-    perm_msgs = entries["direction_note"]["msgs_serialized"]
+    state_msgs = entries["update_state"]["msgs_serialized"]
     writer_msgs = entries["writer"]["msgs_serialized"]
     assert len(writer_msgs) > len(prefix_bytes), "writer stack should include the current-turn user message"
-    assert perm_msgs.startswith(writer_msgs), (
-        "CACHE BUST: the post_turn notes step forked the message stack instead of extending "
+    assert state_msgs.startswith(writer_msgs), (
+        "CACHE BUST: the after-reply state step forked the message stack instead of extending "
         "the writer's -- it must replay writer_user_msg + reply."
     )
 

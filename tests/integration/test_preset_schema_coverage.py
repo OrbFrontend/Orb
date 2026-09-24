@@ -445,6 +445,7 @@ SIGNATURE_TABLES = frozenset(
         "group_members",
         "messages",
         "director_state",
+        "fragment_state_events",
         "worlds",
         "lorebook_entries",
         "world_changesets",
@@ -466,6 +467,7 @@ SIGNATURE_ALLOWLIST = frozenset(
         "model_configs",
         # pure log / attachment tables: not part of any domain's user-facing identity.
         "conversation_logs",
+        # Legacy, converted to fragment_state_events and no longer written.
         "direction_notes",
         "user_attachments",
         "workflow_attachments",
@@ -523,6 +525,14 @@ def _signature(path: str) -> dict:
             "messages": q("SELECT conversation_id, turn_index, role, content FROM messages"),
             "active_leaf": q("SELECT c.id, m.content FROM conversations c LEFT JOIN messages m ON c.active_leaf_id = m.id"),
             "director_state": q("SELECT conversation_id FROM director_state"),
+            # A branch's saved state is user-facing chat content. Its anchor is a
+            # surrogate id, so it is compared through the anchor's content; entry
+            # ids are portable text and must survive, or a later event would name
+            # an entry that no longer exists.
+            "fragment_state_events": q(
+                "SELECT e.conversation_id, m.content, e.fragment_id, e.entry_id, e.op, e.text, e.source "
+                "FROM fragment_state_events e JOIN messages m ON e.message_id = m.id"
+            ),
             "worlds": q("SELECT id, name, dynamic_enabled, content_revision FROM worlds"),
             # Overlay metadata is part of a lorebook's identity: a preset that
             # restored the rows but flattened their layer would silently turn

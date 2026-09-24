@@ -134,7 +134,7 @@ model's base instead.
 
 ### Keep optional work on the same path
 
-Feedback, direction notes, and document auditing extend the relevant prompt in
+Feedback, state updates, and document auditing extend the relevant prompt in
 the same way as the Editor. Image prompting rebuilds the neutral scene prefix
 through the shared cast resolver, so off-turn calls use the same group history
 and context rules as a turn.

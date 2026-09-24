@@ -193,9 +193,9 @@ def llm_call_error(
 def llm_stream_error(*, payload: object, url: str, model: str, api_key: str) -> LLMCallError:
     """Build a normal sanitized provider error for an SSE error event.
 
-    Anthropic can report a terminal provider error inside an HTTP-200 stream.
-    A synthetic 502 response represents that upstream failure without teaching
-    pipeline failure rendering a second exception shape.
+    Providers can report an error inside an HTTP-200 stream, or end a stream
+    before its terminal event. A synthetic 502 response represents that upstream
+    failure without teaching pipeline failure rendering a second exception shape.
     """
     body = json.dumps(payload, ensure_ascii=False) if not isinstance(payload, str) else payload
     request = httpx.Request("POST", url)
