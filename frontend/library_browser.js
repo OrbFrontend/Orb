@@ -1,8 +1,9 @@
 import { api } from "./api.js";
 import { GLOBE_ICON, GRID_ICON, LIST_ICON, WRENCH_ICON } from "./icons.js";
-import { _avatarBust, loadCharacters, showCharEditModal } from "./library.js";
+import { showCharEditModal } from "./library.js";
 import { matchesFilter, tagsAttrFor, topTags } from "./library_filter.js";
 import { renderLibraryManager } from "./library_manager.js";
+import { _avatarBust, loadCharacters } from "./library_sidebar.js";
 import { setModalCloseCallback, showModal } from "./modal.js";
 import { charactersView, S } from "./state.js";
 import {

@@ -16,6 +16,12 @@ export const REASONING_PASSES = [
 
 const REASONING_BOTTOM_THRESHOLD = 20;
 
+export function clearInspectedMessage() {
+  S.inspectedMsgId = null;
+  S.inspectedDirectorData = null;
+  renderInspector();
+}
+
 const withReasoningScroll = (mutate) =>
   preserveScroll(() => document.getElementById("reasoning-box"), REASONING_BOTTOM_THRESHOLD, mutate);
 

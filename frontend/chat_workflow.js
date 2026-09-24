@@ -1,5 +1,13 @@
 import { api } from "./api.js";
-import { ICON_CHEVRON, ICON_DEL, ICON_REGEN, ICON_REROLL, renderMessages, setMessages } from "./chat_core.js";
+import {
+  ICON_CHEVRON,
+  ICON_DEL,
+  ICON_REGEN,
+  ICON_REROLL,
+  renderMessages,
+  setMessages,
+  setWorkflowMessagePresentation,
+} from "./chat_core.js";
 import { clearWorkflowPhase, setWorkflowPhase, workflowPhaseLabel } from "./chat_inspector.js";
 import { renderDefaultWidget } from "./default_widget.js";
 import { closeModal, showModal } from "./modal.js";
@@ -784,3 +792,9 @@ export function _refreshWorkflowViewportObserver() {
     }
   }
 }
+
+setWorkflowMessagePresentation({
+  renderArtifacts: _renderWorkflowArtifacts,
+  renderRejection: _renderWorkflowRejection,
+  refreshViewport: _refreshWorkflowViewportObserver,
+});

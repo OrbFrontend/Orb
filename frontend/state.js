@@ -170,16 +170,6 @@ export function effectiveWorkflowEnabled(wid) {
   return globalOn && localOn;
 }
 
-export {
-  registerClickHandler,
-  registerTextEffect,
-  registerWorkflowEventHandler,
-  registerWorkflowInspectorCard,
-  registerWorkflowMessageButton,
-  registerWorkflowPipeline,
-  registerWorkflowToolsPanelCard,
-} from "./workflow_registry.js";
-
 export function charactersView() {
   return S.allCharacters.length ? S.allCharacters : S.characters;
 }

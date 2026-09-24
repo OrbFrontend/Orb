@@ -7,7 +7,8 @@ enforced by convention + this lint rather than by a bundler. It checks, in order
   1. Layer import-direction. Every top-level frontend/*.js is assigned a layer
      (LAYERS). A file may import only its own layer or a lower one. The known
      current upward edges live in ALLOWED_UPWARD and shrink as the deferred
-     stages (3-5) land; a NEW upward edge fails.
+     stages (3-5) land; a NEW upward edge fails. Top-level module imports
+     must also be acyclic, including imports within the same layer.
   2. Two ratchets, which may only DECREASE: the count of inline `on*=` handlers
      (the window-bridge surface) and the count of underscore "private"
      cross-module imports. Lower them and drop the ceiling; never raise it.
@@ -110,6 +111,7 @@ LAYERS = {
     "document_audit.js": 5,
     "library.js": 5,
     "library_browser.js": 5,
+    "library_sidebar.js": 5,
     "library_manager.js": 5,
     "library_card_generator.js": 5,
     "library_card_scripts.js": 5,
@@ -131,9 +133,7 @@ LAYERS = {
 
 # Upward edges (importer -> imported, both basenames) currently present and
 # tolerated. Each is a documented consequence of a not-yet-done stage; the set
-# only shrinks. A permanent, deliberate exception is the state <-> workflow_registry
-# pair (see state.js): the re-export lives in the layer L1, load-safe by call-time
-# deref, so it never appears here (same layer). Seed with the current reality.
+# only shrinks. Seed with the current reality.
 ALLOWED_UPWARD: set[tuple[str, str]] = {
     # The boot orchestrator repaints the Tools panel after loading plugin modules
     # (see workflow_loader.js). A stage-5 concern; documented until then.
@@ -257,6 +257,35 @@ def workflow_import_allowed(path: Path, spec: str, workflow_root: Path = FE / "w
     return (path.parent / spec).resolve().is_relative_to(own_slice.resolve())
 
 
+def import_cycle(graph: dict[str, set[str]]) -> list[str] | None:
+    """Return one closed import path when the graph contains a cycle."""
+    visited: set[str] = set()
+    active: list[str] = []
+    positions: dict[str, int] = {}
+
+    def visit(module: str) -> list[str] | None:
+        visited.add(module)
+        positions[module] = len(active)
+        active.append(module)
+        for dependency in sorted(graph[module]):
+            if dependency in positions:
+                return active[positions[dependency] :] + [dependency]
+            if dependency not in visited:
+                cycle = visit(dependency)
+                if cycle:
+                    return cycle
+        active.pop()
+        del positions[module]
+        return None
+
+    for module in sorted(graph):
+        if module not in visited:
+            cycle = visit(module)
+            if cycle:
+                return cycle
+    return None
+
+
 def underscore_import_count(text: str) -> int:
     n = 0
     for names, spec in _BRACED.findall(text):
@@ -274,6 +303,8 @@ def main() -> int:
 
     top_files = sorted(p for p in FE.glob("*.js"))
     workflow_files = sorted(FE.glob("workflows/**/*.js"))
+    top_by_path = {path.resolve(): path.name for path in top_files}
+    graph: dict[str, set[str]] = {path.name: set() for path in top_files}
 
     # 1. Layer import-direction.
     for path in top_files:
@@ -283,12 +314,19 @@ def main() -> int:
             continue
         text = path.read_text(encoding="utf-8")
         for spec in imported_paths(text):
+            dependency = top_by_path.get((path.parent / spec).resolve())
+            if dependency:
+                graph[name].add(dependency)
             base = rel_basename(path, spec)
             if base is None or base not in LAYERS:
                 continue
             hi, lo = LAYERS[name], LAYERS[base]
             if lo > hi and (name, base) not in ALLOWED_UPWARD:
                 errors.append(f"[layer] {name} (L{hi}) imports {base} (L{lo}) — upward edge not in ALLOWED_UPWARD")
+
+    cycle = import_cycle(graph)
+    if cycle:
+        errors.append(f"[cycle] {' -> '.join(cycle)}")
 
     # 2a. Inline on*= ratchet (scope: all of frontend/ + index.html).
     inline = 0

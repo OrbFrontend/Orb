@@ -1,15 +1,15 @@
 import { api } from "./api.js";
 import { onConvSwitch, stopAll as stopAllAudio } from "./audio_player.js";
 import { renderMessages, resetRenderWindow, setMessages } from "./chat_core.js";
-import { renderInspector } from "./chat_inspector.js";
-import { clearInspectedMessage, inspectMessage } from "./chat_messages.js";
+import { clearInspectedMessage, renderInspector } from "./chat_inspector.js";
+import { inspectMessage } from "./chat_messages.js";
 import { stopConversation } from "./chat_stream.js";
 import { resetWorkflowViewportState } from "./chat_workflow.js";
 import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
 import { groupFamily, groupRootId } from "./group_cast.js";
 import { loadGroupCast, renderGroupCast, renderGroupList } from "./group_setup.js";
-import { avatarBustQuery, refreshCharacters, renderCharacters } from "./library.js";
 import { renderInteractiveFragments, renderMoodFragments } from "./library_fragments.js";
+import { avatarBustQuery, refreshCharacters, renderCharacters } from "./library_sidebar.js";
 import { reflectConversationWorldActivation } from "./lorebooks.js";
 import { closeModal, showConfirmModal, showModal } from "./modal.js";
 import { isUtilityPanelOpen } from "./panels.js";

@@ -7,7 +7,7 @@ import {
   renderMessages,
   setMessages,
 } from "./chat_core.js";
-import { clearWorkflowPhase, renderInspector, setWorkflowPhase } from "./chat_inspector.js";
+import { clearInspectedMessage, clearWorkflowPhase, renderInspector, setWorkflowPhase } from "./chat_inspector.js";
 import { runStreamRequest, turnPayload } from "./chat_stream.js";
 import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
 import { fitMessageCards } from "./message_fit.js";
@@ -84,12 +84,6 @@ export async function inspectMessage(msgId) {
     S.inspectedDirectorData = null;
     renderInspector();
   }
-}
-
-export function clearInspectedMessage() {
-  S.inspectedMsgId = null;
-  S.inspectedDirectorData = null;
-  renderInspector();
 }
 
 function focusEditTextarea(ta, onEscape) {

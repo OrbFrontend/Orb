@@ -1,7 +1,6 @@
 import { api } from "./api.js";
 import { onTurnStart } from "./audio_player.js";
 import { messageDisplaySource } from "./card_scripts.js";
-import { updateAttachmentPreview } from "./chat_composer.js";
 import {
   _applyWorkflowTextSegments,
   buildMsgToolbar,
@@ -21,10 +20,10 @@ import {
   _relightWorkflowPipelinePass,
   _syncGenerationStatusVisibility,
   appendReasoningDelta,
+  clearInspectedMessage,
   REASONING_PASSES,
   renderInspector,
 } from "./chat_inspector.js";
-import { clearInspectedMessage } from "./chat_messages.js";
 import { _mergeWorkflowRejections } from "./chat_workflow.js";
 import { skipNoticeText } from "./decisions.js";
 import {
@@ -35,8 +34,13 @@ import {
 import { patchHtml } from "./dom_reconcile.js";
 import { generationStepLabel, WAITING_LABEL } from "./generation_status.js";
 import { restNotice, speakerAvatarCell, unansweredHint } from "./group_cast.js";
-import { consumeSpeakerOverride, refreshSheetProposals, renderGroupCast } from "./group_setup.js";
-import { refreshCharacters } from "./library.js";
+import {
+  consumeSpeakerOverride,
+  refreshCastRailIntent,
+  refreshSheetProposals,
+  renderGroupCast,
+} from "./group_setup.js";
+import { refreshCharacters } from "./library_sidebar.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
 import { isUtilityPanelOpen } from "./panels.js";
@@ -852,7 +856,8 @@ export async function sendMessage() {
 
   const attachments = [...S.attachments];
   S.attachments.length = 0;
-  updateAttachmentPreview();
+  $("attachment-preview").innerHTML = "";
+  refreshCastRailIntent();
   const userMsg = {
     role: "user",
     content,

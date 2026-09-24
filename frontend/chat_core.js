@@ -1,11 +1,6 @@
 import { api } from "./api.js";
 import { messageDisplaySource } from "./card_scripts.js";
 import { renderTurnError } from "./chat_error.js";
-import {
-  _refreshWorkflowViewportObserver,
-  _renderWorkflowArtifacts,
-  _renderWorkflowRejection,
-} from "./chat_workflow.js";
 import { reconcileChildren } from "./dom_reconcile.js";
 import { sceneEmptyStateHtml, speakerAvatarCell, speakerLabel } from "./group_cast.js";
 import { CHEVRON_LEFT_ICON, CHEVRON_RIGHT_ICON, EDIT_ICON_PATHS } from "./icons.js";
@@ -28,6 +23,18 @@ import {
 import { segmentBody } from "./workflow_segmentation.js";
 import { markClickable } from "./workflow_text_interaction.js";
 import { messageProposalsHtml } from "./world_proposals.js";
+
+// The chat renderer owns the slots; the workflow feature supplies their
+// content during boot, keeping the renderer independent of workflow actions.
+let _renderWorkflowArtifacts = () => "";
+let _renderWorkflowRejection = () => "";
+let _refreshWorkflowViewportObserver = () => {};
+
+export function setWorkflowMessagePresentation({ renderArtifacts, renderRejection, refreshViewport }) {
+  _renderWorkflowArtifacts = renderArtifacts;
+  _renderWorkflowRejection = renderRejection;
+  _refreshWorkflowViewportObserver = refreshViewport;
+}
 
 export function canStartGeneration() {
   if (S.isStreaming || S.proseRewriteMsgId) return false;
