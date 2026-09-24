@@ -1,6 +1,11 @@
 """Deterministic, provider-independent model-facing construction."""
 
-from .base import build_prefix, format_message_with_attachments, group_speaker_label
+from .base import (
+    build_prefix,
+    format_message_with_attachments,
+    group_speaker_label,
+    render_history,
+)
 from .group_context import (
     context_size_components,
     macro_identity,
@@ -22,6 +27,7 @@ __all__ = [
     "context_size_components",
     "format_message_with_attachments",
     "group_speaker_label",
+    "render_history",
     "macro_identity",
     "member_macros",
     "prefix_is_speaker_scoped",

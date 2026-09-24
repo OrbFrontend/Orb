@@ -8,6 +8,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ...core import (
+    CardScripts,
     estimate_tokens,
     has_inline_macros,
     resolve_inline,
@@ -42,6 +43,7 @@ from ...database import (
     get_direction_notes_for_path,
     get_director_log_for_message,
     get_director_state,
+    get_group_member_scripts,
     get_group_members,
     get_interactive_fragments,
     get_message_by_id,
@@ -88,8 +90,8 @@ from ...pipeline import (
 from ...prompting import (
     compute_style_injection_block,
     group_context,
-    group_speaker_label,
     macro_identity,
+    render_history,
     resolve_mood_fragment_randoms,
 )
 from ..deps import (
@@ -744,14 +746,23 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
         )
     resolved_user_desc = macros.resolve_message(user_desc)
     user_persona_text = f"## User: {macros.user}\n{resolved_user_desc}" if resolved_user_desc.strip() else ""
-    msg_chars = sum(len(m.get("content", "") or "") for m in messages)
-    if turn_cast.grouped:
-        names = await get_speaker_names(cid)
-        for message in messages:
-            if message.get("role") != "assistant":
-                continue
-            label = group_speaker_label(names, message.get("speaker_member_id"))
-            msg_chars += len(f"{label}: ")
+    # The active path omits attachment bytes. Project its text through the same
+    # macros, card scripts, and group labels used by the model-facing prefix.
+    history = render_history(
+        messages,
+        macros,
+        cast=turn_cast,
+        speaker_names=await get_speaker_names(cid) if turn_cast.grouped else None,
+        scripts=CardScripts.from_extensions(card.get("extensions") if card else None),
+        speaker_scripts=await get_group_member_scripts(cid) if turn_cast.grouped else None,
+    )
+    msg_chars = 0
+    for message in history:
+        content = message["content"]
+        if isinstance(content, str):
+            msg_chars += len(content)
+        else:
+            msg_chars += sum(len(part["text"]) for part in content if part["type"] == "text")
 
     # Director injection — fragment {{random}} resolves against a throwaway
     # copy of the stored choice map so the estimate matches the prompt bytes a

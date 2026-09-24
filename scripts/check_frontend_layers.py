@@ -12,8 +12,9 @@ enforced by convention + this lint rather than by a bundler. It checks, in order
      (the window-bridge surface) and the count of underscore "private"
      cross-module imports. Lower them and drop the ceiling; never raise it.
   3. Plugin boundary. A file under frontend/workflows/** may import only
-     `/static/workflow_api.js` and relative `./` paths — never a deep
-     `/static/<core>.js`. The allowlist is EMPTY and must stay empty.
+     `/static/workflow_api.js` and files inside its own workflow directory.
+     Static, side-effect, and literal dynamic imports are checked; computed
+     dynamic imports are rejected.
   4. ABI snapshot. workflow_api.js's exports must equal FROZEN_ABI exactly, so an
      accidental rename/removal of a plugin-facing export fails CI (additive-only:
      a genuinely new export is added to FROZEN_ABI in the same commit).
@@ -216,6 +217,9 @@ FROZEN_ABI = {
 # ── Parsing helpers ──────────────────────────────────────────────────────────
 # Matches `import ... from "path"` and re-export `export ... from "path"`.
 _IMPORT_FROM = re.compile(r'(?:import|export)\b[^;]*?\bfrom\s+["\']([^"\']+)["\']', re.DOTALL)
+_SIDE_EFFECT_IMPORT = re.compile(r'\bimport\s+["\']([^"\']+)["\']')
+_DYNAMIC_IMPORT_CALL = re.compile(r"\bimport\s*\(")
+_DYNAMIC_IMPORT_LITERAL = re.compile(r'\bimport\s*\(\s*(["\'`])([^"\'`]*?)\1\s*\)', re.DOTALL)
 # Braced import/re-export binding list, possibly multiline.
 _BRACED = re.compile(r'(?:import|export)\s*(?:type\s+)?\{([^}]*)\}\s*from\s+["\']([^"\']+)["\']', re.DOTALL)
 # Inline event handler attribute (on*="...") in a JS template string or HTML.
@@ -232,7 +236,25 @@ def rel_basename(importer: Path, spec: str) -> str | None:
 
 
 def imported_paths(text: str) -> list[str]:
-    return _IMPORT_FROM.findall(text)
+    return (
+        _IMPORT_FROM.findall(text)
+        + _SIDE_EFFECT_IMPORT.findall(text)
+        + [match.group(2) for match in _DYNAMIC_IMPORT_LITERAL.finditer(text)]
+    )
+
+
+def has_computed_dynamic_import(text: str) -> bool:
+    return len(_DYNAMIC_IMPORT_CALL.findall(text)) != len(_DYNAMIC_IMPORT_LITERAL.findall(text))
+
+
+def workflow_import_allowed(path: Path, spec: str, workflow_root: Path = FE / "workflows") -> bool:
+    """An import may use the facade or remain inside its own workflow slice."""
+    if spec == "/static/workflow_api.js":
+        return True
+    if not (spec.startswith("./") or spec.startswith("../")) or "${" in spec:
+        return False
+    own_slice = workflow_root / path.relative_to(workflow_root).parts[0]
+    return (path.parent / spec).resolve().is_relative_to(own_slice.resolve())
 
 
 def underscore_import_count(text: str) -> int:
@@ -283,14 +305,17 @@ def main() -> int:
             f"[ratchet] underscore cross-module imports {us} exceeds ceiling {MAX_UNDERSCORE_IMPORTS} (may only decrease)"
         )
 
-    # 3. Plugin boundary: workflows/** import only /static/workflow_api.js + ./.
+    # 3. Plugin boundary: imports remain within the workflow or use its facade.
     for path in workflow_files:
         text = path.read_text(encoding="utf-8")
+        if has_computed_dynamic_import(text):
+            errors.append(f"[plugin] {path.relative_to(FE)}: computed dynamic import is forbidden")
         for spec in imported_paths(text):
-            ok = spec == "/static/workflow_api.js" or spec.startswith("./") or spec.startswith("../")
-            if not ok:
+            if not workflow_import_allowed(path, spec):
                 rel = path.relative_to(FE)
-                errors.append(f"[plugin] {rel}: forbidden import '{spec}' (plugins import only /static/workflow_api.js)")
+                errors.append(
+                    f"[plugin] {rel}: forbidden import '{spec}' (plugins import only their own files or /static/workflow_api.js)"
+                )
 
     # 4. ABI snapshot: workflow_api.js exports must equal FROZEN_ABI. Only real
     # `export` statements count — NOT the `import {...}` blocks above them (the

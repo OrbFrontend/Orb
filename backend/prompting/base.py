@@ -59,6 +59,58 @@ def group_speaker_label(speaker_names: Mapping[str, str], speaker_member_id: obj
     return speaker_names.get(str(speaker_member_id), "Unknown speaker")
 
 
+def render_history(
+    messages: Sequence[Mapping[str, Any]],
+    macros: Macros | None,
+    *,
+    cast: TurnCast | None = None,
+    speaker_names: Mapping[str, str] | None = None,
+    scripts: CardScripts | None = None,
+    speaker_scripts: Mapping[str, CardScripts] | None = None,
+) -> list[ChatMessage]:
+    """Project stored history into the text and labels the model receives."""
+    processed_messages = [
+        format_message_with_attachments(
+            message,
+            macros,
+            (speaker_scripts or {}).get(str(message.get("speaker_member_id"))) if cast and cast.grouped else scripts,
+        )
+        for message in messages
+    ]
+    if cast and cast.grouped:
+        labelled: list[ChatMessage] = []
+        names = dict(speaker_names or {})
+        names.update({member.member_id: member.name for member in cast.members})
+        for original, rendered in zip(messages, processed_messages, strict=True):
+            if rendered["role"] != "assistant":
+                labelled.append(rendered)
+                continue
+            label = group_speaker_label(names, original.get("speaker_member_id"))
+            content = rendered["content"]
+            if isinstance(content, str):
+                text = f"{label}: {content}"
+                if labelled and labelled[-1]["role"] == "assistant" and isinstance(labelled[-1]["content"], str):
+                    labelled[-1] = {
+                        "role": "assistant",
+                        "content": str(labelled[-1]["content"]) + "\n\n" + text,
+                    }
+                else:
+                    labelled.append({"role": "assistant", "content": text})
+            else:
+                content_parts = list(content)
+                if content_parts and content_parts[0]["type"] == "text":
+                    first = content_parts[0]
+                    content_parts = [
+                        {"type": "text", "text": f"{label}: {first['text']}"},
+                        *content_parts[1:],
+                    ]
+                else:
+                    content_parts.insert(0, {"type": "text", "text": f"{label}:"})
+                labelled.append({"role": "assistant", "content": content_parts})
+        processed_messages = labelled
+    return processed_messages
+
+
 def build_prefix(
     system_prompt: str,
     char_persona: str,
@@ -115,46 +167,12 @@ def build_prefix(
     for block in extra_system_blocks or []:
         parts.append(f"\n\n{block}")
 
-    original_messages = messages or []
-    processed_messages = [
-        format_message_with_attachments(
-            message,
-            macros,
-            (speaker_scripts or {}).get(str(message.get("speaker_member_id"))) if cast and cast.grouped else scripts,
-        )
-        for message in original_messages
-    ]
-    if cast and cast.grouped:
-        labelled: list[ChatMessage] = []
-        names = dict(speaker_names or {})
-        names.update({member.member_id: member.name for member in cast.members})
-        for original, rendered in zip(original_messages, processed_messages, strict=True):
-            if rendered["role"] != "assistant":
-                labelled.append(rendered)
-                continue
-            label = group_speaker_label(names, original.get("speaker_member_id"))
-            content = rendered["content"]
-            if isinstance(content, str):
-                text = f"{label}: {content}"
-                if labelled and labelled[-1]["role"] == "assistant" and isinstance(labelled[-1]["content"], str):
-                    labelled[-1] = {
-                        "role": "assistant",
-                        "content": str(labelled[-1]["content"]) + "\n\n" + text,
-                    }
-                else:
-                    labelled.append({"role": "assistant", "content": text})
-            else:
-                content_parts = list(content)
-                if content_parts and content_parts[0]["type"] == "text":
-                    first = content_parts[0]
-                    content_parts = [
-                        {"type": "text", "text": f"{label}: {first['text']}"},
-                        *content_parts[1:],
-                    ]
-                else:
-                    content_parts.insert(0, {"type": "text", "text": f"{label}:"})
-                labelled.append({"role": "assistant", "content": content_parts})
-        processed_messages = labelled
-
     system_message: ChatMessage = {"role": "system", "content": "".join(parts)}
-    return [system_message] + processed_messages
+    return [system_message] + render_history(
+        messages or [],
+        macros,
+        cast=cast,
+        speaker_names=speaker_names,
+        scripts=scripts,
+        speaker_scripts=speaker_scripts,
+    )

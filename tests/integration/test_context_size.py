@@ -101,3 +101,32 @@ async def test_context_size_404_for_missing(client):
     """Context size returns 404 for non-existent conversation."""
     resp = await client.get("/api/conversations/nonexistent/context-size")
     assert resp.status_code == 404
+
+
+async def test_context_size_counts_prompt_rendered_message(client):
+    replacement = "An expanded greeting the model actually receives."
+    card = (
+        await client.post(
+            "/api/characters",
+            json={
+                "name": "Scripted",
+                "first_mes": "secret",
+                "extensions": {
+                    "regex_scripts": [
+                        {
+                            "findRegex": "/secret/g",
+                            "replaceString": replacement,
+                            "placement": [2],
+                            "promptOnly": True,
+                        }
+                    ]
+                },
+            },
+        )
+    ).json()
+    cid = (await client.post("/api/conversations", json={"character_card_id": card["id"]})).json()["id"]
+
+    response = await client.get(f"/api/conversations/{cid}/context-size")
+
+    assert response.status_code == 200
+    assert response.json()["breakdown"]["messages"]["chars"] == len(replacement)

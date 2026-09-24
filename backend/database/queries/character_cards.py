@@ -22,8 +22,10 @@ from ..connection import (
     _get_workflow_slot,
     _set_workflow_slot,
     get_db,
+    immediate_tx,
 )
 from ..models import CharacterCardRow, InteractiveFragmentRow, MoodFragmentRow
+from .worlds import _bump_revision, _insert_entry, _insert_world
 
 
 async def list_character_cards() -> list[CharacterCardRow]:
@@ -267,47 +269,66 @@ def merge_fragments_by_id(base: list, extra: Sequence[Mapping[str, Any]]) -> lis
     return base
 
 
-async def create_character_card(data: dict) -> CharacterCardRow:
-    async with get_db() as db:
-        now = datetime.now(UTC).isoformat()
-        try:
-            await db.execute(
-                """INSERT INTO character_cards
+async def _insert_character_card(db: aiosqlite.Connection, data: Mapping[str, Any], now: str) -> None:
+    try:
+        await db.execute(
+            """INSERT INTO character_cards
                    (id, name, description, personality, scenario, first_mes, mes_example,
                     creator_notes, system_prompt, post_history_instructions, tags, creator,
                     character_version, alternate_greetings, avatar_b64, avatar_mime,
                     source_format, world_id, extensions, created_at, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    data["id"],
-                    data["name"],
-                    data.get("description", ""),
-                    data.get("personality", ""),
-                    data.get("scenario", ""),
-                    data.get("first_mes", ""),
-                    data.get("mes_example", ""),
-                    data.get("creator_notes", ""),
-                    data.get("system_prompt", ""),
-                    data.get("post_history_instructions", ""),
-                    json.dumps(data.get("tags", [])),
-                    data.get("creator", ""),
-                    data.get("character_version", ""),
-                    json.dumps(data.get("alternate_greetings", [])),
-                    data.get("avatar_b64"),
-                    data.get("avatar_mime"),
-                    data.get("source_format", "manual"),
-                    data.get("world_id"),
-                    json.dumps(data["extensions"]) if data.get("extensions") else None,
-                    now,
-                    now,
-                ),
-            )
-        except aiosqlite.IntegrityError as exc:
-            raise ValueError(f"Character card with id {data['id']} already exists") from exc
-        await db.commit()
-        result = await get_character_card(data["id"])
-        assert result is not None
-        return result
+            (
+                data["id"],
+                data["name"],
+                data.get("description", ""),
+                data.get("personality", ""),
+                data.get("scenario", ""),
+                data.get("first_mes", ""),
+                data.get("mes_example", ""),
+                data.get("creator_notes", ""),
+                data.get("system_prompt", ""),
+                data.get("post_history_instructions", ""),
+                json.dumps(data.get("tags", [])),
+                data.get("creator", ""),
+                data.get("character_version", ""),
+                json.dumps(data.get("alternate_greetings", [])),
+                data.get("avatar_b64"),
+                data.get("avatar_mime"),
+                data.get("source_format", "manual"),
+                data.get("world_id"),
+                json.dumps(data["extensions"]) if data.get("extensions") else None,
+                now,
+                now,
+            ),
+        )
+    except aiosqlite.IntegrityError as exc:
+        raise ValueError(f"Character card with id {data['id']} already exists") from exc
+
+
+async def create_character_card(data: dict, *, embedded_world: Mapping[str, Any] | None = None) -> CharacterCardRow:
+    """Create a card and any new embedded World as one committed write."""
+    now = datetime.now(UTC).isoformat()
+    if embedded_world is None:
+        async with get_db() as db:
+            await _insert_character_card(db, data, now)
+            await db.commit()
+    else:
+        async with immediate_tx() as db:
+            rows = list(await db.execute_fetchall("SELECT id FROM worlds WHERE name = ? LIMIT 1", (embedded_world["name"],)))
+            if rows:
+                world_id = str(rows[0]["id"])
+            else:
+                world_id = await _insert_world(db, embedded_world, now)
+                entries = embedded_world.get("entries") or []
+                for entry in entries:
+                    await _insert_entry(db, world_id, entry, now)
+                if entries:
+                    await _bump_revision(db, world_id)
+            await _insert_character_card(db, {**data, "world_id": world_id}, now)
+    result = await get_character_card(data["id"])
+    assert result is not None
+    return result
 
 
 async def insert_alternate_greeting_swipes(cid: str, alternate_greetings: list[str]) -> int:

@@ -17,8 +17,6 @@ from fastapi.responses import Response
 from ...core import scrub_log, workflow_character_state_lock
 from ...database import (
     create_character_card,
-    create_lorebook_entry,
-    create_world,
     delete_character_card,
     delete_character_expressions,
     get_character_avatar,
@@ -30,7 +28,6 @@ from ...database import (
     get_user_persona,
     get_workflow_character_state,
     get_world,
-    get_world_by_name,
     list_character_cards,
     list_expression_labels,
     set_character_expressions,
@@ -71,6 +68,7 @@ router = APIRouter()
 #: generous enough for an uncompressed WAV of that length and far short of
 #: "someone dropped in a film".
 _MAX_VOICE_UPLOAD = 25 * 1024 * 1024
+_MAX_EXPRESSION_UPLOAD = 50 * 1024 * 1024
 
 
 @router.get("/api/characters")
@@ -85,6 +83,7 @@ async def api_create_character(data: CharacterCardCreate):
     card_data["source_format"] = card_data.get("source_format") or "manual"
 
     character_book = card_data.pop("character_book", None)
+    embedded_world = None
     if character_book and not card_data.get("world_id"):
         entries = character_book.get("entries") or []
         if isinstance(entries, dict):
@@ -97,17 +96,14 @@ async def api_create_character(data: CharacterCardCreate):
         # imports nothing.
         if entries or isinstance(orb_ext, dict):
             book_name = character_book.get("name") or card_data["name"]
-            world = await get_world_by_name(book_name)
-            if not world:
-                dynamic = bool(orb_ext.get("dynamic_enabled")) if isinstance(orb_ext, dict) else False
-                world = await create_world({"name": book_name, "dynamic_enabled": dynamic})
-                for item in entries:
-                    if isinstance(item, dict):
-                        await create_lorebook_entry(world["id"], _normalise_lorebook_entry(item))
-            card_data["world_id"] = world["id"]
+            embedded_world = {
+                "name": book_name,
+                "dynamic_enabled": bool(orb_ext.get("dynamic_enabled")) if isinstance(orb_ext, dict) else False,
+                "entries": [_normalise_lorebook_entry(item) for item in entries if isinstance(item, dict)],
+            }
 
     try:
-        created = await create_character_card(card_data)
+        created = await create_character_card(card_data, embedded_world=embedded_world)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -318,8 +314,8 @@ async def api_upload_expressions(card_id: str, file: Annotated[UploadFile, File(
     """Upload a .zip of expression images; replaces the card's whole set."""
     if not await get_character_card(card_id):
         raise HTTPException(status_code=404, detail="Character card not found")
-    content = await file.read(_MAX_VOICE_UPLOAD + 1)
-    if len(content) > 50 * 1024 * 1024:
+    content = await file.read(_MAX_EXPRESSION_UPLOAD + 1)
+    if len(content) > _MAX_EXPRESSION_UPLOAD:
         raise HTTPException(status_code=400, detail="Upload exceeds 50 MB")
     try:
         images = card_expressions.extract_expressions_zip(content)

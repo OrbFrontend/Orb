@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import json
+import zipfile
 
 
 async def test_create_character_persists_to_db(client, db):
@@ -488,6 +490,60 @@ async def test_foreign_card_with_a_vestigial_empty_book_creates_no_world(client,
     ).json()
     assert not created["world_id"]
     assert not [w for w in (await client.get("/api/worlds")).json() if w["name"] == "Nothing"]
+
+
+async def test_failed_card_create_rolls_back_embedded_world(client, db):
+    card_id = "existing-card"
+    assert (await client.post("/api/characters", json={"id": card_id, "name": "Existing"})).status_code == 200
+
+    resp = await client.post(
+        "/api/characters",
+        json={
+            "id": card_id,
+            "name": "Duplicate",
+            "character_book": {
+                "name": "Should not exist",
+                "entries": [{"name": "A clue", "content": "A hidden detail", "keys": ["clue"]}],
+            },
+        },
+    )
+
+    assert resp.status_code == 400
+    assert not [world for world in (await client.get("/api/worlds")).json() if world["name"] == "Should not exist"]
+    assert (await client.get(f"/api/characters/{card_id}")).json()["name"] == "Existing"
+
+
+async def test_embedded_book_creates_entries_and_reuses_world(client, db):
+    book = {
+        "name": "Shared lore",
+        "entries": [{"name": "A clue", "content": "A hidden detail", "keys": ["clue"]}],
+    }
+    first = (await client.post("/api/characters", json={"name": "First", "character_book": book})).json()
+    second = (await client.post("/api/characters", json={"name": "Second", "character_book": book})).json()
+
+    assert first["world_id"] == second["world_id"]
+    assert [world["name"] for world in (await client.get("/api/worlds")).json()] == ["Shared lore"]
+    entries = (await client.get(f"/api/worlds/{first['world_id']}/entries")).json()
+    assert [(entry["name"], entry["content"]) for entry in entries] == [("A clue", "A hidden detail")]
+
+
+async def test_expression_upload_uses_expression_limit(client, db, monkeypatch):
+    from backend.api.routes import characters
+
+    card_id = (await client.post("/api/characters", json={"name": "Faces"})).json()["id"]
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipped:
+        zipped.writestr("joy.png", b"image bytes" * 20)
+    assert 100 < len(archive.getvalue()) < 1000
+    monkeypatch.setattr(characters, "_MAX_VOICE_UPLOAD", 100)
+    monkeypatch.setattr(characters, "_MAX_EXPRESSION_UPLOAD", 1000)
+
+    resp = await client.post(
+        f"/api/characters/{card_id}/expressions",
+        files={"file": ("expressions.zip", archive.getvalue(), "application/zip")},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"labels": ["joy"]}
 
 
 async def test_card_render_projection_and_script_roundtrip(client, db, tmp_path):

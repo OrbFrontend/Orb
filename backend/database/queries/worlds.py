@@ -92,22 +92,26 @@ async def get_world_by_name(name: str) -> WorldRow | None:
         return cast(WorldRow, dict(rows[0])) if rows else None
 
 
+async def _insert_world(db, data: Mapping[str, Any], now: str) -> str:
+    world_id = data.get("id") or str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO worlds (id, name, enabled, dynamic_enabled, content_revision, created_at, updated_at)"
+        " VALUES (?, ?, ?, ?, 0, ?, ?)",
+        (
+            world_id,
+            data["name"],
+            1 if data.get("enabled", True) else 0,
+            1 if data.get("dynamic_enabled", False) else 0,
+            now,
+            now,
+        ),
+    )
+    return str(world_id)
+
+
 async def create_world(data: dict) -> WorldRow:
     async with get_db() as db:
-        now = _now()
-        world_id = data.get("id") or str(uuid.uuid4())
-        await db.execute(
-            "INSERT INTO worlds (id, name, enabled, dynamic_enabled, content_revision, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, 0, ?, ?)",
-            (
-                world_id,
-                data["name"],
-                1 if data.get("enabled", True) else 0,
-                1 if data.get("dynamic_enabled", False) else 0,
-                now,
-                now,
-            ),
-        )
+        world_id = await _insert_world(db, data, _now())
         await db.commit()
         result = await get_world(world_id)
         assert result is not None
