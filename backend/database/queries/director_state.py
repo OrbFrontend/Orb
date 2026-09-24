@@ -18,9 +18,8 @@ async def get_director_state(cid: str) -> DirectorStateRow:
                 r["keywords"] = json.loads(r["keywords"])
             else:
                 r["keywords"] = []
-            # Handle progressive_fields column (may be missing in older DBs)
-            raw_pf = r.get("progressive_fields")
-            r["progressive_fields"] = json.loads(raw_pf) if raw_pf else {}
+            # The legacy progressive_fields column is no longer read.
+            r.pop("progressive_fields", None)
             # Per-conversation {{random}} picks for fragment text
             raw_mc = r.get("macro_choices")
             r["macro_choices"] = json.loads(raw_mc) if raw_mc else {}
@@ -29,7 +28,6 @@ async def get_director_state(cid: str) -> DirectorStateRow:
             "conversation_id": cid,
             "active_moods": [],
             "keywords": [],
-            "progressive_fields": {},
             "macro_choices": {},
         }
 
@@ -38,19 +36,15 @@ async def update_director_state(
     cid: str,
     active_moods: list,
     keywords: list | None = None,
-    progressive_fields: dict | None = None,
     macro_choices: dict | None = None,
 ):
     """Update the conversation's director state. Optional fields (``keywords``,
-    ``progressive_fields``, ``macro_choices``) are left untouched when ``None``."""
+    ``macro_choices``) are left untouched when ``None``."""
     sets = ["active_moods = ?"]
     vals: list = [json.dumps(active_moods)]
     if keywords is not None:
         sets.append("keywords = ?")
         vals.append(json.dumps(keywords))
-    if progressive_fields is not None:
-        sets.append("progressive_fields = ?")
-        vals.append(json.dumps(progressive_fields))
     if macro_choices is not None:
         sets.append("macro_choices = ?")
         vals.append(json.dumps(macro_choices))

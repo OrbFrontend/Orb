@@ -13,6 +13,7 @@ from ...core import (
     has_inline_macros,
     resolve_inline,
     scrub_log,
+    state_fragments_of,
 )
 from ...database import (
     PROPOSAL_STATUSES,
@@ -24,23 +25,20 @@ from ...database import (
     apply_sheet_proposal,
     cast_embedded_fragments,
     convert_to_group,
+    copy_state_events,
     create_conversation,
-    create_direction_notes,
     create_group_conversation,
     decision_evaluations_of,
     delete_conversation,
-    delete_direction_note,
     delete_group_family,
-    direction_note_projection,
     disable_character_linked_worlds,
+    fold_path_state,
     fork_conversation,
     get_active_lorebook_entries,
     get_active_path,
     get_character_card,
     get_conversation,
     get_conversation_logs,
-    get_direction_notes_for_message,
-    get_direction_notes_for_path,
     get_director_log_for_message,
     get_director_state,
     get_group_member_scripts,
@@ -52,6 +50,7 @@ from ...database import (
     get_settings,
     get_sheet_proposals,
     get_speaker_names,
+    get_state_events_for_message,
     get_user_persona,
     group_root_of,
     insert_alternate_greeting_swipes,
@@ -64,10 +63,10 @@ from ...database import (
     resolve_char_context,
     set_active_leaf,
     set_workflow_message_state,
+    snapshot_state_to_message,
     sync_group_members,
     touch_conversation,
     update_conversation,
-    update_direction_note,
     update_director_state,
     user_attachment_payloads,
 )
@@ -92,6 +91,7 @@ from ...prompting import (
     group_context,
     macro_identity,
     render_history,
+    render_state_block,
     resolve_mood_fragment_randoms,
 )
 from ..deps import (
@@ -106,8 +106,6 @@ from ..schemas import (
     CompressRequest,
     ConversationCreate,
     ConversationUpdate,
-    DirectionNoteCreate,
-    DirectionNoteUpdate,
     GroupRosterUpdate,
     SceneProfileDraft,
     SceneProfileGenerateRequest,
@@ -115,11 +113,6 @@ from ..schemas import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Sentinel interactive_fragment_id stamped on user-authored direction notes; the model's
-# record_direction_note step only ever emits real fragment ids, so this never collides with
-# one. The frontend keys its distinct styling on the same value -- keep the two in sync.
-_USER_NOTE_FRAGMENT_ID = "human"
 
 # How many cast names one scene-profile drafting prompt carries, and how long a
 # single name may be. The roster has no size ceiling, so this is a prompt-size
@@ -552,6 +545,7 @@ async def api_compress_conversation(
 
     messages = await get_messages(cid)
     tail = messages[max(0, len(messages) - data.keep_count) :]
+    summarized = messages[: len(messages) - len(tail)]
 
     old_title = conv.get("title", "") or ""
     new_title = f"{old_title} (continued)" if old_title else "Continued"
@@ -561,10 +555,16 @@ async def api_compress_conversation(
 
     prev_id, _ = await add_message(new_cid, "assistant", data.summary.strip(), 0)
     await set_active_leaf(new_cid, prev_id)
+    # The state folded up to the kept tail rides the summary as `carried` entries;
+    # the tail's own changes are copied onto its re-added messages below. Folding
+    # the whole path onto the summary instead would make regenerating the first
+    # kept reply apply that reply's changes twice.
+    await snapshot_state_to_message(new_cid, await fold_path_state(cid, [m["id"] for m in summarized]), prev_id)
 
     # Carry user uploads onto the fork; workflow attachments are regenerable and dropped.
     # Keep records inspectable, but invalidate anchors removed by compression.
     compression_map: dict[int, int] = {}
+    tail_map: dict[int, int] = {}
     for i, msg in enumerate(tail):
         prev_id, _ = await add_message(
             new_cid,
@@ -579,7 +579,9 @@ async def api_compress_conversation(
             decision_evaluations=remap_decision_anchors(decision_evaluations_of(msg), compression_map),
             decision_cooldowns=msg.get("decision_cooldowns") or {},
         )
+        tail_map[msg["id"]] = prev_id
         await set_active_leaf(new_cid, prev_id)
+    await copy_state_events(cid, new_cid, tail_map)
 
     return {"new_conversation_id": new_cid}
 
@@ -608,7 +610,6 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
             msg["turn_index"],
             parent_id=prev_id,
             attachments=user_attachment_payloads(msg),
-            progressive_fields=msg.get("progressive_fields") or {},
             fragment_cooldowns=msg.get("fragment_cooldowns") or {},
             speaker_member_id=member_map.get(str(msg.get("speaker_member_id"))) if msg.get("speaker_member_id") else None,
             exchange_id=msg.get("exchange_id"),
@@ -625,14 +626,17 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
     if prev_id is not None:
         await set_active_leaf(new_cid, prev_id)
 
+    # The path's state history, re-anchored through the same id map as the
+    # decision anchors, so the copy keeps each value's history and source.
+    await copy_state_events(source_cid, new_cid, id_map)
+
     # Carry the director state verbatim so the first turn on the checkpoint
-    # starts from the same moods / progressive fields as the original.
+    # starts from the same moods as the original.
     director = await get_director_state(source_cid)
     await update_director_state(
         new_cid,
         director.get("active_moods", []),
         keywords=director.get("keywords", []),
-        progressive_fields=director.get("progressive_fields", {}),
         macro_choices=director.get("macro_choices", {}),
     )
 
@@ -778,6 +782,12 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
         agent_enabled(settings),
         {},
     )
+    # The Writer's current-state block rides the same injection on every turn.
+    writer_state = [fragment for fragment in state_fragments_of(director_frags) if fragment.injects_writer]
+    if writer_state:
+        state_block = render_state_block(writer_state, await fold_path_state(cid, [m["id"] for m in messages]))
+        if state_block:
+            inj_block = (inj_block + "\n\n" + macros.resolve_message(state_block)).strip()
 
     # Lorebook: trailing keyword-scanned block + constant prefix section + @Depth tail
     scan_depth = lorebook.LOREBOOK_SCAN_DEPTH
@@ -837,8 +847,11 @@ async def api_get_message_director_log(
     msg = await get_message_by_id(msg_id)
     if not msg or msg.get("conversation_id") != cid:
         raise HTTPException(status_code=404, detail="Message not found")
-    direction_notes = [direction_note_projection(r) for r in await get_direction_notes_for_message(msg_id)]
+    # The reply's own state changes, from the history; what was refused, from the log.
+    changes = [dict(event) for event in await get_state_events_for_message(msg_id)]
     log = await get_director_log_for_message(msg_id)
+    report = (log or {}).get("state_report") or {}
+    state = {"changes": changes, "rejected": report.get("rejected") or [], "dropped": report.get("dropped") or []}
     if not log:
         return {
             "active_moods": [],
@@ -849,7 +862,7 @@ async def api_get_message_director_log(
             "reasoning_writer": "",
             "reasoning_editor": "",
             "feedback": {},
-            "direction_notes": direction_notes,
+            "state": state,
             # Read records from the reply when its diagnostic log is unavailable.
             "decision_evaluations": decision_evaluations_of(msg),
         }
@@ -862,60 +875,7 @@ async def api_get_message_director_log(
         "reasoning_writer": log.get("reasoning_writer") or "",
         "reasoning_editor": log.get("reasoning_editor") or "",
         "feedback": log.get("feedback", {}) or {},
-        "direction_notes": direction_notes,
+        "state": state,
         # Joined from the reply so logs do not store a duplicate copy.
         "decision_evaluations": log.get("decision_evaluations", {}) or {},
     }
-
-
-@router.get("/api/conversations/{cid}/direction-notes")
-async def api_list_direction_notes(cid: str, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
-    messages = await get_active_path(cid)
-    by_id = {m["id"]: m for m in messages}
-    rows = await get_direction_notes_for_path(cid, list(by_id))
-    return [
-        {
-            "id": r["id"],
-            **direction_note_projection(r),
-            "message_id": r["message_id"],
-            "turn_index": by_id[r["message_id"]]["turn_index"],
-        }
-        for r in rows
-    ]
-
-
-@router.post("/api/conversations/{cid}/direction-notes")
-async def api_create_direction_note(cid: str, data: DirectionNoteCreate):
-    content = data.content.strip()
-    if not content:
-        raise HTTPException(status_code=400, detail="Note content is empty")
-    msg = await get_message_by_id(data.message_id)
-    if not msg or msg.get("conversation_id") != cid:
-        raise HTTPException(status_code=404, detail="Message not found")
-    ids = await create_direction_notes(
-        cid,
-        data.message_id,
-        [
-            {
-                "interactive_fragment_id": _USER_NOTE_FRAGMENT_ID,
-                "interactive_fragment_label": data.label.strip() or "Note",
-                "content": content,
-            }
-        ],
-    )
-    return {"id": ids[0]}
-
-
-@router.put("/api/conversations/{cid}/direction-notes/{fid}")
-async def api_update_direction_note(cid: str, fid: int, data: DirectionNoteUpdate):
-    updated = await update_direction_note(fid, data.content)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Note not found")
-    return updated
-
-
-@router.delete("/api/conversations/{cid}/direction-notes/{fid}")
-async def api_delete_direction_note(cid: str, fid: int):
-    if not await delete_direction_note(fid):
-        raise HTTPException(status_code=404, detail="Note not found")
-    return {"ok": True}

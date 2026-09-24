@@ -26,29 +26,28 @@ async def test_a_sub_step_opens_a_new_paragraph_in_its_pass_box(client, db, llm_
             "id": "trajectory",
             "label": "Trajectory",
             "description": "Record the direction of travel.",
-            "field_type": "direction_note",
+            "field_type": "state",
+            "state_mode": "entries",
+            "state_update": "before_writer",
+            "state_inject": "both",
             "injection_label": "Direction of travel",
             "enabled": True,
-            "direction_note_timing": "pre_writer",
         }
     )
     await client.put(
         "/api/settings",
         json={
             "enable_agent": True,
-            "direction_notes_record": True,
             "enabled_tools": {"direct_scene": True},
             "reasoning_enabled_passes": {"director": True, "writer": True, "editor": True},
         },
     )
 
-    # The scene call and note sub-step share the Director buffer.
+    # The scene call and the before-Writer state sub-step share the Director buffer.
     llm_mock.enqueue_reasoning("director", _SCENE_THOUGHT)
     llm_mock.enqueue_director([{"type": "function", "function": {"name": "direct_scene", "arguments": {"moods": []}}}])
-    llm_mock.enqueue_reasoning("direction_note", _NOTE_THOUGHT)
-    llm_mock.enqueue_direction_note(
-        [{"type": "function", "function": {"name": "record_direction_note", "arguments": {"trajectory": _NOTE}}}]
-    )
+    llm_mock.enqueue_reasoning("state", _NOTE_THOUGHT)
+    llm_mock.enqueue_state([{"type": "function", "function": {"name": "update_state", "arguments": {"trajectory": [_NOTE]}}}])
     llm_mock.enqueue_reasoning("writer", "Answering in her voice.")
     llm_mock.enqueue_writer("She nods slowly.")
 

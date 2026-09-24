@@ -11,9 +11,14 @@ from typing import TYPE_CHECKING, Any
 
 from ....core import (
     ChatMessage,
+    StateOp,
+    StateRejection,
+    StateView,
     build_multimodal_content,
     extract_hyperparams,
+    plan_state_ops,
     resolve_inline,
+    value_text,
 )
 from ....inference import (
     CachedBase,
@@ -22,13 +27,16 @@ from ....inference import (
     parse_tool_calls,
     reasoning_cfg,
 )
-from ....prompting import compute_style_injection_block, resolve_mood_fragment_randoms
+from ....prompting import (
+    compute_style_injection_block,
+    render_state_block,
+    resolve_mood_fragment_randoms,
+)
 from ....prompting.tool_catalog import require_tool
 from ....prompting.tool_schemas import build_direct_scene_tool
-from ...predicates import direction_note_to_director, direction_note_to_writer
 from ...tools import DIRECTOR_LOOP_TOOL_NAMES
-from . import cooldown, progressive
-from .direction_note_prompts import render_direction_notes_block
+from ..state import StateContract, StateStepResult, state_step
+from . import cooldown
 from .lorebook_select import LorebookSelectResult, lorebook_select_step
 from .prompts import build_director_scene_step_prompt, build_director_tool_prompt
 
@@ -150,8 +158,8 @@ class DirectorResult:
     Field names match ``TurnState`` (e.g. ``agent_raw``, ``extra_fields``) so
     the same name follows each value from the pass through to persistence.
 
-    ``progressive_fields`` is absent — it is derived in ``director_stage`` by
-    filtering ``extra_fields`` through ``progressive.select``.
+    One-value state values the Director emitted ride ``extra_fields`` too;
+    ``director_stage`` turns them into validated state changes.
     """
 
     active_moods: list[str] = field(default_factory=list)
@@ -204,7 +212,7 @@ async def director_pass(
     reasoning_prefill: str = "",
     lorebook_block: str = "",
     progressive_state: dict | None = None,
-    direction_notes_block: str = "",
+    state_block: str = "",
     decision_guidance: str = "",
     speaker_keys: str = "",
     resting: frozenset[str] = frozenset(),
@@ -251,10 +259,10 @@ async def director_pass(
     per_fragment_on = bool(settings.get("director_individual_fragments", 0))
 
     # Prepended to direct_scene prompts as "___"-fenced sections (like the lorebook),
-    # so the director decides the scene with the world facts and the established
-    # direction notes in view.
+    # so the director decides the scene with the world facts and the saved state
+    # it receives in view.
     lorebook_prefix = ("___\n\n" + lorebook_block + "\n\n") if lorebook_block else ""
-    notes_prefix = ("___\n\n" + direction_notes_block + "\n\n") if direction_notes_block else ""
+    notes_prefix = ("___\n\n" + state_block + "\n\n") if state_block else ""
     # Already-settled facts the Director plans *around*, so they ride the context
     # section of the tail rather than the instruction. Nothing about probabilities
     # or dice is in the block (see passes/judge/guidance.py) — a rolled outcome
@@ -324,7 +332,7 @@ async def director_pass(
                 except Exception:
                     # A failed call skips this fragment but must not propagate: the
                     # remaining fragments and the writer still run, like the
-                    # lorebook-select and direction-note steps. Aborting the turn
+                    # lorebook-select and state steps. Aborting the turn
                     # here would also skip persisting the finished reply.
                     logger.exception("Agent tool=direct_scene target=%s: call failed; skipping", target)
                     continue
@@ -374,7 +382,7 @@ async def director_pass(
         resp: dict = {}
         # A failed call skips this tool but must not propagate: the remaining
         # tools and the writer still run, like the lorebook-select and
-        # direction-note steps. Aborting the turn here would also skip
+        # state steps. Aborting the turn here would also skip
         # persisting the finished reply.
         reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
         hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.25})
@@ -431,6 +439,24 @@ def _resolve_random_in_value(value: Any) -> Any:
     return value
 
 
+def state_event_payload(state: TurnState) -> dict:
+    """The ``state`` SSE payload: this turn's changes so far and what was refused."""
+    return {
+        "changes": [dict(event) for event in state.state_events],
+        "rejected": list(state.state_report.get("rejected") or []),
+        "dropped": list(state.state_report.get("dropped") or []),
+    }
+
+
+def apply_state_step_result(state: TurnState, result: StateStepResult, contract: StateContract) -> None:
+    """Record one state step's validated changes on *state*, and fire their cooldowns."""
+    state.state_events.extend(result.events)
+    state.state_report.setdefault("rejected", []).extend(rejection.as_dict() for rejection in result.rejections)
+    fired = {str(event["fragment_id"]) for event in result.events}
+    cooldowns = {fragment.id: fragment.cooldown_turns for fragment in contract.fragments}
+    state.fragment_cooldowns = cooldown.fire(state.fragment_cooldowns, fired, cooldowns)
+
+
 async def director_stage(
     cfg: _PipelineConfig,
     state: TurnState,
@@ -438,7 +464,9 @@ async def director_stage(
     settings: Mapping[str, Any],
     director: Mapping[str, Any],
     mood_fragments: Sequence[Mapping[str, Any]],
-    writer_fragments: Sequence[Mapping[str, Any]],
+    scene_fragments: Sequence[Mapping[str, Any]],
+    direct_scene_fragments: Sequence[Mapping[str, Any]],
+    state_contract: StateContract,
     attachments: Sequence[Mapping[str, Any]],
     kv_tracker: _KVCacheTracker,
     lorebook: LorebookTurn,
@@ -449,24 +477,38 @@ async def director_stage(
     """Input-prep + director pass + all post-processing for the director stage.
 
     Runs the director pass (when the agent is on and a pre-writer tool is
-    enabled), folds the :class:`DirectorResult` into *state*, computes the
-    style-injection block (→ ``director_done``), and computes the writer's
-    lorebook block (agentic selection or keyword scan). Returns early on a stop
-    during the director pass so ``director_done`` and lorebook work are skipped.
+    enabled), folds the :class:`DirectorResult` into *state*, applies the
+    before-Writer state updates -- the Director's one-value fields, then the
+    ``update_state`` step for multiple-entry fields -- computes the Writer's
+    injection block (→ ``director_done``), and computes the writer's lorebook
+    block (agentic selection or keyword scan). Returns early on a stop during
+    the director pass so ``director_done`` and lorebook work are skipped.
+
+    *scene_fragments* shape the Scene Guidance; *direct_scene_fragments* are the
+    ``direct_scene`` parameters, which also carry the one-value state fragments
+    updated before the Writer. ``state.state_view`` holds the branch's state and
+    is updated in place.
     """
-    # Prior progressive state: the seed for this turn, filtered to the fragments
-    # currently marked progressive. Used to feed the director pass and (as prior
-    # state) the style-injection block — the symmetric counterpart of the output
-    # filter below.
-    prior_progressive = progressive.select(director.get("progressive_fields", {}), writer_fragments)
     prior_cooldowns = director.get("fragment_cooldowns") or {}
     resting = cooldown.blocked(prior_cooldowns)
+    if state.state_view is None:
+        state.state_view = StateView()
+    view = state.state_view
 
-    # Render the stored direction notes once; the director receives them in its
-    # direct_scene prompt when it is a chosen recipient (so it steers consistent with
-    # the direction it set earlier), the writer in its Scene Direction when it is (below).
-    direction_notes = director.get("direction_notes") or []
-    notes_block = macros.resolve_message(render_direction_notes_block(direction_notes)) if direction_notes else ""
+    # The Director updates these one-value fields through direct_scene. As their
+    # updater it always sees their current value, in the request's own lines; the
+    # injected block carries only what Inject sends it, less those same fields.
+    updating = [fragment for fragment in state_contract.director_values() if fragment.id not in resting]
+    updating_ids = {fragment.id for fragment in updating}
+    prior_values = {
+        fragment.id: value_text(view.active(fragment.id))
+        for fragment in state_contract.director_values()
+        if view.active(fragment.id)
+    }
+    director_block = render_state_block(
+        [fragment for fragment in state_contract.to_director() if fragment.id not in updating_ids], view
+    )
+    director_block = macros.resolve_message(director_block) if director_block else ""
 
     has_director_loop_tools = any(cfg.enabled_tools.get(n, False) for n in DIRECTOR_LOOP_TOOL_NAMES)
     if cfg.agent_on and has_director_loop_tools:
@@ -478,15 +520,15 @@ async def director_stage(
             settings,
             director,
             mood_fragments,
-            writer_fragments,
+            direct_scene_fragments,
             cfg.enabled_tools,
             attachments=attachments,
             kv_tracker=kv_tracker,
             reasoning_on=cfg.director_reasoning_on,
             reasoning_prefill=cfg.director_reasoning_prefill,
             lorebook_block=lorebook.block,
-            progressive_state=prior_progressive,
-            direction_notes_block=notes_block if direction_note_to_director(settings) else "",
+            progressive_state=prior_values,
+            state_block=director_block,
             # Always pass resolved decisions to the Director; an empty block is a no-op.
             decision_guidance=decision_guidance,
             speaker_keys=speaker_keys,
@@ -515,22 +557,14 @@ async def director_stage(
 
     # Cooldowns are a volatile per-turn constraint: the schema remains stable,
     # and anything the model returned for a resting fragment is rejected here.
-    # Progressive fields retain their previous value while resting, but that
-    # carried value does not count as firing again.
+    # A resting state fragment keeps -- and still injects -- its saved value.
     state.active_moods = [fragment_id for fragment_id in state.active_moods if fragment_id not in resting]
     state.extra_fields = {fragment_id: value for fragment_id, value in state.extra_fields.items() if fragment_id not in resting}
     fired = [*state.active_moods, *state.extra_fields]
-    progressive_by_id = {
-        fragment["id"]: fragment for fragment in writer_fragments if fragment.get("field_type") == "progressive"
-    }
-    for fragment_id in resting:
-        if fragment_id in progressive_by_id and fragment_id in prior_progressive:
-            state.extra_fields[fragment_id] = prior_progressive[fragment_id]
-    state.progressive_fields = progressive.select(state.extra_fields, writer_fragments)
     state.fragment_cooldowns = cooldown.advance(
         prior_cooldowns,
         fired,
-        [*mood_fragments, *writer_fragments],
+        [*mood_fragments, *direct_scene_fragments],
     )
 
     # Its own forced select_lorebook call, independent of direct_scene, so agentic
@@ -570,12 +604,31 @@ async def director_stage(
         renderable = set(state.active_moods) | set(director["active_moods"])
         inj_mood_fragments = resolve_mood_fragment_randoms(mood_fragments, renderable, state.macro_choices)
         # Interactive values the director authored this turn roll fresh (per
-        # emission, not per conversation); resolving before progressive.select
-        # keeps the persisted progressive state consistent with the injected text.
+        # emission, not per conversation); resolving before they become state
+        # changes keeps the saved value consistent with the injected text.
         state.extra_fields = {fid: _resolve_random_in_value(val) for fid, val in state.extra_fields.items()}
-        state.progressive_fields = progressive.select(state.extra_fields, writer_fragments)
 
-    state.inj_block = macros.resolve_message(
+    # The Director's one-value state fields become validated state changes. An
+    # omitted or empty field keeps its value; a value of the wrong shape is
+    # rejected and reported rather than coerced.
+    state_ops: list[StateOp] = []
+    shape_rejections: list[StateRejection] = []
+    for fragment in updating:
+        value = state.extra_fields.get(fragment.id)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            state_ops.append(StateOp("set", fragment.id, text=value))
+        else:
+            shape_rejections.append(StateRejection(fragment.id, "set", "malformed", f"{fragment.label} takes one text value."))
+    if state_ops or shape_rejections:
+        events, rejections = plan_state_ops(state_ops, {f.id: f for f in updating}, view, source="agent")
+        state.state_events.extend(events)
+        state.state_report.setdefault("rejected", []).extend(r.as_dict() for r in [*shape_rejections, *rejections])
+        yield {"event": "state", "data": state_event_payload(state)}
+
+    scene_ids = {fragment["id"] for fragment in scene_fragments}
+    state.scene_direction = macros.resolve_message(
         compute_style_injection_block(
             state.active_moods,
             # A mood suppressed by its cooldown is resting, not deliberately
@@ -584,20 +637,50 @@ async def director_stage(
             # filtered the mood out this turn.
             [fragment_id for fragment_id in director["active_moods"] if fragment_id not in resting],
             inj_mood_fragments,
-            writer_fragments,
+            scene_fragments,
             direct_scene_enabled,
-            state.extra_fields,
-            prior_progressive,
+            {fid: value for fid, value in state.extra_fields.items() if fid in scene_ids},
         )
     )
-    # Direction notes ride the writer's Scene Direction when the writer is a chosen
-    # recipient -- independent of direct_scene and of whether recording is on -- so they
-    # are appended here rather than routed through compute_style_injection_block (which
-    # clears its inputs when direct_scene is off). scene_direction keeps the pre-append
-    # text for the pre-writer notes step.
-    state.scene_direction = state.inj_block
-    if notes_block and direction_note_to_writer(settings):
-        state.inj_block = (state.inj_block + "\n\n" + notes_block).strip()
+
+    # Multiple-entry fields updated before the Writer reflect on the scene
+    # direction just set, so they need an active scene-direction step.
+    before_writer = [fragment for fragment in state_contract.before_writer_tool() if fragment.id not in resting]
+    if before_writer and direct_scene_enabled and not cfg.agent_lane.client.is_aborted:
+        yield {"event": "step_start", "data": {"step": "state"}}
+        async for event in state_step(
+            cfg.agent_lane.client,
+            cfg.agent_lane.base,
+            settings=settings,
+            fragments=before_writer,
+            view=view,
+            placement="before_writer",
+            known_ids=frozenset(fragment.id for fragment in state_contract.tool_fragments()),
+            scene_direction=state.scene_direction,
+            decision_guidance=decision_guidance,
+            user_message=state.user_message,
+            kv_tracker=kv_tracker,
+            reasoning_on=cfg.director_reasoning_on,
+            reasoning_prefill=cfg.director_reasoning_prefill,
+        ):
+            if event["type"] == "reasoning":
+                yield {"event": "reasoning", "data": {"pass": "director", "delta": state.add_reasoning("director", event)}}
+            elif event["type"] == "done":
+                step_result: StateStepResult = event["result"]
+                apply_state_step_result(state, step_result, state_contract)
+                if step_result.events or step_result.rejections:
+                    yield {"event": "state", "data": state_event_payload(state)}
+        if cfg.agent_lane.client.is_aborted:
+            return
+
+    # The Writer's state block rides its Scene Direction whenever a fragment
+    # injects into the Writer -- independent of direct_scene and of whether
+    # updates are on -- and includes this turn's before-Writer changes, a changed
+    # one-value field rendering as ``old -> new``.
+    writer_block = render_state_block(state_contract.to_writer(), view, prior=state.state_prior)
+    state.inj_block = state.scene_direction
+    if writer_block:
+        state.inj_block = (state.inj_block + "\n\n" + macros.resolve_message(writer_block)).strip()
     # Keep decision guidance even when the Director is disabled, and place it first.
     if decision_guidance:
         state.inj_block = (decision_guidance + "\n\n" + state.inj_block).strip()

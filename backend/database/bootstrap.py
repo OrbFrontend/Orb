@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
-from ..core import DECISION_COLUMNS
+from ..core import DECISION_COLUMNS, STATE_COLUMNS
 from .connection import get_db
 from .schema import CREATE_TABLES_SQL
 from .seeds import (
@@ -183,7 +183,7 @@ async def _seed_mood_fragments(db) -> None:
 
 async def _seed_interactive_fragments(db) -> None:
     columns = ("id", "label", "description", "field_type", "required", "enabled", "injection_label", "sort_order")
-    columns += DECISION_COLUMNS
+    columns += DECISION_COLUMNS + STATE_COLUMNS
     for df in SEED_INTERACTIVE_FRAGMENTS:
         row = {"description": "", "enabled": True, **df}
         values = [row.get(column) for column in columns]

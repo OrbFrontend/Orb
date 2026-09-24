@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
+from backend.core import StateFragment, StateView
 from backend.database import SEED_INTERACTIVE_FRAGMENTS
 from backend.pipeline.passes.director import apply_tool_calls
-from backend.pipeline.passes.director.direction_note_prompts import (
-    build_direction_note_prompt,
-)
 from backend.pipeline.passes.director.prompts import (
     build_director_scene_step_prompt,
     build_director_tool_prompt,
@@ -16,11 +14,12 @@ from backend.pipeline.passes.editor.prompts import (
     build_editor_prompt,
     build_feedback_prompt,
 )
+from backend.pipeline.passes.state import build_state_request, entry_aliases
 from backend.prompting import build_style_injection, compute_style_injection_block
 from backend.prompting.tool_schemas import (
     build_direct_scene_tool,
-    build_direction_note_tool,
     build_feedback_tool,
+    build_state_tool,
 )
 
 # ── build_direct_scene_tool ──────────────────────────────────────────────────
@@ -287,7 +286,7 @@ class TestApplyToolCalls:
         assert "writing_direction" not in extra
 
     def test_current_moods_used_when_no_direct_scene_call(self):
-        calls = [{"name": "record_direction_note", "arguments": {"note": "x"}}]
+        calls = [{"name": "update_state", "arguments": {"note": ["x"]}}]
         moods, _ = apply_tool_calls(calls, ["existing-mood"])
         assert moods == ["existing-mood"]
 
@@ -332,22 +331,20 @@ class TestBuildStyleInjection:
         assert "- overuse of sighs" in result
         assert "- purple prose" in result
 
-    def test_progressive_field_rendered_as_transition_without_description(self):
-        # The description is Director-only, same as single and list fields.
+    def test_state_field_never_renders_in_scene_guidance(self):
+        # State fragments render in the recipient's current-state block instead,
+        # so a value the Director emitted for one never doubles up here.
         frags = [
             {
                 "id": "trust",
-                "field_type": "progressive",
+                "field_type": "state",
                 "injection_label": "Trust",
                 "description": "How much the character trusts the user.",
                 "sort_order": 0,
             }
         ]
-        result = build_style_injection(
-            [], interactive_fragments=frags, extra_fields={"trust": "40%"}, prior_progressive_state={"trust": "25%"}
-        )
-        assert "Trust: 25% -> 40%" in result
-        assert "How much the character trusts" not in result
+        result = build_style_injection([], interactive_fragments=frags, extra_fields={"trust": "40%"})
+        assert "Trust" not in result
 
     def test_fields_omitted_when_not_in_extra_fields(self):
         frags = self._make_frags()
@@ -507,9 +504,8 @@ class TestSeedInteractiveFragments:
             assert frag["field_type"] in (
                 "string",
                 "array",
-                "progressive",
+                "state",
                 "feedback",
-                "direction_note",
                 "post_processing",
                 "decision",
             ), frag["id"]
@@ -530,12 +526,17 @@ def test_ooc_preambles_close_their_bracket():
         assert o.endswith("]")
 
 
-# build_direction_note_prompt: the [OOC: aside opened in the preamble must close at the end.
-def test_direction_note_prompt_closes_ooc_aside():
+# build_state_request: the [OOC: aside opened in the preamble must close at the end.
+def test_state_request_closes_ooc_aside():
     """Opens ``[OOC:`` in the preamble and must close at the very end, so the whole
-    instruction is bracketed and the delimiters stay balanced (regression guard)."""
-    frag = {"id": "characterization", "injection_label": "Characterization", "description": "x"}
-    prompt = build_direction_note_prompt([], [frag], tool_schema=build_direction_note_tool([frag]))
+    instruction is bracketed and the delimiters stay balanced (regression guard).
+    Listed entries carry bracketed aliases, which must balance too."""
+    frag = StateFragment("characterization", "Characterization", "Characterization", "x", mode="entries")
+    view = StateView()
+    view.apply({"fragment_id": "characterization", "entry_id": "a", "op": "add", "text": "Kind."})
+    aliases = entry_aliases([frag], view)
+    prompt = build_state_request([frag], view, aliases, placement="after_reply", tool_schema=build_state_tool([frag]))
     assert prompt.startswith("[OOC:")
     assert prompt.endswith("]")
     assert prompt.count("[") == prompt.count("]")
+    assert "- [e1] Kind." in prompt

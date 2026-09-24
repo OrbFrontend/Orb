@@ -6,7 +6,15 @@ import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any, TypeVar
 
-from ..core import CardScripts, CastMember, ChatMessage, GroupContextMode, Macros
+from ..core import (
+    CardScripts,
+    CastMember,
+    ChatMessage,
+    GroupContextMode,
+    Macros,
+    StateView,
+    carry_events,
+)
 from ..database.models import PhraseGroup
 from ..inference import LLMClient, _KVCacheTracker
 from .config import _resolve_pipeline_config, _split_interactive_fragments
@@ -17,11 +25,16 @@ from .failures import (
     STAGE_WRITER,
     mark_stage,
 )
-from .passes.director import direction_note_step, director_stage
+from .passes.director import (
+    apply_state_step_result,
+    cooldown,
+    director_stage,
+    state_event_payload,
+)
 from .passes.editor import editor_stage
 from .passes.judge import JudgeResult
+from .passes.state import StateContract, StateStepResult, state_step
 from .passes.writer import strip_speaker_label, writer_stage
-from .predicates import direction_note_recording_active
 from .sheet_update import sheet_update_stage
 from .state import LorebookTurn, SheetUpdateTurn, TurnState, WorldProposalTurn
 from .workflow_bridge import _PostPipelineResult, _run_post_pipeline
@@ -54,16 +67,23 @@ def _make_result(state: TurnState, staged: list[dict] | None = None, staged_stat
     return {"event": "_result", "data": state.as_result_event_data()}
 
 
-async def _consume_direction_note_step(gen: AsyncIterator[dict], state: TurnState, pass_label: str) -> AsyncIterator[dict]:
-    """Announce and drain a direction-note step, preserving accumulated notes."""
-    yield {"event": "step_start", "data": {"step": "direction_notes"}}
-    async for ev in gen:
-        if ev["type"] == "reasoning":
-            yield {"event": "reasoning", "data": {"pass": pass_label, "delta": state.add_reasoning(pass_label, ev)}}
-        elif ev["type"] == "done":
-            if ev["result"].notes:
-                state.direction_notes.extend(ev["result"].notes)
-                yield {"event": "direction_notes", "data": {"notes": state.direction_notes}}
+def seed_fragment_state(state: TurnState, director: Mapping[str, Any]) -> None:
+    """Start *state* from the branch's folded state plus any carried corrections.
+
+    ``director["fragment_state"]`` is the parent path's fold. A regeneration also
+    brings the user-made changes anchored on the reply it replaces
+    (``director["state_carried"]``): they apply first, so the new reply is
+    written with the correction, and they commit ahead of the turn's own changes
+    so row order matches apply order. One whose entry the discarded reply added
+    has nothing to apply to and is reported as dropped.
+    """
+    base = director.get("fragment_state")
+    view = base.copy() if isinstance(base, StateView) else StateView()
+    applied, dropped = carry_events(director.get("state_carried") or (), view)
+    state.state_view = view
+    state.state_prior = view.copy()
+    state.state_events = applied
+    state.state_report = {"rejected": [], "dropped": dropped}
 
 
 async def _run_pipeline(
@@ -99,6 +119,7 @@ async def _run_pipeline(
     director_seed: TurnState | None = None,
     judge: JudgeResult | None = None,
     run_exchange_final: bool = True,
+    state_contract: StateContract | None = None,
 ) -> AsyncIterator[dict]:
     """Run the director → writer → editor passes for one turn.
 
@@ -137,17 +158,13 @@ async def _run_pipeline(
     )
 
     # Feedback and post-processing fragments are handled after the Writer, and
-    # direction-note fragments by the direction-note step; the rest shape the
-    # Writer prompt.
-    writer_fragments, feedback_fragments, direction_note_fragments, post_processing_fragments = _split_interactive_fragments(
+    # state fragments by their own routing; scene fragments shape the Writer prompt.
+    scene_fragments, feedback_fragments, state_fragments, post_processing_fragments = _split_interactive_fragments(
         interactive_fragments
     )
-
-    # Each direction-note fragment chooses its own recording placement, so a turn may run a
-    # pre-writer step, a post-turn step, or both. The shared tool blob still carries the union
-    # of all of them, keeping the cached prefix byte-stable across both steps.
-    pre_writer_notes = [df for df in direction_note_fragments if df.get("direction_note_timing") == "pre_writer"]
-    post_turn_notes = [df for df in direction_note_fragments if df.get("direction_note_timing") != "pre_writer"]
+    # Captured once for the turn: tool construction, routing, validation and
+    # commit all read this contract, never the live fragment settings.
+    contract = state_contract or StateContract.capture(settings, state_fragments)
 
     # Mutable state threaded through the three passes; seeded from director + user message.
     # macro_choices is copied so mutations stay turn-local until persistence
@@ -165,15 +182,18 @@ async def _run_pipeline(
     # speakers through ``director_seed`` instead, and is not re-resolved.
     if judge is not None:
         judge.apply_to(state)
+    seed_fragment_state(state, director)
     # A group exchange runs one Director for every speaker, so speakers 2..n start
     # from its result instead of re-deriving it. Which fields that covers is
     # ``TurnState``'s to say (``_DIRECTOR_SEED_FIELDS``), not this module's --
-    # including the pre-writer notes, which the driver clears from the seed once
-    # the exchange's first reply has anchored them.
+    # including the before-Writer state changes, which the driver clears from the
+    # seed once the exchange's first reply has anchored them.
     if director_seed is not None:
         state.seed_from(director_seed)
 
     if run_director:
+        if state.state_events or state.state_report["dropped"]:
+            yield {"event": "state", "data": state_event_payload(state)}
         async for ev in _staged(
             STAGE_DIRECTOR,
             director_stage(
@@ -182,7 +202,9 @@ async def _run_pipeline(
                 settings=settings,
                 director=director,
                 mood_fragments=mood_fragments,
-                writer_fragments=writer_fragments,
+                scene_fragments=scene_fragments,
+                direct_scene_fragments=contract.direct_scene_rows(interactive_fragments),
+                state_contract=contract,
                 attachments=attachments,
                 kv_tracker=kv_tracker,
                 lorebook=lorebook,
@@ -196,33 +218,10 @@ async def _run_pipeline(
     if client.is_aborted:
         return
 
-    # Reflects on the scene direction the director just set, so it requires
-    # direct_scene (which is what produces that direction).
-    if (
-        run_director
-        and direction_note_recording_active(settings, pre_writer_notes, agent_on=cfg.agent_on)
-        and cfg.enabled_tools.get("direct_scene")
-    ):
-        async for ev in _staged(
-            STAGE_DIRECTOR,
-            _consume_direction_note_step(
-                direction_note_step(
-                    cfg.agent_lane.client,
-                    cfg.agent_lane.base,
-                    settings=settings,
-                    direction_note_fragments=pre_writer_notes,
-                    active_notes=director.get("direction_notes") or [],
-                    placement="pre_writer",
-                    inj_block=state.scene_direction,
-                    kv_tracker=kv_tracker,
-                    reasoning_on=cfg.director_reasoning_on,
-                    reasoning_prefill=cfg.director_reasoning_prefill,
-                ),
-                state,
-                "director",
-            ),
-        ):
-            yield ev
+    # The before-Writer state changes, for the fallback save: a reply stopped and
+    # saved as partial text keeps the changes that shaped it. Internal, like
+    # ``_result``: consumed by persistence and never sent to the browser.
+    yield {"event": "_state_checkpoint", "data": {"state_events": list(state.state_events)}}
 
     async for ev in _staged(
         STAGE_WRITER,
@@ -320,39 +319,41 @@ async def _run_pipeline(
     # Fold any hook-rewritten draft back into state before emitting _result.
     state.resp_text = post.draft
 
-    # Sees the finished reply. Skipped on an empty draft (no message to anchor notes
-    # to) and on a stop arriving after the last pre-editor abort check.
-    if (
-        run_exchange_final
-        and direction_note_recording_active(settings, post_turn_notes, agent_on=cfg.agent_on)
-        and state.resp_text.strip()
-        and not client.is_aborted
-    ):
+    # Sees the finished reply. Skipped on an empty draft (no message to anchor the
+    # changes to) and on a stop arriving after the last pre-editor abort check.
+    resting = cooldown.blocked(director.get("fragment_cooldowns") or {})
+    after_reply = [fragment for fragment in contract.after_reply() if fragment.id not in resting]
+    if run_exchange_final and after_reply and state.resp_text.strip() and not client.is_aborted:
+        yield {"event": "step_start", "data": {"step": "state"}}
         async for ev in _staged(
             STAGE_EDITOR,
-            _consume_direction_note_step(
-                direction_note_step(
-                    cfg.agent_lane.client,
-                    cfg.agent_lane.base,
-                    settings=settings,
-                    direction_note_fragments=post_turn_notes,
-                    active_notes=director.get("direction_notes") or [],
-                    placement="post_turn",
-                    reply_text=state.resp_text,
-                    writer_user_msg=state.writer_content,
-                    kv_tracker=kv_tracker,
-                    reasoning_on=cfg.editor_reasoning_on,
-                    reasoning_prefill=cfg.editor_reasoning_prefill,
-                ),
-                state,
-                "editor",
+            state_step(
+                cfg.agent_lane.client,
+                cfg.agent_lane.base,
+                settings=settings,
+                fragments=after_reply,
+                view=state.state_view if state.state_view is not None else StateView(),
+                placement="after_reply",
+                known_ids=frozenset(fragment.id for fragment in contract.tool_fragments()),
+                decision_guidance=state.decision_guidance,
+                reply_text=state.resp_text,
+                writer_user_msg=state.writer_content,
+                kv_tracker=kv_tracker,
+                reasoning_on=cfg.editor_reasoning_on,
+                reasoning_prefill=cfg.editor_reasoning_prefill,
             ),
         ):
-            yield ev
+            if ev["type"] == "reasoning":
+                yield {"event": "reasoning", "data": {"pass": "editor", "delta": state.add_reasoning("editor", ev)}}
+            elif ev["type"] == "done":
+                step_result: StateStepResult = ev["result"]
+                apply_state_step_result(state, step_result, contract)
+                if step_result.events or step_result.rejections:
+                    yield {"event": "state", "data": state_event_payload(state)}
 
     # Last, deliberately: it judges the prose that will actually be persisted, so
     # it has to sit after the editor and after any draft-rewriting post-pipeline
-    # hook. Same skip conditions as the post-turn notes step -- an empty draft has
+    # hook. Same skip conditions as the after-reply state step -- an empty draft has
     # nothing to derive world state from, and a stop must not start a fresh call.
     if run_exchange_final and world_proposal is not None and state.resp_text.strip() and not client.is_aborted:
         async for ev in _staged(

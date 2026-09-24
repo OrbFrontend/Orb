@@ -83,6 +83,59 @@ SEED_MOOD_FRAGMENTS = [
     },
 ]
 
+# Shared with migration 0067, which seeds the same rows into existing installs.
+STARTER_STATE_FRAGMENTS = [
+    {
+        "id": "scene_continuity",
+        "label": "Scene continuity",
+        "description": (
+            "Where the scene stands for the reply about to be written: the place and time, who is present and where "
+            "they are, what they are wearing or holding, and any injury or condition that must carry over. Write "
+            "the whole picture in a few short sentences, replacing the previous one."
+        ),
+        "field_type": "state",
+        "required": False,
+        "injection_label": "Scene continuity",
+        "sort_order": 8,
+        "enabled": False,
+        "state_mode": "value",
+        "state_update": "before_writer",
+        "state_inject": "writer",
+    },
+    {
+        "id": "open_threads",
+        "label": "Open threads",
+        "description": (
+            "Promises, plans, questions, and conflicts the story has set up and not yet resolved, one per entry. "
+            "Add a thread when one opens; retire it once it is resolved or abandoned."
+        ),
+        "field_type": "state",
+        "required": False,
+        "injection_label": "Open threads",
+        "sort_order": 9,
+        "enabled": False,
+        "state_mode": "entries",
+        "state_update": "after_reply",
+        "state_inject": "both",
+    },
+]
+
+# Free-form notes the user keeps by hand. Migration 0067 moves user-authored
+# direction notes here, taking its Inject setting from the old global one.
+NOTES_STATE_FRAGMENT = {
+    "id": "notes",
+    "label": "Notes",
+    "description": "Your own lasting notes for this conversation.",
+    "field_type": "state",
+    "required": False,
+    "injection_label": "Notes",
+    "sort_order": 10,
+    "enabled": False,
+    "state_mode": "entries",
+    "state_update": "manual",
+    "state_inject": "both",
+}
+
 SEED_INTERACTIVE_FRAGMENTS = [
     {
         "id": "outcome",
@@ -206,12 +259,14 @@ SEED_INTERACTIVE_FRAGMENTS = [
             "character may change in several of these ways at once; record every change that "
             "qualifies -- several, one, or none at all -- naming the character, the change, and its cause."
         ),
-        "field_type": "direction_note",
+        "field_type": "state",
         "required": False,
         "injection_label": "Characterization",
         "sort_order": 6,
         "enabled": False,
-        "direction_note_timing": "post_turn",
+        "state_mode": "entries",
+        "state_update": "after_reply",
+        "state_inject": "both",
     },
     {
         "id": "humanize_dialogue",
@@ -227,6 +282,9 @@ SEED_INTERACTIVE_FRAGMENTS = [
         "sort_order": 7,
         "enabled": False,
     },
+    # Starter state fragments, one per mode. Disabled until the user opts in.
+    *STARTER_STATE_FRAGMENTS,
+    NOTES_STATE_FRAGMENT,
 ]
 
 DEFAULT_ENABLED_TOOLS = {
@@ -285,8 +343,7 @@ DEFAULT_SETTINGS = {
     "agent_shared_system_prompt": "",
     "feedback_enabled": 0,
     "director_individual_fragments": 0,
-    "direction_notes_record": 0,
-    "direction_notes_inject": "off",
+    "state_updates": 1,
     "workflows_globally_enabled": 1,
 }
 

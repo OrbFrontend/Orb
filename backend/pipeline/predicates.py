@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -17,26 +17,6 @@ def is_dual_model(agent_client: LLMClient | None) -> bool:
 def agent_enabled(settings: Mapping[str, Any]) -> bool:
     """Return whether the global Agent toggle is on."""
     return bool(settings.get("enable_agent", 1))
-
-
-def direction_note_recording_active(
-    settings: Mapping[str, Any],
-    direction_note_fragments: Sequence[Mapping[str, Any]],
-    *,
-    agent_on: bool,
-) -> bool:
-    """Return whether the direction-note step should record for this group."""
-    return agent_on and bool(settings.get("direction_notes_record", 0)) and bool(direction_note_fragments)
-
-
-def direction_note_to_director(settings: Mapping[str, Any]) -> bool:
-    """Return whether the Director should see stored direction notes."""
-    return (settings.get("direction_notes_inject", "off") or "off") in ("director", "both")
-
-
-def direction_note_to_writer(settings: Mapping[str, Any]) -> bool:
-    """Return whether the Writer should see stored direction notes."""
-    return (settings.get("direction_notes_inject", "off") or "off") in ("writer", "both")
 
 
 def world_proposal_active(world: Mapping[str, Any] | None, *, agent_on: bool) -> bool:

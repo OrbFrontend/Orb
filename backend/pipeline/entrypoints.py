@@ -21,8 +21,8 @@ from .context import (
     _TurnSetup,
 )
 from .failures import describe_failure
-from .orchestrator import _consume_direction_note_step, _run_pipeline
-from .passes.director import cooldown, direction_note_step, director_stage, progressive
+from .orchestrator import _run_pipeline, seed_fragment_state
+from .passes.director import cooldown, director_stage, state_event_payload
 from .passes.editor.editor import AUDIT_BASELINE_WINDOW
 from .passes.judge import (
     JudgeResult,
@@ -34,8 +34,7 @@ from .passes.judge import (
     stored_evaluations,
 )
 from .persistence import _consume_pipeline, _conversation_log_writer
-from .predicates import direction_note_recording_active
-from .state import SheetUpdateTurn, TurnState
+from .state import SheetUpdateTurn, TurnState, empty_state_report
 
 logger = logging.getLogger(__name__)
 
@@ -220,20 +219,24 @@ def _committed_exchange_decisions(
     return JudgeResult.committed(db.decision_evaluations_of(parent), parent.get("decision_cooldowns") or {})
 
 
-async def _load_direction_notes(ctx: PipelineContext, conversation_id: str, path: Sequence[Mapping[str, Any]]) -> None:
-    """Seed ``ctx.director['direction_notes']`` with the active-branch notes.
+async def _load_fragment_state(
+    ctx: PipelineContext,
+    conversation_id: str,
+    path: Sequence[Mapping[str, Any]],
+    *,
+    replacing: Mapping[str, Any] | None = None,
+) -> None:
+    """Seed ``ctx.director`` with the branch's state-fragment state.
 
-    Reconstructed from the messages on *path*, so the set is branch-correct; each note
-    carries its authoring fragment's label and the turn it was recorded on (mapped from
-    the path). Always loaded (cheap, empty when no notes exist) -- whether the notes are
-    injected into the prompt or shown to the recording step is decided by their own gates
-    downstream, independent of one another.
+    ``fragment_state`` folds every event anchored on *path*, so the state is
+    branch-correct. When the turn regenerates *replacing*, the user-made changes
+    anchored on that reply ride along as ``state_carried``: the new reply is
+    written with the correction, while the discarded reply's model-made changes
+    are regenerated rather than copied.
     """
-    rows = await db.get_direction_notes_for_path(conversation_id, [m["id"] for m in path])
-    turn_by_message = {m["id"]: m.get("turn_index") for m in path}
-    ctx.director["direction_notes"] = [
-        {**db.direction_note_projection(r), "turn_index": turn_by_message.get(r["message_id"])} for r in rows
-    ]
+    ctx.director["fragment_state"] = await db.fold_path_state(conversation_id, [m["id"] for m in path])
+    carried = await db.get_state_events_for_message(replacing["id"], sources={"user"}) if replacing else []
+    ctx.director["state_carried"] = [dict(event) for event in carried]
 
 
 async def _resolve_target_and_parent(
@@ -270,9 +273,9 @@ async def _prepare_regen_context(
 ) -> tuple[Sequence[Mapping[str, Any]], Sequence[Mapping[str, Any]]]:
     """Load history and attachments for a regeneration, and reset the director.
 
-    Resets the director's active moods and progressive fields to the pre-turn
-    baseline so the regenerated reply starts from the same state as the original.
-    Returns ``(history, attachments)``.
+    Resets the director's active moods and state fragments to the pre-turn
+    baseline so the regenerated reply starts from the same state as the original,
+    plus the user's corrections anchored on it. Returns ``(history, attachments)``.
     """
     if parent_msg.get("role") == "user":
         history_parent_id: int | None = parent_msg.get("parent_id")
@@ -281,13 +284,12 @@ async def _prepare_regen_context(
     history = await db.get_path_to_leaf(conversation_id, history_parent_id) if history_parent_id is not None else []
     moods_before = await db.get_moods_before_turn(conversation_id, target["turn_index"] - 1)
     ctx.director["active_moods"] = moods_before
-    ctx.director["progressive_fields"] = progressive.branch_baseline(history)
     ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(history)
     ctx.director["decision_cooldowns"] = decision_cooldown_baseline(
         history, before_exchange_id=str(target.get("exchange_id") or "") or None
     )
     ctx.director["decision_replay"] = stored_evaluations(db.decision_evaluations_of(target))
-    await _load_direction_notes(ctx, conversation_id, history)
+    await _load_fragment_state(ctx, conversation_id, history, replacing=target)
     attachments = await db.get_user_attachments_for_message(parent_msg["id"]) if parent_msg.get("role") == "user" else []
     return history, attachments
 
@@ -382,6 +384,7 @@ async def _generate_reply(
         history=history,
         world_proposal=setup.world_proposal,
         judge=judge,
+        state_contract=ctx.state_contract,
     )
     async for event in _consume_pipeline(
         pipeline,
@@ -457,7 +460,7 @@ async def _generate_group_exchange(
         phrase_bank=ctx.phrase_bank,
         schema_overrides=setup.schema_overrides,
     )
-    writer_fragments, _, direction_note_fragments, _ = _split_interactive_fragments(ctx.interactive_fragments)
+    scene_fragments, _, _, _ = _split_interactive_fragments(ctx.interactive_fragments)
     shared = TurnState(
         user_message=setup.macros.resolve_message(user_message),
         effective_msg=setup.macros.resolve_message(user_message),
@@ -465,6 +468,7 @@ async def _generate_group_exchange(
         macro_choices=dict(ctx.director.get("macro_choices") or {}),
         fragment_cooldowns=dict(ctx.director.get("fragment_cooldowns") or {}),
     )
+    seed_fragment_state(shared, ctx.director)
 
     judge = _committed_exchange_decisions(history, parent_message_id, decision_exchange_id)
     if judge is not None:
@@ -491,13 +495,20 @@ async def _generate_group_exchange(
         yield {"event": "done"}
         return
 
+    if shared.state_events or shared.state_report["dropped"]:
+        yield {"event": "state", "data": state_event_payload(shared)}
+    # One Director stage for the whole exchange, including its before-Writer state
+    # changes: they ride the exchange's first reply, the row `_consume_pipeline`
+    # anchors them to, and every speaker writes with the resulting state.
     async for ev in director_stage(
         cfg,
         shared,
         settings=settings,
         director=ctx.director,
         mood_fragments=ctx.mood_fragments,
-        writer_fragments=writer_fragments,
+        scene_fragments=scene_fragments,
+        direct_scene_fragments=ctx.state_contract.direct_scene_rows(ctx.interactive_fragments),
+        state_contract=ctx.state_contract,
         attachments=attachments,
         kv_tracker=setup.kv_tracker,
         lorebook=setup.lorebook,
@@ -514,33 +525,6 @@ async def _generate_group_exchange(
     if ctx.client.is_aborted:
         yield {"event": "done"}
         return
-
-    # The pre-writer note step reflects on the scene direction the Director just
-    # set, and in a group that direction is set once for the whole exchange — so the
-    # step belongs here beside it, not inside a speaker's pipeline (which runs
-    # with the Director already done and would repeat it per reply). Its notes
-    # ride the exchange's first reply, the row `_consume_pipeline` anchors them to.
-    pre_writer_notes = [df for df in direction_note_fragments if df.get("direction_note_timing") == "pre_writer"]
-    if direction_note_recording_active(settings, pre_writer_notes, agent_on=cfg.agent_on) and cfg.enabled_tools.get(
-        "direct_scene"
-    ):
-        async for ev in _consume_direction_note_step(
-            direction_note_step(
-                cfg.agent_lane.client,
-                cfg.agent_lane.base,
-                settings=settings,
-                direction_note_fragments=pre_writer_notes,
-                active_notes=ctx.director.get("direction_notes") or [],
-                placement="pre_writer",
-                inj_block=shared.scene_direction,
-                kv_tracker=setup.kv_tracker,
-                reasoning_on=cfg.director_reasoning_on,
-                reasoning_prefill=cfg.director_reasoning_prefill,
-            ),
-            shared,
-            "director",
-        ):
-            yield ev
 
     # Who speaks is settled here; what the Director wrote for whoever that turns
     # out to be is settled by `plan_cue`. The two are separate questions -- a pin
@@ -617,7 +601,7 @@ async def _generate_group_exchange(
         if speaker is None:
             break
         # The exchange's last planned speaker carries every once-per-exchange step:
-        # the Dynamic Worlds proposal, the sheet pass, and the post-turn note step.
+        # the Dynamic Worlds proposal, the sheet pass, and the after-reply state step.
         is_final = index == len(plan_rows) - 1
         turn_index = first_turn_index + index
         yield {
@@ -704,6 +688,7 @@ async def _generate_group_exchange(
             run_director=False,
             director_seed=shared,
             run_exchange_final=is_final,
+            state_contract=ctx.state_contract,
         )
         persisted_id: int | None = None
         persisted_content = ""
@@ -728,10 +713,12 @@ async def _generate_group_exchange(
         if persisted_id is None:
             break
         spoke.append((speaker.member_id, speaker.name, persisted_content))
-        # The exchange's pre-writer notes have now landed on its first reply. They are
-        # one recording, not one per speaker, so the seed stops carrying them
-        # before the next speaker copies (and re-persists) the same rows.
-        shared.direction_notes = []
+        # The exchange's before-Writer state changes have now landed on its first
+        # reply. They are one update, not one per speaker, so the seed stops
+        # carrying them before the next speaker copies (and re-persists) the same
+        # rows; the resulting state view stays, so every speaker reads it.
+        shared.state_events = []
+        shared.state_report = empty_state_report()
         grown_history.append(
             {
                 "id": persisted_id,
@@ -797,11 +784,10 @@ async def handle_turn(
             history, user_msg_id = messages[:-1], messages[-1]["id"]
             user_turn = messages[-1]["turn_index"]
 
-        # Read progressive_fields from the grandparent node (branch-aware, unlike conversation_logs).
-        ctx.director["progressive_fields"] = progressive.branch_baseline(messages)
+        # Branch-aware state, unlike conversation_logs: folded from the active path.
         ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(messages)
         ctx.director["decision_cooldowns"] = decision_cooldown_baseline(messages)
-        await _load_direction_notes(ctx, conversation_id, messages)
+        await _load_fragment_state(ctx, conversation_id, messages)
 
         exchange_id: str | None = None
         if not skip_user_persist:
@@ -884,8 +870,7 @@ async def handle_speak(
             yield {"event": "error", "data": "Conversation is not a group"}
             return
         messages = await db.get_messages(conversation_id)
-        await _load_direction_notes(ctx, conversation_id, messages)
-        ctx.director["progressive_fields"] = progressive.branch_baseline(messages)
+        await _load_fragment_state(ctx, conversation_id, messages)
         ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(messages)
         ctx.director["decision_cooldowns"] = decision_cooldown_baseline(messages)
         next_turn = (messages[-1]["turn_index"] + 1) if messages else 0
@@ -948,12 +933,11 @@ async def handle_fork_edit(
         asst_turn = turn_index + 1
         history = await db.get_path_to_leaf(conversation_id, parent_id) if parent_id is not None else []
 
-        # Reset director to branch-point baseline (branch-aware progressive_fields).
+        # Reset director to the branch-point baseline (branch-aware state).
         ctx.director["active_moods"] = await db.get_moods_before_turn(conversation_id, turn_index)
-        ctx.director["progressive_fields"] = progressive.branch_baseline(history)
         ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(history)
         ctx.director["decision_cooldowns"] = decision_cooldown_baseline(history)
-        await _load_direction_notes(ctx, conversation_id, history)
+        await _load_fragment_state(ctx, conversation_id, history)
 
         # Carry original attachments onto the new sibling.
         carried_atts = await db.get_user_attachments_for_message(user_msg_id)

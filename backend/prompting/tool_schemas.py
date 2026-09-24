@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from typing import Any
+
+from ..core import StateFragment
 
 # Agent tool definitions.
 
@@ -256,20 +259,52 @@ def build_feedback_tool(feedback_fragments: Sequence[Mapping[str, Any]]) -> dict
 GIVE_FEEDBACK_CHOICE = {"type": "function", "function": {"name": "give_feedback"}}
 
 
-_RECORD_DIRECTION_NOTE_DESCRIPTION = (
-    "Record lasting director notes that persist for the rest of the roleplay - once recorded, a "
-    "note returns on every later reply and steers the story from here on. Each parameter is one "
-    "category of note; fill only the categories that have something genuinely new and lasting to "
-    "record this turn, and leave the rest empty."
+_UPDATE_STATE_DESCRIPTION = (
+    "Update the story's saved state, which returns on every later reply. Each parameter after `retire` is one "
+    "state field: a one-value field takes its complete new value, a list field takes only new entries to add. "
+    "Leave a field empty to keep it as it is."
 )
 
+# Fixed, and first: the retirement list is read before any field adds to it, so
+# a model that retires stale entries frees room before it writes new ones.
+_RETIRE_PROPERTY = {
+    "retire": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": (
+            "Ids of listed entries (e1, e2, ...) that no longer hold. To correct an entry, retire it and add "
+            "the corrected text to its field."
+        ),
+    },
+}
 
-def build_direction_note_tool(direction_note_fragments: Sequence[Mapping[str, Any]]) -> dict:
-    """Build the ``record_direction_note`` tool schema from the enabled direction-note fragments."""
-    return _build_fragment_tool("record_direction_note", _RECORD_DIRECTION_NOTE_DESCRIPTION, direction_note_fragments)
+
+def build_state_tool(state_fragments: Sequence[StateFragment]) -> dict:
+    """Build the ``update_state`` tool schema from the turn's state-tool fragments.
+
+    A one-value fragment is one string parameter; a multiple-entry fragment is one
+    array of new entries. Nothing volatile -- entry ids, current values, counts
+    -- ever reaches the schema: it rides the shared tools blob, which must stay
+    byte-identical while only the state changes. Nothing is required, because
+    omission means keep.
+    """
+    properties: dict = dict(deepcopy(_RETIRE_PROPERTY))
+    for fragment in state_fragments:
+        if fragment.mode == "entries":
+            properties[fragment.id] = {"type": "array", "items": {"type": "string"}, "description": fragment.description}
+        else:
+            properties[fragment.id] = {"type": "string", "description": fragment.description}
+    return {
+        "type": "function",
+        "function": {
+            "name": "update_state",
+            "description": _UPDATE_STATE_DESCRIPTION,
+            "parameters": {"type": "object", "properties": properties, "required": []},
+        },
+    }
 
 
-RECORD_DIRECTION_NOTE_CHOICE = {"type": "function", "function": {"name": "record_direction_note"}}
+UPDATE_STATE_CHOICE = {"type": "function", "function": {"name": "update_state"}}
 
 
 EDITOR_REWRITE_TOOL = {

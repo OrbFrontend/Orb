@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.core import CastMember, Macros, TurnCast
+from backend.core import CastMember, Macros, TurnCast, fold_events
 from backend.database.queries.group_members import allocate_speaker_key
 from backend.pipeline.cast import parse_speaking_plan, plan_cue, round_robin_member
 from backend.pipeline.passes.director import (
@@ -181,7 +181,9 @@ def test_every_director_seed_field_is_a_turn_state_field_and_is_copied_not_share
     and would otherwise reach back into a reply already on the wire.
     """
     shared = TurnState(active_moods=["tense"], calls=[{"name": "direct_scene"}], macro_choices={"f": "a"})
-    shared.direction_notes = [{"text": "note"}]
+    shared.state_events = [{"fragment_id": "threads", "entry_id": "a", "op": "add", "text": "note"}]
+    shared.state_report = {"rejected": [{"reason": "full"}], "dropped": []}
+    shared.state_view = fold_events(shared.state_events)
     for name in _DIRECTOR_SEED_FIELDS:
         assert hasattr(shared, name), name
 
@@ -189,9 +191,14 @@ def test_every_director_seed_field_is_a_turn_state_field_and_is_copied_not_share
     first.seed_from(shared)
     second.seed_from(shared)
     first.calls.append({"name": "update_character_sheet"})
-    first.direction_notes.append({"text": "later"})
+    first.state_events.append({"fragment_id": "threads", "entry_id": "b", "op": "add", "text": "later"})
+    first.state_report["rejected"].append({"reason": "duplicate"})
+    assert first.state_view is not None
+    first.state_view.apply({"fragment_id": "threads", "entry_id": "b", "op": "add", "text": "later"})
 
     assert second.calls == [{"name": "direct_scene"}]
-    assert second.direction_notes == [{"text": "note"}]
+    assert [event["text"] for event in second.state_events] == ["note"]
+    assert second.state_report["rejected"] == [{"reason": "full"}]
+    assert second.state_view is not None and [e.text for e in second.state_view.active("threads")] == ["note"]
     assert shared.calls == [{"name": "direct_scene"}]
     assert second.active_moods == ["tense"] and second.macro_choices == {"f": "a"}

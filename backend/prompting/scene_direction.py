@@ -34,9 +34,12 @@ def compute_style_injection_block(
     interactive_fragments: Sequence[Mapping[str, Any]],
     direct_scene_enabled: bool,
     extra_fields: dict | None = None,
-    prior_progressive_state: dict | None = None,
 ) -> str:
-    """Compute the Scene Direction block from Director outputs."""
+    """Compute the Scene Direction block from Director outputs.
+
+    State fragments render separately, in the recipient's current-state block
+    (``prompting.fragment_state``), so they never enter Scene Guidance.
+    """
     if extra_fields is None:
         extra_fields = {}
 
@@ -61,7 +64,6 @@ def compute_style_injection_block(
         deactivated,
         interactive_fragments,
         injection_extra,
-        prior_progressive_state,
     )
 
 
@@ -70,7 +72,6 @@ def build_style_injection(
     deactivated: Sequence[Mapping[str, Any]] | None = None,
     interactive_fragments: Sequence[Mapping[str, Any]] | None = None,
     extra_fields: dict | None = None,
-    prior_progressive_state: dict | None = None,
 ) -> str:
     """Render the Scene Direction block for the Writer pass."""
     parts = ["**Scene Guidance**"]
@@ -81,7 +82,7 @@ def build_style_injection(
             parts.append(negative)
 
     for fragment in sorted(interactive_fragments or [], key=lambda item: item.get("sort_order", 0)):
-        if fragment.get("field_type") == "post_processing":
+        if fragment.get("field_type") in ("post_processing", "state"):
             continue
         value = (extra_fields or {}).get(fragment["id"])
         if not value:
@@ -89,10 +90,6 @@ def build_style_injection(
         label = fragment["injection_label"]
         if fragment["field_type"] == "array" and isinstance(value, list):
             parts.append(label + ":\n" + "\n".join(f"- {item}" for item in value))
-        elif fragment["field_type"] == "progressive":
-            old_value = (prior_progressive_state or {}).get(fragment["id"])
-            transition = f"{old_value} -> {value}" if old_value and old_value != value else str(value)
-            parts.append(f"{label}: {transition}")
         else:
             parts.append(f"{label}: {value}")
     return "\n\n".join(parts)

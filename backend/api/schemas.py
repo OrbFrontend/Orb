@@ -57,8 +57,7 @@ class SettingsUpdate(BaseModel):
     agent_shared_system_prompt: str | None = None
     feedback_enabled: bool | None = None
     director_individual_fragments: bool | None = None
-    direction_notes_record: bool | None = None
-    direction_notes_inject: Literal["off", "director", "writer", "both"] | None = None
+    state_updates: bool | None = None
     inspector_open_states: dict | None = None
     workflows_globally_enabled: bool | None = None
     # Floor, not a formality: the cap is enforced by evicting on the next
@@ -66,16 +65,17 @@ class SettingsUpdate(BaseModel):
     attachment_cache_budget_bytes: int | None = Field(default=None, ge=50 * 1024 * 1024)
 
 
-class DirectionNoteUpdate(BaseModel):
-    content: str
+class StateOperation(BaseModel):
+    """One manual State-panel operation, anchored server-side to the active leaf.
 
+    ``set``/``clear`` apply to a one-value fragment; ``add`` to a multiple-entry
+    one; ``revise`` and ``retire`` name an active ``entry_id`` in either mode.
+    """
 
-class DirectionNoteCreate(BaseModel):
-    # message_id anchors the note to a turn (its turn_index is derived at read time);
-    # the route rejects an id that is not an assistant message in this conversation.
-    message_id: int
-    label: str
-    content: str
+    fragment_id: str
+    op: Literal["set", "clear", "add", "revise", "retire"]
+    text: str = ""
+    entry_id: str = ""
 
 
 class WorkflowConfigUpdate(BaseModel):
@@ -256,32 +256,33 @@ class _DecisionFields(BaseModel):
     decision_confidence_floor: float | None = Field(None, ge=0.0, le=1.0)
 
 
-class InteractiveFragmentCreate(_DecisionFields):
+# State-fragment settings; NULL for other fragment types.
+class _StateFields(BaseModel):
+    state_mode: Literal["value", "entries"] | None = None
+    state_update: Literal["after_reply", "before_writer", "manual"] | None = None
+    state_inject: Literal["off", "director", "writer", "both"] | None = None
+
+
+class InteractiveFragmentCreate(_DecisionFields, _StateFields):
     id: str
     label: str
     description: str
-    field_type: Literal["string", "array", "progressive", "feedback", "direction_note", "post_processing", "decision"] = (
-        "string"
-    )
+    field_type: Literal["string", "array", "state", "feedback", "post_processing", "decision"] = "string"
     required: bool = False
     enabled: bool = True
     injection_label: str
     sort_order: int = 0
-    direction_note_timing: Literal["pre_writer", "post_turn"] = "post_turn"
     cooldown_turns: int = Field(0, ge=0, le=50)
 
 
-class InteractiveFragmentUpdate(_DecisionFields):
+class InteractiveFragmentUpdate(_DecisionFields, _StateFields):
     label: str | None = None
     description: str | None = None
-    field_type: (
-        Literal["string", "array", "progressive", "feedback", "direction_note", "post_processing", "decision"] | None
-    ) = None
+    field_type: Literal["string", "array", "state", "feedback", "post_processing", "decision"] | None = None
     required: bool | None = None
     enabled: bool | None = None
     injection_label: str | None = None
     sort_order: int | None = None
-    direction_note_timing: Literal["pre_writer", "post_turn"] | None = None
     cooldown_turns: int | None = Field(None, ge=0, le=50)
 
 

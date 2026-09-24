@@ -48,8 +48,9 @@ from ..prompting.lorebook import (
     compute_depth_lorebook_block,
     compute_lorebook_injection_block,
 )
-from .config import _build_writer_tools_blob
+from .config import _build_writer_tools_blob, _split_interactive_fragments
 from .passes.judge import DecisionCandidate, InvalidDecision, JudgeConfig
+from .passes.state import StateContract
 from .predicates import agent_enabled, resolve_persona_id, world_proposal_active
 from .state import LorebookTurn, WorldProposalTurn
 from .workflow_bridge import _iterate_pre_pipeline_hooks
@@ -63,15 +64,20 @@ class PipelineContext:
     None when absent. ``agent_client`` and ``agent_system_prompt`` are both None
     unless a separate agent endpoint is configured. ``director`` is a mutable
     dict deliberately mutated in place — the regenerate paths reset its
-    ``active_moods`` and ``progressive_fields`` to the branch baseline, which the
+    ``active_moods`` and folded ``fragment_state`` to the branch baseline, which the
     frozen dataclass allows (it guards rebinding, not mutating the pointed-at dict).
+
+    ``state_contract`` is the state-fragment configuration captured with the
+    fragments, so every step of the turn reads one contract even if a setting
+    is edited while the turn runs.
     """
 
     settings: SettingsRow
     conv: ConversationRow
     card: CharacterCardRow | None
     # Seeded from director_state, then carried as mutable per-turn director state
-    # (active moods, progressive fields, direction notes); not all keys are columns.
+    # (active moods, cooldowns, the branch's folded state fragments); not all keys
+    # are columns.
     director: dict[str, Any]
     mood_fragments: list[MoodFragmentRow]
     interactive_fragments: list[InteractiveFragmentRow]
@@ -96,6 +102,7 @@ class PipelineContext:
     decision_candidates: tuple[DecisionCandidate, ...] = ()
     invalid_decisions: tuple[InvalidDecision, ...] = ()
     judge_config: JudgeConfig = field(default_factory=JudgeConfig)
+    state_contract: StateContract = field(default_factory=StateContract)
 
 
 async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
@@ -171,6 +178,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         decision_candidates=decision_candidates,
         invalid_decisions=invalid_decisions,
         judge_config=await resolve_judge_config(settings),
+        state_contract=StateContract.capture(settings, _split_interactive_fragments(interactive_fragments)[2]),
     )
 
 
@@ -417,6 +425,7 @@ async def _prepare_turn(
         agentic_lorebook=agentic_active,
         dynamic_world=world_proposal is not None,
         grouped=ctx.cast.grouped,
+        state_contract=ctx.state_contract,
     )
     schema_overrides = MappingProxyType(overrides)
     accumulators = {

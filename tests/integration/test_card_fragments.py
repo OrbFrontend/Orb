@@ -55,8 +55,12 @@ async def test_card_fragments_merge_into_pipeline_context(client, db):
     assert moods["collide_mood"]["label"] == "Global Mood"  # global wins on collision
 
     interactive = {f["id"]: f for f in ctx.interactive_fragments}
-    assert interactive["card_trust"]["field_type"] == "progressive"
+    # Shared cards keep the legacy type; it is read as the state fragment it converts to.
+    assert interactive["card_trust"]["field_type"] == "state"
+    assert interactive["card_trust"]["state_mode"] == "value"
+    assert interactive["card_trust"]["state_update"] == "before_writer"
     assert interactive["card_trust"]["sort_order"] >= 10_000  # sorts after globals
+    assert [fragment.id for fragment in ctx.state_contract.director_values()] == ["card_trust"]
 
 
 async def test_conversation_without_card_fragments_unaffected(client, db):

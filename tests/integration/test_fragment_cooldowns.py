@@ -64,8 +64,8 @@ async def test_mood_is_blocked_for_exact_cooldown_without_negative_prompt(client
     assert available["fragment_cooldowns"] == {"stormy": 3}
 
 
-async def test_resting_progressive_value_is_carried_without_restarting_cooldown(client, db, llm_mock):
-    cid = "conv-fragment-cooldown-progressive"
+async def test_resting_state_value_is_kept_and_injected_without_restarting_cooldown(client, db, llm_mock):
+    cid = "conv-fragment-cooldown-state"
     await _setup(client, cid)
     await client.post(
         "/api/interactive-fragments",
@@ -73,7 +73,10 @@ async def test_resting_progressive_value_is_carried_without_restarting_cooldown(
             "id": "trust",
             "label": "Trust",
             "description": "Current trust level.",
-            "field_type": "progressive",
+            "field_type": "state",
+            "state_mode": "value",
+            "state_update": "before_writer",
+            "state_inject": "writer",
             "injection_label": "Trust",
             "cooldown_turns": 2,
         },
@@ -81,10 +84,15 @@ async def test_resting_progressive_value_is_carried_without_restarting_cooldown(
 
     await _turn(llm_mock, cid, "one", {"moods": [], "trust": "guarded"})
     resting = _director_data(await _turn(llm_mock, cid, "two", {"moods": [], "trust": "model changed it"}))
-    assert resting["extra_fields"]["trust"] == "guarded"
+    # A resting fragment's value is rejected this turn, kept, and still injected.
+    assert "trust" not in resting["extra_fields"]
     assert "Trust: guarded" in resting["injection_block"]
     assert resting["fragment_cooldowns"] == {"trust": 1}
-    assert (await _last_assistant(cid))["progressive_fields"] == {"trust": "guarded"}
+    last = await _last_assistant(cid)
+    assert await dbmod.get_state_events_for_message(last["id"]) == []
+    path = await dbmod.get_messages(cid)
+    view = await dbmod.fold_path_state(cid, [m["id"] for m in path])
+    assert [entry.text for entry in view.active("trust")] == ["guarded"]
 
 
 async def test_regenerate_rewinds_cooldown_and_checkpoint_copies_snapshot(client, db, llm_mock):

@@ -120,11 +120,14 @@ class TestStepPrompt:
         )
         assert "Keywords" not in out
 
-    def test_progressive_prior_line_only_when_progressive(self):
-        prog = {"id": "stat", "field_type": "progressive", "description": "hp", "injection_label": "HP", "sort_order": 1}
-        out = build_director_scene_step_prompt("msg", [], _MOODS, target_fragment=prog, progressive_prior="hp 42/100")
-        assert "hp 42/100" in out
-        # Same prior on a non-progressive field renders no previous-value line.
+    def test_state_prior_line_only_for_one_value_state_fields(self):
+        # A one-value state fragment updated before the Writer rides direct_scene
+        # and, like a progressive fragment did, is shown its previous value.
+        stat = {"id": "stat", "field_type": "state", "description": "hp", "injection_label": "HP", "sort_order": 1}
+        out = build_director_scene_step_prompt("msg", [], _MOODS, target_fragment=stat, progressive_prior="hp 42/100")
+        assert "Previous value (update it): hp 42/100" in out
+        assert "single value, evolves across turns" in out
+        # Same prior on a scene field renders no previous-value line.
         plain = build_director_scene_step_prompt(
             "msg", [], _MOODS, target_fragment=_FRAGMENTS[0], progressive_prior="hp 42/100"
         )

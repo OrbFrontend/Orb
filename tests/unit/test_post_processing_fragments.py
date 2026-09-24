@@ -34,12 +34,12 @@ def test_fragment_split_has_four_disjoint_groups_and_leaves_decisions_out():
     fragments = [
         _fragment("plot", "string"),
         _fragment("feedback", "feedback"),
-        _fragment("note", "direction_note"),
+        _fragment("note", "state"),
         _fragment("humanize", "post_processing"),
         _fragment("outcome", "decision"),
     ]
-    writer, feedback, notes, post_processing = _split_interactive_fragments(fragments)
-    assert [[f["id"] for f in group] for group in (writer, feedback, notes, post_processing)] == [
+    scene, feedback, state, post_processing = _split_interactive_fragments(fragments)
+    assert [[f["id"] for f in group] for group in (scene, feedback, state, post_processing)] == [
         ["plot"],
         ["feedback"],
         ["note"],

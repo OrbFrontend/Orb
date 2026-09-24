@@ -35,6 +35,7 @@ from ...database import (
     set_workflow_character_state,
     sync_conversations_for_card,
     update_character_card,
+    upgrade_card_fragment_types,
 )
 from ...features.cards import downloader as card_downloader
 from ...features.cards import draft_card_profile
@@ -287,6 +288,8 @@ async def api_export_character(card_id: str, world_view: Literal["authored", "ef
             avatar_bytes = None
 
     export_card["id"] = card_id
+    # Legacy progressive/direction-note fragments leave as explicit state fragments.
+    export_card["extensions"] = upgrade_card_fragment_types(export_card.get("extensions"))
 
     # If the character is linked to a lorebook, embed it as character_book
     world_id = export_card.get("world_id")

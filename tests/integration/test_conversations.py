@@ -178,8 +178,19 @@ async def test_checkpoint_duplicates_active_path(client, db):
     )
     a1, _ = await dbmod.add_message(cid, "assistant", "hi there", 1, parent_id=u1)
     await dbmod.set_active_leaf(cid, a1)
-    await dbmod.update_director_state(cid, ["tense"], keywords=["k"], progressive_fields={"hp": 5})
+    await dbmod.update_director_state(cid, ["tense"], keywords=["k"])
     await dbmod.add_conversation_log(cid, 0, [], ["tense"], "inj block", 12, message_id=a1, feedback={})
+    # State history on the path: an agent value on the reply, then a user revision.
+    await dbmod.add_state_events(
+        cid,
+        a1,
+        [{"fragment_id": "hp", "entry_id": "e-hp", "op": "add", "text": "5", "fragment_label": "HP", "source": "agent"}],
+    )
+    await dbmod.add_state_events(
+        cid,
+        a1,
+        [{"fragment_id": "hp", "entry_id": "e-hp", "op": "revise", "text": "6", "fragment_label": "HP", "source": "user"}],
+    )
 
     resp = await client.post(f"/api/conversations/{cid}/checkpoint", json={})
     assert resp.status_code == 200
@@ -202,7 +213,16 @@ async def test_checkpoint_duplicates_active_path(client, db):
     # Director state carried verbatim so continuation behaves identically.
     ds = await dbmod.get_director_state(new_cid)
     assert ds["active_moods"] == ["tense"]
-    assert ds["progressive_fields"] == {"hp": 5}
+
+    # The path's state history is copied and re-anchored, keeping entry ids and
+    # sources, so the checkpoint starts from the source's state and history.
+    copied = await dbmod.get_state_events_for_message(msgs[1]["id"])
+    assert [(e["op"], e["entry_id"], e["text"], e["source"]) for e in copied] == [
+        ("add", "e-hp", "5", "agent"),
+        ("revise", "e-hp", "6", "user"),
+    ]
+    view = await dbmod.fold_path_state(new_cid, [m["id"] for m in msgs])
+    assert [e.text for e in view.active("hp")] == ["6"]
 
     # Inspector log carried and re-pointed onto the copied assistant message.
     log = await dbmod.get_director_log_for_message(msgs[1]["id"])

@@ -38,6 +38,7 @@ def _conversation_log_writer(conversation_id: str, log_turn_index: int):
             reasoning_writer=res.reasoning_writer,
             reasoning_editor=res.reasoning_editor,
             feedback=res.feedback_values,
+            state_report=res.state_report if any(res.state_report.values()) else None,
         )
 
     return _on_result
@@ -89,7 +90,6 @@ async def _persist_result(
         await db.update_director_state(
             conversation_id,
             res.active_moods,
-            progressive_fields=res.progressive_fields,
             macro_choices=res.macro_choices,
         )
 
@@ -119,11 +119,13 @@ async def _persist_result(
             turn_index,
             parent_id=user_msg_id,
             attachments=staged,
-            progressive_fields=res.progressive_fields,
             fragment_cooldowns=res.fragment_cooldowns,
             # Commit decisions and cooldowns with the reply so partial output remains replayable.
             decision_evaluations=res.decision_evaluations,
             decision_cooldowns=res.decision_cooldowns,
+            # The state the reply produced commits in the same transaction, so a
+            # saved reply and its state cannot diverge.
+            state_events=res.state_events,
             speaker_member_id=speaker_member_id,
             exchange_id=exchange_id,
             # Captured after Editor and before Prose Rewriter, so an on-demand
@@ -147,17 +149,12 @@ async def _persist_result(
             await db.add_generated_chars(len(resp_text))
         except Exception:
             logger.exception("Failed to update generated-chars counter; row already committed")
-        if res.direction_notes:
-            try:
-                await db.create_direction_notes(conversation_id, asst_id, res.direction_notes)
-            except Exception:
-                logger.exception("Failed to persist direction notes for assistant message %s; row already committed", asst_id)
         proposals = await _stage_world_proposals(res, world_source_user_msg_id, asst_id)
         return asst_id, rejected, proposals
     else:
         logger.info("Skipping assistant message persistence: resp_text is empty (reasoning‑only output)")
-        if res.direction_notes:
-            logger.info("Dropping %d direction note(s): turn produced no assistant message", len(res.direction_notes))
+        if res.state_events:
+            logger.info("Dropping %d state change(s): turn produced no assistant message", len(res.state_events))
         if res.world_proposals:
             logger.info(
                 "Dropping %d world change proposal(s): turn produced no assistant message to anchor them to",
@@ -175,19 +172,21 @@ async def _fallback_persist(
     accumulated_text: str,
     speaker_member_id: str | None = None,
     exchange_id: str | None = None,
+    state_events: list[dict] | None = None,
 ):
     """Best-effort save for a turn aborted before ``_result`` fired.
 
-    Saves whatever the writer streamed (``accumulated_text``) if non-empty.
-    Reasoning-only output does not create a message node. Errors are swallowed
-    so a save failure never propagates to the caller.
+    Saves whatever the writer streamed (``accumulated_text``) if non-empty,
+    together with the before-Writer *state_events* that shaped it; after-reply
+    changes never ran for it. Reasoning-only output does not create a message
+    node, and no node means no state change. Errors are swallowed so a save
+    failure never propagates to the caller.
     """
     try:
         if res.active_moods and agent_enabled(settings):
             await db.update_director_state(
                 conversation_id,
                 res.active_moods,
-                progressive_fields=res.progressive_fields,
                 macro_choices=res.macro_choices,
             )
 
@@ -205,6 +204,7 @@ async def _fallback_persist(
                 # Keep decisions with partial output so the saved row remains inspectable.
                 decision_evaluations=res.decision_evaluations,
                 decision_cooldowns=res.decision_cooldowns,
+                state_events=state_events,
                 speaker_member_id=speaker_member_id,
                 exchange_id=exchange_id,
                 # The writer stage did not finish on this abort path, so its
@@ -229,6 +229,7 @@ async def _shielded_fallback(
     accumulated_text: str,
     speaker_member_id: str | None = None,
     exchange_id: str | None = None,
+    state_events: list[dict] | None = None,
 ):
     """Run :func:`_fallback_persist` under ``asyncio.shield``, retrying once on cancellation.
 
@@ -245,6 +246,7 @@ async def _shielded_fallback(
                 accumulated_text,
                 speaker_member_id,
                 exchange_id,
+                state_events,
             )
         )
     except asyncio.CancelledError:
@@ -258,6 +260,7 @@ async def _shielded_fallback(
                 accumulated_text,
                 speaker_member_id,
                 exchange_id,
+                state_events,
             )
         except Exception:
             logger.exception("Fallback persistence retry failed")
@@ -312,6 +315,9 @@ async def _consume_pipeline(
     asst_id = None
     persisted = False
     accumulated_text = ""
+    # Before-Writer state changes announced ahead of the Writer, kept for the
+    # fallback save of a stopped reply.
+    checkpoint_events: list[dict] = []
 
     try:
         async for event in pipeline:
@@ -319,6 +325,8 @@ async def _consume_pipeline(
             if etype == "token":
                 accumulated_text += event["data"]
                 yield event
+            elif etype == "_state_checkpoint":
+                checkpoint_events = list(event["data"].get("state_events") or [])
             elif etype == "_result":
                 res = TurnState(**event["data"])
                 asst_id, rejected, proposals = await _persist_result(
@@ -360,6 +368,7 @@ async def _consume_pipeline(
                 accumulated_text,
                 speaker_member_id,
                 exchange_id,
+                checkpoint_events,
             )
         elif extra_on_result:
             await _shielded_log_save(extra_on_result, res, asst_id)

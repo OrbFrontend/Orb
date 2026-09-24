@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS settings (
     agent_shared_system_prompt TEXT NOT NULL DEFAULT '',
     feedback_enabled INTEGER NOT NULL DEFAULT 0,
     director_individual_fragments INTEGER NOT NULL DEFAULT 0,
+    -- Superseded by per-fragment state settings and state_updates; no longer
+    -- written. Dropped by a follow-up cleanup migration after conversion checks.
     direction_notes_record INTEGER NOT NULL DEFAULT 0,
     direction_notes_inject TEXT NOT NULL DEFAULT 'off',
     inspector_open_states TEXT NOT NULL DEFAULT '{"reasoning":true,"tool_calls":false,"injection_block":false,"context_size":true}',
@@ -57,7 +59,9 @@ CREATE TABLE IF NOT EXISTS settings (
     generated_chars INTEGER DEFAULT NULL,
     -- The Judge has a dedicated endpoint and model; its route is derived from the URL.
     decision_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
-    decision_model TEXT NOT NULL DEFAULT 'typesafe/jev-1.13'
+    decision_model TEXT NOT NULL DEFAULT 'typesafe/jev-1.13',
+    -- One global switch for every automatic state-fragment update call.
+    state_updates INTEGER NOT NULL DEFAULT 1 CHECK (state_updates IN (0, 1))
 );
 
 CREATE TABLE IF NOT EXISTS mood_fragments (
@@ -172,6 +176,8 @@ CREATE TABLE IF NOT EXISTS messages (
     writer_draft TEXT DEFAULT NULL,
     turn_index INTEGER NOT NULL,
     parent_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
+    -- Legacy progressive snapshot, converted to fragment_state_events and no
+    -- longer written.
     progressive_fields TEXT NOT NULL DEFAULT '{}',
     fragment_cooldowns TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
@@ -205,8 +211,13 @@ CREATE TABLE IF NOT EXISTS interactive_fragments (
     enabled BOOLEAN NOT NULL DEFAULT 1,
     injection_label TEXT NOT NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
+    -- Legacy direction-note timing, converted to state_update and no longer written.
     direction_note_timing TEXT NOT NULL DEFAULT 'post_turn',
     cooldown_turns INTEGER NOT NULL DEFAULT 0,
+    -- State-only settings; NULL for other fragment types.
+    state_mode TEXT DEFAULT NULL CHECK (state_mode IS NULL OR state_mode IN ('value', 'entries')),
+    state_update TEXT DEFAULT NULL CHECK (state_update IS NULL OR state_update IN ('after_reply', 'before_writer', 'manual')),
+    state_inject TEXT DEFAULT NULL CHECK (state_inject IS NULL OR state_inject IN ('off', 'director', 'writer', 'both')),
     -- Decision-only fields; NULL for other fragment types and validated together.
     decision_type TEXT DEFAULT NULL,
     decision_placement TEXT DEFAULT NULL,
@@ -232,7 +243,9 @@ CREATE TABLE IF NOT EXISTS conversation_logs (
     reasoning_director TEXT,
     reasoning_writer TEXT,
     reasoning_editor TEXT,
-    feedback TEXT NOT NULL DEFAULT '{}'
+    feedback TEXT NOT NULL DEFAULT '{}',
+    -- State operations the turn rejected and user corrections it could not carry.
+    state_report TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE INDEX IF NOT EXISTS idx_conversation_logs_message ON conversation_logs(message_id);
@@ -400,6 +413,7 @@ CREATE TABLE IF NOT EXISTS member_sheet_proposals (
 
 CREATE INDEX IF NOT EXISTS idx_sheet_proposal_conv_status ON member_sheet_proposals(conversation_id, status);
 
+-- Legacy: converted to fragment_state_events and no longer written.
 CREATE TABLE IF NOT EXISTS direction_notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -412,6 +426,29 @@ CREATE TABLE IF NOT EXISTS direction_notes (
 
 CREATE INDEX IF NOT EXISTS idx_dirnote_message ON direction_notes(message_id);
 CREATE INDEX IF NOT EXISTS idx_dirnote_conversation ON direction_notes(conversation_id);
+
+-- State-fragment history: explicit entry writes and retirements, anchored to the
+-- message whose branch they belong to. Folding a branch's events in active-path
+-- order (row id within one anchor) yields its active entries, independent of how
+-- the fragment is configured now. fragment_label is denormalized so the state
+-- stays readable after its fragment is renamed or deleted.
+CREATE TABLE IF NOT EXISTS fragment_state_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    fragment_id TEXT NOT NULL,
+    entry_id TEXT NOT NULL,
+    op TEXT NOT NULL CHECK (op IN ('add', 'revise', 'retire')),
+    text TEXT DEFAULT NULL,
+    -- The fragment's mode when the change was made; informational, never folded.
+    mode TEXT DEFAULT NULL,
+    fragment_label TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL CHECK (source IN ('agent', 'user', 'carried')),
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_state_event_message ON fragment_state_events(message_id);
+CREATE INDEX IF NOT EXISTS idx_state_event_conversation ON fragment_state_events(conversation_id, fragment_id);
 
 CREATE TABLE IF NOT EXISTS documents (
     id TEXT PRIMARY KEY,

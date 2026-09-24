@@ -8,6 +8,7 @@ from . import (
     decisions,
     documents,
     endpoints,
+    fragment_state,
     fragments,
     library,
     local_ml,
@@ -37,6 +38,7 @@ ROUTERS = [
     stats.router,
     storage.router,
     conversations.router,
+    fragment_state.router,
     characters.router,
     # Library-wide maintenance tools. /api/library/* collides with no other
     # pattern; placed beside characters because it is the same modal's surface.

@@ -96,8 +96,8 @@ class _SettingsBase(TypedDict):
     agent_shared_system_prompt: str
     feedback_enabled: int
     director_individual_fragments: int
-    direction_notes_record: int
-    direction_notes_inject: str
+    # The global switch for every automatic state-fragment update call.
+    state_updates: int
     workflows_globally_enabled: int
 
 
@@ -255,7 +255,7 @@ class ConversationListRow(ConversationRow, total=False):
 class MessageRow(TypedDict):
     """A row from the ``messages`` table.
 
-    NOTE: ``progressive_fields``, ``fragment_cooldowns``, ``decision_cooldowns``
+    NOTE: ``progressive_fields`` (legacy, no longer written), ``fragment_cooldowns``, ``decision_cooldowns``
     and ``decision_evaluations`` are JSON-*decoded*, which is how
     get_path_to_leaf()/get_messages() expose them. ``get_message_by_id()`` does a
     plain ``dict(row)`` and leaves them as raw JSON *strings* -- a pre-existing
@@ -594,9 +594,14 @@ class InteractiveFragmentRow(TypedDict):
     enabled: int
     injection_label: str
     sort_order: int
-    # 'pre_writer' | 'post_turn'; which recording step fills the note. Read only for direction_note fragments.
+    # Legacy direction-note timing; converted to ``state_update`` and no longer read.
     direction_note_timing: str
     cooldown_turns: int
+    # State-only settings, NULL for other fragment types; parsed with defaults by
+    # ``core.fragment_state.state_fragment_of``.
+    state_mode: str | None
+    state_update: str | None
+    state_inject: str | None
     # Decision fields are NULL for other fragment types; JSON fields are decoded
     # at query boundaries and the definition is validated as a whole.
     decision_type: str | None
@@ -622,15 +627,24 @@ class MoodFragmentRow(TypedDict):
     enabled: int
 
 
-class DirectionNoteRow(TypedDict):
-    """A row from ``direction_notes`` (``SELECT *``)."""
+class FragmentStateEventRow(TypedDict):
+    """A row from ``fragment_state_events`` (``SELECT *``).
+
+    One explicit entry write or retirement. ``op`` is ``add``/``revise``/``retire``;
+    ``text`` is NULL for a retirement; ``mode`` records the fragment's mode at write
+    time for display only; ``source`` is ``agent``, ``user`` or ``carried``.
+    """
 
     id: int
     conversation_id: str
     message_id: int
-    interactive_fragment_id: str
-    interactive_fragment_label: str
-    content: str
+    fragment_id: str
+    entry_id: str
+    op: str
+    text: str | None
+    mode: str | None
+    fragment_label: str
+    source: str
     created_at: str
 
 
@@ -638,15 +652,14 @@ class DirectorStateRow(TypedDict):
     """The director-state dict returned by ``get_director_state()``.
 
     The JSON columns are decoded before return: ``active_moods`` and
-    ``keywords`` to lists, ``progressive_fields`` and ``macro_choices`` to
-    dicts. When no row exists the query synthesizes the same shape with empty
-    containers.
+    ``keywords`` to lists, ``macro_choices`` to a dict. The legacy
+    ``progressive_fields`` column is dropped from the projection. When no row
+    exists the query synthesizes the same shape with empty containers.
     """
 
     conversation_id: str
     active_moods: list
     keywords: list
-    progressive_fields: dict
     macro_choices: dict[str, str]
 
 
@@ -677,6 +690,9 @@ class ConversationLogRow(TypedDict):
     reasoning_writer: str | None
     reasoning_editor: str | None
     feedback: dict
+    # JSON-decoded ``{"rejected": [...], "dropped": [...]}`` for the turn's state
+    # operations; ``{}`` for rows that predate it or had nothing to report.
+    state_report: dict
     # Decision records joined from the reply message; empty when the turn had none.
     decision_evaluations: dict
 
