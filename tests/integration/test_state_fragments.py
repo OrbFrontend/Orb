@@ -437,7 +437,11 @@ async def test_a_judge_outcome_is_context_for_the_updater_not_a_write(client, db
     with patch("backend.pipeline.entrypoints.judge_pass", new=judged):
         await _drain(handle_turn(cid, "I pick the lock."))
 
-    assert "That action fails hard." in _requests(llm_mock, "state")[0]
+    # It reaches the updater inside the replayed Writer message, never restated
+    # in the request, where it would read as a second account of the reply.
+    state_call = next(c for c in llm_mock.captured if c["pass"] == "state")
+    assert "That action fails hard." in json.dumps(state_call["messages"][-3]["content"])
+    assert "That action fails hard." not in _requests(llm_mock, "state")[0]
     # Only the updater's own operations write state; the outcome itself writes none.
     assert await _active_state(cid) == {}
 

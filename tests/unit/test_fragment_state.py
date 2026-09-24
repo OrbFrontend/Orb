@@ -268,6 +268,8 @@ def test_request_lists_entries_under_aliases_numbered_across_the_request():
     assert "That action fails hard." in request
     assert "Keep it tense." in request and '"""I pick the lock."""' in request
     assert "t1" not in request and "c1" not in request
+    # Each field section names its parameter; the order line repeats no labels.
+    assert "Parameter order: (retire, place, threads, clues)]" in request
 
 
 def test_parse_maps_aliases_back_and_orders_retires_first():

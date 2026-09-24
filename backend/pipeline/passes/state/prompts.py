@@ -97,6 +97,6 @@ def build_state_request(
         parts.append("___\n\n" + scene_direction)
     if user_message:
         parts.append(f'User\'s next message (context):\n"""{user_message}"""')
-    labels = {fragment.id: fragment.heading for fragment in fragments}
-    parts.append(tool_call_instruction("update_state", tool_schema, labels=labels))
+    # Each field section already names its parameter, so the order carries no labels.
+    parts.append(tool_call_instruction("update_state", tool_schema))
     return "\n\n".join(parts) + "]"

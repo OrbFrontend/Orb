@@ -356,6 +356,32 @@ async def test_a_resolved_decision_reaches_the_director_tail_and_the_writer(clie
     assert "I shove the door." in gateway.states[0]
 
 
+async def test_the_after_reply_state_request_carries_no_guidance(client, db, llm_mock, monkeypatch):
+    cid = await _solo_scene(client)
+    Gateway(monkeypatch)
+    await client.post(
+        "/api/interactive-fragments",
+        json={
+            "id": "threads",
+            "label": "Threads",
+            "description": "Open threads.",
+            "field_type": "state",
+            "state_mode": "entries",
+            "state_update": "after_reply",
+            "injection_label": "Threads",
+        },
+    )
+    llm_mock.enqueue_director(_direct_scene(moods=[]))
+    llm_mock.enqueue_writer("He braces against the frame.")
+    llm_mock.enqueue_state([{"type": "function", "function": {"name": "update_state", "arguments": {}}}])
+    await _drain(handle_turn(cid, "I shove the door."))
+
+    # The guidance directed the Writer; the reply is the only record once it exists.
+    state_call = _captured(llm_mock, "state")[0]
+    assert "Major Decisions" not in _tail_text(state_call)
+    assert "Doorway: Alric holds the doorway." in json.dumps(state_call["messages"][-3]["content"])
+
+
 async def test_the_guidance_survives_the_directors_own_output(client, db, llm_mock, monkeypatch):
     cid = await _solo_scene(client)
     Gateway(monkeypatch)

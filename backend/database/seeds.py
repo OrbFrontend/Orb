@@ -90,7 +90,8 @@ STARTER_STATE_FRAGMENTS = [
         "label": "Inventory",
         "description": (
             "Items the characters carry or own that matter to the story, one per entry, naming who holds it, such as "
-            '"Mara: the brass key". Add an item when someone gains it and retire it once it is used up or lost. '
+            '"Mara: the brass key". An entry contains only the item\'s name. '
+            "Add an item when someone gains it and retire it once it is used up or lost. "
             "When an item changes hands, retire it and add it under its new holder."
         ),
         "field_type": "state",

@@ -378,7 +378,8 @@ async def _run_pipeline(
                 view=state.state_view,
                 placement="after_reply",
                 known_ids=frozenset(fragment.id for fragment in contract.tool_fragments()),
-                decision_guidance=state.decision_guidance,
+                # No decision guidance: it directs the Writer, rides the replayed
+                # Writer message already, and the reply is the only record now.
                 reply_text=state.resp_text,
                 writer_user_msg=state.writer_content,
                 kv_tracker=kv_tracker,
