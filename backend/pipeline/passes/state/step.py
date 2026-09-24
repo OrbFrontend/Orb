@@ -93,6 +93,9 @@ def parse_state_call(
                     rejections.append(StateRejection(key, "update", "unknown_fragment", f"No state field {key!r}."))
                 continue
             if fragment.mode == "entries":
+                # A lone string is one new entry, as `retire` accepts one alias.
+                if isinstance(value, str):
+                    value = [value]
                 if not isinstance(value, list):
                     rejections.append(StateRejection(key, "add", "malformed", f"{fragment.label} takes a list of new entries."))
                     continue

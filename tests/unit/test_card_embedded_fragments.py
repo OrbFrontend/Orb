@@ -164,6 +164,22 @@ def test_invalid_ids_skipped():
     assert [f["id"] for f in moods] == ["fine_id-2"]
 
 
+def test_reserved_interactive_ids_skipped():
+    # `moods` and `retire` are fixed tool parameters a fragment would overwrite.
+    _, interactive = card_embedded_fragments(
+        _card(
+            {
+                "interactive": [
+                    {"id": "moods", "label": "A", "description": "d"},
+                    {"id": "retire", "label": "B", "description": "d", "field_type": "state"},
+                    {"id": "threads", "label": "C", "description": "d", "field_type": "state"},
+                ]
+            }
+        )
+    )
+    assert [f["id"] for f in interactive] == ["threads"]
+
+
 def test_missing_or_blank_label_skipped():
     moods, _ = card_embedded_fragments(_card({"mood": [{"id": "a"}, {"id": "b", "label": "  "}, {"id": "c", "label": 7}]}))
     assert moods == []

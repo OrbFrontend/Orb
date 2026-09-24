@@ -12,6 +12,7 @@ from ...core import (
     DEFAULT_STATE_INJECT,
     DEFAULT_STATE_MODE,
     DEFAULT_STATE_UPDATE,
+    RESERVED_FRAGMENT_IDS,
     STATE_COLUMNS,
     STATE_FIELD_TYPE,
 )
@@ -125,6 +126,8 @@ async def api_list_interactive_fragments():
 
 @router.post("/api/interactive-fragments")
 async def api_create_interactive_fragment(data: InteractiveFragmentCreate):
+    if data.id in RESERVED_FRAGMENT_IDS:
+        raise HTTPException(status_code=400, detail=f"'{data.id}' is a reserved fragment ID")
     existing = await get_interactive_fragment(data.id)
     if existing:
         raise HTTPException(status_code=400, detail="Interactive fragment with this ID already exists")

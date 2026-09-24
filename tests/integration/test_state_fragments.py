@@ -44,6 +44,16 @@ async def _fragment(client, fid: str, *, mode: str, update: str, inject: str = "
     assert resp.status_code == 200, resp.text
 
 
+async def test_reserved_fragment_ids_are_refused(client, db):
+    for fid in ("retire", "moods"):
+        resp = await client.post(
+            "/api/interactive-fragments",
+            json={"id": fid, "label": "X", "description": "d", "field_type": "state", "injection_label": "X"},
+        )
+        assert resp.status_code == 400, fid
+        assert "reserved" in resp.json()["detail"]
+
+
 async def _settings(client, **overrides) -> None:
     body = {"enable_agent": True, "enabled_tools": {"direct_scene": True}, **overrides}
     resp = await client.put("/api/settings", json=body)
@@ -177,7 +187,7 @@ async def test_before_writer_value_rides_direct_scene_with_old_to_new_for_the_wr
     # prior value in its own update lines, not a second time in an injected block.
     assert "Trust: wary -> warming" in _injection(second)
     director_request = _requests(llm_mock, "director")[-1]
-    assert "Previous progressive fields - dynamically update these:" in director_request
+    assert "Saved state fields - leave a field empty to keep it" in director_request
     assert "wary" in director_request
     assert "Current State" not in director_request
     # The one value keeps its entry id across sets.
@@ -343,8 +353,9 @@ async def test_keep_semantics_for_skipped_empty_and_malformed_calls(client, db, 
     await _drain(handle_turn(cid, "one"))
     before = await _active_state(cid)
 
-    # Skipped (no tool call), empty values, a string where a list belongs, an
-    # unknown alias, and an unknown field: none of it changes the state.
+    # Skipped (no tool call), empty values, an object where a list belongs, a
+    # list where one value belongs, an unknown alias, and an unknown field: none
+    # of it changes the state.
     llm_mock.enqueue_writer("Two.")
     llm_mock.enqueue_state([])
     await _drain(handle_turn(cid, "two"))
@@ -352,7 +363,7 @@ async def test_keep_semantics_for_skipped_empty_and_malformed_calls(client, db, 
     llm_mock.enqueue_state(_state_call(threads=[], mood_value="", retire=[]))
     await _drain(handle_turn(cid, "three"))
     llm_mock.enqueue_writer("Four.")
-    llm_mock.enqueue_state(_state_call(threads="not a list", retire=["e9"], ghost="boo", mood_value=["x"]))
+    llm_mock.enqueue_state(_state_call(threads={"text": "not a list"}, retire=["e9"], ghost="boo", mood_value=["x"]))
     events = await _drain(handle_turn(cid, "four"))
 
     assert await _active_state(cid) == before

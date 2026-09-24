@@ -125,8 +125,8 @@ class TestStepPrompt:
         # and, like a progressive fragment did, is shown its previous value.
         stat = {"id": "stat", "field_type": "state", "description": "hp", "injection_label": "HP", "sort_order": 1}
         out = build_director_scene_step_prompt("msg", [], _MOODS, target_fragment=stat, progressive_prior="hp 42/100")
-        assert "Previous value (update it): hp 42/100" in out
-        assert "single value, evolves across turns" in out
+        assert "leave the field empty to keep it; write the complete new value only if it changed): hp 42/100" in out
+        assert "single value, kept across turns" in out
         # Same prior on a scene field renders no previous-value line.
         plain = build_director_scene_step_prompt(
             "msg", [], _MOODS, target_fragment=_FRAGMENTS[0], progressive_prior="hp 42/100"

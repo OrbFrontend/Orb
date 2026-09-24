@@ -95,6 +95,37 @@ async def test_resting_state_value_is_kept_and_injected_without_restarting_coold
     assert [entry.text for entry in view.active("trust")] == ["guarded"]
 
 
+async def test_state_value_cooldown_starts_only_when_the_value_changes(client, db, llm_mock):
+    cid = "conv-fragment-cooldown-state-echo"
+    await _setup(client, cid)
+    await client.post(
+        "/api/interactive-fragments",
+        json={
+            "id": "trust",
+            "label": "Trust",
+            "description": "Current trust level.",
+            "field_type": "state",
+            "state_mode": "value",
+            "state_update": "before_writer",
+            "state_inject": "writer",
+            "injection_label": "Trust",
+            "cooldown_turns": 2,
+        },
+    )
+
+    assert _director_data(await _turn(llm_mock, cid, "one", {"moods": [], "trust": "guarded"}))["fragment_cooldowns"] == {
+        "trust": 2
+    }
+    await _turn(llm_mock, cid, "two", {"moods": []})
+    await _turn(llm_mock, cid, "three", {"moods": []})
+    # Echoing the saved value changes nothing, so the fragment stays available.
+    echoed = _director_data(await _turn(llm_mock, cid, "four", {"moods": [], "trust": "guarded"}))
+    assert echoed["fragment_cooldowns"] == {}
+    assert await dbmod.get_state_events_for_message((await _last_assistant(cid))["id"]) == []
+    changed = _director_data(await _turn(llm_mock, cid, "five", {"moods": [], "trust": "warming"}))
+    assert changed["fragment_cooldowns"] == {"trust": 2}
+
+
 async def test_regenerate_rewinds_cooldown_and_checkpoint_copies_snapshot(client, db, llm_mock):
     cid = "conv-fragment-cooldown-branch"
     await _setup(client, cid)

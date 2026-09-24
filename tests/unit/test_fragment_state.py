@@ -283,14 +283,16 @@ def test_parse_maps_aliases_back_and_orders_retires_first():
     assert rejections == []  # "other" belongs to another call of the same turn
 
 
-def test_parse_never_reinterprets_a_string_as_a_list():
+def test_parse_takes_a_lone_string_as_one_entry_but_never_splits_or_joins():
     ops, rejections = parse_state_call(
-        [{"name": "update_state", "arguments": {"threads": "one entry", "place": ["a"], "retire": {"x": 1}}}],
+        [{"name": "update_state", "arguments": {"threads": "one, two", "place": ["a"], "retire": {"x": 1}}}],
         [VALUE, ENTRIES],
         [],
     )
-    assert ops == []
-    assert sorted(r.reason for r in rejections) == ["malformed", "malformed", "malformed"]
+    # The captured contract fixes each field's shape for the turn, so a string
+    # for a list field is the model skipping the brackets: one whole entry.
+    assert [(o.op, o.fragment_id, o.text) for o in ops] == [("add", "threads", "one, two")]
+    assert sorted(r.reason for r in rejections) == ["malformed", "malformed"]
 
 
 def test_parse_reads_blank_values_of_any_shape_as_keep():

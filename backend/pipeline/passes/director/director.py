@@ -557,7 +557,10 @@ async def director_stage(
     # A resting state fragment keeps -- and still injects -- its saved value.
     state.active_moods = [fragment_id for fragment_id in state.active_moods if fragment_id not in resting]
     state.extra_fields = {fragment_id: value for fragment_id, value in state.extra_fields.items() if fragment_id not in resting}
-    fired = [*state.active_moods, *state.extra_fields]
+    # A one-value state field fires only when it actually changes, which the
+    # state changes below decide; an echoed or rejected value does not.
+    riding_ids = {fragment.id for fragment in state_contract.director_values()}
+    fired = [*state.active_moods, *(fid for fid in state.extra_fields if fid not in riding_ids)]
     state.fragment_cooldowns = cooldown.advance(
         prior_cooldowns,
         fired,
@@ -620,8 +623,7 @@ async def director_stage(
             shape_rejections.append(StateRejection(fragment.id, "set", "malformed", f"{fragment.label} takes one text value."))
     if state_ops or shape_rejections:
         events, rejections = plan_state_ops(state_ops, {f.id: f for f in updating}, view, source="agent")
-        state.state_events.extend(events)
-        state.state_report.setdefault("rejected", []).extend(r.as_dict() for r in [*shape_rejections, *rejections])
+        apply_state_step_result(state, StateStepResult(events, [*shape_rejections, *rejections]), state_contract)
         yield {"event": "state", "data": state_event_payload(state)}
 
     scene_ids = {fragment["id"] for fragment in scene_fragments}

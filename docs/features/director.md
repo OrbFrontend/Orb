@@ -33,7 +33,8 @@ For example, a `pacing` fragment might produce `slow burn` or `time skip`.
 
 Each interactive fragment has:
 
-- **ID**, **Label**, and **Description**, with the same purpose as a mood fragment
+- **ID**, **Label**, and **Description**, with the same purpose as a mood fragment.
+  `moods` and `retire` are reserved, because the Agent's tools already use them.
 - **Injection label**: the heading shown to the Writer, such as `Pacing:`
 - **Field type**: the shape of the value
 - **Required**: whether the Director must provide a value every turn

@@ -15,6 +15,7 @@ from ...core import (
     DEFAULT_STATE_INJECT,
     DEFAULT_STATE_MODE,
     DEFAULT_STATE_UPDATE,
+    RESERVED_FRAGMENT_IDS,
     STATE_FIELD_TYPE,
     STATE_INJECTS,
     STATE_MODES,
@@ -198,6 +199,8 @@ def card_embedded_fragments(
 
     interactive: list[InteractiveFragmentRow] = []
     for i, raw_entry in enumerate(_card_fragment_entries(frags.get("interactive"))):
+        if raw_entry["id"] in RESERVED_FRAGMENT_IDS:
+            continue
         # Shared card files keep the legacy progressive and direction-note types
         # indefinitely, so they are mapped to state fragments here, permanently.
         entry = upgrade_legacy_fragment(raw_entry)

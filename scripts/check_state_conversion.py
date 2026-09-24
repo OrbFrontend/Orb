@@ -12,6 +12,9 @@ must equal the legacy state on its path:
   fragment -- user-authored notes as entries of the Notes fragment, prefixed with
   their label unless it was the default "Note".
 
+It also lists converted lists that start above the active-entry cap: they match,
+but the Agent cannot add to them until enough entries are retired.
+
 Run it on each real database before the cleanup migration drops the legacy
 columns. It opens the database read-only. A leaf whose path gained messages after
 the migration ran, and events written after it, are left out: they are new state,
@@ -34,7 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from backend.core import fold_events  # noqa: E402
+from backend.core import MAX_ACTIVE_ENTRIES, fold_events  # noqa: E402
 
 _MIGRATION = "0067_state_fragments"
 _HUMAN = "human"
@@ -48,6 +51,9 @@ class Report:
     skipped_new: int = 0
     restored: int = 0
     mismatches: list[str] = field(default_factory=list)
+    # Branch tips whose converted list starts above the active-entry cap, which
+    # refuses every Agent add until enough entries are retired. Not a mismatch.
+    over_cap: list[str] = field(default_factory=list)
 
 
 def _when(value: str | None) -> datetime | None:
@@ -152,6 +158,11 @@ def check(path: str, *, notes_id: str | None = None, verbose: bool = False) -> R
             ]
             view = fold_events(events)
             folded = {fid: [entry.text for entry in view.active(fid)] for fid in view.entries}
+            for fid, texts in folded.items():
+                if len(texts) > MAX_ACTIVE_ENTRIES:
+                    report.over_cap.append(
+                        f"conversation {path[0]['conversation_id']} leaf {leaf_id}: {fid} holds {len(texts)} entries"
+                    )
             if folded != expected:
                 report.mismatches.append(
                     f"conversation {path[0]['conversation_id']} leaf {leaf_id}: expected {expected!r}, folded {folded!r}"
@@ -172,9 +183,12 @@ def main() -> int:
     report = check(args.database, notes_id=args.notes_id, verbose=args.verbose)
     for line in report.mismatches:
         print(f"MISMATCH {line}")
+    for line in report.over_cap:
+        print(f"OVER CAP {line}")
     print(
         f"{report.leaves} leaves: {report.checked} checked, {report.skipped_new} newer than the migration, "
-        f"{report.restored} restored past an empty snapshot, {len(report.mismatches)} mismatched"
+        f"{report.restored} restored past an empty snapshot, {len(report.mismatches)} mismatched, "
+        f"{len(report.over_cap)} fragment(s) over the {MAX_ACTIVE_ENTRIES}-entry cap"
     )
     return 1 if report.mismatches else 0
 

@@ -257,7 +257,8 @@ SEED_INTERACTIVE_FRAGMENTS = [
             "character's established characterization -- how they act, how they relate to the user "
             "and other characters, or what they believe about the world or themselves. A single "
             "character may change in several of these ways at once; record every change that "
-            "qualifies -- several, one, or none at all -- naming the character, the change, and its cause."
+            "qualifies -- several, one, or none at all -- naming the character, the change, and its cause. "
+            "Retire an entry once a later change supersedes it."
         ),
         "field_type": "state",
         "required": False,
