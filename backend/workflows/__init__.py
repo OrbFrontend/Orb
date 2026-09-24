@@ -8,6 +8,8 @@ from .contracts import (
     EV_ENABLE_TOOLS,
     EV_SET_MESSAGE_STATE,
     EV_SYSTEM_PROMPT,
+    ExportCtx,
+    ExportedFile,
     HookType,
     OnDemandCtx,
     OnDemandResult,
@@ -26,6 +28,7 @@ from .format_consistency.hooks import (
     post_pipeline as _fc_post_pipeline,
 )
 from .image_gen import image_gen_workflow
+from .image_gen.export import export as _image_gen_export
 from .image_gen.hooks import on_demand as _image_gen_on_demand
 from .image_gen.hooks import regenerate as _image_gen_regenerate
 from .image_gen.hooks import reroll_gen as _image_gen_reroll_gen
@@ -79,6 +82,8 @@ __all__ = [
     "EV_ENABLE_TOOLS",
     "EV_SET_MESSAGE_STATE",
     "EV_SYSTEM_PROMPT",
+    "ExportCtx",
+    "ExportedFile",
     "HookType",
     "OnDemandCtx",
     "OnDemandResult",
@@ -128,6 +133,7 @@ subscribe(image_gen_workflow.id, HookType.ON_DEMAND, _image_gen_on_demand)
 subscribe(image_gen_workflow.id, HookType.QUERY, _image_gen_query)
 subscribe(image_gen_workflow.id, HookType.REGENERATE, _image_gen_regenerate)
 subscribe(image_gen_workflow.id, HookType.REROLL_GEN, _image_gen_reroll_gen)
+subscribe(image_gen_workflow.id, HookType.EXPORT, _image_gen_export)
 
 # The rewriter is the first secondary text transform. Its workflow toggle turns
 # it on for manual and automatic rewrites; its ``automatic`` config gates turns.

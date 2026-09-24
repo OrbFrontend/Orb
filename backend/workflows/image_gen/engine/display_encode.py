@@ -7,6 +7,7 @@ import io
 from PIL import Image
 
 from .contracts import ImageGenerationError
+from .image_bytes import image_mime
 
 _WEBP_QUALITY = 95
 _REFERENCE_MAX_EDGE = 4096
@@ -90,6 +91,26 @@ def shrink_for_display(data: bytes, mime: str) -> tuple[bytes, str]:
     except Exception:
         return data, mime
     return (out, "image/webp") if len(out) < len(data) else (data, mime)
+
+
+def lossless_png(data: bytes) -> bytes:
+    """`data` as a PNG, with no loss beyond what its encoding already cost.
+
+    A PNG is returned untouched, so ComfyUI's embedded workflow survives the export;
+    anything else is decoded once and written losslessly, colour profile included.
+    """
+    if image_mime(data) == "image/png":
+        return data
+    buf = io.BytesIO()
+    try:
+        with Image.open(io.BytesIO(data)) as src:
+            src.load()
+            icc = src.info.get("icc_profile")
+            image = src if src.mode in ("RGB", "RGBA", "L", "LA") else src.convert("RGBA" if "A" in src.getbands() else "RGB")
+            image.save(buf, format="PNG", **({"icc_profile": icc} if icc else {}))
+    except Exception as exc:
+        raise ImageGenerationError("Orb could not read this image to convert it to PNG") from exc
+    return buf.getvalue()
 
 
 def normalize_reference(

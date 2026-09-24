@@ -17,6 +17,7 @@ const REFERENCE_ORIGIN_LABELS = {
 const UNUSED_SEED = "not used";
 
 const INFO_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" width="15" height="15"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5v.01"/></svg>`;
+const DOWNLOAD_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14"/></svg>`;
 
 const COST_UNITS = {
   usd: (value) => `$${Number(value).toFixed(4)}`,
@@ -61,6 +62,10 @@ export function messageButtonHtml(msg, { mutable, icon, escAttr }) {
 // Pressed while the details are showing, like a gallery's info button.
 export function viewToggleHtml(focus) {
   return `<button type="button" class="image-gen-view-btn" title="Render details" aria-pressed="${!focus}" data-wf-action="image_gen:toggleDetails">${INFO_ICON}</button>`;
+}
+
+export function downloadButtonHtml(att, { escAttr }) {
+  return `<button type="button" class="image-gen-download-btn" title="Download PNG" aria-label="Download PNG" data-wf-action="image_gen:download" data-att-id="${escAttr(att?.id ?? "")}">${DOWNLOAD_ICON}</button>`;
 }
 
 export function attachmentDetailsHtml(att, { esc, escAttr, pending }) {

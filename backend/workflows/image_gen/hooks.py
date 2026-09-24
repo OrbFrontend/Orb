@@ -233,6 +233,11 @@ def _consumption(
     cost = info.get("cost")
     if isinstance(cost, Mapping) and cost.get("value") is not None:
         payload["cost"] = dict(cost)
+    # Here rather than in the replay record: every path that writes a row's bytes
+    # rewrites this, so it always names the original of the image being shown.
+    output = info.get("comfy_output")
+    if isinstance(output, Mapping):
+        payload["comfy_output"] = dict(output)
     if info.get("seed_honored") is False:
         payload["seed_honored"] = False
     for key in ("pov", "pov_source"):

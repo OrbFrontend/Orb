@@ -169,6 +169,35 @@ class QueryCtx:
 
 
 @dataclass(frozen=True)
+class ExportCtx:
+    """Inputs available to a workflow's export hook.
+
+    ``attachment`` is the row without its bytes, and ``stored_bytes`` reads them
+    only when called (None once evicted): an export that can fetch the file from
+    where it was made never loads the stored copy.
+    """
+
+    attachment_id: int
+    attachment: MappingProxyType
+    consumption_metadata: MappingProxyType | None
+    stored_bytes: Callable[[], Awaitable[bytes | None]]
+
+
+@dataclass(frozen=True)
+class ExportedFile:
+    """One attachment as its workflow exports it for download.
+
+    ``note`` says, in one sentence the user sees, when the file is not the best
+    version the workflow could have produced and why.
+    """
+
+    data: bytes
+    mime: str
+    filename: str
+    note: str = ""
+
+
+@dataclass(frozen=True)
 class WorkflowEventStream:
     """Transport-neutral stream of public workflow events."""
 
@@ -210,9 +239,10 @@ class HookType(Enum):
     """Identifies which pipeline slot a subscription binds to.
 
     PRE_PIPELINE and POST_PIPELINE fan out over every subscribed workflow
-    per turn; ON_DEMAND, REGENERATE, REROLL_GEN, and QUERY are single-dispatch
-    slots resolved by workflow id from an HTTP route. QUERY is the only one
-    with no conversation in scope -- the global config/discovery surface.
+    per turn; ON_DEMAND, REGENERATE, REROLL_GEN, QUERY, and EXPORT are
+    single-dispatch slots resolved by workflow id from an HTTP route. QUERY is
+    the only one with no conversation in scope -- the global config/discovery
+    surface. EXPORT is optional, even for artifact workflows.
     """
 
     PRE_PIPELINE = "pre_pipeline"
@@ -221,6 +251,7 @@ class HookType(Enum):
     REGENERATE = "regenerate"
     REROLL_GEN = "reroll_gen"
     QUERY = "query"
+    EXPORT = "export"
 
 
 PreHook = Callable[[PreCtx], AsyncIterator[dict]]
@@ -232,3 +263,6 @@ OnDemandHook = Callable[[OnDemandCtx, dict], Awaitable[OnDemandResult]]
 RegenHook = Callable[[RegenCtx, dict], Awaitable[list[dict]]]
 RerollGenHook = Callable[[RerollGenCtx, dict, str], Awaitable["bytes | tuple[bytes, dict | None]"]]
 QueryHook = Callable[[QueryCtx, dict], Awaitable[dict]]
+# None means there is nothing left to export: the bytes are evicted and the
+# workflow cannot fetch the file from anywhere else.
+ExportHook = Callable[[ExportCtx], Awaitable[ExportedFile | None]]

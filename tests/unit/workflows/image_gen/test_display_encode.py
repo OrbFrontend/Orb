@@ -13,6 +13,7 @@ from PIL import Image
 
 from backend.workflows.image_gen.engine.contracts import ImageGenerationError
 from backend.workflows.image_gen.engine.display_encode import (
+    lossless_png,
     normalize_reference,
     shrink_for_display,
 )
@@ -42,6 +43,29 @@ def test_reencodes_to_webp_at_full_resolution():
 
 def test_non_image_bytes_pass_through_untouched():
     assert shrink_for_display(b"not an image", "image/png") == (b"not an image", "image/png")
+
+
+# ── export ───────────────────────────────────────────────────────────────────
+
+
+def test_an_exported_png_is_the_source_itself():
+    """Untouched rather than re-encoded, so ComfyUI's embedded workflow survives."""
+    src = _png(64, 48)
+    assert lossless_png(src) is src
+
+
+@pytest.mark.parametrize("fmt", ["WEBP", "JPEG"])
+def test_anything_else_exports_as_a_png_of_exactly_the_same_pixels(fmt):
+    src = _png(64, 48, fmt)
+    out = lossless_png(src)
+    with Image.open(io.BytesIO(out)) as exported, Image.open(io.BytesIO(src)) as source:
+        assert exported.format == "PNG"
+        assert exported.convert("RGB").tobytes() == source.convert("RGB").tobytes()
+
+
+def test_bytes_that_are_not_an_image_are_refused_rather_than_exported():
+    with pytest.raises(ImageGenerationError):
+        lossless_png(b"not an image")
 
 
 # ── references, with nothing declared ────────────────────────────────────────

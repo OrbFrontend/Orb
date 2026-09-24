@@ -12,7 +12,7 @@ from typing import cast
 
 from ...core import scrub_log
 from ..connection import get_db
-from ..models import WorkflowAttachmentRow
+from ..models import WorkflowAttachmentMeta, WorkflowAttachmentRow
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,30 @@ async def get_workflow_attachment_by_id(att_id: int) -> WorkflowAttachmentRow | 
             )
         )
         return cast(WorkflowAttachmentRow, dict(rows[0])) if rows else None
+
+
+async def get_workflow_attachment_meta(att_id: int) -> WorkflowAttachmentMeta | None:
+    """One row without its bytes, for a reader that may never need them."""
+    async with get_db() as db:
+        rows = list(
+            await db.execute_fetchall(
+                "SELECT id, message_id, mime_type, filename, created_at, "
+                "workflow_id, parent_attachment_id, annotation, seed, generation_metadata, "
+                "consumption_metadata, active_sibling_id, recent_accesses "
+                "FROM workflow_attachments WHERE id = ?",
+                (att_id,),
+            )
+        )
+        return cast(WorkflowAttachmentMeta, dict(rows[0])) if rows else None
+
+
+async def get_workflow_attachment_bytes(att_id: int) -> bytes | None:
+    """One row's stored bytes, or None when the row is gone or its bytes are evicted."""
+    async with get_db() as db:
+        rows = list(await db.execute_fetchall("SELECT data_b64 FROM workflow_attachments WHERE id = ?", (att_id,)))
+    if not rows or rows[0]["data_b64"] == EVICTED_MARKER:
+        return None
+    return base64.b64decode(rows[0]["data_b64"])
 
 
 async def insert_workflow_attachment_row(

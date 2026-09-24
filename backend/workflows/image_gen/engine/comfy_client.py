@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import time
 import uuid
@@ -18,6 +19,9 @@ from .display_encode import shrink_for_display
 from .image_bytes import MAX_IMAGE_BYTES, image_mime
 
 REFERENCE_SUBFOLDER = "orb"
+# What `/view` takes to name one saved output, as `/history` reports it.
+VIEW_KEYS = ("filename", "subfolder", "type")
+_MAX_VIEW_FIELD = 512
 
 # How long to wait between /history polls. Named so tests can shorten it;
 # a hardcoded sleep made the queue-progress test wait in real time.
@@ -314,26 +318,28 @@ class ComfyClient:
         output = outputs.get(output_node) if isinstance(outputs, Mapping) else None
         images = output.get("images") if isinstance(output, Mapping) else None
         image = images[0] if isinstance(images, list) and images and isinstance(images[0], Mapping) else None
-        if not image or not all(isinstance(image.get(k), str) for k in ("filename", "subfolder", "type")):
+        if not image or not all(isinstance(image.get(k), str) for k in VIEW_KEYS):
             raise ImageGenerationError("ComfyUI completed without the configured image output")
+        data = await self.view(image, timeout=min(60.0, timeout_seconds))
+        mime = image_mime(data)
+        digest = (await asyncio.to_thread(hashlib.sha256, data)).hexdigest()
+        data, mime = await asyncio.to_thread(shrink_for_display, data, mime)
+        info: dict[str, Any] = {"prompt_id": prompt_id, "output_node": output_node}
+        # Where the full-quality original stays: Orb keeps only the display copy,
+        # and the server keeps the file it saved, so an export fetches it from there.
+        if all(len(image[k]) <= _MAX_VIEW_FIELD for k in VIEW_KEYS):
+            info["comfy_output"] = {**{k: image[k] for k in VIEW_KEYS}, "sha256": digest}
+        return ImageResult(image_bytes=data, mime=mime, backend_info=info)
+
+    async def view(self, image: Mapping[str, str], *, timeout: float = 60.0) -> bytes:
+        """The bytes of one saved output, exactly as ComfyUI wrote the file."""
         try:
-            async with self._http(min(60.0, timeout_seconds)) as client:
-                response = await client.get(
-                    "/view",
-                    params={k: image[k] for k in ("filename", "subfolder", "type")},
-                )
+            async with self._http(timeout) as client:
+                response = await client.get("/view", params={k: image[k] for k in VIEW_KEYS})
                 response.raise_for_status()
                 data = response.content
-                if not data or len(data) > MAX_IMAGE_BYTES:
-                    raise ImageGenerationError("ComfyUI image output is empty or too large")
-                mime = image_mime(data)
-        except ImageGenerationError:
-            raise
         except httpx.HTTPError as exc:
             raise ImageGenerationError("Could not fetch the generated image from ComfyUI") from exc
-        data, mime = await asyncio.to_thread(shrink_for_display, data, mime)
-        return ImageResult(
-            image_bytes=data,
-            mime=mime,
-            backend_info={"prompt_id": prompt_id, "output_node": output_node},
-        )
+        if not data or len(data) > MAX_IMAGE_BYTES:
+            raise ImageGenerationError("ComfyUI image output is empty or too large")
+        return data

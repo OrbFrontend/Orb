@@ -12,6 +12,7 @@ import { test } from "node:test";
 
 import {
   attachmentDetailsHtml,
+  downloadButtonHtml,
   hasAttachment,
   messageButtonHtml,
   viewToggleHtml,
@@ -218,6 +219,14 @@ test("the info button is pressed while the details show", () => {
   assert.match(details, /data-wf-action="image_gen:toggleDetails"/);
   assert.match(details, /aria-pressed="true"/);
   assert.match(viewToggleHtml(true), /aria-pressed="false"/);
+});
+
+test("the download button names its attachment through escAttr", () => {
+  const html = downloadButtonHtml({ id: 7 }, MARKERS);
+  assert.match(html, /data-wf-action="image_gen:download"/);
+  assert.match(html, /data-att-id="“7”"/);
+  // Its own class: toggleDetails finds the info button by `.image-gen-view-btn`.
+  assert.ok(!html.includes("image-gen-view-btn"));
 });
 
 // ── seedless backends and cost ───────────────────────────────────────────────

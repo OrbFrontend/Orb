@@ -78,7 +78,7 @@ from ..prompting.lorebook import (
 from . import spark_tts_host as _spark_tts_host
 from ._forced_call import forced_tool_call
 from .attachment_cache import EVICTED_MARKER, insert_workflow_attachment
-from .contracts import EV_DRAFT_REPLACED, ToolSpec, WorkflowEventStream
+from .contracts import EV_DRAFT_REPLACED, ExportedFile, ToolSpec, WorkflowEventStream
 from .errors import WorkflowUserFacingError
 from .registry import (
     Workflow,
@@ -102,6 +102,7 @@ __all__ = [
     "Dialogue",
     "EVICTED_MARKER",
     "EV_DRAFT_REPLACED",
+    "ExportedFile",
     "Macros",
     "Narration",
     "OPEN_QUOTES",

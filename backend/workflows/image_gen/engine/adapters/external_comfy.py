@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
+import hashlib
+import logging
 from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
 from ...config import DEFAULT_CLOUD_EDGE, REFERENCE_MIMES, style_reference_source
-from ..comfy_client import ComfyClient
+from ..comfy_client import VIEW_KEYS, ComfyClient
 from ..contracts import (
     ImageBackendCapabilities,
     ImageGenerationError,
@@ -30,6 +33,8 @@ from ..graph import (
     validate_graph_structure,
 )
 from .base import ImageAdapter, replayed_reference_source, replayed_target
+
+logger = logging.getLogger(__name__)
 
 COMFY_REFERENCE_MAX_BYTES = 8 * 1024 * 1024
 
@@ -164,6 +169,26 @@ class ExternalComfyAdapter(ImageAdapter):
     def _client(self) -> ComfyClient:
         ext = self.config["external_comfy"]
         return ComfyClient(ext["api_url"], ext["api_key"])
+
+    async def fetch_output(self, record: Mapping[str, Any]) -> bytes | None:
+        """The original file of a past render, or None where the server no longer has it.
+
+        Matched by digest, not by name: ComfyUI reuses output names once its folder
+        is cleared, and the connection may point at another server by now, so a
+        name alone can answer with a different picture.
+        """
+        digest = record.get("sha256")
+        if not isinstance(digest, str) or not all(isinstance(record.get(key), str) for key in VIEW_KEYS):
+            return None
+        try:
+            data = await self._client().view({key: record[key] for key in VIEW_KEYS})
+        except ImageGenerationError as exc:
+            logger.info("ComfyUI original %r unavailable: %s", record["filename"], exc)
+            return None
+        if (await asyncio.to_thread(hashlib.sha256, data)).hexdigest() != digest:
+            logger.info("ComfyUI original %r no longer matches this render", record["filename"])
+            return None
+        return data
 
     def _check_style(self, style: Mapping[str, Any], info: Mapping[str, Any]) -> None:
         """Validate one style's graph against the server's node catalogue."""

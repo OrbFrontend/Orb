@@ -162,7 +162,7 @@ def subscribe(
         raise LookupError(f"subscribe: workflow {workflow_id!r} not registered")
     if any(s.hook_type is hook_type for s in record.subscriptions):
         raise ValueError(f"workflow {workflow_id!r} already has a {hook_type.value} subscription")
-    if hook_type in (HookType.REGENERATE, HookType.REROLL_GEN) and not record.produces_artifacts:
+    if hook_type in (HookType.REGENERATE, HookType.REROLL_GEN, HookType.EXPORT) and not record.produces_artifacts:
         raise ValueError(f"workflow {workflow_id!r} cannot subscribe to {hook_type.value} without produces_artifacts=True")
     record.subscriptions.append(Subscription(hook_type, fn, priority, workflow_id))
 

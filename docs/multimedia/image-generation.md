@@ -165,6 +165,20 @@ The info button (ⓘ) on an image hides the details and enlarges the image to fi
 its card. The choice applies to every image and is remembered in this browser.
 Select ⓘ again to bring the details back.
 
+## Download an image
+
+Select the download button (⬇) on an image to save it as a PNG.
+
+Orb stores each image as a compressed WebP to save space, and it does not keep
+a second full-quality copy. For a ComfyUI image, Orb downloads the original PNG
+from ComfyUI's output folder. That file still contains ComfyUI's workflow, so you
+can drag it back into ComfyUI.
+
+When the original is unavailable, Orb converts its stored copy to PNG and shows a
+note. This applies to cloud images, because Orb does not keep the provider's
+original. It also applies to ComfyUI images when ComfyUI is unreachable, its
+output file has been deleted, or the file no longer matches.
+
 ## Variants and rerendering
 
 Each image result is a variant of the selected reply.

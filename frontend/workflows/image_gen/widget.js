@@ -16,7 +16,13 @@ import {
   streamPost,
   toast,
 } from "/static/workflow_api.js";
-import { attachmentDetailsHtml, hasAttachment, messageButtonHtml, viewToggleHtml } from "./render.js";
+import {
+  attachmentDetailsHtml,
+  downloadButtonHtml,
+  hasAttachment,
+  messageButtonHtml,
+  viewToggleHtml,
+} from "./render.js";
 
 const WORKFLOW_ID = "image_gen";
 const FOCUS_VIEW_KEY = "orb.imageGen.focusView";
@@ -36,6 +42,7 @@ export function initWidget(sharedConfig) {
   registerAction(WORKFLOW_ID, "savePrompt", savePrompt);
   registerAction(WORKFLOW_ID, "editPrompt", editPrompt);
   registerAction(WORKFLOW_ID, "toggleDetails", toggleDetails);
+  registerAction(WORKFLOW_ID, "download", download);
   registerRerollParams(WORKFLOW_ID, rerollParams);
   registerRerollSuccess(WORKFLOW_ID, clearPendingEdit);
 }
@@ -63,6 +70,37 @@ function toggleDetails(el) {
   }
   // Cards around it resized too; a focus card is pane-sized, so the reveal alone places it.
   el.closest(".image-gen-attachment").scrollIntoView({ block: "nearest", behavior: "instant" });
+}
+
+// Fetched rather than linked so the export's note -- this PNG was converted from
+// the stored copy, because the original is gone -- reaches the user.
+async function download(el) {
+  const attId = Number(el.dataset.attId);
+  if (!Number.isInteger(attId) || attId <= 0 || el.disabled) return;
+  el.disabled = true;
+  try {
+    const response = await fetch(`/api/workflow-attachments/${attId}/export`);
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(
+        typeof body?.detail === "string" && body.detail ? body.detail : `Download failed (${response.status})`,
+      );
+    }
+    const href = URL.createObjectURL(await response.blob());
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") || "")?.[1] || "image.png";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 0);
+    const note = response.headers.get("X-Orb-Export-Note");
+    if (note) toast(note);
+  } catch (e) {
+    toast(e?.message || "Download failed", "error");
+  } finally {
+    el.disabled = false;
+  }
 }
 
 function editPrompt(el) {
@@ -188,7 +226,7 @@ async function pollForAttachment(msgId, signal, { timeoutMs = 120_000, intervalM
 export function attachmentRenderer(ctx) {
   const { att, buttons, defaultHtml } = ctx;
   const media = defaultHtml.replace(buttons.regen, "").replace(buttons.reroll, "");
-  const actions = `<div class="image-gen-actions">${viewToggleHtml(focusView)}${buttons.reroll}${buttons.regen}</div>`;
+  const actions = `<div class="image-gen-actions">${viewToggleHtml(focusView)}${downloadButtonHtml(att, { escAttr })}${buttons.reroll}${buttons.regen}</div>`;
   const pend = pendingEdits.get(att.id);
   const cm = att.consumption_metadata || {};
   const edited = (key) => pend && key in pend && pend[key] !== (cm[key] ?? "");

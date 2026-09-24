@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from functools import partial
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 
 from ...core import (
     scrub_log,
@@ -27,11 +29,15 @@ from ...database import (
     get_messages_before,
     get_settings,
     get_workflow_attachment_by_id,
+    get_workflow_attachment_bytes,
+    get_workflow_attachment_meta,
     set_workflow_enabled,
 )
 from ...database.models import ConversationRow
 from ...inference import agent_lane_from_settings, client_from_settings
 from ...workflows import (
+    ExportCtx,
+    ExportedFile,
     HookType,
     OnDemandCtx,
     QueryCtx,
@@ -792,6 +798,53 @@ async def api_get_workflow_attachment_content(aid: int, request: Request):
     if att["data_b64"] == EVICTED_MARKER:
         raise HTTPException(status_code=410, detail="Attachment bytes were evicted")
     return attachment_content_response(att["data_b64"], att["mime_type"], request)
+
+
+def _download_name(name: str) -> str:
+    """A filename safe to quote into Content-Disposition."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._") or "attachment"
+
+
+@router.get("/api/workflow-attachments/{aid}/export")
+async def api_export_workflow_attachment(aid: int):
+    """The attachment as its workflow exports it, as a download.
+
+    Not gated on the workflow being enabled, like the content route: an export
+    reads a stored artifact and generates nothing. The row is read without its
+    bytes and the hook loads them only if it needs them, so an export that
+    fetches the file from where it was made reads no stored image at all.
+    ``X-Orb-Export-Note`` carries the hook's note when there is one.
+    """
+    att = await get_workflow_attachment_meta(aid)
+    if att is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    wid = att["workflow_id"]
+    sub = get_subscription(wid, HookType.EXPORT)
+    if sub is None:
+        raise HTTPException(status_code=404, detail=f"Workflow {wid!r} does not export attachments")
+    consumption = _decode_stored_consumption_metadata(att)
+    ctx = ExportCtx(
+        attachment_id=aid,
+        attachment=_readonly(att),
+        consumption_metadata=_readonly(consumption) if consumption is not None else None,
+        stored_bytes=partial(get_workflow_attachment_bytes, aid),
+    )
+    with _hook_failures("export hook", wid, aid, defect="Export handler raised; see server logs"):
+        exported = await sub.callable(ctx)
+    if exported is None:
+        raise HTTPException(status_code=410, detail="Attachment bytes were evicted")
+    if not isinstance(exported, ExportedFile) or not exported.data:
+        logger.error("export hook %r returned no file for attachment %r", scrub_log(wid), scrub_log(aid))
+        raise HTTPException(status_code=500, detail="Export handler returned no file")
+    headers = {
+        "Content-Disposition": f'attachment; filename="{_download_name(exported.filename)}"',
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+    }
+    note = " ".join(exported.note.split()).encode("ascii", "replace").decode("ascii")
+    if note:
+        headers["X-Orb-Export-Note"] = note
+    return Response(content=bytes(exported.data), media_type=exported.mime, headers=headers)
 
 
 @router.post("/api/conversations/{cid}/workflow-attachments/access")

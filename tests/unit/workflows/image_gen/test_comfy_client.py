@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import io
+
 import httpx
 import pytest
+from PIL import Image
 
 from backend.workflows.image_gen.engine import comfy_client
 from backend.workflows.image_gen.engine.comfy_client import (
@@ -55,6 +59,32 @@ async def test_queue_history_view_contract_returns_valid_image():
     assert result.image_bytes == png
     assert result.mime == "image/png"
     assert result.backend_info["prompt_id"] == "p1"
+
+
+@pytest.mark.asyncio
+async def test_the_saved_original_is_recorded_by_the_digest_of_what_comfy_wrote():
+    """Orb stores a WebP re-encode, so the record must describe the PNG the server
+    kept -- a digest of the stored copy would never match it on export."""
+    buf = io.BytesIO()
+    Image.effect_noise((64, 48), 64).convert("RGB").save(buf, format="PNG")
+    png = buf.getvalue()
+    saved = {"filename": "ComfyUI_00042_.png", "subfolder": "", "type": "output"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/prompt":
+            return httpx.Response(200, json={"prompt_id": "p1"})
+        if request.url.path == "/history/p1":
+            return httpx.Response(200, json={"p1": {"status": {"completed": True}, "outputs": {"9": {"images": [saved]}}}})
+        if request.url.path == "/view" and dict(request.url.params) == saved:
+            return httpx.Response(200, content=png)
+        return httpx.Response(404)
+
+    client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(handler))
+    result = await client.generate({"9": {}}, "9", timeout_seconds=2)
+
+    assert result.mime == "image/webp"
+    assert result.backend_info["comfy_output"] == {**saved, "sha256": hashlib.sha256(png).hexdigest()}
+    assert await client.view(saved) == png
 
 
 @pytest.mark.asyncio

@@ -105,9 +105,10 @@
 .image-gen-media:hover .image-gen-actions,.image-gen-actions:focus-within{opacity:1}
 .image-gen-actions .workflow-regen-button,.image-gen-actions .workflow-reroll-button{border:none;background:transparent;color:#fff}
 .image-gen-actions .workflow-regen-button:hover:not(:disabled),.image-gen-actions .workflow-reroll-button:hover:not(:disabled){background:rgba(255,255,255,.2);color:#fff;border-color:transparent}
-.image-gen-view-btn{width:26px;height:26px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:var(--radius);background:transparent;color:#fff;cursor:pointer}
+:is(.image-gen-view-btn,.image-gen-download-btn){width:26px;height:26px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:var(--radius);background:transparent;color:#fff;cursor:pointer}
 .image-gen-view-btn[aria-pressed="true"]{background:rgba(255,255,255,.14)}
-.image-gen-view-btn:hover{background:rgba(255,255,255,.2)}
+:is(.image-gen-view-btn,.image-gen-download-btn):hover{background:rgba(255,255,255,.2)}
+.image-gen-download-btn:disabled{opacity:.5;cursor:progress}
 
 /* Focus view: the image fills the card, capped so the card's header and counter
    (the attachment's scroll margin) still fit in the chat pane beside it. */

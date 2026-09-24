@@ -357,6 +357,15 @@ class WorkflowAttachmentSummary(_WorkflowAttachmentColumns):
     evicted: int
 
 
+class WorkflowAttachmentMeta(_WorkflowAttachmentColumns):
+    """A ``workflow_attachments`` row with nothing read from its bytes -- not even
+    the listing's ``evicted`` flag, which has to load them -- as
+    get_workflow_attachment_meta() returns it.
+    """
+
+    message_id: int
+
+
 class WorkflowAttachmentRow(WorkflowAttachmentRowBase):
     """A fully-projected ``workflow_attachments`` row -- the shared columns plus
     the ``message_id`` FK -- as get_workflow_attachment_by_id() and the

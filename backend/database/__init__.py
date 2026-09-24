@@ -195,6 +195,8 @@ from .queries.user_personas import (
 )
 from .queries.workflow_attachments import (
     get_workflow_attachment_by_id,
+    get_workflow_attachment_bytes,
+    get_workflow_attachment_meta,
     insert_workflow_attachment_row,
 )
 from .queries.worlds import (
@@ -364,6 +366,8 @@ __all__ = [
     "get_user_personas",
     "get_vocabulary",
     "get_workflow_attachment_by_id",
+    "get_workflow_attachment_bytes",
+    "get_workflow_attachment_meta",
     "get_workflow_attachments_for_message",
     "get_workflow_character_state",
     "get_workflow_config",

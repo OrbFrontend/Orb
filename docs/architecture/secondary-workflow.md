@@ -131,6 +131,7 @@ on re-registration.
 | `REGENERATE` | Attachment regeneration route | A list of new attachment records |
 | `REROLL_GEN` | Attachment reroll and rehydrate routes | Bytes, or bytes plus consumption metadata |
 | `QUERY` | Global configuration/discovery route | One response object |
+| `EXPORT` | Attachment export route; optional | An `ExportedFile`, or `None` when nothing is left to export |
 
 `QUERY` has no conversation or LLM client. It is for setup and discovery, such
 as checking an external server before a conversation exists. The message-level
@@ -168,6 +169,7 @@ framework.
 | `RegenCtx` | Conversation, message and attachment ids, pre-anchor history, settings, client, character, `phase(label)` | Attachment regeneration |
 | `RerollGenCtx` | Conversation, message and attachment ids, settings, client, prior consumption metadata, `replay` | Shared by reroll and rehydrate |
 | `QueryCtx` | Settings | No conversation and no client |
+| `ExportCtx` | Attachment id, the row without its bytes, decoded consumption metadata, `stored_bytes()` | Bytes load only when the hook asks for them |
 
 For group work, `character` identifies the relevant speaker. A
 `RerollGenCtx` with `replay=True` reproduces stored generation parameters;
@@ -267,6 +269,15 @@ That lets the user rehydrate evicted bytes. The same `REROLL_GEN` hook handles:
 the variant group. Existing artifacts remain readable when their workflow is
 disabled.
 
+A workflow whose stored bytes are not the best copy of an artifact can
+subscribe `EXPORT` to serve a download. The hook receives the row without its
+bytes and a `stored_bytes()` loader, so it can fetch the file from where it was
+made without reading the stored copy. It returns an `ExportedFile` with bytes,
+MIME type, filename, and an optional `note` the route sends as
+`X-Orb-Export-Note`. Use the note to say when the file is not the best version
+and why. Image generation fetches the original from ComfyUI and converts the
+stored copy only when no original is available.
+
 ## HTTP surface
 
 The framework exposes:
@@ -286,6 +297,7 @@ POST /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/delete
 GET  /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/in-flight
 POST /api/conversations/{cid}/workflow-attachments/access
 GET  /api/workflow-attachments/{aid}/content
+GET  /api/workflow-attachments/{aid}/export
 ```
 
 User uploads have the same split: `GET /api/user-attachments/{aid}/content`.
