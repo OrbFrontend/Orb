@@ -1,29 +1,7 @@
-"""Merge progressive fragments and direction notes into state fragments.
+"""Migrate legacy progressive and direction-note data to state fragments.
 
-Adds the state settings, the global ``state_updates`` switch, the
-``fragment_state_events`` history, and the log's ``state_report``; then converts
-existing data so every branch tip keeps its current state:
-
-* ``progressive`` fragments become one value, updated before the Writer and
-  injected into both passes -- the Director already saw the prior value and the
-  Writer saw ``old -> new``. The after-reply default would add a model call.
-* ``direction_note`` fragments become multiple entries on their own timing, with
-  the old global injection target. Where recording was off they become manual
-  only: recording never gated progressive updates, so the new global switch
-  starts on instead of copying it.
-* Each assistant message's progressive snapshot becomes a ``set`` event only
-  where the value differs from its parent path, retaining the entry id; a value
-  that disappears is retired, because an omitted value used to be dropped. An
-  entirely empty snapshot is skipped: partial saves and turns without
-  ``direct_scene`` wrote ``{}``, and clearing on them would recreate the loss.
-* Saved direction notes become anchored adds; user-authored ones (the
-  ``"human"`` sentinel) move to a seeded, ordinary **Notes** fragment.
-
-Imported backups and presets run this too, so every step tolerates a snapshot
-holding only some domains -- chats without fragments, fragments without chats.
-The legacy columns and the ``direction_notes`` table are left in place, unread
-and unwritten, until a follow-up cleanup migration once
-``scripts/check_state_conversion.py`` has passed on real data.
+Preserves branch state on imported databases with partial domains. Legacy
+direction-note storage remains for a follow-up cleanup migration.
 """
 
 from __future__ import annotations
@@ -133,11 +111,7 @@ def _insert_fragment(conn: sqlite3.Connection, row: dict) -> None:
 
 
 def _has_fragment_rows(conn: sqlite3.Connection) -> bool:
-    """Whether this database carries the fragments domain at all.
-
-    A chats-only preset holds an empty fragments table; seeding rows into it
-    would only ship fragments the preset never meant to carry.
-    """
+    """Skip seed rows in presets whose fragments table is empty."""
     return bool(_columns(conn, "interactive_fragments")) and bool(
         conn.execute("SELECT 1 FROM interactive_fragments LIMIT 1").fetchone()
     )
@@ -159,8 +133,7 @@ def _seed_notes_fragment(conn: sqlite3.Connection, fid: str, *, has_human_notes:
     if not _has_fragment_rows(conn) or conn.execute("SELECT 1 FROM interactive_fragments WHERE id = ?", (fid,)).fetchone():
         return False
     sort_order = conn.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM interactive_fragments").fetchone()[0]
-    # Existing notes keep reaching the passes they reached before; with none to
-    # carry, the fragment ships disabled like a fresh install's.
+    # Preserve the old injection target, and enable the seed only when notes exist.
     _insert_fragment(
         conn,
         {
@@ -216,12 +189,10 @@ def _convert_progressive(conn: sqlite3.Connection, labels: dict[str, str], now: 
     """Turn per-message progressive snapshots into set/clear events along the tree."""
     if "progressive_fields" not in _columns(conn, "messages"):
         return 0
-    # Parents always precede children in id order: every writer inserts a row
-    # after the row it points at.
+    # Parent messages always precede their children in id order.
     rows = conn.execute(
         "SELECT id, conversation_id, parent_id, role, progressive_fields, created_at FROM messages ORDER BY id"
     ).fetchall()
-    # message id -> {fragment_id: (entry_id, text)} after that message.
     state_after: dict[int, dict[str, tuple[str, str]]] = {}
     written = 0
     for mid, cid, parent_id, role, raw, created_at in rows:
@@ -235,6 +206,7 @@ def _convert_progressive(conn: sqlite3.Connection, labels: dict[str, str], now: 
             snapshot = decoded if isinstance(decoded, dict) else {}
         values = {str(key): text for key, value in snapshot.items() if (text := _as_text(value))}
         if not values:
+            # Empty snapshots also represent partial saves, so they cannot clear prior state.
             state_after[mid] = prior
             continue
         current = dict(prior)
@@ -260,20 +232,18 @@ def _convert_progressive(conn: sqlite3.Connection, labels: dict[str, str], now: 
     return written
 
 
-def _convert_direction_notes(conn: sqlite3.Connection, notes_fid: str, now: str) -> tuple[int, bool]:
+def _convert_direction_notes(conn: sqlite3.Connection, notes_fid: str, now: str) -> int:
     if not _columns(conn, "direction_notes"):
-        return 0, False
+        return 0
     rows = conn.execute(
         "SELECT conversation_id, message_id, interactive_fragment_id, interactive_fragment_label, content, created_at "
         "FROM direction_notes ORDER BY id"
     ).fetchall()
-    has_human = False
     for cid, mid, fid, label, content, created_at in rows:
         text = (content or "").strip()
         if not text:
             continue
         if fid == _HUMAN_NOTE_ID:
-            has_human = True
             note_label = (label or "").strip()
             if note_label and note_label != _DEFAULT_NOTE_LABEL:
                 text = f"{note_label}: {text}"
@@ -281,7 +251,7 @@ def _convert_direction_notes(conn: sqlite3.Connection, notes_fid: str, now: str)
         else:
             event = (cid, mid, fid, uuid.uuid4().hex[:12], "add", text, "entries", label or fid, "agent", created_at or now)
         _insert_event(conn, event)
-    return len(rows), has_human
+    return len(rows)
 
 
 def _rename_tool_key(conn: sqlite3.Connection) -> bool:
@@ -335,7 +305,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     progressive_events = notes = 0
     if has_messages:
         progressive_events = _convert_progressive(conn, labels, now)
-        notes, _ = _convert_direction_notes(conn, notes_fid, now)
+        notes = _convert_direction_notes(conn, notes_fid, now)
     renamed = _rename_tool_key(conn)
     conn.commit()
     print(

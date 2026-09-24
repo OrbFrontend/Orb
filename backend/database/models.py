@@ -628,12 +628,7 @@ class MoodFragmentRow(TypedDict):
 
 
 class FragmentStateEventRow(TypedDict):
-    """A row from ``fragment_state_events`` (``SELECT *``).
-
-    One explicit entry write or retirement. ``op`` is ``add``/``revise``/``retire``;
-    ``text`` is NULL for a retirement; ``mode`` records the fragment's mode at write
-    time for display only; ``source`` is ``agent``, ``user`` or ``carried``.
-    """
+    """A state event row; mode is captured for display, while source identifies its author."""
 
     id: int
     conversation_id: str

@@ -43,7 +43,6 @@ class StateStepResult:
 
     events: list[dict] = field(default_factory=list)
     rejections: list[StateRejection] = field(default_factory=list)
-    agent_raw: str = ""
 
 
 def parse_state_call(
@@ -89,6 +88,7 @@ def parse_state_call(
                 continue
             fragment = by_id.get(key)
             if fragment is None:
+                # The shared schema includes other fragments during split calls.
                 if key not in known_ids:
                     rejections.append(StateRejection(key, "update", "unknown_fragment", f"No state field {key!r}."))
                 continue
@@ -135,7 +135,6 @@ async def state_step(
     per_fragment_on = bool(settings.get("director_individual_fragments", 0))
     groups = [[fragment] for fragment in fragments] if per_fragment_on else [list(fragments)]
     hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.4})
-    raws: list[str] = []
 
     for group in groups:
         if client.is_aborted:
@@ -182,11 +181,9 @@ async def state_step(
 
         raw = json.dumps(resp, default=str)
         logger.info("State step output:\n%s", raw)
-        raws.append(raw)
         ops, parse_rejections = parse_state_call(parse_tool_calls(resp), group, aliases, known_ids=known_ids)
         events, rejections = plan_state_ops(ops, {fragment.id: fragment for fragment in group}, view, source="agent")
         result.events.extend(events)
         result.rejections.extend([*parse_rejections, *rejections])
 
-    result.agent_raw = "\n".join(raws)
     yield {"type": "done", "result": result}

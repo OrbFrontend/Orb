@@ -23,10 +23,9 @@ from ...core import (
 class StateWriteError(ValueError):
     """A manual operation that cannot be applied; ``status`` is the HTTP status to report."""
 
-    def __init__(self, message: str, *, status: int = 400, reason: str = "") -> None:
+    def __init__(self, message: str, *, status: int = 400) -> None:
         super().__init__(message)
         self.status = status
-        self.reason = reason
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,18 +156,18 @@ async def apply_manual_op(cid: str, op: StateOp) -> list[dict[str, Any]]:
     configured = {item.fragment.id: item.fragment for item in await configured_state_fragments(conv)}
     fragment = configured.get(op.fragment_id)
     if fragment is None:
-        raise StateWriteError("That fragment no longer exists; its saved state is read-only.", status=409, reason="read_only")
+        raise StateWriteError("That fragment no longer exists; its saved state is read-only.", status=409)
     if not fragment.enabled:
-        raise StateWriteError("That fragment is disabled; its saved state is read-only.", status=409, reason="read_only")
+        raise StateWriteError("That fragment is disabled; its saved state is read-only.", status=409)
     if op.op in ("set", "add", "revise") and not op.text.strip():
-        raise StateWriteError("The text is empty.", reason="empty")
+        raise StateWriteError("The text is empty.")
 
     path = await db.get_active_path(cid)
     view = await db.fold_path_state(cid, [m["id"] for m in path])
     events, rejections = plan_state_ops([op], {fragment.id: fragment}, view, source="user")
     if rejections:
         rejection = rejections[0]
-        raise StateWriteError(rejection.detail or rejection.reason, status=422, reason=rejection.reason)
+        raise StateWriteError(rejection.detail or rejection.reason, status=422)
     await db.add_state_events(cid, int(leaf_id), events)
     return events
 
@@ -179,5 +178,5 @@ async def delete_orphaned_state(cid: str, fragment_id: str) -> int:
     if conv is None:
         raise StateWriteError("Conversation not found", status=404)
     if any(item.fragment.id == fragment_id for item in await configured_state_fragments(conv)):
-        raise StateWriteError("That fragment still exists; clear or retire its state instead.", status=409, reason="configured")
+        raise StateWriteError("That fragment still exists; clear or retire its state instead.", status=409)
     return await db.delete_fragment_state(cid, fragment_id)

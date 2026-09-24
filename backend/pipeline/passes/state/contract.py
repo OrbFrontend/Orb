@@ -32,10 +32,6 @@ class StateContract:
             updates_on=agent_enabled(settings) and bool(settings.get("state_updates", 1)),
         )
 
-    @property
-    def by_id(self) -> dict[str, StateFragment]:
-        return {fragment.id: fragment for fragment in self.fragments}
-
     def director_values(self) -> tuple[StateFragment, ...]:
         """One-value fragments updated by the Director's ``direct_scene`` call."""
         if not self.updates_on:

@@ -331,7 +331,7 @@ def plan_state_ops(
 
 
 def carry_events(events: Iterable[Mapping[str, Any]], view: StateView) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Apply carried user events to a regenerated branch, dropping stale edits."""
+    """Apply user events to *view*, dropping edits to entries absent on the parent branch."""
     applied: list[dict[str, Any]] = []
     dropped: list[dict[str, Any]] = []
     for event in events:

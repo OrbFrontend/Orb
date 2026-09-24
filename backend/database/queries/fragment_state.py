@@ -97,11 +97,11 @@ async def fold_path_state(cid: str, path_message_ids: Sequence[int]) -> StateVie
     return fold_events(await get_state_events_for_path(cid, path_message_ids))
 
 
-async def copy_state_events(source_cid: str, target_cid: str, id_map: Mapping[int, int]) -> int:
-    """Copy events through a message-id map, preserving their history and order."""
+async def copy_state_events(source_cid: str, target_cid: str, id_map: Mapping[int, int]) -> None:
+    """Copy path events through a message-id map, preserving replay order and entry ids."""
     events = await get_state_events_for_path(source_cid, list(id_map))
     if not events:
-        return 0
+        return
     async with get_db() as db:
         await db.execute("BEGIN IMMEDIATE")
         await db.executemany(
@@ -109,11 +109,10 @@ async def copy_state_events(source_cid: str, target_cid: str, id_map: Mapping[in
             [_row_values(target_cid, id_map[event["message_id"]], event, event["created_at"]) for event in events],
         )
         await db.commit()
-    return len(events)
 
 
-async def snapshot_state_to_message(cid: str, view: StateView, message_id: int) -> int:
-    """Write active entries as ``carried`` events on a compressed summary."""
+async def snapshot_state_to_message(cid: str, view: StateView, message_id: int) -> None:
+    """Write active entries as carried events on a summary, keeping their ids."""
     events = [
         {
             "fragment_id": fid,
@@ -127,7 +126,6 @@ async def snapshot_state_to_message(cid: str, view: StateView, message_id: int) 
         for entry in active.values()
     ]
     await add_state_events(cid, message_id, events)
-    return len(events)
 
 
 async def delete_fragment_state(cid: str, fragment_id: str) -> int:

@@ -12,6 +12,9 @@ import aiosqlite
 from ...core import (
     DECISION_COLUMNS,
     DECISION_FIELD_TYPE,
+    DEFAULT_STATE_INJECT,
+    DEFAULT_STATE_MODE,
+    DEFAULT_STATE_UPDATE,
     STATE_FIELD_TYPE,
     STATE_INJECTS,
     STATE_MODES,
@@ -213,9 +216,9 @@ def card_embedded_fragments(
                 "sort_order": 10_000 + i,
                 "direction_note_timing": "post_turn",
                 "cooldown_turns": _int(entry, "cooldown_turns", 0, 0, 50),
-                "state_mode": _enum(entry, "state_mode", STATE_MODES, "value") if is_state else None,
-                "state_update": _enum(entry, "state_update", STATE_UPDATES, "after_reply") if is_state else None,
-                "state_inject": _enum(entry, "state_inject", STATE_INJECTS, "both") if is_state else None,
+                "state_mode": _enum(entry, "state_mode", STATE_MODES, DEFAULT_STATE_MODE) if is_state else None,
+                "state_update": _enum(entry, "state_update", STATE_UPDATES, DEFAULT_STATE_UPDATE) if is_state else None,
+                "state_inject": _enum(entry, "state_inject", STATE_INJECTS, DEFAULT_STATE_INJECT) if is_state else None,
                 **{column: None for column in DECISION_COLUMNS},
             },
         )
