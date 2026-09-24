@@ -88,7 +88,6 @@ export const ICON_PROSE_REWRITE = `<svg viewBox="0 0 24 24" fill="none" stroke="
 export const ICON_SEND = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
 export const ICON_CHEVRON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="6 9 12 15 18 9"/></svg>`;
 export const ICON_FORK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
-export const ICON_NOTE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M12 18v-5"/><path d="M9.5 15.5h5"/></svg>`;
 
 export function buildMsgToolbar(m) {
   const isAssistant = m.role === "assistant";
@@ -143,11 +142,6 @@ export function buildMsgToolbar(m) {
       ? `<span class="magic-input-wrap" id="magic-wrap-${m.id}"><input class="magic-input" type="text" placeholder="Direction/Fix..." id="magic-input-${m.id}" onkeydown="handleMagicKey(event,${m.id})" autofocus><button class="magic-apply" onclick="submitMagicRewrite(${m.id})" title="Apply">${ICON_SEND}</button></span>`
       : "";
 
-  const noteBtn =
-    m.id && !isGreeting && S.directionNotesRecord
-      ? `<button onclick="addUserDirectionNote(${m.id})" title="Add direction note">${ICON_NOTE}</button>`
-      : "";
-
   const slopBtn =
     isAssistant && m.id && S.settings?.local_ml_enabled?.slop_classifier !== false
       ? `<button class="msg-btn-slop" onclick="scoreSlop(${m.id},this)" title="Score AI-slop">%</button>`
@@ -164,7 +158,7 @@ export function buildMsgToolbar(m) {
       ? `<button onclick="clearRefineDiff()" title="Clear diff highlights" class="btn-clear-diff">${ICON_CLEAR}</button>`
       : "";
 
-  return `${editBtn}${forkBtn}${regenBtn}${superRegenBtn}${magicBtn}${proseRewriteBtn}${magicInput}${noteBtn}${slopBtn}${_renderExtraButtons(m)}${delBtn}${diffBtn}`;
+  return `${editBtn}${forkBtn}${regenBtn}${superRegenBtn}${magicBtn}${proseRewriteBtn}${magicInput}${slopBtn}${_renderExtraButtons(m)}${delBtn}${diffBtn}`;
 }
 
 function _renderExtraButtons(msg) {

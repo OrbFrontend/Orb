@@ -108,7 +108,7 @@
       <div class="chat-actions">
         <button class="btn btn-sm" id="user-profile-btn" onclick="showUserModal()" title="User profile" aria-label="User profile">👤</button>
         <button class="btn btn-sm" id="tools-panel-btn" onclick="toggleToolsPanel()" title="Agentic Tools & Workflows">🛠️ Workflow</button>
-        <button class="btn btn-sm hidden" id="direction-notes-panel-btn" onclick="toggleDirectionNotesPanel()" title="Direction Notes">📝 Notes</button>
+        <button class="btn btn-sm hidden" id="state-panel-btn" data-chat-action="state-panel" title="State">📝 State</button>
         <button class="btn btn-sm" id="inspector-toggle" data-chat-action="inspector" title="Inspector" aria-label="Inspector">🔍 Inspector</button>
         <button id="mobile-chat-actions-toggle" onclick="toggleMobileHeaderActions()" title="Quick actions" aria-label="Quick actions"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg></button>
         <div id="mobile-chat-actions-menu">
@@ -116,7 +116,7 @@
           <div class="burger-menu-item" onclick="closeMobileHeaderActions();toggleToolsPanel()">🛠️ Workflow</div>
           <div class="burger-menu-item" data-chat-action="group-config" hidden>👥 Scene setup</div>
           <div class="burger-menu-item" data-chat-action="inspector">🔍 Inspector</div>
-          <div class="burger-menu-item hidden" id="mobile-direction-notes-btn" onclick="closeMobileHeaderActions();toggleDirectionNotesPanel()">📝 Notes</div>
+          <div class="burger-menu-item hidden" id="mobile-state-btn" data-chat-action="state-panel">📝 State</div>
         </div>
       </div>
     </div>
@@ -246,9 +246,9 @@ Write a haiku about the sea.&lt;|im_end|&gt;
     <div id="inspector-content"><div style="color:var(--text-muted);font-size:12px;">Send a message to see director output</div></div>
     <div id="inspector-secondary-content" class="hidden"></div>
   </div></div>
-  <div id="direction-notes-panel"><div class="inspector-inner">
-    <div class="inspector-title">Direction Notes</div>
-    <div id="direction-notes-panel-content"></div>
+  <div id="state-panel"><div class="inspector-inner">
+    <div class="inspector-title">State</div>
+    <div id="state-panel-content"></div>
   </div></div>
   <div id="avatar-popup" class="avatar-popup hidden" onclick="if(event.target===this)hideAvatarPopup()">
     <div class="avatar-popup-content">

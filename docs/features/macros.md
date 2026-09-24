@@ -2,7 +2,7 @@
 
 A macro is a placeholder that Orb replaces with a value. Macros work in messages,
 greetings, personas, scenarios, example messages, lorebook entries, fragments,
-and direction notes. They also work in the image-generation settings: style
+and saved state. They also work in the image-generation settings: style
 prompts, extra instructions, character appearance prompts, and composition
 skills.
 

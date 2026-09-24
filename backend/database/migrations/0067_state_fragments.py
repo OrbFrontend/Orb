@@ -251,9 +251,9 @@ def _convert_progressive(conn: sqlite3.Connection, labels: dict[str, str], now: 
                 current[fid] = (held[0], text)
                 written += 1
         for fid in [fid for fid in current if fid not in values]:
-            entry_id, _ = current.pop(fid)
+            entry_id, gone = current.pop(fid)
             _insert_event(
-                conn, (cid, mid, fid, entry_id, "retire", None, "value", labels.get(fid, fid), "agent", created_at or now)
+                conn, (cid, mid, fid, entry_id, "retire", gone, "value", labels.get(fid, fid), "agent", created_at or now)
             )
             written += 1
         state_after[mid] = current

@@ -5,17 +5,16 @@ import { clearInspectedMessage, renderInspector } from "./chat_inspector.js";
 import { inspectMessage } from "./chat_messages.js";
 import { stopConversation } from "./chat_stream.js";
 import { resetWorkflowViewportState } from "./chat_workflow.js";
-import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
 import { groupFamily, groupRootId } from "./group_cast.js";
 import { loadGroupCast, renderGroupCast, renderGroupList } from "./group_setup.js";
 import { renderInteractiveFragments, renderMoodFragments } from "./library_fragments.js";
 import { avatarBustQuery, refreshCharacters, renderCharacters } from "./library_sidebar.js";
 import { reflectConversationWorldActivation } from "./lorebooks.js";
 import { closeModal, showConfirmModal, showModal } from "./modal.js";
-import { isUtilityPanelOpen } from "./panels.js";
 import { updateUserBtn } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
-import { S } from "./state.js";
+import { S, upgradeLegacyFragment } from "./state.js";
+import { refreshState } from "./state_panel.js";
 import {
   $,
   avatarCell,
@@ -54,7 +53,7 @@ export function stashSceneCards(cards) {
       for (const f of Array.isArray(frags) ? frags : []) {
         if (!f?.id || f.enabled === false || claimed.has(f.id)) continue;
         claimed.add(f.id);
-        out.push(f);
+        out.push(upgradeLegacyFragment(f));
       }
     }
     return out;
@@ -269,7 +268,7 @@ export async function selectConversation(id) {
   } else {
     clearInspectedMessage();
   }
-  if (isUtilityPanelOpen("direction-notes-panel")) renderDirectionNotesPanel();
+  refreshState();
 }
 
 function confirmDeleteConversation(id, msgCount, afterDelete) {

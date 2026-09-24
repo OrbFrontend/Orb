@@ -122,14 +122,14 @@ body {
     z-index: var(--mobile-overlay-z);
   }
 
-  #app:is(.mobile-sidebar-open, .mobile-tools-open, .mobile-inspector-open, .mobile-notes-open)::before {
+  #app:is(.mobile-sidebar-open, .mobile-tools-open, .mobile-inspector-open, .mobile-state-open)::before {
     opacity: 1;
     pointer-events: auto;
   }
 
   #tools-panel,
   #inspector,
-  #direction-notes-panel {
+  #state-panel {
     position: fixed;
     right: 0;
     top: 0;
@@ -145,7 +145,7 @@ body {
 
   #tools-panel.open,
   #inspector.open,
-  #direction-notes-panel.open {
+  #state-panel.open {
     width: var(--mobile-panel-width);
     min-width: 0;
     transform: translateX(0);
@@ -160,7 +160,7 @@ body {
   #user-profile-btn,
   #tools-panel-btn,
   #inspector-toggle,
-  #direction-notes-panel-btn {
+  #state-panel-btn {
     display: none;
   }
 

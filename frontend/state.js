@@ -42,8 +42,7 @@ export const S = {
   agenticLorebookEnabled: false,
   feedbackEnabled: false,
   directorIndividualFragments: false,
-  directionNotesRecord: false, // global direction-note switch
-  directionNotesInject: "off", // where direction notes are injected
+  stateUpdates: true, // global switch for automatic state-fragment updates
   hideUntilBaked: false, // keep the streaming reply out of the DOM until final
   preventPromptOverrides: false, // ignore character-card prompt overrides
   showEditorDiff: true, // show editor-pass diff highlights
@@ -102,7 +101,7 @@ export const S = {
   reasoningWriter: "",
   reasoningEditor: "", // includes editor feedback reasoning
   lastFeedback: null, // editor feedback for the current turn
-  lastDirectionNotes: null, // direction notes recorded for the current turn
+  lastState: null, // the current turn's state changes, rejections, and dropped corrections
   // In-flight decisions; the Inspector reads stored records after the reply exists.
   lastDecisions: null,
   reasoningPassActive: 0,
@@ -176,6 +175,23 @@ export function charactersView() {
 
 export function moodFragmentsView() {
   return S.cardMoodFragments.length ? S.moodFragments.concat(S.cardMoodFragments) : S.moodFragments;
+}
+
+/**
+ * A card fragment with a legacy state type, rewritten as an explicit state
+ * fragment -- the same mapping the backend applies at its card read boundary.
+ * Shared card files keep ``progressive`` and ``direction_note`` indefinitely.
+ */
+export function upgradeLegacyFragment(f) {
+  if (f?.field_type === "progressive") {
+    return { ...f, field_type: "state", state_mode: "value", state_update: "before_writer", state_inject: "both" };
+  }
+  if (f?.field_type === "direction_note") {
+    const { direction_note_timing: timing, ...rest } = f;
+    const update = timing === "pre_writer" ? "before_writer" : "after_reply";
+    return { ...rest, field_type: "state", state_mode: "entries", state_update: update, state_inject: "both" };
+  }
+  return f;
 }
 
 export function interactiveFragmentsView() {

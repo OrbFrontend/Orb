@@ -26,11 +26,6 @@ import {
 } from "./chat_inspector.js";
 import { _mergeWorkflowRejections } from "./chat_workflow.js";
 import { skipNoticeText } from "./decisions.js";
-import {
-  clearDirectionNotesRegenCut,
-  optimisticDropDirectionNotesFrom,
-  renderDirectionNotesPanel,
-} from "./direction_notes_panel.js";
 import { patchHtml } from "./dom_reconcile.js";
 import { generationStepLabel, WAITING_LABEL } from "./generation_status.js";
 import { restNotice, speakerAvatarCell, unansweredHint } from "./group_cast.js";
@@ -43,10 +38,10 @@ import {
 import { refreshCharacters } from "./library_sidebar.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
-import { isUtilityPanelOpen } from "./panels.js";
 import { ensurePersonaPinned } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
+import { refreshState } from "./state_panel.js";
 import {
   $,
   convUrl,
@@ -378,8 +373,7 @@ export async function afterStream() {
   renderGroupCast();
   if (wasGroupExchange && S.groupCast?.sheet_updates) refreshSheetProposals().then(renderGroupCast);
   clearInspectedMessage();
-  clearDirectionNotesRegenCut();
-  if (isUtilityPanelOpen("direction-notes-panel")) renderDirectionNotesPanel();
+  refreshState();
   scrollToBottom(true);
   refreshCharacters();
 }
@@ -397,7 +391,7 @@ export async function processSSEStream(resp, container, holder, signal) {
   S.reasoningWriter = "";
   S.reasoningEditor = "";
   S.lastFeedback = null;
-  S.lastDirectionNotes = null;
+  S.lastState = null;
   // Reset once per exchange; later speakers reuse its result.
   S.lastDecisions = null;
   S.reasoningByPass = {};
@@ -416,7 +410,7 @@ export async function processSSEStream(resp, container, holder, signal) {
     S.reasoningWriter = "";
     S.reasoningEditor = "";
     S.lastFeedback = null;
-    S.lastDirectionNotes = null;
+    S.lastState = null;
     S.reasoningByPass = {};
     S.reasoningPassActive = 0;
     S.reasoningPassSelected = 0;
@@ -621,10 +615,9 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
       } catch (_) {}
       break;
     }
-    case "direction_notes": {
+    case "state": {
       try {
-        const d = JSON.parse(data);
-        S.lastDirectionNotes = { notes: d.notes || [] };
+        S.lastState = JSON.parse(data);
         renderInspector();
       } catch (_) {}
       break;
@@ -897,7 +890,6 @@ export async function regenerateFromUser(userMsgId) {
 
 export async function regenerate(msgId) {
   if (!S.activeConvId || !canStartGeneration()) return;
-  optimisticDropDirectionNotesFrom(msgId);
   await runStreamRequest(convUrl(S.activeConvId, "messages", msgId, "regenerate"), agentPayload(), {
     cutoffMsgId: msgId,
   });
@@ -905,7 +897,6 @@ export async function regenerate(msgId) {
 
 export async function superRegenerate(msgId) {
   if (!S.activeConvId || !canStartGeneration()) return;
-  optimisticDropDirectionNotesFrom(msgId);
   await runStreamRequest(convUrl(S.activeConvId, "messages", msgId, "super_regenerate"), agentPayload(), {
     cutoffMsgId: msgId,
   });
@@ -954,7 +945,6 @@ export async function submitMagicRewrite(msgId) {
   if (!direction) return;
   if (!S.activeConvId || !canStartGeneration()) return;
   S.magicInputMsgId = null;
-  optimisticDropDirectionNotesFrom(msgId);
   await runStreamRequest(
     convUrl(S.activeConvId, "messages", msgId, "magic_rewrite"),
     { direction },

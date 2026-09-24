@@ -51,11 +51,29 @@ stopping the import.
 | `enabled: false` | Fragment is skipped |
 | Duplicate IDs in one card | The first fragment is kept |
 | Unknown `field_type` | Uses `string` |
-| Unknown `direction_note_timing` | Uses `post_turn` |
+| Missing or unknown state setting | Uses the default: `value`, `after_reply`, `both` |
 
-Valid interactive field types are `string`, `array`, `progressive`, `feedback`,
-`direction_note`, and `post_processing`. Valid direction-note timings are
-`pre_writer` and `post_turn`.
+Valid interactive field types are `string`, `array`, `state`, `feedback`,
+`post_processing`, and `decision`. A `state` fragment takes three more keys, the
+[state settings](state-fragments.md#settings):
+
+| Key | Values |
+|---|---|
+| `state_mode` | `value` or `entries` |
+| `state_update` | `after_reply`, `before_writer`, or `manual` |
+| `state_inject` | `off`, `director`, `writer`, or `both` |
+
+Orb also reads the `progressive` and `direction_note` types as state
+fragments, without rewriting the card:
+
+| Type | Read as |
+|---|---|
+| `progressive` | `state`, `value`, `before_writer`, `both` |
+| `direction_note` with `direction_note_timing: "pre_writer"` | `state`, `entries`, `before_writer`, `both` |
+| `direction_note`, any other timing | `state`, `entries`, `after_reply`, `both` |
+
+Exporting a card writes these fragments with the `state` type and explicit
+settings.
 
 ## Card format
 
@@ -87,7 +105,17 @@ Card creators can add fragments under the card's `data.extensions` object:
               "field_type": "string",
               "injection_label": "Suspicion",
               "required": false,
-              "direction_note_timing": "post_turn",
+              "enabled": true
+            },
+            {
+              "id": "open_promises",
+              "label": "Open Promises",
+              "description": "Promises the character or the user made and has not kept yet. Retire one once it is kept or broken.",
+              "field_type": "state",
+              "state_mode": "entries",
+              "state_update": "after_reply",
+              "state_inject": "both",
+              "injection_label": "Open promises",
               "enabled": true
             },
             {

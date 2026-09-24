@@ -12,7 +12,8 @@ import {
   repaintDecisionSection,
 } from "./library_decisions.js";
 import { closeModal, closeSubModal, confirmDelete, showModal, showSubModal } from "./modal.js";
-import { S } from "./state.js";
+import { S, upgradeLegacyFragment } from "./state.js";
+import { refreshState, updateStateButton } from "./state_panel.js";
 import { $, boolFlag, esc, escAttr, escHandlerArg, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
@@ -157,11 +158,13 @@ const EDITOR_LANE_FIELD_TYPES = new Set(["feedback", "post_processing"]);
 const INTERACTIVE_LANES = [
   { id: "judge", label: "Judge", hint: "Decides questions before the Director runs" },
   { id: "director", label: "Director", hint: "Directs the scene the writer works from" },
+  { id: "state", label: "State", hint: "Kept across turns; updated by the Agent or by you in the State panel" },
   { id: "editor", label: "Editor", hint: "Acts on the reply after it is written" },
 ];
 
 function _interactiveLane(f) {
   if (f.field_type === "decision") return "judge";
+  if (f.field_type === "state") return "state";
   return EDITOR_LANE_FIELD_TYPES.has(f.field_type) ? "editor" : "director";
 }
 
@@ -171,6 +174,7 @@ export async function loadInteractiveFragments() {
     loadDecisionConfig();
     S.interactiveFragments = await api.get("/interactive-fragments");
     renderInteractiveFragments();
+    refreshState();
   } catch (error) {
     console.error("Failed to load interactive fragments:", error);
     throw error;
@@ -178,6 +182,7 @@ export async function loadInteractiveFragments() {
 }
 
 export function renderInteractiveFragments() {
+  updateStateButton();
   const el = document.getElementById("interactive-frag-list");
   if (!el) return;
   const cardHtml = _cardInteractiveSidepanelHtml();
@@ -297,23 +302,14 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
     inj_hint: "sent to the writer",
     desc_hint: "tells the Director what this is about",
   },
-  progressive: {
+  state: {
     id: "e.g. trust",
     label: "e.g. Trust",
-    injection_label: "e.g. Trust level",
+    injection_label: "e.g. Trust",
     description:
-      "How much the character trusts the user, as a percentage that shifts gradually, e.g. '10%' -> '25%' -> '40%'",
-    inj_hint: "sent to the writer",
-    desc_hint: "tells the Director what this is about",
-  },
-  direction_note: {
-    id: "e.g. trajectory",
-    label: "e.g. Trajectory",
-    injection_label: "e.g. Direction of travel",
-    description:
-      "A lasting note the director records and keeps on this branch, e.g. 'where the story is heading and the established facts that pin it'",
-    inj_hint: "sent to the writer",
-    desc_hint: "tells the Director what to record",
+      "How far the character trusts the user now, and what earned or cost it, e.g. 'wary: the user lied about the key'",
+    inj_hint: "its heading in the state block",
+    desc_hint: "tells the Agent what to record",
   },
   feedback: {
     id: "e.g. next_actions",
@@ -367,17 +363,10 @@ export function updateInteractiveFragmentExample(fieldType) {
   };
   setHint("interactive-frag-inj-hint", ex.inj_hint);
   setHint("interactive-frag-desc-hint", ex.desc_hint || "");
-  const timingRow = document.getElementById("interactive-frag-timing-row");
-  if (timingRow) timingRow.style.display = fieldType === "direction_note" ? "" : "none";
   // Decision definitions use their own question and outcome fields.
   const descRow = document.getElementById("interactive-frag-desc-row");
   if (descRow) descRow.style.display = isDecision ? "none" : "";
-  // Decisions do not use the Director's required-field tool setting.
-  const hideRequired = fieldType === "post_processing" || isDecision;
-  const requiredRow = document.getElementById("interactive-frag-required-row");
-  if (requiredRow) requiredRow.style.display = hideRequired ? "none" : "";
-  const required = document.getElementById("interactive-frag-required");
-  if (required && hideRequired) required.checked = false;
+  _syncStateControls();
   const decisionSection = document.getElementById("decision-section");
   if (decisionSection) decisionSection.style.display = isDecision ? "" : "none";
   if (isDecision) fitDecisionTextareas();
@@ -385,6 +374,95 @@ export function updateInteractiveFragmentExample(fieldType) {
   // Warn before a type change clears the saved decision fields.
   if (leaving) leaving.style.display = _editingStoredDecision && !isDecision ? "" : "none";
 }
+
+// The three state settings; new fragments start from the backend defaults.
+const STATE_SETTING_KEYS = ["state_mode", "state_update", "state_inject"];
+const STATE_DEFAULTS = { mode: "value", update: "after_reply", inject: "both" };
+const STATE_CHOICES = {
+  mode: [
+    ["value", "One value"],
+    ["entries", "Multiple entries"],
+  ],
+  update: [
+    ["after_reply", "After the reply"],
+    ["before_writer", "Before the Writer"],
+    ["manual", "Manual only"],
+  ],
+  inject: [
+    ["off", "Off"],
+    ["director", "Director"],
+    ["writer", "Writer"],
+    ["both", "Director and Writer"],
+  ],
+};
+
+/** Required applies where the Director fills the field: scene fields, and a value it sets before the Writer. */
+function _requiredApplies(fieldType, mode, update) {
+  if (fieldType === "state") return (mode || STATE_DEFAULTS.mode) === "value" && update === "before_writer";
+  return fieldType !== "post_processing" && fieldType !== "decision";
+}
+
+function _stateSelectValue(setting) {
+  return document.getElementById(`interactive-frag-state-${setting}`)?.value || STATE_DEFAULTS[setting];
+}
+
+/** What the chosen settings do, by their effect. */
+function _stateHint(mode, update) {
+  const modeText =
+    mode === "entries"
+      ? "Keeps a list of up to 12 entries: updates add new ones and retire ones that no longer hold."
+      : "Keeps one value: each update replaces it.";
+  const updateText = {
+    after_reply: "Updated after the reply is saved, from what it actually showed, so the change reaches later turns.",
+    before_writer:
+      mode === "entries"
+        ? "Updated before the Writer, after the Director's scene direction: it records the Director's intent for this reply, which the Writer may not carry out. While the Agent or Direction is off, the fragment keeps its entries."
+        : "Updated before the Writer, as part of the Director's scene direction: it records the Director's intent for this reply, which the Writer may not carry out. While the Agent or Direction is off, the fragment keeps its value.",
+    manual: "Never updated by the Agent: only you change it, in the State panel.",
+  }[update];
+  return `${modeText} ${updateText} Changing the mode keeps the saved state.`;
+}
+
+function _stateSectionHtml(d) {
+  const current = {
+    mode: d.state_mode || STATE_DEFAULTS.mode,
+    update: d.state_update || STATE_DEFAULTS.update,
+    inject: d.state_inject || STATE_DEFAULTS.inject,
+  };
+  const select = (setting, label) => `<div class="field"><label>${label}</label>
+      <select id="interactive-frag-state-${setting}" data-state-setting="${setting}">
+        ${STATE_CHOICES[setting].map(([value, text]) => `<option value="${value}" ${current[setting] === value ? "selected" : ""}>${text}</option>`).join("")}
+      </select></div>`;
+  return `<div id="interactive-frag-state-section" style="${d.field_type === "state" ? "" : "display:none"}">
+    <div class="field-row">
+      ${select("mode", "Mode")}
+      ${select("update", "Update")}
+      ${select("inject", "Inject")}
+    </div>
+    <div class="field-hint" id="interactive-frag-state-hint">${esc(_stateHint(current.mode, current.update))}</div>
+  </div>`;
+}
+
+/** Show the state settings for a state fragment, and Required only where it applies. */
+function _syncStateControls() {
+  const fieldType = document.getElementById("interactive-frag-type")?.value;
+  const isState = fieldType === "state";
+  const section = document.getElementById("interactive-frag-state-section");
+  if (section) section.style.display = isState ? "" : "none";
+  const mode = _stateSelectValue("mode");
+  const update = _stateSelectValue("update");
+  const hint = document.getElementById("interactive-frag-state-hint");
+  if (hint) hint.textContent = _stateHint(mode, update);
+  const applies = _requiredApplies(fieldType, mode, update);
+  const requiredRow = document.getElementById("interactive-frag-required-row");
+  if (requiredRow) requiredRow.style.display = applies ? "" : "none";
+  const required = document.getElementById("interactive-frag-required");
+  if (required && !applies) required.checked = false;
+}
+
+document.addEventListener("change", (e) => {
+  if (e.target.closest?.("[data-state-setting]")) _syncStateControls();
+});
 
 function _interactiveFragFormHtml(d, isEdit) {
   const ex = INTERACTIVE_FRAGMENT_EXAMPLES[d.field_type] || INTERACTIVE_FRAGMENT_EXAMPLES.string;
@@ -404,25 +482,18 @@ function _interactiveFragFormHtml(d, isEdit) {
         <select id="interactive-frag-type" onchange="updateInteractiveFragmentExample(this.value)">
           <option value="string" ${d.field_type === "string" ? "selected" : ""}>single</option>
           <option value="array" ${d.field_type === "array" ? "selected" : ""}>list</option>
-          <option value="progressive" ${d.field_type === "progressive" ? "selected" : ""}>progressive</option>
+          <option value="state" ${d.field_type === "state" ? "selected" : ""}>state (kept across turns)</option>
           <option value="feedback" ${d.field_type === "feedback" ? "selected" : ""}>feedback (note to you)</option>
-          <option value="direction_note" ${d.field_type === "direction_note" ? "selected" : ""}>direction note (persists)</option>
           <option value="post_processing" ${d.field_type === "post_processing" ? "selected" : ""}>post-processing (edits reply)</option>
           <option value="decision" ${d.field_type === "decision" ? "selected" : ""}>decision (asks a question)</option>
         </select>
       </div>
     </div>
-    <div class="field" id="interactive-frag-timing-row" style="${d.field_type === "direction_note" ? "" : "display:none"}">
-      <label>When recorded <span style="font-size:10px;color:var(--text-muted)">(direction notes only)</span></label>
-      <select id="interactive-frag-timing-select">
-        <option value="post_turn" ${d.direction_note_timing !== "pre_writer" ? "selected" : ""}>End of turn</option>
-        <option value="pre_writer" ${d.direction_note_timing === "pre_writer" ? "selected" : ""}>Before writer</option>
-      </select>
-    </div>
+    ${_stateSectionHtml(d)}
     <div class="field" id="interactive-frag-desc-row" style="${d.field_type === "decision" ? "display:none" : ""}">
       <label>Description <span id="interactive-frag-desc-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.desc_hint || "")})</span></label>
       <textarea id="interactive-frag-desc" rows="4" placeholder="${escAttr(ex.description || "")}">${esc(d.description)}</textarea></div>
-    <div class="field-row" id="interactive-frag-required-row" style="${d.field_type === "post_processing" || d.field_type === "decision" ? "display:none" : ""}">
+    <div class="field-row" id="interactive-frag-required-row" style="${_requiredApplies(d.field_type, d.state_mode, d.state_update) ? "" : "display:none"}">
       <div class="field" style="align-self:flex-end;padding-bottom:4px">
         <label class="modal-checkbox-label">
           <input type="checkbox" id="interactive-frag-required" ${d.required ? "checked" : ""}> Required
@@ -443,14 +514,17 @@ function _readInteractiveFragForm() {
     label: document.getElementById("interactive-frag-label").value.trim(),
     description: fieldType === "decision" ? "" : document.getElementById("interactive-frag-desc").value.trim(),
     field_type: fieldType,
-    required:
-      fieldType === "post_processing" || fieldType === "decision"
-        ? false
-        : document.getElementById("interactive-frag-required").checked,
+    required: _requiredApplies(fieldType, _stateSelectValue("mode"), _stateSelectValue("update"))
+      ? document.getElementById("interactive-frag-required").checked
+      : false,
     injection_label: document.getElementById("interactive-frag-inj-label").value.trim(),
-    direction_note_timing: document.getElementById("interactive-frag-timing-select").value,
     cooldown_turns: parseInt(document.getElementById("interactive-frag-cooldown").value, 10) || 0,
   };
+  if (fieldType === "state") {
+    base.state_mode = _stateSelectValue("mode");
+    base.state_update = _stateSelectValue("update");
+    base.state_inject = _stateSelectValue("inject");
+  }
   // The backend clears decision fields when a write names another type.
   return fieldType === "decision" ? { ...base, ...readDecisionFields() } : base;
 }
@@ -466,7 +540,6 @@ export function showInteractiveFragmentModal(fragId = null) {
     required: false,
     injection_label: "",
     sort_order: 0,
-    direction_note_timing: "post_turn",
     cooldown_turns: 0,
   };
   _openDecisionDraft(d);
@@ -542,8 +615,8 @@ export async function toggleInteractiveFragmentEnabled(id, newEnabled) {
 function _interactiveTypeBadge(f) {
   return f.field_type === "feedback"
     ? ` <span class="frag-type-badge" title="Feedback fragment">F</span>`
-    : f.field_type === "direction_note"
-      ? ` <span class="frag-type-badge" title="Direction-note fragment">D</span>`
+    : f.field_type === "state"
+      ? ` <span class="frag-type-badge" title="State fragment: ${f.state_mode === "entries" ? "multiple entries" : "one value"}">S</span>`
       : f.field_type === "post_processing"
         ? ` <span class="frag-type-badge" title="Post-processing fragment">P</span>`
         : f.field_type === "decision"
@@ -553,20 +626,21 @@ function _interactiveTypeBadge(f) {
 
 function _featureGate(f) {
   const feedbackOff = f.field_type === "feedback" && !S.feedbackEnabled;
-  const noteOff = f.field_type === "direction_note" && !S.directionNotesRecord;
+  // Not disabled: the fragment is still injected and editable by hand.
+  const stateUpdatesOff = f.field_type === "state" && f.state_update !== "manual" && !S.stateUpdates;
   const postProcessingOff = f.field_type === "post_processing" && !S.agentEnabled;
   // Without a Judge, decisions remain enabled but are skipped at runtime.
   const judgeOff = f.field_type === "decision" && decisionConfig()?.configured === false;
   const title = feedbackOff
     ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
-    : noteOff
-      ? "Direction Notes recording is off -- turn on Writing in the Agents panel to use this fragment"
+    : stateUpdatesOff
+      ? "State updates are off -- this fragment is still injected and editable in the State panel, but not updated automatically"
       : postProcessingOff
         ? "Agent is disabled -- enable it to use this post-processing fragment"
         : judgeOff
           ? "No Judge endpoint is configured -- this decision is skipped"
           : f.description || "";
-  return { disabled: feedbackOff || noteOff || postProcessingOff, title };
+  return { disabled: feedbackOff || postProcessingOff, title };
 }
 
 function _cardMoodSidepanelHtml() {
@@ -593,7 +667,9 @@ let _cardFragPending = null;
 export function initCardFragments(fragments) {
   _cardFragPending = {
     mood: Array.isArray(fragments?.mood) ? structuredClone(fragments.mood) : [],
-    interactive: Array.isArray(fragments?.interactive) ? structuredClone(fragments.interactive) : [],
+    interactive: Array.isArray(fragments?.interactive)
+      ? structuredClone(fragments.interactive).map(upgradeLegacyFragment)
+      : [],
   };
 }
 
@@ -676,6 +752,9 @@ function _wireCardFragModal(type, isEdit, fragId) {
     }
     const existing = isEdit ? _cardFragPending[type].find((f) => f.id === fragId) : null;
     d.enabled = existing ? existing.enabled !== false : true;
+    if (existing && d.field_type !== "state") {
+      for (const key of STATE_SETTING_KEYS) delete existing[key];
+    }
     if (existing) Object.assign(existing, d);
     else _cardFragPending[type].push(d);
     closeSubModal();
@@ -712,7 +791,6 @@ export function showCardInteractiveFragmentModal(fragId = null) {
     field_type: "string",
     required: false,
     injection_label: "",
-    direction_note_timing: "post_turn",
     cooldown_turns: 0,
   };
   _showCardFragModal("interactive", "Interactive", fragId, blank, _interactiveFragFormHtml);

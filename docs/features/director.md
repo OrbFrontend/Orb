@@ -47,9 +47,8 @@ Writer. Describe the value you want and include examples when useful.
 |---|---|
 | **Single** | One text value, such as `Pacing: slow burn`. |
 | **List** | Several values shown as a list, such as active plot threads. |
-| **Progressive** | A value that changes gradually across turns, such as trust or tension. |
 | **Feedback** | A note shown to you after the reply. See [Feedback Fragments](feedback-fragments.md). |
-| **Direction note** | A note saved on the conversation branch. See [Direction Notes](direction-notes.md). |
+| **State** | A value or a list kept across turns on the conversation branch, such as trust, scene continuity, or open threads. See [State Fragments](state-fragments.md). |
 | **Post-processing** | An editing instruction applied to the completed reply. See [Post-processing Fragments](post-processing-fragments.md). |
 | **Decision** | A question the Judge answers before the Director runs, contributing guidance the Director plans around. See [Decision Fragments](decision-fragments.md). |
 

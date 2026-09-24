@@ -57,7 +57,7 @@ Built-in tools use this order:
     "editor_rewrite",
     "editor_search_replace",
     "give_feedback",
-    "record_direction_note",
+    "update_state",
     "select_lorebook",
     "propose_world_changes",
 )

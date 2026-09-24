@@ -123,7 +123,7 @@ LAYERS = {
     "settings_models.js": 5,
     "settings_personas.js": 5,
     "presets.js": 5,
-    "direction_notes_panel.js": 5,
+    "state_panel.js": 5,
     "mobile.js": 5,
     "group_setup.js": 5,
     # L6 shell / plugin facade.
@@ -141,7 +141,7 @@ ALLOWED_UPWARD: set[tuple[str, str]] = {
 }
 
 # ── 2. Ratchets (may only decrease) ──────────────────────────────────────────
-MAX_INLINE_ON = 248  # inline on*= handlers across frontend/ (js + index.html)
+MAX_INLINE_ON = 236  # inline on*= handlers across frontend/ (js + index.html)
 MAX_UNDERSCORE_IMPORTS = 10  # underscore-prefixed names imported cross-module
 
 # ── 4. Frozen ABI ────────────────────────────────────────────────────────────

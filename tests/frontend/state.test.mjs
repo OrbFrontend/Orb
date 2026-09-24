@@ -2,7 +2,15 @@
 // imports workflow_registry.js, also DOM-free), so it loads under node --test.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { charactersView, localMlReady, notify, restingCooldowns, S, subscribe } from "../../frontend/state.js";
+import {
+  charactersView,
+  localMlReady,
+  notify,
+  restingCooldowns,
+  S,
+  subscribe,
+  upgradeLegacyFragment,
+} from "../../frontend/state.js";
 
 test("charactersView returns the full set when allCharacters is populated", () => {
   S.allCharacters = [{ id: 1 }, { id: 2 }];
@@ -138,4 +146,24 @@ test("restingCooldowns rests nothing for a first reply or an unknown message", (
   assert.deepEqual(restingCooldowns(1), {});
   assert.deepEqual(restingCooldowns(404), {});
   assert.deepEqual(restingCooldowns(null), {});
+});
+
+test("legacy card fragment types read as explicit state fragments, like the backend's card boundary", () => {
+  assert.deepEqual(upgradeLegacyFragment({ id: "trust", field_type: "progressive" }), {
+    id: "trust",
+    field_type: "state",
+    state_mode: "value",
+    state_update: "before_writer",
+    state_inject: "both",
+  });
+  assert.deepEqual(upgradeLegacyFragment({ id: "plan", field_type: "direction_note", direction_note_timing: "pre_writer" }), {
+    id: "plan",
+    field_type: "state",
+    state_mode: "entries",
+    state_update: "before_writer",
+    state_inject: "both",
+  });
+  assert.equal(upgradeLegacyFragment({ id: "arc", field_type: "direction_note" }).state_update, "after_reply");
+  const plain = { id: "pace", field_type: "string" };
+  assert.equal(upgradeLegacyFragment(plain), plain);
 });

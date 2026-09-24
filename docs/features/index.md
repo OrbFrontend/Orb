@@ -19,7 +19,7 @@ and revise it afterward.
 | [Agentic Lorebook](agentic-lorebook.md) | Let the Director choose relevant lorebook entries. |
 | [Dynamic Worlds](dynamic-worlds.md) | Review lore entries proposed from what happens in a conversation. |
 | [Feedback Fragments](feedback-fragments.md) | Receive out-of-character notes after a reply. |
-| [Direction Notes](direction-notes.md) | Keep selected story facts on the active conversation branch. |
+| [State Fragments](state-fragments.md) | Keep a value or a list of story facts up to date on the active conversation branch. |
 | [Decision Fragments](decision-fragments.md) | Have a classifier settle a story question before the Director plans. |
 
 ## Editing and quality

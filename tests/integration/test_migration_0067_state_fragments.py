@@ -164,6 +164,8 @@ def test_converts_fragments_settings_and_every_branch_tip(tmp_path):
     # Set retains the entry id; a value that disappeared was retired.
     ops = conn.execute("SELECT message_id, fragment_id, op FROM fragment_state_events ORDER BY id").fetchall()
     assert (5, "trust", "revise") in ops and (5, "mood", "retire") in ops
+    retired = conn.execute("SELECT text FROM fragment_state_events WHERE message_id = 5 AND op = 'retire'").fetchone()
+    assert retired == ("calm",)
     assert not any(message_id == 7 for message_id, _, _ in ops)
     conn.close()
 

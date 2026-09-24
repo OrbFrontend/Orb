@@ -93,6 +93,8 @@ def test_one_value_set_over_several_entries_retires_them_all_and_adds_one():
     view = fold_events([_add("place", "a", "docks"), _add("place", "b", "roof")])
     events, _ = plan_state_ops([StateOp("set", "place", text="alley")], FRAGMENTS, view, source="agent", new_id=_ids())
     assert [(e["op"], e["entry_id"]) for e in events] == [("retire", "a"), ("retire", "b"), ("add", "id1")]
+    # A retire keeps the text it retired, so history and the Inspector can say what went.
+    assert [e["text"] for e in events] == ["docks", "roof", "alley"]
     assert [e.text for e in view.active("place")] == ["alley"]
 
 

@@ -284,15 +284,6 @@ label.ml-variant-name { cursor: pointer; }
   .ml-foot-loading { animation: none; }
 }
 
-/* Layout comes from `.setting-row`, so the toggle and the select share the
-   right edge the card header's toggle already sits on. */
-.dn-config { margin: 8px 0; }
-
-.dn-config > label:not(.tog) {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
 .lg-config {
   display: flex;
   flex-direction: column;

@@ -3,7 +3,7 @@ const STEP_LABELS = {
   director: "Directing the scene…",
   judge: "Judging decisions…",
   lorebook: "Consulting the lorebook…",
-  direction_notes: "Updating direction notes…",
+  state: "Updating state…",
   writer: "Writing the reply…",
   output_auditor: "Auditing the draft…",
   length_guard: "Checking the length…",

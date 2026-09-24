@@ -236,15 +236,12 @@ export function validateMoodFragment(data) {
   return { valid: true };
 }
 
-const FRAGMENT_FIELD_TYPES = [
-  "string",
-  "array",
-  "progressive",
-  "feedback",
-  "direction_note",
-  "post_processing",
-  "decision",
-];
+const FRAGMENT_FIELD_TYPES = ["string", "array", "state", "feedback", "post_processing", "decision"];
+const STATE_SETTINGS = {
+  state_mode: ["value", "entries"],
+  state_update: ["after_reply", "before_writer", "manual"],
+  state_inject: ["off", "director", "writer", "both"],
+};
 
 export function validateInteractiveFragment(data) {
   const id = (data.id || "").trim();
@@ -278,6 +275,13 @@ export function validateInteractiveFragment(data) {
 
   if (data.field_type !== undefined && !FRAGMENT_FIELD_TYPES.includes(data.field_type)) {
     return { valid: false, error: `Field type must be one of: ${FRAGMENT_FIELD_TYPES.join(", ")}` };
+  }
+  if (data.field_type === "state") {
+    for (const [key, allowed] of Object.entries(STATE_SETTINGS)) {
+      if (data[key] != null && !allowed.includes(data[key])) {
+        return { valid: false, error: `${key} must be one of: ${allowed.join(", ")}` };
+      }
+    }
   }
 
   const cooldownRange = numberRange(data.cooldown_turns, 0, 50, "Cooldown");

@@ -68,7 +68,7 @@ pass being skipped.
 | `user_message_created` | `{id, content}` | Replaces the optimistic user row with its saved id and text. `/send` only. |
 | `director_start` | — | Starts the directing phase. |
 | `decisions` | `{evaluations, skipped, cooldowns, inherited?}` | Publishes the resolved decision fragments, once per turn and once per group exchange, before the directing phase. Sent only when the turn had a decision to run or to report. `inherited: 1` marks a later speaker's regeneration that reused its exchange's committed result without asking. |
-| `step_start` | `{step}` | Names the step that is starting: `judge`, `lorebook`, `direction_notes`, `writer`, `output_auditor`, `length_guard`, `post_processing`, `feedback`, `world_changes`, or `sheet_updates`. |
+| `step_start` | `{step}` | Names the step that is starting: `judge`, `lorebook`, `state`, `writer`, `output_auditor`, `length_guard`, `post_processing`, `feedback`, `world_changes`, or `sheet_updates`. |
 | `reasoning` | `{pass, delta}` | Adds thinking text to a pass's reasoning buffer. |
 | `director_done` | Director data | Updates the inspector. |
 | `token` | Text delta | Appends visible Writer output. |
@@ -76,7 +76,8 @@ pass being skipped.
 | `draft_update` | `{draft}` | Optional cosmetic Editor or Prose Rewriter progress update. |
 | `writer_rewrite` | `{refined_text}` | Replaces the visible draft after an Editor or workflow change. |
 | `editor_done` | Editor data | Updates the inspector. |
-| `feedback` / `direction_notes` | Feature data | Updates feature panels. |
+| `feedback` | Feature data | Updates feature panels. |
+| `state` | `{changes, rejected, dropped}` | This turn's state-fragment changes so far, the operations refused, and the carried corrections dropped. Sent after each state step that changed or refused something, and after carried corrections are applied; each payload replaces the previous one. Shown in the Inspector; the State panel refetches after the stream. |
 | `world_change_proposed` | `{message_id, changeset}` | Shows a pending Dynamic Worlds proposal. |
 | `warning` | Warning data | Shows a non-terminal warning; the turn continues. |
 | `error` | JSON object or string | Terminal failure. |
@@ -115,6 +116,9 @@ exchange.
 
 The internal `_result` event carries the completed reply to the persistence
 layer. It is consumed by `_consume_pipeline` and never sent to the browser.
+The internal `_state_checkpoint` event, emitted just before the Writer starts,
+hands persistence the turn's before-Writer state changes, so a stopped reply
+saved as partial text commits them with it; it is consumed the same way.
 Persistence happens before `done`, so the browser can trust the server when the
 stream closes.
 

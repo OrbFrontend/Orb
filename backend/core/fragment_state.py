@@ -337,6 +337,10 @@ def plan_state_ops(
         rejections.append(StateRejection(op.fragment_id, op.op, reason, detail, op.text, op.alias or op.entry_id))
 
     def emit(fragment: StateFragment, op: str, entry_id: str, text: str | None = None) -> None:
+        if op == "retire" and text is None:
+            # Keep the retired text, so history and the Inspector can say what went.
+            retired = view.entries.get(fragment.id, {}).get(entry_id)
+            text = retired.text if retired else None
         event: dict[str, Any] = {
             "fragment_id": fragment.id,
             "entry_id": entry_id,

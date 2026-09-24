@@ -97,7 +97,7 @@ to start another conversation with the same cast.
 
 | Feature | Group behavior |
 |---|---|
-| Director and direction notes | Run once for an exchange and guide all replies. |
+| Director and state updates | Run once for an exchange and guide all replies. |
 | Lorebooks and Dynamic Worlds | Apply to the whole scene. |
 | Card-embedded fragments | Merge across the cast. |
 | Editor checks | Use each speaker's settings for that speaker's reply. |

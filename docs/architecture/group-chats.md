@@ -139,7 +139,7 @@ from unrelated conversation state.
 | Scope | Examples |
 |---|---|
 | Scene | Worlds, persona, macros, compression, checkpoints, fragments, context size |
-| Exchange | Director, agentic lore selection, direction notes, Dynamic World proposals |
+| Exchange | Director, agentic lore selection, state updates, Dynamic World proposals |
 | Speaker | Editor, feedback, regenerate, image generation, TTS, character expressions |
 
 Off-turn calls use the same scene prefix as the turn: speaker-labelled history,
