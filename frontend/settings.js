@@ -432,6 +432,8 @@ export async function setAgentEnabled(on) {
 export async function toggleToolEnabled(id, on) {
   S.enabledTools[id] = on;
   renderToolsPanel();
+  // Direction gates before-Writer state updates, which the fragment list notes.
+  renderInteractiveFragments();
   await persistSettings({ enabled_tools: S.enabledTools });
 }
 

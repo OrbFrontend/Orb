@@ -85,6 +85,14 @@ export async function inspectMessage(msgId) {
   }
 }
 
+// A manual state edit lands on the branch's latest message. When the Inspector
+// shows that reply, re-read it so its state block lists the edit.
+document.addEventListener("state-changed", () => {
+  const leaf = S.messages.at(-1);
+  if (leaf?.role !== "assistant" || !leaf.id) return;
+  if (S.inspectedMsgId == null || S.inspectedMsgId === leaf.id) inspectMessage(leaf.id);
+});
+
 function focusEditTextarea(ta, onEscape) {
   if (!ta) return;
   ta.addEventListener("keydown", (e) => {
@@ -117,6 +125,8 @@ export async function deleteMessage(msgId) {
     try {
       setMessages(await api.del(convUrl(S.activeConvId, "messages", msgId)));
       S.lastDirectorData = null;
+      S.lastFeedback = null;
+      S.lastState = null;
       S.directorState = await api.get(convUrl(S.activeConvId, "director"));
       renderMessages();
       clearInspectedMessage();
@@ -244,6 +254,8 @@ export async function switchBranch(msgId) {
     // Inspector-only state. It never feeds the message list, so it trails the
     // paint instead of holding it behind another round trip.
     S.lastDirectorData = null;
+    S.lastFeedback = null;
+    S.lastState = null;
     const directorState = await api.get(convUrl(S.activeConvId, "director"));
     if (seq !== _branchSwitchSeq) return;
     S.directorState = directorState;

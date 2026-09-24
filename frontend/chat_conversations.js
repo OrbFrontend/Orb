@@ -63,6 +63,9 @@ export function stashSceneCards(cards) {
   S.sceneIntro = sceneIntroFrom(list);
   renderMoodFragments();
   renderInteractiveFragments();
+  // The scene's cards carry state fragments too: re-read the State panel on a
+  // conversation switch, a cast edit, and a card save alike.
+  refreshState();
 }
 
 // The Scenario and Creator's Note ride the same card read the fragments do, so
@@ -105,6 +108,8 @@ export function resetChatUI() {
   stashSceneCards(null);
   S.messages = [];
   S.lastDirectorData = null;
+  S.lastFeedback = null;
+  S.lastState = null;
   S.lastDecisions = null;
   S.directorState = null;
   S.inspectedMsgId = null;
@@ -202,6 +207,8 @@ export async function selectConversation(id) {
   }
   S.activeConvId = id;
   S.lastDirectorData = null;
+  S.lastFeedback = null;
+  S.lastState = null;
   S.lastDecisions = null;
   S.reasoningDirector = "";
   S.reasoningWriter = "";
@@ -268,7 +275,6 @@ export async function selectConversation(id) {
   } else {
     clearInspectedMessage();
   }
-  refreshState();
 }
 
 function confirmDeleteConversation(id, msgCount, afterDelete) {

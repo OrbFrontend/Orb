@@ -27,7 +27,8 @@ let focusEditor = false;
 // A manual write in flight; further clicks wait for it.
 let writing = false;
 // Fragments whose history is expanded, and their loaded history. ``historyGen``
-// retires history reads that started before the cache was cleared.
+// retires history reads that started before the state last changed; the cached
+// history stays on screen until its re-read replaces it.
 const historyOpen = new Set();
 const historyCache = new Map();
 let historyGen = 0;
@@ -59,12 +60,10 @@ function resetForConversation(cid) {
   panelConvId = cid;
   editing = null;
   historyOpen.clear();
-  clearHistoryCache();
-}
-
-function clearHistoryCache() {
   historyCache.clear();
   historyGen++;
+  // Take the previous conversation's state off screen until this one's arrives.
+  if (isUtilityPanelOpen(PANEL_ID)) renderMessage("Loading…");
 }
 
 function dropStaleEditor() {
@@ -97,7 +96,7 @@ export async function refreshState() {
   if (seq !== loadSeq) return;
   panel = data;
   dropStaleEditor();
-  clearHistoryCache();
+  historyGen++;
   updateStateButton();
   if (isUtilityPanelOpen(PANEL_ID)) {
     render();
@@ -131,12 +130,19 @@ function render() {
     el.innerHTML = `${intro}<div class="state-empty">No state fragments. Add an interactive fragment of type State.</div>`;
     return;
   }
+  // A re-render replaces the editor; keep the caret of someone typing in it.
+  const active = document.activeElement;
+  const caret =
+    active?.classList.contains("state-editor-input") && el.contains(active)
+      ? [active.selectionStart, active.selectionEnd]
+      : null;
   el.innerHTML = intro + panel.fragments.map(fragmentHtml).join("");
-  const input = focusEditor && el.querySelector(".state-editor-input");
+  const input = (focusEditor || caret) && el.querySelector(".state-editor-input");
   focusEditor = false;
   if (input) {
     input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
+    const [start, end] = caret || [input.value.length, input.value.length];
+    input.setSelectionRange(start, end);
   }
 }
 
@@ -308,15 +314,21 @@ async function applyOperation(body) {
     loadSeq++;
     panel = result.state;
     editing = null;
-    clearHistoryCache();
+    historyGen++;
     updateStateButton();
     render();
+    if (result.changes?.length) announceStateChanged();
     await Promise.all([...historyOpen].map(loadHistory));
   } catch (e) {
     toast(e.message, true);
   } finally {
     writing = false;
   }
+}
+
+/** Tell listeners (the Inspector) that a manual edit changed the branch's saved state. */
+function announceStateChanged() {
+  document.dispatchEvent(new CustomEvent("state-changed"));
 }
 
 function save() {
@@ -342,6 +354,7 @@ function deleteOrphan(fragmentId) {
         await api.del(convUrl(S.activeConvId, "state", encodeURIComponent(fragmentId)));
         historyOpen.delete(fragmentId);
         await refreshState();
+        announceStateChanged();
         toast("Saved state deleted");
       } catch (e) {
         toast(e.message, true);

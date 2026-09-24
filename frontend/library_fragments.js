@@ -623,17 +623,26 @@ function _interactiveTypeBadge(f) {
           : "";
 }
 
+/** Why a state fragment's automatic updates do not run, or "" when they do. */
+function _stateUpdatesOffReason(f) {
+  if (f.field_type !== "state" || f.state_update === "manual") return "";
+  if (!S.stateUpdates) return "State updates are off";
+  if (!S.agentEnabled) return "The Agent is off";
+  if (f.state_update === "before_writer" && !S.enabledTools.direct_scene) return "The Direction tool is off";
+  return "";
+}
+
 function _featureGate(f) {
   const feedbackOff = f.field_type === "feedback" && !S.feedbackEnabled;
   // Not disabled: the fragment is still injected and editable by hand.
-  const stateUpdatesOff = f.field_type === "state" && f.state_update !== "manual" && !S.stateUpdates;
+  const stateUpdatesOff = _stateUpdatesOffReason(f);
   const postProcessingOff = f.field_type === "post_processing" && !S.agentEnabled;
   // Without a Judge, decisions remain enabled but are skipped at runtime.
   const judgeOff = f.field_type === "decision" && decisionConfig()?.configured === false;
   const title = feedbackOff
     ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
     : stateUpdatesOff
-      ? "State updates are off -- this fragment is still injected and editable in the State panel, but not updated automatically"
+      ? `${stateUpdatesOff} -- this fragment is still injected and editable in the State panel, but not updated automatically`
       : postProcessingOff
         ? "Agent is disabled -- enable it to use this post-processing fragment"
         : judgeOff

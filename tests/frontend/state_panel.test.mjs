@@ -16,7 +16,7 @@ const dom = new JSDOM(
   { url: "https://orb.invalid/" },
 );
 globalThis.window = dom.window;
-for (const key of ["document", "Node", "Element", "HTMLElement", "Event", "MouseEvent", "KeyboardEvent"]) {
+for (const key of ["document", "Node", "Element", "HTMLElement", "Event", "CustomEvent", "MouseEvent", "KeyboardEvent"]) {
   globalThis[key] = dom.window[key];
 }
 
@@ -141,4 +141,65 @@ test("a read that started before a write cannot overwrite the write's state", as
   await staleRead;
 
   assert.match(content().textContent, /Added after the read began\./);
+});
+
+test("a re-read while typing in the editor keeps its focus and caret", async () => {
+  click('[data-state-action="add"]');
+  type("The lie about the key.");
+  const input = content().querySelector(".state-editor-input");
+  input.setSelectionRange(4, 7);
+
+  await load([ENTRY]);
+
+  const after = content().querySelector(".state-editor-input");
+  assert.equal(document.activeElement, after);
+  assert.deepEqual([after.selectionStart, after.selectionEnd], [4, 7]);
+});
+
+test("a write keeps open history on screen until its re-read lands, and announces the change", async () => {
+  const announced = [];
+  const listen = () => announced.push(true);
+  document.addEventListener("state-changed", listen);
+  click('[data-state-action="history"]');
+  gets.shift().resolve(respond([{ op: "add", text: "The key is missing.", source: "agent", turn_index: 1 }]));
+  await tick();
+
+  click('[data-state-action="retire"][data-entry-id="e1"]');
+  await tick();
+  const retired = { fragment_id: "threads", op: "retire", entry_id: "e1", source: "user" };
+  posts[0].resolve(respond({ changes: [retired], state: panelState([]) }));
+  await tick();
+
+  assert.doesNotMatch(content().querySelector(".state-history").textContent, /Loading/);
+  assert.equal(announced.length, 1);
+  gets.shift().resolve(respond([{ op: "retire", text: "The key is missing.", source: "user", turn_index: 1 }]));
+  await tick();
+  assert.match(content().querySelector(".state-history").textContent, /You retired/);
+
+  click('[data-state-action="history"]');
+  document.removeEventListener("state-changed", listen);
+});
+
+test("a write that changed nothing does not announce a change", async () => {
+  let announced = false;
+  const listen = () => {
+    announced = true;
+  };
+  document.addEventListener("state-changed", listen);
+  click('[data-state-action="revise"][data-entry-id="e1"]');
+  click('[data-state-action="save"]');
+  await tick();
+  posts[0].resolve(respond({ changes: [], state: panelState([ENTRY]) }));
+  await tick();
+  document.removeEventListener("state-changed", listen);
+  assert.equal(announced, false);
+});
+
+test("switching conversations clears the previous state while the new one loads", async () => {
+  S.activeConvId = "conv-2";
+  const pending = refreshState();
+  assert.doesNotMatch(content().textContent, /The key is missing\./);
+  assert.match(content().textContent, /Loading/);
+  gets.shift().resolve(respond(panelState([])));
+  await pending;
 });
