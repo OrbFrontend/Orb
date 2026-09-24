@@ -332,7 +332,7 @@ async def _run_pipeline(
                 cfg.agent_lane.base,
                 settings=settings,
                 fragments=after_reply,
-                view=state.state_view if state.state_view is not None else StateView(),
+                view=state.state_view,
                 placement="after_reply",
                 known_ids=frozenset(fragment.id for fragment in contract.tool_fragments()),
                 decision_guidance=state.decision_guidance,

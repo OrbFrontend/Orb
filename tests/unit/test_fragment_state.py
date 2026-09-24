@@ -293,6 +293,19 @@ def test_parse_never_reinterprets_a_string_as_a_list():
     assert sorted(r.reason for r in rejections) == ["malformed", "malformed", "malformed"]
 
 
+def test_parse_reads_blank_values_of_any_shape_as_keep():
+    view = fold_events([_add("threads", "t1", "find the key")])
+    aliases = entry_aliases([ENTRIES], view)
+    for arguments in (
+        {"threads": "", "place": [], "retire": ""},
+        {"threads": "  ", "place": "", "retire": [""]},
+        {"threads": [""], "place": None, "retire": ["e1", " "]},
+    ):
+        ops, rejections = parse_state_call([{"name": "update_state", "arguments": arguments}], [VALUE, ENTRIES], aliases)
+        assert rejections == [], arguments
+        assert [op.op for op in ops] == (["retire"] if "e1" in (arguments["retire"] or []) else [])
+
+
 def test_state_block_renders_values_lists_and_transitions():
     prior = fold_events([_add("place", "p", "docks")])
     view = fold_events([{"fragment_id": "place", "entry_id": "p", "op": "revise", "text": "roof"}], prior)

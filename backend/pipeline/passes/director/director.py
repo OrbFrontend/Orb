@@ -13,7 +13,6 @@ from ....core import (
     ChatMessage,
     StateOp,
     StateRejection,
-    StateView,
     build_multimodal_content,
     extract_hyperparams,
     plan_state_ops,
@@ -491,8 +490,6 @@ async def director_stage(
     """
     prior_cooldowns = director.get("fragment_cooldowns") or {}
     resting = cooldown.blocked(prior_cooldowns)
-    if state.state_view is None:
-        state.state_view = StateView()
     view = state.state_view
 
     # The Director updates these one-value fields through direct_scene. As their

@@ -166,8 +166,8 @@ class TurnState:
     state_report: dict = field(default_factory=empty_state_report)
     # The working state: the branch's fold plus this turn's applied changes.
     # ``state_prior`` is the state the turn started from, for ``old -> new``.
-    state_view: StateView | None = None
-    state_prior: StateView | None = None
+    state_view: StateView = field(default_factory=StateView)
+    state_prior: StateView = field(default_factory=StateView)
 
     staged_attachments: list[dict] = field(default_factory=list)
     staged_message_state: dict = field(default_factory=dict)

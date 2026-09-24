@@ -28,6 +28,15 @@ logger = logging.getLogger(__name__)
 _ALIAS = re.compile(r"^\[?\s*(e\d+)\s*\]?$", re.IGNORECASE)
 
 
+def _blank(value: Any) -> bool:
+    """``None``, blank text, or a list of nothing but blank text."""
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    return isinstance(value, list) and all(isinstance(item, str) and not item.strip() for item in value)
+
+
 @dataclass(slots=True)
 class StateStepResult:
     """The ``done`` payload of a state step: applied events and rejected operations."""
@@ -68,6 +77,8 @@ def parse_state_call(
         items = [raw_retire] if isinstance(raw_retire, str) else raw_retire
         if isinstance(items, list):
             for item in items:
+                if _blank(item):
+                    continue
                 match = _ALIAS.match(item.strip()) if isinstance(item, str) else None
                 alias = by_alias.get(match.group(1).lower()) if match else None
                 if alias is None:
@@ -80,7 +91,9 @@ def parse_state_call(
         elif raw_retire is not None:
             rejections.append(StateRejection("", "retire", "malformed", "`retire` must be a list of entry ids."))
         for key, value in args.items():
-            if key == "retire" or value is None:
+            # Empty means keep whatever its shape: small models fill every field,
+            # and "" for a list or [] for a value is a declined field, not a mistake.
+            if key == "retire" or _blank(value):
                 continue
             fragment = by_id.get(key)
             if fragment is None:

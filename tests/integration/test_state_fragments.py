@@ -558,6 +558,28 @@ async def test_manual_correction_is_carried_to_the_regenerated_reply(client, db,
     assert [d["entry_id"] for d in log["state"]["dropped"]] == [entries["from the reply"]]
 
 
+async def test_regeneration_folds_state_anchored_on_its_parent_user_message(client, db, llm_mock):
+    cid = await _conversation("conv-state-regen-parent")
+    await _fragment(client, "place", mode="value", update="after_reply", inject="writer")
+    await _settings(client)
+    greeting, _ = await dbmod.add_message(cid, "assistant", "Greeting.", 0, advance_leaf=True)
+    user, _ = await dbmod.add_message(cid, "user", "hi", 1, parent_id=greeting, advance_leaf=True)
+    # The user message is the leaf (its reply failed, say), so the correction anchors there.
+    resp = await client.post(f"/api/conversations/{cid}/state", json={"fragment_id": "place", "op": "set", "text": "Docks"})
+    assert resp.status_code == 200, resp.text
+    reply, _ = await dbmod.add_message(cid, "assistant", "At the docks.", 2, parent_id=user, advance_leaf=True)
+
+    llm_mock.enqueue_writer("Still at the docks.")
+    llm_mock.enqueue_state(_state_call(place="Harbor"))
+    events = await _drain(handle_regenerate(cid, reply))
+
+    # The regeneration starts from the same state as the reply it replaces, so the
+    # model's new value revises the user's entry instead of adding a second one.
+    assert "Place: Docks" in _injection(events)
+    assert "Current value: Docks" in _requests(llm_mock, "state")[-1]
+    assert await _active_state(cid) == {"place": ["Harbor"]}
+
+
 # ── Group exchanges ──────────────────────────────────────────────────────────
 
 

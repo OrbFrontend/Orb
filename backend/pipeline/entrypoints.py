@@ -289,7 +289,11 @@ async def _prepare_regen_context(
         history, before_exchange_id=str(target.get("exchange_id") or "") or None
     )
     ctx.director["decision_replay"] = stored_evaluations(db.decision_evaluations_of(target))
-    await _load_fragment_state(ctx, conversation_id, history, replacing=target)
+    # State folds through the parent even when *history* stops short of it: a
+    # correction the user anchored on the parent user message (the leaf before
+    # this reply existed) is on this reply's path, exactly as on the first turn.
+    state_path = [*history, parent_msg] if parent_msg.get("role") == "user" else history
+    await _load_fragment_state(ctx, conversation_id, state_path, replacing=target)
     attachments = await db.get_user_attachments_for_message(parent_msg["id"]) if parent_msg.get("role") == "user" else []
     return history, attachments
 
