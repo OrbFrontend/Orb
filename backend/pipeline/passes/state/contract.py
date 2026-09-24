@@ -20,15 +20,7 @@ NON_SCENE_FIELD_TYPES = ("feedback", STATE_FIELD_TYPE, "post_processing", DECISI
 
 @dataclass(frozen=True, slots=True)
 class StateContract:
-    """Enabled state fragments as configured when the turn started.
-
-    Captured once per turn from the same fragment rows the turn loaded, and used
-    for tool construction, routing, validation, and commit alike, so a setting
-    edited mid-turn takes effect on the next turn and never reinterprets an
-    in-flight result. ``updates_on`` is the Agent toggle and the global State
-    updates switch together: off, no automatic update runs, while injection --
-    independent by design -- still does.
-    """
+    """State settings captured at turn start for routing, tools, and validation."""
 
     fragments: tuple[StateFragment, ...] = ()
     updates_on: bool = False
@@ -63,13 +55,7 @@ class StateContract:
         return tuple(fragment for fragment in self.tool_fragments() if fragment.update == "after_reply")
 
     def direct_scene_rows(self, fragments: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-        """The fragment rows ``direct_scene`` carries, in fragment order.
-
-        Scene fragments, plus the one-value state fragments updated before the
-        Writer. Those keep today's one-string parameter at the position a
-        progressive fragment had, so a converted conversation's schema is
-        unchanged.
-        """
+        """Keep scene rows and before-Writer value fragments in their original order."""
         riding = {fragment.id for fragment in self.director_values()}
         return [df for df in fragments if df.get("field_type") not in NON_SCENE_FIELD_TYPES or df.get("id") in riding]
 

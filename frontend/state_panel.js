@@ -10,12 +10,8 @@ const BUTTON_ID = "state-panel-btn";
 const BUTTON_IDS = [BUTTON_ID, "mobile-state-btn"];
 
 const SOURCE_LABELS = { agent: "Agent", user: "You", carried: "Carried" };
-const UPDATE_LABELS = {
-  after_reply: "updated after the reply",
-  before_writer: "updated before the Writer",
-  manual: "updated by hand only",
-};
-const INJECT_LABELS = { off: "not injected", director: "to the Director", writer: "to the Writer", both: "to both" };
+const UPDATE_LABELS = { after_reply: "After reply", before_writer: "Before Writer", manual: "Manual" };
+const INJECT_LABELS = { off: "Not injected", director: "To Director", writer: "To Writer", both: "To both" };
 const HISTORY_VERBS = { add: "added", revise: "revised", retire: "retired" };
 
 // The last GET /state reply, for the conversation it was read for.
@@ -47,10 +43,6 @@ function hasEnabledStateFragment() {
   return interactiveFragmentsView().some((f) => f.field_type === "state" && f.enabled !== 0 && f.enabled !== false);
 }
 
-/**
- * Show the State button whenever an enabled state fragment exists or the
- * conversation holds saved state, and close the panel when neither holds.
- */
 export function updateStateButton() {
   const hasState = panelConvId === S.activeConvId && Boolean(panel?.has_state);
   const on = Boolean(S.activeConvId) && (hasEnabledStateFragment() || hasState);
@@ -75,7 +67,6 @@ function clearHistoryCache() {
   historyGen++;
 }
 
-/** Close the editor when the refreshed state no longer offers its target. */
 function dropStaleEditor() {
   if (!editing) return;
   const f = panel?.fragments.find((x) => x.fragment_id === editing.fragmentId);
@@ -85,11 +76,7 @@ function dropStaleEditor() {
   if (!offered || f.read_only) editing = null;
 }
 
-/**
- * Re-read the active branch's state: after a turn, a branch switch, a message
- * deletion, or a conversation switch. Updates the button and, when the panel is
- * open, the panel.
- */
+/** Reload state for the active conversation and refresh an open panel. */
 export async function refreshState() {
   const cid = S.activeConvId;
   const seq = ++loadSeq;
@@ -139,9 +126,9 @@ function render() {
   if (!panel) return;
   const intro = panel.updates_on
     ? ""
-    : `<div class="state-note">State updates are off. Saved state is still injected, and you can edit it here.</div>`;
+    : `<div class="state-note">State updates are off. Saved state is still injected.</div>`;
   if (!panel.fragments.length) {
-    el.innerHTML = `${intro}<div class="state-empty">No state fragments. Add an interactive fragment of type State to keep a value or a list across turns.</div>`;
+    el.innerHTML = `${intro}<div class="state-empty">No state fragments. Add an interactive fragment of type State.</div>`;
     return;
   }
   el.innerHTML = intro + panel.fragments.map(fragmentHtml).join("");
@@ -159,11 +146,11 @@ function openEditor(fragmentId, op, entryId, text) {
   render();
 }
 
-function button(action, label, { entryId = "", danger = false, disabled = false, title = "" } = {}) {
-  const cls = `btn btn-sm${danger ? " btn-danger" : ""}`;
+function button(action, label, { entryId = "", cls = "", disabled = false, title = "", pressed = null } = {}) {
   const entry = entryId ? ` data-entry-id="${escAttr(entryId)}"` : "";
   const tip = title ? ` title="${escAttr(title)}"` : "";
-  return `<button type="button" class="${cls}" data-state-action="${action}"${entry}${tip}${disabled ? " disabled" : ""}>${label}</button>`;
+  const aria = pressed === null ? "" : ` aria-pressed="${pressed}"`;
+  return `<button type="button" class="btn btn-xs${cls ? ` ${cls}` : ""}" data-state-action="${action}"${entry}${tip}${aria}${disabled ? " disabled" : ""}>${label}</button>`;
 }
 
 function badge(label, tip, cls = "") {
@@ -182,7 +169,7 @@ function badgesHtml(f) {
 
 function describe(f) {
   if (!f.configured) return "";
-  const mode = f.mode === "entries" ? `List, ${f.entries.length} of ${panel.limits.entries}` : "One value";
+  const mode = f.mode === "entries" ? `List ${f.entries.length}/${panel.limits.entries}` : "Value";
   return [mode, UPDATE_LABELS[f.update] || f.update, INJECT_LABELS[f.inject] || f.inject].join(" · ");
 }
 
@@ -204,8 +191,7 @@ function editorHtml() {
     <textarea class="state-editor-input" rows="3" maxlength="${limit}">${esc(text)}</textarea>
     <div class="state-editor-foot">
       <span class="state-editor-count">${text.length}/${limit}</span>
-      ${button("cancel", "Cancel")}
-      <button type="button" class="btn btn-sm btn-accent" data-state-action="save">Save</button>
+      ${button("cancel", "Cancel")}${button("save", "Save", { cls: "btn-accent" })}
     </div>
   </div>`;
 }
@@ -218,9 +204,9 @@ function entryHtml(f, entry, actions) {
   if (!f.read_only) {
     buttons =
       actions === "value"
-        ? button("edit-value", "Edit") + button("clear", "Clear", { danger: true })
+        ? button("edit-value", "Edit") + button("clear", "Clear", { cls: "btn-danger" })
         : button("revise", "Edit", { entryId: entry.entry_id }) +
-          button("retire", "Retire", { entryId: entry.entry_id, danger: true });
+          button("retire", "Retire", { entryId: entry.entry_id, cls: "btn-danger" });
   }
   return `<div class="state-entry${entry.source === "user" ? " user-entry" : ""}">
     <div class="state-entry-text">${esc(entry.text)}</div>
@@ -237,11 +223,10 @@ function bodyHtml(f) {
   const rows = entries.map((entry) => entryHtml(f, entry, "entries")).join("");
   const parts = [];
   if (f.several_values) {
-    parts.push(
-      `<div class="state-note">Several values are active. The next update replaces them with one value; edit or retire them to merge them first.</div>`,
-    );
+    parts.push(`<div class="state-note">Several values are active; the next update keeps only one.</div>`);
   }
-  if (!entries.length)
+  const adding = isEditing(f, f.mode === "value" ? "set" : "add");
+  if (!entries.length && !adding)
     parts.push(`<div class="state-empty">${f.mode === "value" ? "No value yet." : "No entries yet."}</div>`);
   parts.push(rows);
   if (f.read_only) return parts.join("");
@@ -250,7 +235,7 @@ function bodyHtml(f) {
     else {
       const tip = entries.length > 1 ? "Replace them all with one value" : "";
       parts.push(
-        `<div class="state-frag-actions">${button("set", "Set value", { title: tip })}${entries.length > 1 ? button("clear", "Clear", { danger: true }) : ""}</div>`,
+        `<div class="state-frag-actions">${button("set", "Set value", { title: tip })}${entries.length > 1 ? button("clear", "Clear", { cls: "btn-danger" }) : ""}</div>`,
       );
     }
   } else if (isEditing(f, "add")) {
@@ -281,16 +266,15 @@ function historyHtml(f) {
 
 function fragmentHtml(f) {
   const cls = `state-frag${f.read_only ? " read-only" : ""}${f.full ? " full" : ""}`;
-  const history = historyOpen.has(f.fragment_id) ? "Hide history" : "History";
+  const open = historyOpen.has(f.fragment_id);
   const desc = describe(f);
   const deletion = f.configured
     ? ""
-    : `<div class="state-note">This fragment was deleted. Its saved state is read-only.</div>
-       <div class="state-frag-actions">${button("delete-orphan", "Delete saved state", { danger: true })}</div>`;
+    : `<div class="state-frag-actions">${button("delete-orphan", "Delete saved state", { cls: "btn-danger" })}</div>`;
   return `<section class="${cls}" data-fragment-id="${escAttr(f.fragment_id)}">
     <div class="state-frag-head">
       <span class="state-frag-label">${esc(f.label || f.fragment_id)}${badgesHtml(f)}</span>
-      ${button("history", history)}
+      ${button("history", "History", { cls: open ? "btn-active" : "", pressed: open })}
     </div>
     ${desc ? `<div class="state-frag-desc">${esc(desc)}</div>` : ""}
     ${bodyHtml(f)}
@@ -320,7 +304,7 @@ async function applyOperation(body) {
   try {
     const result = await api.post(convUrl(cid, "state"), body);
     if (cid !== S.activeConvId) return;
-    // The write's own state is newer than any read still in flight.
+    // Invalidate reads that started before this write completed.
     loadSeq++;
     panel = result.state;
     editing = null;

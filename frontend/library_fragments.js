@@ -308,7 +308,7 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
     injection_label: "e.g. Trust",
     description:
       "How far the character trusts the user now, and what earned or cost it, e.g. 'wary: the user lied about the key'",
-    inj_hint: "its heading in the state block",
+    inj_hint: "state block heading",
     desc_hint: "tells the Agent what to record",
   },
   feedback: {
@@ -392,7 +392,7 @@ const STATE_CHOICES = {
     ["off", "Off"],
     ["director", "Director"],
     ["writer", "Writer"],
-    ["both", "Director and Writer"],
+    ["both", "Both"],
   ],
 };
 
@@ -410,17 +410,14 @@ function _stateSelectValue(setting) {
 function _stateHint(mode, update) {
   const modeText =
     mode === "entries"
-      ? "Keeps a list of up to 12 entries: updates add new ones and retire ones that no longer hold."
-      : "Keeps one value: each update replaces it.";
+      ? "Keeps up to 12 entries; updates add new ones and retire stale ones."
+      : "Keeps one value; each update replaces it.";
   const updateText = {
-    after_reply: "Updated after the reply is saved, from what it actually showed, so the change reaches later turns.",
-    before_writer:
-      mode === "entries"
-        ? "Updated before the Writer, after the Director's scene direction: it records the Director's intent for this reply, which the Writer may not carry out. While the Agent or Direction is off, the fragment keeps its entries."
-        : "Updated before the Writer, as part of the Director's scene direction: it records the Director's intent for this reply, which the Writer may not carry out. While the Agent or Direction is off, the fragment keeps its value.",
-    manual: "Never updated by the Agent: only you change it, in the State panel.",
+    after_reply: "Updated after the reply, from what it actually showed.",
+    before_writer: `Updated with the Director's scene direction, so it records intent the Writer may not carry out. Kept as is while the Agent or Direction is off.`,
+    manual: "Only you change it, in the State panel.",
   }[update];
-  return `${modeText} ${updateText} Changing the mode keeps the saved state.`;
+  return `${modeText} ${updateText} Changing the mode keeps saved state.`;
 }
 
 function _stateSectionHtml(d) {

@@ -711,7 +711,7 @@ export function renderToolsPanel() {
         <span class="tog-slider"></span>
       </label>
     </div>
-    <div class="tool-card-desc">Lets the Agent keep state fragments up to date. Off stops every automatic update; saved state is still injected and editable in the State panel.</div>
+    <div class="tool-card-desc">Lets the Agent keep state fragments up to date. When off, saved state is still injected and editable in the State panel.</div>
   </div>`;
 
   const divider = (label) => `<div class="tools-divider"><span>${label}</span></div>`;

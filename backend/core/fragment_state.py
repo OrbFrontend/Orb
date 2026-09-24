@@ -1,15 +1,4 @@
-"""Persistent state fragments: configuration, the event fold, and the operation contract.
-
-A state fragment remembers changing conversation state in one of two modes: one
-current value, or multiple entries. Both modes share one storage shape -- a list
-of active entries with stable ids -- and one event history of explicit entry
-writes and retirements. The fold below knows nothing about modes, so replaying a
-branch never depends on how a fragment is configured today; the mode only
-decides which public operations are offered and how the value is rendered.
-
-Everything here is pure. SQL lives in ``database/``; model-facing rendering in
-``prompting/``; the model call in ``pipeline/``.
-"""
+"""Pure state-fragment configuration, event folding, and operation handling."""
 
 from __future__ import annotations
 
@@ -20,11 +9,11 @@ from typing import Any
 
 STATE_FIELD_TYPE = "state"
 
-# One current value, or several independent entries.
+# One current value or several entries.
 STATE_MODES = ("value", "entries")
-# After the completed reply (default), before the Writer, or never automatically.
+# After the reply, before the Writer, or manual only.
 STATE_UPDATES = ("after_reply", "before_writer", "manual")
-# Which passes besides the updater see the current state.
+# Which passes receive the current state.
 STATE_INJECTS = ("off", "director", "writer", "both")
 STATE_COLUMNS = ("state_mode", "state_update", "state_inject")
 
@@ -32,27 +21,15 @@ DEFAULT_STATE_MODE = "value"
 DEFAULT_STATE_UPDATE = "after_reply"
 DEFAULT_STATE_INJECT = "both"
 
-# Fixed limits rather than per-fragment controls. The updater is told a list's
-# count and this limit, and an add past it is rejected and reported, so a small
-# model that never retires is noticed instead of silently stopping.
+# Fixed limits; rejected adds are reported so full lists are visible.
 MAX_STATE_TEXT_CHARS = 800
 MAX_ACTIVE_ENTRIES = 12
 
-# Explicit entry operations, the only thing the history stores.
-EVENT_OPS = ("add", "revise", "retire")
-# Who made a change: the model, the user, or a Compress History snapshot.
-EVENT_SOURCES = ("agent", "user", "carried")
-
-# Public operations. The model gets ``set`` (one value) or ``add``/``retire``
-# (entries); the State panel adds ``clear`` and in-place ``revise``.
-PUBLIC_OPS = ("set", "clear", "add", "revise", "retire")
 AGENT_OPS_BY_MODE: Mapping[str, frozenset[str]] = {
     "value": frozenset({"set"}),
     "entries": frozenset({"add", "retire"}),
 }
 USER_OPS_BY_MODE: Mapping[str, frozenset[str]] = {
-    # revise/retire stay available so a user can merge several active entries
-    # into one before the next update replaces them.
     "value": frozenset({"set", "clear", "revise", "retire"}),
     "entries": frozenset({"add", "revise", "retire"}),
 }
@@ -63,22 +40,12 @@ LEGACY_DIRECTION_NOTE = "direction_note"
 LEGACY_TIMING_TO_UPDATE: Mapping[str, str] = {"pre_writer": "before_writer", "post_turn": "after_reply"}
 
 
-def is_state_row(row: Mapping[str, Any]) -> bool:
-    return row.get("field_type") == STATE_FIELD_TYPE
-
-
 def _choice(value: Any, allowed: Sequence[str], default: str) -> str:
     return value if isinstance(value, str) and value in allowed else default
 
 
 def legacy_state_settings(field_type: str, direction_note_timing: Any = None) -> dict[str, str] | None:
-    """The explicit state settings a legacy fragment type converts to, or ``None``.
-
-    ``progressive`` becomes one value updated before the Writer and injected into
-    both passes: the Director already saw the prior value and the Writer saw
-    ``old -> new``. ``direction_note`` becomes multiple entries on its own timing;
-    card fragments never carried an inject setting, so they inject into both.
-    """
+    """Return the state settings for a legacy card fragment, if applicable."""
     if field_type == LEGACY_PROGRESSIVE:
         return {"state_mode": "value", "state_update": "before_writer", "state_inject": "both"}
     if field_type == LEGACY_DIRECTION_NOTE:
@@ -92,12 +59,7 @@ def legacy_state_settings(field_type: str, direction_note_timing: Any = None) ->
 
 
 def upgrade_legacy_fragment(entry: Mapping[str, Any]) -> dict[str, Any]:
-    """Return *entry* with a legacy state type rewritten as an explicit state fragment.
-
-    Shared card files keep the old types indefinitely, so the card read boundary
-    and card export both route through here. Anything else passes through as a
-    copy.
-    """
+    """Rewrite a legacy card fragment as a state fragment, returning a copy."""
     out = dict(entry)
     settings = legacy_state_settings(str(entry.get("field_type") or ""), entry.get("direction_note_timing"))
     if settings is None:
@@ -110,19 +72,17 @@ def upgrade_legacy_fragment(entry: Mapping[str, Any]) -> dict[str, Any]:
 
 @dataclass(frozen=True, slots=True)
 class StateFragment:
-    """One state fragment's captured configuration for a turn or a manual write."""
+    """A state fragment's configuration captured for one operation or turn."""
 
     id: str
     label: str
-    # The model-facing heading (the injection label, falling back to the label).
+    # Model-facing heading, falling back to the label.
     heading: str
     description: str
     mode: str = DEFAULT_STATE_MODE
     update: str = DEFAULT_STATE_UPDATE
     inject: str = DEFAULT_STATE_INJECT
-    required: bool = False
     cooldown_turns: int = 0
-    sort_order: int = 0
     enabled: bool = True
 
     @property
@@ -135,18 +95,16 @@ class StateFragment:
 
     @property
     def rides_direct_scene(self) -> bool:
-        """A before-Writer one-value update is a ``direct_scene`` parameter."""
         return self.update == "before_writer" and self.mode == "value"
 
     @property
     def uses_state_tool(self) -> bool:
-        """Every other automatic update goes through the ``update_state`` tool."""
         return self.update == "after_reply" or (self.update == "before_writer" and self.mode == "entries")
 
 
 def state_fragment_of(row: Mapping[str, Any]) -> StateFragment | None:
     """Parse a state fragment row; unknown settings fall back to the defaults."""
-    if not is_state_row(row):
+    if row.get("field_type") != STATE_FIELD_TYPE:
         return None
     fid = str(row.get("id") or "")
     if not fid:
@@ -161,15 +119,13 @@ def state_fragment_of(row: Mapping[str, Any]) -> StateFragment | None:
         mode=_choice(row.get("state_mode"), STATE_MODES, DEFAULT_STATE_MODE),
         update=_choice(row.get("state_update"), STATE_UPDATES, DEFAULT_STATE_UPDATE),
         inject=_choice(row.get("state_inject"), STATE_INJECTS, DEFAULT_STATE_INJECT),
-        required=bool(row.get("required")),
         cooldown_turns=int(row.get("cooldown_turns") or 0),
-        sort_order=int(row.get("sort_order") or 0),
         enabled=bool(row.get("enabled", 1)),
     )
 
 
 def state_fragments_of(rows: Iterable[Mapping[str, Any]]) -> tuple[StateFragment, ...]:
-    """Every state fragment in *rows*, in the given order."""
+    """Parse state fragments from rows, preserving their order."""
     return tuple(fragment for row in rows if (fragment := state_fragment_of(row)) is not None)
 
 
@@ -188,12 +144,7 @@ class StateEntry:
 
 @dataclass(slots=True)
 class StateView:
-    """Active entries per fragment, in insertion order, plus each fragment's saved label.
-
-    Built by folding events in active-path order. Mutable so the operation
-    contract below can apply a turn's changes to a working copy; ``copy()``
-    before mutating a view that is shared.
-    """
+    """Active entries and saved labels, folded in branch order."""
 
     entries: dict[str, dict[str, StateEntry]] = field(default_factory=dict)
     labels: dict[str, str] = field(default_factory=dict)
@@ -206,10 +157,6 @@ class StateView:
 
     def has_entry(self, fragment_id: str, entry_id: str) -> bool:
         return entry_id in self.entries.get(fragment_id, {})
-
-    def fragment_ids(self) -> list[str]:
-        """Fragments with saved history, in first-write order."""
-        return list(dict.fromkeys([*self.labels, *self.entries]))
 
     def apply(self, event: Mapping[str, Any]) -> None:
         """Apply one explicit event. Unknown ops and missing entries are no-ops."""
@@ -234,23 +181,9 @@ class StateView:
         if not active:
             self.entries.pop(fid, None)
 
-    def as_dict(self) -> dict[str, list[dict[str, Any]]]:
-        """JSON-safe projection, keyed by fragment id."""
-        return {
-            fid: [
-                {"entry_id": e.entry_id, "text": e.text, "message_id": e.message_id, "source": e.source}
-                for e in active.values()
-            ]
-            for fid, active in self.entries.items()
-        }
-
 
 def fold_events(events: Iterable[Mapping[str, Any]], base: StateView | None = None) -> StateView:
-    """Fold events, already in active-path order, into the active entries.
-
-    The fold is mode-agnostic by design: a value written as one value reads the
-    same after the fragment switches to multiple entries, and vice versa.
-    """
+    """Fold ordered events into a copy of *base*, or a new view."""
     view = base.copy() if base is not None else StateView()
     for event in events:
         view.apply(event)
@@ -319,16 +252,7 @@ def plan_state_ops(
     source: str,
     new_id: Callable[[], str] = new_entry_id,
 ) -> tuple[list[dict[str, Any]], list[StateRejection]]:
-    """Validate public operations and translate them into explicit entry events.
-
-    Operations apply in order to *view* (mutated in place), so a retire frees a
-    slot for a later add in the same call. Returns the events -- without an
-    anchor, which the caller stamps when it commits -- and the rejections.
-
-    Omission is ``keep``: empty text never clears or retires anything, and a
-    rejected operation leaves the state as it was. ``fragments`` is the captured
-    contract; an id outside it is unknown even if it has saved history.
-    """
+    """Validate operations, mutate *view* in order, and return events and refusals."""
     allowed_by_mode = AGENT_OPS_BY_MODE if source == "agent" else USER_OPS_BY_MODE
     events: list[dict[str, Any]] = []
     rejections: list[StateRejection] = []
@@ -338,7 +262,7 @@ def plan_state_ops(
 
     def emit(fragment: StateFragment, op: str, entry_id: str, text: str | None = None) -> None:
         if op == "retire" and text is None:
-            # Keep the retired text, so history and the Inspector can say what went.
+            # Preserve retired text for history and the Inspector.
             retired = view.entries.get(fragment.id, {}).get(entry_id)
             text = retired.text if retired else None
         event: dict[str, Any] = {
@@ -378,8 +302,7 @@ def plan_state_ops(
                 if active[0].text != text:
                     emit(fragment, "revise", active[0].entry_id, text)
                 continue
-            # Several active entries (left by a mode switch) are replaced by one;
-            # the originals stay in history as retired entries.
+            # A mode switch can leave several values active.
             for entry in active:
                 emit(fragment, "retire", entry.entry_id)
             emit(fragment, "add", new_id(), text)
@@ -408,12 +331,7 @@ def plan_state_ops(
 
 
 def carry_events(events: Iterable[Mapping[str, Any]], view: StateView) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Re-apply a regenerated reply's user-made events onto its parent path.
-
-    An ``add`` always applies. A ``revise`` or ``retire`` whose entry does not
-    exist on the parent path -- the discarded reply added it -- has nothing to
-    apply to and is dropped. Returns ``(applied, dropped)``; *view* is mutated.
-    """
+    """Apply carried user events to a regenerated branch, dropping stale edits."""
     applied: list[dict[str, Any]] = []
     dropped: list[dict[str, Any]] = []
     for event in events:
@@ -424,12 +342,3 @@ def carry_events(events: Iterable[Mapping[str, Any]], view: StateView) -> tuple[
         view.apply(copy)
         applied.append(copy)
     return applied, dropped
-
-
-def full_fragments(view: StateView, fragments: Iterable[StateFragment]) -> set[str]:
-    """Entries-mode fragments at the active-entry limit."""
-    return {
-        fragment.id
-        for fragment in fragments
-        if fragment.mode == "entries" and len(view.active(fragment.id)) >= MAX_ACTIVE_ENTRIES
-    }

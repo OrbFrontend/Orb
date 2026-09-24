@@ -48,13 +48,7 @@ async def api_apply_state_operation(
     data: StateOperation,
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
-    """Apply one manual operation on the active branch, anchored to its leaf.
-
-    Serialized against generation on the server: a write that arrives while a
-    reply streams is rejected as busy rather than landing mid-turn, where the
-    turn's own changes -- validated against the state it started from -- would
-    commit on top of it.
-    """
+    """Apply a manual edit when generation is idle."""
     async with stream_idle_lock(cid) as idle:
         if not idle:
             raise HTTPException(status_code=409, detail=_BUSY)
@@ -71,7 +65,6 @@ async def api_delete_orphaned_state(
     fragment_id: str,
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
-    """Delete a deleted fragment's saved state from this conversation, on every branch."""
     async with stream_idle_lock(cid) as idle:
         if not idle:
             raise HTTPException(status_code=409, detail=_BUSY)

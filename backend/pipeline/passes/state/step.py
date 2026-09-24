@@ -29,7 +29,7 @@ _ALIAS = re.compile(r"^\[?\s*(e\d+)\s*\]?$", re.IGNORECASE)
 
 
 def _blank(value: Any) -> bool:
-    """``None``, blank text, or a list of nothing but blank text."""
+    """Whether a tool value represents an omitted field."""
     if value is None:
         return True
     if isinstance(value, str):
@@ -53,14 +53,7 @@ def parse_state_call(
     *,
     known_ids: frozenset[str] = frozenset(),
 ) -> tuple[list[StateOp], list[StateRejection]]:
-    """Map a parsed ``update_state`` call to public operations for *fragments*.
-
-    Retirements come first, so they free room for adds in the same call. The
-    result is read against the turn's captured contract: a string where a list
-    field expects an array is malformed, not reinterpreted. ``known_ids`` are
-    other fragments of the turn -- the shared schema offers them all, so a value
-    for one outside this call is ignored rather than reported.
-    """
+    """Map an ``update_state`` call to retirements followed by fragment writes."""
     by_id = {fragment.id: fragment for fragment in fragments}
     by_alias = {alias.alias: alias for alias in aliases}
     retires: list[StateOp] = []
@@ -91,8 +84,7 @@ def parse_state_call(
         elif raw_retire is not None:
             rejections.append(StateRejection("", "retire", "malformed", "`retire` must be a list of entry ids."))
         for key, value in args.items():
-            # Empty means keep whatever its shape: small models fill every field,
-            # and "" for a list or [] for a value is a declined field, not a mistake.
+            # Empty values mean keep; models may fill every field in the schema.
             if key == "retire" or _blank(value):
                 continue
             fragment = by_id.get(key)
@@ -134,18 +126,7 @@ async def state_step(
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
 ) -> AsyncIterator[dict]:
-    """Yield reasoning chunks during the call(s), then a single done dict.
-
-    One forced ``update_state`` call for every fragment, or one per fragment when
-    the per-fragment Director toggle is on. The split is request-text-only: the
-    wire schema stays the shared blob, so the extra calls reuse the cached
-    prefix. Each call's changes are validated and applied to *view* before the
-    next, and a failed call changes nothing.
-
-    Yields:
-        ``{"type": "reasoning", "delta": str}``
-        ``{"type": "done", "result": StateStepResult}``
-    """
+    """Yield reasoning chunks, then the validated result of the update call(s)."""
     result = StateStepResult()
     if not fragments:
         yield {"type": "done", "result": result}
@@ -195,9 +176,7 @@ async def state_step(
             ):
                 yield event
         except Exception:
-            # A failed call keeps the state as it was. It must not propagate: the
-            # after-reply placement runs just before ``_result``, and an exception
-            # there would skip persisting the finished reply.
+            # Keep the reply saveable if an after-reply update fails.
             logger.exception("State update call failed; keeping this group's state")
             continue
 

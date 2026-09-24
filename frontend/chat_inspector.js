@@ -397,6 +397,8 @@ export function buildFeedbackHtml(values) {
 }
 
 const STATE_OP_LABELS = { add: "Added", revise: "Changed", retire: "Retired" };
+// What an operation that did not apply tried to do.
+const STATE_ATTEMPT_LABELS = { set: "Set", add: "Add", revise: "Change", retire: "Retire", clear: "Clear" };
 
 function stateFragmentLabel(fragmentId, fallback) {
   if (fallback) return fallback;
@@ -406,13 +408,14 @@ function stateFragmentLabel(fragmentId, fallback) {
 // Changes the Agent did not make carry a badge naming who did.
 const STATE_SOURCE_BADGES = { user: "You", carried: "Carried" };
 
-function stateRowHtml(label, op, text, source = "agent") {
+function stateRowHtml(label, op, text, { source = "agent", detail = "" } = {}) {
   const who = STATE_SOURCE_BADGES[source];
   const badge = who ? ` <span class="state-badge">${who}</span>` : "";
   const body = text ? `: ${esc(String(text))}` : "";
+  const why = detail ? `<div class="state-change-detail">${esc(detail)}</div>` : "";
   return `<div class="feedback-row${who ? " user-note" : ""}">
     <span class="feedback-row-label">${esc(label)}${badge}</span>
-    <div class="feedback-row-value"><span class="state-change-op">${esc(op)}</span>${body}</div>
+    <div class="feedback-row-value"><span class="state-change-op">${esc(op)}</span>${body}${why}</div>
   </div>`;
 }
 
@@ -430,22 +433,20 @@ export function buildStateHtml(state) {
   if (changes.length) {
     const rows = changes
       .map((c) =>
-        stateRowHtml(
-          stateFragmentLabel(c.fragment_id, c.fragment_label),
-          STATE_OP_LABELS[c.op] || c.op,
-          c.text,
-          c.source,
-        ),
+        stateRowHtml(stateFragmentLabel(c.fragment_id, c.fragment_label), STATE_OP_LABELS[c.op] || c.op, c.text, {
+          source: c.source,
+        }),
       )
       .join("");
     blocks.push(`<div class="feedback-card">${rows}</div>`);
   }
   if (rejected.length) {
     const rows = rejected
-      .map((r) => {
-        const tried = r.text ? ` (“${r.text}”)` : "";
-        return stateRowHtml(stateFragmentLabel(r.fragment_id), "Rejected", `${r.detail || r.reason}${tried}`);
-      })
+      .map((r) =>
+        stateRowHtml(stateFragmentLabel(r.fragment_id), STATE_ATTEMPT_LABELS[r.op] || r.op || "Rejected", r.text, {
+          detail: r.detail || r.reason,
+        }),
+      )
       .join("");
     blocks.push(`<h4>Rejected</h4><div class="feedback-card state-rejected">${rows}</div>`);
   }
@@ -454,15 +455,14 @@ export function buildStateHtml(state) {
       .map((d) =>
         stateRowHtml(
           stateFragmentLabel(d.fragment_id, d.fragment_label),
-          `Not carried (${d.op === "retire" ? "retire" : "edit"})`,
+          d.op === "retire" ? "Retire" : "Change",
           d.text,
-          "user",
         ),
       )
       .join("");
     blocks.push(
       `<h4>Corrections not carried over</h4>
-       <div class="state-note">Each changed an entry the discarded reply had added.</div>
+       <div class="state-note">They changed entries from the discarded reply.</div>
        <div class="feedback-card state-rejected">${rows}</div>`,
     );
   }

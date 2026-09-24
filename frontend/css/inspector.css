@@ -243,6 +243,7 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
 
 .state-note {
   font-size: 12px;
+  line-height: 1.4;
   color: var(--text-secondary);
   margin-bottom: 8px;
 }
@@ -260,6 +261,7 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
 .state-frag-head {
   display: flex;
   align-items: center;
+  min-height: 20px;
   justify-content: space-between;
   gap: 8px;
 }
@@ -303,10 +305,23 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
   padding: 6px 0;
 }
 
-.state-entry.user-entry {
-  border-left: 3px solid var(--accent);
-  padding-left: 6px;
+/* The bar sits in the card's padding, so the text keeps its column. */
+.state-entry.user-entry,
+.feedback-row.user-note { position: relative; }
+
+.state-entry.user-entry::before,
+.feedback-row.user-note::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: -7px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
 }
+
+.feedback-row.user-note::before { top: 0; bottom: 0; left: -8px; }
 
 .state-entry-text {
   font-size: 13px;
@@ -383,9 +398,11 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
   color: var(--text-primary);
 }
 
-.feedback-row.user-note {
-  border-left: 3px solid var(--accent);
-  padding-left: 6px;
+.state-change-detail {
+  font-size: 11px;
+  color: var(--text-muted);
 }
+
+.inspector-block .feedback-card + h4 { margin-top: 12px; }
 
 .state-rejected .feedback-row-label { color: var(--red); }

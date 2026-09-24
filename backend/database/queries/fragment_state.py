@@ -59,12 +59,7 @@ async def add_state_events(cid: str, message_id: int, events: Sequence[Mapping[s
 
 
 async def get_state_events_for_path(cid: str, path_message_ids: Sequence[int]) -> list[FragmentStateEventRow]:
-    """Events anchored on the given active path, in fold order.
-
-    Ordered by the anchor's position on the path, then by row id within one
-    anchor. Position, not row id alone, is authoritative: a correction written
-    now onto an earlier message gets a newer id than events of later turns.
-    """
+    """Return path events in path order, then insertion order within each message."""
     if not path_message_ids:
         return []
     rank = {mid: i for i, mid in enumerate(path_message_ids)}
@@ -103,13 +98,7 @@ async def fold_path_state(cid: str, path_message_ids: Sequence[int]) -> StateVie
 
 
 async def copy_state_events(source_cid: str, target_cid: str, id_map: Mapping[int, int]) -> int:
-    """Copy the events anchored on *id_map*'s source messages onto their copies.
-
-    Used by Checkpoint, which copies the active path: anchors are remapped
-    through the same message-id map as its decision anchors, and entry ids,
-    sources, labels and timestamps carry over, so the copy keeps its history.
-    Returns the number of copied events.
-    """
+    """Copy events through a message-id map, preserving their history and order."""
     events = await get_state_events_for_path(source_cid, list(id_map))
     if not events:
         return 0
@@ -124,12 +113,7 @@ async def copy_state_events(source_cid: str, target_cid: str, id_map: Mapping[in
 
 
 async def snapshot_state_to_message(cid: str, view: StateView, message_id: int) -> int:
-    """Write *view*'s active entries as ``carried`` adds anchored on *message_id*.
-
-    Compress History folds the state up to its kept tail and writes it onto the
-    summary message this way. Entry ids are kept so the tail's own copied events
-    still name the entries they revise or retire. Returns the number of entries.
-    """
+    """Write active entries as ``carried`` events on a compressed summary."""
     events = [
         {
             "fragment_id": fid,

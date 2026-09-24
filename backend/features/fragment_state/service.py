@@ -11,9 +11,9 @@ from ...core import (
     MAX_ACTIVE_ENTRIES,
     MAX_STATE_TEXT_CHARS,
     STATE_FIELD_TYPE,
+    StateEntry,
     StateFragment,
     StateOp,
-    StateRejection,
     fold_events,
     plan_state_ops,
     state_fragment_of,
@@ -31,34 +31,30 @@ class StateWriteError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class ConfiguredFragment:
-    """A state fragment as the conversation sees it now: global or from a card."""
+    """A configured state fragment and its source."""
 
     fragment: StateFragment
     origin: str  # "global" | "card"
 
 
 async def configured_state_fragments(conv: Mapping[str, Any]) -> list[ConfiguredFragment]:
-    """Every state fragment this conversation can see, enabled or not.
-
-    Global fragments first, then the cast's card fragments -- the same merge a
-    turn uses, where a global id wins. Disabled global fragments are included so
-    the panel can show their saved state read-only.
-    """
+    """Return global and card state fragments, with global ids taking precedence."""
     globals_ = [row for row in await db.get_interactive_fragments() if row.get("field_type") == STATE_FIELD_TYPE]
     card = await db.get_character_card(conv["character_card_id"]) if conv.get("character_card_id") else None
     _, card_rows, _ = await db.cast_embedded_fragments(card, await db.resolve_cast(conv))
     out: list[ConfiguredFragment] = []
     seen: set[str] = set()
-    for row, origin in [*((row, "global") for row in globals_), *((row, "card") for row in card_rows)]:
-        fragment = state_fragment_of(row)
-        if fragment is None or fragment.id in seen:
-            continue
-        seen.add(fragment.id)
-        out.append(ConfiguredFragment(fragment, origin))
+    for rows, origin in ((globals_, "global"), (card_rows, "card")):
+        for row in rows:
+            fragment = state_fragment_of(row)
+            if fragment is None or fragment.id in seen:
+                continue
+            seen.add(fragment.id)
+            out.append(ConfiguredFragment(fragment, origin))
     return out
 
 
-def _entry_projection(entry: Any, turns: Mapping[int, int]) -> dict[str, Any]:
+def _entry_projection(entry: StateEntry, turns: Mapping[int, int]) -> dict[str, Any]:
     return {
         "entry_id": entry.entry_id,
         "text": entry.text,
@@ -69,12 +65,7 @@ def _entry_projection(entry: Any, turns: Mapping[int, int]) -> dict[str, Any]:
 
 
 async def state_panel(cid: str) -> dict[str, Any]:
-    """The active branch's state, per fragment, for the State panel.
-
-    Configured fragments come first in fragment order, disabled ones read-only;
-    then fragments that no longer exist but left saved state on this branch,
-    read-only under their saved label.
-    """
+    """Return configured state and saved state for deleted fragments."""
     conv = await db.get_conversation(cid)
     if conv is None:
         raise StateWriteError("Conversation not found", status=404)
@@ -156,13 +147,7 @@ async def state_history(cid: str, fragment_id: str) -> list[dict[str, Any]]:
 
 
 async def apply_manual_op(cid: str, op: StateOp) -> list[dict[str, Any]]:
-    """Apply one user operation on the active branch, anchored to the active leaf.
-
-    Validated against the fragment's current configuration with the same
-    contract the model's operations use. Disabled and deleted fragments are
-    read-only. The caller serializes this against generation on the server.
-    Returns the committed events; raises :class:`StateWriteError` otherwise.
-    """
+    """Validate and commit one user operation on the active branch's leaf."""
     conv = await db.get_conversation(cid)
     if conv is None:
         raise StateWriteError("Conversation not found", status=404)
@@ -182,13 +167,10 @@ async def apply_manual_op(cid: str, op: StateOp) -> list[dict[str, Any]]:
     view = await db.fold_path_state(cid, [m["id"] for m in path])
     events, rejections = plan_state_ops([op], {fragment.id: fragment}, view, source="user")
     if rejections:
-        raise StateWriteError(_rejection_message(rejections[0]), status=422, reason=rejections[0].reason)
+        rejection = rejections[0]
+        raise StateWriteError(rejection.detail or rejection.reason, status=422, reason=rejection.reason)
     await db.add_state_events(cid, int(leaf_id), events)
     return events
-
-
-def _rejection_message(rejection: StateRejection) -> str:
-    return rejection.detail or rejection.reason
 
 
 async def delete_orphaned_state(cid: str, fragment_id: str) -> int:

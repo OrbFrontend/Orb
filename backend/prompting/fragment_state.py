@@ -15,14 +15,7 @@ def render_state_block(
     *,
     prior: StateView | None = None,
 ) -> str:
-    """One compact current-state block for a recipient, or ``""`` when nothing is set.
-
-    *fragments* are the fragments that inject into this recipient, in order.
-    A one-value fragment renders as ``Heading: value``; given *prior*, a value
-    this turn changed renders as ``old -> new``, the transition the Writer saw
-    for progressive fragments. A multiple-entry fragment -- or a one-value one
-    still holding several entries after a mode switch -- renders as a list.
-    """
+    """Render injected state, showing before-Writer changes as ``old -> new``."""
     parts: list[str] = []
     for fragment in fragments:
         entries = view.active(fragment.id)
