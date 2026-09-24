@@ -403,10 +403,14 @@ function stateFragmentLabel(fragmentId, fallback) {
   return interactiveFragmentsView().find((f) => f.id === fragmentId)?.label || fragmentId || "State";
 }
 
-function stateRowHtml(label, op, text, { user = false } = {}) {
-  const badge = user ? ` <span class="state-badge">You</span>` : "";
+// Changes the Agent did not make carry a badge naming who did.
+const STATE_SOURCE_BADGES = { user: "You", carried: "Carried" };
+
+function stateRowHtml(label, op, text, source = "agent") {
+  const who = STATE_SOURCE_BADGES[source];
+  const badge = who ? ` <span class="state-badge">${who}</span>` : "";
   const body = text ? `: ${esc(String(text))}` : "";
-  return `<div class="feedback-row${user ? " user-note" : ""}">
+  return `<div class="feedback-row${who ? " user-note" : ""}">
     <span class="feedback-row-label">${esc(label)}${badge}</span>
     <div class="feedback-row-value"><span class="state-change-op">${esc(op)}</span>${body}</div>
   </div>`;
@@ -426,9 +430,12 @@ export function buildStateHtml(state) {
   if (changes.length) {
     const rows = changes
       .map((c) =>
-        stateRowHtml(stateFragmentLabel(c.fragment_id, c.fragment_label), STATE_OP_LABELS[c.op] || c.op, c.text, {
-          user: c.source === "user" || c.source === "carried",
-        }),
+        stateRowHtml(
+          stateFragmentLabel(c.fragment_id, c.fragment_label),
+          STATE_OP_LABELS[c.op] || c.op,
+          c.text,
+          c.source,
+        ),
       )
       .join("");
     blocks.push(`<div class="feedback-card">${rows}</div>`);
@@ -449,7 +456,7 @@ export function buildStateHtml(state) {
           stateFragmentLabel(d.fragment_id, d.fragment_label),
           `Not carried (${d.op === "retire" ? "retire" : "edit"})`,
           d.text,
-          { user: true },
+          "user",
         ),
       )
       .join("");

@@ -606,6 +606,8 @@ export async function toggleInteractiveFragmentEnabled(id, newEnabled) {
     const frag = S.interactiveFragments.find((f) => f.id === id);
     if (frag) frag.enabled = newEnabled;
     renderInteractiveFragments();
+    // A disabled state fragment turns read-only in the State panel.
+    if (frag?.field_type === "state") refreshState();
     toast(newEnabled ? "Interactive fragment enabled" : "Interactive fragment disabled");
   } catch (e) {
     toast(e.message, true);

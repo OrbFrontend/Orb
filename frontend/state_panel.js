@@ -22,11 +22,19 @@ const HISTORY_VERBS = { add: "added", revise: "revised", retire: "retired" };
 let panel = null;
 let panelConvId = null;
 let loadSeq = 0;
-// The one open inline editor: { fragmentId, op: "set" | "add" | "revise", entryId }.
+// The one open inline editor: { fragmentId, op: "set" | "add" | "revise", entryId, text }.
+// ``text`` is the live draft, so a re-render (a finished turn, a history load)
+// keeps what the user typed.
 let editing = null;
-// Fragments whose history is expanded, and their loaded history.
+// Set when an editor opens, so only that render takes focus.
+let focusEditor = false;
+// A manual write in flight; further clicks wait for it.
+let writing = false;
+// Fragments whose history is expanded, and their loaded history. ``historyGen``
+// retires history reads that started before the cache was cleared.
 const historyOpen = new Set();
 const historyCache = new Map();
+let historyGen = 0;
 
 export function toggleStatePanel() {
   if (isUtilityPanelOpen(PANEL_ID)) closeUtilityPanel(PANEL_ID, BUTTON_ID);
@@ -59,7 +67,22 @@ function resetForConversation(cid) {
   panelConvId = cid;
   editing = null;
   historyOpen.clear();
+  clearHistoryCache();
+}
+
+function clearHistoryCache() {
   historyCache.clear();
+  historyGen++;
+}
+
+/** Close the editor when the refreshed state no longer offers its target. */
+function dropStaleEditor() {
+  if (!editing) return;
+  const f = panel?.fragments.find((x) => x.fragment_id === editing.fragmentId);
+  const { op, entryId } = editing;
+  const offered =
+    op === "revise" ? f?.entries.some((e) => e.entry_id === entryId) : f?.mode === (op === "add" ? "entries" : "value");
+  if (!offered || f.read_only) editing = null;
 }
 
 /**
@@ -86,7 +109,8 @@ export async function refreshState() {
   }
   if (seq !== loadSeq) return;
   panel = data;
-  historyCache.clear();
+  dropStaleEditor();
+  clearHistoryCache();
   updateStateButton();
   if (isUtilityPanelOpen(PANEL_ID)) {
     render();
@@ -121,11 +145,18 @@ function render() {
     return;
   }
   el.innerHTML = intro + panel.fragments.map(fragmentHtml).join("");
-  const input = el.querySelector(".state-editor-input");
+  const input = focusEditor && el.querySelector(".state-editor-input");
+  focusEditor = false;
   if (input) {
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
   }
+}
+
+function openEditor(fragmentId, op, entryId, text) {
+  editing = { fragmentId, op, entryId, text };
+  focusEditor = true;
+  render();
 }
 
 function button(action, label, { entryId = "", danger = false, disabled = false, title = "" } = {}) {
@@ -135,18 +166,18 @@ function button(action, label, { entryId = "", danger = false, disabled = false,
   return `<button type="button" class="${cls}" data-state-action="${action}"${entry}${tip}${disabled ? " disabled" : ""}>${label}</button>`;
 }
 
+function badge(label, tip, cls = "") {
+  return ` <span class="state-badge${cls}" title="${escAttr(tip)}">${label}</span>`;
+}
+
 function badgesHtml(f) {
-  const badges = [];
-  if (!f.configured) badges.push(["Deleted", "The fragment was deleted; its saved state is read-only."]);
-  else if (!f.enabled) badges.push(["Disabled", "The fragment is disabled: not updated, not injected."]);
-  if (f.origin === "card") badges.push(["Card", "Embedded in the character card."]);
-  if (f.full) badges.push(["Full", `The list holds the most entries it can. Retire one before adding.`]);
-  return badges
-    .map(
-      ([label, tip]) =>
-        ` <span class="state-badge${label === "Full" ? " state-badge-warn" : ""}" title="${escAttr(tip)}">${label}</span>`,
-    )
-    .join("");
+  let html = "";
+  if (!f.configured) html += badge("Deleted", "The fragment was deleted; its saved state is read-only.");
+  else if (!f.enabled) html += badge("Disabled", "The fragment is disabled: not updated, not injected.");
+  if (f.origin === "card") html += badge("Card", "Embedded in the character card.");
+  if (f.full)
+    html += badge("Full", "The list holds the most entries it can. Retire one before adding.", " state-badge-warn");
+  return html;
 }
 
 function describe(f) {
@@ -166,7 +197,8 @@ function isEditing(f, op, entryId = "") {
   return editing?.fragmentId === f.fragment_id && editing.op === op && (editing.entryId || "") === entryId;
 }
 
-function editorHtml(text) {
+function editorHtml() {
+  const { text } = editing;
   const limit = panel.limits.text;
   return `<div class="state-editor">
     <textarea class="state-editor-input" rows="3" maxlength="${limit}">${esc(text)}</textarea>
@@ -180,7 +212,7 @@ function editorHtml(text) {
 
 function entryHtml(f, entry, actions) {
   if (isEditing(f, "revise", entry.entry_id) || (isEditing(f, "set") && actions === "value")) {
-    return `<div class="state-entry">${editorHtml(entry.text)}</div>`;
+    return `<div class="state-entry">${editorHtml()}</div>`;
   }
   let buttons = "";
   if (!f.read_only) {
@@ -214,7 +246,7 @@ function bodyHtml(f) {
   parts.push(rows);
   if (f.read_only) return parts.join("");
   if (f.mode === "value") {
-    if (isEditing(f, "set")) parts.push(editorHtml(""));
+    if (isEditing(f, "set")) parts.push(editorHtml());
     else {
       const tip = entries.length > 1 ? "Replace them all with one value" : "";
       parts.push(
@@ -222,7 +254,7 @@ function bodyHtml(f) {
       );
     }
   } else if (isEditing(f, "add")) {
-    parts.push(editorHtml(""));
+    parts.push(editorHtml());
   } else {
     const tip = f.full ? "The list is full: retire an entry first" : "";
     parts.push(`<div class="state-frag-actions">${button("add", "Add entry", { disabled: f.full, title: tip })}</div>`);
@@ -250,6 +282,7 @@ function historyHtml(f) {
 function fragmentHtml(f) {
   const cls = `state-frag${f.read_only ? " read-only" : ""}${f.full ? " full" : ""}`;
   const history = historyOpen.has(f.fragment_id) ? "Hide history" : "History";
+  const desc = describe(f);
   const deletion = f.configured
     ? ""
     : `<div class="state-note">This fragment was deleted. Its saved state is read-only.</div>
@@ -259,7 +292,7 @@ function fragmentHtml(f) {
       <span class="state-frag-label">${esc(f.label || f.fragment_id)}${badgesHtml(f)}</span>
       ${button("history", history)}
     </div>
-    ${describe(f) ? `<div class="state-frag-desc">${esc(describe(f))}</div>` : ""}
+    ${desc ? `<div class="state-frag-desc">${esc(desc)}</div>` : ""}
     ${bodyHtml(f)}
     ${deletion}
     ${historyHtml(f)}
@@ -268,9 +301,10 @@ function fragmentHtml(f) {
 
 async function loadHistory(fragmentId) {
   const cid = S.activeConvId;
+  const gen = historyGen;
   try {
     const events = await api.get(`${convUrl(cid, "state", "history")}?fragment_id=${encodeURIComponent(fragmentId)}`);
-    if (cid !== S.activeConvId || !historyOpen.has(fragmentId)) return;
+    if (cid !== S.activeConvId || gen !== historyGen || !historyOpen.has(fragmentId)) return;
     historyCache.set(fragmentId, events);
   } catch (e) {
     toast(e.message, true);
@@ -280,31 +314,36 @@ async function loadHistory(fragmentId) {
 }
 
 async function applyOperation(body) {
-  if (!requestSendPermission()) return;
+  if (writing || !requestSendPermission()) return;
   const cid = S.activeConvId;
+  writing = true;
   try {
     const result = await api.post(convUrl(cid, "state"), body);
     if (cid !== S.activeConvId) return;
+    // The write's own state is newer than any read still in flight.
+    loadSeq++;
     panel = result.state;
     editing = null;
-    historyCache.delete(body.fragment_id);
+    clearHistoryCache();
     updateStateButton();
     render();
-    if (historyOpen.has(body.fragment_id)) await loadHistory(body.fragment_id);
+    await Promise.all([...historyOpen].map(loadHistory));
   } catch (e) {
     toast(e.message, true);
+  } finally {
+    writing = false;
   }
 }
 
-function save(root) {
+function save() {
   if (!editing) return;
-  const text = root.querySelector(".state-editor-input")?.value.trim() || "";
+  const text = editing.text.trim();
   if (!text) {
     toast("The text is empty.", true);
     return;
   }
   const { fragmentId, op, entryId } = editing;
-  applyOperation({ fragment_id: fragmentId, op, text, entry_id: entryId || "" });
+  applyOperation({ fragment_id: fragmentId, op, text, entry_id: entryId });
 }
 
 function deleteOrphan(fragmentId) {
@@ -333,36 +372,34 @@ function onClick(e) {
   const fragmentId = target.closest("[data-fragment-id]")?.dataset.fragmentId;
   if (!fragmentId) return;
   const entryId = target.dataset.entryId || "";
+  const entries = panel?.fragments.find((f) => f.fragment_id === fragmentId)?.entries || [];
   switch (target.dataset.stateAction) {
-    case "history":
-      if (historyOpen.has(fragmentId)) {
-        historyOpen.delete(fragmentId);
-        render();
-      } else {
-        historyOpen.add(fragmentId);
-        render();
-        loadHistory(fragmentId);
-      }
-      break;
-    case "set":
-    case "edit-value":
-      editing = { fragmentId, op: "set", entryId: "" };
+    case "history": {
+      const opening = !historyOpen.has(fragmentId);
+      if (opening) historyOpen.add(fragmentId);
+      else historyOpen.delete(fragmentId);
       render();
+      if (opening) loadHistory(fragmentId);
+      break;
+    }
+    case "set":
+      openEditor(fragmentId, "set", "", "");
+      break;
+    case "edit-value":
+      openEditor(fragmentId, "set", "", entries[0]?.text || "");
       break;
     case "add":
-      editing = { fragmentId, op: "add", entryId: "" };
-      render();
+      openEditor(fragmentId, "add", "", "");
       break;
     case "revise":
-      editing = { fragmentId, op: "revise", entryId };
-      render();
+      openEditor(fragmentId, "revise", entryId, entries.find((e) => e.entry_id === entryId)?.text || "");
       break;
     case "cancel":
       editing = null;
       render();
       break;
     case "save":
-      save(target.closest("[data-fragment-id]"));
+      save();
       break;
     case "clear":
       applyOperation({ fragment_id: fragmentId, op: "clear" });
@@ -384,12 +421,13 @@ function onKeydown(e) {
     render();
   } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
-    save(e.target.closest("[data-fragment-id]"));
+    save();
   }
 }
 
 function onInput(e) {
-  if (!e.target.classList?.contains("state-editor-input")) return;
+  if (!e.target.classList?.contains("state-editor-input") || !editing) return;
+  editing.text = e.target.value;
   const count = e.target.closest(".state-editor")?.querySelector(".state-editor-count");
   if (count) count.textContent = `${e.target.value.length}/${panel.limits.text}`;
 }
