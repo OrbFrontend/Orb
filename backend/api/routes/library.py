@@ -48,8 +48,10 @@ from ...features.library_dedupe import (
 )
 from ...features.library_tags import (
     AutoTagUnavailable,
+    build_judge_questions,
     build_system_prompt,
     build_tag_tool,
+    judge_tag_card,
     normalize_vocabulary,
     tag_card,
     vocabulary_hash,
@@ -57,11 +59,15 @@ from ...features.library_tags import (
 )
 from ...inference import (
     AbortToken,
+    DecisionCancelled,
+    DecisionClient,
+    DecisionTransportError,
     LLMCallError,
     agent_lane_from_settings,
     client_from_settings,
     provider_sentence,
 )
+from ...pipeline import resolve_judge_config
 from ..deps import _CleanupStreamingResponse, _sse_stream
 from ..schemas import (
     AutoTagRunRequest,
@@ -80,6 +86,8 @@ router = APIRouter()
 _run_lock = asyncio.Lock()
 
 _MAX_CONSECUTIVE_FAILURES = 5
+_JUDGE_CONCURRENCY = 24
+_JUDGE_TIMEOUT_SECONDS = 20.0
 
 
 @router.post("/api/library/card-generator/run")
@@ -161,7 +169,7 @@ async def api_put_library_tags(data: LibraryTagVocabulary):
 
 @router.post("/api/library/auto-tag/run")
 async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
-    """Tag pending cards sequentially and stream progress as SSE."""
+    """Tag pending cards and stream progress as SSE."""
     settings = await get_settings()
     abort_token = AbortToken()
 
@@ -182,6 +190,15 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
             pending = await list_pending_auto_tag_ids(vocab_hash, force=data.force)
             total = len(pending)
             yield {"event": "start", "data": {"total": total}}
+
+            if data.lane == "judge":
+                config = await resolve_judge_config(settings)
+                if not config.configured:
+                    yield {"event": "error", "data": "Configure the Judge endpoint and model in Endpoints first"}
+                    return
+                async for event in _judge_tag_events(pending, vocabulary, vocab_hash, config, abort_token):
+                    yield event
+                return
 
             # Keep the system message and tool schema identical across cards.
             system = build_system_prompt(vocabulary)
@@ -285,6 +302,95 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
         _sse_stream(_gen(), request, abort_token=abort_token),
         media_type="text/event-stream",
     )
+
+
+async def _judge_tag_events(pending, vocabulary, vocab_hash, config, abort_token):
+    """Keep the Judge busy across cards while committing each completed card."""
+    total = len(pending)
+    client = DecisionClient(config.url, config.api_key, config.model, timeout=_JUDGE_TIMEOUT_SECONDS, proxy=config.proxy)
+    questions = build_judge_questions(vocabulary)
+
+    async def classify(card_id):
+        card = await get_character_card(card_id)
+        if card is None:
+            return None
+        tags = await judge_tag_card(client, card, vocabulary=vocabulary, questions=questions, abort=abort_token)
+        return card, tags
+
+    active = {}
+    next_index = 0
+    completed = tagged = failed = consecutive = 0
+
+    def start_more():
+        nonlocal next_index
+        while not abort_token.is_aborted and len(active) < _JUDGE_CONCURRENCY and next_index < total:
+            card_id = pending[next_index]
+            active[asyncio.create_task(classify(card_id))] = card_id
+            next_index += 1
+
+    start_more()
+    try:
+        while active:
+            if abort_token.is_aborted:
+                return
+            finished, _ = await asyncio.wait(active, return_when=asyncio.FIRST_COMPLETED)
+            for task in finished:
+                if abort_token.is_aborted:
+                    return
+                card_id = active.pop(task)
+                completed += 1
+                try:
+                    result = task.result()
+                    if result is None:
+                        continue  # deleted during the run
+                    card, tags = result
+                except DecisionCancelled:
+                    return
+                except (LLMCallError, DecisionTransportError, httpx.HTTPError) as exc:
+                    logger.warning("Judge auto-tag endpoint failed for card %s: %r", scrub_log(card_id), exc)
+                    yield {"event": "error", "data": "The Judge endpoint failed; tagging stopped"}
+                    return
+                except AutoTagUnavailable as exc:
+                    failed += 1
+                    consecutive += 1
+                    logger.warning("Judge auto-tag failed for card %s: %s", scrub_log(card_id), exc)
+                    yield {
+                        "event": "card_error",
+                        "data": {"done": completed, "total": total, "name": "", "error": str(exc)},
+                    }
+                    if consecutive >= _MAX_CONSECUTIVE_FAILURES:
+                        yield {"event": "error", "data": "Stopped after five incomplete Judge answers in a row"}
+                        return
+                    continue
+
+                consecutive = 0
+                if abort_token.is_aborted:
+                    return
+                applied = await apply_auto_tags(card_id, tags, vocab_hash, str(card.get("updated_at") or ""))
+                if not applied:
+                    failed += 1
+                    yield {
+                        "event": "card_error",
+                        "data": {
+                            "done": completed,
+                            "total": total,
+                            "name": str(card.get("name") or ""),
+                            "error": "The card changed while it was being tagged; it was left pending",
+                        },
+                    }
+                    continue
+                tagged += 1
+                yield {
+                    "event": "progress",
+                    "data": {"done": completed, "total": total, "name": str(card.get("name") or ""), "tags": tags},
+                }
+            start_more()
+        yield {"event": "done", "data": {"tagged": tagged, "failed": failed}}
+    finally:
+        for task in active:
+            task.cancel()
+        if active:
+            await asyncio.gather(*active, return_exceptions=True)
 
 
 @router.post("/api/library/duplicates/scan")

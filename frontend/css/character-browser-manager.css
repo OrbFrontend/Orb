@@ -186,6 +186,10 @@ label.lib-manager-field {
   cursor: pointer;
 }
 
+.lib-manager-toggle[hidden] {
+  display: none;
+}
+
 .lib-manager-toggle input {
   width: 13px;
   height: 13px;

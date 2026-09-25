@@ -21,6 +21,8 @@ let _controller = null;
 let _saving = false;
 let _revision = "";
 let _callbacks = {};
+let _lane = null;
+let _judgeConfigured = false;
 
 /** Mount the Manager panel into a container. */
 export function renderLibraryManager(container, callbacks = {}) {
@@ -35,8 +37,8 @@ export function renderLibraryManager(container, callbacks = {}) {
           <div class="lib-tool-heading">
             <h3 class="lib-tool-name">Auto-tagging</h3>
             <p class="lib-manager-note">
-              The Agent model reads every character and replaces its tags with the
-              appropriate ones in the vocabulary. Tags that came with the characters will be overwritten.
+              Choose the Judge for fast parallel tagging, or the Agent model for legacy tagging.
+              Existing character tags will be replaced.
             </p>
           </div>
         </header>
@@ -52,7 +54,15 @@ export function renderLibraryManager(container, callbacks = {}) {
 
           <div class="lib-manager-run">
             <div class="lib-manager-status" id="lib-run-status"></div>
-            <label class="lib-manager-toggle">
+            <div class="lib-manager-field">
+              <label for="lib-run-lane">Tagging model</label>
+              <select id="lib-run-lane">
+                <option value="judge">Judge classifier</option>
+                <option value="agent">Agent model</option>
+              </select>
+              <span class="lib-manager-note" id="lib-lane-note"></span>
+            </div>
+            <label class="lib-manager-toggle" id="lib-reasoning-row">
               <input type="checkbox" id="lib-run-reasoning">
               <span class="lib-manager-toggle-text">
                 <span class="lib-manager-toggle-label">Enable tagger thinking</span>
@@ -75,10 +85,17 @@ export function renderLibraryManager(container, callbacks = {}) {
     </div>`;
 
   container.addEventListener("click", onPanelClick);
+  container.addEventListener("change", onPanelChange);
   mountLibraryDedupe(container.querySelector('[data-tool="duplicates"]'), callbacks);
   mountCardGenerator(container.querySelector('[data-tool="card-generator"]'), callbacks);
   chipInput().render();
   refresh();
+}
+
+function onPanelChange(e) {
+  if (e.target?.id !== "lib-run-lane") return;
+  _lane = e.target.value;
+  paint();
 }
 
 function onPanelClick(e) {
@@ -105,7 +122,13 @@ function chipInput() {
 async function refresh() {
   let state;
   try {
-    state = await api.get("/library/tags");
+    const [tags, config] = await Promise.all([
+      api.get("/library/tags"),
+      api.get("/decisions/config").catch(() => ({ configured: false })),
+    ]);
+    state = tags;
+    _judgeConfigured = !!config?.configured;
+    if (_lane === null) _lane = _judgeConfigured ? "judge" : "agent";
   } catch (e) {
     toast(`Failed to load library tags: ${e.message}`, true);
     return;
@@ -175,6 +198,22 @@ function paint() {
   if (saveBtn) saveBtn.disabled = running || _saving || !unsaved;
   const reasoningBox = $("lib-run-reasoning");
   if (reasoningBox) reasoningBox.disabled = running;
+  if (!_judgeConfigured && _lane === "judge") _lane = "agent";
+  const laneSelect = $("lib-run-lane");
+  if (laneSelect) {
+    laneSelect.value = _lane;
+    laneSelect.disabled = running;
+    laneSelect.querySelector('option[value="judge"]').disabled = !_judgeConfigured;
+  }
+  const laneNote = $("lib-lane-note");
+  if (laneNote) {
+    laneNote.textContent =
+      _lane === "judge"
+        ? "Classifies every vocabulary tag for each card. Cards are processed in parallel."
+        : "Uses the Agent model one card at a time. Set up Judge under Endpoints to use the faster lane.";
+  }
+  const reasoningRow = $("lib-reasoning-row");
+  if (reasoningRow) reasoningRow.hidden = _lane !== "agent";
 }
 
 /** Save the vocabulary, confirming deletions that affect tagged cards. */
@@ -253,12 +292,13 @@ async function startRun(force = false) {
   _controller = new AbortController();
   const total = force ? _total : _pending;
   const reasoning = !!$("lib-run-reasoning")?.checked;
+  const lane = _lane;
   showProgress(0, total, "");
   paint();
 
   let failed = 0;
   try {
-    const response = await streamPost("/library/auto-tag/run", { reasoning, force }, _controller.signal);
+    const response = await streamPost("/library/auto-tag/run", { lane, reasoning, force }, _controller.signal);
     if (!response.ok) throw new Error(`run returned ${response.status}`);
     for await (const event of sseEvents(response.body, { signal: _controller.signal })) {
       let data = {};
