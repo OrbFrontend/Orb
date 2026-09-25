@@ -861,6 +861,7 @@ class AutoTagRunRequest(BaseModel):
 
     reasoning: bool = False
     force: bool = False
+    lane: Literal["agent", "judge"] = "agent"
 
 
 class LibraryTagVocabulary(BaseModel):

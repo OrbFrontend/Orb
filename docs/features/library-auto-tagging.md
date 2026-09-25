@@ -18,9 +18,18 @@ Use specific, distinct tags. The character browser combines selected tags with
 
 ## Tag cards
 
-Select **Tag N characters**, review the warning, and confirm. Orb sends each
-card to the Agent model and applies the tags it chooses. The existing tags on
-each card are replaced.
+Choose **Judge classifier** or **Agent model**, then select **Tag N characters**,
+review the warning, and confirm. Orb replaces each card's existing tags with
+tags from the vocabulary.
+
+The Judge asks about all vocabulary tags in one request per card and processes
+cards concurrently. It applies a tag when the Judge gives it at least 80%
+probability, keeping at most the 12 strongest matches. A card can have no
+matching tags. Configure the Judge under **Endpoints → Judge** before choosing
+this lane.
+
+The Agent model handles cards one at a time and remains available when no Judge
+endpoint is configured. It can also be useful when you prefer its tagging style.
 
 Progress is saved after each card. You can cancel the run and continue later;
 the next run processes only cards that still need tagging.
@@ -36,8 +45,9 @@ Reordering or changing the capitalization of the vocabulary does not require
 another model run. Capitalization changes are applied to existing assignments.
 
 When every card is current, the run button becomes **Retag all**. Use it after
-changing the Agent model or when you want to repeat the run with **Tagger
-thinking** enabled.
+changing the tagging lane or model, or when you want to repeat the Agent run
+with **Tagger thinking** enabled. The pending count tracks card edits and
+vocabulary changes, not which tagging lane you last used.
 
 ### Removing tags
 
@@ -54,8 +64,8 @@ cards eligible for tagging again.
 
 ### Tagger thinking
 
-Enable **Tagger thinking** for more deliberate results. It takes longer and
-uses more model resources.
+In the Agent lane, enable **Tagger thinking** for more deliberate results. It
+takes longer and uses more model resources.
 
 ## Before you start
 
@@ -70,11 +80,12 @@ may be replaced by the next run.
 
 ## Model and failed cards
 
-Auto-tagging uses the Agent model. If you have configured a separate Agent
-endpoint, Orb uses it; otherwise it uses the Writer endpoint.
+The Agent lane uses the Agent model. If you have configured a separate Agent
+endpoint, Orb uses it; otherwise it uses the Writer endpoint. The Judge lane
+uses the separately configured Judge endpoint and model.
 
 Cards that return an unusable tagging answer remain unchanged and are tried
 again the next time you run auto-tagging. Orb stops after five consecutive
-unusable answers. Endpoint and network failures stop the run as soon as the
-endpoint's own retry policy is exhausted, so one outage is not retried for five
-different cards.
+unusable answers. Endpoint and network failures stop the run. The Agent lane
+uses the endpoint's retry policy; the Judge lane may already have other cards
+in flight when a failure arrives.

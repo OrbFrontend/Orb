@@ -1,4 +1,4 @@
-"""Build and normalize forced tag calls for one character card."""
+"""Build and normalize Agent or Judge tagging for one character card."""
 
 from __future__ import annotations
 
@@ -6,11 +6,19 @@ from collections.abc import Mapping
 from typing import Any
 
 from ...core import agent_lane_cut_off, agent_lane_max_tokens
-from ...inference import LLMClient, ReplyCutOff, forced_draft
+from ...inference import (
+    AbortToken,
+    DecisionClient,
+    DecisionQuestion,
+    LLMClient,
+    ReplyCutOff,
+    forced_draft,
+)
 
 TAG_TOOL_NAME = "assign_character_tags"
 
 MAX_TAGS_PER_CARD = 12
+JUDGE_TAG_THRESHOLD = 0.8
 
 # Per-field character budgets; descriptions carry the most substance.
 _FIELD_BUDGETS = (
@@ -68,7 +76,7 @@ def build_tag_tool(vocabulary: list[str]) -> dict[str, Any]:
 
 
 class AutoTagUnavailable(RuntimeError):
-    """The endpoint answered without calling the tagging tool."""
+    """The chosen tagging endpoint did not return a complete usable answer."""
 
 
 def _quote(text: str) -> str:
@@ -92,6 +100,55 @@ def build_card_message(card: Mapping[str, Any]) -> str:
         parts.append("This card has no text beyond its identity.")
     parts.append("Call the tool with the tags that apply.")
     return "\n\n".join(parts)
+
+
+def build_judge_state(card: Mapping[str, Any]) -> str:
+    """Give the Judge the same bounded card evidence without a tool-call instruction."""
+    return build_card_message(card).removesuffix("\n\nCall the tool with the tags that apply.")
+
+
+def build_judge_questions(vocabulary: list[str]) -> list[DecisionQuestion]:
+    """Ask every tag independently so a card may match zero or many tags."""
+    return [
+        DecisionQuestion(
+            key=f"tag_{index}",
+            question_type="noul",
+            instructions=(
+                f"Does the character card clearly support the library tag {name!r}? "
+                "Use only the card evidence. If uncertain, answer no."
+            ),
+            criteria={
+                "true": f"The card clearly supports the tag {name!r}.",
+                "false": f"The card does not clearly support the tag {name!r}.",
+            },
+        )
+        for index, name in enumerate(vocabulary)
+    ]
+
+
+async def judge_tag_card(
+    client: DecisionClient,
+    card: Mapping[str, Any],
+    *,
+    vocabulary: list[str],
+    questions: list[DecisionQuestion],
+    abort: AbortToken | None = None,
+) -> list[str]:
+    """Classify one card; a partial answer must leave its tags untouched."""
+    response = await client.decide(build_judge_state(card), questions, abort=abort)
+    if len(response.answers) != len(questions):
+        raise AutoTagUnavailable("The Judge returned an incomplete tag answer.")
+    scored: list[tuple[int, float]] = []
+    for index, question in enumerate(questions):
+        answer = response.answers[question.key]
+        if not isinstance(answer, (int, float)):
+            raise AutoTagUnavailable("The Judge returned a non-probability tag answer.")
+        scored.append((index, float(answer)))
+    selected = sorted(
+        ((index, score) for index, score in scored if score >= JUDGE_TAG_THRESHOLD),
+        key=lambda item: (-item[1], item[0]),
+    )[:MAX_TAGS_PER_CARD]
+    return [vocabulary[index] for index, _ in sorted(selected)]
 
 
 def clean_tags(args: Mapping[str, Any] | None, vocabulary: list[str]) -> list[str]:
