@@ -549,7 +549,6 @@ export function currentMoodsHtml() {
   const inspecting = S.inspectedMsgId != null;
   if (!inspecting && !S.isStreaming && !S.messages.some((message) => message.role === "assistant")) return "";
   const data = inspecting ? S.inspectedDirectorData : S.lastDirectorData;
-  const pending = !inspecting && S.isStreaming && data == null;
   const known = data?.mood_data_available !== false && Array.isArray(data?.active_moods);
   const activeIds = known ? data.active_moods : [];
   const history = S.isStreaming ? S.messages.slice(0, S.streamCutoffIndex ?? S.messages.length) : S.messages;
@@ -565,19 +564,18 @@ export function currentMoodsHtml() {
   for (const id of activeIds) {
     if (!fragments.some((fragment) => fragment.id === id)) fragments.push({ id, label: id });
   }
-  const badges = fragments
-    .map((fragment) => {
-      const active = activeIds.includes(fragment.id);
-      const rests = known && !active && Number(resting[fragment.id]) >= 1;
-      const status = pending ? "Pending" : !known ? "Unknown" : active ? "Active" : rests ? "Resting" : "Inactive";
-      const className = active ? " active" : rests ? " resting" : "";
-      return `<span class="style-tag${className}">${esc(fragment.label)} · ${status}</span>`;
-    })
-    .join("");
-  const note = pending ? "Choosing moods for this reply…" : !known ? "Mood data unavailable for this reply." : "";
-  return `<div class="inspector-block"><h4>Moods (this reply)</h4>
-    <div>${badges || (known ? '<span class="state-note">None</span>' : "")}</div>
-    ${note ? `<div class="state-note">${note}</div>` : ""}
+  const badges = known
+    ? fragments
+        .map((fragment) => {
+          const active = activeIds.includes(fragment.id);
+          const rests = !active && Number(resting[fragment.id]) >= 1;
+          const className = active ? " active" : rests ? " resting" : "";
+          return `<span class="style-tag${className}">${esc(fragment.label)}</span>`;
+        })
+        .join("")
+    : "";
+  return `<div class="inspector-block"><h4>Moods</h4>
+    <div>${badges || (known ? '<span style="color:var(--text-muted);font-size:12px">None</span>' : "")}</div>
   </div>`;
 }
 
