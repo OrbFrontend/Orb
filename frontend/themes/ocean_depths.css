@@ -58,6 +58,8 @@ body {
   color: #6ff5a4 !important;
   text-shadow: 0 0 10px rgba(61,220,132,0.35) !important;
 }
+/* Only a pinned section header needs to hide what scrolls under it. */
+.sidebar-section-header:not(.stuck) { background: transparent !important; }
 .sidebar-section-header:hover { color: #56e8ec !important; }
 
 .btn {

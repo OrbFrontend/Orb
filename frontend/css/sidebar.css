@@ -68,10 +68,14 @@
 }
 
 .sidebar-section-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
+  background: var(--bg-primary);
   cursor: pointer;
   font-size: 11px;
   font-weight: 500;
@@ -80,6 +84,8 @@
   color: var(--text-secondary);
   user-select: none;
 }
+
+.sidebar-section-header.stuck { box-shadow: 0 1px 0 var(--border); }
 
 .sidebar-section-header:hover { color: var(--text-primary); }
 

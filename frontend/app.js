@@ -213,6 +213,32 @@ function toggleSection(header) {
 }
 window.toggleSection = toggleSection;
 
+// Section headers stick to the top of the sidebar while their body scrolls under them;
+// `.stuck` marks the pinned one so themes can style it. Collapsing from a pinned header
+// would leave the scroll offset deep inside what came after the section, so pull the
+// collapsed header back to the top.
+function initStickySectionHeaders() {
+  const scroller = document.querySelector("#sidebar .sidebar-scroll");
+  if (!scroller) return;
+  const markStuck = () => {
+    const top = scroller.getBoundingClientRect().top;
+    for (const header of scroller.querySelectorAll(".sidebar-section-header")) {
+      const section = header.parentElement.getBoundingClientRect();
+      header.classList.toggle("stuck", section.top < top && section.bottom > top);
+    }
+  };
+  scroller.addEventListener("scroll", markStuck, { passive: true });
+  scroller.addEventListener("click", (event) => {
+    const header = event.target.closest(".sidebar-section-header");
+    if (!header) return;
+    if (header.nextElementSibling?.classList.contains("collapsed")) {
+      const overshoot = scroller.getBoundingClientRect().top - header.getBoundingClientRect().top;
+      if (overshoot > 0) scroller.scrollTop -= overshoot;
+    }
+    markStuck();
+  });
+}
+
 function toggleBurger() {
   $("burger-dropdown").classList.toggle("open");
 }
@@ -440,6 +466,7 @@ initAudioPlayer();
 initTabLock();
 initWorkflowMutationListener();
 initGroupSetup();
+initStickySectionHeaders();
 
 if (!S.activeConvId) {
   renderMessages();
