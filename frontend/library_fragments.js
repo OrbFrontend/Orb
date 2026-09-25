@@ -637,22 +637,19 @@ function _stateUpdatesOffReason(f) {
 }
 
 function _featureGate(f) {
-  const feedbackOff = f.field_type === "feedback" && !S.feedbackEnabled;
   // Not disabled: the fragment is still injected and editable by hand.
   const stateUpdatesOff = _stateUpdatesOffReason(f);
-  const postProcessingOff = f.field_type === "post_processing" && !S.agentEnabled;
+  const agentOff = (f.field_type === "post_processing" || f.field_type === "feedback") && !S.agentEnabled;
   // Without a Judge, decisions remain enabled but are skipped at runtime.
   const judgeOff = f.field_type === "decision" && decisionConfig()?.configured === false;
-  const title = feedbackOff
-    ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
-    : stateUpdatesOff
-      ? `${stateUpdatesOff} -- this fragment is still injected and editable in the Inspector's State tab, but not updated automatically`
-      : postProcessingOff
-        ? "Agent is disabled -- enable it to use this post-processing fragment"
-        : judgeOff
-          ? "No Judge endpoint is configured -- this decision is skipped"
-          : f.description || "";
-  return { disabled: feedbackOff || postProcessingOff, title };
+  const title = stateUpdatesOff
+    ? `${stateUpdatesOff} -- this fragment is still injected and editable in the Inspector's State tab, but not updated automatically`
+    : agentOff
+      ? "Agent is disabled -- enable it to use this fragment"
+      : judgeOff
+        ? "No Judge endpoint is configured -- this decision is skipped"
+        : f.description || "";
+  return { disabled: agentOff, title };
 }
 
 function _cardMoodSidepanelHtml() {

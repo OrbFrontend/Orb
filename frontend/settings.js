@@ -76,7 +76,6 @@ export async function loadSettings() {
 
   S.agenticLorebookEnabled = Boolean(S.settings.agentic_lorebook_enabled);
 
-  S.feedbackEnabled = Boolean(S.settings.feedback_enabled);
   S.directorIndividualFragments = Boolean(S.settings.director_individual_fragments);
   S.stateUpdates = S.settings.state_updates !== 0 && S.settings.state_updates !== false;
 
@@ -448,13 +447,6 @@ export async function toggleAgenticLorebook(on) {
   await persistSettings({ agentic_lorebook_enabled: on });
 }
 
-export async function toggleFeedbackEnabled(on) {
-  S.feedbackEnabled = on;
-  renderToolsPanel();
-  renderInteractiveFragments();
-  await persistSettings({ feedback_enabled: on });
-}
-
 export async function toggleDirectorIndividualFragments(on) {
   S.directorIndividualFragments = on;
   renderToolsPanel();
@@ -685,18 +677,6 @@ export function renderToolsPanel() {
     ${lgConfig}
   </div>`;
 
-  const fbOn = S.feedbackEnabled;
-  const feedbackCard = `<div class="tool-card ${fbOn ? "tool-on" : ""}">
-    <div class="tool-card-header">
-      <span class="tool-card-name">Editor Feedback</span>
-      <label class="tog" onclick="event.stopPropagation()">
-        <input type="checkbox" ${fbOn ? "checked" : ""} onchange="toggleFeedbackEnabled(this.checked)">
-        <span class="tog-slider"></span>
-      </label>
-    </div>
-    <div class="tool-card-desc">After each reply, surfaces a note to you (e.g. what you could do next). Runs only when at least one interactive fragment has its Field Type set to "feedback".</div>
-  </div>`;
-
   const stateOn = S.stateUpdates;
   const stateUpdatesCard = `<div class="tool-card ${stateOn ? "tool-on" : ""}">
     <div class="tool-card-header">
@@ -718,8 +698,7 @@ export function renderToolsPanel() {
     stateUpdatesCard +
     divider("Editor") +
     cardById.editor_apply_patch +
-    lengthGuardCard +
-    feedbackCard;
+    lengthGuardCard;
 
   const secEl = $("tools-list-secondary");
   if (secEl) {

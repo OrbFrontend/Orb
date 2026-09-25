@@ -35,7 +35,6 @@ async def _setup(client) -> None:
             "enabled_tools": {"direct_scene": True, "editor_apply_patch": True},
             "length_guard_enabled": True,
             "length_guard_max_words": 5,
-            "feedback_enabled": True,
             "reasoning_enabled_passes": {"director": True, "writer": True, "editor": True},
             "reasoning_prefill_passes": _PREFILLS,
         },

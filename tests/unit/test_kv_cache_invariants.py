@@ -327,7 +327,7 @@ async def _run_turn(
     state_fragments = state_fragments or []
     interactive_fragments = [*_INTERACTIVE_FRAGMENTS, *feedback_fragments, *state_fragments]
     schema_overrides = {"direct_scene": build_direct_scene_tool(_INTERACTIVE_FRAGMENTS)}
-    if bool(settings.get("feedback_enabled", 0)) and feedback_fragments:
+    if feedback_fragments:
         schema_overrides["give_feedback"] = build_feedback_tool(feedback_fragments)
         enabled_tools["give_feedback"] = True
     if tool_fragments := StateContract.capture(settings, state_fragments).tool_fragments():
@@ -493,7 +493,7 @@ async def test_feedback_step_reuses_shared_blob_no_cache_bust():
     prefix = _make_prefix("You are a vivid roleplay narrator.", n_pairs=4)
     tracker, client, _ = await _run_turn(
         prefix=prefix,
-        settings=_base_settings(feedback_enabled=1),
+        settings=_base_settings(),
         conversation_id="conv-feedback-kv",
         client=CapturingClient("writer-model"),
         feedback_fragments=[_FEEDBACK_FRAGMENT],
@@ -502,7 +502,7 @@ async def test_feedback_step_reuses_shared_blob_no_cache_bust():
     _reconcile_tracker_with_client(tracker, client)
 
     entries = {e["label"]: e for e in tracker._entries}
-    assert "feedback" in entries, "feedback step did not fire (feedback_enabled + fragment present)"
+    assert "feedback" in entries, "feedback step did not fire (feedback fragment present)"
 
     # Inv-3 with give_feedback present: ONE tools blob across director, writer,
     # editor AND feedback. The feedback call no longer swaps the blob.
@@ -608,7 +608,6 @@ async def test_dual_model_feedback_rides_agent_lane_writer_stays_empty():
         model_name="writer-model",
         agent_same_as_writer=False,
         agent_model_name="agent-model",
-        feedback_enabled=1,
     )
     tracker, client, agent_client = await _run_turn(
         prefix=writer_prefix,

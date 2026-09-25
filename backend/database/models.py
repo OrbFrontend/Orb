@@ -94,7 +94,6 @@ class _SettingsBase(TypedDict):
     prevent_prompt_overrides: int
     agent_same_as_writer: bool
     agent_shared_system_prompt: str
-    feedback_enabled: int
     director_individual_fragments: int
     # The global switch for every automatic state-fragment update call.
     state_updates: int

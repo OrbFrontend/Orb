@@ -65,20 +65,14 @@ MAX_EDITOR_ITERATIONS = 3
 AUDIT_BASELINE_WINDOW = 20
 
 
-def _feedback_active(
-    settings: Mapping[str, Any],
-    feedback_fragments: Sequence[Mapping[str, Any]],
-    *,
-    agent_on: bool,
-) -> bool:
+def _feedback_active(feedback_fragments: Sequence[Mapping[str, Any]], *, agent_on: bool) -> bool:
     """Return True when the feedback step should run this turn.
 
-    Requires the feedback flag, the agent on, and at least one enabled feedback
-    fragment. *agent_on* is passed in (rather than recomputed) so
-    ``agent_enabled`` stays the single source of truth — mirroring
-    ``resolve_length_guard``.
+    Requires the agent on and at least one enabled feedback fragment, like
+    ``post_processing_active``. *agent_on* is passed in (rather than recomputed)
+    so ``agent_enabled`` stays the single source of truth.
     """
-    return agent_on and bool(settings.get("feedback_enabled", 0)) and bool(feedback_fragments)
+    return agent_on and bool(feedback_fragments)
 
 
 def build_feedback_override(feedback_fragments: Sequence[Mapping[str, Any]]) -> dict:
@@ -354,11 +348,11 @@ async def editor_stage(
     """
     # The feedback step is an editor sub-step (post-processing on the final text),
     # not a top-level pass: it shares the editor's reasoning channel and timing and
-    # surfaces only its user-facing note. It is gated on the feedback_enabled
-    # setting AND at least one enabled feedback-type fragment, so the extra LLM
-    # call is fully opt-in. Because feedback is folded in here, we still enter the
-    # editor pass (with audit/guard editing disabled) when only fragment work is wanted.
-    feedback_needed = _feedback_active(settings, feedback_fragments, agent_on=cfg.agent_on)
+    # surfaces only its user-facing note. It is gated on the Agent AND at least
+    # one enabled feedback-type fragment, so the extra LLM call is fully opt-in.
+    # Because feedback is folded in here, we still enter the editor pass (with
+    # audit/guard editing disabled) when only fragment work is wanted.
+    feedback_needed = _feedback_active(feedback_fragments, agent_on=cfg.agent_on)
     post_processing_needed = post_processing_active(post_processing_fragments, agent_on=cfg.agent_on)
     editor_will_run = bool(state.resp_text and (cfg.do_edit or post_processing_needed or feedback_needed))
 

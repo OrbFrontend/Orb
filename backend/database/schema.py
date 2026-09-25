@@ -42,7 +42,6 @@ CREATE TABLE IF NOT EXISTS settings (
     agent_same_as_writer INTEGER NOT NULL DEFAULT 1,
     agent_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
     agent_shared_system_prompt TEXT NOT NULL DEFAULT '',
-    feedback_enabled INTEGER NOT NULL DEFAULT 0,
     director_individual_fragments INTEGER NOT NULL DEFAULT 0,
     -- Superseded by per-fragment state settings and state_updates; no longer
     -- written. Dropped by a follow-up cleanup migration after conversion checks.

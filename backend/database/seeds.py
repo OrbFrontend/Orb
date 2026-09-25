@@ -327,7 +327,6 @@ DEFAULT_SETTINGS = {
     "prevent_prompt_overrides": 0,
     "agent_same_as_writer": True,
     "agent_shared_system_prompt": "",
-    "feedback_enabled": 0,
     "director_individual_fragments": 0,
     "state_updates": 1,
     "workflows_globally_enabled": 1,

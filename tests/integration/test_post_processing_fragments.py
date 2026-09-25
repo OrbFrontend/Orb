@@ -56,7 +56,6 @@ async def test_ordered_fragments_edit_before_feedback_workflow_and_persistence(c
         "/api/settings",
         json={
             "enable_agent": True,
-            "feedback_enabled": True,
             "reasoning_enabled_passes": {"director": False, "writer": False, "editor": True},
         },
     )
@@ -210,7 +209,7 @@ async def test_post_processing_receives_output_auditors_edited_draft(client, llm
 async def test_abort_stops_remaining_fragments_feedback_and_workflows(client, llm_mock):
     cid = "conv-post-processing-abort"
     await dbmod.create_conversation(cid, "post abort", "Bot", "a scenario")
-    await client.put("/api/settings", json={"enable_agent": True, "feedback_enabled": True})
+    await client.put("/api/settings", json={"enable_agent": True})
     await client.put("/api/interactive-fragments/suggested_actions", json={"enabled": True})
     await _create_fragment(client, "first_abort", "First.", 8)
     await _create_fragment(client, "second_abort", "Second.", 9)

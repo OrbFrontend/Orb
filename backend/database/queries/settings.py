@@ -305,7 +305,6 @@ async def update_settings(data: dict) -> SettingsRow:
             "agent_same_as_writer",
             "agent_endpoint_id",
             "agent_shared_system_prompt",
-            "feedback_enabled",
             "director_individual_fragments",
             "state_updates",
             "inspector_open_states",

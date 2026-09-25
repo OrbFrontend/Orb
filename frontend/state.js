@@ -41,7 +41,6 @@ export const S = {
   lengthGuardMaxParagraphs: 4,
   lengthGuardEnforce: false,
   agenticLorebookEnabled: false,
-  feedbackEnabled: false,
   directorIndividualFragments: false,
   stateUpdates: true, // global switch for automatic state-fragment updates
   hideUntilBaked: false, // keep the streaming reply out of the DOM until final

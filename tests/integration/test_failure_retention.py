@@ -105,7 +105,6 @@ def _feedback_call(text: str) -> list[dict]:
 
 
 async def _enable_feedback(client) -> None:
-    await client.put("/api/settings", json={"feedback_enabled": True})
     await client.put("/api/interactive-fragments/suggested_actions", json={"enabled": True})
 
 

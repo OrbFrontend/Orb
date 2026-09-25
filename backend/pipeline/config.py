@@ -170,7 +170,7 @@ def _build_writer_tools_blob(
         enabled_tools["select_lorebook"] = True
     if dynamic_world:
         enabled_tools["propose_world_changes"] = True
-    if _feedback_active(settings, feedback_fragments, agent_on=agent_enabled(settings)):
+    if _feedback_active(feedback_fragments, agent_on=agent_enabled(settings)):
         overrides["give_feedback"] = build_feedback_override(feedback_fragments)
         enabled_tools["give_feedback"] = True
     if post_processing_active(post_processing_fragments, agent_on=agent_enabled(settings)):

@@ -11,8 +11,7 @@ comments, or other information that would not belong in the scene.
 1. Create or edit an [interactive fragment](director.md#interactive-fragments).
 2. Set **Field type** to **Feedback**.
 3. Set its Description and optional Injection label.
-4. In **Settings → Agents**, enable **Editor Feedback**.
-5. Enable the fragment.
+4. Enable the fragment.
 
 Orb runs all enabled feedback fragments after the Writer and Editor finish. The
 notes appear in the **Inspector**. Each fragment becomes a separate note.
