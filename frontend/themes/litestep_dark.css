@@ -18,8 +18,8 @@
   --border-light:#5a5a56;
 
   --text-primary:#e4e2dc;
-  --text-secondary:#a8b4c4;
-  --text-muted:#84909e;
+  --text-secondary:#c2ccd8;
+  --text-muted:#a3afbe;
 
   --accent:#f0922e;
   --accent-dim:#b06a1c;
@@ -68,7 +68,7 @@ body {
 #chat-header #mobile-chat-actions-toggle { color: #e4e2dc !important; }
 #chat-header .btn-accent, #chat-header .btn-active { color: #1e1102 !important; }
 
-.sidebar-section-header { color: #a8b4c4 !important; }
+.sidebar-section-header { color: #c2ccd8 !important; }
 .sidebar-section-header:hover { color: #e4e2dc !important; background: #48505a !important; }
 
 .btn {
@@ -161,7 +161,7 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   border: none !important;
   color: #e4e2dc !important;
 }
-.cb-arrow { color: #a8b4c4 !important; }
+.cb-arrow { color: #c2ccd8 !important; }
 .cb-dropdown {
   background: #42423f !important;
   border: 1px solid #101010 !important;

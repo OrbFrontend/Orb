@@ -1,7 +1,7 @@
 :root {
   --bg-deep:#031720;--bg-primary:#052430;--bg-surface:#07303f;--bg-elevated:#0a3f52;
   --bg-hover:#0e4d63;--border:#12475a;--border-light:#1a5f75;
-  --text-primary:#d8f2f4;--text-secondary:#6fa8b8;--text-muted:#3f7385;
+  --text-primary:#d8f2f4;--text-secondary:#6fa8b8;--text-muted:#639bab;
   --accent:#3ddc84;--accent-dim:#1e9e58;
   --accent-glow:rgba(61,220,132,0.16);--accent-muted:rgba(61,220,132,0.15);
   --red:#f4574d;

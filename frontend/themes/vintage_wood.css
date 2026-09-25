@@ -1,7 +1,7 @@
 :root {
   --bg-deep:#16110f;--bg-primary:#1f1815;--bg-surface:#2b211d;--bg-elevated:#382c26;
   --bg-hover:#473831;--border:#57463c;--border-light:#6e594d;
-  --text-primary:#e6d8ce;--text-secondary:#a89a90;--text-muted:#73655d;
+  --text-primary:#e6d8ce;--text-secondary:#a89a90;--text-muted:#95877e;
   --accent:#c47647;--accent-dim:#7a4628;--accent-glow:rgba(196,118,71,0.15);
   --red:#9e4642;
   --font-prose:'Lora',Georgia,'Palatino Linotype',Palatino,serif;--font-ui:Optima,Candara,'Segoe UI',system-ui,sans-serif;
