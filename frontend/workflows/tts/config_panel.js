@@ -12,6 +12,7 @@ import {
   requestRepaint,
   showModal,
   stopChannel,
+  toast,
 } from "/static/workflow_api.js";
 import { formatTime } from "./widget.js";
 
@@ -651,7 +652,7 @@ function settingsActionsHtml(hasProfile) {
     <span id="tts-pf-status" aria-live="polite"></span>
     <span id="tts-pf-time" aria-hidden="true"></span>
     <button class="btn" data-wf-action="tts:closeSettings">Close</button>
-    ${hasProfile ? `<button class="btn btn-accent" type="button" data-wf-action="tts:profileSave">Save voice</button>` : ""}`;
+    ${hasProfile ? `<button class="btn btn-accent" type="button" data-wf-action="tts:profileSave">Save</button>` : ""}`;
 }
 
 function setProfileActions(hasProfile) {
@@ -743,8 +744,13 @@ async function saveProfile() {
   try {
     const saved = readForm();
     const res = await api.post(triggerUrl(), { action: "set_profile", profile: saved, ...profileTarget() });
-    if (!res?.error) loadedProfile = saved;
-    if (status) status.textContent = res?.error ? res.error : "Saved";
+    if (res?.error) {
+      if (status) status.textContent = res.error;
+      return;
+    }
+    loadedProfile = saved;
+    toast("Voice saved");
+    closeModal();
   } catch (e) {
     console.error("tts: profile save failed", e);
     if (status) status.textContent = "Save failed";

@@ -22,7 +22,7 @@ whether generated audio starts playing on its own.
 
 Open a conversation, then open **Text-to-Speech → Settings**. The **Voice
 profile** section applies to the current character. Choose a backend, language,
-voice, and any options it offers. Use **Preview** before **Save voice**.
+voice, and any options it offers. Use **Preview** before **Save**.
 
 In a group chat, choose a **Cast member** first. Each reply uses the voice of the
 character who wrote it; the selected cast member only controls which profile you
