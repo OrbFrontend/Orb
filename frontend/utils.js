@@ -329,6 +329,24 @@ function _restoreInlineCode(html, codes) {
   return codes.length ? html.replace(CODE_SLOT_RE, (slot, i) => codes[i] ?? slot) : html;
 }
 
+// Showdown's inline link, as SillyTavern renders it: `[text](url "title")`,
+// with `<url>` also accepted. Tags match first so a link spelled inside an
+// attribute stays put. Cards hide model-only notes as `[](#'note')`, which is
+// an anchor with no text, so the reader never sees it.
+const INLINE_LINK_RE =
+  /(<[^>]*>)|(?<![!\\])\[((?:\[[^\]]*]|[^[\]])*)][ \t]*\([ \t]?(?:<([^>]*)>|<?(\S+?(?:\(\S*?\)\S*?)?)>?)(?:[ \t]*(["'])([^"]*?)\5)?[ \t]?\)/g;
+const EMPTY_LINK_URL_RE = /\(<?\s*>? ?(['"].*['"])?\)$/m;
+
+function _formatLinks(text) {
+  return text.replace(INLINE_LINK_RE, (match, tag, label, bracketUrl, url, _quote, title) => {
+    if (tag) return tag;
+    // Showdown reads `('note')` as an empty url, not as the url `'note'`.
+    const href = EMPTY_LINK_URL_RE.test(match) ? "" : (bracketUrl ?? url);
+    const titleAttr = title ? ` title="${escAttr(title)}"` : "";
+    return `<a href="${escAttr(href)}"${titleAttr}>${label}</a>`;
+  });
+}
+
 function _applyInlineFormatting(protectedText) {
   let out = protectedText.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   out = out.replace(/\*([^*]+?)\*/g, "<em>$1</em>");
@@ -341,10 +359,10 @@ function _formatSpan(text) {
   return _restoreTags(_applyInlineFormatting(body), tags);
 }
 
-/** Apply inline code, emphasis, quotes and ATX headings. */
+/** Apply inline code, links, emphasis, quotes and ATX headings. */
 function _formatInline(text) {
   const { body: prose, codes } = _protectInlineCode(_stripSlots(text));
-  const { body, tags } = _protectTags(prose);
+  const { body, tags } = _protectTags(_formatLinks(prose));
   let out = _applyInlineFormatting(body);
   out = out.replace(
     /^(#{1,6}) (.+)$/gm,

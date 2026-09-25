@@ -211,6 +211,17 @@ it("a comment is dropped rather than shown as text", () => {
   assert.ok(!/<script/i.test(render("<!-- <script>alert(1)</script> -->")), "script in comment");
 });
 
+it("a markdown hidden note renders as an empty link", () => {
+  // SillyTavern's other hiding place: `[](#'note')` is a link with no text, so
+  // the note rides in its title where the reader never sees it.
+  const html = render(`Visible. [](#' [The stone is salivating.]')`);
+  const doc = new dom.window.DOMParser().parseFromString(html, "text/html");
+  const link = doc.querySelector("a");
+  assert.equal(link?.getAttribute("title"), "[The stone is salivating.]", html);
+  assert.equal(link.textContent, "");
+  assert.equal(doc.body.textContent.trim(), "Visible.");
+});
+
 it("a checkbox and its label survive, still pointing at each other", () => {
   // The CSS-only disclosure widget: a checkbox, a label over the thumbnail, and
   // `input:checked ~ label img` to expand it. It only works if `for` follows the

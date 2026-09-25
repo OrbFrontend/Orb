@@ -71,3 +71,24 @@ test("fenced code is still escaped whole", () => {
   assert.ok(html.includes("const a = 1 &lt; 2 &amp;&amp; '*x*';"));
   assert.ok(!html.includes("<em>"));
 });
+
+test("a card's hidden note becomes an empty link, as in SillyTavern", () => {
+  installEscapingDocument();
+  const html = formatProse(`"Any questions?" [](#' [The stone is *salivating*.]')`);
+  assert.equal(
+    html,
+    '<span class="quoted">"Any questions?"</span> <a href="#" title=" [The stone is *salivating*.]"></a>',
+  );
+});
+
+test("inline links follow showdown", () => {
+  installEscapingDocument();
+  assert.equal(formatProse('[*see* "this"](http://x.com "t")'), '<a href="http://x.com" title="t"><em>see</em> <span class="quoted">"this"</span></a>');
+  // Showdown reads a bare quoted string as an empty url.
+  assert.equal(formatProse("[]('1994')"), '<a href=""></a>');
+  // Images, escaped brackets, code and attributes are not links.
+  assert.equal(formatProse("![alt](u)"), "![alt](u)");
+  assert.equal(formatProse("\\[x](y)"), "\\[x](y)");
+  assert.equal(formatProse("`[a](b)`"), '<code class="inline-code">[a](b)</code>');
+  assert.equal(formatProse('<span title="[a](b)">z</span>'), '<span title="[a](b)">z</span>');
+});
