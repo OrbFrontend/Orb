@@ -127,8 +127,9 @@ class TestAbortPropagation:
 
 
 class TestErrorAborts:
-    """A genuine error in any pass aborts the turn (exception escapes
-    _run_pipeline) instead of being swallowed and pressed on."""
+    """A genuine error in the Director or Writer aborts the turn (exception
+    escapes _run_pipeline) instead of being swallowed and pressed on. The
+    Editor only refines a finished draft, so its failure is a warning."""
 
     async def test_director_error_aborts_and_skips_writer(self):
         """An error in the director pass propagates and the writer never runs."""
@@ -169,9 +170,9 @@ class TestErrorAborts:
 
         assert writer_calls[0] == 0, "writer must not fire after a director-pass error"
 
-    async def test_editor_error_aborts_pipeline(self):
-        """An error in the editor pass propagates out instead of keeping the
-        original draft and completing the turn."""
+    async def test_editor_error_warns_and_completes_the_turn(self):
+        """An error escaping the editor pass is a warning: the turn keeps the
+        Writer's draft and still completes with ``_result``."""
         client = _make_client()
 
         async def mock_writer(*args, **kwargs):
@@ -194,16 +195,63 @@ class TestErrorAborts:
             patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer),
             patch("backend.pipeline.passes.editor.editor.editor_pass", new=mock_editor),
         ):
-            with pytest.raises(RuntimeError, match="editor endpoint exploded"):
-                await _drain(
-                    _run_pipeline(
-                        client,
-                        settings,
-                        _DIRECTOR_STATE,
-                        [],
-                        [],
-                        "hello",
-                        phrase_bank=[[]],
-                        **_pipeline_kwargs(settings["enabled_tools"]),
-                    )
+            events = await _drain(
+                _run_pipeline(
+                    client,
+                    settings,
+                    _DIRECTOR_STATE,
+                    [],
+                    [],
+                    "hello",
+                    phrase_bank=[[]],
+                    **_pipeline_kwargs(settings["enabled_tools"]),
                 )
+            )
+
+        warning = next(e["data"] for e in events if e["event"] == "warning")
+        assert warning["headline"] == "The Editor didn't finish."
+        assert warning["stage"] == "editor pass"
+        assert "editor endpoint exploded" in warning["sentence"]
+        result = next(e["data"] for e in events if e["event"] == "_result")
+        assert result["resp_text"] == "the full draft"
+
+    async def test_an_editor_error_after_stop_is_not_reported(self):
+        """A failure racing the user's Stop is explained by the Stop itself: no
+        warning, and the stopped turn still saves the Writer's draft."""
+        client = _make_client()
+
+        async def mock_writer(*args, **kwargs):
+            yield {"type": "content", "delta": "the full draft"}
+
+        async def mock_editor(*args, **kwargs):
+            client.abort()
+            raise RuntimeError("stream closed by stop")
+            yield  # pragma: no cover — makes this an async generator
+
+        settings = {
+            "model_name": "test",
+            "enable_agent": 1,
+            "enabled_tools": {"editor_apply_patch": True},
+            "reasoning_enabled_passes": {},
+        }
+
+        with (
+            patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer),
+            patch("backend.pipeline.passes.editor.editor.editor_pass", new=mock_editor),
+        ):
+            events = await _drain(
+                _run_pipeline(
+                    client,
+                    settings,
+                    _DIRECTOR_STATE,
+                    [],
+                    [],
+                    "hello",
+                    phrase_bank=[[]],
+                    **_pipeline_kwargs(settings["enabled_tools"]),
+                )
+            )
+
+        assert not [e for e in events if e["event"] == "warning"]
+        result = next(e["data"] for e in events if e["event"] == "_result")
+        assert result["resp_text"] == "the full draft"

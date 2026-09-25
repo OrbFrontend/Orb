@@ -17,6 +17,7 @@ from ....analysis import (
     format_report,
     run_audit,
 )
+from ...failures import STAGE_EDITOR, describe_failure
 from .feedback import FeedbackResult, feedback_step
 from .post_processing import (
     PostProcessingResult,
@@ -191,7 +192,12 @@ async def editor_pass(
     feedback_fragments: Sequence[Mapping[str, Any]] | None = None,
     post_processing_fragments: Sequence[Mapping[str, Any]] | None = None,
 ) -> AsyncIterator[dict]:
-    """Run the audit/edit loop, post-processing fragments, and feedback."""
+    """Run the audit/edit loop, post-processing fragments, and feedback.
+
+    A failing call does not end the pass. Its sub-step reports it as a
+    ``failure`` event and keeps what its finished calls produced; the later
+    sub-steps still run on the best draft reached.
+    """
     t0 = time.monotonic()
 
     if audit_enabled:
@@ -216,7 +222,7 @@ async def editor_pass(
     ):
         if ev["type"] == "reasoning":
             yield {**reasoning_delta_event(ev), "pass": "editor"}
-        elif ev["type"] == "draft_update":
+        elif ev["type"] in ("draft_update", "failure"):
             yield ev
         elif ev["type"] == "done":
             edit_done = ev
@@ -245,6 +251,8 @@ async def editor_pass(
             elif ev["type"] == "draft_update":
                 final_text = ev["draft"]
                 yield ev
+            elif ev["type"] == "failure":
+                yield ev
             elif ev["type"] == "done":
                 post: PostProcessingResult = ev["result"]
                 final_text = post.draft
@@ -253,26 +261,30 @@ async def editor_pass(
     feedback_values: dict = {}
     if feedback_fragments and final_text and not client.is_aborted:
         yield {"type": "step", "step": "feedback"}
-        async for ev in feedback_step(
-            client,
-            base,
-            final_text,
-            settings,
-            feedback_fragments,
-            # Same value the edit loop replays, so feedback extends the writer's
-            # KV-cached prefix instead of forking off the bare base.prefix.
-            writer_user_msg=(writer_user_msg if writer_user_msg is not None else effective_msg),
-            kv_tracker=kv_tracker,
-            # Feedback shares the editor's reasoning toggle — it is a sub-step, not
-            # a separately-configurable pass.
-            reasoning_on=reasoning_on,
-            reasoning_prefill=reasoning_prefill,
-        ):
-            if ev["type"] == "reasoning":
-                yield {**reasoning_delta_event(ev), "pass": "editor"}
-            elif ev["type"] == "done":
-                fb: FeedbackResult = ev["result"]
-                feedback_values = fb.values
+        try:
+            async for ev in feedback_step(
+                client,
+                base,
+                final_text,
+                settings,
+                feedback_fragments,
+                # Same value the edit loop replays, so feedback extends the writer's
+                # KV-cached prefix instead of forking off the bare base.prefix.
+                writer_user_msg=(writer_user_msg if writer_user_msg is not None else effective_msg),
+                kv_tracker=kv_tracker,
+                # Feedback shares the editor's reasoning toggle — it is a sub-step, not
+                # a separately-configurable pass.
+                reasoning_on=reasoning_on,
+                reasoning_prefill=reasoning_prefill,
+            ):
+                if ev["type"] == "reasoning":
+                    yield {**reasoning_delta_event(ev), "pass": "editor"}
+                elif ev["type"] == "done":
+                    fb: FeedbackResult = ev["result"]
+                    feedback_values = fb.values
+        except Exception as exc:
+            logger.exception("Feedback step failed; the reply keeps no feedback")
+            yield {"type": "failure", "during": "feedback", "label": "", "error": exc}
 
     done = dict(edit_done) if edit_done else {"type": "done", "draft": None, "debug": "", "elapsed": 0}
     done["draft"] = final_text if final_text != draft else None
@@ -283,6 +295,43 @@ async def editor_pass(
     # loop's own elapsed only timed the loop).
     done["elapsed"] = int((time.monotonic() - t0) * 1000)
     yield done
+
+
+# The ``warning`` headline for each sub-step's failure, named as the status line
+# names the step (frontend/generation_status.js).
+_FAILURE_HEADLINES = {
+    "output_auditor": "The draft audit didn't finish.",
+    "length_guard": "The length check didn't finish.",
+    "post_processing": "Post-processing “{label}” didn't finish.",
+    "feedback": "Feedback didn't finish.",
+    "editor": "The Editor didn't finish.",
+}
+
+
+async def _reporting_failures(events: AsyncIterator[dict]) -> AsyncIterator[dict]:
+    """Pass *events* through, turning a failure that escapes them into a
+    ``failure`` event -- a defect outside the sub-steps' own reporting, such as
+    the initial audit. The draft stays what the last ``done`` made it."""
+    try:
+        async for event in events:
+            yield event
+    except Exception as exc:
+        logger.exception("Editor pass failed; keeping the draft it had reached")
+        yield {"type": "failure", "during": "editor", "label": "", "error": exc}
+
+
+def _failure_warning(event: Mapping[str, Any]) -> dict:
+    """The non-terminal ``warning`` for one failed Editor call.
+
+    The headline names the sub-step; the provider's own account of the failure
+    becomes the sentence, so a timeout still reads as a timeout.
+    """
+    payload = describe_failure(event["error"])
+    reason = " ".join(part for part in (payload["headline"], payload["sentence"]) if part)
+    payload["headline"] = _FAILURE_HEADLINES[event["during"]].format(label=event.get("label") or "fragment")
+    payload["sentence"] = reason
+    payload["stage"] = STAGE_EDITOR
+    return {"event": "warning", "data": payload}
 
 
 async def editor_stage(
@@ -326,31 +375,37 @@ async def editor_stage(
             post_processing_needed,
             feedback_needed,
         )
-        # Errors are not caught here: an editor failure propagates and aborts the
-        # turn, like the director/writer passes. _consume_pipeline's finally still
-        # fallback-persists whatever the writer already streamed.
-        async for event in editor_pass(
-            cfg.agent_lane.client,
-            cfg.agent_lane.base,
-            state.effective_msg,
-            state.resp_text,
-            settings,
-            phrase_bank or [],
-            # do_edit == (audit_enabled or length_guard is not None), so in the
-            # feedback-only path (do_edit False) both are already inert — pass them
-            # straight through and let the edit loop no-op.
-            cfg.audit_enabled,
-            cfg.length_guard,
-            kv_tracker=kv_tracker,
-            reasoning_on=cfg.editor_reasoning_on,
-            reasoning_prefill=cfg.editor_reasoning_prefill,
-            audit_context_msgs=editor_audit_msgs,
-            writer_user_msg=state.writer_content,
-            post_processing_fragments=post_processing_fragments if post_processing_needed else None,
-            feedback_fragments=feedback_fragments if feedback_needed else None,
+        # A failed Editor call does not abort the turn: editor_pass keeps the
+        # best draft reached and reports the failure, which surfaces as a
+        # non-terminal ``warning`` -- unless the user already stopped the turn,
+        # which is its own explanation.
+        async for event in _reporting_failures(
+            editor_pass(
+                cfg.agent_lane.client,
+                cfg.agent_lane.base,
+                state.effective_msg,
+                state.resp_text,
+                settings,
+                phrase_bank or [],
+                # do_edit == (audit_enabled or length_guard is not None), so in the
+                # feedback-only path (do_edit False) both are already inert — pass them
+                # straight through and let the edit loop no-op.
+                cfg.audit_enabled,
+                cfg.length_guard,
+                kv_tracker=kv_tracker,
+                reasoning_on=cfg.editor_reasoning_on,
+                reasoning_prefill=cfg.editor_reasoning_prefill,
+                audit_context_msgs=editor_audit_msgs,
+                writer_user_msg=state.writer_content,
+                post_processing_fragments=post_processing_fragments if post_processing_needed else None,
+                feedback_fragments=feedback_fragments if feedback_needed else None,
+            )
         ):
             if event["type"] == "step":
                 yield {"event": "step_start", "data": {"step": event["step"]}}
+            elif event["type"] == "failure":
+                if not cfg.agent_lane.client.is_aborted:
+                    yield _failure_warning(event)
             elif event["type"] == "reasoning":
                 # Feedback reasoning is folded into the editor channel (it is an
                 # editor sub-step, so it shares the Editor reasoning toggle and box).
@@ -372,6 +427,9 @@ async def editor_stage(
                         "data": {"refined_text": state.resp_text},
                     }
                 if event.get("tool_calls"):
+                    # On state.calls too, so the saved log lists them as the live
+                    # Inspector does after merging ``editor_done``.
+                    state.calls = [*state.calls, *event["tool_calls"]]
                     yield {
                         "event": "editor_done",
                         "data": {"tool_calls": event["tool_calls"]},
@@ -418,6 +476,8 @@ async def _run_edit_loop(
         ``{"type": "draft_update", "draft": str}`` — after every mutation of the
         working draft (per applied patch batch/rewrite); cosmetic, the ``done``
         draft stays authoritative
+        ``{"type": "failure", "during": str, "label": str, "error": Exception}`` —
+        an iteration failed; the loop stops and ``done`` keeps the draft so far
         ``{"type": "done", "draft": str|None, "debug": str, "elapsed": int}``
     """
     t0 = time.monotonic()
@@ -769,7 +829,15 @@ async def _run_edit_loop(
         except Exception as e:
             logger.error("Editor iteration %d failed: %s", iteration + 1, e, exc_info=True)
             debug_parts.append(f"Iteration {iteration + 1} error: {e}")
-            raise
+            # Stop editing, but keep what the finished iterations produced: the
+            # done event below carries their draft and calls.
+            yield {
+                "type": "failure",
+                "during": "output_auditor" if audit_enabled else "length_guard",
+                "label": "",
+                "error": e,
+            }
+            break
     else:
         logger.warning(
             "Editor: hit max iterations (%d) with %d issues remaining",

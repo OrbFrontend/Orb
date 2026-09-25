@@ -167,6 +167,8 @@ class FakeLLMClient:
             "auto_tag": [],
             "workflow": [],
         }
+        # One-shot failures, FIFO per pass: [calls still to let through, exception, mid_stream].
+        self._failures: dict[str, list[list]] = {}
         # Mirror LLMClient: the turn's clients share one abort token, so an
         # abort signalled on any of them is visible to all.
         self.abort_token = AbortToken()
@@ -263,6 +265,16 @@ class FakeLLMClient:
         self._gates[pass_name].append(gate)
         return gate
 
+    def fail(self, pass_name: str, exc: BaseException, *, after: int = 0, mid_stream: bool = False) -> None:
+        """Make a *pass_name* call raise *exc*, as a provider timeout or dropped
+        connection would: the next call, or the one after *after* more succeed.
+
+        The call raises after its queued reasoning. With *mid_stream* the writer
+        first streams its queued text, so the failure lands after tokens reached
+        the browser. One-shot and FIFO, like ``gate``.
+        """
+        self._failures.setdefault(pass_name, []).append([after, exc, mid_stream])
+
     def abort(self) -> None:
         """Mirror ``LLMClient.abort()``: makes in-flight ``complete()``
         calls exit at their next gate or yield boundary.
@@ -318,11 +330,23 @@ class FakeLLMClient:
                 if delta:
                     yield {"type": "reasoning", "delta": delta}
 
+        failures = self._failures.get(pass_name)
+        failure: list | None = None
+        if failures:
+            if failures[0][0] > 0:
+                failures[0][0] -= 1
+            else:
+                failure = failures.pop(0)
+        if failure is not None and not failure[2]:
+            raise failure[1]
+
         if pass_name == "writer":
             payload = self._queues["writer"].pop(0) if self._queues["writer"] else {"content": ""}
             text = payload.get("content", "")
             if text:
                 yield {"type": "content", "delta": text}
+            if failure is not None:
+                raise failure[1]
             # Faithful to a real provider: probs come back only when logprobs
             # were requested (the token_probs flag threads through to params).
             if params.get("logprobs"):

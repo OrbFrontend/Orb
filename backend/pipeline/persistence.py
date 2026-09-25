@@ -169,101 +169,59 @@ async def _fallback_persist(
     settings: Mapping[str, Any],
     user_msg_id: int | None,
     turn_index: int,
-    accumulated_text: str,
-    speaker_member_id: str | None = None,
-    exchange_id: str | None = None,
-    state_events: list[dict] | None = None,
-):
-    """Best-effort save for a turn aborted before ``_result`` fired.
+    *,
+    speaker_member_id: str | None,
+    exchange_id: str | None,
+    world_source_user_msg_id: int | None,
+    extra_on_result,
+) -> None:
+    """Best-effort save for a turn that ended before ``_result`` fired.
 
-    Saves whatever the writer streamed (``accumulated_text``) if non-empty,
-    together with the before-Writer *state_events* that shaped it; after-reply
-    changes never ran for it. Reasoning-only output does not create a message
-    node, and no node means no state change. Errors are swallowed so a save
-    failure never propagates to the caller.
+    *res* is the pipeline's live working state, so the save is the one
+    ``_persist_result`` makes for a finished turn: the latest authoritative
+    draft (what the Writer streamed, or the Editor's best draft so far) with the
+    Director record, decisions, cooldowns and state changes that shaped it, then
+    the log row the Inspector reads. After-reply work that never ran is simply
+    absent. No draft means no message node, and nothing commits without one.
+    Errors are swallowed so a save failure never masks the turn's own.
     """
     try:
-        if res.active_moods and agent_enabled(settings):
-            await db.update_director_state(
-                conversation_id,
-                res.active_moods,
-                macro_choices=res.macro_choices,
-            )
-
-        # accumulated_text holds only writer tokens (not reasoning deltas).
-        # Same persist-boundary macro resolution as _persist_result.
-        accumulated_text = resolve_inline(accumulated_text)
-        if accumulated_text.strip():
-            asst_id, _ = await db.add_message(
-                conversation_id,
-                "assistant",
-                accumulated_text,
-                turn_index,
-                parent_id=user_msg_id,
-                fragment_cooldowns=res.fragment_cooldowns,
-                # Keep decisions with partial output so the saved row remains inspectable.
-                decision_evaluations=res.decision_evaluations,
-                decision_cooldowns=res.decision_cooldowns,
-                state_events=state_events,
-                speaker_member_id=speaker_member_id,
-                exchange_id=exchange_id,
-                # The writer stage did not finish on this abort path, so its
-                # macro-frozen partial text is the closest retained draft.
-                writer_draft=accumulated_text,
-                advance_leaf=True,
-            )
-            logger.info(
-                "Fallback persistence saved incomplete assistant message (%d chars)",
-                len(accumulated_text),
-            )
+        if not res.resp_text.strip():
+            logger.info("Fallback persistence: the turn produced no reply text; nothing saved")
+            return
+        asst_id, _, _ = await _persist_result(
+            conversation_id,
+            res,
+            settings,
+            user_msg_id,
+            turn_index,
+            speaker_member_id=speaker_member_id,
+            exchange_id=exchange_id,
+            world_source_user_msg_id=world_source_user_msg_id,
+        )
+        logger.info("Fallback persistence saved incomplete assistant message (%d chars)", len(res.resp_text))
     except Exception:
         logger.exception("Fallback persistence failed")
-
-
-async def _shielded_fallback(
-    conversation_id: str,
-    res: TurnState,
-    settings: Mapping[str, Any],
-    user_msg_id: int | None,
-    turn_index: int,
-    accumulated_text: str,
-    speaker_member_id: str | None = None,
-    exchange_id: str | None = None,
-    state_events: list[dict] | None = None,
-):
-    """Run :func:`_fallback_persist` under ``asyncio.shield``, retrying once on cancellation.
-
-    Ensures partial output is saved even when the request task is cancelled mid-write.
-    """
-    try:
-        await asyncio.shield(
-            _fallback_persist(
-                conversation_id,
-                res,
-                settings,
-                user_msg_id,
-                turn_index,
-                accumulated_text,
-                speaker_member_id,
-                exchange_id,
-                state_events,
-            )
-        )
-    except asyncio.CancelledError:
+        return
+    if extra_on_result:
         try:
-            await _fallback_persist(
-                conversation_id,
-                res,
-                settings,
-                user_msg_id,
-                turn_index,
-                accumulated_text,
-                speaker_member_id,
-                exchange_id,
-                state_events,
-            )
+            await extra_on_result(res, asst_id)
         except Exception:
-            logger.exception("Fallback persistence retry failed")
+            logger.exception("Failed to save conversation log")
+
+
+async def _shielded_fallback(*args: Any, **kwargs: Any) -> None:
+    """Run :func:`_fallback_persist` to completion even if the request is cancelled.
+
+    ``asyncio.shield`` keeps the save running when the awaiting task is
+    cancelled, so a cancellation waits on that same task once more instead of
+    starting a second save -- a second run would insert the reply twice.
+    """
+    task = asyncio.ensure_future(_fallback_persist(*args, **kwargs))
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await task
 
 
 async def _shielded_log_save(extra_on_result, res: TurnState, asst_id: int | None):
@@ -308,16 +266,16 @@ async def _consume_pipeline(
     optional *extra_on_result* callback ``(res, asst_id) -> None`` (used to
     write the conversation log).
 
-    Falls back to partial persistence in the ``finally`` block if the pipeline
-    exits before ``_result`` fires (abort or error).
+    Falls back to persisting the pipeline's live state in the ``finally`` block
+    if the pipeline exits before ``_result`` fires (abort or error).
     """
     res = TurnState()
     asst_id = None
     persisted = False
     accumulated_text = ""
-    # Before-Writer state changes announced ahead of the Writer, kept for the
-    # fallback save of a stopped reply.
-    checkpoint_events: list[dict] = []
+    # The pipeline's live working state, announced ahead of the Writer, for the
+    # fallback save of a turn that ends before ``_result``.
+    live: TurnState | None = None
 
     try:
         async for event in pipeline:
@@ -325,8 +283,8 @@ async def _consume_pipeline(
             if etype == "token":
                 accumulated_text += event["data"]
                 yield event
-            elif etype == "_state_checkpoint":
-                checkpoint_events = list(event["data"].get("state_events") or [])
+            elif etype == "_turn_state":
+                live = event["data"]
             elif etype == "_result":
                 res = TurnState(**event["data"])
                 asst_id, rejected, proposals = await _persist_result(
@@ -361,14 +319,14 @@ async def _consume_pipeline(
         if not persisted:
             await _shielded_fallback(
                 conversation_id,
-                res,
+                live if live is not None else TurnState(resp_text=accumulated_text),
                 settings,
                 user_msg_id,
                 turn_index,
-                accumulated_text,
-                speaker_member_id,
-                exchange_id,
-                checkpoint_events,
+                speaker_member_id=speaker_member_id,
+                exchange_id=exchange_id,
+                world_source_user_msg_id=world_source_user_msg_id,
+                extra_on_result=extra_on_result,
             )
         elif extra_on_result:
             await _shielded_log_save(extra_on_result, res, asst_id)

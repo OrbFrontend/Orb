@@ -89,7 +89,7 @@ async def feedback_step(
     hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.4})
 
     resp: dict = {}
-    # Errors propagate out like the director/writer/editor passes.
+    # Errors propagate; editor_pass reports them as a non-terminal warning.
     async for event in base.complete_into(
         client,
         resp,

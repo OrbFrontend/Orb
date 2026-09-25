@@ -116,9 +116,13 @@ exchange.
 
 The internal `_result` event carries the completed reply to the persistence
 layer. It is consumed by `_consume_pipeline` and never sent to the browser.
-The internal `_state_checkpoint` event, emitted just before the Writer starts,
-hands persistence the turn's before-Writer state changes, so a stopped reply
-saved as partial text commits them with it; it is consumed the same way.
+The internal `_turn_state` event, emitted just before the Writer starts, hands
+persistence the turn's live working state and is consumed the same way. When a
+turn fails or is cancelled before `_result`, persistence saves that state as a
+finished turn would: the latest authoritative draft (the streamed Writer text,
+or the Editor's latest draft) with the Director's moods, cooldowns, decisions,
+state changes, and the Inspector log. The `error` event still ends the stream.
+A turn with no reply text saves nothing.
 Persistence happens before `done`, so the browser can trust the server when the
 stream closes.
 
@@ -139,8 +143,10 @@ received. A per-conversation stream lock prevents two generations from running
 at once.
 
 `error` is terminal. `warning` is optional work that declined and does not stop
-the turn. Workflow hooks may emit custom events, but names owned by the core
-dispatcher or names beginning with `_` are reserved.
+the turn. An Editor call that fails is a `warning`: the reply keeps the best
+draft the Editor reached, and the turn continues through workflows and the
+after-reply steps. Workflow hooks may emit custom events, but names owned by the
+core dispatcher or names beginning with `_` are reserved.
 
 ## Routes using the stream
 

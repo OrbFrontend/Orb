@@ -1,7 +1,7 @@
 """
-Regression test: when an Editor ReAct iteration fails, the exception must
-propagate out of editor_pass immediately.  No further LLM calls are made and
-no synthetic 'done' event is yielded.
+Regression test: when an Editor ReAct iteration fails, the loop stops with no
+further LLM calls, reports the failure, and its 'done' keeps the draft the
+finished iterations produced. The failure does not escape editor_pass.
 """
 
 from __future__ import annotations
@@ -53,10 +53,9 @@ def _make_report(issue_count: int) -> AuditReport:
 
 
 @pytest.mark.asyncio
-async def test_editor_iteration_exception_propagates():
-    """If client.complete raises during iteration 2, the exception must escape
-    editor_pass immediately — no 'done' event is yielded and no further LLM
-    calls are attempted."""
+async def test_editor_iteration_failure_stops_the_loop_and_keeps_the_draft():
+    """If client.complete raises during iteration 2, the loop reports it and
+    stops with no further LLM calls, and 'done' keeps iteration 1's patch."""
     client = _make_client()
 
     llm_call_count = 0
@@ -119,8 +118,8 @@ async def test_editor_iteration_exception_propagates():
             tools=tuple(enabled_schemas({"editor_apply_patch": True}, {})),
             model="test-model",
         )
-        events = []
-        with pytest.raises(RuntimeError, match="LLM API exploded"):
+        events = [
+            event
             async for event in editor_pass(
                 client,
                 base,
@@ -130,15 +129,19 @@ async def test_editor_iteration_exception_propagates():
                 phrase_bank=[[]],
                 audit_enabled=True,
                 length_guard=None,
-            ):
-                events.append(event)
+            )
+        ]
 
     # The first iteration succeeded, so we called the LLM twice:
     # once for iteration 1, once for iteration 2 (which exploded).
     assert llm_call_count == 2
 
-    # Iteration 1's successful patch surfaces as a draft_update before the
-    # failure; the final "done" must NOT be yielded because the generator
-    # aborted mid-loop (fake_complete produced no reasoning events).
-    assert [e["type"] for e in events] == ["step", "draft_update"]
+    # Iteration 1's successful patch surfaces as a draft_update, the failure is
+    # reported, and "done" hands the patch back as the pass's draft along with
+    # the call that produced it (fake_complete produced no reasoning).
+    assert [e["type"] for e in events] == ["step", "draft_update", "failure", "done"]
     assert events[1]["draft"] == "Fixed 0. Sentence 1."
+    assert events[2]["during"] == "output_auditor"
+    assert str(events[2]["error"]) == "LLM API exploded"
+    assert events[3]["draft"] == "Fixed 0. Sentence 1."
+    assert [call["name"] for call in events[3]["tool_calls"]] == ["editor_apply_patch"]

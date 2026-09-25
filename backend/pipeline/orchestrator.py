@@ -51,15 +51,8 @@ from .world_proposal import world_proposal_stage
 logger = logging.getLogger(__name__)
 
 
-def _make_result(state: TurnState, staged: list[dict] | None = None, staged_state: dict | None = None) -> dict:
-    """Build the terminal ``_result`` SSE event from *state*.
-
-    *staged* / *staged_state* are workflow attachments and per-message state
-    produced by post-pipeline hooks; they are folded onto *state* before
-    serialization so the whole result travels as one object.
-    """
-    state.staged_attachments = staged or []
-    state.staged_message_state = staged_state or {}
+def _make_result(state: TurnState) -> dict:
+    """Build the terminal ``_result`` SSE event from *state*."""
     return {"event": "_result", "data": state.as_result_event_data()}
 
 
@@ -261,10 +254,12 @@ async def _run_pipeline(
     if client.is_aborted:
         return
 
-    # The before-Writer state changes, for the fallback save: a reply stopped and
-    # saved as partial text keeps the changes that shaped it. Internal, like
-    # ``_result``: consumed by persistence and never sent to the browser.
-    yield {"event": "_state_checkpoint", "data": {"state_events": list(state.state_events)}}
+    # The live working state, for the fallback save: a turn that fails or is
+    # cancelled before ``_result`` still commits what its billed calls produced
+    # -- the Director record, decisions, cooldowns, the before-Writer state
+    # changes, and the latest authoritative draft. Internal, like ``_result``:
+    # consumed by persistence and never sent to the browser.
+    yield {"event": "_turn_state", "data": state}
 
     async for ev in staged(
         STAGE_WRITER,
@@ -359,8 +354,11 @@ async def _run_pipeline(
             yield ev
     assert post is not None
 
-    # Fold any hook-rewritten draft back into state before emitting _result.
+    # Fold the hooks' output into state at once, so a later failure still saves
+    # the rewritten draft and the attachments a hook already paid to render.
     state.resp_text = post.draft
+    state.staged_attachments = post.staged_attachments
+    state.staged_message_state = post.staged_message_state
 
     # Sees the finished reply. Skipped on an empty draft (no message to anchor the
     # changes to) and on a stop arriving after the last pre-editor abort check.
@@ -425,5 +423,5 @@ async def _run_pipeline(
         ):
             yield ev
 
-    yield _make_result(state, post.staged_attachments, post.staged_message_state)
+    yield _make_result(state)
     kv_tracker.log_summary()

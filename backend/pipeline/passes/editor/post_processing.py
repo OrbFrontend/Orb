@@ -73,7 +73,11 @@ async def post_processing_step(
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
 ) -> AsyncIterator[dict]:
-    """Run one forced exact-edit call per fragment in ``sort_order``."""
+    """Run one forced exact-edit call per fragment in ``sort_order``.
+
+    A fragment whose call fails is reported as a ``failure`` event and skipped;
+    the draft keeps the earlier fragments' edits and the later ones still run.
+    """
     current = draft
     all_calls: list[dict] = []
     fragments = sorted(post_processing_fragments, key=lambda item: item.get("sort_order", 0))
@@ -90,17 +94,23 @@ async def post_processing_step(
         ]
         hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.25})
         resp: dict = {}
-        async for event in base.complete_into(
-            client,
-            resp,
-            label="editor",
-            trailing=trailing,
-            tool_choice=EDITOR_SEARCH_REPLACE_CHOICE,
-            kv_tracker=kv_tracker,
-            **hyperparams,
-            **reasoning_cfg(reasoning_on, reasoning_prefill),
-        ):
-            yield event
+        try:
+            async for event in base.complete_into(
+                client,
+                resp,
+                label="editor",
+                trailing=trailing,
+                tool_choice=EDITOR_SEARCH_REPLACE_CHOICE,
+                kv_tracker=kv_tracker,
+                **hyperparams,
+                **reasoning_cfg(reasoning_on, reasoning_prefill),
+            ):
+                yield event
+        except Exception as exc:
+            logger.exception("Post-processing fragment %r failed; skipping it", fragment.get("id", ""))
+            label = fragment.get("label") or fragment.get("id", "")
+            yield {"type": "failure", "during": "post_processing", "label": label, "error": exc}
+            continue
 
         parsed = parse_tool_calls(resp)
         all_calls.extend(parsed)
