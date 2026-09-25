@@ -210,14 +210,19 @@ chat request:
 | Last message of the `CachedBase` prefix | 1 h | Every pass of the turn, and the next turn |
 | Final block | 5 min | The Editor extending the Writer's request, and its ReAct iterations |
 
-The experimental Claude Code CLI does not expose those markers for an Orb
-transcript. It receives that transcript as JSON data in one CLI user message,
-so a changed tail cannot read the earlier part of that message from cache.
-Its adapter places completed groups of eight `CachedBase` history entries in
-the CLI system prompt, leaving recent history and pass instructions in the
-user message. This provides a stable cache anchor across most new turns and
-regenerations; the boundary advances and rewrites that anchor every eight
-history entries.
+The experimental Claude Code CLI marks its system prompt and the final block of
+its input itself. Orb sends the transcript as JSON data in one CLI user message,
+split into one text block per entry, and marks the last `CachedBase` entry with
+the CLI's 1 h TTL; the CLI keeps that marker on the wire. Every earlier base end
+is a block boundary, so each turn and regeneration reads the previous call's
+base and writes only the entries after it.
+
+A structured call reaches the model as the CLI's `StructuredOutput` tool, and
+tools precede the system prompt in the cached prefix. The adapter therefore
+builds that schema from the lane's tool list alone, one key per tool plus
+`none`, so every agent pass of a turn sends the same tool. The pass's tool
+choice rides in the final block as an instruction, and the adapter rejects an
+answer under another key than the forced one.
 
 `CachedBase.complete` passes its prefix length as `cache_prefix_len`, so the
 base anchor sits exactly where the frozen base ends. Calls without a base get
