@@ -164,3 +164,12 @@ limits, and billing depend on Anthropic; this integration is unofficial and may 
 away in the future.
 
 The endpoint marker is `claude-code://local`.
+
+### Inspector mood availability
+
+`GET /api/conversations/{cid}/messages/{msg_id}/director-log` includes
+`mood_data_available`. It is false when the reply has no saved diagnostic log;
+its compatibility `active_moods: []` must not be interpreted as a known inactive
+mood selection. Inspector badges describe the selected reply. Resting badges use
+the cooldown snapshot before that reply (before the exchange for group replies),
+never the cooldowns that the reply leaves for the next turn.

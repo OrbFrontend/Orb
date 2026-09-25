@@ -7,7 +7,7 @@ import {
   renderMessages,
   setMessages,
 } from "./chat_core.js";
-import { clearInspectedMessage, clearWorkflowPhase, renderInspector, setWorkflowPhase } from "./chat_inspector.js";
+import { clearInspectedMessage, clearWorkflowPhase, inspectMessage, setWorkflowPhase } from "./chat_inspector.js";
 import { runStreamRequest, turnPayload } from "./chat_stream.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageHtml } from "./message_html.js";
@@ -64,25 +64,6 @@ export function cancelForkEdit() {
   S.forkEditMsgId = null;
   renderMessages();
   if (msgId != null) scrollToMessage(msgId);
-}
-
-export async function inspectMessage(msgId) {
-  if (!S.activeConvId) return;
-  try {
-    S.inspectedMsgId = msgId;
-    S.inspectedDirectorData = await api.get(convUrl(S.activeConvId, "messages", msgId, "director-log"));
-    S.reasoningDirector = S.inspectedDirectorData.reasoning_director || "";
-    S.reasoningWriter = S.inspectedDirectorData.reasoning_writer || "";
-    S.reasoningEditor = S.inspectedDirectorData.reasoning_editor || "";
-    const highestPassIdx = S.reasoningEditor ? 2 : S.reasoningWriter ? 1 : 0;
-    S.reasoningPassActive = highestPassIdx;
-    S.reasoningPassSelected = highestPassIdx;
-    S.reasoningUserOverride = false;
-    renderInspector();
-  } catch (_e) {
-    S.inspectedDirectorData = null;
-    renderInspector();
-  }
 }
 
 // A manual state edit lands on the branch's latest message. When the Inspector
@@ -500,3 +481,5 @@ export function cancelEditPending() {
   S.editingPendingUserMsg = false;
   renderMessages();
 }
+
+export { inspectMessage } from "./chat_inspector.js";

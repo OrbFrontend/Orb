@@ -855,6 +855,7 @@ async def api_get_message_director_log(
     if not log:
         return {
             "active_moods": [],
+            "mood_data_available": False,
             "tool_calls": [],
             "injection_block": "",
             "agent_latency_ms": 0,
@@ -868,6 +869,7 @@ async def api_get_message_director_log(
         }
     return {
         "active_moods": log.get("active_moods_after", []),
+        "mood_data_available": True,
         "tool_calls": log.get("tool_calls", []),
         "injection_block": log.get("injection_block", ""),
         "agent_latency_ms": log.get("agent_latency_ms", 0),

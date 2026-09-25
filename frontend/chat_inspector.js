@@ -5,7 +5,7 @@ import { CHEVRON_RIGHT_ICON } from "./icons.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { preserveScroll } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, interactiveFragmentsView, moodFragmentsView, restingCooldowns, S } from "./state.js";
-import { $, esc, escAttr, escHandlerArg, sentenceTail } from "./utils.js";
+import { $, convUrl, esc, escAttr, escHandlerArg, sentenceTail } from "./utils.js";
 
 export const REASONING_PASSES = [
   { key: "director", label: "Director", color: "var(--accent-dim)" },
@@ -14,6 +14,36 @@ export const REASONING_PASSES = [
 ];
 
 const REASONING_BOTTOM_THRESHOLD = 20;
+
+let inspectionRequest = 0;
+
+export async function inspectMessage(msgId) {
+  if (!S.activeConvId) return;
+  const conversationId = S.activeConvId;
+  const request = ++inspectionRequest;
+  S.inspectedMsgId = msgId;
+  S.inspectedDirectorData = null;
+  renderInspector();
+  const isCurrent = () =>
+    request === inspectionRequest && S.activeConvId === conversationId && S.inspectedMsgId === msgId;
+  try {
+    const data = await api.get(convUrl(conversationId, "messages", msgId, "director-log"));
+    if (!isCurrent()) return;
+    S.inspectedDirectorData = data;
+    S.reasoningDirector = S.inspectedDirectorData.reasoning_director || "";
+    S.reasoningWriter = S.inspectedDirectorData.reasoning_writer || "";
+    S.reasoningEditor = S.inspectedDirectorData.reasoning_editor || "";
+    const highestPassIdx = S.reasoningEditor ? 2 : S.reasoningWriter ? 1 : 0;
+    S.reasoningPassActive = highestPassIdx;
+    S.reasoningPassSelected = highestPassIdx;
+    S.reasoningUserOverride = false;
+    renderInspector();
+  } catch (_e) {
+    if (!isCurrent()) return;
+    S.inspectedDirectorData = null;
+    renderInspector();
+  }
+}
 
 export function clearInspectedMessage() {
   S.inspectedMsgId = null;
@@ -515,20 +545,45 @@ export function renderInspector() {
   renderInspectorSecondary();
 }
 
-function _renderDirectorPanel({ activeIds, latency, toolCalls, injection, feedback, stateChanges, resting }) {
-  const restingIds = new Set(Object.keys(resting || {}).filter((id) => Number(resting[id]) >= 1));
-  const stylesHtml = moodFragmentsView()
-    .map(
-      (f) =>
-        `<span class="style-tag ${activeIds.includes(f.id) ? "active" : ""} ${restingIds.has(f.id) ? "resting" : ""}">${esc(f.label)}</span>`,
-    )
-    .join("");
+export function currentMoodsHtml() {
+  const inspecting = S.inspectedMsgId != null;
+  if (!inspecting && !S.isStreaming && !S.messages.some((message) => message.role === "assistant")) return "";
+  const data = inspecting ? S.inspectedDirectorData : S.lastDirectorData;
+  const known = data?.mood_data_available !== false && Array.isArray(data?.active_moods);
+  const activeIds = known ? data.active_moods : [];
+  const history = S.isStreaming ? S.messages.slice(0, S.streamCutoffIndex ?? S.messages.length) : S.messages;
+  const lastAssistant = history.findLast((message) => message.role === "assistant");
+  // A saved reply stores cooldowns for the following turn. Read the baseline
+  // before this reply, including before the whole exchange in group chats.
+  const resting = inspecting
+    ? restingCooldowns(S.inspectedMsgId)
+    : S.isStreaming
+      ? lastAssistant?.fragment_cooldowns || {}
+      : restingCooldowns(lastAssistant?.id);
+  const fragments = [...moodFragmentsView()];
+  for (const id of activeIds) {
+    if (!fragments.some((fragment) => fragment.id === id)) fragments.push({ id, label: id });
+  }
+  const badges = known
+    ? fragments
+        .map((fragment) => {
+          const active = activeIds.includes(fragment.id);
+          const rests = !active && Number(resting[fragment.id]) >= 1;
+          const className = active ? " active" : rests ? " resting" : "";
+          return `<span class="style-tag${className}">${esc(fragment.label)}</span>`;
+        })
+        .join("")
+    : "";
+  return `<div class="inspector-block"><h4>Moods</h4>
+    <div>${badges || (known ? '<span style="color:var(--text-muted);font-size:12px">None</span>' : "")}</div>
+  </div>`;
+}
+
+function _renderDirectorPanel({ latency, toolCalls, injection, feedback, stateChanges }) {
   withReasoningScroll(() => {
     $("inspector-content").innerHTML = `
       <div class="inspector-block" id="inspector-context-size"></div>
-      <div class="inspector-block"><h4>Moods</h4>
-        <div>${stylesHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
-      </div>
+      ${currentMoodsHtml()}
       ${_buildReasoningHtml()}
       ${currentDecisionsHtml()}
       ${buildFeedbackHtml(feedback)}
@@ -546,16 +601,11 @@ function _renderDirectorPanel({ activeIds, latency, toolCalls, injection, feedba
 }
 
 function _renderInspectorMain() {
-  if (S.isStreaming && S.lastDirectorData === null) {
-    const pendingMoodsHtml = moodFragmentsView()
-      .map((f) => `<span class="style-tag">${esc(f.label)}</span>`)
-      .join("");
+  if (S.inspectedMsgId == null && S.isStreaming && S.lastDirectorData === null) {
     withReasoningScroll(() => {
       $("inspector-content").innerHTML = `
        <div class="inspector-block" id="inspector-context-size"></div>
-       <div class="inspector-block"><h4>Moods</h4>
-         <div>${pendingMoodsHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
-       </div>
+       ${currentMoodsHtml()}
        ${_buildReasoningHtml()}
        ${currentDecisionsHtml()}
        <div style="color:var(--text-muted);font-size:12px;display:flex;align-items:center;gap:8px">
@@ -568,22 +618,19 @@ function _renderInspectorMain() {
 
   const insp = S.inspectedMsgId && S.inspectedDirectorData ? S.inspectedDirectorData : null;
 
-  if (insp) {
+  if (S.inspectedMsgId != null) {
+    const data = insp || {};
     _renderDirectorPanel({
-      activeIds: insp.active_moods || [],
-      latency: insp.agent_latency_ms || 0,
-      toolCalls: insp.tool_calls || [],
-      injection: insp.injection_block || "",
-      feedback: insp.feedback,
-      stateChanges: insp.state,
-      resting: restingCooldowns(S.inspectedMsgId),
+      latency: data.agent_latency_ms || 0,
+      toolCalls: data.tool_calls || [],
+      injection: data.injection_block || "",
+      feedback: data.feedback,
+      stateChanges: data.state,
     });
     return;
   }
 
-  const hasDirectorData =
-    (S.directorState && Object.keys(S.directorState).length > 0) ||
-    (S.lastDirectorData && Object.keys(S.lastDirectorData).length > 0);
+  const hasDirectorData = S.lastDirectorData && Object.keys(S.lastDirectorData).length > 0;
 
   if (!hasDirectorData) {
     const fbHtml = buildFeedbackHtml(S.lastFeedback?.values);
@@ -592,6 +639,7 @@ function _renderInspectorMain() {
     withReasoningScroll(() => {
       $("inspector-content").innerHTML = `
        <div class="inspector-block" id="inspector-context-size"></div>
+       ${currentMoodsHtml()}
        ${_buildReasoningHtml()}
        ${decHtml}
        ${fbHtml}
@@ -602,23 +650,13 @@ function _renderInspectorMain() {
     return;
   }
 
-  const ds = S.directorState || {};
   const ld = S.lastDirectorData || {};
-  const lastAssistant = [...S.messages].reverse().find((message) => message.role === "assistant");
-  // Director data from this session describes the turn that just ran, so its
-  // resting moods are the ones held over from before that turn. Without it the
-  // panel describes the turn about to run, whose resting moods are the ones the
-  // latest reply carries -- which is also what a turn still streaming reads,
-  // since its own reply is not synced until the stream ends.
-  const turnJustRan = Boolean(S.lastDirectorData) && !S.isStreaming && lastAssistant?.id != null;
   _renderDirectorPanel({
-    activeIds: ld.active_moods || ds.active_moods || [],
     latency: ld.agent_latency_ms || 0,
     toolCalls: ld.tool_calls || [],
     injection: ld.injection_block || "",
     feedback: S.lastFeedback?.values,
     stateChanges: S.lastState,
-    resting: turnJustRan ? restingCooldowns(lastAssistant.id) : lastAssistant?.fragment_cooldowns || {},
   });
 }
 

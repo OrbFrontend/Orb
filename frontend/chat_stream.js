@@ -21,6 +21,7 @@ import {
   _syncGenerationStatusVisibility,
   appendReasoningDelta,
   clearInspectedMessage,
+  inspectMessage,
   REASONING_PASSES,
   renderInspector,
 } from "./chat_inspector.js";
@@ -372,7 +373,10 @@ export async function afterStream() {
   S.completedExchangeMessageIds = [];
   renderGroupCast();
   if (wasGroupExchange && S.groupCast?.sheet_updates) refreshSheetProposals().then(renderGroupCast);
-  clearInspectedMessage();
+  S.lastDirectorData = null;
+  const latestReply = S.messages.findLast((message) => message.role === "assistant" && message.id);
+  if (latestReply) await inspectMessage(latestReply.id);
+  else clearInspectedMessage();
   refreshState();
   scrollToBottom(true);
   refreshCharacters();
@@ -757,6 +761,8 @@ export async function runStreamRequest(
 
   if (beforeRender) beforeRender();
 
+  S.lastDirectorData = null;
+  clearInspectedMessage();
   renderMessages();
   const ct = $("chat-messages");
   const holder = { el: null };
