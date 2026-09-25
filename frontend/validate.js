@@ -296,6 +296,7 @@ export function validateSetting(key, value) {
   switch (key) {
     case "endpoint_url": {
       if (typeof value === "string" && value.trim()) {
+        if (value === "claude-code://local") return { valid: true };
         return formatMatch(value, "Endpoint URL", "url");
       }
       return { valid: true };

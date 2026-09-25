@@ -72,7 +72,16 @@ def extract_cache_stats(usage: dict | None) -> dict:
             "source": "missing",
         }
 
-    prompt_tokens = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
+    # Anthropic splits the *entire* input across these three fields. Unlike
+    # OpenAI-style prompt_tokens, input_tokens is only the uncached tail.
+    anthropic_usage = "cache_read_input_tokens" in usage or "cache_creation_input_tokens" in usage
+    cache_read = int(usage.get("cache_read_input_tokens") or 0)
+    cache_write = int(usage.get("cache_creation_input_tokens") or 0)
+    prompt_tokens = (
+        int(usage.get("input_tokens") or 0) + cache_read + cache_write
+        if anthropic_usage
+        else int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+    )
 
     cached = 0
     source = "unrecognized"
@@ -84,24 +93,24 @@ def extract_cache_stats(usage: dict | None) -> dict:
             cached, source = int(v), "prompt_tokens_details.cached_tokens"
 
     if not cached:
-        v = usage.get("cache_read_input_tokens") or 0
-        if v:
-            cached, source = int(v), "cache_read_input_tokens"
+        if cache_read:
+            cached, source = cache_read, "cache_read_input_tokens"
 
     if not cached:
         v = usage.get("prompt_cache_hit_tokens") or 0
         if v:
             cached, source = int(v), "prompt_cache_hit_tokens"
 
-    cache_write = int(usage.get("cache_creation_input_tokens") or 0)
     if cache_write and source == "unrecognized":
         source = "cache_creation_input_tokens"
+    if anthropic_usage and source == "unrecognized":
+        source = "cache_read_input_tokens"
 
-    if int(prompt_tokens or 0) > 0 and source == "unrecognized" and not cache_write:
+    if prompt_tokens > 0 and source == "unrecognized" and not cache_write:
         source = "no_cache_fields"
 
     return {
-        "prompt_tokens": int(prompt_tokens or 0),
+        "prompt_tokens": prompt_tokens,
         "cached_tokens": cached,
         "cache_write_tokens": cache_write,
         "source": source,
@@ -217,7 +226,11 @@ class _KVCacheTracker:
                 msgs_total = e["msgs_chars"]
                 msgs_pct = (msgs_overlap / msgs_total * 100) if msgs_total else 0
                 tools_match = e["tools_serialized"] == prev["tools_serialized"] and e["tools_chars"] > 0
-                if e["tools_chars"] == 0 and prev["tools_chars"] == 0:
+                if lane[0] == "claude-code://local":
+                    # The adapter turns a selected schema into a CLI response
+                    # constraint; it never sends this tool array as tools.
+                    tools_note = "tools=CLI-managed (not compared)"
+                elif e["tools_chars"] == 0 and prev["tools_chars"] == 0:
                     tools_note = "tools=none"
                 elif tools_match:
                     tools_note = "tools_MATCH"

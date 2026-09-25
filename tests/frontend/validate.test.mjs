@@ -6,7 +6,14 @@ import {
   validateChatInput,
   validateConversationTitle,
   validateEditMessage,
+  validateSetting,
 } from "../../frontend/validate.js";
+
+test("endpoint settings accept only the reserved Claude Code marker", () => {
+  assert.equal(validateSetting("endpoint_url", "claude-code://local").valid, true);
+  assert.equal(validateSetting("endpoint_url", "https://example.com/v1").valid, true);
+  assert.equal(validateSetting("endpoint_url", "claude-code://other").valid, false);
+});
 
 test("validateChatInput rejects empty / whitespace", () => {
   assert.equal(validateChatInput("").valid, false);

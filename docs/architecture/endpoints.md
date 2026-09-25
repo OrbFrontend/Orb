@@ -153,3 +153,14 @@ change. Anthropic stream events are translated to Orb's existing `content`,
 both Anthropic and OpenAI-compatible routes. An OpenAI-compatible stream must
 reach a finish reason or `[DONE]`; an earlier EOF is a provider failure unless
 the turn was stopped.
+
+## Experimental Claude Code local transport
+
+Launch `./run_unix.sh --local-only` or `run_windows.bat --local-only` to bind Orb
+to `127.0.0.1` and expose the opt-in Claude Code setup card. The card checks the
+`claude` CLI and its existing login on the machine hosting Orb. If needed, run
+`claude auth login --claudeai` there. Claude Code subscription availability,
+limits, and billing depend on Anthropic; this integration is unofficial and may go
+away in the future.
+
+The endpoint marker is `claude-code://local`.

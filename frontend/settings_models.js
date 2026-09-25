@@ -25,6 +25,7 @@ const MODEL_HYPERPARAM_KEYS = [
 ];
 
 const STANDARD_REASONING_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh"];
+const CLAUDE_CODE_ENDPOINT = "claude-code://local";
 
 const REASONING_LEVEL_HINTS = [{ url: "nano-gpt.com", model: "glm", levels: ["max"] }];
 
@@ -168,6 +169,13 @@ export async function toggleAgentSameAsWriter(checked) {
 
 export function renderEndpoints() {
   function renderField(f, isAgent) {
+    const prefix = isAgent ? "agent_" : "";
+    const cliSelected = S.settings[`${prefix}endpoint_url`] === CLAUDE_CODE_ENDPOINT;
+    if (
+      cliSelected &&
+      ![`${prefix}endpoint_url`, `${prefix}model_name`, `${prefix}shared_system_prompt`, "system_prompt"].includes(f.k)
+    )
+      return "";
     const v = S.settings[f.k] ?? "";
     const saveFn = isAgent ? "saveAgentSetting" : "saveSetting";
     if (f.t === "textarea") {
@@ -188,19 +196,25 @@ export function renderEndpoints() {
     }
     if (f.k === "endpoint_url" || f.k === "model_name" || f.k === "agent_endpoint_url" || f.k === "agent_model_name") {
       const ph =
-        f.k === "endpoint_url" || f.k === "agent_endpoint_url" ? "http://localhost:5000/v1" : "google/gemma-4-31b-it";
+        f.k === "endpoint_url" || f.k === "agent_endpoint_url"
+          ? "http://localhost:5000/v1"
+          : cliSelected
+            ? "sonnet"
+            : "google/gemma-4-31b-it";
       const warningHtml =
         f.k === "agent_model_name"
           ? `<div id="agent-model-match-warning" class="field-warning" style="display:none">Warning: Same endpoint and model as writer detected - this increases cache cost significantly.</div>`
           : "";
-      return `<div class="field"><label>${f.l}</label>
+      const aliasListId = cliSelected && f.k.endsWith("model_name") ? `claude-code-aliases-${f.k}` : "";
+      return `<div class="field"><label>${cliSelected && f.k.endsWith("model_name") ? "CLI model alias" : f.l}</label>
         <div class="cb-root" data-combobox="${f.k}">
           <div class="cb-control">
-            <input type="text" class="cb-input" value="${v}" data-key="${f.k}" placeholder="${ph}" autocomplete="off" onchange="${saveFn}(this)">
+            <input type="text" class="cb-input" value="${v}" data-key="${f.k}" placeholder="${ph}"${aliasListId ? ` list="${aliasListId}"` : ""} autocomplete="off" onchange="${saveFn}(this)">
             <span class="cb-arrow"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4 6,8 10,4"/></svg></span>
           </div>
           <div class="cb-dropdown" hidden><div class="cb-list"></div></div>
         </div>
+        ${aliasListId ? `<datalist id="${aliasListId}"><option value="sonnet"><option value="opus"><option value="haiku"></datalist>` : ""}
         ${warningHtml}
       </div>`;
     }
@@ -237,6 +251,7 @@ export function renderEndpoints() {
 
   function renderForm(fields, isAgent) {
     const p = isAgent ? "agent_" : "";
+    const cliSelected = S.settings[`${p}endpoint_url`] === CLAUDE_CODE_ENDPOINT;
     const byKey = new Map(fields.map((f) => [f.k, f]));
     const grouped = new Set(FIELD_GROUPS.flatMap((g) => g.keys.map((k) => p + k)));
     let html = fields
@@ -246,18 +261,36 @@ export function renderEndpoints() {
     for (const g of FIELD_GROUPS) {
       const members = g.keys.map((k) => byKey.get(p + k)).filter(Boolean);
       if (!members.length) continue;
+      if (cliSelected && g.l !== "Prompts") continue;
       html += `<details class="ep-group${g.cls || ""}">
         <summary>${g.l}</summary>
         ${members.map((f) => renderField(f, isAgent)).join("")}
       </details>`;
     }
+    if (cliSelected) html += `<div class="tool-card-desc">Claude Code has control of sampling and output limits.</div>`;
     return html;
   }
 
   const agentHidden = S.agentSameAsWriter ? ' style="display:none"' : "";
+  const claudeCodeWriterSelected = S.settings.endpoint_url === CLAUDE_CODE_ENDPOINT;
 
   $("endpoints-form").innerHTML = `
+    ${!S.claudeCodeLocalOnly && (claudeCodeWriterSelected || S.settings.agent_endpoint_url === CLAUDE_CODE_ENDPOINT) ? `<div class="field-warning">This saved Claude Code endpoint requires restarting Orb with --local-only on 127.0.0.1.</div>` : ""}
     ${renderForm(SETTING_FIELDS, false)}
+    ${
+      S.claudeCodeLocalOnly && claudeCodeWriterSelected
+        ? `<div class="tool-card claude-code-setup" data-claude-code-setup>
+      <div class="claude-code-setup-action">
+        <div class="claude-code-setup-copy">
+          <div class="tool-card-header"><span class="tool-card-name">Claude Code (experimental)</span></div>
+          <div class="tool-card-desc">Uses the Claude Code CLI on the machine hosting Orb.</div>
+        </div>
+        <button class="btn btn-sm" type="button" data-claude-code-enable>Use Claude Code</button>
+      </div>
+      <div class="tool-card-desc claude-code-setup-status" data-claude-code-status role="status"></div>
+    </div>`
+        : ""
+    }
     <div class="ep-chat-only">
       <div style="display:flex;align-items:center;gap:12px;margin:12px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Agent</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
       <div class="tool-card" style="margin-bottom:12px">
@@ -276,6 +309,7 @@ export function renderEndpoints() {
     </div>
     ${_judgeLaneHtml()}
   `;
+  document.querySelector("[data-claude-code-enable]")?.addEventListener("click", enableClaudeCode);
   initComboboxes();
   updateReasoningEffortFields();
   updateAgentModelWarning();
@@ -591,8 +625,12 @@ export function initComboboxes() {
     fn();
   });
   _comboboxCleanups = [];
+  const choices = (ctx) =>
+    S.endpoints
+      .filter((e) => e.url !== CLAUDE_CODE_ENDPOINT || S.settings[ctx.urlField] === CLAUDE_CODE_ENDPOINT)
+      .map((e) => ({ value: e.url, id: e.id, type: "endpoint" }));
   const epRoot = document.querySelector('[data-combobox="endpoint_url"]');
-  if (epRoot) initCombobox(epRoot, () => S.endpoints.map((e) => ({ value: e.url, id: e.id, type: "endpoint" })));
+  if (epRoot) initCombobox(epRoot, () => choices(WRITER_CTX));
   const mdRoot = document.querySelector('[data-combobox="model_name"]');
   if (mdRoot)
     initCombobox(mdRoot, () => _modelChoices(WRITER_CTX), {
@@ -601,7 +639,7 @@ export function initComboboxes() {
     });
   const agentEpRoot = document.querySelector('[data-combobox="agent_endpoint_url"]');
   if (agentEpRoot)
-    initCombobox(agentEpRoot, () => S.endpoints.map((e) => ({ value: e.url, id: e.id, type: "endpoint" })), {
+    initCombobox(agentEpRoot, () => choices(AGENT_CTX), {
       lane: "agent",
     });
   const agentMdRoot = document.querySelector('[data-combobox="agent_model_name"]');
@@ -938,6 +976,7 @@ function initCombobox(rootEl, getItems, { lane = "writer", searchable = false, l
 
 export async function loadEndpoints() {
   try {
+    S.claudeCodeLocalOnly = (await api.get("/claude-code/availability")).local_only === true;
     // Load the chat and Judge endpoint pools separately.
     [S.endpoints, S.judgeEndpoints] = await Promise.all([
       api.get("/endpoints?kind=chat"),
@@ -959,10 +998,63 @@ export async function loadEndpoints() {
   }
 }
 
+async function enableClaudeCode() {
+  const panel = document.querySelector("[data-claude-code-setup]");
+  const status = panel?.querySelector("[data-claude-code-status]");
+  const alias = document.querySelector('[data-key="model_name"]')?.value.trim() || "sonnet";
+  if (!status) return;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(alias)) {
+    status.textContent = "Enter a CLI model alias or model name without spaces or flags.";
+    return;
+  }
+  status.textContent = "Checking Claude Code on the Orb host…";
+  try {
+    const check = await api.get("/claude-code/status");
+    if (!check.installed) {
+      status.textContent =
+        "Install the Claude Code CLI on the machine hosting Orb, then restart Orb in local-only mode.";
+      return;
+    }
+    if (!check.authenticated) {
+      status.textContent =
+        "Run claude auth login --claudeai in a terminal on the Orb host, then try again. For unattended CLI use, you may run claude setup-token yourself; Orb never handles that token.";
+      return;
+    }
+    let endpoint = S.endpoints.find((item) => item.url === CLAUDE_CODE_ENDPOINT);
+    if (!endpoint) {
+      endpoint = await api.post("/endpoints", { url: CLAUDE_CODE_ENDPOINT, api_key: "" });
+      S.endpoints.push(endpoint);
+    }
+    S.activeEndpointId = endpoint.id;
+    await _loadConfigs(WRITER_CTX, endpoint.id);
+    await _syncModelConfigRecord(WRITER_CTX, alias, {});
+    const newAgentSetup = !S.agentEndpointId;
+    S.settings = await api.put("/settings", {
+      active_endpoint_id: endpoint.id,
+      ...(newAgentSetup ? { agent_same_as_writer: true } : {}),
+    });
+    if (newAgentSetup) S.agentSameAsWriter = true;
+    populateEndpointDatalist();
+    renderEndpoints();
+    _fillEndpointFields(WRITER_CTX);
+    toast("Claude Code selected");
+  } catch (e) {
+    status.textContent = `Claude Code setup failed: ${e.message}`;
+  }
+}
+
 function populateEndpointDatalist() {
   const dl = document.getElementById("endpoint-datalist");
   if (!dl) return;
-  dl.innerHTML = S.endpoints.map((e) => `<option value="${esc(e.url)}"></option>`).join("");
+  dl.innerHTML = S.endpoints
+    .filter(
+      (e) =>
+        e.url !== CLAUDE_CODE_ENDPOINT ||
+        S.settings.endpoint_url === CLAUDE_CODE_ENDPOINT ||
+        S.settings.agent_endpoint_url === CLAUDE_CODE_ENDPOINT,
+    )
+    .map((e) => `<option value="${esc(e.url)}"></option>`)
+    .join("");
 }
 
 async function _loadConfigs(ctx, endpointId) {
@@ -1098,6 +1190,7 @@ async function _doSaveEndpointSetting(ctx, el) {
   let v = el.value;
   if (el.type === "number") v = v.trim() === "" ? null : parseFloat(v);
   const key = el.dataset.key;
+  const wasClaudeCode = S.settings[ctx.urlField] === CLAUDE_CODE_ENDPOINT;
   const p = ctx.hyperparamPrefix;
   const baseKey = p ? key.replace(p, "") : key;
   const validation = validate.validateSetting(baseKey, v);
@@ -1108,7 +1201,8 @@ async function _doSaveEndpointSetting(ctx, el) {
   const payload = { [key]: v };
   if (key === ctx.urlField) {
     const apiKeyEl = document.querySelector(`[data-key="${ctx.apiKeyField}"]`);
-    if (apiKeyEl) payload[ctx.apiKeyField] = apiKeyEl.value;
+    payload[ctx.apiKeyField] =
+      v === CLAUDE_CODE_ENDPOINT ? "" : apiKeyEl?.value || S.endpoints.find((ep) => ep.url === v)?.api_key || "";
   } else if (key === ctx.modelField) {
     ctx.hyperparamKeys.forEach((k) => {
       const fieldEl = document.querySelector(`[data-key="${k}"]`);
@@ -1158,6 +1252,12 @@ async function _doSaveEndpointSetting(ctx, el) {
   } catch (e) {
     console.error("Endpoint/model sync error:", e);
     toast(`Failed to sync ${key === ctx.modelField ? "model" : "endpoint"}: ${e.message}`, true);
+  }
+  if (key === ctx.urlField && (wasClaudeCode || v === CLAUDE_CODE_ENDPOINT)) {
+    S.settings = await api.get("/settings");
+    renderEndpoints();
+    _fillEndpointFields(WRITER_CTX);
+    _fillEndpointFields(AGENT_CTX);
   }
   updateAgentModelWarning();
   updateEndpointsLabel();

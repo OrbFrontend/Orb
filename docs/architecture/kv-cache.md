@@ -210,6 +210,15 @@ chat request:
 | Last message of the `CachedBase` prefix | 1 h | Every pass of the turn, and the next turn |
 | Final block | 5 min | The Editor extending the Writer's request, and its ReAct iterations |
 
+The experimental Claude Code CLI does not expose those markers for an Orb
+transcript. It receives that transcript as JSON data in one CLI user message,
+so a changed tail cannot read the earlier part of that message from cache.
+Its adapter places completed groups of eight `CachedBase` history entries in
+the CLI system prompt, leaving recent history and pass instructions in the
+user message. This provides a stable cache anchor across most new turns and
+regenerations; the boundary advances and rewrites that anchor every eight
+history entries.
+
 `CachedBase.complete` passes its prefix length as `cache_prefix_len`, so the
 base anchor sits exactly where the frozen base ends. Calls without a base get
 only the system and final anchors. The 1 h TTL on the base covers a reader's
@@ -244,6 +253,12 @@ Orb records two kinds of cache information:
 The local values cannot know where a provider's template renders tools, so they
 are kept separate. A high message overlap with a low provider hit can indicate
 different tool rendering or reasoning lanes.
+
+For Anthropic usage, the report totals `input_tokens`,
+`cache_read_input_tokens`, and `cache_creation_input_tokens`; `input_tokens`
+alone is only the uncached portion. The Claude Code CLI transport reports its
+provider cache reads, but its adapted response schema is not sent as an Orb
+tool array, so the tracker does not compare tool arrays for that transport.
 
 The tracker compares a call with the previous call **on its own lane**, falling
 back to the last same-label call of the previous turn — which makes the first call

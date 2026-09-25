@@ -102,6 +102,25 @@
   padding-top: 6px;
 }
 
+.claude-code-setup {
+  margin: 10px 0 12px;
+}
+
+.claude-code-setup-action {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.claude-code-setup-action .btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.claude-code-setup-status:empty {
+  display: none;
+}
+
 .sidebar-section-body.collapsed { display: none; }
 
 .ep-group {

@@ -18,6 +18,13 @@ from ...database import (
     update_model_config,
 )
 from ...inference import LLMClient, provider_sentence, redact
+from ...inference.claude_code import ENDPOINT as CLAUDE_CODE_ENDPOINT
+from ...inference.claude_code import (
+    ClaudeCodeError,
+    cli_status,
+    local_only_active,
+    require_local_only,
+)
 from ..schemas import (
     EndpointCreate,
     EndpointUpdate,
@@ -26,6 +33,33 @@ from ..schemas import (
 )
 
 router = APIRouter()
+
+
+def _check_claude_endpoint(url: str, api_key: str = "", kind: EndpointKind = "chat") -> None:
+    if url.lower().startswith("claude-code:"):
+        if url != CLAUDE_CODE_ENDPOINT:
+            raise HTTPException(status_code=422, detail="Unsupported Claude Code endpoint marker")
+        try:
+            require_local_only()
+        except ClaudeCodeError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from None
+        if api_key or kind != "chat":
+            raise HTTPException(
+                status_code=422, detail="Claude Code uses local CLI login and chat endpoints only; leave API Key empty"
+            )
+
+
+@router.get("/api/claude-code/status")
+async def api_claude_code_status():
+    try:
+        return await cli_status()
+    except ClaudeCodeError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from None
+
+
+@router.get("/api/claude-code/availability")
+async def api_claude_code_availability():
+    return {"local_only": local_only_active()}
 
 
 @router.get("/api/endpoints")
@@ -44,11 +78,20 @@ async def api_get_endpoint(endpoint_id: int):
 
 @router.post("/api/endpoints")
 async def api_create_endpoint(data: EndpointCreate):
+    _check_claude_endpoint(data.url, data.api_key, data.kind)
     return await create_endpoint(data.url, data.api_key, data.kind)
 
 
 @router.put("/api/endpoints/{endpoint_id}")
 async def api_update_endpoint(endpoint_id: int, data: EndpointUpdate):
+    original = await get_endpoint(endpoint_id)
+    if original is None:
+        raise HTTPException(status_code=404, detail="Endpoint not found")
+    url = data.url if data.url is not None else original["url"]
+    api_key = data.api_key if data.api_key is not None else original["api_key"]
+    _check_claude_endpoint(url, api_key, original["kind"])
+    if url == CLAUDE_CODE_ENDPOINT and (data.proxy if data.proxy is not None else original["proxy"]):
+        raise HTTPException(status_code=422, detail="Claude Code local transport does not use an HTTP proxy")
     result = await update_endpoint(endpoint_id, data.model_dump(exclude_unset=True))
     if not result:
         raise HTTPException(status_code=404, detail="Endpoint not found")
@@ -72,6 +115,9 @@ async def api_get_available_models(endpoint_id: int):
     endpoint = await get_endpoint(endpoint_id)
     if not endpoint:
         raise HTTPException(status_code=404, detail="Endpoint not found")
+    if endpoint["url"] == CLAUDE_CODE_ENDPOINT:
+        _check_claude_endpoint(endpoint["url"], endpoint["api_key"], endpoint["kind"])
+        return {"models": []}
 
     client = LLMClient(
         endpoint["url"],

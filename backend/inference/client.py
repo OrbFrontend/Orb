@@ -217,6 +217,8 @@ class LLMClient:
         extra_headers: str = "",
         extra_body: str = "",
     ):
+        if type(self) is LLMClient and base_url.lower().startswith("claude-code:"):
+            raise ValueError("Claude Code endpoints require the local CLI client and cannot use HTTP transport.")
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
@@ -1214,6 +1216,12 @@ def client_from_settings(settings: Mapping[str, Any], *, abort_token: AbortToken
     from this module's globals at call time, so tests substitute the client
     everywhere by patching ``backend.inference.client.LLMClient`` alone.
     """
+    if settings["endpoint_url"] == "claude-code://local":
+        from .claude_code import ClaudeCodeClient
+
+        return ClaudeCodeClient(abort_token=abort_token)
+    if str(settings["endpoint_url"]).lower().startswith("claude-code:"):
+        raise ValueError("Unsupported Claude Code endpoint; use claude-code://local in local-only mode.")
     return LLMClient(
         settings["endpoint_url"],
         api_key=settings.get("api_key", ""),
@@ -1234,8 +1242,15 @@ def agent_client_from_settings(settings: Mapping[str, Any], *, abort_token: Abor
     Agent endpoint/key fall back to the writer's when the agent columns are
     unset. Same patch seam as :func:`client_from_settings`.
     """
+    agent_url = settings.get("agent_endpoint_url", settings["endpoint_url"])
+    if agent_url == "claude-code://local":
+        from .claude_code import ClaudeCodeClient
+
+        return ClaudeCodeClient(abort_token=abort_token)
+    if str(agent_url).lower().startswith("claude-code:"):
+        raise ValueError("Unsupported Claude Code endpoint; use claude-code://local in local-only mode.")
     return LLMClient(
-        settings.get("agent_endpoint_url", settings["endpoint_url"]),
+        agent_url,
         api_key=settings.get("agent_api_key", settings.get("api_key", "")),
         abort_token=abort_token,
         completion_mode=settings.get("agent_completion_mode", "chat"),

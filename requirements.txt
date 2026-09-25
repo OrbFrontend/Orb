@@ -7,3 +7,4 @@ Pillow==12.3.0
 python-multipart==0.0.32
 edge-tts>=7.2.8
 regex>=2026.9.10
+jsonschema>=4.23,<5

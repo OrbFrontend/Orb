@@ -8,6 +8,7 @@ from typing import Any, TypeVar
 import httpx
 
 from ..inference import LLMCallError, provider_sentence
+from ..inference.claude_code import ClaudeCodeError
 from ..workflows.errors import WorkflowUserFacingError
 
 # Cap on an unclassified exception's repr. The full traceback is in the log; this
@@ -131,6 +132,14 @@ def describe_failure(exc: BaseException) -> dict[str, Any]:
     hides ``body`` behind a disclosure.
     """
     stage = stage_of(exc)
+
+    if isinstance(exc, ClaudeCodeError):
+        return {
+            "headline": "Claude Code CLI failed.",
+            "sentence": str(exc)[:INTERNAL_SENTENCE_LIMIT],
+            "kind": "provider",
+            "stage": stage,
+        }
 
     if isinstance(exc, LLMCallError):
         return {

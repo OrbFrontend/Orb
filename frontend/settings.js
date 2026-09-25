@@ -4,13 +4,7 @@ import { CLOSE_ICON } from "./icons.js";
 import { renderInteractiveFragments } from "./library_fragments.js";
 import { closeModal, confirmDelete, showModal, showSubConfirmModal } from "./modal.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
-import {
-  initComboboxes,
-  loadAgentModelConfigs,
-  loadEndpoints,
-  loadJudgeConfig,
-  renderEndpoints,
-} from "./settings_models.js";
+import { loadAgentModelConfigs, loadEndpoints, loadJudgeConfig, renderEndpoints } from "./settings_models.js";
 import { loadPersonas, updateUserBtn } from "./settings_personas.js";
 import { effectiveWorkflowEnabled, localMlReady, S } from "./state.js";
 import { refreshState } from "./state_panel.js";
@@ -139,10 +133,9 @@ export async function loadSettings() {
     endpointsSection.classList.remove("collapsed");
   }
 
-  renderEndpoints();
   renderSettings();
   await loadEndpoints();
-  initComboboxes(); // Re-initialize comboboxes with loaded endpoints
+  renderEndpoints();
   // After the endpoints, so the Judge lane can name the endpoint its stored id
   // points at rather than painting a blank URL and then correcting itself.
   loadJudgeConfig();
