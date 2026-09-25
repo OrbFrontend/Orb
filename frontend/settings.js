@@ -686,7 +686,11 @@ export function renderToolsPanel() {
         <span class="tog-slider"></span>
       </label>
     </div>
-    <div class="tool-card-desc">Lets the Agent keep state fragments up to date. When off, saved state is still injected and editable in the Inspector's State tab.</div>
+    <div class="tool-card-desc">State fragments carry permanent facts in a conversation. ${
+      stateOn
+        ? "The Agent updates them each turn, except Manual-only ones."
+        : "Only you can update them, in the Inspector's State tab."
+    }</div>
   </div>`;
 
   const divider = (label) => `<div class="tools-divider"><span>${label}</span></div>`;
