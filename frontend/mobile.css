@@ -122,14 +122,13 @@ body {
     z-index: var(--mobile-overlay-z);
   }
 
-  #app:is(.mobile-sidebar-open, .mobile-tools-open, .mobile-inspector-open, .mobile-state-open)::before {
+  #app:is(.mobile-sidebar-open, .mobile-tools-open, .mobile-inspector-open)::before {
     opacity: 1;
     pointer-events: auto;
   }
 
   #tools-panel,
-  #inspector,
-  #state-panel {
+  #inspector {
     position: fixed;
     right: 0;
     top: 0;
@@ -144,8 +143,7 @@ body {
   }
 
   #tools-panel.open,
-  #inspector.open,
-  #state-panel.open {
+  #inspector.open {
     width: var(--mobile-panel-width);
     min-width: 0;
     transform: translateX(0);
@@ -159,8 +157,7 @@ body {
 
   #user-profile-btn,
   #tools-panel-btn,
-  #inspector-toggle,
-  #state-panel-btn {
+  #inspector-toggle {
     display: none;
   }
 

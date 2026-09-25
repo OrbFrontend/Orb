@@ -1,4 +1,4 @@
-// The State panel's inline editor, driven through the real DOM against a stubbed API.
+// The Inspector's State tab inline editor, driven through the real DOM against a stubbed API.
 //
 // The panel re-renders whenever the branch's state is re-read (a finished turn,
 // a fragment toggle, a history load), so these pin what a re-render must not
@@ -9,8 +9,10 @@ import { JSDOM } from "jsdom";
 
 const dom = new JSDOM(
   `<!doctype html><body>
-    <button id="state-panel-btn" class="hidden"></button>
-    <div id="state-panel" class="open"><div id="state-panel-content"></div></div>
+    <div id="inspector" class="open">
+      <div id="inspector-tab-row" class="hidden"></div>
+      <div id="state-panel-content"></div>
+    </div>
     <textarea id="composer"></textarea>
   </body>`,
   { url: "https://orb.invalid/" },
@@ -21,7 +23,7 @@ for (const key of ["document", "Node", "Element", "HTMLElement", "Event", "Custo
 }
 
 const { S } = await import("../../frontend/state.js");
-const { refreshState } = await import("../../frontend/state_panel.js");
+const { refreshState, updateStateTab } = await import("../../frontend/state_panel.js");
 
 const CID = "conv-1";
 
@@ -87,7 +89,8 @@ beforeEach(async () => {
   gets = [];
   posts = [];
   S.activeConvId = CID;
-  // An enabled state fragment keeps the button, and so the panel, open without saved state.
+  S.inspectorTab = "state";
+  // An enabled state fragment keeps the State tab offered without saved state.
   S.interactiveFragments = [{ id: "threads", field_type: "state", enabled: 1 }];
   await load([ENTRY]);
   if (content().querySelector('[data-state-action="cancel"]')) click('[data-state-action="cancel"]');
@@ -202,4 +205,22 @@ test("switching conversations clears the previous state while the new one loads"
   assert.match(content().textContent, /Loading/);
   gets.shift().resolve(respond(panelState([])));
   await pending;
+});
+
+test("the State tab is offered only while there is state, and hands back to Main when it goes", async () => {
+  const requests = [];
+  const listen = (e) => requests.push(e.detail);
+  document.addEventListener("inspector-tab-request", listen);
+  const tabRow = document.getElementById("inspector-tab-row");
+  assert.equal(tabRow.classList.contains("hidden"), false);
+
+  S.interactiveFragments = [];
+  await load([]);
+
+  assert.equal(tabRow.classList.contains("hidden"), true);
+  assert.deepEqual(requests, ["main"]);
+  document.removeEventListener("inspector-tab-request", listen);
+  S.inspectorTab = "main";
+  updateStateTab();
+  assert.deepEqual(requests, ["main"]);
 });

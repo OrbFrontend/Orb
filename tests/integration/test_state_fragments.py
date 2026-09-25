@@ -6,7 +6,7 @@ LLM mocked, and assert on what the history stores and what each pass receives:
 the update transports (direct_scene before the Writer, the ``update_state`` step
 before the Writer or after the reply), ``keep`` semantics, validation, branch
 behaviour, carried corrections, group exchanges, partial saves, Checkpoint and
-Compress History, the State panel routes, and the tools-blob invariants.
+Compress History, the State tab routes, and the tools-blob invariants.
 """
 
 from __future__ import annotations
@@ -734,7 +734,7 @@ async def test_compress_carries_state_and_regenerating_the_first_kept_reply_does
     assert await _active_state(new_cid) == {"threads": ["one", "two", "three, again"]}
 
 
-# ── State panel routes ───────────────────────────────────────────────────────
+# ── State tab routes ─────────────────────────────────────────────────────────
 
 
 async def test_manual_operations_anchor_to_the_active_leaf_and_validate(client, db, llm_mock):

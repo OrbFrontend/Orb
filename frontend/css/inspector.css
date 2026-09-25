@@ -234,7 +234,7 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
 .reasoning-box::-webkit-scrollbar { width: 3px; }
 .reasoning-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-/* ── State panel ── */
+/* ── State tab ── */
 
 .state-empty {
   color: var(--text-muted);

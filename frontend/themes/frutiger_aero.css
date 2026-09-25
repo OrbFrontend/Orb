@@ -44,7 +44,7 @@ body {
   background-attachment: scroll !important;
 }
 
-#sidebar, #inspector, #tools-panel, #state-panel {
+#sidebar, #inspector, #tools-panel {
   background: linear-gradient(180deg, #f8fdff 0%, #dff5fc 62%, #e8f8df 100%) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
@@ -52,7 +52,7 @@ body {
   box-shadow: inset 0 1px 0 #ffffff, inset -1px 0 rgba(255,255,255,0.72) !important;
 }
 #sidebar { border-right: 1px solid rgba(255,255,255,0.55) !important; }
-#inspector.open, #tools-panel.open, #state-panel.open {
+#inspector.open, #tools-panel.open {
   border-left: 1px solid #82c4e2 !important;
 }
 

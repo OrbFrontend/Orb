@@ -1,13 +1,8 @@
 import { api } from "./api.js";
 import { confirmDelete } from "./modal.js";
-import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { interactiveFragmentsView, S } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
 import { $, convUrl, esc, escAttr, toast } from "./utils.js";
-
-const PANEL_ID = "state-panel";
-const BUTTON_ID = "state-panel-btn";
-const BUTTON_IDS = [BUTTON_ID, "mobile-state-btn"];
 
 const SOURCE_LABELS = { agent: "Agent", user: "You", carried: "Carried" };
 const UPDATE_LABELS = { after_reply: "After reply", before_writer: "Before Writer", manual: "Manual" };
@@ -33,25 +28,23 @@ const historyOpen = new Set();
 const historyCache = new Map();
 let historyGen = 0;
 
-export function toggleStatePanel() {
-  if (isUtilityPanelOpen(PANEL_ID)) closeUtilityPanel(PANEL_ID, BUTTON_ID);
-  else openUtilityPanel(PANEL_ID, BUTTON_ID, renderStatePanel);
+/** Whether the Inspector is open on its State tab. */
+function isShown() {
+  return S.inspectorTab === "state" && Boolean($("inspector")?.classList.contains("open"));
 }
-
-document.addEventListener("state-panel-request", toggleStatePanel);
 
 function hasEnabledStateFragment() {
   return interactiveFragmentsView().some((f) => f.field_type === "state" && f.enabled !== 0 && f.enabled !== false);
 }
 
-export function updateStateButton() {
+/** Offer the Inspector's State tab while there is state to show or a fragment to fill it. */
+export function updateStateTab() {
   const hasState = panelConvId === S.activeConvId && Boolean(panel?.has_state);
   const on = Boolean(S.activeConvId) && (hasEnabledStateFragment() || hasState);
-  for (const id of BUTTON_IDS) {
-    const el = $(id);
-    if (el) el.classList.toggle("hidden", !on);
+  $("inspector-tab-row")?.classList.toggle("hidden", !on);
+  if (!on && S.inspectorTab === "state") {
+    document.dispatchEvent(new CustomEvent("inspector-tab-request", { detail: "main" }));
   }
-  if (!on && isUtilityPanelOpen(PANEL_ID)) closeUtilityPanel(PANEL_ID, BUTTON_ID);
 }
 
 function resetForConversation(cid) {
@@ -63,7 +56,7 @@ function resetForConversation(cid) {
   historyCache.clear();
   historyGen++;
   // Take the previous conversation's state off screen until this one's arrives.
-  if (isUtilityPanelOpen(PANEL_ID)) renderMessage("Loading…");
+  if (isShown()) renderMessage("Loading…");
 }
 
 function dropStaleEditor() {
@@ -75,14 +68,14 @@ function dropStaleEditor() {
   if (!offered || f.read_only) editing = null;
 }
 
-/** Reload state for the active conversation and refresh an open panel. */
+/** Reload state for the active conversation and refresh the State tab if it is showing. */
 export async function refreshState() {
   const cid = S.activeConvId;
   const seq = ++loadSeq;
   resetForConversation(cid);
   if (!cid) {
-    updateStateButton();
-    if (isUtilityPanelOpen(PANEL_ID)) render();
+    updateStateTab();
+    if (isShown()) render();
     return;
   }
   let data;
@@ -90,15 +83,15 @@ export async function refreshState() {
     data = await api.get(convUrl(cid, "state"));
   } catch (e) {
     if (seq !== loadSeq) return;
-    if (isUtilityPanelOpen(PANEL_ID)) renderMessage(e.message);
+    if (isShown()) renderMessage(e.message);
     return;
   }
   if (seq !== loadSeq) return;
   panel = data;
   dropStaleEditor();
   historyGen++;
-  updateStateButton();
-  if (isUtilityPanelOpen(PANEL_ID)) {
+  updateStateTab();
+  if (isShown()) {
     render();
     await Promise.all([...historyOpen].map(loadHistory));
   }
@@ -300,7 +293,7 @@ async function loadHistory(fragmentId) {
     toast(e.message, true);
     historyOpen.delete(fragmentId);
   }
-  if (isUtilityPanelOpen(PANEL_ID)) render();
+  if (isShown()) render();
 }
 
 async function applyOperation(body) {
@@ -315,7 +308,7 @@ async function applyOperation(body) {
     panel = result.state;
     editing = null;
     historyGen++;
-    updateStateButton();
+    updateStateTab();
     render();
     if (result.changes?.length) announceStateChanged();
     await Promise.all([...historyOpen].map(loadHistory));

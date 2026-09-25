@@ -66,7 +66,7 @@ class SettingsUpdate(BaseModel):
 
 
 class StateOperation(BaseModel):
-    """One manual State-panel operation, anchored server-side to the active leaf.
+    """One manual State-tab operation, anchored server-side to the active leaf.
 
     ``set``/``clear`` apply to a one-value fragment; ``add`` to a multiple-entry
     one; ``revise`` and ``retire`` name an active ``entry_id`` in either mode.

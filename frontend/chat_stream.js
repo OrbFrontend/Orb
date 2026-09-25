@@ -588,12 +588,10 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
         if (pipeline) {
           const firstDelta = !S.reasoningByPass[passKey];
           S.reasoningByPass[passKey] = (S.reasoningByPass[passKey] || "") + delta;
-          if (S.inspectorTab === "secondary") {
-            if (firstDelta) _relightWorkflowPipelinePass(pipeline, passKey);
-            const wbox = document.getElementById(`reasoning-box-${pipeline.id}`);
-            if (wbox && wbox.dataset.passId === passKey) {
-              appendReasoningDelta(wbox, delta);
-            }
+          if (firstDelta) _relightWorkflowPipelinePass(pipeline, passKey);
+          const wbox = document.getElementById(`reasoning-box-${pipeline.id}`);
+          if (wbox && wbox.dataset.passId === passKey) {
+            appendReasoningDelta(wbox, delta);
           }
           break;
         }

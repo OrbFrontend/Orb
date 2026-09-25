@@ -340,6 +340,9 @@ registerTextEffect({ id, label })
 registerClickHandler({ id, claims, onClick })
 ```
 
+Inspector cards and pipeline reasoning render at the bottom of the Inspector's
+Main tab.
+
 Use `registerAttachmentRenderer` for the workflow's own widgets. It is not
 enablement-gated so stored artifacts remain visible. Other workflow-owned cards,
 buttons, and event handlers are gated by workflow id.

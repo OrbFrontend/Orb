@@ -1,4 +1,4 @@
-"""State-panel routes: a branch's state-fragment state, its history, and manual edits."""
+"""State-tab routes: a branch's state-fragment state, its history, and manual edits."""
 
 from __future__ import annotations
 

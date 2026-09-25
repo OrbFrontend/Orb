@@ -5,6 +5,7 @@ import { CHEVRON_RIGHT_ICON } from "./icons.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { preserveScroll } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, interactiveFragmentsView, moodFragmentsView, restingCooldowns, S } from "./state.js";
+import { renderStatePanel } from "./state_panel.js";
 import { $, convUrl, esc, escAttr, escHandlerArg, sentenceTail } from "./utils.js";
 
 export const REASONING_PASSES = [
@@ -193,7 +194,7 @@ function _pipelineSelectedPassId(pipeline) {
   return pipeline.passes[0].id;
 }
 
-function _buildSecondaryReasoningHtml() {
+function _buildWorkflowReasoningHtml() {
   if (!S.workflowPipelines.length) return "";
   return S.workflowPipelines
     .map((pipeline) => {
@@ -248,7 +249,7 @@ export function _relightWorkflowPipelinePass(pipeline, passId) {
   if (line) line.style.background = "var(--accent)";
 }
 
-function _buildSecondaryAgentsHtml() {
+function _buildWorkflowCardsHtml() {
   if (!S.workflowInspectorCardRenderers.length) return "";
   let html = "";
   for (const { workflowId, render } of S.workflowInspectorCardRenderers) {
@@ -265,45 +266,33 @@ function _buildSecondaryAgentsHtml() {
 
 export function selectWorkflowPipelinePass(pipelineId, passId) {
   _workflowPipelineSelected.set(pipelineId, passId);
-  renderInspectorSecondary();
+  renderInspectorWorkflows();
 }
 
-export function renderInspectorSecondary() {
-  const el = $("inspector-secondary-content");
-  if (!el) return;
-  const reasoning = _buildSecondaryReasoningHtml();
-  const cards = _buildSecondaryAgentsHtml();
-  if (!reasoning && !cards) {
-    el.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">No workflows registered.</div>`;
-    return;
+/** Workflow pipelines and cards, below the Main tab's own sections. */
+export function renderInspectorWorkflows() {
+  const el = $("inspector-workflow-content");
+  if (el) el.innerHTML = _buildWorkflowReasoningHtml() + _buildWorkflowCardsHtml();
+}
+
+const INSPECTOR_TABS = ["main", "state"];
+
+function setInspectorTab(name) {
+  S.inspectorTab = name === "state" ? "state" : "main";
+  for (const tab of INSPECTOR_TABS) {
+    const active = tab === S.inspectorTab;
+    $(`inspector-pane-${tab}`)?.classList.toggle("hidden", !active);
+    $(`inspector-tab-${tab}`)?.classList.toggle("tab-button-active", active);
   }
-  el.innerHTML = reasoning + cards;
+  if (S.inspectorTab === "state" && isUtilityPanelOpen("inspector")) renderStatePanel();
 }
 
-export function setInspectorTab(name) {
-  S.inspectorTab = name === "secondary" ? "secondary" : "main";
-  _applyInspectorTab();
-}
-
-function _applyInspectorTab() {
-  const main = $("inspector-content");
-  const sec = $("inspector-secondary-content");
-  const btnMain = $("inspector-tab-main");
-  const btnSec = $("inspector-tab-secondary");
-  if (!main || !sec || !btnMain || !btnSec) return;
-  if (S.inspectorTab === "secondary") {
-    main.classList.add("hidden");
-    sec.classList.remove("hidden");
-    btnMain.classList.remove("tab-button-active");
-    btnSec.classList.add("tab-button-active");
-    renderInspectorSecondary();
-  } else {
-    sec.classList.add("hidden");
-    main.classList.remove("hidden");
-    btnSec.classList.remove("tab-button-active");
-    btnMain.classList.add("tab-button-active");
-  }
-}
+document.addEventListener("click", (e) => {
+  const tab = e.target.closest("[data-inspector-tab]");
+  if (tab) setInspectorTab(tab.dataset.inspectorTab);
+});
+// The State tab asks for Main when it has nothing left to show.
+document.addEventListener("inspector-tab-request", (e) => setInspectorTab(e.detail));
 
 export function setToolsTab(name) {
   S.toolsTab = name === "secondary" ? "secondary" : "main";
@@ -536,13 +525,16 @@ export function toggleInspector() {
   if (isUtilityPanelOpen("inspector")) {
     closeUtilityPanel("inspector", "inspector-toggle");
   } else {
-    openUtilityPanel("inspector", "inspector-toggle", renderInspector);
+    openUtilityPanel("inspector", "inspector-toggle", () => {
+      renderInspector();
+      if (S.inspectorTab === "state") renderStatePanel();
+    });
   }
 }
 
 export function renderInspector() {
   _renderInspectorMain();
-  renderInspectorSecondary();
+  renderInspectorWorkflows();
 }
 
 export function currentMoodsHtml() {

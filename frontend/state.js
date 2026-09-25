@@ -116,7 +116,7 @@ export const S = {
   inspectedMsgId: null, // message shown in the Inspector
   inspectedDirectorData: null, // director data for the inspected message
   reasoningByPass: {}, // accumulated reasoning by pass id
-  inspectorTab: "main",
+  inspectorTab: "main", // Inspector tab: "main" | "state"
   toolsTab: "main",
 
   documents: [], // sidebar document rows

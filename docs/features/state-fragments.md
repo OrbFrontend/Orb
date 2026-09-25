@@ -27,7 +27,7 @@ Each state fragment has three settings in the fragment editor.
   written. It records the Director's intent for this reply, which the Writer may
   not carry out. The Writer sees the change in the same reply, and a changed
   value appears as `old -> new`.
-- **Manual only**: only you change the fragment, in the State panel.
+- **Manual only**: only you change the fragment, in the Inspector's State tab.
 
 **Inject**: **Off**, **Director**, **Writer**, or **Director and Writer** choose
 who reads the saved state. Injection and updating are independent: a fragment
@@ -51,9 +51,9 @@ cached prompt. The **Individual fragment processing** option in the Direction
 card also applies: it updates each fragment in its own call.
 
 **Settings → Agents → State Updates** stops every automatic update call at once.
-Saved state is still injected, and you can still edit it in the State panel.
+Saved state is still injected, and you can still edit it in the Inspector's State tab.
 Disabling a single fragment stops both its updates and its injection, but keeps
-its saved state; the State panel shows that state read-only.
+its saved state; the State tab shows that state read-only.
 
 A fragment on cooldown keeps and still injects its state; it is only not updated.
 
@@ -79,7 +79,7 @@ limits are fixed:
 | Active entries per fragment | 12 |
 
 When a list holds 12 entries, a further add is refused and the fragment shows
-**Full** in the State panel until an entry is retired. The Agent sees each list's
+**Full** in the State tab until an entry is retired. The Agent sees each list's
 count and is told when a list is full.
 
 ### Prompt size
@@ -91,21 +91,21 @@ multiple-entry fragment up to about 9,700 (12 entries of 800 characters plus
 their bullets). Keep descriptions specific so entries stay short, and inject a
 fragment only where it is read.
 
-## The State panel
+## The State tab
 
-The **State** button in the chat header opens the State panel. The button appears
-whenever an enabled state fragment exists or the conversation holds saved state.
+The Inspector has a **State** tab beside **Main**. The tabs appear whenever an
+enabled state fragment exists or the conversation holds saved state.
 
-The panel lists each fragment with its current value or entries, the turn that
+The tab lists each fragment with its current value or entries, the turn that
 set each one, and who set it: **Agent**, **You**, or **Carried** (state that
-Compress History kept on its summary). From the panel you can:
+Compress History kept on its summary). From the tab you can:
 
 - set, edit, or clear a one-value fragment;
 - add, edit, or retire entries of a multiple-entry fragment;
 - open a fragment's **History**, the changes on this branch, newest first.
 
 Your changes are attached to the latest message on the branch. While a reply is
-being generated, the panel refuses edits; make them once it finishes.
+being generated, the tab refuses edits; make them once it finishes.
 
 Disabled fragments are shown read-only. A fragment you deleted still shows its
 saved state read-only under its saved label, with **Delete saved state** to
@@ -114,11 +114,11 @@ remove it from the conversation on every branch.
 ## Changing the mode
 
 Changing a fragment's mode never rewrites or discards saved state; it changes
-which operations the Agent and the panel offer, from the next turn.
+which operations the Agent and the State tab offer, from the next turn.
 
 - One value to multiple entries: the value becomes the first entry.
 - Multiple entries to one value: the entries stay. The fragment shows them
-  together as its current value, and the panel notes that the next update
+  together as its current value, and the State tab notes that the next update
   replaces them with one value. Merge them first by editing and retiring
   entries if you want to choose the wording; otherwise the Agent's next value
   replaces them, and the originals remain in history.

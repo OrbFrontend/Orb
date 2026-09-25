@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { renderInspectorSecondary, renderMessages } from "./chat.js";
+import { renderInspectorWorkflows, renderMessages } from "./chat.js";
 import { CLOSE_ICON } from "./icons.js";
 import { renderInteractiveFragments } from "./library_fragments.js";
 import { closeModal, confirmDelete, showModal, showSubConfirmModal } from "./modal.js";
@@ -533,7 +533,7 @@ export async function toggleWorkflowsGlobal(on) {
   await persistSettings({ workflows_globally_enabled: on });
   renderToolsPanel();
   renderMessages();
-  renderInspectorSecondary();
+  renderInspectorWorkflows();
 }
 
 export async function toggleWorkflowEnabled(wid, on) {
@@ -545,7 +545,7 @@ export async function toggleWorkflowEnabled(wid, on) {
   }
   renderToolsPanel();
   renderMessages();
-  renderInspectorSecondary();
+  renderInspectorWorkflows();
 }
 
 function buildWorkflowToggleRows() {
@@ -706,7 +706,7 @@ export function renderToolsPanel() {
         <span class="tog-slider"></span>
       </label>
     </div>
-    <div class="tool-card-desc">Lets the Agent keep state fragments up to date. When off, saved state is still injected and editable in the State panel.</div>
+    <div class="tool-card-desc">Lets the Agent keep state fragments up to date. When off, saved state is still injected and editable in the Inspector's State tab.</div>
   </div>`;
 
   const divider = (label) => `<div class="tools-divider"><span>${label}</span></div>`;

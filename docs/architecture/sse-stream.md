@@ -77,7 +77,7 @@ pass being skipped.
 | `writer_rewrite` | `{refined_text}` | Replaces the visible draft after an Editor or workflow change. |
 | `editor_done` | Editor data | Updates the inspector. |
 | `feedback` | Feature data | Updates feature panels. |
-| `state` | `{changes, rejected, dropped}` | This turn's state-fragment changes so far, the operations refused, and the carried corrections dropped. Sent after each state step that changed or refused something, and after carried corrections are applied; each payload replaces the previous one. Shown in the Inspector; the State panel refetches after the stream. |
+| `state` | `{changes, rejected, dropped}` | This turn's state-fragment changes so far, the operations refused, and the carried corrections dropped. Sent after each state step that changed or refused something, and after carried corrections are applied; each payload replaces the previous one. Shown on the Inspector's Main tab; its State tab refetches after the stream. |
 | `world_change_proposed` | `{message_id, changeset}` | Shows a pending Dynamic Worlds proposal. |
 | `warning` | Warning data | Shows a non-terminal warning; the turn continues. |
 | `error` | JSON object or string | Terminal failure. |

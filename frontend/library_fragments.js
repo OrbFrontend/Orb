@@ -13,7 +13,7 @@ import {
 } from "./library_decisions.js";
 import { closeModal, closeSubModal, confirmDelete, showModal, showSubModal } from "./modal.js";
 import { S, upgradeLegacyFragment } from "./state.js";
-import { refreshState, updateStateButton } from "./state_panel.js";
+import { refreshState, updateStateTab } from "./state_panel.js";
 import { $, boolFlag, esc, escAttr, escHandlerArg, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
@@ -158,7 +158,11 @@ const EDITOR_LANE_FIELD_TYPES = new Set(["feedback", "post_processing"]);
 const INTERACTIVE_LANES = [
   { id: "judge", label: "Judge", hint: "Decides questions before the Director runs" },
   { id: "director", label: "Director", hint: "Directs the scene the writer works from" },
-  { id: "state", label: "State", hint: "Kept across turns; updated by the Agent or by you in the State panel" },
+  {
+    id: "state",
+    label: "State",
+    hint: "Kept across turns; updated by the Agent or by you in the Inspector's State tab",
+  },
   { id: "editor", label: "Editor", hint: "Acts on the reply after it is written" },
 ];
 
@@ -182,7 +186,7 @@ export async function loadInteractiveFragments() {
 }
 
 export function renderInteractiveFragments() {
-  updateStateButton();
+  updateStateTab();
   const el = document.getElementById("interactive-frag-list");
   if (!el) return;
   const cardHtml = _cardInteractiveSidepanelHtml();
@@ -415,7 +419,7 @@ function _stateHint(mode, update) {
   const updateText = {
     after_reply: "Updated after the reply, from what it actually showed.",
     before_writer: `Updated with the Director's scene direction, so it records intent the Writer may not carry out. Kept as is while the Agent or Direction is off.`,
-    manual: "Only you change it, in the State panel.",
+    manual: "Only you change it, in the Inspector's State tab.",
   }[update];
   return `${modeText} ${updateText} Changing the mode keeps saved state.`;
 }
@@ -603,7 +607,7 @@ export async function toggleInteractiveFragmentEnabled(id, newEnabled) {
     const frag = S.interactiveFragments.find((f) => f.id === id);
     if (frag) frag.enabled = newEnabled;
     renderInteractiveFragments();
-    // A disabled state fragment turns read-only in the State panel.
+    // A disabled state fragment turns read-only in the Inspector's State tab.
     if (frag?.field_type === "state") refreshState();
     toast(newEnabled ? "Interactive fragment enabled" : "Interactive fragment disabled");
   } catch (e) {
@@ -642,7 +646,7 @@ function _featureGate(f) {
   const title = feedbackOff
     ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
     : stateUpdatesOff
-      ? `${stateUpdatesOff} -- this fragment is still injected and editable in the State panel, but not updated automatically`
+      ? `${stateUpdatesOff} -- this fragment is still injected and editable in the Inspector's State tab, but not updated automatically`
       : postProcessingOff
         ? "Agent is disabled -- enable it to use this post-processing fragment"
         : judgeOff

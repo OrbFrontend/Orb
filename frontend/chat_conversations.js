@@ -63,7 +63,7 @@ export function stashSceneCards(cards) {
   S.sceneIntro = sceneIntroFrom(list);
   renderMoodFragments();
   renderInteractiveFragments();
-  // The scene's cards carry state fragments too: re-read the State panel on a
+  // The scene's cards carry state fragments too: re-read the State tab on a
   // conversation switch, a cast edit, and a card save alike.
   refreshState();
 }

@@ -69,22 +69,7 @@ body {
   border-left: 1px solid var(--border);
 }
 
-#state-panel {
-  width: 0;
-  min-width: 0;
-  background: var(--bg-primary);
-  overflow: hidden;
-  transition: width .25s, min-width .25s;
-}
-
-#state-panel.open {
-  width: var(--inspector-width);
-  min-width: var(--inspector-width);
-  border-left: 1px solid var(--border);
-}
-
 #inspector.no-anim,
-#tools-panel.no-anim,
-#state-panel.no-anim {
+#tools-panel.no-anim {
   transition: none;
 }

@@ -7,6 +7,9 @@ import { test } from "node:test";
 globalThis.window = {};
 globalThis.document = {
   addEventListener() {},
+  getElementById() {
+    return null;
+  },
   createTextNode(text) {
     return { text };
   },

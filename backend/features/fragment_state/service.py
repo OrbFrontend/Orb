@@ -1,4 +1,4 @@
-"""The State panel's reads and the user's manual state operations."""
+"""The Inspector State tab's reads and the user's manual state operations."""
 
 from __future__ import annotations
 
