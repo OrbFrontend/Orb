@@ -569,7 +569,7 @@ export function currentMoodsHtml() {
         .map((fragment) => {
           const active = activeIds.includes(fragment.id);
           const rests = !active && Number(resting[fragment.id]) >= 1;
-          const className = active ? " active" : rests ? " resting" : " inactive";
+          const className = active ? " active" : rests ? " resting" : "";
           return `<span class="style-tag${className}">${esc(fragment.label)}</span>`;
         })
         .join("")
