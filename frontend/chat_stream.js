@@ -156,6 +156,10 @@ function finalizeStreamingDiv(lastMsg) {
   div.classList.remove("stream-scroll-target");
   div.setAttribute("data-msg-id", lastMsg.id);
   body.removeAttribute("id");
+  // The next turn's streaming block owns the live reasoning box, and this one
+  // waits for the stored copy (refreshInlineInspector).
+  div.querySelector("#reasoning-box")?.removeAttribute("id");
+  div.querySelector(".msg-inspect-live")?.classList.replace("msg-inspect-live", "msg-inspect-baked");
 
   const bodyHtml =
     S.pendingRefineDiff && S.showEditorDiff
@@ -209,6 +213,7 @@ export function createStreamingDiv(name = null, memberId = null) {
     <div class="msg-body" id="streaming-body">
       <span class="typing-indicator"><span></span><span></span><span></span></span>
     </div>
+    <div class="msg-inspect-live"></div>
     <div class="msg-toolbar">
       <button disabled>${ICON_EDIT}</button>
       <button disabled>${ICON_REGEN}</button>

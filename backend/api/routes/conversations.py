@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -40,17 +42,20 @@ from ...database import (
     get_conversation,
     get_conversation_logs,
     get_director_log_for_message,
+    get_director_logs_for_messages,
     get_director_state,
     get_group_member_scripts,
     get_group_members,
     get_interactive_fragments,
     get_message_by_id,
     get_messages,
+    get_messages_decisions,
     get_mood_fragments,
     get_settings,
     get_sheet_proposals,
     get_speaker_names,
     get_state_events_for_message,
+    get_state_events_for_messages,
     get_user_persona,
     group_root_of,
     insert_alternate_greeting_swipes,
@@ -838,20 +843,21 @@ async def api_get_logs(cid: str, _conv: ConversationRow = Depends(require_conver
     return await get_conversation_logs(cid)
 
 
-@router.get("/api/conversations/{cid}/messages/{msg_id}/director-log")
-async def api_get_message_director_log(
-    cid: str,
-    msg_id: int,
-    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
-):
-    msg = await get_message_by_id(msg_id)
-    if not msg or msg.get("conversation_id") != cid:
-        raise HTTPException(status_code=404, detail="Message not found")
+def _director_log_payload(
+    decisions: dict, log: Mapping[str, Any] | None, events: Sequence[Mapping[str, Any]]
+) -> dict[str, Any]:
+    """One reply's Inspector data: its log, its own state changes, and its decisions.
+
+    *decisions* are the reply's stored decision records, used when the
+    diagnostic log is unavailable.
+    """
     # The reply's own state changes, from the history; what was refused, from the log.
-    changes = [dict(event) for event in await get_state_events_for_message(msg_id)]
-    log = await get_director_log_for_message(msg_id)
     report = (log or {}).get("state_report") or {}
-    state = {"changes": changes, "rejected": report.get("rejected") or [], "dropped": report.get("dropped") or []}
+    state = {
+        "changes": [dict(event) for event in events],
+        "rejected": report.get("rejected") or [],
+        "dropped": report.get("dropped") or [],
+    }
     if not log:
         return {
             "active_moods": [],
@@ -864,8 +870,7 @@ async def api_get_message_director_log(
             "reasoning_editor": "",
             "feedback": {},
             "state": state,
-            # Read records from the reply when its diagnostic log is unavailable.
-            "decision_evaluations": decision_evaluations_of(msg),
+            "decision_evaluations": decisions,
         }
     return {
         "active_moods": log.get("active_moods_after", []),
@@ -881,3 +886,41 @@ async def api_get_message_director_log(
         # Joined from the reply so logs do not store a duplicate copy.
         "decision_evaluations": log.get("decision_evaluations", {}) or {},
     }
+
+
+@router.get("/api/conversations/{cid}/messages/{msg_id}/director-log")
+async def api_get_message_director_log(
+    cid: str,
+    msg_id: int,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
+    msg = await get_message_by_id(msg_id)
+    if not msg or msg.get("conversation_id") != cid:
+        raise HTTPException(status_code=404, detail="Message not found")
+    events = await get_state_events_for_message(msg_id)
+    log = await get_director_log_for_message(msg_id)
+    return _director_log_payload(decision_evaluations_of(msg), log, events)
+
+
+#: Enough for a render window plus a backfill step; the chat asks only for replies it has not cached.
+MAX_DIRECTOR_LOG_BATCH = 100
+
+
+@router.get("/api/conversations/{cid}/director-logs")
+async def api_get_director_logs(
+    cid: str,
+    ids: str = "",
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
+    """Inspector data for several replies, keyed by message id. Ids outside *cid* are left out."""
+    try:
+        wanted = list(dict.fromkeys(int(part) for part in ids.split(",") if part.strip()))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="ids must be comma-separated integers") from None
+    if len(wanted) > MAX_DIRECTOR_LOG_BATCH:
+        raise HTTPException(status_code=422, detail=f"At most {MAX_DIRECTOR_LOG_BATCH} ids per request")
+    decisions = await get_messages_decisions(cid, wanted)
+    owned = list(decisions)
+    logs = await get_director_logs_for_messages(owned)
+    events = await get_state_events_for_messages(owned)
+    return {str(mid): _director_log_payload(decisions[mid], logs.get(mid), events.get(mid, [])) for mid in owned}

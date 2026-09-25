@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import cast
 
@@ -113,6 +114,34 @@ async def get_director_log_for_message(message_id: int) -> ConversationLogRow | 
         d.setdefault("reasoning_writer", "")
         d.setdefault("reasoning_editor", "")
         return cast(ConversationLogRow, d)
+
+
+async def get_director_logs_for_messages(message_ids: Sequence[int]) -> dict[int, ConversationLogRow]:
+    """The newest log of each message in *message_ids*, keyed by message id.
+
+    The batched form of :func:`get_director_log_for_message`: messages without
+    a log are absent from the result.
+    """
+    ids = list(dict.fromkeys(message_ids))
+    if not ids:
+        return {}
+    marks = ",".join("?" * len(ids))
+    async with get_db() as db:
+        rows = list(
+            await db.execute_fetchall(
+                f"{_LOG_SELECT} WHERE l.id IN (SELECT MAX(id) FROM conversation_logs "  # nosec B608 -- module literal, placeholders only
+                f"WHERE message_id IN ({marks}) GROUP BY message_id)",
+                ids,
+            )
+        )
+    out: dict[int, ConversationLogRow] = {}
+    for row in rows:
+        d = _decoded_log(row)
+        d.setdefault("reasoning_director", "")
+        d.setdefault("reasoning_writer", "")
+        d.setdefault("reasoning_editor", "")
+        out[d["message_id"]] = cast(ConversationLogRow, d)
+    return out
 
 
 # ── Retention

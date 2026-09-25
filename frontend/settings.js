@@ -1,7 +1,8 @@
 import { api } from "./api.js";
-import { renderInspectorWorkflows, renderMessages } from "./chat.js";
+import { renderInspector, renderInspectorWorkflows, renderMessages } from "./chat.js";
 import { CLOSE_ICON } from "./icons.js";
 import { renderInteractiveFragments } from "./library_fragments.js";
+import { loadInspectorOpenStates } from "./message_inspector.js";
 import { closeModal, confirmDelete, showModal, showSubConfirmModal } from "./modal.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { loadAgentModelConfigs, loadEndpoints, loadJudgeConfig, renderEndpoints } from "./settings_models.js";
@@ -86,20 +87,16 @@ export async function loadSettings() {
   if (S.settings.reasoning_prefill_passes)
     S.reasoningPrefill = { ...S.reasoningPrefill, ...S.settings.reasoning_prefill_passes };
 
-  if (S.settings.inspector_open_states) {
-    const ios = S.settings.inspector_open_states;
-    if (typeof ios.reasoning === "boolean") S.reasoningOpen = ios.reasoning;
-    if (typeof ios.tool_calls === "boolean") S.toolCallsOpen = ios.tool_calls;
-    if (typeof ios.injection_block === "boolean") S.injectionBlockOpen = ios.injection_block;
-    if (typeof ios.context_size === "boolean") S.contextSizeOpen = ios.context_size;
-    if (typeof ios.decisions === "boolean") S.decisionsOpen = ios.decisions;
-  }
+  loadInspectorOpenStates(S.settings.inspector_open_states);
 
   if (typeof S.settings.show_editor_diff === "number") S.showEditorDiff = S.settings.show_editor_diff !== 0;
   else if (typeof S.settings.show_editor_diff === "boolean") S.showEditorDiff = S.settings.show_editor_diff;
 
   if (typeof S.settings.show_chat_avatars === "number") S.showChatAvatars = S.settings.show_chat_avatars !== 0;
   else if (typeof S.settings.show_chat_avatars === "boolean") S.showChatAvatars = S.settings.show_chat_avatars;
+
+  if (typeof S.settings.inspector_inline === "number") S.inspectorInline = S.settings.inspector_inline !== 0;
+  else if (typeof S.settings.inspector_inline === "boolean") S.inspectorInline = S.settings.inspector_inline;
 
   if (S.settings.editor_audit_toggles && typeof S.settings.editor_audit_toggles === "object")
     S.editorAuditToggles = { ...S.editorAuditToggles, ...S.settings.editor_audit_toggles };
@@ -168,6 +165,16 @@ export function renderSettings() {
       </div>
       <div class="tool-card-desc">Show the speaker's portrait beside each message.</div>
     </div>
+    <div class="tool-card ${S.inspectorInline ? "tool-on" : ""}">
+      <div class="tool-card-header">
+        <span class="tool-card-name">Show Inspector in chat</span>
+        <label class="tog" data-setting-stop>
+          <input type="checkbox" ${S.inspectorInline ? "checked" : ""} data-setting-toggle="inspectorInline">
+          <span class="tog-slider"></span>
+        </label>
+      </div>
+      <div class="tool-card-desc">Show each reply's moods, reasoning, decisions and other turn details under it.</div>
+    </div>
     <div class="tool-card ${S.preventPromptOverrides ? "tool-on" : ""}">
       <div class="tool-card-header">
         <span class="tool-card-name">Prevent prompt overrides</span>
@@ -194,6 +201,7 @@ export function renderSettings() {
 const SETTING_TOGGLES = {
   hideUntilBaked: toggleHideUntilBaked,
   showChatAvatars: toggleShowChatAvatars,
+  inspectorInline: toggleInspectorInline,
   preventPromptOverrides: togglePreventPromptOverrides,
 };
 
@@ -490,6 +498,14 @@ export async function toggleShowChatAvatars(on) {
   renderMessages();
   renderSettings();
   await persistSettings({ show_chat_avatars: on });
+}
+
+export async function toggleInspectorInline(on) {
+  S.inspectorInline = on;
+  renderMessages();
+  renderInspector();
+  renderSettings();
+  await persistSettings({ inspector_inline: on });
 }
 
 export async function togglePreventPromptOverrides(on) {

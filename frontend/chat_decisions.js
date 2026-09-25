@@ -1,11 +1,9 @@
-// The Inspector's Decisions panel. Skips have no outcome chip.
+// The Inspector's Decisions section, in the panel and under each reply. Skips have no outcome chip.
 import { outcomeLabel, skipReasonText } from "./decisions.js";
 import { CHEVRON_RIGHT_ICON } from "./icons.js";
 import { S } from "./state.js";
 import { esc, escAttr } from "./utils.js";
 
-/** Inspector toggle state key for this block. */
-export const DECISIONS_SECTION_ID = "decisions-section";
 const EVALUATIONS_VERSION = 2;
 
 const ANSWER_SOURCES = { live: "live", cache: "cached", replay: "replayed" };
@@ -51,14 +49,18 @@ function _distributionHtml(record, type) {
   return `<div class="decision-dist">${rows.join("")}</div>`;
 }
 
+// The stored answer shape identifies its question type.
+const _answerType = (record) => (record.probability != null ? "noul" : record.score != null ? "score" : "choice");
+
+const _evaluationName = (record) => record.injection_label || record.fragment_label || record.fragment_id;
+
 function _evaluationHtml(record) {
-  // The stored answer shape identifies its question type.
-  const type = record.probability != null ? "noul" : record.score != null ? "score" : "choice";
+  const type = _answerType(record);
   const guidance = String(record.guidance || "").trim();
   return `<details class="decision-eval">
     <summary>
       <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
-      <span class="decision-eval-name">${esc(record.injection_label || record.fragment_label || record.fragment_id)}</span>
+      <span class="decision-eval-name">${esc(_evaluationName(record))}</span>
       ${_chip(outcomeLabel(type, String(record.outcome)), "resolved")}
       <span class="decision-meta">${esc(_metaText(record))}</span>
     </summary>
@@ -94,15 +96,32 @@ function _skippedHtml(entry) {
   </div>`;
 }
 
-/** Render stored or in-flight decisions for the Inspector. */
-export function currentDecisionsHtml() {
-  const inspecting = Boolean(S.inspectedMsgId);
-  const source = inspecting ? S.inspectedDirectorData?.decision_evaluations : S.lastDecisions;
-  if (inspecting && (!Number.isInteger(source?.version) || source.version > EVALUATIONS_VERSION)) return "";
+/**
+ * The records to show from *source*: a stored ``decision_evaluations`` envelope
+ * (*stored*) or the in-flight ``decisions`` event. A stored envelope from a newer
+ * version is left alone.
+ */
+function _records(source, stored) {
+  if (stored && (!Number.isInteger(source?.version) || source.version > EVALUATIONS_VERSION)) return null;
   const evaluations = source?.evaluations || [];
   const skipped = source?.skipped || [];
-  if (!evaluations.length && !skipped.length) return "";
-  return `<details class="inspector-block decision-block" id="${DECISIONS_SECTION_ID}"${S.decisionsOpen ? " open" : ""}>
+  return evaluations.length || skipped.length ? { evaluations, skipped } : null;
+}
+
+/** One ``{label, outcome}`` per resolved evaluation, for compact summaries. */
+export function decisionOutcomes(source, { stored }) {
+  return (_records(source, stored)?.evaluations || []).map((record) => ({
+    label: _evaluationName(record),
+    outcome: outcomeLabel(_answerType(record), String(record.outcome)),
+  }));
+}
+
+/** The Decisions section for *source*, or "" when it has nothing to show. */
+export function decisionsHtml(source, { stored }) {
+  const records = _records(source, stored);
+  if (!records) return "";
+  const { evaluations, skipped } = records;
+  return `<details class="inspector-block decision-block" data-inspect-section="decisions"${S.decisionsOpen ? " open" : ""}>
     <summary class="reasoning-summary">
       <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
       <h4>Decisions</h4>
@@ -112,4 +131,11 @@ export function currentDecisionsHtml() {
       ${skipped.length ? `<div class="decision-skipped">${skipped.map(_skippedHtml).join("")}</div>` : ""}
     </div>
   </details>`;
+}
+
+/** Render stored or in-flight decisions for the Inspector panel. */
+export function currentDecisionsHtml() {
+  const inspecting = Boolean(S.inspectedMsgId);
+  const source = inspecting ? S.inspectedDirectorData?.decision_evaluations : S.lastDecisions;
+  return decisionsHtml(source, { stored: inspecting });
 }

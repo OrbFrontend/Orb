@@ -296,6 +296,7 @@ async def update_settings(data: dict) -> SettingsRow:
             "active_endpoint_id",
             "show_editor_diff",
             "show_chat_avatars",
+            "inspector_inline",
             "editor_audit_toggles",
             "document_audit_enabled",
             "document_audit_autopatch",

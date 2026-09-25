@@ -86,6 +86,7 @@ class _SettingsBase(TypedDict):
     character_library_sort: str
     show_editor_diff: int
     show_chat_avatars: int
+    inspector_inline: int
     editor_audit_toggles: dict  # decoded to its in-memory shape by get_settings()
     document_audit_enabled: int
     document_audit_autopatch: int

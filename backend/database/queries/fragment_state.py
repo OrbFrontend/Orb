@@ -92,6 +92,24 @@ async def get_state_events_for_message(
     return [r for r in out if sources is None or r["source"] in sources]
 
 
+async def get_state_events_for_messages(message_ids: Sequence[int]) -> dict[int, list[FragmentStateEventRow]]:
+    """Each message's own events in row order, keyed by message id; messages without events are absent."""
+    ids = list(dict.fromkeys(message_ids))
+    out: dict[int, list[FragmentStateEventRow]] = {}
+    async with get_db() as db:
+        for start in range(0, len(ids), _SQL_PARAM_CHUNK):
+            chunk = ids[start : start + _SQL_PARAM_CHUNK]
+            marks = ",".join("?" * len(chunk))
+            rows = await db.execute_fetchall(
+                f"SELECT * FROM fragment_state_events WHERE message_id IN ({marks}) ORDER BY id",  # nosec B608 -- placeholders only
+                chunk,
+            )
+            for r in rows:
+                event = cast(FragmentStateEventRow, dict(r))
+                out.setdefault(event["message_id"], []).append(event)
+    return out
+
+
 async def fold_path_state(cid: str, path_message_ids: Sequence[int]) -> StateView:
     """The active entries after folding every event on *path_message_ids*."""
     return fold_events(await get_state_events_for_path(cid, path_message_ids))

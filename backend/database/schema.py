@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS settings (
     character_library_sort TEXT NOT NULL DEFAULT 'time-added',
     show_editor_diff INTEGER NOT NULL DEFAULT 1,
     show_chat_avatars INTEGER NOT NULL DEFAULT 0,
+    inspector_inline INTEGER NOT NULL DEFAULT 0,
     editor_audit_toggles TEXT NOT NULL DEFAULT '{"banned_phrases":true,"repetitive_openers":true,"repetitive_templates":true,"contrastive_negation":true,"phrase_repetition":true,"structural_repetition":true,"anti_echo":true}',
     document_audit_enabled INTEGER NOT NULL DEFAULT 1,
     document_audit_autopatch INTEGER NOT NULL DEFAULT 0,

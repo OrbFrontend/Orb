@@ -1,20 +1,33 @@
 import { api } from "./api.js";
 import { renderContextSize, renderMessages } from "./chat_core.js";
-import { currentDecisionsHtml, DECISIONS_SECTION_ID } from "./chat_decisions.js";
+import { currentDecisionsHtml } from "./chat_decisions.js";
 import { CHEVRON_RIGHT_ICON } from "./icons.js";
+import {
+  buildFeedbackHtml,
+  buildStateHtml,
+  injectionHtml,
+  latencyHtml,
+  moodsHtml,
+  REASONING_BOTTOM_THRESHOLD,
+  REASONING_PASSES,
+  refreshInlineInspector,
+  rememberInspection,
+  renderLiveInspector,
+  toolCallsHtml,
+} from "./message_inspector.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { preserveScroll } from "./scroll_follow.js";
-import { effectiveWorkflowEnabled, interactiveFragmentsView, moodFragmentsView, restingCooldowns, S } from "./state.js";
+import { effectiveWorkflowEnabled, restingCooldowns, S } from "./state.js";
 import { renderStatePanel } from "./state_panel.js";
 import { $, convUrl, esc, escAttr, escHandlerArg, sentenceTail } from "./utils.js";
 
-export const REASONING_PASSES = [
-  { key: "director", label: "Director", color: "var(--accent-dim)" },
-  { key: "writer", label: "Writer", color: "var(--accent-dim)" },
-  { key: "editor", label: "Editor", color: "var(--accent-dim)" },
-];
-
-const REASONING_BOTTOM_THRESHOLD = 20;
+export {
+  buildFeedbackHtml,
+  buildStateHtml,
+  feedbackRows,
+  REASONING_PASSES,
+  saveInspectorOpenStates,
+} from "./message_inspector.js";
 
 let inspectionRequest = 0;
 
@@ -38,7 +51,9 @@ export async function inspectMessage(msgId) {
     S.reasoningPassActive = highestPassIdx;
     S.reasoningPassSelected = highestPassIdx;
     S.reasoningUserOverride = false;
+    rememberInspection(msgId, data);
     renderInspector();
+    refreshInlineInspector(msgId);
   } catch (_e) {
     if (!isCurrent()) return;
     S.inspectedDirectorData = null;
@@ -72,10 +87,7 @@ export function _advanceReasoningPass(targetIdx) {
     const targetEnabled = targetKey && S.reasoningEnabled[targetKey] !== false;
     if (targetEnabled) S.reasoningPassSelected = targetIdx;
   }
-  const existing = document.getElementById("reasoning-section");
-  if (!existing) return false;
-  _refreshReasoningSection();
-  return true;
+  return _refreshReasoningSection();
 }
 
 function _buildReasoningHtml() {
@@ -119,7 +131,10 @@ function _buildReasoningHtml() {
        >${esc(S.reasoningPrefill[key] || "")}</textarea>`
       : "";
 
-  return `<details class="inspector-block reasoning-section" id="reasoning-section"${openAttr} ontoggle="S.reasoningOpen=this.open;saveInspectorOpenStates()">
+  // With the Inspector in the chat, the text lives under each reply and the
+  // panel keeps only the controls for the next turn.
+  const boxHtml = S.inspectorInline ? "" : `<div class="reasoning-box" id="reasoning-box">${esc(currentText)}</div>`;
+  return `<details class="inspector-block reasoning-section" id="reasoning-section" data-inspect-section="reasoning"${openAttr}>
     <summary class="reasoning-summary">
       <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
       <h4 style="margin:0;display:inline">Reasoning</h4>
@@ -129,7 +144,7 @@ function _buildReasoningHtml() {
         ${dotsHtml}
         <span class="reasoning-pass-label">${esc(selectedPass.label)}</span>
       </div>
-      <div class="reasoning-box" id="reasoning-box">${esc(currentText)}</div>
+      ${boxHtml}
       ${prefillHtml}
     </div>
   </details>`;
@@ -150,34 +165,23 @@ document.addEventListener("change", (e) => {
   if (e.target.id === "reasoning-prefill")
     api.put("/settings", { reasoning_prefill_passes: { ...S.reasoningPrefill } });
 });
-// `toggle` does not bubble, so the Decisions block is watched in the capture
-// phase rather than given an inline `ontoggle` like the sections above it.
-//
-// Firefox fires `toggle` for a `<details open>` that arrives through innerHTML,
-// and the Inspector rebuilds its whole panel on every repaint -- so the state is
-// compared before it is written. The section is rendered *from* this flag, which
-// makes a repaint's event always a no-op and a click always a real change.
-document.addEventListener(
-  "toggle",
-  (e) => {
-    if (e.target.id !== DECISIONS_SECTION_ID || S.decisionsOpen === e.target.open) return;
-    S.decisionsOpen = e.target.open;
-    saveInspectorOpenStates();
-  },
-  true,
-);
-
+/** Rebuild the reasoning views. Returns whether any reasoning box now holds the full text. */
 function _refreshReasoningSection() {
   const existing = document.getElementById("reasoning-section");
-  if (!existing) return;
-  preserveScroll(
-    () => document.getElementById("reasoning-box"),
-    REASONING_BOTTOM_THRESHOLD,
-    () => {
+  if (existing) {
+    withReasoningScroll(() => {
       existing.outerHTML = _buildReasoningHtml();
-    },
-  );
+    });
+  }
+  const live = renderLiveInspector();
+  return Boolean(existing) || live;
 }
+
+// The streaming reply's pass tabs pick the same pass as the panel's dots.
+document.addEventListener("click", (e) => {
+  const tab = e.target.closest?.(".msg-inspect-live button[data-inspect-pass]");
+  if (tab) selectReasoningPass(Number(tab.dataset.inspectPass));
+});
 
 export function selectReasoningPass(idx) {
   S.reasoningPassSelected = idx;
@@ -372,150 +376,6 @@ export async function toggleReasoningPass(passKey) {
   await api.put("/settings", { reasoning_enabled_passes: { ...S.reasoningEnabled } });
 }
 
-function _buildToolCallsHtml(tc) {
-  const openAttr = S.toolCallsOpen ? " open" : "";
-  return `<details class="inspector-block"${openAttr} ontoggle="S.toolCallsOpen=this.open;saveInspectorOpenStates()">
-    <summary class="reasoning-summary">
-      <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
-      <h4 style="margin:0;display:inline">Tool Calls</h4>
-    </summary>
-    <div class="injection-box" style="margin-top:8px">${esc(tc.map((c) => JSON.stringify(c)).join("\n\n"))}</div>
-  </details>`;
-}
-
-export function feedbackRows(values) {
-  if (!values || typeof values !== "object") return [];
-  const frags = interactiveFragmentsView();
-  return Object.entries(values)
-    .filter(([, v]) => v && (Array.isArray(v) ? v.length : true))
-    .map(([id, v]) => {
-      const frag = frags.find((f) => f.id === id);
-      const label = frag?.injection_label || frag?.label || id;
-      return { label, value: v };
-    });
-}
-
-export function buildFeedbackHtml(values) {
-  const rows = feedbackRows(values);
-  if (!rows.length) return "";
-  const body = rows
-    .map(({ label, value }) => {
-      const valHtml = Array.isArray(value)
-        ? `<ul>${value.map((it) => `<li>${esc(String(it))}</li>`).join("")}</ul>`
-        : esc(String(value));
-      return `<div class="feedback-row">
-        <span class="feedback-row-label">${esc(label)}</span>
-        <div class="feedback-row-value">${valHtml}</div>
-      </div>`;
-    })
-    .join("");
-  return `<div class="inspector-block">
-    <h4>Feedback</h4>
-    <div class="feedback-card">${body}</div>
-  </div>`;
-}
-
-const STATE_OP_LABELS = { add: "Added", revise: "Changed", retire: "Retired" };
-// What an operation that did not apply tried to do.
-const STATE_ATTEMPT_LABELS = { set: "Set", add: "Add", revise: "Change", retire: "Retire", clear: "Clear" };
-
-function stateFragmentLabel(fragmentId, fallback) {
-  if (fallback) return fallback;
-  return interactiveFragmentsView().find((f) => f.id === fragmentId)?.label || fragmentId || "State";
-}
-
-// Changes the Agent did not make carry a badge naming who did.
-const STATE_SOURCE_BADGES = { user: "You", carried: "Carried" };
-
-function stateRowHtml(label, op, text, { source = "agent", detail = "" } = {}) {
-  const who = STATE_SOURCE_BADGES[source];
-  const badge = who ? ` <span class="state-badge">${who}</span>` : "";
-  const body = text ? `: ${esc(String(text))}` : "";
-  const why = detail ? `<div class="state-change-detail">${esc(detail)}</div>` : "";
-  return `<div class="feedback-row${who ? " user-note" : ""}">
-    <span class="feedback-row-label">${esc(label)}${badge}</span>
-    <div class="feedback-row-value"><span class="state-change-op">${esc(op)}</span>${body}${why}</div>
-  </div>`;
-}
-
-/**
- * One turn's state: the changes it made, the operations it refused, and the
- * carried corrections that could no longer apply. ``state`` is the ``state``
- * SSE payload or the director log's ``state``.
- */
-export function buildStateHtml(state) {
-  const changes = Array.isArray(state?.changes) ? state.changes : [];
-  const rejected = Array.isArray(state?.rejected) ? state.rejected : [];
-  const dropped = Array.isArray(state?.dropped) ? state.dropped : [];
-  if (!changes.length && !rejected.length && !dropped.length) return "";
-  const blocks = [];
-  if (changes.length) {
-    const rows = changes
-      .map((c) =>
-        stateRowHtml(stateFragmentLabel(c.fragment_id, c.fragment_label), STATE_OP_LABELS[c.op] || c.op, c.text, {
-          source: c.source,
-        }),
-      )
-      .join("");
-    blocks.push(`<div class="feedback-card">${rows}</div>`);
-  }
-  if (rejected.length) {
-    const rows = rejected
-      .map((r) =>
-        stateRowHtml(stateFragmentLabel(r.fragment_id), STATE_ATTEMPT_LABELS[r.op] || r.op || "Rejected", r.text, {
-          detail: r.detail || r.reason,
-        }),
-      )
-      .join("");
-    blocks.push(`<h4>Rejected</h4><div class="feedback-card state-rejected">${rows}</div>`);
-  }
-  if (dropped.length) {
-    const rows = dropped
-      .map((d) =>
-        stateRowHtml(
-          stateFragmentLabel(d.fragment_id, d.fragment_label),
-          d.op === "retire" ? "Retire" : "Change",
-          d.text,
-        ),
-      )
-      .join("");
-    blocks.push(
-      `<h4>Corrections not carried over</h4>
-       <div class="state-note">They changed entries from the discarded reply.</div>
-       <div class="feedback-card state-rejected">${rows}</div>`,
-    );
-  }
-  return `<div class="inspector-block">
-    <h4>State (this reply)</h4>
-    ${blocks.join("")}
-  </div>`;
-}
-
-function _buildInjectionBlockHtml(inj) {
-  const openAttr = S.injectionBlockOpen ? " open" : "";
-  return `<details class="inspector-block"${openAttr} ontoggle="S.injectionBlockOpen=this.open;saveInspectorOpenStates()">
-    <summary class="reasoning-summary">
-      <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
-      <h4 style="margin:0;display:inline">Injection Block</h4>
-    </summary>
-    <div class="injection-box" style="margin-top:8px">${esc(inj)}</div>
-  </details>`;
-}
-
-export function saveInspectorOpenStates() {
-  api
-    .put("/settings", {
-      inspector_open_states: {
-        reasoning: S.reasoningOpen,
-        tool_calls: S.toolCallsOpen,
-        injection_block: S.injectionBlockOpen,
-        context_size: S.contextSizeOpen,
-        decisions: S.decisionsOpen,
-      },
-    })
-    .catch(() => {});
-}
-
 export function clearRefineDiff() {
   S.pendingRefineDiff = null;
   renderMessages();
@@ -535,6 +395,7 @@ export function toggleInspector() {
 export function renderInspector() {
   _renderInspectorMain();
   renderInspectorWorkflows();
+  renderLiveInspector();
 }
 
 export function currentMoodsHtml() {
@@ -542,7 +403,6 @@ export function currentMoodsHtml() {
   if (!inspecting && !S.isStreaming && !S.messages.some((message) => message.role === "assistant")) return "";
   const data = inspecting ? S.inspectedDirectorData : S.lastDirectorData;
   const known = data?.mood_data_available !== false && Array.isArray(data?.active_moods);
-  const activeIds = known ? data.active_moods : [];
   const history = S.isStreaming ? S.messages.slice(0, S.streamCutoffIndex ?? S.messages.length) : S.messages;
   const lastAssistant = history.findLast((message) => message.role === "assistant");
   // A saved reply stores cooldowns for the following turn. Read the baseline
@@ -552,23 +412,7 @@ export function currentMoodsHtml() {
     : S.isStreaming
       ? lastAssistant?.fragment_cooldowns || {}
       : restingCooldowns(lastAssistant?.id);
-  const fragments = [...moodFragmentsView()];
-  for (const id of activeIds) {
-    if (!fragments.some((fragment) => fragment.id === id)) fragments.push({ id, label: id });
-  }
-  const badges = known
-    ? fragments
-        .map((fragment) => {
-          const active = activeIds.includes(fragment.id);
-          const rests = !active && Number(resting[fragment.id]) >= 1;
-          const className = active ? " active" : rests ? " resting" : "";
-          return `<span class="style-tag${className}">${esc(fragment.label)}</span>`;
-        })
-        .join("")
-    : "";
-  return `<div class="inspector-block"><h4>Moods</h4>
-    <div>${badges || (known ? '<span style="color:var(--text-muted);font-size:12px">None</span>' : "")}</div>
-  </div>`;
+  return moodsHtml({ known, activeIds: known ? data.active_moods : [], resting }, { showNone: true });
 }
 
 function _renderDirectorPanel({ latency, toolCalls, injection, feedback, stateChanges }) {
@@ -580,19 +424,26 @@ function _renderDirectorPanel({ latency, toolCalls, injection, feedback, stateCh
       ${currentDecisionsHtml()}
       ${buildFeedbackHtml(feedback)}
       ${buildStateHtml(stateChanges)}
-      ${toolCalls.length ? _buildToolCallsHtml(toolCalls) : ""}
-      ${injection ? _buildInjectionBlockHtml(injection) : ""}
-      ${
-        latency
-          ? `<div class="inspector-block"><h4>Agent Latency</h4>
-               <div style="font-size:12px;color:var(--text-secondary)">${latency}ms</div></div>`
-          : ""
-      }`;
+      ${toolCallsHtml(toolCalls)}
+      ${injectionHtml(injection)}
+      ${latencyHtml(latency)}`;
   });
   renderContextSize();
 }
 
 function _renderInspectorMain() {
+  // Each reply carries its own turn details in the chat; the panel keeps what
+  // belongs to the conversation and the controls for the next turn.
+  if (S.inspectorInline) {
+    withReasoningScroll(() => {
+      $("inspector-content").innerHTML = `
+       <div class="inspector-block" id="inspector-context-size"></div>
+       ${_buildReasoningHtml()}`;
+    });
+    renderContextSize();
+    return;
+  }
+
   if (S.inspectedMsgId == null && S.isStreaming && S.lastDirectorData === null) {
     withReasoningScroll(() => {
       $("inspector-content").innerHTML = `

@@ -44,6 +44,7 @@ class SettingsUpdate(BaseModel):
     active_endpoint_id: int | None = None
     show_editor_diff: bool | None = None
     show_chat_avatars: bool | None = None
+    inspector_inline: bool | None = None
     editor_audit_toggles: dict | None = None
     # Document-mode Output Auditor (doc-owned columns; deliberately not shared
     # with editor_audit_toggles so a doc-mode save can't perturb chat scanners).

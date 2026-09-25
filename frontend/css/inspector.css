@@ -407,3 +407,115 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
 .inspector-block .feedback-card + h4 { margin-top: 12px; }
 
 .state-rejected .feedback-row-label { color: var(--red); }
+
+/* ── In-chat Inspector: one reply's turn details, under its bubble ── */
+
+.msg-inspect {
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent-dim);
+  border-radius: var(--radius);
+  background: var(--bg-deep);
+  font-size: 12px;
+}
+
+.msg-inspect > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.msg-inspect > summary::-webkit-details-marker { display: none; }
+
+.msg-inspect[open] > summary .reasoning-summary-arrow { transform: rotate(90deg); }
+
+.msg-inspect-title {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  color: var(--text-muted);
+}
+
+/* The collapsed line: active moods, decision outcomes and latency at a glance.
+   Chips wrap rather than clip on narrow screens. The open body shows all of
+   it, so the line steps aside. */
+.msg-inspect-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.msg-inspect[open] > summary .msg-inspect-chips { display: none; }
+
+.msg-inspect-chips .style-tag { margin: 0; padding: 1px 6px; }
+
+.msg-inspect-chip {
+  padding: 1px 6px;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 24ch;
+}
+
+/* Short sections sit side by side; the long ones take the full row. */
+.msg-inspect-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px 16px;
+  padding: 4px 12px 10px;
+}
+
+.msg-inspect-body > .inspector-block { margin: 0; min-width: 0; }
+.msg-inspect-body > details.inspector-block { grid-column: 1 / -1; }
+
+.msg-inspect .reasoning-box {
+  height: auto;
+  max-height: 220px;
+  margin-top: 6px;
+}
+
+.msg-inspect .injection-box { margin-top: 6px; }
+
+.msg-inspect-passes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.msg-inspect-pass {
+  padding: 1px 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+button.msg-inspect-pass { cursor: pointer; }
+button.msg-inspect-pass:hover { color: var(--text-secondary); }
+
+.msg-inspect-pass.active {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  background: var(--accent-glow);
+}
+
+/* The streaming bubble's slot stays out of the layout until it has a block. */
+.msg-inspect-live:empty,
+.msg-inspect-baked:empty { display: none; }

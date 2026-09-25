@@ -6,6 +6,7 @@ import { sceneEmptyStateHtml, speakerAvatarCell, speakerLabel } from "./group_ca
 import { CHEVRON_LEFT_ICON, CHEVRON_RIGHT_ICON, EDIT_ICON_PATHS } from "./icons.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
+import { ensureInspections, inlineInspectorHtml, setInlineInspectorRepaint } from "./message_inspector.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, localMlReady, S, subscribe } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
@@ -366,13 +367,14 @@ function _messageHtml(m, avatars) {
   const workflowArtifactsHtml = _renderWorkflowArtifacts(m);
   const rejectionHtml = _renderWorkflowRejection(m);
   const proposalsHtml = messageProposalsHtml(m);
+  const inspectorHtml = inlineInspectorHtml(m);
   const isProseRewriting = !!m.id && m.id === S.proseRewriteMsgId;
   const rewritingHtml = isProseRewriting
     ? `<span class="msg-rewriting"><span class="dot"></span>Rewriting prose…</span>`
     : "";
   return `<div class="message ${m.role}${isProseRewriting ? " prose-rewriting" : ""}" data-msg-id="${m.id}">
         ${avatars ? speakerAvatarCell(m) : ""}<div class="msg-role">${esc(speakerLabel(m))} ${branchHtml}${rewritingHtml}</div>
-        ${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${proposalsHtml}${toolbar}
+        ${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${proposalsHtml}${inspectorHtml}${toolbar}
       </div>`;
 }
 
@@ -467,7 +469,10 @@ export function renderMessages(forceBottom = false) {
   if (!S.isStreaming) updateContextCounter();
   _refreshWorkflowViewportObserver();
   _segmentRenderedMessages(renderedMsgs);
+  ensureInspections(renderedMsgs);
 }
+
+setInlineInspectorRepaint(() => renderMessages());
 
 export function _applyWorkflowTextSegments(bodyEl, msg) {
   // Segmentation wraps every word of the message in its own span, so it is only
@@ -552,7 +557,7 @@ export function renderContextSize() {
     })
     .join("");
   const openAttr = S.contextSizeOpen ? " open" : "";
-  el.outerHTML = `<details class="inspector-block ctx-section" id="inspector-context-size"${openAttr} ontoggle="S.contextSizeOpen=this.open;saveInspectorOpenStates()">
+  el.outerHTML = `<details class="inspector-block ctx-section" id="inspector-context-size" data-inspect-section="context_size"${openAttr}>
     <summary class="ctx-summary">
       <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
       <span class="ctx-total">~${total.toLocaleString()} tokens <span class="ctx-msgs">(${data.message_count} msgs)</span></span>
