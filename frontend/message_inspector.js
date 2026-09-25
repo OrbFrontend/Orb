@@ -1,11 +1,15 @@
 // A reply's Inspector sections -- moods, reasoning, decisions, feedback, state,
 // tool calls, injection block and latency -- built from one "turn view" so the
 // Inspector panel and the in-chat blocks under each reply render them alike.
+// In the chat, reasoning gets its own block above the reply's text; the rest
+// share the Inspector block under it.
 //
 // The in-chat blocks read a per-conversation cache filled by one batched
 // director-logs request per render, and the reply still streaming reads the
 // live turn state. Open states are shared: toggling a section on one reply
-// toggles it on every reply and in the panel, and the choice is saved.
+// toggles it on every reply and in the panel, and the choice is saved. The
+// Reasoning block is the exception: the panel's Reasoning section holds the
+// next turn's controls, so the two open and close apart.
 import { api } from "./api.js";
 import { decisionOutcomes, decisionsHtml } from "./chat_decisions.js";
 import { CHEVRON_RIGHT_ICON } from "./icons.js";
@@ -27,6 +31,7 @@ export const REASONING_BOTTOM_THRESHOLD = 20;
 // `inspector_open_states` key it writes.
 const OPEN_STATE_FIELDS = {
   inline: "inlineInspectorOpen",
+  inline_reasoning: "inlineReasoningOpen",
   reasoning: "reasoningOpen",
   tool_calls: "toolCallsOpen",
   injection_block: "injectionBlockOpen",
@@ -299,7 +304,7 @@ export function latencyHtml(latency) {
     <div style="font-size:12px;color:var(--text-secondary)">${latency}ms</div></div>`;
 }
 
-// ── Reasoning (in-chat) ──
+// ── The in-chat Reasoning block ──
 
 // The pass a saved reply's block shows, by message id. Unset means its last pass.
 const selectedPassByMsg = new Map();
@@ -314,7 +319,8 @@ function reasoningPassIndexes(view) {
   });
 }
 
-function reasoningHtml(view) {
+/** A reply's Reasoning block, or "" when no pass has reasoning to show. */
+export function reasoningBlockHtml(view) {
   const shown = reasoningPassIndexes(view);
   if (!shown.length) return "";
   const wanted = view.live ? S.reasoningPassSelected : selectedPassByMsg.get(view.msgId);
@@ -330,11 +336,15 @@ function reasoningHtml(view) {
       : `<div class="msg-inspect-passes"><span class="msg-inspect-pass active">${esc(REASONING_PASSES[selected].label)}</span></div>`;
   // The streaming reply's box is the one reasoning deltas append to.
   const boxId = view.live ? ' id="reasoning-box"' : "";
-  return collapsibleHtml(
-    "reasoning",
-    "Reasoning",
-    `${tabs}<div class="reasoning-box"${boxId}>${esc(view.reasoning[REASONING_PASSES[selected].key])}</div>`,
-  );
+  return `<details class="msg-inspect msg-reasoning" data-inspect-section="inline_reasoning"${openAttr("inline_reasoning")}>
+    <summary class="msg-inspect-summary">
+      <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
+      <span class="msg-inspect-title">Reasoning</span>
+    </summary>
+    <div class="msg-reasoning-body">
+      ${tabs}<div class="reasoning-box"${boxId}>${esc(view.reasoning[REASONING_PASSES[selected].key])}</div>
+    </div>
+  </details>`;
 }
 
 // ── The in-chat block ──
@@ -356,7 +366,6 @@ export function inspectorBlockHtml(view) {
   const sections = [
     moodsHtml(view.moods),
     latencyHtml(view.latency),
-    reasoningHtml(view),
     decisionsHtml(view.decisions, { stored: view.storedDecisions }),
     buildFeedbackHtml(view.feedback),
     buildStateHtml(view.state),
@@ -397,12 +406,24 @@ export function rememberInspection(msgId, data) {
   inspections.set(msgId, data ?? null);
 }
 
-/** The in-chat block for message *m*, or "" when the setting is off or there is nothing to show. */
-export function inlineInspectorHtml(m) {
-  if (!S.inspectorInline || m.role !== "assistant" || !m.id) return "";
+// A cached reply's turn view, or null when the setting is off or there is no log.
+function cachedTurnView(m) {
+  if (!S.inspectorInline || m.role !== "assistant" || !m.id) return null;
   syncCacheConversation();
   const data = inspections.get(m.id);
-  return data ? inspectorBlockHtml(turnViewFromLog(m.id, data)) : "";
+  return data ? turnViewFromLog(m.id, data) : null;
+}
+
+/** The in-chat Inspector block for message *m*, or "" when the setting is off or there is nothing to show. */
+export function inlineInspectorHtml(m) {
+  const view = cachedTurnView(m);
+  return view ? inspectorBlockHtml(view) : "";
+}
+
+/** The in-chat Reasoning block for message *m*, or "" when the setting is off or there is none. */
+export function inlineReasoningHtml(m) {
+  const view = cachedTurnView(m);
+  return view ? reasoningBlockHtml(view) : "";
 }
 
 /** Fetch the logs of the rendered replies not cached yet, then repaint the ones that have a block. */
@@ -425,7 +446,8 @@ export function ensureInspections(msgs) {
           inflight.delete(id);
           const data = logs?.[id] ?? null;
           inspections.set(id, data);
-          if (data && inspectorBlockHtml(turnViewFromLog(id, data))) visible = true;
+          const view = data ? turnViewFromLog(id, data) : null;
+          if (view && (inspectorBlockHtml(view) || reasoningBlockHtml(view))) visible = true;
         }
         if (visible) repaintMessages();
       })
@@ -437,49 +459,58 @@ export function ensureInspections(msgs) {
 }
 
 /**
- * Show a freshly stored reply's block. A bubble baked from the stream is not
- * part of the list's reconciled rows yet, so its live slot is replaced in place
- * rather than repainting the list under it.
+ * Show a freshly stored reply's blocks. A bubble baked from the stream is not
+ * part of the list's reconciled rows yet, so its live slots are replaced in
+ * place rather than repainting the list under it.
  */
 export function refreshInlineInspector(msgId) {
   if (!S.inspectorInline) return;
   const row = document.querySelector(`#chat-messages .message[data-msg-id="${msgId}"]`);
-  const slot = row && !row.dataset.rkey ? row.querySelector(".msg-inspect-baked") : null;
-  if (!slot) {
+  const baked = row && !row.dataset.rkey;
+  const inspectSlot = baked ? row.querySelector(".msg-inspect-baked") : null;
+  const reasoningSlot = baked ? row.querySelector(".msg-reasoning-baked") : null;
+  if (!inspectSlot || !reasoningSlot) {
     repaintMessages();
     return;
   }
   const message = S.messages.find((m) => m.id === msgId);
-  slot.innerHTML = message ? inlineInspectorHtml(message) : "";
+  inspectSlot.innerHTML = message ? inlineInspectorHtml(message) : "";
+  reasoningSlot.innerHTML = message ? inlineReasoningHtml(message) : "";
 }
 
-// ── The streaming reply's block ──
+// ── The streaming reply's blocks ──
 
-/** Repaint the streaming bubble's block from the live turn state. Returns whether it rendered. */
+/**
+ * Repaint the streaming bubble's blocks from the live turn state. Returns
+ * whether the Reasoning block rendered, so its box holds the full text.
+ */
 export function renderLiveInspector() {
-  const slot = S.streamingBodyEl?.closest(".message")?.querySelector(".msg-inspect-live");
-  if (!slot) return false;
-  const html = S.inspectorInline ? inspectorBlockHtml(liveTurnView()) : "";
+  const bubble = S.streamingBodyEl?.closest(".message");
+  const inspectSlot = bubble?.querySelector(".msg-inspect-live");
+  const reasoningSlot = bubble?.querySelector(".msg-reasoning-live");
+  const view = S.inspectorInline && (inspectSlot || reasoningSlot) ? liveTurnView() : null;
+  const reasoning = view ? reasoningBlockHtml(view) : "";
   preserveScroll(
     () => document.getElementById("reasoning-box"),
     REASONING_BOTTOM_THRESHOLD,
     () => {
-      slot.innerHTML = html;
+      if (inspectSlot) inspectSlot.innerHTML = view ? inspectorBlockHtml(view) : "";
+      if (reasoningSlot) reasoningSlot.innerHTML = reasoning;
     },
   );
-  return html !== "";
+  return reasoningSlot != null && reasoning !== "";
 }
 
 // A saved reply's pass tabs switch only its own box. The streaming reply's tabs
 // follow the panel's pass selection, which the Inspector module handles.
 document.addEventListener("click", (e) => {
   const tab = e.target.closest?.("button[data-inspect-pass]");
-  if (!tab || tab.closest(".msg-inspect-live")) return;
+  if (!tab || tab.closest(".msg-reasoning-live")) return;
   const row = tab.closest(".message[data-msg-id]");
   const msgId = Number(row?.dataset.msgId);
   const data = inspections.get(msgId);
   if (!data) return;
   selectedPassByMsg.set(msgId, Number(tab.dataset.inspectPass));
-  const section = tab.closest('[data-inspect-section="reasoning"]');
-  if (section) section.outerHTML = reasoningHtml(turnViewFromLog(msgId, data));
+  const section = tab.closest('[data-inspect-section="inline_reasoning"]');
+  if (section) section.outerHTML = reasoningBlockHtml(turnViewFromLog(msgId, data));
 });

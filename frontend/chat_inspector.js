@@ -179,7 +179,7 @@ function _refreshReasoningSection() {
 
 // The streaming reply's pass tabs pick the same pass as the panel's dots.
 document.addEventListener("click", (e) => {
-  const tab = e.target.closest?.(".msg-inspect-live button[data-inspect-pass]");
+  const tab = e.target.closest?.(".msg-reasoning-live button[data-inspect-pass]");
   if (tab) selectReasoningPass(Number(tab.dataset.inspectPass));
 });
 

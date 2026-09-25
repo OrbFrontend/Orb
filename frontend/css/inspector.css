@@ -532,6 +532,16 @@ button.msg-inspect-pass:hover { color: var(--text-secondary); }
   background: var(--accent-glow);
 }
 
-/* The streaming bubble's slot stays out of the layout until it has a block. */
+/* Reasoning: its own block above the reply's text, so the thinking reads before
+   what it produced. */
+.msg-reasoning { margin: 0 0 6px; }
+
+.msg-reasoning-body { padding: 0 12px 10px; }
+
+.msg-reasoning-body > .msg-inspect-passes { margin-top: 0; }
+
+/* The streaming bubble's slots stay out of the layout until they have a block. */
 .msg-inspect-live:empty,
-.msg-inspect-baked:empty { display: none; }
+.msg-inspect-baked:empty,
+.msg-reasoning-live:empty,
+.msg-reasoning-baked:empty { display: none; }

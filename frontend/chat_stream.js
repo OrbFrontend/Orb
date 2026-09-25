@@ -177,6 +177,7 @@ function finalizeStreamingDiv(lastMsg) {
   // waits for the stored copy (refreshInlineInspector).
   div.querySelector("#reasoning-box")?.removeAttribute("id");
   div.querySelector(".msg-inspect-live")?.classList.replace("msg-inspect-live", "msg-inspect-baked");
+  div.querySelector(".msg-reasoning-live")?.classList.replace("msg-reasoning-live", "msg-reasoning-baked");
 
   const bodyHtml =
     S.pendingRefineDiff && S.showEditorDiff
@@ -227,6 +228,7 @@ export function createStreamingDiv(name = null, memberId = null) {
   div.className = "message assistant";
   const avatar = S.showChatAvatars ? speakerAvatarCell({ role: "assistant", speaker_member_id: memberId }) : "";
   div.innerHTML = `${avatar}<div class="msg-role">${esc(name || getCharName())}</div>
+    <div class="msg-reasoning-live"></div>
     <div class="msg-body" id="streaming-body">
       <span class="typing-indicator"><span></span><span></span><span></span></span>
     </div>

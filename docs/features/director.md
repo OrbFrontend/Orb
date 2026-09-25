@@ -68,12 +68,16 @@ Director schema or Scene Guidance.
 ## Inspector in the chat
 
 The Inspector shows one reply's turn details at a time. Turn on **Settings →
-Show Inspector in chat** to show each reply's details under it instead: moods,
-agent latency, reasoning, decisions, feedback, state changes, tool calls and the
-injection block. A section appears only when the reply has something for it, and
-a reply with nothing to show gets no block.
+Show Inspector in chat** to show each reply's details in the chat instead. The
+reply's reasoning gets its own **Reasoning** block above its text, with a tab for
+each pass that wrote some. The **Inspector** block under the text holds the
+rest: moods, agent latency, decisions, feedback, state changes, tool calls and
+the injection block. A section appears only when the reply has something for it,
+and a reply with nothing to show gets no block.
 
-A collapsed block keeps one summary line with the active moods, decision
-outcomes and latency. Opening or collapsing the block, or any section in it,
-applies to every reply and to the Inspector panel, and the choice is saved. The
+A collapsed Inspector block keeps one summary line with the active moods and
+decision outcomes. Opening or collapsing either block, or any section in one,
+applies to every reply and the choice is saved. Sections the Inspector panel
+shows too follow along there; the Reasoning block opens and closes apart from
+the panel's Reasoning controls. The
 panel keeps the context size and the reasoning controls for the next turn.
