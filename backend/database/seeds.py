@@ -146,17 +146,17 @@ SEED_INTERACTIVE_FRAGMENTS = [
         # Authored order controls gate selection and tie-breaking.
         "decision_criteria": {
             # Talk, continue, and OOC turns can resolve here without injecting guidance.
-            "no_attempt": "Nothing is attempted whose result is in doubt: the current request is mundane.",
+            "no_attempt": "The current request is mundane with no opiniated outcomes.",
             "crushing_failure": "The attempt fails outright and the situation turns against them: they are overmatched, exposed, or left worse off than before they tried.",
-            "costly_failure": "The attempt does not land, or lands only in part, and it costs them something real: ground given up, a resource spent, an opening handed over.",
-            "narrow_success": "The attempt works, but barely: by a margin, at the last moment, or in a way that leaves them spent or shaken.",
+            "failure": "The attempt does not land, or lands only in part, and it costs them something real: ground given up, a resource spent, an opening handed over.",
+            "success": "The attempt works, but barely: by a margin, at the last moment, or in a way that leaves them spent or shaken.",
             "decisive_success": "The attempt works cleanly and on their own terms, with room to spare.",
         },
         "decision_outputs": {
             "no_attempt": "",
             "crushing_failure": "That action fails hard. Let it cost them, and leave the situation worse than it started.",
-            "costly_failure": "That action falls short. They are stopped, or get only part of what they wanted, and pay something for the attempt.",
-            "narrow_success": "That action comes off, but only just. Show the effort, and what it nearly cost.",
+            "failure": "That action falls short. They are stopped, or get only part of what they wanted, and pay something for the attempt.",
+            "success": "That action comes off, but only just. Show the effort, and what it nearly cost.",
             "decisive_success": "That action comes off as intended, cleanly and without much trouble.",
         },
         # Gating prevents idle turns from drawing a real outcome from residual odds.
