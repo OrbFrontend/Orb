@@ -49,6 +49,7 @@
 .style-tag.resting {
   border-style: dashed;
   opacity: 0.65;
+  text-decoration: line-through;
 }
 
 
