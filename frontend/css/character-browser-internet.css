@@ -13,8 +13,7 @@
 .internet-controls select {
   flex: 0 0 auto;
   width: auto;
-  min-width: 132px;
-  padding: 8px 28px 8px 10px;
+  padding: 8px 6px 8px 10px;
   font-size: 12px;
   background: var(--bg-deep);
   border: 1px solid var(--border);

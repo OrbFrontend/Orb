@@ -9,8 +9,8 @@ Open the character browser and select **Internet**.
 
 | Source | Format |
 |---|---|
-| **CharacterHub** (`chub.ai`) | PNG cards |
-| **Character Archive** (`chararc.bernkastel.pictures`) | JSON cards and separate avatars |
+| **Chub** (`chub.ai`) | PNG cards |
+| **Bernkastel** (`chararc.bernkastel.pictures`) | JSON cards and separate avatars |
 | **Botbooru** (`botbooru.com`) | Tavern PNG cards |
 | **Wyvern** (`wyvern.chat`) | JSON cards and merged embedded Worlds |
 

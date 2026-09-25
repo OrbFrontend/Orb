@@ -464,8 +464,8 @@ function renderInternetPanel() {
     <div class="char-browser-internet">
       <div class="internet-controls">
         <select id="internet-source" onchange="setInternetSource(this.value)">
-          <option value="characterhub" ${_internetSource === "characterhub" ? "selected" : ""}>CharacterHub</option>
-          <option value="chararc" ${_internetSource === "chararc" ? "selected" : ""}>Character Archive</option>
+          <option value="characterhub" ${_internetSource === "characterhub" ? "selected" : ""}>Chub</option>
+          <option value="chararc" ${_internetSource === "chararc" ? "selected" : ""}>Bernkastel</option>
           <option value="botbooru" ${_internetSource === "botbooru" ? "selected" : ""}>Botbooru</option>
           <option value="wyvern" ${_internetSource === "wyvern" ? "selected" : ""}>Wyvern</option>
         </select>

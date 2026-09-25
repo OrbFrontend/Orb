@@ -166,7 +166,7 @@ async def _chub_page(q: str, page: int) -> tuple[dict, int]:
         "venus": "true",
     }
     url = "https://api.chub.ai/search"
-    payload = (await _fetch(url, what="CharacterHub search failed", params=params, timeout=15)).json()
+    payload = (await _fetch(url, what="Chub search failed", params=params, timeout=15)).json()
 
     # Results come wrapped in a `data` envelope; tolerate a flat response too.
     body = payload if isinstance(payload.get("nodes"), list) else (payload.get("data") or {})
@@ -244,7 +244,7 @@ async def _chub_expression_pack(full_path: str) -> dict | None:
         pack = (ext.get("chub") or {}).get("expressions")
         return pack if isinstance(pack, dict) else None
     except (httpx.HTTPError, ValueError) as e:
-        logger.warning("Failed to fetch CharacterHub expression pack for %s: %s", full_path, e)
+        logger.warning("Failed to fetch Chub expression pack for %s: %s", full_path, e)
         return None
 
 
@@ -259,12 +259,12 @@ async def _download_characterhub_card(full_path: str):
     if "/" not in full_path:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid CharacterHub full_path (expected creator/name): {full_path}",
+            detail=f"Invalid Chub full_path (expected creator/name): {full_path}",
         )
     url = f"{_CHUB_AVATARS_BASE}/{full_path}/chara_card_v2.png"
     content = (await _fetch(url, what="Failed to download card")).content
 
-    card_dict, avatar_b64, avatar_mime, card_id = _parse_png_card(content, "CharacterHub")
+    card_dict, avatar_b64, avatar_mime, card_id = _parse_png_card(content, "Chub")
     # The embedded card's expression pack is null; the detail API has it. Merge
     # it into extensions so the shared create-time auto-import can pick it up.
     pack = await _chub_expression_pack(full_path)
@@ -361,7 +361,7 @@ async def _browse_chararc(q: str, page: int) -> dict:
     page = max(1, int(page))
     params = {"query": q or "", "page": page, "count": _CHARARC_PAGE_SIZE}
     url = f"{_CHARARC_API}/v3/search/query"
-    data = (await _fetch(url, what="Character Archive search failed", params=params, timeout=20)).json()
+    data = (await _fetch(url, what="Bernkastel search failed", params=params, timeout=20)).json()
 
     items = data.get("result") or []
     results = [r for r in (_chararc_to_result(i) for i in items if isinstance(i, dict)) if r]
@@ -415,7 +415,7 @@ async def _download_chararc_card(token: str):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        logger.exception("Failed to parse Character Archive card definition")
+        logger.exception("Failed to parse Bernkastel card definition")
         raise HTTPException(status_code=400, detail=f"Failed to parse character card: {e}") from e
 
     data = definition.get("data")
@@ -427,7 +427,7 @@ async def _download_chararc_card(token: str):
         card_dict["mes_example"] = data["example_dialogue"]
 
     # Pull the avatar image (a CDN URL embedded in the definition).
-    avatar_b64, avatar_mime, avatar_bytes = await _fetch_avatar(data.get("avatar"), "Character Archive")
+    avatar_b64, avatar_mime, avatar_bytes = await _fetch_avatar(data.get("avatar"), "Bernkastel")
 
     # Stable id so re-importing the same card relinks history: hash the avatar
     # bytes when present, else the card path.

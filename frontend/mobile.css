@@ -273,8 +273,12 @@ body {
     order: 1;
   }
   .internet-controls select {
-    flex: 1 1 0;
+    flex: 0 1 auto;
     min-width: 0;
+  }
+  .internet-controls .btn {
+    flex: 1 0 auto;
+    justify-content: center;
   }
 
   .modal-char-header > div {
