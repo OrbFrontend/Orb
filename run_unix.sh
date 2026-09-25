@@ -4,17 +4,6 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-ORB_RUN_HOST="0.0.0.0"
-if [ "${1:-}" = "--local-only" ] && [ "$#" -eq 1 ]; then
-    ORB_RUN_HOST="127.0.0.1"
-    export ORB_CLAUDE_CODE_LOCAL_ONLY=1 ORB_BIND_HOST=127.0.0.1
-elif [ "$#" -ne 0 ]; then
-    echo "Usage: ./run_unix.sh [--local-only]"
-    exit 2
-else
-    unset ORB_CLAUDE_CODE_LOCAL_ONLY ORB_BIND_HOST
-fi
-
 echo "═══════════════════════════════════════════"
 echo "  Orb - Agentic"
 echo "═══════════════════════════════════════════"
@@ -86,4 +75,4 @@ if [ -n "$OPEN_CMD" ]; then
     ) &
 fi
 
-uvicorn backend.main:app --host "$ORB_RUN_HOST" --port 8899 --reload
+uvicorn backend.main:app --host 0.0.0.0 --port 8899 --reload

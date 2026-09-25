@@ -8,13 +8,11 @@ import sqlite3
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..database import DB_PATH, close_wal_anchor, init_db, open_wal_anchor
 from ..database.migrations import run_pending, stamp_all
 from ..features.presets import schema_safety_problems as preset_schema_safety_problems
-from ..inference.claude_code import local_only_active
 from ..inference.local_models import onnx_runtime
 from ..inference.local_models.llama_server import manager
 from .deps import FRONTEND_DIR
@@ -110,8 +108,6 @@ def build_app() -> FastAPI:
 
     @app.middleware("http")
     async def no_cache_middleware(request: Request, call_next):
-        if local_only_active() and request.scope.get("server", (None,))[0] != "127.0.0.1":
-            return JSONResponse({"detail": "Claude Code local-only mode requires a 127.0.0.1 server bind."}, status_code=403)
         response = await call_next(request)
         # Default to no-store for dynamic API/SSE responses, but let a handler opt
         # into caching by setting its own Cache-Control first (e.g. avatars, which

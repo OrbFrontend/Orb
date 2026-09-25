@@ -3,24 +3,6 @@ setlocal
 
 cd /d "%~dp0"
 
-set "ORB_RUN_HOST=0.0.0.0"
-if not "%~2"=="" (
-    echo Usage: run_windows.bat [--local-only]
-    exit /b 2
-)
-if /I "%~1"=="--local-only" (
-    set "ORB_RUN_HOST=127.0.0.1"
-    set "ORB_CLAUDE_CODE_LOCAL_ONLY=1"
-    set "ORB_BIND_HOST=127.0.0.1"
-) else (
-    if not "%~1"=="" (
-        echo Usage: run_windows.bat [--local-only]
-        exit /b 2
-    )
-    set "ORB_CLAUDE_CODE_LOCAL_ONLY="
-    set "ORB_BIND_HOST="
-)
-
 echo =========================================
 echo   Orb - Agentic
 echo =========================================
@@ -68,7 +50,7 @@ echo.
 REM Wait for the server to come up in the background, then open the browser once.
 start "" /b cmd /c "for /l %%i in (1,1,60) do (curl -fsS -o nul http://localhost:8899 && (start "" http://localhost:8899 & exit) || timeout /t 1 /nobreak >nul)"
 
-uvicorn backend.main:app --host %ORB_RUN_HOST% --port 8899 --reload
+uvicorn backend.main:app --host 0.0.0.0 --port 8899 --reload
 if errorlevel 1 goto uvicorn_failed
 exit /b 0
 

@@ -1,4 +1,4 @@
-"""Experimental, local-only Claude Code CLI transport."""
+"""Experimental Claude Code CLI transport."""
 
 from __future__ import annotations
 
@@ -47,22 +47,12 @@ class ClaudeCodeError(RuntimeError):
     """A sanitized, actionable local provider failure."""
 
 
-def local_only_active() -> bool:
-    return os.environ.get("ORB_CLAUDE_CODE_LOCAL_ONLY") == "1" and os.environ.get("ORB_BIND_HOST") == "127.0.0.1"
-
-
-def require_local_only() -> None:
-    if not local_only_active():
-        raise ClaudeCodeError("Claude Code requires Orb's local-only launch mode bound to 127.0.0.1.")
-
-
 def _child_env() -> dict[str, str]:
     return {key: value for key, value in os.environ.items() if key in _ENV_KEEP or key.startswith("LC_")}
 
 
 async def cli_status() -> dict[str, bool | str]:
     """Return pass/fail only; CLI auth output may contain credential material."""
-    require_local_only()
     executable = shutil.which("claude")
     if executable is None:
         return {"installed": False, "authenticated": False}
@@ -233,7 +223,6 @@ def _structured_message(output: Any, schema: dict, forced: str | None) -> dict:
 
 class ClaudeCodeClient(LLMClient):
     def __init__(self, *, abort_token: AbortToken | None = None) -> None:
-        require_local_only()
         super().__init__(ENDPOINT, abort_token=abort_token)
 
     def sends_tool_schemas(self, messages: Sequence[Mapping[str, Any]], model: str, *, tools_in_prompt: bool = True) -> bool:
@@ -265,7 +254,6 @@ class ClaudeCodeClient(LLMClient):
         tool_choice: dict | str | None = None,
         **params: Any,
     ) -> AsyncIterator[dict]:
-        require_local_only()
         if self.is_aborted:
             return
         executable = shutil.which("claude")

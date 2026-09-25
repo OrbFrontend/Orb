@@ -26,7 +26,6 @@ export const S = {
   // Chat endpoints and Judge endpoints are separate pools.
   endpoints: [],
   judgeEndpoints: [],
-  claudeCodeLocalOnly: false,
   activeEndpointId: null,
   modelConfigs: [],
   activeModelConfigId: null,

@@ -19,12 +19,7 @@ from ...database import (
 )
 from ...inference import LLMClient, provider_sentence, redact
 from ...inference.claude_code import ENDPOINT as CLAUDE_CODE_ENDPOINT
-from ...inference.claude_code import (
-    ClaudeCodeError,
-    cli_status,
-    local_only_active,
-    require_local_only,
-)
+from ...inference.claude_code import ClaudeCodeError, cli_status
 from ..schemas import (
     EndpointCreate,
     EndpointUpdate,
@@ -39,10 +34,6 @@ def _check_claude_endpoint(url: str, api_key: str = "", kind: EndpointKind = "ch
     if url.lower().startswith("claude-code:"):
         if url != CLAUDE_CODE_ENDPOINT:
             raise HTTPException(status_code=422, detail="Unsupported Claude Code endpoint marker")
-        try:
-            require_local_only()
-        except ClaudeCodeError as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from None
         if api_key or kind != "chat":
             raise HTTPException(
                 status_code=422, detail="Claude Code uses local CLI login and chat endpoints only; leave API Key empty"
@@ -54,12 +45,7 @@ async def api_claude_code_status():
     try:
         return await cli_status()
     except ClaudeCodeError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from None
-
-
-@router.get("/api/claude-code/availability")
-async def api_claude_code_availability():
-    return {"local_only": local_only_active()}
+        raise HTTPException(status_code=502, detail=str(exc)) from None
 
 
 @router.get("/api/endpoints")

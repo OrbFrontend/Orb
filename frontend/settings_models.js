@@ -275,10 +275,9 @@ export function renderEndpoints() {
   const claudeCodeWriterSelected = S.settings.endpoint_url === CLAUDE_CODE_ENDPOINT;
 
   $("endpoints-form").innerHTML = `
-    ${!S.claudeCodeLocalOnly && (claudeCodeWriterSelected || S.settings.agent_endpoint_url === CLAUDE_CODE_ENDPOINT) ? `<div class="field-warning">This saved Claude Code endpoint requires restarting Orb with --local-only on 127.0.0.1.</div>` : ""}
     ${renderForm(SETTING_FIELDS, false)}
     ${
-      S.claudeCodeLocalOnly && claudeCodeWriterSelected
+      claudeCodeWriterSelected
         ? `<div class="tool-card claude-code-setup" data-claude-code-setup>
       <div class="claude-code-setup-action">
         <div class="claude-code-setup-copy">
@@ -625,12 +624,9 @@ export function initComboboxes() {
     fn();
   });
   _comboboxCleanups = [];
-  const choices = (ctx) =>
-    S.endpoints
-      .filter((e) => e.url !== CLAUDE_CODE_ENDPOINT || S.settings[ctx.urlField] === CLAUDE_CODE_ENDPOINT)
-      .map((e) => ({ value: e.url, id: e.id, type: "endpoint" }));
+  const choices = () => S.endpoints.map((e) => ({ value: e.url, id: e.id, type: "endpoint" }));
   const epRoot = document.querySelector('[data-combobox="endpoint_url"]');
-  if (epRoot) initCombobox(epRoot, () => choices(WRITER_CTX));
+  if (epRoot) initCombobox(epRoot, choices);
   const mdRoot = document.querySelector('[data-combobox="model_name"]');
   if (mdRoot)
     initCombobox(mdRoot, () => _modelChoices(WRITER_CTX), {
@@ -639,7 +635,7 @@ export function initComboboxes() {
     });
   const agentEpRoot = document.querySelector('[data-combobox="agent_endpoint_url"]');
   if (agentEpRoot)
-    initCombobox(agentEpRoot, () => choices(AGENT_CTX), {
+    initCombobox(agentEpRoot, choices, {
       lane: "agent",
     });
   const agentMdRoot = document.querySelector('[data-combobox="agent_model_name"]');
@@ -976,7 +972,6 @@ function initCombobox(rootEl, getItems, { lane = "writer", searchable = false, l
 
 export async function loadEndpoints() {
   try {
-    S.claudeCodeLocalOnly = (await api.get("/claude-code/availability")).local_only === true;
     // Load the chat and Judge endpoint pools separately.
     [S.endpoints, S.judgeEndpoints] = await Promise.all([
       api.get("/endpoints?kind=chat"),
@@ -1011,8 +1006,7 @@ async function enableClaudeCode() {
   try {
     const check = await api.get("/claude-code/status");
     if (!check.installed) {
-      status.textContent =
-        "Install the Claude Code CLI on the machine hosting Orb, then restart Orb in local-only mode.";
+      status.textContent = "Install the Claude Code CLI on the machine hosting Orb, then try again.";
       return;
     }
     if (!check.authenticated) {
@@ -1046,15 +1040,7 @@ async function enableClaudeCode() {
 function populateEndpointDatalist() {
   const dl = document.getElementById("endpoint-datalist");
   if (!dl) return;
-  dl.innerHTML = S.endpoints
-    .filter(
-      (e) =>
-        e.url !== CLAUDE_CODE_ENDPOINT ||
-        S.settings.endpoint_url === CLAUDE_CODE_ENDPOINT ||
-        S.settings.agent_endpoint_url === CLAUDE_CODE_ENDPOINT,
-    )
-    .map((e) => `<option value="${esc(e.url)}"></option>`)
-    .join("");
+  dl.innerHTML = S.endpoints.map((e) => `<option value="${esc(e.url)}"></option>`).join("");
 }
 
 async function _loadConfigs(ctx, endpointId) {

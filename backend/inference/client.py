@@ -1221,7 +1221,7 @@ def client_from_settings(settings: Mapping[str, Any], *, abort_token: AbortToken
 
         return ClaudeCodeClient(abort_token=abort_token)
     if str(settings["endpoint_url"]).lower().startswith("claude-code:"):
-        raise ValueError("Unsupported Claude Code endpoint; use claude-code://local in local-only mode.")
+        raise ValueError("Unsupported Claude Code endpoint; use claude-code://local.")
     return LLMClient(
         settings["endpoint_url"],
         api_key=settings.get("api_key", ""),
@@ -1248,7 +1248,7 @@ def agent_client_from_settings(settings: Mapping[str, Any], *, abort_token: Abor
 
         return ClaudeCodeClient(abort_token=abort_token)
     if str(agent_url).lower().startswith("claude-code:"):
-        raise ValueError("Unsupported Claude Code endpoint; use claude-code://local in local-only mode.")
+        raise ValueError("Unsupported Claude Code endpoint; use claude-code://local.")
     return LLMClient(
         agent_url,
         api_key=settings.get("agent_api_key", settings.get("api_key", "")),
