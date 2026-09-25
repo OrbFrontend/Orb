@@ -155,3 +155,20 @@ async def test_regenerate_rewinds_cooldown_and_checkpoint_copies_snapshot(client
     assert response.status_code == 200
     copied = await _last_assistant(response.json()["id"])
     assert copied["fragment_cooldowns"] == {"stormy": 2}
+
+
+async def test_inspector_distinguishes_missing_mood_history_from_empty_selection(client, db, llm_mock):
+    cid = "conv-mood-history"
+    await _setup(client, cid)
+    await _turn(llm_mock, cid, "hello", {"moods": []})
+    reply = await _last_assistant(cid)
+    url = f"/api/conversations/{cid}/messages/{reply['id']}/director-log"
+    recorded = (await client.get(url)).json()
+    assert recorded["mood_data_available"] is True
+    assert recorded["active_moods"] == []
+
+    await db.execute("DELETE FROM conversation_logs WHERE conversation_id = ?", (cid,))
+    await db.commit()
+    missing = (await client.get(url)).json()
+    assert missing["mood_data_available"] is False
+    assert missing["active_moods"] == []
