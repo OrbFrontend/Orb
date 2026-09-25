@@ -207,10 +207,35 @@ async def acomplete(
         return await asyncio.to_thread(_complete_blocking, feature, prompt, n_predict, stop, temperature)
 
 
-# A separate Llama mode from generation: the GGUF carries a 2-class head, scored
-# with RANK pooling. `embed()` then returns a buffer whose first two floats are
-# the class logits (rest is uninitialized) — softmax them, class 1 is "slop".
+# A separate Llama mode from generation: the GGUF carries a classification head,
+# scored with RANK pooling, which leaves llama.cpp a float[n_cls_out] per sequence.
 _SLOP_MAX_CHARS = 2000  # ~n_ctx guard: one over-long "sentence" can't blow past 512 tokens
+
+
+def _rank_logits(llama: Any, text: str) -> list[float]:
+    """The class-head logits for *text* off a RANK-pooled *llama*.
+
+    Mirrors `Llama.embed` for one sequence, including its first-n_batch token cut,
+    but reads only n_cls_out floats. `embed` copies n_embd floats out of that
+    n_cls_out buffer; the over-read is heap garbage until the buffer ends a mapped
+    page, and then it segfaults the whole process.
+    """
+    import llama_cpp  # noqa: PLC0415 — deferred like the loaders; ML extras are optional
+
+    tokens = llama.tokenize(text.encode("utf-8"))[: llama.n_batch]
+    batch = llama._batch
+    batch.reset()
+    batch.add_sequence(tokens, 0, True)
+    llama._ctx.kv_cache_clear()
+    try:
+        llama._ctx.decode(batch)
+        n_cls_out = llama_cpp.llama_model_n_cls_out(llama._model.model)
+        logits = llama_cpp.llama_get_embeddings_seq(llama._ctx.ctx, 0)[:n_cls_out]
+    finally:
+        batch.reset()
+        llama._ctx.kv_cache_clear()
+        llama.reset()
+    return logits
 
 
 def _load_scorer_blocking(feature: str) -> None:
@@ -242,7 +267,7 @@ def _score_blocking(feature: str, sentences: Sequence[str]) -> list[float]:
         if not text:
             out.append(0.0)
             continue
-        v = llama.embed(text)
+        v = _rank_logits(llama, text)
         a, b = float(v[0]), float(v[1])  # 2 class logits; softmax → P(slop)
         m = max(a, b)
         ea, eb = math.exp(a - m), math.exp(b - m)
@@ -271,14 +296,14 @@ _CLASSIFY_MAX_CHARS = 1500
 def _head_logits(feature: str, text: str, n: int) -> list[float]:
     """The first *n* class logits off feature's RANK-pooled classification head.
 
-    The buffer past the head's own logits is uninitialized, so a short read is the
-    one reliable signal that the GGUF carries a different head than the caller expects.
+    A head with fewer than *n* outputs means the GGUF carries a different head than
+    the caller expects.
     """
     _load_scorer_blocking(feature)  # same embedding+RANK load as the scorer
     llama = _llamas.get(feature)
     if llama is None:
         raise RuntimeError(_load_errors.get(feature) or "model unavailable")
-    v = llama.embed(text)
+    v = _rank_logits(llama, text)
     if len(v) < n:
         raise RuntimeError(f"classifier returned {len(v)} logits, expected >={n} (wrong head?)")
     return [float(v[i]) for i in range(n)]
@@ -409,7 +434,7 @@ async def aclassify_pov_tense(text: str) -> tuple[str, str]:
 # looks like asterisk narration to the model. A line that closes an asterisk later
 # (`* She waves. *`) is a sloppy beat rather than a list, and keeps its star.
 #
-# The model's own cut is the token one. `Llama.embed(truncate=True)` keeps the
+# The model's own cut is the token one. `_rank_logits` keeps the
 # first n_batch (512) ids, so a long message loses its tail and its [SEP]; the
 # trainer (../RP-Markup-Classifier) truncates the same way rather than HF's
 # keep-[SEP] way, so both sides see identical ids. MARKUP_INPUT_CHARS is only a
