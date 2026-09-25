@@ -104,8 +104,24 @@ function paintStreamingBody(text) {
       _paintedHtml = html;
       patchHtml(body, html);
     }
-    scrollToBottom();
+    // Already inside a frame: a deferred scroll would lag the growth by one.
+    scrollToBottom(false, { now: true });
   });
+}
+
+// The streaming bubble grows before the writer's first token too: the Director
+// and judges fill its Inspector block and reasoning streams into its box. The
+// chat follows every growth of the bubble, not only the body's paints, and a
+// ResizeObserver reports it after layout and before paint, so the scroll lands
+// in the frame the growth does.
+let _streamResize = null;
+
+function followStreamingMessage(div) {
+  _streamResize?.disconnect();
+  _streamResize = null;
+  if (!div || typeof ResizeObserver === "undefined") return;
+  _streamResize = new ResizeObserver(() => scrollToBottom(false, { now: true }));
+  _streamResize.observe(div);
 }
 
 /** Cancel a queued streaming paint. */
@@ -148,6 +164,7 @@ function smoothUpdateBody(el, newHtml, onComplete) {
 
 function finalizeStreamingDiv(lastMsg) {
   cancelStreamingPaint();
+  followStreamingMessage(null);
   const body = S.streamingBodyEl;
   if (!body) return false;
   const div = body.closest(".message");
@@ -220,6 +237,7 @@ export function createStreamingDiv(name = null, memberId = null) {
       <button disabled class="msg-btn-del">${ICON_DEL}</button>
     </div>`;
   S.streamingBodyEl = div.querySelector(".msg-body");
+  followStreamingMessage(div);
   return div;
 }
 
@@ -244,6 +262,7 @@ function patchPendingUserMessage(pendingMsg) {
 
 export async function afterStream() {
   cancelStreamingPaint();
+  followStreamingMessage(null);
   const wasGroupExchange = S.currentExchangeId != null;
   const groupExchangeId = S.currentExchangeId;
   const inFlightSpeaker = S.currentSpeaker;

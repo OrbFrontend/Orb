@@ -54,7 +54,7 @@ test("disabled reasoning and empty feedback leave no section behind", () => {
   assert.doesNotMatch(html, /Moods/);
 });
 
-test("the summary line names active moods, decision outcomes and latency", () => {
+test("the summary line shows active moods and decision values, not latency", () => {
   const html = inspectorBlockHtml(
     view({
       active_moods: ["grounded"],
@@ -70,8 +70,9 @@ test("the summary line names active moods, decision outcomes and latency", () =>
   const summary = html.slice(html.indexOf("<summary"), html.indexOf("</summary>"));
   assert.match(summary, /style-tag active">Grounded</);
   assert.doesNotMatch(summary, /Tense/);
-  assert.match(summary, /Outcome: /);
-  assert.match(summary, /15\.1s/);
+  // The chip shows the value alone; the hover names the decision.
+  assert.match(summary, /class="msg-inspect-chip" title="Outcome: [^"]+">(?!Outcome)[^<]+</);
+  assert.doesNotMatch(summary, /15\.1s|15060/);
 });
 
 test("only the passes that wrote reasoning get a tab, and the last one is shown", () => {

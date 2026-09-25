@@ -332,3 +332,4 @@ body {
 
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }
+.message .msg-inspect { background: linear-gradient(180deg, #ffffff, #f5fbfe) !important; }

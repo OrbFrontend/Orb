@@ -413,16 +413,21 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
 .msg-inspect {
   margin-top: 6px;
   border: 1px solid var(--border);
-  border-left: 2px solid var(--accent-dim);
   border-radius: var(--radius);
-  background: var(--bg-deep);
+  /* The bubble's own surface, so the block reads as part of the reply. Themes
+     that paint .msg-body with something other than --bg-surface repeat it here. */
+  background: var(--bg-surface);
   font-size: 12px;
 }
 
+/* The title and the chips set different fonts and sizes, and each font seats
+   its caps differently within its line box, so centring them drifts by theme.
+   A shared baseline lines their text up whatever the fonts; the arrow has no
+   text to align, so it centres. */
 .msg-inspect > summary {
   list-style: none;
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
   min-width: 0;
   padding: 5px 10px;
@@ -431,6 +436,8 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
 }
 
 .msg-inspect > summary::-webkit-details-marker { display: none; }
+
+.msg-inspect > summary .reasoning-summary-arrow { align-self: center; }
 
 .msg-inspect[open] > summary .reasoning-summary-arrow { transform: rotate(90deg); }
 
@@ -443,7 +450,7 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
   color: var(--text-muted);
 }
 
-/* The collapsed line: active moods, decision outcomes and latency at a glance.
+/* The collapsed line: active moods and decision outcomes at a glance.
    Chips wrap rather than clip on narrow screens. The open body shows all of
    it, so the line steps aside. */
 .msg-inspect-chips {
@@ -471,24 +478,33 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
   max-width: 24ch;
 }
 
-/* Short sections sit side by side; the long ones take the full row. */
+/* Short sections share a row and grow into it, so the moods only wrap once the
+   row is full; latency keeps its own width. The long ones take the full row. */
 .msg-inspect-body {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 10px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 24px;
   padding: 4px 12px 10px;
 }
 
-.msg-inspect-body > .inspector-block { margin: 0; min-width: 0; }
-.msg-inspect-body > details.inspector-block { grid-column: 1 / -1; }
+.msg-inspect-body > .inspector-block { flex: 1 1 240px; margin: 0; min-width: 0; }
+.msg-inspect-body > .inspector-latency { flex: 0 0 auto; }
+.msg-inspect-body > details.inspector-block { flex-basis: 100%; }
+
+/* The wells sit on the bubble's surface too, set off by their border alone, and
+   carry the body text colour rather than the muted one. */
+.msg-inspect .reasoning-box,
+.msg-inspect .injection-box {
+  margin-top: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
 
 .msg-inspect .reasoning-box {
   height: auto;
   max-height: 220px;
-  margin-top: 6px;
 }
-
-.msg-inspect .injection-box { margin-top: 6px; }
 
 .msg-inspect-passes {
   display: flex;

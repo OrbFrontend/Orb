@@ -213,3 +213,4 @@ body {
 
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }
+.message .msg-inspect { background: rgba(7,36,48,0.55) !important; }

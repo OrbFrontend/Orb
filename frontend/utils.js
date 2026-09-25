@@ -100,21 +100,31 @@ function scrollChatTarget(el, align) {
   ct.scrollTo({ top: targetTop, behavior: "instant" });
 }
 
-export function scrollToBottom(smooth = false) {
+/**
+ * Follow the chat's newest content. The scroll waits for the next frame, so a
+ * caller that is itself painting inside a frame passes `now`: the growth and
+ * the scroll then land in one frame. Otherwise that frame shows everything
+ * under the growth -- the reply's open Inspector block, its toolbar -- pushed
+ * down a line before the scroll catches up (`#chat-messages` sets
+ * `overflow-anchor: none`, so the browser does not hold it still either).
+ */
+export function scrollToBottom(smooth = false, { now = false } = {}) {
   const ct = $("chat-messages");
   const pinnedTarget = ct?.querySelector(".stream-scroll-target");
   if (ct && pinnedTarget && _chatFollow?.isFollowing()) {
     markChatProgrammaticScroll();
-    requestAnimationFrame(() => {
+    const follow = () => {
       const topWithinScroller =
         pinnedTarget.getBoundingClientRect().top - ct.getBoundingClientRect().top + ct.scrollTop;
       const desiredTop = Math.max(topWithinScroller, topWithinScroller + pinnedTarget.offsetHeight - ct.clientHeight);
       const targetTop = Math.min(Math.max(0, desiredTop), Math.max(0, ct.scrollHeight - ct.clientHeight));
       ct.scrollTo({ top: targetTop, behavior: smooth ? "smooth" : "instant" });
-    });
+    };
+    if (now) follow();
+    else requestAnimationFrame(follow);
     return;
   }
-  _chatFollow?.toBottom({ smooth });
+  _chatFollow?.toBottom({ smooth, now });
 }
 
 export function scrollToMessage(msgId) {

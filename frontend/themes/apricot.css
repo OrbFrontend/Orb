@@ -432,3 +432,4 @@ textarea:focus, select:focus, #chat-input:focus {
 
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }
+.message .msg-inspect { border: 2px solid var(--ink) !important; box-shadow: var(--shadow-card) !important; }

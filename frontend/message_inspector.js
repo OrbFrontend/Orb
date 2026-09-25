@@ -295,7 +295,7 @@ export function injectionHtml(injection) {
 
 export function latencyHtml(latency) {
   if (!latency) return "";
-  return `<div class="inspector-block"><h4>Agent Latency</h4>
+  return `<div class="inspector-block inspector-latency"><h4>Agent Latency</h4>
     <div style="font-size:12px;color:var(--text-secondary)">${latency}ms</div></div>`;
 }
 
@@ -344,9 +344,9 @@ function summaryChips(view) {
     .filter((tag) => tag.active)
     .map((tag) => `<span class="style-tag active">${esc(tag.label)}</span>`);
   for (const { label, outcome } of decisionOutcomes(view.decisions, { stored: view.storedDecisions })) {
-    chips.push(`<span class="msg-inspect-chip" title="${escAttr(label)}">${esc(label)}: ${esc(outcome)}</span>`);
+    // The value alone: the user named the decision. Hovering says which one.
+    chips.push(`<span class="msg-inspect-chip" title="${escAttr(`${label}: ${outcome}`)}">${esc(outcome)}</span>`);
   }
-  if (view.latency) chips.push(`<span class="msg-inspect-chip">${(view.latency / 1000).toFixed(1)}s</span>`);
   return chips.join("");
 }
 
