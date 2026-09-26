@@ -96,11 +96,8 @@ function _skippedHtml(entry) {
   </div>`;
 }
 
-/**
- * The records to show from *source*: a stored ``decision_evaluations`` envelope
- * (*stored*) or the in-flight ``decisions`` event. A stored envelope from a newer
- * version is left alone.
- */
+// *source* is a stored `decision_evaluations` envelope (*stored*; newer versions
+// are skipped) or the live `decisions` event.
 function _records(source, stored) {
   if (stored && (!Number.isInteger(source?.version) || source.version > EVALUATIONS_VERSION)) return null;
   const evaluations = source?.evaluations || [];

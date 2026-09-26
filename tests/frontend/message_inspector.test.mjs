@@ -10,7 +10,6 @@ globalThis.CSS ??= { escape: (value) => String(value) };
 // The module listens on `document` as it loads, so it comes in after the DOM.
 const {
   inlineInspectorHtml,
-  inlineReasoningHtml,
   inspectorBlockHtml,
   reasoningBlockHtml,
   rememberInspection,
@@ -128,13 +127,11 @@ test("the chat's Reasoning block opens apart from the panel's Reasoning section"
 
 test("the chat renders a cached reply's block only while the setting is on", () => {
   rememberInspection(reply.id, { ...EMPTY_LOG, injection_block: "**Scene Guidance**", reasoning_writer: "draft" });
-  assert.match(inlineInspectorHtml(reply), /Scene Guidance/);
-  assert.match(inlineReasoningHtml(reply), /draft/);
+  // Reasoning comes first.
+  assert.match(inlineInspectorHtml(reply), /draft[\s\S]*Scene Guidance/);
   assert.equal(inlineInspectorHtml(S.messages[0]), "");
-  assert.equal(inlineReasoningHtml(S.messages[0]), "");
   S.inspectorInline = false;
   assert.equal(inlineInspectorHtml(reply), "");
-  assert.equal(inlineReasoningHtml(reply), "");
 });
 
 test("a conversation switch drops the other conversation's cache", () => {
@@ -145,18 +142,15 @@ test("a conversation switch drops the other conversation's cache", () => {
 
 function streamingBubble() {
   document.body.innerHTML = `<div id="chat-messages"><div class="message assistant">
-    <div class="msg-reasoning-live"></div><div class="msg-inspect-live"></div>
+    <div class="msg-inspect-live"></div>
     <div class="msg-body" id="streaming-body"></div><div class="msg-toolbar"></div>
   </div></div>`;
   S.streamingBodyEl = document.getElementById("streaming-body");
-  return {
-    reasoning: document.querySelector(".msg-reasoning-live"),
-    inspect: document.querySelector(".msg-inspect-live"),
-  };
+  return document.querySelector(".msg-inspect-live");
 }
 
 test("the streaming reply's Reasoning block opens the running pass's box for the first delta", () => {
-  const slots = streamingBubble();
+  const slot = streamingBubble();
   Object.assign(S, {
     isStreaming: true,
     lastDirectorData: null,
@@ -171,20 +165,19 @@ test("the streaming reply's Reasoning block opens the running pass's box for the
   });
   S.reasoningEnabled = { director: true, writer: false, editor: false };
   assert.equal(renderLiveInspector(), true);
-  assert.ok(slots.reasoning.querySelector("#reasoning-box"));
-  assert.equal(slots.inspect.innerHTML, "");
+  assert.ok(slot.querySelector("#reasoning-box"));
+  assert.equal(slot.querySelector('[data-inspect-section="inline"]'), null);
 
-  // With the pass off and nothing else to show yet, both slots stay empty.
+  // With the pass off and nothing else to show yet, the slot stays empty.
   S.reasoningEnabled = { director: false, writer: false, editor: false };
   assert.equal(renderLiveInspector(), false);
-  assert.equal(slots.reasoning.innerHTML, "");
-  assert.equal(slots.inspect.innerHTML, "");
+  assert.equal(slot.innerHTML, "");
 
   // The Inspector block fills in; no reasoning box holds text, so it reports none.
   S.lastDirectorData = { active_moods: ["tense"], agent_latency_ms: 900, injection_block: "", tool_calls: [] };
   assert.equal(renderLiveInspector(), false);
-  assert.match(slots.inspect.innerHTML, /style-tag active">Tense</);
-  assert.equal(slots.reasoning.innerHTML, "");
+  assert.match(slot.innerHTML, /style-tag active">Tense</);
+  assert.equal(slot.querySelector("#reasoning-box"), null);
   S.isStreaming = false;
   S.streamingBodyEl = null;
 });

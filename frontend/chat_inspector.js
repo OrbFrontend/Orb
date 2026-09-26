@@ -8,6 +8,7 @@ import {
   injectionHtml,
   latencyHtml,
   moodsHtml,
+  moodsOf,
   REASONING_BOTTOM_THRESHOLD,
   REASONING_PASSES,
   refreshInlineInspector,
@@ -20,14 +21,6 @@ import { preserveScroll } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, restingCooldowns, S } from "./state.js";
 import { renderStatePanel } from "./state_panel.js";
 import { $, convUrl, esc, escAttr, escHandlerArg, sentenceTail } from "./utils.js";
-
-export {
-  buildFeedbackHtml,
-  buildStateHtml,
-  feedbackRows,
-  REASONING_PASSES,
-  saveInspectorOpenStates,
-} from "./message_inspector.js";
 
 let inspectionRequest = 0;
 
@@ -131,8 +124,7 @@ function _buildReasoningHtml() {
        >${esc(S.reasoningPrefill[key] || "")}</textarea>`
       : "";
 
-  // With the Inspector in the chat, the text lives under each reply and the
-  // panel keeps only the controls for the next turn.
+  // With the Inspector in the chat, the text lives on each reply.
   const boxHtml = S.inspectorInline ? "" : `<div class="reasoning-box" id="reasoning-box">${esc(currentText)}</div>`;
   return `<details class="inspector-block reasoning-section" id="reasoning-section" data-inspect-section="reasoning"${openAttr}>
     <summary class="reasoning-summary">
@@ -168,18 +160,13 @@ document.addEventListener("change", (e) => {
 /** Rebuild the reasoning views. Returns whether any reasoning box now holds the full text. */
 function _refreshReasoningSection() {
   const existing = document.getElementById("reasoning-section");
-  if (existing) {
-    withReasoningScroll(() => {
-      existing.outerHTML = _buildReasoningHtml();
-    });
-  }
-  const live = renderLiveInspector();
-  return Boolean(existing) || live;
+  if (existing) withReasoningScroll(() => (existing.outerHTML = _buildReasoningHtml()));
+  return renderLiveInspector() || Boolean(existing);
 }
 
 // The streaming reply's pass tabs pick the same pass as the panel's dots.
 document.addEventListener("click", (e) => {
-  const tab = e.target.closest?.(".msg-reasoning-live button[data-inspect-pass]");
+  const tab = e.target.closest?.(".msg-inspect-live button[data-inspect-pass]");
   if (tab) selectReasoningPass(Number(tab.dataset.inspectPass));
 });
 
@@ -402,7 +389,6 @@ export function currentMoodsHtml() {
   const inspecting = S.inspectedMsgId != null;
   if (!inspecting && !S.isStreaming && !S.messages.some((message) => message.role === "assistant")) return "";
   const data = inspecting ? S.inspectedDirectorData : S.lastDirectorData;
-  const known = data?.mood_data_available !== false && Array.isArray(data?.active_moods);
   const history = S.isStreaming ? S.messages.slice(0, S.streamCutoffIndex ?? S.messages.length) : S.messages;
   const lastAssistant = history.findLast((message) => message.role === "assistant");
   // A saved reply stores cooldowns for the following turn. Read the baseline
@@ -412,7 +398,7 @@ export function currentMoodsHtml() {
     : S.isStreaming
       ? lastAssistant?.fragment_cooldowns || {}
       : restingCooldowns(lastAssistant?.id);
-  return moodsHtml({ known, activeIds: known ? data.active_moods : [], resting }, { showNone: true });
+  return moodsHtml(moodsOf(data, resting), { showNone: true });
 }
 
 function _renderDirectorPanel({ latency, toolCalls, injection, feedback, stateChanges }) {
@@ -432,8 +418,7 @@ function _renderDirectorPanel({ latency, toolCalls, injection, feedback, stateCh
 }
 
 function _renderInspectorMain() {
-  // Each reply carries its own turn details in the chat; the panel keeps what
-  // belongs to the conversation and the controls for the next turn.
+  // Turn details live on each reply; the panel keeps the context size and next-turn controls.
   if (S.inspectorInline) {
     withReasoningScroll(() => {
       $("inspector-content").innerHTML = `

@@ -410,19 +410,16 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
 
 /* ── In-chat Inspector: one reply's turn details, above its text ── */
 
+/* Themes that paint .msg-body with something other than --bg-surface repeat it here. */
 .msg-inspect {
   margin: 0 0 6px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  /* The bubble's own surface, so the block reads as part of the reply. Themes
-     that paint .msg-body with something other than --bg-surface repeat it here. */
   background: var(--bg-surface);
   font-size: 12px;
 }
 
-/* Everything centres, so the title stays in the middle when the chips wrap to
-   several rows. The title carries a chip-shaped strut (below), so its box and
-   one row of chips have the same height and baseline whatever the fonts. */
+/* Centred, so the title stays in the middle when the chips wrap. */
 .msg-inspect > summary {
   list-style: none;
   display: flex;
@@ -435,7 +432,6 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
 }
 
 .msg-inspect > summary::-webkit-details-marker { display: none; }
-
 .msg-inspect[open] > summary .reasoning-summary-arrow { transform: rotate(90deg); }
 
 .msg-inspect-title {
@@ -447,9 +443,7 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
   color: var(--text-muted);
 }
 
-/* An invisible, zero-width chip: same font, padding and border as the chips
-   below, so the title's line box matches one chip row and its text sits on
-   the chips' baseline. */
+/* A zero-width chip strut, so the title shares one chip row's height and baseline. */
 .msg-inspect-title::before {
   content: "\a0";
   display: inline-block;
@@ -463,19 +457,9 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
   letter-spacing: 0;
 }
 
-/* The collapsed line: active moods and decision outcomes at a glance.
-   Chips wrap rather than clip on narrow screens. The open body shows all of
-   it, so the line steps aside. */
-.msg-inspect-chips {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-
+/* The collapsed line; the open body shows it all, so it steps aside. */
+.msg-inspect-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
 .msg-inspect[open] > summary .msg-inspect-chips { display: none; }
-
 .msg-inspect-chips .style-tag { margin: 0; padding: 1px 6px; }
 
 .msg-inspect-chip {
@@ -491,21 +475,12 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
   max-width: 24ch;
 }
 
-/* Short sections share a row and grow into it, so the moods only wrap once the
-   row is full; latency keeps its own width. The long ones take the full row. */
-.msg-inspect-body {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 24px;
-  padding: 4px 12px 10px;
-}
-
+/* Short sections share a row; latency keeps its width; collapsibles take a full row. */
+.msg-inspect-body { display: flex; flex-wrap: wrap; gap: 10px 24px; padding: 4px 12px 10px; }
 .msg-inspect-body > .inspector-block { flex: 1 1 240px; margin: 0; min-width: 0; }
 .msg-inspect-body > .inspector-latency { flex: 0 0 auto; }
 .msg-inspect-body > details.inspector-block { flex-basis: 100%; }
 
-/* The wells sit on the bubble's surface too, set off by their border alone, and
-   carry the body text colour rather than the muted one. */
 .msg-inspect .reasoning-box,
 .msg-inspect .injection-box {
   margin-top: 6px;
@@ -514,17 +489,10 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
   font-size: 11px;
 }
 
-.msg-inspect .reasoning-box {
-  height: auto;
-  max-height: 220px;
-}
+.msg-inspect .reasoning-box { height: auto; max-height: 220px; }
 
-.msg-inspect-passes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 6px;
-}
+.msg-reasoning-body { padding: 0 12px 10px; }
+.msg-inspect-passes { display: flex; flex-wrap: wrap; gap: 4px; }
 
 .msg-inspect-pass {
   padding: 1px 8px;
@@ -538,21 +506,8 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
 
 button.msg-inspect-pass { cursor: pointer; }
 button.msg-inspect-pass:hover { color: var(--text-secondary); }
+.msg-inspect-pass.active { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow); }
 
-.msg-inspect-pass.active {
-  color: var(--accent);
-  border-color: var(--accent-dim);
-  background: var(--accent-glow);
-}
-
-/* Reasoning: its own block above the Inspector block, so the thinking reads
-   first. */
-.msg-reasoning-body { padding: 0 12px 10px; }
-
-.msg-reasoning-body > .msg-inspect-passes { margin-top: 0; }
-
-/* The streaming bubble's slots stay out of the layout until they have a block. */
+/* The streaming bubble's slot stays out of the layout until it has a block. */
 .msg-inspect-live:empty,
-.msg-inspect-baked:empty,
-.msg-reasoning-live:empty,
-.msg-reasoning-baked:empty { display: none; }
+.msg-inspect-baked:empty { display: none; }

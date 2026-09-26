@@ -22,7 +22,6 @@ import {
   appendReasoningDelta,
   clearInspectedMessage,
   inspectMessage,
-  REASONING_PASSES,
   renderInspector,
 } from "./chat_inspector.js";
 import { _mergeWorkflowRejections } from "./chat_workflow.js";
@@ -39,6 +38,7 @@ import {
 import { refreshCharacters } from "./library_sidebar.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
+import { REASONING_PASSES } from "./message_inspector.js";
 import { ensurePersonaPinned } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
@@ -104,16 +104,13 @@ function paintStreamingBody(text) {
       _paintedHtml = html;
       patchHtml(body, html);
     }
-    // Already inside a frame: a deferred scroll would lag the growth by one.
+    // Already inside a frame, so scroll now rather than a frame late.
     scrollToBottom(false, { now: true });
   });
 }
 
-// The streaming bubble grows before the writer's first token too: the Director
-// and judges fill its Inspector block and reasoning streams into its box. The
-// chat follows every growth of the bubble, not only the body's paints, and a
-// ResizeObserver reports it after layout and before paint, so the scroll lands
-// in the frame the growth does.
+// Follow every growth of the streaming bubble (in-chat Inspector blocks too), not
+// only body paints. ResizeObserver fires before paint, so the scroll shares the frame.
 let _streamResize = null;
 
 function followStreamingMessage(div) {
@@ -173,11 +170,9 @@ function finalizeStreamingDiv(lastMsg) {
   div.classList.remove("stream-scroll-target");
   div.setAttribute("data-msg-id", lastMsg.id);
   body.removeAttribute("id");
-  // The next turn's streaming block owns the live reasoning box, and this one
-  // waits for the stored copy (refreshInlineInspector).
+  // The next bubble owns the live slot; this one waits for the stored copy (refreshInlineInspector).
   div.querySelector("#reasoning-box")?.removeAttribute("id");
   div.querySelector(".msg-inspect-live")?.classList.replace("msg-inspect-live", "msg-inspect-baked");
-  div.querySelector(".msg-reasoning-live")?.classList.replace("msg-reasoning-live", "msg-reasoning-baked");
 
   const bodyHtml =
     S.pendingRefineDiff && S.showEditorDiff
@@ -228,7 +223,6 @@ export function createStreamingDiv(name = null, memberId = null) {
   div.className = "message assistant";
   const avatar = S.showChatAvatars ? speakerAvatarCell({ role: "assistant", speaker_member_id: memberId }) : "";
   div.innerHTML = `${avatar}<div class="msg-role">${esc(name || getCharName())}</div>
-    <div class="msg-reasoning-live"></div>
     <div class="msg-inspect-live"></div>
     <div class="msg-body" id="streaming-body">
       <span class="typing-indicator"><span></span><span></span><span></span></span>

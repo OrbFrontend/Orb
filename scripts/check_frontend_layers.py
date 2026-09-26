@@ -104,10 +104,7 @@ LAYERS = {
     "chat_messages.js": 5,
     "chat_inspector.js": 5,
     "chat_decisions.js": 5,
-    # A reply's Inspector sections and the in-chat blocks built from them. Below
-    # chat_core.js and chat_inspector.js, which both import it, so it reaches
-    # the message list only through the repaint hook chat_core.js registers.
-    "message_inspector.js": 5,
+    "message_inspector.js": 5,  # repaints the message list via a hook chat_core.js registers
     "chat_workflow.js": 5,
     "chat_conversations.js": 5,
     "chat_composer.js": 5,

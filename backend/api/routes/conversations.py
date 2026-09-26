@@ -41,20 +41,17 @@ from ...database import (
     get_character_card,
     get_conversation,
     get_conversation_logs,
-    get_director_log_for_message,
     get_director_logs_for_messages,
     get_director_state,
     get_group_member_scripts,
     get_group_members,
     get_interactive_fragments,
-    get_message_by_id,
     get_messages,
     get_messages_decisions,
     get_mood_fragments,
     get_settings,
     get_sheet_proposals,
     get_speaker_names,
-    get_state_events_for_message,
     get_state_events_for_messages,
     get_user_persona,
     group_root_of,
@@ -843,49 +840,34 @@ async def api_get_logs(cid: str, _conv: ConversationRow = Depends(require_conver
     return await get_conversation_logs(cid)
 
 
-def _director_log_payload(
-    decisions: dict, log: Mapping[str, Any] | None, events: Sequence[Mapping[str, Any]]
-) -> dict[str, Any]:
-    """One reply's Inspector data: its log, its own state changes, and its decisions.
-
-    *decisions* are the reply's stored decision records, used when the
-    diagnostic log is unavailable.
-    """
-    # The reply's own state changes, from the history; what was refused, from the log.
-    report = (log or {}).get("state_report") or {}
-    state = {
-        "changes": [dict(event) for event in events],
-        "rejected": report.get("rejected") or [],
-        "dropped": report.get("dropped") or [],
-    }
-    if not log:
-        return {
-            "active_moods": [],
-            "mood_data_available": False,
-            "tool_calls": [],
-            "injection_block": "",
-            "agent_latency_ms": 0,
-            "reasoning_director": "",
-            "reasoning_writer": "",
-            "reasoning_editor": "",
-            "feedback": {},
-            "state": state,
-            "decision_evaluations": decisions,
+async def _director_log_payloads(cid: str, ids: Sequence[int]) -> dict[int, dict[str, Any]]:
+    """Inspector data for the replies in *ids* that belong to *cid*, keyed by message id."""
+    decisions = await get_messages_decisions(cid, ids)
+    logs = await get_director_logs_for_messages(list(decisions))
+    events = await get_state_events_for_messages(list(decisions))
+    out: dict[int, dict[str, Any]] = {}
+    for mid, evaluations in decisions.items():
+        log: Mapping[str, Any] = logs.get(mid) or {}
+        report = log.get("state_report") or {}
+        out[mid] = {
+            "active_moods": log.get("active_moods_after", []),
+            "mood_data_available": bool(log),
+            "tool_calls": log.get("tool_calls", []),
+            "injection_block": log.get("injection_block", ""),
+            "agent_latency_ms": log.get("agent_latency_ms", 0),
+            "reasoning_director": log.get("reasoning_director") or "",
+            "reasoning_writer": log.get("reasoning_writer") or "",
+            "reasoning_editor": log.get("reasoning_editor") or "",
+            "feedback": log.get("feedback", {}) or {},
+            # The reply's own state changes, from the history; what was refused, from the log.
+            "state": {
+                "changes": [dict(event) for event in events.get(mid, [])],
+                "rejected": report.get("rejected") or [],
+                "dropped": report.get("dropped") or [],
+            },
+            "decision_evaluations": evaluations,
         }
-    return {
-        "active_moods": log.get("active_moods_after", []),
-        "mood_data_available": True,
-        "tool_calls": log.get("tool_calls", []),
-        "injection_block": log.get("injection_block", ""),
-        "agent_latency_ms": log.get("agent_latency_ms", 0),
-        "reasoning_director": log.get("reasoning_director") or "",
-        "reasoning_writer": log.get("reasoning_writer") or "",
-        "reasoning_editor": log.get("reasoning_editor") or "",
-        "feedback": log.get("feedback", {}) or {},
-        "state": state,
-        # Joined from the reply so logs do not store a duplicate copy.
-        "decision_evaluations": log.get("decision_evaluations", {}) or {},
-    }
+    return out
 
 
 @router.get("/api/conversations/{cid}/messages/{msg_id}/director-log")
@@ -894,15 +876,13 @@ async def api_get_message_director_log(
     msg_id: int,
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
-    msg = await get_message_by_id(msg_id)
-    if not msg or msg.get("conversation_id") != cid:
+    payload = (await _director_log_payloads(cid, [msg_id])).get(msg_id)
+    if payload is None:
         raise HTTPException(status_code=404, detail="Message not found")
-    events = await get_state_events_for_message(msg_id)
-    log = await get_director_log_for_message(msg_id)
-    return _director_log_payload(decision_evaluations_of(msg), log, events)
+    return payload
 
 
-#: Enough for a render window plus a backfill step; the chat asks only for replies it has not cached.
+#: Enough for a render window plus a backfill step.
 MAX_DIRECTOR_LOG_BATCH = 100
 
 
@@ -919,8 +899,4 @@ async def api_get_director_logs(
         raise HTTPException(status_code=422, detail="ids must be comma-separated integers") from None
     if len(wanted) > MAX_DIRECTOR_LOG_BATCH:
         raise HTTPException(status_code=422, detail=f"At most {MAX_DIRECTOR_LOG_BATCH} ids per request")
-    decisions = await get_messages_decisions(cid, wanted)
-    owned = list(decisions)
-    logs = await get_director_logs_for_messages(owned)
-    events = await get_state_events_for_messages(owned)
-    return {str(mid): _director_log_payload(decisions[mid], logs.get(mid), events.get(mid, [])) for mid in owned}
+    return await _director_log_payloads(cid, wanted)

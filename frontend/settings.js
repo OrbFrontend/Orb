@@ -95,8 +95,7 @@ export async function loadSettings() {
   if (typeof S.settings.show_chat_avatars === "number") S.showChatAvatars = S.settings.show_chat_avatars !== 0;
   else if (typeof S.settings.show_chat_avatars === "boolean") S.showChatAvatars = S.settings.show_chat_avatars;
 
-  if (typeof S.settings.inspector_inline === "number") S.inspectorInline = S.settings.inspector_inline !== 0;
-  else if (typeof S.settings.inspector_inline === "boolean") S.inspectorInline = S.settings.inspector_inline;
+  S.inspectorInline = Boolean(S.settings.inspector_inline);
 
   if (S.settings.editor_audit_toggles && typeof S.settings.editor_audit_toggles === "object")
     S.editorAuditToggles = { ...S.editorAuditToggles, ...S.settings.editor_audit_toggles };

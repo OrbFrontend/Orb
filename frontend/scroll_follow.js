@@ -62,7 +62,6 @@ export function createScrollFollow(
       following = v;
     },
     markProgrammatic,
-    // `now` scrolls immediately, for a caller already painting inside a frame.
     toBottom({ smooth = false, now = false } = {}) {
       if (!following) return;
       programmatic = true;

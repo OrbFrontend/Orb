@@ -29,7 +29,6 @@ export {
   loadWorkflowManifest,
   renderInspector,
   renderInspectorWorkflows,
-  saveInspectorOpenStates,
   selectReasoningPass,
   selectWorkflowPipelinePass,
   setToolsTab,
