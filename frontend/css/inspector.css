@@ -25,7 +25,7 @@
    never framed and sections are kept apart by space alone; frames are left to what
    can be acted on, inputs and chips. */
 
-.inspector-block { margin-bottom: 12px; }
+.inspector-block { margin-bottom: 18px; }
 .inspector-block:last-child { margin-bottom: 0; }
 
 .inspector-head {
@@ -67,7 +67,7 @@ summary.inspector-head::-webkit-details-marker { display: none; }
 
 /* Flush with the chevron, so text gets the panel's full width; markers such as the
    user-note bar hang in the gutter to its left. */
-.inspector-body { padding-top: 4px; }
+.inspector-body { padding-top: 8px; }
 
 .reasoning-summary-arrow {
   --ui-icon-size: 10px;
@@ -83,7 +83,7 @@ summary.inspector-head::-webkit-details-marker { display: none; }
 details.inspector-block[open] > summary .reasoning-summary-arrow { transform: rotate(90deg); }
 
 .inspect-subhead {
-  margin: 8px 0 4px;
+  margin: 12px 0 6px;
   font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
@@ -111,14 +111,14 @@ details.inspector-block[open] > summary .reasoning-summary-arrow { transform: ro
   scroll-behavior: auto;
 }
 
-.inspect-raw:not(:first-child) { margin-top: 6px; }
+.inspect-raw:not(:first-child) { margin-top: 8px; }
 .reasoning-section .inspect-raw { max-height: 140px; }
 
 .inspect-raw::-webkit-scrollbar { width: 3px; }
 .inspect-raw::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
 /* Readable output (feedback, state changes): a label over its value, spaced apart. */
-.feedback-row + .feedback-row { margin-top: 10px; }
+.feedback-row + .feedback-row { margin-top: 12px; }
 
 .feedback-row-label {
   display: block;
@@ -467,7 +467,7 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
 }
 
 /* Short sections share a row; latency keeps its width; collapsibles take a full row. */
-.msg-inspect-body { display: flex; flex-wrap: wrap; gap: 10px 24px; padding: 2px 12px 8px; }
+.msg-inspect-body { display: flex; flex-wrap: wrap; gap: 16px 24px; padding: 4px 12px 10px; }
 .msg-inspect-body > .inspector-block { flex: 1 1 240px; min-width: 0; margin: 0; }
 .msg-inspect-body > .inspector-latency { flex: 0 0 auto; }
 .msg-inspect-body > details.inspector-block { flex-basis: 100%; }

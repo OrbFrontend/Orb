@@ -116,6 +116,19 @@ test("the shared open flags drive the block and its sections", () => {
   assert.match(reasoningBlockHtml(log), /data-inspect-section="inline_reasoning" open>/);
 });
 
+test("Feedback and State collapse on their own shared flags", () => {
+  const log = view({
+    feedback: { tone: "warm" },
+    state: { changes: [{ fragment_id: "inv", op: "add", text: "a leek" }], rejected: [], dropped: [] },
+  });
+  S.feedbackOpen = false;
+  S.stateChangesOpen = true;
+  assert.match(inspectorBlockHtml(log), /data-inspect-section="feedback">/);
+  assert.match(inspectorBlockHtml(log), /data-inspect-section="state_changes" open>/);
+  S.feedbackOpen = true;
+  assert.match(inspectorBlockHtml(log), /data-inspect-section="feedback" open>/);
+});
+
 test("the chat's Reasoning block opens apart from the panel's Reasoning section", () => {
   const log = view({ reasoning_writer: "draft" });
   S.reasoningOpen = false;

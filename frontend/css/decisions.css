@@ -208,8 +208,8 @@
 
 /* ── Inspector ────────────────────────────────────────────────────────────── */
 
-.decision-block .inspector-body > .decision-eval { margin-bottom: 4px; }
-.decision-block .inspector-body > .decision-eval[open] { margin-bottom: 8px; }
+.decision-block .inspector-body > .decision-eval { margin-bottom: 6px; }
+.decision-block .inspector-body > .decision-eval[open] { margin-bottom: 12px; }
 
 .decision-block :is(.decision-eval, .decision-state) > summary {
   list-style: none;

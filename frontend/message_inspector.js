@@ -30,6 +30,8 @@ const OPEN_STATE_FIELDS = {
   injection_block: "injectionBlockOpen",
   context_size: "contextSizeOpen",
   decisions: "decisionsOpen",
+  feedback: "feedbackOpen",
+  state_changes: "stateChangesOpen",
 };
 
 function saveInspectorOpenStates() {
@@ -162,7 +164,7 @@ export function buildFeedbackHtml(values) {
       </div>`;
     });
   if (!rows.length) return "";
-  return sectionHtml({ title: "Feedback", body: rows.join("") });
+  return sectionHtml({ key: "feedback", open: isOpen("feedback"), title: "Feedback", body: rows.join("") });
 }
 
 const STATE_OP_LABELS = { add: "Added", revise: "Changed", retire: "Retired" };
@@ -223,7 +225,14 @@ export function buildStateHtml(state) {
        <div class="state-note">They changed entries from the discarded reply.</div>
        <div class="state-rejected">${rows(dropped, row)}</div>`);
   }
-  return blocks.length ? sectionHtml({ title: "State (this reply)", body: blocks.join("") }) : "";
+  return blocks.length
+    ? sectionHtml({
+        key: "state_changes",
+        open: isOpen("state_changes"),
+        title: "State (this reply)",
+        body: blocks.join(""),
+      })
+    : "";
 }
 
 // Raw text the turn sent or received, shown as sent.
