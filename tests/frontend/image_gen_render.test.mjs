@@ -72,9 +72,10 @@ test("render details route every metadata field through esc", () => {
     MARKERS,
   );
   assert.equal(html.split(`«${HOSTILE}»`).length - 1, 5); // all five fields escaped
+  assert.equal(html.split(`data-value="“${HOSTILE}”"`).length - 1, 2); // both sizing mirrors, as attributes
   // Nothing hostile survives outside a marker: strip the escaped occurrences and
   // the payload is gone entirely, so no field reached the HTML raw.
-  assert.ok(!html.replaceAll(`«${HOSTILE}»`, "").includes("<script>"));
+  assert.ok(!html.replaceAll(`«${HOSTILE}»`, "").replaceAll(`“${HOSTILE}”`, "").includes("<script>"));
 });
 
 test("a missing attachment renders empty fields rather than throwing", () => {
@@ -122,7 +123,7 @@ test("a pending edit is shown through esc, marked, and beats the stored prompt",
   );
   assert.ok(!html.includes("«stored»"));
   assert.equal(html.split(`«${HOSTILE}»`).length - 1, 2);
-  assert.ok(!html.replaceAll(`«${HOSTILE}»`, "").includes("<script>"));
+  assert.ok(!html.replaceAll(`«${HOSTILE}»`, "").replaceAll(`“${HOSTILE}”`, "").includes("<script>"));
   assert.match(html, /image-gen-pending/);
 });
 

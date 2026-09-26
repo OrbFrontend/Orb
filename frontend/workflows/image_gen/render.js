@@ -70,8 +70,9 @@ export function downloadButtonHtml(att, { escAttr }) {
 
 export function attachmentDetailsHtml(att, { esc, escAttr, pending }) {
   const cm = att?.consumption_metadata || {};
+  // The wrapper mirrors the text so the field is exactly as tall as its wrapped lines.
   const field = (name, label, value) =>
-    `<textarea class="image-gen-edit" readonly aria-label="${label}" rows="${Math.min(10, Math.max(2, Math.ceil(value.length / 48)))}" data-wf-action="image_gen:savePrompt" data-wf-on="change" data-att-id="${escAttr(att?.id ?? "")}" data-field="${name}">${esc(value)}</textarea>`;
+    `<div class="image-gen-edit-wrap" data-value="${escAttr(value)}"><textarea class="image-gen-edit" readonly aria-label="${label}" rows="1" data-wf-action="image_gen:savePrompt" data-wf-on="change" data-att-id="${escAttr(att?.id ?? "")}" data-field="${name}">${esc(value)}</textarea></div>`;
   const pencil = (name, label) =>
     `<button type="button" class="image-gen-edit-btn" title="Edit ${label.toLowerCase()}" aria-label="Edit ${label.toLowerCase()}" data-wf-action="image_gen:editPrompt" data-att-id="${escAttr(att?.id ?? "")}" data-field="${name}">✎</button>`;
   const marker = pending ? `<span class="image-gen-pending">edited — reroll to render</span>` : "";

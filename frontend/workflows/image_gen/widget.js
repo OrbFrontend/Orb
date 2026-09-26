@@ -109,7 +109,16 @@ function editPrompt(el) {
   );
   if (!t) return;
   t.readOnly = false;
-  t.addEventListener("blur", () => (t.readOnly = true), { once: true });
+  const grow = () => (t.parentElement.dataset.value = t.value);
+  t.addEventListener("input", grow);
+  t.addEventListener(
+    "blur",
+    () => {
+      t.readOnly = true;
+      t.removeEventListener("input", grow);
+    },
+    { once: true },
+  );
   t.focus();
 }
 

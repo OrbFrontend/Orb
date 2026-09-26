@@ -237,6 +237,25 @@ function _resolveWorkflowWidget(instanceId) {
   return { el, msgId, rootId, msg, group };
 }
 
+// Paging is repeated clicks on one arrow, so the arrow must not move: the card
+// never shrinks while paging (a shorter sibling, or an image still loading, would
+// pull it up), and the pane scrolls back by whatever the swap shifted it.
+function _replaceSwipeKeepingArrow(el, html, delta) {
+  const arrowSel = `.workflow-swipe-btn.${delta < 0 ? "prev" : "next"}`;
+  const before = el.querySelector(arrowSel)?.getBoundingClientRect().top;
+  const height = el.offsetHeight;
+  const id = el.id;
+  el.outerHTML = html;
+  const next = document.getElementById(id);
+  if (!next) return;
+  next.style.minHeight = `${height}px`;
+  const after = next.querySelector(arrowSel)?.getBoundingClientRect().top;
+  const ct = $("chat-messages");
+  if (!ct || before == null || after == null || after === before) return;
+  markChatProgrammaticScroll(400);
+  ct.scrollBy({ top: after - before, behavior: "instant" });
+}
+
 window.workflowArtifactStep = async (instanceId, delta) => {
   const { el, msgId, rootId, msg, group } = _resolveWorkflowWidget(instanceId);
   if (!group || group.atts.length <= 1) return;
@@ -251,10 +270,10 @@ window.workflowArtifactStep = async (instanceId, delta) => {
   if (root) root.active_sibling_id = newActiveId;
   if (_workflowPlacement(group.atts[0]?.workflow_id) === "actions") {
     renderMessages();
+    _scrollArtifactIntoView(msgId, rootId);
   } else {
-    el.outerHTML = _renderWorkflowSwipeContainer(msg, rootId, group.atts);
+    _replaceSwipeKeepingArrow(el, _renderWorkflowSwipeContainer(msg, rootId, group.atts), delta);
   }
-  _scrollArtifactIntoView(msgId, rootId);
   try {
     await api.post(convUrl(S.activeConvId, "messages", msgId, "workflow-attachments", rootId, "activate"), {
       sibling_id: newActiveId,

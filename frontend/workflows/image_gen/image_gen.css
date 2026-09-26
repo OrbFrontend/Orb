@@ -126,7 +126,10 @@
 .image-gen-details dd{margin:0;overflow-wrap:anywhere}
 .image-gen-style-link{background:none;border:0;padding:0;font:inherit;color:var(--accent);cursor:pointer;text-align:left}
 .image-gen-style-link:hover{text-decoration:underline}
-.image-gen-edit{display:block;background:none;border-color:transparent;padding:1px 3px;margin:-1px -3px;font:inherit;color:inherit;resize:vertical}
+.image-gen-edit-wrap{display:grid;margin:-2px -4px}
+.image-gen-edit-wrap::after{content:attr(data-value) " ";visibility:hidden;white-space:pre-wrap}
+.image-gen-edit-wrap::after,.image-gen-edit{grid-area:1/1;min-width:0;padding:1px 3px;border:1px solid transparent;font:inherit;overflow-wrap:anywhere}
+.image-gen-edit{display:block;width:auto;height:auto;margin:0;background:none;color:inherit;overflow:hidden;resize:none}
 .image-gen-edit[readonly]{resize:none;cursor:default;caret-color:transparent}
 .image-gen-edit[readonly]:hover,.image-gen-edit[readonly]:focus{border-color:transparent;box-shadow:none;background:none}
 .image-gen-edit:not([readonly]):hover{border-color:var(--border)}
