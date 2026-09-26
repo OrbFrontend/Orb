@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS settings (
     character_library_sort TEXT NOT NULL DEFAULT 'time-added',
     show_editor_diff INTEGER NOT NULL DEFAULT 1,
     show_chat_avatars INTEGER NOT NULL DEFAULT 0,
+    inspector_inline INTEGER NOT NULL DEFAULT 0,
     editor_audit_toggles TEXT NOT NULL DEFAULT '{"banned_phrases":true,"repetitive_openers":true,"repetitive_templates":true,"contrastive_negation":true,"phrase_repetition":true,"structural_repetition":true,"anti_echo":true}',
     document_audit_enabled INTEGER NOT NULL DEFAULT 1,
     document_audit_autopatch INTEGER NOT NULL DEFAULT 0,
@@ -43,8 +44,8 @@ CREATE TABLE IF NOT EXISTS settings (
     agent_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
     agent_shared_system_prompt TEXT NOT NULL DEFAULT '',
     director_individual_fragments INTEGER NOT NULL DEFAULT 0,
-    -- Superseded by per-fragment state settings and state_updates; no longer
-    -- written. Dropped by a follow-up cleanup migration after conversion checks.
+    -- Superseded by per-fragment state settings; no longer written. Dropped by
+    -- a follow-up cleanup migration after conversion checks.
     direction_notes_record INTEGER NOT NULL DEFAULT 0,
     direction_notes_inject TEXT NOT NULL DEFAULT 'off',
     inspector_open_states TEXT NOT NULL DEFAULT '{"reasoning":true,"tool_calls":false,"injection_block":false,"context_size":true}',
@@ -58,9 +59,7 @@ CREATE TABLE IF NOT EXISTS settings (
     generated_chars INTEGER DEFAULT NULL,
     -- The Judge has a dedicated endpoint and model; its route is derived from the URL.
     decision_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
-    decision_model TEXT NOT NULL DEFAULT 'typesafe/jev-1.13',
-    -- One global switch for every automatic state-fragment update call.
-    state_updates INTEGER NOT NULL DEFAULT 1 CHECK (state_updates IN (0, 1))
+    decision_model TEXT NOT NULL DEFAULT 'typesafe/jev-1.13'
 );
 
 CREATE TABLE IF NOT EXISTS mood_fragments (

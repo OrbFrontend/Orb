@@ -92,6 +92,20 @@ async def get_state_events_for_message(
     return [r for r in out if sources is None or r["source"] in sources]
 
 
+async def get_state_events_for_messages(message_ids: Sequence[int]) -> dict[int, list[FragmentStateEventRow]]:
+    """Each message's own events in row order, keyed by message id; messages without events are absent."""
+    marks = ",".join("?" * len(message_ids))
+    async with get_db() as db:
+        rows = await db.execute_fetchall(
+            f"SELECT * FROM fragment_state_events WHERE message_id IN ({marks}) ORDER BY id",  # nosec B608 -- placeholders only
+            list(message_ids),
+        )
+    out: dict[int, list[FragmentStateEventRow]] = {}
+    for r in rows:
+        out.setdefault(r["message_id"], []).append(cast(FragmentStateEventRow, dict(r)))
+    return out
+
+
 async def fold_path_state(cid: str, path_message_ids: Sequence[int]) -> StateView:
     """The active entries after folding every event on *path_message_ids*."""
     return fold_events(await get_state_events_for_path(cid, path_message_ids))

@@ -41,11 +41,11 @@ export const S = {
   lengthGuardEnforce: false,
   agenticLorebookEnabled: false,
   directorIndividualFragments: false,
-  stateUpdates: true, // global switch for automatic state-fragment updates
   hideUntilBaked: false, // keep the streaming reply out of the DOM until final
   preventPromptOverrides: false, // ignore character-card prompt overrides
   showEditorDiff: true, // show editor-pass diff highlights
   showChatAvatars: false, // portrait gutter on chat messages
+  inspectorInline: false, // each reply's Inspector sections above its text in the chat
   personaAvatarVersion: 0, // bumped on a persona avatar save; busts the image URL
   reasoningEnabled: { director: false, writer: false, editor: false, scripter: false },
   reasoningPrefill: { director: "", writer: "", editor: "" },
@@ -111,6 +111,8 @@ export const S = {
   injectionBlockOpen: false,
   decisionsOpen: true,
   contextSizeOpen: true,
+  inlineInspectorOpen: true, // the in-chat Inspector blocks, shared by every reply
+  inlineReasoningOpen: true, // the in-chat Reasoning blocks, apart from the panel's section
   inspectedMsgId: null, // message shown in the Inspector
   inspectedDirectorData: null, // director data for the inspected message
   reasoningByPass: {}, // accumulated reasoning by pass id

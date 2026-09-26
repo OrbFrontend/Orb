@@ -86,6 +86,7 @@ class _SettingsBase(TypedDict):
     character_library_sort: str
     show_editor_diff: int
     show_chat_avatars: int
+    inspector_inline: int
     editor_audit_toggles: dict  # decoded to its in-memory shape by get_settings()
     document_audit_enabled: int
     document_audit_autopatch: int
@@ -95,8 +96,6 @@ class _SettingsBase(TypedDict):
     agent_same_as_writer: bool
     agent_shared_system_prompt: str
     director_individual_fragments: int
-    # The global switch for every automatic state-fragment update call.
-    state_updates: int
     workflows_globally_enabled: int
 
 

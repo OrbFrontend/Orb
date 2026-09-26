@@ -216,6 +216,21 @@ async def test_show_chat_avatars_default_and_roundtrip(client, db):
     assert resp.json()["show_chat_avatars"] == 0
 
 
+async def test_inspector_inline_default_and_roundtrip(client, db):
+    assert (await client.get("/api/settings")).json()["inspector_inline"] == 0
+
+    resp = await client.put("/api/settings", json={"inspector_inline": True})
+    assert resp.status_code == 200
+    assert resp.json()["inspector_inline"] == 1
+
+    async with db.execute("SELECT inspector_inline FROM settings WHERE id = 1") as cur:
+        row = await cur.fetchone()
+    assert row["inspector_inline"] == 1
+
+    resp = await client.put("/api/settings", json={"inspector_inline": False})
+    assert resp.json()["inspector_inline"] == 0
+
+
 async def test_hide_streaming_until_baked_default_and_roundtrip(client, db):
     resp = await client.get("/api/settings")
     assert resp.status_code == 200

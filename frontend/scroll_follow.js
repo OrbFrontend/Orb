@@ -62,11 +62,11 @@ export function createScrollFollow(
       following = v;
     },
     markProgrammatic,
-    toBottom({ smooth = false } = {}) {
+    toBottom({ smooth = false, now = false } = {}) {
       if (!following) return;
       programmatic = true;
       clearTimeout(programmaticTimer);
-      requestAnimationFrame(() => {
+      const scroll = () => {
         if (smooth) {
           el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
           programmaticTimer = setTimeout(() => {
@@ -76,7 +76,9 @@ export function createScrollFollow(
           el.scrollTo({ top: el.scrollHeight, behavior: "instant" });
           programmatic = false;
         }
-      });
+      };
+      if (now) scroll();
+      else requestAnimationFrame(scroll);
     },
   };
 }

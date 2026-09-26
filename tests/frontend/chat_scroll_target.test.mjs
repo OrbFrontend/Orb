@@ -8,7 +8,12 @@ globalThis.document = {
   },
 };
 
-const { pinStreamingMessage, scrollToMessage } = await import("../../frontend/utils.js");
+const queuedFrames = [];
+globalThis.requestAnimationFrame = (fn) => queuedFrames.push(fn);
+
+const { initChatScrollFollow, pinStreamingMessage, scrollToBottom, scrollToMessage } = await import(
+  "../../frontend/utils.js"
+);
 
 function makeChat({ baseScrollHeight, scrollTop, targetTop, targetHeight }) {
   const target = {
@@ -80,5 +85,25 @@ test("a replacement stream is pinned without extending the real scroll range", (
   pinStreamingMessage(fixture.target);
 
   assert.equal(pinned, true);
+  assert.deepEqual(chat.lastScroll, { top: 800, behavior: "instant" });
+});
+
+test("a paint already inside a frame follows the pinned stream in that same frame", () => {
+  const fixture = makeChat({
+    baseScrollHeight: 1400,
+    scrollTop: 700,
+    targetTop: 550,
+    targetHeight: 80,
+  });
+  chat = fixture.ct;
+  chat.addEventListener = () => {};
+  const query = chat.querySelector;
+  chat.querySelector = (selector) => (selector === ".stream-scroll-target" ? fixture.target : query(selector));
+  initChatScrollFollow(chat);
+  queuedFrames.length = 0;
+
+  scrollToBottom(false, { now: true });
+
+  assert.equal(queuedFrames.length, 0);
   assert.deepEqual(chat.lastScroll, { top: 800, behavior: "instant" });
 });

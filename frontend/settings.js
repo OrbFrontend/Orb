@@ -1,13 +1,13 @@
 import { api } from "./api.js";
-import { renderInspectorWorkflows, renderMessages } from "./chat.js";
+import { renderInspector, renderInspectorWorkflows, renderMessages } from "./chat.js";
 import { CLOSE_ICON } from "./icons.js";
 import { renderInteractiveFragments } from "./library_fragments.js";
+import { loadInspectorOpenStates } from "./message_inspector.js";
 import { closeModal, confirmDelete, showModal, showSubConfirmModal } from "./modal.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { loadAgentModelConfigs, loadEndpoints, loadJudgeConfig, renderEndpoints } from "./settings_models.js";
 import { loadPersonas, updateUserBtn } from "./settings_personas.js";
 import { effectiveWorkflowEnabled, localMlReady, S } from "./state.js";
-import { refreshState } from "./state_panel.js";
 import { $, esc, escAttr, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
@@ -77,7 +77,6 @@ export async function loadSettings() {
   S.agenticLorebookEnabled = Boolean(S.settings.agentic_lorebook_enabled);
 
   S.directorIndividualFragments = Boolean(S.settings.director_individual_fragments);
-  S.stateUpdates = S.settings.state_updates !== 0 && S.settings.state_updates !== false;
 
   if (S.settings.length_guard_max_words) S.lengthGuardMaxWords = S.settings.length_guard_max_words;
   if (S.settings.length_guard_max_paragraphs) S.lengthGuardMaxParagraphs = S.settings.length_guard_max_paragraphs;
@@ -86,20 +85,15 @@ export async function loadSettings() {
   if (S.settings.reasoning_prefill_passes)
     S.reasoningPrefill = { ...S.reasoningPrefill, ...S.settings.reasoning_prefill_passes };
 
-  if (S.settings.inspector_open_states) {
-    const ios = S.settings.inspector_open_states;
-    if (typeof ios.reasoning === "boolean") S.reasoningOpen = ios.reasoning;
-    if (typeof ios.tool_calls === "boolean") S.toolCallsOpen = ios.tool_calls;
-    if (typeof ios.injection_block === "boolean") S.injectionBlockOpen = ios.injection_block;
-    if (typeof ios.context_size === "boolean") S.contextSizeOpen = ios.context_size;
-    if (typeof ios.decisions === "boolean") S.decisionsOpen = ios.decisions;
-  }
+  loadInspectorOpenStates(S.settings.inspector_open_states);
 
   if (typeof S.settings.show_editor_diff === "number") S.showEditorDiff = S.settings.show_editor_diff !== 0;
   else if (typeof S.settings.show_editor_diff === "boolean") S.showEditorDiff = S.settings.show_editor_diff;
 
   if (typeof S.settings.show_chat_avatars === "number") S.showChatAvatars = S.settings.show_chat_avatars !== 0;
   else if (typeof S.settings.show_chat_avatars === "boolean") S.showChatAvatars = S.settings.show_chat_avatars;
+
+  S.inspectorInline = Boolean(S.settings.inspector_inline);
 
   if (S.settings.editor_audit_toggles && typeof S.settings.editor_audit_toggles === "object")
     S.editorAuditToggles = { ...S.editorAuditToggles, ...S.settings.editor_audit_toggles };
@@ -168,6 +162,16 @@ export function renderSettings() {
       </div>
       <div class="tool-card-desc">Show the speaker's portrait beside each message.</div>
     </div>
+    <div class="tool-card ${S.inspectorInline ? "tool-on" : ""}">
+      <div class="tool-card-header">
+        <span class="tool-card-name">Show Inspector in chat</span>
+        <label class="tog" data-setting-stop>
+          <input type="checkbox" ${S.inspectorInline ? "checked" : ""} data-setting-toggle="inspectorInline">
+          <span class="tog-slider"></span>
+        </label>
+      </div>
+      <div class="tool-card-desc">Show turn details above chatbox rather than in side panel.</div>
+    </div>
     <div class="tool-card ${S.preventPromptOverrides ? "tool-on" : ""}">
       <div class="tool-card-header">
         <span class="tool-card-name">Prevent prompt overrides</span>
@@ -194,6 +198,7 @@ export function renderSettings() {
 const SETTING_TOGGLES = {
   hideUntilBaked: toggleHideUntilBaked,
   showChatAvatars: toggleShowChatAvatars,
+  inspectorInline: toggleInspectorInline,
   preventPromptOverrides: togglePreventPromptOverrides,
 };
 
@@ -453,18 +458,6 @@ export async function toggleDirectorIndividualFragments(on) {
   await persistSettings({ director_individual_fragments: on });
 }
 
-$("tools-list")?.addEventListener("change", (e) => {
-  if (e.target.dataset?.toolsToggle === "state-updates") setStateUpdates(e.target.checked);
-});
-
-async function setStateUpdates(on) {
-  S.stateUpdates = on;
-  renderToolsPanel();
-  renderInteractiveFragments();
-  await persistSettings({ state_updates: on });
-  refreshState();
-}
-
 export async function toggleShowEditorDiff(on) {
   S.showEditorDiff = on;
   renderMessages();
@@ -490,6 +483,14 @@ export async function toggleShowChatAvatars(on) {
   renderMessages();
   renderSettings();
   await persistSettings({ show_chat_avatars: on });
+}
+
+export async function toggleInspectorInline(on) {
+  S.inspectorInline = on;
+  renderMessages();
+  renderInspector();
+  renderSettings();
+  await persistSettings({ inspector_inline: on });
 }
 
 export async function togglePreventPromptOverrides(on) {
@@ -677,29 +678,12 @@ export function renderToolsPanel() {
     ${lgConfig}
   </div>`;
 
-  const stateOn = S.stateUpdates;
-  const stateUpdatesCard = `<div class="tool-card ${stateOn ? "tool-on" : ""}">
-    <div class="tool-card-header">
-      <span class="tool-card-name">State Updates</span>
-      <label class="tog">
-        <input type="checkbox" ${stateOn ? "checked" : ""} data-tools-toggle="state-updates">
-        <span class="tog-slider"></span>
-      </label>
-    </div>
-    <div class="tool-card-desc">State fragments carry permanent facts in a conversation. ${
-      stateOn
-        ? "The Agent updates them each turn, except Manual-only ones."
-        : "Only you can update them, in the Inspector's State tab."
-    }</div>
-  </div>`;
-
   const divider = (label) => `<div class="tools-divider"><span>${label}</span></div>`;
   $("tools-list").classList.toggle("workflows-off", !S.agentEnabled);
   $("tools-list").innerHTML =
     divider("Director") +
     cardById.direct_scene +
     agenticLorebookCard +
-    stateUpdatesCard +
     divider("Editor") +
     cardById.editor_apply_patch +
     lengthGuardCard;

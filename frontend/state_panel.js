@@ -116,11 +116,8 @@ function render() {
     return;
   }
   if (!panel) return;
-  const intro = panel.updates_on
-    ? ""
-    : `<div class="state-note">State updates are off. Saved state is still injected.</div>`;
   if (!panel.fragments.length) {
-    el.innerHTML = `${intro}<div class="state-empty">No state fragments. Add an interactive fragment of type State.</div>`;
+    el.innerHTML = `<div class="state-empty">No state fragments. Add an interactive fragment of type State.</div>`;
     return;
   }
   // A re-render replaces the editor; keep the caret of someone typing in it.
@@ -129,7 +126,7 @@ function render() {
     active?.classList.contains("state-editor-input") && el.contains(active)
       ? [active.selectionStart, active.selectionEnd]
       : null;
-  el.innerHTML = intro + panel.fragments.map(fragmentHtml).join("");
+  el.innerHTML = panel.fragments.map(fragmentHtml).join("");
   const input = (focusEditor || caret) && el.querySelector(".state-editor-input");
   focusEditor = false;
   if (input) {

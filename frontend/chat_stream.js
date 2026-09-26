@@ -22,7 +22,6 @@ import {
   appendReasoningDelta,
   clearInspectedMessage,
   inspectMessage,
-  REASONING_PASSES,
   renderInspector,
 } from "./chat_inspector.js";
 import { _mergeWorkflowRejections } from "./chat_workflow.js";
@@ -39,6 +38,7 @@ import {
 import { refreshCharacters } from "./library_sidebar.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
+import { REASONING_PASSES } from "./message_inspector.js";
 import { ensurePersonaPinned } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
@@ -104,8 +104,21 @@ function paintStreamingBody(text) {
       _paintedHtml = html;
       patchHtml(body, html);
     }
-    scrollToBottom();
+    // Already inside a frame, so scroll now rather than a frame late.
+    scrollToBottom(false, { now: true });
   });
+}
+
+// Follow every growth of the streaming bubble (in-chat Inspector blocks too), not
+// only body paints. ResizeObserver fires before paint, so the scroll shares the frame.
+let _streamResize = null;
+
+function followStreamingMessage(div) {
+  _streamResize?.disconnect();
+  _streamResize = null;
+  if (!div || typeof ResizeObserver === "undefined") return;
+  _streamResize = new ResizeObserver(() => scrollToBottom(false, { now: true }));
+  _streamResize.observe(div);
 }
 
 /** Cancel a queued streaming paint. */
@@ -148,6 +161,7 @@ function smoothUpdateBody(el, newHtml, onComplete) {
 
 function finalizeStreamingDiv(lastMsg) {
   cancelStreamingPaint();
+  followStreamingMessage(null);
   const body = S.streamingBodyEl;
   if (!body) return false;
   const div = body.closest(".message");
@@ -156,6 +170,9 @@ function finalizeStreamingDiv(lastMsg) {
   div.classList.remove("stream-scroll-target");
   div.setAttribute("data-msg-id", lastMsg.id);
   body.removeAttribute("id");
+  // The next bubble owns the live slot; this one waits for the stored copy (refreshInlineInspector).
+  div.querySelector("#reasoning-box")?.removeAttribute("id");
+  div.querySelector(".msg-inspect-live")?.classList.replace("msg-inspect-live", "msg-inspect-baked");
 
   const bodyHtml =
     S.pendingRefineDiff && S.showEditorDiff
@@ -206,6 +223,7 @@ export function createStreamingDiv(name = null, memberId = null) {
   div.className = "message assistant";
   const avatar = S.showChatAvatars ? speakerAvatarCell({ role: "assistant", speaker_member_id: memberId }) : "";
   div.innerHTML = `${avatar}<div class="msg-role">${esc(name || getCharName())}</div>
+    <div class="msg-inspect-live"></div>
     <div class="msg-body" id="streaming-body">
       <span class="typing-indicator"><span></span><span></span><span></span></span>
     </div>
@@ -215,6 +233,7 @@ export function createStreamingDiv(name = null, memberId = null) {
       <button disabled class="msg-btn-del">${ICON_DEL}</button>
     </div>`;
   S.streamingBodyEl = div.querySelector(".msg-body");
+  followStreamingMessage(div);
   return div;
 }
 
@@ -239,6 +258,7 @@ function patchPendingUserMessage(pendingMsg) {
 
 export async function afterStream() {
   cancelStreamingPaint();
+  followStreamingMessage(null);
   const wasGroupExchange = S.currentExchangeId != null;
   const groupExchangeId = S.currentExchangeId;
   const inFlightSpeaker = S.currentSpeaker;

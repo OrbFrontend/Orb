@@ -494,6 +494,17 @@ async def get_message_by_id(msg_id: int) -> MessageRow | None:
         return cast(MessageRow, dict(rows[0])) if rows else None
 
 
+async def get_messages_decisions(cid: str, message_ids: Sequence[int]) -> dict[int, dict]:
+    """Decoded decision records of the given messages that belong to *cid*, keyed by id."""
+    marks = ",".join("?" * len(message_ids))
+    async with get_db() as db:
+        rows = await db.execute_fetchall(
+            f"SELECT id, decision_evaluations FROM messages WHERE conversation_id = ? AND id IN ({marks})",  # nosec B608 -- placeholders only
+            (cid, *message_ids),
+        )
+    return {row["id"]: decision_evaluations_of(dict(row)) for row in rows}
+
+
 async def set_active_leaf(cid: str, leaf_id: int | None):
     """Update the active_leaf_id for a conversation."""
     async with get_db() as db:

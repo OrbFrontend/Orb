@@ -221,7 +221,7 @@ async def test_migrated_progressive_settings_add_no_model_call(client, db, llm_m
 # ── Switches and gates ───────────────────────────────────────────────────────
 
 
-async def test_state_updates_switch_stops_every_automatic_update(client, db, llm_mock):
+async def test_manual_only_stops_automatic_updates_and_keeps_injection(client, db, llm_mock):
     cid = await _conversation("conv-state-switch")
     await _fragment(client, "threads", mode="entries", update="after_reply")
     await _fragment(client, "trust", mode="value", update="before_writer")
@@ -232,7 +232,9 @@ async def test_state_updates_switch_stops_every_automatic_update(client, db, llm
     llm_mock.enqueue_state(_state_call(threads=[_THREAD]))
     await _drain(handle_turn(cid, "one"))
 
-    await _settings(client, state_updates=False)
+    for fid in ("threads", "trust"):
+        resp = await client.put(f"/api/interactive-fragments/{fid}", json={"state_update": "manual"})
+        assert resp.status_code == 200, resp.text
     llm_mock.enqueue_director(_direct(trust="ignored"))
     llm_mock.enqueue_writer("Two.")
     llm_mock.enqueue_state(_state_call(threads=["ignored"]))  # must stay unconsumed

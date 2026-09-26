@@ -303,6 +303,7 @@ DEFAULT_SETTINGS = {
     "character_library_sort": "time-added",
     "show_editor_diff": 1,
     "show_chat_avatars": 0,
+    "inspector_inline": 0,
     "editor_audit_toggles": {
         "banned_phrases": True,
         "repetitive_openers": True,
@@ -328,7 +329,6 @@ DEFAULT_SETTINGS = {
     "agent_same_as_writer": True,
     "agent_shared_system_prompt": "",
     "director_individual_fragments": 0,
-    "state_updates": 1,
     "workflows_globally_enabled": 1,
 }
 

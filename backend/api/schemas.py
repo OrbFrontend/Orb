@@ -44,6 +44,7 @@ class SettingsUpdate(BaseModel):
     active_endpoint_id: int | None = None
     show_editor_diff: bool | None = None
     show_chat_avatars: bool | None = None
+    inspector_inline: bool | None = None
     editor_audit_toggles: dict | None = None
     # Document-mode Output Auditor (doc-owned columns; deliberately not shared
     # with editor_audit_toggles so a doc-mode save can't perturb chat scanners).
@@ -56,7 +57,6 @@ class SettingsUpdate(BaseModel):
     agent_endpoint_id: int | None = None
     agent_shared_system_prompt: str | None = None
     director_individual_fragments: bool | None = None
-    state_updates: bool | None = None
     inspector_open_states: dict | None = None
     workflows_globally_enabled: bool | None = None
     # Floor, not a formality: the cap is enforced by evicting on the next

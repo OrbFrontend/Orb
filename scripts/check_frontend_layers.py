@@ -104,6 +104,7 @@ LAYERS = {
     "chat_messages.js": 5,
     "chat_inspector.js": 5,
     "chat_decisions.js": 5,
+    "message_inspector.js": 5,  # repaints the message list via a hook chat_core.js registers
     "chat_workflow.js": 5,
     "chat_conversations.js": 5,
     "chat_composer.js": 5,
@@ -141,7 +142,7 @@ ALLOWED_UPWARD: set[tuple[str, str]] = {
 }
 
 # ── 2. Ratchets (may only decrease) ──────────────────────────────────────────
-MAX_INLINE_ON = 234  # inline on*= handlers across frontend/ (js + index.html)
+MAX_INLINE_ON = 228  # inline on*= handlers across frontend/ (js + index.html)
 MAX_UNDERSCORE_IMPORTS = 10  # underscore-prefixed names imported cross-module
 
 # ── 4. Frozen ABI ────────────────────────────────────────────────────────────

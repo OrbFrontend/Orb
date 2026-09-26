@@ -50,8 +50,8 @@ After-reply updates run as one extra Agent call after the reply, which reuses th
 cached prompt. The **Individual fragment processing** option in the Direction
 card also applies: it updates each fragment in its own call.
 
-**Settings → Agents → State Updates** stops every automatic update call at once.
-Saved state is still injected, and you can still edit it in the Inspector's State tab.
+Switching a fragment to **Manual only** stops its automatic updates. Its saved
+state is still injected, and you can still edit it in the Inspector's State tab.
 Disabling a single fragment stops both its updates and its injection, but keeps
 its saved state; the State tab shows that state read-only.
 

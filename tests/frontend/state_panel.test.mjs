@@ -46,7 +46,6 @@ function panelState(entries) {
       },
     ],
     has_state: entries.length > 0,
-    updates_on: true,
     limits: { text: 800, entries: 12 },
   };
 }

@@ -64,3 +64,17 @@ Fragments run from top to bottom within their stage. Earlier Director values can
 provide context for later values, and the Writer sees them in the same order.
 Post-processing fragments run afterward as Editor tasks and do not enter the
 Director schema or Scene Guidance.
+
+## Inspector in the chat
+
+**Settings → Show Inspector in chat** shows each reply's turn details above its
+text instead of one reply at a time in the Inspector panel. A **Reasoning** block
+has a tab for each pass that wrote some; the **Inspector** block under it holds
+moods, agent latency, decisions, feedback, state changes, tool calls and the
+injection block. Empty sections and empty blocks are left out.
+
+A collapsed Inspector block keeps a summary line of active moods and decision
+outcomes. Opening or collapsing a block or section applies to every reply and to
+the panel, and is saved; the Reasoning block opens apart from the panel's
+Reasoning controls. The panel keeps the context size and next-turn reasoning
+controls.

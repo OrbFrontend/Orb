@@ -116,11 +116,9 @@ async def state_panel(cid: str) -> dict[str, Any]:
                 "entries": [_entry_projection(entry, turns) for entry in entries],
             }
         )
-    settings = await db.get_settings()
     return {
         "fragments": fragments,
         "has_state": bool(events),
-        "updates_on": bool(settings.get("state_updates", 1)),
         "limits": {"text": MAX_STATE_TEXT_CHARS, "entries": MAX_ACTIVE_ENTRIES},
     }
 

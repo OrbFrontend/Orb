@@ -100,21 +100,25 @@ function scrollChatTarget(el, align) {
   ct.scrollTo({ top: targetTop, behavior: "instant" });
 }
 
-export function scrollToBottom(smooth = false) {
+// Follow the chat's newest content. A caller already painting inside a frame
+// passes `now`, so the growth and the scroll share that frame.
+export function scrollToBottom(smooth = false, { now = false } = {}) {
   const ct = $("chat-messages");
   const pinnedTarget = ct?.querySelector(".stream-scroll-target");
   if (ct && pinnedTarget && _chatFollow?.isFollowing()) {
     markChatProgrammaticScroll();
-    requestAnimationFrame(() => {
+    const follow = () => {
       const topWithinScroller =
         pinnedTarget.getBoundingClientRect().top - ct.getBoundingClientRect().top + ct.scrollTop;
       const desiredTop = Math.max(topWithinScroller, topWithinScroller + pinnedTarget.offsetHeight - ct.clientHeight);
       const targetTop = Math.min(Math.max(0, desiredTop), Math.max(0, ct.scrollHeight - ct.clientHeight));
       ct.scrollTo({ top: targetTop, behavior: smooth ? "smooth" : "instant" });
-    });
+    };
+    if (now) follow();
+    else requestAnimationFrame(follow);
     return;
   }
-  _chatFollow?.toBottom({ smooth });
+  _chatFollow?.toBottom({ smooth, now });
 }
 
 export function scrollToMessage(msgId) {
