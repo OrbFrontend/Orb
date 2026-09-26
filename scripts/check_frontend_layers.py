@@ -145,7 +145,7 @@ ALLOWED_UPWARD: set[tuple[str, str]] = {
 }
 
 # ── 2. Ratchets (may only decrease) ──────────────────────────────────────────
-MAX_INLINE_ON = 228  # inline on*= handlers across frontend/ (js + index.html)
+MAX_INLINE_ON = 214  # inline on*= handlers across frontend/ (js + index.html)
 MAX_UNDERSCORE_IMPORTS = 10  # underscore-prefixed names imported cross-module
 
 # ── 4. Frozen ABI ────────────────────────────────────────────────────────────
@@ -176,6 +176,7 @@ FROZEN_ABI = {
     "toast",
     "notifyError",
     "showModal",
+    "showConfirmModal",
     "closeModal",
     "setModalCloseGuard",
     "sseEvents",

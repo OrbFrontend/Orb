@@ -12,7 +12,8 @@ for (const key of ["document", "Node", "NodeFilter", "Element", "HTMLElement", "
 dom.window.Element.prototype.scrollTo = function scrollTo() {};
 dom.window.Element.prototype.scrollIntoView = function scrollIntoView() {};
 const { api } = await import("../../frontend/api.js");
-const { saveCharEdit, showCharEditModal } = await import("../../frontend/library.js");
+const { deleteCharacter, saveCharEdit, showCharEditModal } = await import("../../frontend/library.js");
+const { closeModal } = await import("../../frontend/modal.js");
 
 const CARD = { id: "mara", name: "Mara", first_mes: "Hello." };
 const status = () => document.getElementById("ce-save-status");
@@ -60,6 +61,29 @@ test("editing again retracts the confirmation", async () => {
   assert.equal(document.getElementById("ce-cancel-btn").textContent, "Cancel");
 });
 
+test("closing asks before dropping unsaved edits, and not after they are saved", async () => {
+  const asked = [];
+  window.confirm = (message) => {
+    asked.push(message);
+    return false;
+  };
+  await showCharEditModal(CARD.id);
+  closeModal();
+  assert.ok(!editorOpen(), "an untouched editor closes without asking");
+  assert.equal(asked.length, 0);
+
+  await showCharEditModal(CARD.id);
+  document.getElementById("ce-desc").value = "A fence-mender.";
+  closeModal();
+  assert.ok(editorOpen(), "declining the prompt keeps the edits");
+  assert.equal(asked.length, 1);
+
+  await saveCharEdit(CARD.id);
+  closeModal();
+  assert.ok(!editorOpen(), "a saved editor closes without asking");
+  assert.equal(asked.length, 1);
+});
+
 test("a failed save reports in the same line and leaves the card editable", async () => {
   api.put = async () => {
     throw new Error("Name already taken");
@@ -81,4 +105,16 @@ test("validation failures report in the action row, before any request", async (
   assert.equal(put, null, "no request is sent");
   assert.ok(status().textContent.length > 0);
   assert.equal(status().classList.contains("is-error"), true);
+});
+
+test("deleting a card offers to take its conversations only when it has some, and counts them", async () => {
+  let usage = { solo: 0, active_groups: 0, historical_groups: 0 };
+  api.get = async (path) => (path.endsWith("/usage") ? usage : []);
+  await deleteCharacter(CARD.id);
+  assert.equal(document.getElementById("delete-conversations-checkbox"), null);
+
+  usage = { solo: 1, active_groups: 1, historical_groups: 1 };
+  await deleteCharacter(CARD.id);
+  const label = document.getElementById("delete-conversations-checkbox").closest("label");
+  assert.equal(label.textContent.trim().replace(/\s+/g, " "), "Also delete 1 conversation and 2 group chats they appear in");
 });

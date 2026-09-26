@@ -12,22 +12,8 @@
   gap: 12px;
 }
 
-/* Matches `.modal .form-divider`'s typography — the app's existing section rule. */
-.lib-manager-eyebrow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-  color: var(--text-muted);
-}
-
-.lib-manager-eyebrow::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--border);
+.lib-manager > .modal-heading {
+  margin: 0;
 }
 
 .lib-tool {

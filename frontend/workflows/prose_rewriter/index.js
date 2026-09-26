@@ -1,13 +1,12 @@
 import {
   api,
-  closeModal,
   esc,
   escAttr,
   getManifestEntry,
   refreshLocalMlStatus,
   registerAction,
   registerWorkflowToolsPanelCard,
-  showModal,
+  showConfirmModal,
   toast,
 } from "/static/workflow_api.js";
 
@@ -31,7 +30,6 @@ let status = null; // last /local-ml/status
 let automatic = Boolean(getManifestEntry(WORKFLOW_ID)?.config_defaults?.automatic ?? true);
 let busy = ""; // the variant id, or "runtime", while a download runs
 let pollTimer = null;
-let pendingDelete = "";
 
 const info = () => status?.features?.[FEATURE];
 const stateText = (f) => `${f.state || "idle"}${f.error ? `: ${f.error}` : ""}`;
@@ -198,21 +196,18 @@ function download(el) {
 }
 
 function confirmDeleteModel(el) {
-  pendingDelete = el.dataset.variant;
-  showModal(`
-    <h2>Delete Model</h2>
-    <p>Delete this downloaded model file? It can be downloaded again.</p>
-    <div class="modal-actions">
-      <button class="btn" data-wf-action="${WORKFLOW_ID}:cancelDelete">Cancel</button>
-      <button class="btn btn-danger" data-wf-action="${WORKFLOW_ID}:confirmDelete">Delete</button>
-    </div>`);
+  const variant = el.dataset.variant;
+  showConfirmModal(
+    {
+      title: "Delete model",
+      message: "Delete this downloaded model file? It can be downloaded again.",
+      confirmText: "Delete",
+    },
+    () => deleteModel(variant),
+  );
 }
 
-async function deleteModel() {
-  const variant = pendingDelete;
-  pendingDelete = "";
-  closeModal();
-  if (!variant) return;
+async function deleteModel(variant) {
   try {
     await api.del(`/local-ml/${FEATURE}/model?variant=${encodeURIComponent(variant)}`);
   } catch (e) {
@@ -228,11 +223,6 @@ registerAction(WORKFLOW_ID, "batch", (el) => saveModelConfig({ batch_size: Numbe
 registerAction(WORKFLOW_ID, "download", download);
 registerAction(WORKFLOW_ID, "runtime", () => withBusy("runtime", () => api.post("/local-ml/runtime", {})));
 registerAction(WORKFLOW_ID, "delete", confirmDeleteModel);
-registerAction(WORKFLOW_ID, "confirmDelete", deleteModel);
-registerAction(WORKFLOW_ID, "cancelDelete", () => {
-  pendingDelete = "";
-  closeModal();
-});
 
 registerWorkflowToolsPanelCard(WORKFLOW_ID, () => {
   // Both tool panes stay in the DOM, so a missing body means the card is just

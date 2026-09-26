@@ -10,7 +10,7 @@ import {
 } from "./chat_core.js";
 import { clearWorkflowPhase, setWorkflowPhase, workflowPhaseLabel } from "./chat_inspector.js";
 import { renderDefaultWidget } from "./default_widget.js";
-import { closeModal, showModal } from "./modal.js";
+import { showConfirmModal } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
 import { broadcastWorkflowMutation, requestSendPermission, setWorkflowMutationCallback } from "./tabLock.js";
@@ -592,8 +592,6 @@ window.workflowToggleMinimize = (instanceId) => {
   el.outerHTML = _renderWorkflowSwipeContainer(msg, rootId, group.atts);
 };
 
-let _wfDeleteTarget = null;
-
 window.workflowDeleteAttachment = (instanceId) => {
   const { msgId, rootId, group } = _resolveWorkflowWidget(instanceId);
   if (!group) return;
@@ -602,33 +600,26 @@ window.workflowDeleteAttachment = (instanceId) => {
   const active = group.atts[idx];
   const total = group.atts.length;
   const label = esc(_workflowLabel(active));
-  _wfDeleteTarget = { msgId, rootId, activeId: active.id };
+  const remove = (scope) => () => _deleteWorkflowAttachment(msgId, rootId, active.id, scope);
   if (total <= 1) {
-    showModal(`
-      <h2>Delete attachment</h2>
-      <p>Delete <strong>${label}</strong>? This cannot be undone.</p>
-      <div class="workflow-delete-actions">
-        <button class="btn" onclick="closeModal()">Cancel</button>
-        <button class="btn btn-danger" onclick="workflowConfirmDelete('group')">Delete</button>
-      </div>`);
+    showConfirmModal(
+      {
+        title: "Delete attachment",
+        message: `Delete <strong>${label}</strong>? This cannot be undone.`,
+        confirmText: "Delete",
+      },
+      remove("group"),
+    );
     return;
   }
-  showModal(`
-    <h2>Delete attachment</h2>
-    <p><strong>${label}</strong> has ${total} variants. Delete only the one you are viewing (${idx + 1} / ${total}), or the whole attachment and every variant?</p>
-    <div class="workflow-delete-actions">
-      <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-danger" onclick="workflowConfirmDelete('variant')">Delete this variant</button>
-      <button class="btn btn-danger" onclick="workflowConfirmDelete('group')">Delete all ${total}</button>
-    </div>`);
-};
-
-window.workflowConfirmDelete = (scope) => {
-  const t = _wfDeleteTarget;
-  _wfDeleteTarget = null;
-  closeModal();
-  if (!t) return;
-  _deleteWorkflowAttachment(t.msgId, t.rootId, t.activeId, scope);
+  showConfirmModal({
+    title: "Delete attachment",
+    message: `<strong>${label}</strong> has ${total} variants. Delete only the one you are viewing (${idx + 1} / ${total}), or the whole attachment and every variant?`,
+    actions: [
+      { label: "Delete this variant", run: remove("variant") },
+      { label: `Delete all ${total}`, run: remove("group") },
+    ],
+  });
 };
 
 async function _deleteWorkflowAttachment(msgId, rootId, activeId, scope) {

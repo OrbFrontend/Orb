@@ -1,5 +1,5 @@
 import { ARROW_LEFT_ICON } from "./icons.js";
-import { closeCropModal, closeModal } from "./modal.js";
+import { closeTopModal, isModalOpen } from "./modal.js";
 import { $ } from "./utils.js";
 
 const MOBILE_SIDEBAR_BREAKPOINT = 900;
@@ -19,6 +19,7 @@ const IDS = Object.freeze({
   inspector: "inspector",
   inspectorToggle: "inspector-toggle",
   modalRoot: "modal-root",
+  subModalRoot: "modal-sub-root",
   cropModalRoot: "modal-crop-root",
 });
 
@@ -136,20 +137,11 @@ function closeMobileUtilityPanels() {
   syncMobilePanelState();
 }
 
-function hasOpenBaseModal() {
-  return Boolean(getElement(IDS.modalRoot)?.firstElementChild);
-}
-
-function hasOpenCropModal() {
-  return Boolean(getElement(IDS.cropModalRoot)?.firstElementChild);
-}
-
 function hasOpenMobileOverlay() {
   if (!isMobileSidebarViewport()) return false;
 
   return (
-    hasOpenCropModal() ||
-    hasOpenBaseModal() ||
+    isModalOpen() ||
     isElementOpen(IDS.mobileActionsMenu) ||
     hasAppState(APP_STATE.sidebarOpen) ||
     MOBILE_SIDE_PANELS.some(({ elementId, appStateClass }) => isElementOpen(elementId) || hasAppState(appStateClass))
@@ -165,14 +157,7 @@ function armMobileBackIfNeeded() {
 function closeTopMobileOverlay() {
   if (!isMobileSidebarViewport()) return false;
 
-  if (hasOpenCropModal()) {
-    closeCropModal();
-    return true;
-  }
-  if (hasOpenBaseModal()) {
-    closeModal();
-    return true;
-  }
+  if (closeTopModal()) return true;
   if (isElementOpen(IDS.mobileActionsMenu)) {
     closeMobileHeaderActions();
     return true;
@@ -218,6 +203,7 @@ function handleDocumentClick(event) {
     !matcher.hasId(IDS.sidebar) &&
     !matcher.hasId(IDS.mobileSidebarToggle) &&
     !matcher.hasId(IDS.modalRoot) &&
+    !matcher.hasId(IDS.subModalRoot) &&
     !matcher.hasId(IDS.cropModalRoot)
   ) {
     closeMobileSidebar();
@@ -318,7 +304,7 @@ export function initMobileUi(deps) {
     },
   );
 
-  observeChildChanges([IDS.modalRoot, IDS.cropModalRoot], () => {
+  observeChildChanges([IDS.modalRoot, IDS.subModalRoot, IDS.cropModalRoot], () => {
     if (!_handlingMobilePop) armMobileBackIfNeeded();
   });
 

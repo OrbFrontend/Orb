@@ -163,7 +163,7 @@ function settingsBodyHtml() {
   return `<h2>Text-to-Speech</h2>
     <div class="tts-settings">
       <section class="tts-section">
-        <div class="tts-heading">Playback</div>
+        <div class="modal-heading" role="heading" aria-level="3">Playback</div>
         <label class="tts-setting-toggle">
           <input type="checkbox" id="tts-cfg-autoplay"${cfg.auto_play ? " checked" : ""} data-wf-action="tts:cfgGlobal" data-wf-on="change">
           <span class="tts-toggle-body"><span class="tts-toggle-label">Play new speech automatically</span><span class="tts-note">Start audio as soon as a reply finishes generating.</span></span>
@@ -173,7 +173,7 @@ function settingsBodyHtml() {
         </label>
       </section>
       <section class="tts-section">
-        <div class="tts-heading">Message interaction</div>
+        <div class="modal-heading" role="heading" aria-level="3">Message interaction</div>
         <div class="tts-grid">
           <label class="tts-field">Click to speak
           <select id="tts-cfg-granularity" data-wf-action="tts:cfgGlobal" data-wf-on="change">
@@ -195,7 +195,7 @@ function settingsBodyHtml() {
         </label>
       </section>
       <section class="tts-section" id="tts-profile">
-        <div class="tts-heading">Voice profile - This character only</div>
+        <div class="modal-heading" role="heading" aria-level="3">Voice profile · this character only</div>
         <div id="tts-profile-content" class="tts-note">Loading voice settings…</div>
       </section>
     </div>
@@ -649,7 +649,7 @@ function applyProfile(profile) {
 function settingsActionsHtml(hasProfile) {
   return `
     ${hasProfile ? `<button class="btn" type="button" data-wf-action="tts:preview">Preview</button>` : ""}
-    <span id="tts-pf-status" aria-live="polite"></span>
+    <span id="tts-pf-status" class="modal-action-status" aria-live="polite"></span>
     <span id="tts-pf-time" aria-hidden="true"></span>
     <button class="btn" data-wf-action="tts:closeSettings">Close</button>
     ${hasProfile ? `<button class="btn btn-accent" type="button" data-wf-action="tts:profileSave">Save</button>` : ""}`;

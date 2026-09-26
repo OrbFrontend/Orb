@@ -29,7 +29,7 @@ export function renderLibraryManager(container, callbacks = {}) {
   _callbacks = callbacks;
   container.innerHTML = `
     <div class="lib-manager">
-      <div class="lib-manager-eyebrow">Library tools</div>
+      <div class="modal-heading" role="heading" aria-level="3">Library tools</div>
 
       <section class="lib-tool" data-tool="auto-tag">
         <header class="lib-tool-head">

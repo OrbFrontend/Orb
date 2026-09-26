@@ -76,8 +76,8 @@ function showDetails(err) {
     </div>
     <div class="tab-content" id="turn-error-pane-raw">${body}</div>
     <div class="modal-actions">
-      <button class="btn btn-sm" id="turn-error-copy">Copy</button>
-      <button class="btn btn-sm" id="turn-error-close">Close</button>
+      <button class="btn" id="turn-error-copy">Copy</button>
+      <button class="btn" id="turn-error-close">Close</button>
     </div>`);
 
   const summary = $("turn-error-tab-summary");

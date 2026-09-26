@@ -382,18 +382,6 @@
   border-radius: var(--radius);
 }
 
-.workflow-delete-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 20px;
-}
-
-.workflow-delete-actions .btn:first-child {
-  margin-right: auto;
-}
-
 .gen-text-secondary {
   font-size: 11px;
   color: var(--text-muted);

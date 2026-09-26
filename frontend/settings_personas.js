@@ -1,7 +1,7 @@
 import { api } from "./api.js";
 import { renderMessages } from "./chat_core.js";
 import { EDIT_ICON } from "./icons.js";
-import { closeModal, confirmDelete, showCropModal, showModal } from "./modal.js";
+import { closeModal, confirmDelete, setModalDismiss, showCropModal, showModal } from "./modal.js";
 import { charactersView, S } from "./state.js";
 import {
   $,
@@ -200,11 +200,11 @@ export function showPersonaEditModal(personaId) {
     </label>
     <div class="modal-actions">
       ${isEdit ? `<button class="btn btn-danger" onclick="deletePersona(${personaId})">Delete</button>` : ""}
-      <div style="flex:1"></div>
       <button class="btn" onclick="showUserModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="savePersona(${personaId || "null"})">${isEdit ? "Update" : "Create"}</button>
+      <button class="btn btn-accent" onclick="savePersona(${personaId || "null"})">${isEdit ? "Save" : "Create"}</button>
     </div>
   `);
+  setModalDismiss(showUserModal);
   wirePersonaAvatarControls(persona);
 }
 
@@ -284,7 +284,8 @@ export async function savePersona(personaId) {
 }
 
 export async function deletePersona(personaId) {
-  confirmDelete("Persona", "Are you sure you want to delete this persona?", async () => {
+  const name = S.personas.find((p) => p.id === personaId)?.name;
+  confirmDelete("persona", `Delete ${name ? `"${esc(name)}"` : "this persona"}? This cannot be undone.`, async () => {
     try {
       await api.del(`/user-personas/${personaId}`);
       if (S.activePersonaId === personaId) {

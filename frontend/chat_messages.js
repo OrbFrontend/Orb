@@ -102,7 +102,7 @@ export async function deleteMessage(msgId) {
       detail = `Delete this message, all its siblings, and all their children? This removes ${count} group ${count === 1 ? "reply" : "replies"}.`;
     } catch (_e) {}
   }
-  confirmDelete("Message", detail, async () => {
+  confirmDelete("message", detail, async () => {
     try {
       setMessages(await api.del(convUrl(S.activeConvId, "messages", msgId)));
       S.lastDirectorData = null;

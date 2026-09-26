@@ -115,7 +115,8 @@ function showGroupCreate() {
   const picker = cards.length
     ? `<div class="cast-picker" id="group-create-picker">${cards.map(pickCardHtml).join("")}</div>`
     : `<p class="modal-hint cast-picker-empty">No characters yet — create or import one first.</p>`;
-  showModal(`<h2>New group chat</h2>
+  showModal(
+    `<h2>New group chat</h2>
     <p class="modal-subtitle">Choose who is in the scene.</p>
     ${picker}
     <div class="ctx-recommend" id="group-create-recommend" aria-live="polite" hidden></div>
@@ -134,7 +135,9 @@ function showGroupCreate() {
         <textarea id="group-create-instructions" rows="2" placeholder="How should this scene be written?"></textarea></div>
     </details>
     ${contextHelp()}
-    <div class="modal-actions"><button type="button" class="btn" id="group-create-cancel">Cancel</button><button type="button" class="btn btn-accent" id="group-create-save">Start scene</button></div>`);
+    <div class="modal-actions"><button type="button" class="btn" id="group-create-cancel">Cancel</button><button type="button" class="btn btn-accent" id="group-create-save">Start scene</button></div>`,
+    { size: "wide" },
+  );
   syncMaxRepliesRow("group-create-mode", "group-create-max-row");
   $("group-create-mode")?.addEventListener("change", () =>
     syncMaxRepliesRow("group-create-mode", "group-create-max-row"),
@@ -199,13 +202,13 @@ function lineageHint(conv, rootId) {
 function settingsPaneHtml(conv, rootId) {
   return `<div class="field"><label for="group-settings-title">Title</label>
       <input id="group-settings-title" value="${escAttr(conv?.title || "")}">${lineageHint(conv, rootId)}</div>
-    <h3 class="modal-section">Character context</h3>
+    <div class="modal-heading" role="heading" aria-level="3">Character context</div>
     <div class="field"><label for="group-settings-context">Mode</label>
       <select id="group-settings-context">${contextModeOptions(S.groupCast.context_mode)}</select></div>
     <div class="field" id="group-settings-sheet-row"><label class="modal-checkbox-label"><input type="checkbox" id="group-settings-sheet-updates"${S.groupCast.sheet_updates ? " checked" : ""}> Propose sheet updates after each reply</label>
       <p class="modal-hint">A character card describes turn one forever, so a long scene drifts away from it, e.g. change of appearance. After each exchange, each member who spoke is offered a rewritten sheet.</p>
       <p class="modal-hint">Costs one extra model call per member who spoke, per exchange.</p></div>
-    <h3 class="modal-section">Reply behavior</h3>
+    <div class="modal-heading" role="heading" aria-level="3">Reply behavior</div>
     <div class="field"><label for="group-settings-mode">Mode</label>
       <select id="group-settings-mode">${modeOptions(S.groupCast.turn_mode)}</select></div>
     <div class="field" id="group-settings-max-row"><label for="group-settings-max">Max replies per turn</label>
@@ -342,14 +345,17 @@ function showGroupConfig(initialTab = "cast") {
   if (!S.groupCast || !S.activeConvId) return;
   const conv = S.conversations.find((item) => item.id === S.activeConvId);
   const rootId = groupRootId(conv);
-  showModal(`<h2 class="modal-title-flush">Scene setup</h2>
+  showModal(
+    `<h2 class="modal-title-flush">Scene setup</h2>
     <div class="tabs" role="tablist">
       <div class="tab active" role="tab" tabindex="0" aria-selected="true" data-scene-tab="cast">Cast</div>
       <div class="tab" role="tab" tabindex="0" aria-selected="false" data-scene-tab="settings">Group settings</div>
     </div>
     <div class="tab-content active" id="group-config-cast">${castPaneHtml(S.groupCast.context_mode)}</div>
     <div class="tab-content" id="group-config-settings">${settingsPaneHtml(conv, rootId)}</div>
-    <div class="modal-actions"><button type="button" class="btn" id="group-config-cancel">Cancel</button><button type="button" class="btn btn-accent" id="group-config-save">Save</button></div>`);
+    <div class="modal-actions"><button type="button" class="btn" id="group-config-cancel">Cancel</button><button type="button" class="btn btn-accent" id="group-config-save">Save</button></div>`,
+    { size: "wide" },
+  );
   const list = $("group-roster-list");
   if (!list) return;
 

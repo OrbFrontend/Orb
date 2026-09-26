@@ -13,6 +13,11 @@ export function esc(s) {
   return div.innerHTML;
 }
 
+/** "1 message", "3 messages": a count with its noun, never "message(s)". */
+export function plural(n, noun, many = `${noun}s`) {
+  return `${n} ${n === 1 ? noun : many}`;
+}
+
 export function escAttr(s) {
   return esc(s).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }

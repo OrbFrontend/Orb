@@ -3,7 +3,7 @@ import { renderInspector, renderInspectorWorkflows, renderMessages } from "./cha
 import { CLOSE_ICON } from "./icons.js";
 import { renderInteractiveFragments } from "./library_fragments.js";
 import { loadInspectorOpenStates } from "./message_inspector.js";
-import { closeModal, confirmDelete, showModal, showSubConfirmModal } from "./modal.js";
+import { closeModal, confirmDelete, setModalDismiss, showModal, showSubConfirmModal } from "./modal.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { loadAgentModelConfigs, loadEndpoints, loadJudgeConfig, renderEndpoints } from "./settings_models.js";
 import { loadPersonas, updateUserBtn } from "./settings_personas.js";
@@ -722,7 +722,7 @@ export async function showPhraseBankModal() {
         <p class="modal-subtitle">Manage banned/overused phrase groups. A group is either a set of equivalent variants or a single regex. Click a group to edit it.</p>
       </div>
       <div class="modal-title-actions">
-        <button class="btn btn-accent" onclick="showAddPhraseGroupModal()">+ Add Group</button>
+        <button class="btn btn-sm" onclick="showAddPhraseGroupModal()">+ New group</button>
       </div>
     </div>
 
@@ -751,7 +751,7 @@ export function showAddPhraseGroupModal(editId = null, group = null) {
     : "";
 
   showModal(`
-    <h2>${isEdit ? "Edit" : "Add"} Phrase Group</h2>
+    <h2>${isEdit ? "Edit" : "New"} phrase group</h2>
     <p class="modal-subtitle">A group is either a set of equivalent literal variants <em>or</em> a single regular expression — never both.</p>
 
     <div class="phrase-mode-toggle" id="phrase-mode-toggle">
@@ -788,11 +788,11 @@ export function showAddPhraseGroupModal(editId = null, group = null) {
 
     <div class="modal-actions">
       ${deleteButton}
-      <div style="flex:1"></div>
       <button class="btn" onclick="showPhraseBankModal()">Cancel</button>
-      <button class="btn btn-accent" id="phrase-save-btn" onclick="savePhraseGroup(${editId || "null"})">${isEdit ? "Update" : "Save"}</button>
+      <button class="btn btn-accent" id="phrase-save-btn" onclick="savePhraseGroup(${editId || "null"})">${isEdit ? "Save" : "Create"}</button>
     </div>
   `);
+  setModalDismiss(showPhraseBankModal);
 
   _refreshPhraseSaveState();
 }
@@ -871,7 +871,7 @@ window.editPhraseGroup = async (groupId) => {
 };
 
 window.deletePhraseGroup = async (groupId) => {
-  confirmDelete("Phrase Group", "Are you sure you want to delete this phrase group?", async () => {
+  confirmDelete("phrase group", "Delete this phrase group? This cannot be undone.", async () => {
     try {
       await api.del(`/phrase-bank/${groupId}`);
       toast("Phrase group deleted");
@@ -943,36 +943,33 @@ export async function showCleanupModal() {
   showModal(`
     <h2>Data Hygiene</h2>
     <div class="field">
-      <label class="tool-card-desc" style="display:flex;align-items:center;gap:8px;margin:0">
-        <span style="flex:1">Artifact cache limit before auto-eviction</span>
-        <input id="attach-budget-mb" type="number" min="50" step="50" style="width:90px"
-               value="${Math.round((S.settings?.attachment_cache_budget_bytes ?? 524288000) / 1048576)}"> MB
-      </label>
+      <label for="attach-budget-mb">Artifact cache limit before auto-eviction (MB)</label>
+      <input id="attach-budget-mb" type="number" min="50" step="50"
+             value="${Math.round((S.settings?.attachment_cache_budget_bytes ?? 524288000) / 1048576)}">
     </div>
-    ${divider("Reclaim Space")}
+    <div class="modal-heading" role="heading" aria-level="3">Reclaim space</div>
     <div class="field">
       <label for="cleanup-days">Older than</label>
       <select id="cleanup-days">
         ${CLEANUP_AGES.map(([d, label]) => `<option value="${d}">${label}</option>`).join("")}
       </select>
     </div>
-    <div class="field" style="display:flex;flex-direction:column;gap:10px">
-      <label style="display:flex;gap:8px;align-items:flex-start">
+    <div class="field cleanup-targets">
+      <label class="modal-checkbox-label">
         <input type="checkbox" id="cleanup-artifacts" checked>
-        <span>Image &amp; audio artifacts (regenerable)<br><span class="tool-card-desc" id="cleanup-artifacts-size">…</span></span>
+        <span>Image &amp; audio artifacts (regenerable)<span class="cleanup-size" id="cleanup-artifacts-size">…</span></span>
       </label>
-      <label style="display:flex;gap:8px;align-items:flex-start">
+      <label class="modal-checkbox-label">
         <input type="checkbox" id="cleanup-logs">
-        <span>Agent logs (deleted for good)<br><span class="tool-card-desc" id="cleanup-logs-size">…</span></span>
+        <span>Agent logs (deleted for good)<span class="cleanup-size" id="cleanup-logs-size">…</span></span>
       </label>
     </div>
-    <p class="tool-card-desc" id="cleanup-db">…</p>
     <div class="modal-actions">
-      <button class="btn" id="cleanup-cancel">Cancel</button>
+      <span class="modal-action-status" id="cleanup-db" role="status">…</span>
       <button class="btn btn-danger" id="cleanup-go">Clean Up</button>
     </div>
-    ${divider("Danger Zone")}
-    <button class="btn btn-danger" id="cleanup-reset" style="width:100%;justify-content:center">⚠️ Reset to Defaults</button>`);
+    <div class="modal-heading" role="heading" aria-level="3">Danger zone</div>
+    <button class="btn btn-danger btn-block" id="cleanup-reset">⚠️ Reset to Defaults</button>`);
 
   $("attach-budget-mb").addEventListener("change", (e) => saveAttachmentBudget(e.target));
   $("cleanup-reset").addEventListener("click", showResetConfirmModal);
@@ -1002,7 +999,6 @@ export async function showCleanupModal() {
   daysEl.addEventListener("change", refresh);
   $("cleanup-artifacts").addEventListener("change", paint);
   $("cleanup-logs").addEventListener("change", paint);
-  $("cleanup-cancel").addEventListener("click", closeModal);
   $("cleanup-go").addEventListener("click", async () => {
     const btn = $("cleanup-go");
     btn.disabled = true;
@@ -1031,7 +1027,7 @@ export async function showResetConfirmModal() {
     {
       title: "Reset to Defaults",
       message:
-        "This will reset Mood Fragments, Interactive Fragments, Phrase Bank, and all Settings to their original default values. All custom data will be lost.<br><br>The following will be retained: Characters, Conversations, Lorebooks.",
+        "This will reset Mood Fragments, Interactive Fragments, Phrase Bank, and all Settings to their original default values. All custom data will be lost. Characters, conversations and lorebooks are kept.",
       confirmText: "Reset Everything",
     },
     async () => {

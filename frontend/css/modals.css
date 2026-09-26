@@ -13,13 +13,16 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 24px;
-  width: 600px;
+  width: var(--modal-width, 600px);
   max-width: 90vw;
   max-height: 85vh;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
+
+.modal-narrow { --modal-width: 440px; }
+.modal-wide { --modal-width: 880px; }
 
 .modal > * { flex-shrink: 0; }
 
@@ -46,6 +49,31 @@
   margin-bottom: 16px;
 }
 
+/* A confirm's question and whatever it adds (a list, a checkbox, a field) read
+   as one block at the form's text size. */
+.modal-confirm-body {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.modal-confirm-body > p,
+.modal-confirm-body > ul {
+  margin: 0 0 10px;
+}
+
+.modal-confirm-body > ul {
+  padding-left: 20px;
+}
+
+.modal-confirm-body > :last-child {
+  margin-bottom: 0;
+}
+
+.modal-confirm-body .modal-checkbox-label {
+  align-items: flex-start;
+  line-height: 1.5;
+}
+
 .modal-subtitle {
   font-size: 12px;
   color: var(--text-muted);
@@ -65,6 +93,12 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: 20px;
+}
+
+/* A destructive action leading the row stands apart from Cancel and the
+   commit on the right. */
+.modal-actions > .btn-danger:first-child:not(:last-child) {
+  margin-right: auto;
 }
 
 /* A status line on the action row reports on the button beside it, so a save can
@@ -224,22 +258,22 @@
 .tab-content { display: none; }
 .tab-content.active { display: block; }
 
-.modal .form-divider {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 10px;
+/* A section heading inside a modal: bold caps over a rule, so it reads apart
+   from the field labels under it. Rendered as a div with role="heading",
+   because themes dress `.modal h3` as a title bar. */
+.modal-heading {
+  font-size: 11px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: .06em;
-  color: var(--text-muted);
+  letter-spacing: .5px;
+  color: var(--text-secondary);
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--border);
   margin: 24px 0 10px;
 }
-.modal .form-divider::before,
-.modal .form-divider::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--border);
+
+.modal-heading:first-child {
+  margin-top: 0;
 }
 
 .card-frag-hint {
@@ -903,19 +937,27 @@
   background: var(--bg-surface);
 }
 
+.cleanup-targets {
+  display: grid;
+  gap: 10px;
+}
+
+.cleanup-targets .modal-checkbox-label {
+  align-items: flex-start;
+}
+
+.cleanup-size {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .snapshot-modal .modal-subtitle { margin-bottom: 12px; }
 .snapshot-modal .field { margin-bottom: 12px; }
 .snapshot-modal .modal-checkbox-label { margin-bottom: 10px; }
 .snapshot-modal .field .modal-checkbox-label:last-child { margin-bottom: 0; }
 .snapshot-modal .preset-warning .modal-checkbox-label { margin: 8px 0 0; }
 .snapshot-modal .modal-actions { margin-top: 16px; }
-
-.preset-section-label {
-  display: block;
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
-}
 
 .preset-hint { color: var(--text-muted); font-size: 11px; }
 

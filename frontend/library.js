@@ -12,7 +12,7 @@ import {
 } from "./library_fragments.js";
 import { _avatarBust, loadCharacters } from "./library_sidebar.js";
 import { loadWorlds } from "./lorebooks.js";
-import { closeModal, showConfirmModal, showCropModal, showModal, switchTab } from "./modal.js";
+import { closeModal, setModalCloseGuard, showConfirmModal, showCropModal, showModal, switchTab } from "./modal.js";
 import { charactersView, S } from "./state.js";
 import {
   $,
@@ -23,6 +23,7 @@ import {
   esc,
   escAttr,
   NO_AVATAR_ICON,
+  plural,
   toast,
 } from "./utils.js";
 import { validate } from "./validate.js";
@@ -50,6 +51,8 @@ let _pendingTags = null;
 let _pendingCharacterBook = null;
 let _pendingExtensions = null;
 let _readCardScripts = null;
+// What the open editor last saved or loaded, so closing it asks before dropping edits.
+let _charEditBaseline = null;
 export function triggerImport() {
   $("import-file-input").click();
 }
@@ -70,21 +73,24 @@ export async function handleImportFile(inp) {
 export async function deleteCharacter(id) {
   const charName = charactersView().find((c) => c.id === id)?.name;
   const usage = await api.get(`/characters/${id}/usage`).catch(() => null);
-  const usageText = usage
-    ? `<p class="modal-hint">Used by ${usage.solo} solo conversation(s), ${usage.active_groups} active group(s), and ${usage.historical_groups} group history roster(s).</p>`
+  // The choice only exists when there is something to take along. The server
+  // deletes every group chat the card ever sat in, so the count says so.
+  const groups = (usage?.active_groups ?? 0) + (usage?.historical_groups ?? 0);
+  const taken = [];
+  if (usage?.solo) taken.push(plural(usage.solo, "conversation"));
+  if (groups) taken.push(plural(groups, "group chat"));
+  const alsoDelete = taken.length
+    ? `<label class="modal-checkbox-label">
+        <input type="checkbox" id="delete-conversations-checkbox">
+        Also delete ${taken.join(" and ")} they appear in
+      </label>`
     : "";
   showConfirmModal(
     {
-      title: "Delete Character",
-      message: `Are you sure you want to delete ${charName ? `"${charName}"` : "this character card"}?`,
+      title: "Delete character",
+      message: `Delete ${charName ? `"${esc(charName)}"` : "this character card"}? This cannot be undone.`,
       confirmText: "Delete",
-      extraHtml: `${usageText}
-      <div class="field">
-        <label class="modal-checkbox-label">
-          <input type="checkbox" id="delete-conversations-checkbox">
-          Also delete all conversations associated with this character
-        </label>
-      </div>`,
+      extraHtml: alsoDelete,
     },
     () => performDeleteCharacter(id),
   );
@@ -227,7 +233,7 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       <div class="field"><label>Creator's Note</label><textarea id="${prefix}-creator-notes" rows="1">${esc(d.creator_notes || "")}</textarea></div>
       <div class="field"><label>System Prompt Override</label><textarea id="${prefix}-sysprompt" rows="1">${esc(d.system_prompt || "")}</textarea></div>
       <div class="field"><label>Post-History Instructions</label><textarea id="${prefix}-posthist" rows="1">${esc(d.post_history_instructions || "")}</textarea></div>
-      <div class="form-divider">Card rendering</div>
+      <div class="modal-heading" role="heading" aria-level="3">Card rendering</div>
       <div class="field"><label><input type="checkbox" id="${prefix}-scripts-enabled" ${d.extensions?.orb?.card_scripts_enabled === false ? "" : "checked"}> Enable card text scripts</label>
         <div class="modal-hint">Scripts change how messages are displayed or sent to the model, in list order. Saving re-renders history and may break the KV cache.</div>
       </div>
@@ -235,13 +241,13 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       <div class="field"><label>Message stylesheet (CSS)</label><textarea id="${prefix}-display-css" rows="4">${esc(d.extensions?.orb?.display_css || "")}</textarea>
         <div class="modal-hint">Styles assistant messages from this character. Copy any desired CSS from creator notes here.</div>
       </div>
-      <div class="form-divider">Group chat</div>
+      <div class="modal-heading" role="heading" aria-level="3">Group chat</div>
       <div class="field"><label>Public cast appearance</label><textarea id="${prefix}-public-appearance" rows="2" placeholder="${escAttr(PUBLIC_APPEARANCE_PLACEHOLDER)}">${esc(publicProfile.appearance || "")}</textarea></div>
       <div class="field"><label>Public cast role</label><textarea id="${prefix}-public-role" rows="2" placeholder="${escAttr(PUBLIC_ROLE_PLACEHOLDER)}">${esc(publicProfile.role || "")}</textarea></div>
       ${d.id ? `<button type="button" class="btn btn-sm" id="${prefix}-generate-public-profile">Generate editable draft</button><div class="modal-hint">Only these public fields enter a group's shared cast prompt.</div>` : ""}
       ${
         d.id
-          ? `<div class="form-divider">Expression images</div>
+          ? `<div class="modal-heading" role="heading" aria-level="3">Expression images</div>
       <div class="field">
         <input type="file" id="${prefix}-expr-zip" accept=".zip" style="display:none" onchange="handleExpressionsZip(this, '${d.id}')">
         <div>
@@ -265,7 +271,8 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
 
 export function showCharCreateModal() {
   _pendingAvatar = null;
-  showModal(`
+  showModal(
+    `
     <div class="modal-char-header">
       <div id="cc-avatar-preview" class="char-avatar-lg" onclick="triggerAvatarCrop('cc')"
            title="Click to set avatar" style="cursor:pointer">${NO_AVATAR_ICON}</div>
@@ -278,10 +285,11 @@ export function showCharCreateModal() {
     </div>
     ${charFormTabs("cc", {}, false)}
     <div class="modal-actions">
-      <div style="flex:1"></div>
       <button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn btn-accent" onclick="createCharacter()">Create</button>
-    </div>`);
+    </div>`,
+    { size: "wide" },
+  );
 }
 
 function _validateCharForm(prefix, { advanced = false } = {}) {
@@ -423,7 +431,8 @@ export async function showCharEditModal(idOrData) {
     console.error("Failed to load worlds:", e);
   }
 
-  showModal(`
+  showModal(
+    `
     <div class="modal-char-header">
       <div id="ce-avatar-preview" class="char-avatar-lg" onclick="triggerAvatarCrop('ce')"
            title="Click to change avatar" style="cursor:pointer">${av}</div>
@@ -437,17 +446,18 @@ export async function showCharEditModal(idOrData) {
     </div>
     ${charFormTabs("ce", c, true, worlds)}
     <div class="modal-actions">
-      ${!isNew ? `<button class="btn btn-danger btn-sm" onclick="deleteCharacter('${c.id}')">Delete</button>` : ""}
-      <div style="flex:1"></div>
+      ${!isNew ? `<button class="btn btn-danger" onclick="deleteCharacter('${c.id}')">Delete</button>` : ""}
       ${!isNew ? `<span id="ce-save-status" class="modal-action-status" role="status" aria-live="polite"></span>` : ""}
-      ${!isNew ? `<button class="btn btn-sm" onclick="saveCharEdit('${c.id}', true)">Export PNG</button>` : ""}
+      ${!isNew ? `<button class="btn" onclick="saveCharEdit('${c.id}', true)">Export PNG</button>` : ""}
       <button class="btn" id="ce-cancel-btn" onclick="closeModal()">Cancel</button>
       ${
         isNew
           ? `<button class="btn btn-accent" onclick="saveImportedChar()">Save</button>`
           : `<button class="btn btn-accent" onclick="saveCharEdit('${c.id}')">Save</button>`
       }
-    </div>`);
+    </div>`,
+    { size: "wide" },
+  );
   _charTagChips.render();
   _readCardScripts = mountCardScriptsEditor($("ce-scripts-editor"), _pendingExtensions.regex_scripts);
   renderCardFragmentsTab();
@@ -468,6 +478,8 @@ export async function showCharEditModal(idOrData) {
   // edits it described.
   const modalEl = $("modal-root").querySelector(".modal");
   for (const event of ["input", "change"]) modalEl?.addEventListener(event, clearCharEditStatus);
+  markCharEditClean();
+  setModalCloseGuard(() => !charEditDirty() || window.confirm("Discard the changes to this character?"));
   if (c.id) {
     api
       .get(`/characters/${c.id}/expressions`)
@@ -494,6 +506,16 @@ function setCharEditStatus(message, { error = false } = {}) {
   if (message) el.scrollIntoView({ block: "nearest" });
 }
 
+function markCharEditClean(form = _readCharEditForm()) {
+  _charEditBaseline = { form: JSON.stringify(form), avatar: _pendingAvatar };
+}
+
+function charEditDirty() {
+  return (
+    _pendingAvatar !== _charEditBaseline?.avatar || JSON.stringify(_readCharEditForm()) !== _charEditBaseline?.form
+  );
+}
+
 function clearCharEditStatus() {
   if ($("ce-save-status")?.textContent) setCharEditStatus("");
 }
@@ -506,6 +528,7 @@ export async function saveCharEdit(id, exportAfter = false) {
   }
 
   const d = _readCharEditForm();
+  const saved = { ...d };
   const name = d.name;
   if (_pendingAvatar) {
     d.avatar_b64 = _pendingAvatar.b64;
@@ -534,6 +557,7 @@ export async function saveCharEdit(id, exportAfter = false) {
       if (titleEl) titleEl.textContent = activeConv.title || activeConv.character_name || "";
     }
     renderMessages();
+    markCharEditClean(saved);
     setCharEditStatus("Saved");
     if (exportAfter) exportCharacter(id, name);
   } catch (e) {
@@ -565,6 +589,7 @@ export async function saveImportedChar() {
   try {
     const created = await api.post("/characters", d);
     await Promise.all([loadCharacters(), loadWorlds()]);
+    setModalCloseGuard(null);
     closeModal();
     toast(`Imported "${created.name}"`);
   } catch (e) {

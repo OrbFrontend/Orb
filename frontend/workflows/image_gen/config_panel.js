@@ -455,7 +455,7 @@ function comfyReferenceFields(style) {
   const slots = graphReferenceSlots(draft.graphs, style.workflow);
   if (!slots.length) return "";
   const one = slots.length === 1;
-  return `<div class="ig-heading ig-reference-heading">Reference image</div>
+  return `<div class="modal-heading ig-reference-heading" role="heading" aria-level="4">Reference image</div>
     <div class="image-gen-note">This workflow loads ${one ? "one image" : `${slots.length} images`}. Choose what Orb loads for each style, or leave this off to keep the ${one ? "image" : "images"} exported with the workflow.${one ? "" : " With character references, Orb uses separate character images when available and reuses one when the workflow requires more."}</div>
     <div class="ig-grid"><label>Reference image${referenceSelect(styleSource(style))}</label></div>`;
 }
@@ -1100,22 +1100,23 @@ function openSettings(expandStyleId = "") {
   };
   rebuildConnections();
   const connectionTargets = setupTargets();
-  showModal(`<h2>Image Generation</h2><div class="image-gen-settings">
+  showModal(
+    `<h2>Image Generation</h2><div class="image-gen-settings">
     <section class="ig-section">
-      <div class="ig-heading">Styles</div>
+      <div class="modal-heading" role="heading" aria-level="3">Styles</div>
       <div class="ig-styles">${styleRows(expandStyleId)}</div>
       <button class="btn btn-sm" data-wf-action="image_gen:styleAdd">Add style</button>
     </section>
     ${
       getActiveConvId()
         ? `<section class="ig-section">
-      <div class="ig-heading">This Character Only</div>
+      <div class="modal-heading" role="heading" aria-level="3">This character only</div>
       <div id="ig-profile" class="image-gen-note">Loading this character's prompt…</div>
     </section>`
         : ""
     }
     <section class="ig-section">
-      <div class="ig-heading">Generation</div>
+      <div class="modal-heading" role="heading" aria-level="3">Generation</div>
       <div class="ig-grid">
         <label>Render timeout (seconds)<input id="ig-timeout" type="number" min="10" max="900" value="${escAttr(cfg.timeout_seconds || 180)}"></label>
       </div>
@@ -1149,7 +1150,9 @@ function openSettings(expandStyleId = "") {
         </div>
       </details>
     </div>
-  </div><div class="modal-actions"><button class="btn" data-wf-action="image_gen:settingsClose">Close</button><button class="btn btn-accent" id="ig-save" data-wf-action="image_gen:save">Save</button></div>`);
+  </div><div class="modal-actions"><button class="btn" data-wf-action="image_gen:settingsClose">Close</button><button class="btn btn-accent" id="ig-save" data-wf-action="image_gen:save">Save</button></div>`,
+    { size: "wide" },
+  );
   baseline = JSON.stringify(readConfig());
   setModalCloseGuard(() => !isDirty() || window.confirm(DISCARD_MESSAGE));
   populateProfile();
@@ -1245,7 +1248,7 @@ function referenceRows() {
   const slots = declaredReferenceSlots();
   if (!slots.length) return "";
   const one = slots.length === 1;
-  return `<div class="ig-heading ig-reference-heading">Reference images</div>
+  return `<div class="modal-heading ig-reference-heading" role="heading" aria-level="4">Reference images</div>
     <div class="image-gen-note">This workflow loads ${one ? "one image" : `${slots.length} images`}. Choose what Orb loads for each style under <strong>Styles</strong> above, or leave this off to keep the ${one ? "image" : "images"} exported with the workflow.${one ? "" : " With character references, Orb uses separate character images when available and reuses one when the workflow requires more."}</div>
     <ul class="ig-slot-list">${slots.map((item) => `<li>${esc(item.label)}</li>`).join("")}</ul>`;
 }

@@ -335,7 +335,7 @@ function deleteOrphan(fragmentId) {
   const f = panel?.fragments.find((x) => x.fragment_id === fragmentId);
   const label = f?.label || fragmentId;
   confirmDelete(
-    "Saved State",
+    "saved state",
     `Delete the saved state of “${esc(label)}” from this conversation, on every branch?`,
     async () => {
       if (!requestSendPermission()) return;

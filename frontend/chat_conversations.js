@@ -10,7 +10,7 @@ import { loadGroupCast, renderGroupCast, renderGroupList } from "./group_setup.j
 import { renderInteractiveFragments, renderMoodFragments } from "./library_fragments.js";
 import { avatarBustQuery, refreshCharacters, renderCharacters } from "./library_sidebar.js";
 import { reflectConversationWorldActivation } from "./lorebooks.js";
-import { closeModal, showConfirmModal, showModal } from "./modal.js";
+import { closeModal, setModalDismiss, showConfirmModal, showModal } from "./modal.js";
 import { updateUserBtn } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
 import { S, upgradeLegacyFragment } from "./state.js";
@@ -23,6 +23,7 @@ import {
   convUrl,
   esc,
   formatRelativeDate,
+  plural,
   scrollToBottom,
   setChatFollowing,
   toast,
@@ -278,16 +279,12 @@ export async function selectConversation(id) {
 }
 
 function confirmDeleteConversation(id, msgCount, afterDelete) {
-  const countNote =
-    msgCount != null
-      ? `<p style="color:var(--text-muted);font-size:0.88em;margin-top:8px">${msgCount} message${msgCount !== 1 ? "s" : ""} in this conversation</p>`
-      : "";
+  const what = msgCount ? `this conversation and its ${plural(msgCount, "message")}` : "this conversation";
   showConfirmModal(
     {
-      title: "Delete Conversation",
-      message: "Are you sure you want to delete this conversation?",
+      title: "Delete conversation",
+      message: `Delete ${what}? This cannot be undone.`,
       confirmText: "Delete",
-      extraHtml: countNote,
     },
     async () => {
       try {
@@ -323,14 +320,13 @@ async function _deleteGroupFamily(rootId) {
   const messages = family.reduce((total, conv) => total + (conv.message_count ?? 0), 0);
   const scale =
     family.length > 1
-      ? `${family.length} conversations · ${messages} message${messages !== 1 ? "s" : ""}`
-      : `${messages} message${messages !== 1 ? "s" : ""} in this conversation`;
+      ? `${plural(family.length, "conversation")} (${plural(messages, "message")})`
+      : plural(messages, "message");
   showConfirmModal(
     {
-      title: "Delete Group",
-      message: `Delete "${root.title}" and everything in it?`,
+      title: "Delete group",
+      message: `Delete "${esc(root.title)}" and its ${scale}? This cannot be undone.`,
       confirmText: "Delete",
-      extraHtml: `<p style="color:var(--text-muted);font-size:0.88em;margin-top:8px">${esc(scale)}</p>`,
     },
     async () => {
       try {
@@ -404,8 +400,7 @@ export async function showConvHistoryModal(scope = null) {
     .join("");
   showModal(`
     <h2>Conversations — ${esc(scopeName)}</h2>
-    <div class="modal-list">${items}</div>
-    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>`);
+    <div class="modal-list">${items}</div>`);
 }
 
 export async function createCheckpoint() {
@@ -447,18 +442,16 @@ export function showCompressModal() {
   showModal(`
     <h2>Compress History</h2>
     <p class="modal-subtitle">Summarize the story so far into a new conversation, carrying over the most recent messages.</p>
-    <div style="margin-bottom:14px">
-      <label style="display:block;font-size:0.9em;margin-bottom:6px;color:var(--text-muted)">Additional instructions (optional)</label>
-      <textarea id="compress-instructions" class="modal-textarea" rows="3" spellcheck="false" placeholder="e.g. Past tense, omit small talk..." style="resize:vertical"></textarea>
+    <div class="field">
+      <label for="compress-instructions">Additional instructions (optional)</label>
+      <textarea id="compress-instructions" class="modal-textarea" rows="3" spellcheck="false" placeholder="e.g. Past tense, omit small talk..."></textarea>
     </div>
-    <div style="margin-bottom:20px">
-      <label style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:0.95em">
-        Keep last
-        <select id="compress-keep-select" style="padding:4px 8px;border-radius:4px;border:1px solid var(--border)">
-          ${validOptions.map((n) => `<option value="${n}"${defaultKeep === n ? " selected" : ""}>${n} messages</option>`).join("")}
-        </select>
-      </label>
-      <p style="color:var(--text-muted);font-size:0.88em;margin-top:8px">${totalMsgs} messages in this conversation</p>
+    <div class="field">
+      <label for="compress-keep-select">Keep last</label>
+      <select id="compress-keep-select">
+        ${validOptions.map((n) => `<option value="${n}"${defaultKeep === n ? " selected" : ""}>${n} messages</option>`).join("")}
+      </select>
+      <p class="modal-hint">${totalMsgs} messages in this conversation</p>
     </div>
     <p id="compress-status" class="modal-subtitle" style="display:none"></p>
     <textarea id="compress-textarea" class="modal-textarea-lg" spellcheck="false" placeholder="Summary will appear here..." style="display:none"></textarea>
@@ -513,8 +506,7 @@ export async function generateCompressionSummary() {
     textarea.value = "";
   }
 
-  const overlayEl = document.querySelector(".modal-overlay");
-  if (overlayEl) overlayEl.setAttribute("onclick", "if(event.target===this)cancelCompression()");
+  setModalDismiss(cancelCompression);
 
   _compressAbort = new AbortController();
   let summaryText = "";

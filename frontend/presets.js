@@ -29,12 +29,16 @@ function fmtDate(iso) {
 
 export function showPresetsModal() {
   showModal(`
-    <h2>Backup &amp; Presets</h2>
-    <p class="modal-subtitle">Snapshot your data, import a preset (merged into your data), or restore a full backup.</p>
-    <div id="preset-top-actions" class="modal-title-actions" style="margin-bottom:10px;display:flex;gap:8px">
-      <button class="btn btn-sm" onclick="showSnapshotModal()">📸 Snapshot current</button>
-      <button class="btn btn-sm" onclick="triggerPresetImport()">⬆ Import file…</button>
-      <input type="file" id="preset-import-input" accept=".db" style="display:none" onchange="handlePresetImportFile(this)">
+    <div class="modal-title-row">
+      <div>
+        <h2>Backup &amp; Presets</h2>
+        <p class="modal-subtitle">Snapshot your data, import a preset (merged into your data), or restore a full backup.</p>
+      </div>
+      <div id="preset-top-actions" class="modal-title-actions">
+        <button class="btn btn-sm" onclick="showSnapshotModal()">📸 Snapshot current</button>
+        <button class="btn btn-sm" onclick="triggerPresetImport()">⬆ Import file…</button>
+        <input type="file" id="preset-import-input" accept=".db" style="display:none" onchange="handlePresetImportFile(this)">
+      </div>
     </div>
     <div id="preset-library-list" class="phrase-bank-list">Loading…</div>
   `);
@@ -56,7 +60,7 @@ export function showSnapshotModal() {
     <h2>Snapshot current</h2>
     <p class="modal-subtitle">Pick what to include. Everything checked makes a full backup you can restore from.</p>
     <div class="field">
-      <label class="preset-section-label">Include:</label>
+      <label>Include</label>
       ${rows}
     </div>
     <div id="preset-key-warning" class="preset-warning hidden">
@@ -66,7 +70,7 @@ export function showSnapshotModal() {
       </label>
     </div>
     <div class="field">
-      <label class="preset-section-label" for="exp-label">Label (optional)</label>
+      <label for="exp-label">Label (optional)</label>
       <input type="text" id="exp-label" placeholder="e.g. my-cast" maxlength="60">
     </div>
     <div class="modal-actions">

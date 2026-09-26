@@ -659,10 +659,9 @@ window.deleteComboboxItem = (_btn, type, id, lane = "writer") => {
   const typeName = type === "endpoint" ? "endpoint" : "model configuration";
   showConfirmModal(
     {
-      title: `Delete ${typeName}?`,
-      message: `Are you sure you want to delete this ${typeName}? This action cannot be undone.`,
+      title: `Delete ${typeName}`,
+      message: `Delete this ${typeName}? This cannot be undone.`,
       confirmText: "Delete",
-      confirmClass: "btn-danger",
     },
     async () => {
       try {

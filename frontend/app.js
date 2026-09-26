@@ -141,15 +141,7 @@ import {
 } from "./lorebooks.js";
 import { initMessageHtmlActions } from "./message_html.js";
 import { closeMobileHeaderActions, initMobileUi, toggleMobileHeaderActions, toggleMobileSidebar } from "./mobile.js";
-import {
-  closeCropModal,
-  closeModal,
-  closeSubModal,
-  runConfirmCb,
-  runSubConfirmCb,
-  showConfirmModal,
-  switchTab,
-} from "./modal.js";
+import { closeModal, closeSubModal, showConfirmModal, switchTab } from "./modal.js";
 import {
   applyPreset,
   deletePreset,
@@ -282,8 +274,6 @@ Object.assign(window, {
   closeSubModal,
   switchTab,
   showConfirmModal,
-  runConfirmCb,
-  runSubConfirmCb,
   applyTheme,
   saveSetting,
   onHybridInput,
@@ -357,7 +347,6 @@ Object.assign(window, {
   importInternetChar,
   randomizeInternet,
   refreshCharacters,
-  closeCropModal,
   newConvForChar,
   newConversationHere,
   selectConversation,

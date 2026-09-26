@@ -74,7 +74,8 @@ export async function showCharacterBrowserModal({ view } = {}) {
   _browserViewMode = view || (_browserViewMode === "internet" ? "internet" : S.characterBrowserView || "grid");
   _browserSearchQuery = "";
 
-  showModal(`
+  showModal(
+    `
     <div class="modal-title-row">
       <div>
         <h2>Character Library</h2>
@@ -101,7 +102,9 @@ export async function showCharacterBrowserModal({ view } = {}) {
     <div class="char-browser-tags-row">
       <div class="char-tags" id="char-browser-tags">${browserTagsHtml()}</div>
     </div>
-    <div id="char-browser-content"></div>`);
+    <div id="char-browser-content"></div>`,
+    { size: "wide" },
+  );
   wireBrowserChrome();
   renderCharacterBrowser();
 

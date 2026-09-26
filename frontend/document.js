@@ -343,7 +343,7 @@ export function renameDocument(id) {
   if (!doc) return;
   showConfirmModal(
     {
-      title: "Rename Document",
+      title: "Rename document",
       message: "",
       confirmText: "Save",
       confirmClass: "",
@@ -373,7 +373,7 @@ export function deleteDocument(id) {
     return;
   }
   const doc = S.documents.find((d) => d.id === id);
-  confirmDelete("Document", `Delete "${esc(doc ? doc.title : "this document")}"? This cannot be undone.`, async () => {
+  confirmDelete("document", `Delete "${esc(doc ? doc.title : "this document")}"? This cannot be undone.`, async () => {
     try {
       await api.del(`/documents/${id}`);
       S.documents = S.documents.filter((d) => d.id !== id);

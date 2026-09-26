@@ -2,40 +2,66 @@ import { $ } from "./utils.js";
 
 let _cs = null; // { img, scale, onConfirm, aspect, cx, cy, cw, ch, drag }
 
+// Backdrop clicks, Escape and mobile Back all dismiss through closeTopModal, so a
+// modal whose Cancel does more than close (return to its list, abort a stream)
+// names that once with setModalDismiss, and every way out agrees with its Cancel.
+let _modalDismiss = null;
+let _modalCloseCallback = null;
+let _modalCloseGuard = null;
+
 document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
-  if ($("modal-crop-root")?.innerHTML) {
-    closeCropModal();
-    return;
-  }
-  if ($("modal-sub-root")?.innerHTML) {
-    closeSubModal();
-    return;
-  }
-  if ($("modal-root")?.innerHTML) closeModal();
+  if (e.key === "Escape") closeTopModal();
 });
 
 export function isModalOpen() {
   return !!($("modal-crop-root")?.innerHTML || $("modal-sub-root")?.innerHTML || $("modal-root")?.innerHTML);
 }
 
-export function showModal(html) {
-  _modalCloseGuard = null;
-  $("modal-root").innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
-       <div class="modal">${html}</div>
-     </div>`;
+/** Dismiss the topmost modal layer. Returns whether one was open. */
+export function closeTopModal() {
+  if ($("modal-crop-root")?.innerHTML) closeCropModal();
+  else if ($("modal-sub-root")?.innerHTML) closeSubModal();
+  else if ($("modal-root")?.innerHTML) dismissModal();
+  else return false;
+  return true;
 }
 
-let _modalCloseCallback = null;
-let _modalCloseGuard = null;
+// Width follows the content: "narrow" for a question and its answer, the default
+// for a form, "wide" for a workspace (a card grid, a long editor, a settings page).
+const SIZE_CLASS = { narrow: " modal-narrow", wide: " modal-wide" };
+
+function mountLayer(rootId, html, { onBackdrop = null, modalClass = "modal" } = {}) {
+  const root = $(rootId);
+  root.innerHTML = `<div class="modal-overlay"><div class="${modalClass}">${html}</div></div>`;
+  const overlay = root.firstElementChild;
+  if (onBackdrop) overlay.addEventListener("click", (e) => e.target === overlay && onBackdrop());
+  return root;
+}
+
+export function showModal(html, { size = "" } = {}) {
+  _modalCloseGuard = null;
+  _modalDismiss = null;
+  mountLayer("modal-root", html, { onBackdrop: dismissModal, modalClass: `modal${SIZE_CLASS[size] || ""}` });
+}
 
 export function closeModal() {
   if (_modalCloseGuard && _modalCloseGuard() === false) return;
   _modalCloseGuard = null;
+  _modalDismiss = null;
   $("modal-root").innerHTML = "";
   const cb = _modalCloseCallback;
   _modalCloseCallback = null;
   if (cb) cb();
+}
+
+/** What the base modal's backdrop, Escape and mobile Back do: its dismissal, or close. */
+export function dismissModal() {
+  if (_modalDismiss) _modalDismiss();
+  else closeModal();
+}
+
+export function setModalDismiss(fn) {
+  _modalDismiss = fn;
 }
 
 export function setModalCloseCallback(cb) {
@@ -60,64 +86,52 @@ export function switchTab(tab, contentId) {
   $(contentId).classList.add("active");
 }
 
-export function showConfirmModal(
-  { title, message, confirmText = "Confirm", confirmClass = "btn-danger", extraHtml = "" },
-  onConfirm,
-) {
-  window._confirmCb = onConfirm;
-  showModal(`
+/**
+ * A title, a message, Cancel and one action — or several, as
+ * `actions: [{ label, className, run }]`, when the choice has more than one way
+ * to go through (delete a variant or the whole attachment).
+ */
+function mountConfirm(rootId, show, close, opts, onConfirm) {
+  const { title, message, confirmText = "Confirm", confirmClass = "btn-danger", extraHtml = "" } = opts;
+  const actions = opts.actions || [{ label: confirmText, className: confirmClass, run: onConfirm }];
+  show(
+    `
     <h2>${title}</h2>
-    <p>${message}</p>
-    ${extraHtml}
+    <div class="modal-confirm-body">${message ? `<p>${message}</p>` : ""}${extraHtml}</div>
     <div class="modal-actions">
-      <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn ${confirmClass}" onclick="runConfirmCb()">${confirmText}</button>
-    </div>`);
+      <button class="btn" data-confirm-action="cancel">Cancel</button>
+      ${actions.map((a, i) => `<button class="btn ${a.className ?? "btn-danger"}" data-confirm-action="${i}">${a.label}</button>`).join("")}
+    </div>`,
+    { size: "narrow" },
+  );
+  for (const button of $(rootId).querySelectorAll("[data-confirm-action]")) {
+    const action = actions[button.dataset.confirmAction];
+    button.addEventListener("click", () => {
+      action?.run?.();
+      close();
+    });
+  }
 }
 
-export function runConfirmCb() {
-  const cb = window._confirmCb;
-  window._confirmCb = null;
-  if (cb) cb();
-  closeModal();
+export function showConfirmModal(opts, onConfirm) {
+  mountConfirm("modal-root", showModal, closeModal, opts, onConfirm);
 }
 
 export function confirmDelete(label, message, onOk) {
   showConfirmModal({ title: `Delete ${label}`, message, confirmText: "Delete" }, onOk);
 }
 
-export function showSubModal(html) {
-  const root = $("modal-sub-root");
-  if (root.innerHTML) console.warn("modal-sub-root already in use; the sub-modal layer does not nest");
-  root.innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)closeSubModal()">
-       <div class="modal">${html}</div>
-     </div>`;
+export function showSubModal(html, { size = "" } = {}) {
+  if ($("modal-sub-root").innerHTML) console.warn("modal-sub-root already in use; the sub-modal layer does not nest");
+  mountLayer("modal-sub-root", html, { onBackdrop: closeSubModal, modalClass: `modal${SIZE_CLASS[size] || ""}` });
 }
 
 export function closeSubModal() {
   $("modal-sub-root").innerHTML = "";
 }
 
-export function showSubConfirmModal(
-  { title, message, confirmText = "Confirm", confirmClass = "btn-danger", extraHtml = "" },
-  onConfirm,
-) {
-  window._subConfirmCb = onConfirm;
-  showSubModal(`
-    <h2>${title}</h2>
-    <p>${message}</p>
-    ${extraHtml}
-    <div class="modal-actions">
-      <button class="btn" onclick="closeSubModal()">Cancel</button>
-      <button class="btn ${confirmClass}" onclick="runSubConfirmCb()">${confirmText}</button>
-    </div>`);
-}
-
-export function runSubConfirmCb() {
-  const cb = window._subConfirmCb;
-  window._subConfirmCb = null;
-  if (cb) cb();
-  closeSubModal();
+export function showSubConfirmModal(opts, onConfirm) {
+  mountConfirm("modal-sub-root", showSubModal, closeSubModal, opts, onConfirm);
 }
 
 export function showCropModal(onConfirm, aspect = 2 / 3) {
@@ -135,19 +149,19 @@ export function showCropModal(onConfirm, aspect = 2 / 3) {
 }
 
 function _openCropEditor(dataUrl, onConfirm, aspect) {
-  const root = $("modal-crop-root");
-  root.innerHTML = `
-    <div class="modal-overlay">
-      <div class="modal modal-crop">
-        <h2>Crop Avatar</h2>
+  const root = mountLayer(
+    "modal-crop-root",
+    `<h2>Crop avatar</h2>
         <canvas id="crop-canvas"></canvas>
         <div style="font-size:11px;color:var(--text-muted)">Drag to move &middot; Drag corners to resize</div>
         <div class="modal-actions">
-          <button class="btn" onclick="closeCropModal()">Cancel</button>
-          <button class="btn btn-accent" onclick="confirmCrop()">Use Image</button>
-        </div>
-      </div>
-    </div>`;
+          <button class="btn" data-crop-action="cancel">Cancel</button>
+          <button class="btn btn-accent" data-crop-action="confirm">Use Image</button>
+        </div>`,
+    { modalClass: "modal modal-crop" },
+  );
+  root.querySelector('[data-crop-action="cancel"]').addEventListener("click", closeCropModal);
+  root.querySelector('[data-crop-action="confirm"]').addEventListener("click", () => _confirmCrop());
 
   const img = new Image();
   img.onload = () => {
@@ -180,8 +194,6 @@ function _openCropEditor(dataUrl, onConfirm, aspect) {
     _attachCropEvents(canvas);
   };
   img.src = dataUrl;
-
-  window.confirmCrop = () => _confirmCrop($("crop-canvas"));
 }
 
 function _drawCrop(canvas) {
@@ -313,7 +325,7 @@ function _attachCropEvents(canvas) {
   canvas.addEventListener("touchend", onEnd);
 }
 
-function _confirmCrop(_canvas) {
+function _confirmCrop() {
   if (!_cs) return;
   const { img, cx, cy, cw, ch, scale, onConfirm, aspect } = _cs;
   const OUT_W = 400;

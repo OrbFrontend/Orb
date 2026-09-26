@@ -3,7 +3,7 @@ import { createChipInput } from "./chips.js";
 import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
 import { closeModal, isModalOpen, showConfirmModal, showModal } from "./modal.js";
 import { charactersView } from "./state.js";
-import { $, boolFlag, downloadBlob, esc, fromMessageBody, toast } from "./utils.js";
+import { $, boolFlag, downloadBlob, esc, fromMessageBody, plural, toast } from "./utils.js";
 import { changesetRowHtml, isOpen, operationEditHtml, readOperationEdit } from "./world_proposals.js";
 
 let _worlds = [];
@@ -244,8 +244,9 @@ export async function deactivateWorld(worldId) {
 export function showRenameWorldModal(worldId) {
   const world = _getWorld(worldId);
   if (!world) return;
-  showModal(`
-    <h2>Rename Lorebook</h2>
+  showModal(
+    `
+    <h2>Rename lorebook</h2>
     <div class="field">
       <label>Name</label>
       <input id="rename-world-inp" value="${esc(world.name)}" autofocus>
@@ -253,7 +254,9 @@ export function showRenameWorldModal(worldId) {
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn btn-accent" onclick="renameWorld('${worldId}')">Rename</button>
-    </div>`);
+    </div>`,
+    { size: "narrow" },
+  );
   setTimeout(() => {
     const inp = $("rename-world-inp");
     if (inp) {
@@ -280,8 +283,9 @@ export async function renameWorld(worldId) {
 }
 
 export async function showCreateWorldModal() {
-  showModal(`
-    <h2>New World</h2>
+  showModal(
+    `
+    <h2>New world</h2>
     <div class="field">
       <label>Name</label>
       <input id="world-name-inp" placeholder="e.g. Hamlet" autofocus>
@@ -289,7 +293,9 @@ export async function showCreateWorldModal() {
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn btn-accent" onclick="createWorld()">Create</button>
-    </div>`);
+    </div>`,
+    { size: "narrow" },
+  );
   setTimeout(() => $("world-name-inp")?.focus(), 50);
 }
 
@@ -320,21 +326,19 @@ export async function toggleWorldEnabled(worldId, enabled) {
 }
 
 export async function deleteWorld(worldId) {
+  const world = _worlds.find((w) => w.id === worldId);
+  const count = _entries[worldId]?.length;
+  const entries = count == null ? "all its entries" : `its ${plural(count, "entry", "entries")}`;
   const linked = charactersView().filter((c) => c.world_id === worldId);
-  let extraHtml = "";
-  if (linked.length) {
-    const names = linked.map((c) => `<li>${esc(c.name)}</li>`).join("");
-    extraHtml = `
-      <p style="margin-bottom:4px">Linked to ${linked.length} character${linked.length === 1 ? "" : "s"}, which will be unlinked:</p>
-      <ul style="margin:0;padding-left:20px;max-height:160px;overflow-y:auto">${names}</ul>`;
-  }
+  const names = linked.slice(0, 3).map((c) => esc(c.name));
+  if (linked.length > 3) names.push(plural(linked.length - 3, "more character"));
+  const who = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0];
+  const unlink = linked.length ? ` ${who} will be unlinked from it.` : "";
   showConfirmModal(
     {
-      title: "Delete Lorebook",
-      message: "⚠️ Delete this lorebook and all its entries?",
+      title: "Delete lorebook",
+      message: `Delete ${world ? `"${esc(world.name)}"` : "this lorebook"} and ${entries}? This cannot be undone.${unlink}`,
       confirmText: "Delete",
-      confirmClass: "btn-danger",
-      extraHtml,
     },
     async () => {
       try {
@@ -791,10 +795,9 @@ export function lbDeleteEntry() {
   const worldId = _focusWorldId;
   showConfirmModal(
     {
-      title: "Delete Entry",
-      message: "Delete this lorebook entry?",
+      title: "Delete entry",
+      message: "Delete this lorebook entry? This cannot be undone.",
       confirmText: "Delete",
-      confirmClass: "btn-danger",
     },
     async () => {
       try {

@@ -104,8 +104,7 @@ export function showMoodFragmentModal(fragId = null) {
     <h2>${isEdit ? "Edit Mood Fragment" : "New Mood Fragment"}</h2>
     ${_moodFragFormHtml(d, isEdit)}
     <div class="modal-actions">
-      ${isEdit ? `<button class="btn btn-danger btn-sm" onclick="deleteMoodFragment('${escHandlerArg(d.id)}')">Delete</button>` : ""}
-      <div style="flex:1"></div>
+      ${isEdit ? `<button class="btn btn-danger" onclick="deleteMoodFragment('${escHandlerArg(d.id)}')">Delete</button>` : ""}
       <button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn btn-accent" onclick="saveMoodFragment(${isEdit})">${isEdit ? "Save" : "Create"}</button>
     </div>`);
@@ -130,15 +129,20 @@ export async function saveMoodFragment(isEdit) {
 }
 
 export async function deleteMoodFragment(id) {
-  confirmDelete("Mood Fragment", "Are you sure you want to delete this mood fragment?", async () => {
-    try {
-      await api.del(`/fragments/${id}`);
-      await loadMoodFragments();
-      toast("Mood fragment deleted");
-    } catch (e) {
-      toast(e.message, true);
-    }
-  });
+  const label = S.moodFragments.find((f) => f.id === id)?.label;
+  confirmDelete(
+    "Mood Fragment",
+    `Delete ${label ? `"${esc(label)}"` : "this mood fragment"}? This cannot be undone.`,
+    async () => {
+      try {
+        await api.del(`/fragments/${id}`);
+        await loadMoodFragments();
+        toast("Mood fragment deleted");
+      } catch (e) {
+        toast(e.message, true);
+      }
+    },
+  );
 }
 
 export async function toggleMoodFragmentEnabled(id, newEnabled) {
@@ -546,15 +550,17 @@ export function showInteractiveFragmentModal(fragId = null) {
   };
   _openDecisionDraft(d);
 
-  showModal(`
+  showModal(
+    `
     <h2>${isEdit ? "Edit" : "New"} Interactive Fragment</h2>
     ${_interactiveFragFormHtml(d, isEdit)}
     <div class="modal-actions">
-      ${isEdit ? `<button class="btn btn-danger btn-sm" onclick="deleteInteractiveFragment('${escHandlerArg(d.id)}')">Delete</button>` : ""}
-      <div style="flex:1"></div>
+      ${isEdit ? `<button class="btn btn-danger" onclick="deleteInteractiveFragment('${escHandlerArg(d.id)}')">Delete</button>` : ""}
       <button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn btn-accent" onclick="saveInteractiveFragment(${isEdit})">${isEdit ? "Save" : "Create"}</button>
-    </div>`);
+    </div>`,
+    { size: "wide" },
+  );
 }
 
 export async function saveInteractiveFragment(isEdit) {
@@ -591,7 +597,9 @@ function _showDecisionProblems(detail) {
 }
 
 export async function deleteInteractiveFragment(id) {
-  confirmDelete("Interactive Fragment", "Are you sure you want to delete this interactive fragment?", async () => {
+  const label = S.interactiveFragments.find((f) => f.id === id)?.label;
+  const what = label ? `"${esc(label)}"` : "this interactive fragment";
+  confirmDelete("Interactive Fragment", `Delete ${what}? This cannot be undone.`, async () => {
     try {
       await api.del(`/interactive-fragments/${id}`);
       await loadInteractiveFragments();
@@ -775,15 +783,17 @@ function _showCardFragModal(type, kind, fragId, blank, formHtml) {
   const f = fragId ? _cardFragPending[type].find((x) => x.id === fragId) : null;
   const isEdit = !!f;
   if (type === "interactive") _openDecisionDraft(f || blank);
-  showSubModal(`
+  showSubModal(
+    `
     <h2>${isEdit ? "Edit" : "New"} Character ${kind} Fragment</h2>
     ${formHtml(f || blank, isEdit)}
     <div class="modal-actions">
-      ${isEdit ? `<button class="btn btn-danger btn-sm" id="card-frag-delete">Delete</button>` : ""}
-      <div style="flex:1"></div>
+      ${isEdit ? `<button class="btn btn-danger" id="card-frag-delete">Delete</button>` : ""}
       <button class="btn" id="card-frag-cancel">Cancel</button>
       <button class="btn btn-accent" id="card-frag-save">${isEdit ? "Save" : "Add"}</button>
-    </div>`);
+    </div>`,
+    { size: type === "interactive" ? "wide" : "" },
+  );
   _wireCardFragModal(type, isEdit, fragId);
 }
 

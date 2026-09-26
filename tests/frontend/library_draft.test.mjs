@@ -62,7 +62,9 @@ test("the card save includes edited regex drafts and preserves unrelated extensi
 
   await showCharEditModal({ name: "Scripted", extensions });
   document.querySelector('[data-script-action="remove"]').click();
+  window.confirm = () => true;
   closeModal();
+  assert.equal(document.getElementById("modal-root").innerHTML, "", "confirming the discard closes the editor");
   await showCharEditModal({ name: "Scripted", extensions });
   await saveImportedChar();
   assert.deepEqual(saved.extensions, extensions, "Cancel discards script deletion");

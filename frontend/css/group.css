@@ -486,13 +486,6 @@
   color: var(--text-primary);
 }
 
-.modal-section {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  margin: 14px 0 8px;
-}
-
 .group-danger {
   margin-top: 20px;
   padding-top: 14px;

@@ -32,7 +32,7 @@
 .ig-section{display:grid;gap:10px}
 .ig-section>.btn{justify-self:start}
 .image-gen-settings :is(.ig-section,.ig-grid,.ig-style-body,.ig-styles,.ig-skill-list,.ig-skill-body,.ig-drawers,.ig-conn-list,.ig-conn-body,.ig-profile-fields,.image-gen-graph-picker)>*{min-width:0}
-.ig-heading{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);padding-bottom:5px;border-bottom:1px solid var(--border)}
+.image-gen-settings .modal-heading{margin:0}
 .ig-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
 .ig-profile-fields{display:grid;gap:10px;margin-bottom:10px}
 .ig-profile-member{display:grid;gap:4px}
@@ -84,7 +84,7 @@
 .ig-compatibility-body .ig-seed-max{flex:1 1 170px;max-width:260px}
 .image-gen-graph-picker{display:grid;gap:10px}
 .image-gen-graph-picker button{justify-self:start}
-.ig-reference-heading{margin-top:2px}
+.image-gen-settings .ig-reference-heading{margin-top:2px}
 .ig-slot-list{margin:0;padding-left:18px;display:grid;gap:2px;font-size:12px;color:var(--text-secondary)}
 
 .ig-profile-reference{display:grid;gap:5px}

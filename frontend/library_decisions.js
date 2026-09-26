@@ -224,7 +224,7 @@ function _innerHtml() {
   return `
     ${config.configured ? "" : `<div class="decision-status">No Judge endpoint configured. Set one under <strong>Endpoints → Judge</strong>.</div>`}
     ${_problemHtml("general")}
-    <div class="frag-divider">Decision</div>
+    <div class="modal-heading" role="heading" aria-level="3">Decision</div>
     <div class="field-row">
       <div class="field">
         <label>Question type</label>
