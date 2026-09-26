@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -171,12 +171,14 @@ class DirectorResult:
 def apply_tool_calls(
     tool_calls: list[dict],
     current_moods: list[str],
+    mood_ids: Collection[str],
 ) -> tuple[list[str], dict]:
     """Extract values from tool calls.
 
     Returns ``(moods, extra_fields)``. ``extra_fields`` holds all
-    ``direct_scene`` args except moods. (Lorebook selection is handled separately
-    by the ``select_lorebook`` step, not this tool.)
+    ``direct_scene`` args except moods. Moods are kept only when they name one
+    of *mood_ids*, the fragments offered to the model. (Lorebook selection is
+    handled separately by the ``select_lorebook`` step, not this tool.)
     """
     moods = list(current_moods)
     extra_fields: dict = {}
@@ -184,13 +186,11 @@ def apply_tool_calls(
     for tc in tool_calls:
         args = tc.get("arguments", {})
         if tc["name"] == "direct_scene":
-            # A model declines moods by emitting ``"moods": null`` about as often
-            # as it omits the key, and both mean the same thing as the empty call:
-            # no moods this turn. Non-string items are dropped rather than carried
-            # -- they cannot match a fragment id, and an unhashable one would blow
-            # up the set() union in ``director_stage``.
             raw_moods = args.get("moods")
             moods = [m for m in raw_moods if isinstance(m, str)] if isinstance(raw_moods, list) else []
+            if unknown := [m for m in moods if m not in mood_ids]:
+                logger.info("direct_scene: dropped unknown moods %s", unknown)
+                moods = [m for m in moods if m in mood_ids]
             extra_fields = {k: v for k, v in args.items() if k != "moods" and keeps_director_value(k, v)}
 
     return (moods, extra_fields)
@@ -230,6 +230,7 @@ async def director_pass(
         ``{"type": "done", "result": DirectorResult}`` — terminal pass result
     """
     active_moods = director["active_moods"]
+    mood_ids = {fragment["id"] for fragment in mood_fragments}
     if attachments is None:
         attachments = []
 
@@ -355,7 +356,7 @@ async def director_pass(
                     # Reuse the shared unpacker so moods behave exactly as in the
                     # combined call; any fragment values it returns are dropped,
                     # each fragment being produced in its own call.
-                    active_moods, _ = apply_tool_calls(parsed, active_moods)
+                    active_moods, _ = apply_tool_calls(parsed, active_moods, mood_ids)
                 else:
                     args = next((tc.get("arguments", {}) for tc in parsed if tc.get("name") == "direct_scene"), {})
                     val = args.get(stage["id"])
@@ -404,7 +405,7 @@ async def director_pass(
         logger.info("Agent tool=%s output:\n%s", name, last_raw)
         if parsed := parse_tool_calls(resp):
             all_calls.extend(parsed)
-            active_moods, new_extra = apply_tool_calls(parsed, active_moods)
+            active_moods, new_extra = apply_tool_calls(parsed, active_moods, mood_ids)
             if new_extra:
                 extra_fields.update(new_extra)
         else:

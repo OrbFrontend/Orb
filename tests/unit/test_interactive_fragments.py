@@ -215,6 +215,8 @@ class TestExtractFeedbackValues:
 
 # ── apply_tool_calls ─────────────────────────────────────────────────────────
 
+MOOD_IDS = {"tense", "talkative"}
+
 
 class TestApplyToolCalls:
     def test_extracts_moods(self):
@@ -224,8 +226,13 @@ class TestApplyToolCalls:
                 "arguments": {"moods": ["tense", "talkative"], "keywords": []},
             }
         ]
-        moods, extra = apply_tool_calls(calls, [])
+        moods, extra = apply_tool_calls(calls, [], MOOD_IDS)
         assert moods == ["tense", "talkative"]
+
+    def test_drops_moods_not_offered(self):
+        calls = [{"name": "direct_scene", "arguments": {"moods": ["talkative", "playful"]}}]
+        moods, _ = apply_tool_calls(calls, [], MOOD_IDS)
+        assert moods == ["talkative"]
 
     def test_keywords_captured_in_extra_fields(self):
         calls = [
@@ -234,7 +241,7 @@ class TestApplyToolCalls:
                 "arguments": {"moods": [], "keywords": ["sword", "tavern"]},
             }
         ]
-        _, extra = apply_tool_calls(calls, [])
+        _, extra = apply_tool_calls(calls, [], MOOD_IDS)
         assert extra["keywords"] == ["sword", "tavern"]
 
     def test_extra_fields_captured(self):
@@ -249,7 +256,7 @@ class TestApplyToolCalls:
                 },
             }
         ]
-        _, extra = apply_tool_calls(calls, [])
+        _, extra = apply_tool_calls(calls, [], MOOD_IDS)
         assert extra["plot_summary"] == "They fought."
         assert extra["next_event"] == "She runs."
         assert extra["keywords"] == ["sword"]
@@ -265,7 +272,7 @@ class TestApplyToolCalls:
                 },
             }
         ]
-        _, extra = apply_tool_calls(calls, [])
+        _, extra = apply_tool_calls(calls, [], MOOD_IDS)
         assert "moods" not in extra
         assert "keywords" in extra
 
@@ -281,13 +288,13 @@ class TestApplyToolCalls:
                 },
             }
         ]
-        _, extra = apply_tool_calls(calls, [])
+        _, extra = apply_tool_calls(calls, [], MOOD_IDS)
         assert "user_intent" not in extra
         assert "writing_direction" not in extra
 
     def test_current_moods_used_when_no_direct_scene_call(self):
         calls = [{"name": "update_state", "arguments": {"note": ["x"]}}]
-        moods, _ = apply_tool_calls(calls, ["existing-mood"])
+        moods, _ = apply_tool_calls(calls, ["existing-mood"], MOOD_IDS)
         assert moods == ["existing-mood"]
 
 
