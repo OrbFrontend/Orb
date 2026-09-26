@@ -127,7 +127,6 @@
 @media (max-width: 700px) {
   .ifrag-form .field-row {
     display: flex;
-    align-items: flex-end;
     gap: 8px;
   }
 

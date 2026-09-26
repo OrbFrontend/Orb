@@ -241,6 +241,10 @@ label {
 .field-row { display: flex; gap: 8px; }
 .field-row .field { flex: 1; }
 
+/* For forms whose fields are each a label over one control: a label whose hint
+   wraps grows upward, so the controls in a row stay on one line. */
+.align-controls .field-row { align-items: flex-end; }
+
 /* A control only a few characters wide keeps its column instead of stretching
    across the whole row -- including a row it has to itself, so a lone number
    still lines its edges up with the paired rows above and below it. */

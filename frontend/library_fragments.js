@@ -62,7 +62,7 @@ export function renderMoodFragments() {
 }
 
 function _moodFragFormHtml(d, isEdit) {
-  return `
+  return `<div class="align-controls">
     <div class="field-row">
       <div class="field"><label>ID <span style="font-size:10px;color:var(--text-muted)">(For tool-calling)</span></label>
         <input id="frag-id" value="${escAttr(d.id)}" ${isEdit ? "disabled" : ""} placeholder="terse"></div>
@@ -80,7 +80,8 @@ function _moodFragFormHtml(d, isEdit) {
     <div class="field-row">
       <div class="field"><label>Cooldown (turns)</label>
         <input id="frag-cooldown" type="number" min="0" max="50" step="1" value="${escAttr(d.cooldown_turns || 0)}"></div>
-    </div>`;
+    </div>
+  </div>`;
 }
 
 function _readMoodFragForm() {
@@ -467,7 +468,7 @@ document.addEventListener("change", (e) => {
 
 function _interactiveFragFormHtml(d, isEdit) {
   const ex = INTERACTIVE_FRAGMENT_EXAMPLES[d.field_type] || INTERACTIVE_FRAGMENT_EXAMPLES.string;
-  return `<div class="ifrag-form">
+  return `<div class="ifrag-form align-controls">
     <div class="field-row">
       <div class="field"><label>ID <span style="font-size:10px;color:var(--text-muted)">(For tool-calling)</span></label>
         <input id="interactive-frag-id" value="${escAttr(d.id)}" ${isEdit ? "disabled" : ""} placeholder="${escAttr(ex.id)}"></div>
