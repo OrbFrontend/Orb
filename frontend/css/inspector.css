@@ -1,5 +1,5 @@
 .inspector-inner {
-  padding: 12px;
+  padding: 16px;
   overflow-y: auto;
   height: 100%;
   width: var(--inspector-width);
@@ -7,8 +7,6 @@
 
 .inspector-inner::-webkit-scrollbar { width: 4px; }
 
-#inspector .tab-row { margin-bottom: 10px; }
-#inspector .tab-button { padding: 5px 10px 6px; }
 .inspector-inner::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
 .inspector-title {
