@@ -1,6 +1,7 @@
 // The Inspector's Decisions section, in the panel and under each reply. Skips have no outcome chip.
 import { outcomeLabel, skipReasonText } from "./decisions.js";
 import { CHEVRON_RIGHT_ICON } from "./icons.js";
+import { sectionHtml } from "./inspector_section.js";
 import { S } from "./state.js";
 import { esc, escAttr } from "./utils.js";
 
@@ -16,8 +17,11 @@ const ANSWER_NUMBERS = [
   ["draw", "roll", 2],
 ];
 
+// Outcome kind → its status pill's modifier; a skip stays plain.
+const CHIP_KINDS = { resolved: " active", failed: " warn", skipped: "" };
+
 function _chip(text, kind) {
-  return `<span class="decision-chip decision-chip-${kind}">${esc(text)}</span>`;
+  return `<span class="inspect-chip pill${CHIP_KINDS[kind]}">${esc(text)}</span>`;
 }
 
 function _metaText(record) {
@@ -74,7 +78,7 @@ function _evaluationHtml(record) {
       <div class="decision-guidance${guidance ? "" : " decision-guidance-empty"}">${guidance ? esc(guidance) : "Nothing injected for this outcome."}</div>
       ${
         record.rendered_state
-          ? `<details class="decision-state"><summary><span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>Situation sent</summary><div class="injection-box">${esc(record.rendered_state)}</div></details>`
+          ? `<details class="decision-state"><summary><span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>Situation sent</summary><div class="inspect-raw">${esc(record.rendered_state)}</div></details>`
           : ""
       }
     </div>
@@ -118,16 +122,14 @@ export function decisionsHtml(source, { stored }) {
   const records = _records(source, stored);
   if (!records) return "";
   const { evaluations, skipped } = records;
-  return `<details class="inspector-block decision-block" data-inspect-section="decisions"${S.decisionsOpen ? " open" : ""}>
-    <summary class="reasoning-summary">
-      <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
-      <h4>Decisions</h4>
-    </summary>
-    <div class="decision-block-body">
-      ${evaluations.map(_evaluationHtml).join("")}
-      ${skipped.length ? `<div class="decision-skipped">${skipped.map(_skippedHtml).join("")}</div>` : ""}
-    </div>
-  </details>`;
+  return sectionHtml({
+    key: "decisions",
+    open: S.decisionsOpen,
+    className: "decision-block",
+    title: "Decisions",
+    body: `${evaluations.map(_evaluationHtml).join("")}
+      ${skipped.length ? `<div class="decision-skipped">${skipped.map(_skippedHtml).join("")}</div>` : ""}`,
+  });
 }
 
 /** Render stored or in-flight decisions for the Inspector panel. */

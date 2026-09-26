@@ -150,7 +150,7 @@ function button(action, label, { entryId = "", cls = "", disabled = false, title
 }
 
 function badge(label, tip, cls = "") {
-  return ` <span class="state-badge${cls}" title="${escAttr(tip)}">${label}</span>`;
+  return ` <span class="inspect-chip pill${cls}" title="${escAttr(tip)}">${label}</span>`;
 }
 
 function badgesHtml(f) {
@@ -158,8 +158,7 @@ function badgesHtml(f) {
   if (!f.configured) html += badge("Deleted", "The fragment was deleted; its saved state is read-only.");
   else if (!f.enabled) html += badge("Disabled", "The fragment is disabled: not updated, not injected.");
   if (f.origin === "card") html += badge("Card", "Embedded in the character card.");
-  if (f.full)
-    html += badge("Full", "The list holds the most entries it can. Retire one before adding.", " state-badge-warn");
+  if (f.full) html += badge("Full", "The list holds the most entries it can. Retire one before adding.", " danger");
   return html;
 }
 

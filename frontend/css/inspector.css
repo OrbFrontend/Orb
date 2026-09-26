@@ -1,11 +1,14 @@
 .inspector-inner {
-  padding: 16px;
+  padding: 12px;
   overflow-y: auto;
   height: 100%;
   width: var(--inspector-width);
 }
 
 .inspector-inner::-webkit-scrollbar { width: 4px; }
+
+#inspector .tab-row { margin-bottom: 10px; }
+#inspector .tab-button { padding: 5px 10px 6px; }
 .inspector-inner::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
 .inspector-title {
@@ -14,115 +17,57 @@
   text-transform: uppercase;
   letter-spacing: .8px;
   color: var(--text-muted);
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
-.inspector-block { margin-bottom: 16px; }
+/* ── Sections ──
+   One shape for every section, in the panel and in each reply's block. Content is
+   never framed and sections are kept apart by space alone; frames are left to what
+   can be acted on, inputs and chips. */
 
-.inspector-block h4 {
+.inspector-block { margin-bottom: 12px; }
+.inspector-block:last-child { margin-bottom: 0; }
+
+.inspector-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;
+}
+
+summary.inspector-head {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+summary.inspector-head::-webkit-details-marker { display: none; }
+
+/* A static section's chevron column, so every title starts at the same x. */
+.inspector-head-slot { width: 10px; flex-shrink: 0; }
+
+.inspector-head h4 {
+  margin: 0;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 700;
   color: var(--text-secondary);
-  margin-bottom: 6px;
   text-transform: uppercase;
   letter-spacing: .5px;
 }
 
-.style-tag {
-  display: inline-block;
-  padding: 3px 8px;
+/* A one-number section carries it here instead of in a body. */
+.inspector-meta {
+  margin-left: auto;
+  font-family: var(--font-mono);
   font-size: 11px;
-  font-family: var(--font-mono);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  margin: 2px 4px 2px 0;
   color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.style-tag.active {
-  background: var(--accent-glow);
-  border-color: var(--accent-dim);
-  color: var(--accent);
-}
-
-.style-tag.resting {
-  border-style: dashed;
-  opacity: 0.65;
-  text-decoration: line-through;
-}
-
-
-
-.injection-box {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 1.5;
-  padding: 8px 10px;
-  background: var(--bg-deep);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-muted);
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.feedback-card {
-  background: var(--accent-glow);
-  border: 1px solid var(--accent-dim);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-}
-
-.feedback-row { margin-bottom: 8px; }
-.feedback-row:last-child { margin-bottom: 0; }
-
-.feedback-row-label {
-  display: block;
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: .4px;
-  color: var(--text-muted);
-  margin-bottom: 3px;
-}
-
-.feedback-row-value {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-}
-
-.feedback-row-value ul {
-  margin: 0;
-  padding-left: 16px;
-}
-
-.feedback-row-value li { margin-bottom: 2px; }
-
-.reasoning-section {
-  margin-bottom: 16px;
-  border: none;
-}
-
-.reasoning-section > summary,
-details.inspector-block > summary {
-  list-style: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 0;
-  user-select: none;
-}
-
-.reasoning-section > summary::-webkit-details-marker,
-details.inspector-block > summary::-webkit-details-marker { display: none; }
-
-/* The heading is the summary's own label, so it brings no block margin with it. */
-details.inspector-block > summary h4 { margin: 0; }
+/* Flush with the chevron, so text gets the panel's full width; markers such as the
+   user-note bar hang in the gutter to its left. */
+.inspector-body { padding-top: 4px; }
 
 .reasoning-summary-arrow {
   --ui-icon-size: 10px;
@@ -135,22 +80,129 @@ details.inspector-block > summary h4 { margin: 0; }
 
 /* Own summary only: a section that nests its own disclosures (Decisions) would
    otherwise turn every arrow inside it the moment the section opened. */
-.reasoning-section[open] > summary .reasoning-summary-arrow,
-details.inspector-block[open] > summary .reasoning-summary-arrow {
-  transform: rotate(90deg);
+details.inspector-block[open] > summary .reasoning-summary-arrow { transform: rotate(90deg); }
+
+.inspect-subhead {
+  margin: 8px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
+
+.inspect-subhead:first-child { margin-top: 0; }
+
+.inspect-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ── Content roles ── */
+
+/* Raw text a turn sent or received: mono across the full width, scrolling past its cap. */
+.inspect-raw {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 200px;
+  overflow-y: auto;
+  scroll-behavior: auto;
+}
+
+.inspect-raw:not(:first-child) { margin-top: 6px; }
+.reasoning-section .inspect-raw { max-height: 140px; }
+
+.inspect-raw::-webkit-scrollbar { width: 3px; }
+.inspect-raw::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* Readable output (feedback, state changes): a label over its value, spaced apart. */
+.feedback-row + .feedback-row { margin-top: 10px; }
+
+.feedback-row-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+/* Set like the raw text blocks, so a turn's output reads as one voice. */
+.feedback-row-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.feedback-row-value ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.feedback-row-value li { margin-bottom: 2px; }
+
+/* ── Chips: the one framed token, in sections and on a reply's collapsed line ── */
+
+.inspect-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+
+.inspect-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+button.inspect-chip { cursor: pointer; }
+button.inspect-chip:not(.active):hover { color: var(--text-primary); }
+
+.inspect-chip.active {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  background: var(--accent-glow);
+}
+
+.inspect-chip.resting {
+  border-style: dashed;
+  opacity: .65;
+  text-decoration: line-through;
+}
+
+/* A status: small, uppercase, rounded. */
+.inspect-chip.pill {
+  padding: 0 6px;
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  border-radius: 999px;
+}
+
+.inspect-chip.warn { color: var(--dec-warn, #c8a84b); border-color: currentColor; }
+.inspect-chip.danger { color: var(--red); border-color: var(--red); }
+
+/* ── Reasoning ── */
 
 .reasoning-stepper {
   display: flex;
   align-items: flex-start;
-  margin-bottom: 8px;
 }
 
 .reasoning-dot-col {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
 }
 
 .reasoning-enabled-label {
@@ -173,8 +225,8 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
 }
 
 .reasoning-dot {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -194,45 +246,28 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
   height: 2px;
   flex-shrink: 0;
   transition: background .3s;
-  margin-top: 9px;
+  margin-top: 8px;
 }
 
 .reasoning-pass-label {
   font-size: 10px;
   color: var(--text-muted);
   margin-left: 8px;
-  margin-top: 4px;
+  margin-top: 3px;
   letter-spacing: .04em;
   font-family: var(--font-mono);
 }
 
-.reasoning-box {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 1.55;
-  padding: 8px 10px;
-  background: var(--bg-deep);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-muted);
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  height: 140px;
-  overflow-y: auto;
-  scroll-behavior: auto;
-}
-
+/* An input, so unlike the text above it, it keeps the frame every textarea has. */
 .reasoning-prefill {
   display: block;
-  width: 100%;
   margin-top: 6px;
-  height: auto;
   min-height: 0;
-  resize: vertical;
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
 }
-
-.reasoning-box::-webkit-scrollbar { width: 3px; }
-.reasoning-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
 /* ── State tab ── */
 
@@ -283,30 +318,12 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
   margin: 2px 0 6px;
 }
 
-.state-badge {
-  display: inline-block;
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .5px;
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0 5px;
-  vertical-align: middle;
-}
-
-.state-badge-warn {
-  color: var(--red);
-  border-color: var(--red);
-}
-
 .state-entry {
   border-top: 1px solid var(--border);
   padding: 6px 0;
 }
 
-/* The bar sits in the card's padding, so the text keeps its column. */
+/* The bar sits in the card's padding or the section's left gutter, so the text keeps its column. */
 .state-entry.user-entry,
 .feedback-row.user-note { position: relative; }
 
@@ -404,8 +421,6 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
   color: var(--text-muted);
 }
 
-.inspector-block .feedback-card + h4 { margin-top: 12px; }
-
 .state-rejected .feedback-row-label { color: var(--red); }
 
 /* ── In-chat Inspector: one reply's turn details, above its text ── */
@@ -460,53 +475,20 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
 /* The collapsed line; the open body shows it all, so it steps aside. */
 .msg-inspect-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
 .msg-inspect[open] > summary .msg-inspect-chips { display: none; }
-.msg-inspect-chips .style-tag { margin: 0; padding: 1px 6px; }
 
-.msg-inspect-chip {
-  padding: 1px 6px;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-  border-radius: 3px;
+.msg-inspect-chips .inspect-chip {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 24ch;
 }
 
 /* Short sections share a row; latency keeps its width; collapsibles take a full row. */
-.msg-inspect-body { display: flex; flex-wrap: wrap; gap: 10px 24px; padding: 4px 12px 10px; }
-.msg-inspect-body > .inspector-block { flex: 1 1 240px; margin: 0; min-width: 0; }
+.msg-inspect-body { display: flex; flex-wrap: wrap; gap: 10px 24px; padding: 2px 12px 8px; }
+.msg-inspect-body > .inspector-block { flex: 1 1 240px; min-width: 0; margin: 0; }
 .msg-inspect-body > .inspector-latency { flex: 0 0 auto; }
 .msg-inspect-body > details.inspector-block { flex-basis: 100%; }
 
-.msg-inspect .reasoning-box,
-.msg-inspect .injection-box {
-  margin-top: 6px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11px;
-}
-
-.msg-inspect .reasoning-box { height: auto; max-height: 220px; }
-
-.msg-reasoning-body { padding: 0 12px 10px; }
-.msg-inspect-passes { display: flex; flex-wrap: wrap; gap: 4px; }
-
-.msg-inspect-pass {
-  padding: 1px 8px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-muted);
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-}
-
-button.msg-inspect-pass { cursor: pointer; }
-button.msg-inspect-pass:hover { color: var(--text-secondary); }
-.msg-inspect-pass.active { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow); }
+.msg-reasoning-body { padding: 0 12px 8px; }
 
 /* The streaming bubble's slot stays out of the layout until it has a block. */
 .msg-inspect-live:empty,

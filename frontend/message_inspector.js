@@ -6,6 +6,7 @@
 import { api } from "./api.js";
 import { decisionOutcomes, decisionsHtml } from "./chat_decisions.js";
 import { CHEVRON_RIGHT_ICON } from "./icons.js";
+import { sectionHtml } from "./inspector_section.js";
 import { preserveScroll } from "./scroll_follow.js";
 import { interactiveFragmentsView, moodFragmentsView, restingCooldowns, S } from "./state.js";
 import { convUrl, esc, escAttr } from "./utils.js";
@@ -43,7 +44,8 @@ export function loadInspectorOpenStates(saved) {
   }
 }
 
-const openAttr = (key) => (S[OPEN_STATE_FIELDS[key]] ? " open" : "");
+const isOpen = (key) => Boolean(S[OPEN_STATE_FIELDS[key]]);
+const openAttr = (key) => (isOpen(key) ? " open" : "");
 
 // Whoever owns the message list repaints it; this module sits below it.
 let repaintMessages = () => {};
@@ -140,9 +142,9 @@ function moodTags({ known, activeIds, resting }) {
 export function moodsHtml(moods, { showNone = false } = {}) {
   const tags = moodTags(moods);
   if (!tags.length && !showNone) return "";
-  const badges = tags.map((tag) => `<span class="style-tag${tag.className}">${esc(tag.label)}</span>`).join("");
-  const none = moods.known ? '<span style="color:var(--text-muted);font-size:12px">None</span>' : "";
-  return `<div class="inspector-block"><h4>Moods</h4><div>${badges || none}</div></div>`;
+  const badges = tags.map((tag) => `<span class="inspect-chip${tag.className}">${esc(tag.label)}</span>`).join("");
+  const none = moods.known ? '<span class="inspect-empty">None</span>' : "";
+  return sectionHtml({ title: "Moods", body: badges ? `<div class="inspect-chips">${badges}</div>` : none });
 }
 
 export function buildFeedbackHtml(values) {
@@ -160,7 +162,7 @@ export function buildFeedbackHtml(values) {
       </div>`;
     });
   if (!rows.length) return "";
-  return `<div class="inspector-block"><h4>Feedback</h4><div class="feedback-card">${rows.join("")}</div></div>`;
+  return sectionHtml({ title: "Feedback", body: rows.join("") });
 }
 
 const STATE_OP_LABELS = { add: "Added", revise: "Changed", retire: "Retired" };
@@ -175,7 +177,7 @@ function stateFragmentLabel(fragmentId, fallback) {
 
 function stateRowHtml(label, op, text, { source = "agent", detail = "" } = {}) {
   const who = STATE_SOURCE_BADGES[source];
-  const badge = who ? ` <span class="state-badge">${who}</span>` : "";
+  const badge = who ? ` <span class="inspect-chip pill">${who}</span>` : "";
   const body = text ? `: ${esc(String(text))}` : "";
   const why = detail ? `<div class="state-change-detail">${esc(detail)}</div>` : "";
   return `<div class="feedback-row${who ? " user-note" : ""}">
@@ -191,7 +193,7 @@ function stateRowHtml(label, op, text, { source = "agent", detail = "" } = {}) {
  */
 export function buildStateHtml(state) {
   const list = (key) => (Array.isArray(state?.[key]) ? state[key] : []);
-  const card = (items, row, cls = "") => `<div class="feedback-card${cls}">${items.map(row).join("")}</div>`;
+  const rows = (items, row) => items.map(row).join("");
   const blocks = [];
   const changes = list("changes");
   if (changes.length) {
@@ -199,7 +201,7 @@ export function buildStateHtml(state) {
       stateRowHtml(stateFragmentLabel(c.fragment_id, c.fragment_label), STATE_OP_LABELS[c.op] || c.op, c.text, {
         source: c.source,
       });
-    blocks.push(card(changes, row));
+    blocks.push(rows(changes, row));
   }
   const rejected = list("rejected");
   if (rejected.length) {
@@ -207,7 +209,7 @@ export function buildStateHtml(state) {
       stateRowHtml(stateFragmentLabel(r.fragment_id), STATE_ATTEMPT_LABELS[r.op] || r.op || "Rejected", r.text, {
         detail: r.detail || r.reason,
       });
-    blocks.push(`<h4>Rejected</h4>${card(rejected, row, " state-rejected")}`);
+    blocks.push(`<div class="inspect-subhead">Rejected</div><div class="state-rejected">${rows(rejected, row)}</div>`);
   }
   const dropped = list("dropped");
   if (dropped.length) {
@@ -217,36 +219,35 @@ export function buildStateHtml(state) {
         d.op === "retire" ? "Retire" : "Change",
         d.text,
       );
-    blocks.push(`<h4>Corrections not carried over</h4>
+    blocks.push(`<div class="inspect-subhead">Corrections not carried over</div>
        <div class="state-note">They changed entries from the discarded reply.</div>
-       ${card(dropped, row, " state-rejected")}`);
+       <div class="state-rejected">${rows(dropped, row)}</div>`);
   }
-  return blocks.length ? `<div class="inspector-block"><h4>State (this reply)</h4>${blocks.join("")}</div>` : "";
+  return blocks.length ? sectionHtml({ title: "State (this reply)", body: blocks.join("") }) : "";
 }
 
-function collapsibleHtml(key, title, body) {
-  return `<details class="inspector-block" data-inspect-section="${key}"${openAttr(key)}>
-    <summary class="reasoning-summary">
-      <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
-      <h4>${title}</h4>
-    </summary>
-    <div class="injection-box">${esc(body)}</div>
-  </details>`;
+// Raw text the turn sent or received, shown as sent.
+function rawSectionHtml(key, title, text, meta = "") {
+  return sectionHtml({ key, open: isOpen(key), title, meta, body: `<div class="inspect-raw">${esc(text)}</div>` });
 }
 
 export function toolCallsHtml(toolCalls) {
   if (!toolCalls?.length) return "";
-  return collapsibleHtml("tool_calls", "Tool Calls", toolCalls.map((c) => JSON.stringify(c)).join("\n\n"));
+  const text = toolCalls.map((c) => JSON.stringify(c)).join("\n\n");
+  return rawSectionHtml("tool_calls", "Tool Calls", text, String(toolCalls.length));
 }
 
 export function injectionHtml(injection) {
-  return injection ? collapsibleHtml("injection_block", "Injection Block", injection) : "";
+  return injection ? rawSectionHtml("injection_block", "Injection Block", injection) : "";
 }
 
 export function latencyHtml(latency) {
   if (!latency) return "";
-  return `<div class="inspector-block inspector-latency"><h4>Agent Latency</h4>
-    <div style="font-size:12px;color:var(--text-secondary)">${latency}ms</div></div>`;
+  return sectionHtml({
+    title: "Agent Latency",
+    meta: `${latency.toLocaleString()} ms`,
+    className: "inspector-latency",
+  });
 }
 
 // ── The in-chat blocks ──
@@ -269,8 +270,8 @@ export function reasoningBlockHtml(view) {
   const tabs = shown.map((i) => {
     const label = esc(REASONING_PASSES[i].label);
     return shown.length > 1
-      ? `<button type="button" class="msg-inspect-pass${i === selected ? " active" : ""}" data-inspect-pass="${i}">${label}</button>`
-      : `<span class="msg-inspect-pass active">${label}</span>`;
+      ? `<button type="button" class="inspect-chip${i === selected ? " active" : ""}" data-inspect-pass="${i}">${label}</button>`
+      : `<span class="inspect-chip active">${label}</span>`;
   });
   // The streaming reply's box is the one reasoning deltas append to.
   const boxId = view.live ? ' id="reasoning-box"' : "";
@@ -280,8 +281,8 @@ export function reasoningBlockHtml(view) {
       <span class="msg-inspect-title">Reasoning</span>
     </summary>
     <div class="msg-reasoning-body">
-      <div class="msg-inspect-passes">${tabs.join("")}</div>
-      <div class="reasoning-box"${boxId}>${esc(view.reasoning[REASONING_PASSES[selected].key])}</div>
+      <div class="inspect-chips">${tabs.join("")}</div>
+      <div class="inspect-raw"${boxId}>${esc(view.reasoning[REASONING_PASSES[selected].key])}</div>
     </div>
   </details>`;
 }
@@ -304,10 +305,10 @@ export function inspectorBlockHtml(view) {
   const chips = [
     ...moodTags(view.moods)
       .filter((tag) => tag.active)
-      .map((tag) => `<span class="style-tag active">${esc(tag.label)}</span>`),
+      .map((tag) => `<span class="inspect-chip active">${esc(tag.label)}</span>`),
     ...decisionOutcomes(view.decisions, { stored }).map(
       ({ label, outcome }) =>
-        `<span class="msg-inspect-chip" title="${escAttr(`${label}: ${outcome}`)}">${esc(outcome)}</span>`,
+        `<span class="inspect-chip" title="${escAttr(`${label}: ${outcome}`)}">${esc(outcome)}</span>`,
     ),
   ];
   return `<details class="msg-inspect" data-inspect-section="inline"${openAttr("inline")}>

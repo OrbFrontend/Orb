@@ -213,4 +213,4 @@ body {
 
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }
-.message .msg-inspect { background: rgba(7,36,48,0.55) !important; }
+.message .msg-inspect { background: rgba(7,36,48,0.55) !important; border-color: rgba(67,214,228,0.14) !important; }

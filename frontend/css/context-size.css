@@ -1,28 +1,3 @@
-.ctx-section {
-  border: none;
-}
-.ctx-summary {
-  list-style: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 0;
-  user-select: none;
-}
-.ctx-summary::-webkit-details-marker { display: none; }
-.ctx-section[open] .reasoning-summary-arrow { transform: rotate(90deg); }
-.ctx-rows { margin-top: 8px; }
-.ctx-total {
-  font-weight: 600;
-  font-size: 13px;
-  margin-bottom: 0;
-}
-.ctx-total .ctx-msgs {
-  font-weight: 400;
-  font-size: 11px;
-  color: var(--text-muted);
-}
 .ctx-row {
   display: flex;
   align-items: center;

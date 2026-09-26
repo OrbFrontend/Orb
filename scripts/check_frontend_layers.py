@@ -84,6 +84,9 @@ LAYERS = {
     "modal.js": 3,
     "panels.js": 3,
     "chips.js": 3,
+    # The Inspector's section shell, shared by the panel, the in-chat blocks
+    # and the Decisions section beneath both.
+    "inspector_section.js": 3,
     "audio_player.js": 3,
     "audio_transport.js": 3,
     # L4 platform (workflow framework + document/editor primitives).

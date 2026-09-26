@@ -27,6 +27,7 @@
   --accent-muted:rgba(196,100,24,0.15);
 
   --red:#c03020;
+  --warning:#6e4e00;
 
   --font-prose:'Fixedsys Excelsior','Lucida Console',monospace;
   --font-ui:'Fixedsys Excelsior','Lucida Console',monospace;
@@ -196,6 +197,10 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   background: #cdd6e2 !important;
   border-color: #404040 !important;
 }
+.message .msg-inspect {
+  border: 1px solid #404040 !important;
+  box-shadow: inset 1px 1px 0 #f4f2ee, 2px 2px 0 rgba(0,0,0,0.25) !important;
+}
 
 .message .msg-body pre,
 .message .msg-body code.inline-code {
@@ -218,15 +223,6 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
 .phrase-group-count {
   color: #663101 !important;
   font-weight: normal !important;
-}
-
-.injection-box,
-.reasoning-box {
-  background: #ffffff !important;
-  border: 1px solid !important;
-  border-color: #606060 #f4f2ee #f4f2ee #606060 !important;
-  color: #1a1a1a !important;
-  font-size: 12px !important;
 }
 
 .toast {

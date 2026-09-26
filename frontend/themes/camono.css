@@ -56,6 +56,8 @@ textarea::-webkit-resizer { background: transparent; }
   background: var(--bg-elevated) !important;
   border-color: var(--border-light) !important;
 }
+/* The reply's Inspector block keeps the bubble's open sides and bottom rule. */
+.message .msg-inspect { border-width: 0 0 1px !important; }
 
 #chat-messages {
   padding: 1 !important;

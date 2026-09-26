@@ -77,20 +77,20 @@ test("the summary line shows active moods and decision values, not latency", () 
     }),
   );
   const summary = html.slice(html.indexOf("<summary"), html.indexOf("</summary>"));
-  assert.match(summary, /style-tag active">Grounded</);
+  assert.match(summary, /inspect-chip active">Grounded</);
   assert.doesNotMatch(summary, /Tense/);
   // The chip shows the value alone; the hover names the decision.
-  assert.match(summary, /class="msg-inspect-chip" title="Outcome: [^"]+">(?!Outcome)[^<]+</);
+  assert.match(summary, /class="inspect-chip" title="Outcome: [^"]+">(?!Outcome)[^<]+</);
   assert.doesNotMatch(summary, /15\.1s|15060/);
 });
 
 test("reasoning gets its own block, not a section of the Inspector's", () => {
   const log = view({ reasoning_writer: "draft", agent_latency_ms: 900 });
-  assert.doesNotMatch(inspectorBlockHtml(log), /Reasoning|reasoning-box/);
+  assert.doesNotMatch(inspectorBlockHtml(log), /Reasoning|id="reasoning-box"/);
   const html = reasoningBlockHtml(log);
   assert.match(html, /^<details class="msg-inspect msg-reasoning" data-inspect-section="inline_reasoning" open>/);
   assert.match(html, /class="msg-inspect-title">Reasoning</);
-  assert.match(html, /class="reasoning-box">draft</);
+  assert.match(html, /class="inspect-raw">draft</);
 });
 
 test("only the passes that wrote reasoning get a tab, and the last one is shown", () => {
@@ -98,7 +98,7 @@ test("only the passes that wrote reasoning get a tab, and the last one is shown"
   assert.match(html, /data-inspect-pass="0"/);
   assert.match(html, /data-inspect-pass="2"/);
   assert.doesNotMatch(html, /data-inspect-pass="1"/);
-  assert.match(html, /class="reasoning-box">tighten</);
+  assert.match(html, /class="inspect-raw">tighten</);
   // A saved reply's box is not the streaming one.
   assert.doesNotMatch(html, /id="reasoning-box"/);
 });
@@ -176,7 +176,7 @@ test("the streaming reply's Reasoning block opens the running pass's box for the
   // The Inspector block fills in; no reasoning box holds text, so it reports none.
   S.lastDirectorData = { active_moods: ["tense"], agent_latency_ms: 900, injection_block: "", tool_calls: [] };
   assert.equal(renderLiveInspector(), false);
-  assert.match(slot.innerHTML, /style-tag active">Tense</);
+  assert.match(slot.innerHTML, /inspect-chip active">Tense</);
   assert.equal(slot.querySelector("#reasoning-box"), null);
   S.isStreaming = false;
   S.streamingBodyEl = null;

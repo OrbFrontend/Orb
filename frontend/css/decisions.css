@@ -208,9 +208,8 @@
 
 /* ── Inspector ────────────────────────────────────────────────────────────── */
 
-.decision-block-body { margin-top: 8px; padding-left: 8px; }
-.decision-block-body > .decision-eval { margin-bottom: 6px; }
-.decision-block-body > .decision-eval[open] { margin-bottom: 12px; }
+.decision-block .inspector-body > .decision-eval { margin-bottom: 4px; }
+.decision-block .inspector-body > .decision-eval[open] { margin-bottom: 8px; }
 
 .decision-block :is(.decision-eval, .decision-state) > summary {
   list-style: none;
@@ -234,7 +233,7 @@
 
 .decision-eval-name {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--text-primary);
 }
 
@@ -247,21 +246,6 @@
 
 .decision-eval-body { padding: 4px 0 0 16px; }
 
-.decision-chip {
-  display: inline-block;
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .5px;
-  border-radius: 999px;
-  padding: 1px 6px;
-  border: 1px solid;
-}
-
-.decision-chip-resolved { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow); }
-.decision-chip-failed { color: var(--dec-warn); border-color: var(--dec-warn); }
-.decision-chip-skipped { color: var(--text-muted); border-color: var(--border); }
-
 .decision-reason {
   font-size: 11px;
   line-height: 1.45;
@@ -273,14 +257,11 @@
   font-size: 11px;
   line-height: 1.5;
   color: var(--text-secondary);
-  border-left: 2px solid var(--accent-dim);
-  padding: 1px 0 1px 9px;
   margin: 6px 0;
   white-space: pre-wrap;
 }
 
 .decision-guidance-empty {
-  border-left-color: var(--border);
   color: var(--text-muted);
   font-style: italic;
 }
@@ -327,12 +308,8 @@
   color: var(--text-muted);
 }
 
-.decision-state .injection-box { margin-top: 6px; }
-
 .decision-skipped {
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
+  margin-top: 8px;
 }
 
 .decision-skipped-row {

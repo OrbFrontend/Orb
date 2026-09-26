@@ -4,6 +4,7 @@
   --text-primary:#1a2b3c;--text-secondary:#3a7a48;--text-muted:#6a9a72;
   --accent:#c8243c;--accent-dim:#9a1828;--accent-glow:rgba(200,36,60,0.12);
   --red:#c8243c;
+  --warning:#8a6200;
   --font-prose:'Playfair Display',Georgia,'Palatino Linotype',Palatino,serif;--font-ui:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
   --font-mono:'Menlo','Consolas','Courier New',monospace;--radius:6px;
   --font-prose-size:16px;

@@ -4,6 +4,7 @@ import { renderTurnError } from "./chat_error.js";
 import { reconcileChildren } from "./dom_reconcile.js";
 import { sceneEmptyStateHtml, speakerAvatarCell, speakerLabel } from "./group_cast.js";
 import { CHEVRON_LEFT_ICON, CHEVRON_RIGHT_ICON, EDIT_ICON_PATHS } from "./icons.js";
+import { sectionHtml } from "./inspector_section.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
 import { ensureInspections, inlineInspectorHtml, setInlineInspectorRepaint } from "./message_inspector.js";
@@ -538,7 +539,7 @@ export function renderContextSize() {
   if (!el) return;
   const data = S.contextSize;
   if (!data) {
-    el.outerHTML = `<div class="inspector-block" id="inspector-context-size"><div style="color:var(--text-muted);font-size:12px;">—</div></div>`;
+    el.outerHTML = sectionHtml({ title: "Context", meta: "—", id: "inspector-context-size" });
     return;
   }
   const total = data.total_tokens_est;
@@ -555,12 +556,12 @@ export function renderContextSize() {
       </div>`;
     })
     .join("");
-  const openAttr = S.contextSizeOpen ? " open" : "";
-  el.outerHTML = `<details class="inspector-block ctx-section" id="inspector-context-size" data-inspect-section="context_size"${openAttr}>
-    <summary class="ctx-summary">
-      <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
-      <span class="ctx-total">~${total.toLocaleString()} tokens <span class="ctx-msgs">(${data.message_count} msgs)</span></span>
-    </summary>
-    <div class="ctx-rows">${rows}</div>
-  </details>`;
+  el.outerHTML = sectionHtml({
+    key: "context_size",
+    open: S.contextSizeOpen,
+    id: "inspector-context-size",
+    title: "Context",
+    meta: `~${total.toLocaleString()} tok · ${data.message_count} msgs`,
+    body: rows,
+  });
 }

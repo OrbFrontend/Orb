@@ -24,6 +24,7 @@
   --aero-shadow:rgba(31,91,130,0.22);
 
   --red:#e0573f;
+  --warning:#8f5c00;
 
   --font-prose:'Segoe UI','Frutiger','Helvetica Neue',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
   --font-ui:'Segoe UI','Frutiger','Helvetica Neue',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
@@ -332,4 +333,9 @@ body {
 
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }
-.message .msg-inspect { background: linear-gradient(180deg, #ffffff, #f5fbfe) !important; }
+.message .msg-inspect {
+  background: linear-gradient(180deg, #ffffff, #f5fbfe) !important;
+  border: 1px solid #abd8eb !important;
+  border-radius: 13px !important;
+  box-shadow: inset 0 1px 0 #ffffff, 0 2px 4px rgba(40,110,160,0.14) !important;
+}

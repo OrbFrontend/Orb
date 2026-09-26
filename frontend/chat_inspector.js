@@ -1,7 +1,7 @@
 import { api } from "./api.js";
 import { renderContextSize, renderMessages } from "./chat_core.js";
 import { currentDecisionsHtml } from "./chat_decisions.js";
-import { CHEVRON_RIGHT_ICON } from "./icons.js";
+import { sectionHtml } from "./inspector_section.js";
 import {
   buildFeedbackHtml,
   buildStateHtml,
@@ -114,32 +114,30 @@ function _buildReasoningHtml() {
 
   const selectedPass = REASONING_PASSES[selectedIdx];
   const currentText = S[`reasoning${selectedPass.key.charAt(0).toUpperCase()}${selectedPass.key.slice(1)}`] || "";
-  const openAttr = S.reasoningOpen ? " open" : "";
 
   const key = selectedPass.key;
   const prefillHtml =
     _passTextMode(key) && S.reasoningEnabled[key] !== false
-      ? `<textarea class="reasoning-box reasoning-prefill" id="reasoning-prefill" data-pass="${key}" rows="3"
+      ? `<textarea class="reasoning-prefill" id="reasoning-prefill" data-pass="${key}" rows="3"
          placeholder="Prefill this pass's reasoning… (macros resolved)"
        >${esc(S.reasoningPrefill[key] || "")}</textarea>`
       : "";
 
   // With the Inspector in the chat, the text lives on each reply.
-  const boxHtml = S.inspectorInline ? "" : `<div class="reasoning-box" id="reasoning-box">${esc(currentText)}</div>`;
-  return `<details class="inspector-block reasoning-section" id="reasoning-section" data-inspect-section="reasoning"${openAttr}>
-    <summary class="reasoning-summary">
-      <span class="reasoning-summary-arrow">${CHEVRON_RIGHT_ICON}</span>
-      <h4 style="margin:0;display:inline">Reasoning</h4>
-    </summary>
-    <div style="margin-top:8px">
-      <div class="reasoning-stepper">
+  const boxHtml = S.inspectorInline ? "" : `<div class="inspect-raw" id="reasoning-box">${esc(currentText)}</div>`;
+  return sectionHtml({
+    key: "reasoning",
+    open: S.reasoningOpen,
+    id: "reasoning-section",
+    className: "reasoning-section",
+    title: "Reasoning",
+    body: `<div class="reasoning-stepper">
         ${dotsHtml}
         <span class="reasoning-pass-label">${esc(selectedPass.label)}</span>
       </div>
       ${boxHtml}
-      ${prefillHtml}
-    </div>
-  </details>`;
+      ${prefillHtml}`,
+  });
 }
 
 function _passTextMode(key) {
@@ -219,7 +217,7 @@ function _buildWorkflowReasoningHtml() {
       return `<div class="workflow-card workflow-pipeline-card" data-pipeline-id="${escAttr(pipeline.id)}">
         <h4>${esc(pipeline.label || pipeline.id)}</h4>
         <div class="reasoning-stepper">${dotsHtml}</div>
-        <div class="reasoning-box" id="reasoning-box-${escAttr(pipeline.id)}" data-pass-id="${escAttr(selectedId)}">${esc(text)}</div>
+        <div class="inspect-raw" id="reasoning-box-${escAttr(pipeline.id)}" data-pass-id="${escAttr(selectedId)}">${esc(text)}</div>
       </div>`;
     })
     .join("");

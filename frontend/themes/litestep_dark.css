@@ -195,6 +195,10 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   background: #333e4e !important;
   border-color: #101010 !important;
 }
+.message .msg-inspect {
+  border: 1px solid #101010 !important;
+  box-shadow: inset 1px 1px 0 #5a5a56, 2px 2px 0 rgba(0,0,0,0.45) !important;
+}
 
 .message .msg-body pre,
 .message .msg-body code.inline-code {
@@ -215,15 +219,6 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
 }
 
 .phrase-group-count { font-weight: normal !important; }
-
-.injection-box,
-.reasoning-box {
-  background: #1c1c1a !important;
-  border: 1px solid !important;
-  border-color: #181818 #5a5a56 #5a5a56 #181818 !important;
-  color: #e4e2dc !important;
-  font-size: 12px !important;
-}
 
 .toast {
   background: #4a4630 !important;

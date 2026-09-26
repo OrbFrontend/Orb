@@ -32,6 +32,7 @@
   --accent-muted:rgba(127,174,99,0.14);
 
   --red:#c2503f;
+  --warning:#8a5a0a;
 
   --font-prose:'Fira Code','JetBrains Mono','Cascadia Code',ui-monospace,monospace;
   --font-ui:'Fira Code','JetBrains Mono','Cascadia Code',ui-monospace,monospace;
@@ -321,7 +322,7 @@ textarea:focus, select:focus, #chat-input:focus {
 .modal h2, .modal h3 { color: var(--apricot-deep) !important; }
 .tab.active { color: var(--accent) !important; border-bottom-color: var(--mint-deep) !important; }
 
-.injection-box, .reasoning-box, #doc-help pre {
+#doc-help pre {
   background: var(--bg-deep) !important;
   border: 2px solid var(--ink) !important;
   border-radius: 12px !important;
@@ -432,4 +433,4 @@ textarea:focus, select:focus, #chat-input:focus {
 
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }
-.message .msg-inspect { border: 2px solid var(--ink) !important; box-shadow: var(--shadow-card) !important; }
+.message .msg-inspect { border: 2px solid var(--ink) !important; border-radius: 16px !important; box-shadow: var(--shadow-card) !important; }
