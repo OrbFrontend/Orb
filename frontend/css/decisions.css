@@ -40,24 +40,20 @@
 .decision-status { color: var(--dec-warn); }
 .decision-problem { color: var(--red); }
 
+/* One grid for every question type. The key column is wide enough for the
+   add button under it, and for a name input with its remove button beside it. */
 .decision-options {
-  --dec-key-col: 64px;
+  --dec-key-col: 120px;
   margin-bottom: 10px;
 }
 
-/* Wide enough for the name input and the add button that sits under it. */
-.decision-options-editable { --dec-key-col: 104px; }
-
 .decision-option-head,
-.decision-option-row {
+.decision-option-row,
+.decision-options-foot {
   display: grid;
   grid-template-columns: var(--dec-key-col) 1fr 1fr;
   gap: 8px;
   align-items: start;
-}
-
-.decision-options-editable :is(.decision-option-head, .decision-option-row) {
-  grid-template-columns: var(--dec-key-col) 1fr 1fr 22px;
 }
 
 .decision-option-head,
@@ -82,33 +78,36 @@
 
 .decision-option-row textarea { width: 100%; overflow: hidden; }
 
+/* A placeholder that wraps would size an empty box taller than its row. */
+.decision-option-row textarea::placeholder { white-space: nowrap; }
+
+/* As tall as a one-line box, so the key centers on the first line beside it. */
+.decision-key-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 32px;
+}
+
 .decision-key-fixed {
-  display: inline-block;
+  flex: 1;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-secondary);
-  padding-top: 9px;
 }
 
-.decision-key-input { width: 100%; font-family: var(--font-mono); font-size: 11px; }
+.decision-key-input { flex: 1; min-width: 0; }
 
 .decision-row-remove {
   --btn-square-size: 22px;
-  margin-top: 5px;
+  flex: none;
   color: var(--text-muted);
 }
 
 .decision-row-remove:hover { color: var(--red); }
 
-.decision-options-foot {
-  display: grid;
-  grid-template-columns: var(--dec-key-col) 1fr 1fr;
-  gap: 8px;
-  align-items: start;
-  margin-top: 2px;
-}
-
-.decision-options-editable .decision-options-foot { grid-template-columns: var(--dec-key-col) 1fr 1fr 22px; }
+.decision-options-foot { margin-top: 2px; }
 
 .decision-options-foot > .btn {
   grid-column: 1;
@@ -149,20 +148,18 @@
   .decision-option-head { display: none; }
 
   .decision-options .decision-option-row {
-    grid-template-columns: 1fr auto;
-    gap: 4px 8px;
+    grid-template-columns: 1fr;
+    gap: 4px;
     padding: 8px 0 10px;
     margin: 0;
     border-top: 1px solid var(--border);
   }
 
-  .decision-option-row > :first-child { grid-row: 1; grid-column: 1; align-self: center; }
-  .decision-option-row > :last-child:not(textarea) { grid-row: 1; grid-column: 2; margin-top: 0; }
-  .decision-option-row > :is(textarea, .decision-cell-label) { grid-column: 1 / -1; }
   .decision-cell-label { display: block; margin-top: 4px; }
 
-  .decision-key-fixed { padding-top: 0; font-weight: 600; color: var(--text-primary); }
-  .decision-key-input { max-width: 200px; }
+  .decision-key-cell { justify-content: space-between; min-height: 0; }
+  .decision-key-fixed { font-weight: 600; color: var(--text-primary); }
+  .decision-key-input { flex: 0 1 200px; }
   .decision-options .decision-options-foot {
     display: flex;
     align-items: center;

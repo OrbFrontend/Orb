@@ -157,7 +157,7 @@ const COPY = {
     question: "a question the Judge answers by picking one option below",
     questionPlaceholder: "Which of these best describes how {{char}} takes the current request?",
     outcome: "Option",
-    criterionPlaceholder: "What picking this option means",
+    criterionPlaceholder: "What this option means",
     note: 'Tip: for a "none of these" case, put that option first with empty guidance and resolve with "First option gates, else random". When the Judge finds it likeliest, nothing is rolled or injected.',
   },
   score: {
@@ -260,6 +260,7 @@ function _innerHtml() {
 function _optionsHtml(config, type, copy) {
   const options = _draft.options;
   const editable = type !== "noul";
+  const removable = editable && options.length > 2;
   const max = type === "choice" ? config.choice?.max_options : config.score?.max_levels;
   const criterionHead = `What it means ${_hint("- to the Judge")}`;
   const outputHead = `What the story does ${_hint("- injected")}`;
@@ -267,22 +268,22 @@ function _optionsHtml(config, type, copy) {
     .map(
       (option, index) => `
       <div class="decision-option-row">
-        ${
-          type === "choice"
-            ? `<input class="decision-key-input" data-opt="${index}" data-field="key" value="${escAttr(option.key)}" placeholder="name" aria-label="Option name">`
-            : `<span class="decision-key-fixed">${esc(outcomeLabel(type, option.key))}</span>`
-        }
+        <div class="decision-key-cell">
+          ${
+            type === "choice"
+              ? `<input class="decision-key-input" data-opt="${index}" data-field="key" value="${escAttr(option.key)}" placeholder="name" aria-label="Option name">`
+              : `<span class="decision-key-fixed">${esc(outcomeLabel(type, option.key))}</span>`
+          }
+          ${
+            removable
+              ? `<button type="button" class="btn-icon btn-square decision-row-remove" data-dec-act="del-option" data-index="${index}" title="Remove" aria-label="Remove this outcome">${CLOSE_ICON}</button>`
+              : ""
+          }
+        </div>
         <span class="decision-cell-label" aria-hidden="true">${criterionHead}</span>
         <textarea rows="2" data-opt="${index}" data-field="text" aria-label="What it means" placeholder="${escAttr(copy.criterionPlaceholder)}">${esc(option.text)}</textarea>
         <span class="decision-cell-label" aria-hidden="true">${outputHead}</span>
-        <textarea rows="2" data-opt="${index}" data-field="output" aria-label="What the story does" placeholder="What the story does on hit">${esc(option.output)}</textarea>
-        ${
-          !editable
-            ? ""
-            : options.length > 2
-              ? `<button type="button" class="btn-icon btn-square decision-row-remove" data-dec-act="del-option" data-index="${index}" title="Remove" aria-label="Remove this outcome">${CLOSE_ICON}</button>`
-              : "<span></span>"
-        }
+        <textarea rows="2" data-opt="${index}" data-field="output" aria-label="What the story does" placeholder="What happens on a hit">${esc(option.output)}</textarea>
       </div>`,
     )
     .join("");
@@ -292,7 +293,7 @@ function _optionsHtml(config, type, copy) {
       : "";
   const note = copy.note ? _hint(copy.note) : "";
   return `
-    <div class="decision-options${editable ? " decision-options-editable" : ""}">
+    <div class="decision-options">
       <div class="decision-option-head">
         <span>${esc(copy.outcome)}</span>
         <span>${criterionHead}</span>
