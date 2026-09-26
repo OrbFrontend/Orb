@@ -444,6 +444,19 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
   user-select: none;
 }
 
+/* A chip-high strut, so a summary without chips is as tall as one with them.
+   It mirrors .inspect-chip's font, padding and border; the margin cancels the gap. */
+.msg-inspect > summary::after {
+  content: "\200b";
+  width: 0;
+  margin-left: -8px;
+  padding-block: 4px;
+  border-block: 1px solid transparent;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-box: trim-both cap alphabetic;
+}
+
 .msg-inspect > summary::-webkit-details-marker { display: none; }
 .msg-inspect[open] > summary .reasoning-summary-arrow { transform: rotate(90deg); }
 
