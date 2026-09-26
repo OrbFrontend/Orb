@@ -1,6 +1,7 @@
 // Decision fragment editor. Server config supplies its options and limits.
 import { decisionConfig, outcomeLabel } from "./decisions.js";
-import { CLOSE_ICON } from "./icons.js";
+import { initDragReorder } from "./drag_reorder.js";
+import { CLOSE_ICON, GRIP_ICON } from "./icons.js";
 import { esc, escAttr } from "./utils.js";
 
 // Draft fields for the open fragment. Guidance mirrors the criterion until edited.
@@ -144,11 +145,22 @@ export function decisionSectionHtml(fieldType) {
   return `<div id="decision-section" class="decision-section"${hidden}>${_innerHtml()}</div>`;
 }
 
+// Sections already wired for row dragging. Repaints swap the section's
+// contents, not the section, so its listeners outlive them.
+const _dragSections = new WeakSet();
+
 export function repaintDecisionSection() {
   const root = document.getElementById("decision-section");
   if (!root) return;
   root.innerHTML = _innerHtml();
   fitDecisionTextareas(root);
+  if (_dragSections.has(root)) return;
+  _dragSections.add(root);
+  initDragReorder(root, {
+    itemSelector: ".decision-option-row",
+    handleSelector: "[data-dec-drag]",
+    onReorder: _reorderOptions,
+  });
 }
 
 const COPY = {
@@ -279,6 +291,11 @@ function _optionsHtml(config, type, copy) {
       <div class="decision-option-row">
         <div class="decision-key-cell">
           ${
+            editable
+              ? `<button type="button" class="decision-drag-handle" data-dec-drag title="Drag, or use the arrow keys, to reorder" aria-label="Reorder this outcome">${GRIP_ICON}</button>`
+              : ""
+          }
+          ${
             type === "choice"
               ? `<input class="decision-key-input" data-opt="${index}" data-field="key" value="${escAttr(option.key)}" placeholder="name" aria-label="Option name">`
               : `<span class="decision-key-fixed">${esc(outcomeLabel(type, option.key))}</span>`
@@ -344,6 +361,21 @@ function _retype(type) {
     key: _fixedKey(type, index),
   }));
   _draft.resolution = _policiesFor(type)[0] || "";
+}
+
+// Rows still carry their pre-drag indices, so read the form first, then take
+// the options in the rows' new order. Score levels are positional: a moved
+// level takes the key of the place it lands on.
+function _reorderOptions(root) {
+  const rows = [...root.querySelectorAll(".decision-option-row")];
+  // The repaint replaces the handle an arrow-key reorder is still focused on.
+  const focused = rows.findIndex((row) => row.contains(document.activeElement));
+  _mutate(() => {
+    const options = rows.map((row) => _draft.options[Number(row.querySelector("[data-opt]").dataset.opt)]);
+    _draft.options =
+      _draft.type === "score" ? options.map((option, index) => ({ ...option, key: String(index) })) : options;
+  });
+  if (focused >= 0) root.querySelectorAll("[data-dec-drag]")[focused]?.focus();
 }
 
 function _inSection(el) {

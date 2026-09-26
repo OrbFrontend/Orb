@@ -4,12 +4,12 @@
 // an author cannot see going wrong: an explicit null is the only way to clear a
 // decision column, and the outcome space is per type.
 import assert from "node:assert/strict";
-import { beforeEach, test } from "node:test";
+import { beforeEach, mock, test } from "node:test";
 import { JSDOM } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><body></body>", { url: "https://orb.invalid/" });
 globalThis.window = dom.window;
-for (const key of ["document", "Node", "Element", "HTMLElement", "Event", "MouseEvent"]) {
+for (const key of ["document", "Node", "Element", "HTMLElement", "Event", "MouseEvent", "KeyboardEvent"]) {
   globalThis[key] = dom.window[key];
 }
 
@@ -188,6 +188,62 @@ test("deleting a primary outcome drops it and keeps criteria and guidance aligne
   const fields = readDecisionFields();
   assert.deepEqual(Object.keys(fields.decision_criteria), ["a", "c"]);
   assert.deepEqual(fields.decision_outputs, { a: "", c: "" });
+});
+
+// Reorder through the drag handle's keyboard path: same commit as a drop.
+function moveRow(index, key) {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const handle = document.querySelectorAll("[data-dec-drag]")[index];
+    handle.focus();
+    handle.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true }));
+    mock.timers.tick(1000);
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+test("dragging a choice moves its name, criterion and guidance together", () => {
+  mount({
+    ...CHOICE_FRAGMENT,
+    decision_criteria: { a: "A.", b: "B.", c: "C." },
+    decision_outputs: { a: "do a", b: "do b", c: "do c" },
+  });
+  repaintDecisionSection();
+  // An unsaved edit on the moved row rides along with it.
+  type('[data-opt="2"][data-field="text"]', "C, edited.");
+  moveRow(2, "ArrowUp");
+
+  const fields = readDecisionFields();
+  // Order is meaning for choice: "gated" reads the first option.
+  assert.deepEqual(Object.keys(fields.decision_criteria), ["a", "c", "b"]);
+  assert.equal(fields.decision_criteria.c, "C, edited.");
+  assert.equal(fields.decision_outputs.c, "do c");
+  // Focus stays on the moved row's handle, so the arrows can keep moving it.
+  assert.equal(document.activeElement, document.querySelectorAll("[data-dec-drag]")[1]);
+});
+
+test("dragging a score level renumbers the levels by their new place", () => {
+  mount({
+    ...NOUL_FRAGMENT,
+    decision_type: "score",
+    decision_criteria: ["None", "Some", "A lot"],
+    decision_outputs: { 0: "a", 1: "b", 2: "c" },
+    decision_resolution: "nearest",
+    decision_threshold: null,
+  });
+  repaintDecisionSection();
+  moveRow(0, "ArrowDown");
+
+  const fields = readDecisionFields();
+  assert.deepEqual(fields.decision_criteria, ["Some", "None", "A lot"]);
+  assert.deepEqual(fields.decision_outputs, { 0: "b", 1: "a", 2: "c" });
+});
+
+test("yes/no outcomes have no drag handle: true and false are not an order", () => {
+  mount(NOUL_FRAGMENT);
+  repaintDecisionSection();
+  assert.equal(document.querySelector("[data-dec-drag]"), null);
 });
 
 test("retyping the primary re-picks a policy its own type allows", () => {
