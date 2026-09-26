@@ -61,8 +61,6 @@
 }
 
 .cast-manage {
-  display: flex;
-  align-items: center;
   border: 1px dashed var(--border);
   background: none;
   color: var(--text-muted);
@@ -256,12 +254,9 @@
 }
 
 .cast-row-summary-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   min-width: 15px;
-  height: 15px;
-  padding: 0 4px;
+  padding: calc((15px - 1cap) / 2) 4px;
+  text-align: center;
   border-radius: 8px;
   background: var(--accent);
   color: var(--bg-deep);
@@ -305,13 +300,10 @@
 }
 
 .cast-manage-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   min-width: 16px;
-  height: 16px;
   margin-left: 6px;
-  padding: 0 4px;
+  padding: calc((16px - 1cap) / 2) 4px;
+  text-align: center;
   border-radius: 8px;
   background: var(--accent);
   color: var(--bg-deep);

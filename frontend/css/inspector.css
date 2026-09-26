@@ -150,8 +150,7 @@ details.inspector-block[open] > summary .reasoning-summary-arrow { transform: ro
 .inspect-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 
 .inspect-chip {
-  display: inline-block;
-  padding: 1px 6px;
+  padding: 4px 6px;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-secondary);
@@ -159,7 +158,6 @@ details.inspector-block[open] > summary .reasoning-summary-arrow { transform: ro
   border: 1px solid var(--border);
   border-radius: 3px;
   white-space: nowrap;
-  vertical-align: middle;
 }
 
 button.inspect-chip { cursor: pointer; }
@@ -179,7 +177,7 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
 
 /* A status: small, uppercase, rounded. */
 .inspect-chip.pill {
-  padding: 0 6px;
+  padding: 3px 6px;
   font-family: inherit;
   font-size: 9px;
   font-weight: 700;
@@ -458,26 +456,12 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
   color: var(--text-muted);
 }
 
-/* A zero-width chip strut, so the title shares one chip row's height and baseline. */
-.msg-inspect-title::before {
-  content: "\a0";
-  display: inline-block;
-  width: 0;
-  padding: 1px 0;
-  border: solid transparent;
-  border-width: 1px 0;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: normal;
-  letter-spacing: 0;
-}
-
 /* The collapsed line; the open body shows it all, so it steps aside. */
 .msg-inspect-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
 .msg-inspect[open] > summary .msg-inspect-chips { display: none; }
 
 .msg-inspect-chips .inspect-chip {
-  overflow: hidden;
+  overflow: clip;
   text-overflow: ellipsis;
   max-width: 24ch;
 }

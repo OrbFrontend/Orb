@@ -331,7 +331,7 @@
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: .05em;
-  padding: 2px 7px;
+  padding: 5px 7px;
   border-radius: 3px;
   background: var(--accent-glow);
   border: 1px solid var(--accent-dim);
@@ -562,9 +562,6 @@
   font-size: 12px;
   padding: 5px 10px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 5px;
 }
 .lb-tab:hover { color: var(--text-secondary); }
 .lb-tab.active {
@@ -577,9 +574,9 @@
   color: var(--bg-deep);
   border-radius: 8px;
   font-size: 10px;
-  padding: 0 5px;
-  line-height: 15px;
+  padding: calc((15px - 1cap) / 2) 5px;
 }
+.lb-tab-badge { margin-left: 5px; }
 .world-pending {
   margin-left: auto;
   flex-shrink: 0;

@@ -24,6 +24,70 @@ body {
 
 [hidden] { display: none !important; }
 
+/* ── Badges beside text ──
+   Theme fonts disagree on ascent and descent, so a badge centred on line
+   boxes or hung off the x-height lands a pixel or two off on some themes.
+   Instead a badge's box hugs its capitals, and inline it is raised until
+   its capitals centre on the capitals of the text around it (--host-cap is
+   that text's cap height). A title that shares a flex row with a badge is
+   trimmed the same way and padded back to one line, so centring the row
+   centres both. overflow: hidden stops the trim in Firefox; use clip.
+   Add a new badge to both badge lists, and its flex-row title to the last. */
+@property --host-cap {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+:where(
+  .inspect-chip,
+  .frag-type-badge,
+  .persona-active-badge,
+  .lb-unsaved-badge,
+  .lb-tab-badge,
+  .world-pending,
+  .cast-manage-badge,
+  .cast-row-summary-badge,
+  .lib-dupe-mark,
+  .lib-dupe-reason,
+  .lib-dupe-chip
+) {
+  display: inline-block;
+  text-box: trim-both cap alphabetic;
+  vertical-align: calc((var(--host-cap) - 1cap) / 2);
+}
+
+:where(
+  :has(
+    > :is(
+      .inspect-chip,
+      .frag-type-badge,
+      .persona-active-badge,
+      .lb-unsaved-badge,
+      .lb-tab-badge,
+      .world-pending,
+      .cast-manage-badge,
+      .cast-row-summary-badge,
+      .lib-dupe-mark,
+      .lib-dupe-reason,
+      .lib-dupe-chip
+    )
+  )
+) {
+  --host-cap: 1cap;
+}
+
+:where(
+  .decision-eval-name,
+  .decision-skipped-name,
+  .msg-inspect-title,
+  .persona-name,
+  .lib-dupe-choice-label
+) {
+  text-box: trim-both cap alphabetic;
+  margin-block: calc((1lh - 1cap) / 2);
+}
+
 #sidebar {
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);

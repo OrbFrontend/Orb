@@ -594,8 +594,7 @@
   color: var(--accent);
   border: 1px solid var(--accent);
   border-radius: 4px;
-  padding: 0 4px;
-  vertical-align: middle;
+  padding: 3px 4px;
 }
 .frag-toggle-wrapper {
   display: flex;
