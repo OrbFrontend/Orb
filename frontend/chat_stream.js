@@ -229,10 +229,10 @@ export function createStreamingDiv(name = null, memberId = null) {
   const avatar = S.showChatAvatars ? speakerAvatarCell({ role: "assistant", speaker_member_id: memberId }) : "";
   div.innerHTML = `${avatar}<div class="msg-role">${esc(name || getCharName())}</div>
     <div class="msg-reasoning-live"></div>
+    <div class="msg-inspect-live"></div>
     <div class="msg-body" id="streaming-body">
       <span class="typing-indicator"><span></span><span></span><span></span></span>
     </div>
-    <div class="msg-inspect-live"></div>
     <div class="msg-toolbar">
       <button disabled>${ICON_EDIT}</button>
       <button disabled>${ICON_REGEN}</button>

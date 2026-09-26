@@ -145,8 +145,8 @@ test("a conversation switch drops the other conversation's cache", () => {
 
 function streamingBubble() {
   document.body.innerHTML = `<div id="chat-messages"><div class="message assistant">
-    <div class="msg-reasoning-live"></div><div class="msg-body" id="streaming-body"></div>
-    <div class="msg-inspect-live"></div><div class="msg-toolbar"></div>
+    <div class="msg-reasoning-live"></div><div class="msg-inspect-live"></div>
+    <div class="msg-body" id="streaming-body"></div><div class="msg-toolbar"></div>
   </div></div>`;
   S.streamingBodyEl = document.getElementById("streaming-body");
   return {

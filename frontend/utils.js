@@ -104,9 +104,9 @@ function scrollChatTarget(el, align) {
  * Follow the chat's newest content. The scroll waits for the next frame, so a
  * caller that is itself painting inside a frame passes `now`: the growth and
  * the scroll then land in one frame. Otherwise that frame shows everything
- * under the growth -- the reply's open Inspector block, its toolbar -- pushed
- * down a line before the scroll catches up (`#chat-messages` sets
- * `overflow-anchor: none`, so the browser does not hold it still either).
+ * under the growth -- the reply's toolbar -- pushed down a line before the
+ * scroll catches up (`#chat-messages` sets `overflow-anchor: none`, so the
+ * browser does not hold it still either).
  */
 export function scrollToBottom(smooth = false, { now = false } = {}) {
   const ct = $("chat-messages");

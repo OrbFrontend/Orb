@@ -408,10 +408,10 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
 
 .state-rejected .feedback-row-label { color: var(--red); }
 
-/* ── In-chat Inspector: one reply's turn details, under its bubble ── */
+/* ── In-chat Inspector: one reply's turn details, above its text ── */
 
 .msg-inspect {
-  margin-top: 6px;
+  margin: 0 0 6px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   /* The bubble's own surface, so the block reads as part of the reply. Themes
@@ -545,10 +545,8 @@ button.msg-inspect-pass:hover { color: var(--text-secondary); }
   background: var(--accent-glow);
 }
 
-/* Reasoning: its own block above the reply's text, so the thinking reads before
-   what it produced. */
-.msg-reasoning { margin: 0 0 6px; }
-
+/* Reasoning: its own block above the Inspector block, so the thinking reads
+   first. */
 .msg-reasoning-body { padding: 0 12px 10px; }
 
 .msg-reasoning-body > .msg-inspect-passes { margin-top: 0; }

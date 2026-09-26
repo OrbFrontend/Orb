@@ -70,8 +70,8 @@ Director schema or Scene Guidance.
 The Inspector shows one reply's turn details at a time. Turn on **Settings →
 Show Inspector in chat** to show each reply's details in the chat instead. The
 reply's reasoning gets its own **Reasoning** block above its text, with a tab for
-each pass that wrote some. The **Inspector** block under the text holds the
-rest: moods, agent latency, decisions, feedback, state changes, tool calls and
+each pass that wrote some. The **Inspector** block between the Reasoning block
+and the text holds the rest: moods, agent latency, decisions, feedback, state changes, tool calls and
 the injection block. A section appears only when the reply has something for it,
 and a reply with nothing to show gets no block.
 

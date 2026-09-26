@@ -46,7 +46,7 @@ export const S = {
   preventPromptOverrides: false, // ignore character-card prompt overrides
   showEditorDiff: true, // show editor-pass diff highlights
   showChatAvatars: false, // portrait gutter on chat messages
-  inspectorInline: false, // each reply's Inspector sections under it in the chat
+  inspectorInline: false, // each reply's Inspector sections above its text in the chat
   personaAvatarVersion: 0, // bumped on a persona avatar save; busts the image URL
   reasoningEnabled: { director: false, writer: false, editor: false, scripter: false },
   reasoningPrefill: { director: "", writer: "", editor: "" },

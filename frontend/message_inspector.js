@@ -1,8 +1,8 @@
 // A reply's Inspector sections -- moods, reasoning, decisions, feedback, state,
 // tool calls, injection block and latency -- built from one "turn view" so the
-// Inspector panel and the in-chat blocks under each reply render them alike.
-// In the chat, reasoning gets its own block above the reply's text; the rest
-// share the Inspector block under it.
+// Inspector panel and the in-chat blocks above each reply's text render them
+// alike. In the chat, reasoning gets its own block first; the rest share the
+// Inspector block under it.
 //
 // The in-chat blocks read a per-conversation cache filled by one batched
 // director-logs request per render, and the reply still streaming reads the

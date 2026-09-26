@@ -173,7 +173,7 @@ export function renderSettings() {
           <span class="tog-slider"></span>
         </label>
       </div>
-      <div class="tool-card-desc">Show each reply's moods, reasoning, decisions and other turn details under it.</div>
+      <div class="tool-card-desc">Show each reply's moods, reasoning, decisions and other turn details above its text.</div>
     </div>
     <div class="tool-card ${S.preventPromptOverrides ? "tool-on" : ""}">
       <div class="tool-card-header">
