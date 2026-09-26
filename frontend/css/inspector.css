@@ -420,14 +420,13 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
   font-size: 12px;
 }
 
-/* The title and the chips set different fonts and sizes, and each font seats
-   its caps differently within its line box, so centring them drifts by theme.
-   A shared baseline lines their text up whatever the fonts; the arrow has no
-   text to align, so it centres. */
+/* Everything centres, so the title stays in the middle when the chips wrap to
+   several rows. The title carries a chip-shaped strut (below), so its box and
+   one row of chips have the same height and baseline whatever the fonts. */
 .msg-inspect > summary {
   list-style: none;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   min-width: 0;
   padding: 5px 10px;
@@ -436,8 +435,6 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
 }
 
 .msg-inspect > summary::-webkit-details-marker { display: none; }
-
-.msg-inspect > summary .reasoning-summary-arrow { align-self: center; }
 
 .msg-inspect[open] > summary .reasoning-summary-arrow { transform: rotate(90deg); }
 
@@ -448,6 +445,22 @@ details.inspector-block[open] > summary .reasoning-summary-arrow {
   text-transform: uppercase;
   letter-spacing: .8px;
   color: var(--text-muted);
+}
+
+/* An invisible, zero-width chip: same font, padding and border as the chips
+   below, so the title's line box matches one chip row and its text sits on
+   the chips' baseline. */
+.msg-inspect-title::before {
+  content: "\a0";
+  display: inline-block;
+  width: 0;
+  padding: 1px 0;
+  border: solid transparent;
+  border-width: 1px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: normal;
+  letter-spacing: 0;
 }
 
 /* The collapsed line: active moods and decision outcomes at a glance.
