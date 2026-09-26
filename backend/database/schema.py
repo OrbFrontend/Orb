@@ -219,6 +219,7 @@ CREATE TABLE IF NOT EXISTS interactive_fragments (
     -- Decision-only fields; NULL for other fragment types and validated together.
     decision_type TEXT DEFAULT NULL,
     decision_placement TEXT DEFAULT NULL,
+    decision_inject TEXT DEFAULT NULL CHECK (decision_inject IS NULL OR decision_inject IN ('director', 'writer', 'both')),
     decision_state_template TEXT DEFAULT NULL,
     decision_instructions TEXT DEFAULT NULL,
     decision_criteria TEXT DEFAULT NULL,

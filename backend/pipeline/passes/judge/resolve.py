@@ -26,10 +26,11 @@ class SkipReason:
     INVALID_ANSWER = "invalid_answer"
     LOW_CONFIDENCE = "low_confidence"
     MISSING_ANCHOR = "missing_anchor"
+    DIRECTOR_OFF = "director_off"
 
 
 # Routine skips do not produce a failure notice.
-ROUTINE_REASONS = frozenset({SkipReason.RESTING, SkipReason.LOW_CONFIDENCE, SkipReason.EMPTY_INPUT})
+ROUTINE_REASONS = frozenset({SkipReason.RESTING, SkipReason.LOW_CONFIDENCE, SkipReason.EMPTY_INPUT, SkipReason.DIRECTOR_OFF})
 
 
 def resolve_threshold(probability: float, threshold: float) -> str:

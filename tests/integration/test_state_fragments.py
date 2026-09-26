@@ -429,10 +429,10 @@ async def test_a_judge_outcome_is_context_for_the_updater_not_a_write(client, db
     cid = await _conversation("conv-state-judge")
     await _fragment(client, "threads", mode="entries", update="after_reply")
     await _settings(client)
-    guidance = "**Decisions**\nOutcome: That action fails hard."
+    evaluation = {"fragment_id": "outcome", "injection_label": "Outcome", "guidance": "That action fails hard."}
 
     async def judged(*_args, **_kwargs):
-        return JudgeResult(guidance=guidance)
+        return JudgeResult(evaluations=[evaluation])
 
     llm_mock.enqueue_writer("The lock holds.")
     llm_mock.enqueue_state([])

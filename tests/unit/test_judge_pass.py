@@ -207,7 +207,7 @@ async def test_a_live_answer_resolves_injects_and_records(monkeypatch):
     assert record["returned_model"] == "typesafe/jev-1.13.2"
     assert record["input_branch_anchor"] == 42
     assert "draw" not in record  # threshold mode has no draw to report
-    assert result.guidance == "**Major Decisions**\n\nOutcome: outcome succeeded."
+    assert result.writer_guidance == "**Major Decisions**\n\nOutcome: outcome succeeded."
     assert result.requests == 1
 
 
@@ -231,7 +231,7 @@ async def test_an_answer_below_the_confidence_floor_is_gated_and_not_cached(monk
 
     assert not result.evaluations
     assert result.skipped[0]["reason"] == SkipReason.LOW_CONFIDENCE
-    assert result.guidance == ""
+    assert result.writer_guidance == ""
 
     gateway.batches.clear()
     await judge_pass(_turn(candidate))
@@ -243,7 +243,7 @@ async def test_an_empty_selected_output_suppresses_injection_but_still_records(m
     result = await judge_pass(_turn(_candidate(decision_outputs={"true": "held", "false": ""})))
 
     assert _by_id(result)["outcome"]["outcome"] == "false"
-    assert result.guidance == ""
+    assert result.writer_guidance == ""
     assert result.evaluations  # invisible to the model, visible to the Inspector
 
 
@@ -399,7 +399,7 @@ async def test_missing_configuration_skips_without_a_request(monkeypatch):
 
     # No outcome, no guidance, nothing injected -- and no invented `false`.
     assert result.evaluations == []
-    assert result.guidance == ""
+    assert result.writer_guidance == ""
     assert _skips(result)["outcome"]["reason"] == SkipReason.NOT_CONFIGURED
     assert _skips(result)["outcome"]["failed"] == 1
     assert gateway.batches == []
@@ -417,7 +417,7 @@ async def test_the_rest_of_the_stage_runs_when_one_decision_cannot_answer(monkey
 
     assert gateway.batches == [["good"]]
     assert _by_id(result)["good"]["outcome"] == "true"
-    assert result.guidance == "**Major Decisions**\n\nGood: good succeeded."
+    assert result.writer_guidance == "**Major Decisions**\n\nGood: good succeeded."
     assert _skips(result)["broken"]["reason"] == SkipReason.UNAVAILABLE_CONTEXT
 
 
@@ -517,7 +517,7 @@ async def test_a_resting_decision_is_skipped_with_no_request_and_no_guidance(mon
     assert result.skipped == [
         {"fragment_id": "outcome", "fragment_label": "Outcome", "source": "global", "reason": SkipReason.RESTING}
     ]
-    assert result.guidance == ""
+    assert result.writer_guidance == ""
     assert gateway.batches == []
     # Resting is silence, not a remembered answer: the timer still ages.
     assert result.cooldowns == {"outcome": 1}
@@ -704,7 +704,7 @@ async def test_editing_only_the_output_changes_the_prompt_with_no_call_and_no_re
     assert record["answer_source"] == "replay"
     assert record["occurrence_id"] == original[0]["occurrence_id"]
     assert record["guidance"] == "New words for the same outcome."
-    assert replayed.guidance == "**Major Decisions**\n\nRenamed: New words for the same outcome."
+    assert replayed.writer_guidance == "**Major Decisions**\n\nRenamed: New words for the same outcome."
 
 
 async def test_a_changed_question_creates_a_new_occurrence(monkeypatch):
@@ -778,7 +778,7 @@ async def test_a_lost_branch_anchor_re_asks_and_says_why(monkeypatch):
 async def test_a_stage_with_no_candidates_still_ages_cooldowns():
     result = await judge_pass(_turn(prior_cooldowns={"gone": 2}))
     assert result.cooldowns == {"gone": 1}
-    assert result.evaluations == [] and result.guidance == ""
+    assert result.evaluations == [] and result.writer_guidance == ""
 
 
 async def test_stage_results_are_published_only_once_the_stage_finishes(monkeypatch):
@@ -822,7 +822,7 @@ async def test_a_holding_gate_resolves_to_it_without_a_draw_or_guidance(monkeypa
     assert record["outcome"] == "none"
     assert "draw" not in record
     assert record["guidance"] == ""
-    assert result.guidance == ""
+    assert result.writer_guidance == ""
 
 
 async def test_a_gate_that_does_not_hold_draws_among_the_rest(monkeypatch):

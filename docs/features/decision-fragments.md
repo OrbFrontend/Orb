@@ -3,7 +3,7 @@
 A decision fragment asks the **Judge**, a classifier model, one question about
 the current situation before the Director runs. The Judge selects an outcome
 using the fragment's resolution policy. Orb sends that outcome's guidance to
-the Director and Writer under **Major Decisions**.
+the passes its **Inject** setting names, under **Major Decisions**.
 
 Decision fragments run independently. Each sees the turn's situation, not another
 fragment's result, so their order does not create a sequence. Orb batches questions
@@ -50,9 +50,27 @@ resolution always uses the first option as its gate.
 Each outcome has two separate fields:
 
 - **What it means** describes the outcome for the Judge to choose.
-- **What the story does** is guidance injected for the Director and Writer.
+- **What the story does** is guidance injected for the passes **Inject** names.
 
 Empty guidance means that outcome adds no instructions.
+
+## Inject
+
+**Inject** chooses which passes receive the outcome's guidance:
+
+| Inject | Receives the guidance |
+|---|---|
+| **Director** | The Director and its before-Writer state updates |
+| **Writer** | The Writer, at the top of its injection block |
+| **Both** | Both of the above (the default) |
+
+A decision always injects somewhere, so there is no Off setting. With
+**Writer**, the Director plans the scene without knowing the outcome; with
+**Director**, the Writer sees only the direction the Director wrote around it.
+
+The Director reads decisions only when the Agent and the **Direction** tool are on.
+Otherwise a **Director** decision is skipped without asking the Judge, and the
+Inspector reports why.
 
 ## Situation and macros
 

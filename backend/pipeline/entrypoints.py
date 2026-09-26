@@ -35,7 +35,9 @@ from .passes.judge import (
     stored_evaluations,
 )
 from .persistence import _consume_pipeline, _conversation_log_writer
+from .predicates import agent_enabled
 from .state import SheetUpdateTurn, empty_state_report
+from .tools import DIRECTOR_LOOP_TOOL_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +146,7 @@ async def _run_judge(
     current_request: str,
     macros: Any,
     anchor_message_id: int | None,
+    director_runs: bool,
 ) -> AsyncIterator[dict | JudgeResult]:
     prior = ctx.director.get("decision_cooldowns") or {}
     snapshot = build_snapshot(
@@ -165,6 +168,7 @@ async def _run_judge(
         prior_cooldowns=prior,
         replay_records=tuple(ctx.director.get("decision_replay") or ()),
         invalid=ctx.invalid_decisions,
+        director_runs=director_runs,
     )
     has_work = bool(turn.candidates or turn.invalid)
     if has_work:
@@ -356,6 +360,9 @@ async def _open_turn(
                 current_request=decision_request,
                 macros=setup.macros,
                 anchor_message_id=decision_anchor,
+                # The same test the Director stage makes before it runs.
+                director_runs=agent_enabled(settings)
+                and any(setup.merged_enabled_tools.get(name, False) for name in DIRECTOR_LOOP_TOOL_NAMES),
             ),
         ):
             if isinstance(ev, JudgeResult):

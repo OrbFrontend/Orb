@@ -246,6 +246,7 @@ class MoodFragmentUpdate(BaseModel):
 class _DecisionFields(BaseModel):
     decision_type: Literal["noul", "choice", "score"] | None = None
     decision_placement: Literal["before_director"] | None = None
+    decision_inject: Literal["director", "writer", "both"] | None = None
     decision_state_template: str | None = None
     decision_instructions: str | None = None
     decision_criteria: dict[str, str] | list[str] | None = None

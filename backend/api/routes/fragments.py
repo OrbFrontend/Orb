@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from ...core import (
     DECISION_COLUMNS,
     DECISION_FIELD_TYPE,
+    DEFAULT_DECISION_INJECT,
     DEFAULT_STATE_INJECT,
     DEFAULT_STATE_MODE,
     DEFAULT_STATE_UPDATE,
@@ -53,6 +54,9 @@ def _checked_decision_write(payload: dict, existing: dict[str, Any] | None = Non
     problems = definition_problems(merged)
     if problems:
         raise HTTPException(status_code=422, detail="; ".join(problems))
+    # Stored explicitly, like a state fragment's settings, so the row says where it goes.
+    if not merged.get("decision_inject"):
+        payload["decision_inject"] = DEFAULT_DECISION_INJECT
     return payload
 
 

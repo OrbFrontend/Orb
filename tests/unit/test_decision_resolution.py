@@ -277,17 +277,39 @@ def test_guidance_is_labelled_authored_text_and_nothing_about_dice():
                 "draw": 0.12,
                 "outcome": "true",
             }
-        ]
+        ],
+        "writer",
     )
     assert block == "**Major Decisions**\n\nDoorway: He holds the door."
     assert "0.93" not in block and "0.12" not in block and "true" not in block
 
 
 def test_an_empty_selected_output_suppresses_the_whole_line():
-    assert decision_guidance_block([{"fragment_id": "outcome", "injection_label": "Doorway", "guidance": "   "}]) == ""
-    assert decision_guidance_block([]) == ""
+    assert (
+        decision_guidance_block([{"fragment_id": "outcome", "injection_label": "Doorway", "guidance": "   "}], "writer") == ""
+    )
+    assert decision_guidance_block([], "writer") == ""
+
+
+def test_guidance_reaches_only_the_passes_its_inject_names():
+    rows = [
+        {"fragment_id": "d", "injection_label": "D", "guidance": "to director", "inject": "director"},
+        {"fragment_id": "w", "injection_label": "W", "guidance": "to writer", "inject": "writer"},
+        {"fragment_id": "b", "injection_label": "B", "guidance": "to both", "inject": "both"},
+        # A record stored before the setting existed reaches both.
+        {"fragment_id": "o", "injection_label": "O", "guidance": "stored earlier"},
+    ]
+    director = decision_guidance_block(rows, "director")
+    writer = decision_guidance_block(rows, "writer")
+    # Shared lines lead, in their own order, so both blocks open on the same bytes.
+    assert director == "**Major Decisions**\n\nB: to both\nO: stored earlier\nD: to director"
+    assert writer == "**Major Decisions**\n\nB: to both\nO: stored earlier\nW: to writer"
+    shared = "**Major Decisions**\n\nB: to both\nO: stored earlier\n"
+    assert director.startswith(shared) and writer.startswith(shared)
 
 
 def test_guidance_falls_back_through_label_then_id():
-    assert "Outcome: x" in decision_guidance_block([{"fragment_id": "outcome", "fragment_label": "Outcome", "guidance": "x"}])
-    assert "outcome: x" in decision_guidance_block([{"fragment_id": "outcome", "guidance": "x"}])
+    assert "Outcome: x" in decision_guidance_block(
+        [{"fragment_id": "outcome", "fragment_label": "Outcome", "guidance": "x"}], "writer"
+    )
+    assert "outcome: x" in decision_guidance_block([{"fragment_id": "outcome", "guidance": "x"}], "writer")

@@ -471,7 +471,8 @@ async def director_stage(
     lorebook: LorebookTurn,
     macros: Macros,
     speaker_keys: str = "",
-    decision_guidance: str = "",
+    director_decision_guidance: str = "",
+    writer_decision_guidance: str = "",
 ) -> AsyncIterator[dict]:
     """Input-prep + director pass + all post-processing for the director stage.
 
@@ -487,6 +488,10 @@ async def director_stage(
     ``direct_scene`` parameters, which also carry the one-value state fragments
     updated before the Writer. ``state.state_view`` holds the branch's state and
     is updated in place.
+
+    Each resolved decision's guidance reaches the passes its Inject setting names:
+    *director_decision_guidance* the Director and its before-Writer state step,
+    *writer_decision_guidance* the Writer's injection block.
     """
     prior_cooldowns = director.get("fragment_cooldowns") or {}
     resting = cooldown.blocked(prior_cooldowns)
@@ -526,8 +531,8 @@ async def director_stage(
             lorebook_block=lorebook.block,
             progressive_state=prior_values,
             state_block=director_block,
-            # Always pass resolved decisions to the Director; an empty block is a no-op.
-            decision_guidance=decision_guidance,
+            # An empty block is a no-op.
+            decision_guidance=director_decision_guidance,
             speaker_keys=speaker_keys,
             resting=resting,
         ):
@@ -656,7 +661,7 @@ async def director_stage(
             placement="before_writer",
             known_ids=frozenset(fragment.id for fragment in state_contract.tool_fragments()),
             scene_direction=state.scene_direction,
-            decision_guidance=decision_guidance,
+            decision_guidance=director_decision_guidance,
             user_message=state.user_message,
             kv_tracker=kv_tracker,
             reasoning_on=cfg.director_reasoning_on,
@@ -681,8 +686,8 @@ async def director_stage(
     if writer_block:
         state.inj_block = (state.inj_block + "\n\n" + macros.resolve_message(writer_block)).strip()
     # Keep decision guidance even when the Director is disabled, and place it first.
-    if decision_guidance:
-        state.inj_block = (decision_guidance + "\n\n" + state.inj_block).strip()
+    if writer_decision_guidance:
+        state.inj_block = (writer_decision_guidance + "\n\n" + state.inj_block).strip()
 
     yield {
         "event": "director_done",

@@ -83,6 +83,7 @@ _EVENT_FIELDS = (
     "injection_label",
     "source",
     "placement",
+    "inject",
     "scope",
     "occurrence_id",
     "outcome",
@@ -139,6 +140,9 @@ class JudgeTurn:
     invalid: tuple[InvalidDecision, ...] = ()
     # Card decisions use the owning member's ``{{char}}`` and ``{{description}}``.
     card_snapshots: Mapping[str, DecisionSnapshot] = field(default_factory=dict)
+    # Whether the Director reads decisions this turn. When it does not, a
+    # Director-only decision has no reader, so it is not asked.
+    director_runs: bool = True
 
     def snapshot_for(self, candidate: DecisionCandidate) -> DecisionSnapshot:
         return self.card_snapshots.get(candidate.card_id or "", self.snapshot)
@@ -149,7 +153,6 @@ class JudgeResult:
     evaluations: list[dict[str, Any]] = field(default_factory=list)
     skipped: list[dict[str, Any]] = field(default_factory=list)
     cooldowns: dict[str, int] = field(default_factory=dict)
-    guidance: str = ""
     requests: int = 0
     inherited: bool = False
 
@@ -161,9 +164,16 @@ class JudgeResult:
             evaluations=evaluations,
             skipped=stored_skipped(stored),
             cooldowns={str(key): int(value) for key, value in cooldowns.items()},
-            guidance=decision_guidance_block(evaluations),
             inherited=True,
         )
+
+    @property
+    def director_guidance(self) -> str:
+        return decision_guidance_block(self.evaluations, "director")
+
+    @property
+    def writer_guidance(self) -> str:
+        return decision_guidance_block(self.evaluations, "writer")
 
     def as_event_data(self) -> dict[str, Any]:
         evaluations = [{key: row[key] for key in _EVENT_FIELDS if key in row} for row in self.evaluations]
@@ -176,7 +186,8 @@ class JudgeResult:
         """Carry the result on *state* so persistence commits it in the reply's own INSERT."""
         state.decision_evaluations = envelope(self.evaluations, self.skipped)
         state.decision_cooldowns = dict(self.cooldowns)
-        state.decision_guidance = self.guidance
+        state.director_decision_guidance = self.director_guidance
+        state.writer_decision_guidance = self.writer_guidance
 
 
 @dataclass(slots=True)
@@ -217,7 +228,11 @@ def _eligible(turn: JudgeTurn) -> tuple[list[DecisionCandidate], list[dict[str, 
     running: list[DecisionCandidate] = []
     resting = cooldown.blocked(turn.prior_cooldowns)
     for candidate in turn.candidates:
-        if candidate.definition.fragment_id not in resting:
+        if candidate.definition.fragment_id in resting:
+            reason = SkipReason.RESTING
+        elif candidate.definition.inject == "director" and not turn.director_runs:
+            reason = SkipReason.DIRECTOR_OFF
+        else:
             running.append(candidate)
             continue
         skipped.append(
@@ -225,7 +240,7 @@ def _eligible(turn: JudgeTurn) -> tuple[list[DecisionCandidate], list[dict[str, 
                 "fragment_id": candidate.definition.fragment_id,
                 "fragment_label": candidate.definition.label,
                 "source": _source(candidate.card_id),
-                "reason": SkipReason.RESTING,
+                "reason": reason,
             }
         )
     return running, skipped
@@ -348,6 +363,7 @@ def _resolved_record(item: _Item, turn: JudgeTurn) -> dict[str, Any] | None:
         "injection_label": definition.injection_label,
         "source": _source(item.candidate.card_id),
         "placement": definition.placement,
+        "inject": definition.inject,
         "scope": turn.snapshot.scope,
         "occurrence_id": str(uuid.uuid4()),
         "input_branch_anchor": turn.snapshot.anchor_message_id,
@@ -425,6 +441,7 @@ def _replayed(item: _Item, stored: Mapping[str, Any]) -> dict[str, Any]:
         **stored,
         "fragment_label": item.definition.label,
         "injection_label": item.definition.injection_label,
+        "inject": item.definition.inject,
         "source": _source(item.candidate.card_id),
         "outputs": item.outputs,
         "answer_source": "replay",
@@ -507,7 +524,6 @@ async def judge_pass(turn: JudgeTurn, *, abort: AbortToken | None = None) -> Jud
             [record["fragment_id"] for record in evaluations],
             [candidate.definition for candidate in turn.candidates],
         ),
-        guidance=decision_guidance_block(evaluations),
         requests=requests,
     )
 

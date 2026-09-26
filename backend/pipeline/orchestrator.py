@@ -132,7 +132,8 @@ async def run_director_stage(
             lorebook=lorebook,
             macros=macros,
             speaker_keys=speaker_keys,
-            decision_guidance=state.decision_guidance,
+            director_decision_guidance=state.director_decision_guidance,
+            writer_decision_guidance=state.writer_decision_guidance,
         ):
             yield ev
     except Exception as exc:

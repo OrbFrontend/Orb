@@ -6,8 +6,10 @@ from .card_scripts import CardScripts
 from .decisions import (
     DECISION_COLUMNS,
     DECISION_FIELD_TYPE,
+    DECISION_INJECTS,
     DECISION_RESOLUTIONS_BY_TYPE,
     DECISION_TYPES,
+    DEFAULT_DECISION_INJECT,
     DEFAULT_STATE_TEMPLATE,
     MAX_CHOICE_OPTIONS,
     MAX_SCORE_LEVELS,
@@ -101,8 +103,10 @@ __all__ = [
     # decisions — the decision-fragment authoring contract
     "DECISION_COLUMNS",
     "DECISION_FIELD_TYPE",
+    "DECISION_INJECTS",
     "DECISION_RESOLUTIONS_BY_TYPE",
     "DECISION_TYPES",
+    "DEFAULT_DECISION_INJECT",
     "DEFAULT_STATE_TEMPLATE",
     "MAX_CHOICE_OPTIONS",
     "MAX_SCORE_LEVELS",

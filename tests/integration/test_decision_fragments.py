@@ -147,6 +147,8 @@ async def _solo_scene(client, cid: str = "conv-decision") -> str:
 async def test_a_valid_decision_round_trips_through_the_api(client, db):
     created = await _add_decision(client)
     assert created["field_type"] == "decision"
+    # Omitted, Inject is stored as its default.
+    assert created["decision_inject"] == "both"
     assert created["decision_criteria"] == DEFINITION["decision_criteria"]
     assert created["decision_threshold"] == 0.5
 
@@ -354,6 +356,44 @@ async def test_a_resolved_decision_reaches_the_director_tail_and_the_writer(clie
     # The classifier saw the rendered state, and only once.
     assert gateway.batches == [["outcome"]]
     assert "I shove the door." in gateway.states[0]
+
+
+@pytest.mark.parametrize(("inject", "to_director", "to_writer"), [("director", True, False), ("writer", False, True)])
+async def test_inject_routes_the_guidance_to_the_named_pass(client, db, llm_mock, monkeypatch, inject, to_director, to_writer):
+    cid = await _solo_scene(client)
+    await _add_decision(client, decision_inject=inject)
+    Gateway(monkeypatch, answers={"outcome": 0.9})
+
+    events = await _turn(llm_mock, cid, "I shove the door.", director={"moods": []})
+
+    assert _event(events, "decisions")["evaluations"][0]["inject"] == inject
+    injection = _event(events, "director_done")["injection_block"]
+    director_tail = _tail_text(_captured(llm_mock, "director")[0])
+    assert ("Doorway: Alric holds the doorway." in director_tail) is to_director
+    assert ("Doorway: Alric holds the doorway." in injection) is to_writer
+
+
+async def test_a_director_only_decision_is_not_asked_while_the_director_is_off(client, db, llm_mock, monkeypatch):
+    cid = await _solo_scene(client)
+    await _add_decision(client, decision_inject="director")
+    await client.put("/api/settings", json={"enabled_tools": {"direct_scene": False}})
+    gateway = Gateway(monkeypatch, answers={"outcome": 0.9})
+
+    events = await _turn(llm_mock, cid, "I shove the door.")
+
+    published = _event(events, "decisions")
+    assert published["evaluations"] == []
+    assert published["skipped"] == [
+        {"fragment_id": "outcome", "fragment_label": "Outcome", "source": "global", "reason": "director_off"}
+    ]
+    assert gateway.batches == []
+    # Routine, and it starts no cooldown.
+    assert "failed" not in published["skipped"][0] and published["cooldowns"] == {}
+
+
+async def test_inject_rejects_off(client, db):
+    response = await client.post("/api/interactive-fragments", json={**DEFINITION, "decision_inject": "off"})
+    assert response.status_code == 422
 
 
 async def test_the_after_reply_state_request_carries_no_guidance(client, db, llm_mock, monkeypatch):
@@ -645,8 +685,13 @@ async def test_a_card_decision_runs_like_any_other_card_fragment(client, db, llm
 
     events = await _turn(llm_mock, cid, "one", director={"moods": []})
 
-    assert _event(events, "decisions")["evaluations"][0]["source"] == f"card:{card_id}"
+    evaluation = _event(events, "decisions")["evaluations"][0]
+    assert evaluation["source"] == f"card:{card_id}"
     assert gateway.batches == [["card_outcome"]]
+    # A card written before Inject existed omits it and reaches both passes.
+    assert "decision_inject" not in DEFINITION and evaluation["inject"] == "both"
+    assert "Alric holds the doorway." in _event(events, "director_done")["injection_block"]
+    assert "Alric holds the doorway." in _tail_text(_captured(llm_mock, "director")[0])
 
 
 async def test_a_malformed_card_decision_is_reported_and_asks_nothing(client, db, llm_mock, monkeypatch):

@@ -9,6 +9,9 @@ let _draft = null;
 let _problems = {};
 
 const PLACEMENT = "before_director";
+// Which passes receive the resolved guidance. No "off": an unread outcome is a wasted Judge call.
+const INJECT_DEFAULT = "both";
+const INJECT_LABELS = { director: "Director", writer: "Writer", both: "Both" };
 
 function _policiesFor(type) {
   return decisionConfig()?.resolution_policies?.[type] || [];
@@ -44,6 +47,7 @@ export function initDecisionDraft(fragment) {
     // Preserve intentionally empty guidance when reopening the draft.
     options: entries.map(([key, text]) => _option(key, text, outputs[key], Object.hasOwn(outputs, key))),
     resolution: fragment.decision_resolution || _policiesFor(type)[0] || "",
+    inject: fragment.decision_inject || INJECT_DEFAULT,
     threshold: fragment.decision_threshold ?? null,
     confidence_floor: fragment.decision_confidence_floor ?? null,
   };
@@ -58,6 +62,7 @@ export function readDecisionFields() {
   return {
     decision_type: type,
     decision_placement: PLACEMENT,
+    decision_inject: _draft.inject,
     decision_state_template: _draft.state_template,
     decision_instructions: _draft.instructions,
     decision_criteria:
@@ -105,7 +110,7 @@ function _syncFromDom() {
 
 // Map backend validation messages to the relevant editor fields.
 const PROBLEM_ANCHORS = [
-  [/^decision_(type|resolution|threshold|confidence_floor)\b/, "policy"],
+  [/^decision_(type|resolution|inject|threshold|confidence_floor)\b/, "policy"],
   [/^(decision_state_template|Situation template)\b/, "state_template"],
   [/^(decision_instructions|Question)\b/, "instructions"],
   [/^(decision_criteria|decision_outputs|Outcome description|Guidance)\b/, "criteria"],
@@ -233,6 +238,10 @@ function _innerHtml() {
       <div class="field">
         <label>Resolution</label>
         <select data-dec="resolution">${_selectOptions(_policiesFor(type), resolution, (value) => RESOLUTION_LABELS[value] || value)}</select>
+      </div>
+      <div class="field decision-inject">
+        <label title="Which passes receive the outcome's guidance">Inject</label>
+        <select data-dec="inject" title="Which passes receive the outcome's guidance">${_selectOptions(Object.keys(INJECT_LABELS), _draft.inject, (value) => INJECT_LABELS[value])}</select>
       </div>
       ${
         knob

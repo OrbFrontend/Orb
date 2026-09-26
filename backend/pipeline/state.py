@@ -114,7 +114,8 @@ _DIRECTOR_SEED_FIELDS = (
     # Shared exchange decisions are copied to each speaker without advancing cooldowns again.
     "decision_evaluations",
     "decision_cooldowns",
-    "decision_guidance",
+    "director_decision_guidance",
+    "writer_decision_guidance",
     "selected_lorebook_entries",
     "inj_block",
     "scene_direction",
@@ -160,10 +161,11 @@ class TurnState:
     latency: int = 0
     extra_fields: dict = field(default_factory=dict)
     fragment_cooldowns: dict[str, int] = field(default_factory=dict)
-    # Persisted decision record, cooldown snapshot, and shared Director/Writer guidance.
+    # Persisted decision record, cooldown snapshot, and the guidance each pass receives.
     decision_evaluations: dict = field(default_factory=dict)
     decision_cooldowns: dict[str, int] = field(default_factory=dict)
-    decision_guidance: str = ""
+    director_decision_guidance: str = ""
+    writer_decision_guidance: str = ""
     selected_lorebook_entries: list[str] = field(default_factory=list)
     inj_block: str = ""
     # Scene Direction before the state block and decision guidance are added.

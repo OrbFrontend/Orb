@@ -48,6 +48,7 @@ const SKIP_REASONS = {
   invalid_answer: "The answer was missing or unusable",
   low_confidence: "Gated below the confidence floor",
   missing_anchor: "The message this was anchored to is gone",
+  director_off: "Injects into the Director only, which is off",
 };
 
 export function skipReasonText(reason) {
