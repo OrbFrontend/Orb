@@ -8,7 +8,6 @@ import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panel
 import { loadAgentModelConfigs, loadEndpoints, loadJudgeConfig, renderEndpoints } from "./settings_models.js";
 import { loadPersonas, updateUserBtn } from "./settings_personas.js";
 import { effectiveWorkflowEnabled, localMlReady, S } from "./state.js";
-import { refreshState } from "./state_panel.js";
 import { $, esc, escAttr, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
@@ -78,7 +77,6 @@ export async function loadSettings() {
   S.agenticLorebookEnabled = Boolean(S.settings.agentic_lorebook_enabled);
 
   S.directorIndividualFragments = Boolean(S.settings.director_individual_fragments);
-  S.stateUpdates = S.settings.state_updates !== 0 && S.settings.state_updates !== false;
 
   if (S.settings.length_guard_max_words) S.lengthGuardMaxWords = S.settings.length_guard_max_words;
   if (S.settings.length_guard_max_paragraphs) S.lengthGuardMaxParagraphs = S.settings.length_guard_max_paragraphs;
@@ -460,18 +458,6 @@ export async function toggleDirectorIndividualFragments(on) {
   await persistSettings({ director_individual_fragments: on });
 }
 
-$("tools-list")?.addEventListener("change", (e) => {
-  if (e.target.dataset?.toolsToggle === "state-updates") setStateUpdates(e.target.checked);
-});
-
-async function setStateUpdates(on) {
-  S.stateUpdates = on;
-  renderToolsPanel();
-  renderInteractiveFragments();
-  await persistSettings({ state_updates: on });
-  refreshState();
-}
-
 export async function toggleShowEditorDiff(on) {
   S.showEditorDiff = on;
   renderMessages();
@@ -692,29 +678,12 @@ export function renderToolsPanel() {
     ${lgConfig}
   </div>`;
 
-  const stateOn = S.stateUpdates;
-  const stateUpdatesCard = `<div class="tool-card ${stateOn ? "tool-on" : ""}">
-    <div class="tool-card-header">
-      <span class="tool-card-name">State Updates</span>
-      <label class="tog">
-        <input type="checkbox" ${stateOn ? "checked" : ""} data-tools-toggle="state-updates">
-        <span class="tog-slider"></span>
-      </label>
-    </div>
-    <div class="tool-card-desc">State fragments carry permanent facts in a conversation. ${
-      stateOn
-        ? "The Agent updates them each turn, except Manual-only ones."
-        : "Only you can update them, in the Inspector's State tab."
-    }</div>
-  </div>`;
-
   const divider = (label) => `<div class="tools-divider"><span>${label}</span></div>`;
   $("tools-list").classList.toggle("workflows-off", !S.agentEnabled);
   $("tools-list").innerHTML =
     divider("Director") +
     cardById.direct_scene +
     agenticLorebookCard +
-    stateUpdatesCard +
     divider("Editor") +
     cardById.editor_apply_patch +
     lengthGuardCard;

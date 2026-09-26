@@ -307,7 +307,6 @@ async def update_settings(data: dict) -> SettingsRow:
             "agent_endpoint_id",
             "agent_shared_system_prompt",
             "director_individual_fragments",
-            "state_updates",
             "inspector_open_states",
             "workflows_globally_enabled",
             # The artifact cache's size cap. Editable so artifacts self-trim at a

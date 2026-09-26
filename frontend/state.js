@@ -41,7 +41,6 @@ export const S = {
   lengthGuardEnforce: false,
   agenticLorebookEnabled: false,
   directorIndividualFragments: false,
-  stateUpdates: true, // global switch for automatic state-fragment updates
   hideUntilBaked: false, // keep the streaming reply out of the DOM until final
   preventPromptOverrides: false, // ignore character-card prompt overrides
   showEditorDiff: true, // show editor-pass diff highlights

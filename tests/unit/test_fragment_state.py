@@ -219,16 +219,15 @@ def test_contract_routes_each_fragment_to_its_transport():
         _row("manual", "entries", "manual", inject="writer"),
         _row("off", "entries", "after_reply", enabled=0),
     ]
-    contract = StateContract.capture({"enable_agent": 1, "state_updates": 1}, rows)
+    contract = StateContract.capture({"enable_agent": 1}, rows)
     assert [f.id for f in contract.director_values()] == ["v_before"]
     assert [f.id for f in contract.before_writer_tool()] == ["e_before"]
     assert [f.id for f in contract.after_reply()] == ["v_after"]
     assert [f.id for f in contract.to_writer()] == ["v_before", "e_before", "v_after", "manual"]
-    # Updates off (switch or Agent): nothing routes, injection still does.
-    for settings in ({"enable_agent": 1, "state_updates": 0}, {"enable_agent": 0, "state_updates": 1}):
-        off = StateContract.capture(settings, rows)
-        assert off.director_values() == off.tool_fragments() == ()
-        assert len(off.to_writer()) == 4
+    # Agent off: nothing routes, injection still does.
+    off = StateContract.capture({"enable_agent": 0}, rows)
+    assert off.director_values() == off.tool_fragments() == ()
+    assert len(off.to_writer()) == 4
     scene = {"id": "pacing", "field_type": "string"}
     assert [r["id"] for r in contract.direct_scene_rows([scene, *rows])] == ["pacing", "v_before"]
 

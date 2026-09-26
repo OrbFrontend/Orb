@@ -57,7 +57,6 @@ class SettingsUpdate(BaseModel):
     agent_endpoint_id: int | None = None
     agent_shared_system_prompt: str | None = None
     director_individual_fragments: bool | None = None
-    state_updates: bool | None = None
     inspector_open_states: dict | None = None
     workflows_globally_enabled: bool | None = None
     # Floor, not a formality: the cap is enforced by evicting on the next

@@ -630,7 +630,6 @@ function _interactiveTypeBadge(f) {
 /** Why a state fragment's automatic updates do not run, or "" when they do. */
 function _stateUpdatesOffReason(f) {
   if (f.field_type !== "state" || f.state_update === "manual") return "";
-  if (!S.stateUpdates) return "State updates are off";
   if (!S.agentEnabled) return "The Agent is off";
   if (f.state_update === "before_writer" && !S.enabledTools.direct_scene) return "The Direction tool is off";
   return "";

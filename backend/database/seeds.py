@@ -329,7 +329,6 @@ DEFAULT_SETTINGS = {
     "agent_same_as_writer": True,
     "agent_shared_system_prompt": "",
     "director_individual_fragments": 0,
-    "state_updates": 1,
     "workflows_globally_enabled": 1,
 }
 

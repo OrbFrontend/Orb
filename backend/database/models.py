@@ -96,8 +96,6 @@ class _SettingsBase(TypedDict):
     agent_same_as_writer: bool
     agent_shared_system_prompt: str
     director_individual_fragments: int
-    # The global switch for every automatic state-fragment update call.
-    state_updates: int
     workflows_globally_enabled: int
 
 

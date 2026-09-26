@@ -29,7 +29,7 @@ class StateContract:
     def capture(cls, settings: Mapping[str, Any], state_rows: Sequence[Mapping[str, Any]]) -> StateContract:
         return cls(
             fragments=tuple(fragment for fragment in state_fragments_of(state_rows) if fragment.enabled),
-            updates_on=agent_enabled(settings) and bool(settings.get("state_updates", 1)),
+            updates_on=agent_enabled(settings),
         )
 
     def director_values(self) -> tuple[StateFragment, ...]:
