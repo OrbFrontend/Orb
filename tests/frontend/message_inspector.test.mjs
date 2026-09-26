@@ -12,6 +12,8 @@ const {
   inlineInspectorHtml,
   inspectorBlockHtml,
   reasoningBlockHtml,
+  refreshInlineInspector,
+  rememberBoxScrolls,
   rememberInspection,
   renderLiveInspector,
   turnViewFromLog,
@@ -90,7 +92,7 @@ test("reasoning gets its own block, not a section of the Inspector's", () => {
   const html = reasoningBlockHtml(log);
   assert.match(html, /^<details class="msg-inspect msg-reasoning" data-inspect-section="inline_reasoning" open>/);
   assert.match(html, /class="msg-inspect-title">Reasoning</);
-  assert.match(html, /class="inspect-raw">draft</);
+  assert.match(html, /class="inspect-raw" data-reasoning-pass="1">draft</);
 });
 
 test("only the passes that wrote reasoning get a tab, and the last one is shown", () => {
@@ -98,7 +100,7 @@ test("only the passes that wrote reasoning get a tab, and the last one is shown"
   assert.match(html, /data-inspect-pass="0"/);
   assert.match(html, /data-inspect-pass="2"/);
   assert.doesNotMatch(html, /data-inspect-pass="1"/);
-  assert.match(html, /class="inspect-raw">tighten</);
+  assert.match(html, /class="inspect-raw" data-reasoning-pass="2">tighten</);
   // A saved reply's box is not the streaming one.
   assert.doesNotMatch(html, /id="reasoning-box"/);
 });
@@ -193,4 +195,58 @@ test("the streaming reply's Reasoning block opens the running pass's box for the
   assert.equal(slot.querySelector("#reasoning-box"), null);
   S.isStreaming = false;
   S.streamingBodyEl = null;
+});
+
+// JSDOM lays nothing out, so raw boxes get a fixed viewport over taller text.
+function withBoxLayout(run) {
+  const proto = dom.window.HTMLElement.prototype;
+  const saved = ["clientHeight", "scrollHeight", "scrollTop"].map((k) => [k, Object.getOwnPropertyDescriptor(proto, k)]);
+  const tops = new WeakMap();
+  const raw = (el) => el.classList.contains("inspect-raw");
+  const define = (key, descriptor) => Object.defineProperty(proto, key, { configurable: true, ...descriptor });
+  define("clientHeight", { get: function () { return raw(this) ? 200 : 0; } });
+  define("scrollHeight", { get: function () { return raw(this) ? 1000 : 0; } });
+  define("scrollTop", {
+    get: function () { return tops.get(this) ?? 0; },
+    set: function (v) { tops.set(this, Math.max(0, Math.min(v, 800))); },
+  });
+  try {
+    run();
+  } finally {
+    for (const [k, d] of saved) {
+      if (d) Object.defineProperty(proto, k, d);
+      else delete proto[k];
+    }
+  }
+}
+
+test("the streamed reply's boxes reopen where they were once its stored copy lands", () => {
+  const chat = document.createElement("div");
+  chat.id = "chat-messages";
+  chat.innerHTML = '<div class="message assistant"><div class="msg-inspect-baked"></div></div>';
+  document.body.appendChild(chat);
+  const row = chat.firstElementChild;
+  const slot = row.querySelector(".msg-inspect-baked");
+  const log = {
+    ...EMPTY_LOG,
+    reasoning_writer: "long thoughts",
+    tool_calls: [{ name: "a" }],
+  };
+  S.toolCallsOpen = true;
+  rememberInspection(reply.id, log);
+  withBoxLayout(() => {
+    slot.innerHTML = reasoningBlockHtml(view(log)) + inspectorBlockHtml(view(log));
+    const box = (key) => slot.querySelector(`[data-inspect-section="${key}"] .inspect-raw`);
+    box("inline_reasoning").scrollTop = 800; // followed to the bottom
+    box("tool_calls").scrollTop = 120; // scrolled by the reader
+    row.setAttribute("data-msg-id", String(reply.id));
+    rememberBoxScrolls(row);
+
+    const before = box("inline_reasoning");
+    refreshInlineInspector(reply.id);
+    assert.notEqual(box("inline_reasoning"), before, "the stored copy replaces the streamed boxes");
+    assert.equal(box("inline_reasoning").scrollTop, 800);
+    assert.equal(box("tool_calls").scrollTop, 120);
+  });
+  chat.remove();
 });

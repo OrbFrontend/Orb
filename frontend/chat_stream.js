@@ -38,7 +38,7 @@ import {
 import { refreshCharacters } from "./library_sidebar.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
-import { REASONING_PASSES } from "./message_inspector.js";
+import { REASONING_PASSES, rememberBoxScrolls } from "./message_inspector.js";
 import { ensurePersonaPinned } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
@@ -169,6 +169,8 @@ function finalizeStreamingDiv(lastMsg) {
 
   div.classList.remove("stream-scroll-target");
   div.setAttribute("data-msg-id", lastMsg.id);
+  // Its Reasoning and Inspector boxes now go by that id, so the stored copy reopens them where they were.
+  rememberBoxScrolls(div);
   body.removeAttribute("id");
   // The next bubble owns the live slot; this one waits for the stored copy (refreshInlineInspector).
   div.querySelector("#reasoning-box")?.removeAttribute("id");

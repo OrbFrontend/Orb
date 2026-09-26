@@ -291,7 +291,7 @@ export function reasoningBlockHtml(view) {
     </summary>
     <div class="msg-reasoning-body">
       <div class="inspect-chips">${tabs.join("")}</div>
-      <div class="inspect-raw"${boxId}>${esc(view.reasoning[REASONING_PASSES[selected].key])}</div>
+      <div class="inspect-raw"${boxId} data-reasoning-pass="${selected}">${esc(view.reasoning[REASONING_PASSES[selected].key])}</div>
     </div>
   </details>`;
 }
@@ -332,6 +332,62 @@ export function inspectorBlockHtml(view) {
 
 const blocksHtml = (view) => reasoningBlockHtml(view) + inspectorBlockHtml(view);
 
+// ── Raw box scroll positions ──
+
+// Where the reader left each reply's raw boxes, by reply, section and reasoning
+// pass. A block is rebuilt from markup (the streamed reply swapped for its stored
+// copy, a repaint after a toggle), so its boxes are put back here rather than
+// opening at their top. The streaming reply goes by its row until it has an id.
+const boxScrolls = new Map();
+const liveOwners = new WeakMap();
+let liveOwnerCount = 0;
+
+function boxScrollKey(box) {
+  const row = box.closest(".message");
+  const section = box.closest("[data-inspect-section]")?.dataset.inspectSection;
+  if (!row || !section) return null;
+  let owner = row.dataset.msgId;
+  if (!owner) {
+    if (!liveOwners.has(row)) liveOwners.set(row, `live${++liveOwnerCount}`);
+    owner = liveOwners.get(row);
+  }
+  return `${owner}:${section}:${box.dataset.reasoningPass ?? ""}`;
+}
+
+function recordBoxScroll(box) {
+  const key = boxScrollKey(box);
+  // A box in a collapsed section has no position to keep.
+  if (!key || !box.clientHeight) return;
+  boxScrolls.set(key, {
+    atBottom: box.scrollHeight - box.scrollTop - box.clientHeight <= REASONING_BOTTOM_THRESHOLD,
+    scrollTop: box.scrollTop,
+  });
+}
+
+// `scroll` does not bubble, so it is caught in the capture phase.
+document.addEventListener(
+  "scroll",
+  (e) => {
+    if (e.target.classList?.contains("inspect-raw")) recordBoxScroll(e.target);
+  },
+  true,
+);
+
+/** Record where the raw boxes under *row* sit, as the streamed reply takes its id. */
+export function rememberBoxScrolls(row) {
+  for (const box of row.querySelectorAll(".inspect-raw")) recordBoxScroll(box);
+}
+
+/** Put the raw boxes under *root* back where their reader left them; a box left at its bottom follows it. */
+export function restoreBoxScrolls(root) {
+  for (const box of root.querySelectorAll(".inspect-raw")) {
+    const key = boxScrollKey(box);
+    const saved = key && boxScrolls.get(key);
+    if (!saved || !box.clientHeight) continue;
+    box.scrollTop = saved.atBottom ? box.scrollHeight : saved.scrollTop;
+  }
+}
+
 // ── Cache of saved replies' director logs ──
 
 // By message id, for one conversation. `null` marks a reply the server had no data for.
@@ -345,6 +401,7 @@ function syncCacheConversation() {
   inspections.clear();
   inflight.clear();
   selectedPassByMsg.clear();
+  boxScrolls.clear();
   cacheConvId = S.activeConvId;
 }
 
@@ -404,6 +461,7 @@ export function refreshInlineInspector(msgId) {
   if (!slot) return repaintMessages();
   const message = S.messages.find((m) => m.id === msgId);
   slot.innerHTML = message ? inlineInspectorHtml(message) : "";
+  restoreBoxScrolls(slot);
 }
 
 /** Repaint the streaming bubble's blocks. Returns whether its Reasoning block rendered. */
@@ -417,6 +475,7 @@ export function renderLiveInspector() {
     REASONING_BOTTOM_THRESHOLD,
     () => {
       slot.innerHTML = view ? reasoning + inspectorBlockHtml(view) : "";
+      restoreBoxScrolls(slot);
     },
   );
   return reasoning !== "";
@@ -432,5 +491,8 @@ document.addEventListener("click", (e) => {
   if (!data) return;
   selectedPassByMsg.set(msgId, Number(tab.dataset.inspectPass));
   const section = tab.closest('[data-inspect-section="inline_reasoning"]');
-  if (section) section.outerHTML = reasoningBlockHtml(turnViewFromLog(msgId, data));
+  if (!section) return;
+  const row = section.closest(".message");
+  section.outerHTML = reasoningBlockHtml(turnViewFromLog(msgId, data));
+  restoreBoxScrolls(row);
 });

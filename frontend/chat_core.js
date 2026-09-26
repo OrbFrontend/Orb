@@ -7,7 +7,12 @@ import { CHEVRON_LEFT_ICON, CHEVRON_RIGHT_ICON, EDIT_ICON_PATHS } from "./icons.
 import { sectionHtml } from "./inspector_section.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
-import { ensureInspections, inlineInspectorHtml, setInlineInspectorRepaint } from "./message_inspector.js";
+import {
+  ensureInspections,
+  inlineInspectorHtml,
+  restoreBoxScrolls,
+  setInlineInspectorRepaint,
+} from "./message_inspector.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, localMlReady, S, subscribe } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
@@ -456,6 +461,7 @@ export function renderMessages(forceBottom = false) {
         // reads scrollHeight, or a node that has never been rendered still
         // counts as the 300px placeholder and the restore lands short.
         _measureIntrinsicSizes(fresh);
+        for (const el of fresh) restoreBoxScrolls(el);
       }
       if (badgeEl) ct.appendChild(badgeEl);
       if (streamingEl && !S.hideStreamingBox && !S.hideUntilBaked) {
