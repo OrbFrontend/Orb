@@ -1,19 +1,24 @@
 import { api } from "./api.js";
 import { CLOSE_ICON, DOWNLOAD_ICON } from "./icons.js";
 import { closeSubModal, showModal, showSubConfirmModal, showSubModal } from "./modal.js";
-import { $, downloadBlob, esc, escHandlerArg, toast } from "./utils.js";
+import { $, downloadBlob, esc, escAttr, escHandlerArg, toast } from "./utils.js";
 
 const DOMAINS = [
   { id: "characters", label: "Characters" },
   { id: "chats", label: "Chats", requires: "characters", note: "needs Characters" },
   { id: "lorebooks", label: "Lorebooks" },
-  { id: "fragments", label: "Fragments (mood & director)" },
+  { id: "fragments", label: "Fragments" },
   { id: "phrase_bank", label: "Phrase bank" },
   { id: "documents", label: "Documents" },
   { id: "configs", label: "Settings & endpoints" },
 ];
 
 let libraryByName = {};
+
+// The operation in flight, or the last one that failed, shown in the strip
+// under the header. One runs at a time: every action waits for it to settle.
+const IDLE = { text: "", busy: false, error: false, row: null };
+let status = IDLE;
 
 function fmtSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
@@ -40,9 +45,55 @@ export function showPresetsModal() {
         <input type="file" id="preset-import-input" accept=".db" style="display:none" onchange="handlePresetImportFile(this)">
       </div>
     </div>
+    <div id="preset-status" class="preset-status hidden" role="status" aria-live="polite">
+      <div class="gen-bar"></div>
+      <span class="gen-dot"></span>
+      <span class="preset-status-text"></span>
+    </div>
     <div id="preset-library-list" class="phrase-bank-list">Loading…</div>
   `);
+  if (!status.busy) status = IDLE;
+  renderStatus();
   refreshPresetLibrary();
+}
+
+function setStatus(next = {}) {
+  status = { ...IDLE, ...next };
+  // Closed mid-operation: the outcome still has to reach someone.
+  if (!renderStatus() && status.text && !status.busy) toast(status.text, status.error);
+}
+
+/** Paint `status` into the open modal. Returns false when the modal is closed. */
+function renderStatus() {
+  const el = $("preset-status");
+  if (!el) return false;
+  el.classList.toggle("hidden", !status.text);
+  el.classList.toggle("busy", status.busy);
+  el.classList.toggle("error", status.error);
+  el.querySelector(".preset-status-text").textContent = status.text;
+  const modal = el.closest(".modal");
+  for (const btn of modal.querySelectorAll("#preset-top-actions .btn, .preset-item-actions .btn")) {
+    btn.disabled = status.busy;
+  }
+  for (const row of modal.querySelectorAll(".preset-item")) {
+    row.classList.toggle("busy", status.busy && row.dataset.name === status.row);
+  }
+  return true;
+}
+
+/** Run one library operation with the modal showing `text` until `work` settles. */
+async function runPresetOp(text, row, failLabel, work) {
+  if (status.busy) return;
+  setStatus({ text, busy: true, row });
+  try {
+    await work();
+  } catch (e) {
+    setStatus({ text: `${failLabel}: ${e.message}`, error: true });
+  }
+}
+
+function presetTitle(name) {
+  return libraryByName[name]?.label || name;
 }
 
 export function showSnapshotModal() {
@@ -110,19 +161,14 @@ export async function doCreateSnapshot() {
     return;
   }
   const strip = !domains.includes("configs") || $("exp-strip-keys")?.checked;
-  try {
-    toast("Creating snapshot…");
-    await api.post("/presets/export", {
-      domains,
-      strip_keys: strip,
-      label: $("exp-label")?.value.trim() || "",
-    });
-    closeSubModal();
-    toast("Snapshot saved");
-    refreshPresetLibrary();
-  } catch (e) {
-    toast(`Snapshot failed: ${e.message}`, true);
-  }
+  const label = $("exp-label")?.value.trim() || "";
+  closeSubModal();
+  await runPresetOp("Creating snapshot…", null, "Snapshot failed", async () => {
+    await api.post("/presets/export", { domains, strip_keys: strip, label });
+    setStatus();
+    if (!$("preset-status")) toast("Snapshot saved");
+    await refreshPresetLibrary();
+  });
 }
 
 export function triggerPresetImport() {
@@ -133,14 +179,12 @@ export async function handlePresetImportFile(inp) {
   const f = inp.files[0];
   if (!f) return;
   inp.value = "";
-  try {
-    toast("Importing…");
+  await runPresetOp(`Importing “${f.name}”…`, null, "Import failed", async () => {
     await api.upload("/presets/import", f);
-    toast("Added to library");
-    refreshPresetLibrary();
-  } catch (e) {
-    toast(`Import failed: ${e.message}`, true);
-  }
+    setStatus();
+    if (!$("preset-status")) toast("Added to library");
+    await refreshPresetLibrary();
+  });
 }
 
 export function downloadPreset(name) {
@@ -155,15 +199,11 @@ export function applyPreset(name) {
       confirmText: "Apply",
       confirmClass: "btn-accent",
     },
-    async () => {
-      try {
-        toast("Applying…");
+    () =>
+      runPresetOp(`Applying “${presetTitle(name)}”…`, name, "Apply failed", async () => {
         const r = await api.post(`/presets/${encodeURIComponent(name)}/apply`, {});
         finishApply(r);
-      } catch (e) {
-        toast(`Apply failed: ${e.message}`, true);
-      }
-    },
+      }),
   );
 }
 
@@ -181,16 +221,12 @@ export function restorePreset(name) {
       confirmText: "Restore",
       confirmClass: "btn-danger",
     },
-    async () => {
-      try {
-        toast("Restoring…");
+    () =>
+      runPresetOp(`Restoring “${presetTitle(name)}”…`, name, "Restore failed", async () => {
         await api.post(`/presets/${encodeURIComponent(name)}/restore`, {});
-        toast("Restored — reloading");
+        setStatus({ text: "Restored — reloading…", busy: true, row: name });
         setTimeout(() => location.reload(), 600);
-      } catch (e) {
-        toast(`Restore failed: ${e.message}`, true);
-      }
-    },
+      }),
   );
 }
 
@@ -212,7 +248,7 @@ function finishApply(r) {
   const counts = Object.entries(r.summary || {})
     .map(([k, v]) => `${v} ${k}`)
     .join(", ");
-  toast(`Imported${counts ? `: ${counts}` : ""} — reloading`);
+  setStatus({ text: `Imported${counts ? `: ${counts}` : ""} — reloading…`, busy: true, row: status.row });
   setTimeout(() => location.reload(), 800);
 }
 
@@ -228,6 +264,7 @@ export async function refreshPresetLibrary() {
     }
     items.sort((a, b) => (b.mtime || 0) - (a.mtime || 0)); // newest first
     el.innerHTML = items.map(presetRow).join("");
+    renderStatus();
   } catch (e) {
     el.innerHTML = `<div class="phrase-bank-empty">Failed to load: ${esc(e.message)}</div>`;
   }
@@ -237,7 +274,7 @@ function presetRow(it) {
   const chips = (it.included_domains || []).map((d) => `<span class="preset-chip">${esc(d)}</span>`).join("");
   const title = it.label || it.name;
   return `
-    <div class="preset-item">
+    <div class="preset-item" data-name="${escAttr(it.name)}">
       <div class="preset-item-top">
         <div class="preset-item-main">
           <div class="preset-item-title">

@@ -1011,7 +1011,45 @@
   color: var(--text-secondary);
 }
 
-.preset-item-actions { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
+/* Icon squares take the row's height, so they line up with the text buttons
+   in every theme's font instead of a guessed pixel height. */
+.preset-item-actions {
+  --btn-square-size: 26px;
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  align-items: stretch;
+}
+.preset-item-actions .btn-square { height: auto; min-height: var(--btn-square-size); }
+
+.preset-item-actions .btn:disabled,
+#preset-top-actions .btn:disabled {
+  opacity: .45;
+  cursor: default;
+  pointer-events: none;
+}
+
+.preset-item.busy { border-color: var(--accent); }
+
+/* In-progress / failure line under the header; gen-bar and gen-dot are the
+   generation status bar's own marks. */
+.preset-status {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -4px 0 12px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.preset-status:not(.busy) .gen-bar,
+.preset-status:not(.busy) .gen-dot { display: none; }
+.preset-status.error { color: var(--red); border-color: var(--red); }
 
 .preset-kind {
   font-size: 9px;
