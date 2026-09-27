@@ -99,6 +99,14 @@ class TestStepPrompt:
         # Lorebook selection is no longer part of direct_scene (own select_lorebook tool).
         assert "selected_lorebook_entries" not in out
 
+    def test_resting_mood_is_not_listed_as_previously_active(self):
+        moods = [*_MOODS, {"id": "calm", "description": "quiet"}]
+        out = build_director_scene_step_prompt(
+            "msg", ["tense", "calm"], moods, target_fragment=None, resting=frozenset({"tense"})
+        )
+        assert "Previously active moods: calm\n" in out
+        assert "[tense]" not in out
+
     def test_fragment_stage_targets_one_field(self):
         out = build_director_scene_step_prompt("msg", [], _MOODS, target_fragment=_FRAGMENTS[0])
         assert "user_intent" in out and "what the user wants" in out
@@ -282,9 +290,9 @@ class TestPerFragmentLoop:
 
 
 class TestDirectSceneRequiredStripped:
-    """Per-fragment mode drops `required` from the shared direct_scene blob so the
-    advertised schema doesn't contradict the "Fill ONLY X, leave others empty" step
-    prompt on endpoints that can't grammar-narrow the call."""
+    """The shared direct_scene blob never carries `required`: which fragments are
+    required depends on which are enabled, and the blob must survive a toggle. In
+    per-fragment mode it would also contradict the "Fill ONLY X" step prompt."""
 
     _REQUIRED_FRAGS = [
         {"id": "problem", "field_type": "string", "description": "the problem", "sort_order": 1, "required": True},
@@ -305,6 +313,6 @@ class TestDirectSceneRequiredStripped:
         blob = self._blob(1)
         assert blob["direct_scene"]["function"]["parameters"]["required"] == []
 
-    def test_required_kept_when_per_fragment_off(self):
+    def test_required_dropped_when_per_fragment_off(self):
         blob = self._blob(0)
-        assert set(blob["direct_scene"]["function"]["parameters"]["required"]) == {"problem", "next_event"}
+        assert blob["direct_scene"]["function"]["parameters"]["required"] == []

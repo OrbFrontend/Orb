@@ -13,7 +13,12 @@ def tool_call_instruction(
     *,
     labels: Mapping[str, str] | None = None,
 ) -> str:
-    """Render the ordered single-tool instruction used by pipeline passes."""
+    """Render the ordered single-tool instruction used by pipeline passes.
+
+    *schema* is the call's live view. Fragment-built tools carry no ``required``
+    on the shared blob (an enable toggle would rewrite it), so the live view's
+    requiredness is stated here instead.
+    """
     description = schema["function"]["description"]
     parameters = schema["function"]["parameters"].get("properties", {})
     if not parameters:
@@ -22,7 +27,8 @@ def tool_call_instruction(
         parameter_order = ", ".join(f'{key} ("{labels[key]}")' if labels.get(key) else key for key in parameters)
     else:
         parameter_order = ", ".join(parameters.keys())
+    required = schema["function"]["parameters"].get("required") or []
     return (
         "Call ONLY this tool, ensuring parameters follow the schema order: "
         f"{tool_name} - {description}\nParameter order: ({parameter_order})"
-    )
+    ) + (f"\nRequired: {', '.join(required)}" if required else "")

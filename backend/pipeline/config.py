@@ -137,47 +137,55 @@ def _split_interactive_fragments(
     return scene, feedback, state, post_processing
 
 
+def _without_required(schema: dict) -> dict:
+    """Drop top-level ``required`` from a fragment-built schema on the shared blob.
+
+    Which fragments are required depends on which are enabled, so it cannot ride
+    the blob. Each call states and narrows its live fields per call instead.
+    """
+    schema["function"]["parameters"]["required"] = []
+    return schema
+
+
 def _build_writer_tools_blob(
     settings: Mapping[str, Any],
-    interactive_fragments: Sequence[Mapping[str, Any]],
+    defined_fragments: Sequence[Mapping[str, Any]],
     enabled_tools: Mapping[str, bool],
     *,
     agentic_lorebook: bool = False,
     dynamic_world: bool = False,
     grouped: bool = False,
-    state_contract: StateContract | None = None,
 ) -> tuple[dict, dict[str, bool]]:
     """Build the tool schemas shared by cached calls.
 
     Returns ``(schema_overrides, enabled_tools)``: the overrides, and a copy of
     *enabled_tools* with every tool this turn's features and fragments switch on.
 
-    *state_contract* is the turn's captured state configuration; omitted, it is
-    captured from the same *settings* and fragments.
+    *defined_fragments* is every fragment the user and the cast's cards define,
+    enabled or not. The blob renders ahead of the conversation, so enabling or
+    disabling a fragment must not change a byte of it: each fragment-built tool
+    offers every defined fragment, and the pass that calls it names the enabled
+    ones in its trailing request, narrows the call to them, and drops the rest --
+    the rule fragment cooldowns already follow.
     """
     enabled_tools = dict(enabled_tools)
-    _, feedback_fragments, state_fragments, post_processing_fragments = _split_interactive_fragments(interactive_fragments)
-    contract = state_contract or StateContract.capture(settings, state_fragments)
-    direct_scene = build_direct_scene_override(contract.direct_scene_rows(interactive_fragments), grouped=grouped)
-    # Per-fragment mode fills one field per call, so requiredness on the shared blob
-    # is meaningless -- and a non-empty `required` contradicts the "Fill ONLY X, leave
-    # others empty" step prompt, which confuses the reasoning pass on endpoints that
-    # can't grammar-narrow the call (no structured-tool-calls profile). Drop it.
-    if bool(settings.get("director_individual_fragments", 0)):
-        direct_scene["function"]["parameters"]["required"] = []
-    overrides: dict = {"direct_scene": direct_scene}
+    agent_on = agent_enabled(settings)
+    _, feedback_fragments, state_fragments, post_processing_fragments = _split_interactive_fragments(defined_fragments)
+    contract = StateContract.defined(settings, state_fragments)
+    direct_scene = build_direct_scene_override(contract.direct_scene_rows(defined_fragments), grouped=grouped)
+    overrides: dict = {"direct_scene": _without_required(direct_scene)}
     if agentic_lorebook:
         enabled_tools["select_lorebook"] = True
     if dynamic_world:
         enabled_tools["propose_world_changes"] = True
-    if _feedback_active(feedback_fragments, agent_on=agent_enabled(settings)):
-        overrides["give_feedback"] = build_feedback_override(feedback_fragments)
+    if _feedback_active(feedback_fragments, agent_on=agent_on):
+        overrides["give_feedback"] = _without_required(build_feedback_override(feedback_fragments))
         enabled_tools["give_feedback"] = True
-    if post_processing_active(post_processing_fragments, agent_on=agent_enabled(settings)):
+    if post_processing_active(post_processing_fragments, agent_on=agent_on):
         enabled_tools["editor_search_replace"] = True
-    # The union of every fragment the state tool may carry this turn, before or
-    # after the Writer, so both steps share one byte-stable blob. The schema
-    # depends only on configuration; state writes never rebuild it.
+    # The union of every fragment the state tool may carry, before or after the
+    # Writer, so both steps share one byte-stable blob. The schema depends only
+    # on configuration; state writes never rebuild it.
     if tool_fragments := contract.tool_fragments():
         overrides["update_state"] = build_state_tool(tool_fragments)
         enabled_tools["update_state"] = True

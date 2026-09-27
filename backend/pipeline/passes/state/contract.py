@@ -32,6 +32,16 @@ class StateContract:
             updates_on=agent_enabled(settings),
         )
 
+    @classmethod
+    def defined(cls, settings: Mapping[str, Any], state_rows: Sequence[Mapping[str, Any]]) -> StateContract:
+        """Every defined state fragment, enabled or not: what the shared tool schemas offer.
+
+        The tools blob precedes the conversation in the cached prefix, so it is
+        built from this contract and an enable toggle never rewrites it; the
+        turn's routing and validation read the enabled :meth:`capture` instead.
+        """
+        return cls(fragments=tuple(state_fragments_of(state_rows)), updates_on=agent_enabled(settings))
+
     def director_values(self) -> tuple[StateFragment, ...]:
         """One-value fragments updated by the Director's ``direct_scene`` call."""
         if not self.updates_on:

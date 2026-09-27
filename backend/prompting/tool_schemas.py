@@ -39,7 +39,7 @@ _DIRECT_SCENE_DESCRIPTION = (
 def build_direct_scene_tool(
     interactive_fragments: Sequence[Mapping[str, Any]],
 ) -> dict:
-    """Build the ``direct_scene`` tool schema from the enabled interactive fragments.
+    """Build the ``direct_scene`` tool schema from *interactive_fragments*.
 
     Fragments add dynamic string/array parameters beyond the fixed ``moods``
     field. Returns an OpenAI function-calling format dict. (Lorebook selection is
