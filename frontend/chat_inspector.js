@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { renderContextSize, renderMessages } from "./chat_core.js";
 import { currentDecisionsHtml } from "./chat_decisions.js";
 import { sectionHtml } from "./inspector_section.js";
+import { avatarBustQuery } from "./library_sidebar.js";
 import {
   buildFeedbackHtml,
   buildStateHtml,
@@ -523,7 +524,7 @@ async function _bindExpressionChar(img, charId) {
   img._exprLabels = labels;
   const neutral = labels.includes("neutral") ? `/api/characters/${charId}/expressions/neutral` : null;
   img._exprSrc = neutral;
-  img.src = neutral || `/api/characters/${charId}/avatar?t=${Date.now()}`;
+  img.src = neutral || `/api/characters/${charId}/avatar${avatarBustQuery(charId)}`;
 }
 
 async function _expressionTick() {
@@ -566,7 +567,7 @@ async function _expressionTick() {
   const labels = img._exprLabels || [];
   const resolved = labels.includes(label) ? label : labels.includes("neutral") ? "neutral" : null;
   if (!resolved) {
-    img.src = `/api/characters/${charId}/avatar`; // no matching expression → plain avatar
+    img.src = `/api/characters/${charId}/avatar${avatarBustQuery(charId)}`; // no matching expression → plain avatar
     return;
   }
   const next = `/api/characters/${charId}/expressions/${resolved}`;
@@ -588,7 +589,7 @@ export async function showAvatarPopup() {
   const img = document.getElementById("avatar-popup-image");
   if (!img) return;
   const hasExpr = (S.characters || []).find((c) => c.id === charId)?.has_expressions;
-  if (!hasExpr) img.src = `/api/characters/${charId}/avatar?t=${Date.now()}`;
+  if (!hasExpr) img.src = `/api/characters/${charId}/avatar${avatarBustQuery(charId)}`;
   popup.classList.remove("hidden");
   img._exprCharId = null;
   await _bindExpressionChar(img, charId);

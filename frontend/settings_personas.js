@@ -226,13 +226,16 @@ function wirePersonaAvatarControls(persona) {
   box.addEventListener("click", (e) => {
     const action = e.target.closest("[data-action]")?.dataset.action;
     if (action === "choose") {
-      showCropModal(({ b64, mime }) => {
-        _pendingPersonaAvatar = { b64, mime };
-        const preview = $("persona-avatar-preview");
-        if (preview) preview.innerHTML = personaPreviewHtml(persona);
-        const removeBtn = box.querySelector('[data-action="remove"]');
-        if (removeBtn) removeBtn.disabled = false;
-      }, 1);
+      showCropModal(
+        ({ b64, mime }) => {
+          _pendingPersonaAvatar = { b64, mime };
+          const preview = $("persona-avatar-preview");
+          if (preview) preview.innerHTML = personaPreviewHtml(persona);
+          const removeBtn = box.querySelector('[data-action="remove"]');
+          if (removeBtn) removeBtn.disabled = false;
+        },
+        { kind: "persona", ratio: "square" },
+      );
     } else if (action === "remove") {
       _pendingPersonaAvatar = REMOVE_AVATAR;
       const preview = $("persona-avatar-preview");

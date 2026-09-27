@@ -127,12 +127,15 @@ function _readAltGreetings(prefix) {
 }
 
 export function triggerAvatarCrop(prefix, _cardId) {
-  showCropModal(({ b64, mime }) => {
-    _pendingAvatar = { b64, mime };
-    const el = $(`${prefix}-avatar-preview`);
-    if (el) el.innerHTML = `<img src="data:${mime};base64,${b64}">`;
-    clearCharEditStatus(); // A new avatar is an unsaved edit like any other.
-  });
+  showCropModal(
+    ({ b64, mime }) => {
+      _pendingAvatar = { b64, mime };
+      const el = $(`${prefix}-avatar-preview`);
+      if (el) el.innerHTML = `<img src="data:${mime};base64,${b64}">`;
+      clearCharEditStatus(); // A new avatar is an unsaved edit like any other.
+    },
+    { kind: "character", ratio: "portrait" },
+  );
 }
 
 export function exportCharacter(id, name) {

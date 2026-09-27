@@ -115,7 +115,7 @@ function paint() {
       ? "Scanning character content and checking cached avatars…"
       : !_report
         ? _characterCount
-          ? "Scan the library when you are ready."
+          ? "Algorithmically scan the library, no API calls."
           : "No characters to scan yet."
         : resultCount()
           ? resultSummary()

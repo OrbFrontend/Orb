@@ -1,6 +1,21 @@
+import {
+  CROP_RATIOS,
+  cropCornerCursor,
+  cropCorners,
+  cropHit,
+  cropInitial,
+  cropMove,
+  cropOutputSize,
+  cropReshape,
+  cropResize,
+  cropResizeStart,
+} from "./crop_geometry.js";
 import { $ } from "./utils.js";
 
-let _cs = null; // { img, scale, onConfirm, aspect, cx, cy, cw, ch, drag }
+let _cs = null; // { img, scale, onConfirm, aspect, W, H, box: { cx, cy, cw, ch }, drag }
+
+// Largest side of a saved avatar. The crop keeps the source resolution up to this.
+const CROP_OUT_MAX = 1024;
 
 // Backdrop clicks, Escape and mobile Back all dismiss through closeTopModal, so a
 // modal whose Cancel does more than close (return to its list, abort a stream)
@@ -134,7 +149,31 @@ export function showSubConfirmModal(opts, onConfirm) {
   mountConfirm("modal-sub-root", showSubModal, closeSubModal, opts, onConfirm);
 }
 
-export function showCropModal(onConfirm, aspect = 2 / 3) {
+// The ratio last picked for each kind of avatar, so someone who always wants
+// square chooses it once. Storage can be unavailable (private window, blocked
+// site data); the caller's default applies then.
+const cropRatioKey = (kind) => `orb-crop-ratio-${kind}`;
+
+function _rememberedRatio(kind, fallback) {
+  try {
+    const saved = localStorage.getItem(cropRatioKey(kind));
+    return saved && Object.hasOwn(CROP_RATIOS, saved) ? saved : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function _rememberRatio(kind, ratio) {
+  try {
+    localStorage.setItem(cropRatioKey(kind), ratio);
+  } catch {}
+}
+
+/**
+ * Pick an image and crop it. `kind` names the avatar ("character", "persona")
+ * so each remembers its own last ratio; `ratio` is its default, a CROP_RATIOS key.
+ */
+export function showCropModal(onConfirm, { kind, ratio = "portrait" }) {
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "image/*";
@@ -142,16 +181,23 @@ export function showCropModal(onConfirm, aspect = 2 / 3) {
     const file = input.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => _openCropEditor(ev.target.result, onConfirm, aspect);
+    reader.onload = (ev) => _openCropEditor(ev.target.result, onConfirm, kind, _rememberedRatio(kind, ratio));
     reader.readAsDataURL(file);
   };
   input.click();
 }
 
-function _openCropEditor(dataUrl, onConfirm, aspect) {
+function _openCropEditor(dataUrl, onConfirm, kind, ratio) {
+  const ratioButtons = Object.entries(CROP_RATIOS)
+    .map(
+      ([key, { label }]) =>
+        `<button type="button" class="btn btn-sm${key === ratio ? " btn-active" : ""}" data-crop-ratio="${key}" aria-pressed="${key === ratio}">${label}</button>`,
+    )
+    .join("");
   const root = mountLayer(
     "modal-crop-root",
     `<h2>Crop avatar</h2>
+        <div class="btn-row" role="group" aria-label="Crop shape">${ratioButtons}</div>
         <canvas id="crop-canvas"></canvas>
         <div style="font-size:11px;color:var(--text-muted)">Drag to move &middot; Drag corners to resize</div>
         <div class="modal-actions">
@@ -162,34 +208,37 @@ function _openCropEditor(dataUrl, onConfirm, aspect) {
   );
   root.querySelector('[data-crop-action="cancel"]').addEventListener("click", closeCropModal);
   root.querySelector('[data-crop-action="confirm"]').addEventListener("click", () => _confirmCrop());
+  for (const button of root.querySelectorAll("[data-crop-ratio]")) {
+    button.addEventListener("click", () => {
+      if (!_cs) return;
+      const next = button.dataset.cropRatio;
+      for (const other of root.querySelectorAll("[data-crop-ratio]")) {
+        const on = other === button;
+        other.classList.toggle("btn-active", on);
+        other.setAttribute("aria-pressed", String(on));
+      }
+      _cs.aspect = CROP_RATIOS[next].aspect;
+      _cs.box = cropReshape(_cs.box, _cs.aspect, _cs.W, _cs.H);
+      _drawCrop($("crop-canvas"));
+      _rememberRatio(kind, next);
+    });
+  }
 
   const img = new Image();
   img.onload = () => {
+    // Box geometry lives in the displayed image's CSS pixels (W x H); the
+    // backing store is scaled by devicePixelRatio so the preview stays sharp.
     const MAX = 480;
     const scale = Math.min(MAX / img.naturalWidth, MAX / img.naturalHeight, 1);
+    const W = img.naturalWidth * scale;
+    const H = img.naturalHeight * scale;
+    const dpr = window.devicePixelRatio || 1;
     const canvas = $("crop-canvas");
-    canvas.width = Math.round(img.naturalWidth * scale);
-    canvas.height = Math.round(img.naturalHeight * scale);
-
-    let cw, ch;
-    if (canvas.width <= canvas.height * aspect) {
-      cw = Math.round(canvas.width * 0.85);
-      ch = Math.round(cw / aspect);
-    } else {
-      ch = Math.round(canvas.height * 0.85);
-      cw = Math.round(ch * aspect);
-    }
-    _cs = {
-      img,
-      scale,
-      onConfirm,
-      aspect,
-      cx: Math.round((canvas.width - cw) / 2),
-      cy: Math.round((canvas.height - ch) / 2),
-      cw,
-      ch,
-      drag: null,
-    };
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    canvas.style.width = `${W}px`;
+    const { aspect } = CROP_RATIOS[ratio];
+    _cs = { img, scale, onConfirm, aspect, W, H, box: cropInitial(W, H, aspect), drag: null };
     _drawCrop(canvas);
     _attachCropEvents(canvas);
   };
@@ -198,11 +247,12 @@ function _openCropEditor(dataUrl, onConfirm, aspect) {
 
 function _drawCrop(canvas) {
   if (!_cs) return;
-  const { img, cx, cy, cw, ch } = _cs;
-  const W = canvas.width,
-    H = canvas.height;
+  const { img, W, H } = _cs;
+  const { cx, cy, cw, ch } = _cs.box;
   const ctx = canvas.getContext("2d");
-
+  ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+  ctx.imageSmoothingQuality = "high";
+  ctx.clearRect(0, 0, W, H);
   ctx.drawImage(img, 0, 0, W, H);
 
   ctx.fillStyle = "rgba(0,0,0,0.6)";
@@ -232,108 +282,74 @@ function _drawCrop(canvas) {
 
   const hs = 8;
   ctx.fillStyle = "white";
-  [
-    [cx, cy],
-    [cx + cw, cy],
-    [cx, cy + ch],
-    [cx + cw, cy + ch],
-  ].forEach(([hx, hy]) => {
-    ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
-  });
+  for (const [hx, hy] of cropCorners(_cs.box)) ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
 }
 
+// Pointer events with capture: once a drag starts on the canvas, every move and
+// the release reach it wherever the pointer goes, so dragging past the edge keeps
+// tracking (clamped) and letting go outside the canvas still ends the drag.
 function _attachCropEvents(canvas) {
+  const HIT_RADIUS = 14; // screen pixels around a corner handle
+  // The canvas can render narrower than W (max-width: 100% on a small screen),
+  // so client pixels are rescaled into box pixels rather than used as-is.
   const toLocal = (e) => {
     const r = canvas.getBoundingClientRect();
-    const src = e.touches ? e.touches[0] : e;
-    return { x: src.clientX - r.left, y: src.clientY - r.top };
+    const k = _cs.W / r.width;
+    return { x: (e.clientX - r.left) * k, y: (e.clientY - r.top) * k, k };
   };
+  const cursorFor = (hit) => (hit?.corner != null ? cropCornerCursor(hit.corner) : hit?.move ? "move" : "");
 
-  const onStart = (e) => {
+  canvas.addEventListener("pointerdown", (e) => {
+    if (!_cs || !e.isPrimary || e.button !== 0) return;
     e.preventDefault();
+    const { x, y, k } = toLocal(e);
+    let hit = cropHit(_cs.box, x, y, HIT_RADIUS * k);
+    if (!hit) {
+      // A press on the dimmed margin brings the box to the pointer and carries on as a move.
+      _cs.box = cropMove(_cs.box, x - _cs.box.cw / 2, y - _cs.box.ch / 2, _cs.W, _cs.H);
+      hit = { move: true };
+      _drawCrop(canvas);
+    }
+    _cs.drag =
+      hit.corner != null
+        ? { resize: cropResizeStart(_cs.box, hit.corner) }
+        : { ox: x - _cs.box.cx, oy: y - _cs.box.cy };
+    canvas.style.cursor = cursorFor(hit);
+    canvas.setPointerCapture(e.pointerId);
+  });
+
+  canvas.addEventListener("pointermove", (e) => {
     if (!_cs) return;
-    const { x, y } = toLocal(e);
-    const { cx, cy, cw, ch } = _cs;
-    const hs = 14; // hit-test radius for corner handles
-
-    const corners = [
-      [cx, cy, cx + cw, cy + ch],
-      [cx + cw, cy, cx, cy + ch],
-      [cx, cy + ch, cx + cw, cy],
-      [cx + cw, cy + ch, cx, cy],
-    ];
-    for (const [hx, hy, ax, ay] of corners) {
-      if (Math.abs(x - hx) < hs && Math.abs(y - hy) < hs) {
-        _cs.drag = { mode: "corner", ax, ay };
-        return;
-      }
+    const { x, y, k } = toLocal(e);
+    const { drag, W, H } = _cs;
+    if (!drag) {
+      canvas.style.cursor = cursorFor(cropHit(_cs.box, x, y, HIT_RADIUS * k));
+      return;
     }
-    if (x >= cx && x <= cx + cw && y >= cy && y <= cy + ch) {
-      _cs.drag = { mode: "move", ox: x - cx, oy: y - cy };
-    }
-  };
-
-  const onMove = (e) => {
-    e.preventDefault();
-    if (!_cs?.drag) return;
-    const { x, y } = toLocal(e);
-    const { drag } = _cs;
-    const W = canvas.width,
-      H = canvas.height;
-    const A = _cs.aspect; // width / height
-
-    if (drag.mode === "move") {
-      _cs.cx = Math.max(0, Math.min(W - _cs.cw, x - drag.ox));
-      _cs.cy = Math.max(0, Math.min(H - _cs.ch, y - drag.oy));
-    } else {
-      const { ax, ay } = drag;
-      const dx = Math.abs(x - ax);
-      const dy = Math.abs(y - ay);
-      let cw = Math.max(40, Math.min(dx, dy * A));
-      let ch = Math.round(cw / A);
-
-      let nx = x < ax ? ax - cw : ax;
-      let ny = y < ay ? ay - ch : ay;
-
-      nx = Math.max(0, nx);
-      ny = Math.max(0, ny);
-      cw = Math.min(cw, W - nx);
-      ch = Math.min(ch, H - ny);
-      if (cw / ch > A) {
-        cw = Math.round(ch * A);
-      } else {
-        ch = Math.round(cw / A);
-      }
-
-      _cs.cw = Math.max(40, cw);
-      _cs.ch = Math.max(Math.round(40 / A), ch);
-      _cs.cx = nx;
-      _cs.cy = ny;
-    }
+    _cs.box = drag.resize
+      ? cropResize(drag.resize, x, y, _cs.aspect, W, H)
+      : cropMove(_cs.box, x - drag.ox, y - drag.oy, W, H);
     _drawCrop(canvas);
-  };
+  });
 
-  const onEnd = () => {
+  // lostpointercapture follows every pointerup and pointercancel, and also
+  // covers the capture being dropped for any other reason.
+  canvas.addEventListener("lostpointercapture", () => {
     if (_cs) _cs.drag = null;
-  };
-
-  canvas.addEventListener("mousedown", onStart);
-  canvas.addEventListener("mousemove", onMove);
-  canvas.addEventListener("mouseup", onEnd);
-  canvas.addEventListener("touchstart", onStart, { passive: false });
-  canvas.addEventListener("touchmove", onMove, { passive: false });
-  canvas.addEventListener("touchend", onEnd);
+  });
 }
 
 function _confirmCrop() {
   if (!_cs) return;
-  const { img, cx, cy, cw, ch, scale, onConfirm, aspect } = _cs;
-  const OUT_W = 400;
-  const OUT_H = Math.round(OUT_W / aspect); // 600 for standard 2:3 portrait
+  const { img, scale, onConfirm, aspect } = _cs;
+  const { cx, cy, cw, ch } = _cs.box;
+  const { w, h } = cropOutputSize(_cs.box, scale, aspect, CROP_OUT_MAX);
   const out = document.createElement("canvas");
-  out.width = OUT_W;
-  out.height = OUT_H;
-  out.getContext("2d").drawImage(img, cx / scale, cy / scale, cw / scale, ch / scale, 0, 0, OUT_W, OUT_H);
+  out.width = w;
+  out.height = h;
+  const ctx = out.getContext("2d");
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, cx / scale, cy / scale, cw / scale, ch / scale, 0, 0, w, h);
   const b64 = out.toDataURL("image/png").split(",")[1];
   closeCropModal();
   onConfirm({ b64, mime: "image/png" });
