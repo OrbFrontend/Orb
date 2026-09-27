@@ -626,6 +626,16 @@
   text-align: center;
 }
 
+/* Takes the role line's colour, so a theme that tints the name tints this too. */
+.msg-num {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: .6;
+  white-space: nowrap;
+}
+
 .msg-edit-area textarea {
   font-family: var(--font-prose);
   font-size: var(--font-prose-size);
@@ -1215,6 +1225,15 @@
 
 #chat-messages[data-avatars="on"] .message > *:not(.msg-avatar) {
   grid-column: 2;
+}
+
+/* The number leaves the role line and sits centred under the avatar, which is
+   pinned to the bubble's top-left corner. */
+#chat-messages[data-avatars="on"] .message .msg-num {
+  position: absolute;
+  top: calc(var(--msg-avatar-size, 34px) + 4px);
+  left: calc(var(--msg-avatar-size, 34px) / 2);
+  transform: translateX(-50%);
 }
 
 #chat-messages[data-avatars="on"] .message.user { margin-left: 0; }

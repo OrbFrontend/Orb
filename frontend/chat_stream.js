@@ -9,6 +9,7 @@ import {
   ICON_DEL,
   ICON_EDIT,
   ICON_REGEN,
+  msgNumHtml,
   renderMessages,
   setMessages,
   swipeNavHtml,
@@ -224,7 +225,9 @@ export function createStreamingDiv(name = null, memberId = null) {
   const div = document.createElement("div");
   div.className = "message assistant";
   const avatar = S.showChatAvatars ? speakerAvatarCell({ role: "assistant", speaker_member_id: memberId }) : "";
-  div.innerHTML = `${avatar}<div class="msg-role">${esc(name || getCharName())}</div>
+  // It lands after every turn above the cut, plus the group speakers who already finished this exchange.
+  const num = (S.streamCutoffIndex ?? S.messages.length) + S.completedExchangeMessageIds.length + 1;
+  div.innerHTML = `${avatar}<div class="msg-role">${esc(name || getCharName())} ${msgNumHtml(num)}</div>
     <div class="msg-inspect-live"></div>
     <div class="msg-body" id="streaming-body">
       <span class="typing-indicator"><span></span><span></span><span></span></span>

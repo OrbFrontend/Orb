@@ -311,6 +311,12 @@ export function swipeNavHtml(m) {
         </span>`;
 }
 
+// The turn's 1-based position in the conversation, beside the speaker's name.
+// With the avatar gutter on, the stylesheet moves it under the avatar instead.
+export function msgNumHtml(n) {
+  return `<span class="msg-num">#${n}</span>`;
+}
+
 // The card's framing, above the opening line: what the scene is, and what its
 // author wanted the reader to know before it starts. Neither has another home
 // in the chat pane.
@@ -342,7 +348,7 @@ export function sceneIntroEntries() {
   return entries;
 }
 
-function _messageHtml(m, avatars) {
+function _messageHtml(m, num, avatars) {
   const isForkEditing = S.forkEditMsgId !== null && S.forkEditMsgId === m.id;
   const isEditing =
     (S.editingMsgId !== null && S.editingMsgId === m.id) || (!m.id && S.editingPendingUserMsg) || isForkEditing;
@@ -378,7 +384,7 @@ function _messageHtml(m, avatars) {
     ? `<span class="msg-rewriting"><span class="dot"></span>Rewriting prose…</span>`
     : "";
   return `<div class="message ${m.role}${isProseRewriting ? " prose-rewriting" : ""}" data-msg-id="${m.id}">
-        ${avatars ? speakerAvatarCell(m) : ""}<div class="msg-role">${esc(speakerLabel(m))} ${branchHtml}${rewritingHtml}</div>
+        ${avatars ? speakerAvatarCell(m) : ""}<div class="msg-role">${esc(speakerLabel(m))} ${msgNumHtml(num)}${branchHtml}${rewritingHtml}</div>
         ${inlineInspectorHtml(m)}${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${proposalsHtml}${toolbar}
       </div>`;
 }
@@ -449,7 +455,10 @@ export function renderMessages(forceBottom = false) {
             ...(start === 0 ? sceneIntroEntries() : []),
             // An aborted turn can leave two id-less rows in the list (the pending user
             // message and the unpersisted reply), so they key by position, not by role.
-            ...msgs.map((m, i) => ({ key: m.id ? `m${m.id}` : `p${i}`, html: _messageHtml(m, avatars) })),
+            ...msgs.map((m, i) => ({
+              key: m.id ? `m${m.id}` : `p${i}`,
+              html: _messageHtml(m, start + i + 1, avatars),
+            })),
           ],
           "msg-swap",
         );
