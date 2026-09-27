@@ -1206,13 +1206,22 @@
   margin-top: 2px;
 }
 
-/* Message avatar gutter. The right padding mirrors the avatar column, so the
-   bubbles stay centred in the chat area rather than shifted right by it. */
+/* Message avatar gutter. The row reaches --msg-avatar-shift into the chat
+   area's side padding so the avatar can grow without narrowing the bubble. The
+   right padding mirrors what is left of the avatar column, so the bubbles stay
+   centred in the chat area rather than shifted right by it. */
+#chat-messages[data-avatars="on"] {
+  --msg-avatar-size: 40px;
+  --msg-avatar-shift: 8px;
+}
+
 #chat-messages[data-avatars="on"] .message {
   display: grid;
-  grid-template-columns: var(--msg-avatar-size, 34px) 1fr;
+  grid-template-columns: var(--msg-avatar-size) 1fr;
   column-gap: 10px;
-  padding-right: calc(var(--msg-avatar-size, 34px) + 10px);
+  margin-left: calc(-1 * var(--msg-avatar-shift));
+  width: calc(100% + var(--msg-avatar-shift));
+  padding-right: calc(var(--msg-avatar-size) + 10px - var(--msg-avatar-shift));
 }
 
 #chat-messages[data-avatars="on"] .message > .msg-avatar {
@@ -1229,8 +1238,8 @@
    pinned to the bubble's top-left corner. */
 #chat-messages[data-avatars="on"] .message .msg-num {
   position: absolute;
-  top: calc(var(--msg-avatar-size, 34px) + 4px);
-  left: calc(var(--msg-avatar-size, 34px) / 2);
+  top: calc(var(--msg-avatar-size) + 4px);
+  left: calc(var(--msg-avatar-size) / 2);
   transform: translateX(-50%);
 }
 
