@@ -269,8 +269,5 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
 .plan-pill.active, .cast-row-summary-badge, .cast-manage-badge,
 .lb-tab-badge, .world-pending { color: #ffffff !important; }
 
-/* Lane headings already use --text-muted; fading them further drops them below 4.5:1 on the tinted bands. */
-.frag-lane-heading { opacity: 1 !important; }
-
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }

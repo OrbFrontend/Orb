@@ -483,7 +483,7 @@
 
 .frag-lane {
   border-radius: var(--radius);
-  padding: 4px 0 2px;
+  padding: 8px 0 2px;
   margin-bottom: 8px;
   background: oklch(
     from var(--accent) 0.6 0.1 calc(h + var(--frag-lane-offset, 40) + var(--frag-lane-turn)) /
@@ -495,15 +495,16 @@
 .frag-lane-editor { --frag-lane-turn: 240; }
 
 /* The band does the separating, so the heading only has to name the lane: no
-   flanking rules, and quiet enough to settle into the band rather than announce
-   itself over it. */
+   flanking rules. It sits on a tint, so it takes the section header's color at
+   full strength rather than a muted one. */
 .frag-lane-heading {
   font-size: 10px;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--text-muted);
-  opacity: 0.7;
-  padding: 0 10px 4px;
+  line-height: 1;
+  color: var(--text-secondary);
+  padding: 0 10px 7px;
 }
 
 #interactive-frag-list .fragment-item {
