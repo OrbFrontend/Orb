@@ -33,16 +33,6 @@
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }
 
-.message {
-  max-width: 100% !important;
-  margin-left: 0 !important;
-  margin-right: 0 !important;
-}
-
-.message.user {
-  margin-left: 0 !important;
-}
-
 .message .msg-body {
   border-radius: 0 !important;
   border-left: none !important;

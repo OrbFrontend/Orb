@@ -117,7 +117,6 @@
   margin-bottom: 0px;
   margin-top: 0px;
   width: 100%;
-  max-width: 95%;
   animation: msgIn .2s ease;
   position: relative;
   content-visibility: auto;
@@ -144,8 +143,6 @@
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; }
 }
-
-.message.user { margin-left: auto; }
 
 .message .msg-role {
   font-size: 10px;
@@ -1209,12 +1206,13 @@
   margin-top: 2px;
 }
 
-/* Message avatar gutter. */
-
+/* Message avatar gutter. The right padding mirrors the avatar column, so the
+   bubbles stay centred in the chat area rather than shifted right by it. */
 #chat-messages[data-avatars="on"] .message {
   display: grid;
   grid-template-columns: var(--msg-avatar-size, 34px) 1fr;
   column-gap: 10px;
+  padding-right: calc(var(--msg-avatar-size, 34px) + 10px);
 }
 
 #chat-messages[data-avatars="on"] .message > .msg-avatar {
@@ -1236,7 +1234,6 @@
   transform: translateX(-50%);
 }
 
-#chat-messages[data-avatars="on"] .message.user { margin-left: 0; }
 #chat-messages[data-avatars="on"] .message.user .msg-role { justify-content: flex-start; }
 #chat-messages[data-avatars="on"] .message.user .msg-toolbar { justify-content: flex-start; }
 
