@@ -793,6 +793,17 @@ async def test_a_rewrite_that_only_moved_the_markup_is_still_accepted(monkeypatc
     assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
 
 
+async def test_a_rewrite_wrapped_in_its_own_tool_call_is_healed(monkeypatch):
+    """A schema-less lane can echo the call syntax into the argument."""
+    _voice_on(monkeypatch)
+    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: SECOND_PRESENT})
+    _forced_call(monkeypatch, f'{VOICE_REWRITE_TOOL_NAME}("{DRIFTING_DRAFT}")')
+
+    events = await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
+
+    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
+
+
 # ---------- opt-in capture of the normalizer's exact inputs ----------
 
 

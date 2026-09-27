@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from ..toolkit import protected_runs, spoken_lines
+from . import VOICE_REWRITE_TOOL_NAME
 
 # A restatement may be slightly shorter, and may grow only by the few words a
 # person or tense shift costs ("she'd" -> "I would"), which scales with length.
@@ -19,9 +20,27 @@ _SPEAKER_LABEL = re.compile(
 
 _PARAGRAPH_BREAK = re.compile(r"\n\s*\n")
 
+# Where the rewrite lane sends no schema (text mode's grammar, structured-output
+# endpoints), the model only reads "call `voice_rewrite`" and can write that call
+# into the argument itself: `voice_rewrite("...")`. The wrapper is a broken
+# format, not a choice of words, so only a whole-passage wrapper is peeled.
+_CALL_WRAPPER = re.compile(
+    rf"\A\s*`?{VOICE_REWRITE_TOOL_NAME}\s*\(\s*(?:rewritten_text\s*[=:]\s*)?"
+    r"(?P<q>\"{3}|'{3}|[\"'])?(?P<body>.*?)(?(q)(?P=q))\s*\)\s*`?\s*\Z",
+    re.DOTALL,
+)
+
 
 def _paragraphs(text: str) -> int:
     return len([p for p in _PARAGRAPH_BREAK.split(text) if p.strip()])
+
+
+def unwrap(draft: str, rewritten: str) -> str:
+    """Return *rewritten* without a leaked ``voice_rewrite(...)`` call around it."""
+    if _CALL_WRAPPER.match(draft):
+        return rewritten
+    match = _CALL_WRAPPER.match(rewritten)
+    return match["body"] if match else rewritten
 
 
 def rejection(draft: str, rewritten: str) -> str:
@@ -51,5 +70,8 @@ def rejection(draft: str, rewritten: str) -> str:
 
     if _SPEAKER_LABEL.match(rewritten) and not _SPEAKER_LABEL.match(draft):
         return "added a speaker label"
+
+    if VOICE_REWRITE_TOOL_NAME in rewritten and VOICE_REWRITE_TOOL_NAME not in draft:
+        return "echoed the tool call"
 
     return ""

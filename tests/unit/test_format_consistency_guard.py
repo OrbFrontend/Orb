@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.workflows.format_consistency.guard import rejection
+from backend.workflows.format_consistency.guard import rejection, unwrap
 
 DRAFT = 'She crossed the room slowly. *He waits by the door.* "Good night," she said.'
 FAITHFUL = 'I crossed the room slowly. *He waits by the door.* "Good night," I said.'
@@ -92,3 +92,42 @@ def test_mangling_a_protected_run_is_rejected(protected, mangled):
 def test_a_protected_run_carried_through_is_accepted():
     draft = f"{DRAFT}\n\n```python\nx = 1\n```"
     assert rejection(draft, f"{FAITHFUL}\n\n```python\nx = 1\n```") == ""
+
+
+# ---------- a tool call echoed into the argument ----------
+
+
+@pytest.mark.parametrize(
+    "leaked",
+    [
+        f'voice_rewrite("{FAITHFUL}")',
+        f"voice_rewrite('{FAITHFUL}')",
+        f'voice_rewrite("""{FAITHFUL}""")',
+        f'voice_rewrite(rewritten_text="{FAITHFUL}")',
+        f"`voice_rewrite({FAITHFUL})`",
+        f'  voice_rewrite( "{FAITHFUL}" )\n',
+    ],
+)
+def test_a_whole_passage_call_wrapper_is_peeled(leaked):
+    assert unwrap(DRAFT, leaked) == FAITHFUL
+
+
+def test_a_passage_that_opens_on_dialogue_keeps_its_quotes():
+    draft = '"Good night," she said. *He waits by the door.*'
+    restated = '"Good night," I said. *He waits by the door.*'
+    assert unwrap(draft, f'voice_rewrite("{restated}")') == restated
+
+
+def test_an_unwrapped_rewrite_is_left_alone():
+    assert unwrap(DRAFT, FAITHFUL) == FAITHFUL
+
+
+def test_a_draft_that_is_itself_the_call_is_left_alone():
+    draft = 'voice_rewrite("hello")'
+    assert unwrap(draft, draft) == draft
+
+
+def test_a_partial_call_echo_is_rejected():
+    leaked = f'voice_rewrite("{FAITHFUL}'
+    assert unwrap(DRAFT, leaked) == leaked
+    assert rejection(DRAFT, leaked) == "echoed the tool call"

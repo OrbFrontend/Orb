@@ -21,7 +21,7 @@ from . import (
     capture,
     normalize_config,
 )
-from .guard import rejection
+from .guard import rejection, unwrap
 from .normalization import normalize_to_baseline, vote_axes
 from .voice import (
     FEATURE,
@@ -56,9 +56,11 @@ _SYSTEM = (
 # One line per drifting axis. Folding two axes into a single "in X and Y" sentence
 # buries the second inside the first one's trailing clause, which is how a POV
 # phrase that has to name both parties reads once a tense is appended to it.
+# Name the argument, not the function: a schema-less lane (text mode, structured
+# output) never shows the tool, and "call `voice_rewrite`" there invites the model
+# to write the call syntax into the passage itself.
 _INSTRUCTION = (
-    f"Restate the passage below and call `{VOICE_REWRITE_TOOL_NAME}` with the result.\n\n"
-    "REQUIRED VOICE:\n{voice}\n\nPASSAGE:\n{draft}"
+    "Restate the passage below and return the result as `rewritten_text`.\n\nREQUIRED VOICE:\n{voice}\n\nPASSAGE:\n{draft}"
 )
 
 
@@ -139,6 +141,10 @@ async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]], styles: l
     rewritten = await _voice_rewrite(ctx, text, phrases)
     if not rewritten:
         return text
+    healed = unwrap(text, rewritten)
+    if healed != rewritten:
+        logger.info("format-consistency: unwrapped a %s(...) call echoed into the rewrite", VOICE_REWRITE_TOOL_NAME)
+        rewritten = healed
     reason = rejection(text, rewritten)
     if reason:
         logger.info("format-consistency: discarding the voice rewrite (%s)", reason)
