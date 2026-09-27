@@ -152,6 +152,16 @@ export function renderSettings() {
       </div>
       <div class="tool-card-desc">Hide replies until completion.</div>
     </div>
+    <div class="tool-card ${S.preventPromptOverrides ? "tool-on" : ""}">
+      <div class="tool-card-header">
+        <span class="tool-card-name">Prevent prompt overrides</span>
+        <label class="tog" data-setting-stop>
+          <input type="checkbox" ${S.preventPromptOverrides ? "checked" : ""} data-setting-toggle="preventPromptOverrides">
+          <span class="tog-slider"></span>
+        </label>
+      </div>
+      <div class="tool-card-desc">Ignore system prompt and post-history instructions from character cards.</div>
+    </div>
     <div class="tool-card ${S.showChatAvatars ? "tool-on" : ""}">
       <div class="tool-card-header">
         <span class="tool-card-name">Show avatars in chat</span>
@@ -171,16 +181,6 @@ export function renderSettings() {
         </label>
       </div>
       <div class="tool-card-desc">Show turn details above chatbox rather than in side panel.</div>
-    </div>
-    <div class="tool-card ${S.preventPromptOverrides ? "tool-on" : ""}">
-      <div class="tool-card-header">
-        <span class="tool-card-name">Prevent prompt overrides</span>
-        <label class="tog" data-setting-stop>
-          <input type="checkbox" ${S.preventPromptOverrides ? "checked" : ""} data-setting-toggle="preventPromptOverrides">
-          <span class="tog-slider"></span>
-        </label>
-      </div>
-      <div class="tool-card-desc">Ignore system prompt and post-history instructions from character cards.</div>
     </div>
     ${divider("Local ML")}
     <div id="local-ml-section"><div class="tool-card-desc">Loading…</div></div>
