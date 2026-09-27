@@ -67,10 +67,11 @@ async def feedback_step(
         yield {"type": "done", "result": FeedbackResult()}
         return
 
-    # Built locally only to echo the parameter order into the prompt; it is
-    # byte-identical to the override the orchestrator already put in the shared
-    # base (same deterministic builder, same fragment list), so the wire tools
-    # blob is the unchanged base — nothing diverges.
+    # The live view of the shared ``give_feedback``: the blob offers every defined
+    # feedback fragment with nothing required, so an enable toggle never rewrites
+    # it. This one lists the enabled fragments for the prompt and narrows the call
+    # (``json_schema``) where the transport can; the wire tools blob is the
+    # unchanged base.
     tool_schema = build_feedback_tool(feedback_fragments)
 
     request = build_feedback_prompt(
@@ -97,6 +98,7 @@ async def feedback_step(
         trailing=trailing,
         tool_choice=GIVE_FEEDBACK_CHOICE,
         kv_tracker=kv_tracker,
+        json_schema=tool_schema["function"]["parameters"],
         **hyperparams,
         **reasoning_cfg(reasoning_on, reasoning_prefill),
     ):
@@ -105,7 +107,8 @@ async def feedback_step(
     agent_raw = json.dumps(resp, default=str)
     logger.info("Feedback step output:\n%s", agent_raw)
 
-    values = extract_feedback_values(parse_tool_calls(resp))
+    live = {fragment["id"] for fragment in feedback_fragments}
+    values = {key: value for key, value in extract_feedback_values(parse_tool_calls(resp)).items() if key in live}
 
     yield {
         "type": "done",

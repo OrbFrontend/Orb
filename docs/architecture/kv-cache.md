@@ -95,7 +95,7 @@ ahead of history, so it evicts the whole conversation from the server's prefix
 cache rather than costing only its own bytes. A call that forces a tool therefore
 has to pick a side. Either it rides the turn's lane, and the tool must be in the
 map **before** `_resolve_pipeline_config` freezes it into a `CachedBase` — what
-`apply_length_guard_tools` does for `editor_rewrite`, what active
+`apply_length_guard_tools` does for `editor_rewrite`, what defined
 post-processing fragments do for `editor_search_replace`, and what a workflow would do
 by yielding `enable_tools` from a pre-pipeline hook. Or it rides its own lane, and
 shares nothing with the turn: its own short prefix, and `enabled_tools=None` so
@@ -120,6 +120,26 @@ Fragment cooldowns follow the same rule as the speaking-plan roster and
 per-fragment required fields: their volatile availability is stated in the
 trailing Director prompt and enforced server-side, never by changing the tool
 schema.
+
+Enabling or disabling a fragment follows it too. `direct_scene`,
+`give_feedback`, and `update_state` are built from every fragment the user and
+the cast's cards define, enabled or not, in an order no toggle moves, with no
+top-level `required`; `editor_search_replace` and `give_feedback` join the list
+once any fragment of their kind is defined. Each call's trailing request lists
+only its live fields and their requiredness, names the offered-but-unavailable
+ones, and passes that live view as the per-call `json_schema`, which narrows
+text-mode grammars and structured-output endpoints while leaving the prompt
+bytes alone. Values for fields the call was not offered live are dropped.
+Creating, deleting, or editing a fragment's text still changes the blob; that is
+an authoring change, not a toggle.
+
+The stakes, measured on an 8k-token Director call: a tools list that changes
+on a toggle rebuilds the whole prefix wherever tools render ahead of the
+conversation. llama.cpp with Gemma 4 keeps 0 of 7.8k tokens (8.8 s of prefill
+against 1.2 s), and Claude through OpenRouter reads 0% and rewrites 11k tokens.
+Providers that render only the forced tool (NanoGPT, OpenRouter's Together
+upstream) ignore a tool appearing, but still lose the conversation when
+`direct_scene` itself changes.
 
 Endpoints with `structured_tool_calls` use a response schema and omit tool
 schemas from every chat request. Native text-completion mode also omits tools

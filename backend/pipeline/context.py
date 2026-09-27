@@ -103,6 +103,10 @@ class PipelineContext:
     invalid_decisions: tuple[InvalidDecision, ...] = ()
     judge_config: JudgeConfig = field(default_factory=JudgeConfig)
     state_contract: StateContract = field(default_factory=StateContract)
+    # Every defined fragment, enabled or not, for the shared tool schemas (see
+    # ``_defined_fragments``). None -- a context built by hand -- offers exactly
+    # ``interactive_fragments``.
+    defined_fragments: list[InteractiveFragmentRow] | None = None
 
 
 async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
@@ -134,8 +138,9 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     if director and director.get("active_moods"):
         enabled_ids = {f["id"] for f in mood_fragments}
         director["active_moods"] = [mood for mood in director["active_moods"] if mood in enabled_ids]
+    global_interactive = await db.get_interactive_fragments()
     interactive_fragments = db.merge_fragments_by_id(
-        [df for df in await db.get_interactive_fragments() if df.get("enabled", True)], card_interactive
+        [df for df in global_interactive if df.get("enabled", True)], card_interactive
     )
     decision_candidates, invalid_decisions = _decision_candidates(interactive_fragments, card_fragment_sources)
     phrase_bank = await db.get_phrase_bank()
@@ -179,7 +184,25 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         invalid_decisions=invalid_decisions,
         judge_config=await resolve_judge_config(settings),
         state_contract=StateContract.capture(settings, _split_interactive_fragments(interactive_fragments)[2]),
+        defined_fragments=_defined_fragments(global_interactive, card_interactive),
     )
+
+
+def _defined_fragments(
+    global_rows: Sequence[InteractiveFragmentRow],
+    card_rows: Sequence[InteractiveFragmentRow],
+) -> list[InteractiveFragmentRow]:
+    """Every fragment the turn's tool schemas offer, in an order no toggle moves.
+
+    Globals keep their sort order whether enabled or not, and cards follow, so
+    enabling a fragment never reorders the blob. A disabled global yields its
+    slot to the card row sharing its id -- the row the turn actually runs, since
+    globals win only while enabled. Every enabled row is here as the same object;
+    passes read their live fields' order off the blob, not the enabled list.
+    """
+    card_by_id = {row["id"]: row for row in card_rows}
+    rows = [row if row.get("enabled", True) or row["id"] not in card_by_id else card_by_id[row["id"]] for row in global_rows]
+    return db.merge_fragments_by_id(rows, card_rows)
 
 
 def _decision_candidates(
@@ -415,17 +438,16 @@ async def _prepare_turn(
         else None
     )
 
-    # Builds direct_scene plus any active fragment-driven Editor tools; must be
-    # called once so all passes get byte-identical tool blobs (KV cache
-    # Invariants 3 & 5).
+    # Builds direct_scene plus the fragment-driven Editor and state tools from
+    # every defined fragment; must be called once so all passes get
+    # byte-identical tool blobs (KV cache Invariants 3 & 5).
     overrides, enabled_tools_pre_merge = _build_writer_tools_blob(
         settings,
-        ctx.interactive_fragments,
+        ctx.defined_fragments if ctx.defined_fragments is not None else ctx.interactive_fragments,
         enabled_tools_pre_merge,
         agentic_lorebook=agentic_active,
         dynamic_world=world_proposal is not None,
         grouped=ctx.cast.grouped,
-        state_contract=ctx.state_contract,
     )
     schema_overrides = MappingProxyType(overrides)
     accumulators = {

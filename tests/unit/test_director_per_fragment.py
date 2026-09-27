@@ -282,9 +282,9 @@ class TestPerFragmentLoop:
 
 
 class TestDirectSceneRequiredStripped:
-    """Per-fragment mode drops `required` from the shared direct_scene blob so the
-    advertised schema doesn't contradict the "Fill ONLY X, leave others empty" step
-    prompt on endpoints that can't grammar-narrow the call."""
+    """The shared direct_scene blob never carries `required`: which fragments are
+    required depends on which are enabled, and the blob must survive a toggle. In
+    per-fragment mode it would also contradict the "Fill ONLY X" step prompt."""
 
     _REQUIRED_FRAGS = [
         {"id": "problem", "field_type": "string", "description": "the problem", "sort_order": 1, "required": True},
@@ -305,6 +305,6 @@ class TestDirectSceneRequiredStripped:
         blob = self._blob(1)
         assert blob["direct_scene"]["function"]["parameters"]["required"] == []
 
-    def test_required_kept_when_per_fragment_off(self):
+    def test_required_dropped_when_per_fragment_off(self):
         blob = self._blob(0)
-        assert set(blob["direct_scene"]["function"]["parameters"]["required"]) == {"problem", "next_event"}
+        assert blob["direct_scene"]["function"]["parameters"]["required"] == []

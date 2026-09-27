@@ -37,6 +37,18 @@ def _blank(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) and not item.strip() for item in value)
 
 
+def offered_state_ids(base: CachedBase) -> frozenset[str]:
+    """Every fragment id the base's shared ``update_state`` schema offers.
+
+    The blob carries every defined state fragment, enabled or not, so a value
+    for any of them is one the model was shown rather than an unknown field.
+    """
+    for schema in base.tools:
+        if schema.get("function", {}).get("name") == "update_state":
+            return frozenset(schema["function"]["parameters"].get("properties", {})) - {"retire"}
+    return frozenset()
+
+
 @dataclass(slots=True)
 class StateStepResult:
     """The ``done`` payload of a state step: applied events and rejected operations."""
@@ -143,12 +155,15 @@ async def state_step(
         if client.is_aborted:
             break
         aliases = entry_aliases(group, view)
+        # The group's live view of the shared schema: listed in the request and
+        # narrowing the call where the transport can.
+        live_schema = build_state_tool(group)
         request = build_state_request(
             group,
             view,
             aliases,
             placement=placement,
-            tool_schema=build_state_tool(group),
+            tool_schema=live_schema,
             reasoning_on=reasoning_on,
             scene_direction=scene_direction,
             decision_guidance=decision_guidance,
@@ -173,6 +188,7 @@ async def state_step(
                 trailing=trailing,
                 tool_choice=UPDATE_STATE_CHOICE,
                 kv_tracker=kv_tracker,
+                json_schema=live_schema["function"]["parameters"],
                 **hyperparams,
                 **reasoning_cfg(reasoning_on, reasoning_prefill),
             ):

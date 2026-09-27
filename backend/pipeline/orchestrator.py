@@ -34,7 +34,7 @@ from .passes.director import (
 )
 from .passes.editor import editor_stage
 from .passes.judge import JudgeResult
-from .passes.state import StateContract, StateStepResult, state_step
+from .passes.state import StateContract, StateStepResult, offered_state_ids, state_step
 from .passes.writer import strip_speaker_label, writer_stage
 from .sheet_update import sheet_update_stage
 from .state import (
@@ -376,7 +376,7 @@ async def _run_pipeline(
                 fragments=after_reply,
                 view=state.state_view,
                 placement="after_reply",
-                known_ids=frozenset(fragment.id for fragment in contract.tool_fragments()),
+                known_ids=offered_state_ids(cfg.agent_lane.base),
                 # No decision guidance: it directs the Writer, rides the replayed
                 # Writer message already, and the reply is the only record now.
                 reply_text=state.resp_text,

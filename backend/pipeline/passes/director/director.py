@@ -34,7 +34,7 @@ from ....prompting import (
 from ....prompting.tool_catalog import require_tool
 from ....prompting.tool_schemas import build_direct_scene_tool
 from ...tools import DIRECTOR_LOOP_TOOL_NAMES
-from ..state import StateContract, StateStepResult, state_step
+from ..state import StateContract, StateStepResult, offered_state_ids, state_step
 from . import cooldown
 from .lorebook_select import LorebookSelectResult, lorebook_select_step
 from .prompts import build_director_scene_step_prompt, build_director_tool_prompt
@@ -129,6 +129,33 @@ def build_direct_scene_override(
             "description": SPEAKING_PLAN_SCHEMA_DESCRIPTION,
         }
     return schema
+
+
+def live_direct_scene_schema(tool_schema: dict, fragments: Sequence[Mapping[str, Any]]) -> dict:
+    """The blob's ``direct_scene`` narrowed to the fields *fragments* make live.
+
+    The shared blob offers every defined fragment with nothing required, so an
+    enable toggle never rewrites the cached prefix. This view keeps the live
+    fragments, ``moods`` and the speaking plan in blob order and restores the
+    live fragments' requiredness. It shapes the request's parameter list and is
+    the per-call ``json_schema``, which narrows text-mode grammars and
+    structured-output endpoints (the chat transport drops it).
+    """
+    live = {fragment["id"] for fragment in fragments}
+    required = {fragment["id"] for fragment in fragments if fragment.get("required")}
+    params = tool_schema["function"]["parameters"]
+    properties = {
+        key: value
+        for key, value in params.get("properties", {}).items()
+        if key in live or key in ("moods", SPEAKING_PLAN_FIELD)
+    }
+    return {
+        **tool_schema,
+        "function": {
+            **tool_schema["function"],
+            "parameters": {**params, "properties": properties, "required": [key for key in properties if key in required]},
+        },
+    }
 
 
 def _step_schema(tool_schema: dict, keep: str) -> dict | None:
@@ -364,6 +391,14 @@ async def director_pass(
                         extra_fields[stage["id"]] = val
                     decided.append((stage["injection_label"], val))
             continue
+        # The blob offers every defined fragment; the call is shown, narrowed to,
+        # and credited with only the enabled ones that are not resting.
+        live_schema = (
+            live_direct_scene_schema(tool_schema, [f for f in interactive_fragments if f["id"] not in resting])
+            if name == "direct_scene" and tool_schema
+            else tool_schema
+        )
+        live_fields = set(live_schema["function"]["parameters"]["properties"]) if live_schema else set()
         tool_tail = build_director_tool_prompt(
             name,
             user_message,
@@ -372,9 +407,10 @@ async def director_pass(
             reasoning_on=reasoning_on,
             interactive_fragments=interactive_fragments,
             progressive_state=progressive_state,
-            tool_schema=tool_schema,
+            tool_schema=live_schema,
             cast_instruction=speaking_plan_instruction(speaker_keys) if speaker_keys else "",
             resting=resting,
+            unavailable_fields=[key for key in scene_fields if key not in live_fields],
         )
         tail = lorebook_prefix + ((notes_prefix + decisions_prefix) if name == "direct_scene" else "") + tool_tail
         content = build_multimodal_content(tail, attachments)
@@ -394,6 +430,7 @@ async def director_pass(
                 trailing=trailing,
                 tool_choice=require_tool(name)["choice"],
                 kv_tracker=kv_tracker,
+                json_schema=live_schema["function"]["parameters"] if live_schema else None,
                 **hyperparams,
                 **reasoning_params,
             ):
@@ -404,6 +441,11 @@ async def director_pass(
         last_raw = json.dumps(resp, default=str)
         logger.info("Agent tool=%s output:\n%s", name, last_raw)
         if parsed := parse_tool_calls(resp):
+            # A value for a field the call was not offered live (disabled or
+            # resting) is dropped from the record as well as from the result.
+            for tc in parsed:
+                if tc.get("name") == "direct_scene" and live_schema:
+                    tc["arguments"] = {k: v for k, v in tc.get("arguments", {}).items() if k in live_fields}
             all_calls.extend(parsed)
             active_moods, new_extra = apply_tool_calls(parsed, active_moods, mood_ids)
             if new_extra:
@@ -660,7 +702,7 @@ async def director_stage(
             fragments=before_writer,
             view=view,
             placement="before_writer",
-            known_ids=frozenset(fragment.id for fragment in state_contract.tool_fragments()),
+            known_ids=offered_state_ids(cfg.agent_lane.base),
             scene_direction=state.scene_direction,
             decision_guidance=director_decision_guidance,
             user_message=state.user_message,

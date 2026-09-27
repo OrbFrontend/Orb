@@ -40,8 +40,14 @@ def build_director_tool_prompt(
     tool_schema: dict | None = None,
     cast_instruction: str = "",
     resting: frozenset[str] = frozenset(),
+    unavailable_fields: Sequence[str] = (),
 ) -> str:
-    """Build the combined Director request for one tool."""
+    """Build the combined Director request for one tool.
+
+    *tool_schema* is the live view whose parameters the model may fill;
+    *unavailable_fields* are the ones the shared schema still offers -- disabled
+    or resting fragments -- which the request names so the model leaves them empty.
+    """
     tool = get_tool(tool_name)
     if not tool:
         return ""
@@ -61,9 +67,8 @@ def build_director_tool_prompt(
                 "Saved state fields - leave a field empty to keep it; write its complete new value only if it "
                 "changed:\n" + "\n".join(progressive_lines)
             )
-        resting_fields = [fragment["id"] for fragment in (interactive_fragments or []) if fragment["id"] in resting]
-        if resting_fields:
-            parts.append(f"Resting interactive fields (unavailable this turn): {', '.join(resting_fields)}")
+        if unavailable_fields:
+            parts.append(f"Resting interactive fields (unavailable this turn): {', '.join(unavailable_fields)}")
         parts.append(_moods_options_block(active_moods, mood_fragments, resting))
         parts.append(f'User\'s next message (for context, take this into account when directing):\n"""{user_message}"""')
     return "\n\n".join(parts) + "]"
