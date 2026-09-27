@@ -99,6 +99,14 @@ class TestStepPrompt:
         # Lorebook selection is no longer part of direct_scene (own select_lorebook tool).
         assert "selected_lorebook_entries" not in out
 
+    def test_resting_mood_is_not_listed_as_previously_active(self):
+        moods = [*_MOODS, {"id": "calm", "description": "quiet"}]
+        out = build_director_scene_step_prompt(
+            "msg", ["tense", "calm"], moods, target_fragment=None, resting=frozenset({"tense"})
+        )
+        assert "Previously active moods: calm\n" in out
+        assert "[tense]" not in out
+
     def test_fragment_stage_targets_one_field(self):
         out = build_director_scene_step_prompt("msg", [], _MOODS, target_fragment=_FRAGMENTS[0])
         assert "user_intent" in out and "what the user wants" in out

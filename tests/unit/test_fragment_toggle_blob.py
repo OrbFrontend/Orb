@@ -163,7 +163,7 @@ class TestDirectorUsesTheLiveView:
         base, result = await self._run(live, {"intent": "leaked", "next_event": "storm", "moods": []})
         assert "Parameter order: (next_event, keywords, moods)" in base.tails[0]
         assert "Required: next_event" in base.tails[0]
-        assert "(unavailable this turn): intent, mood_note" in base.tails[0]
+        assert "unavailable this turn (leave empty): intent, mood_note" in base.tails[0]
         assert list(base.schemas[0]["properties"]) == ["next_event", "keywords", "moods"]
         assert result.extra_fields == {"next_event": "storm"}
         assert result.calls[0]["arguments"] == {"next_event": "storm", "moods": []}
@@ -171,7 +171,7 @@ class TestDirectorUsesTheLiveView:
     async def test_resting_fields_leave_the_live_view(self):
         live = [row for row in _GLOBALS if row["id"] in ("intent", "next_event")]
         base, result = await self._run(live, {"intent": "x", "next_event": "y"}, resting=frozenset({"intent"}))
-        assert "(unavailable this turn): intent, keywords, mood_note" in base.tails[0]
+        assert "unavailable this turn (leave empty): intent, keywords, mood_note" in base.tails[0]
         assert base.schemas[0]["required"] == ["next_event"]
         assert result.extra_fields == {"next_event": "y"}
 

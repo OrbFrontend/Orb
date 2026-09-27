@@ -63,6 +63,31 @@ async def test_card_fragments_merge_into_pipeline_context(client, db):
     assert [fragment.id for fragment in ctx.state_contract.director_values()] == ["card_trust"]
 
 
+async def test_card_row_shadowing_a_disabled_global_keeps_the_blob_slot(client, db):
+    # The enabled list is the blob's order filtered, so a card row standing in
+    # for a disabled global is listed where the shared schemas offer it.
+    for body in (
+        {
+            "id": "card_trust",
+            "label": "Twin",
+            "description": "g",
+            "injection_label": "Twin",
+            "sort_order": -100,
+            "enabled": False,
+        },
+        {"id": "after_twin", "label": "After", "description": "g", "injection_label": "After", "sort_order": -50},
+    ):
+        assert (await client.post("/api/interactive-fragments", json=body)).status_code == 200
+    _, cid = await _make_card_conv(client)
+
+    ctx = await _load_pipeline_context(cid)
+    assert ctx is not None and ctx.defined_fragments is not None
+    enabled_ids = [f["id"] for f in ctx.interactive_fragments]
+    assert enabled_ids.index("card_trust") < enabled_ids.index("after_twin")
+    assert enabled_ids == [f["id"] for f in ctx.defined_fragments if f["id"] in enabled_ids]
+    assert next(f for f in ctx.interactive_fragments if f["id"] == "card_trust")["field_type"] == "state"
+
+
 async def test_conversation_without_card_fragments_unaffected(client, db):
     card = (await client.post("/api/characters", json={"name": "Plain"})).json()
     conv = (await client.post("/api/conversations", json={"character_card_id": card["id"]})).json()

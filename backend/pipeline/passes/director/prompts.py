@@ -20,7 +20,9 @@ def _moods_options_block(
     mood_fragments: Sequence[Mapping[str, Any]],
     resting: frozenset[str] = frozenset(),
 ) -> str:
-    moods = ", ".join(active_moods) or "none"
+    # A resting mood is neither offered nor carried into this turn, so listing it
+    # as previously active only invites the model to pick it again.
+    moods = ", ".join(mood for mood in active_moods if mood not in resting) or "none"
     fragments = "\n".join(
         f"* [{fragment['id']}] - use in case: {fragment['description']}"
         for fragment in mood_fragments
@@ -68,7 +70,7 @@ def build_director_tool_prompt(
                 "changed:\n" + "\n".join(progressive_lines)
             )
         if unavailable_fields:
-            parts.append(f"Resting interactive fields (unavailable this turn): {', '.join(unavailable_fields)}")
+            parts.append(f"Interactive fields unavailable this turn (leave empty): {', '.join(unavailable_fields)}")
         parts.append(_moods_options_block(active_moods, mood_fragments, resting))
         parts.append(f'User\'s next message (for context, take this into account when directing):\n"""{user_message}"""')
     return "\n\n".join(parts) + "]"

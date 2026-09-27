@@ -138,10 +138,11 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     if director and director.get("active_moods"):
         enabled_ids = {f["id"] for f in mood_fragments}
         director["active_moods"] = [mood for mood in director["active_moods"] if mood in enabled_ids]
-    global_interactive = await db.get_interactive_fragments()
-    interactive_fragments = db.merge_fragments_by_id(
-        [df for df in global_interactive if df.get("enabled", True)], card_interactive
-    )
+    defined_fragments = _defined_fragments(await db.get_interactive_fragments(), card_interactive)
+    # The enabled rows in blob order, so every pass lists its live fields in the
+    # order the shared schemas offer them. Card rows are always enabled, so this
+    # is the enabled globals plus every card row whose id they do not claim.
+    interactive_fragments = [row for row in defined_fragments if row.get("enabled", True)]
     decision_candidates, invalid_decisions = _decision_candidates(interactive_fragments, card_fragment_sources)
     phrase_bank = await db.get_phrase_bank()
     lorebook_entries = await db.get_active_lorebook_entries()
@@ -184,7 +185,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         invalid_decisions=invalid_decisions,
         judge_config=await resolve_judge_config(settings),
         state_contract=StateContract.capture(settings, _split_interactive_fragments(interactive_fragments)[2]),
-        defined_fragments=_defined_fragments(global_interactive, card_interactive),
+        defined_fragments=defined_fragments,
     )
 
 
@@ -197,8 +198,8 @@ def _defined_fragments(
     Globals keep their sort order whether enabled or not, and cards follow, so
     enabling a fragment never reorders the blob. A disabled global yields its
     slot to the card row sharing its id -- the row the turn actually runs, since
-    globals win only while enabled. Every enabled row is here as the same object;
-    passes read their live fields' order off the blob, not the enabled list.
+    globals win only while enabled. The turn's enabled list is this list
+    filtered, so every pass's live view keeps the blob's order.
     """
     card_by_id = {row["id"]: row for row in card_rows}
     rows = [row if row.get("enabled", True) or row["id"] not in card_by_id else card_by_id[row["id"]] for row in global_rows]

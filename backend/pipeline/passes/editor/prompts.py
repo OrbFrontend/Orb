@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
 from .._prompting import REASONING_GUIDANCE, tool_call_instruction
@@ -39,14 +39,19 @@ EDITOR_PATCH_INSTRUCTIONS = (
     "- Each issue in the report below is numbered. The `id` field must be the number of the issue you are fixing.\n"
     "- Emit one patch per issue — do not skip any, and do not patch the same id twice.\n"
     "- `replace` is the new text for that sentence. Do not copy the old sentence into it.\n"
-    "- The replacement text must be complete and make sense in the context.\n"
-    "- For banned phrases: completely rewrite the sentence to eliminate the banned phrase. Make a creative and bold effort; do not just substitute with similar words.\n"
-    "- For repetitive openers: rewrite flagged sentences so they no longer begin with the same opening words. Vary the sentence structure.\n"
-    "- For repetitive templates: restructure flagged sentences so they no longer follow the same POS pattern. Change clause order, combine sentences, vary syntax.\n"
-    "- For repetitive phrases: rewrite flagged phrases, changing the subject.\n"
-    "- For contrastive negation ('not X, but Y'): rewrite sentences that use this cliché construction. Consider alternative phrasing that avoids this rhetorical formula.\n"
-    "- For interrogative dialogue: replace the dialogue with something entirely different."
+    "- The replacement text must be complete and make sense in the context."
 )
+
+# One rule per audit category (``Target.categories``), rendered only for the
+# categories the report flags: each numbered issue already names its problem.
+PATCH_CATEGORY_RULES: dict[str, str] = {
+    "banned_phrases": "For banned phrases: completely rewrite the sentence to eliminate the banned phrase. Make a creative and bold effort; do not just substitute with similar words.",
+    "repetitive_openers": "For repetitive openers: rewrite flagged sentences so they no longer begin with the same opening words. Vary the sentence structure.",
+    "repetitive_templates": "For repetitive templates: restructure flagged sentences so they no longer follow the same POS pattern. Change clause order, combine sentences, vary syntax.",
+    "phrase_repetition": "For repetitive phrases: rewrite flagged phrases, changing the subject.",
+    "contrastive_negation": "For contrastive negation ('not X, but Y'): rewrite sentences that use this cliché construction. Consider alternative phrasing that avoids this rhetorical formula.",
+    "anti_echo": "For interrogative dialogue: replace the dialogue with something entirely different.",
+}
 
 EDITOR_REWRITE_INSTRUCTIONS = (
     "Use `editor_rewrite` to produce a rewrite within the specified limits.\n\n"
@@ -97,6 +102,29 @@ def build_post_processing_prompt(fragment: Mapping[str, Any], *, reasoning_on: b
     return "\n\n".join([preamble, POST_PROCESSING_RULES, f"## {heading}", instruction]) + "]"
 
 
+def patch_instructions(categories: Collection[str], *, shown: Collection[str] | None = None) -> str:
+    """The patching instructions for a report flagging *categories*.
+
+    *shown* is what the conversation already carries: ``None`` when no patch
+    instructions have been sent yet, else the categories whose rules have been.
+    Only what is missing is returned, so a replayed tool result can add the rules
+    for kinds that surface after the first request.
+    """
+    rules = "\n".join(
+        f"- {rule}"
+        for category, rule in PATCH_CATEGORY_RULES.items()
+        if category in categories and category not in (shown or ())
+    )
+    if shown is not None:
+        return rules
+    return EDITOR_PATCH_INSTRUCTIONS + ("\n" + rules if rules else "")
+
+
+def editor_patches(has_audit_issues: bool, length_guard_triggered: bool, structural_rewrite: bool, patchable: bool) -> bool:
+    """Whether the Editor request asks for patches rather than a rewrite."""
+    return has_audit_issues and patchable and not (length_guard_triggered or structural_rewrite)
+
+
 def build_editor_prompt(
     has_audit_issues: bool,
     report_text: str,
@@ -105,13 +133,20 @@ def build_editor_prompt(
     structural_rewrite: bool = False,
     reasoning_on: bool = False,
     patchable: bool = True,
+    patch_categories: Collection[str] = (),
 ) -> str:
-    """Assemble the Editor's request message."""
+    """Assemble the Editor's request message.
+
+    *patch_categories* are the audit categories the report flags; a patch request
+    carries only their rules.
+    """
     preamble = EDITOR_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
     parts = [preamble]
-    rewrite_triggered = length_guard_triggered or structural_rewrite or (has_audit_issues and not patchable)
 
-    if rewrite_triggered:
+    if editor_patches(has_audit_issues, length_guard_triggered, structural_rewrite, patchable):
+        parts.append(patch_instructions(patch_categories))
+        parts.append(report_text)
+    elif length_guard_triggered or structural_rewrite or has_audit_issues:
         parts.append(EDITOR_REWRITE_INSTRUCTIONS)
         if has_audit_issues:
             parts.append(report_text)
@@ -121,7 +156,4 @@ def build_editor_prompt(
             parts.append(length_guard_instruction)
         if has_audit_issues and length_guard_triggered:
             parts.append(EDITOR_BOTH_INSTRUCTIONS)
-    elif has_audit_issues:
-        parts.append(EDITOR_PATCH_INSTRUCTIONS)
-        parts.append(report_text)
     return "\n\n".join(parts) + "]"

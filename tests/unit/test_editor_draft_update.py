@@ -12,6 +12,7 @@ renumbers them with the change stated to the model.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from unittest.mock import patch
 
 import pytest
@@ -30,7 +31,11 @@ from backend.inference import (
     LLMClient,
 )
 from backend.pipeline.passes.editor.editor import editor_pass
-from backend.pipeline.passes.editor.prompts import EDITOR_RENUMBER_NOTICE
+from backend.pipeline.passes.editor.prompts import (
+    EDITOR_RENUMBER_NOTICE,
+    PATCH_CATEGORY_RULES,
+    patch_instructions,
+)
 from backend.prompting.tool_catalog import enabled_schemas
 
 SETTINGS = {
@@ -41,7 +46,7 @@ SETTINGS = {
 }
 
 
-def _make_report(sentences: list[str]) -> AuditReport:
+def _make_report(sentences: list[str], not_but: Sequence[str] = ()) -> AuditReport:
     flagged = [
         FlaggedSentence(sentence=s, cliches=[ClicheHit(phrase=f"cliche-{i}", score=1.0)]) for i, s in enumerate(sentences)
     ]
@@ -54,7 +59,7 @@ def _make_report(sentences: list[str]) -> AuditReport:
         ),
         monotony_result=MonotonyResult([], {}, 0, 0.0),
         template_result=TemplateResult([], {}, 0, 0, 0.0),
-        not_but_result=[],
+        not_but_result=[{"sentence": sentence} for sentence in not_but],
         structural_repetition_result=None,
     )
 
@@ -220,6 +225,63 @@ async def test_structured_replay_tells_the_model_the_ids_moved():
     assert len(tool_msgs) == 1
     assert EDITOR_RENUMBER_NOTICE in tool_msgs[0]["content"]
     assert "[1]" in tool_msgs[0]["content"]
+
+
+async def test_request_carries_only_the_flagged_kinds_rules():
+    client = LLMClient("http://localhost:9999")
+    sent: list[list[dict]] = []
+
+    async def fake_complete(messages, model, tools=None, tool_choice=None, **params):
+        sent.append([dict(m) for m in messages])
+        yield _patch_call([{"id": 1, "replace": "Fixed 0."}])
+
+    client.complete = fake_complete
+
+    await _run(client, [_make_report(["Sentence 0.", "Sentence 1."]), _make_report([])], "Sentence 0. Sentence 1.")
+
+    request = sent[0][-1]["content"]
+    assert "PATCHING RULES:" in request
+    assert PATCH_CATEGORY_RULES["banned_phrases"] in request
+    assert not any(rule in request for kind, rule in PATCH_CATEGORY_RULES.items() if kind != "banned_phrases")
+
+
+def test_patch_instructions_owe_the_whole_block_until_one_was_sent():
+    rule = "- " + PATCH_CATEGORY_RULES["anti_echo"]
+    # After a rewrite request nothing about patching has been sent yet.
+    assert patch_instructions({"anti_echo"}).startswith("Use `editor_apply_patch`")
+    assert patch_instructions({"anti_echo"}).endswith(rule)
+    assert patch_instructions({"anti_echo"}, shown=set()) == rule
+    assert patch_instructions({"anti_echo"}, shown={"anti_echo"}) == ""
+
+
+async def test_structured_replay_adds_rules_for_newly_flagged_kinds():
+    """Later reports reach reasoning models as tool results, so a kind first
+    flagged there brings its rule along, and rules already sent are not repeated."""
+    client = LLMClient("http://localhost:9999")
+    sent: list[list[dict]] = []
+
+    async def fake_complete(messages, model, tools=None, tool_choice=None, **params):
+        sent.append([dict(m) for m in messages])
+        yield _patch_call([{"id": 1, "replace": "Fixed 0."}])
+
+    client.complete = fake_complete
+
+    await _run(
+        client,
+        [
+            _make_report(["Sentence 0.", "Sentence 1.", "Sentence 2."]),
+            _make_report(["Sentence 1."], not_but=["Sentence 2."]),
+            _make_report([]),
+        ],
+        "Sentence 0. Sentence 1. Sentence 2.",
+        reasoning_on=True,
+    )
+
+    assert len(sent) == 2
+    tool_msg = next(m for m in sent[1] if m.get("role") == "tool")["content"]
+    assert PATCH_CATEGORY_RULES["contrastive_negation"] in tool_msg
+    assert PATCH_CATEGORY_RULES["banned_phrases"] not in tool_msg
+    assert "PATCHING RULES:" not in tool_msg
 
 
 async def test_apply_errors_reach_the_model_in_id_vocabulary():

@@ -54,7 +54,12 @@ from ....inference import (
 from ....prompting.tool_catalog import require_tool
 from ....prompting.tool_schemas import build_feedback_tool
 from .length_guard import LengthGuard, evaluate_length_guard
-from .prompts import EDITOR_RENUMBER_NOTICE, build_editor_prompt
+from .prompts import (
+    EDITOR_RENUMBER_NOTICE,
+    build_editor_prompt,
+    editor_patches,
+    patch_instructions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -499,12 +504,15 @@ async def _run_edit_loop(
         )
         phrase_issues = len(report.phrase_result.flagged_phrases) if report.phrase_result else 0
         logger.info(
-            "Editor: initial audit — %d issues (cliches=%d, openers=%d, templates=%d, phrases=%d, structural=%d) → %d target(s)",
+            "Editor: initial audit — %d issues (cliches=%d, openers=%d, templates=%d, not_but=%d, phrases=%d, echoes=%d, "
+            "structural=%d) → %d target(s)",
             report.total_issues,
             report.cliche_result.flagged_count,
             len(report.monotony_result.flagged_openers),
             len(report.template_result.flagged_templates),
+            len(report.not_but_result),
             phrase_issues,
+            len(report.echo_result.flagged_echoes) if report.echo_result else 0,
             structural_issues,
             len(targets),
         )
@@ -549,7 +557,7 @@ async def _run_edit_loop(
         return
 
     # ── Build message context
-    final_prompt, report_text = _build_editor_request(
+    final_prompt, report_text, ruled = _build_editor_request(
         report,
         targets,
         audit_enabled=audit_enabled,
@@ -572,6 +580,10 @@ async def _run_edit_loop(
     ]
 
     replay_structured = reasoning_on
+    # The patching rules the conversation carries, for the structured replay,
+    # whose tool results must add any a later report needs; None until a patch
+    # request has been sent.
+    rules_shown: set[str] | None = set(ruled) if ruled is not None else None
 
     current_draft = draft
     prev_issues = report.total_issues
@@ -679,7 +691,7 @@ async def _run_edit_loop(
                 else:
                     report = AuditReport.clean()
                     targets = []
-                next_prompt, report_text = _build_editor_request(
+                next_prompt, report_text, ruled = _build_editor_request(
                     report,
                     targets,
                     audit_enabled=audit_enabled,
@@ -705,11 +717,12 @@ async def _run_edit_loop(
                     }
                     trailing.append(asst_msg)
                     if rewrite_tool_calls:
+                        rules, rules_shown = _owed_patch_rules(ruled, rules_shown)
                         trailing.append(
                             {
                                 "role": "tool",
                                 "tool_call_id": rewrite_tool_calls[0].get("id", ""),
-                                "content": _tool_result_text([], report_text, renumbered=bool(targets)),
+                                "content": _tool_result_text([], report_text, renumbered=bool(targets), rules=rules),
                             }
                         )
                 else:
@@ -750,7 +763,7 @@ async def _run_edit_loop(
             report, targets = await _run_contextual_audit(
                 current_draft, phrase_bank, assistant_messages, audit_toggles, effective_msg
             )
-            next_prompt, report_text = _build_editor_request(
+            next_prompt, report_text, ruled = _build_editor_request(
                 report,
                 targets,
                 audit_enabled=audit_enabled,
@@ -815,7 +828,8 @@ async def _run_edit_loop(
             # Otherwise (non-thinking models): replace the draft + prompt in-place
             # so the message list stays flat.
             if replay_structured:
-                _append_iteration_context(trailing, resp, errors, report_text, renumbered=bool(targets))
+                rules, rules_shown = _owed_patch_rules(ruled, rules_shown)
+                _append_iteration_context(trailing, resp, errors, report_text, renumbered=bool(targets), rules=rules)
             else:
                 trailing[-2] = {"role": "assistant", "content": current_draft}
                 trailing[-1] = {"role": "user", "content": next_prompt}
@@ -906,38 +920,59 @@ def _build_editor_request(
     length_guard_triggered: bool,
     length_guard_instruction: str,
     reasoning_on: bool,
-) -> tuple[str, str]:
-    """``(prompt, report_text)`` for one editor iteration, rendered in lockstep.
+) -> tuple[str, str, frozenset[str] | None]:
+    """``(prompt, report_text, ruled)`` for one editor iteration, rendered in lockstep.
 
     Kept as one call because the prompt's patch/rewrite branch and the report's
     numbered/sectioned rendering must agree: a numbered report beside rewrite
     instructions offers ids no tool can take, and a sectioned report beside
-    patch instructions offers no ids at all.
+    patch instructions offers no ids at all. *ruled* is the audit categories
+    whose patching rules the prompt carries, or None for a rewrite request.
     """
     report_text = _render_report(report, targets, length_guard_triggered=length_guard_triggered)
+    has_issues = audit_enabled and not report.is_clean
+    structural = _structural_rewrite_needed(report)
+    categories = frozenset(category for target in targets for category in target.categories)
     prompt = build_editor_prompt(
-        audit_enabled and not report.is_clean,
+        has_issues,
         report_text,
         length_guard_triggered,
         length_guard_instruction,
-        structural_rewrite=_structural_rewrite_needed(report),
+        structural_rewrite=structural,
         reasoning_on=reasoning_on,
         patchable=bool(targets),
+        patch_categories=categories,
     )
-    return prompt, report_text
+    patching = editor_patches(has_issues, length_guard_triggered, structural, bool(targets))
+    return prompt, report_text, categories if patching else None
 
 
-def _tool_result_text(errors: Sequence[str], report_text: str, *, renumbered: bool) -> str:
+def _owed_patch_rules(ruled: frozenset[str] | None, shown: set[str] | None) -> tuple[str, set[str] | None]:
+    """``(rules, shown)``: what a replayed tool result must add before a patch request.
+
+    The structured replay sends later reports as tool results, not fresh
+    prompts, so the patching rules a new report needs -- all of them after a
+    rewrite request, else those of newly flagged kinds -- ride the result.
+    """
+    if ruled is None:
+        return "", shown
+    return patch_instructions(ruled, shown=shown), {*(shown or ()), *ruled}
+
+
+def _tool_result_text(errors: Sequence[str], report_text: str, *, renumbered: bool, rules: str = "") -> str:
     """The tool-result content fed back on the structured-replay path.
 
     Apply errors first (they name the ids the model just used), then the
-    renumbering notice when the report below carries fresh ids, then the report.
+    renumbering notice when the report below carries fresh ids, then any
+    patching rules the report needs that the conversation lacks, then the report.
     """
     parts = []
     if errors:
         parts.append("\n".join(errors))
     if renumbered:
         parts.append(EDITOR_RENUMBER_NOTICE)
+    if rules:
+        parts.append(rules)
     parts.append(report_text)
     return "\n\n".join(parts)
 
@@ -949,6 +984,7 @@ def _append_iteration_context(
     report_text: str,
     *,
     renumbered: bool,
+    rules: str = "",
 ):
     """Append the assistant tool-call recap + tool-result turn for the next
     iteration, in structured tool-use format (role=tool) so the model sees its
@@ -960,7 +996,7 @@ def _append_iteration_context(
     report, so *renumbered* makes the id lifecycle explicit rather than leaving
     it to be inferred — see EDITOR_RENUMBER_NOTICE.
     """
-    tool_response = _tool_result_text(errors, report_text, renumbered=renumbered)
+    tool_response = _tool_result_text(errors, report_text, renumbered=renumbered, rules=rules)
     tool_calls = resp.get("tool_calls", [])
     asst_msg: AssistantToolMessage = {
         "role": "assistant",
