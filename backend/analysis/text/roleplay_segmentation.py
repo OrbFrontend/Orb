@@ -15,6 +15,7 @@ __all__ = [
     "split_segment_sentences",
     "split_narration_sentences",
     "strip_ooc",
+    "ooc_spans",
     "find_emphasis_spans",
     "extract_block_spans",
     "extract_blocks",
@@ -55,12 +56,11 @@ def split_narration_sentences(text: str) -> list[str]:
 _OOC_START_RE = re.compile(r"\[\s*ooc\b", re.IGNORECASE)
 
 
-def strip_ooc(text: str) -> str:
-    """Remove balanced ``[OOC: ...]`` asides; an unclosed tag removes its tail."""
-    pieces: list[str] = []
+def ooc_spans(text: str) -> list[tuple[int, int]]:
+    """Return balanced ``[OOC: ...]`` aside ranges; an unclosed tag spans its tail."""
+    spans: list[tuple[int, int]] = []
     cursor = 0
     while match := _OOC_START_RE.search(text, cursor):
-        pieces.append(text[cursor : match.start()])
         depth = 0
         end = len(text)
         for i in range(match.start(), len(text)):
@@ -71,6 +71,17 @@ def strip_ooc(text: str) -> str:
                 if depth == 0:
                     end = i + 1
                     break
+        spans.append((match.start(), end))
+        cursor = end
+    return spans
+
+
+def strip_ooc(text: str) -> str:
+    """Remove balanced ``[OOC: ...]`` asides; an unclosed tag removes its tail."""
+    pieces: list[str] = []
+    cursor = 0
+    for start, end in ooc_spans(text):
+        pieces.append(text[cursor:start])
         pieces.append(" ")
         cursor = end
     pieces.append(text[cursor:])

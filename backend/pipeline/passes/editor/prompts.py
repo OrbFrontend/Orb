@@ -38,7 +38,7 @@ EDITOR_PATCH_INSTRUCTIONS = (
     "PATCHING RULES:\n"
     "- Each issue in the report below is numbered. The `id` field must be the number of the issue you are fixing.\n"
     "- Emit one patch per issue — do not skip any, and do not patch the same id twice.\n"
-    "- `replace` is the new text for that sentence. Do not copy the old sentence into it.\n"
+    "- `replace` is the new text for that span. Do not copy the old sentence into it.\n"
     "- The replacement text must be complete and make sense in the context."
 )
 
@@ -51,7 +51,11 @@ PATCH_CATEGORY_RULES: dict[str, str] = {
     "phrase_repetition": "For repetitive phrases: rewrite flagged phrases, changing the subject.",
     "contrastive_negation": "For contrastive negation ('not X, but Y'): rewrite sentences that use this cliché construction. Consider alternative phrasing that avoids this rhetorical formula.",
     "anti_echo": "For interrogative dialogue: replace the dialogue with something entirely different.",
+    "negated_narration": "For negated narration: remove descriptions of what does not happen. Only write actions that register and matter.",
 }
+
+# Categories whose rule also applies when a length or structural check chooses a full rewrite.
+REWRITE_RULE_CATEGORIES = frozenset({"negated_narration"})
 
 EDITOR_REWRITE_INSTRUCTIONS = (
     "Use `editor_rewrite` to produce a rewrite within the specified limits.\n\n"
@@ -102,6 +106,11 @@ def build_post_processing_prompt(fragment: Mapping[str, Any], *, reasoning_on: b
     return "\n\n".join([preamble, POST_PROCESSING_RULES, f"## {heading}", instruction]) + "]"
 
 
+def _category_rules(categories: Collection[str]) -> str:
+    """The rule lines for *categories*, in ``PATCH_CATEGORY_RULES`` order."""
+    return "\n".join(f"- {rule}" for category, rule in PATCH_CATEGORY_RULES.items() if category in categories)
+
+
 def patch_instructions(categories: Collection[str], *, shown: Collection[str] | None = None) -> str:
     """The patching instructions for a report flagging *categories*.
 
@@ -110,11 +119,7 @@ def patch_instructions(categories: Collection[str], *, shown: Collection[str] | 
     Only what is missing is returned, so a replayed tool result can add the rules
     for kinds that surface after the first request.
     """
-    rules = "\n".join(
-        f"- {rule}"
-        for category, rule in PATCH_CATEGORY_RULES.items()
-        if category in categories and category not in (shown or ())
-    )
+    rules = _category_rules(set(categories).difference(shown or ()))
     if shown is not None:
         return rules
     return EDITOR_PATCH_INSTRUCTIONS + ("\n" + rules if rules else "")
@@ -138,7 +143,7 @@ def build_editor_prompt(
     """Assemble the Editor's request message.
 
     *patch_categories* are the audit categories the report flags; a patch request
-    carries only their rules.
+    carries only their rules, and a rewrite request only their content rules.
     """
     preamble = EDITOR_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
     parts = [preamble]
@@ -150,6 +155,8 @@ def build_editor_prompt(
         parts.append(EDITOR_REWRITE_INSTRUCTIONS)
         if has_audit_issues:
             parts.append(report_text)
+            if rules := _category_rules(REWRITE_RULE_CATEGORIES.intersection(patch_categories)):
+                parts.append(rules)
         if structural_rewrite:
             parts.append(STRUCTURAL_REWRITE_INSTRUCTIONS)
         if length_guard_triggered:

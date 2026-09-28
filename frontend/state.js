@@ -57,6 +57,7 @@ export const S = {
     phrase_repetition: true,
     structural_repetition: true,
     anti_echo: true,
+    negated_narration: false,
   },
 
   messages: [],

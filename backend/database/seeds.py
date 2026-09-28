@@ -313,6 +313,7 @@ DEFAULT_SETTINGS = {
         "phrase_repetition": True,
         "structural_repetition": True,
         "anti_echo": True,
+        "negated_narration": False,
     },
     # Document-mode Output Auditor: doc-owned columns, deliberately separate from
     # the chat editor's so a doc-mode save can never perturb chat scanner state.

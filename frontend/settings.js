@@ -400,6 +400,11 @@ export const AUDIT_TYPE_DEFS = [
     label: "Anti-echo",
     title: 'Flag questions that parrot the user\'s last message back (e.g. "Ice cream?").',
   },
+  {
+    key: "negated_narration",
+    label: "Negated narration",
+    title: "Flag narration that repeatedly describes what does not happen (e.g. \"She doesn't jump. Doesn't gasp.\").",
+  },
 ];
 
 export async function persistSettings(payload) {

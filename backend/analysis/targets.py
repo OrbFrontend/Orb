@@ -6,7 +6,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from ..core.text_segmentation import split_paragraphs
-from .audit import CLEAN_REPORT, AuditReport, _strip_markers
+from .audit import (
+    _OUTER_MARKERS,
+    CLEAN_REPORT,
+    AuditReport,
+    _strip_markers,
+    negation_reason,
+)
+from .detectors.negated_narration import NegationFinding
 from .text.roleplay_segmentation import extract_block_spans
 
 
@@ -94,6 +101,62 @@ def _raw_findings(report: AuditReport, draft: str) -> list[tuple[str, str, str]]
     return raw
 
 
+class StaleSourceError(ValueError):
+    """An offset-anchored finding was produced for different text than the draft."""
+
+
+def check_negation_source(report: AuditReport, draft: str) -> None:
+    """Reject negated-narration findings that were not produced for *draft*.
+
+    Their offsets address the exact text the detector read; resolving them
+    against any other text by substring search would patch the wrong copy.
+    """
+    result = report.negation_result
+    if result is None:
+        return
+    if result.source_text != draft:
+        raise StaleSourceError("negated-narration findings belong to a different draft; re-audit it")
+    for finding in result.findings:
+        if draft[finding.start : finding.end] != finding.span:
+            raise StaleSourceError(f"negated-narration finding at {finding.start}:{finding.end} does not match its span")
+
+
+def negation_interval(finding: NegationFinding, draft: str) -> tuple[int, int] | None:
+    """The finding's interval with outer markers trimmed, as the patcher expects.
+
+    Trimming happens inside the known interval, so inner emphasis stays in the
+    target and no other copy of the text is ever consulted.
+    """
+    span = draft[finding.start : finding.end]
+    lead = len(span) - len(span.lstrip().lstrip(_OUTER_MARKERS).lstrip())
+    trail = len(span) - len(span.rstrip().rstrip(_OUTER_MARKERS).rstrip())
+    start, end = finding.start + lead, finding.end - trail
+    if start >= end or draft[start:end] != _strip_markers(span):
+        return None
+    return start, end
+
+
+def _negation_targets(report: AuditReport, draft: str) -> list[Target]:
+    check_negation_source(report, draft)
+    targets: list[Target] = []
+    for finding in report.negation_findings:
+        interval = negation_interval(finding, draft)
+        if interval is None:
+            continue
+        start, end = interval
+        targets.append(
+            Target(
+                tid=0,
+                span=draft[start:end],
+                start=start,
+                end=end,
+                reasons=[negation_reason(finding)],
+                categories=["negated_narration"],
+            )
+        )
+    return targets
+
+
 def _merge_overlapping(targets: list[Target], draft: str) -> list[Target]:
     """Merge overlapping targets in document order."""
     merged: list[Target] = []
@@ -152,6 +215,9 @@ def build_targets(report: AuditReport, draft: str) -> list[Target]:
                 )
             )
 
+    # Offset-anchored findings join after the text-resolved ones and never go
+    # through `_occurrences`; only genuinely overlapping regions merge.
+    targets.extend(_negation_targets(report, draft))
     resolved = _merge_overlapping(targets, draft)
 
     groups: dict[str, list[Target]] = {}
@@ -173,6 +239,15 @@ def target_ids_for(targets: Sequence[Target], snippet: str) -> list[int]:
     if not core:
         return []
     return [t.tid for t in targets if core in t.span]
+
+
+def negation_target_ids(targets: Sequence[Target], finding: NegationFinding, draft: str) -> list[int]:
+    """Return ids whose target contains the finding's anchored interval."""
+    interval = negation_interval(finding, draft)
+    if interval is None:
+        return []
+    start, end = interval
+    return [t.tid for t in targets if t.start <= start and end <= t.end]
 
 
 def format_numbered_report(targets: Sequence[Target]) -> str:
