@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ....prompting.tool_catalog import get_tool, require_tool
-from .._prompting import REASONING_GUIDANCE, tool_call_instruction
+from .._prompting import REASONING_GUIDANCE, field_hint, tool_call_instruction
 
 DIRECTOR_PREAMBLE = (
     "[OOC: Pause to direct the scene. Use tool calls to accomplish your task "
@@ -49,18 +49,23 @@ def build_director_tool_prompt(
     *tool_schema* is the live view whose parameters the model may fill;
     *unavailable_fields* are the ones the shared schema still offers -- disabled
     or resting fragments -- which the request names so the model leaves them empty.
+    ``direct_scene`` lists each live field with its description here, because
+    the shared schema carries fragment fields by name only.
     """
     tool = get_tool(tool_name)
     if not tool:
         return ""
     schema = tool_schema if tool_schema is not None else tool["schema"]
     preamble = DIRECTOR_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
-    parts = [preamble, tool_call_instruction(tool_name, schema)]
+    fragments = (
+        {fragment["id"]: fragment for fragment in (interactive_fragments or [])} if tool_name == "direct_scene" else None
+    )
+    parts = [preamble, tool_call_instruction(tool_name, schema, fragments=fragments)]
     if tool_name == "direct_scene":
         if cast_instruction:
             parts.append(cast_instruction)
         progressive_lines = [
-            f"* [{fragment['id']}] ({fragment['description']}): {(progressive_state or {}).get(fragment['id'])}"
+            f"* {fragment['id']}: {(progressive_state or {}).get(fragment['id'])}"
             for fragment in (interactive_fragments or [])
             if fragment.get("field_type") == "state" and (progressive_state or {}).get(fragment["id"])
         ]
@@ -106,10 +111,7 @@ def build_director_scene_step_prompt(
         parts.append(_moods_options_block(active_moods, mood_fragments, resting))
     else:
         fragment_id = target_fragment["id"]
-        hint = {
-            "array": "list of strings",
-            "state": "single value, kept across turns",
-        }.get(target_fragment["field_type"], "single value")
+        hint = field_hint(target_fragment["field_type"])
         parts.append(
             f"Call ONLY direct_scene - {description}\nFill ONLY the '{fragment_id}' parameter. "
             "Leave moods and all other fields empty."

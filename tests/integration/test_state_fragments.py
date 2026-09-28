@@ -45,7 +45,7 @@ async def _fragment(client, fid: str, *, mode: str, update: str, inject: str = "
 
 
 async def test_reserved_fragment_ids_are_refused(client, db):
-    for fid in ("retire", "moods"):
+    for fid in ("retire", "moods", "speaking_plan"):
         resp = await client.post(
             "/api/interactive-fragments",
             json={"id": fid, "label": "X", "description": "d", "field_type": "state", "injection_label": "X"},
@@ -188,7 +188,9 @@ async def test_before_writer_value_rides_direct_scene_with_old_to_new_for_the_wr
     assert "Trust: wary -> warming" in _injection(second)
     director_request = _requests(llm_mock, "director")[-1]
     assert "Saved state fields - leave a field empty to keep it" in director_request
-    assert "wary" in director_request
+    assert "* trust: wary" in director_request
+    # The description is stated once, in the parameter list, not again beside the saved value.
+    assert director_request.count("Track the trust.") == 1
     assert "Current State" not in director_request
     # The one value keeps its entry id across sets.
     rows = await dbmod.get_state_events_for_message((await _last_assistant(cid))["id"])
