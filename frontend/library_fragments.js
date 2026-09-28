@@ -342,7 +342,7 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
     description:
       "Rewrite spoken dialogue to be shorter and more natural. Preserve meaning and characterization; do not change narration.",
     inj_hint: "sent to the Editor",
-    desc_hint: "editing instruction followed by the Editor",
+    desc_hint: "editing instruction for the Editor",
   },
 };
 
@@ -370,9 +370,9 @@ function _repaintGateNote() {
 
 function _gateRowHtml(d) {
   return `<div class="field" id="interactive-frag-gate-row" style="${d.field_type === "post_processing" ? "" : "display:none"}">
-      <label for="interactive-frag-gate">Run only when</label>
+      <label for="interactive-frag-gate">Run only when (asks the Judge)</label>
       <textarea id="interactive-frag-gate" rows="2" maxlength="2000" placeholder="Do more than two distinct actions happen in the reply?">${esc(d.post_processing_gate || "")}</textarea>
-      <div class="field-hint">Yes/no question for the Judge — empty = always run; runs if the Judge is unavailable.</div>
+      <div class="field-hint">Yes/no question for the Judge — empty = always run, even if the Judge is unavailable.</div>
       <div class="field-warning" id="interactive-frag-gate-note" style="${_judgeKnownUnconfigured() ? "" : "display:none"}">
         No Judge endpoint is configured, so this fragment runs every turn.
       </div>
