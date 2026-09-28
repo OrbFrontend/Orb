@@ -238,6 +238,9 @@ label {
   line-height: 1.4;
 }
 
+/* Inside a field the hint sits under its own control, not a field's margin. */
+.field > .field-hint { margin: 4px 0 0; }
+
 .field-row { display: flex; gap: 8px; }
 .field-row .field { flex: 1; }
 

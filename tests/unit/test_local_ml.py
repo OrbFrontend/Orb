@@ -72,6 +72,32 @@ def test_pov_input_uses_core_quote_and_sentence_policy():
     assert local_ml.pov_input(text) == "Second؟ Third. Fourth."
 
 
+def test_pov_chunks_cover_every_narration_sentence_from_the_tail():
+    text = 'One. Two. "Spoken." Three. Four. Five. Six. Seven.'
+    chunks = local_ml.pov_chunks(text)
+    assert chunks == ["Five. Six. Seven.", "Two. Three. Four.", "One."]
+    assert chunks[0] == local_ml.pov_input(text)
+
+
+def test_pov_chunks_are_empty_for_an_all_dialogue_reply():
+    assert local_ml.pov_chunks('"Just talking." "Only dialogue here."') == []
+
+
+async def test_aclassify_pov_tense_chunks_reads_each_window(monkeypatch):
+    seen: list[str] = []
+
+    def logits(feature, text, n):
+        seen.append(text)
+        grid = [0.0] * n
+        grid[1 * 3 + 1] = 9.0  # "second", "present"
+        return grid
+
+    monkeypatch.setattr(local_ml, "_head_logits", logits)
+    labels = await local_ml.aclassify_pov_tense_chunks("One. Two. Three. Four.")
+    assert seen == ["Two. Three. Four.", "One."]
+    assert labels == [("second", "present"), ("second", "present")]
+
+
 # --- the tense half of the povtense grid ----------------------------------------
 # The POV half is pinned by its first consumer, in
 # tests/unit/workflows/image_gen/test_pov.py; the tense half has no single owning

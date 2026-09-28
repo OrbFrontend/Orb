@@ -57,6 +57,7 @@ __all__ = [
     "aclassify_markup",
     "aclassify_pov",
     "aclassify_pov_tense",
+    "aclassify_pov_tense_chunks",
     "ascore",
     "available",
     "delete_model",
@@ -352,6 +353,21 @@ def pov_input(text: str) -> str:
     return " ".join(sentences[-_POV_SENTENCES:]).strip()[-_POV_MAX_CHARS:]
 
 
+def pov_chunks(text: str) -> list[str]:
+    """Every narration sentence of *text* in `pov_input`-sized windows, newest first.
+
+    The model reads a few sentences at a time, so a whole-message question is asked
+    window by window. Windows are cut from the tail, so the first is exactly what
+    `pov_input` selects.
+    """
+    sentences = split_sentences(remove_quoted_spans(text or ""))
+    chunks = (
+        " ".join(sentences[max(0, end - _POV_SENTENCES) : end]).strip()[-_POV_MAX_CHARS:]
+        for end in range(len(sentences), 0, -_POV_SENTENCES)
+    )
+    return [chunk for chunk in chunks if chunk]
+
+
 def _argmax(values: Sequence[float]) -> int:
     return max(range(len(values)), key=values.__getitem__)
 
@@ -395,6 +411,10 @@ def _classify_pov_tense_blocking(feature: str, text: str) -> tuple[str, str]:
     return _pov_tense_from_logits(logits)
 
 
+def _classify_pov_tense_chunks_blocking(feature: str, text: str) -> list[tuple[str, str]]:
+    return [_pov_tense_from_logits(_head_logits(feature, chunk, len(POV_ROWS) * _TENSE_COUNT)) for chunk in pov_chunks(text)]
+
+
 def _classify_pov_blocking(feature: str, text: str) -> str:
     return _classify_pov_tense_blocking(feature, text)[0]
 
@@ -421,6 +441,17 @@ async def aclassify_pov_tense(text: str) -> tuple[str, str]:
     """
     async with _lock("pov_classifier"):
         return await asyncio.to_thread(_classify_pov_tense_blocking, "pov_classifier", text)
+
+
+async def aclassify_pov_tense_chunks(text: str) -> list[tuple[str, str]]:
+    """One (POV, tense) pair per `pov_chunks` window, newest first; ``[]`` for a
+    reply with no narration.
+
+    For callers that judge a whole message rather than its final instant. One
+    model call per window, all under one lock acquisition, off the loop.
+    """
+    async with _lock("pov_classifier"):
+        return await asyncio.to_thread(_classify_pov_tense_chunks_blocking, "pov_classifier", text)
 
 
 # The markup classifier (narration x dialogue convention) reads a WHOLE message:
