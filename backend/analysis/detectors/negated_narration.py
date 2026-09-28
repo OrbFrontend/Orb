@@ -106,7 +106,7 @@ _OUTER = '*_"“”‘’'
 _CLAUSE_PUNCT = re.compile(r"[,;:—–]")
 _CLAUSE_SPLIT = re.compile(r"[,;:—–]|\s+(?:and|or|nor)\s+", re.IGNORECASE)
 _HEDGE_TAIL = re.compile(r"not\s+(?:" + "|".join(sorted(_HEDGES)) + r")\W*", re.IGNORECASE)
-_MARKUP = re.compile(r"<[^>]*>|<!--|-->|\{\{|\}\}|https?://|www\.|\w\(", re.IGNORECASE)
+_MARKUP = re.compile(r"<[^>]*>|<!--|--!?>|\{\{|\}\}|https?://|www\.|\w\(", re.IGNORECASE)
 _TAG_AUX = r"(?:do|does|did|is|are|was|were|will|would|can|could|has|have|had|should)"
 _TAG_SUBJECT = r"(?:i|you|he|she|it|we|they|there)"
 # A negative tag anywhere (", didn't he"); an affirmative one only at the end
