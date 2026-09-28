@@ -2,14 +2,7 @@
 
 from __future__ import annotations
 
-from .audit import (
-    AUDIT_DEFAULTS,
-    AUDIT_TYPES,
-    AuditReport,
-    format_report,
-    report_to_dict,
-    run_audit,
-)
+from .audit import AUDIT_TYPES, AuditReport, format_report, report_to_dict, run_audit
 from .detectors.anti_echo import EchoResult
 from .detectors.negated_narration import NegationFinding, NegationResult
 from .detectors.opening_monotony import FlaggedOpener, MonotonyResult
@@ -36,7 +29,6 @@ from .text.roleplay import AxisStyle, Dialogue, Narration
 from .text.roleplay_segmentation import split_narration_sentences
 
 __all__ = [
-    "AUDIT_DEFAULTS",
     "AUDIT_TYPES",
     "AuditReport",
     "format_report",

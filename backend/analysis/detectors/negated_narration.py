@@ -100,7 +100,6 @@ _EXPANSIONS = {
     "aren't": ("are", "not"),
     "weren't": ("were", "not"),
     "ain't": ("is", "not"),
-    "i'm": ("i", "am"),
 }
 
 _OUTER = '*_"“”‘’'
@@ -477,7 +476,7 @@ def _without_but(words: list[str]) -> list[str]:
 
 def _subject(unit: _Unit) -> tuple[str, ...]:
     """Words before the first negation, without a leading conjunction."""
-    offset = 1 if unit.words[:1] in (["but"], ["and"]) else 0
+    offset = len(unit.words) - len(_without_but(unit.words))
     if not unit.negs or unit.negs[0] <= offset:
         return ()
     return tuple(unit.words[offset : unit.negs[0]][:4])
