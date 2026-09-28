@@ -505,7 +505,7 @@ async def _run_edit_loop(
         phrase_issues = len(report.phrase_result.flagged_phrases) if report.phrase_result else 0
         logger.info(
             "Editor: initial audit — %d issues (cliches=%d, openers=%d, templates=%d, not_but=%d, phrases=%d, echoes=%d, "
-            "structural=%d) → %d target(s)",
+            "structural=%d, negated=%d) → %d target(s)",
             report.total_issues,
             report.cliche_result.flagged_count,
             len(report.monotony_result.flagged_openers),
@@ -514,6 +514,7 @@ async def _run_edit_loop(
             phrase_issues,
             len(report.echo_result.flagged_echoes) if report.echo_result else 0,
             structural_issues,
+            len(report.negation_findings),
             len(targets),
         )
     else:

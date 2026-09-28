@@ -187,9 +187,10 @@ async def test_editor_audit_toggles_default_and_roundtrip(client, db):
         "phrase_repetition": True,
         "structural_repetition": True,
         "anti_echo": True,
+        "negated_narration": False,
     }
 
-    updated = {**toggles, "banned_phrases": False, "structural_repetition": False}
+    updated = {**toggles, "banned_phrases": False, "structural_repetition": False, "negated_narration": True}
     resp = await client.put("/api/settings", json={"editor_audit_toggles": updated})
     assert resp.status_code == 200
     assert resp.json()["editor_audit_toggles"] == updated

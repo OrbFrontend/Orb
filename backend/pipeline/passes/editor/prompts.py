@@ -38,8 +38,18 @@ EDITOR_PATCH_INSTRUCTIONS = (
     "PATCHING RULES:\n"
     "- Each issue in the report below is numbered. The `id` field must be the number of the issue you are fixing.\n"
     "- Emit one patch per issue — do not skip any, and do not patch the same id twice.\n"
-    "- `replace` is the new text for that sentence. Do not copy the old sentence into it.\n"
+    "- `replace` is the new text for that span. Do not copy the old sentence into it.\n"
     "- The replacement text must be complete and make sense in the context."
+)
+
+NEGATED_NARRATION_RULE = (
+    "For negated narration: remove repetitive descriptions of what does not happen while preserving the "
+    "beat's meaning, viewpoint, and tense. Prefer the concrete action, sensation, or description already "
+    'present in the span or its context. When the span ends in the payoff ("She just...", "Instead, ..."), '
+    "preserve that payoff and remove its redundant denials. Do not invent a new action, intention, or event "
+    'to replace meaningful silence or refusal. Do not merely restate the absence as "stays silent", '
+    '"remains still", "says nothing", or "silence stretches". Preserve internal emphasis and all unaffected '
+    "meaning when shortening a multi-sentence span."
 )
 
 # One rule per audit category (``Target.categories``), rendered only for the
@@ -51,6 +61,13 @@ PATCH_CATEGORY_RULES: dict[str, str] = {
     "phrase_repetition": "For repetitive phrases: rewrite flagged phrases, changing the subject.",
     "contrastive_negation": "For contrastive negation ('not X, but Y'): rewrite sentences that use this cliché construction. Consider alternative phrasing that avoids this rhetorical formula.",
     "anti_echo": "For interrogative dialogue: replace the dialogue with something entirely different.",
+    "negated_narration": NEGATED_NARRATION_RULE,
+}
+
+# Content rules that also apply when a length or structural check chooses a
+# full rewrite. They say what to fix, never which tool to call.
+REWRITE_CATEGORY_RULES: dict[str, str] = {
+    "negated_narration": NEGATED_NARRATION_RULE,
 }
 
 EDITOR_REWRITE_INSTRUCTIONS = (
@@ -138,7 +155,7 @@ def build_editor_prompt(
     """Assemble the Editor's request message.
 
     *patch_categories* are the audit categories the report flags; a patch request
-    carries only their rules.
+    carries only their rules, and a rewrite request only their content rules.
     """
     preamble = EDITOR_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
     parts = [preamble]
@@ -150,6 +167,9 @@ def build_editor_prompt(
         parts.append(EDITOR_REWRITE_INSTRUCTIONS)
         if has_audit_issues:
             parts.append(report_text)
+            rewrite_rules = [rule for category, rule in REWRITE_CATEGORY_RULES.items() if category in patch_categories]
+            if rewrite_rules:
+                parts.append("\n".join(f"- {rule}" for rule in rewrite_rules))
         if structural_rewrite:
             parts.append(STRUCTURAL_REWRITE_INSTRUCTIONS)
         if length_guard_triggered:

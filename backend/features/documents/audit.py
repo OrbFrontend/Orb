@@ -123,7 +123,10 @@ def _audit_sync(
     boundary), narrowed to draft-only findings — chat-editor semantics. No
     chat context is passed, so the three cross-message scanners never run."""
     text = f"{context}\n\n{draft_core}" if context else draft_core
-    report = run_audit(text, phrase_bank, audit_toggles=doc_audit_toggles(toggles))
+    # Negated narration is chat-only for now: disable it explicitly, since a
+    # key missing from the document map would otherwise fall back to its default.
+    audit_toggles = {**doc_audit_toggles(toggles), "negated_narration": False}
+    report = run_audit(text, phrase_bank, audit_toggles=audit_toggles)
     return filter_audit_report_to_text(report, draft_core)
 
 

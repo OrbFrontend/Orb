@@ -31,7 +31,8 @@ async def get_settings() -> SettingsRow:
         s["editor_audit_toggles"] = json.loads(
             s.get("editor_audit_toggles")
             or '{"banned_phrases":true,"repetitive_openers":true,"repetitive_templates":true,'
-            '"contrastive_negation":true,"phrase_repetition":true,"structural_repetition":true}'
+            '"contrastive_negation":true,"phrase_repetition":true,"structural_repetition":true,'
+            '"anti_echo":true,"negated_narration":false}'
         )
         s["document_audit_toggles"] = json.loads(
             s.get("document_audit_toggles")

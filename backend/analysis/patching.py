@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from dataclasses import fields
+from dataclasses import dataclass, fields
 from typing import Any
 
 from .audit import AuditReport
@@ -13,7 +13,7 @@ from .detectors.slop_detector import DetectionResult
 from .detectors.template_repetition import FlaggedTemplate, TemplateResult
 from .guarding import guard_protected_sequences, protected_bands
 from .healing import heal_replacement
-from .targets import Target
+from .targets import Target, check_negation_source
 from .text.roleplay_segmentation import split_narration_sentences
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,13 @@ def _filter_flagged_items(items, sentences: set[str], total: int, *, cls, label_
 
 
 def filter_audit_report_to_text(report: AuditReport, target_text: str) -> AuditReport:
-    """Limit an audit report to findings present in *target_text*."""
+    """Limit an audit report to findings present in *target_text*.
+
+    Negated-narration findings are already draft-scoped and offset-anchored:
+    they pass through only when *target_text* is their exact source, and a
+    mismatch raises ``StaleSourceError`` rather than relocating them.
+    """
+    check_negation_source(report, target_text)
     target_sents = _split_target_sentences(target_text)
 
     filtered_fs = [fs for fs in report.cliche_result.flagged_sentences if fs.sentence in target_text]
@@ -98,6 +104,7 @@ def filter_audit_report_to_text(report: AuditReport, target_text: str) -> AuditR
         phrase_result=report.phrase_result,
         structural_repetition_result=report.structural_repetition_result,
         echo_result=report.echo_result,
+        negation_result=report.negation_result,
     )
 
 
@@ -161,9 +168,32 @@ def _no_op_error(tid: int) -> PatchError:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class AppliedEdit:
+    """One splice that landed, in the coordinates of the draft it was applied to.
+
+    ``start``/``end`` are the healed interval (which may differ from the
+    target's), and ``replace`` is the healed text actually inserted.
+    """
+
+    tid: int
+    start: int
+    end: int
+    replace: str
+
+
 def apply_id_patches(draft: str, targets: Sequence[Target], patches: Sequence[Any]) -> tuple[str, list[PatchError]]:
     """Apply id-anchored replacements and return the updated draft and errors."""
+    out, errors, _ = apply_id_patches_with_edits(draft, targets, patches)
+    return out, errors
+
+
+def apply_id_patches_with_edits(
+    draft: str, targets: Sequence[Target], patches: Sequence[Any]
+) -> tuple[str, list[PatchError], list[AppliedEdit]]:
+    """Like :func:`apply_id_patches`, also returning the edits that landed, in draft order."""
     errors: list[PatchError] = []
+    applied: list[AppliedEdit] = []
     by_id = {t.tid: t for t in targets}
     id_range = f"1-{len(targets)}" if targets else "(none — the report has no numbered issues)"
     resolved: list[tuple[Target, str]] = []
@@ -271,8 +301,9 @@ def apply_id_patches(draft: str, targets: Sequence[Target], patches: Sequence[An
             )
             continue
         out = out[: healed.start] + healed.replace + out[healed.end :]
+        applied.append(AppliedEdit(target.tid, healed.start, healed.end, healed.replace))
         logger.debug("Patch id %d OK: %r → %r", target.tid, target.span[:60], healed.replace[:60])
 
     errors.extend(reversed(heal_errors))
     logger.debug("Patch application done: %d errors out of %d patches", len(errors), len(patches))
-    return out, errors
+    return out, errors, sorted(applied, key=lambda edit: edit.start)

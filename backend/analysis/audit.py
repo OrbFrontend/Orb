@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from .detectors.slop_detector import DetectionResult, detect_cliches
@@ -10,6 +11,11 @@ if TYPE_CHECKING:
     from ..database.models import PhraseGroup
 from .detectors.anti_echo import EchoResult, detect_anti_echo
 from .detectors.contrastive_negation import detect_contrastive_negation
+from .detectors.negated_narration import (
+    NegationFinding,
+    NegationResult,
+    detect_negated_narration,
+)
 from .detectors.opening_monotony import MonotonyResult, detect_opening_monotony
 from .detectors.phrase_repetition import (
     PhraseResult,
@@ -22,6 +28,8 @@ from .detectors.structural_repetition import (
 )
 from .detectors.template_repetition import TemplateResult, detect_template_repetition
 
+logger = logging.getLogger(__name__)
+
 # The format normalizer is a post-editor rewrite, not an audit scanner.
 AUDIT_TYPES = (
     "banned_phrases",
@@ -31,12 +39,18 @@ AUDIT_TYPES = (
     "phrase_repetition",
     "structural_repetition",
     "anti_echo",
+    "negated_narration",
 )
+
+# Release defaults for scanners that do not default on. A missing key, or a
+# missing map, falls back to these; every other scanner defaults on.
+AUDIT_DEFAULTS: dict[str, bool] = {"negated_narration": False}
 
 
 def _on(toggles: dict | None, key: str) -> bool:
     """Return whether scanner *key* is enabled."""
-    return True if toggles is None else bool(toggles.get(key, True))
+    default = AUDIT_DEFAULTS.get(key, True)
+    return default if toggles is None else bool(toggles.get(key, default))
 
 
 def _merge_phrase_results(short: PhraseResult, long: PhraseResult) -> PhraseResult:
@@ -54,6 +68,7 @@ class AuditReport:
         "phrase_result",
         "structural_repetition_result",
         "echo_result",
+        "negation_result",
     )
 
     def __init__(
@@ -65,6 +80,7 @@ class AuditReport:
         phrase_result: PhraseResult | None = None,
         structural_repetition_result: StructuralResult | None = None,
         echo_result: EchoResult | None = None,
+        negation_result: NegationResult | None = None,
     ):
         self.cliche_result = cliche_result
         self.monotony_result = monotony_result
@@ -73,6 +89,7 @@ class AuditReport:
         self.phrase_result = phrase_result
         self.structural_repetition_result = structural_repetition_result
         self.echo_result = echo_result
+        self.negation_result = negation_result
 
     @classmethod
     def clean(cls) -> AuditReport:
@@ -85,7 +102,12 @@ class AuditReport:
             phrase_result=None,
             structural_repetition_result=None,
             echo_result=None,
+            negation_result=None,
         )
+
+    @property
+    def negation_findings(self) -> list[NegationFinding]:
+        return self.negation_result.findings if self.negation_result else []
 
     @property
     def is_clean(self) -> bool:
@@ -100,6 +122,7 @@ class AuditReport:
             and is_phrase_clean
             and is_structural_clean
             and is_echo_clean
+            and not self.negation_findings
         )
 
     @property
@@ -115,6 +138,7 @@ class AuditReport:
             + phrase_issues
             + structural_issues
             + echo_issues
+            + len(self.negation_findings)
         )
 
 
@@ -138,9 +162,20 @@ def run_audit(
     structural_text: str | None = None,
     user_message: str | None = None,
     audit_toggles: dict | None = None,
+    negation_min_hits: int = 2,
 ) -> AuditReport:
     """Run enabled scanners on the current draft and return their findings."""
     current_msg = structural_text if structural_text is not None else text
+    negation_result = None
+    if _on(audit_toggles, "negated_narration"):
+        # Draft only: history must not change this category's style or gate.
+        negation_result = detect_negated_narration(current_msg, min_hits=negation_min_hits)
+        logger.debug(
+            "negated_narration: raw_hits=%d chained=%d density=%.3f",
+            negation_result.raw_hits,
+            len(negation_result.findings),
+            negation_result.density,
+        )
     echo_result = None
     if user_message and _on(audit_toggles, "anti_echo"):
         echo_result = detect_anti_echo(current_msg, user_message)
@@ -195,6 +230,7 @@ def run_audit(
         phrase_result=phrase_result,
         structural_repetition_result=structural_result,
         echo_result=echo_result,
+        negation_result=negation_result,
     )
 
 
@@ -211,6 +247,31 @@ def _strip_markers(s: str) -> str:
     """Strip leading/trailing emphasis (*, _) and quote markers, plus surrounding
     whitespace, from a snippet. Internal markers are left untouched."""
     return s.strip().strip(_OUTER_MARKERS).strip()
+
+
+_NEGATION_DESCRIPTIONS = {
+    "split_contrast": "negates X only to restate it as Y",
+    "stacked": "stacks negated clauses",
+    "null_reaction": "narrates what doesn't happen",
+}
+
+
+def negation_reason(finding: NegationFinding) -> str:
+    """Describe a chained negated-narration finding from its constituents."""
+    parts: list[str] = []
+    for part in finding.constituents:
+        if part.kind == "cascade":
+            parts.append(f"{part.sentence_count} consecutive denials")
+        elif part.kind in _NEGATION_DESCRIPTIONS:
+            parts.append(_NEGATION_DESCRIPTIONS[part.kind])
+    reason = ", then ".join(parts)
+    if not reason.startswith(_NEGATION_DESCRIPTIONS["null_reaction"]):
+        reason = f"{_NEGATION_DESCRIPTIONS['null_reaction']}: {reason}"
+    if finding.pivot_span:
+        words = _strip_markers(finding.pivot_span).split()
+        lead = " ".join(words[:4]) + ("…" if len(words) > 4 else "")
+        reason += f', before the payoff "{lead}"'
+    return reason
 
 
 # Both renderings — sectioned here, numbered in ``targets.format_numbered_report``
@@ -297,6 +358,13 @@ def format_report(report: AuditReport) -> str:
             lines.append(f'   - "{_strip_markers(fe.echo)}" repeats the user\'s words: "{_strip_markers(fe.matched_phrase)}"')
         sections.append("\n".join(lines))
 
+    # 8. Negated narration (repeatedly narrating what does not happen)
+    if report.negation_findings:
+        lines = ["Negated Narration (narrating what does not happen)"]
+        for nf in report.negation_findings:
+            lines.append(f'   - "{_strip_markers(nf.span)}" → {negation_reason(nf)}')
+        sections.append("\n".join(lines))
+
     sections.append("\n*** END OF REPORT ***")
     return "\n\n".join(sections)
 
@@ -305,7 +373,7 @@ def report_to_dict(report: AuditReport, draft: str = "") -> dict:
     """Return the report in the API's JSON shape."""
     # Imported here rather than at module scope: targets.py reads the report
     # shape this module defines, so a top-level import would cycle.
-    from .targets import build_targets, target_ids_for
+    from .targets import build_targets, negation_target_ids, target_ids_for
 
     targets = build_targets(report, draft) if draft else []
 
@@ -384,6 +452,16 @@ def report_to_dict(report: AuditReport, draft: str = "") -> dict:
         sections["anti_echo"] = [
             {"echo": _strip_markers(fe.echo), "matched": _strip_markers(fe.matched_phrase), **ids(fe.echo)}
             for fe in report.echo_result.flagged_echoes
+        ]
+
+    if report.negation_findings:
+        sections["negated_narration"] = [
+            {
+                "kinds": list(nf.kinds),
+                "span": _strip_markers(nf.span),
+                **({"ids": negation_target_ids(targets, nf, draft)} if draft else {}),
+            }
+            for nf in report.negation_findings
         ]
 
     return {"total_issues": report.total_issues, "is_clean": report.is_clean, "sections": sections}
