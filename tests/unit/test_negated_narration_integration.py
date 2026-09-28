@@ -134,6 +134,15 @@ def test_targets_are_anchored_and_numbered_with_reasons():
     assert "[1] She doesn't jump." in report_text
 
 
+def test_every_shape_kind_has_a_reason():
+    draft = "He didn't answer.\n\nShe giggles, not pulling back."
+    targets = build_targets(_audit(draft), draft)
+    assert [t.reasons for t in targets] == [
+        ["narrates what doesn't happen"],
+        ["narrates what doesn't happen: tags a denied action onto the sentence"],
+    ]
+
+
 def test_outer_markers_trim_within_the_interval_and_inner_markers_stay():
     draft = "*She doesn't move.* *Doesn't breathe.* Why would you ask? *She just stares.*\n\n*Nobody speaks.*"
     report = _audit(draft)

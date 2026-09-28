@@ -94,6 +94,43 @@ def test_multi_clause_negative_is_not_a_null_reaction():
     assert _first_kind("She didn't move, though her hands shook.") is None
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        '"Fix it," she said, still not looking.',
+        "She giggles, not pulling back.",
+        "Her hand hovers near yours, not quite touching.",
+        "She's already walking past him—never once glancing back.",
+        "She wrings water from her hair, not bothering to cover herself.",
+    ],
+)
+def test_trailing_negation_positives(text):
+    assert _first_kind(text) == "trailing_negation"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Not looking, she reached for the door.",  # the denial is the main clause's lead
+        "She backtracks, not wanting to seem too eager.",  # a motive, not a withheld action
+        "She stops, but not before glancing back.",
+        "He shrugs, not anything she'd call an answer.",
+        "Her eyes never leaving yours, she kneels.",  # absolute construction
+    ],
+)
+def test_trailing_negation_misses(text):
+    assert _first_kind(text) is None
+
+
+def test_trailing_negation_joins_a_null_reaction_past_the_gate():
+    text = (
+        "Malina didn't dignify that with a response. She moved.\n\n"
+        '"Two choices, rookie," she said, still not looking. "Pull your weight."'
+    )
+    assert _kinds(text) == [["null_reaction"], ["trailing_negation"]]
+    assert detect_negated_narration(text).raw_hits == 2
+
+
 def test_null_reaction_word_limits():
     assert _first_kind("He didn't answer the question she had asked him.") == "null_reaction"  # 9 words
     assert _first_kind("He didn't answer the question she had asked him twice.") is None  # 10 words

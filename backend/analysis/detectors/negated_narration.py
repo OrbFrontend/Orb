@@ -93,6 +93,14 @@ _SAY_VERBS = frozenset(
 # Words that make a would-be descriptive fragment read as a clause.
 _FINITE_CUES = _BE | _AUX | _BE_CONTRACTED
 _FRAGMENT_BLOCKERS = _PRONOUNS | frozenset("this that these those there then and but so".split())
+# Trailing participle denials: ", still not looking." / "—never quite touching."
+_TRAIL_LEAD = frozenset("still yet even clearly".split())
+_TRAIL_ADVERBS = frozenset("quite even yet once really fully exactly entirely".split())
+# Motives ("not wanting to seem eager") and -ing nouns stage no withheld action.
+_NON_ACTION_ING = frozenset(
+    "being seeming wanting willing caring expecting knowing believing trusting understanding minding liking "
+    "during morning evening".split()
+)
 
 _EXPANSIONS = {
     "isn't": ("is", "not"),
@@ -615,6 +623,25 @@ def _null_reaction(unit: _Unit) -> bool:
     return negator in ("never", "cannot") or negator.endswith("n't") or (negator == "not" and before[-1] in _AUX)
 
 
+def _trailing_negation(unit: _Unit) -> bool:
+    """A later clause that denies an action as a participle: "she said, still not looking." """
+    text = unit.text
+    for match in _CLAUSE_PUNCT.finditer(text):
+        words = [w for w, (s, _) in zip(unit.words, unit.word_spans, strict=True) if s >= match.end()]
+        if len(words) == len(unit.words):
+            continue  # no main clause before the punctuation
+        k = 1 if words and words[0] in _TRAIL_LEAD else 0
+        if k >= len(words) or words[k] not in ("not", "never"):
+            continue
+        k += 1
+        if k < len(words) and words[k] in _TRAIL_ADVERBS:
+            k += 1
+        verb = words[k] if k < len(words) else ""
+        if len(verb) > 4 and verb.endswith("ing") and not verb.endswith("thing") and verb not in _NON_ACTION_ING:
+            return True
+    return False
+
+
 def _match_shapes(run: list[_Unit]) -> list[tuple[str, int, int]]:
     matches: list[tuple[str, int, int]] = []
     i = 0
@@ -635,6 +662,9 @@ def _match_shapes(run: list[_Unit]) -> list[tuple[str, int, int]]:
             i += 1
         elif _null_reaction(run[i]):
             matches.append(("null_reaction", i, i + 1))
+            i += 1
+        elif _trailing_negation(run[i]):
+            matches.append(("trailing_negation", i, i + 1))
             i += 1
         else:
             i += 1

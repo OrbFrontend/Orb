@@ -253,6 +253,7 @@ _NEGATION_DESCRIPTIONS = {
     "split_contrast": "negates X only to restate it as Y",
     "stacked": "stacks negated clauses",
     "null_reaction": "narrates what doesn't happen",
+    "trailing_negation": "tags a denied action onto the sentence",
 }
 
 
