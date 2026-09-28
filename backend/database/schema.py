@@ -226,7 +226,9 @@ CREATE TABLE IF NOT EXISTS interactive_fragments (
     decision_outputs TEXT DEFAULT NULL,
     decision_resolution TEXT DEFAULT NULL,
     decision_threshold REAL DEFAULT NULL,
-    decision_confidence_floor REAL DEFAULT NULL
+    decision_confidence_floor REAL DEFAULT NULL,
+    -- Post-processing only: the Judge question that must answer yes for the fragment to run; '' always runs.
+    post_processing_gate TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS conversation_logs (

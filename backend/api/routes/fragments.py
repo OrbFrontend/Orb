@@ -89,6 +89,21 @@ def _checked_state_write(payload: dict, existing: dict[str, Any] | None = None) 
     return payload
 
 
+def _checked_gate_write(payload: dict, existing: dict[str, Any] | None = None) -> dict:
+    """Keep a Judge gate on post-processing fragments only.
+
+    A type change away from post-processing clears it, and a partial write to
+    another type discards an incoming one.
+    """
+    field_type = payload.get("field_type", (existing or {}).get("field_type"))
+    if field_type != "post_processing":
+        if "field_type" in payload:
+            payload["post_processing_gate"] = ""
+        else:
+            payload.pop("post_processing_gate", None)
+    return payload
+
+
 # Mood Fragments ──
 
 
@@ -135,7 +150,9 @@ async def api_create_interactive_fragment(data: InteractiveFragmentCreate):
     existing = await get_interactive_fragment(data.id)
     if existing:
         raise HTTPException(status_code=400, detail="Interactive fragment with this ID already exists")
-    result = await create_interactive_fragment(_checked_state_write(_checked_decision_write(data.model_dump())))
+    result = await create_interactive_fragment(
+        _checked_gate_write(_checked_state_write(_checked_decision_write(data.model_dump())))
+    )
     if not result:
         raise HTTPException(status_code=500, detail="Failed to create interactive fragment")
     return result
@@ -162,7 +179,8 @@ async def api_update_interactive_fragment(fid: str, data: InteractiveFragmentUpd
     payload = {
         key: value for key, value in data.model_dump(exclude_unset=True).items() if value is not None or key in DECISION_COLUMNS
     }
-    payload = _checked_state_write(_checked_decision_write(payload, dict(existing)), dict(existing))
+    row = dict(existing)
+    payload = _checked_gate_write(_checked_state_write(_checked_decision_write(payload, row), row), row)
     result = await update_interactive_fragment(fid, payload)
     if not result:
         raise HTTPException(status_code=404, detail="Interactive fragment not found")

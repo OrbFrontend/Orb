@@ -25,6 +25,9 @@ edits therefore compose with earlier fragments. The post-processed text is the
 retained `writer_draft`; a selected secondary workflow can still change the
 visible reply afterward.
 
+A fragment's gate, when it has one, is asked just before that fragment runs;
+see [Gating](#gating).
+
 This placement applies to the shared conversation pipeline: send, continue,
 regenerate, fork-edit, Magic Rewrite, and every generated group-chat reply.
 Document Mode is unchanged.
@@ -47,3 +50,94 @@ retry a fragment.
 The tool schema is frozen into the per-turn tool list whenever post-processing
 is active. In the built-in order it follows `editor_rewrite` and precedes
 `give_feedback`, preserving the Writer/Agent cache lanes.
+
+## Gating
+
+A fragment can have a **Run only when** question, such as *"Do more than two
+distinct actions happen in the reply?"*. Before the fragment runs, Orb asks the
+**Judge** that question about the current draft. A yes runs the fragment; a no
+skips it without an Editor call, so the draft and the cached prefix are
+untouched. An empty question means the fragment runs every turn.
+
+Gating needs a Judge endpoint in **Endpoints → Judge**, the same one decision
+fragments use.
+
+**What the Judge sees.** Only this text, with no conversation history:
+
+```text
+Current request:
+<the user's message for this turn>
+
+Reply:
+<the draft as it stands>
+```
+
+The draft is the evolving one: after Output Auditor and Length Guard edits and
+after every earlier post-processing fragment. Each gate is judged on its own
+draft, one at a time. In a group chat, every generated reply has its own gates.
+
+The question is sent as a yes/no (`noul`) question with fixed criteria: *"The
+answer to the question is yes based on the reply."* and its no counterpart. The
+gate text gets no macro expansion, the same as the Description.
+
+**Cutoff.** A probability of 0.5 or more is yes, so exactly 0.5 runs the
+fragment. The cutoff is not configurable.
+
+**Fail-open.** Anything that keeps the Judge from answering runs the fragment,
+as if it had no gate:
+
+| Reason | When |
+|---|---|
+| `not_configured` | No Judge endpoint or model is set |
+| `oversized_input` | The request-and-draft text is over 16 KiB, or the question plus criteria is over 8 KiB (UTF-8 bytes) |
+| `budget_exhausted` | The turn's gates have used up their Judge-wait budget |
+| `timeout` | The Judge did not answer within the remaining budget |
+| `transport_failure` | The Judge could not be reached or returned an error |
+| `invalid_answer` | The Judge's answer was missing or unusable |
+
+The authoring form caps a question at 2,000 characters. Card-embedded questions
+skip that cap, so the byte limits above are checked when the gate runs; an
+oversized question is never truncated.
+
+**Budget.** All gates in one post-processing step share three seconds of Judge
+waiting. Editor calls do not count against it. Once the budget is spent, the
+remaining gated fragments run without asking.
+
+**Stop.** Stopping the turn cancels a pending gate request. Edits made before
+the Stop are kept, and no later fragment, Feedback, or workflow starts.
+
+### In the Inspector
+
+Each gate adds a `post_processing_gate` entry under **Tool Calls**, before its
+fragment's `editor_search_replace` call when that runs:
+
+```json
+{"fragment_id":"trim","label":"Trim","question":"Do more than two distinct actions happen in the reply?",
+ "fired":0,"reason":"condition_not_met","probability":0.08}
+```
+
+`fired` is 1 when the fragment ran. A Judge verdict has reason
+`condition_met` or `condition_not_met` and carries its `probability`. Any other
+reason is a fail-open from the table above and has no probability; an
+`oversized_input` entry also lists the byte sizes and limits.
+
+### Wording check
+
+The fixed criteria were chosen by asking the configured Judge
+(`typesafe/jev-1.13`) *"Do more than two distinct physical actions happen in the
+reply?"* about fixed drafts, twice each:
+
+| Draft | Bare "Yes." / "No." | Fixed criteria above |
+|---|---|---|
+| One action ("Mara sat down at the corner table.") | 0.08 | 0.08–0.10 |
+| One action, request asking for many | 0.07–0.08 | 0.04 |
+| Two actions, no speech | 0.11 | 0.09 |
+| Two actions plus speech | 0.48–0.50 | 0.36–0.46 |
+| Five actions (two drafts) | 0.97–0.98 | 0.97–0.98 |
+
+Both wordings put the clear cases on the right side of 0.5, and the request did
+not sway the verdict. The bare wording put the borderline two-action draft on
+the cutoff (0.50 fires); the fixed criteria kept a clear margin. A one-action
+draft that also has speech and a glance scored 0.54–0.59 under both wordings.
+Questions about counts should name what counts, such as "physical actions, not
+speech".

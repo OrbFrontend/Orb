@@ -33,7 +33,7 @@ from .passes.director import (
     state_event_payload,
 )
 from .passes.editor import editor_stage
-from .passes.judge import JudgeResult
+from .passes.judge import JudgeConfig, JudgeResult
 from .passes.state import StateContract, StateStepResult, offered_state_ids, state_step
 from .passes.writer import strip_speaker_label, writer_stage
 from .sheet_update import sheet_update_stage
@@ -175,6 +175,7 @@ async def _run_pipeline(
     judge: JudgeResult | None = None,
     run_exchange_final: bool = True,
     state_contract: StateContract | None = None,
+    judge_config: JudgeConfig | None = None,
 ) -> AsyncIterator[dict]:
     """Run the director → writer → editor passes for one turn.
 
@@ -296,6 +297,7 @@ async def _run_pipeline(
             post_processing_fragments=post_processing_fragments,
             editor_audit_msgs=editor_audit_msgs,
             kv_tracker=kv_tracker,
+            judge_config=judge_config,
         ),
     ):
         yield ev
