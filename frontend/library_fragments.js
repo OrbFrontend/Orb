@@ -342,7 +342,7 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
     description:
       "Rewrite spoken dialogue to be shorter and more natural. Preserve meaning and characterization; do not change narration.",
     inj_hint: "sent to the Editor",
-    desc_hint: "editing instruction followed by the Editor",
+    desc_hint: "editing instruction for the Editor",
   },
 };
 
@@ -352,7 +352,31 @@ let _editingStoredDecision = false;
 function _openDecisionDraft(fragment) {
   _editingStoredDecision = fragment.field_type === "decision";
   initDecisionDraft(fragment);
-  loadDecisionConfig().then(repaintDecisionSection);
+  loadDecisionConfig().then((config) => {
+    repaintDecisionSection(config);
+    _repaintGateNote();
+  });
+}
+
+// Only a loaded config saying so counts: loading or a failed fetch is unknown.
+function _judgeKnownUnconfigured() {
+  return decisionConfig()?.configured === false;
+}
+
+function _repaintGateNote() {
+  const note = document.getElementById("interactive-frag-gate-note");
+  if (note) note.style.display = _judgeKnownUnconfigured() ? "" : "none";
+}
+
+function _gateRowHtml(d) {
+  return `<div class="field" id="interactive-frag-gate-row" style="${d.field_type === "post_processing" ? "" : "display:none"}">
+      <label for="interactive-frag-gate">Run only when (asks the Judge)</label>
+      <textarea id="interactive-frag-gate" rows="2" maxlength="2000" placeholder="Is this reply stagnant?">${esc(d.post_processing_gate || "")}</textarea>
+      <div class="field-hint">Yes/no question for the Judge — empty = always run, even if the Judge is unavailable.</div>
+      <div class="field-warning" id="interactive-frag-gate-note" style="${_judgeKnownUnconfigured() ? "" : "display:none"}">
+        No Judge endpoint is configured, so this fragment runs every turn.
+      </div>
+    </div>`;
 }
 
 export function updateInteractiveFragmentExample(fieldType) {
@@ -375,6 +399,9 @@ export function updateInteractiveFragmentExample(fieldType) {
   // Decision definitions use their own question and outcome fields.
   const descRow = document.getElementById("interactive-frag-desc-row");
   if (descRow) descRow.style.display = isDecision ? "none" : "";
+  const gateRow = document.getElementById("interactive-frag-gate-row");
+  if (gateRow) gateRow.style.display = fieldType === "post_processing" ? "" : "none";
+  _repaintGateNote();
   _syncStateControls();
   const decisionSection = document.getElementById("decision-section");
   if (decisionSection) decisionSection.style.display = isDecision ? "" : "none";
@@ -499,6 +526,7 @@ function _interactiveFragFormHtml(d, isEdit) {
     <div class="field" id="interactive-frag-desc-row" style="${d.field_type === "decision" ? "display:none" : ""}">
       <label>Description <span id="interactive-frag-desc-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.desc_hint || "")})</span></label>
       <textarea id="interactive-frag-desc" rows="4" placeholder="${escAttr(ex.description || "")}">${esc(d.description)}</textarea></div>
+    ${_gateRowHtml(d)}
     <div class="field-row" id="interactive-frag-required-row" style="${_requiredApplies(d.field_type, d.state_mode, d.state_update) ? "" : "display:none"}">
       <div class="field" style="align-self:flex-end;padding-bottom:4px">
         <label class="modal-checkbox-label">
@@ -525,6 +553,9 @@ function _readInteractiveFragForm() {
       : false,
     injection_label: document.getElementById("interactive-frag-inj-label").value.trim(),
     cooldown_turns: parseInt(document.getElementById("interactive-frag-cooldown").value, 10) || 0,
+    // Always sent, so a type change also clears a card fragment's stale gate.
+    post_processing_gate:
+      fieldType === "post_processing" ? document.getElementById("interactive-frag-gate").value.trim() : "",
   };
   if (fieldType === "state") {
     base.state_mode = _stateSelectValue("mode");

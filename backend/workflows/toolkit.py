@@ -114,6 +114,7 @@ __all__ = [
     "WorkflowUserFacingError",
     "classify_pov",
     "classify_pov_tense",
+    "classify_pov_tense_chunks",
     "classify_axes",
     "markup_axes",
     "emphasis_inner",
@@ -202,6 +203,11 @@ async def classify_pov(text: str) -> str:
 async def classify_pov_tense(text: str) -> tuple[str, str]:
     """Classify narrative point of view and tense through the host inference service."""
     return await _local_ml.aclassify_pov_tense(text)
+
+
+async def classify_pov_tense_chunks(text: str) -> list[tuple[str, str]]:
+    """Classify each few-sentence narration window of *text*, newest first."""
+    return await _local_ml.aclassify_pov_tense_chunks(text)
 
 
 _MARKUP_FEATURE = "markup_classifier"

@@ -4,13 +4,22 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 from ....core import ChatMessage, ContentPart, extract_hyperparams
-from ....inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
+from ....inference import (
+    CachedBase,
+    DecisionCancelled,
+    LLMClient,
+    parse_tool_calls,
+    reasoning_cfg,
+)
 from ....prompting.tool_schemas import EDITOR_SEARCH_REPLACE_CHOICE
+from ..judge import JudgeConfig
+from .gate import GATE_BUDGET_SECONDS, gate_question, judge_gate
 from .prompts import build_post_processing_prompt
 
 logger = logging.getLogger(__name__)
@@ -69,11 +78,17 @@ async def post_processing_step(
     post_processing_fragments: Sequence[Mapping[str, Any]],
     *,
     writer_user_msg: str | list[ContentPart],
+    effective_msg: str,
+    judge_config: JudgeConfig | None = None,
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
 ) -> AsyncIterator[dict]:
     """Run one forced exact-edit call per fragment in ``sort_order``.
+
+    A fragment with a gate question first asks the Judge about the draft as the
+    earlier fragments left it, and is skipped on a no. Every gate in the step
+    shares one ``GATE_BUDGET_SECONDS`` of Judge waiting.
 
     A fragment whose call fails is reported as a ``failure`` event and skipped;
     the draft keeps the earlier fragments' edits and the later ones still run.
@@ -81,16 +96,39 @@ async def post_processing_step(
     current = draft
     all_calls: list[dict] = []
     fragments = sorted(post_processing_fragments, key=lambda item: item.get("sort_order", 0))
+    judge_allowance = GATE_BUDGET_SECONDS
 
     for fragment in fragments:
         if client.is_aborted:
             break
 
-        request = build_post_processing_prompt(fragment, reasoning_on=reasoning_on)
+        if gate_question(fragment):
+            started = time.monotonic()
+            try:
+                record = await judge_gate(
+                    judge_config,
+                    fragment,
+                    effective_msg=effective_msg,
+                    draft=current,
+                    timeout_seconds=judge_allowance,
+                    abort=client.abort_token,
+                )
+            except DecisionCancelled:
+                break
+            finally:
+                judge_allowance = max(0.0, judge_allowance - (time.monotonic() - started))
+            all_calls.append(record)
+            if client.is_aborted:
+                break
+            if not record["arguments"]["fired"]:
+                logger.info("Post-processing fragment %r skipped by its gate", fragment.get("id", ""))
+                continue
+
+        edit_prompt = build_post_processing_prompt(fragment, reasoning_on=reasoning_on)
         trailing: list[ChatMessage] = [
             {"role": "user", "content": writer_user_msg},
             {"role": "assistant", "content": current},
-            {"role": "user", "content": request},
+            {"role": "user", "content": edit_prompt},
         ]
         hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.25})
         resp: dict = {}

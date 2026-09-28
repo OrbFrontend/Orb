@@ -224,6 +224,8 @@ def card_embedded_fragments(
                 "state_update": _enum(entry, "state_update", STATE_UPDATES, DEFAULT_STATE_UPDATE) if is_state else None,
                 "state_inject": _enum(entry, "state_inject", STATE_INJECTS, DEFAULT_STATE_INJECT) if is_state else None,
                 **{column: None for column in DECISION_COLUMNS},
+                # Unbounded here: the gate checks the Judge's byte limits when it runs.
+                "post_processing_gate": _text(entry, "post_processing_gate") if raw_type == "post_processing" else "",
             },
         )
         if raw_type == DECISION_FIELD_TYPE:

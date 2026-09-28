@@ -273,6 +273,7 @@ class InteractiveFragmentCreate(_DecisionFields, _StateFields):
     injection_label: str
     sort_order: int = 0
     cooldown_turns: int = Field(0, ge=0, le=50)
+    post_processing_gate: str = Field("", max_length=2000)
 
 
 class InteractiveFragmentUpdate(_DecisionFields, _StateFields):
@@ -284,6 +285,7 @@ class InteractiveFragmentUpdate(_DecisionFields, _StateFields):
     injection_label: str | None = None
     sort_order: int | None = None
     cooldown_turns: int | None = Field(None, ge=0, le=50)
+    post_processing_gate: str | None = Field(None, max_length=2000)
 
 
 class InteractiveFragmentOrderItem(BaseModel):

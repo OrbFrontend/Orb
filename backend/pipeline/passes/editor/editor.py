@@ -18,6 +18,7 @@ from ....analysis import (
     run_audit,
 )
 from ...failures import STAGE_EDITOR, describe_failure
+from ..judge import JudgeConfig
 from .feedback import FeedbackResult, feedback_step
 from .post_processing import (
     PostProcessingResult,
@@ -190,6 +191,7 @@ async def editor_pass(
     writer_user_msg: str | list[ContentPart] | None = None,
     feedback_fragments: Sequence[Mapping[str, Any]] | None = None,
     post_processing_fragments: Sequence[Mapping[str, Any]] | None = None,
+    judge_config: JudgeConfig | None = None,
 ) -> AsyncIterator[dict]:
     """Run the audit/edit loop, post-processing fragments, and feedback.
 
@@ -241,6 +243,8 @@ async def editor_pass(
             settings,
             post_processing_fragments,
             writer_user_msg=(writer_user_msg if writer_user_msg is not None else effective_msg),
+            effective_msg=effective_msg,
+            judge_config=judge_config,
             kv_tracker=kv_tracker,
             reasoning_on=reasoning_on,
             reasoning_prefill=reasoning_prefill,
@@ -343,6 +347,7 @@ async def editor_stage(
     post_processing_fragments: Sequence[Mapping[str, Any]] = (),
     editor_audit_msgs: list[str] | None,
     kv_tracker: _KVCacheTracker,
+    judge_config: JudgeConfig | None = None,
 ) -> AsyncIterator[dict]:
     """Gating + writer→editor boundary event + editor pass + event translation.
 
@@ -398,6 +403,7 @@ async def editor_stage(
                 writer_user_msg=state.writer_content,
                 post_processing_fragments=post_processing_fragments if post_processing_needed else None,
                 feedback_fragments=feedback_fragments if feedback_needed else None,
+                judge_config=judge_config,
             )
         ):
             if event["type"] == "step":

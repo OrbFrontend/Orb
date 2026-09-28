@@ -77,6 +77,7 @@ def test_happy_path_shapes():
             "state_update": "before_writer",
             "state_inject": "both",
             **NO_DECISION,
+            "post_processing_gate": "",
         }
     ]
 
@@ -198,6 +199,27 @@ def test_post_processing_field_type_is_preserved():
         _card({"interactive": [{"id": "humanize", "label": "Humanize", "field_type": "post_processing"}]})
     )
     assert interactive[0]["field_type"] == "post_processing"
+
+
+def test_post_processing_gate_is_read_for_post_processing_only():
+    _, interactive = card_embedded_fragments(
+        _card(
+            {
+                "interactive": [
+                    {"id": "gated", "label": "G", "field_type": "post_processing", "post_processing_gate": "Is it long?"},
+                    {"id": "ungated", "label": "U", "field_type": "post_processing"},
+                    {"id": "odd", "label": "O", "field_type": "post_processing", "post_processing_gate": 7},
+                    {"id": "scene", "label": "S", "field_type": "string", "post_processing_gate": "Is it long?"},
+                ]
+            }
+        )
+    )
+    assert {row["id"]: row["post_processing_gate"] for row in interactive} == {
+        "gated": "Is it long?",
+        "ungated": "",
+        "odd": "",
+        "scene": "",
+    }
 
 
 def test_duplicate_ids_first_wins():

@@ -612,6 +612,8 @@ class InteractiveFragmentRow(TypedDict):
     decision_resolution: str | None
     decision_threshold: float | None
     decision_confidence_floor: float | None
+    # Post-processing only; '' means the fragment runs every turn.
+    post_processing_gate: str
 
 
 class MoodFragmentRow(TypedDict):

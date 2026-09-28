@@ -38,7 +38,11 @@ def voice_on(monkeypatch):
     async def classify(text: str) -> tuple[str, str]:
         return ("second", "present") if text.startswith("You ") else ("third", "past")
 
+    async def classify_chunks(text: str) -> list[tuple[str, str]]:
+        return [await classify(text)]
+
     monkeypatch.setattr(voice, "classify_pov_tense", classify)
+    monkeypatch.setattr(voice, "classify_pov_tense_chunks", classify_chunks)
 
 
 async def _seed(client) -> str:
