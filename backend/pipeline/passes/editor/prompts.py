@@ -42,16 +42,6 @@ EDITOR_PATCH_INSTRUCTIONS = (
     "- The replacement text must be complete and make sense in the context."
 )
 
-NEGATED_NARRATION_RULE = (
-    "For negated narration: remove repetitive descriptions of what does not happen while preserving the "
-    "beat's meaning, viewpoint, and tense. Prefer the concrete action, sensation, or description already "
-    'present in the span or its context. When the span ends in the payoff ("She just...", "Instead, ..."), '
-    "preserve that payoff and remove its redundant denials. Do not invent a new action, intention, or event "
-    'to replace meaningful silence or refusal. Do not merely restate the absence as "stays silent", '
-    '"remains still", "says nothing", or "silence stretches". Preserve internal emphasis and all unaffected '
-    "meaning when shortening a multi-sentence span."
-)
-
 # One rule per audit category (``Target.categories``), rendered only for the
 # categories the report flags: each numbered issue already names its problem.
 PATCH_CATEGORY_RULES: dict[str, str] = {
@@ -61,14 +51,11 @@ PATCH_CATEGORY_RULES: dict[str, str] = {
     "phrase_repetition": "For repetitive phrases: rewrite flagged phrases, changing the subject.",
     "contrastive_negation": "For contrastive negation ('not X, but Y'): rewrite sentences that use this cliché construction. Consider alternative phrasing that avoids this rhetorical formula.",
     "anti_echo": "For interrogative dialogue: replace the dialogue with something entirely different.",
-    "negated_narration": NEGATED_NARRATION_RULE,
+    "negated_narration": "For negated narration: remove descriptions of what does not happen. Only write actions that register and matter.",
 }
 
-# Content rules that also apply when a length or structural check chooses a
-# full rewrite. They say what to fix, never which tool to call.
-REWRITE_CATEGORY_RULES: dict[str, str] = {
-    "negated_narration": NEGATED_NARRATION_RULE,
-}
+# Categories whose rule also applies when a length or structural check chooses a full rewrite.
+REWRITE_RULE_CATEGORIES = frozenset({"negated_narration"})
 
 EDITOR_REWRITE_INSTRUCTIONS = (
     "Use `editor_rewrite` to produce a rewrite within the specified limits.\n\n"
@@ -119,6 +106,11 @@ def build_post_processing_prompt(fragment: Mapping[str, Any], *, reasoning_on: b
     return "\n\n".join([preamble, POST_PROCESSING_RULES, f"## {heading}", instruction]) + "]"
 
 
+def _category_rules(categories: Collection[str]) -> str:
+    """The rule lines for *categories*, in ``PATCH_CATEGORY_RULES`` order."""
+    return "\n".join(f"- {rule}" for category, rule in PATCH_CATEGORY_RULES.items() if category in categories)
+
+
 def patch_instructions(categories: Collection[str], *, shown: Collection[str] | None = None) -> str:
     """The patching instructions for a report flagging *categories*.
 
@@ -127,11 +119,7 @@ def patch_instructions(categories: Collection[str], *, shown: Collection[str] | 
     Only what is missing is returned, so a replayed tool result can add the rules
     for kinds that surface after the first request.
     """
-    rules = "\n".join(
-        f"- {rule}"
-        for category, rule in PATCH_CATEGORY_RULES.items()
-        if category in categories and category not in (shown or ())
-    )
+    rules = _category_rules(set(categories).difference(shown or ()))
     if shown is not None:
         return rules
     return EDITOR_PATCH_INSTRUCTIONS + ("\n" + rules if rules else "")
@@ -167,9 +155,8 @@ def build_editor_prompt(
         parts.append(EDITOR_REWRITE_INSTRUCTIONS)
         if has_audit_issues:
             parts.append(report_text)
-            rewrite_rules = [rule for category, rule in REWRITE_CATEGORY_RULES.items() if category in patch_categories]
-            if rewrite_rules:
-                parts.append("\n".join(f"- {rule}" for rule in rewrite_rules))
+            if rules := _category_rules(REWRITE_RULE_CATEGORIES.intersection(patch_categories)):
+                parts.append(rules)
         if structural_rewrite:
             parts.append(STRUCTURAL_REWRITE_INSTRUCTIONS)
         if length_guard_triggered:

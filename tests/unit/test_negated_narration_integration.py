@@ -18,12 +18,13 @@ from backend.analysis import (
 )
 from backend.features.documents.audit import _audit_sync, audit_document
 from backend.pipeline.passes.editor.prompts import (
-    NEGATED_NARRATION_RULE,
+    PATCH_CATEGORY_RULES,
     build_editor_prompt,
     patch_instructions,
 )
 
 _ON = {key: key == "negated_narration" for key in AUDIT_TYPES}
+_RULE = PATCH_CATEGORY_RULES["negated_narration"]
 
 # Two separate beats: a cascade with a payoff, then a null reaction.
 _DRAFT = "She doesn't jump. Doesn't gasp. She just slowly straightens up.\n\nThe fire pops. He didn't answer."
@@ -230,17 +231,17 @@ async def test_document_audit_payload_has_no_negated_narration_section():
 
 def test_patch_prompt_carries_the_rule_and_span_wording():
     prompt = build_editor_prompt(True, "REPORT", False, "", patch_categories={"negated_narration"})
-    assert NEGATED_NARRATION_RULE in prompt
+    assert _RULE in prompt
     assert "the new text for that span" in prompt
-    assert patch_instructions({"negated_narration"}, shown=set()) == f"- {NEGATED_NARRATION_RULE}"
+    assert patch_instructions({"negated_narration"}, shown=set()) == f"- {_RULE}"
 
 
 def test_rewrite_prompt_carries_the_content_rule_without_patch_instructions():
     prompt = build_editor_prompt(True, "REPORT", True, "LENGTH", patch_categories={"negated_narration"})
-    assert NEGATED_NARRATION_RULE in prompt
+    assert _RULE in prompt
     assert "editor_apply_patch" not in prompt
     assert "PATCHING RULES" not in prompt
-    assert prompt.index("REPORT") < prompt.index(NEGATED_NARRATION_RULE) < prompt.index("LENGTH")
+    assert prompt.index("REPORT") < prompt.index(_RULE) < prompt.index("LENGTH")
 
 
 def test_rewrite_prompt_is_unchanged_for_other_categories():
