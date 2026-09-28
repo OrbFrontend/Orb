@@ -131,23 +131,34 @@ def build_direct_scene_override(
     return schema
 
 
+def _with_description(key: str, prop: dict, descriptions: Mapping[str, str]) -> dict:
+    """*prop* with its fragment's description restored, if *key* is a live fragment.
+
+    The blob carries fragment properties as names only. ``moods`` and the
+    speaking plan are reserved ids, so they never appear in *descriptions* and
+    keep the blob's own text.
+    """
+    return {**prop, "description": descriptions[key]} if key in descriptions else prop
+
+
 def live_direct_scene_schema(tool_schema: dict, fragments: Sequence[Mapping[str, Any]]) -> dict:
     """The blob's ``direct_scene`` narrowed to the fields *fragments* make live.
 
-    The shared blob offers every defined fragment with nothing required, so an
-    enable toggle never rewrites the cached prefix. This view keeps the live
-    fragments, ``moods`` and the speaking plan in blob order and restores the
-    live fragments' requiredness. It shapes the request's parameter list and is
-    the per-call ``json_schema``, which narrows text-mode grammars and
-    structured-output endpoints (the chat transport drops it).
+    The shared blob offers every defined fragment by name only, with nothing
+    required, so an enable toggle never rewrites the cached prefix and a
+    disabled fragment's text never reaches the lane. This view keeps the live
+    fragments, ``moods`` and the speaking plan in blob order, and restores the
+    live fragments' descriptions and requiredness. It shapes the request's
+    parameter list and is the per-call ``json_schema``, which narrows text-mode
+    grammars and structured-output endpoints (the chat transport drops it).
     """
-    live = {fragment["id"] for fragment in fragments}
+    descriptions = {fragment["id"]: fragment["description"] for fragment in fragments}
     required = {fragment["id"] for fragment in fragments if fragment.get("required")}
     params = tool_schema["function"]["parameters"]
     properties = {
-        key: value
+        key: _with_description(key, value, descriptions)
         for key, value in params.get("properties", {}).items()
-        if key in live or key in ("moods", SPEAKING_PLAN_FIELD)
+        if key in descriptions or key in ("moods", SPEAKING_PLAN_FIELD)
     }
     return {
         **tool_schema,
@@ -158,18 +169,22 @@ def live_direct_scene_schema(tool_schema: dict, fragments: Sequence[Mapping[str,
     }
 
 
-def _step_schema(tool_schema: dict, keep: str) -> dict | None:
+def _step_schema(tool_schema: dict, keep: str, stage: Mapping[str, Any] | None = None) -> dict | None:
     """Single-field variant of the ``direct_scene`` parameters for one step call.
 
     Passed as the per-call ``json_schema`` decoding constraint so the model
     physically cannot fill any field but the step's target — text mode applies
     it to the grammar (prompt bytes and KV cache untouched); the chat transport
-    drops it and relies on the post-parse filter in the loop below.
+    drops it and relies on the post-parse filter in the loop below. *stage* is
+    the step's fragment, whose description the names-only blob does not carry;
+    the speaking plan's synthetic stage keeps the blob's own text.
     """
     params = tool_schema["function"]["parameters"]
     prop = params.get("properties", {}).get(keep)
     if prop is None:
         return None
+    if stage is not None and stage is not SPEAKING_PLAN_STAGE:
+        prop = _with_description(keep, prop, {keep: stage["description"]})
     return {
         "type": "object",
         "properties": {keep: prop},
@@ -351,7 +366,7 @@ async def director_pass(
                         trailing=trailing,
                         tool_choice=require_tool("direct_scene")["choice"],
                         kv_tracker=kv_tracker,
-                        json_schema=_step_schema(tool_schema, target) if tool_schema else None,
+                        json_schema=_step_schema(tool_schema, target, stage) if tool_schema else None,
                         **hyperparams,
                         **reasoning_params,
                     ):

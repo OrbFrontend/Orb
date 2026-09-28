@@ -90,7 +90,9 @@ def build_feedback_prompt(
     parts = [preamble]
     if tool_schema is not None:
         labels = {fragment["id"]: (fragment.get("injection_label") or "").strip() for fragment in feedback_fragments}
-        parts.append(tool_call_instruction("give_feedback", tool_schema, labels=labels))
+        # The shared schema carries feedback fields by name only; state each live one here.
+        fragments = {fragment["id"]: fragment for fragment in feedback_fragments}
+        parts.append(tool_call_instruction("give_feedback", tool_schema, labels=labels, fragments=fragments))
     return "\n\n".join(parts) + "]"
 
 

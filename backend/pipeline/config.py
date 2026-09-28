@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
 from ..core import STATE_FIELD_TYPE, ChatMessage, Macros
@@ -147,6 +147,21 @@ def _without_required(schema: dict) -> dict:
     return schema
 
 
+def _names_only(schema: dict, fragment_ids: Collection[str]) -> dict:
+    """Drop the description from each fragment-built property on the shared blob.
+
+    Every defined fragment rides the blob, enabled or not, so its description
+    would reach every call on the lane -- the Writer's included in single-model
+    mode. Each fragment property keeps its name and type; the pass that fills a
+    live field states its description in the trailing request and the per-call
+    ``json_schema``. Fixed, code-authored properties keep theirs.
+    """
+    for key, prop in schema["function"]["parameters"]["properties"].items():
+        if key in fragment_ids:
+            prop.pop("description", None)
+    return schema
+
+
 def _build_writer_tools_blob(
     settings: Mapping[str, Any],
     defined_fragments: Sequence[Mapping[str, Any]],
@@ -166,20 +181,24 @@ def _build_writer_tools_blob(
     disabling a fragment must not change a byte of it: each fragment-built tool
     offers every defined fragment, and the pass that calls it names the enabled
     ones in its trailing request, narrows the call to them, and drops the rest --
-    the rule fragment cooldowns already follow.
+    the rule fragment cooldowns already follow. Fragment properties carry their
+    name and type only, so a disabled fragment's text never reaches the lane.
     """
     enabled_tools = dict(enabled_tools)
     agent_on = agent_enabled(settings)
     _, feedback_fragments, state_fragments, post_processing_fragments = _split_interactive_fragments(defined_fragments)
     contract = StateContract.defined(settings, state_fragments)
-    direct_scene = build_direct_scene_override(contract.direct_scene_rows(defined_fragments), grouped=grouped)
-    overrides: dict = {"direct_scene": _without_required(direct_scene)}
+    scene_rows = contract.direct_scene_rows(defined_fragments)
+    direct_scene = build_direct_scene_override(scene_rows, grouped=grouped)
+    overrides: dict = {"direct_scene": _names_only(_without_required(direct_scene), {row["id"] for row in scene_rows})}
     if agentic_lorebook:
         enabled_tools["select_lorebook"] = True
     if dynamic_world:
         enabled_tools["propose_world_changes"] = True
     if _feedback_active(feedback_fragments, agent_on=agent_on):
-        overrides["give_feedback"] = _without_required(build_feedback_override(feedback_fragments))
+        overrides["give_feedback"] = _names_only(
+            _without_required(build_feedback_override(feedback_fragments)), {row["id"] for row in feedback_fragments}
+        )
         enabled_tools["give_feedback"] = True
     if post_processing_active(post_processing_fragments, agent_on=agent_on):
         enabled_tools["editor_search_replace"] = True
@@ -187,6 +206,6 @@ def _build_writer_tools_blob(
     # Writer, so both steps share one byte-stable blob. The schema depends only
     # on configuration; state writes never rebuild it.
     if tool_fragments := contract.tool_fragments():
-        overrides["update_state"] = build_state_tool(tool_fragments)
+        overrides["update_state"] = _names_only(build_state_tool(tool_fragments), {fragment.id for fragment in tool_fragments})
         enabled_tools["update_state"] = True
     return overrides, enabled_tools

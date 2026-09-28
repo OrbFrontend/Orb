@@ -125,13 +125,19 @@ Enabling or disabling a fragment follows it too. `direct_scene`,
 `give_feedback`, and `update_state` are built from every fragment the user and
 the cast's cards define, enabled or not, in an order no toggle moves, with no
 top-level `required`; `editor_search_replace` and `give_feedback` join the list
-once any fragment of their kind is defined. Each call's trailing request lists
-only its live fields and their requiredness, names the offered-but-unavailable
-ones, and passes that live view as the per-call `json_schema`, which narrows
-text-mode grammars and structured-output endpoints while leaving the prompt
-bytes alone. Values for fields the call was not offered live are dropped.
-Creating, deleting, or editing a fragment's text still changes the blob; that is
-an authoring change, not a toggle.
+once any fragment of their kind is defined. A fragment-built property carries its
+name and type only. The blob reaches every call on the lane, the Writer's
+included in single-model mode, so a description there would put a disabled
+fragment's instructions in front of the reply. Code-authored properties
+(`moods`, `speaking_plan`, `retire`) and tool descriptions keep their text. Each
+call's trailing request lists only its live fields with their descriptions and
+requiredness, names the offered-but-unavailable ones, and passes that live view,
+descriptions restored, as the per-call `json_schema`, which narrows text-mode
+grammars and structured-output endpoints while leaving the prompt bytes alone.
+Values for fields the call was not offered live are dropped. Editing a
+fragment's description leaves the blob unchanged; creating or deleting a
+fragment, renaming its id, or moving it to another tool or between a single value
+and a list still rewrites it, as an authoring change rather than a toggle.
 
 The stakes, measured on an 8k-token Director call: a tools list that changes
 on a toggle rebuilds the whole prefix wherever tools render ahead of the
