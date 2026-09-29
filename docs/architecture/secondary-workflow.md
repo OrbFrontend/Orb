@@ -328,14 +328,20 @@ With `Accept: text/event-stream`, `regenerate` streams each `ctx.phase(label)` a
 (`{status, detail}`). The render outlives a dropped stream.
 
 Workflow renders run beside the chat, so the chat Stop button leaves them
-alone. Regenerate and reroll-gen run as per-conversation jobs that
-`workflows/stop` cancels, answering `{stopped, settled}` once they have ended
-(bounded); the stopped request then answers 409. A job already writing its
-sibling is waited for, not cancelled. An on-demand stream has no job: closing
-it (the image button pressed again) cancels the hook, which must let its
-cleanup finish (the stream awaits it). A cancelled ComfyUI render withdraws
-its prompt by id; cloud image APIs are synchronous, so a stopped cloud render
-only drops the request and may still be billed.
+alone; the button that started a render is its Stop button while it runs.
+Regenerate, reroll-gen, rehydrate, and the on-demand trigger run as
+per-conversation jobs. Each of those routes takes an optional `?job=<id>` the
+client picks, and `workflows/stop?job=<id>` cancels that job alone (without
+`job`, every job in the conversation), answering `{stopped, settled}` once
+they have ended (bounded); the stopped request then answers 409. `stopped: 0`
+means no job ran under that id yet or any more. A job already writing its
+sibling or restored bytes is waited for, not cancelled; an on-demand hook
+that writes its own attachment may still commit it as it is cancelled, so
+after a stop the client refetches and the saved rows decide. An on-demand
+stream is stopped by closing it instead, which cancels the hook; the hook
+must let its cleanup finish (the stream awaits it). A cancelled ComfyUI
+render withdraws its prompt by id; cloud image APIs are synchronous, so a
+stopped cloud render only drops the request and may still be billed.
 
 The manifest returns workflow identity and config form metadata. Config is a
 full replacement; a workflow's `config_normalizer` owns its valid shape and is
@@ -383,6 +389,16 @@ registerAction("my_workflow", "refresh", (element, event) => { /* ... */ });
 The facade also provides API helpers, modal and notification helpers, workflow
 phases, shared audio controls, text effects, message access, group cast data,
 and conversation repaint/refetch helpers.
+
+A button that starts a long render is that render's Stop button while it
+runs. `startWorkflowJob({ convId, title })` returns a job: `job.url(path)`
+names it on the request, `job.show(button)` turns the button over in place,
+`job.stop()` cancels it (`startWorkflowJob({ title, controller })` aborts the
+controller instead, for a stream), and `job.end()` turns every copy of the
+button back. A renderer that may repaint the button mid-render draws it from
+`stopButtonState(job, idleTitle)`. `workflowActionJob(msgId, attId)` is the
+job of the core regenerate, reroll, or restore running on an attachment, for a
+workflow that draws its own control for those.
 
 ## Authoring checklist
 

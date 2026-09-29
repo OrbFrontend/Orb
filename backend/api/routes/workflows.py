@@ -232,8 +232,29 @@ async def api_set_workflow_enabled(workflow_id: str, data: WorkflowEnabledUpdate
 
 
 @router.post("/api/conversations/{cid}/workflows/{workflow_id}/trigger")
-async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(default={})):  # noqa: B008
-    """Run a workflow's on_demand hook against the current conversation state."""
+async def api_trigger_workflow(
+    cid: str,
+    workflow_id: str,
+    body: dict = Body(default={}),  # noqa: B008
+    job: str | None = None,
+):
+    """Run a workflow's on_demand hook against the current conversation state.
+
+    The hook runs as a workflow job, so Stop can cancel a long on-demand render
+    such as speech; a streaming result is stopped by closing its stream.
+    """
+    result = await _finished_job(start_workflow_job(cid, _trigger(cid, workflow_id, body), job=job))
+    # A streaming result is wrapped by the API layer -- the workflow returns a
+    # transport-neutral WorkflowEventStream, never an HTTP response. The response
+    # is built after the workflow locks release: the event iterator is lazy, so
+    # the hook's DB/prefix prep ran under the locks while the stream itself runs
+    # lock-free (matching the pre-refactor behavior). A dict is a plain JSON body.
+    if isinstance(result, WorkflowEventStream):
+        return _workflow_event_stream_response(result)
+    return result
+
+
+async def _trigger(cid: str, workflow_id: str, body: dict) -> Any:
     if get_workflow(workflow_id) is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
     # Gate before the lock so a disabled-workflow request does no DB work.
@@ -281,15 +302,7 @@ async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(def
                     character_id=card_id,
                     character=_readonly(card),
                 )
-                result = await sub.callable(od_ctx, body)
-    # A streaming result is wrapped by the API layer -- the workflow returns a
-    # transport-neutral WorkflowEventStream, never an HTTP response. The response
-    # is built after the workflow locks release: the event iterator is lazy, so
-    # the hook's DB/prefix prep ran under the locks while the stream itself runs
-    # lock-free (matching the pre-refactor behavior). A dict is a plain JSON body.
-    if isinstance(result, WorkflowEventStream):
-        return _workflow_event_stream_response(result)
-    return result
+                return await sub.callable(od_ctx, body)
 
 
 async def _finished_job(task: asyncio.Task[Any]) -> Any:
@@ -301,14 +314,14 @@ async def _finished_job(task: asyncio.Task[Any]) -> Any:
 
 
 @router.post("/api/conversations/{cid}/workflows/stop")
-async def api_stop_workflow_jobs(cid: str):
-    """Stop the conversation's regenerate and reroll-gen renders.
+async def api_stop_workflow_jobs(cid: str, job: str | None = None):
+    """Stop the conversation's workflow renders, or only the one named *job*.
 
     Answers once they have ended, bounded; ``settled`` is False when one was
     still winding down at the deadline. An on-demand stream is stopped by
     closing it instead.
     """
-    result = await stop_workflow_jobs(cid)
+    result = await stop_workflow_jobs(cid, job=job)
     if result["stopped"]:
         logger.info("Stopped %d workflow job(s) for conversation %s", result["stopped"], scrub_log(cid))
     return {"ok": True, **result}
@@ -322,12 +335,13 @@ async def api_regenerate_attachment(
     request: Request,
     body: dict = Body(default={}),  # noqa: B008
     conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+    job: str | None = None,
 ):
     """Append a new sibling variant under a workflow-produced attachment's root."""
     phases: asyncio.Queue[str | None] = asyncio.Queue()
     # A job, not the request: it outlives a dropped stream, so the sibling still
     # lands for the client's recovery poll, and only Stop cancels it.
-    task = start_workflow_job(cid, _regenerate(cid, mid, aid, body, conv, phases.put_nowait))
+    task = start_workflow_job(cid, _regenerate(cid, mid, aid, body, conv, phases.put_nowait), job=job)
     if "text/event-stream" not in request.headers.get("accept", ""):
         return await _finished_job(task)
     task.add_done_callback(lambda _: phases.put_nowait(None))
@@ -537,6 +551,7 @@ async def api_reroll_gen_attachment(
     aid: int,
     body: dict = Body(default={}),  # noqa: B008
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+    job: str | None = None,
 ):
     """Generate a new sibling using the original's stored generation_metadata
     with a freshly minted seed.
@@ -566,7 +581,7 @@ async def api_reroll_gen_attachment(
         detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
     )
 
-    return await _finished_job(start_workflow_job(cid, _reroll_gen(cid, mid, aid, body, sub, settings_snapshot)))
+    return await _finished_job(start_workflow_job(cid, _reroll_gen(cid, mid, aid, body, sub, settings_snapshot), job=job))
 
 
 async def _reroll_gen(
@@ -652,6 +667,7 @@ async def api_rehydrate_attachment(
     aid: int,
     body: dict = Body(default={}),  # noqa: B008, ARG001
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+    job: str | None = None,
 ):
     """Recover bytes for an evicted attachment using its stored seed + params.
 
@@ -690,7 +706,10 @@ async def api_rehydrate_attachment(
         action="rehydrate",
         detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
     )
+    return await _finished_job(start_workflow_job(cid, _rehydrate(cid, mid, aid, seed, settings_snapshot), job=job))
 
+
+async def _rehydrate(cid: str, mid: int, aid: int, seed: str, settings_snapshot: Mapping[str, Any]) -> dict:
     # Serialize same-root rehydrates the way /regenerate and /reroll-gen already
     # do for their sibling-tree mutations. Without this, two concurrent callers
     # would each run the full reroll_gen LLM call before the cache helper's
@@ -728,7 +747,8 @@ async def api_rehydrate_attachment(
             raise HTTPException(status_code=500, detail="reroll_gen handler returned no bytes")
 
         try:
-            await rehydrate_attachment(aid, bytes(data), consumption_metadata=new_consumption_metadata)
+            with committing_workflow_job():
+                await rehydrate_attachment(aid, bytes(data), consumption_metadata=new_consumption_metadata)
         except RehydrateAlreadyDoneError:
             # Race with a concurrent rehydrate that already restored the bytes.
             # End state is correct; surface as 409 so the client treats it as

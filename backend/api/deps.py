@@ -88,10 +88,11 @@ def workflow_group_in_flight(root_id: int) -> bool:
     return lock is not None and lock.locked()
 
 
-# Workflow renders the Stop button ends, by conversation. Regenerate and
-# reroll-gen deliberately outlive a dropped connection, so closing it cannot
-# stop them; they run as tasks here instead, which Stop cancels.
-_workflow_jobs: dict[str, set[asyncio.Task[Any]]] = {}
+# Workflow renders Stop can cancel, by conversation. Regenerate and reroll-gen
+# deliberately outlive a dropped connection, so closing it cannot stop them;
+# they run as tasks here instead, each under the job id its client named (or
+# None), so the button that started one can stop that render alone.
+_workflow_jobs: dict[str, dict[asyncio.Task[Any], str | None]] = {}
 # Jobs inside their final write. Stop waits for these rather than cancelling:
 # a cancelled await does not stop SQLite's worker thread from committing.
 _committing_jobs: set[asyncio.Task[Any]] = set()
@@ -101,14 +102,14 @@ _committing_jobs: set[asyncio.Task[Any]] = set()
 WORKFLOW_STOP_SECS = 10.0
 
 
-def start_workflow_job(cid: str, coro: Coroutine[Any, Any, _T]) -> asyncio.Task[_T]:
-    """Run *coro* as a job that `stop_workflow_jobs(cid)` can cancel."""
+def start_workflow_job(cid: str, coro: Coroutine[Any, Any, _T], *, job: str | None = None) -> asyncio.Task[_T]:
+    """Run *coro* as a job that `stop_workflow_jobs(cid)` can cancel, filed under *job*."""
     task = asyncio.create_task(coro)
-    jobs = _workflow_jobs.setdefault(cid, set())
-    jobs.add(task)
+    jobs = _workflow_jobs.setdefault(cid, {})
+    jobs[task] = job
 
     def forget(done: asyncio.Task[Any]) -> None:
-        jobs.discard(done)
+        jobs.pop(done, None)
         if not jobs and _workflow_jobs.get(cid) is jobs:
             del _workflow_jobs[cid]
 
@@ -130,13 +131,14 @@ def committing_workflow_job() -> Iterator[None]:
         _committing_jobs.discard(task)
 
 
-async def stop_workflow_jobs(cid: str, *, timeout: float = WORKFLOW_STOP_SECS) -> dict[str, Any]:
-    """Cancel the conversation's workflow jobs and wait, bounded, for them to end.
+async def stop_workflow_jobs(cid: str, *, job: str | None = None, timeout: float = WORKFLOW_STOP_SECS) -> dict[str, Any]:
+    """Cancel the conversation's workflow jobs, or only those filed under *job*,
+    and wait, bounded, for them to end.
 
     A job already writing its result is waited for, not cancelled: its
     sibling lands, and the client's refetch shows it.
     """
-    jobs = list(_workflow_jobs.get(cid, ()))
+    jobs = [task for task, name in _workflow_jobs.get(cid, {}).items() if job is None or name == job]
     if not jobs:
         return {"stopped": 0, "settled": True}
     for task in jobs:

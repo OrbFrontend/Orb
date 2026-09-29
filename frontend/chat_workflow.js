@@ -15,6 +15,7 @@ import { sseEvents, streamPost } from "./sse.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
 import { broadcastWorkflowMutation, requestSendPermission, setWorkflowMutationCallback } from "./tabLock.js";
 import { $, boolFlag, convUrl, esc, escAttr, markChatProgrammaticScroll, toast } from "./utils.js";
+import { startWorkflowJob, stopButtonState } from "./workflow_jobs.js";
 
 function _isAttachmentEvicted(att) {
   return boolFlag(att.evicted);
@@ -29,7 +30,8 @@ function _evictedAttachmentHtml(msg, att) {
   } else if (!effectiveWorkflowEnabled(att.workflow_id)) {
     btn = `<span class="workflow-rehydrate-disabled" title="Re-enable ${escAttr(_workflowLabel(att))} to restore">Workflow off</span>`;
   } else {
-    btn = `<button class="workflow-rehydrate-button" onclick="event.stopPropagation();workflowRehydrate(${msg.id},${att.id},this)">Rehydrate</button>`;
+    const stop = stopButtonState(_workflowRehydrateInFlight.get(att.id)?.job, "Rehydrate");
+    btn = `<button class="workflow-rehydrate-button${stop.cls}"${stop.attrs} onclick="event.stopPropagation();workflowRehydrate(${msg.id},${att.id},this)"><span>Rehydrate</span></button>`;
   }
   return `<div class="workflow-artifact-evicted">
     <span class="workflow-artifact-evicted-label">${filename}</span>
@@ -43,7 +45,8 @@ function _workflowRegenButtonHtml(msg, att) {
   const entry = S.workflowManifest.find((w) => w.id === wid);
   if (!entry) return "";
   if (!effectiveWorkflowEnabled(wid)) return "";
-  return `<button class="workflow-regen-button" title="Regenerate" onclick="event.stopPropagation();workflowRegenerate(${msg.id},${att.id},this)">${ICON_REGEN}</button>`;
+  const stop = stopButtonState(_runningAction(att, "regen"), "Regenerate");
+  return `<button class="workflow-regen-button${stop.cls}"${stop.attrs} onclick="event.stopPropagation();workflowRegenerate(${msg.id},${att.id},this)">${ICON_REGEN}</button>`;
 }
 
 function _workflowRerollButtonHtml(msg, att) {
@@ -52,7 +55,27 @@ function _workflowRerollButtonHtml(msg, att) {
   const entry = S.workflowManifest.find((w) => w.id === wid);
   if (!entry) return "";
   if (!effectiveWorkflowEnabled(wid)) return "";
-  return `<button class="workflow-reroll-button" title="Reroll" onclick="event.stopPropagation();workflowReroll(${msg.id},${att.id},this)">${ICON_REROLL}</button>`;
+  const stop = stopButtonState(_runningAction(att, "reroll"), "Reroll");
+  return `<button class="workflow-reroll-button${stop.cls}"${stop.attrs} onclick="event.stopPropagation();workflowReroll(${msg.id},${att.id},this)">${ICON_REROLL}</button>`;
+}
+
+// The job of the regenerate or reroll (*kind*) running on *att*'s group.
+function _runningAction(att, kind) {
+  const run = _workflowActionInFlight.get(att.parent_attachment_id || att.id);
+  return run?.kind === kind ? run.job : null;
+}
+
+/**
+ * The job of the regenerate, reroll, or restore running on the attachment, or
+ * null. A workflow drawing its own controls for these renders that button as
+ * the job's Stop button, which calls `job.stop()`.
+ */
+export function workflowActionJob(msgId, attId) {
+  return (
+    _workflowActionInFlight.get(_resolveWorkflowRootId(msgId, attId))?.job ||
+    _workflowRehydrateInFlight.get(attId)?.job ||
+    null
+  );
 }
 
 function _activeAttachmentForGroup(atts, root) {
@@ -292,22 +315,25 @@ const _workflowRehydrateInFlight = new Map();
 
 window.workflowRehydrate = async (msgId, attId, btn) => {
   if (!S.activeConvId) return;
+  const running = _workflowRehydrateInFlight.get(attId);
+  if (running) return running.job.stop();
   if (!requestSendPermission()) return;
-  if (_workflowRehydrateInFlight.has(attId)) return;
-  _workflowRehydrateInFlight.set(attId, msgId);
-  btn.disabled = true;
+  const job = startWorkflowJob({ convId: S.activeConvId, title: "Stop restoring" });
+  _workflowRehydrateInFlight.set(attId, { msgId, job });
+  job.show(btn);
   const container = btn.closest(".workflow-artifact-swipe, [data-root-id]");
   const wid = _resolveWorkflowId(msgId, attId);
   const ch = `workflow:${wid || "op"}:rehydrate:${attId}`;
   try {
     setWorkflowPhase(ch, workflowPhaseLabel(wid, "restoring..."));
-    await api.post(convUrl(S.activeConvId, "messages", msgId, "workflow-attachments", attId, "rehydrate"), {});
+    await api.post(job.url(convUrl(S.activeConvId, "messages", msgId, "workflow-attachments", attId, "rehydrate")), {});
     setMessages(await api.get(convUrl(S.activeConvId, "messages")));
     _reapplyInFlightSwipes();
     renderMessages();
     broadcastWorkflowMutation({ convId: S.activeConvId, msgId });
   } catch (e) {
-    if (e && e.status === 409) {
+    // A 409 is a stop, or a restore another request already made: the saved row decides.
+    if (e?.status === 409 || job.stopping) {
       try {
         setMessages(await api.get(convUrl(S.activeConvId, "messages")));
         _reapplyInFlightSwipes();
@@ -328,7 +354,7 @@ window.workflowRehydrate = async (msgId, attId, btn) => {
   } finally {
     clearWorkflowPhase(ch);
     _workflowRehydrateInFlight.delete(attId);
-    btn.disabled = false;
+    job.end();
   }
 };
 
@@ -508,14 +534,55 @@ function _scrollArtifactIntoView(msgId, rootId = null) {
   Promise.race([Promise.all(loaded), new Promise((res) => setTimeout(res, 2000))]).then(showWhenVisible);
 }
 
+// Stop cancels the render server-side; the request then answers 409, or with
+// the sibling if it was already being saved. Either way the saved rows decide.
+async function _syncAfterStop(convId, msgId, rootId, before, onLanded) {
+  if (S.activeConvId !== convId) return;
+  let msgs;
+  try {
+    msgs = await api.get(convUrl(convId, "messages"));
+  } catch (e) {
+    console.warn("sync after stopping a workflow render failed", e);
+    return;
+  }
+  if (S.activeConvId !== convId) return;
+  const landed = [
+    ..._rootSiblingIds(
+      msgs.find((m) => m.id === msgId),
+      rootId,
+    ),
+  ].some((id) => !before.has(id));
+  if (landed) onLanded?.();
+  setMessages(msgs);
+  _reapplyInFlightSwipes();
+  renderMessages();
+  if (landed) {
+    _scrollArtifactIntoView(msgId, rootId);
+    broadcastWorkflowMutation({ convId, msgId });
+  }
+}
+
+// A second press on a running regenerate or reroll is its Stop.
+function _startWorkflowAction(msgId, attId, btn, kind, title) {
+  const rootId = _resolveWorkflowRootId(msgId, attId);
+  const running = _workflowActionInFlight.get(rootId);
+  if (running) {
+    if (running.kind === kind) running.job.stop();
+    return null;
+  }
+  if (!requestSendPermission()) return null;
+  const job = startWorkflowJob({ convId: S.activeConvId, title });
+  _workflowActionInFlight.set(rootId, { msgId, kind, job });
+  job.show(btn);
+  return { rootId, job };
+}
+
 window.workflowRegenerate = async (msgId, attId, btn) => {
   if (!S.activeConvId) return;
-  if (!requestSendPermission()) return;
-  const rootId = _resolveWorkflowRootId(msgId, attId);
-  if (_workflowActionInFlight.has(rootId)) return;
-  _workflowActionInFlight.set(rootId, msgId);
+  const started = _startWorkflowAction(msgId, attId, btn, "regen", "Stop regenerating");
+  if (!started) return;
+  const { rootId, job } = started;
   const container = btn.closest(".workflow-artifact-swipe, [data-root-id]");
-  btn.disabled = true;
   const wid = _resolveWorkflowId(msgId, attId);
   const ch = `workflow:${wid || "op"}:regen:${rootId}`;
   const convId = S.activeConvId;
@@ -526,7 +593,7 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
   try {
     setWorkflowPhase(ch, workflowPhaseLabel(wid, "regenerating..."));
     const result = await _regenerateStreamed(
-      convUrl(convId, "messages", msgId, "workflow-attachments", attId, "regenerate"),
+      job.url(convUrl(convId, "messages", msgId, "workflow-attachments", attId, "regenerate")),
       (label) => setWorkflowPhase(ch, label),
     );
     const incoming = result && Array.isArray(result.rejected_workflow_atts) ? result.rejected_workflow_atts : [];
@@ -537,7 +604,8 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
     _scrollArtifactIntoView(msgId, rootId);
     broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
-    if (_isNetworkError(e) && (await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings))) {
+    if (job.stopping) await _syncAfterStop(convId, msgId, rootId, beforeSiblings);
+    else if (_isNetworkError(e) && (await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings))) {
     } else {
       console.error("Regenerate failed:", e);
       _showActionFailure(container, "workflow-regen-error", "Regenerate", e);
@@ -545,18 +613,16 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
   } finally {
     clearWorkflowPhase(ch);
     _workflowActionInFlight.delete(rootId);
-    btn.disabled = false;
+    job.end();
   }
 };
 
 window.workflowReroll = async (msgId, attId, btn) => {
   if (!S.activeConvId) return;
-  if (!requestSendPermission()) return;
-  const rootId = _resolveWorkflowRootId(msgId, attId);
-  if (_workflowActionInFlight.has(rootId)) return;
-  _workflowActionInFlight.set(rootId, msgId);
+  const started = _startWorkflowAction(msgId, attId, btn, "reroll", "Stop rerolling");
+  if (!started) return;
+  const { rootId, job } = started;
   const container = btn.closest(".workflow-artifact-swipe, [data-root-id]");
-  btn.disabled = true;
   const wid = _resolveWorkflowId(msgId, attId);
   const ch = `workflow:${wid || "op"}:reroll:${rootId}`;
   const convId = S.activeConvId;
@@ -573,7 +639,7 @@ window.workflowReroll = async (msgId, attId, btn) => {
       console.error("reroll params callback threw:", e);
     }
     const result = await api.post(
-      convUrl(convId, "messages", msgId, "workflow-attachments", attId, "reroll-gen"),
+      job.url(convUrl(convId, "messages", msgId, "workflow-attachments", attId, "reroll-gen")),
       extra ? { params: extra } : {},
     );
     if (result?.attachment_id != null) _notifyWorkflowRerollSuccess(wid, msgId, attId);
@@ -585,7 +651,11 @@ window.workflowReroll = async (msgId, attId, btn) => {
     _scrollArtifactIntoView(msgId, rootId);
     broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
-    if (
+    if (job.stopping)
+      await _syncAfterStop(convId, msgId, rootId, beforeSiblings, () =>
+        _notifyWorkflowRerollSuccess(wid, msgId, attId),
+      );
+    else if (
       _isNetworkError(e) &&
       (await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings, () =>
         _notifyWorkflowRerollSuccess(wid, msgId, attId),
@@ -598,7 +668,7 @@ window.workflowReroll = async (msgId, attId, btn) => {
   } finally {
     clearWorkflowPhase(ch);
     _workflowActionInFlight.delete(rootId);
-    btn.disabled = false;
+    job.end();
   }
 };
 
@@ -687,8 +757,8 @@ export function initWorkflowMutationListener() {
     if (S.editingMsgId != null || S.forkEditMsgId != null || S.editingPendingUserMsg || S.magicInputMsgId != null)
       return;
     const inFlightMsgIds = new Set([
-      ..._workflowRehydrateInFlight.values(),
-      ..._workflowActionInFlight.values(),
+      ...Array.from(_workflowRehydrateInFlight.values(), (v) => v.msgId),
+      ...Array.from(_workflowActionInFlight.values(), (v) => v.msgId),
       ..._workflowDeleteInFlight.values(),
       ...Array.from(_workflowSwipeInFlight.values(), (v) => v.msgId),
     ]);
@@ -709,8 +779,8 @@ export async function refreshConversationMessages(msgId = null) {
   if (S.editingMsgId != null || S.forkEditMsgId != null || S.editingPendingUserMsg || S.magicInputMsgId != null)
     return false;
   const inFlight = new Set([
-    ..._workflowRehydrateInFlight.values(),
-    ..._workflowActionInFlight.values(),
+    ...Array.from(_workflowRehydrateInFlight.values(), (v) => v.msgId),
+    ...Array.from(_workflowActionInFlight.values(), (v) => v.msgId),
     ..._workflowDeleteInFlight.values(),
     ...Array.from(_workflowSwipeInFlight.values(), (v) => v.msgId),
   ]);

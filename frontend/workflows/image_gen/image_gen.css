@@ -26,9 +26,6 @@
 .image-gen-card-alert-detail{color:var(--text-muted);font-size:10px;line-height:1.4;overflow-wrap:anywhere}
 .image-gen-card-setup+.image-gen-card-alert-detail{margin-top:4px}
 
-.image-gen-generating{opacity:.6;animation:image-gen-pulse 1.2s ease-in-out infinite}
-@keyframes image-gen-pulse{50%{opacity:1}}
-
 .ig-section{display:grid;gap:10px}
 .ig-section>.btn{justify-self:start}
 .image-gen-settings :is(.ig-section,.ig-grid,.ig-style-body,.ig-styles,.ig-skill-list,.ig-skill-body,.ig-drawers,.ig-conn-list,.ig-conn-body,.ig-profile-fields,.image-gen-graph-picker)>*{min-width:0}

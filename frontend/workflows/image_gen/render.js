@@ -52,11 +52,14 @@ export function hasAttachment(msg) {
   return (msg?.workflow_attachments || []).some((a) => a.workflow_id === WORKFLOW_ID);
 }
 
-export function messageButtonHtml(msg, { mutable, icon, escAttr }) {
+// *stop* is `stopButtonState` for the reply's running render, if any.
+const IDLE_CREATE = { cls: "", attrs: ' title="Visualize reply"' };
+
+export function messageButtonHtml(msg, { mutable, icon, escAttr, stop = IDLE_CREATE }) {
   if (!msg?.id || msg.role !== "assistant" || hasAttachment(msg)) return "";
   if (!mutable)
     return `<button class="image-gen-create" disabled title="Close other tabs to generate an image">${icon}</button>`;
-  return `<button class="image-gen-create" title="Visualize reply" data-wf-action="image_gen:generate" data-msg-id="${escAttr(msg.id)}">${icon}</button>`;
+  return `<button class="image-gen-create${stop.cls}"${stop.attrs} data-wf-action="image_gen:generate" data-msg-id="${escAttr(msg.id)}">${icon}</button>`;
 }
 
 // Pressed while the details are showing, like a gallery's info button.

@@ -18,6 +18,7 @@ import {
   renderMessages,
   selectWorkflowPipelinePass,
   setWorkflowPhase,
+  workflowActionJob,
 } from "./chat.js";
 import { closeModal, setModalCloseGuard, showConfirmModal, showModal } from "./modal.js";
 import { refreshLocalMlStatus } from "./settings.js";
@@ -25,6 +26,7 @@ import { sseEvents, streamPost } from "./sse.js";
 import { effectiveWorkflowEnabled, localMlReady, S, subscribe } from "./state.js";
 import { broadcastWorkflowMutation } from "./tabLock.js";
 import { convUrl, esc, escAttr, fromMessageBody, notifyError, toast, workflowAttachmentUrl } from "./utils.js";
+import { startWorkflowJob, stopButtonState } from "./workflow_jobs.js";
 import {
   registerClickHandler,
   registerTextEffect,
@@ -39,7 +41,7 @@ import { clearTextEffect, startTextEffect } from "./workflow_text_effects.js";
 
 // Workflow modules use this facade for registration, requests, and playback.
 
-export const WORKFLOW_API_VERSION = 8;
+export const WORKFLOW_API_VERSION = 9;
 
 export {
   api,
@@ -79,11 +81,14 @@ export {
   showModal,
   sseEvents,
   startTextEffect,
+  startWorkflowJob,
   stopAll,
+  stopButtonState,
   stopChannel,
   streamPost,
   subscribe,
   toast,
+  workflowActionJob,
   workflowAttachmentUrl,
 };
 

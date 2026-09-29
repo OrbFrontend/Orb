@@ -67,4 +67,4 @@ export {
   superRegenerate,
   toggleMagicInput,
 } from "./chat_stream.js";
-export { initWorkflowMutationListener, refreshConversationMessages } from "./chat_workflow.js";
+export { initWorkflowMutationListener, refreshConversationMessages, workflowActionJob } from "./chat_workflow.js";
