@@ -4,7 +4,7 @@ Keep this file focused on durable project conventions. Put feature-specific beha
 
 ## Project
 
-Orb is an agentic roleplay and writing application with a Python/FastAPI backend and a vanilla JavaScript frontend. The backend uses Python 3.11+, aiosqlite, SQLite, and uvicorn. Conversation generation runs through optional Director, Writer, and Editor passes.
+Orb is an agentic roleplay and writing application with a Python/FastAPI backend and a vanilla JavaScript frontend. The backend uses venv Python 3.11+, aiosqlite, SQLite, and uvicorn. Conversation generation runs through optional Director, Writer, and Editor passes.
 
 ## Backend layout
 
@@ -16,11 +16,9 @@ The backend is split into layers with explicit allowed dependency edges:
 4. `prompting/` — deterministic, provider-independent model-facing construction
 5. `inference/` and `analysis/` — model execution and pure text analysis
 6. `database/` — schema, migrations, queries, and row models
-7. `core/` — dependency-free shared utilities and types
+7. `core/` — dependency-free shared utilities and types, but NOT a dump site
 
 Lower layers must not import higher layers or peer feature slices. Use dependency inversion when a lower layer needs higher-layer behavior. Keep pure logic separate from integration code and persistence.
-
-See `docs/architecture/prompting.md` for the exact allowed-edge matrix, the prompting ownership test, and prompt/tool ordering contracts. `scripts/check_backend_layers.py` is the executable source of truth for dependency edges.
 
 Feature slices should expose a small facade, keep local contracts near their logic, and persist through the database layer rather than reaching into unrelated features.
 
@@ -34,7 +32,6 @@ Before changing prompt assembly, pass ordering, tool schemas, or streaming behav
 - Keep Pyright at zero errors. Prefer widening a consumer to `Mapping` or `Sequence` over adding an ignore.
 - When changing the schema, update the schema definition, models, API schemas where applicable, seeds, and migrations together.
 - Add routes under `api/routes/` and register their router in `api/routes/__init__.py`.
-- Preserve public API and SSE contracts unless the change explicitly includes a contract update.
 
 ## Frontend conventions
 
@@ -62,11 +59,9 @@ Use the repository scripts from the project root:
 ./scripts/tests.sh all
 ```
 
-Run the narrowest relevant checks while iterating, then review the final diff. Prefer `rg` and `rg --files` for code search.
-
 ## Change checklist
 
 1. Find the nearest architecture note, contract, or test before changing behavior.
 2. Keep imports within the layer rules and keep responsibilities separated.
-3. Update related contracts, schema files, migrations, and tests together.
+3. Update related contracts, schema files, migrations, and tests together. Save high-impact tests only.
 4. Format, lint, test, and inspect the diff before handing off.
