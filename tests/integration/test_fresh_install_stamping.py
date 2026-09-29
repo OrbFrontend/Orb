@@ -1,4 +1,4 @@
-"""Fresh installs are *stamped* past the migration chain (see api lifespan), so
+"""Fresh installs are *stamped* past the migration chain by ``init_db``, so
 ``schema.py`` + ``bootstrap`` must always equal what the migrations would have
 produced. This is the gate that catches a migration whose schema/data change was
 not mirrored into ``schema.py``/``seeds.py`` -- without it, fresh installs would
@@ -10,10 +10,18 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
+import pytest
+from fastapi import FastAPI
+
+import backend.api as api_module
+import backend.database.bootstrap as bootstrap
 import backend.database.connection as db_connection
+import backend.database.migrations as migrations
 from backend.database import init_db
-from backend.database.migrations import MIGRATIONS, run_pending, stamp_all
+from backend.database.migrations import MIGRATIONS, run_pending
 
 # Timestamps differ between the two builds; applied_at lives in schema_migrations.
 _TIMESTAMP_COLS = {"applied_at", "created_at", "updated_at"}
@@ -55,10 +63,16 @@ def _norm_json(v):
 async def _build(path: Path, monkeypatch, *, stamp: bool) -> None:
     monkeypatch.setattr(db_connection, "DB_PATH", str(path))
     await init_db()
-    if stamp:
-        stamp_all(path)
-    else:
-        run_pending(path)
+    if not stamp:
+        # Only this equivalence test deliberately replays history against a
+        # current schema. Initialization itself must never do so.
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("DELETE FROM schema_migrations")
+            conn.commit()
+        finally:
+            conn.close()
+        assert run_pending(path) == len(MIGRATIONS)
 
 
 async def test_stamped_fresh_db_equals_migrated_fresh_db(tmp_path: Path, monkeypatch):
@@ -102,12 +116,108 @@ async def test_stamped_fresh_db_equals_migrated_fresh_db(tmp_path: Path, monkeyp
         )
 
 
-async def test_stamp_all_records_every_migration(tmp_path: Path, monkeypatch):
-    path = tmp_path / "stamped.db"
-    await _build(path, monkeypatch, stamp=True)
+def _assert_current(path: Path) -> None:
     conn = sqlite3.connect(path)
     try:
         stamped = {r[0] for r in conn.execute("SELECT id FROM schema_migrations")}
+        assert stamped == set(MIGRATIONS)
+        assert conn.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     finally:
         conn.close()
-    assert stamped == set(MIGRATIONS)
+
+
+@pytest.mark.parametrize("file_state", ["missing", "zero_bytes", "sqlite_header", "internal_table"])
+async def test_fresh_startup_never_runs_migrations(tmp_path: Path, monkeypatch, file_state):
+    path = tmp_path / "fresh.db"
+    if file_state == "zero_bytes":
+        path.touch()
+    elif file_state in {"sqlite_header", "internal_table"}:
+        conn = sqlite3.connect(path)
+        try:
+            if file_state == "internal_table":
+                # Dropping the last application table leaves sqlite_sequence.
+                conn.executescript("CREATE TABLE scratch (id INTEGER PRIMARY KEY AUTOINCREMENT); DROP TABLE scratch;")
+            else:
+                conn.execute("PRAGMA user_version = 1")
+        finally:
+            conn.close()
+        assert path.stat().st_size > 0
+
+    monkeypatch.setattr(db_connection, "DB_PATH", str(path))
+    monkeypatch.setattr(api_module, "DB_PATH", str(path))
+    runner = Mock(side_effect=AssertionError("fresh installs must bypass the migration runner"))
+    monkeypatch.setattr(bootstrap, "run_pending", runner)
+    real_import = migrations.importlib.import_module
+
+    def no_migration_import(name, *args, **kwargs):
+        assert not name.startswith("backend.database.migrations."), name
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(migrations.importlib, "import_module", no_migration_import)
+    async with api_module.lifespan(FastAPI()):
+        _assert_current(path)
+    runner.assert_not_called()
+
+    # Later starts may check the ledger, but must not import/replay any migration.
+    monkeypatch.setattr(bootstrap, "run_pending", run_pending)
+    before = _snapshot(path)
+    async with api_module.lifespan(FastAPI()):
+        _assert_current(path)
+    assert _snapshot(path) == before
+
+
+@pytest.mark.parametrize("failure_stage", ["schema", "seeds", "stamp"])
+async def test_failed_fresh_initialization_rolls_back_and_retries_without_migrations(
+    tmp_path: Path, monkeypatch, failure_stage
+):
+    path = tmp_path / "retry.db"
+    monkeypatch.setattr(db_connection, "DB_PATH", str(path))
+    runner = Mock(side_effect=AssertionError("failed fresh installs must still bypass migrations"))
+    monkeypatch.setattr(bootstrap, "run_pending", runner)
+
+    with monkeypatch.context() as fault:
+        if failure_stage == "schema":
+            fault.setattr(bootstrap, "CREATE_TABLES_SQL", bootstrap.CREATE_TABLES_SQL + "\nINVALID SQL;")
+        else:
+            target = "_seed_phrase_bank" if failure_stage == "seeds" else "stamp_all"
+            original = getattr(bootstrap, target)
+
+            async def fail_after_writes(db):
+                await original(db)
+                raise RuntimeError("interrupted initialization")
+
+            fault.setattr(bootstrap, target, fail_after_writes)
+        with pytest.raises(sqlite3.OperationalError if failure_stage == "schema" else RuntimeError):
+            await init_db()
+
+    # Neither partial schema/data nor premature migration stamps survive.
+    assert _snapshot(path) == ([], {})
+    assert await init_db() == 0
+    _assert_current(path)
+    runner.assert_not_called()
+
+
+async def test_fresh_baseline_still_runs_future_migrations_once(tmp_path: Path, monkeypatch):
+    path = tmp_path / "future.db"
+    monkeypatch.setattr(db_connection, "DB_PATH", str(path))
+    assert await init_db() == 0
+    _assert_current(path)
+
+    name = "9999_test_future_upgrade"
+    monkeypatch.setattr(migrations, "MIGRATIONS", [*MIGRATIONS, name])
+
+    def upgrade(conn):
+        conn.execute("UPDATE settings SET user_description = 'upgraded after fresh install' WHERE id = 1")
+
+    importer = Mock(return_value=SimpleNamespace(migrate=upgrade))
+    monkeypatch.setattr(migrations.importlib, "import_module", importer)
+    assert await init_db() == 1
+    assert await init_db() == 0
+    importer.assert_called_once_with(f"backend.database.migrations.{name}")
+    conn = sqlite3.connect(path)
+    try:
+        assert conn.execute("SELECT user_description FROM settings").fetchone() == ("upgraded after fresh install",)
+        assert {r[0] for r in conn.execute("SELECT id FROM schema_migrations")} == {*MIGRATIONS, name}
+    finally:
+        conn.close()

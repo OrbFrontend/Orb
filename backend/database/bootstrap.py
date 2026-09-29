@@ -4,7 +4,9 @@ import json
 from datetime import UTC, datetime
 
 from ..core import DECISION_COLUMNS, STATE_COLUMNS
+from . import connection
 from .connection import get_db
+from .migrations import run_pending, stamp_all
 from .schema import CREATE_TABLES_SQL
 from .seeds import (
     DEFAULT_ENABLED_TOOLS,
@@ -15,17 +17,25 @@ from .seeds import (
 )
 
 
-async def init_db():
-    """Create the latest schema for fresh installs and seed empty tables.
+async def init_db() -> int:
+    """Initialize a fresh database or upgrade an existing one, then seed it.
 
-    Schema *evolution* (column adds, table renames, backfills) lives in
-    ``backend/database/migrations/``. Startup applies that chain *before* this
-    function on an existing database, because the latest schema script may
-    create an index that names a newly-migrated column. Keep this file focused
-    on fresh-install shape + seed data only.
+    A database without application schema gets the current schema, seeds and
+    migration baseline in one transaction, without running any migrations.
+    File size, missing settings rows and a missing migration ledger cannot
+    reliably distinguish a fresh database from one needing upgrades.
+
+    Existing databases run pending migrations *before* the latest schema script,
+    whose indexes may name newly added columns. Returns the migration count so
+    startup can reclaim pages left behind by rebuilds.
     """
     async with get_db() as db:
-        await db.executescript(CREATE_TABLES_SQL)
+        existing = await db.execute_fetchall("SELECT 1 FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' LIMIT 1")
+        migrated = run_pending(connection.DB_PATH) if existing else 0
+        # executescript otherwise commits DDL independently of seeds. Keeping
+        # the BEGIN inside the script lets connection close roll everything
+        # back on any failure, including a cancelled first startup.
+        await db.executescript("BEGIN IMMEDIATE;\n" + CREATE_TABLES_SQL)
 
         row = list(await db.execute_fetchall("SELECT COUNT(*) as c FROM settings"))
         if row[0]["c"] == 0:
@@ -50,7 +60,10 @@ async def init_db():
         if row[0]["c"] == 0:
             await _seed_phrase_bank(db)
 
+        if not existing:
+            await stamp_all(db)
         await db.commit()
+    return migrated
 
 
 async def reset_to_defaults() -> None:
