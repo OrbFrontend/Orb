@@ -262,4 +262,4 @@ async def test_each_review_extends_the_thread_before_it(client, llm_mock, monkey
         assert result["tool_call_id"] == call["tool_calls"][0]["id"]
         assert image["content"][0]["image_url"]["url"].startswith("data:image/")
     ids = [m["tool_calls"][0]["id"] for m in wf[-1]["messages"] if m.get("tool_calls")]
-    assert ids == ["compose", "refine_1"]
+    assert ids == ["imgcall00", "imgcall01"], "synthesized ids must be nine alphanumerics; Mistral rejects any other shape"

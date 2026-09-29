@@ -201,6 +201,11 @@ async function generate(msgId, button) {
         terminated = true;
       }
     }
+    // Stop cancels the reader, so a stopped stream usually ends here instead of throwing.
+    if (controller.signal.aborted) {
+      await refreshConversationMessages();
+      return;
+    }
     if (!terminated && !failure) failure = "Image generation did not complete";
     if (failure) toast(failure, "error");
     if (attachmentId) await refreshConversationMessages(landed ? null : msgId);

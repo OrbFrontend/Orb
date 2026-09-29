@@ -355,8 +355,8 @@ def _rendered_seed(requested: int, result) -> int:
     return reported if isinstance(reported, int) and not isinstance(reported, bool) else requested
 
 
-def _review_url(image: bytes, mime: str) -> str:
-    data, mime = shrink_for_review(image, mime)
+async def _review_url(image: bytes, mime: str) -> str:
+    data, mime = await asyncio.to_thread(shrink_for_review, image, mime)
     return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
 
 
@@ -397,7 +397,7 @@ async def _generate_fresh(
     prefix: Sequence[dict] | None = None,
     progress: ProgressCallback | None = None,
     keep: Keep,
-    phase: Callable[[str], None] | None = None,
+    phase: Callable[[str], None],
     history: Sequence[Mapping[str, Any]] | None = None,
 ) -> None:
     """Compose and render an image for `message`, handing each render to `keep`.
@@ -508,9 +508,9 @@ async def _generate_fresh(
             progress=progress,
         )
 
-    reviews: list[Revision] = []
+    reviewed = 0
 
-    async def kept(result: ImageResult, prompt: str, negative: str) -> tuple[dict, int | None]:
+    async def save(result: ImageResult, prompt: str, negative: str) -> tuple[dict, int | None]:
         md = _metadata(
             source=adapter.source_id,
             style=selected_style,
@@ -530,18 +530,19 @@ async def _generate_fresh(
         uncovered = _uncovered_note(addressable, md["references"], len(slots), target.reference_capacity)
         if uncovered:
             consumption.setdefault("notes", []).append(uncovered)
-        if reviews and len(reviews) == refine_turns:
+        if refine_turns and reviewed == refine_turns:
             consumption.setdefault("notes", []).append(
                 f"the prompter did not review this render: all {refine_turns} refinement turns were used"
             )
         attachment = _attachment(seed, result, md, consumption)
         return attachment, await keep(attachment)
 
-    attachment, attachment_id = await kept(await render(prompt, negative), prompt, negative)
-    renders = 1
-    while thread is not None and len(reviews) < refine_turns:
-        if phase:
-            phase(f"Reviewing render {renders}...")
+    attachment, attachment_id = await save(await render(prompt, negative), prompt, negative)
+    while thread is not None and reviewed < refine_turns:
+        # Only a review that asked for changes leads to another render, so the
+        # render under review is always one past the reviews that did.
+        current = reviewed + 1
+        phase(f"Reviewing render {current}...")
         try:
             revision = await refine_scene(
                 client=ctx.agent_client,
@@ -549,53 +550,45 @@ async def _generate_fresh(
                 prefix=prefix,
                 settings=ctx.settings,
                 thread=thread,
-                image_url=_review_url(attachment["data"], attachment["mime"]),
-                render=renders,
-                turns_left=refine_turns - len(reviews),
+                image_url=await _review_url(attachment["data"], attachment["mime"]),
+                render=current,
+                turns_left=refine_turns - reviewed,
                 prompt_format=selected_style["prompt_format"],
                 pov=pov,
                 reasoning_on=bool(config.get("prompter_reasoning")),
                 supports_negative=target.supports_negative_prompt,
-                same_seed=target.supports_seed,
             )
         except Exception:
             # The render is already kept; a review that fails only ends the refinement.
-            logger.warning("[image_gen] review of render %d failed; keeping it", renders, exc_info=True)
+            logger.warning("[image_gen] review of render %d failed; keeping it", current, exc_info=True)
             revision = None
+        revised_prompt, revised_negative = (
+            assemble_prompts(selected_style, profile, revision.scene, revision.avoid) if revision else ("", "")
+        )
+        # Said on the render, or a prompter that cannot read images leaves the setting
+        # looking inert.
         if revision is None:
-            # Said on the render, or a prompter that cannot read images leaves the
-            # setting looking inert.
-            await _annotate_kept(
-                attachment, attachment_id, note="the prompter gave no usable review of this render, so refinement stopped"
-            )
+            note = "the prompter gave no usable review of this render, so refinement stopped"
+        elif not revision.done and not (revision.scene and revised_prompt.strip()):
+            note = "the prompter asked for another render but wrote no revised prompt"
+        else:
+            note = ""
+        if revision is not None:
+            logger.info("[image_gen] review of render %d (done=%s): %s", current, revision.done, revision.critique)
+        await _annotate_kept(attachment, attachment_id, revision=revision, note=note)
+        if revision is None or revision.done or note:
             break
-        reviews.append(revision)
-        logger.info("[image_gen] review of render %d (done=%s): %s", renders, revision.done, revision.critique)
-        if revision.done:
-            await _annotate_kept(attachment, attachment_id, revision=revision)
-            break
-        revised_prompt, revised_negative = assemble_prompts(selected_style, profile, revision.scene, revision.avoid)
-        if not revision.scene or not revised_prompt.strip():
-            await _annotate_kept(
-                attachment,
-                attachment_id,
-                revision=revision,
-                note="the prompter asked for another render but wrote no revised prompt",
-            )
-            break
-        await _annotate_kept(attachment, attachment_id, revision=revision)
-        if phase:
-            phase(f"Rendering revision {renders}...")
+        reviewed = current
+        phase(f"Rendering revision {reviewed}...")
         try:
             revised = await render(revised_prompt, revised_negative)
         except ImageGenerationError as exc:
             # The renders already kept are still good answers; a failed revision
             # only ends the refinement.
-            logger.warning("[image_gen] revision render failed; keeping render %d: %s", renders, exc)
+            logger.warning("[image_gen] revision render failed; keeping render %d: %s", current, exc)
             await _annotate_kept(attachment, attachment_id, note=f"the revised render failed: {exc}")
             break
-        renders += 1
-        attachment, attachment_id = await kept(revised, revised_prompt, revised_negative)
+        attachment, attachment_id = await save(revised, revised_prompt, revised_negative)
 
 
 async def _generate_response(ctx, body) -> WorkflowEventStream:

@@ -422,7 +422,7 @@ def render_result(render: int) -> str:
     return f"Render {render} is done. The image is in the next message."
 
 
-def refine_ooc(render: int, turns_left: int, *, supports_negative: bool = True, same_seed: bool = True) -> str:
+def refine_ooc(render: int, turns_left: int, *, supports_negative: bool = True) -> str:
     """The review request that rides beside a render, after its tool result.
 
     `turns_left` counts the renders still available after this review, so the model
@@ -433,12 +433,12 @@ def refine_ooc(render: int, turns_left: int, *, supports_negative: bool = True, 
     return (
         f"[OOC: The image above is render {render}, made from your last prompt. Review it against the final visible "
         "instant of the assistant reply and against your prompt. Check the number of persons, who is visible, pose and "
-        "action, anatomy such as hands and limbs, clothing, expression, interaction, spatial relationships, setting, "
-        "orientation, lighting, and framing. Also check for things the image model added that contradict the scene. In `critique`, "
+        "action, anatomy such as hands and limbs, clothing, expression, interaction, spatial relationships, setting, POV, "
+        "occlusion, lighting, and framing. Also check for things the image model added that contradict the scene. In `critique`, "
         "list only the visible problems, most important first. Set `done` to true when no problem is worth another "
         "render, and set `scene` and `avoid` to null. Otherwise set `done` to false and write the complete revised "
         "prompt in `scene`. Keep the parts that worked. Fix each problem: make its wording more explicit, move it "
-        "earlier, or remove the words that caused it. If it's completely mangled or wrong, rewrite from scratch. "
+        "earlier, or remove the words that caused it. If the image is completely mangled or wrong, rewrite from scratch. "
         "Sometimes the image model simply cannot render certain perspectives or details. "
         f"Use the same format rules as before. {avoid}{last} Call refine_image_prompt.]"
     )

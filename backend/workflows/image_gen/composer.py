@@ -65,6 +65,15 @@ class Revision:
     avoid: str = ""
 
 
+def _call_id(render: int) -> str:
+    """The id of the call made after `render` renders: 0 is compose, n the review of render n.
+
+    Nine alphanumerics, the strictest id shape a provider enforces (Mistral), so the
+    replayed thread is valid wherever it is sent.
+    """
+    return f"imgcall{render:02d}"
+
+
 def _logged_text(message: Mapping[str, Any]) -> str:
     content = message.get("content")
     if isinstance(content, str):
@@ -232,7 +241,7 @@ async def compose_scene(
         tool_name="compose_image_prompt",
         settings=settings,
         reasoning_on=reasoning_on,
-        call_id="compose" if thread is not None else None,
+        call_id=_call_id(0) if thread is not None else None,
     )
     args = result["args"]
 
@@ -244,7 +253,7 @@ async def compose_scene(
     if thread is not None and isinstance(result.get("replay"), Mapping):
         thread.messages = [*tail, dict(result["replay"])]
         thread.visible = visible
-        thread.call_id = "compose"
+        thread.call_id = _call_id(0)
     scene = inject_profile_appearance(scene, visible, prompt_format)
     return scene, bounded(args.get("avoid")), "scene_skills" if visible_subjects is not None else "single_call"
 
@@ -263,7 +272,6 @@ async def refine_scene(
     pov: str = THIRD,
     reasoning_on: bool = False,
     supports_negative: bool = True,
-    same_seed: bool = True,
 ) -> Revision | None:
     """Show the model its last render and take its review, or ``None`` when it gave none.
 
@@ -278,14 +286,11 @@ async def refine_scene(
             "role": "user",
             "content": [
                 {"type": "image_url", "image_url": {"url": image_url}},
-                {
-                    "type": "text",
-                    "text": refine_ooc(render, turns_left, supports_negative=supports_negative, same_seed=same_seed),
-                },
+                {"type": "text", "text": refine_ooc(render, turns_left, supports_negative=supports_negative)},
             ],
         },
     ]
-    call_id = f"refine_{render}"
+    call_id = _call_id(render)
     result = await _forced_result(
         client=client,
         model_name=model_name,
