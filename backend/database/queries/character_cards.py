@@ -703,6 +703,23 @@ async def get_character_avatar(card_id: str) -> tuple[bytes, str] | None:
         return base64.b64decode(rows[0]["avatar_b64"]), rows[0]["avatar_mime"]
 
 
+async def get_character_avatar_stamp(card_id: str) -> str | None:
+    """The avatar's version, or None when the card has no avatar.
+
+    The version is the card's ``updated_at``, which every avatar write bumps.
+    The NULL test reads only the record header, so a caller can revalidate a
+    cached image without loading the avatar's overflow pages.
+    """
+    async with get_db() as db:
+        rows = list(
+            await db.execute_fetchall(
+                "SELECT updated_at FROM character_cards WHERE id = ? AND avatar_b64 IS NOT NULL",
+                (card_id,),
+            )
+        )
+        return str(rows[0]["updated_at"]) if rows else None
+
+
 async def get_workflow_character_state(character_id: str, workflow_id: str) -> dict | None:
     """Return the workflow's slot on this character, or None if card missing or slot empty."""
     return await _get_workflow_slot("character_cards", "id", character_id, workflow_id)

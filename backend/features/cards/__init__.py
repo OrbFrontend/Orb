@@ -1,4 +1,4 @@
-"""Character-card parsing, downloads, and profile drafting."""
+"""Character-card parsing, downloads, thumbnails, and profile drafting."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from .sheet_update import (
     build_exchange_transcript,
     propose_sheet_update,
 )
+from .thumbnail import THUMB_EDGE, avatar_thumbnail
 
 __all__ = [
     "card_to_dict",
@@ -42,4 +43,6 @@ __all__ = [
     "SheetUpdateUnavailable",
     "build_exchange_transcript",
     "propose_sheet_update",
+    "THUMB_EDGE",
+    "avatar_thumbnail",
 ]

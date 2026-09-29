@@ -292,8 +292,12 @@ export async function afterStream() {
   }
 
   try {
-    setMessages(await api.get(convUrl(S.activeConvId, "messages")));
-    S.directorState = await api.get(convUrl(S.activeConvId, "director"));
+    const [msgs, directorState] = await Promise.all([
+      api.get(convUrl(S.activeConvId, "messages")),
+      api.get(convUrl(S.activeConvId, "director")),
+    ]);
+    setMessages(msgs);
+    S.directorState = directorState;
     if (S.activeConvId) {
       const conv = S.conversations?.find((c) => c.id === S.activeConvId);
       if (conv) conv.updated_at = new Date().toISOString();

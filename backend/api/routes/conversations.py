@@ -102,6 +102,7 @@ from ..deps import (
     _sse_stream,
     profile_draft_failures,
     require_conversation,
+    rows_response,
 )
 from ..schemas import (
     CheckpointRequest,
@@ -128,7 +129,7 @@ router = APIRouter()
 
 @router.get("/api/conversations")
 async def api_list_conversations():
-    return await list_conversations()
+    return rows_response(await list_conversations())
 
 
 @router.post("/api/conversations")

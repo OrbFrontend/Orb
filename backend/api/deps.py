@@ -16,7 +16,7 @@ from typing import Any, cast
 
 import httpx
 from fastapi import Depends, HTTPException, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ..database import (
     get_conversation,
@@ -360,13 +360,41 @@ def _pipeline_sse_response(
 _PROFILE_UPSTREAM = "The model endpoint did not answer the profile request."
 
 
-def cached_image_response(image_bytes: bytes, mime: str | None, request: Request) -> Response:
-    """Return a privately cacheable image response with ETag support."""
-    etag = '"' + hashlib.md5(image_bytes, usedforsecurity=False).hexdigest() + '"'
-    cache_headers = {"Cache-Control": "private, max-age=300", "ETag": etag}
-    if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304, headers=cache_headers)
-    return Response(content=image_bytes, media_type=mime or "image/png", headers=cache_headers)
+def rows_response(rows: Sequence[Mapping[str, Any]]) -> JSONResponse:
+    """Render database rows as JSON without FastAPI's ``jsonable_encoder`` pass.
+
+    A route without a response model has its return value walked by
+    ``jsonable_encoder``, which rebuilds every dict and list. Rows read from
+    SQLite and decoded with ``json.loads`` already hold only JSON types, so the
+    walk changes nothing, and on the large listings it costs more than
+    rendering: 16 ms of the 958-conversation list's 55 ms.
+    """
+    return JSONResponse(rows)
+
+
+_IMAGE_CACHE_CONTROL = "private, max-age=300"
+
+
+def image_not_modified(etag: str, request: Request) -> Response | None:
+    """A 304 when the client already holds *etag*, else None."""
+    if request.headers.get("if-none-match") != etag:
+        return None
+    return Response(status_code=304, headers={"Cache-Control": _IMAGE_CACHE_CONTROL, "ETag": etag})
+
+
+def cached_image_response(image_bytes: bytes, mime: str | None, request: Request, etag: str | None = None) -> Response:
+    """Return a privately cacheable image response with ETag support.
+
+    Without *etag* the tag is a hash of the bytes. A caller that can version the
+    image more cheaply passes its own tag, and can check it with
+    :func:`image_not_modified` before loading the bytes at all.
+    """
+    etag = etag or '"' + hashlib.md5(image_bytes, usedforsecurity=False).hexdigest() + '"'
+    not_modified = image_not_modified(etag, request)
+    if not_modified is not None:
+        return not_modified
+    headers = {"Cache-Control": _IMAGE_CACHE_CONTROL, "ETag": etag}
+    return Response(content=image_bytes, media_type=mime or "image/png", headers=headers)
 
 
 # The MIME shape the frontend's ATTACHMENT_MIME_RE accepts (frontend/utils.js).

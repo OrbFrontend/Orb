@@ -67,6 +67,7 @@ from ..deps import (
     _pipeline_sse_response,
     attachment_content_response,
     require_conversation,
+    rows_response,
     stream_idle_lock,
 )
 from ..schemas import (
@@ -142,7 +143,8 @@ async def api_get_messages(cid: str, _conv: ConversationRow = Depends(require_co
     async with stream_idle_lock(cid) as idle:
         if idle:
             await reroll_unfrozen_greetings(cid)
-        return await _message_rows_for_client(await get_messages_with_branch_info(cid))
+        rows = await _message_rows_for_client(await get_messages_with_branch_info(cid))
+    return rows_response(rows)
 
 
 @router.get("/api/user-attachments/{aid}/content")

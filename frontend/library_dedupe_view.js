@@ -3,7 +3,7 @@
 // This stays DOM-free so result grouping and side-by-side rendering are testable
 // under node --test. The L5 controller owns fetching, event wiring, and mutation.
 import { ARROW_LEFT_ICON, CHEVRON_RIGHT_ICON } from "./icons.js";
-import { esc, escAttr, formatProseWithDiff, formatRelativeDate, sentenceDiff } from "./utils.js";
+import { avatarUrl, esc, escAttr, formatProseWithDiff, formatRelativeDate, sentenceDiff } from "./utils.js";
 
 const COMPARE_FIELDS = [
   ["description", "Description"],
@@ -57,7 +57,7 @@ function markHtml(mark) {
 
 function avatarHtml(card, { alt = "" } = {}) {
   if (!card?.has_avatar) return `<span class="lib-dupe-avatar lib-dupe-no-avatar">No art</span>`;
-  return `<img class="lib-dupe-avatar" src="/api/characters/${escAttr(card.id)}/avatar" alt="${escAttr(alt)}">`;
+  return `<img class="lib-dupe-avatar" src="${escAttr(avatarUrl(card.id))}" alt="${escAttr(alt)}">`;
 }
 
 /** Order a cluster so the likeliest keeper leads, then label every member. */

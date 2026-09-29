@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import logging
@@ -20,6 +21,7 @@ from ...database import (
     delete_character_card,
     delete_character_expressions,
     get_character_avatar,
+    get_character_avatar_stamp,
     get_character_card,
     get_character_expression,
     get_character_usage,
@@ -37,8 +39,8 @@ from ...database import (
     update_character_card,
     upgrade_card_fragment_types,
 )
+from ...features.cards import THUMB_EDGE, avatar_thumbnail, draft_card_profile
 from ...features.cards import downloader as card_downloader
-from ...features.cards import draft_card_profile
 from ...features.cards import expressions as card_expressions
 from ...features.cards import parsing as tavern_cards
 from ...inference import agent_lane_from_settings, client_from_settings
@@ -49,9 +51,11 @@ from ...workflows.tts.engine import builtin_spark_adapter
 from ..deps import (
     _normalise_lorebook_entry,
     cached_image_response,
+    image_not_modified,
     lorebook_to_book,
     profile_draft_failures,
     project_lorebook_view,
+    rows_response,
 )
 from ..schemas import (
     CharacterCardCreate,
@@ -74,7 +78,7 @@ _MAX_EXPRESSION_UPLOAD = 50 * 1024 * 1024
 
 @router.get("/api/characters")
 async def api_list_characters():
-    return await list_character_cards()
+    return rows_response(await list_character_cards())
 
 
 @router.post("/api/characters")
@@ -258,6 +262,31 @@ async def api_get_avatar(card_id: str, request: Request):
         raise HTTPException(status_code=404, detail="No avatar found")
     image_bytes, mime_type = result
     return cached_image_response(image_bytes, mime_type, request)
+
+
+@router.get("/api/characters/{card_id}/avatar/thumb")
+async def api_get_avatar_thumb(card_id: str, request: Request):
+    """The avatar as a small square for list surfaces; the full image stays at ``/avatar``.
+
+    The ETag comes from the avatar's version rather than its bytes, so a
+    revalidation answers 304 without loading the avatar or rebuilding the thumbnail.
+    """
+    stamp = await get_character_avatar_stamp(card_id)
+    if stamp is None:
+        raise HTTPException(status_code=404, detail="No avatar found")
+    version = f"{THUMB_EDGE}:{card_id}:{stamp}".encode()
+    etag = '"t' + hashlib.md5(version, usedforsecurity=False).hexdigest() + '"'
+    not_modified = image_not_modified(etag, request)
+    if not_modified is not None:
+        return not_modified
+    result = await get_character_avatar(card_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="No avatar found")
+    image_bytes, mime_type = result
+    thumb = await asyncio.to_thread(avatar_thumbnail, image_bytes)
+    if thumb is not None:
+        image_bytes, mime_type = thumb, "image/webp"
+    return cached_image_response(image_bytes, mime_type, request, etag=etag)
 
 
 @router.get("/api/characters/{card_id}/export")
