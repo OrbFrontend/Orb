@@ -9,14 +9,37 @@
 
 // How long a stream may stay open after the server said it settled.
 const CLOSE_GRACE_MS = 2000;
+// Allow the server's 15-second settlement wait plus time for delivery.
+const STOP_TIMEOUT_MS = 20000;
 
 /**
- * Start one operation. *requestStop(convId)* posts /stop and resolves to its
+ * Start one operation. *requestStop(convId, signal)* posts /stop and resolves to its
  * `{active, settled}` body; it rejects when the request fails.
  */
-export function createStreamOperation({ convId, requestStop, closeGraceMs = CLOSE_GRACE_MS }) {
+export function createStreamOperation({
+  convId,
+  requestStop,
+  closeGraceMs = CLOSE_GRACE_MS,
+  stopTimeoutMs = STOP_TIMEOUT_MS,
+}) {
   const controller = new AbortController();
   let stopReply = null;
+
+  async function boundedStop() {
+    const requestController = new AbortController();
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        requestController.abort();
+        reject(new Error("Stop request timed out"));
+      }, stopTimeoutMs);
+    });
+    try {
+      return await Promise.race([Promise.resolve().then(() => requestStop(convId, requestController.signal)), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   const op = {
     convId,
@@ -38,26 +61,24 @@ export function createStreamOperation({ convId, requestStop, closeGraceMs = CLOS
     stop() {
       if (op.stopping || op.finished) return;
       op.stopping = true;
-      stopReply = Promise.resolve()
-        .then(() => requestStop(convId))
-        .then(
-          (reply) => {
-            if (op.finished) return reply;
-            if (reply?.active && reply.settled) {
-              // Settled server-side; the close is on its way.
-              setTimeout(() => {
-                if (!op.finished) op.disconnect();
-              }, closeGraceMs);
-            } else {
-              op.disconnect();
-            }
-            return reply;
-          },
-          () => {
-            if (!op.finished) op.disconnect();
-            return null;
-          },
-        );
+      stopReply = boundedStop().then(
+        (reply) => {
+          if (op.finished) return reply;
+          if (reply?.active && reply.settled) {
+            // Settled server-side; the close is on its way.
+            setTimeout(() => {
+              if (!op.finished) op.disconnect();
+            }, closeGraceMs);
+          } else {
+            op.disconnect();
+          }
+          return reply;
+        },
+        () => {
+          if (!op.finished) op.disconnect();
+          return null;
+        },
+      );
     },
 
     /**
@@ -68,7 +89,7 @@ export function createStreamOperation({ convId, requestStop, closeGraceMs = CLOS
       op.finished = true;
       if (op.disconnected) {
         try {
-          return !!(await requestStop(convId))?.settled;
+          return !!(await boundedStop())?.settled;
         } catch (_) {
           return false;
         }

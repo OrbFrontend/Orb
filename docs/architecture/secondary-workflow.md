@@ -300,6 +300,7 @@ PUT  /api/workflows/{wid}/config
 POST /api/workflows/{wid}/enabled
 POST /api/workflows/{wid}/query
 POST /api/conversations/{cid}/workflows/{wid}/trigger
+POST /api/conversations/{cid}/workflows/stop
 POST /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate
 POST /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen
 POST /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate
@@ -325,6 +326,15 @@ lock yet -- so clients confirm it across consecutive polls.
 With `Accept: text/event-stream`, `regenerate` streams each `ctx.phase(label)` as
 `phase_status`, then `regenerate_done` (the JSON body) or `regenerate_error`
 (`{status, detail}`). The render outlives a dropped stream.
+
+The chat Stop button also ends workflow renders. Regenerate and reroll-gen run
+as per-conversation jobs that `workflows/stop` cancels, answering
+`{stopped, settled}` once they have ended (bounded); the stopped request then
+answers 409. A job already writing its sibling is waited for, not cancelled.
+An on-demand stream has no job: closing it cancels the hook, which must let
+its cleanup finish (the stream awaits it). A cancelled ComfyUI render withdraws
+its prompt by id; cloud image APIs are synchronous, so a stopped cloud render
+only drops the request and may still be billed.
 
 The manifest returns workflow identity and config form metadata. Config is a
 full replacement; a workflow's `config_normalizer` owns its valid shape and is

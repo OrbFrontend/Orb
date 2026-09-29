@@ -44,6 +44,7 @@ import { ensurePersonaPinned } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
 import { refreshState } from "./state_panel.js";
+import { stopStoppableJobs, syncStopButton } from "./stoppable_jobs.js";
 import { createStreamOperation, settledReply, streamAnchor } from "./stream_settle.js";
 import {
   $,
@@ -60,8 +61,8 @@ import {
 
 // POST /stop answers once the stopped stream has saved and let go of the
 // conversation: `{active, settled}`.
-async function requestStop(convId) {
-  const resp = await fetch(`/api/conversations/${convId}/stop`, { method: "POST" });
+async function requestStop(convId, signal) {
+  const resp = await fetch(`/api/conversations/${convId}/stop`, { method: "POST", signal });
   if (!resp.ok) throw new Error(`Orb returned HTTP ${resp.status}`);
   return resp.json();
 }
@@ -232,8 +233,7 @@ function finalizeStreamingDiv(lastMsg) {
 
 export function setStreaming(active) {
   S.isStreaming = active;
-  $("send-btn").style.display = active ? "none" : "flex";
-  $("stop-btn").style.display = active ? "flex" : "none";
+  syncStopButton();
   const cm = $("chat-messages");
   if (cm) cm.classList.toggle("streaming", active);
   if (active && !S.groupCast) onTurnStart();
@@ -242,6 +242,7 @@ export function setStreaming(active) {
 
 export function stopGeneration() {
   S.streamOp?.stop();
+  stopStoppableJobs();
 }
 
 export function createStreamingDiv(name = null, memberId = null) {
@@ -455,6 +456,7 @@ export async function processSSEStream(resp, container, holder, signal) {
     previewResponse = null,
     firstToken = true,
     dispatchErrorToasted = false;
+  let terminalReceived = false;
 
   S.pendingRefineDiff = null;
   S.editorDraftBaseline = null;
@@ -491,6 +493,7 @@ export async function processSSEStream(resp, container, holder, signal) {
   };
 
   for await (const { event, data } of sseEvents(resp.body, { signal })) {
+    if (event === "done" || event === "error") terminalReceived = true;
     if (event === "speaking_plan") {
       try {
         const parsed = JSON.parse(data);
@@ -570,6 +573,7 @@ export async function processSSEStream(resp, container, holder, signal) {
     }
   }
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  if (!terminalReceived) throw new Error("Generation stream ended before completion");
 }
 
 function swapStreamingDraft(text, onRewrite, options) {

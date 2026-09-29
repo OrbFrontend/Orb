@@ -15,6 +15,7 @@ import { confirmDelete } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { S } from "./state.js";
 import { refreshState } from "./state_panel.js";
+import { syncStopButton } from "./stoppable_jobs.js";
 import { requestSendPermission } from "./tabLock.js";
 import {
   $,
@@ -190,8 +191,7 @@ export async function rewriteMessageProse(msgId) {
     endStreamOperation(op);
     S.proseRewriteMsgId = null;
     sendBtn.disabled = false;
-    sendBtn.style.display = "flex";
-    stopBtn.style.display = "none";
+    syncStopButton();
     stopBtn.title = "Stop generation";
     clearWorkflowPhase(PROSE_REWRITE_CHANNEL);
     renderMessages();

@@ -191,6 +191,14 @@ one right after the stream registers, before any generation, so Stop sent ahead
 of its request still stops it. After a drop, the browser posts `/stop` again
 and refetches only after that response.
 
+For streamed replies, the initial `/stop` request and settlement retry each
+have a 20-second deadline, including the response body. A timeout aborts that
+request and follows the same fallback as a failed request; a timed-out
+settlement retry leaves the reply unconfirmed. EOF without
+`done` or `error` is also a disconnect, so a truncated stream cannot claim that
+the server finished saving. Its received prose stays visible without an id if
+the refetch cannot confirm it.
+
 When the client goes away, the request is cancelled but the turn is not. The
 turn still finishes stopping: the stream runs its generator to the end with
 the token aborted, discards the events, and saves normally, for up to 10 s.

@@ -86,6 +86,44 @@ test("a settled stream that never closes is dropped after the grace period", asy
   assert.equal(op.signal.aborted, true);
 });
 
+test("hung stop requests abort their fetches and leave settlement unconfirmed", { timeout: 1000 }, async () => {
+  const signals = [];
+  const op = createStreamOperation({
+    convId: "c1",
+    stopTimeoutMs: 5,
+    requestStop(_convId, signal) {
+      signals.push(signal);
+      // Also model a transport that ignores cancellation: the deadline must
+      // release the UI without relying on the fetch promise rejecting.
+      return new Promise(() => {});
+    },
+  });
+  const disconnected = new Promise((resolve) => op.signal.addEventListener("abort", resolve, { once: true }));
+  op.stop();
+  await disconnected;
+  assert.equal(signals[0].aborted, true);
+
+  assert.equal(await op.settle(), false);
+  assert.equal(signals.length, 2, "the cleanup retry also has a deadline");
+  assert.equal(signals[1].aborted, true);
+});
+
+test("a completed stream can settle even when its pending stop never answers", { timeout: 1000 }, async () => {
+  let stopSignal;
+  const op = createStreamOperation({
+    convId: "c1",
+    stopTimeoutMs: 5,
+    requestStop(_convId, signal) {
+      stopSignal = signal;
+      return new Promise(() => {});
+    },
+  });
+  op.stop();
+  assert.equal(await op.settle(), true, "the completed stream already confirmed persistence");
+  assert.equal(stopSignal.aborted, true);
+  assert.equal(op.signal.aborted, false, "a late timeout must not disconnect a finished stream");
+});
+
 test("a stop pressed after the stream ended sends nothing", async () => {
   const server = stopServer();
   const op = createStreamOperation({ convId: "c1", requestStop: server.requestStop });

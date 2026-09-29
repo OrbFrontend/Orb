@@ -6,6 +6,12 @@ return value, body pass-through, and 500 isolation on hook raise.
 
 from __future__ import annotations
 
+import asyncio
+
+import pytest
+
+from backend.api.deps import _encode_workflow_event_stream
+
 from ._fixtures import make_workflow, register_for_test
 
 
@@ -104,3 +110,39 @@ async def test_hook_raise_returns_500_and_isolated(client):
         good = await client.post(f"/api/conversations/{cid}/workflows/flaky/trigger", json={})
         assert good.status_code == 200
         assert good.json() == {"recovered": True}
+
+
+async def test_a_dropped_stream_lets_the_workflow_finish_its_cleanup_first():
+    """Stop closes an on-demand stream mid-render. The hook's cleanup (a render
+    withdrawing its queued job) must run inside the close, not be cut off by an
+    `aclose()` on a generator that is still running."""
+    log: list[str] = []
+
+    async def render():
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await asyncio.sleep(0.01)
+            log.append("withdrawn")
+            raise
+
+    async def events():
+        task = asyncio.create_task(render())
+        try:
+            yield {"event": "phase_status", "data": {"label": "Rendering..."}}
+            await task
+        finally:
+            task.cancel()
+            await asyncio.wait({task})
+            log.append("closed")
+
+    async def consume():
+        async for _ in _encode_workflow_event_stream(events()):
+            pass
+
+    consumer = asyncio.create_task(consume())
+    await asyncio.sleep(0.05)
+    consumer.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await consumer
+    assert log == ["withdrawn", "closed"]

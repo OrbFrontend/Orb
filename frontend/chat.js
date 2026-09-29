@@ -68,3 +68,4 @@ export {
   toggleMagicInput,
 } from "./chat_stream.js";
 export { initWorkflowMutationListener, refreshConversationMessages } from "./chat_workflow.js";
+export { trackStoppableJob } from "./stoppable_jobs.js";

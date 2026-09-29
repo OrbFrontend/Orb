@@ -13,6 +13,7 @@ import { renderDefaultWidget } from "./default_widget.js";
 import { showConfirmModal } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
+import { trackStoppableJob } from "./stoppable_jobs.js";
 import { broadcastWorkflowMutation, requestSendPermission, setWorkflowMutationCallback } from "./tabLock.js";
 import { $, boolFlag, convUrl, esc, escAttr, markChatProgrammaticScroll, toast } from "./utils.js";
 
@@ -508,6 +509,22 @@ function _scrollArtifactIntoView(msgId, rootId = null) {
   Promise.race([Promise.all(loaded), new Promise((res) => setTimeout(res, 2000))]).then(showWhenVisible);
 }
 
+// Stop cancels the render server-side; the request then answers 409, or with
+// the sibling if it was already being saved. Either way the saved rows decide.
+async function _syncAfterStop(convId, msgId, rootId) {
+  if (S.activeConvId !== convId) return;
+  try {
+    setMessages(await api.get(convUrl(convId, "messages")));
+  } catch (e) {
+    console.warn("sync after stopping a workflow render failed", e);
+    return;
+  }
+  _reapplyInFlightSwipes();
+  renderMessages();
+  broadcastWorkflowMutation({ convId, msgId });
+  _scrollArtifactIntoView(msgId, rootId);
+}
+
 window.workflowRegenerate = async (msgId, attId, btn) => {
   if (!S.activeConvId) return;
   if (!requestSendPermission()) return;
@@ -523,6 +540,8 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
     S.messages.find((m) => m.id === msgId),
     rootId,
   );
+  let stopped = false;
+  const untrack = trackStoppableJob({ convId, stop: () => (stopped = true) });
   try {
     setWorkflowPhase(ch, workflowPhaseLabel(wid, "regenerating..."));
     const result = await _regenerateStreamed(
@@ -537,12 +556,14 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
     _scrollArtifactIntoView(msgId, rootId);
     broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
-    if (_isNetworkError(e) && (await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings))) {
+    if (stopped) await _syncAfterStop(convId, msgId, rootId);
+    else if (_isNetworkError(e) && (await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings))) {
     } else {
       console.error("Regenerate failed:", e);
       _showActionFailure(container, "workflow-regen-error", "Regenerate", e);
     }
   } finally {
+    untrack();
     clearWorkflowPhase(ch);
     _workflowActionInFlight.delete(rootId);
     btn.disabled = false;
@@ -564,6 +585,8 @@ window.workflowReroll = async (msgId, attId, btn) => {
     S.messages.find((m) => m.id === msgId),
     rootId,
   );
+  let stopped = false;
+  const untrack = trackStoppableJob({ convId, stop: () => (stopped = true) });
   try {
     setWorkflowPhase(ch, workflowPhaseLabel(wid, "rerolling..."));
     let extra = null;
@@ -585,7 +608,8 @@ window.workflowReroll = async (msgId, attId, btn) => {
     _scrollArtifactIntoView(msgId, rootId);
     broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
-    if (
+    if (stopped) await _syncAfterStop(convId, msgId, rootId);
+    else if (
       _isNetworkError(e) &&
       (await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings, () =>
         _notifyWorkflowRerollSuccess(wid, msgId, attId),
@@ -596,6 +620,7 @@ window.workflowReroll = async (msgId, attId, btn) => {
       _showActionFailure(container, "workflow-reroll-error", "Reroll", e);
     }
   } finally {
+    untrack();
     clearWorkflowPhase(ch);
     _workflowActionInFlight.delete(rootId);
     btn.disabled = false;

@@ -74,6 +74,7 @@ export const S = {
   streamingBodyEl: null,
   streamCutoffIndex: null,
   streamOp: null, // the stoppable stream this tab is running (stream_settle.js)
+  stoppableJobs: new Set(), // workflow renders the stop button also ends
   streamingContent: null,
   pendingUserMsg: null,
   attachments: [],

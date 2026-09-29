@@ -85,6 +85,9 @@ LAYERS = {
     "library_dedupe_view.js": 1,
     # L2 services.
     "tabLock.js": 2,
+    # Workflow renders the chat stop button also ends; below chat so the
+    # stream and the workflow actions can both reach it.
+    "stoppable_jobs.js": 2,
     "audio_schedule.js": 2,
     # L3 ui + audio engine.
     "modal.js": 3,
@@ -180,6 +183,7 @@ FROZEN_ABI = {
     "esc",
     "escAttr",
     "toast",
+    "trackStoppableJob",
     "notifyError",
     "showModal",
     "showConfirmModal",

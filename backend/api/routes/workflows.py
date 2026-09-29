@@ -70,8 +70,11 @@ from ...workflows.errors import WorkflowUserFacingError
 from ..deps import (
     _workflow_event_stream_response,
     attachment_content_response,
+    committing_workflow_job,
     locked_attachment_group,
     require_conversation,
+    start_workflow_job,
+    stop_workflow_jobs,
     workflow_group_in_flight,
 )
 from ..schemas import WorkflowConfigUpdate, WorkflowEnabledUpdate
@@ -289,7 +292,26 @@ async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(def
     return result
 
 
-_DETACHED: set[asyncio.Task] = set()
+async def _finished_job(task: asyncio.Task[Any]) -> Any:
+    """A workflow job's result; one that Stop cancelled answers 409."""
+    await asyncio.wait({task})
+    if task.cancelled():
+        raise HTTPException(status_code=409, detail="Stopped")
+    return task.result()
+
+
+@router.post("/api/conversations/{cid}/workflows/stop")
+async def api_stop_workflow_jobs(cid: str):
+    """Stop the conversation's regenerate and reroll-gen renders.
+
+    Answers once they have ended, bounded; ``settled`` is False when one was
+    still winding down at the deadline. An on-demand stream is stopped by
+    closing it instead.
+    """
+    result = await stop_workflow_jobs(cid)
+    if result["stopped"]:
+        logger.info("Stopped %d workflow job(s) for conversation %s", result["stopped"], scrub_log(cid))
+    return {"ok": True, **result}
 
 
 @router.post("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate")
@@ -303,19 +325,18 @@ async def api_regenerate_attachment(
 ):
     """Append a new sibling variant under a workflow-produced attachment's root."""
     phases: asyncio.Queue[str | None] = asyncio.Queue()
-    task = asyncio.create_task(_regenerate(cid, mid, aid, body, conv, phases.put_nowait))
+    # A job, not the request: it outlives a dropped stream, so the sibling still
+    # lands for the client's recovery poll, and only Stop cancels it.
+    task = start_workflow_job(cid, _regenerate(cid, mid, aid, body, conv, phases.put_nowait))
     if "text/event-stream" not in request.headers.get("accept", ""):
-        return await task
-    # Outlives a dropped stream, so the sibling still lands for the client's recovery poll.
-    _DETACHED.add(task)
-    task.add_done_callback(_DETACHED.discard)
+        return await _finished_job(task)
     task.add_done_callback(lambda _: phases.put_nowait(None))
 
     async def events():
         while (label := await phases.get()) is not None:
             yield {"event": "phase_status", "data": {"label": label}}
         try:
-            yield {"event": "regenerate_done", "data": task.result()}
+            yield {"event": "regenerate_done", "data": await _finished_job(task)}
         except HTTPException as exc:
             yield {"event": "regenerate_error", "data": {"status": exc.status_code, "detail": exc.detail}}
 
@@ -411,7 +432,8 @@ async def _regenerate(cid: str, mid: int, aid: int, body: dict, conv: Conversati
             return {"attachments": [], "rejected_workflow_atts": []}
 
         try:
-            new_ids, helper_rejected = await insert_workflow_attachments(mid, fixed)
+            with committing_workflow_job():
+                new_ids, helper_rejected = await insert_workflow_attachments(mid, fixed)
         except (ValueError, LookupError, OSError):
             logger.exception("regenerate hook %r batch insert failed", wid)
             raise HTTPException(status_code=500, detail="Regenerate batch insert failed; see server logs") from None
@@ -544,6 +566,13 @@ async def api_reroll_gen_attachment(
         detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
     )
 
+    return await _finished_job(start_workflow_job(cid, _reroll_gen(cid, mid, aid, body, sub, settings_snapshot)))
+
+
+async def _reroll_gen(
+    cid: str, mid: int, aid: int, body: dict, sub: Subscription, settings_snapshot: Mapping[str, Any]
+) -> dict:
+    wid = sub.workflow_id
     # Resolve-and-lock the canonical root together (see regenerate): the in-lock
     # snapshot and root id are read under the same lock the write will hold.
     async with locked_attachment_group(aid, mid) as (att, root_id):
@@ -576,7 +605,8 @@ async def api_reroll_gen_attachment(
             "annotation": att.get("annotation"),
         }
         try:
-            new_id, rejected = await insert_workflow_attachment(mid, new_attachment)
+            with committing_workflow_job():
+                new_id, rejected = await insert_workflow_attachment(mid, new_attachment)
         except (ValueError, LookupError, OSError):
             logger.exception("reroll_gen hook %r yielded an attachment that failed insert", wid)
             raise HTTPException(status_code=500, detail="reroll_gen insert failed; see server logs") from None

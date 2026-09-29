@@ -18,6 +18,7 @@ import {
   renderMessages,
   selectWorkflowPipelinePass,
   setWorkflowPhase,
+  trackStoppableJob,
 } from "./chat.js";
 import { closeModal, setModalCloseGuard, showConfirmModal, showModal } from "./modal.js";
 import { refreshLocalMlStatus } from "./settings.js";
@@ -39,7 +40,7 @@ import { clearTextEffect, startTextEffect } from "./workflow_text_effects.js";
 
 // Workflow modules use this facade for registration, requests, and playback.
 
-export const WORKFLOW_API_VERSION = 8;
+export const WORKFLOW_API_VERSION = 9;
 
 export {
   api,
@@ -84,6 +85,7 @@ export {
   streamPost,
   subscribe,
   toast,
+  trackStoppableJob,
   workflowAttachmentUrl,
 };
 

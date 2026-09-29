@@ -130,3 +130,57 @@ it("a late cleanup does not take the stop button from a newer operation", () => 
   stream.endStreamOperation(newer);
   assert.equal(S.streamOp, null);
 });
+
+it("EOF without a terminal event waits for settlement and keeps unconfirmed prose", async (t) => {
+  saved = [USER];
+  offline = false;
+  S.activeConvId = "c1";
+  S.messages = [structuredClone(USER)];
+  S.streamingContent = null;
+  let releaseStop;
+  let stopReached;
+  const stopping = new Promise((resolve) => {
+    stopReached = resolve;
+  });
+  const fetch = globalThis.fetch;
+  let refetched = false;
+  t.mock.method(console, "error", () => {});
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    if (String(url).endsWith("/send")) {
+      return new Response("event: token\ndata: Partial reply before EOF.\n\n");
+    }
+    if (String(url).endsWith("/stop")) {
+      stopReached();
+      return new Promise((resolve) => {
+        releaseStop = () => resolve({ ok: true, json: async () => ({ active: true, settled: true }) });
+      });
+    }
+    if (String(url).endsWith("/messages")) refetched = true;
+    return fetch(url, options);
+  });
+
+  const run = stream.runStreamRequest("/conversations/c1/send", {});
+  await stopping;
+  assert.equal(S.isStreaming, true);
+  assert.equal(refetched, false, "refetch must wait for the server's cleanup");
+  releaseStop();
+  await run;
+
+  assert.equal(S.turnError.kind, "transport");
+  assert.match(S.turnError.sentence, /ended before completion/);
+  assert.equal(S.messages.at(-1).content, "Partial reply before EOF.");
+  assert.equal(S.messages.at(-1).id, null);
+  assert.equal(S.isStreaming, false);
+  assert.equal(S.streamOp, null);
+});
+
+it("done and error are terminal, but speaker_done is not", async () => {
+  const container = document.getElementById("chat-messages");
+  for (const event of ["done", "error"]) {
+    const response = new Response(`event: ${event}\ndata: Test result\n\n`);
+    await stream.processSSEStream(response, container, { el: null });
+    if (event === "error") assert.equal(S.turnError.headline, "Test result");
+  }
+  const response = new Response("event: speaker_done\ndata: {}\n\n");
+  await assert.rejects(stream.processSSEStream(response, container, { el: null }), /ended before completion/);
+});

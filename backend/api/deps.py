@@ -11,10 +11,18 @@ import json
 import logging
 import os
 import re
-from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterator,
+    Callable,
+    Coroutine,
+    Iterator,
+    Mapping,
+    Sequence,
+)
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 import httpx
 from fastapi import Depends, HTTPException, Request
@@ -34,6 +42,8 @@ from ..inference import AbortToken, LLMCallError, provider_sentence
 from ..workflows import WorkflowEventStream, public_event_error
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "frontend")
 
@@ -76,6 +86,64 @@ def workflow_group_in_flight(root_id: int) -> bool:
     """
     lock = _workflow_root_locks.get(root_id)
     return lock is not None and lock.locked()
+
+
+# Workflow renders the Stop button ends, by conversation. Regenerate and
+# reroll-gen deliberately outlive a dropped connection, so closing it cannot
+# stop them; they run as tasks here instead, which Stop cancels.
+_workflow_jobs: dict[str, set[asyncio.Task[Any]]] = {}
+# Jobs inside their final write. Stop waits for these rather than cancelling:
+# a cancelled await does not stop SQLite's worker thread from committing.
+_committing_jobs: set[asyncio.Task[Any]] = set()
+
+# How long a workflow Stop waits for its jobs to wind down; long enough for a
+# render to withdraw its queued remote job.
+WORKFLOW_STOP_SECS = 10.0
+
+
+def start_workflow_job(cid: str, coro: Coroutine[Any, Any, _T]) -> asyncio.Task[_T]:
+    """Run *coro* as a job that `stop_workflow_jobs(cid)` can cancel."""
+    task = asyncio.create_task(coro)
+    jobs = _workflow_jobs.setdefault(cid, set())
+    jobs.add(task)
+
+    def forget(done: asyncio.Task[Any]) -> None:
+        jobs.discard(done)
+        if not jobs and _workflow_jobs.get(cid) is jobs:
+            del _workflow_jobs[cid]
+
+    task.add_done_callback(forget)
+    return task
+
+
+@contextmanager
+def committing_workflow_job() -> Iterator[None]:
+    """Mark the current job as writing its result, which Stop lets finish."""
+    task = asyncio.current_task()
+    if task is None:
+        yield
+        return
+    _committing_jobs.add(task)
+    try:
+        yield
+    finally:
+        _committing_jobs.discard(task)
+
+
+async def stop_workflow_jobs(cid: str, *, timeout: float = WORKFLOW_STOP_SECS) -> dict[str, Any]:
+    """Cancel the conversation's workflow jobs and wait, bounded, for them to end.
+
+    A job already writing its result is waited for, not cancelled: its
+    sibling lands, and the client's refetch shows it.
+    """
+    jobs = list(_workflow_jobs.get(cid, ()))
+    if not jobs:
+        return {"stopped": 0, "settled": True}
+    for task in jobs:
+        if task not in _committing_jobs:
+            task.cancel()
+    _, pending = await asyncio.wait(jobs, timeout=timeout)
+    return {"stopped": len(jobs), "settled": not pending}
 
 
 @asynccontextmanager
@@ -440,7 +508,10 @@ async def _encode_workflow_event_stream(events: AsyncIterator[dict]) -> AsyncGen
                         break
                     yield ": keepalive\n\n"
             except BaseException:
+                # Let the workflow's own cleanup (withdrawing a queued render)
+                # finish first: closing a generator mid-step raises instead.
                 nxt.cancel()
+                await asyncio.wait({nxt})
                 raise
             try:
                 ev = nxt.result()
