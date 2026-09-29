@@ -306,7 +306,7 @@ async def test_lifespan_opens_the_anchor_after_database_initialization(tmp_path,
         assert db_connection._wal_anchor_path == str(path)
 
     assert "settings" in seen["tables"]  # init_db ran
-    assert "schema_migrations" in seen["tables"]  # stamp_all ran
+    assert "schema_migrations" in seen["tables"]  # baseline committed with schema + seeds
 
 
 async def test_lifespan_closes_the_anchor_on_a_normal_exit(db_path, monkeypatch):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from datetime import UTC, datetime, timedelta
 
 from ..connection import get_db
@@ -24,6 +25,12 @@ async def get_generated_chars() -> int:
     Seeds the counter from existing assistant messages on first use.
     """
     async with get_db() as db:
+        rows = list(await db.execute_fetchall("SELECT generated_chars FROM settings WHERE id = 1"))
+        if rows and rows[0][0] is not None:
+            return int(rows[0][0])
+        # Only the unseeded read writes; every later homepage load is a plain
+        # read rather than a write transaction. The seed's own IS NULL guard
+        # keeps a racing add_generated_chars from being seeded twice.
         await db.execute(_SEED_GENERATED_CHARS_SQL)
         await db.commit()
         rows = list(await db.execute_fetchall("SELECT generated_chars FROM settings WHERE id = 1"))
@@ -100,11 +107,6 @@ async def get_global_stats() -> dict:
         conv_row = list(await db.execute_fetchall("SELECT COUNT(*) FROM conversations"))
         total_conversations = conv_row[0][0] if conv_row else 0
 
-        # Messages shown to the user = active-branch rows only; swiped/regenerated
-        # siblings are trash and must not inflate the count.
-        total_row = list(await db.execute_fetchall(f"{_ACTIVE_PATH_CTE} SELECT COUNT(*) FROM active_path"))
-        total_messages = total_row[0][0] if total_row else 0
-
         # "words written" sums role='user' content across ALL branches: every user
         # message was genuinely typed, even on swiped-away forks, so it reflects
         # total effort rather than what's currently visible.
@@ -113,68 +115,47 @@ async def get_global_stats() -> dict:
         )
         user_chars = chars_row[0][0] if chars_row else 0
 
-        # Favorite character = the one whose conversations hold the most messages.
-        # Group on character_name (not card id) so renamed/deleted cards still tally,
-        # skipping unnamed conversations.
-        fav_row = list(
+        # One walk of every conversation's active branch answers both the message
+        # count and the per-character tallies the spotlight chooses from: the
+        # nameless row carries the count (character_usage never yields a NULL
+        # name), the rest one character each. Swiped or regenerated siblings are
+        # trash and are not on the branch. A walk per question cost three.
+        usage_rows = list(
             await db.execute_fetchall(
                 f"""{_ACTIVE_PATH_CTE}{_CHARACTER_USAGE_CTE}
+                   SELECT NULL, (SELECT COUNT(*) FROM active_path), NULL, NULL, NULL
+                   UNION ALL
                    SELECT character_name,
-                          COUNT(*) AS msg_count,
-                          COUNT(DISTINCT conv_id) AS conv_count,
-                          MAX(card_id) AS card_id
+                          COUNT(*),
+                          COUNT(DISTINCT conv_id),
+                          MAX(card_id),
+                          MAX(created_at)
                    FROM character_usage
-                   GROUP BY character_name
-                   ORDER BY msg_count DESC
-                   LIMIT 1"""
+                   GROUP BY character_name"""
             )
         )
-        favorite_character = (
-            {
-                "name": fav_row[0][0],
-                "messages": fav_row[0][1],
-                "conversations": fav_row[0][2],
-                "card_id": fav_row[0][3],
-            }
-            if fav_row
-            else None
-        )
+        total_messages = next((row[1] for row in usage_rows if row[0] is None), 0)
+        characters = [row for row in usage_rows if row[0] is not None]
+
+        def _spotlight(row) -> dict:
+            return {"name": row[0], "messages": row[1], "conversations": row[2], "card_id": row[3]}
+
+        # Favorite character = the one who wrote the most messages. Grouped on
+        # character_name (not card id) so renamed/deleted cards still tally.
+        favorite = max(characters, key=lambda row: row[1], default=None)
+        favorite_character = _spotlight(favorite) if favorite else None
 
         # A random well-worn character (>100 messages) for the "misses you"
-        # spotlight theme. Same shape as the favorite, but excludes the favorite
-        # itself so the two themes stay distinct, and skips anyone talked to in
-        # the last 24h — they can't "miss you" if you just spoke. created_at is
-        # an ISO-8601 UTC string, so a string compare against the cutoff sorts
-        # correctly. RANDOM() picks the candidate; the endpoint flips the coin
+        # spotlight theme. Excludes the favorite itself so the two themes stay
+        # distinct, and anyone talked to in the last 24h — they can't "miss you"
+        # if you just spoke. created_at is an ISO-8601 UTC string, so a string
+        # compare against the cutoff sorts correctly. The endpoint flips the coin
         # on which theme actually shows.
-        fav_name = favorite_character["name"] if favorite_character else ""
         recent_cutoff = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
-        missed_row = list(
-            await db.execute_fetchall(
-                f"""{_ACTIVE_PATH_CTE}{_CHARACTER_USAGE_CTE}
-                   SELECT character_name,
-                          COUNT(*) AS msg_count,
-                          COUNT(DISTINCT conv_id) AS conv_count,
-                          MAX(card_id) AS card_id
-                   FROM character_usage
-                   WHERE character_name != ?
-                   GROUP BY character_name
-                   HAVING COUNT(*) > 100 AND MAX(created_at) < ?
-                   ORDER BY RANDOM()
-                   LIMIT 1""",
-                (fav_name, recent_cutoff),
-            )
-        )
-        missed_character = (
-            {
-                "name": missed_row[0][0],
-                "messages": missed_row[0][1],
-                "conversations": missed_row[0][2],
-                "card_id": missed_row[0][3],
-            }
-            if missed_row
-            else None
-        )
+        missed = [
+            row for row in characters if row is not favorite and row[1] > 100 and row[4] is not None and row[4] < recent_cutoff
+        ]
+        missed_character = _spotlight(random.choice(missed)) if missed else None
 
         # > 0 (not just IS NOT NULL): turns with no LLM passes log 0, and
         # averaging those in would understate true response time.

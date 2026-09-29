@@ -75,4 +75,6 @@ if [ -n "$OPEN_CMD" ]; then
     ) &
 fi
 
-uvicorn backend.main:app --host 0.0.0.0 --port 8899 --reload
+# Reload watches backend/ only; the default is the whole repo, .venv and
+# node_modules included. The frontend is static and needs no restart.
+uvicorn backend.main:app --host 0.0.0.0 --port 8899 --reload --reload-dir backend

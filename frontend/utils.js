@@ -159,8 +159,9 @@ export function pinStreamingMessage(el) {
   if (el.isConnected) scrollChatTarget(el, "start");
 }
 
+/** A character's avatar as a small square thumbnail, for list and header surfaces. */
 export function avatarUrl(charId) {
-  return `/api/characters/${charId}/avatar`;
+  return `/api/characters/${charId}/avatar/thumb`;
 }
 
 export function personaAvatarUrl(personaId) {

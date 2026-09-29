@@ -21,9 +21,11 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 import backend.database.connection as db_connection
 from backend.database import init_db
-from backend.database.migrations import run_pending
+from backend.database.migrations import MIGRATIONS, run_pending
 
 _BASELINE = Path(__file__).parent.parent / "fixtures" / "schema_pre_group_chats.sql"
 
@@ -70,3 +72,38 @@ async def test_migration_chain_reaches_current_schema(tmp_path: Path, monkeypatc
         "fresh installs get them from schema.py, but every upgrading install would fail "
         "the first query that names one. Add them to a migration."
     )
+
+
+@pytest.mark.parametrize("populated", [False, True])
+async def test_initialization_upgrades_unstamped_existing_schema(tmp_path: Path, monkeypatch, populated):
+    """Empty tables or a missing ledger do not make an old schema fresh."""
+    path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(path)
+    try:
+        conn.executescript(_BASELINE.read_text())
+        if populated:
+            conn.execute(
+                "INSERT INTO settings (id, endpoint_url, model_name, user_name, user_description) "
+                "VALUES (1, 'http://legacy/v1', 'legacy-model', 'Legacy User', 'Keep my persona')"
+            )
+            conn.execute("INSERT INTO worlds (id, name, created_at, updated_at) VALUES ('legacy', 'Keep my world', 't', 't')")
+            conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setattr(db_connection, "DB_PATH", str(path))
+    assert await init_db() == len(MIGRATIONS)
+    assert await init_db() == 0
+    conn = sqlite3.connect(path)
+    try:
+        assert {r[0] for r in conn.execute("SELECT id FROM schema_migrations")} == set(MIGRATIONS)
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        if populated:
+            # 0003 must actually backfill the user's persona, not get stamped
+            # away merely because this database has no migration ledger.
+            assert conn.execute(
+                "SELECT p.name, p.description FROM user_personas p JOIN settings s ON p.id = s.active_persona_id"
+            ).fetchone() == ("Legacy User", "Keep my persona")
+            assert conn.execute("SELECT name FROM worlds WHERE id = 'legacy'").fetchone() == ("Keep my world",)
+    finally:
+        conn.close()

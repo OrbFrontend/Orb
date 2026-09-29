@@ -7,14 +7,15 @@ import os
 import sqlite3
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from ..database import DB_PATH, close_wal_anchor, init_db, open_wal_anchor
-from ..database.migrations import run_pending, stamp_all
 from ..features.presets import schema_safety_problems as preset_schema_safety_problems
 from ..inference.local_models import onnx_runtime
 from ..inference.local_models.llama_server import manager
+from .cache_control import CacheControlMiddleware
+from .compression import TextGZipMiddleware
 from .deps import FRONTEND_DIR
 from .routes import ROUTERS
 from .routes.storage import VACUUM_FREE_BYTES, free_bytes
@@ -24,22 +25,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # A fresh install gets the latest schema + seeds straight from init_db, so
-    # the migration chain has nothing to do — stamp it instead of running ~50
-    # guarded no-op migrations on first boot. Checked before init_db, which
-    # creates the file. (Zero-size covers a file touched but never written.)
-    fresh = not os.path.exists(DB_PATH) or os.path.getsize(DB_PATH) == 0
-    migrated = False
-    if fresh:
-        await init_db()
-        stamp_all(DB_PATH)
-    else:
-        # Existing tables still have their old column shape. Run migrations
-        # before feeding them the latest CREATE TABLES script: CREATE TABLE IF
-        # NOT EXISTS does not add columns, and a latest-schema index may name a
-        # column only the pending migration knows how to add.
-        migrated = bool(run_pending(DB_PATH))
-        await init_db()
+    migrated = await init_db()
     # A rebuild-style migration (0027's drop/rename, 0028's DROP COLUMN /
     # DROP TABLE) leaves the old table's pages on the freelist, and the live
     # DB runs auto_vacuum=NONE, so nothing returns them: the file stays
@@ -54,7 +40,7 @@ async def lifespan(app: FastAPI):
     # stranded until a migration happens to come along. Both arms are gated so
     # an ordinary boot never rewrites the whole file. Safe here: we're before
     # `yield`, so no request connection is open to contend with the VACUUM.
-    if not fresh and (migrated or free_bytes(DB_PATH) > VACUUM_FREE_BYTES):
+    if migrated or free_bytes(DB_PATH) > VACUUM_FREE_BYTES:
         vac = sqlite3.connect(DB_PATH, isolation_level=None)
         try:
             vac.execute("VACUUM")
@@ -106,15 +92,10 @@ def build_app() -> FastAPI:
     """Construct and return the configured FastAPI application."""
     app = FastAPI(title="Orb", lifespan=lifespan)
 
-    @app.middleware("http")
-    async def no_cache_middleware(request: Request, call_next):
-        response = await call_next(request)
-        # Default to no-store for dynamic API/SSE responses, but let a handler opt
-        # into caching by setting its own Cache-Control first (e.g. avatars, which
-        # are large and rarely change — see api_get_avatar). setdefault preserves
-        # the handler's value instead of clobbering it.
-        response.headers.setdefault("Cache-Control", "no-store")
-        return response
+    # Level 6 rather than Starlette's 9: on a 900 KB conversation list, 9 costs
+    # ~20% more CPU for a body about 1% smaller.
+    app.add_middleware(TextGZipMiddleware, minimum_size=1024, compresslevel=6)
+    app.add_middleware(CacheControlMiddleware)
 
     for router in ROUTERS:
         app.include_router(router)

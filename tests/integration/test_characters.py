@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import base64
 import io
 import json
 import zipfile
+
+from PIL import Image
 
 
 async def test_create_character_persists_to_db(client, db):
@@ -267,6 +270,42 @@ async def test_avatar_response_is_cacheable_with_conditional_get(client, db):
     # Non-avatar API responses still default to no-store.
     settings = await client.get("/api/settings")
     assert settings.headers["cache-control"] == "no-store"
+
+
+def _png_b64(width: int, height: int) -> str:
+    buf = io.BytesIO()
+    Image.new("RGB", (width, height), (200, 40, 40)).save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+async def test_avatar_thumbnail_is_small_square_and_versioned_by_the_card(client, db):
+    create = await client.post(
+        "/api/characters",
+        json={"name": "Tall", "avatar_b64": _png_b64(600, 900), "avatar_mime": "image/png"},
+    )
+    card_id = create.json()["id"]
+
+    resp = await client.get(f"/api/characters/{card_id}/avatar/thumb")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/webp"
+    assert Image.open(io.BytesIO(resp.content)).size == (192, 192)
+    etag = resp.headers["etag"]
+    assert (await client.get(f"/api/characters/{card_id}/avatar/thumb", headers={"If-None-Match": etag})).status_code == 304
+
+    # A new avatar must not revalidate against the old thumbnail.
+    await client.put(f"/api/characters/{card_id}", json={"avatar_b64": _png_b64(900, 600), "avatar_mime": "image/png"})
+    changed = await client.get(f"/api/characters/{card_id}/avatar/thumb", headers={"If-None-Match": etag})
+    assert changed.status_code == 200
+    assert changed.headers["etag"] != etag
+
+    # A source smaller than its thumbnail is served as it is.
+    tiny = await client.post("/api/characters", json={"name": "Tiny", "avatar_b64": _PNG_1x1_B64, "avatar_mime": "image/png"})
+    tiny_thumb = await client.get(f"/api/characters/{tiny.json()['id']}/avatar/thumb")
+    assert tiny_thumb.headers["content-type"] == "image/png"
+    assert tiny_thumb.content == base64.b64decode(_PNG_1x1_B64)
+
+    bare = await client.post("/api/characters", json={"name": "Bare"})
+    assert (await client.get(f"/api/characters/{bare.json()['id']}/avatar/thumb")).status_code == 404
 
 
 async def test_list_characters_omits_heavy_text_fields(client, db):
