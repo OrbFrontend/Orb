@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from ..toolkit import Workflow
-from .config import CONFIG_DEFAULTS, SOURCES, normalize_config
+from .config import CONFIG_DEFAULTS, MAX_REFINE_TURNS, SOURCES, normalize_config
 from .pov import POV_MODES
-from .prompts import COMPOSE_TOOL, READ_IMAGE_SKILLS_TOOL
+from .prompts import COMPOSE_TOOL, READ_IMAGE_SKILLS_TOOL, REFINE_TOOL
 
 _CONFIG_SCHEMA = {
     "type": "object",
@@ -21,6 +21,7 @@ _CONFIG_SCHEMA = {
         "scene_skills_enabled": {"type": "boolean", "title": "Use scene skills"},
         "scene_skills": {"type": "array", "title": "Composition skills"},
         "prompter_reasoning": {"type": "boolean", "title": "Enable prompter thinking"},
+        "refine_turns": {"type": "integer", "minimum": 0, "maximum": MAX_REFINE_TURNS, "title": "Review turns"},
         "timeout_seconds": {
             "type": "number",
             "minimum": 10,
@@ -36,7 +37,7 @@ image_gen_workflow = Workflow(
     id="image_gen",
     display_name="Image Generation",
     produces_artifacts=True,
-    tools=[READ_IMAGE_SKILLS_TOOL, COMPOSE_TOOL],
+    tools=[READ_IMAGE_SKILLS_TOOL, COMPOSE_TOOL, REFINE_TOOL],
     config_schema=_CONFIG_SCHEMA,
     config_defaults=CONFIG_DEFAULTS,
     # The config carries user-authored graphs and style entries that

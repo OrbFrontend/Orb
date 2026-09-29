@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import secrets
 from collections.abc import Callable, Mapping, Sequence
@@ -22,11 +23,14 @@ from . import macros as macros_mod
 from . import pov as pov_mod
 from . import subjects as subjects_mod
 from .composer import (
+    RefineThread,
+    Revision,
     SkillSelection,
     addressable_subjects,
     assemble_prompts,
     compose_scene,
     read_image_skills,
+    refine_scene,
 )
 from .config import (
     MAX_REFERENCE_IMAGE_B64,
@@ -46,7 +50,8 @@ from .engine import (
     recorded_edge,
     resolve_and_generate,
 )
-from .engine.contracts import ResolvedReference
+from .engine.contracts import ImageResult, ResolvedReference
+from .engine.display_encode import shrink_for_review
 from .references import (
     plan_slots,
     previous_image,
@@ -346,6 +351,20 @@ def _rendered_seed(requested: int, result) -> int:
     return reported if isinstance(reported, int) and not isinstance(reported, bool) else requested
 
 
+def _review_url(result: ImageResult) -> str:
+    data, mime = shrink_for_review(result.image_bytes, result.mime)
+    return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
+
+
+def _refined_note(reviews: Sequence[Revision], renders: int) -> str:
+    """How the refinement loop ended, for the note shown under the image."""
+    reviewed = f"the prompter reviewed {len(reviews)} render{'s' if len(reviews) != 1 else ''}"
+    if renders > 1:
+        reviewed += f" and revised the prompt {renders - 1} time{'s' if renders != 2 else ''}"
+    accepted = bool(reviews) and reviews[-1].done
+    return f"{reviewed}; {'it accepted this one' if accepted else 'this is the last render'}"
+
+
 def _attachment(seed: int, result, metadata: dict, consumption: dict) -> dict:
     ext = MIME_EXTENSIONS.get(result.mime, "img")
     return {
@@ -368,6 +387,7 @@ async def _generate_fresh(
     style_id: str,
     prefix: Sequence[dict] | None = None,
     progress: ProgressCallback | None = None,
+    phase: Callable[[str], None] | None = None,
     history: Sequence[Mapping[str, Any]] | None = None,
 ):
     history = _history_through(history if history is not None else ctx.history, int(message["id"]))
@@ -428,6 +448,8 @@ async def _generate_fresh(
     slots = plan_slots(target, addressable, previous=previous)
     references = await resolve_references(slots, subjects=addressable, previous=previous)
     unfilled = len(slots) - len(references)
+    refine_turns = int(config.get("refine_turns") or 0)
+    thread = RefineThread() if refine_turns > 0 else None
     scene, avoid, composer_mode = await compose_scene(
         client=ctx.agent_client,
         model_name=ctx.agent_model_name,
@@ -446,24 +468,71 @@ async def _generate_fresh(
         style_prompt=str(selected_style.get("prompt") or ""),
         style_negative_prompt=str(selected_style.get("negative_prompt") or ""),
         profile_negative_prompt=str(profile.get("negative_prompt") or ""),
+        thread=thread,
     )
     prompt, negative = assemble_prompts(selected_style, profile, scene, avoid)
     if not prompt.strip():
         raise ImageGenerationError("the composed image prompt came out empty; try generating again")
     seed = _fresh_seed()
-    result = await resolve_and_generate(
-        adapter,
-        ImageRequest(
-            prompt=prompt,
-            negative_prompt=negative,
-            seed=seed,
-            style_id=style_id,
-            timeout_seconds=config["timeout_seconds"],
-            references=references,
-        ),
-        target=target,
-        progress=progress,
-    )
+
+    async def render(prompt: str, negative: str) -> ImageResult:
+        # One seed for every render, so a revision differs from the render it
+        # corrects by its prompt alone.
+        return await resolve_and_generate(
+            adapter,
+            ImageRequest(
+                prompt=prompt,
+                negative_prompt=negative,
+                seed=seed,
+                style_id=style_id,
+                timeout_seconds=config["timeout_seconds"],
+                references=references,
+            ),
+            target=target,
+            progress=progress,
+        )
+
+    result = await render(prompt, negative)
+    reviews: list[Revision] = []
+    renders = 1
+    while thread is not None and len(reviews) < refine_turns:
+        if phase:
+            phase(f"Reviewing render {renders}...")
+        revision = await refine_scene(
+            client=ctx.agent_client,
+            model_name=ctx.agent_model_name,
+            prefix=prefix,
+            settings=ctx.settings,
+            thread=thread,
+            image_url=_review_url(result),
+            render=renders,
+            turns_left=refine_turns - len(reviews),
+            prompt_format=selected_style["prompt_format"],
+            pov=pov,
+            reasoning_on=bool(config.get("prompter_reasoning")),
+            supports_negative=target.supports_negative_prompt,
+            same_seed=target.supports_seed,
+        )
+        if revision is None:
+            break
+        reviews.append(revision)
+        logger.info("[image_gen] review of render %d (done=%s): %s", renders, revision.done, revision.critique)
+        if revision.done:
+            break
+        revised_prompt, revised_negative = assemble_prompts(selected_style, profile, revision.scene, revision.avoid)
+        if not revised_prompt.strip():
+            break
+        if phase:
+            phase(f"Rendering revision {renders}...")
+        try:
+            revised = await render(revised_prompt, revised_negative)
+        except ImageGenerationError as exc:
+            # The render already in hand is still a good answer; a failed revision
+            # must not throw it away.
+            logger.warning("[image_gen] revision render failed; keeping render %d: %s", renders, exc)
+            break
+        result, prompt, negative = revised, revised_prompt, revised_negative
+        renders += 1
     md = _metadata(
         source=adapter.source_id,
         style=selected_style,
@@ -476,6 +545,9 @@ async def _generate_fresh(
         composition_skills=[{"id": skill["id"], "label": skill["label"]} for skill in selection.skills],
     )
     consumption = _consumption(selected_style, prompt, negative, result, md, source_label=adapter.label)
+    if reviews:
+        md["refinements"] = [{"critique": review.critique, "done": review.done} for review in reviews]
+        consumption.setdefault("notes", []).append(_refined_note(reviews, renders))
     if unfilled > 0:
         consumption.setdefault("notes", []).append(_unfilled_note(unfilled, len(references)))
     # Read the adapter's record rather than the plan: it is the authoritative list of
@@ -516,6 +588,7 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
                 style_id=style_id,
                 prefix=prefix,
                 progress=_reporting(labels.put_nowait),
+                phase=labels.put_nowait,
             )
         )
         try:
@@ -600,6 +673,7 @@ async def regenerate(ctx, body):
             profile=profile,
             style_id=style_id,
             progress=_reporting(ctx.phase),
+            phase=ctx.phase,
             history=history,
         )
     ]

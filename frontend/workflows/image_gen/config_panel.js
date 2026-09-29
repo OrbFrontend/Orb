@@ -1119,7 +1119,9 @@ function openSettings(expandStyleId = "") {
       <div class="modal-heading" role="heading" aria-level="3">Generation</div>
       <div class="ig-grid">
         <label>Render timeout (seconds)<input id="ig-timeout" type="number" min="10" max="900" value="${escAttr(cfg.timeout_seconds || 180)}"></label>
+        <label>Review turns<input id="ig-refine-turns" type="number" min="0" max="${MAX_REFINE_TURNS}" step="1" value="${escAttr(cfg.refine_turns || 0)}"></label>
       </div>
+      <div class="image-gen-note">Review turns show each render to the prompter, which may revise the prompt and render again. 0 turns it off. Each turn is one vision call and up to one more render; the prompter model must accept images.</div>
       <label class="ig-toggle"><input id="ig-scene-skills-enabled" type="checkbox"${cfg.scene_skills_enabled === true ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Use scene skills</span><span class="image-gen-note">Selects relevant composition guidance before writing the prompt; one extra model call when usable skills exist.</span></span></label>
       <label class="ig-toggle"><input id="ig-prompter-reasoning" type="checkbox"${cfg.prompter_reasoning === true ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Enable prompter thinking</span><span class="image-gen-note">Uses thinking for skill selection and prompt composition. For best prompt-cache reuse, match Editor reasoning config.</span></span></label>
     </section>
@@ -1175,11 +1177,19 @@ function isDirty() {
 
 const MIN_TIMEOUT = 10;
 const MAX_TIMEOUT = 900;
+// Mirrors MAX_REFINE_TURNS in config.py.
+const MAX_REFINE_TURNS = 5;
 
 function readTimeout() {
   const value = Number(document.getElementById("ig-timeout")?.value);
   if (!Number.isFinite(value) || value <= 0) return 180;
   return Math.min(MAX_TIMEOUT, Math.max(MIN_TIMEOUT, Math.round(value)));
+}
+
+function readRefineTurns() {
+  const value = Number(document.getElementById("ig-refine-turns")?.value);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.min(MAX_REFINE_TURNS, Math.round(value));
 }
 
 function readConfig() {
@@ -1195,6 +1205,7 @@ function readConfig() {
     scene_skills_enabled: document.getElementById("ig-scene-skills-enabled")?.checked === true,
     scene_skills: draft.scene_skills,
     prompter_reasoning: document.getElementById("ig-prompter-reasoning")?.checked === true,
+    refine_turns: readRefineTurns(),
     timeout_seconds: readTimeout(),
     styles: draft.styles,
     external_comfy: {

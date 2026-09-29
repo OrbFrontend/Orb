@@ -174,7 +174,7 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
     blobs = set()
     for c in wf:
         names = [t["function"]["name"] for t in (c["tools"] or [])]
-        assert names == ["read_image_skills", "compose_image_prompt"], (
+        assert names == ["read_image_skills", "compose_image_prompt", "refine_image_prompt"], (
             "off-turn calls must ship the workflow's own tools blob, not tools=None — "
             "most chat models won't reliably call a tool they were never given"
         )

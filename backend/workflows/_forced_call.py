@@ -2,17 +2,24 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
 from types import MappingProxyType
 from typing import Any
 
-from ..core import ReasoningChannel, agent_lane_max_tokens, mark_call_start
+from ..core import (
+    AssistantToolMessage,
+    ReasoningChannel,
+    agent_lane_max_tokens,
+    mark_call_start,
+)
 from ..inference import (
     honors_forced_tool_choice,
     note_forced_tool_choice_ignored,
     parse_tool_calls,
     reasoning_cfg,
+    replay_reasoning,
 )
 from ..prompting.tool_catalog import enabled_schemas, is_standalone_tool, require_tool
 
@@ -38,6 +45,28 @@ def _plain(obj: Any) -> Any:
     return obj
 
 
+def _replay(resp: Mapping[str, Any], tool_name: str, args: Mapping[str, Any], call_id: str) -> AssistantToolMessage:
+    """The reply as a structured assistant turn, for a caller that continues the thread.
+
+    The id is assigned here because structured forced calls tend to come back as
+    ``call_0``: a thread of several must answer each call exactly once. Content is
+    kept only beside native ``tool_calls``; a call parsed out of the content body
+    would otherwise appear twice.
+    """
+    return {
+        "role": "assistant",
+        "content": (resp.get("content") or "") if resp.get("tool_calls") else "",
+        "tool_calls": [
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {"name": tool_name, "arguments": json.dumps(dict(args), ensure_ascii=False)},
+            }
+        ],
+        **replay_reasoning(resp),
+    }
+
+
 async def forced_tool_call(
     *,
     client: Any,
@@ -55,6 +84,7 @@ async def forced_tool_call(
     reasoning_on: bool = True,
     temperature: float = 0.25,
     tools_in_prompt: bool = True,
+    call_id: str | None = None,
 ) -> AsyncIterator[dict]:
     """Run one forced tool call and yield its parsed arguments.
 
@@ -68,6 +98,10 @@ async def forced_tool_call(
     endpoint and model. Leave it empty when the call extends the conversation;
     standalone calls must give their stable shape a name so tracker comparisons
     cannot jump between the two unrelated prefixes.
+
+    ``call_id`` asks for the reply back as a replayable assistant turn: the result
+    event then carries ``replay`` (absent when no arguments came back), so a caller
+    that answers the call can extend the same thread.
     """
     tool = require_tool(tool_name)
     schema = tool["schema"]
@@ -221,4 +255,7 @@ async def forced_tool_call(
         yield {"type": "result", "args": {}}
         return
 
-    yield {"type": "result", "args": args}
+    result: dict = {"type": "result", "args": args}
+    if call_id is not None and args:
+        result["replay"] = _replay(resp, tool_name, args, call_id)
+    yield result
