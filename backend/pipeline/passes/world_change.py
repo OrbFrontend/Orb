@@ -108,6 +108,10 @@ async def world_change_step(
         logger.exception("World-change proposal call failed; proposing nothing")
         yield {"type": "done", "result": WorldChangeResult(failed=True)}
         return
+    # A stop cut the call short: a half-streamed proposal proposes nothing.
+    if client.is_aborted:
+        yield {"type": "done", "result": WorldChangeResult()}
+        return
 
     logger.info("World-change step output:\n%s", json.dumps(resp, default=str))
     calls = parse_tool_calls(resp)

@@ -44,6 +44,7 @@ import { ensurePersonaPinned } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
 import { refreshState } from "./state_panel.js";
+import { createStreamOperation, settledReply, streamAnchor } from "./stream_settle.js";
 import {
   $,
   convUrl,
@@ -57,8 +58,33 @@ import {
   toast,
 } from "./utils.js";
 
+// POST /stop answers once the stopped stream has saved and let go of the
+// conversation: `{active, settled}`.
+async function requestStop(convId, signal) {
+  const resp = await fetch(`/api/conversations/${convId}/stop`, { method: "POST", signal });
+  if (!resp.ok) throw new Error(`Orb returned HTTP ${resp.status}`);
+  return resp.json();
+}
+
 export function stopConversation(convId) {
-  fetch(`/api/conversations/${convId}/stop`, { method: "POST" }).catch(() => {});
+  return requestStop(convId).catch(() => null);
+}
+
+/** Start the conversation's one stoppable stream; the stop button drives it. */
+export function beginStreamOperation(convId) {
+  const op = createStreamOperation({ convId, requestStop });
+  S.streamOp = op;
+  return op;
+}
+
+/** Give up the stop button, unless a newer operation already owns it. */
+export function endStreamOperation(op) {
+  if (S.streamOp === op) S.streamOp = null;
+}
+
+// Once Stop is pressed the bubble holds still until the saved reply replaces it.
+function previewFrozen() {
+  return !!S.streamOp?.stopping;
 }
 
 // Use the visible step when an error has no explicit stage.
@@ -92,6 +118,7 @@ function streamingDisplaySource(content) {
 }
 
 function paintStreamingBody(text) {
+  if (previewFrozen()) return;
   _paintPending = text;
   if (_paintFrame) return;
   _paintFrame = requestAnimationFrame(() => {
@@ -214,10 +241,7 @@ export function setStreaming(active) {
 }
 
 export function stopGeneration() {
-  if (S.abortController) S.abortController.abort();
-  if (S.activeConvId) {
-    stopConversation(S.activeConvId);
-  }
+  S.streamOp?.stop();
 }
 
 export function createStreamingDiv(name = null, memberId = null) {
@@ -261,25 +285,56 @@ function patchPendingUserMessage(pendingMsg) {
   if (freshMsg) adoptPendingUserMessage(freshMsg);
 }
 
-export async function afterStream() {
+// A row for reply text the server has not confirmed. It carries no id, so no
+// message action can name it; the next sync replaces it.
+function unsavedReply(content, extra = {}) {
+  return {
+    role: "assistant",
+    content,
+    id: null,
+    branch_count: 1,
+    branch_index: 0,
+    prev_branch_id: null,
+    next_branch_id: null,
+    ...extra,
+  };
+}
+
+// The live Editor diff was drawn against whatever the stream showed last,
+// possibly a preview the turn never kept. Redraw it against the saved reply.
+function settleRefineDiff(reply) {
+  const baseline = S.editorDraftBaseline;
+  if (!S.pendingRefineDiff || !reply || baseline == null || baseline === reply.content) {
+    S.pendingRefineDiff = null;
+    return;
+  }
+  const source = (content) => messageDisplaySource({ ...reply, content });
+  const original = source(baseline);
+  S.pendingRefineDiff = { original, ops: sentenceDiff(original, source(reply.content)), msgId: reply.id };
+}
+
+export async function afterStream(op, { settled = true } = {}) {
   cancelStreamingPaint();
   followStreamingMessage(null);
   const wasGroupExchange = S.currentExchangeId != null;
   const groupExchangeId = S.currentExchangeId;
   const inFlightSpeaker = S.currentSpeaker;
+  // The text the turn last made authoritative (Writer tokens or an announced
+  // rewrite), never a cosmetic preview.
   const preservedContent = S.streamingContent;
   const pendingUserMsg = S.pendingUserMsg || null;
-  const wasAborted = S.wasAborted;
-  S.abortController = null;
+  const lastCompletedId = S.completedExchangeMessageIds.at(-1) ?? null;
+  endStreamOperation(op);
   S.streamCutoffIndex = null;
   S.streamingContent = null;
   S.pendingUserMsg = null;
-  S.wasAborted = false;
   S.hideStreamingBox = false; // Ensure streaming box is visible after streaming ends
   setGenerationStep(null);
 
-  if (!S.activeConvId) {
+  // The conversation this operation belonged to is gone from view.
+  if (!S.activeConvId || S.activeConvId !== op.convId) {
     S.streamingBodyEl = null;
+    S.pendingRefineDiff = null;
     setStreaming(false);
     $("send-btn").disabled = false;
     renderMessages();
@@ -287,24 +342,21 @@ export async function afterStream() {
     return;
   }
 
-  if (wasAborted) {
-    await new Promise((r) => setTimeout(r, 500));
-  }
-
+  let synced = true;
   try {
     const [msgs, directorState] = await Promise.all([
-      api.get(convUrl(S.activeConvId, "messages")),
-      api.get(convUrl(S.activeConvId, "director")),
+      api.get(convUrl(op.convId, "messages")),
+      api.get(convUrl(op.convId, "director")),
     ]);
     setMessages(msgs);
     S.directorState = directorState;
-    if (S.activeConvId) {
-      const conv = S.conversations?.find((c) => c.id === S.activeConvId);
-      if (conv) conv.updated_at = new Date().toISOString();
-    }
+    const conv = S.conversations?.find((c) => c.id === op.convId);
+    if (conv) conv.updated_at = new Date().toISOString();
   } catch (e) {
+    synced = false;
     toast(`Failed to sync messages: ${e.message}`, true);
   }
+  if (synced && !settled) toast("Failed to sync messages: the stopped reply may still be saving", true);
 
   if (pendingUserMsg) {
     const present = pendingUserMsg.id
@@ -328,58 +380,42 @@ export async function afterStream() {
     const target = S.messages.find((m) => m.id === Number(id));
     if (target) target.content = content;
     api
-      .post(convUrl(S.activeConvId, "messages", Number(id), "edit"), { content, regenerate: false })
+      .post(convUrl(op.convId, "messages", Number(id), "edit"), { content, regenerate: false })
       .catch((e) => toast(`Failed to save edit: ${e.message}`, true));
   }
   S.queuedEdits = {};
 
-  if (wasGroupExchange && inFlightSpeaker && preservedContent?.trim()) {
-    const persisted = S.messages.some(
-      (message) =>
-        message.role === "assistant" &&
-        message.exchange_id === groupExchangeId &&
-        message.speaker_member_id === inFlightSpeaker.member_id,
+  // This operation's own saved reply: never one that was on screen before it
+  // started, such as the branch a regeneration replaces.
+  const speakerMatch =
+    wasGroupExchange && inFlightSpeaker ? { exchangeId: groupExchangeId, memberId: inFlightSpeaker.member_id } : {};
+  const saved = settledReply(S.messages, op.anchor, speakerMatch);
+  // Text the server did not confirm stays on screen, unsaved, rather than lost.
+  const unconfirmed = !synced || !settled || !!S.turnError;
+  if (!saved && preservedContent?.trim() && unconfirmed && (!wasGroupExchange || inFlightSpeaker)) {
+    const parent = S.messages[S.messages.length - 1];
+    S.messages.push(
+      unsavedReply(
+        preservedContent,
+        wasGroupExchange
+          ? {
+              parent_id: parent?.id || null,
+              speaker_member_id: inFlightSpeaker.member_id,
+              exchange_id: groupExchangeId,
+            }
+          : {},
+      ),
     );
-    if (!persisted) {
-      const parent = S.messages[S.messages.length - 1];
-      S.messages.push({
-        role: "assistant",
-        content: preservedContent,
-        id: null,
-        parent_id: parent?.id || null,
-        speaker_member_id: inFlightSpeaker.member_id,
-        exchange_id: groupExchangeId,
-        branch_count: 1,
-        branch_index: 0,
-        prev_branch_id: null,
-        next_branch_id: null,
-      });
-    }
-  } else if (!wasGroupExchange && preservedContent?.trim()) {
-    const lastMsg = S.messages[S.messages.length - 1];
-    if (lastMsg?.role !== "assistant") {
-      S.messages.push({
-        role: "assistant",
-        content: preservedContent,
-        id: null,
-        branch_count: 1,
-        branch_index: 0,
-        prev_branch_id: null,
-        next_branch_id: null,
-      });
-    }
   }
 
   setStreaming(false);
   $("send-btn").disabled = false;
 
-  if (S.pendingRefineDiff) {
-    const lastAssistant = [...S.messages].reverse().find((m) => m.role === "assistant" && m.id);
-    S.pendingRefineDiff.msgId = lastAssistant?.id ?? null;
-  }
+  settleRefineDiff(
+    wasGroupExchange && !inFlightSpeaker ? S.messages.find((m) => m.id != null && m.id === lastCompletedId) : saved,
+  );
 
-  const lastMsg = S.messages[S.messages.length - 1];
-  const finalized = !wasGroupExchange && !S.worldProposalArrived && finalizeStreamingDiv(lastMsg);
+  const finalized = !wasGroupExchange && !S.worldProposalArrived && !!saved && finalizeStreamingDiv(saved);
   S.worldProposalArrived = false;
   S.streamingBodyEl = null;
 
@@ -412,10 +448,14 @@ export async function afterStream() {
 }
 
 export async function processSSEStream(resp, container, holder, signal) {
+  // Writer tokens, the last announced rewrite, and the last cosmetic preview are
+  // kept apart: only the first two are ever what the turn saves.
   let fullResponse = "",
     rewrittenResponse = null,
+    previewResponse = null,
     firstToken = true,
     dispatchErrorToasted = false;
+  let terminalReceived = false;
 
   S.pendingRefineDiff = null;
   S.editorDraftBaseline = null;
@@ -435,6 +475,7 @@ export async function processSSEStream(resp, container, holder, signal) {
   const resetSpeakerTurnState = () => {
     fullResponse = "";
     rewrittenResponse = null;
+    previewResponse = null;
     firstToken = true;
     S.streamingContent = null;
     S.pendingRefineDiff = null;
@@ -451,6 +492,7 @@ export async function processSSEStream(resp, container, holder, signal) {
   };
 
   for await (const { event, data } of sseEvents(resp.body, { signal })) {
+    if (event === "done" || event === "error") terminalReceived = true;
     if (event === "speaking_plan") {
       try {
         const parsed = JSON.parse(data);
@@ -496,13 +538,19 @@ export async function processSSEStream(resp, container, holder, signal) {
       }
       fullResponse += unescapeSSE(data);
       S.streamingContent = rewrittenResponse || fullResponse;
-      if (S.streamingBodyEl) paintStreamingBody(rewrittenResponse || fullResponse);
+      if (S.streamingBodyEl) paintStreamingBody(previewResponse || rewrittenResponse || fullResponse);
       else scrollToBottom();
     };
-    const onRewrite = (text) => {
+    const onRewrite = (text, { preview = false } = {}) => {
+      if (preview) {
+        previewResponse = text;
+      } else {
+        rewrittenResponse = text;
+        previewResponse = null;
+        S.streamingContent = text;
+      }
+      if (previewFrozen()) return;
       cancelStreamingPaint(); // the rewrite replaces the body outright
-      rewrittenResponse = text;
-      S.streamingContent = text;
       if (S.streamingBodyEl) {
         const html =
           S.pendingRefineDiff && S.showEditorDiff
@@ -524,13 +572,14 @@ export async function processSSEStream(resp, container, holder, signal) {
     }
   }
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  if (!terminalReceived) throw new Error("Generation stream ended before completion");
 }
 
-function swapStreamingDraft(text, onRewrite) {
+function swapStreamingDraft(text, onRewrite, options) {
   if (S.editorDraftBaseline === null) S.editorDraftBaseline = S.streamingContent || "";
   const original = streamingDisplaySource(S.editorDraftBaseline);
   S.pendingRefineDiff = { original, ops: sentenceDiff(original, streamingDisplaySource(text)) };
-  onRewrite(text);
+  onRewrite(text, options);
 }
 
 function foreignSentence(o) {
@@ -587,7 +636,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
     case "draft_update":
       try {
         const draft = JSON.parse(data).draft;
-        if (draft !== S.streamingContent) swapStreamingDraft(draft, onRewrite);
+        if (draft !== S.streamingContent) swapStreamingDraft(draft, onRewrite, { preview: true });
       } catch (_) {}
       break;
     case "writer_rewrite":
@@ -779,6 +828,8 @@ export async function runStreamRequest(
   setGenerationStep("");
   $("send-btn").disabled = true;
   S.turnError = null; // this attempt supersedes the last failure
+  // Before the optimistic rows go in: what this request adds is what is new.
+  const anchor = streamAnchor(S.messages);
 
   if (cutoffMsgId != null) {
     const idx = S.messages.findIndex((m) => m.id === cutoffMsgId);
@@ -791,6 +842,8 @@ export async function runStreamRequest(
   S.lastDirectorData = null;
   clearInspectedMessage();
   renderMessages();
+  const op = beginStreamOperation(S.activeConvId);
+  op.anchor = anchor;
   const ct = $("chat-messages");
   const holder = { el: null };
   if (S.groupCast) {
@@ -802,9 +855,8 @@ export async function runStreamRequest(
     if (cutoffMsgId != null || anchorStream) pinStreamingMessage(holder.el);
     else scrollToBottom();
   }
-  S.abortController = new AbortController();
   try {
-    const resp = await streamPost(path, body, S.abortController.signal);
+    const resp = await streamPost(path, body, op.signal);
     if (!resp.ok) {
       const raw = await resp.text().catch(() => "");
       const f = parseFailure(raw);
@@ -817,25 +869,26 @@ export async function runStreamRequest(
       };
       if (!S.turnError.headline) S.turnError.headline = `Orb returned HTTP ${resp.status}.`;
     } else {
-      await processSSEStream(resp, ct, holder, S.abortController.signal);
+      await processSSEStream(resp, ct, holder, op.signal);
     }
   } catch (e) {
-    if (e.name === "AbortError") {
-      S.wasAborted = true;
-    } else {
+    // An AbortError is this operation dropping its own connection (a Stop the
+    // server could not confirm); settling below waits out the server's cleanup.
+    if (e.name !== "AbortError") {
       console.error("Stream failed client-side:", e);
       S.turnError = {
         headline: "Lost connection to Orb.",
         sentence: e.message,
         kind: "transport",
-        convId: S.activeConvId,
+        convId: op.convId,
         stage: phaseStage(),
         at: Date.now(),
       };
-      stopGeneration();
     }
+    op.disconnect();
   }
-  await afterStream();
+  const settled = await op.settle();
+  await afterStream(op, { settled });
   if (afterDone) await afterDone();
 }
 

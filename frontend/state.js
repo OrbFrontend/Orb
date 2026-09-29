@@ -73,11 +73,10 @@ export const S = {
   proseRewriteMsgId: null,
   streamingBodyEl: null,
   streamCutoffIndex: null,
-  abortController: null,
+  streamOp: null, // the stoppable stream this tab is running (stream_settle.js)
   streamingContent: null,
   pendingUserMsg: null,
   attachments: [],
-  wasAborted: false,
   generationStep: null, // empty while waiting; null when idle
   hideStreamingBox: false,
   contextSize: null,

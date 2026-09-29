@@ -8,7 +8,7 @@ import {
   setMessages,
 } from "./chat_core.js";
 import { clearInspectedMessage, clearWorkflowPhase, inspectMessage, setWorkflowPhase } from "./chat_inspector.js";
-import { runStreamRequest, turnPayload } from "./chat_stream.js";
+import { beginStreamOperation, endStreamOperation, runStreamRequest, turnPayload } from "./chat_stream.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageHtml } from "./message_html.js";
 import { confirmDelete } from "./modal.js";
@@ -127,12 +127,12 @@ export async function rewriteMessageProse(msgId) {
   if (!S.activeConvId || S.isStreaming || S.proseRewriteMsgId) return;
   if (!requestSendPermission()) return;
   const source = S.messages.find((m) => m.id === msgId)?.content || "";
-  const abortController = new AbortController();
+  const op = beginStreamOperation(S.activeConvId);
   const sendBtn = $("send-btn");
   const stopBtn = $("stop-btn");
-  let completed = false;
+  // The server's final word: the saved text, and whether the replacement committed.
+  let result = null;
   S.proseRewriteMsgId = msgId;
-  S.abortController = abortController;
   sendBtn.disabled = true;
   sendBtn.style.display = "none";
   stopBtn.style.display = "flex";
@@ -140,53 +140,63 @@ export async function rewriteMessageProse(msgId) {
   renderMessages();
   setWorkflowPhase(PROSE_REWRITE_CHANNEL, "Rewriting prose…");
   try {
-    const response = await streamPost(
-      convUrl(S.activeConvId, "messages", msgId, "prose-rewrite"),
-      {},
-      abortController.signal,
-    );
+    const response = await streamPost(convUrl(op.convId, "messages", msgId, "prose-rewrite"), {}, op.signal);
     if (!response.ok) {
       const body = await response.text().catch(() => "");
       const error = new Error(body || `Orb returned HTTP ${response.status}`);
       error.status = response.status;
       throw error;
     }
-    for await (const { event, data } of sseEvents(response.body, { signal: abortController.signal })) {
+    for await (const { event, data } of sseEvents(response.body, { signal: op.signal })) {
       if (event === "prose_rewrite_update") {
+        // Previews hold still once Stop is pressed; the saved row replaces them.
+        if (op.stopping) continue;
         try {
           applyProseRewriteSnapshot(msgId, JSON.parse(data).draft);
         } catch (_) {}
       } else if (event === "prose_rewrite_done") {
-        const result = JSON.parse(data);
-        completed = true;
+        result = JSON.parse(data);
         if (result.aborted) toast("Prose rewrite stopped");
         else if (result.warning) toast(`Prose rewriter didn't run: ${result.warning}`, true);
-        applyProseRewriteSnapshot(msgId, result.content);
-        setMessages(await api.get(convUrl(S.activeConvId, "messages")));
-        if (!result.warning && !result.aborted) toast(result.changed ? "Message rewritten" : "No prose changes needed");
+        else toast(result.changed ? "Message rewritten" : "No prose changes needed");
       } else if (event === "error") {
         throw new Error(data || "Prose rewrite failed");
       }
     }
-    if (!completed) throw new Error("Prose rewrite stream ended before completion");
+    if (!result) throw new Error("Prose rewrite stream ended before completion");
   } catch (e) {
-    if (abortController.signal.aborted || e?.name === "AbortError") toast("Prose rewrite stopped");
+    if (op.stopping || e?.name === "AbortError") toast("Prose rewrite stopped");
     else if (e.status === 503) toast("Turn on the Prose Rewriter and download a model in Workflow → Secondary");
     else {
       console.error("prose rewrite failed", e);
       toast("Prose rewrite failed", true);
     }
+    // A broken stream may leave the server still writing, so drop it and let
+    // settle() ask /stop. A refused request (an HTTP status) never opened one.
+    if (e.status == null) op.disconnect();
   } finally {
-    if (!completed) applyProseRewriteSnapshot(msgId, source);
+    // Whether or not the replacement committed before the stream ended, the
+    // saved row decides what the message shows once the server has settled.
+    await op.settle();
+    let synced = false;
+    if (S.activeConvId === op.convId) {
+      try {
+        setMessages(await api.get(convUrl(op.convId, "messages")));
+        synced = true;
+      } catch (e) {
+        toast(`Failed to sync messages: ${e.message}`, true);
+      }
+      if (!synced) applyProseRewriteSnapshot(msgId, result && !result.aborted ? result.content : source);
+    }
+    endStreamOperation(op);
     S.proseRewriteMsgId = null;
-    if (S.abortController === abortController) S.abortController = null;
     sendBtn.disabled = false;
     sendBtn.style.display = "flex";
     stopBtn.style.display = "none";
     stopBtn.title = "Stop generation";
     clearWorkflowPhase(PROSE_REWRITE_CHANNEL);
     renderMessages();
-    if (completed) scrollToMessage(msgId);
+    if (result) scrollToMessage(msgId);
   }
 }
 

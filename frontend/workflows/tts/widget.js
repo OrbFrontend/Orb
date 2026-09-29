@@ -15,6 +15,9 @@ import {
   registerClickHandler,
   resumeChannel,
   setWorkflowPhase,
+  startWorkflowJob,
+  stopButtonState,
+  workflowActionJob,
   workflowAttachmentUrl,
 } from "/static/workflow_api.js";
 import { alignableKeys, alignBlocks, alignmentKey, attachmentBlocks } from "./extract.js";
@@ -38,15 +41,21 @@ let autoplayTimer = null;
 let chipRaf = null;
 let menuEl = null;
 let menuCaret = null;
+const creating = new Map(); // msgId -> job
 
 export function initWidget(sharedConfig) {
   cfg = sharedConfig;
   registerAction(WORKFLOW_ID, "create", (el) => create(Number(el.dataset.msgId), el));
   registerAction(WORKFLOW_ID, "toggle", (el) => toggle(Number(el.dataset.att)));
-  registerAction(WORKFLOW_ID, "menu", (el) => (menuCaret === el ? closeMenu() : openMenu(el)));
+  registerAction(WORKFLOW_ID, "menu", (el) => {
+    const running = workflowActionJob(Number(el.dataset.msgId), Number(el.dataset.att));
+    if (running) running.stop();
+    else if (menuCaret === el) closeMenu();
+    else openMenu(el);
+  });
   // Menu items live on <body>, so the in-flight button handed to the shared
-  // handlers is the caret back in the toolbar: it is what gets disabled, and
-  // its chip is where a failure caption lands.
+  // handlers is the caret back in the toolbar: it is the render's Stop button
+  // while it runs, and its chip is where a failure caption lands.
   registerAction(WORKFLOW_ID, "regenerate", (el) => {
     window.workflowRegenerate?.(Number(el.dataset.msgId), Number(el.dataset.att), takeMenuAnchor(el));
   });
@@ -423,26 +432,38 @@ function speakOnClick(seg, msgId) {
 }
 
 async function create(msgId, btn) {
-  if (!getActiveConvId() || !canMutate()) return;
-  if (btn) btn.disabled = true;
+  const running = creating.get(msgId);
+  if (running) return running.stop();
+  const convId = getActiveConvId();
+  if (!convId || !canMutate()) return;
+  const job = startWorkflowJob({ convId, title: "Stop generating speech" });
+  creating.set(msgId, job);
+  job.show(btn);
   const ch = `workflow:tts:create:${msgId}`;
+  let created = false;
   try {
     setWorkflowPhase(ch, "Synthesizing speech...");
-    const res = await api.post(convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger"), {
+    const res = await api.post(job.url(convUrl(convId, "workflows", WORKFLOW_ID, "trigger")), {
       action: "create",
       message_id: msgId,
     });
-    if (res?.error) {
-      console.warn("tts create:", res.error);
-      if (btn) btn.disabled = false;
-      return;
-    }
-    await refreshConversationMessages(msgId);
+    if (res?.error) console.warn("tts create:", res.error);
+    else created = true;
   } catch (e) {
-    console.error("tts create failed", e);
-    if (btn) btn.disabled = false;
+    if (!job.stopping) console.error("tts create failed", e);
   } finally {
+    creating.delete(msgId);
     clearWorkflowPhase(ch);
+    job.end();
+  }
+  // A stopped synthesis answers 409 unless its speech was already being saved,
+  // so the saved rows decide.
+  if (job.stopping) {
+    await refreshConversationMessages(msgId);
+  } else if (created) {
+    // Until the refetch swaps in the speech chip, the button must not start a second one.
+    if (btn) btn.disabled = true;
+    await refreshConversationMessages(msgId);
   }
 }
 
@@ -460,7 +481,8 @@ export function createButtonRenderer(msg) {
   if (!canMutate()) {
     return `<button class="tts-create-btn" disabled title="Close other tabs to generate speech">${ICON_SPEAK}</button>`;
   }
-  return `<button class="tts-create-btn" title="Generate speech" data-wf-action="tts:create" data-msg-id="${msg.id}">${ICON_SPEAK}</button>`;
+  const stop = stopButtonState(creating.get(msg.id), "Generate speech");
+  return `<button class="tts-create-btn${stop.cls}"${stop.attrs} data-wf-action="tts:create" data-msg-id="${msg.id}">${ICON_SPEAK}</button>`;
 }
 
 export function attachmentRenderer(ctx) {
@@ -492,11 +514,12 @@ export function attachmentRenderer(ctx) {
     ? `<button ${item} data-wf-action="tts:rehydrate" data-msg-id="${msg?.id || ""}" data-att="${att.id}"${mutationDisabled}>Restore speech</button>`
     : "";
   const icon = state?.playing && !state.paused ? "pause" : "play";
+  const caret = stopButtonState(msg?.id ? workflowActionJob(msg.id, att.id) : null, "Speech options", "Speech options");
   return `<span class="tts-speech-chip${state?.playing ? (state.paused ? " is-paused" : " is-playing") : ""}" id="${instanceId}" data-msg-id="${msg?.id || ""}" data-root-id="${root.id}" data-att="${att.id}">
     <button type="button" class="tts-chip-play" title="Play speech" data-wf-action="tts:toggle" data-att="${att.id}"${evicted ? " disabled" : ""}>
       <span class="tts-chip-symbol" data-icon="${icon}" aria-hidden="true">${icon === "pause" ? ICON_PAUSE : ICON_PLAY}</span><span class="tts-chip-time">${shownTime}</span>
     </button>
-    <button type="button" class="tts-chip-caret" title="Speech options" aria-label="Speech options" aria-haspopup="menu" aria-expanded="false" data-wf-action="tts:menu" data-att="${att.id}">${ICON_CARET}</button>
+    <button type="button" class="tts-chip-caret${caret.cls}"${caret.attrs} aria-haspopup="menu" aria-expanded="false" data-wf-action="tts:menu" data-msg-id="${msg?.id || ""}" data-att="${att.id}">${ICON_CARET}</button>
     <template class="tts-menu-items">
       ${restore}
       <button ${item} data-wf-action="tts:regenerate" data-msg-id="${msg?.id || ""}" data-att="${att.id}"${mutationDisabled}>Regenerate speech</button>

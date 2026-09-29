@@ -104,6 +104,11 @@ async def feedback_step(
     ):
         yield event
 
+    # A stop cuts the call short; its arguments are not a finished judgement.
+    if client.is_aborted:
+        yield {"type": "done", "result": FeedbackResult()}
+        return
+
     agent_raw = json.dumps(resp, default=str)
     logger.info("Feedback step output:\n%s", agent_raw)
 

@@ -52,6 +52,9 @@ LAYERS = {
     # collapsed card block. Pure DOM, imports nothing, so it stays a leaf.
     "message_fit.js": 0,
     "generation_status.js": 0,
+    # A generation request's stop handshake and the rule for which saved reply
+    # is its own. A leaf so the settlement rules can be tested without a DOM.
+    "stream_settle.js": 0,
     # The card-CSS policy: a tokenizer, an allowlist and the per-message scoper.
     # A leaf so it can be tested without a DOM, which is the whole point of it
     # being a string pass rather than a trip through the CSSOM.
@@ -70,6 +73,9 @@ LAYERS = {
     "workflow_registry.js": 1,
     "utils.js": 1,
     "notify.js": 1,
+    # A workflow render the button that started it can stop: its job id, the
+    # stop request, and that button's Stop state.
+    "workflow_jobs.js": 1,
     # The browser half of prose rendering: DOMPurify, block layout and <style>
     # scoping. Sits beside utils.js because it is what makes utils.js output
     # safe to hand to innerHTML, and imports nothing above it.
@@ -204,6 +210,9 @@ FROZEN_ABI = {
     # chat / framework
     "setWorkflowPhase",
     "clearWorkflowPhase",
+    "startWorkflowJob",
+    "stopButtonState",
+    "workflowActionJob",
     "refreshConversationMessages",
     "selectWorkflowPipelinePass",
     "broadcastWorkflowMutation",

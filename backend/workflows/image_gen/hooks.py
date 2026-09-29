@@ -538,7 +538,11 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
             logger.exception("image generation failed for message %s", mid)
             error = "Image generation failed"
         finally:
-            task.cancel()
+            if not task.done():
+                # The client left (Stop, or the button pressed again): let the
+                # render withdraw its queued job before the stream closes.
+                task.cancel()
+                await asyncio.wait({task})
         for event in _terminal(attachment_id, error):
             yield event
 

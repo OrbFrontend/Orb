@@ -18,7 +18,7 @@ from ...database import (
 )
 from ...features.documents import DocumentContinuer, audit_document, patch_document
 from ...inference import AbortToken, client_from_settings
-from ..deps import _active_aborts, _CleanupStreamingResponse, _sse_stream
+from ..deps import _CleanupStreamingResponse, _sse_stream, stop_active_stream
 from ..schemas import (
     DocumentAuditRequest,
     DocumentAuditResponse,
@@ -117,12 +117,11 @@ async def api_generate_document(did: str, data: DocumentGenerateRequest, request
 
 @router.post("/api/documents/{did}/stop")
 async def api_stop_document(did: str):
-    """Abort the active continuation for this document, if any."""
-    token = _active_aborts.get(f"doc:{did}")
-    if token is not None:
-        token.abort()
+    """Abort the active continuation for this document, if any, and wait for it to settle."""
+    result = await stop_active_stream(f"doc:{did}")
+    if result["active"]:
         logger.info("Stop requested for document %s — abort signalled", scrub_log(did))
-    return {"ok": True}
+    return {"ok": True, **result}
 
 
 @router.post("/api/documents/{did}/audit")

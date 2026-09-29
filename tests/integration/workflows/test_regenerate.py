@@ -7,6 +7,7 @@ import os
 import tempfile
 from types import SimpleNamespace
 
+from backend.api import deps
 from backend.api.routes import workflows as routes
 from backend.database import (
     add_message,
@@ -480,5 +481,113 @@ async def test_streamed_regenerate_lands_the_sibling_after_the_client_drops(clie
         assert "Rendering..." in await anext(frames)
         await frames.aclose()  # the browser went away mid-render
         release.set()
-        await asyncio.gather(*routes._DETACHED)
+        await asyncio.gather(*deps._workflow_jobs.get(cid, ()))
     assert len(await get_workflow_attachments_for_message(mid)) == 2
+
+
+async def test_stop_cancels_a_streamed_regenerate_and_frees_its_group(client):
+    cid, mid = await seed_message(client)
+    aid = await _seed_workflow_attachment(mid, wid="stopped")
+    started, cancelled = asyncio.Event(), asyncio.Event()
+
+    async def regen(ctx, body):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        return []
+
+    wf = make_workflow("stopped", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
+    with register_for_test(wf):
+        request = asyncio.create_task(
+            client.post(
+                f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate",
+                json={},
+                headers={"Accept": "text/event-stream"},
+            )
+        )
+        await asyncio.wait_for(started.wait(), 5)
+        stop = await client.post(f"/api/conversations/{cid}/workflows/stop")
+        resp = await asyncio.wait_for(request, 5)
+    assert stop.json() == {"ok": True, "stopped": 1, "settled": True}
+    assert cancelled.is_set()
+    assert 'event: regenerate_error\ndata: {"status":409,"detail":"Stopped"}' in resp.text
+    assert len(await get_workflow_attachments_for_message(mid)) == 1
+    assert not deps.workflow_group_in_flight(aid)
+
+
+async def test_stop_cancels_a_reroll_and_answers_409(client):
+    cid, mid = await seed_message(client)
+    aid = await _seed_workflow_attachment(mid, wid="rerolled")
+    started = asyncio.Event()
+
+    async def reroll(ctx, params, seed):
+        started.set()
+        await asyncio.Event().wait()
+        return b"never"
+
+    wf = make_workflow("rerolled", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
+    with register_for_test(wf):
+        request = asyncio.create_task(
+            client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen", json={})
+        )
+        await asyncio.wait_for(started.wait(), 5)
+        await client.post(f"/api/conversations/{cid}/workflows/stop")
+        resp = await asyncio.wait_for(request, 5)
+    assert resp.status_code == 409
+    assert len(await get_workflow_attachments_for_message(mid)) == 1
+
+
+async def test_stop_by_job_cancels_only_that_render(client):
+    """Each render's own button stops it: a named Stop leaves the conversation's
+    other renders running, and a trigger (speech) is a render like any other."""
+    cid, mid = await seed_message(client)
+    aid = await _seed_workflow_attachment(mid, wid="twojobs")
+    rerolling, speaking, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def reroll(ctx, params, seed):
+        rerolling.set()
+        await release.wait()
+        return b"rerolled"
+
+    async def speak(ctx, body):
+        speaking.set()
+        await asyncio.Event().wait()
+        return {"attachment_id": None}
+
+    wf = make_workflow("twojobs", regenerate=lambda ctx, body: [], reroll_gen=reroll, on_demand=speak, produces_artifacts=True)
+    with register_for_test(wf):
+        rerolled = asyncio.create_task(
+            client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen?job=a", json={})
+        )
+        spoken = asyncio.create_task(client.post(f"/api/conversations/{cid}/workflows/twojobs/trigger?job=b", json={}))
+        await asyncio.wait_for(asyncio.gather(rerolling.wait(), speaking.wait()), 5)
+        stop = await client.post(f"/api/conversations/{cid}/workflows/stop?job=b")
+        assert (await asyncio.wait_for(spoken, 5)).status_code == 409
+        assert not rerolled.done()
+        release.set()
+        assert (await asyncio.wait_for(rerolled, 5)).status_code == 200
+    assert stop.json() == {"ok": True, "stopped": 1, "settled": True}
+    assert len(await get_workflow_attachments_for_message(mid)) == 2
+
+
+async def test_stop_lets_a_render_that_is_already_saving_land():
+    """Cancelling an await does not stop SQLite's worker thread, so a job inside
+    its write is waited for rather than reported stopped while its row commits."""
+    saving, release = asyncio.Event(), asyncio.Event()
+
+    async def job():
+        with deps.committing_workflow_job():
+            saving.set()
+            await release.wait()
+        return "saved"
+
+    task = deps.start_workflow_job("cid-saving", job())
+    await saving.wait()
+    stop = asyncio.create_task(deps.stop_workflow_jobs("cid-saving"))
+    await asyncio.sleep(0)
+    release.set()
+    assert await stop == {"stopped": 1, "settled": True}
+    assert task.result() == "saved"

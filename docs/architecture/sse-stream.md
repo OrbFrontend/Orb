@@ -73,7 +73,7 @@ pass being skipped.
 | `director_done` | Director data | Updates the inspector. |
 | `token` | Text delta | Appends visible Writer output. |
 | `writer_done` | `{editor_will_run}` | Ends the Writer phase. |
-| `draft_update` | `{draft}` | Optional cosmetic Editor or Prose Rewriter progress update. |
+| `draft_update` | `{draft}` | Optional cosmetic Editor or Prose Rewriter progress update. The browser never keeps it as the reply. |
 | `writer_rewrite` | `{refined_text}` | Replaces the visible draft after an Editor or workflow change. |
 | `editor_done` | Editor data | Updates the inspector. |
 | `feedback` | Feature data | Updates feature panels. |
@@ -122,18 +122,42 @@ turn fails or is cancelled before `_result`, persistence saves that state as a
 finished turn would: the latest authoritative draft (the streamed Writer text,
 or the Editor's latest draft) with the Director's moods, cooldowns, decisions,
 state changes, and the Inspector log. The `error` event still ends the stream.
-A turn with no reply text saves nothing.
+A turn with no reply text saves nothing, including the Director's moods.
 Persistence happens before `done`, so the browser can trust the server when the
 stream closes.
+
+The reply is saved at most once. Once the `_result` save has started, a
+cancellation waits for that same save and the fallback never runs; its INSERT
+may already have committed. A save that fails is raised as a `saving the reply`
+failure, which is reported as `error` even when the turn was stopped.
+
+"Authoritative" advances only with finished work:
+
+- the Editor's result grows with each completed patch batch, whole rewrite, or
+  post-processing edit, never with a call that Stop cut short;
+- a workflow's result grows with each whole replacement draft, complete
+  artifact, or message state that it hands over. Its
+  [`draft_update` previews](secondary-workflow.md#a-workflow-inside-a-turn)
+  never become part of the result.
 
 `afterStream()` then:
 
 - refetches messages and Director state;
-- finalizes the streaming bubble, or fully rerenders a group exchange;
+- finds this request's own saved reply: an assistant row that was not on screen
+  when the request started (and, in a group, has the same exchange and
+  speaker). The branch that a regeneration replaces is therefore never
+  mistaken for its result;
+- finalizes the streaming bubble with that row's id, or fully rerenders when
+  there is none (or for a group exchange). This also reveals a
+  hide-until-finished reply;
+- redraws the Editor diff against the saved reply, or drops it;
 - applies edits that were queued behind the conversation stream lock;
 - clears phase indicators.
 
 The stream is optimistic while it runs and authoritative after this refetch.
+Reply text that the server did not confirm (because the refetch failed, the Stop
+did not settle, or the turn failed) stays on screen as a row without an id. It
+cannot be targeted by message actions until the next sync.
 
 ## Stop, disconnect, and errors
 
@@ -141,6 +165,55 @@ Stop and a client disconnect signal the same conversation abort token. The
 backend stops upstream generation and persists any prose it has already
 received. A per-conversation stream lock prevents two generations from running
 at once.
+
+Stop does not drop the connection. The browser posts `/stop` and keeps reading:
+
+```text
+browser ── POST /stop ─────────────▶ abort token set
+        ◀──── writer_rewrite / ...    (stages wind down, nothing new starts)
+        ◀──── done                    (after the reply is saved)
+stream closes                          lock released
+        ◀── /stop: {active, settled}
+browser refetches
+```
+
+The backend records the stream that owns each conversation lock. `/stop` aborts
+that stream, then waits (up to 15 s) until it has settled: the generator,
+including its persistence, has finished and the lock has been released.
+Its answer is `{ok, active, settled}`. `active: false` means that nothing was
+registered when the request arrived, which does not prove that a request still
+in flight can never start.
+
+The browser drops the connection only when `/stop` failed, found nothing
+active, or did not settle, or when the stream did not close shortly after
+settlement. The server treats a dropped connection as Stop, and also checks for
+one right after the stream registers, before any generation, so Stop sent ahead
+of its request still stops it. After a drop, the browser posts `/stop` again
+and refetches only after that response.
+
+For streamed replies, the initial `/stop` request and settlement retry each
+have a 20-second deadline, including the response body. A timeout aborts that
+request and follows the same fallback as a failed request; a timed-out
+settlement retry leaves the reply unconfirmed. EOF without
+`done` or `error` is also a disconnect, so a truncated stream cannot claim that
+the server finished saving. Its received prose stays visible without an id if
+the refetch cannot confirm it.
+
+When the client goes away, the request is cancelled but the turn is not. The
+turn still finishes stopping: the stream runs its generator to the end with
+the token aborted, discards the events, and saves normally, for up to 10 s.
+Only then is the pending step cancelled and the fallback save used. The lock
+is held throughout, so a queued `/edit`, `/delete`, `/switch-branch`, or the
+next turn starts only after that save.
+
+After Stop, no new call or hook starts. A call that Stop cut short is
+discarded. Stop does not interrupt the save. The stopped turn ends with `done`,
+not `error`. A failure caused by cutting a call short is logged instead. A
+failed save is still reported as `error`.
+
+Once Stop is pressed, the browser freezes the bubble and repaints it from the
+saved row after settlement. `stopConversation()` is also used outside chat
+replies, for example by compression, and needs no bubble.
 
 `error` is terminal. `warning` is optional work that declined and does not stop
 the turn. An Editor call that fails is a `warning`: the reply keeps the best
@@ -158,7 +231,10 @@ dispatcher responsible for generated turns.
 without creating a message or branch, then passes the result through Format
 Consistency when that workflow is enabled. It emits optional
 `prose_rewrite_update` events and ends with `prose_rewrite_done`; its client loop
-is separate from the turn dispatcher.
+is separate from the turn dispatcher. The replacement is saved all at once, or
+not at all. Its client follows the same Stop and settlement handshake, then
+refetches the saved row. It shows that row whether or not the replacement
+committed before Stop.
 
 In one sentence: one request opens the stream, named events carry progress and
 results, tokens carry the visible draft, internal events stay server-side, and

@@ -70,8 +70,11 @@ from ...workflows.errors import WorkflowUserFacingError
 from ..deps import (
     _workflow_event_stream_response,
     attachment_content_response,
+    committing_workflow_job,
     locked_attachment_group,
     require_conversation,
+    start_workflow_job,
+    stop_workflow_jobs,
     workflow_group_in_flight,
 )
 from ..schemas import WorkflowConfigUpdate, WorkflowEnabledUpdate
@@ -229,8 +232,29 @@ async def api_set_workflow_enabled(workflow_id: str, data: WorkflowEnabledUpdate
 
 
 @router.post("/api/conversations/{cid}/workflows/{workflow_id}/trigger")
-async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(default={})):  # noqa: B008
-    """Run a workflow's on_demand hook against the current conversation state."""
+async def api_trigger_workflow(
+    cid: str,
+    workflow_id: str,
+    body: dict = Body(default={}),  # noqa: B008
+    job: str | None = None,
+):
+    """Run a workflow's on_demand hook against the current conversation state.
+
+    The hook runs as a workflow job, so Stop can cancel a long on-demand render
+    such as speech; a streaming result is stopped by closing its stream.
+    """
+    result = await _finished_job(start_workflow_job(cid, _trigger(cid, workflow_id, body), job=job))
+    # A streaming result is wrapped by the API layer -- the workflow returns a
+    # transport-neutral WorkflowEventStream, never an HTTP response. The response
+    # is built after the workflow locks release: the event iterator is lazy, so
+    # the hook's DB/prefix prep ran under the locks while the stream itself runs
+    # lock-free (matching the pre-refactor behavior). A dict is a plain JSON body.
+    if isinstance(result, WorkflowEventStream):
+        return _workflow_event_stream_response(result)
+    return result
+
+
+async def _trigger(cid: str, workflow_id: str, body: dict) -> Any:
     if get_workflow(workflow_id) is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
     # Gate before the lock so a disabled-workflow request does no DB work.
@@ -278,18 +302,29 @@ async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(def
                     character_id=card_id,
                     character=_readonly(card),
                 )
-                result = await sub.callable(od_ctx, body)
-    # A streaming result is wrapped by the API layer -- the workflow returns a
-    # transport-neutral WorkflowEventStream, never an HTTP response. The response
-    # is built after the workflow locks release: the event iterator is lazy, so
-    # the hook's DB/prefix prep ran under the locks while the stream itself runs
-    # lock-free (matching the pre-refactor behavior). A dict is a plain JSON body.
-    if isinstance(result, WorkflowEventStream):
-        return _workflow_event_stream_response(result)
-    return result
+                return await sub.callable(od_ctx, body)
 
 
-_DETACHED: set[asyncio.Task] = set()
+async def _finished_job(task: asyncio.Task[Any]) -> Any:
+    """A workflow job's result; one that Stop cancelled answers 409."""
+    await asyncio.wait({task})
+    if task.cancelled():
+        raise HTTPException(status_code=409, detail="Stopped")
+    return task.result()
+
+
+@router.post("/api/conversations/{cid}/workflows/stop")
+async def api_stop_workflow_jobs(cid: str, job: str | None = None):
+    """Stop the conversation's workflow renders, or only the one named *job*.
+
+    Answers once they have ended, bounded; ``settled`` is False when one was
+    still winding down at the deadline. An on-demand stream is stopped by
+    closing it instead.
+    """
+    result = await stop_workflow_jobs(cid, job=job)
+    if result["stopped"]:
+        logger.info("Stopped %d workflow job(s) for conversation %s", result["stopped"], scrub_log(cid))
+    return {"ok": True, **result}
 
 
 @router.post("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate")
@@ -300,22 +335,22 @@ async def api_regenerate_attachment(
     request: Request,
     body: dict = Body(default={}),  # noqa: B008
     conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+    job: str | None = None,
 ):
     """Append a new sibling variant under a workflow-produced attachment's root."""
     phases: asyncio.Queue[str | None] = asyncio.Queue()
-    task = asyncio.create_task(_regenerate(cid, mid, aid, body, conv, phases.put_nowait))
+    # A job, not the request: it outlives a dropped stream, so the sibling still
+    # lands for the client's recovery poll, and only Stop cancels it.
+    task = start_workflow_job(cid, _regenerate(cid, mid, aid, body, conv, phases.put_nowait), job=job)
     if "text/event-stream" not in request.headers.get("accept", ""):
-        return await task
-    # Outlives a dropped stream, so the sibling still lands for the client's recovery poll.
-    _DETACHED.add(task)
-    task.add_done_callback(_DETACHED.discard)
+        return await _finished_job(task)
     task.add_done_callback(lambda _: phases.put_nowait(None))
 
     async def events():
         while (label := await phases.get()) is not None:
             yield {"event": "phase_status", "data": {"label": label}}
         try:
-            yield {"event": "regenerate_done", "data": task.result()}
+            yield {"event": "regenerate_done", "data": await _finished_job(task)}
         except HTTPException as exc:
             yield {"event": "regenerate_error", "data": {"status": exc.status_code, "detail": exc.detail}}
 
@@ -411,7 +446,8 @@ async def _regenerate(cid: str, mid: int, aid: int, body: dict, conv: Conversati
             return {"attachments": [], "rejected_workflow_atts": []}
 
         try:
-            new_ids, helper_rejected = await insert_workflow_attachments(mid, fixed)
+            with committing_workflow_job():
+                new_ids, helper_rejected = await insert_workflow_attachments(mid, fixed)
         except (ValueError, LookupError, OSError):
             logger.exception("regenerate hook %r batch insert failed", wid)
             raise HTTPException(status_code=500, detail="Regenerate batch insert failed; see server logs") from None
@@ -515,6 +551,7 @@ async def api_reroll_gen_attachment(
     aid: int,
     body: dict = Body(default={}),  # noqa: B008
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+    job: str | None = None,
 ):
     """Generate a new sibling using the original's stored generation_metadata
     with a freshly minted seed.
@@ -544,6 +581,13 @@ async def api_reroll_gen_attachment(
         detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
     )
 
+    return await _finished_job(start_workflow_job(cid, _reroll_gen(cid, mid, aid, body, sub, settings_snapshot), job=job))
+
+
+async def _reroll_gen(
+    cid: str, mid: int, aid: int, body: dict, sub: Subscription, settings_snapshot: Mapping[str, Any]
+) -> dict:
+    wid = sub.workflow_id
     # Resolve-and-lock the canonical root together (see regenerate): the in-lock
     # snapshot and root id are read under the same lock the write will hold.
     async with locked_attachment_group(aid, mid) as (att, root_id):
@@ -576,7 +620,8 @@ async def api_reroll_gen_attachment(
             "annotation": att.get("annotation"),
         }
         try:
-            new_id, rejected = await insert_workflow_attachment(mid, new_attachment)
+            with committing_workflow_job():
+                new_id, rejected = await insert_workflow_attachment(mid, new_attachment)
         except (ValueError, LookupError, OSError):
             logger.exception("reroll_gen hook %r yielded an attachment that failed insert", wid)
             raise HTTPException(status_code=500, detail="reroll_gen insert failed; see server logs") from None
@@ -622,6 +667,7 @@ async def api_rehydrate_attachment(
     aid: int,
     body: dict = Body(default={}),  # noqa: B008, ARG001
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+    job: str | None = None,
 ):
     """Recover bytes for an evicted attachment using its stored seed + params.
 
@@ -660,7 +706,10 @@ async def api_rehydrate_attachment(
         action="rehydrate",
         detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
     )
+    return await _finished_job(start_workflow_job(cid, _rehydrate(cid, mid, aid, seed, settings_snapshot), job=job))
 
+
+async def _rehydrate(cid: str, mid: int, aid: int, seed: str, settings_snapshot: Mapping[str, Any]) -> dict:
     # Serialize same-root rehydrates the way /regenerate and /reroll-gen already
     # do for their sibling-tree mutations. Without this, two concurrent callers
     # would each run the full reroll_gen LLM call before the cache helper's
@@ -698,7 +747,8 @@ async def api_rehydrate_attachment(
             raise HTTPException(status_code=500, detail="reroll_gen handler returned no bytes")
 
         try:
-            await rehydrate_attachment(aid, bytes(data), consumption_metadata=new_consumption_metadata)
+            with committing_workflow_job():
+                await rehydrate_attachment(aid, bytes(data), consumption_metadata=new_consumption_metadata)
         except RehydrateAlreadyDoneError:
             # Race with a concurrent rehydrate that already restored the bytes.
             # End state is correct; surface as 409 so the client treats it as

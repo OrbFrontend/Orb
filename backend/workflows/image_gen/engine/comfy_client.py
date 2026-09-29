@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import time
 import uuid
 from collections.abc import Mapping
@@ -18,6 +19,8 @@ from .contracts import ImageGenerationError, ImageResult, ProgressCallback, emit
 from .display_encode import shrink_for_display
 from .image_bytes import MAX_IMAGE_BYTES, image_mime
 
+logger = logging.getLogger(__name__)
+
 REFERENCE_SUBFOLDER = "orb"
 # What `/view` takes to name one saved output, as `/history` reports it.
 VIEW_KEYS = ("filename", "subfolder", "type")
@@ -26,6 +29,8 @@ _MAX_VIEW_FIELD = 512
 # How long to wait between /history polls. Named so tests can shorten it;
 # a hardcoded sleep made the queue-progress test wait in real time.
 _POLL_INTERVAL = 1.0
+# How long a stopped render spends withdrawing its job from the server.
+_WITHDRAW_SECS = 5.0
 _OBJECT_INFO_TTL = 60.0
 _OBJECT_INFO_MAX_ENTRIES = 8
 _object_info_cache: dict[str, tuple[float, dict]] = {}
@@ -269,6 +274,39 @@ class ComfyClient:
                     ahead += 1
         return ahead
 
+    async def cancel(self, prompt_id: str, *, timeout: float = _WITHDRAW_SECS) -> None:
+        """Withdraw one prompt, queued or running, without touching anyone else's.
+
+        ``/api/jobs/{id}/cancel`` (ComfyUI since June 2026) does both, scoped to
+        the id. Older servers take a ``/queue`` delete for a waiting prompt and
+        ``/interrupt`` for a running one; ``/interrupt`` honours ``prompt_id``
+        only since mid-2025 and before that stops whatever is running, so it is
+        sent only while ``/queue`` lists this prompt as the running one.
+        """
+        async with self._http(timeout) as client:
+            response = await client.post(f"/api/jobs/{quote(prompt_id, safe='')}/cancel")
+            if response.status_code < 400:
+                return
+            await client.post("/queue", json={"delete": [prompt_id]})
+            response = await client.get("/queue")
+            queue = response.json() if response.status_code < 400 else None
+            running = queue.get("queue_running") if isinstance(queue, Mapping) else None
+            entries = running if isinstance(running, list) else []
+            if any(isinstance(entry, (list, tuple)) and len(entry) > 1 and entry[1] == prompt_id for entry in entries):
+                await client.post("/interrupt", json={"prompt_id": prompt_id})
+
+    async def _withdraw(self, submission: asyncio.Future[Any]) -> None:
+        """Stop the job a cancelled render queued, so the GPU is not left rendering
+        an image nobody will fetch. Best effort and bounded; never raises."""
+        try:
+            async with asyncio.timeout(_WITHDRAW_SECS):
+                submitted = await submission
+                prompt_id = submitted.get("prompt_id") if isinstance(submitted, Mapping) else None
+                if isinstance(prompt_id, str):
+                    await self.cancel(prompt_id)
+        except Exception as exc:
+            logger.warning("Could not withdraw a stopped ComfyUI render: %s", type(exc).__name__)
+
     async def generate(
         self,
         graph: dict,
@@ -277,12 +315,31 @@ class ComfyClient:
         timeout_seconds: float,
         progress: ProgressCallback | None = None,
     ) -> ImageResult:
-        submitted = await self._json(
-            "POST",
-            "/prompt",
-            timeout=min(30.0, timeout_seconds),
-            json_body={"prompt": graph, "client_id": uuid.uuid4().hex},
+        submission = asyncio.ensure_future(
+            self._json(
+                "POST",
+                "/prompt",
+                timeout=min(30.0, timeout_seconds),
+                json_body={"prompt": graph, "client_id": uuid.uuid4().hex},
+            )
         )
+        try:
+            # Shielded: a Stop landing mid-request must still learn the prompt id,
+            # or the job it queued renders on unseen.
+            submitted = await asyncio.shield(submission)
+            return await self._render(submitted, output_node, timeout_seconds=timeout_seconds, progress=progress)
+        except asyncio.CancelledError:
+            await self._withdraw(submission)
+            raise
+
+    async def _render(
+        self,
+        submitted: Any,
+        output_node: str,
+        *,
+        timeout_seconds: float,
+        progress: ProgressCallback | None,
+    ) -> ImageResult:
         if not isinstance(submitted, Mapping) or not isinstance(submitted.get("prompt_id"), str):
             raise ImageGenerationError("ComfyUI did not return a prompt id")
         prompt_id = submitted["prompt_id"]

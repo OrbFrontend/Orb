@@ -77,6 +77,8 @@ async def sheet_update_stage(
     client, model = cfg.agent_lane.client, cfg.agent_lane.base.model
     staged: list[dict] = []
     for member in targets:
+        if client.is_aborted:
+            break
         # The sheet this exchange reasons *from*: the member's undecided proposal when
         # it still applies, otherwise what the member actually reads today. Only a
         # proposal whose base still matches is carried — a mismatch means the user
@@ -107,6 +109,9 @@ async def sheet_update_stage(
         except Exception:
             logger.exception("Sheet update call failed for member %s; the rest of the exchange is unaffected", member.member_id)
             continue
+        # A stop cut this call short; the members already finished still stage.
+        if client.is_aborted:
+            break
         # On state.calls for the same reason the world stage puts its call there:
         # the pass bills one request per touched member, and a billed call the
         # inspector and the turn log never show is a cost with no record.

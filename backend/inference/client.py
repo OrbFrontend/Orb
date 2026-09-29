@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import re
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 import httpx
 
@@ -40,6 +41,46 @@ class AbortToken:
 
     async def wait(self) -> None:
         await self._event.wait()
+
+
+_T = TypeVar("_T")
+
+
+async def until_aborted(events: AsyncIterator[_T], token: AbortToken) -> AsyncIterator[_T]:
+    """Yield *events* until *token* fires, then interrupt the source.
+
+    Each step is raced against the token. On a stop (or if the caller is
+    cancelled) the pending step is cancelled and awaited, and the source is
+    closed, so work it had in flight -- a local rewrite, a remote render -- is
+    torn down rather than left running unread. An event that arrives once the
+    token has fired is discarded: it may have been built from a call the stop
+    cut short.
+    """
+    it = aiter(events)
+    abort_wait = asyncio.ensure_future(token.wait())
+    step: asyncio.Future[_T] | None = None
+    try:
+        while not token.is_aborted:
+            step = asyncio.ensure_future(anext(it))
+            await asyncio.wait({step, abort_wait}, return_when=asyncio.FIRST_COMPLETED)
+            if token.is_aborted:
+                return
+            try:
+                event = step.result()
+            except StopAsyncIteration:
+                return
+            step = None
+            yield event
+    finally:
+        abort_wait.cancel()
+        if step is not None:
+            step.cancel()
+            with contextlib.suppress(BaseException):
+                await step
+        aclose = getattr(it, "aclose", None)
+        if aclose is not None:
+            with contextlib.suppress(Exception):
+                await aclose()
 
 
 def reasoning_cfg(on: bool, prefill: str = "") -> dict:

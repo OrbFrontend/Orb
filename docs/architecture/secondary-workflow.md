@@ -227,6 +227,17 @@ config gates the post-hook alone. Its workflow card manages the model through
 the generic Local ML routes, which also own the shared llama-server runtime.
 A hook failure is isolated so the main reply and other workflows can continue.
 
+Stop is checked before each hook and after its locks are acquired, so no hook
+starts once the turn is stopped. The running hook is interrupted: its pending
+step is cancelled and its generator closed, so a local rewrite or remote
+render is torn down rather than waited for. Events it would have yielded after
+the stop, such as an auto-play cue, are dropped. What it had already handed
+over stays with the reply: a whole `draft_replaced` draft, a complete
+`attach_artifact`, and `set_message_state`. A hook's own `draft_update`
+previews never do. Pre-hooks follow the same rule. A hook needs no cancellation
+code of its own beyond letting `CancelledError` propagate, although its
+`finally` blocks do run.
+
 Use `forced_tool_call` for a one-shot tool call. Pass the context's prefix,
 enabled tools, schema overrides, client, and cache tracker so the call follows
 the same prompt and cache rules as the main turn. Its budget is the Agent lane's
@@ -289,6 +300,7 @@ PUT  /api/workflows/{wid}/config
 POST /api/workflows/{wid}/enabled
 POST /api/workflows/{wid}/query
 POST /api/conversations/{cid}/workflows/{wid}/trigger
+POST /api/conversations/{cid}/workflows/stop
 POST /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate
 POST /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen
 POST /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate
@@ -314,6 +326,22 @@ lock yet -- so clients confirm it across consecutive polls.
 With `Accept: text/event-stream`, `regenerate` streams each `ctx.phase(label)` as
 `phase_status`, then `regenerate_done` (the JSON body) or `regenerate_error`
 (`{status, detail}`). The render outlives a dropped stream.
+
+Workflow renders run beside the chat, so the chat Stop button leaves them
+alone; the button that started a render is its Stop button while it runs.
+Regenerate, reroll-gen, rehydrate, and the on-demand trigger run as
+per-conversation jobs. Each of those routes takes an optional `?job=<id>` the
+client picks, and `workflows/stop?job=<id>` cancels that job alone (without
+`job`, every job in the conversation), answering `{stopped, settled}` once
+they have ended (bounded); the stopped request then answers 409. `stopped: 0`
+means no job ran under that id yet or any more. A job already writing its
+sibling or restored bytes is waited for, not cancelled; an on-demand hook
+that writes its own attachment may still commit it as it is cancelled, so
+after a stop the client refetches and the saved rows decide. An on-demand
+stream is stopped by closing it instead, which cancels the hook; the hook
+must let its cleanup finish (the stream awaits it). A cancelled ComfyUI
+render withdraws its prompt by id; cloud image APIs are synchronous, so a
+stopped cloud render only drops the request and may still be billed.
 
 The manifest returns workflow identity and config form metadata. Config is a
 full replacement; a workflow's `config_normalizer` owns its valid shape and is
@@ -361,6 +389,16 @@ registerAction("my_workflow", "refresh", (element, event) => { /* ... */ });
 The facade also provides API helpers, modal and notification helpers, workflow
 phases, shared audio controls, text effects, message access, group cast data,
 and conversation repaint/refetch helpers.
+
+A button that starts a long render is that render's Stop button while it
+runs. `startWorkflowJob({ convId, title })` returns a job: `job.url(path)`
+names it on the request, `job.show(button)` turns the button over in place,
+`job.stop()` cancels it (`startWorkflowJob({ title, controller })` aborts the
+controller instead, for a stream), and `job.end()` turns every copy of the
+button back. A renderer that may repaint the button mid-render draws it from
+`stopButtonState(job, idleTitle)`. `workflowActionJob(msgId, attId)` is the
+job of the core regenerate, reroll, or restore running on an attachment, for a
+workflow that draws its own control for those.
 
 ## Authoring checklist
 

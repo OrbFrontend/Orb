@@ -190,8 +190,8 @@ async def test_generate_preserves_newlines(client, llm_mock):
 
 async def test_stop_with_and_without_active_token(client):
     did = (await client.post("/api/documents", json={})).json()["id"]
-    # no active generation → still a clean 200
-    assert (await client.post("/api/documents/" + did + "/stop")).json() == {"ok": True}
+    # no active generation → still a clean 200, saying nothing was running
+    assert (await client.post("/api/documents/" + did + "/stop")).json() == {"ok": True, "active": False, "settled": True}
 
 
 # ── token_probs wire: `event: probs` frames ───────────────────────────────────

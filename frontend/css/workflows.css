@@ -205,6 +205,27 @@
   cursor: default;
 }
 
+/* A running render's button is its Stop button (workflow_jobs.js). The icon
+   keeps its box, so nothing around it moves, and the stop square covers it. */
+.wf-running {
+  position: relative;
+}
+
+.wf-running > * {
+  visibility: hidden;
+}
+
+.wf-running::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--red);
+}
+
 .workflow-regen-error {
   font-size: 11px;
   color: var(--danger, #c66);

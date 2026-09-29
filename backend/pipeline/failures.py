@@ -31,6 +31,9 @@ STAGE_DIRECTOR = "director pass"
 STAGE_WRITER = "writer pass"
 STAGE_EDITOR = "editor pass"
 STAGE_WORKFLOWS = "workflow hook"
+# Saving the reply is not a pass, but a failure there is the one a stopped turn
+# must still report: the user was told nothing else about losing the reply.
+STAGE_SAVE = "saving the reply"
 
 
 def mark_stage(exc: BaseException, stage: str) -> None:

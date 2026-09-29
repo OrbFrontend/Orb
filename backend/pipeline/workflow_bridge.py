@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Collection, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
 from ..core import ChatMessage, workflow_character_state_lock, workflow_state_lock
-from ..inference import LLMClient, _KVCacheTracker
+from ..inference import AbortToken, LLMClient, _KVCacheTracker, until_aborted
 from ..prompting.tool_catalog import has_tool
 from ..workflows import (
     EV_ATTACH_ARTIFACT,
@@ -73,6 +73,11 @@ def _hook_warning(exc: Exception, workflow_id: str) -> dict | None:
     return {"event": "warning", "data": payload}
 
 
+def _hook_events(events: AsyncIterator[Any], abort: AbortToken | None) -> AsyncIterator[Any]:
+    """A hook's events, interrupted by a stop when the turn has an abort token."""
+    return events if abort is None else until_aborted(events, abort)
+
+
 @dataclass(slots=True)
 class _PostPipelineResult:
     """Final value of :func:`_run_post_pipeline`: the (possibly rewritten) draft
@@ -102,6 +107,7 @@ async def _run_post_pipeline(
     agent_client: LLMClient | None = None,
     agent_model_name: str = "",
     post_workflow_ids: Collection[str] | None = None,
+    on_accepted: Callable[[_PostPipelineResult], None] | None = None,
 ) -> AsyncIterator[dict | _PostPipelineResult]:
     """Run selected POST_PIPELINE hooks over the post-Editor draft.
 
@@ -111,9 +117,20 @@ async def _run_post_pipeline(
     are logged and skipped so one bad hook cannot crash the turn. By default
     every hook runs; ``post_workflow_ids`` lets an off-turn caller reuse this
     dispatcher for an explicit subset without firing unrelated workflows.
+
+    A stop (the client's abort token) starts no further hook and interrupts the
+    running one; its events after the stop, such as an auto-play cue, are
+    dropped. What a hook had already handed over -- a whole replacement draft, a
+    complete artifact, message state -- stays, and *on_accepted* receives the
+    result so far each time that grows, so a turn cancelled mid-hook still saves it.
     """
     staged_attachments: list[dict] = []
     staged_message_state: dict[str, dict] = {}
+    abort: AbortToken | None = getattr(client, "abort_token", None)
+
+    def accepted() -> None:
+        if on_accepted is not None:
+            on_accepted(_PostPipelineResult(draft, list(staged_attachments), dict(staged_message_state)))
 
     for sub in iter_subscriptions(HookType.POST_PIPELINE):
         if post_workflow_ids is not None and sub.workflow_id not in post_workflow_ids:
@@ -121,6 +138,8 @@ async def _run_post_pipeline(
         if not effective_workflow_enabled(sub.workflow_id, settings):
             logger.info("workflow %r post-pipeline hook suspended (disabled)", sub.workflow_id)
             continue
+        if abort is not None and abort.is_aborted:
+            break
         replaced_this_hook = False
         # Serialize same-(cid, workflow_id) writers against concurrent
         # /trigger calls and any other in-flight pipeline that reaches this
@@ -130,6 +149,9 @@ async def _run_post_pipeline(
             workflow_state_lock(conversation_id or "", sub.workflow_id),
             workflow_character_state_lock(character_id or "", sub.workflow_id),
         ):
+            # A stop that arrived while another writer held the lock starts nothing.
+            if abort is not None and abort.is_aborted:
+                break
             try:
                 post_ctx = PostCtx(
                     conversation_id=conversation_id or "",
@@ -151,7 +173,7 @@ async def _run_post_pipeline(
                     agent_client=agent_client if agent_client is not None else client,
                     agent_model_name=agent_model_name,
                 )
-                async for ev in sub.callable(post_ctx):
+                async for ev in _hook_events(sub.callable(post_ctx), abort):
                     t = ev.get("type") if isinstance(ev, dict) else None
                     if t == EV_DRAFT_REPLACED:
                         if replaced_this_hook:
@@ -172,6 +194,7 @@ async def _run_post_pipeline(
                             continue
                         draft = new_draft
                         replaced_this_hook = True
+                        accepted()
                         yield {
                             "event": "writer_rewrite",
                             "data": {"refined_text": draft},
@@ -194,6 +217,7 @@ async def _run_post_pipeline(
                         )
                         if staged is not None:
                             staged_attachments.append(staged)
+                            accepted()
                         continue
                     if t == EV_SET_MESSAGE_STATE:
                         # Written in _persist_result once the assistant row id is known.
@@ -206,6 +230,7 @@ async def _run_post_pipeline(
                             )
                             continue
                         staged_message_state[sub.workflow_id] = state
+                        accepted()
                         continue
                     # A dict carrying a "type" key is a control event; if it matched
                     # no known branch above it is malformed (e.g. a typo'd type, or a
@@ -344,16 +369,23 @@ async def _iterate_pre_pipeline_hooks(
 
     *accumulators* must be pre-populated with
     ``{"merged_enabled_tools": <dict>, "extras": []}``.
+
+    A stop starts no further hook and interrupts the running one.
     """
+    abort: AbortToken | None = getattr(client, "abort_token", None)
     for sub in iter_subscriptions(HookType.PRE_PIPELINE):
         if not effective_workflow_enabled(sub.workflow_id, settings):
             logger.info("workflow %r pre-pipeline hook suspended (disabled)", sub.workflow_id)
             continue
+        if abort is not None and abort.is_aborted:
+            break
         # Lock held for the hook's full lifetime to keep workflow_state RMW atomic.
         async with (
             workflow_state_lock(conversation_id, sub.workflow_id),
             workflow_character_state_lock(character_id or "", sub.workflow_id),
         ):
+            if abort is not None and abort.is_aborted:
+                break
             try:
                 pre_ctx = PreCtx(
                     conversation_id=conversation_id,
@@ -369,7 +401,7 @@ async def _iterate_pre_pipeline_hooks(
                     character_id=character_id,
                     character=_readonly(card),
                 )
-                async for ev in sub.callable(pre_ctx):
+                async for ev in _hook_events(sub.callable(pre_ctx), abort):
                     t = ev.get("type") if isinstance(ev, dict) else None
                     if t == EV_ENABLE_TOOLS:
                         tools = ev.get("tools")

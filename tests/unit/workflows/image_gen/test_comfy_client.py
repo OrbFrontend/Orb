@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 
@@ -382,3 +383,55 @@ async def test_a_loader_that_is_not_a_checkpoint_is_named_rather_than_generalise
     assert "'unet_name'" in message
     assert "node 11" in message
     assert "flux.gguf" in message
+
+
+async def _stop_mid_render(handler) -> None:
+    """Start a render that never completes, then cancel it the way Stop does."""
+    client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(handler))
+    render = asyncio.create_task(client.generate({"9": {}}, "9", timeout_seconds=30))
+    for _ in range(50):
+        await asyncio.sleep(0)
+    render.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await render
+
+
+@pytest.mark.asyncio
+async def test_a_stopped_render_cancels_its_own_job_by_id():
+    calls: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path))
+        if request.url.path == "/prompt":
+            return httpx.Response(200, json={"prompt_id": "p1", "number": 1})
+        if request.url.path == "/api/jobs/p1/cancel":
+            return httpx.Response(200, json={"cancelled": True})
+        if request.url.path == "/queue":
+            return httpx.Response(200, json={"queue_running": [[1, "p1"]], "queue_pending": []})
+        return httpx.Response(200, json={})  # /history: not finished yet
+
+    await _stop_mid_render(handler)
+    assert ("POST", "/api/jobs/p1/cancel") in calls
+    assert ("POST", "/interrupt") not in calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("running", "interrupted"), [("p1", True), ("someone-else", False)])
+async def test_an_older_server_is_interrupted_only_while_it_runs_this_job(running, interrupted):
+    """Before the jobs endpoint, `/interrupt` stops whatever is running, so on a
+    shared server it must not fire while another client's render holds the GPU."""
+    calls: list[tuple[str, str, bytes]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path, request.content))
+        if request.url.path == "/prompt":
+            return httpx.Response(200, json={"prompt_id": "p1", "number": 2})
+        if request.url.path == "/queue" and request.method == "GET":
+            return httpx.Response(200, json={"queue_running": [[1, running]], "queue_pending": []})
+        if request.url.path.startswith("/api/jobs/"):
+            return httpx.Response(404)
+        return httpx.Response(200, json={})
+
+    await _stop_mid_render(handler)
+    assert ("POST", "/queue", b'{"delete":["p1"]}') in calls
+    assert (("POST", "/interrupt", b'{"prompt_id":"p1"}') in calls) is interrupted

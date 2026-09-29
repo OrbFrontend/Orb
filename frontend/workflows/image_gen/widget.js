@@ -13,6 +13,8 @@ import {
   requestRepaint,
   setWorkflowPhase,
   sseEvents,
+  startWorkflowJob,
+  stopButtonState,
   streamPost,
   toast,
 } from "/static/workflow_api.js";
@@ -29,7 +31,7 @@ const FOCUS_VIEW_KEY = "orb.imageGen.focusView";
 const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 4 4 2-2 5 5"/></svg>`;
 let cfg;
 
-const inFlight = new Map(); // msgId -> AbortController
+const inFlight = new Map(); // msgId -> job
 
 const pendingEdits = new Map(); // attId -> edited fields
 const rerollEditSnapshots = new Map(); // attId -> edit object submitted by the current reroll
@@ -154,20 +156,20 @@ function clearPendingEdit(_msgId, attId) {
 }
 
 export function createButtonRenderer(msg) {
-  return messageButtonHtml(msg, { mutable: canMutate(), icon: ICON, escAttr });
+  const stop = stopButtonState(inFlight.get(msg?.id), "Visualize reply");
+  return messageButtonHtml(msg, { mutable: canMutate(), icon: ICON, escAttr, stop });
 }
 
+// Closing the stream is the stop: the server cancels the render with it.
 async function generate(msgId, button) {
-  if (inFlight.has(msgId)) {
-    inFlight.get(msgId).abort();
-    return;
-  }
+  const running = inFlight.get(msgId);
+  if (running) return running.stop();
   if (!getActiveConvId() || !canMutate()) return;
   const styleId = cfg.default_style || "realistic";
   const controller = new AbortController();
-  inFlight.set(msgId, controller);
-  button.classList.add("image-gen-generating");
-  button.title = "Cancel image generation";
+  const job = startWorkflowJob({ title: "Stop image generation", controller });
+  inFlight.set(msgId, job);
+  job.show(button);
   const channel = `workflow:image_gen:generate:${msgId}`;
   try {
     setWorkflowPhase(channel, "Composing image prompt...");
@@ -206,8 +208,7 @@ async function generate(msgId, button) {
   } finally {
     inFlight.delete(msgId);
     clearWorkflowPhase(channel);
-    button.classList.remove("image-gen-generating");
-    button.title = "Visualize reply";
+    job.end();
   }
 }
 

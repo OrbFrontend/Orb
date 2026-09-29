@@ -21,7 +21,7 @@ from .context import (
     _prepare_turn,
     _TurnSetup,
 )
-from .failures import STAGE_JUDGE, describe_failure, staged
+from .failures import STAGE_JUDGE, STAGE_SAVE, describe_failure, stage_of, staged
 from .orchestrator import _run_pipeline, open_turn_state, run_director_stage
 from .passes.director import cooldown
 from .passes.editor.editor import AUDIT_BASELINE_WINDOW
@@ -135,6 +135,12 @@ async def _run_turn_handler(
         async for event in body(ctx):
             yield event
     except Exception as e:
+        # A call the stop cut short can fail on the way out; the stop is its own
+        # explanation. A reply that could not be saved still is not.
+        if abort_token is not None and abort_token.is_aborted and stage_of(e) != STAGE_SAVE:
+            logger.info("%s ended by stop: %s", log_label, e, exc_info=True)
+            yield {"event": "done"}
+            return
         logger.exception("%s error", log_label)
         yield {"event": "error", "data": describe_failure(e)}
 

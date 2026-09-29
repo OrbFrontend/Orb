@@ -149,6 +149,10 @@ async def post_processing_step(
             label = fragment.get("label") or fragment.get("id", "")
             yield {"type": "failure", "during": "post_processing", "label": label, "error": exc}
             continue
+        # A stop cuts the call short; its edits may be half-written, so the
+        # draft keeps the earlier fragments' finished edits only.
+        if client.is_aborted:
+            break
 
         parsed = parse_tool_calls(resp)
         all_calls.extend(parsed)
