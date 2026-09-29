@@ -33,7 +33,7 @@ SEED_MOOD_FRAGMENTS = [
         "label": "Tense",
         "description": "Suspenseful, high-stakes atmosphere",
         "prompt_text": (
-            "Write with tension and unease. Use silence and pauses. Characters are hyper-aware "
+            "Write with tension and unease. Keep threats half-seen or unexplained. Characters are hyper-aware "
             "of their surroundings. Minimize humor unless dark or nervous. The reader should "
             "feel that something could go wrong at any moment."
         ),
