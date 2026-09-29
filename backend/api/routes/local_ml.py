@@ -88,6 +88,18 @@ async def _sync_selection(feature: str, *, prefer: str | None = None) -> dict:
     return await _config_blob()
 
 
+def _dependency_report() -> tuple[dict[str, tuple[bool, str]], tuple[bool, str]]:
+    """Every feature's ``deps_ok`` answer, plus the whole-extras one.
+
+    Run off the event loop: the first call really imports ``llama_cpp`` and
+    ``onnxruntime`` (~135 ms warm, several hundred cold). The page asks for this
+    status during its load burst, so inline it stalled every request queued
+    behind it, the settings lane's endpoint fetch among them. Later calls hit
+    ``sys.modules`` and cost microseconds.
+    """
+    return {f: dependencies.deps_ok(f) for f in catalog.MODELS}, dependencies.deps_ok()
+
+
 @router.get("/api/local-ml/status")
 async def api_local_ml_status():
     """Per-feature tri-state: extras installed? model present? feature enabled?
@@ -103,9 +115,10 @@ async def api_local_ml_status():
     """
     settings = await get_settings()
     enabled_map = settings.get("local_ml_enabled", {})
+    feature_deps, (deps_ok, reason) = await asyncio.to_thread(_dependency_report)
     features: dict[str, dict] = {}
     for f, spec in catalog.MODELS.items():
-        f_ok, f_reason = dependencies.deps_ok(f)
+        f_ok, f_reason = feature_deps[f]
         info: dict = {
             "present": assets.present(f),
             "enabled": enabled_map.get(f, True),
@@ -135,7 +148,6 @@ async def api_local_ml_status():
         if controller is not None:
             info.update(await controller.status_extra(settings))
         features[f] = info
-    deps_ok, reason = dependencies.deps_ok()
     return {
         "deps_ok": deps_ok,
         "reason": reason,

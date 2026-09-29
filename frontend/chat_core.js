@@ -219,12 +219,31 @@ function formatStatNum(n) {
   return String(n);
 }
 
+// renderMessages repaints the home screen for reasons unrelated to the stats --
+// settings and local-model status both land during page load -- and each repaint
+// refetched them: two aggregate queries per load, and a spotlight that could swap
+// characters mid-load. A fetch is reused for a window just long enough to cover that.
+const HOME_STATS_REUSE_MS = 10_000;
+let homeStatsFetch = null; // { at, promise }
+
+function fetchHomeStats() {
+  const now = Date.now();
+  if (!homeStatsFetch || now - homeStatsFetch.at > HOME_STATS_REUSE_MS) {
+    const promise = api.get("/stats");
+    homeStatsFetch = { at: now, promise };
+    promise.catch(() => {
+      if (homeStatsFetch?.promise === promise) homeStatsFetch = null;
+    });
+  }
+  return homeStatsFetch.promise;
+}
+
 async function renderHomeStats() {
   const grid = $("home-stats-grid");
   if (!grid) return;
   let s;
   try {
-    s = await api.get("/stats");
+    s = await fetchHomeStats();
   } catch {
     return;
   }

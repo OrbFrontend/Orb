@@ -15,6 +15,7 @@ from ..database.migrations import run_pending, stamp_all
 from ..features.presets import schema_safety_problems as preset_schema_safety_problems
 from ..inference.local_models import onnx_runtime
 from ..inference.local_models.llama_server import manager
+from .compression import TextGZipMiddleware
 from .deps import FRONTEND_DIR
 from .routes import ROUTERS
 from .routes.storage import VACUUM_FREE_BYTES, free_bytes
@@ -106,6 +107,13 @@ def build_app() -> FastAPI:
     """Construct and return the configured FastAPI application."""
     app = FastAPI(title="Orb", lifespan=lifespan)
 
+    # Registered before the cache-header middleware below, which makes it the
+    # inner of the two: that one is a BaseHTTPMiddleware, which re-emits every
+    # response as a stream, and behind it gzip could no longer tell a 200-byte
+    # reply from a large one. Level 6 rather than Starlette's 9: on a 900 KB
+    # conversation list, 9 costs ~20% more CPU for a body about 1% smaller.
+    app.add_middleware(TextGZipMiddleware, minimum_size=1024, compresslevel=6)
+
     @app.middleware("http")
     async def no_cache_middleware(request: Request, call_next):
         response = await call_next(request)
@@ -113,7 +121,12 @@ def build_app() -> FastAPI:
         # into caching by setting its own Cache-Control first (e.g. avatars, which
         # are large and rarely change — see api_get_avatar). setdefault preserves
         # the handler's value instead of clobbering it.
-        response.headers.setdefault("Cache-Control", "no-store")
+        #
+        # Static files revalidate instead: StaticFiles sends an ETag, so an
+        # unchanged module costs a bodyless 304 rather than a full download on
+        # every page load, and an edited one is still picked up by a reload.
+        default = "no-cache" if request.url.path.startswith("/static/") else "no-store"
+        response.headers.setdefault("Cache-Control", default)
         return response
 
     for router in ROUTERS:

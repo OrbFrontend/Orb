@@ -193,7 +193,7 @@ import { scoreSlop } from "./slop_score.js";
 import { S } from "./state.js";
 import { initTabLock } from "./tabLock.js";
 import { $, fromMessageBody } from "./utils.js";
-import { loadWorkflowModules } from "./workflow_loader.js";
+import { loadWorkflowModules, preloadWorkflowModules } from "./workflow_loader.js";
 import { initWorkflowTextInteraction } from "./workflow_text_interaction.js";
 
 function toggleSection(header) {
@@ -455,72 +455,53 @@ if (!S.activeConvId) {
   renderMessages();
 }
 
+/** Run one startup load, logging a failure without stopping the others. */
+async function startupStep(what, load) {
+  try {
+    await load();
+  } catch (e) {
+    console.error(`Failed to ${what}:`, e);
+  }
+}
+
 async function initAll() {
   initMobileUi({ closeBurger });
-
-  try {
-    await loadSettings();
-  } catch (e) {
-    console.error("Failed to load settings:", e);
-  }
-
-  try {
-    await loadInteractiveFragments();
-  } catch (e) {
-    console.error("Failed to load interactive fragments:", e);
-  }
-
-  try {
-    await loadMoodFragments();
-  } catch (e) {
-    console.error("Failed to load mood fragments:", e);
-    $("frag-list").innerHTML =
-      '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">Failed to load mood fragments</div>';
-  }
-
-  try {
-    await loadConversations();
-  } catch (e) {
-    console.error("Failed to load conversations:", e);
-  }
-
-  try {
-    await loadCharacters();
-  } catch (e) {
-    console.error("Failed to load characters:", e);
-  }
-
   setWorldProposalRefresh(refreshConversationMessages);
   initWorldProposalActions();
-  try {
-    await deactivateLinkedWorlds();
-  } catch (e) {
-    console.error("Failed to deactivate linked worlds:", e);
-  }
-  try {
-    await loadWorlds();
-  } catch (e) {
-    console.error("Failed to load worlds:", e);
-  }
-
   initDocumentMode();
-  try {
-    await loadDocuments();
-  } catch (e) {
-    console.error("Failed to load documents:", e);
-  }
 
-  try {
-    await loadWorkflowManifest();
-  } catch (e) {
-    console.error("Failed to load workflow manifest:", e);
-  }
-
-  try {
-    await loadWorkflowModules();
-  } catch (e) {
-    console.error("Failed to load workflow modules:", e);
-  }
+  // Independent lanes load concurrently, each keeping its own order. Run one
+  // after another they were a dozen round trips end to end, which a phone on a
+  // remote link paid for one at a time.
+  const manifest = startupStep("load workflow manifest", loadWorkflowManifest).then(preloadWorkflowModules);
+  const settings = startupStep("load settings", loadSettings);
+  await Promise.all([
+    // Conversations first: loadCharacters fetches the (large) conversation list
+    // itself when S.conversations is not set yet.
+    startupStep("load conversations", loadConversations).then(() => startupStep("load characters", loadCharacters)),
+    startupStep("deactivate linked worlds", deactivateLinkedWorlds).then(() => startupStep("load worlds", loadWorlds)),
+    // These render against state loadSettings fills in (the Agent switch and
+    // enabled tools gate the fragment lists), so they wait for it.
+    settings.then(() =>
+      Promise.all([
+        startupStep("load interactive fragments", loadInteractiveFragments),
+        startupStep("load mood fragments", async () => {
+          try {
+            await loadMoodFragments();
+          } catch (e) {
+            $("frag-list").innerHTML =
+              '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">Failed to load mood fragments</div>';
+            throw e;
+          }
+        }),
+        startupStep("load documents", loadDocuments),
+        // Workflow modules register UI in the order they evaluate, so they still
+        // evaluate one at a time in manifest order; the preload above has their
+        // entry files in flight already.
+        manifest.then(() => startupStep("load workflow modules", loadWorkflowModules)),
+      ]),
+    ),
+  ]);
 }
 
 initAll();

@@ -117,7 +117,6 @@ CREATE TABLE IF NOT EXISTS character_cards (
     creator TEXT NOT NULL DEFAULT '',
     character_version TEXT NOT NULL DEFAULT '',
     alternate_greetings TEXT NOT NULL DEFAULT '[]',
-    avatar_b64 TEXT DEFAULT NULL,
     avatar_mime TEXT DEFAULT NULL,
     source_format TEXT NOT NULL DEFAULT 'manual',
     world_id TEXT DEFAULT NULL REFERENCES worlds(id) ON DELETE SET NULL,
@@ -135,7 +134,15 @@ CREATE TABLE IF NOT EXISTS character_cards (
     -- recomputed on every scan and only this is stored. The stamp is
     -- f"{DEDUPE_REVISION}:{updated_at}"; a mismatch means re-hash.
     avatar_dhash TEXT NOT NULL DEFAULT '',
-    avatar_dhash_stamp TEXT NOT NULL DEFAULT ''
+    avatar_dhash_stamp TEXT NOT NULL DEFAULT '',
+    -- Last on purpose, and it must stay last. An avatar is hundreds of KB of
+    -- base64 spilling across overflow pages, and SQLite reaches any column
+    -- stored after it only by walking that chain: with the avatar mid-row the
+    -- library list read ~370 MB to show 400 names (50 ms warm, 2.4 ms with it
+    -- last). A new column goes above this line; an upgrading install's ALTER
+    -- TABLE ADD COLUMN lands after it instead, which is correct but slow for
+    -- that column until a rebuild migration (see 0073) restores the order.
+    avatar_b64 TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS character_expressions (
