@@ -443,7 +443,7 @@ def refine_ooc(render: int, turns_left: int, *, supports_negative: bool = True, 
         "list only the visible problems, most important first. Set `done` to true when no problem is worth another "
         "render, and set `scene` and `avoid` to null. Otherwise set `done` to false and write the complete revised "
         "prompt in `scene`. Keep the parts that worked. Fix each problem: make its wording more explicit, move it "
-        "earlier, or remove the words that caused it. The image model reads only the new prompt, never this review. "
+        "earlier, or remove the words that caused it. If it's completely mangled or wrong, rewrite from scratch. "
         f"{seed}Use the same format rules as before. {avoid}{last} Call refine_image_prompt.]"
     )
 

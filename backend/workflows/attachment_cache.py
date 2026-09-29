@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ..database.connection import get_db
@@ -524,52 +525,133 @@ async def insert_workflow_attachment(
 ) -> tuple[int | None, dict | None]:
     """Cache and insert one workflow attachment."""
     parent_id = attachment.get("parent_attachment_id")
+    async with get_db() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        new_id, rejected = await _insert_one_on(db, message_id, attachment)
+        if new_id is not None and mark_active and isinstance(parent_id, int) and not isinstance(parent_id, bool):
+            await _set_active_sibling_on(db, parent_id, new_id)
+        await db.commit()
+    return new_id, rejected
+
+
+async def insert_workflow_variant(
+    message_id: int, attachment: dict, *, group: Sequence[int] = (), shown: int | None = None
+) -> tuple[int | None, dict | None]:
+    """Insert one render of a run that is still producing them.
+
+    The row joins the group of the newest id in `group` that still exists on the
+    message, or starts a group when none does -- the user may delete a render while
+    the run goes on. It becomes the active variant when `shown` is None, or while
+    `shown` is still the variant on show: a user who paged to another one mid-run
+    stays on it.
+
+    A stop that lands mid-write lets the row commit before the cancellation
+    propagates, so a render the user already saw is never lost to Stop.
+    """
+
+    async def write() -> tuple[int | None, dict | None]:
+        async with get_db() as db:
+            await db.execute("BEGIN IMMEDIATE")
+            root_id = await _surviving_root_on(db, message_id, group)
+            on_show = await _variant_on_show_on(db, root_id) if root_id is not None else None
+            new_id, rejected = await _insert_one_on(db, message_id, {**attachment, "parent_attachment_id": root_id})
+            if new_id is not None and root_id is not None and (shown is None or on_show == shown):
+                await _set_active_sibling_on(db, root_id, new_id)
+            await db.commit()
+        return new_id, rejected
+
+    task = asyncio.ensure_future(write())
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await asyncio.wait({task})
+        raise
+
+
+async def _surviving_root_on(db, message_id: int, group: Sequence[int]) -> int | None:
+    for att_id in reversed(group):
+        rows = list(
+            await db.execute_fetchall(
+                "SELECT id, parent_attachment_id FROM workflow_attachments WHERE id = ? AND message_id = ?",
+                (att_id, message_id),
+            )
+        )
+        if rows:
+            return rows[0]["parent_attachment_id"] or rows[0]["id"]
+    return None
+
+
+async def _variant_on_show_on(db, root_id: int) -> int | None:
+    """The group member the renderer shows: the active one, else the newest."""
+    rows = list(
+        await db.execute_fetchall(
+            "SELECT a.id FROM workflow_attachments a JOIN workflow_attachments r ON r.id = ? "
+            "WHERE a.id = r.active_sibling_id AND (a.id = r.id OR a.parent_attachment_id = r.id)",
+            (root_id,),
+        )
+    )
+    if rows:
+        return rows[0]["id"]
+    rows = list(
+        await db.execute_fetchall(
+            "SELECT MAX(id) AS id FROM workflow_attachments WHERE id = ? OR parent_attachment_id = ?",
+            (root_id, root_id),
+        )
+    )
+    return rows[0]["id"] if rows else None
+
+
+async def set_workflow_consumption_metadata(attachment_id: int, consumption_metadata: dict) -> None:
+    """Rewrite one row's consumption metadata, for a verdict that arrives after its render."""
+    encoded = _encode_metadata_field(consumption_metadata, "consumption_metadata", "", str(attachment_id))
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE workflow_attachments SET consumption_metadata = ? WHERE id = ?",
+            (encoded, attachment_id),
+        )
+        await db.commit()
+
+
+async def _insert_one_on(db, message_id: int, attachment: dict) -> tuple[int | None, dict | None]:
+    """Evict for, then insert, one attachment inside the caller's write transaction."""
+    parent_id = attachment.get("parent_attachment_id")
     new_size = _estimate_size(attachment)
     workflow_id = attachment.get("workflow_id") or ""
 
-    async with get_db() as db:
-        await db.execute("BEGIN IMMEDIATE")
+    if not _is_produces_artifacts_workflow(workflow_id):
+        # Only declared artifact workflows may persist rows; reject
+        # before any DB writes so BEGIN IMMEDIATE rolls back clean.
+        return (None, {**attachment, "reason": WORKFLOW_NOT_PRODUCES_ARTIFACTS_REASON})
 
-        if not _is_produces_artifacts_workflow(workflow_id):
-            # Only declared artifact workflows may persist rows; reject
-            # before any DB writes so BEGIN IMMEDIATE rolls back clean.
-            return (None, {**attachment, "reason": WORKFLOW_NOT_PRODUCES_ARTIFACTS_REASON})
+    if isinstance(parent_id, int) and not isinstance(parent_id, bool):
+        await _check_flat_parent_on(db, parent_id, message_id)
 
-        if isinstance(parent_id, int) and not isinstance(parent_id, bool):
-            await _check_flat_parent_on(db, parent_id, message_id)
+    budget = await _get_budget_bytes_on(db)
+    insert_as_marker = new_size > budget
+    if insert_as_marker and not _is_rehydratable(attachment):
+        return (None, {**attachment, "reason": OVERSIZE_NO_METADATA_REASON})
 
-        budget = await _get_budget_bytes_on(db)
-        insert_as_marker = new_size > budget
-        if insert_as_marker and not _is_rehydratable(attachment):
+    candidates = await _byte_bearing_candidates_on(db)
+    occupied = sum(c["size"] for c in candidates)
+    shortfall = 0 if insert_as_marker else (occupied + new_size) - budget
+    victims = plan_eviction(candidates, shortfall)
+
+    # Pinned legacy rows may leave too little safe capacity for this
+    # artifact. Preserve the new row as a marker when it is recoverable;
+    # otherwise reject it instead of destroying an irreplaceable old row.
+    if not insert_as_marker and not _covered(victims, shortfall):
+        if not _is_rehydratable(attachment):
             return (None, {**attachment, "reason": OVERSIZE_NO_METADATA_REASON})
+        insert_as_marker = True
+        victims = plan_eviction(candidates, occupied - budget)
 
-        candidates = await _byte_bearing_candidates_on(db)
-        occupied = sum(c["size"] for c in candidates)
-        shortfall = 0 if insert_as_marker else (occupied + new_size) - budget
-        victims = plan_eviction(candidates, shortfall)
+    for victim in victims:
+        await _evict_on(db, victim["id"])
 
-        # Pinned legacy rows may leave too little safe capacity for this
-        # artifact. Preserve the new row as a marker when it is recoverable;
-        # otherwise reject it instead of destroying an irreplaceable old row.
-        if not insert_as_marker and not _covered(victims, shortfall):
-            if not _is_rehydratable(attachment):
-                return (None, {**attachment, "reason": OVERSIZE_NO_METADATA_REASON})
-            insert_as_marker = True
-            victims = plan_eviction(candidates, occupied - budget)
-
-        for victim in victims:
-            await _evict_on(db, victim["id"])
-
-        new_id = await insert_workflow_attachment_row(message_id, attachment, db=db, insert_as_evicted=insert_as_marker)
-        # Birth-counts-as-access: every new row starts with one counter entry
-        # so it is never eviction-eligible by virtue of an empty access log.
-        await _record_access_inner(db, [new_id])
-
-        if mark_active and isinstance(parent_id, int) and not isinstance(parent_id, bool):
-            await _set_active_sibling_on(db, parent_id, new_id)
-
-        await db.commit()
-
+    new_id = await insert_workflow_attachment_row(message_id, attachment, db=db, insert_as_evicted=insert_as_marker)
+    # Birth-counts-as-access: every new row starts with one counter entry
+    # so it is never eviction-eligible by virtue of an empty access log.
+    await _record_access_inner(db, [new_id])
     return (new_id, None)
 
 

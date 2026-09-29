@@ -156,8 +156,9 @@ function clearPendingEdit(_msgId, attId) {
 }
 
 export function createButtonRenderer(msg) {
-  const stop = stopButtonState(inFlight.get(msg?.id), "Visualize reply");
-  return messageButtonHtml(msg, { mutable: canMutate(), icon: ICON, escAttr, stop });
+  const job = inFlight.get(msg?.id);
+  const stop = stopButtonState(job, "Visualize reply");
+  return messageButtonHtml(msg, { mutable: canMutate(), icon: ICON, escAttr, stop, running: !!job });
 }
 
 // Closing the stream is the stop: the server cancels the render with it.
@@ -182,6 +183,7 @@ async function generate(msgId, button) {
     let attachmentId = null;
     let terminated = false;
     let failure = null;
+    let landed = 0;
     for await (const event of sseEvents(response.body, { signal: controller.signal })) {
       let data = {};
       try {
@@ -190,6 +192,9 @@ async function generate(msgId, button) {
         data = {};
       }
       if (event.event === "phase_status" && data.label) setWorkflowPhase(channel, data.label);
+      // Each refinement render lands as it is made; only the first is scrolled to,
+      // so a user who scrolled away to read is left there.
+      if (event.event === "image_gen_render") await refreshConversationMessages(landed++ ? null : msgId);
       if (event.event === "image_gen_error") failure = data.message || "Image generation failed";
       if (event.event === "image_gen_done") {
         attachmentId = data.attachment_id;
@@ -198,9 +203,11 @@ async function generate(msgId, button) {
     }
     if (!terminated && !failure) failure = "Image generation did not complete";
     if (failure) toast(failure, "error");
-    if (attachmentId) await refreshConversationMessages(msgId);
+    if (attachmentId) await refreshConversationMessages(landed ? null : msgId);
   } catch (e) {
-    if (e?.name !== "AbortError") {
+    // Stopped: the renders saved so far stay, and the saved rows decide what shows.
+    if (e?.name === "AbortError") await refreshConversationMessages();
+    else {
       console.warn("image generation stream dropped; polling for the result", e);
       if (!(await pollForAttachment(msgId, controller.signal)) && !controller.signal.aborted)
         toast("Image generation failed", "error");
@@ -209,6 +216,8 @@ async function generate(msgId, button) {
     inFlight.delete(msgId);
     clearWorkflowPhase(channel);
     job.end();
+    // The button outlived the first render only as this run's Stop.
+    requestRepaint();
   }
 }
 
