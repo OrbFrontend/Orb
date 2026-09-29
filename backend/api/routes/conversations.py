@@ -97,12 +97,12 @@ from ...prompting import (
     resolve_mood_fragment_randoms,
 )
 from ..deps import (
-    _active_aborts,
     _CleanupStreamingResponse,
     _sse_stream,
     profile_draft_failures,
     require_conversation,
     rows_response,
+    stop_active_stream,
 )
 from ..schemas import (
     CheckpointRequest,
@@ -691,12 +691,21 @@ async def api_checkpoint_conversation(
 
 @router.post("/api/conversations/{cid}/stop")
 async def api_stop_generation(cid: str):
-    """Abort the active LLM generation for this conversation, if any."""
-    token = _active_aborts.get(cid)
-    if token is not None:
-        token.abort()
-        logger.info("Stop Generation requested for conversation %s — abort signalled", scrub_log(cid))
-    return {"ok": True}
+    """Stop the conversation's active stream and wait, bounded, for it to settle.
+
+    ``settled`` means the stream has finished saving what it keeps and released
+    the conversation, so a refetch now reads the final result. ``active: False``
+    means nothing was registered when this arrived, which a client whose own
+    request is still in flight must not read as "stopped".
+    """
+    result = await stop_active_stream(cid)
+    if result["active"]:
+        logger.info(
+            "Stop Generation requested for conversation %s — %s",
+            scrub_log(cid),
+            "settled" if result["settled"] else "still settling",
+        )
+    return {"ok": True, **result}
 
 
 @router.get("/api/conversations/{cid}/context-size")

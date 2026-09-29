@@ -379,6 +379,8 @@ async def editor_stage(
             post_processing_needed,
             feedback_needed,
         )
+        # The draft the browser was last told is authoritative.
+        announced = state.resp_text
         # A failed Editor call does not abort the turn: editor_pass keeps the
         # best draft reached and reports the failure, which surfaces as a
         # non-terminal ``warning`` -- unless the user already stopped the turn,
@@ -419,14 +421,18 @@ async def editor_stage(
                     "data": {"pass": "editor", "delta": state.add_reasoning("editor", event)},
                 }
             elif event["type"] == "draft_update":
-                # Cosmetic intermediate paint; the done→writer_rewrite block below
-                # stays the sole authority over state.resp_text.
+                # Each one is a finished patch batch, rewrite, or fragment edit, so
+                # the turn keeps it if it is stopped before ``done``. To the browser
+                # it stays a cosmetic paint: ``writer_rewrite`` below is still the
+                # one announcement of the Editor's result.
+                state.resp_text = event["draft"]
                 yield {"event": "draft_update", "data": {"draft": event["draft"]}}
             elif event["type"] == "done":
                 state.latency += int(event.get("elapsed", 0) or 0)
                 refined_draft = event["draft"]
-                if refined_draft is not None and refined_draft != state.resp_text:
-                    state.resp_text = refined_draft
+                state.resp_text = announced if refined_draft is None else refined_draft
+                if state.resp_text != announced:
+                    announced = state.resp_text
                     yield {
                         "event": "writer_rewrite",
                         "data": {"refined_text": state.resp_text},
@@ -445,6 +451,10 @@ async def editor_stage(
                         "event": "feedback",
                         "data": {"values": state.feedback_values},
                     }
+        # A pass that failed outside its sub-steps ends without ``done``; the
+        # draft it had reached is still the reply, so announce it.
+        if state.resp_text != announced:
+            yield {"event": "writer_rewrite", "data": {"refined_text": state.resp_text}}
     else:
         logger.info(
             "Editor pass skipped (do_edit=%s, post_processing=%s, feedback=%s, draft=%d chars)",
@@ -645,6 +655,12 @@ async def _run_edit_loop(
                     exc_info=True,
                 )
                 raise
+
+            # A stop cuts the call short: a half-streamed rewrite or patch list is
+            # not an edit, so the draft stays what the finished iterations made it.
+            if client.is_aborted:
+                logger.info("Editor iteration %d: stopped mid-call, discarding its output", iteration + 1)
+                break
 
             raw = json.dumps(resp, default=str)
             debug_parts.append(f"Iteration {iteration + 1} response:\n{raw}")

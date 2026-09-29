@@ -145,3 +145,59 @@ async def test_editor_iteration_failure_stops_the_loop_and_keeps_the_draft():
     assert str(events[2]["error"]) == "LLM API exploded"
     assert events[3]["draft"] == "Fixed 0. Sentence 1."
     assert [call["name"] for call in events[3]["tool_calls"]] == ["editor_apply_patch"]
+
+
+@pytest.mark.asyncio
+async def test_a_stop_mid_call_keeps_finished_patches_and_discards_the_cut_short_output():
+    """Iteration 1's patch is finished work and stays. Stop lands during
+    iteration 2, whose response is whatever had streamed by then: a rewrite
+    built from it is not an edit, so the draft stays iteration 1's and nothing
+    further runs."""
+    client = _make_client()
+    llm_call_count = 0
+
+    async def fake_complete(*args, **kwargs):
+        nonlocal llm_call_count
+        llm_call_count += 1
+        if llm_call_count == 1:
+            call = {"name": "editor_apply_patch", "arguments": json.dumps({"patches": [{"id": 1, "replace": "Fixed 0."}]})}
+        else:
+            client.abort()
+            call = {"name": "editor_rewrite", "arguments": json.dumps({"rewritten_text": "Half a rewr"})}
+        yield {"type": "done", "message": {"tool_calls": [{"id": f"tc{llm_call_count}", "function": call}], "content": ""}}
+
+    client.complete = fake_complete
+    audits = 0
+
+    async def fake_run_contextual_audit(draft, phrase_bank, prev_msgs, audit_toggles=None, user_message=""):
+        nonlocal audits
+        audits += 1
+        if audits > 2:
+            pytest.fail("the loop audited again after the stop")
+        report = _make_report(4 - audits)
+        return report, build_targets(report, draft)
+
+    with patch("backend.pipeline.passes.editor.editor._run_contextual_audit", new=fake_run_contextual_audit):
+        base = CachedBase(
+            prefix=({"role": "system", "content": "sys"},),
+            tools=tuple(enabled_schemas({"editor_apply_patch": True}, {})),
+            model="test-model",
+        )
+        events = [
+            event
+            async for event in editor_pass(
+                client,
+                base,
+                effective_msg="user msg",
+                draft="Sentence 0. Sentence 1.",
+                settings={"model_name": "test-model", "enabled_tools": {"editor_apply_patch": True}},
+                phrase_bank=[[]],
+                audit_enabled=True,
+                length_guard=None,
+                feedback_fragments=[{"id": "mood", "label": "Mood"}],
+            )
+        ]
+
+    assert llm_call_count == 2, "no call may start after the stop"
+    assert [e["type"] for e in events] == ["step", "draft_update", "done"]
+    assert events[-1]["draft"] == "Fixed 0. Sentence 1."

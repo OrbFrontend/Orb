@@ -197,6 +197,10 @@ async def state_step(
             # Keep the reply saveable if an after-reply update fails.
             logger.exception("State update call failed; keeping this group's state")
             continue
+        # A stop cut the call short: its operations may be half-written, so only
+        # the groups that finished apply.
+        if client.is_aborted:
+            break
 
         raw = json.dumps(resp, default=str)
         logger.info("State step output:\n%s", raw)

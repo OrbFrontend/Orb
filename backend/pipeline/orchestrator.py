@@ -326,6 +326,15 @@ async def _run_pipeline(
 
     # director_output is a plain dict (PostCtx expects a read-only mapping).
     director_output = state.as_director_output()
+
+    def fold_post(result: _PostPipelineResult) -> None:
+        # Fold the hooks' output into state as each piece is handed over, so a
+        # stop or failure mid-hook still saves the rewritten draft and the
+        # attachments a hook already paid to render.
+        state.resp_text = result.draft
+        state.staged_attachments = result.staged_attachments
+        state.staged_message_state = result.staged_message_state
+
     post: _PostPipelineResult | None = None
     async for ev in staged(
         STAGE_WORKFLOWS,
@@ -349,6 +358,7 @@ async def _run_pipeline(
             # the configured execution target.
             agent_client=cfg.agent_lane.client,
             agent_model_name=cfg.agent_lane.base.model,
+            on_accepted=fold_post,
         ),
     ):
         if isinstance(ev, _PostPipelineResult):
@@ -356,12 +366,7 @@ async def _run_pipeline(
         else:
             yield ev
     assert post is not None
-
-    # Fold the hooks' output into state at once, so a later failure still saves
-    # the rewritten draft and the attachments a hook already paid to render.
-    state.resp_text = post.draft
-    state.staged_attachments = post.staged_attachments
-    state.staged_message_state = post.staged_message_state
+    fold_post(post)
 
     # Sees the finished reply. Skipped on an empty draft (no message to anchor the
     # changes to) and on a stop arriving after the last pre-editor abort check.

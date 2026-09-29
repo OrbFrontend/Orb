@@ -13,6 +13,7 @@ from .client import (
     reasoning_cfg,
     replay_reasoning,
     separate_agent_lane_configured,
+    until_aborted,
 )
 from .drafting import BRACES, ReplyCutOff, forced_draft, forced_turn, normalize
 from .endpoint_profiles import (
@@ -55,6 +56,7 @@ __all__ = [
     "reasoning_cfg",
     "replay_reasoning",
     "separate_agent_lane_configured",
+    "until_aborted",
     # drafting — forced calls outside the pipeline
     "BRACES",
     "ReplyCutOff",

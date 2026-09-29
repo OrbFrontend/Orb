@@ -227,6 +227,17 @@ config gates the post-hook alone. Its workflow card manages the model through
 the generic Local ML routes, which also own the shared llama-server runtime.
 A hook failure is isolated so the main reply and other workflows can continue.
 
+Stop is checked before each hook and after its locks are acquired, so no hook
+starts once the turn is stopped. The running hook is interrupted: its pending
+step is cancelled and its generator closed, so a local rewrite or remote
+render is torn down rather than waited for. Events it would have yielded after
+the stop, such as an auto-play cue, are dropped. What it had already handed
+over stays with the reply: a whole `draft_replaced` draft, a complete
+`attach_artifact`, and `set_message_state`. A hook's own `draft_update`
+previews never do. Pre-hooks follow the same rule. A hook needs no cancellation
+code of its own beyond letting `CancelledError` propagate, although its
+`finally` blocks do run.
+
 Use `forced_tool_call` for a one-shot tool call. Pass the context's prefix,
 enabled tools, schema overrides, client, and cache tracker so the call follows
 the same prompt and cache rules as the main turn. Its budget is the Agent lane's

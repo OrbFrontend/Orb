@@ -54,6 +54,7 @@ def _reset_module_locks():
     lock_dicts = (
         deps._workflow_root_locks,
         deps._conversation_stream_locks,
+        deps._active_streams,
         locks._workflow_state_locks,
         locks._workflow_character_state_locks,
     )

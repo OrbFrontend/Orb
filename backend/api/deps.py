@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import contextlib
 import hashlib
 import json
 import logging
@@ -12,6 +13,7 @@ import os
 import re
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 import httpx
@@ -142,10 +144,51 @@ async def stream_idle_lock(cid: str) -> AsyncGenerator[bool, None]:
         lock.release()
 
 
-# Per-conversation abort token for the active LLM generation. Set when streaming
-# starts; cleared when it ends or is aborted. One token covers every client in
-# the turn (writer + optional agent), so /stop signals them all at once.
-_active_aborts: dict[str, AbortToken] = {}
+@dataclass(slots=True)
+class _ActiveStream:
+    """The stream that currently owns a conversation's lock.
+
+    One token covers every client in the turn (writer + optional agent), so
+    /stop signals them all at once. ``settled`` is set only after the generator
+    has finished, including its persistence, and the lock has been released.
+    """
+
+    abort_token: AbortToken
+    settled: asyncio.Event = field(default_factory=asyncio.Event)
+
+
+# Keyed like the stream lock. Set when streaming starts; removed when the stream
+# has settled.
+_active_streams: dict[str, _ActiveStream] = {}
+
+# How long a stopped stream whose client has gone away may take to wind down on
+# its own before it is cancelled. Every stage checks the abort token, so this is
+# a bound for a misbehaving one, not the expected wait.
+_STOP_DRAIN_SECS = 10.0
+
+# How long POST /stop waits for the stopped stream to settle. Longer than the
+# drain, so a disconnected stream settles inside it.
+STOP_SETTLE_SECS = 15.0
+
+
+async def stop_active_stream(key: str, *, timeout: float = STOP_SETTLE_SECS) -> dict[str, bool]:
+    """Abort the stream registered under *key* and wait, bounded, for it to settle.
+
+    ``active`` says whether a stream was registered when the request arrived;
+    ``settled`` that it has since finished saving and released the lock. A
+    stream registered after this call is not waited on: it is a new operation.
+    Returning ``active: False`` is not proof that a request still in flight can
+    never start, which is why the client falls back to dropping its connection.
+    """
+    active = _active_streams.get(key)
+    if active is None:
+        return {"active": False, "settled": True}
+    active.abort_token.abort()
+    try:
+        await asyncio.wait_for(active.settled.wait(), timeout)
+    except TimeoutError:
+        return {"active": True, "settled": False}
+    return {"active": True, "settled": True}
 
 
 async def _safe_aclose(gen: AsyncGenerator[Any, None]) -> None:
@@ -208,6 +251,79 @@ class _CleanupStreamingResponse(StreamingResponse):
 _SSE_KEEPALIVE_SECS = 3
 
 
+async def _drain_after_stop(gen_iter: AsyncIterator[Any], pending: asyncio.Future | None, budget: float) -> None:
+    """Run a stopped generator to its end, discarding events, within *budget* seconds.
+
+    Its client is gone, but the turn still has to save what it accepted. Every
+    stage checks the abort token and winds down on its own; running it out lets
+    the normal save keep the Editor's and workflows' finished work, which
+    cancelling it mid-stage would lose. Past the budget the pending step is
+    cancelled, and the pipeline's fallback save keeps the live draft instead.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + budget
+    while True:
+        step = pending if pending is not None else asyncio.ensure_future(gen_iter.__anext__())
+        pending = None
+        done, _ = await asyncio.wait({step}, timeout=max(0.0, deadline - loop.time()))
+        if not done:
+            logger.warning("Stopped stream did not wind down within %.0fs; cancelling it", budget)
+            step.cancel()
+            with contextlib.suppress(BaseException):
+                await step
+            return
+        try:
+            step.result()
+        except StopAsyncIteration:
+            return
+        except Exception:
+            logger.exception("Stopped stream failed while winding down")
+            return
+
+
+async def _settle_stream(
+    gen: AsyncGenerator[Any, None],
+    gen_iter: AsyncIterator[Any] | None,
+    pending: asyncio.Future | None,
+    *,
+    finished: bool,
+    abort_token: AbortToken | None,
+    cid: str | None,
+    active: _ActiveStream | None,
+    lock: asyncio.Lock | None,
+) -> None:
+    """Finish a stream's generator, then give up its registration and lock.
+
+    Runs as its own task: when the request is cancelled (client gone) its
+    awaits would be cancelled too, and the lock must not be released while the
+    turn can still write. A queued /edit, /delete or next turn therefore starts
+    only once this reply's save has finished.
+    """
+    try:
+        if not finished and gen_iter is not None:
+            if abort_token is not None:
+                abort_token.abort()
+                await _drain_after_stop(gen_iter, pending, _STOP_DRAIN_SECS)
+            elif pending is not None:
+                pending.cancel()
+                with contextlib.suppress(BaseException):
+                    await pending
+        await _safe_aclose(gen)
+    except Exception:
+        logger.exception("Stream cleanup failed")
+    finally:
+        if cid is not None and active is not None and _active_streams.get(cid) is active:
+            del _active_streams[cid]
+        if lock is not None:
+            lock.release()
+        if active is not None:
+            active.settled.set()
+
+
+# Strong references to settle tasks outliving a cancelled request.
+_SETTLING: set[asyncio.Task] = set()
+
+
 async def _sse_stream(
     gen,
     request: Request,
@@ -215,7 +331,7 @@ async def _sse_stream(
     abort_token: AbortToken | None = None,
     cid: str | None = None,
 ):
-    """Encode async events as SSE and stop on disconnect."""
+    """Encode async events as SSE; a disconnect stops the turn, which still saves."""
 
     async def _watch_disconnect() -> None:
         try:
@@ -229,7 +345,12 @@ async def _sse_stream(
             pass
 
     lock: asyncio.Lock | None = None
+    active: _ActiveStream | None = None
     watcher: asyncio.Task | None = None
+    gen_iter: AsyncIterator[Any] | None = None
+    # The step in flight when the request ended, which the settle task takes over.
+    pending: asyncio.Future | None = None
+    finished = False
     try:
         if cid is not None:
             # locked()/acquire() are atomic across coroutines (no await between)
@@ -245,29 +366,35 @@ async def _sse_stream(
             await candidate.acquire()
             lock = candidate
             # Register only after winning the lock, so a rejected loser never
-            # clobbers the winner's entry. `lock is not None` in the finally
-            # gates the matching pop to the same winner.
+            # clobbers the winner's entry.
             if abort_token is not None:
-                _active_aborts[cid] = abort_token
+                active = _ActiveStream(abort_token)
+                _active_streams[cid] = active
+        # A Stop that raced the request to the server shows up as a client that
+        # has already gone: the turn must not start generating.
+        if abort_token is not None and await request.is_disconnected():
+            abort_token.abort()
         watcher = asyncio.create_task(_watch_disconnect())
-        gen_iter = gen.__aiter__()
+        gen_iter = it = gen.__aiter__()
         while True:
-            nxt = asyncio.ensure_future(gen_iter.__anext__())
-            try:
-                # Race the next event against the keepalive interval: a silent
-                # gap emits a comment frame and keeps waiting on the same task.
-                while True:
-                    done_set, _ = await asyncio.wait({nxt}, timeout=_SSE_KEEPALIVE_SECS)
-                    if nxt in done_set:
-                        break
-                    yield ": keepalive\n\n"
-            except BaseException:
-                nxt.cancel()
-                raise
+            pending = nxt = asyncio.ensure_future(it.__anext__())
+            # Race the next event against the keepalive interval: a silent gap
+            # emits a comment frame and keeps waiting on the same task. A
+            # cancelled request leaves the task running for the settle task.
+            while True:
+                done_set, _ = await asyncio.wait({nxt}, timeout=_SSE_KEEPALIVE_SECS)
+                if nxt in done_set:
+                    break
+                yield ": keepalive\n\n"
+            pending = None
             try:
                 event = nxt.result()
             except StopAsyncIteration:
+                finished = True
                 break
+            except BaseException:
+                finished = True
+                raise
             evt_type = event["event"]
             evt_data = event.get("data", "")
             if isinstance(evt_data, dict):
@@ -278,16 +405,21 @@ async def _sse_stream(
     finally:
         if watcher is not None:
             watcher.cancel()
-        if cid and lock is not None:
-            # `lock is not None` implies this coroutine won the acquire race and
-            # therefore owns the _active_aborts entry it registered above.
-            _active_aborts.pop(cid, None)
-        if lock is not None:
-            # Release before gen.aclose() so a queued /edit, /delete, or
-            # /switch-branch can proceed in parallel with the inner generator's
-            # cleanup rather than waiting on it.
-            lock.release()
-        await _safe_aclose(gen)
+        settle = asyncio.ensure_future(
+            _settle_stream(
+                gen,
+                gen_iter,
+                pending,
+                finished=finished,
+                abort_token=abort_token,
+                cid=cid,
+                active=active,
+                lock=lock,
+            )
+        )
+        _SETTLING.add(settle)
+        settle.add_done_callback(_SETTLING.discard)
+        await asyncio.shield(settle)
 
 
 async def _encode_workflow_event_stream(events: AsyncIterator[dict]) -> AsyncGenerator[str, None]:

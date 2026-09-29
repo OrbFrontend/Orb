@@ -7,6 +7,7 @@ verify the post-pipeline draft-replacement and attachment-staging path.
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import patch
 
 import pytest
@@ -958,3 +959,80 @@ async def test_post_pipeline_set_message_state_dropped_when_no_message_persisted
 
     msgs = await get_messages("cms_empty")
     assert [m for m in msgs if m["role"] == "assistant"] == []
+
+
+async def test_stop_interrupts_the_running_hook_keeps_its_finished_artifact_and_starts_no_other():
+    """A render hook hands over a finished artifact, then blocks on more work.
+    Stop tears that work down rather than waiting for it, keeps the artifact
+    (and reports it as accepted while the hook is still running, so a turn
+    cancelled mid-hook saves it too), drops what the hook would publish after
+    the stop, and starts no later hook."""
+    client = _make_client()
+    rendering = asyncio.Event()
+    log: list[str] = []
+
+    async def render(post_ctx):
+        yield {
+            "type": "attach_artifact",
+            "attachment": {
+                "workflow_id": "tw_render",
+                "source": "workflow:tw_render",
+                "filename": "a.png",
+                "mime": "image/png",
+                "data": b"png",
+            },
+        }
+        try:
+            rendering.set()
+            await asyncio.Event().wait()  # an uncancellable remote render, as far as the hook knows
+        finally:
+            log.append("render torn down")
+        yield {"event": "tts_autoplay", "data": {}}
+
+    async def later(post_ctx):
+        log.append("later hook started")
+        yield {"event": "later", "data": {}}
+
+    accepted: list[_PostPipelineResult] = []
+    with (
+        register_for_test(
+            make_workflow(
+                "tw_render",
+                post_pipeline=render,
+                priority=-10,
+                produces_artifacts=True,
+                regenerate=lambda ctx, body: [],
+                reroll_gen=lambda ctx, params, seed: b"",
+            )
+        ),
+        register_for_test(make_workflow("tw_later", post_pipeline=later, priority=10)),
+    ):
+        run = _drain(
+            _run_post_pipeline(
+                draft="draft",
+                conversation_id="c1",
+                character_id=None,
+                card=None,
+                history=[],
+                effective_msg="hi",
+                director_output={},
+                settings={"model_name": "test"},
+                prefix=_PREFIX,
+                enabled_tools={},
+                turn_scratch={},
+                client=client,
+                kv_tracker=_KVCacheTracker(),
+                schema_overrides={},
+                on_accepted=accepted.append,
+            )
+        )
+        task = asyncio.create_task(run)
+        await asyncio.wait_for(rendering.wait(), 2)
+        assert [att["filename"] for att in accepted[-1].staged_attachments] == ["a.png"]
+        client.abort()
+        events = await asyncio.wait_for(task, 2)
+
+    assert log == ["render torn down"]
+    assert not [e for e in events if isinstance(e, dict) and e.get("event") in ("tts_autoplay", "later")]
+    assert isinstance(events[-1], _PostPipelineResult)
+    assert [att["filename"] for att in events[-1].staged_attachments] == ["a.png"]
