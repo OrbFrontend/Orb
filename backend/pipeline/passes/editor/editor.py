@@ -489,8 +489,8 @@ async def _run_edit_loop(
     Yields:
         ``{"type": "reasoning", "delta": str}``
         ``{"type": "draft_update", "draft": str}`` — after every mutation of the
-        working draft (per applied patch batch/rewrite); cosmetic, the ``done``
-        draft stays authoritative
+        working draft (per applied patch batch/rewrite); each is finished work
+        a stopped turn keeps, and ``done`` carries the final draft
         ``{"type": "failure", "during": str, "label": str, "error": Exception}`` —
         an iteration failed; the loop stops and ``done`` keeps the draft so far
         ``{"type": "done", "draft": str|None, "debug": str, "elapsed": int}``

@@ -361,11 +361,10 @@ async def _consume_pipeline(
         raise
     finally:
         # Runs on every exit path (normal, exception, cancellation) exactly once.
-        if saving is not None and not persisted and saving.done() and not saving.cancelled():
-            # Cancelled while the save finished: keep its result for the log row.
-            if saving.exception() is None:
-                asst_id, _, _ = saving.result()
-                persisted = True
+        # Cancelled while the save finished: keep its result for the log row.
+        if saving is not None and not persisted and saving.done() and not saving.cancelled() and saving.exception() is None:
+            asst_id, _, _ = saving.result()
+            persisted = True
         if saving is None:
             save_error = await _shielded_fallback(
                 conversation_id,

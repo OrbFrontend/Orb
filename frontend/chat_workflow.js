@@ -426,6 +426,27 @@ async function _workflowGroupInFlight(convId, msgId, rootId) {
   }
 }
 
+// Whether *msgs* holds a sibling under *rootId* that was not in *before*.
+function _siblingLanded(msgs, msgId, rootId, before) {
+  const now = _rootSiblingIds(
+    msgs.find((m) => m.id === msgId),
+    rootId,
+  );
+  return [...now].some((id) => !before.has(id));
+}
+
+// Show a fetched conversation; a sibling that *landed* is scrolled to and announced.
+function _showSiblings(convId, msgId, rootId, msgs, landed, onLanded) {
+  if (landed) onLanded?.();
+  setMessages(msgs);
+  _reapplyInFlightSwipes();
+  renderMessages();
+  if (landed) {
+    _scrollArtifactIntoView(msgId, rootId);
+    broadcastWorkflowMutation({ convId, msgId });
+  }
+}
+
 async function _recoverWorkflowSibling(convId, msgId, rootId, before, onSuccess) {
   const deadline = Date.now() + 200_000;
   // Our request died on the wire, so its outcome has to be read off the server:
@@ -443,18 +464,8 @@ async function _recoverWorkflowSibling(convId, msgId, rootId, before, onSuccess)
     } catch {
       continue;
     }
-    const now = _rootSiblingIds(
-      msgs.find((m) => m.id === msgId),
-      rootId,
-    );
-    if ([...now].some((id) => !before.has(id))) {
-      if (S.activeConvId !== convId) return true;
-      onSuccess?.();
-      setMessages(msgs);
-      _reapplyInFlightSwipes();
-      renderMessages();
-      _scrollArtifactIntoView(msgId, rootId);
-      broadcastWorkflowMutation({ convId, msgId });
+    if (_siblingLanded(msgs, msgId, rootId, before)) {
+      if (S.activeConvId === convId) _showSiblings(convId, msgId, rootId, msgs, true, onSuccess);
       return true;
     }
     if (await _workflowGroupInFlight(convId, msgId, rootId)) idle = 0;
@@ -546,20 +557,7 @@ async function _syncAfterStop(convId, msgId, rootId, before, onLanded) {
     return;
   }
   if (S.activeConvId !== convId) return;
-  const landed = [
-    ..._rootSiblingIds(
-      msgs.find((m) => m.id === msgId),
-      rootId,
-    ),
-  ].some((id) => !before.has(id));
-  if (landed) onLanded?.();
-  setMessages(msgs);
-  _reapplyInFlightSwipes();
-  renderMessages();
-  if (landed) {
-    _scrollArtifactIntoView(msgId, rootId);
-    broadcastWorkflowMutation({ convId, msgId });
-  }
+  _showSiblings(convId, msgId, rootId, msgs, _siblingLanded(msgs, msgId, rootId, before), onLanded);
 }
 
 // A second press on a running regenerate or reroll is its Stop.
@@ -750,19 +748,23 @@ async function _deleteWorkflowAttachment(msgId, rootId, activeId, scope) {
   }
 }
 
+// Messages a workflow request of this tab is still changing; a refetch must not repaint them.
+function _inFlightMsgIds() {
+  return new Set([
+    ...Array.from(_workflowRehydrateInFlight.values(), (v) => v.msgId),
+    ...Array.from(_workflowActionInFlight.values(), (v) => v.msgId),
+    ..._workflowDeleteInFlight.values(),
+    ...Array.from(_workflowSwipeInFlight.values(), (v) => v.msgId),
+  ]);
+}
+
 export function initWorkflowMutationListener() {
   setWorkflowMutationCallback(async ({ convId, msgId }) => {
     if (convId !== S.activeConvId) return;
     if (S.isStreaming) return;
     if (S.editingMsgId != null || S.forkEditMsgId != null || S.editingPendingUserMsg || S.magicInputMsgId != null)
       return;
-    const inFlightMsgIds = new Set([
-      ...Array.from(_workflowRehydrateInFlight.values(), (v) => v.msgId),
-      ...Array.from(_workflowActionInFlight.values(), (v) => v.msgId),
-      ..._workflowDeleteInFlight.values(),
-      ...Array.from(_workflowSwipeInFlight.values(), (v) => v.msgId),
-    ]);
-    if (inFlightMsgIds.has(msgId)) return;
+    if (_inFlightMsgIds().has(msgId)) return;
     try {
       setMessages(await api.get(convUrl(S.activeConvId, "messages")));
       _reapplyInFlightSwipes();
@@ -778,13 +780,7 @@ export async function refreshConversationMessages(msgId = null) {
   if (S.isStreaming) return false;
   if (S.editingMsgId != null || S.forkEditMsgId != null || S.editingPendingUserMsg || S.magicInputMsgId != null)
     return false;
-  const inFlight = new Set([
-    ...Array.from(_workflowRehydrateInFlight.values(), (v) => v.msgId),
-    ...Array.from(_workflowActionInFlight.values(), (v) => v.msgId),
-    ..._workflowDeleteInFlight.values(),
-    ...Array.from(_workflowSwipeInFlight.values(), (v) => v.msgId),
-  ]);
-  if (msgId != null && inFlight.has(msgId)) return false;
+  if (msgId != null && _inFlightMsgIds().has(msgId)) return false;
   try {
     setMessages(await api.get(convUrl(S.activeConvId, "messages")));
     _reapplyInFlightSwipes();

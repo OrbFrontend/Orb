@@ -171,7 +171,8 @@ export async function rewriteMessageProse(msgId) {
       console.error("prose rewrite failed", e);
       toast("Prose rewrite failed", true);
     }
-    // A refused request never opened a stream, so there is nothing to settle.
+    // A broken stream may leave the server still writing, so drop it and let
+    // settle() ask /stop. A refused request (an HTTP status) never opened one.
     if (e.status == null) op.disconnect();
   } finally {
     // Whether or not the replacement committed before the stream ended, the
