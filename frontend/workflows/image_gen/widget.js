@@ -15,7 +15,6 @@ import {
   sseEvents,
   streamPost,
   toast,
-  trackStoppableJob,
 } from "/static/workflow_api.js";
 import {
   attachmentDetailsHtml,
@@ -167,8 +166,6 @@ async function generate(msgId, button) {
   const styleId = cfg.default_style || "realistic";
   const controller = new AbortController();
   inFlight.set(msgId, controller);
-  // Closing the stream is the stop: the server cancels the render with it.
-  const untrack = trackStoppableJob({ stop: () => controller.abort() });
   button.classList.add("image-gen-generating");
   button.title = "Cancel image generation";
   const channel = `workflow:image_gen:generate:${msgId}`;
@@ -207,7 +204,6 @@ async function generate(msgId, button) {
         toast("Image generation failed", "error");
     }
   } finally {
-    untrack();
     inFlight.delete(msgId);
     clearWorkflowPhase(channel);
     button.classList.remove("image-gen-generating");

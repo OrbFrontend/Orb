@@ -327,12 +327,13 @@ With `Accept: text/event-stream`, `regenerate` streams each `ctx.phase(label)` a
 `phase_status`, then `regenerate_done` (the JSON body) or `regenerate_error`
 (`{status, detail}`). The render outlives a dropped stream.
 
-The chat Stop button also ends workflow renders. Regenerate and reroll-gen run
-as per-conversation jobs that `workflows/stop` cancels, answering
-`{stopped, settled}` once they have ended (bounded); the stopped request then
-answers 409. A job already writing its sibling is waited for, not cancelled.
-An on-demand stream has no job: closing it cancels the hook, which must let
-its cleanup finish (the stream awaits it). A cancelled ComfyUI render withdraws
+Workflow renders run beside the chat, so the chat Stop button leaves them
+alone. Regenerate and reroll-gen run as per-conversation jobs that
+`workflows/stop` cancels, answering `{stopped, settled}` once they have ended
+(bounded); the stopped request then answers 409. A job already writing its
+sibling is waited for, not cancelled. An on-demand stream has no job: closing
+it (the image button pressed again) cancels the hook, which must let its
+cleanup finish (the stream awaits it). A cancelled ComfyUI render withdraws
 its prompt by id; cloud image APIs are synchronous, so a stopped cloud render
 only drops the request and may still be billed.
 

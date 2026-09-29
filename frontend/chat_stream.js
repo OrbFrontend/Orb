@@ -44,7 +44,6 @@ import { ensurePersonaPinned } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
 import { refreshState } from "./state_panel.js";
-import { stopStoppableJobs, syncStopButton } from "./stoppable_jobs.js";
 import { createStreamOperation, settledReply, streamAnchor } from "./stream_settle.js";
 import {
   $,
@@ -233,7 +232,8 @@ function finalizeStreamingDiv(lastMsg) {
 
 export function setStreaming(active) {
   S.isStreaming = active;
-  syncStopButton();
+  $("send-btn").style.display = active ? "none" : "flex";
+  $("stop-btn").style.display = active ? "flex" : "none";
   const cm = $("chat-messages");
   if (cm) cm.classList.toggle("streaming", active);
   if (active && !S.groupCast) onTurnStart();
@@ -242,7 +242,6 @@ export function setStreaming(active) {
 
 export function stopGeneration() {
   S.streamOp?.stop();
-  stopStoppableJobs();
 }
 
 export function createStreamingDiv(name = null, memberId = null) {
