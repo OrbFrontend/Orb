@@ -434,11 +434,12 @@ def refine_ooc(render: int, turns_left: int, *, supports_negative: bool = True, 
         f"[OOC: The image above is render {render}, made from your last prompt. Review it against the final visible "
         "instant of the assistant reply and against your prompt. Check the number of persons, who is visible, pose and "
         "action, anatomy such as hands and limbs, clothing, expression, interaction, spatial relationships, setting, "
-        "lighting, and framing. Also check for things the image model added that contradict the scene. In `critique`, "
+        "orientation, lighting, and framing. Also check for things the image model added that contradict the scene. In `critique`, "
         "list only the visible problems, most important first. Set `done` to true when no problem is worth another "
         "render, and set `scene` and `avoid` to null. Otherwise set `done` to false and write the complete revised "
         "prompt in `scene`. Keep the parts that worked. Fix each problem: make its wording more explicit, move it "
         "earlier, or remove the words that caused it. If it's completely mangled or wrong, rewrite from scratch. "
+        "Sometimes the image model simply cannot render certain perspectives or details. "
         f"Use the same format rules as before. {avoid}{last} Call refine_image_prompt.]"
     )
 
