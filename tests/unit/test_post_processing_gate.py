@@ -370,7 +370,7 @@ async def test_judge_waiting_spends_one_shared_allowance_and_editing_does_not(mo
     judge = Judge(monkeypatch, {f"f{i}": 0.9 for i in range(5)})
 
     def judge_wait():
-        clock.now += 1.2
+        clock.now += 2.4
 
     def editor_work():
         clock.now += 100.0  # would exhaust any budget it were charged to
@@ -381,7 +381,7 @@ async def test_judge_waiting_spends_one_shared_allowance_and_editing_does_not(mo
 
     _, result = await _step(editor, fragments)
 
-    assert judge.timeouts == [pytest.approx(3.0), pytest.approx(1.8), pytest.approx(0.6)]
+    assert judge.timeouts == [pytest.approx(6.0), pytest.approx(3.6), pytest.approx(1.2)]
     assert [gate["reason"] for gate in _gates(result)] == [
         "condition_met",
         "condition_met",
@@ -401,7 +401,7 @@ async def test_blank_gates_spend_no_allowance(monkeypatch):
 
     await _step(editor, [_fragment("blank", "", 1), _fragment("gated", "Q?", 2)])
 
-    assert judge.timeouts == [pytest.approx(3.0)]
+    assert judge.timeouts == [pytest.approx(6.0)]
 
 
 async def test_the_overall_deadline_bounds_a_stalled_judge(monkeypatch):

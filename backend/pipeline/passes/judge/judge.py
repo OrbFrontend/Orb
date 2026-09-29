@@ -74,7 +74,7 @@ MAX_DECISIONS_PER_CARD = 8
 # Batches go out concurrently under one timeout, so this cap and the timeout are
 # the whole stage budget: the stage costs at most one REQUEST_TIMEOUT_SECONDS.
 MAX_BATCHES = 4
-REQUEST_TIMEOUT_SECONDS = 3.0
+REQUEST_TIMEOUT_SECONDS = 6.0
 _SITUATION_MACROS = frozenset({"last_message", "last_assistant_message", "recent_history"})
 
 _EVENT_FIELDS = (

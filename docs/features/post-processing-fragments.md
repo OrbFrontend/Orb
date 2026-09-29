@@ -99,7 +99,7 @@ The authoring form caps a question at 2,000 characters. Card-embedded questions
 skip that cap, so the byte limits above are checked when the gate runs; an
 oversized question is never truncated.
 
-**Budget.** All gates in one post-processing step share three seconds of Judge
+**Budget.** All gates in one post-processing step share six seconds of Judge
 waiting. Editor calls do not count against it. Once the budget is spent, the
 remaining gated fragments run without asking.
 
