@@ -139,6 +139,11 @@ class RegenCtx:
     character_id: str | None = None
     character: MappingProxyType | None = None
     phase: Callable[[str], None] = lambda _label: None  # step label, streamed to a client that asks
+    # Saves one attachment as a sibling now, instead of with the handler's return,
+    # and answers its id (None when the cache rejected it). A handler that makes
+    # several renders keeps each as it lands, so Stop keeps them and the client
+    # sees them arrive. None where no route is saving for it.
+    keep: Callable[[dict], Awaitable[int | None]] | None = None
 
 
 @dataclass(frozen=True)

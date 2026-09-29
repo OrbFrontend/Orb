@@ -59,6 +59,7 @@ from ...workflows.attachment_cache import (
     delete_workflow_attachments,
     insert_workflow_attachment,
     insert_workflow_attachments,
+    insert_workflow_variant,
     project_rejected_attachment,
     record_access,
     rehydrate_attachment,
@@ -338,17 +339,29 @@ async def api_regenerate_attachment(
     job: str | None = None,
 ):
     """Append a new sibling variant under a workflow-produced attachment's root."""
-    phases: asyncio.Queue[str | None] = asyncio.Queue()
+    updates: asyncio.Queue[tuple[str, dict] | None] = asyncio.Queue()
     # A job, not the request: it outlives a dropped stream, so the sibling still
     # lands for the client's recovery poll, and only Stop cancels it.
-    task = start_workflow_job(cid, _regenerate(cid, mid, aid, body, conv, phases.put_nowait), job=job)
+    task = start_workflow_job(
+        cid,
+        _regenerate(
+            cid,
+            mid,
+            aid,
+            body,
+            conv,
+            phase=lambda label: updates.put_nowait(("phase_status", {"label": label})),
+            landed=lambda new_id: updates.put_nowait(("regenerate_sibling", {"attachment_id": new_id})),
+        ),
+        job=job,
+    )
     if "text/event-stream" not in request.headers.get("accept", ""):
         return await _finished_job(task)
-    task.add_done_callback(lambda _: phases.put_nowait(None))
+    task.add_done_callback(lambda _: updates.put_nowait(None))
 
     async def events():
-        while (label := await phases.get()) is not None:
-            yield {"event": "phase_status", "data": {"label": label}}
+        while (update := await updates.get()) is not None:
+            yield {"event": update[0], "data": update[1]}
         try:
             yield {"event": "regenerate_done", "data": await _finished_job(task)}
         except HTTPException as exc:
@@ -357,7 +370,26 @@ async def api_regenerate_attachment(
     return _workflow_event_stream_response(WorkflowEventStream(events=events()))
 
 
-async def _regenerate(cid: str, mid: int, aid: int, body: dict, conv: ConversationRow, phase: Callable[[str], None]) -> dict:
+def _shape_rejection(candidate: Mapping[str, Any], reason: str | None, workflow_id: str, root_id: int) -> dict:
+    return {
+        "filename": candidate.get("filename") if isinstance(candidate.get("filename"), str) else None,
+        "workflow_id": workflow_id,
+        "mime": candidate.get("mime") if isinstance(candidate.get("mime"), str) else None,
+        "reason": reason,
+        "originating_attachment_id": root_id,
+    }
+
+
+async def _regenerate(
+    cid: str,
+    mid: int,
+    aid: int,
+    body: dict,
+    conv: ConversationRow,
+    *,
+    phase: Callable[[str], None],
+    landed: Callable[[int], None],
+) -> dict:
     att = await get_workflow_attachment_by_id(aid)
     if att is None or att["message_id"] != mid:
         raise HTTPException(status_code=404, detail="Attachment not found on this message")
@@ -386,6 +418,26 @@ async def _regenerate(cid: str, mid: int, aid: int, body: dict, conv: Conversati
         agent_client, agent_model_name = agent_lane_from_settings(settings_snapshot, writer_client=client)
 
         card_id, card = await _resolve_workflow_character(conv, list(msgs), target_message=anchor)
+        kept: list[int] = []
+        rejections: list[dict] = []
+
+        async def keep(attachment: dict) -> int | None:
+            candidate = {**attachment, "workflow_id": sub.workflow_id}
+            ok, reason = validate_workflow_attachment_shape(candidate)
+            if not ok:
+                rejections.append(_shape_rejection(candidate, reason, sub.workflow_id, root_id))
+                return None
+            # The group lock is held, so the root cannot move; `shown` leaves a user
+            # who paged away from the previous render where they are.
+            new_id, rejected = await insert_workflow_variant(mid, candidate, group=[root_id], shown=kept[-1] if kept else None)
+            if rejected is not None:
+                rejections.append(project_rejected_attachment(rejected, root_id))
+            if new_id is None:
+                return None
+            kept.append(new_id)
+            landed(new_id)
+            return new_id
+
         with _hook_failures("regenerate hook", wid, aid, defect="Regenerate handler raised; see server logs"):
             regen_ctx = RegenCtx(
                 conversation_id=cid,
@@ -401,6 +453,7 @@ async def _regenerate(cid: str, mid: int, aid: int, body: dict, conv: Conversati
                 character_id=card_id,
                 character=_readonly(card),
                 phase=phase,
+                keep=keep,
             )
             new_dicts = await sub.callable(regen_ctx, body)
 
@@ -417,7 +470,6 @@ async def _regenerate(cid: str, mid: int, aid: int, body: dict, conv: Conversati
         # entries are dropped instead of rejected because the rejection
         # record requires a filename to surface in the UI.
         fixed: list[dict] = []
-        rejected_pre: list[dict] = []
         for d in new_dicts:
             if not isinstance(d, dict):
                 logger.warning("regenerate hook %r returned non-dict entry; skipping", wid)
@@ -425,15 +477,7 @@ async def _regenerate(cid: str, mid: int, aid: int, body: dict, conv: Conversati
             candidate = {**d, "workflow_id": sub.workflow_id, "parent_attachment_id": root_id}
             ok, reason = validate_workflow_attachment_shape(candidate)
             if not ok:
-                rejected_pre.append(
-                    {
-                        "filename": candidate.get("filename") if isinstance(candidate.get("filename"), str) else None,
-                        "workflow_id": sub.workflow_id,
-                        "mime": candidate.get("mime") if isinstance(candidate.get("mime"), str) else None,
-                        "reason": reason,
-                        "originating_attachment_id": root_id,
-                    }
-                )
+                rejections.append(_shape_rejection(candidate, reason, sub.workflow_id, root_id))
                 logger.info(
                     "regenerate hook %r returned attachment rejected by shape validator: %s",
                     wid,
@@ -442,8 +486,8 @@ async def _regenerate(cid: str, mid: int, aid: int, body: dict, conv: Conversati
                 continue
             fixed.append(candidate)
 
-        if not fixed and not rejected_pre:
-            return {"attachments": [], "rejected_workflow_atts": []}
+        if not fixed:
+            return {"attachments": kept, "rejected_workflow_atts": rejections}
 
         try:
             with committing_workflow_job():
@@ -454,8 +498,8 @@ async def _regenerate(cid: str, mid: int, aid: int, body: dict, conv: Conversati
 
         helper_rejected_projected = [project_rejected_attachment(a, root_id) for a in helper_rejected]
         return {
-            "attachments": new_ids,
-            "rejected_workflow_atts": rejected_pre + helper_rejected_projected,
+            "attachments": kept + new_ids,
+            "rejected_workflow_atts": rejections + helper_rejected_projected,
         }
 
 

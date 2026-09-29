@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import secrets
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
 from ..toolkit import (
@@ -15,18 +16,22 @@ from ..toolkit import (
     get_message_by_id,
     get_workflow_character_state,
     get_workflow_config,
-    insert_workflow_attachment,
+    insert_workflow_variant,
     set_workflow_character_state,
+    set_workflow_consumption_metadata,
 )
 from . import macros as macros_mod
 from . import pov as pov_mod
 from . import subjects as subjects_mod
 from .composer import (
+    RefineThread,
+    Revision,
     SkillSelection,
     addressable_subjects,
     assemble_prompts,
     compose_scene,
     read_image_skills,
+    refine_scene,
 )
 from .config import (
     MAX_REFERENCE_IMAGE_B64,
@@ -46,7 +51,8 @@ from .engine import (
     recorded_edge,
     resolve_and_generate,
 )
-from .engine.contracts import ResolvedReference
+from .engine.contracts import ImageResult, ResolvedReference
+from .engine.display_encode import shrink_for_review
 from .references import (
     plan_slots,
     previous_image,
@@ -58,6 +64,9 @@ from .subjects import Subject
 
 logger = logging.getLogger(__name__)
 SEED_MODULUS = 2**64
+# Saves one render as soon as it lands and answers its row id, or None when it is
+# held for the hook's return instead.
+Keep = Callable[[dict], Awaitable[int | None]]
 
 
 def fold_seed(seed: str | int) -> int:
@@ -346,6 +355,25 @@ def _rendered_seed(requested: int, result) -> int:
     return reported if isinstance(reported, int) and not isinstance(reported, bool) else requested
 
 
+async def _review_url(image: bytes, mime: str) -> str:
+    data, mime = await asyncio.to_thread(shrink_for_review, image, mime)
+    return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
+
+
+async def _annotate_kept(
+    attachment: dict, attachment_id: int | None, *, revision: Revision | None = None, note: str = ""
+) -> None:
+    """Show a render's review, or why refinement stopped at it, beside it. The render
+    was kept before either was known, so they are written onto the saved row."""
+    consumption = attachment["consumption_metadata"]
+    if revision is not None:
+        consumption["review"] = {"critique": revision.critique, "done": revision.done}
+    if note:
+        consumption.setdefault("notes", []).append(note)
+    if attachment_id is not None:
+        await set_workflow_consumption_metadata(attachment_id, consumption)
+
+
 def _attachment(seed: int, result, metadata: dict, consumption: dict) -> dict:
     ext = MIME_EXTENSIONS.get(result.mime, "img")
     return {
@@ -368,8 +396,16 @@ async def _generate_fresh(
     style_id: str,
     prefix: Sequence[dict] | None = None,
     progress: ProgressCallback | None = None,
+    keep: Keep,
+    phase: Callable[[str], None],
     history: Sequence[Mapping[str, Any]] | None = None,
-):
+) -> None:
+    """Compose and render an image for `message`, handing each render to `keep`.
+
+    With refinement on, every revision is kept too, as it lands: the prompter's
+    pick is only the last one, and the user may prefer an earlier render or stop
+    the run once one is good enough.
+    """
     history = _history_through(history if history is not None else ctx.history, int(message["id"]))
     if prefix is None:
         prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
@@ -428,6 +464,8 @@ async def _generate_fresh(
     slots = plan_slots(target, addressable, previous=previous)
     references = await resolve_references(slots, subjects=addressable, previous=previous)
     unfilled = len(slots) - len(references)
+    refine_turns = int(config.get("refine_turns") or 0)
+    thread = RefineThread() if refine_turns > 0 else None
     scene, avoid, composer_mode = await compose_scene(
         client=ctx.agent_client,
         model_name=ctx.agent_model_name,
@@ -446,44 +484,111 @@ async def _generate_fresh(
         style_prompt=str(selected_style.get("prompt") or ""),
         style_negative_prompt=str(selected_style.get("negative_prompt") or ""),
         profile_negative_prompt=str(profile.get("negative_prompt") or ""),
+        thread=thread,
     )
     prompt, negative = assemble_prompts(selected_style, profile, scene, avoid)
     if not prompt.strip():
         raise ImageGenerationError("the composed image prompt came out empty; try generating again")
     seed = _fresh_seed()
-    result = await resolve_and_generate(
-        adapter,
-        ImageRequest(
+
+    async def render(prompt: str, negative: str) -> ImageResult:
+        # One seed for every render, so a revision differs from the render it
+        # corrects by its prompt alone.
+        return await resolve_and_generate(
+            adapter,
+            ImageRequest(
+                prompt=prompt,
+                negative_prompt=negative,
+                seed=seed,
+                style_id=style_id,
+                timeout_seconds=config["timeout_seconds"],
+                references=references,
+            ),
+            target=target,
+            progress=progress,
+        )
+
+    reviewed = 0
+
+    async def save(result: ImageResult, prompt: str, negative: str) -> tuple[dict, int | None]:
+        md = _metadata(
+            source=adapter.source_id,
+            style=selected_style,
+            result=result,
             prompt=prompt,
             negative_prompt=negative,
-            seed=seed,
-            style_id=style_id,
-            timeout_seconds=config["timeout_seconds"],
-            references=references,
-        ),
-        target=target,
-        progress=progress,
-    )
-    md = _metadata(
-        source=adapter.source_id,
-        style=selected_style,
-        result=result,
-        prompt=prompt,
-        negative_prompt=negative,
-        composer_mode=composer_mode,
-        pov=pov,
-        pov_source=pov_source,
-        composition_skills=[{"id": skill["id"], "label": skill["label"]} for skill in selection.skills],
-    )
-    consumption = _consumption(selected_style, prompt, negative, result, md, source_label=adapter.label)
-    if unfilled > 0:
-        consumption.setdefault("notes", []).append(_unfilled_note(unfilled, len(references)))
-    # Read the adapter's record rather than the plan: it is the authoritative list of
-    # what the image model was given.
-    uncovered = _uncovered_note(addressable, md["references"], len(slots), target.reference_capacity)
-    if uncovered:
-        consumption.setdefault("notes", []).append(uncovered)
-    return _attachment(seed, result, md, consumption)
+            composer_mode=composer_mode,
+            pov=pov,
+            pov_source=pov_source,
+            composition_skills=[{"id": skill["id"], "label": skill["label"]} for skill in selection.skills],
+        )
+        consumption = _consumption(selected_style, prompt, negative, result, md, source_label=adapter.label)
+        if unfilled > 0:
+            consumption.setdefault("notes", []).append(_unfilled_note(unfilled, len(references)))
+        # Read the adapter's record rather than the plan: it is the authoritative list of
+        # what the image model was given.
+        uncovered = _uncovered_note(addressable, md["references"], len(slots), target.reference_capacity)
+        if uncovered:
+            consumption.setdefault("notes", []).append(uncovered)
+        if refine_turns and reviewed == refine_turns:
+            consumption.setdefault("notes", []).append(
+                f"the prompter did not review this render: all {refine_turns} refinement turns were used"
+            )
+        attachment = _attachment(seed, result, md, consumption)
+        return attachment, await keep(attachment)
+
+    attachment, attachment_id = await save(await render(prompt, negative), prompt, negative)
+    while thread is not None and reviewed < refine_turns:
+        # Only a review that asked for changes leads to another render, so the
+        # render under review is always one past the reviews that did.
+        current = reviewed + 1
+        phase(f"Reviewing render {current}...")
+        try:
+            revision = await refine_scene(
+                client=ctx.agent_client,
+                model_name=ctx.agent_model_name,
+                prefix=prefix,
+                settings=ctx.settings,
+                thread=thread,
+                image_url=await _review_url(attachment["data"], attachment["mime"]),
+                render=current,
+                turns_left=refine_turns - reviewed,
+                prompt_format=selected_style["prompt_format"],
+                pov=pov,
+                reasoning_on=bool(config.get("prompter_reasoning")),
+                supports_negative=target.supports_negative_prompt,
+            )
+        except Exception:
+            # The render is already kept; a review that fails only ends the refinement.
+            logger.warning("[image_gen] review of render %d failed; keeping it", current, exc_info=True)
+            revision = None
+        revised_prompt, revised_negative = (
+            assemble_prompts(selected_style, profile, revision.scene, revision.avoid) if revision else ("", "")
+        )
+        # Said on the render, or a prompter that cannot read images leaves the setting
+        # looking inert.
+        if revision is None:
+            note = "the prompter gave no usable review of this render, so refinement stopped"
+        elif not revision.done and not (revision.scene and revised_prompt.strip()):
+            note = "the prompter asked for another render but wrote no revised prompt"
+        else:
+            note = ""
+        if revision is not None:
+            logger.info("[image_gen] review of render %d (done=%s): %s", current, revision.done, revision.critique)
+        await _annotate_kept(attachment, attachment_id, revision=revision, note=note)
+        if revision is None or revision.done or note:
+            break
+        reviewed = current
+        phase(f"Rendering revision {reviewed}...")
+        try:
+            revised = await render(revised_prompt, revised_negative)
+        except ImageGenerationError as exc:
+            # The renders already kept are still good answers; a failed revision
+            # only ends the refinement.
+            logger.warning("[image_gen] revision render failed; keeping render %d: %s", current, exc)
+            await _annotate_kept(attachment, attachment_id, note=f"the revised render failed: {exc}")
+            break
+        attachment, attachment_id = await save(revised, revised_prompt, revised_negative)
 
 
 async def _generate_response(ctx, body) -> WorkflowEventStream:
@@ -504,9 +609,23 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
     prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
 
     async def stream():
-        attachment_id: int | None = None
+        kept: list[int] = []
         error: str | None = None
-        labels: asyncio.Queue = asyncio.Queue()
+        updates: asyncio.Queue[dict] = asyncio.Queue()
+
+        def phase(label: str) -> None:
+            updates.put_nowait(_phase(label))
+
+        async def keep(attachment: dict) -> int:
+            # The first render starts the group and each revision joins it, so the
+            # client can page through them while the run goes on.
+            new_id, rejected = await insert_workflow_variant(mid, attachment, group=kept, shown=kept[-1] if kept else None)
+            if new_id is None:
+                raise ImageGenerationError((rejected or {}).get("reason") or "attachment rejected")
+            kept.append(new_id)
+            updates.put_nowait({"event": "image_gen_render", "data": {"attachment_id": new_id}})
+            return new_id
+
         task = asyncio.create_task(
             _generate_fresh(
                 ctx=ctx,
@@ -515,22 +634,21 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
                 profile=profile,
                 style_id=style_id,
                 prefix=prefix,
-                progress=_reporting(labels.put_nowait),
+                progress=_reporting(phase),
+                keep=keep,
+                phase=phase,
             )
         )
         try:
             yield _phase("Composing image prompt...")
             while not task.done():
                 try:
-                    label = await asyncio.wait_for(labels.get(), 0.5)
+                    yield await asyncio.wait_for(updates.get(), 0.5)
                 except TimeoutError:
                     continue
-                yield _phase(label)
-            while not labels.empty():
-                yield _phase(labels.get_nowait())
-            attachment_id, rejected = await insert_workflow_attachment(mid, await task)
-            if attachment_id is None:
-                error = (rejected or {}).get("reason") or "attachment rejected"
+            while not updates.empty():
+                yield updates.get_nowait()
+            await task
         except (ImageGenerationError, ValueError) as exc:
             logger.warning("image generation failed for message %s: %s", mid, exc)
             error = str(exc)
@@ -543,7 +661,7 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
                 # render withdraw its queued job before the stream closes.
                 task.cancel()
                 await asyncio.wait({task})
-        for event in _terminal(attachment_id, error):
+        for event in _terminal(kept[-1] if kept else None, error):
             yield event
 
     return WorkflowEventStream(events=stream())
@@ -592,17 +710,23 @@ async def regenerate(ctx, body):
         return []
     config, style_id, profile = await _render_inputs(ctx, body)
     history = tuple([*ctx.history, message])
-    return [
-        await _generate_fresh(
-            ctx=ctx,
-            message=message,
-            config=config,
-            profile=profile,
-            style_id=style_id,
-            progress=_reporting(ctx.phase),
-            history=history,
-        )
-    ]
+    returned: list[dict] = []
+
+    async def collect(attachment: dict) -> None:
+        returned.append(attachment)
+
+    await _generate_fresh(
+        ctx=ctx,
+        message=message,
+        config=config,
+        profile=profile,
+        style_id=style_id,
+        progress=_reporting(ctx.phase),
+        keep=ctx.keep or collect,
+        phase=ctx.phase,
+        history=history,
+    )
+    return returned
 
 
 async def reroll_gen(ctx, params, seed):
@@ -662,4 +786,9 @@ async def reroll_gen(ctx, params, seed):
         consumption.setdefault("notes", []).append(
             f"style changed to {style['label']}; the prompt still carries the previous style's wording"
         )
+    # A restore is the same render, so it keeps the prompter's review of it; a
+    # reroll is a new render nobody reviewed.
+    review = (ctx.prior_consumption_metadata or {}).get("review")
+    if ctx.replay and isinstance(review, Mapping):
+        consumption["review"] = dict(review)
     return result.image_bytes, consumption

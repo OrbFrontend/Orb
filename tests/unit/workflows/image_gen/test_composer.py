@@ -73,7 +73,7 @@ def test_tool_contract_and_offered_order_are_stable():
     assert list(params["properties"]) == ["skill_ids", "visible_subjects"]
     assert params["required"] == ["skill_ids", "visible_subjects"]
     assert params["properties"]["skill_ids"]["maxItems"] == 4
-    assert prompts.OFFER_TOOLS == ("read_image_skills", "compose_image_prompt")
+    assert prompts.OFFER_TOOLS == ("read_image_skills", "compose_image_prompt", "refine_image_prompt")
 
 
 async def test_selector_sees_only_enabled_summaries_names_and_pov(monkeypatch):

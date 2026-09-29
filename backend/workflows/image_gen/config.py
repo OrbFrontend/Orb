@@ -41,6 +41,9 @@ MAX_REFERENCE_SLOTS = 4
 # on `character_cards.workflow_state` and is read on every generate.
 MAX_REFERENCE_IMAGE_B64 = 13_400_000
 MAX_SEED = 2**64 - 1
+# How many times the prompter may review a render and revise its prompt. Each turn
+# is one vision call plus, unless the model accepts the image, one more render.
+MAX_REFINE_TURNS = 5
 PROMPT_FORMATS = ("tags", "hybrid", "prose")
 DEFAULT_PROMPT_FORMAT = "hybrid"
 # The three formats Orb carries end to end, each mapped to the extension it is named
@@ -171,6 +174,7 @@ CONFIG_DEFAULTS = {
     "scene_skills_enabled": False,
     "scene_skills": DEFAULT_SCENE_SKILLS,
     "prompter_reasoning": False,
+    "refine_turns": 0,
     "timeout_seconds": 180.0,
     "external_comfy": {
         "api_url": "http://127.0.0.1:8188",
@@ -208,6 +212,17 @@ def _edge(value: Any, default: int) -> int:
 def _enabled(value: Any) -> bool:
     """An opt-out setting that keeps existing configurations enabled."""
     return value if isinstance(value, bool) else True
+
+
+def _refine_turns(value: Any) -> int:
+    """The review budget, 0 (off) through `MAX_REFINE_TURNS`."""
+    if isinstance(value, bool):
+        return 0
+    try:
+        turns = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return min(MAX_REFINE_TURNS, max(0, turns))
 
 
 def _seed_max(value: Any) -> str:
@@ -689,6 +704,7 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
         ),
         "scene_skills": scene_skills,
         "prompter_reasoning": raw.get("prompter_reasoning") is True,
+        "refine_turns": _refine_turns(raw.get("refine_turns")),
         "timeout_seconds": min(900.0, max(10.0, timeout)),
         "external_comfy": {
             "api_url": url,

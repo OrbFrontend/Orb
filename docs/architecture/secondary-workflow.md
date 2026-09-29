@@ -166,7 +166,7 @@ framework.
 | `PreCtx` | Conversation, history, current user text, settings, prefix, tool map, client, cache tracker | `turn_scratch` is shared with PostCtx |
 | `PostCtx` | Conversation, final history, effective user text, Director output, merged tools, prefix, client, cache tracker, resolved Agent execution target (`agent_client`, `agent_model_name`) | May stage a draft, state, or attachment |
 | `OnDemandCtx` | Conversation, history, current user text, settings, client, character | Trigger actions |
-| `RegenCtx` | Conversation, message and attachment ids, pre-anchor history, settings, client, character, `phase(label)` | Attachment regeneration |
+| `RegenCtx` | Conversation, message and attachment ids, pre-anchor history, settings, client, character, `phase(label)`, `keep(attachment)` | Attachment regeneration |
 | `RerollGenCtx` | Conversation, message and attachment ids, settings, client, prior consumption metadata, `replay` | Shared by reroll and rehydrate |
 | `QueryCtx` | Settings | No conversation and no client |
 | `ExportCtx` | Attachment id, the row without its bytes, decoded consumption metadata, `stored_bytes()` | Bytes load only when the hook asks for them |
@@ -277,8 +277,16 @@ That lets the user rehydrate evicted bytes. The same `REROLL_GEN` hook handles:
 - **rehydrate** — the stored seed and parameters, restoring the same row.
 
 `REGENERATE` also creates siblings, while `activate` and `delete` only change
-the variant group. Existing artifacts remain readable when their workflow is
-disabled.
+the variant group. A regenerate hook that makes several variants in one run
+saves each through `await ctx.keep(attachment)` as it lands, rather than
+returning them all at the end, so Stop keeps what was already made. An
+on-demand hook does the same with `insert_workflow_variant`, passing the ids it
+has saved so far as the `group` and the last one as `shown`. Either way, a new
+variant becomes the active one only while the previous one from the same run is
+still on show, so a user who paged to an earlier variant mid-run stays on it.
+`set_workflow_consumption_metadata` rewrites a saved row's consumption metadata
+when something about it, such as a review, is known only after it was saved.
+Existing artifacts remain readable when their workflow is disabled.
 
 A workflow whose stored bytes are not the best copy of an artifact can
 subscribe `EXPORT` to serve a download. The hook receives the row without its
@@ -324,8 +332,10 @@ A single `false` does not prove failure -- a queued request has not reached the
 lock yet -- so clients confirm it across consecutive polls.
 
 With `Accept: text/event-stream`, `regenerate` streams each `ctx.phase(label)` as
-`phase_status`, then `regenerate_done` (the JSON body) or `regenerate_error`
-(`{status, detail}`). The render outlives a dropped stream.
+`phase_status` and each `ctx.keep` that saved a row as `regenerate_sibling`
+(`{attachment_id}`), then `regenerate_done` (the JSON body, whose `attachments`
+include the kept rows) or `regenerate_error` (`{status, detail}`). The render
+outlives a dropped stream.
 
 Workflow renders run beside the chat, so the chat Stop button leaves them
 alone; the button that started a render is its Stop button while it runs.

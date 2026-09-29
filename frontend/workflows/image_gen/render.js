@@ -41,6 +41,15 @@ function referenceRows(cm, esc) {
     .join("");
 }
 
+// The prompter's verdict on this render: accepted, or the problems it revised for.
+function reviewRow(cm, esc) {
+  const review = cm.review;
+  if (!review || typeof review.done !== "boolean") return "";
+  const critique = typeof review.critique === "string" ? review.critique.trim() : "";
+  const verdict = review.done ? "Accepted" : "Asked for another render";
+  return `<dt>Review</dt><dd>${esc(critique ? `${verdict}: ${critique}` : verdict)}</dd>`;
+}
+
 function compositionSkillsRow(cm, esc) {
   const labels = (Array.isArray(cm.composition_skills) ? cm.composition_skills : [])
     .map((skill) => skill?.label || skill?.id)
@@ -55,8 +64,9 @@ export function hasAttachment(msg) {
 // *stop* is `stopButtonState` for the reply's running render, if any.
 const IDLE_CREATE = { cls: "", attrs: ' title="Visualize reply"' };
 
-export function messageButtonHtml(msg, { mutable, icon, escAttr, stop = IDLE_CREATE }) {
-  if (!msg?.id || msg.role !== "assistant" || hasAttachment(msg)) return "";
+// A running render keeps its button, as its Stop, after its first image lands.
+export function messageButtonHtml(msg, { mutable, icon, escAttr, stop = IDLE_CREATE, running = false }) {
+  if (!msg?.id || msg.role !== "assistant" || (hasAttachment(msg) && !running)) return "";
   if (!mutable)
     return `<button class="image-gen-create" disabled title="Close other tabs to generate an image">${icon}</button>`;
   return `<button class="image-gen-create${stop.cls}"${stop.attrs} data-wf-action="image_gen:generate" data-msg-id="${escAttr(msg.id)}">${icon}</button>`;
@@ -95,6 +105,6 @@ export function attachmentDetailsHtml(att, { esc, escAttr, pending }) {
       ${compositionSkillsRow(cm, esc)}
       <dt>Seed</dt><dd>${cm.seed_honored === false ? esc(UNUSED_SEED) : `<code>${esc(att?.seed || "")}</code>`}</dd>${costRow(cm, esc)}
       <dt>Prompt ${pencil("prompt", "Prompt")}</dt><dd>${field("prompt", "Prompt", pending?.prompt ?? cm.prompt ?? "")}${marker}</dd>
-      <dt>Negative ${pencil("negative_prompt", "Negative prompt")}</dt><dd>${field("negative_prompt", "Negative prompt", pending?.negative_prompt ?? cm.negative_prompt ?? "")}</dd>${notes}</dl>
+      <dt>Negative ${pencil("negative_prompt", "Negative prompt")}</dt><dd>${field("negative_prompt", "Negative prompt", pending?.negative_prompt ?? cm.negative_prompt ?? "")}</dd>${reviewRow(cm, esc)}${notes}</dl>
   </details>`;
 }

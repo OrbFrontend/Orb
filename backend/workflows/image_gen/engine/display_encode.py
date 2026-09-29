@@ -17,6 +17,8 @@ _FORMATS = {"image/webp": "WEBP", "image/png": "PNG", "image/jpeg": "JPEG"}
 _TARGET_PREFERENCE = ("image/webp", "image/jpeg", "image/png")
 _REFERENCE_QUALITIES = (95, 85, 75)
 _REFERENCE_EDGES = (_REFERENCE_MAX_EDGE, 3072, 2048, 1536, 1024)
+_REVIEW_MAX_EDGE = 1024
+_REVIEW_QUALITY = 85
 
 
 def _target_mime(allowed: tuple[str, ...]) -> str:
@@ -91,6 +93,20 @@ def shrink_for_display(data: bytes, mime: str) -> tuple[bytes, str]:
     except Exception:
         return data, mime
     return (out, "image/webp") if len(out) < len(data) else (data, mime)
+
+
+def shrink_for_review(data: bytes, mime: str) -> tuple[bytes, str]:
+    """A render downscaled to a JPEG a vision model can review cheaply.
+
+    Vision encoders resample to roughly this edge anyway, so the full render would
+    only cost upload bytes. Never raises: an unreadable render goes back as is.
+    """
+    try:
+        image = _load(data, "JPEG")
+        image.thumbnail((_REVIEW_MAX_EDGE, _REVIEW_MAX_EDGE), Image.Resampling.LANCZOS)
+        return _encode(image, "JPEG", _REVIEW_QUALITY), "image/jpeg"
+    except Exception:
+        return data, mime
 
 
 def lossless_png(data: bytes) -> bytes:

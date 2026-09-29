@@ -33,7 +33,11 @@ def _tc(name: str, args: dict) -> list[dict]:
     return [{"id": "t1", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]
 
 
-async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monkeypatch):
+async def _armed_conversation(client, llm_mock) -> tuple[str, str]:
+    """A conversation with one genuine chat turn on a writer lane and a separate agent lane.
+
+    Returns ``(conversation_id, card_id)``.
+    """
     writer_endpoint = await client.post("/api/endpoints", json={"url": "http://writer.local", "api_key": "writer-key"})
     assert writer_endpoint.status_code == 200
     writer_config_id = writer_endpoint.json()["active_model_config_id"]
@@ -95,6 +99,23 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
     resp = await client.post(f"/api/conversations/{cid}/send", json={"content": "I step inside.", "attachments": []})
     assert resp.status_code == 200
     _ = resp.text
+    return cid, card_id
+
+
+async def _fake_render(adapter, request, **kwargs):
+    return ImageResult(
+        image_bytes=b"\x89PNG\r\n\x1a\nimage",
+        mime="image/png",
+        backend_info={
+            "source": "external_comfy",
+            "workflow_id": "user_a",
+            "backend_model": "a.safetensors",
+        },
+    )
+
+
+async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monkeypatch):
+    cid, card_id = await _armed_conversation(client, llm_mock)
 
     await set_workflow_config(
         "image_gen",
@@ -108,18 +129,7 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
     )
     await set_workflow_character_state(card_id, "image_gen", {"appearance_prompt": "long silver hair"})
 
-    async def fake_render(adapter, request, **kwargs):
-        return ImageResult(
-            image_bytes=b"\x89PNG\r\n\x1a\nimage",
-            mime="image/png",
-            backend_info={
-                "source": "external_comfy",
-                "workflow_id": "user_a",
-                "backend_model": "a.safetensors",
-            },
-        )
-
-    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", _fake_render)
 
     llm_mock.enqueue_workflow(
         {
@@ -174,7 +184,7 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
     blobs = set()
     for c in wf:
         names = [t["function"]["name"] for t in (c["tools"] or [])]
-        assert names == ["read_image_skills", "compose_image_prompt"], (
+        assert names == ["read_image_skills", "compose_image_prompt", "refine_image_prompt"], (
             "off-turn calls must ship the workflow's own tools blob, not tools=None — "
             "most chat models won't reliably call a tool they were never given"
         )
@@ -191,3 +201,65 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
             "silently group it apart from the chat turn instead of comparing prefixes"
         )
     assert len(blobs) == 1, "select and compose must ship the byte-identical blob so they reuse each other's prefix"
+
+
+async def test_each_review_extends_the_thread_before_it(client, llm_mock, monkeypatch):
+    """Refinement is one growing thread on the agent lane: a review must resend every
+    earlier call byte for byte and add only its own turn, or each review re-bills the
+    renders before it. Each replayed call is answered by exactly one tool result."""
+    cid, card_id = await _armed_conversation(client, llm_mock)
+    await set_workflow_config(
+        "image_gen",
+        {
+            "source": "external_comfy",
+            "default_style": "anime",
+            "refine_turns": 2,
+            "external_comfy": {"api_url": "http://127.0.0.1:8188"},
+        },
+    )
+    await set_workflow_character_state(card_id, "image_gen", {"appearance_prompt": "long silver hair"})
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", _fake_render)
+    llm_mock.enqueue_workflow(
+        {
+            "tool_calls": _tc(
+                "compose_image_prompt",
+                {"scene": "1girl, sitting, window, rain", "avoid": "", "visible_subjects": ["Iris"]},
+            )
+        }
+    )
+    llm_mock.enqueue_workflow(
+        {
+            "tool_calls": _tc(
+                "refine_image_prompt",
+                {"critique": "no rain visible", "done": False, "scene": "1girl, sitting, window, heavy rain", "avoid": None},
+            )
+        }
+    )
+    llm_mock.enqueue_workflow(
+        {"tool_calls": _tc("refine_image_prompt", {"critique": "", "done": True, "scene": None, "avoid": None})}
+    )
+
+    mid = next(m["id"] for m in reversed(await get_messages(cid)) if m["role"] == "assistant")
+    resp = await client.post(
+        f"/api/conversations/{cid}/workflows/image_gen/trigger",
+        json={"action": "generate", "message_id": mid, "style_id": "anime"},
+    )
+    assert resp.status_code == 200
+    assert resp.text.count("event: image_gen_render") == 2
+
+    wf = [c for c in llm_mock.captured if c["pass"] == "workflow"]
+    assert [c["tool_choice"]["function"]["name"] for c in wf] == [
+        "compose_image_prompt",
+        "refine_image_prompt",
+        "refine_image_prompt",
+    ]
+    assert len({json.dumps(c["tools"], sort_keys=True) for c in wf}) == 1
+    for earlier, later in zip(wf, wf[1:], strict=False):
+        sent = earlier["messages"]
+        assert later["messages"][: len(sent)] == sent, "a review must extend the call before it, byte for byte"
+        call, result, image = later["messages"][len(sent) :]
+        assert call["role"] == "assistant" and result["role"] == "tool" and image["role"] == "user"
+        assert result["tool_call_id"] == call["tool_calls"][0]["id"]
+        assert image["content"][0]["image_url"]["url"].startswith("data:image/")
+    ids = [m["tool_calls"][0]["id"] for m in wf[-1]["messages"] if m.get("tool_calls")]
+    assert ids == ["imgcall00", "imgcall01"], "synthesized ids must be nine alphanumerics; Mistral rejects any other shape"

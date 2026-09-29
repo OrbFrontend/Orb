@@ -77,7 +77,12 @@ from ..prompting.lorebook import (
 )
 from . import spark_tts_host as _spark_tts_host
 from ._forced_call import forced_tool_call
-from .attachment_cache import EVICTED_MARKER, insert_workflow_attachment
+from .attachment_cache import (
+    EVICTED_MARKER,
+    insert_workflow_attachment,
+    insert_workflow_variant,
+    set_workflow_consumption_metadata,
+)
 from .contracts import EV_DRAFT_REPLACED, ExportedFile, ToolSpec, WorkflowEventStream
 from .errors import WorkflowUserFacingError
 from .registry import (
@@ -150,6 +155,7 @@ __all__ = [
     "get_workflow_message_state",
     "get_workflow_state",
     "insert_workflow_attachment",
+    "insert_workflow_variant",
     "local_feature_available",
     "local_feature_ready",
     "local_model_identity",
@@ -167,6 +173,7 @@ __all__ = [
     "speech_input",
     "build_offturn_prefix",
     "conversation_macros",
+    "set_workflow_consumption_metadata",
     "set_workflow_character_state",
     "set_workflow_config",
     "set_workflow_message_state",

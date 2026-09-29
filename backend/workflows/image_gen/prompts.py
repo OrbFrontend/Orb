@@ -216,6 +216,26 @@ READ_IMAGE_SKILLS_SCHEMA = {
 }
 
 
+REFINE_TOOL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "refine_image_prompt",
+        "description": "Review a rendered image against the scene and revise the image-gen prompt.",
+        "parameters": _strict(
+            {
+                "critique": {
+                    "type": "string",
+                    "description": "The visible problems in the image, most important first, or an empty string.",
+                },
+                "done": {"type": "boolean", "description": "True when the image needs no other render."},
+                "scene": _nullable("The complete revised positive scene prompt in the requested format, or null when done."),
+                "avoid": _nullable("The revised avoid list, or null."),
+            }
+        ),
+    },
+}
+
+
 COMPOSE_TOOL = ToolSpec(
     name="compose_image_prompt",
     schema=COMPOSE_TOOL_SCHEMA,
@@ -228,6 +248,14 @@ READ_IMAGE_SKILLS_TOOL = ToolSpec(
     name="read_image_skills",
     schema=READ_IMAGE_SKILLS_SCHEMA,
     choice={"type": "function", "function": {"name": "read_image_skills"}},
+    standalone=True,
+)
+
+
+REFINE_TOOL = ToolSpec(
+    name="refine_image_prompt",
+    schema=REFINE_TOOL_SCHEMA,
+    choice={"type": "function", "function": {"name": "refine_image_prompt"}},
     standalone=True,
 )
 
@@ -389,10 +417,37 @@ def select_skills_ooc(pov: str, subjects: Sequence[SubjectAppearance], skills: S
     )
 
 
-# The workflow's own tools blob. Both off-turn calls ship both schemas in a fixed
-# order and force one via tool_choice -- the pipeline pattern -- so selection and
-# compose are byte-identical and reuse each other's cached prefix. A chat model
+def render_result(render: int) -> str:
+    """The tool result that answers a compose or refine call with its render."""
+    return f"Render {render} is done. The image is in the next message."
+
+
+def refine_ooc(render: int, turns_left: int, *, supports_negative: bool = True) -> str:
+    """The review request that rides beside a render, after its tool result.
+
+    `turns_left` counts the renders still available after this review, so the model
+    knows when a revision is its last chance.
+    """
+    avoid = "Revise `avoid` by the same rules as before." if supports_negative else _LEAVE_AVOID_EMPTY
+    last = " This is the last revision: the next render is final." if turns_left == 1 else ""
+    return (
+        f"[OOC: The image above is render {render}, made from your last prompt. Review it against the final visible "
+        "instant of the assistant reply and against your prompt. Check the number of persons, who is visible, pose and "
+        "action, anatomy such as hands and limbs, clothing, expression, interaction, spatial relationships, setting, POV, "
+        "occlusion, lighting, and framing. Also check for things the image model added that contradict the scene. In `critique`, "
+        "list only the visible problems, most important first. Set `done` to true when no problem is worth another "
+        "render, and set `scene` and `avoid` to null. Otherwise set `done` to false and write the complete revised "
+        "prompt in `scene`. Keep the parts that worked. Fix each problem: make its wording more explicit, move it "
+        "earlier, or remove the words that caused it. If the image is completely mangled or wrong, rewrite from scratch. "
+        "Sometimes the image model simply cannot render certain perspectives or details. "
+        f"Use the same format rules as before. {avoid}{last} Call refine_image_prompt.]"
+    )
+
+
+# The workflow's own tools blob. Every off-turn call ships all three schemas in a
+# fixed order and forces one via tool_choice -- the pipeline pattern -- so selection,
+# compose, and each review are byte-identical and reuse each other's cached prefix. A chat model
 # needs the actual tool: forcing via response_format with tools=None is unreliable
 # (Gemma) or rejected (DeepSeek). Standalone, so it never leaks into the
 # pipeline's enabled_schemas.
-OFFER_TOOLS = ("read_image_skills", "compose_image_prompt")
+OFFER_TOOLS = ("read_image_skills", "compose_image_prompt", "refine_image_prompt")

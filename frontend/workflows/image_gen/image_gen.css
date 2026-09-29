@@ -10,7 +10,7 @@
 .image-gen-settings label.ig-toggle input{width:auto;flex:none}
 .image-gen-settings label.ig-toggle:has(.ig-toggle-body){align-items:flex-start}
 .ig-toggle-body{display:grid;gap:3px}
-.image-gen-note{color:var(--text-muted);font-size:.85em;margin:0;line-height:1.45}
+.image-gen-note{color:var(--text-muted);font-size:12px;font-weight:400;letter-spacing:normal;text-transform:none;margin:0;line-height:1.45}
 
 .image-gen-card-setup{display:flex;align-items:center;gap:8px;margin-top:8px}
 .image-gen-card-controls{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px 10px;margin-top:10px}
@@ -28,6 +28,8 @@
 
 .ig-section{display:grid;gap:10px}
 .ig-section>.btn{justify-self:start}
+.ig-grid+.image-gen-note{margin-top:-4px}
+.ig-toggles{display:grid;gap:12px;margin-top:6px}
 .image-gen-settings :is(.ig-section,.ig-grid,.ig-style-body,.ig-styles,.ig-skill-list,.ig-skill-body,.ig-drawers,.ig-conn-list,.ig-conn-body,.ig-profile-fields,.image-gen-graph-picker)>*{min-width:0}
 .image-gen-settings .modal-heading{margin:0}
 .ig-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}

@@ -4,12 +4,19 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
 from ..toolkit import forced_tool_call
 from .config import DEFAULT_PROMPT_FORMAT
 from .pov import THIRD
-from .prompts import OFFER_TOOLS, compose_ooc, select_skills_ooc
+from .prompts import (
+    OFFER_TOOLS,
+    compose_ooc,
+    refine_ooc,
+    render_result,
+    select_skills_ooc,
+)
 from .scrub import (
     SubjectAppearance,
     bounded,
@@ -34,9 +41,53 @@ class SkillSelection(NamedTuple):
     valid: bool = False
 
 
-async def _forced_args(*, client, model_name, prefix, tail, tool_name, settings, reasoning_on) -> dict:
-    logger.info("[image_gen] %s tail:\n%s", tool_name, "\n--\n".join(m["content"] for m in tail))
-    args: dict = {}
+@dataclass
+class RefineThread:
+    """The compose call and every review after it, kept so each review sees the rest.
+
+    `messages` extends the shared prefix: the compose tail, then per render the
+    replayed call, its tool result, and the image under review. `call_id` names the
+    call the next render answers.
+    """
+
+    messages: list[dict] = field(default_factory=list)
+    visible: list[SubjectAppearance] = field(default_factory=list)
+    call_id: str = ""
+
+
+@dataclass
+class Revision:
+    """One review of a render: the critique, and the revised prompt unless accepted."""
+
+    critique: str
+    done: bool
+    scene: str = ""
+    avoid: str = ""
+
+
+def _call_id(render: int) -> str:
+    """The id of the call made after `render` renders: 0 is compose, n the review of render n.
+
+    Nine alphanumerics, the strictest id shape a provider enforces (Mistral), so the
+    replayed thread is valid wherever it is sent.
+    """
+    return f"imgcall{render:02d}"
+
+
+def _logged_text(message: Mapping[str, Any]) -> str:
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    parts = content if isinstance(content, list) else []
+    return " ".join(part["text"] if part.get("type") == "text" else "<image>" for part in parts if isinstance(part, Mapping))
+
+
+async def _forced_result(
+    *, client, model_name, prefix, tail, tool_name, settings, reasoning_on, call_id: str | None = None
+) -> dict:
+    """The forced call's result event: `args`, plus `replay` when `call_id` asked for it."""
+    logger.info("[image_gen] %s tail:\n%s", tool_name, _logged_text(tail[-1]) if tail else "")
+    result: dict = {"args": {}}
     async for event in forced_tool_call(
         client=client,
         prefix=prefix,
@@ -47,11 +98,12 @@ async def _forced_args(*, client, model_name, prefix, tail, tool_name, settings,
         reasoning_on=reasoning_on,
         temperature=0.2,
         offer_tools=OFFER_TOOLS,
+        call_id=call_id,
     ):
         if event.get("type") == "result" and isinstance(event.get("args"), dict):
-            args = event["args"]
-    logger.info("[image_gen] %s returned: %s", tool_name, args)
-    return args
+            result = event
+    logger.info("[image_gen] %s returned: %s", tool_name, result["args"])
+    return result
 
 
 def enabled_scene_skills(skills: Sequence[Mapping[str, Any]]) -> tuple[dict, ...]:
@@ -82,7 +134,7 @@ async def read_image_skills(
     if not catalog:
         return SkillSelection()
     try:
-        args = await _forced_args(
+        result = await _forced_result(
             client=client,
             model_name=model_name,
             prefix=prefix,
@@ -91,6 +143,7 @@ async def read_image_skills(
             settings=settings,
             reasoning_on=reasoning_on,
         )
+        args = result["args"]
     except Exception:
         logger.warning("[image_gen] composition-skill selection failed; composing without skills", exc_info=True)
         return SkillSelection()
@@ -155,43 +208,115 @@ async def compose_scene(
     style_prompt: str = "",
     style_negative_prompt: str = "",
     profile_negative_prompt: str = "",
+    thread: RefineThread | None = None,
 ) -> tuple[str, str, str]:
-    """Compose scene text as ``(scene, avoid, mode)``."""
+    """Compose scene text as ``(scene, avoid, mode)``.
+
+    A `thread` is filled with the call as the model made it, so a review can follow.
+    """
     sheets = _sheets(subjects)
-    args = await _forced_args(
+    tail = [
+        {
+            "role": "user",
+            "content": compose_ooc(
+                prompt_format,
+                pov,
+                subjects=sheets,
+                selected_skills=selected_skills,
+                extra_instructions=extra_instructions,
+                supports_negative=supports_negative,
+                has_references=has_references,
+                referenced_subjects=referenced_subjects,
+                style_prompt=style_prompt,
+                style_negative_prompt=style_negative_prompt,
+                profile_negative_prompt=profile_negative_prompt,
+            ),
+        }
+    ]
+    result = await _forced_result(
         client=client,
         model_name=model_name,
         prefix=prefix,
-        tail=[
-            {
-                "role": "user",
-                "content": compose_ooc(
-                    prompt_format,
-                    pov,
-                    subjects=sheets,
-                    selected_skills=selected_skills,
-                    extra_instructions=extra_instructions,
-                    supports_negative=supports_negative,
-                    has_references=has_references,
-                    referenced_subjects=referenced_subjects,
-                    style_prompt=style_prompt,
-                    style_negative_prompt=style_negative_prompt,
-                    profile_negative_prompt=profile_negative_prompt,
-                ),
-            }
-        ],
+        tail=tail,
         tool_name="compose_image_prompt",
         settings=settings,
         reasoning_on=reasoning_on,
+        call_id=_call_id(0) if thread is not None else None,
     )
+    args = result["args"]
 
     scene = clean_scene(bounded(args.get("scene")), prompt_format=prompt_format, pov=pov)
     if not scene:
         raise ValueError("couldn't compose an image prompt for this message")
     names = visible_subjects if visible_subjects is not None else args.get("visible_subjects")
     visible = _matching_subjects(sheets, names, "composition") if isinstance(names, (list, tuple)) else []
+    if thread is not None and isinstance(result.get("replay"), Mapping):
+        thread.messages = [*tail, dict(result["replay"])]
+        thread.visible = visible
+        thread.call_id = _call_id(0)
     scene = inject_profile_appearance(scene, visible, prompt_format)
     return scene, bounded(args.get("avoid")), "scene_skills" if visible_subjects is not None else "single_call"
+
+
+async def refine_scene(
+    *,
+    client: Any,
+    model_name: str,
+    prefix: Sequence[dict],
+    settings: Mapping[str, Any],
+    thread: RefineThread,
+    image_url: str,
+    render: int,
+    turns_left: int,
+    prompt_format: str = DEFAULT_PROMPT_FORMAT,
+    pov: str = THIRD,
+    reasoning_on: bool = False,
+    supports_negative: bool = True,
+) -> Revision | None:
+    """Show the model its last render and take its review, or ``None`` when it gave none.
+
+    The render answers the thread's open call, and the review's own call is kept on
+    the thread, so the next review sees every earlier image and every earlier prompt.
+    """
+    if not thread.call_id:
+        return None
+    turn = [
+        {"role": "tool", "tool_call_id": thread.call_id, "content": render_result(render)},
+        {
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": image_url}},
+                {"type": "text", "text": refine_ooc(render, turns_left, supports_negative=supports_negative)},
+            ],
+        },
+    ]
+    call_id = _call_id(render)
+    result = await _forced_result(
+        client=client,
+        model_name=model_name,
+        prefix=prefix,
+        tail=[*thread.messages, *turn],
+        tool_name="refine_image_prompt",
+        settings=settings,
+        reasoning_on=reasoning_on,
+        call_id=call_id,
+    )
+    args, replay = result["args"], result.get("replay")
+    if not isinstance(args.get("done"), bool) or not isinstance(replay, Mapping):
+        logger.info("[image_gen] review of render %d came back unusable; keeping it", render)
+        return None
+    thread.messages = [*thread.messages, *turn, dict(replay)]
+    thread.call_id = call_id
+    critique = bounded(args.get("critique"))
+    if args["done"]:
+        return Revision(critique, True)
+    scene = clean_scene(bounded(args.get("scene")), prompt_format=prompt_format, pov=pov)
+    if not scene:
+        logger.info("[image_gen] review of render %d asked for changes but wrote no prompt; keeping it", render)
+        return Revision(critique, False)
+    return Revision(
+        critique, False, inject_profile_appearance(scene, thread.visible, prompt_format), bounded(args.get("avoid"))
+    )
 
 
 def assemble_prompts(
