@@ -430,11 +430,6 @@ def refine_ooc(render: int, turns_left: int, *, supports_negative: bool = True, 
     """
     avoid = "Revise `avoid` by the same rules as before." if supports_negative else _LEAVE_AVOID_EMPTY
     last = " This is the last revision: the next render is final." if turns_left == 1 else ""
-    seed = (
-        "The next render uses the same seed, so only your changes to the prompt change the image. "
-        if same_seed
-        else "The next render is drawn afresh, so parts you keep can also come out differently. "
-    )
     return (
         f"[OOC: The image above is render {render}, made from your last prompt. Review it against the final visible "
         "instant of the assistant reply and against your prompt. Check the number of persons, who is visible, pose and "
@@ -444,7 +439,7 @@ def refine_ooc(render: int, turns_left: int, *, supports_negative: bool = True, 
         "render, and set `scene` and `avoid` to null. Otherwise set `done` to false and write the complete revised "
         "prompt in `scene`. Keep the parts that worked. Fix each problem: make its wording more explicit, move it "
         "earlier, or remove the words that caused it. If it's completely mangled or wrong, rewrite from scratch. "
-        f"{seed}Use the same format rules as before. {avoid}{last} Call refine_image_prompt.]"
+        f"Use the same format rules as before. {avoid}{last} Call refine_image_prompt.]"
     )
 
 
