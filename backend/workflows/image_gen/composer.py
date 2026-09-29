@@ -97,20 +97,6 @@ async def _forced_result(
     return result
 
 
-async def _forced_args(*, client, model_name, prefix, tail, tool_name, settings, reasoning_on) -> dict:
-    return (
-        await _forced_result(
-            client=client,
-            model_name=model_name,
-            prefix=prefix,
-            tail=tail,
-            tool_name=tool_name,
-            settings=settings,
-            reasoning_on=reasoning_on,
-        )
-    )["args"]
-
-
 def enabled_scene_skills(skills: Sequence[Mapping[str, Any]]) -> tuple[dict, ...]:
     """Return usable entries in library order."""
     return tuple(dict(skill) for skill in skills if skill.get("enabled") is True and bounded(skill.get("instructions"), 4_000))
@@ -139,7 +125,7 @@ async def read_image_skills(
     if not catalog:
         return SkillSelection()
     try:
-        args = await _forced_args(
+        result = await _forced_result(
             client=client,
             model_name=model_name,
             prefix=prefix,
@@ -148,6 +134,7 @@ async def read_image_skills(
             settings=settings,
             reasoning_on=reasoning_on,
         )
+        args = result["args"]
     except Exception:
         logger.warning("[image_gen] composition-skill selection failed; composing without skills", exc_info=True)
         return SkillSelection()
@@ -321,7 +308,7 @@ async def refine_scene(
     scene = clean_scene(bounded(args.get("scene")), prompt_format=prompt_format, pov=pov)
     if not scene:
         logger.info("[image_gen] review of render %d asked for changes but wrote no prompt; keeping it", render)
-        return Revision(critique, True)
+        return Revision(critique, False)
     return Revision(
         critique, False, inject_profile_appearance(scene, thread.visible, prompt_format), bounded(args.get("avoid"))
     )

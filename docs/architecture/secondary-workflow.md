@@ -285,8 +285,8 @@ has saved so far as the `group` and the last one as `shown`. Either way, a new
 variant becomes the active one only while the previous one from the same run is
 still on show, so a user who paged to an earlier variant mid-run stays on it.
 `set_workflow_consumption_metadata` rewrites a saved row's consumption metadata
-when something about it, such as a review, is known only after it was saved. Existing artifacts remain readable when their workflow is
-disabled.
+when something about it, such as a review, is known only after it was saved.
+Existing artifacts remain readable when their workflow is disabled.
 
 A workflow whose stored bytes are not the best copy of an artifact can
 subscribe `EXPORT` to serve a download. The hook receives the row without its
@@ -334,7 +334,8 @@ lock yet -- so clients confirm it across consecutive polls.
 With `Accept: text/event-stream`, `regenerate` streams each `ctx.phase(label)` as
 `phase_status` and each `ctx.keep` that saved a row as `regenerate_sibling`
 (`{attachment_id}`), then `regenerate_done` (the JSON body, whose `attachments`
-include the kept rows) or `regenerate_error` (`{status, detail}`). The render outlives a dropped stream.
+include the kept rows) or `regenerate_error` (`{status, detail}`). The render
+outlives a dropped stream.
 
 Workflow renders run beside the chat, so the chat Stop button leaves them
 alone; the button that started a render is its Stop button while it runs.

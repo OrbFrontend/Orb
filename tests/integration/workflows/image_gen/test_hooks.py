@@ -502,6 +502,34 @@ async def test_refinement_keeps_every_render_as_a_variant_beside_its_review(clie
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("review", "expected_review", "note"),
+    [
+        (None, None, "no usable review"),
+        (Revision("hands merged", False), {"critique": "hands merged", "done": False}, "wrote no revised prompt"),
+    ],
+    ids=["no-review", "no-prompt"],
+)
+async def test_refinement_that_stops_early_says_why_on_the_render(client, monkeypatch, review, expected_review, note):
+    """A prompter that cannot read images, or asks for changes it never writes, must
+    not leave Review turns looking inert: the render says why refinement stopped."""
+    mid = await _seed("ig-refine-stop", config={**CONFIG, "refine_turns": 2})
+    _stub(monkeypatch)
+
+    async def fake_refine(**_kwargs):
+        return review
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.refine_scene", fake_refine)
+
+    await _trigger(client, "ig-refine-stop", {"action": "generate", "message_id": mid})
+
+    [row] = await get_workflow_attachments_for_message(mid)
+    consumption = json.loads(row["consumption_metadata"])
+    assert consumption.get("review") == expected_review
+    assert any(note in n for n in consumption["notes"])
+
+
+@pytest.mark.asyncio
 async def test_a_user_who_paged_back_mid_run_stays_on_their_pick(client):
     mid = await _seed("ig-pick")
     render = {"workflow_id": "image_gen", "filename": "x.png", "mime": "image/png", "data": b"\x89PNGx", "seed": "1"}

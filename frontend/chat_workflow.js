@@ -448,13 +448,17 @@ function _showSiblings(convId, msgId, rootId, msgs, landed, onLanded) {
   }
 }
 
-async function _recoverWorkflowSibling(convId, msgId, rootId, before, onSuccess) {
-  const deadline = Date.now() + 200_000;
+// *follow*, for a run that saves several siblings, is called as each lands, and
+// recovery then lasts until the run ends rather than stopping at the first.
+async function _recoverWorkflowSibling(convId, msgId, rootId, before, onSuccess, follow = null) {
+  let deadline = Date.now() + 200_000;
   // Our request died on the wire, so its outcome has to be read off the server:
   // a new sibling means it landed, two consecutive "nothing running" answers
   // mean it failed. Two, not one -- a single sample can fall in the window
   // before the route reaches the lock, and the second pass re-checks for the
   // sibling first, which also covers a render that finished mid-poll.
+  const seen = new Set(before);
+  let landed = false;
   let idle = 0;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 3000));
@@ -465,14 +469,25 @@ async function _recoverWorkflowSibling(convId, msgId, rootId, before, onSuccess)
     } catch {
       continue;
     }
-    if (_siblingLanded(msgs, msgId, rootId, before)) {
-      if (S.activeConvId === convId) _showSiblings(convId, msgId, rootId, msgs, true, onSuccess);
-      return true;
+    if (_siblingLanded(msgs, msgId, rootId, seen)) {
+      if (!follow) {
+        if (S.activeConvId === convId) _showSiblings(convId, msgId, rootId, msgs, true, onSuccess);
+        return true;
+      }
+      landed = true;
+      for (const id of _rootSiblingIds(
+        msgs.find((m) => m.id === msgId),
+        rootId,
+      ))
+        seen.add(id);
+      // The next sibling may take a whole render again.
+      deadline = Date.now() + 200_000;
+      await follow(msgs);
     }
     if (await _workflowGroupInFlight(convId, msgId, rootId)) idle = 0;
-    else if (++idle >= 2) return false;
+    else if (++idle >= 2) return landed;
   }
-  return false;
+  return landed;
 }
 
 async function _recoverWorkflowDeletion(convId, msgId, rootId, aid) {
@@ -592,10 +607,10 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
   // A workflow that renders several variants saves each as it lands; only the
   // first is scrolled to, so a user who scrolled away to read is left there.
   let landed = 0;
-  const showLanded = async () => {
+  const showLanded = async (fetched = null) => {
     if (S.isStreaming) return;
     try {
-      const msgs = await api.get(convUrl(convId, "messages"));
+      const msgs = fetched || (await api.get(convUrl(convId, "messages")));
       if (S.activeConvId !== convId) return;
       setMessages(msgs);
       _reapplyInFlightSwipes();
@@ -622,7 +637,10 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
     broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
     if (job.stopping) await _syncAfterStop(convId, msgId, rootId, beforeSiblings);
-    else if (_isNetworkError(e) && (await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings))) {
+    else if (
+      _isNetworkError(e) &&
+      ((await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings, null, showLanded)) || landed)
+    ) {
     } else {
       console.error("Regenerate failed:", e);
       _showActionFailure(container, "workflow-regen-error", "Regenerate", e);
