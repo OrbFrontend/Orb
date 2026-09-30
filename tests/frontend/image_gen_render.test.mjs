@@ -305,6 +305,15 @@ test("a deleted render leaves its number missing rather than renumbering", () =>
   );
 });
 
+test("a render's review is listed in its details only outside a refinement run", () => {
+  const review = { critique: "too dark", done: false };
+  const legacy = attachmentDetailsHtml({ consumption_metadata: { review } }, MARKERS);
+  assert.ok(legacy.includes("<dt>Review</dt><dd>«Asked for another render: too dark»</dd>"));
+  // The timeline under the image already shows it.
+  const refine = { run: "r1", render: 1, turns: 2 };
+  assert.ok(!attachmentDetailsHtml({ consumption_metadata: { review, refine } }, MARKERS).includes("<dt>Review"));
+});
+
 test("every header state is derived from the rows and the live stage", () => {
   const one = render(1, at(1));
   const header = (siblings, live) => refineRun(siblings, siblings[0] || null, live)?.header;
@@ -315,7 +324,7 @@ test("every header state is derived from the rows and the live stage", () => {
   assert.equal(header([one], live("reviewing", 1)).text, "Reviewing render 1…");
   assert.equal(
     header([render(1, at(1), rejected("x")), render(2, at(2), rejected("y"))], live("rendering", 3)).text,
-    "Rendering revision 2 of up to 3…",
+    "Rendering revision 2/3…",
   );
   assert.deepEqual(header([render(1, at(1, { ended: "accepted" }), { critique: "", done: true })], null), {
     state: "accepted",
@@ -323,10 +332,10 @@ test("every header state is derived from the rows and the live stage", () => {
   });
   assert.equal(
     header([render(4, at(4, { ended: "turns_used" }))], null).text,
-    "Used all 3 revisions — render 4 not reviewed",
+    "All 3 revisions used",
   );
   for (const ended of ["no_review", "no_prompt", "render_failed", "review_failed"])
-    assert.equal(header([render(2, at(2, { ended }))], null).text, "Refinement stopped at render 2");
+    assert.equal(header([render(2, at(2, { ended }))], null).text, "Stopped at render 2");
   // No job and no ending: the user stopped it.
   assert.deepEqual(header([one], null), { state: "stopped", text: "Stopped at render 1" });
   // An ending outranks a stage that has not been cleared yet.

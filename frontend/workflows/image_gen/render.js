@@ -42,15 +42,12 @@ function referenceRows(cm, esc) {
 }
 
 // The prompter's verdict on this render: accepted, or the problems it revised for.
+// A render from a refinement run shows its review in the timeline under the image.
 function reviewRow(cm, esc) {
   const review = cm.review;
-  if (!review || typeof review.done !== "boolean") return "";
+  if (!review || typeof review.done !== "boolean" || refineOf({ consumption_metadata: cm })) return "";
   const critique = typeof review.critique === "string" ? review.critique.trim() : "";
-  const verdict = review.done
-    ? "Accepted"
-    : review.reseed === true
-      ? "Asked for another render from a new seed"
-      : "Asked for another render";
+  const verdict = review.done ? "Accepted" : "Asked for another render";
   return `<dt>Review</dt><dd>${esc(critique ? `${verdict}: ${critique}` : verdict)}</dd>`;
 }
 
@@ -143,14 +140,15 @@ function reviewOf(att) {
 function liveHeader(live) {
   if (live.stage === "composing") return "Composing prompt…";
   if (live.stage === "reviewing") return `Reviewing render ${live.render}…`;
-  if (live.render > 1) return `Rendering revision ${live.render - 1} of up to ${live.turns}…`;
+  if (live.render > 1) return `Rendering revision ${live.render - 1}/${live.turns}…`;
   return "Rendering…";
 }
 
 function endedHeader(ended, render, turns) {
   if (ended === "accepted") return `Accepted at render ${render}`;
-  if (ended === "turns_used") return `Used all ${turns} revisions — render ${render} not reviewed`;
-  return `Refinement stopped at render ${render}`;
+  // The rows say why: "not reviewed" for the last render, or the ending under its review.
+  if (ended === "turns_used") return `All ${turns} revisions used`;
+  return `Stopped at render ${render}`;
 }
 
 /**
@@ -266,7 +264,7 @@ export function refineTimelineHtml(model, { esc, escAttr, msgId, rootId, open = 
   // Nothing to list until the run's first render lands.
   const toggle = !count
     ? ""
-    : `<button type="button" class="ig-refine-toggle" data-wf-action="image_gen:refineToggle" aria-expanded="${open ? "true" : "false"}" aria-controls="${domId}-list" aria-label="${open ? "Hide" : "Show"} every render's review">${open ? "▴" : `▾ ${count}`}</button>`;
+    : `<button type="button" class="ig-refine-toggle" data-wf-action="image_gen:refineToggle" aria-expanded="${open ? "true" : "false"}" aria-controls="${domId}-list" aria-label="${open ? "Hide" : "Show"} every render's review">${open ? "▴" : "▾"} ${count}</button>`;
   const head = `<div class="ig-refine-head"><span class="ig-refine-status ig-refine-${header.state}" role="status" aria-live="polite" title="${escAttr(header.text)}">${mark}<span class="ig-refine-status-text">${esc(header.text)}</span></span>${stopBtn}${toggle}</div>`;
   let body;
   if (open) {
@@ -285,7 +283,7 @@ export function refineTimelineHtml(model, { esc, escAttr, msgId, rootId, open = 
   } else {
     const focus = rows.find((row) => row.id === model.focusRowId);
     body = focus
-      ? `<div class="ig-refine-body" id="${domId}-list">${critiqueHtml(focus, turns, { ...opts, prefix: `<span class="ig-refine-label">${esc(`Render ${focus.render} review:`)}</span> ` })}</div>`
+      ? `<div class="ig-refine-body" id="${domId}-list">${critiqueHtml(focus, turns, { ...opts, prefix: `<span class="ig-refine-label">${esc(`Render ${focus.render}:`)}</span> ` })}</div>`
       : `<div class="ig-refine-body is-empty" id="${domId}-list"></div>`;
   }
   return `<div class="ig-refine${open ? " is-open" : ""}" id="${domId}" data-msg-id="${escAttr(msgId)}" data-root-id="${escAttr(rootId)}">${head}${body}</div>`;

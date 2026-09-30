@@ -99,10 +99,12 @@
 @media (max-width:560px){.ig-grid{grid-template-columns:1fr}}
 
 .image-gen-attachment{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:flex-start;gap:14px;scroll-margin:46px 0 26px}
-/* The image alone sets the column's width; the timeline under it follows. */
+/* The image sets the column's width and the timeline under it follows, but not
+   below a readable width: a narrower portrait is centered over the strip, and its
+   box hugs it so the action bar stays on the image. */
 .image-gen-main{flex:0 1 auto;min-width:0;display:flex;flex-direction:column;gap:6px}
 .image-gen-main:has(>.ig-refine){min-width:min(100%,260px)}
-.image-gen-media{position:relative;min-width:0;line-height:0}
+.image-gen-media{position:relative;align-self:center;max-width:100%;min-width:0;line-height:0}
 .image-gen-actions{position:absolute;right:6px;bottom:6px;display:flex;gap:4px;padding:3px;border-radius:calc(var(--radius) + 2px);background:rgba(0,0,0,.5);backdrop-filter:blur(3px);opacity:.6;transition:opacity .15s}
 .image-gen-media:hover .image-gen-actions,.image-gen-actions:focus-within{opacity:1}
 .image-gen-actions .workflow-regen-button,.image-gen-actions .workflow-reroll-button{border:none;background:transparent;color:#fff}
@@ -159,7 +161,8 @@
 .ig-refine-ok,.ig-refine-v-accepted{color:var(--accent)}
 :is(.ig-refine-ok,.ig-refine-verdict)>svg{display:block}
 .ig-refine-ok{flex:none}
-.ig-refine-v-rejected{color:var(--danger,var(--accent))}
+/* Asking for another render is the normal course, not an error: only acceptance is marked. */
+:is(.ig-refine-v-rejected,.ig-refine-v-ended,.ig-refine-v-unreviewed){color:var(--text-muted)}
 .ig-refine-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--accent);animation:ig-refine-pulse 1.4s ease-in-out infinite}
 @keyframes ig-refine-pulse{50%{opacity:.3}}
 @media (prefers-reduced-motion:reduce){.ig-refine-dot{animation:none}}
@@ -175,7 +178,8 @@
 .ig-refine-list .ig-refine-critique{-webkit-line-clamp:3;line-clamp:3}
 .ig-refine-text.is-open .ig-refine-critique{display:block;-webkit-line-clamp:none;line-clamp:none;overflow:visible}
 .ig-refine-more{display:none;flex:none;padding:0 2px;color:var(--accent)}
-.ig-refine-text:is(.is-clamped,.is-open) .ig-refine-more{display:inline-block}
+/* Bottom-aligned, so a touch-sized button still sits on the clamped last line. */
+.ig-refine-text:is(.is-clamped,.is-open) .ig-refine-more{display:inline-flex;align-items:flex-end}
 .ig-refine-ending{display:block;color:var(--text-muted);font-style:italic}
 .ig-refine-reseed{padding:0 5px;border:1px solid var(--border);border-radius:999px;color:var(--text-muted);font-size:.85em;white-space:nowrap}
 .ig-refine-list{--ig-num:22px;list-style:none;margin:2px 0 0;padding:0;display:grid;gap:5px}
