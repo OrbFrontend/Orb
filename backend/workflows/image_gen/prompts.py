@@ -294,7 +294,7 @@ def _profile_instruction(subjects: Sequence[SubjectAppearance]) -> str:
 def _extra_block(extra_instructions: str) -> str:
     extra = bounded(extra_instructions)
     return (
-        " Prompter guidance from the user follows. It may control emphasis, framing, and wording, but it must not contradict "
+        " Prompter guidance from the user follows. It may contain examples, but it must not contradict "
         f"the visible story facts or saved exclusions: {extra} "
         if extra
         else ""
