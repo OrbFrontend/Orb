@@ -767,7 +767,14 @@ async def regenerate(ctx, body):
         progress=_reporting(ctx.phase),
         keep=ctx.keep or collect,
         phase=ctx.phase,
-        emit=lambda event, data: ctx.emit(event, {**data, "message_id": ctx.message_id}),
+        emit=lambda event, data: ctx.emit(
+            event,
+            {
+                **data,
+                "message_id": ctx.message_id,
+                "root_id": ctx.original_attachment.get("parent_attachment_id") or ctx.attachment_id,
+            },
+        ),
         history=history,
     )
     return returned

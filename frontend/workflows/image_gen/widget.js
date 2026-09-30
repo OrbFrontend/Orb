@@ -7,6 +7,7 @@ import {
   esc,
   escAttr,
   getActiveConvId,
+  getMessages,
   refreshConversationMessages,
   registerAction,
   registerRegenerateSettled,
@@ -47,13 +48,11 @@ const rerollEditSnapshots = new Map(); // attId -> edit object submitted by the 
 let focusView = loadFocusView(); // image fills the card, details hidden
 
 // ── refinement timeline state ──
-// A run's stage and each review arrive as events, before the saved rows are
-// refetched (and a reply streaming holds the refetch back), so they are kept
-// here and merged over the rows when the strip is drawn.
-const liveRuns = new Map(); // run -> { msgId, source: "fresh" | "regen", run, stage, render, turns }
+// Stages and reviews arrive between attachment refreshes, so they are merged
+// over the current saved rows when the strip is drawn.
+const liveRuns = new Map(); // run -> { msgId, rootId, source: "fresh" | "regen", run, stage, render, turns }
 const liveReviews = new Map(); // attId -> { review, ended }
 const openRows = new Set(); // attIds whose critique is unclamped
-const timelineCtx = new Map(); // rootId -> the renderer context last drawn, for patching in place
 let timelineConv = null;
 let refineOpen = loadFlag(REFINE_OPEN_KEY);
 
@@ -73,7 +72,7 @@ export function initWidget(sharedConfig) {
   // A run started from the card's regenerate button reports on that stream.
   registerWorkflowEventHandler(WORKFLOW_ID, "image_gen_refine_stage", (data) => onRefineStage(data, "regen"));
   registerWorkflowEventHandler(WORKFLOW_ID, "image_gen_review", onReview);
-  registerRegenerateSettled(WORKFLOW_ID, (msgId) => endLiveRuns(msgId, "regen"));
+  registerRegenerateSettled(WORKFLOW_ID, (msgId, rootId) => endLiveRuns(msgId, "regen", rootId));
 }
 
 function loadFocusView() {
@@ -286,6 +285,7 @@ async function pollForAttachment(msgId, signal, { timeoutMs = 120_000, intervalM
 }
 
 export function attachmentRenderer(ctx) {
+  rememberTimeline();
   const { att, buttons, defaultHtml, msgId, rootId } = ctx;
   const media = defaultHtml.replace(buttons.regen, "").replace(buttons.reroll, "");
   const actions = `<div class="image-gen-actions">${viewToggleHtml(focusView)}${downloadButtonHtml(att, { escAttr })}${buttons.reroll}${buttons.regen}</div>`;
@@ -295,22 +295,19 @@ export function attachmentRenderer(ctx) {
   const pending = edited("prompt") || edited("negative_prompt") ? pend : undefined;
   const details = attachmentDetailsHtml(withLiveReview(att), { esc, escAttr, pending });
   const view = focusView ? " image-gen-focus" : "";
-  rememberTimeline(ctx);
   const ids = rootId == null ? "" : ` data-msg-id="${escAttr(msgId)}" data-root-id="${escAttr(rootId)}"`;
   return `<div class="image-gen-attachment${view}"><div class="image-gen-main"${ids}><div class="image-gen-media">${media}${actions}</div>${timelineHtml(ctx)}</div>${details}</div>`;
 }
 
 // ── refinement timeline ──────────────────────────────────────────────────────
 
-function rememberTimeline(ctx) {
+function rememberTimeline() {
   const conv = getActiveConvId();
   if (conv !== timelineConv) {
     timelineConv = conv;
     openRows.clear();
-    timelineCtx.clear();
     liveReviews.clear();
   }
-  if (ctx.rootId != null) timelineCtx.set(ctx.rootId, ctx);
   scheduleMeasure();
 }
 
@@ -339,15 +336,16 @@ function withLiveReview(att) {
   };
 }
 
-// The live run on this group: one whose renders it holds, or a regenerate
-// running on it that has not landed a render yet.
+// Regenerates name their group even before its first render lands. A fresh
+// generation starts a new group, identified by the run on its saved renders.
 function liveRunFor(msgId, rootId, siblings) {
+  let fresh = null;
   for (const live of liveRuns.values()) {
     if (live.msgId !== msgId) continue;
-    if (siblings.some((a) => a.consumption_metadata?.refine?.run === live.run)) return live;
-    if (live.source === "regen" && workflowActionJob(msgId, rootId)) return live;
+    if (live.source === "regen" && live.rootId === rootId) return live;
+    if (live.source === "fresh" && siblings.some((a) => a.consumption_metadata?.refine?.run === live.run)) fresh = live;
   }
-  return null;
+  return fresh;
 }
 
 function timelineHtml(ctx) {
@@ -373,8 +371,9 @@ function timelineHtml(ctx) {
 function onRefineStage(data, source) {
   const msgId = data?.message_id;
   if (!Number.isInteger(msgId) || typeof data.run !== "string" || !data.run) return;
+  if (source === "regen" && !Number.isInteger(data.root_id)) return;
   const { run, stage, render, turns } = data;
-  liveRuns.set(run, { msgId, source, run, stage, render, turns });
+  liveRuns.set(run, { msgId, rootId: data.root_id, source, run, stage, render, turns });
   patchTimelines(msgId);
 }
 
@@ -386,20 +385,27 @@ function onReview(data) {
 }
 
 // Every outcome ends here, so no strip is left saying "Reviewing…".
-function endLiveRuns(msgId, source) {
-  for (const [run, live] of liveRuns) if (live.msgId === msgId && live.source === source) liveRuns.delete(run);
+function endLiveRuns(msgId, source, rootId = null) {
+  for (const [run, live] of liveRuns)
+    if (live.msgId === msgId && live.source === source && (rootId == null || live.rootId === rootId))
+      liveRuns.delete(run);
   patchTimelines(msgId);
 }
 
-// Rebuilds only the strips, from the context each was last drawn with:
+// Rebuilds only the strips, from current message data:
 // requestRepaint is skipped while a reply streams, and a status change must not
-// wait for it. The job is looked up again, as the cached one may have ended.
+// wait for it. The job and shown attachment are looked up on each patch.
 function patchTimelines(msgId = null) {
-  for (const [rootId, ctx] of timelineCtx) {
-    if (msgId != null && ctx.msgId !== msgId) continue;
-    const main = document.querySelector(`.image-gen-main[data-root-id="${rootId}"]`);
-    if (!main) continue;
-    swapStrip(main, timelineHtml({ ...ctx, job: workflowActionJob(ctx.msgId, rootId) }));
+  for (const main of document.querySelectorAll(".image-gen-main[data-root-id]")) {
+    const id = Number(main.dataset.msgId);
+    const rootId = Number(main.dataset.rootId);
+    if (msgId != null && id !== msgId) continue;
+    const msg = getMessages().find((m) => m.id === id);
+    const siblings = (msg?.workflow_attachments || []).filter((a) => (a.parent_attachment_id || a.id) === rootId);
+    const attId = Number(main.closest(".workflow-widget")?.dataset.attachmentId);
+    const att = siblings.find((a) => a.id === attId);
+    if (!att) continue;
+    swapStrip(main, timelineHtml({ att, siblings, msgId: id, rootId, job: workflowActionJob(id, rootId) }));
   }
   scheduleMeasure();
 }
@@ -417,6 +423,7 @@ function swapStrip(main, html) {
   const newStatus = next.querySelector(".ig-refine-status");
   if (oldStatus && newStatus) {
     oldStatus.className = newStatus.className;
+    oldStatus.title = newStatus.title;
     if (oldStatus.innerHTML !== newStatus.innerHTML) oldStatus.innerHTML = newStatus.innerHTML;
     newStatus.replaceWith(oldStatus);
   }

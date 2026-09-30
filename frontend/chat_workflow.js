@@ -10,6 +10,7 @@ import {
 } from "./chat_core.js";
 import { clearWorkflowPhase, setWorkflowPhase, workflowPhaseLabel } from "./chat_inspector.js";
 import { renderDefaultWidget } from "./default_widget.js";
+import { patchHtml } from "./dom_reconcile.js";
 import { showConfirmModal } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
@@ -484,9 +485,7 @@ function _siblingLanded(msgs, msgId, rootId, before) {
 // Show a fetched conversation; a sibling that *landed* is scrolled to and announced.
 function _showSiblings(convId, msgId, rootId, msgs, landed, onLanded) {
   if (landed) onLanded?.();
-  setMessages(msgs);
-  _reapplyInFlightSwipes();
-  renderMessages();
+  _applyWorkflowMessages(msgs);
   if (landed) {
     _scrollArtifactIntoView(msgId, rootId);
     broadcastWorkflowMutation({ convId, msgId });
@@ -653,13 +652,10 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
   // first is scrolled to, so a user who scrolled away to read is left there.
   let landed = 0;
   const showLanded = async (fetched = null) => {
-    if (S.isStreaming) return;
     try {
       const msgs = fetched || (await api.get(convUrl(convId, "messages")));
       if (S.activeConvId !== convId) return;
-      setMessages(msgs);
-      _reapplyInFlightSwipes();
-      renderMessages();
+      _applyWorkflowMessages(msgs);
       if (!landed++) _scrollArtifactIntoView(msgId, rootId);
       broadcastWorkflowMutation({ convId, msgId });
     } catch (e) {
@@ -676,9 +672,9 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
     );
     const incoming = result && Array.isArray(result.rejected_workflow_atts) ? result.rejected_workflow_atts : [];
     _mergeWorkflowRejections(msgId, rootId, incoming);
-    setMessages(await api.get(convUrl(convId, "messages")));
-    _reapplyInFlightSwipes();
-    renderMessages();
+    const msgs = await api.get(convUrl(convId, "messages"));
+    if (S.activeConvId !== convId) return;
+    _applyWorkflowMessages(msgs);
     if (!landed) _scrollArtifactIntoView(msgId, rootId);
     broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
@@ -859,18 +855,56 @@ export function initWorkflowMutationListener() {
   });
 }
 
+// A workflow can finish a render while the reply still streams. Merge only its
+// attachments then: replacing the conversation would overwrite live prose and
+// rebuilding a message would detach the stream's DOM nodes.
+function _applyWorkflowMessages(msgs) {
+  if (!S.isStreaming) {
+    setMessages(msgs);
+    _reapplyInFlightSwipes();
+    renderMessages();
+    return;
+  }
+  const fetched = new Map(msgs.map((msg) => [msg.id, msg]));
+  for (const msg of S.messages) {
+    const row = fetched.get(msg.id);
+    if (msg.id && row) msg.workflow_attachments = row.workflow_attachments || [];
+  }
+  // Normalize attachment metadata through the usual boundary, retaining the
+  // current message objects. setMessages itself appends pending streaming rows.
+  setMessages(S.messages.filter((msg) => msg.id));
+  _reapplyInFlightSwipes();
+  for (const msg of S.messages) {
+    if (!msg.id || !fetched.has(msg.id)) continue;
+    const el = document.querySelector(`#chat-messages .message[data-msg-id="${msg.id}"]`);
+    if (!el) continue;
+    const old = el.querySelector(":scope > .workflow-artifacts");
+    const html = _renderWorkflowArtifacts(msg);
+    if (!html) {
+      old?.remove();
+      continue;
+    }
+    const tpl = document.createElement("template");
+    tpl.innerHTML = html;
+    const next = tpl.content.firstElementChild;
+    if (old) patchHtml(old, next.innerHTML);
+    else el.insertBefore(next, el.querySelector(":scope > .msg-toolbar"));
+  }
+  _refreshWorkflowViewportObserver();
+}
+
 export async function refreshConversationMessages(msgId = null) {
   if (!S.activeConvId) return false;
-  if (S.isStreaming) return false;
   if (S.editingMsgId != null || S.forkEditMsgId != null || S.editingPendingUserMsg || S.magicInputMsgId != null)
     return false;
   if (msgId != null && _inFlightMsgIds().has(msgId)) return false;
+  const convId = S.activeConvId;
   try {
-    setMessages(await api.get(convUrl(S.activeConvId, "messages")));
-    _reapplyInFlightSwipes();
-    renderMessages();
+    const msgs = await api.get(convUrl(convId, "messages"));
+    if (S.activeConvId !== convId) return false;
+    _applyWorkflowMessages(msgs);
     if (msgId != null) _scrollArtifactIntoView(msgId);
-    broadcastWorkflowMutation({ convId: S.activeConvId, msgId });
+    broadcastWorkflowMutation({ convId, msgId });
     return true;
   } catch (e) {
     console.warn("refreshConversationMessages failed", e);

@@ -104,7 +104,15 @@ async def _seed(conv_id: str, *, with_character: bool = False, config: dict | No
     return mid
 
 
-async def _attach(mid: int, *, seed: str = "1234", consumption: dict | None = None, webp: bool = False, **generation) -> int:
+async def _attach(
+    mid: int,
+    *,
+    seed: str = "1234",
+    consumption: dict | None = None,
+    webp: bool = False,
+    parent_attachment_id: int | None = None,
+    **generation,
+) -> int:
     """One stored image_gen attachment, with the generation parameters a replay reads."""
     row = {
         "filename": "x.webp" if webp else "x.png",
@@ -112,6 +120,7 @@ async def _attach(mid: int, *, seed: str = "1234", consumption: dict | None = No
         "data": b"RIFF0000WEBPold" if webp else b"\x89PNG\r\n\x1a\nold",
         "workflow_id": "image_gen",
         "seed": seed,
+        "parent_attachment_id": parent_attachment_id,
         "generation_metadata": {"style_id": "anime", "prompt": "1girl", "negative_prompt": "", **generation},
     }
     if consumption is not None:
@@ -627,23 +636,25 @@ async def test_a_failed_revision_ends_the_run_on_the_render_before_it(client, mo
 
 
 @pytest.mark.asyncio
-async def test_a_regenerated_run_streams_its_timeline_on_the_regenerate_stream(client, monkeypatch):
+@pytest.mark.parametrize("from_sibling", [False, True])
+async def test_a_regenerated_run_streams_its_timeline_on_the_regenerate_stream(client, monkeypatch, from_sibling):
     mid = await _seed("ig-regen-refine", config={**CONFIG, "refine_turns": 1})
     aid = await _attach(mid)
+    target_id = await _attach(mid, parent_attachment_id=aid) if from_sibling else aid
     _stub(monkeypatch)
 
     async def fake_refine(**_kwargs):
         return Revision("good", True)
 
     monkeypatch.setattr("backend.workflows.image_gen.hooks.refine_scene", fake_refine)
-    url = f"/api/conversations/ig-regen-refine/messages/{mid}/workflow-attachments/{aid}/regenerate"
+    url = f"/api/conversations/ig-regen-refine/messages/{mid}/workflow-attachments/{target_id}/regenerate"
     response = await client.post(url, json={}, headers={"Accept": "text/event-stream"})
 
-    sibling_id = (await _sibling(mid, aid))["id"]
+    sibling_id = next(row["id"] for row in await get_workflow_attachments_for_message(mid) if row["id"] not in {aid, target_id})
     events = _events(response.text)
     *_, stage = [data for name, data in events if name == "image_gen_refine_stage"]
     [review] = [data for name, data in events if name == "image_gen_review"]
-    assert stage == {"run": stage["run"], "stage": "reviewing", "render": 1, "turns": 1, "message_id": mid}
+    assert stage == {"run": stage["run"], "stage": "reviewing", "render": 1, "turns": 1, "message_id": mid, "root_id": aid}
     assert review == {
         "run": stage["run"],
         "attachment_id": sibling_id,
@@ -651,6 +662,7 @@ async def test_a_regenerated_run_streams_its_timeline_on_the_regenerate_stream(c
         "review": {"critique": "good", "done": True},
         "ended": "accepted",
         "message_id": mid,
+        "root_id": aid,
     }
     assert events[-1][0] == "regenerate_done"
 

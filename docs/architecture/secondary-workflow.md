@@ -346,6 +346,10 @@ the render. The client dispatches each one to the handler registered for it with
 `registerWorkflowEventHandler`, called as `(data, null)`, the same way a turn
 stream calls it. Outside a stream, `emit` does nothing.
 
+Image-generation regenerate events include `root_id`, the canonical attachment
+group, even when the request targets a sibling. Its live timeline and settlement
+cleanup use that id, so concurrent groups on one message remain independent.
+
 Workflow renders run beside the chat, so the chat Stop button leaves them
 alone; the button that started a render is its Stop button while it runs.
 Regenerate, reroll-gen, rehydrate, and the on-demand trigger run as
@@ -429,6 +433,12 @@ siblingId)` shows another variant through the arrow buttons' own path.
 `registerRegenerateSettled(wid, (msgId, rootId) => …)` is called when a
 regenerate ends, on every outcome, because a failed or stopped run repaints
 nothing; a widget holding live run state clears it there.
+
+`refreshConversationMessages` and regenerate sibling refreshes also work while
+a chat reply streams. They merge only workflow attachments into existing
+message objects and patch the artifact areas in place; live prose, pending
+messages, and their DOM nodes stay intact. Once the reply finishes, normal full
+message refreshes resume.
 
 ## Authoring checklist
 
