@@ -5,6 +5,8 @@
   justify-content: center;
   gap: 8px;
   height: 34px;
+  margin-inline: 12px;
+  padding-inline: 12px;
   background: var(--bg-primary);
   border-top: 1px solid var(--border);
   font-size: 12px;
@@ -27,7 +29,6 @@
   flex: 1;
   min-width: 0;
   height: 100%;
-  padding: 0 12px;
   overflow-x: auto;
   overflow-y: hidden;
   white-space: nowrap;

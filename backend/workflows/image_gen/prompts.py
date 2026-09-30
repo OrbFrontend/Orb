@@ -363,11 +363,22 @@ def _prompter_reference_instruction(also_sent: bool) -> str:
     Called "the earlier picture from this chat", never a reference, so it cannot be
     mistaken for the image model's reference images.
     """
-    shared = " The image model also receives this same picture." if also_sent else ""
+    shared = (
+        " The image model also receives this same picture. Explicitly describe the new pose, action, and scene so it "
+        "updates the picture to the current story."
+        if also_sent
+        else ""
+    )
     return (
-        "The image before this request is the most recent picture from earlier in this chat, not the shot you are "
-        "composing. Use it for stable visible continuity such as identity, the current outfit, the setting, lighting, and "
-        "look; where the story has moved on since, the story wins." + shared + " "
+        "The image before this request is a picture from earlier in this chat. Do not describe or recreate that picture. "
+        "First determine the final visible instant of the latest assistant reply in the conversation. Compose that new "
+        "shot in `scene`, including its current pose, action, expression, interaction, setting, and framing. "
+        "Use the earlier picture only to fill in continuity details the story leaves unchanged, such as identity, outfit, "
+        "setting, lighting, and visual style. Replace any pictured detail the latest reply changes. Do not carry over "
+        "the earlier pose, action, expression, or framing just because it is visible in the picture. "
+        "For example, if the picture shows a person sitting but the latest reply has them stand, prompt the person standing."
+        + shared
+        + " "
     )
 
 
@@ -475,7 +486,7 @@ def refine_ooc(
     reseed = _RESEED if supports_seed else _NO_SEED
     last = " This is the last revision: the next render is final." if turns_left == 1 else ""
     earlier = (
-        ", against your prompt, and against the earlier chat picture for continuity"
+        ", against your prompt, and against the earlier chat picture only for details the story leaves unchanged"
         if prompter_reference
         else " and against your prompt"
     )

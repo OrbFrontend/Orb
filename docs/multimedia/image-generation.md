@@ -311,8 +311,10 @@ prompt steps with thinking on come back empty.
 **Show the prompter the last image** sends the chat's most recent generated image
 to the Agent model when it writes the prompt, so the outfit, setting, lighting and
 look carry over between renders even when the story text does not restate them.
-The prompter treats the story as the authority: where the scene has moved on, the
-new prompt follows the story, not the picture. The setting is off by default.
+The prompter composes the final visible instant of the latest assistant reply.
+It uses the earlier picture only for continuity details the story leaves unchanged,
+and replaces any pose, action, expression, setting, or framing the story changes.
+The setting is off by default.
 
 Orb sends the image only when it is on the reply just before the message being
 visualized, or on a message after that reply. An older picture shows a scene the

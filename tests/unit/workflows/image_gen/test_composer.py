@@ -182,6 +182,28 @@ async def test_composer_receives_only_selected_bodies_in_library_order(monkeypat
     assert tail.index("STYLE EXTRA") < tail.index("Give each character's pose")
 
 
+@pytest.mark.parametrize("also_sent", [False, True])
+async def test_prompter_reference_requests_the_current_story_instead_of_a_caption(monkeypatch, also_sent):
+    calls: list[dict] = []
+    await _compose(
+        monkeypatch,
+        {"scene": "1girl, solo, standing", "avoid": None, "visible_subjects": []},
+        prompter_reference_url="data:image/png;base64,earlier-picture",
+        prompter_reference_sent=also_sent,
+        calls=calls,
+    )
+    image, request = calls[0]["tail_messages"][0]["content"]
+    assert image["type"] == "image_url"
+    instruction = request["text"]
+    assert "Do not describe or recreate that picture" in instruction
+    assert "final visible instant of the latest assistant reply" in instruction
+    assert "continuity details the story leaves unchanged" in instruction
+    assert "Replace any pictured detail the latest reply changes" in instruction
+    assert ("updates the picture to the current story" in instruction) is also_sent
+    review = prompts.refine_ooc(1, 1, prompter_reference=True)
+    assert "earlier chat picture only for details the story leaves unchanged" in review
+
+
 async def test_composer_uses_its_own_visibility_without_a_valid_selector(monkeypatch):
     scene, _, mode = await _compose(
         monkeypatch,
