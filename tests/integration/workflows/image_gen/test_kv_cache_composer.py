@@ -388,3 +388,34 @@ async def test_an_upload_is_not_sent_to_the_prompter_twice(client, llm_mock, mon
 
     compose = [c for c in llm_mock.captured if c["pass"] == "workflow"][-1]
     assert isinstance(compose["messages"][-1]["content"], str)
+
+
+async def test_an_image_older_than_the_last_reply_is_not_sent_to_the_prompter(client, llm_mock, monkeypatch):
+    """A picture from before the last reply shows a scene the story has left."""
+    cid, _card_id = await _armed_conversation(client, llm_mock)
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", _png_render)
+    await set_workflow_config(
+        "image_gen",
+        {
+            "source": "external_comfy",
+            "default_style": "anime",
+            "prompter_reference": True,
+            "external_comfy": {"api_url": "http://127.0.0.1:8188"},
+        },
+    )
+    greeting = next(m["id"] for m in await get_messages(cid) if m["role"] == "assistant")
+    llm_mock.enqueue_workflow({"tool_calls": _tc("compose_image_prompt", {"scene": "1girl, archive", "avoid": ""})})
+    assert "event: image_gen_done" in (await _generate(client, cid, greeting)).text
+    llm_mock.enqueue_writer("She leaves the archive.")
+    llm_mock.enqueue_editor(None)
+    resp = await client.post(f"/api/conversations/{cid}/send", json={"content": "Go on."})
+    assert resp.status_code == 200
+    _ = resp.text
+    latest = next(m["id"] for m in reversed(await get_messages(cid)) if m["role"] == "assistant")
+
+    llm_mock.enqueue_workflow({"tool_calls": _tc("compose_image_prompt", {"scene": "1girl, street", "avoid": ""})})
+    assert "event: image_gen_done" in (await _generate(client, cid, latest)).text
+
+    compose = [c for c in llm_mock.captured if c["pass"] == "workflow"][-1]
+    assert isinstance(compose["messages"][-1]["content"], str)
+    assert "Earlier prompt" not in compose["messages"][-1]["content"]

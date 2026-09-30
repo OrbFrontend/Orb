@@ -55,6 +55,7 @@ from .engine import (
 from .engine.contracts import ImageResult, ResolvedReference
 from .engine.display_encode import shrink_for_review
 from .references import (
+    last_reply_image,
     plan_slots,
     previous_image,
     recorded_prompts,
@@ -493,11 +494,9 @@ async def _generate_fresh(
     slots = plan_slots(target, addressable, previous=previous)
     references = await resolve_references(slots, subjects=addressable, previous=previous)
     unfilled = len(slots) - len(references)
-    # Only a generated image: a user's upload is already in the prefix as pixels.
-    prompter_reference = (
-        previous[2] if config.get("prompter_reference") and previous and previous[2].startswith("attachment:") else ""
-    )
-    prompter_reference_url = await _review_url(previous[0], previous[1]) if previous and prompter_reference else ""
+    shown = last_reply_image(history, int(message["id"])) if config.get("prompter_reference") else None
+    prompter_reference = shown[2] if shown else ""
+    prompter_reference_url = await _review_url(shown[0], shown[1]) if shown else ""
     prompter_reference_prompts = recorded_prompts(history, prompter_reference)
     if prompter_reference:
         logger.info("[image_gen] prompter reference: %s", prompter_reference)

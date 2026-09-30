@@ -314,10 +314,12 @@ look carry over between renders even when the story text does not restate them.
 The prompter treats the story as the authority: where the scene has moved on, the
 new prompt follows the story, not the picture. The setting is off by default.
 
-Orb looks back up to 30 messages for the image shown on each message, skipping the
-message being visualized, so **Regenerate** shows the image from an earlier message
-rather than the render it replaces. It sends nothing when the most recent image is
-one you uploaded, because the prompter already sees uploads in the conversation.
+Orb sends the image only when it is on the reply just before the message being
+visualized, or on a message after that reply. An older picture shows a scene the
+story has left, so the prompter gets no image then. The message being visualized is
+skipped, so **Regenerate** shows the image from the reply before it rather than the
+render it replaces. Uploads are never sent, because the prompter already sees them in
+the conversation.
 When the same picture also goes to the image model as a reference image, the
 prompter is told so. The prompter also reads the prompt and negative prompt that
 image was rendered from, including your edits if you rerolled it with a changed
