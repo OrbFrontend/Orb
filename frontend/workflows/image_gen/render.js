@@ -124,6 +124,7 @@ const ENDING_ROW_TEXT = {
   no_review: "No usable review, so refinement stopped",
   no_prompt: "Asked for another render but wrote no revised prompt, so refinement stopped",
   render_failed: "The next render failed, so refinement stopped",
+  review_failed: "The review call failed, so refinement stopped",
 };
 
 function refineOf(att) {

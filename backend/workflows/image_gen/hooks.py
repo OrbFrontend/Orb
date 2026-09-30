@@ -24,6 +24,7 @@ from . import macros as macros_mod
 from . import pov as pov_mod
 from . import subjects as subjects_mod
 from .composer import (
+    PrompterCallError,
     RefineThread,
     Revision,
     SkillSelection,
@@ -202,9 +203,10 @@ def _metadata(
     pov: str,
     pov_source: str,
     composition_skills: Sequence[Mapping[str, str]] = (),
+    prompter_reference: str = "",
 ) -> dict:
     info: Mapping[str, Any] = result.backend_info
-    return {
+    record = {
         **_render_record(result, source=source),
         "style_id": style["id"],
         "composer_mode": composer_mode,
@@ -215,6 +217,10 @@ def _metadata(
         "negative_prompt": negative_prompt,
         "references": info.get("references") or [],
     }
+    if prompter_reference:
+        # The origin of the chat picture the prompter saw, not one the image model got.
+        record["prompter_reference"] = prompter_reference
+    return record
 
 
 def _consumption(
@@ -486,6 +492,13 @@ async def _generate_fresh(
     slots = plan_slots(target, addressable, previous=previous)
     references = await resolve_references(slots, subjects=addressable, previous=previous)
     unfilled = len(slots) - len(references)
+    # Only a generated image: a user's upload is already in the prefix as pixels.
+    prompter_reference = (
+        previous[2] if config.get("prompter_reference") and previous and previous[2].startswith("attachment:") else ""
+    )
+    prompter_reference_url = await _review_url(previous[0], previous[1]) if previous and prompter_reference else ""
+    if prompter_reference:
+        logger.info("[image_gen] prompter reference: %s", prompter_reference)
     refine_turns = int(config.get("refine_turns") or 0)
     thread = RefineThread() if refine_turns > 0 else None
     # Groups this run's renders apart from rerolls and other runs in the same group.
@@ -499,26 +512,36 @@ async def _generate_fresh(
         emit("image_gen_review", {"run": run, **data})
 
     stage("composing", 1)
-    scene, avoid, composer_mode = await compose_scene(
-        client=ctx.agent_client,
-        model_name=ctx.agent_model_name,
-        prefix=prefix,
-        settings=ctx.settings,
-        prompt_format=selected_style["prompt_format"],
-        pov=pov,
-        reasoning_on=bool(config.get("prompter_reasoning")),
-        subjects=subjects,
-        selected_skills=selection.skills,
-        visible_subjects=selected_visible,
-        extra_instructions=str(selected_style.get("extra_instructions") or ""),
-        supports_negative=target.supports_negative_prompt,
-        has_references=bool(references),
-        referenced_subjects=_referenced_subjects(subjects, references),
-        style_prompt=str(selected_style.get("prompt") or ""),
-        style_negative_prompt=str(selected_style.get("negative_prompt") or ""),
-        profile_negative_prompt=str(profile.get("negative_prompt") or ""),
-        thread=thread,
-    )
+    try:
+        scene, avoid, composer_mode = await compose_scene(
+            client=ctx.agent_client,
+            model_name=ctx.agent_model_name,
+            prefix=prefix,
+            settings=ctx.settings,
+            prompt_format=selected_style["prompt_format"],
+            pov=pov,
+            reasoning_on=bool(config.get("prompter_reasoning")),
+            subjects=subjects,
+            selected_skills=selection.skills,
+            visible_subjects=selected_visible,
+            extra_instructions=str(selected_style.get("extra_instructions") or ""),
+            supports_negative=target.supports_negative_prompt,
+            has_references=bool(references),
+            referenced_subjects=_referenced_subjects(subjects, references),
+            style_prompt=str(selected_style.get("prompt") or ""),
+            style_negative_prompt=str(selected_style.get("negative_prompt") or ""),
+            profile_negative_prompt=str(profile.get("negative_prompt") or ""),
+            thread=thread,
+            prompter_reference_url=prompter_reference_url,
+            prompter_reference_sent=any(reference.origin == prompter_reference for reference in references),
+        )
+    except PrompterCallError as exc:
+        # Only a compose that carried the image raises; composing blind instead would
+        # hide that the setting does nothing with this prompter.
+        raise ImageGenerationError(
+            f"The prompter call with the earlier chat image failed: {exc}. "
+            "Prompter reference needs a prompter model that accepts images."
+        ) from exc
     prompt, negative = assemble_prompts(selected_style, profile, scene, avoid)
     if not prompt.strip():
         raise ImageGenerationError("the composed image prompt came out empty; try generating again")
@@ -556,6 +579,7 @@ async def _generate_fresh(
             pov=pov,
             pov_source=pov_source,
             composition_skills=[{"id": skill["id"], "label": skill["label"]} for skill in selection.skills],
+            prompter_reference=prompter_reference,
         )
         consumption = _consumption(selected_style, prompt, negative, result, md, source_label=adapter.label)
         if unfilled > 0:
@@ -600,15 +624,26 @@ async def _generate_fresh(
                 supports_seed=target.supports_seed,
                 reseeded=reseeded,
             )
+        except PrompterCallError as exc:
+            # The provider refused the review, most often a prompter that cannot read
+            # images. The renders already kept stay; the run ends on the provider's error
+            # rather than a quiet stop that leaves the setting looking inert.
+            logger.warning("[image_gen] review of render %d failed; keeping it: %s", current, exc)
+            reviewed_event(
+                await _annotate_kept(attachment, attachment_id, note=f"the review call failed: {exc}", ended="review_failed")
+            )
+            raise ImageGenerationError(
+                f"Review of render {current} failed: {exc}. Review turns need a prompter model that accepts images."
+            ) from exc
         except Exception:
-            # The render is already kept; a review that fails only ends the refinement.
+            # Not the provider: the render is already kept, so this only ends the refinement.
             logger.warning("[image_gen] review of render %d failed; keeping it", current, exc_info=True)
             revision = None
         revised_prompt, revised_negative = (
             assemble_prompts(selected_style, profile, revision.scene, revision.avoid) if revision else ("", "")
         )
-        # Said on the render, or a prompter that cannot read images leaves the setting
-        # looking inert.
+        # Said on the render, or a review that answered with nothing usable leaves the
+        # setting looking inert. A prompter that cannot read images raised above.
         if revision is None:
             note, ended = "the prompter gave no usable review of this render, so refinement stopped", "no_review"
         elif not revision.done and not (revision.scene and revised_prompt.strip()):

@@ -325,7 +325,7 @@ test("every header state is derived from the rows and the live stage", () => {
     header([render(4, at(4, { ended: "turns_used" }))], null).text,
     "Used all 3 revisions — render 4 not reviewed",
   );
-  for (const ended of ["no_review", "no_prompt", "render_failed"])
+  for (const ended of ["no_review", "no_prompt", "render_failed", "review_failed"])
     assert.equal(header([render(2, at(2, { ended }))], null).text, "Refinement stopped at render 2");
   // No job and no ending: the user stopped it.
   assert.deepEqual(header([one], null), { state: "stopped", text: "Stopped at render 1" });

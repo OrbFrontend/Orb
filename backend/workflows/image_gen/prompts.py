@@ -357,6 +357,20 @@ def _downstream_blocks(
     return " ".join(parts) + " "
 
 
+def _prompter_reference_instruction(also_sent: bool) -> str:
+    """Describe the chat's earlier picture that rides before the compose request.
+
+    Called "the earlier picture from this chat", never a reference, so it cannot be
+    mistaken for the image model's reference images.
+    """
+    shared = " The image model also receives this same picture." if also_sent else ""
+    return (
+        "The image before this request is the most recent picture from earlier in this chat, not the shot you are "
+        "composing. Use it for stable visible continuity such as identity, the current outfit, the setting, lighting, and "
+        "look; where the story has moved on since, the story wins." + shared + " "
+    )
+
+
 def compose_ooc(
     prompt_format: str,
     pov: str,
@@ -370,6 +384,8 @@ def compose_ooc(
     style_prompt: str = "",
     style_negative_prompt: str = "",
     profile_negative_prompt: str = "",
+    prompter_reference: bool = False,
+    prompter_reference_sent: bool = False,
 ) -> str:
     guide = _format_guide(prompt_format, pov, supports_negative=supports_negative)
     profile = _profile_instruction(subjects)
@@ -392,9 +408,10 @@ def compose_ooc(
         + downstream
         + reference
         + "Use the final assistant reply as the current visible story facts and use earlier conversation only for stable "
-        "visible continuity such as identity, the current outfit, and the setting. Resolve conflicts in this order: current "
-        "story facts, the explicit POV choice, and saved exclusions; selected composition skills; style-specific extra "
-        "instructions; then general composer guidance. " + skills + extra + guide + "]"
+        "visible continuity such as identity, the current outfit, and the setting. "
+        + (_prompter_reference_instruction(prompter_reference_sent) if prompter_reference else "")
+        + "Resolve conflicts in this order: current story facts, the explicit POV choice, and saved exclusions; selected "
+        "composition skills; style-specific extra instructions; then general composer guidance. " + skills + extra + guide + "]"
     )
 
 
@@ -439,18 +456,31 @@ _RESEED = (
 _NO_SEED = "This image model takes no seed and every render is already a new draw, so set `reseed` to false."
 
 
-def refine_ooc(render: int, turns_left: int, *, supports_negative: bool = True, supports_seed: bool = True) -> str:
+def refine_ooc(
+    render: int,
+    turns_left: int,
+    *,
+    supports_negative: bool = True,
+    supports_seed: bool = True,
+    prompter_reference: bool = False,
+) -> str:
     """The review request that rides beside a render, after its tool result.
 
     `turns_left` counts the renders still available after this review, so the model
-    knows when a revision is its last chance.
+    knows when a revision is its last chance. `prompter_reference` says the compose
+    request carried the chat's earlier picture, so the review checks against it too.
     """
     avoid = "Revise `avoid` by the same rules as before." if supports_negative else _LEAVE_AVOID_EMPTY
     reseed = _RESEED if supports_seed else _NO_SEED
     last = " This is the last revision: the next render is final." if turns_left == 1 else ""
+    earlier = (
+        ", against your prompt, and against the earlier chat picture for continuity"
+        if prompter_reference
+        else " and against your prompt"
+    )
     return (
         f"[OOC: The image above is render {render}, made from your last prompt. Review it against the final visible "
-        "instant of the assistant reply and against your prompt. Check the number of persons, who is visible, pose and "
+        f"instant of the assistant reply{earlier}. Check the number of persons, who is visible, pose and "
         "action, anatomy such as hands and limbs, clothing, expression, interaction, spatial relationships, setting, POV, "
         "occlusion, lighting, and framing. Also check for things the image model added that contradict the scene. In `critique`, "
         "list only the visible problems, most important first. Set `done` to true when no problem is worth another "

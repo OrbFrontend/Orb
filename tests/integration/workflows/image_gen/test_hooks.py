@@ -9,9 +9,11 @@ invisible to the client, which is parsing SSE frames.
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 
 import pytest
+from PIL import Image
 
 from backend.database import (
     add_message,
@@ -618,7 +620,7 @@ async def test_a_render_without_refinement_carries_no_run(client, monkeypatch):
     ids=["no-review", "no-prompt"],
 )
 async def test_refinement_that_stops_early_says_why_on_the_render(client, monkeypatch, review, expected_review, note, ended):
-    """A prompter that cannot read images, or asks for changes it never writes, must
+    """A review that comes back unusable, or asks for changes it never writes, must
     not leave Review turns looking inert: the render says why refinement stopped."""
     mid = await _seed("ig-refine-stop", config={**CONFIG, "refine_turns": 2})
     _stub(monkeypatch)
@@ -636,6 +638,75 @@ async def test_refinement_that_stops_early_says_why_on_the_render(client, monkey
     assert any(note in n for n in consumption["notes"])
     assert consumption["refine"]["ended"] == ended
     assert _timeline(events)[-1] == ("review", row["id"], 1, expected_review, ended)
+
+
+def _png() -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (8, 8), (200, 40, 40)).save(buffer, "PNG")
+    return buffer.getvalue()
+
+
+def _png_image() -> ImageResult:
+    """A render that decodes: the prompter's copy of a render is re-encoded."""
+    return ImageResult(image_bytes=_png(), mime="image/png", backend_info={"source": "external_comfy"})
+
+
+def _compose_call(scene: str = "1girl, standing") -> dict:
+    args = json.dumps({"scene": scene, "avoid": ""})
+    return {"tool_calls": [{"id": "t1", "type": "function", "function": {"name": "compose_image_prompt", "arguments": args}}]}
+
+
+@pytest.mark.asyncio
+async def test_a_prompter_that_rejects_the_earlier_chat_image_stops_generation(client, llm_mock, monkeypatch):
+    """Composing blind instead would leave the setting looking as if it worked."""
+    earlier = await _seed("ig-pref-fail", config={**CONFIG, "prompter_reference": True})
+    await insert_workflow_attachment_row(
+        earlier,
+        {"filename": "x.png", "mime": "image/png", "data": _png(), "workflow_id": "image_gen", "seed": "1"},
+    )
+    uid, _ = await add_message("ig-pref-fail", "user", "Later.", 1, parent_id=earlier)
+    mid, _ = await add_message("ig-pref-fail", "assistant", "She steps outside.", 2, parent_id=uid)
+    await set_active_leaf("ig-pref-fail", mid)
+    renders: list = []
+
+    async def render(adapter, request, **kwargs):
+        renders.append(request)
+        return _png_image()
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", render)
+    llm_mock.fail("workflow", RuntimeError("400 this model does not accept image input"))
+
+    events = await _trigger(client, "ig-pref-fail", {"action": "generate", "message_id": mid})
+
+    [compose] = [c for c in llm_mock.captured if c["pass"] == "workflow"]
+    assert compose["messages"][-1]["content"][0]["type"] == "image_url"
+    assert not renders and not any(name == "image_gen_render" for name, _ in events)
+    [error] = [data["message"] for name, data in events if name == "image_gen_error"]
+    assert "earlier chat image failed" in error and "does not accept image input" in error
+    assert events[-1] == ("image_gen_done", {"attachment_id": None})
+
+
+@pytest.mark.asyncio
+async def test_a_review_the_provider_rejects_stops_generation_and_keeps_the_render(client, llm_mock, monkeypatch):
+    mid = await _seed("ig-review-fail", config={**CONFIG, "refine_turns": 2})
+
+    async def render(adapter, request, **kwargs):
+        return _png_image()
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", render)
+    llm_mock.enqueue_workflow(_compose_call())
+    llm_mock.fail("workflow", RuntimeError("400 this model does not accept image input"), after=1)
+
+    events = await _trigger(client, "ig-review-fail", {"action": "generate", "message_id": mid})
+
+    [row] = await get_workflow_attachments_for_message(mid)
+    consumption = json.loads(row["consumption_metadata"])
+    assert consumption["refine"]["ended"] == "review_failed"
+    assert any("review call failed" in note for note in consumption["notes"])
+    assert _timeline(events)[-1] == ("review", row["id"], 1, None, "review_failed")
+    [error] = [data["message"] for name, data in events if name == "image_gen_error"]
+    assert error.startswith("Review of render 1 failed") and "does not accept image input" in error
+    assert events[-1] == ("image_gen_done", {"attachment_id": row["id"]})
 
 
 @pytest.mark.asyncio

@@ -306,6 +306,31 @@ Both prompt steps use the Agent model's configured **Max Tokens** as their reply
 budget. A thinking model spends its reasoning from the same budget, so raise it if
 prompt steps with thinking on come back empty.
 
+## Prompter reference
+
+**Show the prompter the last image** sends the chat's most recent generated image
+to the Agent model when it writes the prompt, so the outfit, setting, lighting and
+look carry over between renders even when the story text does not restate them.
+The prompter treats the story as the authority: where the scene has moved on, the
+new prompt follows the story, not the picture. The setting is off by default.
+
+Orb looks back up to 30 messages for the image shown on each message, skipping the
+message being visualized, so **Regenerate** shows the image from an earlier message
+rather than the render it replaces. It sends nothing when the most recent image is
+one you uploaded, because the prompter already sees uploads in the conversation.
+When the same picture also goes to the image model as a reference image, the
+prompter is told so. The render's details record which image the prompter saw.
+
+The image travels with the prompt request and the skill-selection call stays
+text-only, so the cached conversation prefix is unchanged; review turns re-send the
+same request and reuse it.
+
+Both this setting and **Review turns** need an Agent model that accepts images. If
+the provider rejects the image, generation stops with the provider's error instead
+of continuing without it. A failed review keeps the renders already made and marks
+the last one "The review call failed, so refinement stopped". A server that silently
+drops images cannot be detected.
+
 ## Troubleshooting
 
 | Problem | Try this |
@@ -319,6 +344,7 @@ prompt steps with thinking on come back empty.
 | Reference image is required | Create or upload an image, or set a character reference and choose a source that includes it. |
 | Reference image is too large or unreadable | Use PNG, JPEG, or WebP and a smaller file. |
 | Prompt generation fails | Check the LLM endpoint and use a model with tool calling. |
+| **Prompter reference** or **Review turns** stops with a provider error | Use an Agent model that accepts images, or turn the setting off. |
 | **Bytes evicted** | Select **Rehydrate**. A cloud backend creates and bills a new image. |
 | Provider rejects the key or request | Check the provider dashboard, account credits, model access, and the provider message. |
 | Cloud image has the wrong shape | Choose a resolution closer to a ratio supported by that provider. |
