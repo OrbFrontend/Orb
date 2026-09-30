@@ -5,6 +5,8 @@
   justify-content: center;
   gap: 8px;
   height: 34px;
+  margin-inline: 12px;
+  padding-inline: 12px;
   background: var(--bg-primary);
   border-top: 1px solid var(--border);
   font-size: 12px;
@@ -17,6 +19,42 @@
   height: 0;
   opacity: 0;
   border-top-color: transparent;
+}
+
+.gen-status-content {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.gen-status-track {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  width: max-content;
+  margin-inline: auto;
+}
+
+.gen-status-track > * { flex-shrink: 0; }
+
+.gen-status-content.is-scrolling .gen-status-track {
+  margin-inline: 0;
+  animation: gen-status-scroll var(--gen-scroll-duration) linear var(--gen-scroll-delay) infinite;
+}
+
+.gen-status-content:hover .gen-status-track,
+.gen-status-content:focus-within .gen-status-track {
+  animation-play-state: paused;
+}
+
+@keyframes gen-status-scroll {
+  from { transform: translateX(var(--gen-scroll-start)); }
+  to { transform: translateX(calc(-100% - 24px)); }
 }
 
 .gen-bar {
@@ -52,7 +90,13 @@
 
 @media (prefers-reduced-motion: reduce) {
   .gen-bar,
-  .gen-dot {
+  .gen-dot,
+  .gen-status-content.is-scrolling .gen-status-track {
     animation: none;
+  }
+
+  .gen-status-content {
+    overflow-x: auto;
+    scrollbar-width: thin;
   }
 }

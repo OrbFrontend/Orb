@@ -229,6 +229,26 @@ def previous_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> Fetc
     return _previous_image(history, anchor_id)
 
 
+def last_reply_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> Fetched | None:
+    """The generated image on the reply just before the anchor, or on the turns since.
+
+    Narrower than `previous_image` on purpose: this is what the prompter is shown, and
+    a picture from several replies back shows a scene the story has left. The walk stops
+    at the first earlier assistant message, image or not. Uploads never count, since the
+    prompter already sees them in the conversation.
+    """
+    for message in reversed(list(history)):
+        if message.get("id") == anchor_id:
+            continue
+        row = _active_generated_image(message)
+        resolved = _bytes_from_row(row)
+        if resolved is not None:
+            return resolved[0], resolved[1], f"attachment:{(row or {}).get('id')}"
+        if message.get("role") == "assistant":
+            return None
+    return None
+
+
 def plan_slots(
     target: RenderTarget,
     subjects: Sequence[Subject],

@@ -7,6 +7,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
 
+import pytest
+
 from backend.prompting.tool_catalog import TOOLS, register_tool, require_tool
 from backend.workflows._forced_call import forced_tool_call
 
@@ -567,6 +569,20 @@ class TestGracefulDegradation:
             )
         )
         assert out == [{"type": "result", "args": {}}]
+
+    async def test_raise_errors_lets_the_provider_error_through(self):
+        client = _FakeClient([], raise_on_stream=RuntimeError("image input not supported"))
+        with pytest.raises(RuntimeError, match="image input not supported"):
+            await _collect(
+                forced_tool_call(
+                    client=client,
+                    prefix=[],
+                    tail_messages=[],
+                    tool_name=_TOOL_NAME,
+                    settings=_SETTINGS,
+                    raise_errors=True,
+                )
+            )
 
     async def test_parse_failure_yields_empty_args(self, monkeypatch):
         def _raises(_msg):

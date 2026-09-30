@@ -14,6 +14,9 @@ import { convUrl, escAttr } from "./utils.js";
 // A double click's second press is not a Stop.
 const STOP_ARM_MS = 400;
 
+// Live jobs by id, so a control the framework did not render can stop one.
+const _live = new Map();
+
 export function startWorkflowJob({ convId = null, title, controller = null }) {
   const startedAt = performance.now();
   const job = {
@@ -54,6 +57,7 @@ export function startWorkflowJob({ convId = null, title, controller = null }) {
       for (const btn of _buttons(job)) btn.disabled = false;
     },
     end() {
+      _live.delete(job.id);
       for (const btn of _buttons(job)) {
         btn.classList.remove("wf-running");
         btn.title = btn.dataset.idleTitle || "";
@@ -65,7 +69,13 @@ export function startWorkflowJob({ convId = null, title, controller = null }) {
       }
     },
   };
+  _live.set(job.id, job);
   return job;
+}
+
+/** Stop the live job *jobId*; an id that ended, or never ran, is ignored. */
+export function stopWorkflowJob(jobId) {
+  return _live.get(jobId)?.stop();
 }
 
 function _buttons(job) {

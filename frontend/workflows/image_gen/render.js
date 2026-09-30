@@ -41,15 +41,6 @@ function referenceRows(cm, esc) {
     .join("");
 }
 
-// The prompter's verdict on this render: accepted, or the problems it revised for.
-function reviewRow(cm, esc) {
-  const review = cm.review;
-  if (!review || typeof review.done !== "boolean") return "";
-  const critique = typeof review.critique === "string" ? review.critique.trim() : "";
-  const verdict = review.done ? "Accepted" : "Asked for another render";
-  return `<dt>Review</dt><dd>${esc(critique ? `${verdict}: ${critique}` : verdict)}</dd>`;
-}
-
 function compositionSkillsRow(cm, esc) {
   const labels = (Array.isArray(cm.composition_skills) ? cm.composition_skills : [])
     .map((skill) => skill?.label || skill?.id)
@@ -105,6 +96,6 @@ export function attachmentDetailsHtml(att, { esc, escAttr, pending }) {
       ${compositionSkillsRow(cm, esc)}
       <dt>Seed</dt><dd>${cm.seed_honored === false ? esc(UNUSED_SEED) : `<code>${esc(att?.seed || "")}</code>`}</dd>${costRow(cm, esc)}
       <dt>Prompt ${pencil("prompt", "Prompt")}</dt><dd>${field("prompt", "Prompt", pending?.prompt ?? cm.prompt ?? "")}${marker}</dd>
-      <dt>Negative ${pencil("negative_prompt", "Negative prompt")}</dt><dd>${field("negative_prompt", "Negative prompt", pending?.negative_prompt ?? cm.negative_prompt ?? "")}</dd>${reviewRow(cm, esc)}${notes}</dl>
+      <dt>Negative ${pencil("negative_prompt", "Negative prompt")}</dt><dd>${field("negative_prompt", "Negative prompt", pending?.negative_prompt ?? cm.negative_prompt ?? "")}</dd>${notes}</dl>
   </details>`;
 }

@@ -174,6 +174,7 @@ CONFIG_DEFAULTS = {
     "scene_skills_enabled": False,
     "scene_skills": DEFAULT_SCENE_SKILLS,
     "prompter_reasoning": False,
+    "prompter_reference": False,
     "refine_turns": 0,
     "timeout_seconds": 180.0,
     "external_comfy": {
@@ -704,6 +705,7 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
         ),
         "scene_skills": scene_skills,
         "prompter_reasoning": raw.get("prompter_reasoning") is True,
+        "prompter_reference": raw.get("prompter_reference") is True,
         "refine_turns": _refine_turns(raw.get("refine_turns")),
         "timeout_seconds": min(900.0, max(10.0, timeout)),
         "external_comfy": {

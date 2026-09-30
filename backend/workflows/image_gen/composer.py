@@ -33,6 +33,14 @@ from .subjects import Subject
 logger = logging.getLogger(__name__)
 
 
+class PrompterCallError(RuntimeError):
+    """The provider refused a prompter call that was not allowed to degrade.
+
+    Kept apart from the composer's own `ValueError`, which says the model answered
+    but wrote nothing usable.
+    """
+
+
 class SkillSelection(NamedTuple):
     """A validated selector result and whether its visibility answer is usable."""
 
@@ -47,22 +55,28 @@ class RefineThread:
 
     `messages` extends the shared prefix: the compose tail, then per render the
     replayed call, its tool result, and the image under review. `call_id` names the
-    call the next render answers.
+    call the next render answers. `prompter_reference` says the compose tail carried
+    the chat's earlier picture, so each review checks against it too.
     """
 
     messages: list[dict] = field(default_factory=list)
     visible: list[SubjectAppearance] = field(default_factory=list)
     call_id: str = ""
+    prompter_reference: bool = False
 
 
 @dataclass
 class Revision:
-    """One review of a render: the critique, and the revised prompt unless accepted."""
+    """One review of a render: the critique, and the revised prompt unless accepted.
+
+    `reseed` asks for the next render to be drawn from a new seed.
+    """
 
     critique: str
     done: bool
     scene: str = ""
     avoid: str = ""
+    reseed: bool = False
 
 
 def _call_id(render: int) -> str:
@@ -83,26 +97,46 @@ def _logged_text(message: Mapping[str, Any]) -> str:
 
 
 async def _forced_result(
-    *, client, model_name, prefix, tail, tool_name, settings, reasoning_on, call_id: str | None = None
+    *,
+    client,
+    model_name,
+    prefix,
+    tail,
+    tool_name,
+    settings,
+    reasoning_on,
+    call_id: str | None = None,
+    raise_errors: bool = False,
 ) -> dict:
-    """The forced call's result event: `args`, plus `replay` when `call_id` asked for it."""
+    """The forced call's result event: `args`, plus `replay` when `call_id` asked for it.
+
+    `raise_errors` raises the provider's error as a `PrompterCallError` instead of
+    answering with empty arguments.
+    """
     logger.info("[image_gen] %s tail:\n%s", tool_name, _logged_text(tail[-1]) if tail else "")
     result: dict = {"args": {}}
-    async for event in forced_tool_call(
-        client=client,
-        prefix=prefix,
-        tail_messages=tail,
-        tool_name=tool_name,
-        settings=settings,
-        model_name=model_name,
-        reasoning_on=reasoning_on,
-        temperature=0.2,
-        offer_tools=OFFER_TOOLS,
-        call_id=call_id,
-    ):
-        if event.get("type") == "result" and isinstance(event.get("args"), dict):
-            result = event
-    logger.info("[image_gen] %s returned: %s", tool_name, result["args"])
+    try:
+        async for event in forced_tool_call(
+            client=client,
+            prefix=prefix,
+            tail_messages=tail,
+            tool_name=tool_name,
+            settings=settings,
+            model_name=model_name,
+            reasoning_on=reasoning_on,
+            temperature=0.2,
+            offer_tools=OFFER_TOOLS,
+            call_id=call_id,
+            raise_errors=raise_errors,
+        ):
+            if event.get("type") == "result" and isinstance(event.get("args"), dict):
+                result = event
+    except Exception as exc:
+        if not raise_errors:
+            raise
+        raise PrompterCallError(str(exc) or type(exc).__name__) from exc
+    logged_args = {key: value for key, value in result["args"].items() if key != "critique"}
+    logger.info("[image_gen] %s returned: %s", tool_name, logged_args)
     return result
 
 
@@ -209,30 +243,42 @@ async def compose_scene(
     style_negative_prompt: str = "",
     profile_negative_prompt: str = "",
     thread: RefineThread | None = None,
+    prompter_reference_url: str = "",
+    prompter_reference_sent: bool = False,
 ) -> tuple[str, str, str]:
     """Compose scene text as ``(scene, avoid, mode)``.
 
     A `thread` is filled with the call as the model made it, so a review can follow.
+    `prompter_reference_url` is the chat's earlier picture, sent ahead of the request
+    in the same shape a review sends its render; `prompter_reference_sent` says the
+    image model receives that picture as well. A provider that rejects the image raises
+    rather than composing blind.
     """
     sheets = _sheets(subjects)
-    tail = [
-        {
-            "role": "user",
-            "content": compose_ooc(
-                prompt_format,
-                pov,
-                subjects=sheets,
-                selected_skills=selected_skills,
-                extra_instructions=extra_instructions,
-                supports_negative=supports_negative,
-                has_references=has_references,
-                referenced_subjects=referenced_subjects,
-                style_prompt=style_prompt,
-                style_negative_prompt=style_negative_prompt,
-                profile_negative_prompt=profile_negative_prompt,
-            ),
-        }
-    ]
+    request = compose_ooc(
+        prompt_format,
+        pov,
+        subjects=sheets,
+        selected_skills=selected_skills,
+        extra_instructions=extra_instructions,
+        supports_negative=supports_negative,
+        has_references=has_references,
+        referenced_subjects=referenced_subjects,
+        style_prompt=style_prompt,
+        style_negative_prompt=style_negative_prompt,
+        profile_negative_prompt=profile_negative_prompt,
+        prompter_reference=bool(prompter_reference_url),
+        prompter_reference_sent=prompter_reference_sent,
+    )
+    content: str | list[dict] = (
+        [
+            {"type": "image_url", "image_url": {"url": prompter_reference_url}},
+            {"type": "text", "text": request},
+        ]
+        if prompter_reference_url
+        else request
+    )
+    tail = [{"role": "user", "content": content}]
     result = await _forced_result(
         client=client,
         model_name=model_name,
@@ -242,6 +288,7 @@ async def compose_scene(
         settings=settings,
         reasoning_on=reasoning_on,
         call_id=_call_id(0) if thread is not None else None,
+        raise_errors=bool(prompter_reference_url),
     )
     args = result["args"]
 
@@ -254,6 +301,7 @@ async def compose_scene(
         thread.messages = [*tail, dict(result["replay"])]
         thread.visible = visible
         thread.call_id = _call_id(0)
+        thread.prompter_reference = bool(prompter_reference_url)
     scene = inject_profile_appearance(scene, visible, prompt_format)
     return scene, bounded(args.get("avoid")), "scene_skills" if visible_subjects is not None else "single_call"
 
@@ -272,21 +320,34 @@ async def refine_scene(
     pov: str = THIRD,
     reasoning_on: bool = False,
     supports_negative: bool = True,
+    supports_seed: bool = True,
+    reseeded: bool = False,
 ) -> Revision | None:
     """Show the model its last render and take its review, or ``None`` when it gave none.
 
+    A provider error raises: a model that cannot read the render has no review to give.
+
     The render answers the thread's open call, and the review's own call is kept on
     the thread, so the next review sees every earlier image and every earlier prompt.
+    `reseeded` says the render was drawn from a new seed, so the model can tell a
+    change the seed made from one its prompt made.
     """
     if not thread.call_id:
         return None
+    review_request = refine_ooc(
+        render,
+        turns_left,
+        supports_negative=supports_negative,
+        supports_seed=supports_seed,
+        prompter_reference=thread.prompter_reference,
+    )
     turn = [
-        {"role": "tool", "tool_call_id": thread.call_id, "content": render_result(render)},
+        {"role": "tool", "tool_call_id": thread.call_id, "content": render_result(render, reseeded=reseeded)},
         {
             "role": "user",
             "content": [
                 {"type": "image_url", "image_url": {"url": image_url}},
-                {"type": "text", "text": refine_ooc(render, turns_left, supports_negative=supports_negative)},
+                {"type": "text", "text": review_request},
             ],
         },
     ]
@@ -300,6 +361,7 @@ async def refine_scene(
         settings=settings,
         reasoning_on=reasoning_on,
         call_id=call_id,
+        raise_errors=True,
     )
     args, replay = result["args"], result.get("replay")
     if not isinstance(args.get("done"), bool) or not isinstance(replay, Mapping):
@@ -315,7 +377,11 @@ async def refine_scene(
         logger.info("[image_gen] review of render %d asked for changes but wrote no prompt; keeping it", render)
         return Revision(critique, False)
     return Revision(
-        critique, False, inject_profile_appearance(scene, thread.visible, prompt_format), bounded(args.get("avoid"))
+        critique,
+        False,
+        inject_profile_appearance(scene, thread.visible, prompt_format),
+        bounded(args.get("avoid")),
+        reseed=supports_seed and args.get("reseed") is True,
     )
 
 

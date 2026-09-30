@@ -140,6 +140,7 @@ export const S = {
   workflowAttachmentPlacements: {}, // Attachment placements by workflow id
   workflowRerollParams: {}, // Extra reroll parameters by workflow id
   workflowRerollSuccess: {}, // Success callbacks after a reroll creates a sibling
+  workflowRegenerateSettled: {}, // Callbacks when a regenerate ends, on any outcome
   workflowPipelines: [], // Registered workflow pipelines
   workflowState: {}, // Opaque workflow state
   workflowPhases: {}, // Status labels by workflow channel

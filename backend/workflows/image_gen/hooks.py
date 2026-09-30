@@ -18,14 +18,13 @@ from ..toolkit import (
     get_workflow_config,
     insert_workflow_variant,
     set_workflow_character_state,
-    set_workflow_consumption_metadata,
 )
 from . import macros as macros_mod
 from . import pov as pov_mod
 from . import subjects as subjects_mod
 from .composer import (
+    PrompterCallError,
     RefineThread,
-    Revision,
     SkillSelection,
     addressable_subjects,
     assemble_prompts,
@@ -54,6 +53,7 @@ from .engine import (
 from .engine.contracts import ImageResult, ResolvedReference
 from .engine.display_encode import shrink_for_review
 from .references import (
+    last_reply_image,
     plan_slots,
     previous_image,
     refetch_references,
@@ -144,8 +144,13 @@ def _progress_label(stage: str, detail: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _reporting(emit: Callable[[str], None]) -> ProgressCallback:
-    return lambda stage, detail: None if (label := _progress_label(stage, detail)) is None else emit(label)
+def _reporting(emit: Callable[[str], None], *, reason: str = "") -> ProgressCallback:
+    def report(stage: str, detail: Mapping[str, Any]) -> None:
+        label = _progress_label(stage, detail)
+        if label is not None:
+            emit(f"{label} {reason}" if reason and stage in {"queued", "rendering"} else label)
+
+    return report
 
 
 def _history_through(history: Sequence[Mapping[str, Any]], message_id: int) -> list[dict]:
@@ -202,9 +207,10 @@ def _metadata(
     pov: str,
     pov_source: str,
     composition_skills: Sequence[Mapping[str, str]] = (),
+    prompter_reference: str = "",
 ) -> dict:
     info: Mapping[str, Any] = result.backend_info
-    return {
+    record = {
         **_render_record(result, source=source),
         "style_id": style["id"],
         "composer_mode": composer_mode,
@@ -215,6 +221,10 @@ def _metadata(
         "negative_prompt": negative_prompt,
         "references": info.get("references") or [],
     }
+    if prompter_reference:
+        # The origin of the chat picture the prompter saw, not one the image model got.
+        record["prompter_reference"] = prompter_reference
+    return record
 
 
 def _consumption(
@@ -360,20 +370,6 @@ async def _review_url(image: bytes, mime: str) -> str:
     return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
 
 
-async def _annotate_kept(
-    attachment: dict, attachment_id: int | None, *, revision: Revision | None = None, note: str = ""
-) -> None:
-    """Show a render's review, or why refinement stopped at it, beside it. The render
-    was kept before either was known, so they are written onto the saved row."""
-    consumption = attachment["consumption_metadata"]
-    if revision is not None:
-        consumption["review"] = {"critique": revision.critique, "done": revision.done}
-    if note:
-        consumption.setdefault("notes", []).append(note)
-    if attachment_id is not None:
-        await set_workflow_consumption_metadata(attachment_id, consumption)
-
-
 def _attachment(seed: int, result, metadata: dict, consumption: dict) -> dict:
     ext = MIME_EXTENSIONS.get(result.mime, "img")
     return {
@@ -395,7 +391,6 @@ async def _generate_fresh(
     profile: Mapping[str, Any],
     style_id: str,
     prefix: Sequence[dict] | None = None,
-    progress: ProgressCallback | None = None,
     keep: Keep,
     phase: Callable[[str], None],
     history: Sequence[Mapping[str, Any]] | None = None,
@@ -404,7 +399,7 @@ async def _generate_fresh(
 
     With refinement on, every revision is kept too, as it lands: the prompter's
     pick is only the last one, and the user may prefer an earlier render or stop
-    the run once one is good enough.
+    the run once one is good enough. Review reasons appear only in live progress.
     """
     history = _history_through(history if history is not None else ctx.history, int(message["id"]))
     if prefix is None:
@@ -464,36 +459,53 @@ async def _generate_fresh(
     slots = plan_slots(target, addressable, previous=previous)
     references = await resolve_references(slots, subjects=addressable, previous=previous)
     unfilled = len(slots) - len(references)
+    prompter_reference, prompter_reference_url = "", ""
+    shown = last_reply_image(history, int(message["id"])) if config.get("prompter_reference") else None
+    if shown is not None:
+        shown_bytes, shown_mime, prompter_reference = shown
+        prompter_reference_url = await _review_url(shown_bytes, shown_mime)
+        logger.info("[image_gen] prompter reference: %s", prompter_reference)
     refine_turns = int(config.get("refine_turns") or 0)
     thread = RefineThread() if refine_turns > 0 else None
-    scene, avoid, composer_mode = await compose_scene(
-        client=ctx.agent_client,
-        model_name=ctx.agent_model_name,
-        prefix=prefix,
-        settings=ctx.settings,
-        prompt_format=selected_style["prompt_format"],
-        pov=pov,
-        reasoning_on=bool(config.get("prompter_reasoning")),
-        subjects=subjects,
-        selected_skills=selection.skills,
-        visible_subjects=selected_visible,
-        extra_instructions=str(selected_style.get("extra_instructions") or ""),
-        supports_negative=target.supports_negative_prompt,
-        has_references=bool(references),
-        referenced_subjects=_referenced_subjects(subjects, references),
-        style_prompt=str(selected_style.get("prompt") or ""),
-        style_negative_prompt=str(selected_style.get("negative_prompt") or ""),
-        profile_negative_prompt=str(profile.get("negative_prompt") or ""),
-        thread=thread,
-    )
+    try:
+        scene, avoid, composer_mode = await compose_scene(
+            client=ctx.agent_client,
+            model_name=ctx.agent_model_name,
+            prefix=prefix,
+            settings=ctx.settings,
+            prompt_format=selected_style["prompt_format"],
+            pov=pov,
+            reasoning_on=bool(config.get("prompter_reasoning")),
+            subjects=subjects,
+            selected_skills=selection.skills,
+            visible_subjects=selected_visible,
+            extra_instructions=str(selected_style.get("extra_instructions") or ""),
+            supports_negative=target.supports_negative_prompt,
+            has_references=bool(references),
+            referenced_subjects=_referenced_subjects(subjects, references),
+            style_prompt=str(selected_style.get("prompt") or ""),
+            style_negative_prompt=str(selected_style.get("negative_prompt") or ""),
+            profile_negative_prompt=str(profile.get("negative_prompt") or ""),
+            thread=thread,
+            prompter_reference_url=prompter_reference_url,
+            prompter_reference_sent=any(reference.origin == prompter_reference for reference in references),
+        )
+    except PrompterCallError as exc:
+        # Only a compose that carried the image raises; composing blind instead would
+        # hide that the setting does nothing with this prompter.
+        raise ImageGenerationError(
+            f"The prompter call with the earlier chat image failed: {exc}. "
+            "Prompter reference needs a prompter model that accepts images."
+        ) from exc
     prompt, negative = assemble_prompts(selected_style, profile, scene, avoid)
     if not prompt.strip():
         raise ImageGenerationError("the composed image prompt came out empty; try generating again")
     seed = _fresh_seed()
 
-    async def render(prompt: str, negative: str) -> ImageResult:
-        # One seed for every render, so a revision differs from the render it
-        # corrects by its prompt alone.
+    async def render(prompt: str, negative: str, reason: str = "") -> ImageResult:
+        # A revision keeps the seed of the render it corrects, so the two differ by
+        # their prompts alone, unless its review asked for a new seed: a mangled
+        # image, or a fix the prompt already tried, is often the seed's doing.
         return await resolve_and_generate(
             adapter,
             ImageRequest(
@@ -505,12 +517,13 @@ async def _generate_fresh(
                 references=references,
             ),
             target=target,
-            progress=progress,
+            progress=_reporting(phase, reason=reason),
         )
 
     reviewed = 0
+    reseeded = False
 
-    async def save(result: ImageResult, prompt: str, negative: str) -> tuple[dict, int | None]:
+    async def save(result: ImageResult, prompt: str, negative: str) -> dict:
         md = _metadata(
             source=adapter.source_id,
             style=selected_style,
@@ -521,6 +534,7 @@ async def _generate_fresh(
             pov=pov,
             pov_source=pov_source,
             composition_skills=[{"id": skill["id"], "label": skill["label"]} for skill in selection.skills],
+            prompter_reference=prompter_reference,
         )
         consumption = _consumption(selected_style, prompt, negative, result, md, source_label=adapter.label)
         if unfilled > 0:
@@ -530,14 +544,11 @@ async def _generate_fresh(
         uncovered = _uncovered_note(addressable, md["references"], len(slots), target.reference_capacity)
         if uncovered:
             consumption.setdefault("notes", []).append(uncovered)
-        if refine_turns and reviewed == refine_turns:
-            consumption.setdefault("notes", []).append(
-                f"the prompter did not review this render: all {refine_turns} refinement turns were used"
-            )
         attachment = _attachment(seed, result, md, consumption)
-        return attachment, await keep(attachment)
+        await keep(attachment)
+        return attachment
 
-    attachment, attachment_id = await save(await render(prompt, negative), prompt, negative)
+    attachment = await save(await render(prompt, negative), prompt, negative)
     while thread is not None and reviewed < refine_turns:
         # Only a review that asked for changes leads to another render, so the
         # render under review is always one past the reviews that did.
@@ -557,38 +568,49 @@ async def _generate_fresh(
                 pov=pov,
                 reasoning_on=bool(config.get("prompter_reasoning")),
                 supports_negative=target.supports_negative_prompt,
+                supports_seed=target.supports_seed,
+                reseeded=reseeded,
             )
+        except PrompterCallError as exc:
+            # The provider refused the review, most often a prompter that cannot read
+            # images. The renders already kept stay; the run ends on the provider's error
+            # rather than a quiet stop that leaves the setting looking inert.
+            logger.warning("[image_gen] review of render %d failed; keeping it: %s", current, exc)
+            raise ImageGenerationError(
+                f"Review of render {current} failed: {exc}. Review turns need a prompter model that accepts images."
+            ) from exc
         except Exception:
-            # The render is already kept; a review that fails only ends the refinement.
+            # Not the provider: the render is already kept, so this only ends the refinement.
             logger.warning("[image_gen] review of render %d failed; keeping it", current, exc_info=True)
             revision = None
         revised_prompt, revised_negative = (
             assemble_prompts(selected_style, profile, revision.scene, revision.avoid) if revision else ("", "")
         )
-        # Said on the render, or a prompter that cannot read images leaves the setting
-        # looking inert.
         if revision is None:
-            note = "the prompter gave no usable review of this render, so refinement stopped"
-        elif not revision.done and not (revision.scene and revised_prompt.strip()):
-            note = "the prompter asked for another render but wrote no revised prompt"
-        else:
-            note = ""
-        if revision is not None:
-            logger.info("[image_gen] review of render %d (done=%s): %s", current, revision.done, revision.critique)
-        await _annotate_kept(attachment, attachment_id, revision=revision, note=note)
-        if revision is None or revision.done or note:
+            phase("No usable review; keeping the current render.")
             break
+        if revision.done:
+            break
+        if not (revision.scene and revised_prompt.strip()):
+            phase("No revised prompt; keeping the current render.")
+            break
+        logger.info("[image_gen] review of render %d requested another render (reseed=%s)", current, revision.reseed)
         reviewed = current
-        phase(f"Rendering revision {reviewed}...")
+        reseeded = revision.reseed
+        if reseeded:
+            seed = _fresh_seed()
+        reason = revision.critique.strip()
+        label = f"Rendering revision {reviewed}{' from a new seed' if reseeded else ''}..."
+        phase(f"{label} {reason}" if reason else label)
         try:
-            revised = await render(revised_prompt, revised_negative)
+            revised = await render(revised_prompt, revised_negative, reason)
         except ImageGenerationError as exc:
             # The renders already kept are still good answers; a failed revision
             # only ends the refinement.
             logger.warning("[image_gen] revision render failed; keeping render %d: %s", current, exc)
-            await _annotate_kept(attachment, attachment_id, note=f"the revised render failed: {exc}")
+            phase(f"Revision render failed; keeping render {current}.")
             break
-        attachment, attachment_id = await save(revised, revised_prompt, revised_negative)
+        attachment = await save(revised, revised_prompt, revised_negative)
 
 
 async def _generate_response(ctx, body) -> WorkflowEventStream:
@@ -634,7 +656,6 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
                 profile=profile,
                 style_id=style_id,
                 prefix=prefix,
-                progress=_reporting(phase),
                 keep=keep,
                 phase=phase,
             )
@@ -721,7 +742,6 @@ async def regenerate(ctx, body):
         config=config,
         profile=profile,
         style_id=style_id,
-        progress=_reporting(ctx.phase),
         keep=ctx.keep or collect,
         phase=ctx.phase,
         history=history,
@@ -786,9 +806,4 @@ async def reroll_gen(ctx, params, seed):
         consumption.setdefault("notes", []).append(
             f"style changed to {style['label']}; the prompt still carries the previous style's wording"
         )
-    # A restore is the same render, so it keeps the prompter's review of it; a
-    # reroll is a new render nobody reviewed.
-    review = (ctx.prior_consumption_metadata or {}).get("review")
-    if ctx.replay and isinstance(review, Mapping):
-        consumption["review"] = dict(review)
     return result.image_bytes, consumption

@@ -11,7 +11,7 @@ const dom = new JSDOM("<!doctype html><body></body>", { url: "https://orb.invali
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 
-const { startWorkflowJob, stopButtonState } = await import("../../frontend/workflow_jobs.js");
+const { startWorkflowJob, stopButtonState, stopWorkflowJob } = await import("../../frontend/workflow_jobs.js");
 
 const button = (state) => `<button class="regen${state.cls}"${state.attrs}><svg></svg></button>`;
 
@@ -37,4 +37,19 @@ test("a stopping job repaints its button disabled", () => {
   const job = startWorkflowJob({ convId: "c", title: "Stop" });
   job.stopping = true;
   assert.match(button(stopButtonState(job, "Regenerate")), / disabled>/);
+});
+
+test("a job is stopped by its id while it runs, and its id is ignored once it ended", async () => {
+  const controller = new AbortController();
+  const job = startWorkflowJob({ title: "Stop", controller });
+  await new Promise((r) => setTimeout(r, 450)); // past the double-click guard
+  const ended = startWorkflowJob({ title: "Stop", controller: new AbortController() });
+  ended.end();
+
+  await stopWorkflowJob(ended.id);
+  await stopWorkflowJob("never-ran");
+  assert.equal(ended.stopping, false);
+
+  await stopWorkflowJob(job.id);
+  assert.ok(job.stopping && controller.signal.aborted);
 });

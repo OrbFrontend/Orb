@@ -36,7 +36,7 @@ const inFlight = new Map(); // msgId -> job
 const pendingEdits = new Map(); // attId -> edited fields
 const rerollEditSnapshots = new Map(); // attId -> edit object submitted by the current reroll
 
-let focusView = loadFocusView(); // image fills the card, details hidden
+let focusView = loadFlag(FOCUS_VIEW_KEY); // image fills the card, details hidden
 
 export function initWidget(sharedConfig) {
   cfg = sharedConfig;
@@ -49,11 +49,19 @@ export function initWidget(sharedConfig) {
   registerRerollSuccess(WORKFLOW_ID, clearPendingEdit);
 }
 
-function loadFocusView() {
+function loadFlag(key) {
   try {
-    return localStorage.getItem(FOCUS_VIEW_KEY) === "1";
+    return localStorage.getItem(key) === "1";
   } catch {
     return false;
+  }
+}
+
+function saveFlag(key, value) {
+  try {
+    localStorage.setItem(key, value ? "1" : "0");
+  } catch (e) {
+    console.warn(`persist ${key} failed`, e);
   }
 }
 
@@ -61,11 +69,7 @@ function loadFocusView() {
 // reply streams, which would leave the button dead until the stream ended.
 function toggleDetails(el) {
   focusView = !focusView;
-  try {
-    localStorage.setItem(FOCUS_VIEW_KEY, focusView ? "1" : "0");
-  } catch (e) {
-    console.warn("persist image_gen focus view failed", e);
-  }
+  saveFlag(FOCUS_VIEW_KEY, focusView);
   for (const card of document.querySelectorAll(".image-gen-attachment")) {
     card.classList.toggle("image-gen-focus", focusView);
     card.querySelector(".image-gen-view-btn").setAttribute("aria-pressed", String(!focusView));

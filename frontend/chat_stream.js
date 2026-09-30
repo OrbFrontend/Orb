@@ -95,9 +95,9 @@ function phaseStage() {
 // Empty means waiting; null means no active turn.
 function setGenerationStep(label) {
   S.generationStep = label;
-  _syncGenerationStatusVisibility();
   const text = $("generation-status")?.querySelector(".gen-text");
   if (text && label !== null) text.textContent = label || WAITING_LABEL;
+  _syncGenerationStatusVisibility();
 }
 
 // Coalesce expensive full-body renders to one paint per animation frame.

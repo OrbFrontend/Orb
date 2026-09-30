@@ -271,6 +271,25 @@ def test_request_lists_entries_under_aliases_numbered_across_the_request():
     assert "Parameter order: (retire, place, threads, clues)]" in request
 
 
+def test_request_shares_value_instruction_across_fields():
+    other = StateFragment("mood", "Mood", "Mood", "The current mood.", mode="value")
+    view = fold_events([_add("place", "p", "docks"), _add("mood", "m", "tense")])
+    for fragments in ([VALUE, other], [VALUE, ENTRIES, other], [ENTRIES]):
+        for placement in ("before_writer", "after_reply"):
+            request = build_state_request(
+                fragments,
+                view,
+                entry_aliases(fragments, view),
+                placement=placement,
+                tool_schema=build_state_tool(fragments),
+            )
+            expected = 0 if fragments == [ENTRIES] else 1
+            assert request.lower().count("write the complete new value only if it changed.") == expected
+            if expected:
+                assert "For fields with one value, write" in request
+                assert "Current value: docks" in request and "Current value: tense" in request
+
+
 def test_parse_maps_aliases_back_and_orders_retires_first():
     view = fold_events([_add("threads", "t1", "find the key")])
     aliases = entry_aliases([ENTRIES], view)

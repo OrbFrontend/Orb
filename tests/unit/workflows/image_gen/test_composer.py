@@ -76,6 +76,24 @@ def test_tool_contract_and_offered_order_are_stable():
     assert prompts.OFFER_TOOLS == ("read_image_skills", "compose_image_prompt", "refine_image_prompt")
 
 
+async def test_review_reason_is_not_logged(monkeypatch, caplog):
+    monkeypatch.setattr(
+        composer, "forced_tool_call", _fake_forced({"refine_image_prompt": {"critique": "SECRET REVIEW", "done": True}})
+    )
+    with caplog.at_level("INFO", logger=composer.__name__):
+        result = await composer._forced_result(
+            client=object(),
+            model_name="agent",
+            prefix=(),
+            tail=(),
+            tool_name="refine_image_prompt",
+            settings={"model_name": "writer"},
+            reasoning_on=False,
+        )
+    assert result["args"]["critique"] == "SECRET REVIEW"
+    assert "SECRET REVIEW" not in caplog.text
+
+
 async def test_selector_sees_only_enabled_summaries_names_and_pov(monkeypatch):
     calls: list[dict] = []
     enabled = _skill("hug", instructions="SECRET HUG BODY")
@@ -162,6 +180,28 @@ async def test_composer_receives_only_selected_bodies_in_library_order(monkeypat
     assert tail.index("FIRST INSTRUCTION") < tail.index("SECOND INSTRUCTION")
     assert tail.index("SECOND INSTRUCTION") < tail.index("STYLE EXTRA")
     assert tail.index("STYLE EXTRA") < tail.index("Give each character's pose")
+
+
+@pytest.mark.parametrize("also_sent", [False, True])
+async def test_prompter_reference_requests_the_current_story_instead_of_a_caption(monkeypatch, also_sent):
+    calls: list[dict] = []
+    await _compose(
+        monkeypatch,
+        {"scene": "1girl, solo, standing", "avoid": None, "visible_subjects": []},
+        prompter_reference_url="data:image/png;base64,earlier-picture",
+        prompter_reference_sent=also_sent,
+        calls=calls,
+    )
+    image, request = calls[0]["tail_messages"][0]["content"]
+    assert image["type"] == "image_url"
+    instruction = request["text"]
+    assert "Do not describe or recreate that picture" in instruction
+    assert "final visible instant of the latest assistant reply" in instruction
+    assert "continuity details the story leaves unchanged" in instruction
+    assert "Replace any pictured detail the latest reply changes" in instruction
+    assert ("updates the picture to the current story" in instruction) is also_sent
+    review = prompts.refine_ooc(1, 1, prompter_reference=True)
+    assert "earlier chat picture only for details the story leaves unchanged" in review
 
 
 async def test_composer_uses_its_own_visibility_without_a_valid_selector(monkeypatch):

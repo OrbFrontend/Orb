@@ -85,6 +85,7 @@ async def forced_tool_call(
     temperature: float = 0.25,
     tools_in_prompt: bool = True,
     call_id: str | None = None,
+    raise_errors: bool = False,
 ) -> AsyncIterator[dict]:
     """Run one forced tool call and yield its parsed arguments.
 
@@ -102,6 +103,11 @@ async def forced_tool_call(
     ``call_id`` asks for the reply back as a replayable assistant turn: the result
     event then carries ``replay`` (absent when no arguments came back), so a caller
     that answers the call can extend the same thread.
+
+    A failed call degrades to empty arguments, which a caller cannot tell from an
+    empty answer. ``raise_errors`` re-raises the provider's error instead, for a
+    caller whose request the provider may reject outright (an image to a text-only
+    model); the client has already retried transient failures by then.
     """
     tool = require_tool(tool_name)
     schema = tool["schema"]
@@ -252,6 +258,8 @@ async def forced_tool_call(
             args, _ = _parse()
     except Exception as e:
         logger.warning("forced_tool_call %s failed during stream: %r", tool_name, e)
+        if raise_errors:
+            raise
         yield {"type": "result", "args": {}}
         return
 

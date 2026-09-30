@@ -1121,10 +1121,11 @@ function openSettings(expandStyleId = "") {
         <label>Render timeout (seconds)<input id="ig-timeout" type="number" min="10" max="900" value="${escAttr(cfg.timeout_seconds || 180)}"></label>
         <label>Review turns<input id="ig-refine-turns" type="number" min="0" max="${MAX_REFINE_TURNS}" step="1" value="${escAttr(cfg.refine_turns || 0)}"></label>
       </div>
-      <div class="image-gen-note">Review turns show each render to the prompter, which may revise the prompt and render again. 0 turns it off. Each turn is one vision call and up to one more render; the prompter model must accept images.</div>
+      <div class="image-gen-note">Review turns show each render to the prompter for improvement. 0 turns it off. Each turn is one vision call and up to one more render; the prompter model must accept images.</div>
       <div class="ig-toggles">
-        <label class="ig-toggle"><input id="ig-scene-skills-enabled" type="checkbox"${cfg.scene_skills_enabled === true ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Use scene skills</span><span class="image-gen-note">Selects relevant composition guidance before writing the prompt; one extra model call when usable skills exist.</span></span></label>
-        <label class="ig-toggle"><input id="ig-prompter-reasoning" type="checkbox"${cfg.prompter_reasoning === true ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Enable prompter thinking</span><span class="image-gen-note">Uses thinking for skill selection and prompt composition. For best prompt-cache reuse, match Editor reasoning config.</span></span></label>
+        <label class="ig-toggle"><input id="ig-scene-skills-enabled" type="checkbox"${cfg.scene_skills_enabled === true ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Use scene skills</span><span class="image-gen-note">Suggests relevant composition guidance before writing the prompt; one extra model call.</span></span></label>
+        <label class="ig-toggle"><input id="ig-prompter-reference" type="checkbox"${cfg.prompter_reference === true ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Show the prompter the last image</span><span class="image-gen-note">Sends the chat's most recent generated image to the prompter for reference. The prompter model must accept images.</span></span></label>
+        <label class="ig-toggle"><input id="ig-prompter-reasoning" type="checkbox"${cfg.prompter_reasoning === true ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Enable prompter thinking</span><span class="image-gen-note">Uses thinking for skill selection, prompt composition and review turns.</span></span></label>
       </div>
     </section>
     <div class="ig-drawers">
@@ -1207,6 +1208,7 @@ function readConfig() {
     scene_skills_enabled: document.getElementById("ig-scene-skills-enabled")?.checked === true,
     scene_skills: draft.scene_skills,
     prompter_reasoning: document.getElementById("ig-prompter-reasoning")?.checked === true,
+    prompter_reference: document.getElementById("ig-prompter-reference")?.checked === true,
     refine_turns: readRefineTurns(),
     timeout_seconds: readTimeout(),
     styles: draft.styles,

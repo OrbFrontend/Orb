@@ -70,7 +70,6 @@ def _field_section(fragment: StateFragment, view: StateView, aliases: Sequence[A
         else:
             lines.append("Current value (several entries; a new value replaces them all):")
             lines.extend(f"- {entry.text}" for entry in entries)
-        lines.append("Write the complete new value only if it changed.")
     return "\n".join(lines)
 
 
@@ -90,6 +89,8 @@ def build_state_request(
     task = _BEFORE_WRITER_TASK if placement == "before_writer" else _AFTER_REPLY_TASK
     parts = [f"{STATE_PREAMBLE} {task} {_RULES}" + (REASONING_GUIDANCE if reasoning_on else "")]
     parts.extend(_field_section(fragment, view, aliases) for fragment in fragments)
+    if any(fragment.mode == "value" for fragment in fragments):
+        parts.append("For fields with one value, write the complete new value only if it changed.")
     parts.append(f"Each value or entry may be at most {MAX_STATE_TEXT_CHARS} characters.")
     if decision_guidance:
         parts.append("___\n\n" + decision_guidance)

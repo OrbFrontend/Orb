@@ -405,6 +405,7 @@
 }
 
 .gen-text-secondary {
+  white-space: nowrap;
   font-size: 11px;
   color: var(--text-muted);
   padding-left: 8px;

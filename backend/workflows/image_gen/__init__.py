@@ -21,6 +21,7 @@ _CONFIG_SCHEMA = {
         "scene_skills_enabled": {"type": "boolean", "title": "Use scene skills"},
         "scene_skills": {"type": "array", "title": "Composition skills"},
         "prompter_reasoning": {"type": "boolean", "title": "Enable prompter thinking"},
+        "prompter_reference": {"type": "boolean", "title": "Show the prompter the last image"},
         "refine_turns": {"type": "integer", "minimum": 0, "maximum": MAX_REFINE_TURNS, "title": "Review turns"},
         "timeout_seconds": {
             "type": "number",

@@ -306,6 +306,45 @@ Both prompt steps use the Agent model's configured **Max Tokens** as their reply
 budget. A thinking model spends its reasoning from the same budget, so raise it if
 prompt steps with thinking on come back empty.
 
+## Prompter reference
+
+**Show the prompter the last image** sends the chat's most recent generated image
+to the Agent model when it writes the prompt, so the outfit, setting, lighting and
+look carry over between renders even when the story text does not restate them.
+The prompter composes the final visible instant of the latest assistant reply.
+It uses the earlier picture only for continuity details the story leaves unchanged,
+and replaces any pose, action, expression, setting, or framing the story changes.
+The setting is off by default.
+
+Orb sends the image only when it is on the reply just before the message being
+visualized, or on a message after that reply. An older picture shows a scene the
+story has left, so the prompter gets no image then. The message being visualized is
+skipped, so **Regenerate** shows the image from the reply before it rather than the
+render it replaces. Uploads are never sent, because the prompter already sees them in
+the conversation.
+When the same picture also goes to the image model as a reference image, the
+prompter is told so. The earlier image's prompt and negative prompt are not sent.
+The render's details record which image the prompter saw.
+
+The image travels with the prompt request and the skill-selection call stays
+text-only, so the cached conversation prefix is unchanged; review turns re-send the
+same request and reuse it.
+
+Both this setting and **Review turns** need an Agent model that accepts images. If
+the provider rejects the image, generation stops with the provider's error instead
+of continuing without it. A failed review keeps the renders already made and shows
+the provider error. A server that silently drops images cannot be detected.
+
+With **Review turns** enabled, each revision's review reason appears only in the
+live rendering status bar, including while ComfyUI queues the revision. Longer
+status text automatically scrolls like a billboard; hover or focus the bar to
+pause it, or hover the status text to read its tooltip. With reduced motion
+enabled, the bar scrolls manually instead. The reason
+clears when rendering ends or the next review begins and is not saved in image
+metadata or review logs. Use the
+image's variant arrows to browse renders and the generation button's **Stop**
+control to end refinement and keep the renders already made.
+
 ## Troubleshooting
 
 | Problem | Try this |
@@ -319,6 +358,7 @@ prompt steps with thinking on come back empty.
 | Reference image is required | Create or upload an image, or set a character reference and choose a source that includes it. |
 | Reference image is too large or unreadable | Use PNG, JPEG, or WebP and a smaller file. |
 | Prompt generation fails | Check the LLM endpoint and use a model with tool calling. |
+| **Prompter reference** or **Review turns** stops with a provider error | Use an Agent model that accepts images, or turn the setting off. |
 | **Bytes evicted** | Select **Rehydrate**. A cloud backend creates and bills a new image. |
 | Provider rejects the key or request | Check the provider dashboard, account credits, model access, and the provider message. |
 | Cloud image has the wrong shape | Choose a resolution closer to a ratio supported by that provider. |

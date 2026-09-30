@@ -176,6 +176,7 @@ FROZEN_ABI = {
     "registerAttachmentRenderer",
     "registerRerollParams",
     "registerRerollSuccess",
+    "registerRegenerateSettled",
     "registerAction",
     # http / dom helpers
     "api",
@@ -212,7 +213,9 @@ FROZEN_ABI = {
     "clearWorkflowPhase",
     "startWorkflowJob",
     "stopButtonState",
+    "stopWorkflowJob",
     "workflowActionJob",
+    "activateWorkflowVariant",
     "refreshConversationMessages",
     "selectWorkflowPipelinePass",
     "broadcastWorkflowMutation",

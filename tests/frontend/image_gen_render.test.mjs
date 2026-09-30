@@ -58,6 +58,20 @@ test("another workflow's attachment does not suppress the button", () => {
   assert.match(messageButtonHtml(msg, { mutable: true, icon: ICON, ...MARKERS }), /image_gen:generate/);
 });
 
+test("the original generation button remains Stop after refinement images land", () => {
+  const msg = assistant({ workflow_attachments: [{ workflow_id: "image_gen" }] });
+  const html = messageButtonHtml(msg, {
+    mutable: true,
+    running: true,
+    icon: ICON,
+    ...MARKERS,
+    stop: { cls: " wf-running", attrs: ' title="Stop image generation"' },
+  });
+  assert.match(html, /class="image-gen-create wf-running"/);
+  assert.match(html, /title="Stop image generation"/);
+  assert.match(html, /data-wf-action="image_gen:generate"/);
+});
+
 test("render details route every metadata field through esc", () => {
   const html = attachmentDetailsHtml(
     {
@@ -268,4 +282,10 @@ test("cost is rendered only in the unit the payload names", () => {
   const cell = `«1 ${HOSTILE}»`;
   assert.ok(hostile.includes(cell));
   assert.ok(!hostile.replaceAll(cell, "").includes("<script>"));
+});
+
+test("legacy review metadata is not displayed in render details", () => {
+  const html = attachmentDetailsHtml({ consumption_metadata: { review: { done: false, critique: "hands merged" } } }, MARKERS);
+  assert.ok(!html.includes("<dt>Review"));
+  assert.ok(!html.includes("hands merged"));
 });

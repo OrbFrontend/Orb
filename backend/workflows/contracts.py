@@ -144,6 +144,10 @@ class RegenCtx:
     # several renders keeps each as it lands, so Stop keeps them and the client
     # sees them arrive. None where no route is saving for it.
     keep: Callable[[dict], Awaitable[int | None]] | None = None
+    # Sends one extra event on the regenerate stream, for a client that asks for
+    # events. The name must start with "<workflow_id>_". Silent where no stream is
+    # attached.
+    emit: Callable[[str, dict], None] = lambda _event, _data: None
 
 
 @dataclass(frozen=True)

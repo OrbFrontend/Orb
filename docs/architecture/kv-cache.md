@@ -163,7 +163,10 @@ model's base instead.
 Feedback, state updates, and document auditing extend the relevant prompt in
 the same way as the Editor. Image prompting rebuilds the neutral scene prefix
 through the shared cast resolver, so off-turn calls use the same group history
-and context rules as a turn.
+and context rules as a turn. Images an image prompt adds -- each review's render,
+and the chat's earlier picture when prompter reference is on -- ride in the compose
+tail and never in the prefix, so the selector and compose calls share it and each
+review extends the compose request byte for byte.
 
 ## One turn, briefly
 

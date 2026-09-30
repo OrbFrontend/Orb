@@ -591,3 +591,29 @@ async def test_stop_lets_a_render_that_is_already_saving_land():
     release.set()
     assert await stop == {"stopped": 1, "settled": True}
     assert task.result() == "saved"
+
+
+async def test_streamed_regenerate_forwards_only_the_workflows_own_events(client):
+    """A hook's own status events reach the client; a name outside its prefix, or one
+    the regenerate stream itself speaks, is dropped without failing the render."""
+    cid, mid = await seed_message(client)
+    aid = await _seed_workflow_attachment(mid, wid="emitter")
+
+    async def regen(ctx, body):
+        ctx.emit("emitter_stage", {"n": 1})
+        ctx.emit("other_stage", {"n": 2})
+        ctx.emit("phase_status", {"label": "spoofed"})
+        ctx.emit("emitter_bad", {"n": float("nan")})
+        return []
+
+    wf = make_workflow("emitter", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
+    with register_for_test(wf):
+        resp = await client.post(
+            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate",
+            json={},
+            headers={"Accept": "text/event-stream"},
+        )
+    assert resp.text == (
+        'event: emitter_stage\ndata: {"n":1}\n\n'
+        'event: regenerate_done\ndata: {"attachments":[],"rejected_workflow_atts":[]}\n\n'
+    )
