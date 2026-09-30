@@ -244,10 +244,9 @@ function critiqueHtml(row, turns, { esc, escAttr, openRows, domId, prefix = "" }
 
 /**
  * The timeline strip under the image. *open* is the list's state, *openRows*
- * the attachment ids whose critique is unclamped, and *stop* `{ jobId,
- * stopping }` while a run this tab can stop is live.
+ * the attachment ids whose critique is unclamped. The generation button owns Stop.
  */
-export function refineTimelineHtml(model, { esc, escAttr, msgId, rootId, open = false, openRows = null, stop = null }) {
+export function refineTimelineHtml(model, { esc, escAttr, msgId, rootId, open = false, openRows = null }) {
   const domId = `ig-refine-${rootId}`;
   const opts = { esc, escAttr, openRows, domId };
   const { header, rows, turns } = model;
@@ -257,17 +256,15 @@ export function refineTimelineHtml(model, { esc, escAttr, msgId, rootId, open = 
       : header.state === "accepted"
         ? `<span class="ig-refine-ok" aria-hidden="true">${CHECK_ICON}</span>`
         : "";
-  const stopBtn = stop
-    ? `<button type="button" class="ig-refine-stop" data-wf-action="image_gen:refineStop" data-msg-id="${escAttr(msgId)}" data-wf-job="${escAttr(stop.jobId)}" title="Stop refining and keep the renders made so far"${stop.stopping ? " disabled" : ""}>Stop here</button>`
-    : "";
   const count = rows.filter((row) => !row.ghost).length;
-  // Nothing to list until the run's first render lands.
-  const toggle = !count
-    ? ""
-    : `<button type="button" class="ig-refine-toggle" data-wf-action="image_gen:refineToggle" aria-expanded="${open ? "true" : "false"}" aria-controls="${domId}-list" aria-label="${open ? "Hide" : "Show"} every render's review">${open ? "▴" : "▾"} ${count}</button>`;
-  const head = `<div class="ig-refine-head"><span class="ig-refine-status ig-refine-${header.state}" role="status" aria-live="polite" title="${escAttr(header.text)}">${mark}<span class="ig-refine-status-text">${esc(header.text)}</span></span>${stopBtn}${toggle}</div>`;
+  // A single render's review is already visible in the summary.
+  const toggle =
+    rows.length < 2
+      ? ""
+      : `<button type="button" class="ig-refine-toggle" data-wf-action="image_gen:refineToggle" aria-expanded="${open ? "true" : "false"}" aria-controls="${domId}-list" aria-label="${open ? "Hide" : "Show"} render history"><span>History · ${esc(count)}</span><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>`;
+  const head = `<div class="ig-refine-head"><span class="ig-refine-status ig-refine-${header.state}" role="status" aria-live="polite" title="${escAttr(header.text)}">${mark}<span class="ig-refine-status-text">${esc(header.text)}</span></span>${toggle}</div>`;
   let body;
-  if (open) {
+  if (open && rows.length > 1) {
     const items = rows.map((row) => {
       if (row.ghost)
         return `<li class="ig-refine-row is-ghost"><span class="ig-refine-num">${esc(row.render)}</span><span class="ig-refine-dot" aria-hidden="true"></span><span class="ig-refine-critique">${esc(verdictText(row, turns))}</span></li>`;
@@ -276,7 +273,7 @@ export function refineTimelineHtml(model, { esc, escAttr, msgId, rootId, open = 
         row.verdict === "reviewing"
           ? `<span class="ig-refine-dot" aria-hidden="true"></span>`
           : `<span class="ig-refine-verdict ig-refine-v-${row.verdict}" title="${escAttr(label)}" aria-hidden="true">${glyph}</span><span class="ig-sr">${esc(label)}: </span>`;
-      const num = `<button type="button" class="ig-refine-num" data-wf-action="image_gen:refineShow" data-msg-id="${escAttr(msgId)}" data-root-id="${escAttr(rootId)}" data-att-id="${escAttr(row.id)}" aria-label="Show render ${escAttr(row.render)}">${esc(row.render)}</button>`;
+      const num = `<button type="button" class="ig-refine-num" data-wf-action="image_gen:refineShow" data-msg-id="${escAttr(msgId)}" data-root-id="${escAttr(rootId)}" data-att-id="${escAttr(row.id)}" aria-label="Show render ${escAttr(row.render)}" aria-pressed="${row.current ? "true" : "false"}">${esc(row.render)}</button>`;
       return `<li class="ig-refine-row"${row.current ? ' aria-current="true"' : ""}>${num}${verdict}<div class="ig-refine-cell">${critiqueHtml(row, turns, opts)}</div></li>`;
     });
     body = `<ol class="ig-refine-list" id="${domId}-list">${items.join("")}</ol>`;

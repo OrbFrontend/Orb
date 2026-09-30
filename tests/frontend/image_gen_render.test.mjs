@@ -60,6 +60,20 @@ test("another workflow's attachment does not suppress the button", () => {
   assert.match(messageButtonHtml(msg, { mutable: true, icon: ICON, ...MARKERS }), /image_gen:generate/);
 });
 
+test("the original generation button remains Stop after refinement images land", () => {
+  const msg = assistant({ workflow_attachments: [{ workflow_id: "image_gen" }] });
+  const html = messageButtonHtml(msg, {
+    mutable: true,
+    running: true,
+    icon: ICON,
+    ...MARKERS,
+    stop: { cls: " wf-running", attrs: ' title="Stop image generation"' },
+  });
+  assert.match(html, /class="image-gen-create wf-running"/);
+  assert.match(html, /title="Stop image generation"/);
+  assert.match(html, /data-wf-action="image_gen:generate"/);
+});
+
 test("render details route every metadata field through esc", () => {
   const html = attachmentDetailsHtml(
     {
@@ -411,7 +425,6 @@ test("the strip carries its roles, current row, and expansion state", () => {
     ...TIMELINE,
     open: true,
     openRows: new Set([2]),
-    stop: { jobId: "j1", stopping: false },
   });
   assert.match(html, /role="status" aria-live="polite"/);
   assert.equal(html.split('aria-current="true"').length - 1, 1);
@@ -421,12 +434,23 @@ test("the strip carries its roles, current row, and expansion state", () => {
   // Row 2 is open, row 1 is not; each names the critique it controls.
   assert.match(html, /data-att-id="“2”" aria-expanded="true" aria-controls="“ig-refine-1-c2”">Less/);
   assert.match(html, /data-att-id="“1”" aria-expanded="false" aria-controls="“ig-refine-1-c1”">More/);
-  assert.match(html, /data-wf-action="image_gen:refineStop"[^>]*data-wf-job="“j1”"/);
+  assert.match(html, /History · «2»/);
+  assert.ok(!html.includes("refineStop"));
+  assert.ok(!html.includes("Stop here"));
   assert.match(html, /is-ghost/);
 
-  const collapsed = refineTimelineHtml(model, { ...TIMELINE, stop: { jobId: "j1", stopping: true } });
+  const collapsed = refineTimelineHtml(model, TIMELINE);
   assert.match(collapsed, /class="ig-refine-toggle"[^>]*aria-expanded="false"/);
-  assert.match(collapsed, /Stop here/);
-  assert.match(collapsed, /refineStop"[^>]*disabled>/);
+  assert.ok(!collapsed.includes("Stop here"));
   assert.ok(!collapsed.includes("<ol"));
+});
+
+test("one render shows its review without a redundant history control", () => {
+  const rows = [render(1, at(1, { ended: "accepted" }), { critique: "Looks good", done: true })];
+  for (const open of [false, true]) {
+    const html = refineTimelineHtml(refineRun(rows, rows[0]), { ...TIMELINE, open });
+    assert.ok(html.includes("«Looks good»"));
+    assert.ok(!html.includes("refineToggle"));
+    assert.ok(!html.includes("<ol"));
+  }
 });

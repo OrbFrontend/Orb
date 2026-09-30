@@ -19,10 +19,8 @@ import {
   sseEvents,
   startWorkflowJob,
   stopButtonState,
-  stopWorkflowJob,
   streamPost,
   toast,
-  workflowActionJob,
 } from "/static/workflow_api.js";
 import {
   attachmentDetailsHtml,
@@ -66,7 +64,6 @@ export function initWidget(sharedConfig) {
   registerAction(WORKFLOW_ID, "refineToggle", refineToggle);
   registerAction(WORKFLOW_ID, "refineMore", refineMore);
   registerAction(WORKFLOW_ID, "refineShow", refineShow);
-  registerAction(WORKFLOW_ID, "refineStop", refineStop);
   registerRerollParams(WORKFLOW_ID, rerollParams);
   registerRerollSuccess(WORKFLOW_ID, clearPendingEdit);
   // A run started from the card's regenerate button reports on that stream.
@@ -292,7 +289,7 @@ export function attachmentRenderer(ctx) {
   const details = attachmentDetailsHtml(withLiveReview(att), { esc, escAttr, pending });
   const view = focusView ? " image-gen-focus" : "";
   const ids = rootId == null ? "" : ` data-msg-id="${escAttr(msgId)}" data-root-id="${escAttr(rootId)}"`;
-  return `<div class="image-gen-attachment${view}"><div class="image-gen-main"${ids}><div class="image-gen-media">${media}${actions}</div>${timelineHtml(ctx)}</div>${details}</div>`;
+  return `<div class="image-gen-attachment${view}"${ids}><div class="image-gen-main"><div class="image-gen-media">${media}${actions}</div></div>${details}${timelineHtml(ctx)}</div>`;
 }
 
 // ── refinement timeline ──────────────────────────────────────────────────────
@@ -352,7 +349,6 @@ function timelineHtml(ctx) {
   const live = liveRunFor(msgId, rootId, merged);
   const model = refineRun(merged, shown, live);
   if (!model) return "";
-  const job = model.running && canMutate() ? (live.source === "fresh" ? inFlight.get(msgId) : ctx.job) : null;
   return refineTimelineHtml(model, {
     esc,
     escAttr,
@@ -360,7 +356,6 @@ function timelineHtml(ctx) {
     rootId,
     open: refineOpen,
     openRows,
-    stop: job ? { jobId: job.id, stopping: job.stopping } : null,
   });
 }
 
@@ -389,32 +384,32 @@ function endLiveRuns(msgId, source, rootId = null) {
 }
 
 // Rebuilds only the strips, from current message data: requestRepaint is skipped
-// while a reply streams, and a status change must not wait for it. The job and
-// shown attachment are looked up on each patch.
+// while a reply streams, and a status change must not wait for it. The shown
+// attachment is looked up on each patch.
 function patchTimelines(msgId = null) {
-  for (const main of document.querySelectorAll(".image-gen-main[data-root-id]")) {
-    const id = Number(main.dataset.msgId);
-    const rootId = Number(main.dataset.rootId);
+  for (const card of document.querySelectorAll(".image-gen-attachment[data-root-id]")) {
+    const id = Number(card.dataset.msgId);
+    const rootId = Number(card.dataset.rootId);
     if (msgId != null && id !== msgId) continue;
     const msg = getMessages().find((m) => m.id === id);
     const siblings = (msg?.workflow_attachments || []).filter((a) => (a.parent_attachment_id || a.id) === rootId);
-    const attId = Number(main.closest(".workflow-widget")?.dataset.attachmentId);
+    const attId = Number(card.closest(".workflow-widget")?.dataset.attachmentId);
     const att = siblings.find((a) => a.id === attId);
     if (!att) continue;
-    swapStrip(main, timelineHtml({ att, siblings, msgId: id, rootId, job: workflowActionJob(id, rootId) }));
+    swapStrip(card, timelineHtml({ att, siblings, msgId: id, rootId }));
   }
   scheduleMeasure();
 }
 
 // The status node is kept, so its live region announces the new text; focus
 // stays on the control it was on.
-function swapStrip(main, html) {
-  const old = main.querySelector(":scope > .ig-refine");
+function swapStrip(card, html) {
+  const old = card.querySelector(":scope > .ig-refine");
   if (!html) return old?.remove();
   const tpl = document.createElement("template");
   tpl.innerHTML = html;
   const next = tpl.content.firstElementChild;
-  if (!old) return main.appendChild(next);
+  if (!old) return card.appendChild(next);
   const oldStatus = old.querySelector(".ig-refine-status");
   const newStatus = next.querySelector(".ig-refine-status");
   if (oldStatus && newStatus) {
@@ -424,7 +419,10 @@ function swapStrip(main, html) {
     newStatus.replaceWith(oldStatus);
   }
   const focused = old.contains(document.activeElement) ? document.activeElement : null;
+  const scrollTop = old.querySelector(".ig-refine-list")?.scrollTop ?? 0;
   old.replaceWith(next);
+  const list = next.querySelector(".ig-refine-list");
+  if (list) list.scrollTop = scrollTop;
   if (!focused?.dataset.wfAction) return;
   const attId = focused.dataset.attId;
   next
@@ -449,11 +447,6 @@ function refineMore(el) {
 function refineShow(el) {
   const [msgId, rootId, attId] = [el.dataset.msgId, el.dataset.rootId, el.dataset.attId].map(Number);
   if ([msgId, rootId, attId].every(Number.isInteger)) activateWorkflowVariant(msgId, rootId, attId);
-}
-
-function refineStop(el) {
-  if (el.dataset.wfJob) stopWorkflowJob(el.dataset.wfJob);
-  else inFlight.get(Number(el.dataset.msgId))?.stop();
 }
 
 // ── critique clamping ──

@@ -337,6 +337,13 @@ of continuing without it. A failed review keeps the renders already made and mar
 the last one "The review call failed, so refinement stopped". A server that silently
 drops images cannot be detected.
 
+With **Review turns** enabled, the refinement panel below the image and its details
+shows progress and a review summary. Select **History** to browse each render's
+review, then select a render number to view that image. Longer reviews have a
+**More** button. History scrolls inside the panel to keep the image in view.
+Use the generation button's **Stop** control to end refinement and keep the
+renders already made.
+
 ## Troubleshooting
 
 | Problem | Try this |
