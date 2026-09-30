@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import { renderContextSize, renderMessages } from "./chat_core.js";
 import { currentDecisionsHtml } from "./chat_decisions.js";
+import { syncGenerationStatusMarquee } from "./generation_status.js";
 import { sectionHtml } from "./inspector_section.js";
 import { avatarBustQuery } from "./library_sidebar.js";
 import {
@@ -323,6 +324,7 @@ export function _syncGenerationStatusVisibility() {
   const pillActive = Object.keys(S.workflowPhases).length > 0;
   el.classList.toggle("hidden", !(turnActive || pillActive));
   el.classList.toggle("pill-only", !turnActive && pillActive);
+  syncGenerationStatusMarquee(el);
 }
 
 export function setWorkflowPhase(channel, label) {

@@ -24,18 +24,38 @@
 .gen-status-content {
   display: flex;
   align-items: center;
-  justify-content: safe center;
-  gap: 8px;
   flex: 1;
   min-width: 0;
   height: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: hidden;
   white-space: nowrap;
-  scrollbar-width: thin;
 }
 
-.gen-status-content > * { flex-shrink: 0; }
+.gen-status-track {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  width: max-content;
+  margin-inline: auto;
+}
+
+.gen-status-track > * { flex-shrink: 0; }
+
+.gen-status-content.is-scrolling .gen-status-track {
+  margin-inline: 0;
+  animation: gen-status-scroll var(--gen-scroll-duration) linear var(--gen-scroll-delay) infinite;
+}
+
+.gen-status-content:hover .gen-status-track,
+.gen-status-content:focus-within .gen-status-track {
+  animation-play-state: paused;
+}
+
+@keyframes gen-status-scroll {
+  from { transform: translateX(var(--gen-scroll-start)); }
+  to { transform: translateX(calc(-100% - 24px)); }
+}
 
 .gen-bar {
   position: absolute;
@@ -70,7 +90,13 @@
 
 @media (prefers-reduced-motion: reduce) {
   .gen-bar,
-  .gen-dot {
+  .gen-dot,
+  .gen-status-content.is-scrolling .gen-status-track {
     animation: none;
+  }
+
+  .gen-status-content {
+    overflow-x: auto;
+    scrollbar-width: thin;
   }
 }

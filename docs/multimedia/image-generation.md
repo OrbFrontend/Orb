@@ -336,8 +336,10 @@ of continuing without it. A failed review keeps the renders already made and sho
 the provider error. A server that silently drops images cannot be detected.
 
 With **Review turns** enabled, each revision's review reason appears only in the
-live rendering status bar, including while ComfyUI queues the revision. Scroll the
-bar horizontally to read a longer reason, or hover the status text. The reason
+live rendering status bar, including while ComfyUI queues the revision. Longer
+status text automatically scrolls like a billboard; hover or focus the bar to
+pause it, or hover the status text to read its tooltip. With reduced motion
+enabled, the bar scrolls manually instead. The reason
 clears when rendering ends or the next review begins and is not saved in image
 metadata or review logs. Use the
 image's variant arrows to browse renders and the generation button's **Stop**
