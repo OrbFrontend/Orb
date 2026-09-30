@@ -313,6 +313,7 @@ function _renderWorkflowPhasesPill() {
   if (!el) return;
   const entries = Object.entries(S.workflowPhases);
   el.textContent = entries.length ? entries[entries.length - 1][1] : "";
+  el.title = el.textContent;
 }
 
 export function _syncGenerationStatusVisibility() {

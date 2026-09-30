@@ -76,6 +76,24 @@ def test_tool_contract_and_offered_order_are_stable():
     assert prompts.OFFER_TOOLS == ("read_image_skills", "compose_image_prompt", "refine_image_prompt")
 
 
+async def test_review_reason_is_not_logged(monkeypatch, caplog):
+    monkeypatch.setattr(
+        composer, "forced_tool_call", _fake_forced({"refine_image_prompt": {"critique": "SECRET REVIEW", "done": True}})
+    )
+    with caplog.at_level("INFO", logger=composer.__name__):
+        result = await composer._forced_result(
+            client=object(),
+            model_name="agent",
+            prefix=(),
+            tail=(),
+            tool_name="refine_image_prompt",
+            settings={"model_name": "writer"},
+            reasoning_on=False,
+        )
+    assert result["args"]["critique"] == "SECRET REVIEW"
+    assert "SECRET REVIEW" not in caplog.text
+
+
 async def test_selector_sees_only_enabled_summaries_names_and_pov(monkeypatch):
     calls: list[dict] = []
     enabled = _skill("hug", instructions="SECRET HUG BODY")

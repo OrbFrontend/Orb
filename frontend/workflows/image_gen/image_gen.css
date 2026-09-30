@@ -99,9 +99,7 @@
 @media (max-width:560px){.ig-grid{grid-template-columns:1fr}}
 
 .image-gen-attachment{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:flex-start;gap:14px;scroll-margin:46px 0 26px}
-/* The preview and details share the available width; reviews span both below. */
-.image-gen-main{flex:1 1 280px;min-width:0;display:flex;flex-direction:column}
-.image-gen-media{position:relative;align-self:center;max-width:100%;min-width:0;line-height:0}
+.image-gen-media{position:relative;flex:0 1 auto;max-width:100%;min-width:0;line-height:0}
 .image-gen-actions{position:absolute;right:6px;bottom:6px;display:flex;gap:4px;padding:3px;border-radius:calc(var(--radius) + 2px);background:rgba(0,0,0,.5);backdrop-filter:blur(3px);opacity:.6;transition:opacity .15s}
 .image-gen-media:hover .image-gen-actions,.image-gen-actions:focus-within{opacity:1}
 .image-gen-actions .workflow-regen-button,.image-gen-actions .workflow-reroll-button{border:none;background:transparent;color:#fff}
@@ -114,13 +112,9 @@
 /* Focus view: the image fills the card, capped so the card's header and counter
    (the attachment's scroll margin) still fit in the chat pane beside it. */
 .image-gen-focus{justify-content:center}
-.image-gen-focus>.image-gen-main{flex-basis:100%}
 .image-gen-focus>.image-gen-details{display:none}
 .image-gen-focus .workflow-artifact-image{max-height:max(360px,calc(100dvh - 200px))}
-/* Leave room for the review summary; expanded history scrolls independently. */
-.image-gen-focus:has(.ig-refine) .workflow-artifact-image{max-height:clamp(240px,calc(100dvh - 300px),560px)}
-
-.image-gen-details{flex:1 1 260px;min-width:0;font-size:.88em}
+.image-gen-details{flex:1 1 220px;min-width:0;font-size:.88em}
 .image-gen-details>summary{display:flex;align-items:center;gap:6px;margin-bottom:8px;cursor:pointer;user-select:none;list-style:none}
 .image-gen-details>summary::-webkit-details-marker{display:none}
 .image-gen-details>summary::before{content:"▸";font-size:10px;color:var(--text-muted)}
@@ -141,54 +135,3 @@
 .image-gen-edit-btn{background:none;border:0;padding:0;font-size:1.2em;line-height:1;color:var(--text-muted);cursor:pointer}
 .image-gen-edit-btn:hover{color:var(--accent)}
 .image-gen-pending{color:var(--text-muted);font-style:italic}
-
-/* Reviews use the whole card width, independent of the image's aspect ratio. */
-.ig-refine{flex:1 0 100%;width:100%;min-width:0;box-sizing:border-box;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-elevated);font-size:.85em;line-height:1.5}
-.ig-refine-head{display:flex;align-items:center;gap:12px;min-height:32px;min-width:0}
-.ig-refine-status{flex:1;min-width:0;display:flex;align-items:center;gap:6px;white-space:nowrap;color:var(--text-muted)}
-.ig-refine-status-text{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.ig-refine-status.ig-refine-live{color:inherit}
-.ig-refine-ok,.ig-refine-v-accepted{color:var(--accent)}
-:is(.ig-refine-ok,.ig-refine-verdict)>svg{display:block}
-.ig-refine-ok{flex:none}
-/* Asking for another render is the normal course, not an error: only acceptance is marked. */
-:is(.ig-refine-v-rejected,.ig-refine-v-ended,.ig-refine-v-unreviewed){color:var(--text-muted)}
-.ig-refine-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--accent);animation:ig-refine-pulse 1.4s ease-in-out infinite}
-@keyframes ig-refine-pulse{50%{opacity:.3}}
-@media (prefers-reduced-motion:reduce){.ig-refine-dot{animation:none}}
-:is(.ig-refine-toggle,.ig-refine-more,.ig-refine-num){background:none;border:0;padding:0 6px;font:inherit;color:var(--text-muted);cursor:pointer;border-radius:var(--radius)}
-.ig-refine-toggle{flex:none;display:inline-flex;align-items:center;gap:6px;min-height:32px;white-space:nowrap}
-.ig-refine-toggle[aria-expanded="true"]>svg{transform:rotate(180deg)}
-:is(.ig-refine-toggle,.ig-refine-more,.ig-refine-num):hover:not(:disabled){color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}
-:is(.ig-refine-toggle,.ig-refine-more,.ig-refine-num):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.ig-refine-body:not(.is-empty){padding-top:4px}
-.ig-refine-label{color:var(--text-muted)}
-.ig-refine-text{display:flex;align-items:flex-end;gap:4px;min-width:0}
-/* Clamped by lines, never cut: the whole critique stays in the DOM. */
-.ig-refine-critique{flex:1;min-width:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
-.ig-refine-text.is-open .ig-refine-critique{display:block;-webkit-line-clamp:none;line-clamp:none;overflow:visible}
-.ig-refine-more{display:none;flex:none;padding:0 4px;min-height:28px;color:var(--accent)}
-/* Bottom-aligned, so a touch-sized button still sits on the clamped last line. */
-.ig-refine-text:is(.is-clamped,.is-open) .ig-refine-more{display:inline-flex;align-items:flex-end}
-.ig-refine-ending{display:block;color:var(--text-muted);font-style:italic}
-.ig-refine-reseed{padding:0 5px;border:1px solid var(--border);border-radius:999px;color:var(--text-muted);font-size:.85em;white-space:nowrap}
-.ig-refine-list{--ig-num:32px;list-style:none;margin:8px 0 0;padding:4px 4px 4px 0;display:grid;gap:4px;max-height:260px;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;border-top:1px solid var(--border)}
-/* Number and verdict sit on the critique's first line, however many it wraps to. */
-.ig-refine-row{display:grid;grid-template-columns:auto 1em minmax(0,1fr);align-items:start;gap:10px;padding:8px 6px;border-left:2px solid transparent;border-radius:0 var(--radius) var(--radius) 0}
-.ig-refine-row[aria-current="true"]{border-left-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,transparent)}
-.ig-refine-row>.ig-refine-dot{justify-self:center;margin-top:calc((var(--ig-num) - 7px)/2)}
-.ig-refine-row>.ig-refine-critique,.ig-refine-cell{padding-top:calc((var(--ig-num) - 1.5em)/2)}
-.ig-refine-num{min-width:var(--ig-num);height:var(--ig-num);padding:0 4px;border:1px solid var(--border);color:inherit;font-size:.92em;text-align:center}
-span.ig-refine-num{display:inline-flex;align-items:center;justify-content:center;cursor:default}
-.ig-refine-row[aria-current="true"] .ig-refine-num{border-color:var(--accent);color:var(--accent)}
-.ig-refine-row.is-ghost{color:var(--text-muted)}
-.ig-refine-cell{min-width:0}
-.ig-refine-verdict{height:var(--ig-num);display:flex;align-items:center;justify-content:center}
-.ig-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
-@media (max-width:560px){
-  .ig-refine{padding:6px 8px}
-  .ig-refine-head{gap:6px;flex-wrap:wrap}
-  .ig-refine-status{flex-basis:140px}
-  :is(.ig-refine-toggle,.ig-refine-more){min-height:36px}
-  .ig-refine-row{gap:6px;padding:6px 4px}
-}

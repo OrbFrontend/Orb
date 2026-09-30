@@ -333,16 +333,15 @@ same request and reuse it.
 
 Both this setting and **Review turns** need an Agent model that accepts images. If
 the provider rejects the image, generation stops with the provider's error instead
-of continuing without it. A failed review keeps the renders already made and marks
-the last one "The review call failed, so refinement stopped". A server that silently
-drops images cannot be detected.
+of continuing without it. A failed review keeps the renders already made and shows
+the provider error. A server that silently drops images cannot be detected.
 
-With **Review turns** enabled, the refinement panel below the image and its details
-shows progress and a review summary. Select **History** to browse each render's
-review, then select a render number to view that image. Longer reviews have a
-**More** button. History scrolls inside the panel to keep the image in view.
-Use the generation button's **Stop** control to end refinement and keep the
-renders already made.
+With **Review turns** enabled, each revision's review reason appears only in the
+live rendering status bar, including while ComfyUI queues the revision. Hover the
+status text to read a longer reason. The reason clears when rendering ends or the
+next review begins and is not saved in image metadata or review logs. Use the
+image's variant arrows to browse renders and the generation button's **Stop**
+control to end refinement and keep the renders already made.
 
 ## Troubleshooting
 

@@ -405,6 +405,10 @@
 }
 
 .gen-text-secondary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   color: var(--text-muted);
   padding-left: 8px;

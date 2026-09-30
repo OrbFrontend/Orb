@@ -135,7 +135,8 @@ async def _forced_result(
         if not raise_errors:
             raise
         raise PrompterCallError(str(exc) or type(exc).__name__) from exc
-    logger.info("[image_gen] %s returned: %s", tool_name, result["args"])
+    logged_args = {key: value for key, value in result["args"].items() if key != "critique"}
+    logger.info("[image_gen] %s returned: %s", tool_name, logged_args)
     return result
 
 

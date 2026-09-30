@@ -346,9 +346,11 @@ the render. The client dispatches each one to the handler registered for it with
 `registerWorkflowEventHandler`, called as `(data, null)`, the same way a turn
 stream calls it. Outside a stream, `emit` does nothing.
 
-Image-generation regenerate events include `root_id`, the canonical attachment
-group, even when the request targets a sibling. Its live timeline and settlement
-cleanup use that id, so concurrent groups on one message remain independent.
+Image-generation review reasons travel only in the next revision's `phase_status`
+labels, including ComfyUI queue and rendering updates. They are transient progress:
+review reasons and timeline metadata are not persisted on attachments or emitted
+as separate review events. On-demand generation and regeneration share this path;
+their normal phase cleanup removes the reason on success, Stop, or failure.
 
 Workflow renders run beside the chat, so the chat Stop button leaves them
 alone; the button that started a render is its Stop button while it runs.
