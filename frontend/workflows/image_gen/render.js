@@ -108,3 +108,174 @@ export function attachmentDetailsHtml(att, { esc, escAttr, pending }) {
       <dt>Negative ${pencil("negative_prompt", "Negative prompt")}</dt><dd>${field("negative_prompt", "Negative prompt", pending?.negative_prompt ?? cm.negative_prompt ?? "")}</dd>${reviewRow(cm, esc)}${notes}</dl>
   </details>`;
 }
+
+// ── refinement timeline ──────────────────────────────────────────────────────
+//
+// A refinement run is the renders one generate made while the prompter reviewed
+// each and asked for another. Rows carry `consumption_metadata.refine`
+// (`{run, render, turns, ended?}`) and `review` (`{critique, done}`); `live` is
+// the stage the running run last reported, or null once it ended.
+
+const ENDING_ROW_TEXT = {
+  no_review: "No usable review, so refinement stopped",
+  no_prompt: "Asked for another render but wrote no revised prompt, so refinement stopped",
+  render_failed: "The next render failed, so refinement stopped",
+};
+
+function refineOf(att) {
+  const refine = att?.consumption_metadata?.refine;
+  return refine && typeof refine.run === "string" && refine.run && Number.isInteger(refine.render) ? refine : null;
+}
+
+function reviewOf(att) {
+  const review = att?.consumption_metadata?.review;
+  if (!review || typeof review.done !== "boolean") return null;
+  return { critique: typeof review.critique === "string" ? review.critique.trim() : "", done: review.done };
+}
+
+function liveHeader(live) {
+  if (live.stage === "composing") return "Composing prompt…";
+  if (live.stage === "reviewing") return `Reviewing render ${live.render}…`;
+  if (live.render > 1) return `Rendering revision ${live.render - 1} of up to ${live.turns}…`;
+  return "Rendering…";
+}
+
+function endedHeader(ended, render, turns) {
+  if (ended === "accepted") return `Accepted at render ${render}`;
+  if (ended === "turns_used") return `Used all ${turns} revisions — render ${render} not reviewed`;
+  return `Refinement stopped at render ${render}`;
+}
+
+/**
+ * The timeline of the run on show, or of *live* when one is running on this
+ * group; null when neither is a refinement run. Rows are in render order, one
+ * per render still saved, so a deleted render leaves a gap in the numbers.
+ */
+export function refineRun(siblings, shown, live = null) {
+  const runId = live?.run || refineOf(shown)?.run;
+  if (!runId) return null;
+  const members = (Array.isArray(siblings) ? siblings : [])
+    .filter((att) => refineOf(att)?.run === runId)
+    .sort((a, b) => refineOf(a).render - refineOf(b).render || a.id - b.id);
+  if (!members.length && !live) return null;
+  const last = members.at(-1);
+  const turns = live?.turns ?? refineOf(last)?.turns ?? 0;
+  const endedAt = members.find((att) => refineOf(att).ended);
+  const running = !!live && !endedAt;
+  const rows = members.map((att) => {
+    const refine = refineOf(att);
+    const review = reviewOf(att);
+    const ended = refine.ended || null;
+    let verdict;
+    if (review) verdict = review.done ? "accepted" : "rejected";
+    else if (running && live.stage === "reviewing" && live.render === refine.render) verdict = "reviewing";
+    else if (ended) verdict = "ended";
+    else verdict = "unreviewed";
+    return { id: att.id, render: refine.render, review, ended, verdict, current: att.id === shown?.id };
+  });
+  if (running && live.stage === "rendering" && !rows.some((row) => row.render === live.render))
+    rows.push({
+      id: null,
+      render: live.render,
+      review: null,
+      ended: null,
+      verdict: "rendering",
+      current: false,
+      ghost: true,
+    });
+  let header;
+  if (endedAt) {
+    const { ended, render } = refineOf(endedAt);
+    header = { state: ended === "accepted" ? "accepted" : "ended", text: endedHeader(ended, render, turns) };
+  } else if (running) header = { state: "live", text: liveHeader({ ...live, turns }) };
+  else header = { state: "stopped", text: `Stopped at render ${refineOf(last).render}` };
+  // The shown render's own review, else the newest: mid-run that one describes the
+  // image on show and says what the next render fixes; after it, the final verdict.
+  const reviewed = rows.filter((row) => row.review);
+  const focus = reviewed.find((row) => row.current) || reviewed.at(-1) || null;
+  return { run: runId, turns, rows, header, running, focusRowId: focus?.id ?? null };
+}
+
+function verdictText(row, turns) {
+  if (row.verdict === "reviewing") return "Reviewing…";
+  if (row.verdict === "rendering") return "Rendering…";
+  if (row.review?.critique) return row.review.critique;
+  if (row.verdict === "accepted") return "Accepted";
+  if (row.verdict === "rejected") return "Asked for another render";
+  if (row.ended === "turns_used") return `Not reviewed: all ${turns} revisions were used`;
+  if (row.verdict === "ended") return ENDING_ROW_TEXT[row.ended] || "Refinement stopped here";
+  return "Not reviewed";
+}
+
+// Drawn rather than typed: not every monospace font has a check mark.
+const CHECK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><path d="M4.5 12.5l5 5L19.5 7"/></svg>`;
+const CROSS_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" width="12" height="12"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>`;
+
+const VERDICT_MARKS = {
+  accepted: [CHECK_ICON, "Accepted"],
+  rejected: [CROSS_ICON, "Asked for changes"],
+  reviewing: ["", ""],
+  rendering: ["", ""],
+  ended: ["–", "Stopped"],
+  unreviewed: ["–", "Not reviewed"],
+};
+
+function critiqueHtml(row, turns, { esc, escAttr, openRows, domId, prefix = "" }) {
+  const open = openRows?.has(row.id);
+  const id = `${domId}-c${row.id}`;
+  // The full text is always in the DOM; the clamp is CSS alone.
+  const more = `<button type="button" class="ig-refine-more" data-wf-action="image_gen:refineMore" data-att-id="${escAttr(row.id)}" aria-expanded="${open ? "true" : "false"}" aria-controls="${escAttr(id)}">${open ? "Less" : "More"}</button>`;
+  // An ending beside a review (no revised prompt, a failed next render) is its own line.
+  const ending =
+    row.review && ENDING_ROW_TEXT[row.ended]
+      ? `<span class="ig-refine-ending">${esc(ENDING_ROW_TEXT[row.ended])}</span>`
+      : "";
+  return `<div class="ig-refine-text${open ? " is-open" : ""}"><span class="ig-refine-critique" id="${escAttr(id)}">${prefix}${esc(verdictText(row, turns))}</span>${more}</div>${ending}`;
+}
+
+/**
+ * The timeline strip under the image. *open* is the list's state, *openRows*
+ * the attachment ids whose critique is unclamped, and *stop* `{ jobId,
+ * stopping }` while a run this tab can stop is live.
+ */
+export function refineTimelineHtml(model, { esc, escAttr, msgId, rootId, open = false, openRows = null, stop = null }) {
+  const domId = `ig-refine-${rootId}`;
+  const opts = { esc, escAttr, openRows, domId };
+  const { header, rows, turns } = model;
+  const mark =
+    header.state === "live"
+      ? `<span class="ig-refine-dot" aria-hidden="true"></span>`
+      : header.state === "accepted"
+        ? `<span class="ig-refine-ok" aria-hidden="true">${CHECK_ICON}</span>`
+        : "";
+  const stopBtn = stop
+    ? `<button type="button" class="ig-refine-stop" data-wf-action="image_gen:refineStop" data-msg-id="${escAttr(msgId)}" data-wf-job="${escAttr(stop.jobId)}" title="Stop refining and keep the renders made so far"${stop.stopping ? " disabled" : ""}>Stop here</button>`
+    : "";
+  const count = rows.filter((row) => !row.ghost).length;
+  // Nothing to list until the run's first render lands.
+  const toggle = !count
+    ? ""
+    : `<button type="button" class="ig-refine-toggle" data-wf-action="image_gen:refineToggle" aria-expanded="${open ? "true" : "false"}" aria-controls="${domId}-list" aria-label="${open ? "Hide" : "Show"} every render's review">${open ? "▴" : `▾ ${count}`}</button>`;
+  const head = `<div class="ig-refine-head"><span class="ig-refine-status ig-refine-${header.state}" role="status" aria-live="polite" title="${escAttr(header.text)}">${mark}<span class="ig-refine-status-text">${esc(header.text)}</span></span>${stopBtn}${toggle}</div>`;
+  let body;
+  if (open) {
+    const items = rows.map((row) => {
+      if (row.ghost)
+        return `<li class="ig-refine-row is-ghost"><span class="ig-refine-num">${esc(row.render)}</span><span class="ig-refine-dot" aria-hidden="true"></span><span class="ig-refine-critique">${esc(verdictText(row, turns))}</span></li>`;
+      const [glyph, label] = VERDICT_MARKS[row.verdict];
+      const verdict =
+        row.verdict === "reviewing"
+          ? `<span class="ig-refine-dot" aria-hidden="true"></span>`
+          : `<span class="ig-refine-verdict ig-refine-v-${row.verdict}" title="${escAttr(label)}" aria-hidden="true">${glyph}</span><span class="ig-sr">${esc(label)}: </span>`;
+      const num = `<button type="button" class="ig-refine-num" data-wf-action="image_gen:refineShow" data-msg-id="${escAttr(msgId)}" data-root-id="${escAttr(rootId)}" data-att-id="${escAttr(row.id)}" aria-label="Show render ${escAttr(row.render)}">${esc(row.render)}</button>`;
+      return `<li class="ig-refine-row"${row.current ? ' aria-current="true"' : ""}>${num}${verdict}<div class="ig-refine-cell">${critiqueHtml(row, turns, opts)}</div></li>`;
+    });
+    body = `<ol class="ig-refine-list" id="${domId}-list">${items.join("")}</ol>`;
+  } else {
+    const focus = rows.find((row) => row.id === model.focusRowId);
+    body = focus
+      ? `<div class="ig-refine-body" id="${domId}-list">${critiqueHtml(focus, turns, { ...opts, prefix: `<span class="ig-refine-label">${esc(`Render ${focus.render} review:`)}</span> ` })}</div>`
+      : `<div class="ig-refine-body is-empty" id="${domId}-list"></div>`;
+  }
+  return `<div class="ig-refine${open ? " is-open" : ""}" id="${domId}" data-msg-id="${escAttr(msgId)}" data-root-id="${escAttr(rootId)}">${head}${body}</div>`;
+}

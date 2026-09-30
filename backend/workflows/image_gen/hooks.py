@@ -361,17 +361,35 @@ async def _review_url(image: bytes, mime: str) -> str:
 
 
 async def _annotate_kept(
-    attachment: dict, attachment_id: int | None, *, revision: Revision | None = None, note: str = ""
-) -> None:
+    attachment: dict,
+    attachment_id: int | None,
+    *,
+    revision: Revision | None = None,
+    note: str = "",
+    ended: str | None = None,
+) -> dict:
     """Show a render's review, or why refinement stopped at it, beside it. The render
-    was kept before either was known, so they are written onto the saved row."""
+    was kept before either was known, so they are written onto the saved row.
+
+    Answers the `image_gen_review` event data for what was written, less the ids the
+    caller adds. `ended` is the machine-readable twin of `note`, for the timeline.
+    """
     consumption = attachment["consumption_metadata"]
     if revision is not None:
         consumption["review"] = {"critique": revision.critique, "done": revision.done}
     if note:
         consumption.setdefault("notes", []).append(note)
+    refine = consumption.get("refine")
+    if ended and isinstance(refine, dict):
+        refine["ended"] = ended
     if attachment_id is not None:
         await set_workflow_consumption_metadata(attachment_id, consumption)
+    return {
+        "attachment_id": attachment_id,
+        "render": refine.get("render") if isinstance(refine, dict) else None,
+        "review": consumption.get("review"),
+        "ended": ended,
+    }
 
 
 def _attachment(seed: int, result, metadata: dict, consumption: dict) -> dict:
@@ -398,13 +416,15 @@ async def _generate_fresh(
     progress: ProgressCallback | None = None,
     keep: Keep,
     phase: Callable[[str], None],
+    emit: Callable[[str, dict], None] = lambda _event, _data: None,
     history: Sequence[Mapping[str, Any]] | None = None,
 ) -> None:
     """Compose and render an image for `message`, handing each render to `keep`.
 
     With refinement on, every revision is kept too, as it lands: the prompter's
     pick is only the last one, and the user may prefer an earlier render or stop
-    the run once one is good enough.
+    the run once one is good enough. `emit` carries the run's stages and reviews
+    to the card's timeline as they happen.
     """
     history = _history_through(history if history is not None else ctx.history, int(message["id"]))
     if prefix is None:
@@ -466,6 +486,17 @@ async def _generate_fresh(
     unfilled = len(slots) - len(references)
     refine_turns = int(config.get("refine_turns") or 0)
     thread = RefineThread() if refine_turns > 0 else None
+    # Groups this run's renders apart from rerolls and other runs in the same group.
+    run = secrets.token_hex(4) if thread is not None else ""
+
+    def stage(name: str, render: int) -> None:
+        if run:
+            emit("image_gen_refine_stage", {"run": run, "stage": name, "render": render, "turns": refine_turns})
+
+    def reviewed_event(data: dict) -> None:
+        emit("image_gen_review", {"run": run, **data})
+
+    stage("composing", 1)
     scene, avoid, composer_mode = await compose_scene(
         client=ctx.agent_client,
         model_name=ctx.agent_model_name,
@@ -530,19 +561,24 @@ async def _generate_fresh(
         uncovered = _uncovered_note(addressable, md["references"], len(slots), target.reference_capacity)
         if uncovered:
             consumption.setdefault("notes", []).append(uncovered)
+        if run:
+            consumption["refine"] = {"run": run, "render": reviewed + 1, "turns": refine_turns}
         if refine_turns and reviewed == refine_turns:
             consumption.setdefault("notes", []).append(
                 f"the prompter did not review this render: all {refine_turns} refinement turns were used"
             )
+            consumption["refine"]["ended"] = "turns_used"
         attachment = _attachment(seed, result, md, consumption)
         return attachment, await keep(attachment)
 
+    stage("rendering", 1)
     attachment, attachment_id = await save(await render(prompt, negative), prompt, negative)
     while thread is not None and reviewed < refine_turns:
         # Only a review that asked for changes leads to another render, so the
         # render under review is always one past the reviews that did.
         current = reviewed + 1
         phase(f"Reviewing render {current}...")
+        stage("reviewing", current)
         try:
             revision = await refine_scene(
                 client=ctx.agent_client,
@@ -568,25 +604,28 @@ async def _generate_fresh(
         # Said on the render, or a prompter that cannot read images leaves the setting
         # looking inert.
         if revision is None:
-            note = "the prompter gave no usable review of this render, so refinement stopped"
+            note, ended = "the prompter gave no usable review of this render, so refinement stopped", "no_review"
         elif not revision.done and not (revision.scene and revised_prompt.strip()):
-            note = "the prompter asked for another render but wrote no revised prompt"
+            note, ended = "the prompter asked for another render but wrote no revised prompt", "no_prompt"
         else:
-            note = ""
+            note, ended = "", "accepted" if revision.done else None
         if revision is not None:
             logger.info("[image_gen] review of render %d (done=%s): %s", current, revision.done, revision.critique)
-        await _annotate_kept(attachment, attachment_id, revision=revision, note=note)
-        if revision is None or revision.done or note:
+        reviewed_event(await _annotate_kept(attachment, attachment_id, revision=revision, note=note, ended=ended))
+        if ended:
             break
         reviewed = current
         phase(f"Rendering revision {reviewed}...")
+        stage("rendering", current + 1)
         try:
             revised = await render(revised_prompt, revised_negative)
         except ImageGenerationError as exc:
             # The renders already kept are still good answers; a failed revision
             # only ends the refinement.
             logger.warning("[image_gen] revision render failed; keeping render %d: %s", current, exc)
-            await _annotate_kept(attachment, attachment_id, note=f"the revised render failed: {exc}")
+            reviewed_event(
+                await _annotate_kept(attachment, attachment_id, note=f"the revised render failed: {exc}", ended="render_failed")
+            )
             break
         attachment, attachment_id = await save(revised, revised_prompt, revised_negative)
 
@@ -616,6 +655,9 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
         def phase(label: str) -> None:
             updates.put_nowait(_phase(label))
 
+        def emit(event: str, data: dict) -> None:
+            updates.put_nowait({"event": event, "data": {**data, "message_id": mid}})
+
         async def keep(attachment: dict) -> int:
             # The first render starts the group and each revision joins it, so the
             # client can page through them while the run goes on.
@@ -637,6 +679,7 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
                 progress=_reporting(phase),
                 keep=keep,
                 phase=phase,
+                emit=emit,
             )
         )
         try:
@@ -724,6 +767,7 @@ async def regenerate(ctx, body):
         progress=_reporting(ctx.phase),
         keep=ctx.keep or collect,
         phase=ctx.phase,
+        emit=lambda event, data: ctx.emit(event, {**data, "message_id": ctx.message_id}),
         history=history,
     )
     return returned
@@ -786,9 +830,11 @@ async def reroll_gen(ctx, params, seed):
         consumption.setdefault("notes", []).append(
             f"style changed to {style['label']}; the prompt still carries the previous style's wording"
         )
-    # A restore is the same render, so it keeps the prompter's review of it; a
-    # reroll is a new render nobody reviewed.
-    review = (ctx.prior_consumption_metadata or {}).get("review")
-    if ctx.replay and isinstance(review, Mapping):
-        consumption["review"] = dict(review)
+    # A restore is the same render, so it keeps the prompter's review of it and its
+    # place in the refinement run; a reroll is a new render outside any run.
+    if ctx.replay:
+        prior = ctx.prior_consumption_metadata or {}
+        for key in ("review", "refine"):
+            if isinstance(prior.get(key), Mapping):
+                consumption[key] = dict(prior[key])
     return result.image_bytes, consumption

@@ -499,18 +499,83 @@ async def test_refinement_keeps_every_render_as_a_variant_beside_its_review(clie
     ]
     assert "fixed 2" in consumed[2]["prompt"]
     assert any("did not review this render" in note for note in consumed[2]["notes"])
+    run = consumed[0]["refine"]["run"]
+    assert [cm["refine"] for cm in consumed] == [
+        {"run": run, "render": 1, "turns": 2},
+        {"run": run, "render": 2, "turns": 2},
+        {"run": run, "render": 3, "turns": 2, "ended": "turns_used"},
+    ]
+
+
+def _timeline(events: list[tuple[str, dict]]) -> list[tuple]:
+    """The events the card's timeline reads, reduced to what each says."""
+    out: list[tuple] = []
+    for name, data in events:
+        if name == "image_gen_render":
+            out.append(("render", data["attachment_id"]))
+        elif name == "image_gen_refine_stage":
+            out.append(("stage", data["stage"], data["render"], data["turns"]))
+        elif name == "image_gen_review":
+            out.append(("review", data["attachment_id"], data["render"], data["review"], data["ended"]))
+    return out
+
+
+@pytest.mark.asyncio
+async def test_a_refinement_run_streams_each_stage_and_review_in_order(client, monkeypatch):
+    """The timeline explains the run while it happens, so the review of each render
+    has to arrive before the render it asked for, all under one run and message."""
+    mid = await _seed("ig-refine-events", config={**CONFIG, "refine_turns": 2})
+    _stub(monkeypatch)
+    reviews = iter([Revision("hands merged", False, "1girl, fixed"), Revision("good", True)])
+
+    async def fake_refine(**_kwargs):
+        return next(reviews)
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.refine_scene", fake_refine)
+
+    events = await _trigger(client, "ig-refine-events", {"action": "generate", "message_id": mid})
+
+    first, second = [data["attachment_id"] for name, data in events if name == "image_gen_render"]
+    assert _timeline(events) == [
+        ("stage", "composing", 1, 2),
+        ("stage", "rendering", 1, 2),
+        ("render", first),
+        ("stage", "reviewing", 1, 2),
+        ("review", first, 1, {"critique": "hands merged", "done": False}, None),
+        ("stage", "rendering", 2, 2),
+        ("render", second),
+        ("stage", "reviewing", 2, 2),
+        ("review", second, 2, {"critique": "good", "done": True}, "accepted"),
+    ]
+    refine_events = [data for name, data in events if name.startswith("image_gen_re") and name != "image_gen_render"]
+    assert {(data["run"], data["message_id"]) for data in refine_events} == {(refine_events[0]["run"], mid)}
+    rows = {row["id"]: json.loads(row["consumption_metadata"]) for row in await get_workflow_attachments_for_message(mid)}
+    assert rows[first]["refine"]["render"] == 1 and "ended" not in rows[first]["refine"]
+    assert rows[second]["refine"] == {"run": refine_events[0]["run"], "render": 2, "turns": 2, "ended": "accepted"}
+
+
+@pytest.mark.asyncio
+async def test_a_render_without_refinement_carries_no_run(client, monkeypatch):
+    mid = await _seed("ig-refine-off")
+    _stub(monkeypatch)
+
+    events = await _trigger(client, "ig-refine-off", {"action": "generate", "message_id": mid})
+
+    [row] = await get_workflow_attachments_for_message(mid)
+    assert "refine" not in json.loads(row["consumption_metadata"])
+    assert not any(name in {"image_gen_refine_stage", "image_gen_review"} for name, _ in events)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("review", "expected_review", "note"),
+    ("review", "expected_review", "note", "ended"),
     [
-        (None, None, "no usable review"),
-        (Revision("hands merged", False), {"critique": "hands merged", "done": False}, "wrote no revised prompt"),
+        (None, None, "no usable review", "no_review"),
+        (Revision("hands merged", False), {"critique": "hands merged", "done": False}, "wrote no revised prompt", "no_prompt"),
     ],
     ids=["no-review", "no-prompt"],
 )
-async def test_refinement_that_stops_early_says_why_on_the_render(client, monkeypatch, review, expected_review, note):
+async def test_refinement_that_stops_early_says_why_on_the_render(client, monkeypatch, review, expected_review, note, ended):
     """A prompter that cannot read images, or asks for changes it never writes, must
     not leave Review turns looking inert: the render says why refinement stopped."""
     mid = await _seed("ig-refine-stop", config={**CONFIG, "refine_turns": 2})
@@ -521,12 +586,93 @@ async def test_refinement_that_stops_early_says_why_on_the_render(client, monkey
 
     monkeypatch.setattr("backend.workflows.image_gen.hooks.refine_scene", fake_refine)
 
-    await _trigger(client, "ig-refine-stop", {"action": "generate", "message_id": mid})
+    events = await _trigger(client, "ig-refine-stop", {"action": "generate", "message_id": mid})
 
     [row] = await get_workflow_attachments_for_message(mid)
     consumption = json.loads(row["consumption_metadata"])
     assert consumption.get("review") == expected_review
     assert any(note in n for n in consumption["notes"])
+    assert consumption["refine"]["ended"] == ended
+    assert _timeline(events)[-1] == ("review", row["id"], 1, expected_review, ended)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_revision_ends_the_run_on_the_render_before_it(client, monkeypatch):
+    mid = await _seed("ig-refine-fail", config={**CONFIG, "refine_turns": 2})
+    renders = iter([_image(), ImageGenerationError("ComfyUI went away")])
+
+    async def render(adapter, request, **kwargs):
+        outcome = next(renders)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    _stub(monkeypatch, render=render)
+
+    async def fake_refine(**_kwargs):
+        return Revision("hands merged", False, "1girl, fixed")
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.refine_scene", fake_refine)
+
+    events = await _trigger(client, "ig-refine-fail", {"action": "generate", "message_id": mid})
+
+    [row] = await get_workflow_attachments_for_message(mid)
+    consumption = json.loads(row["consumption_metadata"])
+    assert consumption["refine"]["ended"] == "render_failed"
+    assert consumption["review"] == {"critique": "hands merged", "done": False}
+    assert _timeline(events)[-2:] == [
+        ("stage", "rendering", 2, 2),
+        ("review", row["id"], 1, {"critique": "hands merged", "done": False}, "render_failed"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_regenerated_run_streams_its_timeline_on_the_regenerate_stream(client, monkeypatch):
+    mid = await _seed("ig-regen-refine", config={**CONFIG, "refine_turns": 1})
+    aid = await _attach(mid)
+    _stub(monkeypatch)
+
+    async def fake_refine(**_kwargs):
+        return Revision("good", True)
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.refine_scene", fake_refine)
+    url = f"/api/conversations/ig-regen-refine/messages/{mid}/workflow-attachments/{aid}/regenerate"
+    response = await client.post(url, json={}, headers={"Accept": "text/event-stream"})
+
+    sibling_id = (await _sibling(mid, aid))["id"]
+    events = _events(response.text)
+    *_, stage = [data for name, data in events if name == "image_gen_refine_stage"]
+    [review] = [data for name, data in events if name == "image_gen_review"]
+    assert stage == {"run": stage["run"], "stage": "reviewing", "render": 1, "turns": 1, "message_id": mid}
+    assert review == {
+        "run": stage["run"],
+        "attachment_id": sibling_id,
+        "render": 1,
+        "review": {"critique": "good", "done": True},
+        "ended": "accepted",
+        "message_id": mid,
+    }
+    assert events[-1][0] == "regenerate_done"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("action", "kept"), [("rehydrate", True), ("reroll-gen", False)])
+async def test_a_restore_keeps_its_place_in_the_run_and_a_reroll_leaves_it(client, monkeypatch, action, kept):
+    mid = await _seed(f"ig-refine-{action}")
+    placed = {"review": {"critique": "good", "done": True}, "refine": {"run": "ab12", "render": 2, "turns": 2}}
+    aid = await _attach(mid, prompt="1girl", workflow_id="user_a", consumption={"style_id": "anime", **placed})
+    if action == "rehydrate":
+        from backend.workflows.attachment_cache import evict
+
+        await evict(aid)
+    _capture_comfy(monkeypatch)
+
+    await _replay(client, f"ig-refine-{action}", mid, aid, action=action)
+
+    rows = await get_workflow_attachments_for_message(mid)
+    row = next(r for r in rows if r["id"] == aid) if kept else await _sibling(mid, aid)
+    consumption = json.loads(row["consumption_metadata"])
+    assert {key: consumption.get(key) for key in placed} == (placed if kept else {"review": None, "refine": None})
 
 
 @pytest.mark.asyncio

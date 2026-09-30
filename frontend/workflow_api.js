@@ -13,6 +13,7 @@ import {
   stopChannel,
 } from "./audio_player.js";
 import {
+  activateWorkflowVariant,
   clearWorkflowPhase,
   refreshConversationMessages,
   renderMessages,
@@ -26,7 +27,7 @@ import { sseEvents, streamPost } from "./sse.js";
 import { effectiveWorkflowEnabled, localMlReady, S, subscribe } from "./state.js";
 import { broadcastWorkflowMutation } from "./tabLock.js";
 import { convUrl, esc, escAttr, fromMessageBody, notifyError, toast, workflowAttachmentUrl } from "./utils.js";
-import { startWorkflowJob, stopButtonState } from "./workflow_jobs.js";
+import { startWorkflowJob, stopButtonState, stopWorkflowJob } from "./workflow_jobs.js";
 import {
   registerClickHandler,
   registerTextEffect,
@@ -44,6 +45,7 @@ import { clearTextEffect, startTextEffect } from "./workflow_text_effects.js";
 export const WORKFLOW_API_VERSION = 9;
 
 export {
+  activateWorkflowVariant,
   api,
   broadcastWorkflowMutation,
   channelState,
@@ -85,6 +87,7 @@ export {
   stopAll,
   stopButtonState,
   stopChannel,
+  stopWorkflowJob,
   streamPost,
   subscribe,
   toast,
@@ -121,6 +124,20 @@ export function registerRerollSuccess(wid, fn) {
     return;
   }
   S.workflowRerollSuccess[wid] = fn;
+}
+
+// Called as `(msgId, rootId)` when a regenerate of *wid* ends, whatever the
+// outcome: success, failure, Stop, or recovery after a dropped stream.
+export function registerRegenerateSettled(wid, fn) {
+  if (typeof wid !== "string" || !wid) {
+    console.error("registerRegenerateSettled: workflow id required", wid);
+    return;
+  }
+  if (typeof fn !== "function") {
+    console.error(`registerRegenerateSettled: fn must be a function (${wid})`);
+    return;
+  }
+  S.workflowRegenerateSettled[wid] = fn;
 }
 
 const _actions = new Map(); // action name -> handler

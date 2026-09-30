@@ -166,7 +166,7 @@ framework.
 | `PreCtx` | Conversation, history, current user text, settings, prefix, tool map, client, cache tracker | `turn_scratch` is shared with PostCtx |
 | `PostCtx` | Conversation, final history, effective user text, Director output, merged tools, prefix, client, cache tracker, resolved Agent execution target (`agent_client`, `agent_model_name`) | May stage a draft, state, or attachment |
 | `OnDemandCtx` | Conversation, history, current user text, settings, client, character | Trigger actions |
-| `RegenCtx` | Conversation, message and attachment ids, pre-anchor history, settings, client, character, `phase(label)`, `keep(attachment)` | Attachment regeneration |
+| `RegenCtx` | Conversation, message and attachment ids, pre-anchor history, settings, client, character, `phase(label)`, `keep(attachment)`, `emit(event, data)` | Attachment regeneration |
 | `RerollGenCtx` | Conversation, message and attachment ids, settings, client, prior consumption metadata, `replay` | Shared by reroll and rehydrate |
 | `QueryCtx` | Settings | No conversation and no client |
 | `ExportCtx` | Attachment id, the row without its bytes, decoded consumption metadata, `stored_bytes()` | Bytes load only when the hook asks for them |
@@ -337,6 +337,15 @@ With `Accept: text/event-stream`, `regenerate` streams each `ctx.phase(label)` a
 include the kept rows) or `regenerate_error` (`{status, detail}`). The render
 outlives a dropped stream.
 
+`ctx.emit(event, data)` adds a workflow's own structured event to that stream,
+for widget data that does not belong in the `phase_status` label. The name must
+start with `<workflow_id>_` and must not be one of the four names above, and
+`data` must be a JSON-serializable dict. An event that breaks these rules is
+dropped and logged once, never raised, so a malformed status event cannot abort
+the render. The client dispatches each one to the handler registered for it with
+`registerWorkflowEventHandler`, called as `(data, null)`, the same way a turn
+stream calls it. Outside a stream, `emit` does nothing.
+
 Workflow renders run beside the chat, so the chat Stop button leaves them
 alone; the button that started a render is its Stop button while it runs.
 Regenerate, reroll-gen, rehydrate, and the on-demand trigger run as
@@ -408,7 +417,18 @@ controller instead, for a stream), and `job.end()` turns every copy of the
 button back. A renderer that may repaint the button mid-render draws it from
 `stopButtonState(job, idleTitle)`. `workflowActionJob(msgId, attId)` is the
 job of the core regenerate, reroll, or restore running on an attachment, for a
-workflow that draws its own control for those.
+workflow that draws its own control for those. `stopWorkflowJob(jobId)` stops a
+live job by id (the `data-wf-job` a Stop button carries), so a control the
+framework did not render can stop a framework-owned job; an ended id is ignored.
+
+An attachment renderer receives `{ att, buttons, defaultHtml, siblings, msgId,
+rootId, job }`: the shown attachment, the group's attachments in display order,
+the message and group root ids, and the group's running regenerate job (or
+null). Treat them as read-only. `activateWorkflowVariant(msgId, rootId,
+siblingId)` shows another variant through the arrow buttons' own path.
+`registerRegenerateSettled(wid, (msgId, rootId) => …)` is called when a
+regenerate ends, on every outcome, because a failed or stopped run repaints
+nothing; a widget holding live run state clears it there.
 
 ## Authoring checklist
 

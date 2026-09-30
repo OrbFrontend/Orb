@@ -15,6 +15,8 @@ import {
   downloadButtonHtml,
   hasAttachment,
   messageButtonHtml,
+  refineRun,
+  refineTimelineHtml,
   viewToggleHtml,
 } from "../../frontend/workflows/image_gen/render.js";
 
@@ -268,4 +270,143 @@ test("cost is rendered only in the unit the payload names", () => {
   const cell = `«1 ${HOSTILE}»`;
   assert.ok(hostile.includes(cell));
   assert.ok(!hostile.replaceAll(cell, "").includes("<script>"));
+});
+
+// ── refinement timeline ─────────────────────────────────────────────────────
+
+const render = (id, refine, review) => ({
+  id,
+  consumption_metadata: { ...(refine ? { refine } : {}), ...(review ? { review } : {}) },
+});
+const RUN = { run: "r1", turns: 3 };
+const at = (n, extra = {}) => ({ ...RUN, render: n, ...extra });
+const rejected = (critique) => ({ critique, done: false });
+
+test("a run is told apart from rerolls and other runs in the same group", () => {
+  const first = render(1, at(1), rejected("hands"));
+  const second = render(3, at(2));
+  const reroll = render(2);
+  const otherRun = render(4, { run: "r2", render: 1, turns: 1, ended: "accepted" });
+  const model = refineRun([first, reroll, second, otherRun], second, null);
+  assert.deepEqual(
+    model.rows.map((row) => row.id),
+    [1, 3],
+  );
+  // A reroll or a pre-timeline render on show draws no timeline.
+  assert.equal(refineRun([first, reroll], reroll, null), null);
+  assert.equal(refineRun([render(9)], render(9), null), null);
+});
+
+test("a deleted render leaves its number missing rather than renumbering", () => {
+  const model = refineRun([render(1, at(1), rejected("a")), render(5, at(3))], render(5, at(3)), null);
+  assert.deepEqual(
+    model.rows.map((row) => row.render),
+    [1, 3],
+  );
+});
+
+test("every header state is derived from the rows and the live stage", () => {
+  const one = render(1, at(1));
+  const header = (siblings, live) => refineRun(siblings, siblings[0] || null, live)?.header;
+  const live = (stage, n) => ({ run: "r1", stage, render: n, turns: 3 });
+
+  assert.deepEqual(header([], live("composing", 1)), { state: "live", text: "Composing prompt…" });
+  assert.equal(header([], live("rendering", 1)).text, "Rendering…");
+  assert.equal(header([one], live("reviewing", 1)).text, "Reviewing render 1…");
+  assert.equal(
+    header([render(1, at(1), rejected("x")), render(2, at(2), rejected("y"))], live("rendering", 3)).text,
+    "Rendering revision 2 of up to 3…",
+  );
+  assert.deepEqual(header([render(1, at(1, { ended: "accepted" }), { critique: "", done: true })], null), {
+    state: "accepted",
+    text: "Accepted at render 1",
+  });
+  assert.equal(
+    header([render(4, at(4, { ended: "turns_used" }))], null).text,
+    "Used all 3 revisions — render 4 not reviewed",
+  );
+  for (const ended of ["no_review", "no_prompt", "render_failed"])
+    assert.equal(header([render(2, at(2, { ended }))], null).text, "Refinement stopped at render 2");
+  // No job and no ending: the user stopped it.
+  assert.deepEqual(header([one], null), { state: "stopped", text: "Stopped at render 1" });
+  // An ending outranks a stage that has not been cleared yet.
+  assert.equal(header([render(1, at(1, { ended: "accepted" }))], live("reviewing", 1)).state, "accepted");
+});
+
+test("a live revision adds one ghost row, and a review in flight is marked", () => {
+  const first = render(1, at(1), rejected("hands"));
+  const ghost = refineRun([first], first, { run: "r1", stage: "rendering", render: 2, turns: 3 });
+  assert.deepEqual(ghost.rows.at(-1), {
+    id: null,
+    render: 2,
+    review: null,
+    ended: null,
+    verdict: "rendering",
+    current: false,
+    ghost: true,
+  });
+  const second = render(2, at(2));
+  const reviewing = refineRun([first, second], second, { run: "r1", stage: "reviewing", render: 2, turns: 3 });
+  assert.equal(reviewing.rows.length, 2);
+  assert.equal(reviewing.rows[1].verdict, "reviewing");
+});
+
+test("the collapsed body is the shown render's review, else the newest", () => {
+  const first = render(1, at(1), rejected("first"));
+  const second = render(2, at(2), rejected("second"));
+  const third = render(3, at(3));
+  assert.equal(refineRun([first, second, third], first, null).focusRowId, 1);
+  assert.equal(refineRun([first, second, third], third, null).focusRowId, 2);
+});
+
+const TIMELINE = { ...MARKERS, msgId: 7, rootId: 1 };
+
+test("critique text is escaped and emitted in full at any length", () => {
+  const long = `${"word ".repeat(399)}ends!`;
+  assert.equal(long.length, 2000);
+  const rows = [render(1, at(1), rejected(HOSTILE)), render(2, at(2, { ended: "accepted" }), { critique: long, done: true })];
+  for (const open of [false, true]) {
+    const html = refineTimelineHtml(refineRun(rows, rows[1], null), { ...TIMELINE, open });
+    assert.ok(html.includes(`«${long}»`), "no text is cut on the client");
+    assert.ok(!html.replaceAll(/«[^»]*»/gs, "").replaceAll(/“[^”]*”/gs, "").includes("<script>"));
+  }
+  const list = refineTimelineHtml(refineRun(rows, rows[1], null), { ...TIMELINE, open: true });
+  assert.ok(list.includes(`«${HOSTILE}»`));
+});
+
+test("an empty critique reads as its verdict", () => {
+  const rows = [
+    render(1, at(1), { critique: "", done: false }),
+    render(2, at(2, { ended: "accepted" }), { critique: "  ", done: true }),
+  ];
+  const html = refineTimelineHtml(refineRun(rows, rows[1], null), { ...TIMELINE, open: true });
+  assert.ok(html.includes("«Asked for another render»"));
+  assert.ok(html.includes("«Accepted»"));
+});
+
+test("the strip carries its roles, current row, and expansion state", () => {
+  const rows = [render(1, at(1), rejected("a")), render(2, at(2), rejected("b"))];
+  const model = refineRun(rows, rows[0], { run: "r1", stage: "rendering", render: 3, turns: 3 });
+  const html = refineTimelineHtml(model, {
+    ...TIMELINE,
+    open: true,
+    openRows: new Set([2]),
+    stop: { jobId: "j1", stopping: false },
+  });
+  assert.match(html, /role="status" aria-live="polite"/);
+  assert.equal(html.split('aria-current="true"').length - 1, 1);
+  assert.match(html, /<li class="ig-refine-row" aria-current="true"><button [^>]*data-att-id="“1”"/);
+  assert.match(html, /aria-label="Show render “1”"/);
+  assert.match(html, /class="ig-refine-toggle"[^>]*aria-expanded="true"/);
+  // Row 2 is open, row 1 is not; each names the critique it controls.
+  assert.match(html, /data-att-id="“2”" aria-expanded="true" aria-controls="“ig-refine-1-c2”">Less/);
+  assert.match(html, /data-att-id="“1”" aria-expanded="false" aria-controls="“ig-refine-1-c1”">More/);
+  assert.match(html, /data-wf-action="image_gen:refineStop"[^>]*data-wf-job="“j1”"/);
+  assert.match(html, /is-ghost/);
+
+  const collapsed = refineTimelineHtml(model, { ...TIMELINE, stop: { jobId: "j1", stopping: true } });
+  assert.match(collapsed, /class="ig-refine-toggle"[^>]*aria-expanded="false"/);
+  assert.match(collapsed, /Stop here/);
+  assert.match(collapsed, /refineStop"[^>]*disabled>/);
+  assert.ok(!collapsed.includes("<ol"));
 });

@@ -180,7 +180,16 @@ function _renderWorkflowSwipeContainer(msg, rootId, atts) {
     let widgetHtml;
     if (typeof renderer === "function") {
       try {
-        widgetHtml = renderer({ att: active, buttons: { regen: regenBtn, reroll: rerollBtn }, defaultHtml }) || "";
+        widgetHtml =
+          renderer({
+            att: active,
+            buttons: { regen: regenBtn, reroll: rerollBtn },
+            defaultHtml,
+            siblings: atts,
+            msgId: msg.id,
+            rootId,
+            job: _runningAction(active, "regen"),
+          }) || "";
       } catch (e) {
         console.error("widget for", active.workflow_id, "att", active.id, "threw:", e);
         widgetHtml = defaultHtml;
@@ -279,15 +288,28 @@ function _replaceSwipeKeepingArrow(el, html, delta) {
   ct.scrollBy({ top: after - before, behavior: "instant" });
 }
 
-window.workflowArtifactStep = async (instanceId, delta) => {
+window.workflowArtifactStep = (instanceId, delta) => _activateWorkflowVariant(instanceId, (_atts, cur) => cur + delta);
+
+/**
+ * Show *siblingId* in its group, the way the arrow buttons page to it: the
+ * card is swapped in place (so it works while a reply streams), then the
+ * choice is saved and other tabs are told.
+ */
+export function activateWorkflowVariant(msgId, rootId, siblingId) {
+  return _activateWorkflowVariant(`ws-${msgId}-${rootId}`, (atts) => atts.findIndex((a) => a.id === siblingId));
+}
+
+// *pick* answers the index to show, from the group's attachments and the shown index.
+async function _activateWorkflowVariant(instanceId, pick) {
   const { el, msgId, rootId, msg, group } = _resolveWorkflowWidget(instanceId);
   if (!group || group.atts.length <= 1) return;
   if (_workflowSwipeInFlight.has(rootId)) return;
-  if (!requestSendPermission()) return;
   const root = group.atts.find((a) => a.id === rootId) || group.atts[0];
   const cur = _activeIndexForGroup(group.atts, root);
-  const next = cur + delta;
-  if (next < 0 || next >= group.atts.length) return;
+  const next = pick(group.atts, cur);
+  if (next === cur || next < 0 || next >= group.atts.length) return;
+  if (!requestSendPermission()) return;
+  const delta = next - cur;
   const newActiveId = group.atts[next].id;
   _workflowSwipeInFlight.set(rootId, { msgId, activeId: newActiveId });
   if (root) root.active_sibling_id = newActiveId;
@@ -309,7 +331,7 @@ window.workflowArtifactStep = async (instanceId, delta) => {
   } finally {
     _workflowSwipeInFlight.delete(rootId);
   }
-};
+}
 
 const _workflowRehydrateInFlight = new Map();
 
@@ -397,7 +419,8 @@ function _showActionFailure(container, cls, action, e) {
 }
 
 // A stream that ends without a verdict throws a status-less TypeError, so the caller recovers the sibling.
-async function _regenerateStreamed(path, onPhase, onSibling) {
+// The workflow's own events (`ctx.emit`) go to its registered event handlers.
+async function _regenerateStreamed(path, wid, onPhase, onSibling) {
   const resp = await streamPost(path, {});
   if (!resp.ok) throw Object.assign(new Error((await resp.json().catch(() => ({}))).detail), { status: resp.status });
   for await (const { event, data } of sseEvents(resp.body)) {
@@ -406,8 +429,30 @@ async function _regenerateStreamed(path, onPhase, onSibling) {
     else if (event === "regenerate_sibling") await onSibling();
     else if (event === "regenerate_done") return payload;
     else if (event === "regenerate_error") throw Object.assign(new Error(payload.detail), { status: payload.status });
+    else _dispatchWorkflowEvent(wid, event, payload);
   }
   throw new TypeError("regenerate stream ended without a result");
+}
+
+function _dispatchWorkflowEvent(wid, event, payload) {
+  const entry = S.workflowEventHandlers[event];
+  if (!wid || entry?.workflowId !== wid || typeof entry.handler !== "function") return;
+  try {
+    entry.handler(payload, null);
+  } catch (e) {
+    console.error("workflow event handler for", event, "threw:", e);
+  }
+}
+
+// Told on every outcome, because a failed or stopped run repaints nothing.
+function _notifyWorkflowRegenerateSettled(wid, msgId, rootId) {
+  const fn = S.workflowRegenerateSettled[wid];
+  if (typeof fn !== "function") return;
+  try {
+    fn(msgId, rootId);
+  } catch (e) {
+    console.error(`regenerate settled callback threw (${wid}):`, e);
+  }
 }
 
 function _rootSiblingIds(msg, rootId) {
@@ -625,6 +670,7 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
     setWorkflowPhase(ch, workflowPhaseLabel(wid, "regenerating..."));
     const result = await _regenerateStreamed(
       job.url(convUrl(convId, "messages", msgId, "workflow-attachments", attId, "regenerate")),
+      wid,
       (label) => setWorkflowPhase(ch, label),
       showLanded,
     );
@@ -649,6 +695,7 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
     clearWorkflowPhase(ch);
     _workflowActionInFlight.delete(rootId);
     job.end();
+    _notifyWorkflowRegenerateSettled(wid, msgId, rootId);
   }
 };
 

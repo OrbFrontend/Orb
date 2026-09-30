@@ -99,7 +99,10 @@
 @media (max-width:560px){.ig-grid{grid-template-columns:1fr}}
 
 .image-gen-attachment{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:flex-start;gap:14px;scroll-margin:46px 0 26px}
-.image-gen-media{position:relative;flex:0 1 auto;min-width:0;line-height:0}
+/* The image alone sets the column's width; the timeline under it follows. */
+.image-gen-main{flex:0 1 auto;min-width:0;display:flex;flex-direction:column;gap:6px}
+.image-gen-main:has(>.ig-refine){min-width:min(100%,260px)}
+.image-gen-media{position:relative;min-width:0;line-height:0}
 .image-gen-actions{position:absolute;right:6px;bottom:6px;display:flex;gap:4px;padding:3px;border-radius:calc(var(--radius) + 2px);background:rgba(0,0,0,.5);backdrop-filter:blur(3px);opacity:.6;transition:opacity .15s}
 .image-gen-media:hover .image-gen-actions,.image-gen-actions:focus-within{opacity:1}
 .image-gen-actions .workflow-regen-button,.image-gen-actions .workflow-reroll-button{border:none;background:transparent;color:#fff}
@@ -114,6 +117,9 @@
 .image-gen-focus{justify-content:center}
 .image-gen-focus>.image-gen-details{display:none}
 .image-gen-focus .workflow-artifact-image{max-height:max(360px,calc(100dvh - 200px))}
+/* A collapsed timeline is a header and two lines, so the image leaves room for it;
+   opening the list grows the card downward instead of shrinking the image. */
+.image-gen-focus:has(.ig-refine) .workflow-artifact-image{max-height:max(320px,calc(100dvh - 200px - var(--ig-refine-h,4.5em)))}
 
 .image-gen-details{flex:1 1 220px;min-width:0;font-size:.88em}
 .image-gen-details>summary{display:flex;align-items:center;gap:6px;margin-bottom:8px;cursor:pointer;user-select:none;list-style:none}
@@ -136,3 +142,58 @@
 .image-gen-edit-btn{background:none;border:0;padding:0;font-size:1.2em;line-height:1;color:var(--text-muted);cursor:pointer}
 .image-gen-edit-btn:hover{color:var(--accent)}
 .image-gen-pending{color:var(--text-muted);font-style:italic}
+
+/* Refinement timeline: what the prompter said about each render, under the image. */
+.ig-refine{width:0;min-width:100%;box-sizing:border-box;container-type:inline-size;padding:2px 8px 6px;border:1px solid var(--border);border-radius:var(--radius);font-size:.8em;line-height:1.45}
+.ig-refine-head{display:flex;align-items:center;gap:6px;height:28px;min-width:0}
+/* Beside a portrait image the column is narrow: while the run is live, the status
+   takes a row of its own and the controls a second, both of fixed height. */
+@container (max-width:400px){
+  .ig-refine-head:has(.ig-refine-stop){flex-wrap:wrap;justify-content:flex-end;height:auto;row-gap:0}
+  .ig-refine-head:has(.ig-refine-stop)>.ig-refine-status{flex-basis:100%;height:28px}
+  .ig-refine-head:has(.ig-refine-stop)>:is(.ig-refine-stop,.ig-refine-toggle){margin-bottom:2px}
+}
+.ig-refine-status{flex:1;min-width:0;display:flex;align-items:center;gap:6px;white-space:nowrap;color:var(--text-muted)}
+.ig-refine-status-text{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ig-refine-status.ig-refine-live{color:inherit}
+.ig-refine-ok,.ig-refine-v-accepted{color:var(--accent)}
+:is(.ig-refine-ok,.ig-refine-verdict)>svg{display:block}
+.ig-refine-ok{flex:none}
+.ig-refine-v-rejected{color:var(--danger,var(--accent))}
+.ig-refine-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--accent);animation:ig-refine-pulse 1.4s ease-in-out infinite}
+@keyframes ig-refine-pulse{50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.ig-refine-dot{animation:none}}
+:is(.ig-refine-stop,.ig-refine-toggle,.ig-refine-more,.ig-refine-num){background:none;border:0;padding:0 6px;font:inherit;color:var(--text-muted);cursor:pointer;border-radius:var(--radius)}
+:is(.ig-refine-stop,.ig-refine-toggle){flex:none;height:24px;white-space:nowrap}
+.ig-refine-stop{border:1px solid var(--border);color:inherit}
+:is(.ig-refine-stop,.ig-refine-toggle,.ig-refine-more,.ig-refine-num):hover:not(:disabled){color:var(--accent)}
+.ig-refine-stop:disabled{opacity:.5;cursor:progress}
+.ig-refine-label{color:var(--text-muted)}
+.ig-refine-text{display:flex;align-items:flex-end;gap:4px;min-width:0}
+/* Clamped by lines, never cut: the whole critique stays in the DOM. */
+.ig-refine-critique{flex:1;min-width:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+.ig-refine-list .ig-refine-critique{-webkit-line-clamp:3;line-clamp:3}
+.ig-refine-text.is-open .ig-refine-critique{display:block;-webkit-line-clamp:none;line-clamp:none;overflow:visible}
+.ig-refine-more{display:none;flex:none;padding:0 2px;color:var(--accent)}
+.ig-refine-text:is(.is-clamped,.is-open) .ig-refine-more{display:inline-block}
+.ig-refine-ending{display:block;color:var(--text-muted);font-style:italic}
+.ig-refine-list{list-style:none;margin:2px 0 0;padding:0;display:grid;gap:5px}
+.ig-refine-list{--ig-num:22px}
+/* Number and verdict sit on the critique's first line, however many it wraps to. */
+.ig-refine-row{display:grid;grid-template-columns:auto 1em minmax(0,1fr);align-items:start;gap:6px;padding-left:4px;border-left:2px solid transparent}
+.ig-refine-row[aria-current="true"]{border-left-color:var(--accent)}
+.ig-refine-row>.ig-refine-dot{justify-self:center;margin-top:calc((var(--ig-num) - 7px)/2)}
+.ig-refine-row>.ig-refine-critique,.ig-refine-cell{padding-top:calc((var(--ig-num) - 1.45em)/2)}
+.ig-refine-num{min-width:var(--ig-num);height:var(--ig-num);padding:0 4px;border:1px solid var(--border);border-radius:999px;color:inherit;font-size:.92em;text-align:center}
+span.ig-refine-num{display:inline-flex;align-items:center;justify-content:center;cursor:default}
+.ig-refine-row[aria-current="true"] .ig-refine-num{border-color:var(--accent);color:var(--accent)}
+.ig-refine-row.is-ghost{color:var(--text-muted)}
+.ig-refine-cell{min-width:0}
+.ig-refine-verdict{height:var(--ig-num);display:flex;align-items:center;justify-content:center}
+.ig-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+@media (max-width:560px){
+  .ig-refine-head{height:34px}
+  :is(.ig-refine-stop,.ig-refine-toggle){min-height:32px}
+  .ig-refine-list{--ig-num:32px}
+  .ig-refine-more{min-height:32px}
+}
