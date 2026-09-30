@@ -321,11 +321,8 @@ skipped, so **Regenerate** shows the image from the reply before it rather than 
 render it replaces. Uploads are never sent, because the prompter already sees them in
 the conversation.
 When the same picture also goes to the image model as a reference image, the
-prompter is told so. The prompter also reads the prompt and negative prompt that
-image was rendered from, including your edits if you rerolled it with a changed
-prompt, so it can reuse wording that still fits. The negative prompt is left out when
-the current style cannot use one. The render's details record which image the
-prompter saw.
+prompter is told so. The earlier image's prompt and negative prompt are not sent.
+The render's details record which image the prompter saw.
 
 The image travels with the prompt request and the skill-selection call stays
 text-only, so the cached conversation prefix is unchanged; review turns re-send the
@@ -337,9 +334,10 @@ of continuing without it. A failed review keeps the renders already made and sho
 the provider error. A server that silently drops images cannot be detected.
 
 With **Review turns** enabled, each revision's review reason appears only in the
-live rendering status bar, including while ComfyUI queues the revision. Hover the
-status text to read a longer reason. The reason clears when rendering ends or the
-next review begins and is not saved in image metadata or review logs. Use the
+live rendering status bar, including while ComfyUI queues the revision. Scroll the
+bar horizontally to read a longer reason, or hover the status text. The reason
+clears when rendering ends or the next review begins and is not saved in image
+metadata or review logs. Use the
 image's variant arrows to browse renders and the generation button's **Stop**
 control to end refinement and keep the renders already made.
 

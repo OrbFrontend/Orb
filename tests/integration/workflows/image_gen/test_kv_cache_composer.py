@@ -311,8 +311,8 @@ def _generate(client, cid: str, mid: int):
 
 async def test_the_earlier_chat_image_rides_the_compose_tail_not_the_prefix(client, llm_mock, monkeypatch):
     """Prompter reference puts the chat's last generated image in front of the compose
-    request, where each review already puts its render, with the prompt it was rendered
-    from: the shared prefix the selector used stays byte-identical, and the first review
+    request, where each review already puts its render, without its saved prompts:
+    the shared prefix the selector used stays byte-identical, and the first review
     re-sends the image-bearing tail."""
     cid, _card_id = await _armed_conversation(client, llm_mock)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", _png_render)
@@ -320,7 +320,9 @@ async def test_the_earlier_chat_image_rides_the_compose_tail_not_the_prefix(clie
     await set_workflow_config("image_gen", {**base, "external_comfy": {"api_url": "http://127.0.0.1:8188"}})
     greeting, reply = [m["id"] for m in await get_messages(cid) if m["role"] == "assistant"]
 
-    llm_mock.enqueue_workflow({"tool_calls": _tc("compose_image_prompt", {"scene": "1girl, archive", "avoid": ""})})
+    llm_mock.enqueue_workflow(
+        {"tool_calls": _tc("compose_image_prompt", {"scene": "1girl, earlier_scene_marker", "avoid": "earlier_avoid_marker"})}
+    )
     first = await _generate(client, cid, greeting)
     assert "event: image_gen_done" in first.text
     first_id = int(first.text.partition('"attachment_id":')[2].partition("}")[0])
@@ -354,8 +356,12 @@ async def test_the_earlier_chat_image_rides_the_compose_tail_not_the_prefix(clie
     assert image["type"] == "image_url" and image["image_url"]["url"].startswith("data:image/jpeg;base64,")
     assert "picture from earlier in this chat" in request["text"]
     earlier = json.loads((await get_workflow_attachment_by_id(first_id))["generation_metadata"])
-    assert "archive" in earlier["prompt"]
-    assert f"\nEarlier prompt: {earlier['prompt']}\n" in request["text"]
+    assert "earlier_scene_marker" in earlier["prompt"]
+    assert "earlier_avoid_marker" in earlier["negative_prompt"]
+    assert "earlier_scene_marker" not in request["text"]
+    assert "earlier_avoid_marker" not in request["text"]
+    assert "Earlier prompt:" not in request["text"]
+    assert "Earlier negative prompt:" not in request["text"]
     assert review["messages"][: len(compose["messages"])] == compose["messages"], "the review re-sends the tail byte for byte"
     rendered_id = int(second.text.partition('"attachment_id":')[2].partition("}")[0])
     generation = json.loads((await get_workflow_attachment_by_id(rendered_id))["generation_metadata"])

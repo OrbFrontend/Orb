@@ -56,7 +56,6 @@ from .references import (
     last_reply_image,
     plan_slots,
     previous_image,
-    recorded_prompts,
     refetch_references,
     replay_slots,
     resolve_references,
@@ -466,7 +465,6 @@ async def _generate_fresh(
         shown_bytes, shown_mime, prompter_reference = shown
         prompter_reference_url = await _review_url(shown_bytes, shown_mime)
         logger.info("[image_gen] prompter reference: %s", prompter_reference)
-    prompter_reference_prompts = recorded_prompts(history, prompter_reference)
     refine_turns = int(config.get("refine_turns") or 0)
     thread = RefineThread() if refine_turns > 0 else None
     try:
@@ -490,7 +488,6 @@ async def _generate_fresh(
             profile_negative_prompt=str(profile.get("negative_prompt") or ""),
             thread=thread,
             prompter_reference_url=prompter_reference_url,
-            prompter_reference_prompts=prompter_reference_prompts,
             prompter_reference_sent=any(reference.origin == prompter_reference for reference in references),
         )
     except PrompterCallError as exc:

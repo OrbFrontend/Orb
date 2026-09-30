@@ -19,6 +19,23 @@
   border-top-color: transparent;
 }
 
+.gen-status-content {
+  display: flex;
+  align-items: center;
+  justify-content: safe center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: thin;
+}
+
+.gen-status-content > * { flex-shrink: 0; }
+
 .gen-bar {
   position: absolute;
   top: 0;

@@ -245,15 +245,13 @@ async def compose_scene(
     thread: RefineThread | None = None,
     prompter_reference_url: str = "",
     prompter_reference_sent: bool = False,
-    prompter_reference_prompts: tuple[str, str] = ("", ""),
 ) -> tuple[str, str, str]:
     """Compose scene text as ``(scene, avoid, mode)``.
 
     A `thread` is filled with the call as the model made it, so a review can follow.
     `prompter_reference_url` is the chat's earlier picture, sent ahead of the request
     in the same shape a review sends its render; `prompter_reference_sent` says the
-    image model receives that picture as well, and `prompter_reference_prompts` is
-    the prompt pair it was rendered from. A provider that rejects the image raises
+    image model receives that picture as well. A provider that rejects the image raises
     rather than composing blind.
     """
     sheets = _sheets(subjects)
@@ -271,7 +269,6 @@ async def compose_scene(
         profile_negative_prompt=profile_negative_prompt,
         prompter_reference=bool(prompter_reference_url),
         prompter_reference_sent=prompter_reference_sent,
-        prompter_reference_prompts=prompter_reference_prompts,
     )
     content: str | list[dict] = (
         [

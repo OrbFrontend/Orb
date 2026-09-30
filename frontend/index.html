@@ -126,9 +126,11 @@
         <div id="chat-messages" role="log" aria-live="polite" aria-relevant="additions" aria-label="Conversation"><div class="empty-state"><div class="icon">📜</div><div>Select a character to begin</div></div></div>
     <div id="generation-status" class="gen-status hidden" role="status" aria-live="polite" aria-atomic="true">
       <div class="gen-bar"></div>
-      <span class="gen-dot"></span>
-      <span class="gen-text"></span>
-      <span class="gen-text-secondary" id="gen-text-secondary"></span>
+      <div class="gen-status-content" tabindex="0" aria-label="Generation status details">
+        <span class="gen-dot"></span>
+        <span class="gen-text"></span>
+        <span class="gen-text-secondary" id="gen-text-secondary"></span>
+      </div>
     </div>
     <div id="chat-input-area">
       <div id="burger-dropdown">
