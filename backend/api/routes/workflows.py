@@ -384,8 +384,11 @@ def _regenerate_emitter(wid: str, send: Callable[[str, dict], None]) -> Callable
     def emit(event: str, data: dict) -> None:
         nonlocal logged
         name_ok = isinstance(event, str) and event.startswith(f"{wid}_") and event not in _REGENERATE_EVENTS
-        error = None if name_ok else "event name must start with the workflow id and not be reserved"
-        error = error or public_event_error({"event": event, "data": data})
+        error = (
+            public_event_error({"event": event, "data": data})
+            if name_ok
+            else "event name must start with the workflow id and not be reserved"
+        )
         if error is None:
             send(event, data)
         elif not logged:
@@ -414,7 +417,7 @@ async def _regenerate(
     *,
     phase: Callable[[str], None],
     landed: Callable[[int], None],
-    emit: Callable[[str, dict], None] = lambda _event, _data: None,
+    emit: Callable[[str, dict], None],
 ) -> dict:
     att = await get_workflow_attachment_by_id(aid)
     if att is None or att["message_id"] != mid:

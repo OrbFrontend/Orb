@@ -418,6 +418,13 @@ def compose_ooc(
         profile_negative_prompt,
         supports_negative=supports_negative,
     )
+    earlier_picture = (
+        _prompter_reference_instruction(
+            prompter_reference_sent, prompter_reference_prompts, supports_negative=supports_negative
+        )
+        if prompter_reference
+        else ""
+    )
     return (
         "[OOC: "
         + _COMPOSER_MISSION
@@ -427,13 +434,7 @@ def compose_ooc(
         + reference
         + "Use the final assistant reply as the current visible story facts and use earlier conversation only for stable "
         "visible continuity such as identity, the current outfit, and the setting. "
-        + (
-            _prompter_reference_instruction(
-                prompter_reference_sent, prompter_reference_prompts, supports_negative=supports_negative
-            )
-            if prompter_reference
-            else ""
-        )
+        + earlier_picture
         + "Resolve conflicts in this order: current story facts, the explicit POV choice, and saved exclusions; selected "
         "composition skills; style-specific extra instructions; then general composer guidance. " + skills + extra + guide + "]"
     )

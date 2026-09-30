@@ -426,7 +426,7 @@ async def _generate_fresh(
     progress: ProgressCallback | None = None,
     keep: Keep,
     phase: Callable[[str], None],
-    emit: Callable[[str, dict], None] = lambda _event, _data: None,
+    emit: Callable[[str, dict], None],
     history: Sequence[Mapping[str, Any]] | None = None,
 ) -> None:
     """Compose and render an image for `message`, handing each render to `keep`.
@@ -494,12 +494,13 @@ async def _generate_fresh(
     slots = plan_slots(target, addressable, previous=previous)
     references = await resolve_references(slots, subjects=addressable, previous=previous)
     unfilled = len(slots) - len(references)
+    prompter_reference, prompter_reference_url = "", ""
     shown = last_reply_image(history, int(message["id"])) if config.get("prompter_reference") else None
-    prompter_reference = shown[2] if shown else ""
-    prompter_reference_url = await _review_url(shown[0], shown[1]) if shown else ""
-    prompter_reference_prompts = recorded_prompts(history, prompter_reference)
-    if prompter_reference:
+    if shown is not None:
+        shown_bytes, shown_mime, prompter_reference = shown
+        prompter_reference_url = await _review_url(shown_bytes, shown_mime)
         logger.info("[image_gen] prompter reference: %s", prompter_reference)
+    prompter_reference_prompts = recorded_prompts(history, prompter_reference)
     refine_turns = int(config.get("refine_turns") or 0)
     thread = RefineThread() if refine_turns > 0 else None
     # Groups this run's renders apart from rerolls and other runs in the same group.
@@ -509,7 +510,7 @@ async def _generate_fresh(
         if run:
             emit("image_gen_refine_stage", {"run": run, "stage": name, "render": render, "turns": refine_turns})
 
-    def reviewed_event(data: dict) -> None:
+    def emit_review(data: dict) -> None:
         emit("image_gen_review", {"run": run, **data})
 
     stage("composing", 1)
@@ -631,7 +632,7 @@ async def _generate_fresh(
             # images. The renders already kept stay; the run ends on the provider's error
             # rather than a quiet stop that leaves the setting looking inert.
             logger.warning("[image_gen] review of render %d failed; keeping it: %s", current, exc)
-            reviewed_event(
+            emit_review(
                 await _annotate_kept(attachment, attachment_id, note=f"the review call failed: {exc}", ended="review_failed")
             )
             raise ImageGenerationError(
@@ -660,7 +661,7 @@ async def _generate_fresh(
                 revision.reseed,
                 revision.critique,
             )
-        reviewed_event(await _annotate_kept(attachment, attachment_id, revision=revision, note=note, ended=ended))
+        emit_review(await _annotate_kept(attachment, attachment_id, revision=revision, note=note, ended=ended))
         if ended:
             break
         reviewed = current
@@ -675,7 +676,7 @@ async def _generate_fresh(
             # The renders already kept are still good answers; a failed revision
             # only ends the refinement.
             logger.warning("[image_gen] revision render failed; keeping render %d: %s", current, exc)
-            reviewed_event(
+            emit_review(
                 await _annotate_kept(attachment, attachment_id, note=f"the revised render failed: {exc}", ended="render_failed")
             )
             break
@@ -810,6 +811,13 @@ async def regenerate(ctx, body):
     async def collect(attachment: dict) -> None:
         returned.append(attachment)
 
+    # Named by the group's root even when the request targets a sibling, so the
+    # client's live timeline for the group finds it.
+    root_id = ctx.original_attachment.get("parent_attachment_id") or ctx.attachment_id
+
+    def emit(event: str, data: dict) -> None:
+        ctx.emit(event, {**data, "message_id": ctx.message_id, "root_id": root_id})
+
     await _generate_fresh(
         ctx=ctx,
         message=message,
@@ -819,14 +827,7 @@ async def regenerate(ctx, body):
         progress=_reporting(ctx.phase),
         keep=ctx.keep or collect,
         phase=ctx.phase,
-        emit=lambda event, data: ctx.emit(
-            event,
-            {
-                **data,
-                "message_id": ctx.message_id,
-                "root_id": ctx.original_attachment.get("parent_attachment_id") or ctx.attachment_id,
-            },
-        ),
+        emit=emit,
         history=history,
     )
     return returned

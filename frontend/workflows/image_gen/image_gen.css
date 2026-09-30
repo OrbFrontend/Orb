@@ -178,8 +178,7 @@
 .ig-refine-text:is(.is-clamped,.is-open) .ig-refine-more{display:inline-block}
 .ig-refine-ending{display:block;color:var(--text-muted);font-style:italic}
 .ig-refine-reseed{padding:0 5px;border:1px solid var(--border);border-radius:999px;color:var(--text-muted);font-size:.85em;white-space:nowrap}
-.ig-refine-list{list-style:none;margin:2px 0 0;padding:0;display:grid;gap:5px}
-.ig-refine-list{--ig-num:22px}
+.ig-refine-list{--ig-num:22px;list-style:none;margin:2px 0 0;padding:0;display:grid;gap:5px}
 /* Number and verdict sit on the critique's first line, however many it wraps to. */
 .ig-refine-row{display:grid;grid-template-columns:auto 1em minmax(0,1fr);align-items:start;gap:6px;padding-left:4px;border-left:2px solid transparent}
 .ig-refine-row[aria-current="true"]{border-left-color:var(--accent)}
@@ -194,7 +193,6 @@ span.ig-refine-num{display:inline-flex;align-items:center;justify-content:center
 .ig-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 @media (max-width:560px){
   .ig-refine-head{height:34px}
-  :is(.ig-refine-stop,.ig-refine-toggle){min-height:32px}
+  :is(.ig-refine-stop,.ig-refine-toggle,.ig-refine-more){min-height:32px}
   .ig-refine-list{--ig-num:32px}
-  .ig-refine-more{min-height:32px}
 }

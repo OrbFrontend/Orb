@@ -45,7 +45,7 @@ const inFlight = new Map(); // msgId -> job
 const pendingEdits = new Map(); // attId -> edited fields
 const rerollEditSnapshots = new Map(); // attId -> edit object submitted by the current reroll
 
-let focusView = loadFocusView(); // image fills the card, details hidden
+let focusView = loadFlag(FOCUS_VIEW_KEY); // image fills the card, details hidden
 
 // ── refinement timeline state ──
 // Stages and reviews arrive between attachment refreshes, so they are merged
@@ -73,10 +73,6 @@ export function initWidget(sharedConfig) {
   registerWorkflowEventHandler(WORKFLOW_ID, "image_gen_refine_stage", (data) => onRefineStage(data, "regen"));
   registerWorkflowEventHandler(WORKFLOW_ID, "image_gen_review", onReview);
   registerRegenerateSettled(WORKFLOW_ID, (msgId, rootId) => endLiveRuns(msgId, "regen", rootId));
-}
-
-function loadFocusView() {
-  return loadFlag(FOCUS_VIEW_KEY);
 }
 
 function loadFlag(key) {
@@ -392,9 +388,9 @@ function endLiveRuns(msgId, source, rootId = null) {
   patchTimelines(msgId);
 }
 
-// Rebuilds only the strips, from current message data:
-// requestRepaint is skipped while a reply streams, and a status change must not
-// wait for it. The job and shown attachment are looked up on each patch.
+// Rebuilds only the strips, from current message data: requestRepaint is skipped
+// while a reply streams, and a status change must not wait for it. The job and
+// shown attachment are looked up on each patch.
 function patchTimelines(msgId = null) {
   for (const main of document.querySelectorAll(".image-gen-main[data-root-id]")) {
     const id = Number(main.dataset.msgId);
