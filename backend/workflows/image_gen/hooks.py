@@ -377,6 +377,8 @@ async def _annotate_kept(
     consumption = attachment["consumption_metadata"]
     if revision is not None:
         consumption["review"] = {"critique": revision.critique, "done": revision.done}
+        if revision.reseed:
+            consumption["review"]["reseed"] = True
     if note:
         consumption.setdefault("notes", []).append(note)
     refine = consumption.get("refine")
@@ -523,8 +525,9 @@ async def _generate_fresh(
     seed = _fresh_seed()
 
     async def render(prompt: str, negative: str) -> ImageResult:
-        # One seed for every render, so a revision differs from the render it
-        # corrects by its prompt alone.
+        # A revision keeps the seed of the render it corrects, so the two differ by
+        # their prompts alone, unless its review asked for a new seed: a mangled
+        # image, or a fix the prompt already tried, is often the seed's doing.
         return await resolve_and_generate(
             adapter,
             ImageRequest(
@@ -540,6 +543,7 @@ async def _generate_fresh(
         )
 
     reviewed = 0
+    reseeded = False
 
     async def save(result: ImageResult, prompt: str, negative: str) -> tuple[dict, int | None]:
         md = _metadata(
@@ -593,6 +597,8 @@ async def _generate_fresh(
                 pov=pov,
                 reasoning_on=bool(config.get("prompter_reasoning")),
                 supports_negative=target.supports_negative_prompt,
+                supports_seed=target.supports_seed,
+                reseeded=reseeded,
             )
         except Exception:
             # The render is already kept; a review that fails only ends the refinement.
@@ -610,12 +616,21 @@ async def _generate_fresh(
         else:
             note, ended = "", "accepted" if revision.done else None
         if revision is not None:
-            logger.info("[image_gen] review of render %d (done=%s): %s", current, revision.done, revision.critique)
+            logger.info(
+                "[image_gen] review of render %d (done=%s, reseed=%s): %s",
+                current,
+                revision.done,
+                revision.reseed,
+                revision.critique,
+            )
         reviewed_event(await _annotate_kept(attachment, attachment_id, revision=revision, note=note, ended=ended))
         if ended:
             break
         reviewed = current
-        phase(f"Rendering revision {reviewed}...")
+        reseeded = bool(revision and revision.reseed)
+        if reseeded:
+            seed = _fresh_seed()
+        phase(f"Rendering revision {reviewed}{' from a new seed' if reseeded else ''}...")
         stage("rendering", current + 1)
         try:
             revised = await render(revised_prompt, revised_negative)

@@ -46,7 +46,11 @@ function reviewRow(cm, esc) {
   const review = cm.review;
   if (!review || typeof review.done !== "boolean") return "";
   const critique = typeof review.critique === "string" ? review.critique.trim() : "";
-  const verdict = review.done ? "Accepted" : "Asked for another render";
+  const verdict = review.done
+    ? "Accepted"
+    : review.reseed === true
+      ? "Asked for another render from a new seed"
+      : "Asked for another render";
   return `<dt>Review</dt><dd>${esc(critique ? `${verdict}: ${critique}` : verdict)}</dd>`;
 }
 
@@ -113,7 +117,7 @@ export function attachmentDetailsHtml(att, { esc, escAttr, pending }) {
 //
 // A refinement run is the renders one generate made while the prompter reviewed
 // each and asked for another. Rows carry `consumption_metadata.refine`
-// (`{run, render, turns, ended?}`) and `review` (`{critique, done}`); `live` is
+// (`{run, render, turns, ended?}`) and `review` (`{critique, done, reseed?}`); `live` is
 // the stage the running run last reported, or null once it ended.
 
 const ENDING_ROW_TEXT = {
@@ -130,7 +134,9 @@ function refineOf(att) {
 function reviewOf(att) {
   const review = att?.consumption_metadata?.review;
   if (!review || typeof review.done !== "boolean") return null;
-  return { critique: typeof review.critique === "string" ? review.critique.trim() : "", done: review.done };
+  const out = { critique: typeof review.critique === "string" ? review.critique.trim() : "", done: review.done };
+  if (!review.done && review.reseed === true) out.reseed = true;
+  return out;
 }
 
 function liveHeader(live) {
@@ -230,7 +236,11 @@ function critiqueHtml(row, turns, { esc, escAttr, openRows, domId, prefix = "" }
     row.review && ENDING_ROW_TEXT[row.ended]
       ? `<span class="ig-refine-ending">${esc(ENDING_ROW_TEXT[row.ended])}</span>`
       : "";
-  return `<div class="ig-refine-text${open ? " is-open" : ""}"><span class="ig-refine-critique" id="${escAttr(id)}">${prefix}${esc(verdictText(row, turns))}</span>${more}</div>${ending}`;
+  // Why the next render looks unlike this one: the prompter changed the seed too.
+  const reseed = row.review?.reseed
+    ? `<span class="ig-refine-reseed" title="The next render was drawn from a new seed">New seed</span> `
+    : "";
+  return `<div class="ig-refine-text${open ? " is-open" : ""}"><span class="ig-refine-critique" id="${escAttr(id)}">${prefix}${reseed}${esc(verdictText(row, turns))}</span>${more}</div>${ending}`;
 }
 
 /**

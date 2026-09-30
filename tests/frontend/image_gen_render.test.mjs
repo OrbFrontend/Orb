@@ -384,6 +384,17 @@ test("an empty critique reads as its verdict", () => {
   assert.ok(html.includes("«Accepted»"));
 });
 
+test("only a review that asked for a new seed is tagged with one", () => {
+  const rows = [
+    render(1, at(1), { critique: "mangled", done: false, reseed: true }),
+    render(2, at(2), { critique: "hands", done: false }),
+    render(3, at(3, { ended: "accepted" }), { critique: "", done: true, reseed: true }),
+  ];
+  const html = refineTimelineHtml(refineRun(rows, rows[2], null), { ...TIMELINE, open: true });
+  assert.equal(html.split('class="ig-refine-reseed"').length - 1, 1);
+  assert.match(html, /class="ig-refine-reseed"[^>]*>New seed<\/span> «mangled»/);
+});
+
 test("the strip carries its roles, current row, and expansion state", () => {
   const rows = [render(1, at(1), rejected("a")), render(2, at(2), rejected("b"))];
   const model = refineRun(rows, rows[0], { run: "r1", stage: "rendering", render: 3, turns: 3 });

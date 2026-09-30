@@ -228,6 +228,10 @@ REFINE_TOOL_SCHEMA = {
                     "description": "The visible problems in the image, most important first, or an empty string.",
                 },
                 "done": {"type": "boolean", "description": "True when the image needs no other render."},
+                "reseed": {
+                    "type": "boolean",
+                    "description": "True to draw the next render from a new seed instead of the current one; false when done.",
+                },
                 "scene": _nullable("The complete revised positive scene prompt in the requested format, or null when done."),
                 "avoid": _nullable("The revised avoid list, or null."),
             }
@@ -417,18 +421,32 @@ def select_skills_ooc(pov: str, subjects: Sequence[SubjectAppearance], skills: S
     )
 
 
-def render_result(render: int) -> str:
-    """The tool result that answers a compose or refine call with its render."""
-    return f"Render {render} is done. The image is in the next message."
+def render_result(render: int, *, reseeded: bool = False) -> str:
+    """The tool result that answers a compose or refine call with its render.
+
+    Says whether the seed changed, never which seed: the number means nothing to the
+    model, and whether a difference came from the prompt or the seed is what it needs.
+    """
+    seed = " It was drawn from a new seed." if reseeded else ""
+    return f"Render {render} is done.{seed} The image is in the next message."
 
 
-def refine_ooc(render: int, turns_left: int, *, supports_negative: bool = True) -> str:
+_RESEED = (
+    "Set `reseed` to true when the image is mangled or completely wrong, or when a problem a revised prompt "
+    "already tried to fix is still there: the seed, not the prompt, may be the cause. A new seed changes the "
+    "whole composition, so keep the seed while the image is close and only details need fixing."
+)
+_NO_SEED = "This image model takes no seed and every render is already a new draw, so set `reseed` to false."
+
+
+def refine_ooc(render: int, turns_left: int, *, supports_negative: bool = True, supports_seed: bool = True) -> str:
     """The review request that rides beside a render, after its tool result.
 
     `turns_left` counts the renders still available after this review, so the model
     knows when a revision is its last chance.
     """
     avoid = "Revise `avoid` by the same rules as before." if supports_negative else _LEAVE_AVOID_EMPTY
+    reseed = _RESEED if supports_seed else _NO_SEED
     last = " This is the last revision: the next render is final." if turns_left == 1 else ""
     return (
         f"[OOC: The image above is render {render}, made from your last prompt. Review it against the final visible "
@@ -436,11 +454,11 @@ def refine_ooc(render: int, turns_left: int, *, supports_negative: bool = True) 
         "action, anatomy such as hands and limbs, clothing, expression, interaction, spatial relationships, setting, POV, "
         "occlusion, lighting, and framing. Also check for things the image model added that contradict the scene. In `critique`, "
         "list only the visible problems, most important first. Set `done` to true when no problem is worth another "
-        "render, and set `scene` and `avoid` to null. Otherwise set `done` to false and write the complete revised "
-        "prompt in `scene`. Keep the parts that worked. Fix each problem: make its wording more explicit, move it "
-        "earlier, or remove the words that caused it. If the image is completely mangled or wrong, rewrite from scratch. "
-        "Sometimes the image model simply cannot render certain perspectives or details. "
-        f"Use the same format rules as before. {avoid}{last} Call refine_image_prompt.]"
+        "render, set `reseed` to false, and set `scene` and `avoid` to null. Otherwise set `done` to false and write "
+        "the complete revised prompt in `scene`. Keep the parts that worked. Fix each problem: make its wording more "
+        "explicit, move it earlier, or remove the words that caused it. If the image is completely mangled or wrong, "
+        "try a different prompt approach or seed. Sometimes the image model simply cannot render certain perspectives or details. "
+        f"{reseed} Use the same format rules as before. {avoid}{last} Call refine_image_prompt.]"
     )
 
 

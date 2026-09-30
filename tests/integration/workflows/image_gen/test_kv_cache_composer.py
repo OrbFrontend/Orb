@@ -206,7 +206,8 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
 async def test_each_review_extends_the_thread_before_it(client, llm_mock, monkeypatch):
     """Refinement is one growing thread on the agent lane: a review must resend every
     earlier call byte for byte and add only its own turn, or each review re-bills the
-    renders before it. Each replayed call is answered by exactly one tool result."""
+    renders before it. Each replayed call is answered by exactly one tool result, which
+    says when the render came from a new seed but never which seed."""
     cid, card_id = await _armed_conversation(client, llm_mock)
     await set_workflow_config(
         "image_gen",
@@ -218,7 +219,13 @@ async def test_each_review_extends_the_thread_before_it(client, llm_mock, monkey
         },
     )
     await set_workflow_character_state(card_id, "image_gen", {"appearance_prompt": "long silver hair"})
-    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", _fake_render)
+    seeds: list[int] = []
+
+    async def render(adapter, request, **kwargs):
+        seeds.append(request.seed)
+        return await _fake_render(adapter, request, **kwargs)
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", render)
     llm_mock.enqueue_workflow(
         {
             "tool_calls": _tc(
@@ -231,12 +238,22 @@ async def test_each_review_extends_the_thread_before_it(client, llm_mock, monkey
         {
             "tool_calls": _tc(
                 "refine_image_prompt",
-                {"critique": "no rain visible", "done": False, "scene": "1girl, sitting, window, heavy rain", "avoid": None},
+                {
+                    "critique": "no rain visible",
+                    "done": False,
+                    "reseed": True,
+                    "scene": "1girl, sitting, window, heavy rain",
+                    "avoid": None,
+                },
             )
         }
     )
     llm_mock.enqueue_workflow(
-        {"tool_calls": _tc("refine_image_prompt", {"critique": "", "done": True, "scene": None, "avoid": None})}
+        {
+            "tool_calls": _tc(
+                "refine_image_prompt", {"critique": "", "done": True, "reseed": False, "scene": None, "avoid": None}
+            )
+        }
     )
 
     mid = next(m["id"] for m in reversed(await get_messages(cid)) if m["role"] == "assistant")
@@ -254,12 +271,17 @@ async def test_each_review_extends_the_thread_before_it(client, llm_mock, monkey
         "refine_image_prompt",
     ]
     assert len({json.dumps(c["tools"], sort_keys=True) for c in wf}) == 1
+    results = []
     for earlier, later in zip(wf, wf[1:], strict=False):
         sent = earlier["messages"]
         assert later["messages"][: len(sent)] == sent, "a review must extend the call before it, byte for byte"
         call, result, image = later["messages"][len(sent) :]
         assert call["role"] == "assistant" and result["role"] == "tool" and image["role"] == "user"
         assert result["tool_call_id"] == call["tool_calls"][0]["id"]
+        results.append(result["content"])
         assert image["content"][0]["image_url"]["url"].startswith("data:image/")
+    assert len(set(seeds)) == 2, "the first review asked for a new seed"
+    assert ["new seed" in text for text in results] == [False, True]
+    assert not any(str(seed) in text for seed in seeds for text in results)
     ids = [m["tool_calls"][0]["id"] for m in wf[-1]["messages"] if m.get("tool_calls")]
     assert ids == ["imgcall00", "imgcall01"], "synthesized ids must be nine alphanumerics; Mistral rejects any other shape"

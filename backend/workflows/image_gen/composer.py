@@ -57,12 +57,16 @@ class RefineThread:
 
 @dataclass
 class Revision:
-    """One review of a render: the critique, and the revised prompt unless accepted."""
+    """One review of a render: the critique, and the revised prompt unless accepted.
+
+    `reseed` asks for the next render to be drawn from a new seed.
+    """
 
     critique: str
     done: bool
     scene: str = ""
     avoid: str = ""
+    reseed: bool = False
 
 
 def _call_id(render: int) -> str:
@@ -272,21 +276,26 @@ async def refine_scene(
     pov: str = THIRD,
     reasoning_on: bool = False,
     supports_negative: bool = True,
+    supports_seed: bool = True,
+    reseeded: bool = False,
 ) -> Revision | None:
     """Show the model its last render and take its review, or ``None`` when it gave none.
 
     The render answers the thread's open call, and the review's own call is kept on
     the thread, so the next review sees every earlier image and every earlier prompt.
+    `reseeded` says the render was drawn from a new seed, so the model can tell a
+    change the seed made from one its prompt made.
     """
     if not thread.call_id:
         return None
+    review_request = refine_ooc(render, turns_left, supports_negative=supports_negative, supports_seed=supports_seed)
     turn = [
-        {"role": "tool", "tool_call_id": thread.call_id, "content": render_result(render)},
+        {"role": "tool", "tool_call_id": thread.call_id, "content": render_result(render, reseeded=reseeded)},
         {
             "role": "user",
             "content": [
                 {"type": "image_url", "image_url": {"url": image_url}},
-                {"type": "text", "text": refine_ooc(render, turns_left, supports_negative=supports_negative)},
+                {"type": "text", "text": review_request},
             ],
         },
     ]
@@ -315,7 +324,11 @@ async def refine_scene(
         logger.info("[image_gen] review of render %d asked for changes but wrote no prompt; keeping it", render)
         return Revision(critique, False)
     return Revision(
-        critique, False, inject_profile_appearance(scene, thread.visible, prompt_format), bounded(args.get("avoid"))
+        critique,
+        False,
+        inject_profile_appearance(scene, thread.visible, prompt_format),
+        bounded(args.get("avoid")),
+        reseed=supports_seed and args.get("reseed") is True,
     )
 
 

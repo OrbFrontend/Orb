@@ -177,6 +177,7 @@
 .ig-refine-more{display:none;flex:none;padding:0 2px;color:var(--accent)}
 .ig-refine-text:is(.is-clamped,.is-open) .ig-refine-more{display:inline-block}
 .ig-refine-ending{display:block;color:var(--text-muted);font-style:italic}
+.ig-refine-reseed{padding:0 5px;border:1px solid var(--border);border-radius:999px;color:var(--text-muted);font-size:.85em;white-space:nowrap}
 .ig-refine-list{list-style:none;margin:2px 0 0;padding:0;display:grid;gap:5px}
 .ig-refine-list{--ig-num:22px}
 /* Number and verdict sit on the critique's first line, however many it wraps to. */

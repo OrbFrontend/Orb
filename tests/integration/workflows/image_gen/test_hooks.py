@@ -564,6 +564,39 @@ async def test_a_refinement_run_streams_each_stage_and_review_in_order(client, m
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reseed", [False, True], ids=["keep-seed", "reseed"])
+async def test_a_revision_keeps_the_seed_unless_its_review_asks_for_a_new_one(client, monkeypatch, reseed):
+    """A revision differs from the render it corrects by its prompt alone, unless
+    the review judged the seed at fault: then the next render draws a new one, the
+    next review is told so, and each row records the seed it was drawn with."""
+    mid = await _seed(f"ig-refine-seed-{reseed}", config={**CONFIG, "refine_turns": 2})
+    seeds: list[int] = []
+
+    async def render(adapter, request, **kwargs):
+        seeds.append(request.seed)
+        return _image()
+
+    _stub(monkeypatch, render=render)
+    reviews = iter([Revision("hands fused", False, "1girl, fixed", reseed=reseed), Revision("good", True)])
+    told: list[bool] = []
+
+    async def fake_refine(**kwargs):
+        told.append(kwargs["reseeded"])
+        return next(reviews)
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.refine_scene", fake_refine)
+
+    await _trigger(client, f"ig-refine-seed-{reseed}", {"action": "generate", "message_id": mid})
+
+    assert (seeds[0] != seeds[1]) is reseed
+    assert told == [False, reseed]
+    first, second = await get_workflow_attachments_for_message(mid)
+    assert [int(first["seed"]), int(second["seed"])] == seeds
+    expected = {"critique": "hands fused", "done": False, **({"reseed": True} if reseed else {})}
+    assert json.loads(first["consumption_metadata"])["review"] == expected
+
+
+@pytest.mark.asyncio
 async def test_a_render_without_refinement_carries_no_run(client, monkeypatch):
     mid = await _seed("ig-refine-off")
     _stub(monkeypatch)
