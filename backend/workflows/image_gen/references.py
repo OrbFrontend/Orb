@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -227,6 +228,30 @@ def previous_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> Fetc
     many slots the render even asks for cannot be known until this is answered.
     """
     return _previous_image(history, anchor_id)
+
+
+def recorded_prompts(history: Sequence[Mapping[str, Any]], origin: str) -> tuple[str, str]:
+    """The prompt pair an `attachment:` origin in `history` was rendered from.
+
+    Read off the row's own record, so a reroll whose prompt the user edited answers
+    with the edit. ``("", "")`` for any other origin, or a row with no usable record.
+    """
+    kind, _, raw_id = origin.partition(":")
+    if kind != "attachment":
+        return "", ""
+    for message in history:
+        for row in _rows(message, "workflow_attachments"):
+            if str(row.get("id")) != raw_id:
+                continue
+            try:
+                record = json.loads(row.get("generation_metadata") or "")
+            except (TypeError, ValueError):
+                return "", ""
+            if not isinstance(record, dict):
+                return "", ""
+            prompt, negative = record.get("prompt"), record.get("negative_prompt")
+            return (prompt if isinstance(prompt, str) else ""), (negative if isinstance(negative, str) else "")
+    return "", ""
 
 
 def plan_slots(

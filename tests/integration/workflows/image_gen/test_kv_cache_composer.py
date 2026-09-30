@@ -311,8 +311,9 @@ def _generate(client, cid: str, mid: int):
 
 async def test_the_earlier_chat_image_rides_the_compose_tail_not_the_prefix(client, llm_mock, monkeypatch):
     """Prompter reference puts the chat's last generated image in front of the compose
-    request, where each review already puts its render: the shared prefix the selector
-    used stays byte-identical, and the first review re-sends the image-bearing tail."""
+    request, where each review already puts its render, with the prompt it was rendered
+    from: the shared prefix the selector used stays byte-identical, and the first review
+    re-sends the image-bearing tail."""
     cid, _card_id = await _armed_conversation(client, llm_mock)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", _png_render)
     base = {"source": "external_comfy", "default_style": "anime", "prompter_reference": True}
@@ -352,6 +353,9 @@ async def test_the_earlier_chat_image_rides_the_compose_tail_not_the_prefix(clie
     image, request = compose["messages"][-1]["content"]
     assert image["type"] == "image_url" and image["image_url"]["url"].startswith("data:image/jpeg;base64,")
     assert "picture from earlier in this chat" in request["text"]
+    earlier = json.loads((await get_workflow_attachment_by_id(first_id))["generation_metadata"])
+    assert "archive" in earlier["prompt"]
+    assert f"\nEarlier prompt: {earlier['prompt']}\n" in request["text"]
     assert review["messages"][: len(compose["messages"])] == compose["messages"], "the review re-sends the tail byte for byte"
     rendered_id = int(second.text.partition('"attachment_id":')[2].partition("}")[0])
     generation = json.loads((await get_workflow_attachment_by_id(rendered_id))["generation_metadata"])

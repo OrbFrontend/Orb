@@ -57,6 +57,7 @@ from .engine.display_encode import shrink_for_review
 from .references import (
     plan_slots,
     previous_image,
+    recorded_prompts,
     refetch_references,
     replay_slots,
     resolve_references,
@@ -497,6 +498,7 @@ async def _generate_fresh(
         previous[2] if config.get("prompter_reference") and previous and previous[2].startswith("attachment:") else ""
     )
     prompter_reference_url = await _review_url(previous[0], previous[1]) if previous and prompter_reference else ""
+    prompter_reference_prompts = recorded_prompts(history, prompter_reference)
     if prompter_reference:
         logger.info("[image_gen] prompter reference: %s", prompter_reference)
     refine_turns = int(config.get("refine_turns") or 0)
@@ -533,6 +535,7 @@ async def _generate_fresh(
             profile_negative_prompt=str(profile.get("negative_prompt") or ""),
             thread=thread,
             prompter_reference_url=prompter_reference_url,
+            prompter_reference_prompts=prompter_reference_prompts,
             prompter_reference_sent=any(reference.origin == prompter_reference for reference in references),
         )
     except PrompterCallError as exc:

@@ -319,7 +319,11 @@ message being visualized, so **Regenerate** shows the image from an earlier mess
 rather than the render it replaces. It sends nothing when the most recent image is
 one you uploaded, because the prompter already sees uploads in the conversation.
 When the same picture also goes to the image model as a reference image, the
-prompter is told so. The render's details record which image the prompter saw.
+prompter is told so. The prompter also reads the prompt and negative prompt that
+image was rendered from, including your edits if you rerolled it with a changed
+prompt, so it can reuse wording that still fits. The negative prompt is left out when
+the current style cannot use one. The render's details record which image the
+prompter saw.
 
 The image travels with the prompt request and the skill-selection call stays
 text-only, so the cached conversation prefix is unchanged; review turns re-send the
