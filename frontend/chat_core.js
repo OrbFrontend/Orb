@@ -15,7 +15,7 @@ import {
   setInlineInspectorRepaint,
 } from "./message_inspector.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
-import { effectiveWorkflowEnabled, localMlReady, S, subscribe } from "./state.js";
+import { effectiveWorkflowEnabled, localMlReady, S, streamingHidden, subscribe } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
 import {
   $,
@@ -505,7 +505,7 @@ export function renderMessages(forceBottom = false) {
         for (const el of fresh) restoreBoxScrolls(el);
       }
       if (badgeEl) ct.appendChild(badgeEl);
-      if (streamingEl && !S.hideStreamingBox && !S.hideUntilBaked && !S.expressionBuffering) {
+      if (streamingEl && !S.hideStreamingBox && !streamingHidden()) {
         syncStreamingAvatar(streamingEl, avatars);
         ct.appendChild(streamingEl);
       }

@@ -50,7 +50,7 @@ import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
 import { REASONING_PASSES, rememberBoxScrolls } from "./message_inspector.js";
 import { ensurePersonaPinned } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
-import { effectiveWorkflowEnabled, S } from "./state.js";
+import { effectiveWorkflowEnabled, S, streamingHidden } from "./state.js";
 import { refreshState } from "./state_panel.js";
 import { createStreamOperation, settledReply, streamAnchor } from "./stream_settle.js";
 import {
@@ -536,7 +536,7 @@ export async function processSSEStream(resp, container, holder, signal) {
         resetSpeakerTurnState();
         setGenerationStep("");
         holder.el = createStreamingDiv(parsed.name, parsed.member_id);
-        if (!S.hideUntilBaked && !S.expressionBuffering) container.appendChild(holder.el);
+        if (!streamingHidden()) container.appendChild(holder.el);
         onTurnStart();
         renderGroupCast();
         scrollToBottom();
@@ -558,8 +558,7 @@ export async function processSSEStream(resp, container, holder, signal) {
     const onToken = () => {
       if (firstToken) {
         firstToken = false;
-        if (holder.el && !holder.el.isConnected && !S.hideUntilBaked && !S.expressionBuffering)
-          container.appendChild(holder.el);
+        if (holder.el && !holder.el.isConnected && !streamingHidden()) container.appendChild(holder.el);
         if (S.streamingBodyEl) S.streamingBodyEl.innerHTML = "";
       }
       fullResponse += unescapeSSE(data);
@@ -882,7 +881,7 @@ export async function runStreamRequest(
     S.completedExchangeMessageIds = [];
   } else {
     holder.el = createStreamingDiv();
-    if (!S.hideUntilBaked && !S.expressionBuffering) ct.appendChild(holder.el);
+    if (!streamingHidden()) ct.appendChild(holder.el);
     if (cutoffMsgId != null || anchorStream) pinStreamingMessage(holder.el);
     else scrollToBottom();
   }

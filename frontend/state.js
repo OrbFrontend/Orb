@@ -175,6 +175,11 @@ export function effectiveWorkflowEnabled(wid) {
   return globalOn && localOn;
 }
 
+/** The live reply stays out of the DOM until it is saved. */
+export function streamingHidden() {
+  return S.hideUntilBaked || S.expressionBuffering;
+}
+
 export function charactersView() {
   return S.allCharacters.length ? S.allCharacters : S.characters;
 }

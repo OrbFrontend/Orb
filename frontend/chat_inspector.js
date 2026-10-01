@@ -535,6 +535,7 @@ async function _expressionTick() {
   }
   const cue = expressionPlaybackCue();
   if (cue) {
+    if (cue.loading) return; // hold the current image rather than flash the plain avatar
     const next = cue.label
       ? `/api/characters/${charId}/expressions/${cue.label}`
       : `/api/characters/${charId}/avatar${avatarBustQuery(charId)}`;

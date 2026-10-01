@@ -114,7 +114,7 @@ export function expressionPlaybackCue() {
   const p = activeExpressionPlayback();
   if (!p) return null;
   const row = p.rows[p.rowIndex];
-  return { charId: row.charId, label: row.runs?.[p.runIndex]?.label ?? null };
+  return { charId: row.charId, loading: p.loading, label: p.loading ? null : row.runs[p.runIndex].label };
 }
 
 export function advanceExpressionPlayback() {
