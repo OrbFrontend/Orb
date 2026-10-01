@@ -75,7 +75,7 @@ export const S = {
   streamCutoffIndex: null,
   streamOp: null, // the stoppable stream this tab is running (stream_settle.js)
   streamingContent: null,
-  expressionBuffering: false, // snapshot of the rendering mode for this turn
+  expressionBuffering: false, // this turn holds replies for playback, from the first speaker with expressions on
   expressionPlayback: null, // saved reply parts and the reader's current position
   pendingUserMsg: null,
   attachments: [],

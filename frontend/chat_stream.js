@@ -30,9 +30,9 @@ import { skipNoticeText } from "./decisions.js";
 import { patchHtml } from "./dom_reconcile.js";
 import {
   beginExpressionPrewarm,
+  bufferExpressionReply,
   cancelExpressionPlayback,
   endExpressionPrewarm,
-  expressionPlaybackEnabled,
   prewarmExpressionLabels,
   startExpressionPlayback,
 } from "./expression_playback.js";
@@ -322,6 +322,10 @@ function settleRefineDiff(reply) {
   S.pendingRefineDiff = { original, ops: sentenceDiff(original, source(reply.content)), msgId: reply.id };
 }
 
+// Group replies that streamed visibly before a speaker with expressions began
+// holding the turn; playback starts after them.
+let _liveGroupReplies = 0;
+
 export async function afterStream(op, { settled = true } = {}) {
   cancelStreamingPaint();
   followStreamingMessage(null);
@@ -429,11 +433,13 @@ export async function afterStream(op, { settled = true } = {}) {
 
   // Install the buffer before any saved-message repaint can reveal its text.
   if (buffered && synced && settled) {
+    const streamedLive = new Set(S.completedExchangeMessageIds.slice(0, _liveGroupReplies));
     const replies = S.messages.filter(
       (msg) =>
         msg.role === "assistant" &&
         msg.id &&
         !op.anchor.knownIds.has(msg.id) &&
+        !streamedLive.has(msg.id) &&
         (!wasGroupExchange || msg.exchange_id === groupExchangeId),
     );
     void startExpressionPlayback(replies);
@@ -533,6 +539,7 @@ export async function processSSEStream(resp, container, holder, signal) {
         const parsed = JSON.parse(data);
         S.currentExchangeId = parsed.exchange_id;
         S.currentSpeaker = parsed;
+        if (bufferExpressionReply(parsed.member_id)) _liveGroupReplies = S.completedExchangeMessageIds.length;
         resetSpeakerTurnState();
         setGenerationStep("");
         holder.el = createStreamingDiv(parsed.name, parsed.member_id);
@@ -851,8 +858,9 @@ export async function runStreamRequest(
   { cutoffMsgId = null, beforeRender = null, anchorStream = false, afterDone = null } = {},
 ) {
   cancelExpressionPlayback();
-  S.expressionBuffering = expressionPlaybackEnabled();
   beginExpressionPrewarm();
+  _liveGroupReplies = 0;
+  if (!S.groupCast) bufferExpressionReply();
   S.consumedSpeakerId = body?.speaker_member_id || null;
   setStreaming(true);
   setGenerationStep("");

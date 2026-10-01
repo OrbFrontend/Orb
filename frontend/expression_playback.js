@@ -7,9 +7,11 @@ import { toast } from "./utils.js";
 export const expressionPlaybackEnabled = () =>
   S.settings.expression_rendering === "expression" && localMlReady("emotion_classifier");
 
+const hasExpressions = (charId) => !!charactersView().find((c) => c.id === charId)?.has_expressions;
+
 /** The character's uploaded expression labels; none without a pack or on failure. */
 export async function expressionLabels(charId) {
-  if (!charactersView().find((c) => c.id === charId)?.has_expressions) return [];
+  if (!hasExpressions(charId)) return [];
   try {
     return (await api.get(`/characters/${charId}/expressions`)).labels || [];
   } catch {
@@ -43,11 +45,24 @@ function replyCharId(msg) {
     : S.activeCharId;
 }
 
-/** A new turn drops the last one's labels and warms only when it buffers. */
+/** A new turn drops the last one's labels and streams until a reply buffers. */
 export function beginExpressionPrewarm() {
   endExpressionPrewarm();
   _classified = new Map();
-  if (S.expressionBuffering) _warm = { msg: null, timer: 0, running: false };
+  S.expressionBuffering = false;
+}
+
+/**
+ * Hold this speaker's reply for playback when its character has expressions.
+ * Once held, every later reply in the turn is too, so replies reveal in order.
+ * True only when this call started the hold.
+ */
+export function bufferExpressionReply(speakerMemberId = null) {
+  if (S.expressionBuffering || !expressionPlaybackEnabled()) return false;
+  if (!hasExpressions(replyCharId({ speaker_member_id: speakerMemberId }))) return false;
+  S.expressionBuffering = true;
+  _warm = { msg: null, timer: 0, running: false };
+  return true;
 }
 
 export function endExpressionPrewarm() {
@@ -73,7 +88,7 @@ async function drainPrewarm(warm) {
   try {
     while (_warm === warm) {
       const msg = warm.msg;
-      if (!charactersView().find((c) => c.id === replyCharId(msg))?.has_expressions) return;
+      if (!hasExpressions(replyCharId(msg))) return;
       const next = settledSentences(messageDisplaySource(msg)).find((text) => !_classified.has(text.trim()));
       if (!next) return;
       try {

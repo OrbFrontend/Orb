@@ -268,8 +268,8 @@ it("sentences classified while the reply streams are not classified again at set
     seen.push(text.trim());
     return "joy";
   };
-  S.expressionBuffering = true;
   playback.beginExpressionPrewarm();
+  assert.equal(playback.bufferExpressionReply(), true);
   playback.prewarmExpressionLabels("Hello. Welcome! Le", undefined);
   await new Promise((resolve) => setTimeout(resolve, 400));
   assert.deepEqual(seen, ["Hello.", "Welcome!"], "only settled sentences warm, never the growing tail");
@@ -283,11 +283,70 @@ it("sentences classified while the reply streams are not classified again at set
   S.settings.expression_rendering = "classic";
 });
 
+it("expression playback holds a group turn only from the first speaker with expressions", async (t) => {
+  const playback = await import("../../frontend/expression_playback.js");
+  S.activeConvId = "group";
+  S.settings.expression_rendering = "expression";
+  S.localMlFeatures.emotion_classifier = { present: true, enabled: true, deps_ok: true };
+  S.hideUntilBaked = false;
+  S.contextSize = null;
+  S.groupCast = { members: [{ id: 1, character_card_id: 7 }, { id: 2, character_card_id: 8 }] };
+  S.allCharacters = [{ id: 7 }, { id: 8, has_expressions: 1 }];
+  S.messages = [structuredClone(USER)];
+  classify = async () => "joy";
+  const reply = (id, member, content) => ({ id, role: "assistant", content, parent_id: 1, speaker_member_id: member, exchange_id: "x" });
+  saved = [USER, reply(31, 1, "Plain first."), reply(32, 2, "Expressive."), reply(33, 1, "Plain after.")];
+  offline = false;
+  const encoder = new TextEncoder();
+  let sse;
+  const body = new ReadableStream({ start: (controller) => (sse = controller) });
+  const send = (event, data) => sse.enqueue(encoder.encode(`event: ${event}\ndata: ${typeof data === "string" ? data : JSON.stringify(data)}\n\n`));
+  const fetch = globalThis.fetch;
+  t.mock.method(globalThis, "fetch", async (url, options) =>
+    String(url).endsWith("/send") ? new Response(body)
+      : String(url).endsWith("/context-size") ? Response.json({ total_tokens_est: 0, breakdown: {} })
+      : fetch(url, options));
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
+  const streaming = () => document.querySelector("#chat-messages .message:not([data-msg-id])");
+
+  const run = stream.runStreamRequest("/conversations/group/send", {});
+  send("speaker_start", { exchange_id: "x", member_id: 1, name: "Plain" });
+  send("token", "Plain first.");
+  await tick();
+  assert.equal(S.expressionBuffering, false, "a speaker without expressions streams");
+  assert.match(streaming()?.textContent || "", /Plain first\./);
+  send("speaker_done", { message_id: 31 });
+  send("speaker_start", { exchange_id: "x", member_id: 2, name: "Expressive" });
+  send("token", "Expressive.");
+  await tick();
+  assert.equal(S.expressionBuffering, true);
+  assert.equal(streaming(), null, "a speaker with expressions is held");
+  send("speaker_done", { message_id: 32 });
+  send("speaker_start", { exchange_id: "x", member_id: 1, name: "Plain" });
+  send("token", "Plain after.");
+  await tick();
+  assert.equal(streaming(), null, "later speakers wait so replies reveal in order");
+  send("speaker_done", { message_id: 33 });
+  send("done", "{}");
+  sse.close();
+  await run;
+  await tick();
+
+  assert.deepEqual(S.expressionPlayback.rows.map((row) => row.id), [32, 33]);
+  assert.equal(bodyOf(31), "Plain first.");
+  assert.equal(bodyOf(32), "Expressive.");
+  assert.equal(document.querySelector('[data-msg-id="33"]'), null);
+  playback.cancelExpressionPlayback();
+  S.groupCast = null;
+  S.settings.expression_rendering = "classic";
+});
+
 it("late expression classification cannot restore playback after a conversation switch", async () => {
   const playback = await import("../../frontend/expression_playback.js");
   S.activeConvId = "c1";
   S.settings.expression_rendering = "expression";
   S.activeCharId = 7;
+  S.allCharacters = [{ id: 7, has_expressions: 1 }];
   S.messages = [{ id: 23, role: "assistant", content: "Hello. Goodbye." }];
   let release;
   classify = () => new Promise((resolve) => { release = resolve; });
@@ -331,12 +390,8 @@ it("settings keep the expression model beside its rendering mode and save the se
     select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(S.settings.expression_rendering, "expression");
-    // Expression-based rendering always waits for the saved reply; the stored choice survives.
+    // Characters without expressions still stream, so the choice stays the reader's.
     const baked = form.querySelector('[data-setting-toggle="hideUntilBaked"]');
-    assert.equal(baked.disabled, true);
-    assert.equal(baked.checked, true);
-    select.value = "classic";
-    select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
     assert.equal(baked.disabled, false);
     assert.equal(baked.checked, S.hideUntilBaked);
   } finally {

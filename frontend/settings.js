@@ -199,18 +199,13 @@ export function renderSettings() {
   loadLocalMLSection();
 }
 
-// Expression-based rendering always holds the reply until it is saved. The
-// toggle shows that without overwriting the choice Classic still uses.
+// Expression-based rendering always holds replies from characters with
+// expressions; this choice still covers characters without them.
 function syncHideUntilBakedCard() {
-  const input = $("settings-form")?.querySelector('[data-setting-toggle="hideUntilBaked"]');
-  if (!input) return;
-  const implied = expressionPlaybackEnabled();
-  input.disabled = implied;
-  input.checked = implied || S.hideUntilBaked;
-  const card = input.closest(".tool-card");
-  card.classList.toggle("tool-on", input.checked);
-  card.querySelector("[data-hide-until-baked-desc]").textContent = implied
-    ? "Expression-based rendering always waits for the finished reply."
+  const desc = $("settings-form")?.querySelector("[data-hide-until-baked-desc]");
+  if (!desc) return;
+  desc.textContent = expressionPlaybackEnabled()
+    ? "Hide replies until completion. Characters with expressions always wait for the finished reply."
     : "Hide replies until completion.";
 }
 
