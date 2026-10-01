@@ -191,27 +191,17 @@ def _classifier(
     monkeypatch,
     answers: dict[str, tuple[str, str]],
     chunks: dict[str, list[tuple[str, str]]] | None = None,
-    reread: list[str] | None = None,
 ) -> list[str]:
-    """Answer from *answers*; record every text the classifier was shown.
-
-    The whole-narration reread answers from *chunks*, and otherwise reads the text
-    as one window that agrees with its tail. Its texts go to *reread*.
-    """
+    """Read each narration as the windows in *chunks*, else as one window answered
+    from *answers*; record every text the classifier was shown."""
     seen: list[str] = []
 
-    async def fake(text: str) -> tuple[str, str]:
-        seen.append(text)
-        return answers.get(text, ("ambiguous", "ambiguous"))
-
     async def fake_chunks(text: str) -> list[tuple[str, str]]:
-        if reread is not None:
-            reread.append(text)
+        seen.append(text)
         if chunks is not None and text in chunks:
             return chunks[text]
         return [answers.get(text, ("ambiguous", "ambiguous"))]
 
-    monkeypatch.setattr(voice, "classify_pov_tense", fake)
     monkeypatch.setattr(voice, "classify_pov_tense_chunks", fake_chunks)
     return seen
 
@@ -361,24 +351,13 @@ async def test_an_unstable_baseline_voice_makes_no_llm_call(monkeypatch):
     assert CONSISTENT_DRAFT not in seen
 
 
-async def test_a_consistent_tail_never_rereads_the_draft(monkeypatch):
-    _voice_on(monkeypatch)
-    reread: list[str] = []
-    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, CONSISTENT_NARRATION: THIRD_PAST}, reread=reread)
-    _forced_call(monkeypatch, "should not be used")
-
-    await _collect(_ctx(CONSISTENT_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert reread == []
-
-
-async def test_a_tail_without_you_is_not_third_person_when_the_draft_addresses_you(monkeypatch):
+async def test_a_draft_that_addresses_you_before_its_tail_is_second(monkeypatch):
     """The tail reads `third` whenever its last sentences skip "you", but the label
     is a precedence rule: one "you" anywhere in the narration makes it `second`."""
     _voice_on(monkeypatch)
     _classifier(
         monkeypatch,
-        {QUOTED_BASELINE_NARRATION: SECOND_PRESENT, CONSISTENT_NARRATION: ("third", "present")},
+        {QUOTED_BASELINE_NARRATION: SECOND_PRESENT},
         chunks={CONSISTENT_NARRATION: [("third", "present"), ("second", "present"), ("third", "present")]},
     )
     calls = _forced_call(monkeypatch, "should not be used")
@@ -388,11 +367,28 @@ async def test_a_tail_without_you_is_not_third_person_when_the_draft_addresses_y
     assert calls == []
 
 
+async def test_a_baseline_row_that_addresses_you_before_its_tail_is_second(monkeypatch):
+    """Baseline rows get the same whole-narration reading as the draft. A row read
+    by its tail alone would vote `third` and send a `second` draft to have its
+    "you" stripped."""
+    _voice_on(monkeypatch)
+    _classifier(
+        monkeypatch,
+        {VOICE_DRIFTING_NARRATION: ("second", "past")},
+        chunks={QUOTED_BASELINE_NARRATION: [("third", "past"), ("second", "past"), ("third", "past")]},
+    )
+    calls = _forced_call(monkeypatch, "should not be used")
+
+    await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
+
+    assert calls == []
+
+
 async def test_a_draft_that_never_addresses_you_still_drifts_from_second(monkeypatch):
     _voice_on(monkeypatch)
     _classifier(
         monkeypatch,
-        {QUOTED_BASELINE_NARRATION: SECOND_PRESENT, CONSISTENT_NARRATION: ("third", "present")},
+        {QUOTED_BASELINE_NARRATION: SECOND_PRESENT},
         chunks={CONSISTENT_NARRATION: [("third", "present"), ("ambiguous", "present"), ("third", "present")]},
     )
     calls = _forced_call(monkeypatch, CONSISTENT_DRAFT)
@@ -403,13 +399,13 @@ async def test_a_draft_that_never_addresses_you_still_drifts_from_second(monkeyp
     assert "third person for the speaking character" in calls[0]["tail_messages"][0]["content"]
 
 
-async def test_a_tail_that_addresses_you_drifts_from_third_whatever_the_rest_reads(monkeypatch):
-    """Precedence runs one way: a `second` tail already contains the "you" a
+async def test_one_window_that_addresses_you_drifts_from_third_whatever_the_rest_reads(monkeypatch):
+    """Precedence runs one way: a `second` window already contains the "you" a
     third-person target rules out, so third-reading windows elsewhere cannot excuse it."""
     _voice_on(monkeypatch)
     _classifier(
         monkeypatch,
-        {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: ("second", "past")},
+        {QUOTED_BASELINE_NARRATION: THIRD_PAST},
         chunks={VOICE_DRIFTING_NARRATION: [("second", "past"), ("third", "past"), ("third", "past")]},
     )
     calls = _forced_call(monkeypatch, DRIFTING_DRAFT)
@@ -420,11 +416,11 @@ async def test_a_tail_that_addresses_you_drifts_from_third_whatever_the_rest_rea
     assert "third person throughout" in calls[0]["tail_messages"][0]["content"]
 
 
-async def test_a_tense_flip_in_the_tail_alone_is_not_drift(monkeypatch):
+async def test_a_tense_flip_in_one_window_is_not_drift(monkeypatch):
     _voice_on(monkeypatch)
     _classifier(
         monkeypatch,
-        {QUOTED_BASELINE_NARRATION: THIRD_PAST, CONSISTENT_NARRATION: ("third", "present")},
+        {QUOTED_BASELINE_NARRATION: THIRD_PAST},
         chunks={CONSISTENT_NARRATION: [("third", "present"), ("third", "past"), ("third", "past")]},
     )
     calls = _forced_call(monkeypatch, "should not be used")
@@ -434,11 +430,11 @@ async def test_a_tense_flip_in_the_tail_alone_is_not_drift(monkeypatch):
     assert calls == []
 
 
-async def test_only_the_axis_the_reread_confirms_is_named(monkeypatch):
+async def test_windows_combine_each_axis_on_its_own(monkeypatch):
     _voice_on(monkeypatch)
     _classifier(
         monkeypatch,
-        {QUOTED_BASELINE_NARRATION: SECOND_PRESENT, CONSISTENT_NARRATION: ("third", "past")},
+        {QUOTED_BASELINE_NARRATION: SECOND_PRESENT},
         chunks={CONSISTENT_NARRATION: [("third", "past"), ("second", "past")]},
     )
     calls = _forced_call(monkeypatch, CONSISTENT_DRAFT)
@@ -448,21 +444,6 @@ async def test_only_the_axis_the_reread_confirms_is_named(monkeypatch):
     instruction = calls[0]["tail_messages"][0]["content"]
     assert "present tense" in instruction
     assert "person" not in instruction
-
-
-async def test_a_raising_reread_degrades_instead_of_rewriting(monkeypatch):
-    _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: SECOND_PRESENT})
-
-    async def boom(text: str):
-        raise RuntimeError("model failed mid-read")
-
-    monkeypatch.setattr(voice, "classify_pov_tense_chunks", boom)
-    calls = _forced_call(monkeypatch, "should not be used")
-
-    await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert calls == []
 
 
 async def test_config_off_classifies_nothing(monkeypatch):
@@ -494,7 +475,7 @@ async def test_a_raising_classifier_degrades_instead_of_aborting(monkeypatch):
     async def boom(text: str):
         raise RuntimeError("model failed to load")
 
-    monkeypatch.setattr(voice, "classify_pov_tense", boom)
+    monkeypatch.setattr(voice, "classify_pov_tense_chunks", boom)
     calls = _forced_call(monkeypatch, "should not be used")
 
     events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
@@ -730,7 +711,9 @@ async def test_old_model_labels_are_reclassified(monkeypatch, classifier):
     assert written[0]["other"] == "preserved"
 
 
-async def test_cached_labels_are_refreshed_after_the_extraction_policy_changes(monkeypatch):
+@pytest.mark.parametrize("policy", [b"", b"narration-v2\0"])
+async def test_cached_labels_are_refreshed_after_the_reading_policy_changes(monkeypatch, policy):
+    """Labels from an older extraction policy, or from tail-only reads, are stale."""
     text = "*You can do this. You have to keep moving.* she thinks, waiting."
     seen = _classifier(monkeypatch, {"she thinks, waiting.": ("third", "present")})
     written = []
@@ -741,7 +724,7 @@ async def test_cached_labels_are_refreshed_after_the_extraction_policy_changes(m
             "tense": "ambiguous",
             "dialogue": classify_axes(text).dialogue.value,
             "classifier": voice.local_model_identity(voice.FEATURE),
-            "content_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "content_sha256": hashlib.sha256(policy + text.encode()).hexdigest(),
         }
 
     async def record(message_id, workflow_id, payload):
@@ -766,7 +749,7 @@ async def test_classifier_failure_is_not_cached(monkeypatch):
 
     monkeypatch.setattr(voice, "get_workflow_message_state", empty)
     monkeypatch.setattr(voice, "set_workflow_message_state", no_write)
-    monkeypatch.setattr(voice, "classify_pov_tense", boom)
+    monkeypatch.setattr(voice, "classify_pov_tense_chunks", boom)
 
     msg = {"id": 7, "role": "assistant", "content": QUOTED_BASELINE}
     assert await _labels(msg) is None

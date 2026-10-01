@@ -326,13 +326,16 @@ function renderExpressionPlaybackSettings(st) {
     : info
       ? localMlCard("emotion_classifier", info)
       : '<div class="tool-card-desc">Expression model unavailable.</div>';
-  el.innerHTML = `${model}
-    <div class="field"><label for="expression-rendering">Text rendering</label>
-      <select id="expression-rendering" data-expression-rendering ${localMlReady("emotion_classifier") ? "" : "disabled"}>
+  // Rendering is an expressions setting: it only shows while they are on.
+  const rendering = localMlReady("emotion_classifier")
+    ? `<div class="field"><label for="expression-rendering">Text rendering</label>
+      <select id="expression-rendering" data-expression-rendering>
         <option value="classic" ${S.settings.expression_rendering !== "expression" ? "selected" : ""}>Classic</option>
         <option value="expression" ${S.settings.expression_rendering === "expression" ? "selected" : ""}>Expression-based</option>
       </select>
-    </div>`;
+    </div>`
+    : "";
+  el.innerHTML = `${model}${rendering}`;
   wireLocalMLSection(el);
   syncHideUntilBakedCard();
 }

@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ..toolkit import (
     AxisStyle,
-    classify_pov_tense,
     classify_pov_tense_chunks,
     get_workflow_message_state,
     local_model_identity,
@@ -43,24 +42,44 @@ _POV_PHRASE = {
 }
 _TENSE_PHRASE = {"past": "past tense", "present": "present tense"}
 
-# The labels' precedence order. A draft's POV is its highest-ranked pronoun
-# anywhere in the narration, while `classify` reads only the final sentences.
+# The labels' precedence order. A message's POV is its highest-ranked pronoun
+# anywhere in the narration.
 _POV_RANK = {"third": 1, "second": 2, "first": 3}
 
 
 def _content_digest(text: str) -> str:
-    """Identify the message and the narration-extraction policy that labeled it."""
-    return hashlib.sha256(b"narration-v2\0" + text.encode()).hexdigest()
+    """Identify the message and the narration-extraction and reading policy that
+    labeled it."""
+    return hashlib.sha256(b"whole-narration-v3\0" + text.encode()).hexdigest()
 
 
-async def classify(text: str, style: AxisStyle) -> VoiceLabels | None:
-    """Return the (POV, tense) of *text*'s narration, extracted under its markup
-    reading *style*, or ``None`` on a local-ML fault."""
+def combine(windows: Sequence[VoiceLabels]) -> VoiceLabels:
+    """Return one message's (POV, tense) from its windows' labels.
+
+    POV is a precedence rule over the pronouns anywhere in the narration, so the
+    highest-ranked window decides it. Tense is the windows' stable majority, so one
+    flashback window does not flip it.
+    """
+    povs = [pov for pov, _ in windows if pov in _POV_RANK]
+    pov = max(povs, key=_POV_RANK.__getitem__) if povs else UNKNOWN
+    return pov, stable_label([tense for _, tense in windows], UNKNOWN)
+
+
+async def read(text: str, style: AxisStyle) -> VoiceLabels | None:
+    """Return the (POV, tense) of *text*'s whole narration, extracted under its
+    markup reading *style*, or ``None`` on a local-ML fault.
+
+    The model reads a few sentences at a time, so every window is classified and
+    combined. Drafts and baseline rows both go through here: a rewrite costs far
+    more than reading every window, and two ends read differently disagree about
+    messages that do not differ.
+    """
     try:
-        return await classify_pov_tense(narration_only(text, style.dialogue))
+        windows = await classify_pov_tense_chunks(narration_only(text, style.dialogue))
     except Exception as e:
         logger.warning("[format_consistency] POV/tense classification failed (%r); skipping the voice check", e)
         return None
+    return combine(windows)
 
 
 async def labels_for(msg: Mapping[str, Any], style: AxisStyle) -> VoiceLabels | None:
@@ -74,7 +93,7 @@ async def labels_for(msg: Mapping[str, Any], style: AxisStyle) -> VoiceLabels | 
         return UNKNOWN_LABELS
     mid = msg.get("id")
     if not isinstance(mid, int):
-        return await classify(text, style)
+        return await read(text, style)
     digest = _content_digest(text)
     classifier = local_model_identity(FEATURE)
     cached = await get_workflow_message_state(mid, WORKFLOW_ID)
@@ -88,7 +107,7 @@ async def labels_for(msg: Mapping[str, Any], style: AxisStyle) -> VoiceLabels | 
             and isinstance(tense, str)
         ):
             return pov, tense
-    labels = await classify(text, style)
+    labels = await read(text, style)
     if labels is None:
         return None
     pov, tense = labels
@@ -104,32 +123,6 @@ async def labels_for(msg: Mapping[str, Any], style: AxisStyle) -> VoiceLabels | 
     )
     await set_workflow_message_state(mid, WORKFLOW_ID, payload)
     return labels
-
-
-async def reread(text: str, style: AxisStyle, source: VoiceLabels, target_labels: VoiceLabels) -> VoiceLabels | None:
-    """Return *source* with each drift the tail reading invented settled to the
-    target, or ``None`` on a local-ML fault.
-
-    `classify` sees only the draft's final sentences, which is too little to call a
-    whole message off-voice. A tail that never addresses "you" reads `third` even
-    when the rest of the draft does, and one flashback sentence flips the tense.
-    So a rewrite needs the whole narration to agree: a POV the target outranks is
-    settled when any window reads the target, and a tense when the windows'
-    majority does. The other POV direction stands, because a higher-ranked tail
-    already contains the pronoun the target rules out.
-    """
-    try:
-        chunks = await classify_pov_tense_chunks(narration_only(text, style.dialogue))
-    except Exception as e:
-        logger.warning("[format_consistency] POV/tense classification failed (%r); skipping the voice check", e)
-        return None
-    pov, tense = source
-    target_pov, target_tense = target_labels
-    if _POV_RANK.get(target_pov, 0) > _POV_RANK.get(pov, 0) and any(p == target_pov for p, _ in chunks):
-        pov = target_pov
-    if stable_label([t for _, t in chunks], UNKNOWN) == target_tense:
-        tense = target_tense
-    return pov, tense
 
 
 def target(window_labels: list[VoiceLabels]) -> VoiceLabels:

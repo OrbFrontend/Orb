@@ -124,13 +124,13 @@ def test_tense_from_logits_marginalizes_pov_rather_than_taking_the_top_cell():
 
 def test_the_two_margins_read_the_same_grid_independently():
     # One cell lit: the pair must name that cell's row AND its column. This is the
-    # invariant `aclassify_pov_tense` sells -- both labels off one forward pass.
+    # invariant `aclassify_pov_tense_chunks` sells -- both labels off one forward pass.
     grid = [0.0] * 12
     grid[1 * 3 + 0] = 9.0  # row "second", column "past"
     assert (local_ml.pov_from_logits(grid), local_ml.tense_from_logits(grid)) == ("second", "past")
 
 
-async def test_aclassify_pov_tense_short_circuits_on_empty_shaping(monkeypatch):
+async def test_pov_reads_short_circuit_on_empty_shaping(monkeypatch):
     """An all-dialogue reply shapes to "" -- the model is never loaded for it."""
 
     def boom(*args, **kwargs):
@@ -138,8 +138,7 @@ async def test_aclassify_pov_tense_short_circuits_on_empty_shaping(monkeypatch):
 
     monkeypatch.setattr(local_ml, "_head_logits", boom)
     assert local_ml.pov_input('"Just talking." "Only dialogue here."') == ""
-    assert await local_ml.aclassify_pov_tense('"Just talking." "Only dialogue here."') == ("ambiguous", "ambiguous")
-    # The single-label door is the same blocking core, so it short-circuits too.
+    assert await local_ml.aclassify_pov_tense_chunks('"Just talking." "Only dialogue here."') == []
     assert await local_ml.aclassify_pov("") == "ambiguous"
 
 

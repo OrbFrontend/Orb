@@ -118,7 +118,6 @@ __all__ = [
     "WorkflowEventStream",
     "WorkflowUserFacingError",
     "classify_pov",
-    "classify_pov_tense",
     "classify_pov_tense_chunks",
     "classify_axes",
     "markup_axes",
@@ -205,11 +204,6 @@ def local_model_identity(feature: str) -> str:
 async def classify_pov(text: str) -> str:
     """Classify narrative point of view through the host inference service."""
     return await _local_ml.aclassify_pov(text)
-
-
-async def classify_pov_tense(text: str) -> tuple[str, str]:
-    """Classify narrative point of view and tense through the host inference service."""
-    return await _local_ml.aclassify_pov_tense(text)
 
 
 async def classify_pov_tense_chunks(text: str) -> list[tuple[str, str]]:

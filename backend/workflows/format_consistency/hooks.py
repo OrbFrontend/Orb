@@ -27,10 +27,9 @@ from .voice import (
     FEATURE,
     UNKNOWN_LABELS,
     VoiceLabels,
-    classify,
     drift,
     labels_for,
-    reread,
+    read,
     target,
 )
 
@@ -128,15 +127,9 @@ async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]], styles: l
     if baseline == UNKNOWN_LABELS:
         return text
     style = await markup_axes(text, ctx.settings)
-    source = await classify(text, style)
+    source = await read(text, style)
     if source is None:
         return text
-    # The tail reading is the cheap screen; only a drift it reports pays for
-    # reading the rest of the draft.
-    if drift(source, baseline):
-        source = await reread(text, style, source, baseline)
-        if source is None:
-            return text
     phrases = drift(source, baseline)
     if not phrases:
         return text
