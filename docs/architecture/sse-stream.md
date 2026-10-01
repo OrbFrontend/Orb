@@ -55,7 +55,11 @@ refetch, the frontend classifies sentence chunks of the saved replies and reveal
 consecutive runs of the same resolved expression on click/Space. Group replies
 share one ordered playback buffer. This display state never changes stored
 message content or the SSE contract; classification failure reveals the full
-saved text. Classic rendering retains the live paint path.
+saved text. While tokens arrive, settled sentences (any sentence with later text
+after it) are classified one at a time into a per-turn cache keyed by sentence
+text; settlement reuses those labels and classifies only what the saved text
+changed. Nothing streamed is ever shown. Classic rendering retains the live
+paint path.
 
 The status bar describes the step that is running. `director_start` and
 `step_start` mark where each core step begins, and while the turn streams a

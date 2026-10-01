@@ -43,11 +43,11 @@ if (dom) {
   w.Element.prototype.scrollIntoView = () => {};
   globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
   globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, options) => {
     if (offline) throw new Error("offline");
     const body = String(url).endsWith("/messages") ? saved
       : String(url).endsWith("/expressions") ? { labels: ["joy", "anger", "neutral"] }
-      : String(url).endsWith("/classify-emotion") ? { label: await classify() } : {};
+      : String(url).endsWith("/classify-emotion") ? { label: await classify(JSON.parse(options.body).text) } : {};
     return { ok: true, status: 200, json: async () => structuredClone(body), text: async () => "" };
   };
   stream = await import("../../frontend/chat_stream.js");
@@ -256,6 +256,33 @@ it("group playback follows the revealed speaker and respects typing, repeat keys
   S.settings.expression_rendering = "classic";
 });
 
+it("sentences classified while the reply streams are not classified again at settlement", async () => {
+  const playback = await import("../../frontend/expression_playback.js");
+  S.activeConvId = "c1";
+  S.settings.expression_rendering = "expression";
+  S.localMlFeatures.emotion_classifier = { present: true, enabled: true, deps_ok: true };
+  S.activeCharId = 7;
+  S.allCharacters = [{ id: 7, has_expressions: 1 }];
+  const seen = [];
+  classify = async (text) => {
+    seen.push(text.trim());
+    return "joy";
+  };
+  S.expressionBuffering = true;
+  playback.beginExpressionPrewarm();
+  playback.prewarmExpressionLabels("Hello. Welcome! Le", undefined);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.deepEqual(seen, ["Hello.", "Welcome!"], "only settled sentences warm, never the growing tail");
+  S.expressionBuffering = false;
+  // The Editor rewrote the second sentence before the reply was saved.
+  S.messages = [{ id: 24, role: "assistant", content: "Hello. Welcome back! Leave." }];
+  await playback.startExpressionPlayback(S.messages);
+  assert.deepEqual(seen, ["Hello.", "Welcome!", "Welcome back!", "Leave."]);
+  assert.equal(playback.expressionPlaybackCue().label, "joy");
+  playback.cancelExpressionPlayback();
+  S.settings.expression_rendering = "classic";
+});
+
 it("late expression classification cannot restore playback after a conversation switch", async () => {
   const playback = await import("../../frontend/expression_playback.js");
   S.activeConvId = "c1";
@@ -304,6 +331,14 @@ it("settings keep the expression model beside its rendering mode and save the se
     select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(S.settings.expression_rendering, "expression");
+    // Expression-based rendering always waits for the saved reply; the stored choice survives.
+    const baked = form.querySelector('[data-setting-toggle="hideUntilBaked"]');
+    assert.equal(baked.disabled, true);
+    assert.equal(baked.checked, true);
+    select.value = "classic";
+    select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    assert.equal(baked.disabled, false);
+    assert.equal(baked.checked, S.hideUntilBaked);
   } finally {
     globalThis.fetch = originalFetch;
     S.settings.expression_rendering = "classic";

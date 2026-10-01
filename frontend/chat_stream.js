@@ -28,7 +28,14 @@ import {
 import { _mergeWorkflowRejections } from "./chat_workflow.js";
 import { skipNoticeText } from "./decisions.js";
 import { patchHtml } from "./dom_reconcile.js";
-import { cancelExpressionPlayback, expressionPlaybackEnabled, startExpressionPlayback } from "./expression_playback.js";
+import {
+  beginExpressionPrewarm,
+  cancelExpressionPlayback,
+  endExpressionPrewarm,
+  expressionPlaybackEnabled,
+  prewarmExpressionLabels,
+  startExpressionPlayback,
+} from "./expression_playback.js";
 import { generationStepLabel, WAITING_LABEL } from "./generation_status.js";
 import { restNotice, speakerAvatarCell, unansweredHint } from "./group_cast.js";
 import {
@@ -327,6 +334,7 @@ export async function afterStream(op, { settled = true } = {}) {
   const pendingUserMsg = S.pendingUserMsg || null;
   const lastCompletedId = S.completedExchangeMessageIds.at(-1) ?? null;
   const buffered = S.expressionBuffering;
+  endExpressionPrewarm();
   endStreamOperation(op);
   S.streamCutoffIndex = null;
   S.streamingContent = null;
@@ -556,6 +564,7 @@ export async function processSSEStream(resp, container, holder, signal) {
       }
       fullResponse += unescapeSSE(data);
       S.streamingContent = rewrittenResponse || fullResponse;
+      prewarmExpressionLabels(S.streamingContent, S.currentSpeaker?.member_id);
       if (S.streamingBodyEl) paintStreamingBody(previewResponse || rewrittenResponse || fullResponse);
       else scrollToBottom();
     };
@@ -566,6 +575,7 @@ export async function processSSEStream(resp, container, holder, signal) {
         rewrittenResponse = text;
         previewResponse = null;
         S.streamingContent = text;
+        prewarmExpressionLabels(text, S.currentSpeaker?.member_id);
       }
       if (previewFrozen() || S.expressionBuffering) return;
       cancelStreamingPaint(); // the rewrite replaces the body outright
@@ -843,6 +853,7 @@ export async function runStreamRequest(
 ) {
   cancelExpressionPlayback();
   S.expressionBuffering = expressionPlaybackEnabled();
+  beginExpressionPrewarm();
   S.consumedSpeakerId = body?.speaker_member_id || null;
   setStreaming(true);
   setGenerationStep("");

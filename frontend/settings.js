@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { renderInspector, renderInspectorWorkflows, renderMessages } from "./chat.js";
+import { expressionPlaybackEnabled } from "./expression_playback.js";
 import { CLOSE_ICON } from "./icons.js";
 import { renderInteractiveFragments } from "./library_fragments.js";
 import { loadInspectorOpenStates } from "./message_inspector.js";
@@ -150,7 +151,7 @@ export function renderSettings() {
           <span class="tog-slider"></span>
         </label>
       </div>
-      <div class="tool-card-desc">Hide replies until completion.</div>
+      <div class="tool-card-desc" data-hide-until-baked-desc>Hide replies until completion.</div>
     </div>
     <div class="tool-card ${S.preventPromptOverrides ? "tool-on" : ""}">
       <div class="tool-card-header">
@@ -194,7 +195,23 @@ export function renderSettings() {
   `;
   $("cleanup-btn").addEventListener("click", showCleanupModal);
   wireSettingsToggles($("settings-form"));
+  syncHideUntilBakedCard();
   loadLocalMLSection();
+}
+
+// Expression-based rendering always holds the reply until it is saved. The
+// toggle shows that without overwriting the choice Classic still uses.
+function syncHideUntilBakedCard() {
+  const input = $("settings-form")?.querySelector('[data-setting-toggle="hideUntilBaked"]');
+  if (!input) return;
+  const implied = expressionPlaybackEnabled();
+  input.disabled = implied;
+  input.checked = implied || S.hideUntilBaked;
+  const card = input.closest(".tool-card");
+  card.classList.toggle("tool-on", input.checked);
+  card.querySelector("[data-hide-until-baked-desc]").textContent = implied
+    ? "Expression-based rendering always waits for the finished reply."
+    : "Hide replies until completion.";
 }
 
 const SETTING_TOGGLES = {
@@ -216,6 +233,7 @@ function wireSettingsToggles(el) {
     if (ev.target.matches("[data-expression-rendering]")) {
       S.settings.expression_rendering = ev.target.value;
       renderMessages(); // Classic ends any playback in progress
+      syncHideUntilBakedCard();
       void persistSettings({ expression_rendering: ev.target.value });
     }
   });
@@ -322,6 +340,7 @@ function renderExpressionPlaybackSettings(st) {
       <div class="tool-card-desc">Classic streams as usual. Expression-based buffers replies; click Next or press Space when the expression changes.</div>
     </div>`;
   wireLocalMLSection(el);
+  syncHideUntilBakedCard();
 }
 
 function localMlCard(f, info) {

@@ -132,6 +132,11 @@ button {
   background: #fff;
 }
 
+.tog input:disabled + .tog-slider {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
 .tog input:focus-visible + .tog-slider {
   outline: 2px solid var(--accent);
   outline-offset: 1px;

@@ -52,6 +52,11 @@ reveal the next part and change the popup image together. Revealed text stays
 visible. In group chats, playback advances through speakers in reply order.
 The final expression holds until the next turn.
 
+Expression-based rendering always waits for the finished reply, so **Hide until
+baked** is shown on and greyed out in this mode; your Classic choice is kept.
+While the reply generates, Orb classifies sentences that are already complete,
+so only rewritten sentences and the last one wait for the classifier.
+
 The full reply is saved normally; playback only controls its display. The mode
 requires the expression model to be downloaded and enabled. Missing expression
 images resolve to neutral or the normal avatar, so they do not create extra
