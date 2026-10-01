@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { messageDisplaySource } from "./card_scripts.js";
 import { renderTurnError } from "./chat_error.js";
 import { reconcileChildren } from "./dom_reconcile.js";
+import { activeExpressionPlayback } from "./expression_playback.js";
 import { sceneEmptyStateHtml, speakerAvatarCell, speakerLabel } from "./group_cast.js";
 import { CHEVRON_LEFT_ICON, CHEVRON_RIGHT_ICON, EDIT_ICON_PATHS } from "./icons.js";
 import { sectionHtml } from "./inspector_section.js";
@@ -14,7 +15,7 @@ import {
   setInlineInspectorRepaint,
 } from "./message_inspector.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
-import { effectiveWorkflowEnabled, localMlReady, S, subscribe } from "./state.js";
+import { effectiveWorkflowEnabled, localMlReady, S, streamingHidden, subscribe } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
 import {
   $,
@@ -49,6 +50,7 @@ export function canStartGeneration() {
 }
 
 subscribe("cast", () => renderMessages());
+subscribe("expression-playback", () => renderMessages(true));
 
 function normalizeMessages(msgs) {
   if (!Array.isArray(msgs)) return msgs;
@@ -367,7 +369,12 @@ export function sceneIntroEntries() {
   return entries;
 }
 
-function _messageHtml(m, num, avatars) {
+function _messageHtml(m, num, avatars, playback) {
+  const part = playback?.rows.find((row) => row.id === m.id);
+  const advanceHtml =
+    part && part === playback.rows[playback.rowIndex] && !playback.complete
+      ? `<div class="expression-playback-control"><button type="button" class="btn btn-sm" data-wf-action="expression-playback:advance" ${playback.loading ? "disabled" : ""}>${playback.loading ? "Preparing expressions…" : "Next · Space"}</button></div>`
+      : "";
   const isForkEditing = S.forkEditMsgId !== null && S.forkEditMsgId === m.id;
   const isEditing =
     (S.editingMsgId !== null && S.editingMsgId === m.id) || (!m.id && S.editingPendingUserMsg) || isForkEditing;
@@ -390,9 +397,11 @@ function _messageHtml(m, num, avatars) {
           </div>
         </div>`
     : `<div class="msg-body">${
-        S.pendingRefineDiff?.msgId && m.id === S.pendingRefineDiff.msgId && S.showEditorDiff
-          ? renderMessageDiffHtml(S.pendingRefineDiff.ops)
-          : renderMessageHtml(messageDisplaySource(m))
+        part
+          ? renderMessageHtml(part.source.slice(0, part.visibleEnd))
+          : S.pendingRefineDiff?.msgId && m.id === S.pendingRefineDiff.msgId && S.showEditorDiff
+            ? renderMessageDiffHtml(S.pendingRefineDiff.ops)
+            : renderMessageHtml(messageDisplaySource(m))
       }</div>`;
   const attachmentsHtml = renderUserAttachments(m.user_attachments);
   const workflowArtifactsHtml = _renderWorkflowArtifacts(m);
@@ -404,7 +413,7 @@ function _messageHtml(m, num, avatars) {
     : "";
   return `<div class="message ${m.role}${isProseRewriting ? " prose-rewriting" : ""}" data-msg-id="${m.id}">
         ${avatars ? speakerAvatarCell(m) : ""}<div class="msg-role">${esc(speakerLabel(m))} ${msgNumHtml(num)}${branchHtml}${rewritingHtml}</div>
-        ${inlineInspectorHtml(m)}${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${proposalsHtml}${toolbar}
+        ${inlineInspectorHtml(m)}${body}${advanceHtml}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${proposalsHtml}${toolbar}
       </div>`;
 }
 
@@ -465,6 +474,9 @@ export function renderMessages(forceBottom = false) {
         const start = Math.min(Math.max(S.renderWindowStart | 0, 0), msgs.length);
         if (start > 0) msgs = msgs.slice(start);
         renderedMsgs = msgs;
+        // Expression playback holds back group replies the reader has not reached.
+        const playback = activeExpressionPlayback();
+        const unrevealed = new Set(playback?.rows.slice(playback.rowIndex + 1).map((row) => row.id));
         // Reuse the bubbles whose markup did not change. A branch swipe or a
         // mid-stream repaint then rebuilds only the rows that actually differ,
         // instead of replaying the whole list's entrance animation and layout.
@@ -474,10 +486,11 @@ export function renderMessages(forceBottom = false) {
             ...(start === 0 ? sceneIntroEntries() : []),
             // An aborted turn can leave two id-less rows in the list (the pending user
             // message and the unpersisted reply), so they key by position, not by role.
-            ...msgs.map((m, i) => ({
-              key: m.id ? `m${m.id}` : `p${i}`,
-              html: _messageHtml(m, start + i + 1, avatars),
-            })),
+            ...msgs.flatMap((m, i) =>
+              unrevealed.has(m.id)
+                ? []
+                : [{ key: m.id ? `m${m.id}` : `p${i}`, html: _messageHtml(m, start + i + 1, avatars, playback) }],
+            ),
           ],
           "msg-swap",
         );
@@ -492,7 +505,7 @@ export function renderMessages(forceBottom = false) {
         for (const el of fresh) restoreBoxScrolls(el);
       }
       if (badgeEl) ct.appendChild(badgeEl);
-      if (streamingEl && !S.hideStreamingBox && !S.hideUntilBaked) {
+      if (streamingEl && !S.hideStreamingBox && !streamingHidden()) {
         syncStreamingAvatar(streamingEl, avatars);
         ct.appendChild(streamingEl);
       }

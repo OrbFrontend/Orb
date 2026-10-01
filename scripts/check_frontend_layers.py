@@ -55,6 +55,7 @@ LAYERS = {
     # A generation request's stop handshake and the rule for which saved reply
     # is its own. A leaf so the settlement rules can be tested without a DOM.
     "stream_settle.js": 0,
+    "expression_segments.js": 0,
     # The card-CSS policy: a tokenizer, an allowlist and the per-message scoper.
     # A leaf so it can be tested without a DOM, which is the whole point of it
     # being a string pass rather than a trip through the CSSOM.
@@ -98,6 +99,7 @@ LAYERS = {
     "inspector_section.js": 3,
     "audio_player.js": 3,
     "audio_transport.js": 3,
+    "expression_playback.js": 3,
     # L4 platform (workflow framework + document/editor primitives).
     "workflow_segmentation.js": 4,
     "workflow_text_effects.js": 4,

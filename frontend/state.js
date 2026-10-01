@@ -75,6 +75,8 @@ export const S = {
   streamCutoffIndex: null,
   streamOp: null, // the stoppable stream this tab is running (stream_settle.js)
   streamingContent: null,
+  expressionBuffering: false, // this turn holds replies for playback, from the first speaker with expressions on
+  expressionPlayback: null, // saved reply parts and the reader's current position
   pendingUserMsg: null,
   attachments: [],
   generationStep: null, // empty while waiting; null when idle
@@ -173,6 +175,11 @@ export function effectiveWorkflowEnabled(wid) {
   return globalOn && localOn;
 }
 
+/** The live reply stays out of the DOM until it is saved. */
+export function streamingHidden() {
+  return S.hideUntilBaked || S.expressionBuffering;
+}
+
 export function charactersView() {
   return S.allCharacters.length ? S.allCharacters : S.characters;
 }
@@ -234,6 +241,7 @@ const TOPICS = new Set([
   "attachments",
   "tabs",
   "cast",
+  "expression-playback",
 ]);
 
 const _subscribers = new Map(); // topic -> listeners

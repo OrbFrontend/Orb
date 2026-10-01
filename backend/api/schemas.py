@@ -52,6 +52,7 @@ class SettingsUpdate(BaseModel):
     document_audit_autopatch: bool | None = None
     document_audit_toggles: dict | None = None
     hide_streaming_until_baked: bool | None = None
+    expression_rendering: Literal["classic", "expression"] | None = None
     prevent_prompt_overrides: bool | None = None
     agent_same_as_writer: bool | None = None
     agent_endpoint_id: int | None = None

@@ -35,13 +35,9 @@ def voice_on(monkeypatch):
     """Classifier present, and answering so the draft drifts from the baseline."""
     monkeypatch.setattr(hooks, "local_feature_ready", lambda feature, settings: True)
 
-    async def classify(text: str) -> tuple[str, str]:
-        return ("second", "present") if text.startswith("You ") else ("third", "past")
-
     async def classify_chunks(text: str) -> list[tuple[str, str]]:
-        return [await classify(text)]
+        return [("second", "present") if text.startswith("You ") else ("third", "past")]
 
-    monkeypatch.setattr(voice, "classify_pov_tense", classify)
     monkeypatch.setattr(voice, "classify_pov_tense_chunks", classify_chunks)
 
 

@@ -28,6 +28,14 @@ import {
 import { _mergeWorkflowRejections } from "./chat_workflow.js";
 import { skipNoticeText } from "./decisions.js";
 import { patchHtml } from "./dom_reconcile.js";
+import {
+  beginExpressionPrewarm,
+  bufferExpressionReply,
+  cancelExpressionPlayback,
+  endExpressionPrewarm,
+  prewarmExpressionLabels,
+  startExpressionPlayback,
+} from "./expression_playback.js";
 import { generationStepLabel, WAITING_LABEL } from "./generation_status.js";
 import { restNotice, speakerAvatarCell, unansweredHint } from "./group_cast.js";
 import {
@@ -42,7 +50,7 @@ import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
 import { REASONING_PASSES, rememberBoxScrolls } from "./message_inspector.js";
 import { ensurePersonaPinned } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
-import { effectiveWorkflowEnabled, S } from "./state.js";
+import { effectiveWorkflowEnabled, S, streamingHidden } from "./state.js";
 import { refreshState } from "./state_panel.js";
 import { createStreamOperation, settledReply, streamAnchor } from "./stream_settle.js";
 import {
@@ -118,7 +126,7 @@ function streamingDisplaySource(content) {
 }
 
 function paintStreamingBody(text) {
-  if (previewFrozen()) return;
+  if (previewFrozen() || S.expressionBuffering) return;
   _paintPending = text;
   if (_paintFrame) return;
   _paintFrame = requestAnimationFrame(() => {
@@ -190,6 +198,7 @@ function smoothUpdateBody(el, newHtml, onComplete) {
 function finalizeStreamingDiv(lastMsg) {
   cancelStreamingPaint();
   followStreamingMessage(null);
+  if (S.expressionBuffering) return false;
   const body = S.streamingBodyEl;
   if (!body) return false;
   const div = body.closest(".message");
@@ -313,6 +322,10 @@ function settleRefineDiff(reply) {
   S.pendingRefineDiff = { original, ops: sentenceDiff(original, source(reply.content)), msgId: reply.id };
 }
 
+// Group replies that streamed visibly before a speaker with expressions began
+// holding the turn; playback starts after them.
+let _liveGroupReplies = 0;
+
 export async function afterStream(op, { settled = true } = {}) {
   cancelStreamingPaint();
   followStreamingMessage(null);
@@ -324,6 +337,8 @@ export async function afterStream(op, { settled = true } = {}) {
   const preservedContent = S.streamingContent;
   const pendingUserMsg = S.pendingUserMsg || null;
   const lastCompletedId = S.completedExchangeMessageIds.at(-1) ?? null;
+  const buffered = S.expressionBuffering;
+  endExpressionPrewarm();
   endStreamOperation(op);
   S.streamCutoffIndex = null;
   S.streamingContent = null;
@@ -333,6 +348,7 @@ export async function afterStream(op, { settled = true } = {}) {
 
   // The conversation this operation belonged to is gone from view.
   if (!S.activeConvId || S.activeConvId !== op.convId) {
+    S.expressionBuffering = false;
     S.streamingBodyEl = null;
     S.pendingRefineDiff = null;
     setStreaming(false);
@@ -415,7 +431,22 @@ export async function afterStream(op, { settled = true } = {}) {
     wasGroupExchange && !inFlightSpeaker ? S.messages.find((m) => m.id != null && m.id === lastCompletedId) : saved,
   );
 
+  // Install the buffer before any saved-message repaint can reveal its text.
+  if (buffered && synced && settled) {
+    const streamedLive = new Set(S.completedExchangeMessageIds.slice(0, _liveGroupReplies));
+    const replies = S.messages.filter(
+      (msg) =>
+        msg.role === "assistant" &&
+        msg.id &&
+        !op.anchor.knownIds.has(msg.id) &&
+        !streamedLive.has(msg.id) &&
+        (!wasGroupExchange || msg.exchange_id === groupExchangeId),
+    );
+    void startExpressionPlayback(replies);
+  }
+
   const finalized = !wasGroupExchange && !S.worldProposalArrived && !!saved && finalizeStreamingDiv(saved);
+  S.expressionBuffering = false;
   S.worldProposalArrived = false;
   S.streamingBodyEl = null;
 
@@ -508,10 +539,11 @@ export async function processSSEStream(resp, container, holder, signal) {
         const parsed = JSON.parse(data);
         S.currentExchangeId = parsed.exchange_id;
         S.currentSpeaker = parsed;
+        if (bufferExpressionReply(parsed.member_id)) _liveGroupReplies = S.completedExchangeMessageIds.length;
         resetSpeakerTurnState();
         setGenerationStep("");
         holder.el = createStreamingDiv(parsed.name, parsed.member_id);
-        if (!S.hideUntilBaked) container.appendChild(holder.el);
+        if (!streamingHidden()) container.appendChild(holder.el);
         onTurnStart();
         renderGroupCast();
         scrollToBottom();
@@ -533,11 +565,12 @@ export async function processSSEStream(resp, container, holder, signal) {
     const onToken = () => {
       if (firstToken) {
         firstToken = false;
-        if (holder.el && !holder.el.isConnected && !S.hideUntilBaked) container.appendChild(holder.el);
+        if (holder.el && !holder.el.isConnected && !streamingHidden()) container.appendChild(holder.el);
         if (S.streamingBodyEl) S.streamingBodyEl.innerHTML = "";
       }
       fullResponse += unescapeSSE(data);
       S.streamingContent = rewrittenResponse || fullResponse;
+      prewarmExpressionLabels(S.streamingContent, S.currentSpeaker?.member_id);
       if (S.streamingBodyEl) paintStreamingBody(previewResponse || rewrittenResponse || fullResponse);
       else scrollToBottom();
     };
@@ -548,8 +581,9 @@ export async function processSSEStream(resp, container, holder, signal) {
         rewrittenResponse = text;
         previewResponse = null;
         S.streamingContent = text;
+        prewarmExpressionLabels(text, S.currentSpeaker?.member_id);
       }
-      if (previewFrozen()) return;
+      if (previewFrozen() || S.expressionBuffering) return;
       cancelStreamingPaint(); // the rewrite replaces the body outright
       if (S.streamingBodyEl) {
         const html =
@@ -823,6 +857,10 @@ export async function runStreamRequest(
   body,
   { cutoffMsgId = null, beforeRender = null, anchorStream = false, afterDone = null } = {},
 ) {
+  cancelExpressionPlayback();
+  beginExpressionPrewarm();
+  _liveGroupReplies = 0;
+  if (!S.groupCast) bufferExpressionReply();
   S.consumedSpeakerId = body?.speaker_member_id || null;
   setStreaming(true);
   setGenerationStep("");
@@ -851,7 +889,7 @@ export async function runStreamRequest(
     S.completedExchangeMessageIds = [];
   } else {
     holder.el = createStreamingDiv();
-    if (!S.hideUntilBaked) ct.appendChild(holder.el);
+    if (!streamingHidden()) ct.appendChild(holder.el);
     if (cutoffMsgId != null || anchorStream) pinStreamingMessage(holder.el);
     else scrollToBottom();
   }

@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS settings (
     document_audit_autopatch INTEGER NOT NULL DEFAULT 0,
     document_audit_toggles TEXT NOT NULL DEFAULT '{"banned_phrases":true,"repetitive_openers":true,"repetitive_templates":true,"contrastive_negation":true}',
     hide_streaming_until_baked INTEGER NOT NULL DEFAULT 0,
+    expression_rendering TEXT NOT NULL DEFAULT 'classic',
     prevent_prompt_overrides INTEGER NOT NULL DEFAULT 0,
     agent_same_as_writer INTEGER NOT NULL DEFAULT 1,
     agent_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,

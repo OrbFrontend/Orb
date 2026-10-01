@@ -1268,3 +1268,6 @@
   object-fit: cover;
   display: block;
 }
+.expression-playback-control {
+  margin-top: 8px;
+}

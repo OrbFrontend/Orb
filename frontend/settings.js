@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { renderInspector, renderInspectorWorkflows, renderMessages } from "./chat.js";
+import { expressionPlaybackEnabled } from "./expression_playback.js";
 import { CLOSE_ICON } from "./icons.js";
 import { renderInteractiveFragments } from "./library_fragments.js";
 import { loadInspectorOpenStates } from "./message_inspector.js";
@@ -150,7 +151,7 @@ export function renderSettings() {
           <span class="tog-slider"></span>
         </label>
       </div>
-      <div class="tool-card-desc">Hide replies until completion.</div>
+      <div class="tool-card-desc" data-hide-until-baked-desc>Hide replies until completion.</div>
     </div>
     <div class="tool-card ${S.preventPromptOverrides ? "tool-on" : ""}">
       <div class="tool-card-header">
@@ -182,6 +183,8 @@ export function renderSettings() {
       </div>
       <div class="tool-card-desc">Show turn details above chatbox rather than in side panel.</div>
     </div>
+    ${divider("Expression Playback")}
+    <div id="expression-playback-settings" class="expression-settings"><div class="tool-card-desc">Loading…</div></div>
     ${divider("Local ML")}
     <div id="local-ml-section"><div class="tool-card-desc">Loading…</div></div>
     ${divider("Data")}
@@ -192,7 +195,18 @@ export function renderSettings() {
   `;
   $("cleanup-btn").addEventListener("click", showCleanupModal);
   wireSettingsToggles($("settings-form"));
+  syncHideUntilBakedCard();
   loadLocalMLSection();
+}
+
+// Expression-based rendering always holds replies from characters with
+// expressions; this choice still covers characters without them.
+function syncHideUntilBakedCard() {
+  const desc = $("settings-form")?.querySelector("[data-hide-until-baked-desc]");
+  if (!desc) return;
+  desc.textContent = expressionPlaybackEnabled()
+    ? "Hide replies until completion. Characters with expressions always wait for the finished reply."
+    : "Hide replies until completion.";
 }
 
 const SETTING_TOGGLES = {
@@ -211,6 +225,12 @@ function wireSettingsToggles(el) {
   el.addEventListener("change", (ev) => {
     const input = ev.target.closest("[data-setting-toggle]");
     if (input) SETTING_TOGGLES[input.dataset.settingToggle]?.(input.checked);
+    if (ev.target.matches("[data-expression-rendering]")) {
+      S.settings.expression_rendering = ev.target.value;
+      renderMessages(); // Classic ends any playback in progress
+      syncHideUntilBakedCard();
+      void persistSettings({ expression_rendering: ev.target.value });
+    }
   });
 }
 
@@ -238,6 +258,7 @@ const LOCAL_ML_MANAGED_ELSEWHERE = new Set([
   "spark_tts_reference",
   "speech_recognizer",
   "prose_rewriter",
+  "emotion_classifier",
 ]);
 
 const settingsFeatures = (features) =>
@@ -273,8 +294,12 @@ async function loadLocalMLSection() {
     st = await refreshLocalMlStatus(); // every feature: gates elsewhere read the ones not shown here
   } catch (_e) {
     el.innerHTML = '<div class="tool-card-desc">Could not load Local ML status.</div>';
+    const expressions = $("expression-playback-settings");
+    if (expressions)
+      expressions.innerHTML = '<div class="tool-card-desc">Could not load expression model status.</div>';
     return;
   }
+  renderExpressionPlaybackSettings(st);
   const shown = settingsFeatures(st.features);
   if (!st.deps_ok) {
     const names = Object.keys(shown)
@@ -290,6 +315,29 @@ async function loadLocalMLSection() {
     .map(([f, info]) => localMlCard(f, info))
     .join("");
   wireLocalMLSection(el);
+}
+
+function renderExpressionPlaybackSettings(st) {
+  const el = $("expression-playback-settings");
+  if (!el) return;
+  const info = st.features?.emotion_classifier;
+  const model = !st.deps_ok
+    ? `<div class="tool-card"><div class="tool-card-desc">Install local model support to enable expressions.</div><div class="tool-card-desc">${esc(st.install_cmd || "pip install -r requirements-ml.txt")}</div></div>`
+    : info
+      ? localMlCard("emotion_classifier", info)
+      : '<div class="tool-card-desc">Expression model unavailable.</div>';
+  // Rendering is an expressions setting: it only shows while they are on.
+  const rendering = localMlReady("emotion_classifier")
+    ? `<div class="field"><label for="expression-rendering">Text rendering</label>
+      <select id="expression-rendering" data-expression-rendering>
+        <option value="classic" ${S.settings.expression_rendering !== "expression" ? "selected" : ""}>Classic</option>
+        <option value="expression" ${S.settings.expression_rendering === "expression" ? "selected" : ""}>Expression-based</option>
+      </select>
+    </div>`
+    : "";
+  el.innerHTML = `${model}${rendering}`;
+  wireLocalMLSection(el);
+  syncHideUntilBakedCard();
 }
 
 function localMlCard(f, info) {

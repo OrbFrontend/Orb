@@ -104,6 +104,17 @@ input[type="range"]::-moz-range-track {
   margin-top: 8px;
 }
 
+/* The expression model card and its rendering field stack like endpoint
+   fields: one even gap between them, and the section ends on a card's margin. */
+.expression-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.expression-settings > .tool-card,
+.expression-settings > .field { margin-bottom: 0; }
+
 .ml-variants {
   margin-top: 8px;
   border-top: 1px solid var(--border);

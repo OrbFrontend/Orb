@@ -56,7 +56,6 @@ __all__ = [
     "aclassify",
     "aclassify_markup",
     "aclassify_pov",
-    "aclassify_pov_tense",
     "aclassify_pov_tense_chunks",
     "ascore",
     "available",
@@ -348,17 +347,15 @@ def pov_input(text: str) -> str:
     caller reads that as "ambiguous" and walks back to the previous message, which
     is the right answer for a turn that shows no narration.
     """
-    narration = remove_quoted_spans(text or "")
-    sentences = split_sentences(narration)
-    return " ".join(sentences[-_POV_SENTENCES:]).strip()[-_POV_MAX_CHARS:]
+    chunks = pov_chunks(text)
+    return chunks[0] if chunks else ""
 
 
 def pov_chunks(text: str) -> list[str]:
     """Every narration sentence of *text* in `pov_input`-sized windows, newest first.
 
     The model reads a few sentences at a time, so a whole-message question is asked
-    window by window. Windows are cut from the tail, so the first is exactly what
-    `pov_input` selects.
+    window by window. Windows are cut from the tail, and the first is `pov_input`.
     """
     sentences = split_sentences(remove_quoted_spans(text or ""))
     chunks = (
@@ -401,22 +398,17 @@ def tense_from_logits(logits: Sequence[float]) -> str:
     return _pov_tense_from_logits(logits)[1]
 
 
-def _classify_pov_tense_blocking(feature: str, text: str) -> tuple[str, str]:
-    """Both grid margins off ONE embed -- the head is a single forward pass, so
-    asking for the tense separately would pay for the model twice."""
-    shaped = pov_input(text)
-    if not shaped:
-        return "ambiguous", "ambiguous"
-    logits = _head_logits(feature, shaped, len(POV_ROWS) * _TENSE_COUNT)
-    return _pov_tense_from_logits(logits)
-
-
 def _classify_pov_tense_chunks_blocking(feature: str, text: str) -> list[tuple[str, str]]:
+    """Both grid margins of each window off ONE embed -- the head is a single
+    forward pass, so asking for the tense separately would pay for the model twice."""
     return [_pov_tense_from_logits(_head_logits(feature, chunk, len(POV_ROWS) * _TENSE_COUNT)) for chunk in pov_chunks(text)]
 
 
 def _classify_pov_blocking(feature: str, text: str) -> str:
-    return _classify_pov_tense_blocking(feature, text)[0]
+    shaped = pov_input(text)
+    if not shaped:
+        return "ambiguous"
+    return pov_from_logits(_head_logits(feature, shaped, len(POV_ROWS) * _TENSE_COUNT))
 
 
 async def aclassify_pov(text: str) -> str:
@@ -430,17 +422,6 @@ async def aclassify_pov(text: str) -> str:
     """
     async with _lock("pov_classifier"):
         return await asyncio.to_thread(_classify_pov_blocking, "pov_classifier", text)
-
-
-async def aclassify_pov_tense(text: str) -> tuple[str, str]:
-    """One message -> (POV_ROWS label, TENSE_COLS label). One model call.
-
-    The combined entry point for callers that want both margins of the grid;
-    `aclassify_pov` stays the single-label door image_gen's camera reads through.
-    Lazy-loads; serialized by the feature's lock; off the loop.
-    """
-    async with _lock("pov_classifier"):
-        return await asyncio.to_thread(_classify_pov_tense_blocking, "pov_classifier", text)
 
 
 async def aclassify_pov_tense_chunks(text: str) -> list[tuple[str, str]]:

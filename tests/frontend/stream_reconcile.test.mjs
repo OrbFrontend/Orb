@@ -11,11 +11,12 @@ try {
   const { JSDOM } = await import("jsdom");
   dom = new JSDOM(
     `<!doctype html><html><body>
-      <div id="chat-messages"></div>
+      <div id="chat-messages"></div><div id="char-list"></div>
       <button id="send-btn"></button><button id="stop-btn"></button>
       <div id="generation-status"><span class="gen-text"></span></div>
       <div id="inspector-content"></div><div id="inspector-workflow-content"></div>
       <div id="state-panel-content"></div>
+      <div id="avatar-popup" class="hidden"><img id="avatar-popup-image"></div>
     </body></html>`,
     { url: "https://orb.invalid/" },
   );
@@ -26,6 +27,7 @@ try {
 // The server the reconciliation reads back from.
 let saved = [];
 let offline = false;
+let classify = async () => "neutral";
 
 let stream = null;
 let settle = null;
@@ -41,9 +43,11 @@ if (dom) {
   w.Element.prototype.scrollIntoView = () => {};
   globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
   globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, options) => {
     if (offline) throw new Error("offline");
-    const body = String(url).endsWith("/messages") ? saved : {};
+    const body = String(url).endsWith("/messages") ? saved
+      : String(url).endsWith("/expressions") ? { labels: ["joy", "anger", "neutral"] }
+      : String(url).endsWith("/classify-emotion") ? { label: await classify(JSON.parse(options.body).text) } : {};
     return { ok: true, status: 200, json: async () => structuredClone(body), text: async () => "" };
   };
   stream = await import("../../frontend/chat_stream.js");
@@ -183,4 +187,216 @@ it("done and error are terminal, but speaker_done is not", async () => {
   }
   const response = new Response("event: speaker_done\ndata: {}\n\n");
   await assert.rejects(stream.processSSEStream(response, container, { el: null }), /ended before completion/);
+});
+
+it("Expression Playback keeps saved Editor prose buffered through settlement and reveals expression runs", async () => {
+  const playback = await import("../../frontend/expression_playback.js");
+  const { registerAction } = await import("../../frontend/workflow_api.js");
+  registerAction("expression-playback", "advance", playback.advanceExpressionPlayback);
+  const labels = ["joy", "joy", "anger"];
+  let release;
+  classify = () => new Promise((resolve) => { release = () => resolve(labels.shift()); });
+  S.settings.expression_rendering = "expression";
+  S.localMlFeatures.emotion_classifier = { present: true, enabled: true, deps_ok: true };
+  S.activeCharId = 7;
+  S.allCharacters = [{ id: 7, has_expressions: 1 }];
+  saved = [USER, { id: 19, role: "assistant", content: "Hello. Welcome! Leave.", parent_id: 1 }];
+  offline = false;
+  const op = stoppedRegeneration({ streamed: "Writer text.", preview: "Preview never saved." });
+  S.expressionBuffering = true;
+  await stream.afterStream(op);
+  assert.equal(bodyOf(19), "", "settlement must not flash the full saved text");
+  for (let i = 0; i < 3; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    release();
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(bodyOf(19), "Hello. Welcome!");
+  assert.equal(playback.expressionPlaybackCue().label, "joy");
+  assert.equal(S.messages.at(-1).content, "Hello. Welcome! Leave.", "storage and context retain the complete reply");
+  playback.handleExpressionPlaybackKey({ code: "Space", target: document.body, preventDefault() { this.prevented = true; } });
+  assert.equal(bodyOf(19), "Hello. Welcome! Leave.");
+  assert.equal(playback.expressionPlaybackCue().label, "anger");
+  assert.equal(document.querySelector('[data-wf-action="expression-playback:advance"]'), null);
+  playback.cancelExpressionPlayback();
+  S.settings.expression_rendering = "classic";
+});
+
+it("group playback follows the revealed speaker and respects typing, repeat keys and modals", async () => {
+  const playback = await import("../../frontend/expression_playback.js");
+  S.activeConvId = "group";
+  S.settings.expression_rendering = "expression";
+  S.localMlFeatures.emotion_classifier = { present: true, enabled: true, deps_ok: true };
+  S.groupCast = { members: [{ id: 1, character_card_id: 7 }, { id: 2, character_card_id: 8 }] };
+  S.allCharacters = [{ id: 7, has_expressions: 1 }, { id: 8, has_expressions: 1 }];
+  S.messages = [{ id: 21, role: "assistant", content: "Hello.", speaker_member_id: 1 }, { id: 22, role: "assistant", content: "Goodbye.", speaker_member_id: 2 }];
+  classify = async () => "joy";
+  await playback.startExpressionPlayback(S.messages);
+  assert.equal(playback.expressionPlaybackCue().charId, 7);
+  assert.equal(document.querySelector('[data-msg-id="22"]'), null);
+  const textarea = document.createElement("textarea");
+  const event = { code: "Space", target: textarea, preventDefault() { assert.fail("typing must not advance"); } };
+  playback.handleExpressionPlaybackKey(event);
+  playback.handleExpressionPlaybackKey({ ...event, target: document.body, repeat: true });
+  const modal = document.createElement("div");
+  modal.className = "modal-overlay";
+  document.body.appendChild(modal);
+  playback.handleExpressionPlaybackKey({ ...event, target: document.body });
+  modal.remove();
+  assert.equal(playback.expressionPlaybackCue().charId, 7);
+  document.getElementById("avatar-popup").classList.remove("hidden");
+  document.querySelector('[data-wf-action="expression-playback:advance"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(playback.expressionPlaybackCue().charId, 8);
+  assert.equal(bodyOf(22), "Goodbye.");
+  assert.equal(document.getElementById("avatar-popup-image").getAttribute("src"), "/api/characters/8/expressions/joy");
+  document.getElementById("avatar-popup").classList.add("hidden");
+  playback.cancelExpressionPlayback();
+  S.groupCast = null;
+  S.settings.expression_rendering = "classic";
+});
+
+it("sentences classified while the reply streams are not classified again at settlement", async () => {
+  const playback = await import("../../frontend/expression_playback.js");
+  S.activeConvId = "c1";
+  S.settings.expression_rendering = "expression";
+  S.localMlFeatures.emotion_classifier = { present: true, enabled: true, deps_ok: true };
+  S.activeCharId = 7;
+  S.allCharacters = [{ id: 7, has_expressions: 1 }];
+  const seen = [];
+  classify = async (text) => {
+    seen.push(text.trim());
+    return "joy";
+  };
+  playback.beginExpressionPrewarm();
+  assert.equal(playback.bufferExpressionReply(), true);
+  playback.prewarmExpressionLabels("Hello. Welcome! Le", undefined);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.deepEqual(seen, ["Hello.", "Welcome!"], "only settled sentences warm, never the growing tail");
+  S.expressionBuffering = false;
+  // The Editor rewrote the second sentence before the reply was saved.
+  S.messages = [{ id: 24, role: "assistant", content: "Hello. Welcome back! Leave." }];
+  await playback.startExpressionPlayback(S.messages);
+  assert.deepEqual(seen, ["Hello.", "Welcome!", "Welcome back!", "Leave."]);
+  assert.equal(playback.expressionPlaybackCue().label, "joy");
+  playback.cancelExpressionPlayback();
+  S.settings.expression_rendering = "classic";
+});
+
+it("expression playback holds a group turn only from the first speaker with expressions", async (t) => {
+  const playback = await import("../../frontend/expression_playback.js");
+  S.activeConvId = "group";
+  S.settings.expression_rendering = "expression";
+  S.localMlFeatures.emotion_classifier = { present: true, enabled: true, deps_ok: true };
+  S.hideUntilBaked = false;
+  S.contextSize = null;
+  S.groupCast = { members: [{ id: 1, character_card_id: 7 }, { id: 2, character_card_id: 8 }] };
+  S.allCharacters = [{ id: 7 }, { id: 8, has_expressions: 1 }];
+  S.messages = [structuredClone(USER)];
+  classify = async () => "joy";
+  const reply = (id, member, content) => ({ id, role: "assistant", content, parent_id: 1, speaker_member_id: member, exchange_id: "x" });
+  saved = [USER, reply(31, 1, "Plain first."), reply(32, 2, "Expressive."), reply(33, 1, "Plain after.")];
+  offline = false;
+  const encoder = new TextEncoder();
+  let sse;
+  const body = new ReadableStream({ start: (controller) => (sse = controller) });
+  const send = (event, data) => sse.enqueue(encoder.encode(`event: ${event}\ndata: ${typeof data === "string" ? data : JSON.stringify(data)}\n\n`));
+  const fetch = globalThis.fetch;
+  t.mock.method(globalThis, "fetch", async (url, options) =>
+    String(url).endsWith("/send") ? new Response(body)
+      : String(url).endsWith("/context-size") ? Response.json({ total_tokens_est: 0, breakdown: {} })
+      : fetch(url, options));
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
+  const streaming = () => document.querySelector("#chat-messages .message:not([data-msg-id])");
+
+  const run = stream.runStreamRequest("/conversations/group/send", {});
+  send("speaker_start", { exchange_id: "x", member_id: 1, name: "Plain" });
+  send("token", "Plain first.");
+  await tick();
+  assert.equal(S.expressionBuffering, false, "a speaker without expressions streams");
+  assert.match(streaming()?.textContent || "", /Plain first\./);
+  send("speaker_done", { message_id: 31 });
+  send("speaker_start", { exchange_id: "x", member_id: 2, name: "Expressive" });
+  send("token", "Expressive.");
+  await tick();
+  assert.equal(S.expressionBuffering, true);
+  assert.equal(streaming(), null, "a speaker with expressions is held");
+  send("speaker_done", { message_id: 32 });
+  send("speaker_start", { exchange_id: "x", member_id: 1, name: "Plain" });
+  send("token", "Plain after.");
+  await tick();
+  assert.equal(streaming(), null, "later speakers wait so replies reveal in order");
+  send("speaker_done", { message_id: 33 });
+  send("done", "{}");
+  sse.close();
+  await run;
+  await tick();
+
+  assert.deepEqual(S.expressionPlayback.rows.map((row) => row.id), [32, 33]);
+  assert.equal(bodyOf(31), "Plain first.");
+  assert.equal(bodyOf(32), "Expressive.");
+  assert.equal(document.querySelector('[data-msg-id="33"]'), null);
+  playback.cancelExpressionPlayback();
+  S.groupCast = null;
+  S.settings.expression_rendering = "classic";
+});
+
+it("late expression classification cannot restore playback after a conversation switch", async () => {
+  const playback = await import("../../frontend/expression_playback.js");
+  S.activeConvId = "c1";
+  S.settings.expression_rendering = "expression";
+  S.activeCharId = 7;
+  S.allCharacters = [{ id: 7, has_expressions: 1 }];
+  S.messages = [{ id: 23, role: "assistant", content: "Hello. Goodbye." }];
+  let release;
+  classify = () => new Promise((resolve) => { release = resolve; });
+  const loading = playback.startExpressionPlayback(S.messages);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  S.activeConvId = "c2";
+  release("joy");
+  await loading;
+  assert.equal(S.expressionPlayback, null);
+  S.settings.expression_rendering = "classic";
+});
+
+it("settings keep the expression model beside its rendering mode and save the selected mode", async () => {
+  const { renderSettings } = await import("../../frontend/settings.js");
+  const form = document.createElement("div");
+  form.id = "settings-form";
+  document.body.appendChild(form);
+  const originalFetch = globalThis.fetch;
+  const info = { present: false, enabled: false, deps_ok: true, size_mb: 50 };
+  S.localMlFeatures = { emotion_classifier: info };
+  S.settings = { expression_rendering: "classic" };
+  globalThis.fetch = async (url, options) => {
+    const result = String(url).endsWith("/local-ml/status")
+      ? { deps_ok: true, features: { emotion_classifier: info } }
+      : { ...S.settings, ...JSON.parse(options.body) };
+    return { ok: true, json: async () => result };
+  };
+  try {
+    renderSettings();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.ok(form.querySelector('#expression-playback-settings [data-ml-feature="emotion_classifier"][data-ml-act="download"]'));
+    assert.equal(form.querySelector('#local-ml-section [data-ml-feature="emotion_classifier"]'), null);
+    assert.equal(form.querySelector("[data-expression-rendering]").disabled, true);
+    info.present = true;
+    info.enabled = true;
+    renderSettings();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const select = form.querySelector("[data-expression-rendering]");
+    assert.equal(select.disabled, false);
+    select.value = "expression";
+    select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(S.settings.expression_rendering, "expression");
+    // Characters without expressions still stream, so the choice stays the reader's.
+    const baked = form.querySelector('[data-setting-toggle="hideUntilBaked"]');
+    assert.equal(baked.disabled, false);
+    assert.equal(baked.checked, S.hideUntilBaked);
+  } finally {
+    globalThis.fetch = originalFetch;
+    S.settings.expression_rendering = "classic";
+    form.remove();
+  }
 });
