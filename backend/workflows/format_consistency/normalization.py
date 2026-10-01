@@ -183,6 +183,16 @@ def _governing_dialogue(src: AxisStyle, target: AxisStyle) -> Dialogue:
         return Dialogue.QUOTED
     if target.dialogue == Dialogue.QUOTED and target.narration == Narration.ASTERISK and src.narration == Narration.ASTERISK:
         return Dialogue.QUOTED
+    # A draft with no speech but a positive bare-narration reading is all narration
+    # in a chat that quotes its dialogue. Unknown narration may be plain unmarked
+    # speech, which TTS reads the same way, so it stays unwrapped.
+    if (
+        target.dialogue == Dialogue.QUOTED
+        and target.narration == Narration.ASTERISK
+        and src.dialogue == Dialogue.UNKNOWN
+        and src.narration == Narration.BARE
+    ):
+        return Dialogue.QUOTED
     return src.dialogue
 
 

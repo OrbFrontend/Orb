@@ -37,8 +37,8 @@ logger = logging.getLogger(__name__)
 
 BASELINE_WINDOW = 3
 
-# Keep the voice rewrite on a short, constant-prefix lane: it only needs the draft,
-# and must not undo the Editor's length guard.
+# Keep the voice rewrite on a short, constant-prefix lane: it needs the draft and
+# one in-voice reference, and must not undo the Editor's length guard.
 _SYSTEM = (
     "You are a copy editor. You restate a passage of prose in a different narrative "
     "voice and change nothing else.\n\n"
@@ -59,9 +59,17 @@ _SYSTEM = (
 # Name the argument, not the function: a schema-less lane (text mode, structured
 # output) never shows the tool, and "call `voice_rewrite`" there invites the model
 # to write the call syntax into the passage itself.
-_INSTRUCTION = (
-    "Restate the passage below and return the result as `rewritten_text`.\n\nREQUIRED VOICE:\n{voice}\n\nPASSAGE:\n{draft}"
+_INSTRUCTION = "Restate the passage below and return the result as `rewritten_text`.\n\nREQUIRED VOICE:\n{voice}\n\n"
+# The draft alone cannot say who "you" is: a reply that narrates the user's
+# character as "he" reads as already satisfying "the person addressed stays you",
+# and a bare "becomes you" swaps in the wrong party. Card and persona names cannot
+# say it either ("Pokemon Simulator", "Narrator"), so the rewrite is shown the
+# newest reply already in the target voice.
+_REFERENCE = (
+    "REFERENCE (an earlier passage of the same story, already in the required voice; "
+    'the same people are "you" and "he", "she" or "they" as here):\n{reference}\n\n'
 )
+_PASSAGE = "PASSAGE:\n{draft}"
 
 
 def _baseline_window(history) -> list[Mapping[str, Any]]:
@@ -84,18 +92,17 @@ async def _voice_enabled(ctx) -> bool:
     return normalize_config(await get_workflow_config(WORKFLOW_ID))["voice_consistency"]
 
 
-async def _voice_rewrite(ctx, text: str, phrases: list[str]) -> str:
+async def _voice_rewrite(ctx, text: str, phrases: list[str], reference: str = "") -> str:
     """Restate *text* on a self-contained voice-rewrite lane."""
+    instruction = _INSTRUCTION.format(voice="\n".join(f"- {p}" for p in phrases))
+    if reference:
+        instruction += _REFERENCE.format(reference=reference)
+    instruction += _PASSAGE.format(draft=text)
     args: dict = {}
     async for event in forced_tool_call(
         client=ctx.agent_client or ctx.client,
         prefix=[{"role": "system", "content": _SYSTEM}],
-        tail_messages=[
-            {
-                "role": "user",
-                "content": _INSTRUCTION.format(voice="\n".join(f"- {p}" for p in phrases), draft=text),
-            }
-        ],
+        tail_messages=[{"role": "user", "content": instruction}],
         tool_name=VOICE_REWRITE_TOOL_NAME,
         settings=ctx.settings,
         model_name=ctx.agent_model_name or None,
@@ -126,6 +133,10 @@ async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]], styles: l
     baseline = target(window_labels)
     if baseline == UNKNOWN_LABELS:
         return text
+    reference = next(
+        (msg.get("content", "") for msg, labels in zip(window, window_labels, strict=True) if labels == baseline),
+        "",
+    )
     style = await markup_axes(text, ctx.settings)
     source = await read(text, style)
     if source is None:
@@ -139,7 +150,7 @@ async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]], styles: l
         baseline,
         ", ".join(phrases),
     )
-    rewritten = await _voice_rewrite(ctx, text, phrases)
+    rewritten = await _voice_rewrite(ctx, text, phrases, reference)
     if not rewritten:
         return text
     healed = unwrap(text, rewritten)

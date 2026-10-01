@@ -103,8 +103,9 @@ shares nothing with the turn: its own short prefix, and `enabled_tools=None` so
 against the turn's blob without being in it.
 
 The second option is usually cheaper when the call is closed over its explicit
-input. `format_consistency`'s voice rewrite restates one draft and does not need
-the conversation; sending the history would only add prompt cost. Servers can
+input. `format_consistency`'s voice rewrite restates one draft against the newest
+reply already in the target voice and does not need the rest of the conversation;
+sending the history would only add prompt cost. Servers can
 retain multiple cached sequences, so this short lane can coexist with the
 conversation lane.
 

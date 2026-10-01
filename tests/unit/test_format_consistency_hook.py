@@ -277,7 +277,9 @@ async def test_the_rewrite_is_a_self_contained_lane(monkeypatch):
     [tail] = call["tail_messages"]
     assert tail["role"] == "user"
     assert VOICE_DRIFTING_DRAFT in tail["content"]
-    assert QUOTED_BASELINE not in tail["content"]
+    # The newest in-voice reply is the one reference, ahead of the passage.
+    assert tail["content"].count(QUOTED_BASELINE) == 1
+    assert tail["content"].index(QUOTED_BASELINE) < tail["content"].index(VOICE_DRIFTING_DRAFT)
     assert ctx.effective_msg not in tail["content"]
 
 

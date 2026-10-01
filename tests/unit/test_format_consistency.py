@@ -261,6 +261,26 @@ def test_quoteless_full_markup_draft_wraps_bare_paragraph_in_asterisks_not_quote
     assert "*The librarian tilted her head, her blue eyes scanning the titles.*" in new
 
 
+def test_a_narration_only_draft_is_wrapped_but_unmarked_speech_is_not():
+    """No speech plus a bare-narration reading is all narration in a quoting chat.
+    Unknown narration may be plain speech, which TTS reads the same way."""
+    draft = (
+        "The room settles into a heavy silence, broken only by the hum of the TV.\n\n"
+        "She rolls onto her back, one arm flung up against the headboard."
+    )
+    assert classify_axes(draft) == AxisStyle(Dialogue.UNKNOWN, Narration.BARE)
+    new, rep = normalize_to_baseline(draft, FULL_MARKUP_BASELINE, enabled=True)
+    assert rep.changed
+    assert new == (
+        "*The room settles into a heavy silence, broken only by the hum of the TV.*\n\n"
+        "*She rolls onto her back, one arm flung up against the headboard.*"
+    )
+
+    speech = AxisStyle(Dialogue.UNKNOWN, Narration.UNKNOWN)
+    greeting = "Hey, you made it. Come in before the rain starts."
+    assert normalize_to_baseline(greeting, FULL_MARKUP_BASELINE, enabled=True, source=speech)[0] == greeting
+
+
 def test_genuine_asterisk_convention_draft_is_not_misread_as_full_markup():
     base = [
         "*She smiles, stepping back.* Hello there.",

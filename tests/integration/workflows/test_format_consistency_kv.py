@@ -104,7 +104,9 @@ async def test_voice_rewrite_carries_no_conversation(client, llm_mock, voice_on)
     assert len(rewrite["messages"]) == 2
     assert [m["role"] for m in rewrite["messages"]] == ["system", "user"]
     assert DRIFTING_DRAFT in rewrite["messages"][1]["content"]
-    assert BASELINE not in _wire(rewrite["messages"])
+    # The newest in-voice reply is the one reference; the turn itself is not sent.
+    assert _wire(rewrite["messages"]).count(BASELINE) == 1
+    assert "and then?" not in _wire(rewrite["messages"])
 
     assert len(_wire(rewrite["messages"])) < len(_wire(director["messages"]))
 
@@ -127,7 +129,7 @@ async def test_voice_off_leaves_the_turn_untouched(client, llm_mock, voice_on):
 
 
 async def test_the_rewrite_prompt_does_not_grow_with_history(client, llm_mock, voice_on):
-    """The rewrite prompt stays constant as conversation history grows."""
+    """The rewrite prompt does not grow with history: only its reference moves."""
     cid = await _seed(client)
 
     def _queue_turn() -> None:
@@ -160,5 +162,7 @@ async def test_the_rewrite_prompt_does_not_grow_with_history(client, llm_mock, v
     first, second = rewrites
     directors = [c for c in llm_mock.captured if c["pass"] == "director"]
     assert len(_wire(directors[1]["messages"])) > len(_wire(directors[0]["messages"]))
-    assert _wire(second["messages"]) == _wire(first["messages"])
+    assert _wire(second["messages"][0]) == _wire(first["messages"][0])
+    # Turn one's repaired reply is now the newest in-voice row and replaces the greeting.
+    assert second["messages"][1]["content"] == first["messages"][1]["content"].replace(BASELINE, REWRITTEN)
     assert _wire(second["tools"]) == _wire(first["tools"])
