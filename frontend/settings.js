@@ -184,7 +184,7 @@ export function renderSettings() {
       <div class="tool-card-desc">Show turn details above chatbox rather than in side panel.</div>
     </div>
     ${divider("Expression Playback")}
-    <div id="expression-playback-settings"><div class="tool-card-desc">Loading…</div></div>
+    <div id="expression-playback-settings" class="expression-settings"><div class="tool-card-desc">Loading…</div></div>
     ${divider("Local ML")}
     <div id="local-ml-section"><div class="tool-card-desc">Loading…</div></div>
     ${divider("Data")}
@@ -332,7 +332,6 @@ function renderExpressionPlaybackSettings(st) {
         <option value="classic" ${S.settings.expression_rendering !== "expression" ? "selected" : ""}>Classic</option>
         <option value="expression" ${S.settings.expression_rendering === "expression" ? "selected" : ""}>Expression-based</option>
       </select>
-      <div class="tool-card-desc">Classic streams as usual. Expression-based buffers replies; click Next or press Space when the expression changes.</div>
     </div>`;
   wireLocalMLSection(el);
   syncHideUntilBakedCard();

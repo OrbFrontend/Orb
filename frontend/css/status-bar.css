@@ -5,7 +5,6 @@
   justify-content: center;
   gap: 8px;
   height: 34px;
-  margin-inline: 12px;
   padding-inline: 12px;
   background: var(--bg-primary);
   border-top: 1px solid var(--border);
