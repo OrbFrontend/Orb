@@ -182,6 +182,8 @@ export function renderSettings() {
       </div>
       <div class="tool-card-desc">Show turn details above chatbox rather than in side panel.</div>
     </div>
+    ${divider("Expression Playback")}
+    <div id="expression-playback-settings"><div class="tool-card-desc">Loading…</div></div>
     ${divider("Local ML")}
     <div id="local-ml-section"><div class="tool-card-desc">Loading…</div></div>
     ${divider("Data")}
@@ -211,6 +213,11 @@ function wireSettingsToggles(el) {
   el.addEventListener("change", (ev) => {
     const input = ev.target.closest("[data-setting-toggle]");
     if (input) SETTING_TOGGLES[input.dataset.settingToggle]?.(input.checked);
+    if (ev.target.matches("[data-expression-rendering]")) {
+      S.settings.expression_rendering = ev.target.value;
+      renderMessages(); // Classic ends any playback in progress
+      void persistSettings({ expression_rendering: ev.target.value });
+    }
   });
 }
 
@@ -238,6 +245,7 @@ const LOCAL_ML_MANAGED_ELSEWHERE = new Set([
   "spark_tts_reference",
   "speech_recognizer",
   "prose_rewriter",
+  "emotion_classifier",
 ]);
 
 const settingsFeatures = (features) =>
@@ -273,8 +281,12 @@ async function loadLocalMLSection() {
     st = await refreshLocalMlStatus(); // every feature: gates elsewhere read the ones not shown here
   } catch (_e) {
     el.innerHTML = '<div class="tool-card-desc">Could not load Local ML status.</div>';
+    const expressions = $("expression-playback-settings");
+    if (expressions)
+      expressions.innerHTML = '<div class="tool-card-desc">Could not load expression model status.</div>';
     return;
   }
+  renderExpressionPlaybackSettings(st);
   const shown = settingsFeatures(st.features);
   if (!st.deps_ok) {
     const names = Object.keys(shown)
@@ -289,6 +301,26 @@ async function loadLocalMLSection() {
   el.innerHTML = Object.entries(shown)
     .map(([f, info]) => localMlCard(f, info))
     .join("");
+  wireLocalMLSection(el);
+}
+
+function renderExpressionPlaybackSettings(st) {
+  const el = $("expression-playback-settings");
+  if (!el) return;
+  const info = st.features?.emotion_classifier;
+  const model = !st.deps_ok
+    ? `<div class="tool-card"><div class="tool-card-desc">Install local model support to enable expressions.</div><div class="tool-card-desc">${esc(st.install_cmd || "pip install -r requirements-ml.txt")}</div></div>`
+    : info
+      ? localMlCard("emotion_classifier", info)
+      : '<div class="tool-card-desc">Expression model unavailable.</div>';
+  el.innerHTML = `${model}
+    <div class="field"><label for="expression-rendering">Text rendering</label>
+      <select id="expression-rendering" data-expression-rendering ${localMlReady("emotion_classifier") ? "" : "disabled"}>
+        <option value="classic" ${S.settings.expression_rendering !== "expression" ? "selected" : ""}>Classic</option>
+        <option value="expression" ${S.settings.expression_rendering === "expression" ? "selected" : ""}>Expression-based</option>
+      </select>
+      <div class="tool-card-desc">Classic streams as usual. Expression-based buffers replies; click Next or press Space when the expression changes.</div>
+    </div>`;
   wireLocalMLSection(el);
 }
 

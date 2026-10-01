@@ -327,6 +327,7 @@ DEFAULT_SETTINGS = {
         "contrastive_negation": True,
     },
     "hide_streaming_until_baked": 0,
+    "expression_rendering": "classic",
     "prevent_prompt_overrides": 0,
     "agent_same_as_writer": True,
     "agent_shared_system_prompt": "",

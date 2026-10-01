@@ -16,6 +16,14 @@ async def test_get_settings_returns_defaults(client, db):
     assert "model_name" in data
     assert "temperature" in data
     assert isinstance(data["enabled_tools"], dict)
+    assert data["expression_rendering"] == "classic"
+
+
+async def test_expression_rendering_preference(client, db):
+    response = await client.put("/api/settings", json={"expression_rendering": "expression"})
+    assert response.status_code == 200
+    assert (await client.get("/api/settings")).json()["expression_rendering"] == "expression"
+    assert (await client.put("/api/settings", json={"expression_rendering": "invalid"})).status_code == 422
 
 
 async def test_update_settings_persists_to_db(client, db):

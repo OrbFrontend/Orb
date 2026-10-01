@@ -49,6 +49,14 @@ controls and animations alive while text grows. Incomplete tags and style blocks
 are held until complete; structural markup changes can still cause layout shifts.
 Finalisation and editor rewrites render the authoritative complete body.
 
+Expression Playback's optional expression-based rendering buffers turn text
+instead of painting tokens or cosmetic rewrites. After the normal settlement
+refetch, the frontend classifies sentence chunks of the saved replies and reveals
+consecutive runs of the same resolved expression on click/Space. Group replies
+share one ordered playback buffer. This display state never changes stored
+message content or the SSE contract; classification failure reveals the full
+saved text. Classic rendering retains the live paint path.
+
 The status bar describes the step that is running. `director_start` and
 `step_start` mark where each core step begins, and while the turn streams a
 workflow hook's `phase_status` label describes its own step. The text holds

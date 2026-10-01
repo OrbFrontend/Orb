@@ -92,6 +92,7 @@ class _SettingsBase(TypedDict):
     document_audit_autopatch: int
     document_audit_toggles: dict  # decoded by get_settings(); doc-applicable scanner subset only
     hide_streaming_until_baked: int
+    expression_rendering: str
     prevent_prompt_overrides: int
     agent_same_as_writer: bool
     agent_shared_system_prompt: str

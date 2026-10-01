@@ -303,6 +303,7 @@ async def update_settings(data: dict) -> SettingsRow:
             "document_audit_autopatch",
             "document_audit_toggles",
             "hide_streaming_until_baked",
+            "expression_rendering",
             "prevent_prompt_overrides",
             "agent_same_as_writer",
             "agent_endpoint_id",

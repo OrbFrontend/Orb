@@ -73,6 +73,7 @@ import {
   setDocProbs,
   toggleDocumentMode,
 } from "./document.js";
+import { advanceExpressionPlayback, handleExpressionPlaybackKey } from "./expression_playback.js";
 import { initGroupSetup } from "./group_setup.js";
 import {
   addAltGreeting,
@@ -193,6 +194,7 @@ import { scoreSlop } from "./slop_score.js";
 import { S } from "./state.js";
 import { initTabLock } from "./tabLock.js";
 import { $, fromMessageBody } from "./utils.js";
+import { registerAction } from "./workflow_api.js";
 import { loadWorkflowModules, preloadWorkflowModules } from "./workflow_loader.js";
 import { initWorkflowTextInteraction } from "./workflow_text_interaction.js";
 
@@ -442,6 +444,8 @@ initThemeList();
 initMessageHtmlActions();
 initComposer();
 initChatKeyNav();
+registerAction("expression-playback", "advance", advanceExpressionPlayback);
+document.addEventListener("keydown", handleExpressionPlaybackKey);
 initAutoscroll();
 initChatSwipeNav();
 initWorkflowTextInteraction();

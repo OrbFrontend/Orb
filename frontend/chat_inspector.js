@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import { renderContextSize, renderMessages } from "./chat_core.js";
 import { currentDecisionsHtml } from "./chat_decisions.js";
+import { expressionLabels, expressionPlaybackCue } from "./expression_playback.js";
 import { syncGenerationStatusMarquee } from "./generation_status.js";
 import { sectionHtml } from "./inspector_section.js";
 import { avatarBustQuery } from "./library_sidebar.js";
@@ -20,7 +21,7 @@ import {
 } from "./message_inspector.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { preserveScroll } from "./scroll_follow.js";
-import { effectiveWorkflowEnabled, restingCooldowns, S } from "./state.js";
+import { effectiveWorkflowEnabled, restingCooldowns, S, subscribe } from "./state.js";
 import { renderStatePanel } from "./state_panel.js";
 import { $, convUrl, esc, escAttr, escHandlerArg, sentenceTail } from "./utils.js";
 
@@ -498,6 +499,8 @@ let _exprTimer = null;
 let _exprLastCallAt = 0;
 
 export function expressionCharId() {
+  const cue = expressionPlaybackCue();
+  if (cue?.charId) return cue.charId;
   if (!S.groupCast) return S.activeCharId;
   if (S.currentSpeaker?.card_id) return S.currentSpeaker.card_id;
   const lastSpoken = [...S.messages].reverse().find((m) => m.role === "assistant" && m.speaker_member_id);
@@ -507,22 +510,13 @@ export function expressionCharId() {
   );
 }
 
-async function _expressionLabels(charId) {
-  if (!(S.characters || []).find((c) => c.id === charId)?.has_expressions) return [];
-  try {
-    return (await api.get(`/characters/${charId}/expressions`)).labels || [];
-  } catch {
-    return [];
-  }
-}
-
 async function _bindExpressionChar(img, charId) {
   img._exprCharId = charId;
   img._exprSrc = null;
   img._exprText = null;
   img._exprFullLen = 0;
   _exprLastCallAt = 0;
-  const labels = await _expressionLabels(charId);
+  const labels = await expressionLabels(charId);
   if (img._exprCharId !== charId || document.getElementById("avatar-popup")?.classList.contains("hidden")) return;
   img._exprLabels = labels;
   const neutral = labels.includes("neutral") ? `/api/characters/${charId}/expressions/neutral` : null;
@@ -532,11 +526,22 @@ async function _bindExpressionChar(img, charId) {
 
 async function _expressionTick() {
   const img = document.getElementById("avatar-popup-image");
-  if (!img) return;
+  if (!img || S.expressionBuffering || document.getElementById("avatar-popup")?.classList.contains("hidden")) return;
   const charId = expressionCharId();
   if (!charId) return;
   if (charId !== img._exprCharId) {
     await _bindExpressionChar(img, charId);
+    if (charId !== img._exprCharId) return;
+  }
+  const cue = expressionPlaybackCue();
+  if (cue) {
+    const next = cue.label
+      ? `/api/characters/${charId}/expressions/${cue.label}`
+      : `/api/characters/${charId}/avatar${avatarBustQuery(charId)}`;
+    if (img._exprSrc !== next) {
+      img._exprSrc = next;
+      img.src = next;
+    }
     return;
   }
   if (!img._exprLabels?.length) return;
@@ -560,6 +565,7 @@ async function _expressionTick() {
   img._exprFullLen = full.length;
   _exprLastCallAt = now;
   let label;
+  const convId = S.activeConvId;
   try {
     ({ label } = await api.post("/local-ml/classify-emotion", { text }));
   } catch (_e) {
@@ -567,6 +573,8 @@ async function _expressionTick() {
     _exprTimer = null;
     return;
   }
+  if (convId !== S.activeConvId || img._exprCharId !== charId || expressionPlaybackCue() || S.expressionBuffering)
+    return;
   const labels = img._exprLabels || [];
   const resolved = labels.includes(label) ? label : labels.includes("neutral") ? "neutral" : null;
   if (!resolved) {
@@ -579,6 +587,8 @@ async function _expressionTick() {
     img.src = next;
   }
 }
+
+subscribe("expression-playback", () => void _expressionTick());
 
 export async function showAvatarPopup() {
   const charId = expressionCharId();
