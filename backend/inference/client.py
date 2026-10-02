@@ -462,12 +462,17 @@ class LLMClient:
         yielded -- once the stream emits content, re-issuing would double it, and
         both transports raise before their first event (HTTP status check /
         connect), so "produced is still False" is exactly the clean-retry window.
+
+        Race the whole attempt against Stop, including connection setup,
+        response headers, error bodies and text-mode template preparation.
+        Racing only SSE reads leaves those silent waits uninterruptible. The
+        caller keeps deltas already yielded; a cut-short call has no result.
         """
         attempt = 0
-        while True:
+        while not self.is_aborted:
             produced = False
             try:
-                async for event in open_stream():
+                async for event in until_aborted(open_stream(), self.abort_token):
                     produced = True
                     yield event
                 return
@@ -858,6 +863,8 @@ class LLMClient:
                     )
                 except BaseException:
                     line_task.cancel()
+                    with contextlib.suppress(BaseException):
+                        await line_task
                     raise
 
                 if abort_wait in done:

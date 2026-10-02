@@ -178,6 +178,12 @@ backend stops upstream generation and persists any prose it has already
 received. A per-conversation stream lock prevents two generations from running
 at once.
 
+Stop interrupts the whole model-call attempt, including connection setup,
+waiting for response headers or an error body, and text-mode template
+preparation. The pending step is cancelled and awaited, and its generator is
+closed before the turn continues to persistence. Deltas already handed to the
+turn remain; an interrupted call returns no assembled message or tool call.
+
 Stop does not drop the connection. The browser posts `/stop` and keeps reading:
 
 ```text
@@ -210,6 +216,10 @@ settlement retry leaves the reply unconfirmed. EOF without
 `done` or `error` is also a disconnect, so a truncated stream cannot claim that
 the server finished saving. Its received prose stays visible without an id if
 the refetch cannot confirm it.
+
+When the stream completes normally, the browser cancels any pending `/stop`
+request and reconciles immediately: the completed stream already confirms
+persistence, so its HTTP response must not hold Send disabled until the deadline.
 
 When the client goes away, the request is cancelled but the turn is not. The
 turn still finishes stopping: the stream runs its generator to the end with

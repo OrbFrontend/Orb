@@ -150,14 +150,13 @@ async def test_transport_error_is_retried():
     assert events[-1] == done
 
 
-async def test_aborted_client_does_not_retry():
+async def test_aborted_client_does_not_start_a_request():
     token = AbortToken()
     token.abort()
     client = LLMClient("http://x/v1", abort_token=token, retry=RetryPolicy(count=5, delay=0))
     calls = _chat_script(client, [_status_error(503)])
-    with pytest.raises(httpx.HTTPStatusError):
-        await _drain(client.complete([], "m"))
-    assert calls["n"] == 1  # is_aborted short-circuits the retry decision
+    assert await _drain(client.complete([], "m")) == []
+    assert calls["n"] == 0
 
 
 async def test_abort_during_delay_stops_retry():

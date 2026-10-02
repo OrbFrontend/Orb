@@ -15,6 +15,7 @@ import httpx
 import pytest
 
 import backend.database as dbmod
+from backend.inference import AbortToken
 from backend.pipeline import handle_turn
 from backend.pipeline.persistence import _consume_pipeline
 from backend.pipeline.state import TurnState
@@ -175,6 +176,27 @@ async def test_a_writer_dropping_mid_stream_keeps_the_director_record(client, ll
     assert reply["content"] == "Her voice was"
     log = await _assert_director_record_kept(client, cid, reply)
     assert log["reasoning_writer"] == "Keep it short."
+
+
+async def test_stop_during_the_director_saves_no_reply_or_turn_effects(client, llm_mock):
+    cid = "conv-retention-director-stop"
+    await _directed_turn_setup(client, llm_mock, cid)
+    token = AbortToken()
+    llm_mock.abort_token = token  # The shared test client bypasses constructor token wiring.
+    events = []
+
+    async for event in handle_turn(cid, "hello", abort_token=token):
+        events.append(event)
+        if event["event"] == "reasoning" and event["data"]["pass"] == "director":
+            token.abort()
+
+    assert token.is_aborted, "the test did not reach the running Director call"
+    assert events[-1]["event"] == "done"
+    assert not any(event["event"] in {"token", "error"} for event in events)
+    assert not any(name == "writer" for name, _ in llm_mock.calls)
+    assert [message["role"] for message in await dbmod.get_messages(cid)] == ["user"]
+    assert await dbmod.get_conversation_logs(cid) == []
+    assert (await dbmod.get_director_state(cid))["active_moods"] == []
 
 
 async def test_a_failure_before_any_reply_text_saves_nothing(client, llm_mock):

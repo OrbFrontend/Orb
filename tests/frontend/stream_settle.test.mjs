@@ -108,11 +108,11 @@ test("hung stop requests abort their fetches and leave settlement unconfirmed", 
   assert.equal(signals[1].aborted, true);
 });
 
-test("a completed stream can settle even when its pending stop never answers", { timeout: 1000 }, async () => {
+test("a completed stream immediately cancels its pending stop instead of waiting for its deadline", { timeout: 1000 }, async () => {
   let stopSignal;
   const op = createStreamOperation({
     convId: "c1",
-    stopTimeoutMs: 5,
+    stopTimeoutMs: 60000,
     requestStop(_convId, signal) {
       stopSignal = signal;
       return new Promise(() => {});
@@ -120,7 +120,7 @@ test("a completed stream can settle even when its pending stop never answers", {
   });
   op.stop();
   assert.equal(await op.settle(), true, "the completed stream already confirmed persistence");
-  assert.equal(stopSignal.aborted, true);
+  assert.equal(stopSignal.aborted, true, "the HTTP request is cancelled when the stream confirms persistence");
   assert.equal(op.signal.aborted, false, "a late timeout must not disconnect a finished stream");
 });
 

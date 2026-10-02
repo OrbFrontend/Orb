@@ -58,6 +58,8 @@ async def test_an_internal_director_failure_is_labelled_the_director_pass(client
 
     assert _error(response.text)["stage"] == "director pass"
     assert not any(call["pass"] == "writer" for call in llm_mock.captured)
+    messages = (await client.get(f"/api/conversations/{conv_id}/messages")).json()
+    assert not any(message["role"] == "assistant" for message in messages)
 
 
 @pytest.mark.parametrize("kind", ["solo", "group"])

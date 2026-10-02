@@ -24,20 +24,28 @@ export function createStreamOperation({
 }) {
   const controller = new AbortController();
   let stopReply = null;
+  let cancelPendingStop = null;
 
   async function boundedStop() {
     const requestController = new AbortController();
     let timer;
+    let cancel;
     const timeout = new Promise((_, reject) => {
+      cancel = () => {
+        requestController.abort();
+        reject(new Error("Stop request cancelled"));
+      };
       timer = setTimeout(() => {
         requestController.abort();
         reject(new Error("Stop request timed out"));
       }, stopTimeoutMs);
     });
+    cancelPendingStop = cancel;
     try {
       return await Promise.race([Promise.resolve().then(() => requestStop(convId, requestController.signal)), timeout]);
     } finally {
       clearTimeout(timer);
+      if (cancelPendingStop === cancel) cancelPendingStop = null;
     }
   }
 
@@ -87,6 +95,10 @@ export function createStreamOperation({
      */
     async settle() {
       op.finished = true;
+      // A completed stream already confirms persistence. Cancel a pending
+      // /stop instead of holding Send disabled until its HTTP deadline.
+      // A disconnected stream replaces it with the cleanup confirmation below.
+      cancelPendingStop?.();
       if (op.disconnected) {
         try {
           return !!(await boundedStop())?.settled;
@@ -94,8 +106,7 @@ export function createStreamOperation({
           return false;
         }
       }
-      // A clean close means the server had finished; a pending /stop still
-      // gets its answer so no request is left dangling.
+      // Let the cancelled request finish without leaving a dangling promise.
       if (stopReply) await stopReply;
       return true;
     },
